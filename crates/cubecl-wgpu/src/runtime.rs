@@ -4,7 +4,7 @@ use crate::{
 };
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_common::{future, profile::TimingMethod};
-use cubecl_core::device::{DeviceId, ServerUtilitiesHandle};
+use cubecl_core::device::{DeviceId, DeviceKind, DeviceRole, ServerUtilitiesHandle};
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
 use cubecl_core::{Runtime, ir::TargetProperties};
@@ -95,7 +95,7 @@ impl Runtime for WgpuRuntime {
             let _ = type_id;
             let _ = info;
             // WebGPU only supports a single device currently.
-            vec![DeviceId::new(0, 0)]
+            vec![DeviceId::new(DeviceRole::Runtime, DeviceKind::DiscreteGpu, 0)]
         }
 
         #[cfg(not(target_family = "wasm"))]
@@ -128,11 +128,11 @@ impl Runtime for WgpuRuntime {
                 })
                 .enumerate()
                 .map(|(index, adapter)| match adapter.get_info().device_type {
-                    wgpu::DeviceType::DiscreteGpu => DeviceId::new(0, index as u32),
-                    wgpu::DeviceType::IntegratedGpu => DeviceId::new(1, index as u32),
-                    wgpu::DeviceType::VirtualGpu => DeviceId::new(2, index as u32),
-                    wgpu::DeviceType::Cpu => DeviceId::new(3, 0),
-                    wgpu::DeviceType::Other => DeviceId::new(4, 0),
+                    wgpu::DeviceType::DiscreteGpu => DeviceId::new(DeviceRole::Runtime, DeviceKind::DiscreteGpu, index as u16),
+                    wgpu::DeviceType::IntegratedGpu => DeviceId::new(DeviceRole::Runtime, DeviceKind::IntegratedGpu, index as u16),
+                    wgpu::DeviceType::VirtualGpu => DeviceId::new(DeviceRole::Runtime, DeviceKind::VirtualGpu, index as u16),
+                    wgpu::DeviceType::Cpu => DeviceId::new(DeviceRole::Runtime, DeviceKind::Cpu, 0),
+                    wgpu::DeviceType::Other => DeviceId::new(DeviceRole::Runtime, DeviceKind::DiscreteGpu, 0),
                 })
                 .collect()
         }
@@ -143,7 +143,7 @@ impl Runtime for WgpuRuntime {
         {
             let _ = info;
             // WebGPU only supports a single device currently.
-            vec![DeviceId::new(0, 0)]
+            vec![DeviceId::new(DeviceRole::Runtime, DeviceKind::DiscreteGpu, 0)]
         }
 
         #[cfg(not(target_family = "wasm"))]
@@ -157,11 +157,11 @@ impl Runtime for WgpuRuntime {
                 .into_iter()
                 .enumerate()
                 .map(|(index, adapter)| match adapter.get_info().device_type {
-                    wgpu::DeviceType::DiscreteGpu => DeviceId::new(0, index as u32),
-                    wgpu::DeviceType::IntegratedGpu => DeviceId::new(1, index as u32),
-                    wgpu::DeviceType::VirtualGpu => DeviceId::new(2, index as u32),
-                    wgpu::DeviceType::Cpu => DeviceId::new(3, 0),
-                    wgpu::DeviceType::Other => DeviceId::new(4, 0),
+                    wgpu::DeviceType::DiscreteGpu => DeviceId::new(DeviceRole::Runtime, DeviceKind::DiscreteGpu, index as u16),
+                    wgpu::DeviceType::IntegratedGpu => DeviceId::new(DeviceRole::Runtime, DeviceKind::IntegratedGpu, index as u16),
+                    wgpu::DeviceType::VirtualGpu => DeviceId::new(DeviceRole::Runtime, DeviceKind::VirtualGpu, index as u16),
+                    wgpu::DeviceType::Cpu => DeviceId::new(DeviceRole::Runtime, DeviceKind::Cpu, 0),
+                    wgpu::DeviceType::Other => DeviceId::new(DeviceRole::Runtime, DeviceKind::DiscreteGpu, 0),
                 })
                 .collect()
         }

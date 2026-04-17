@@ -630,8 +630,9 @@ mod custom_channel {
 
             std::thread::Builder::new()
                 .name(std::format!(
-                    "Device-{}-{}",
-                    device_id.type_id,
+                    "{}-{}-{}",
+                    device_id.role,
+                    device_id.kind,
                     device_id.index_id
                 ))
                 .spawn(move || {
@@ -821,6 +822,7 @@ mod custom_channel {
 #[cfg(test)]
 mod tests {
     use crate::device::handle::channel::custom_channel::CHANNEL_MAX_TASK;
+    use crate::device::{DeviceKind, DeviceRole};
 
     use super::*;
     use std::sync::Arc;
@@ -846,7 +848,8 @@ mod tests {
     #[test]
     fn test_basic_execution_and_state_persistence() {
         let device_id = DeviceId {
-            type_id: 0,
+            role: DeviceRole::Runtime,
+            kind: DeviceKind::Cpu,
             index_id: 1,
         };
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
@@ -874,8 +877,9 @@ mod tests {
     #[test]
     fn test_scoped_tasks_and_lifetimes() {
         let device_id = DeviceId {
-            type_id: 0,
-            index_id: 3,
+            role: DeviceRole::Runtime,
+            kind: DeviceKind::Cpu,
+            index_id: 2,
         };
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
@@ -898,7 +902,8 @@ mod tests {
     #[test]
     fn test_buffer_flushing_at_limit() {
         let device_id = DeviceId {
-            type_id: 0,
+            role: DeviceRole::Runtime,
+            kind: DeviceKind::Cpu,
             index_id: 4,
         };
 
@@ -922,10 +927,7 @@ mod tests {
 
     #[test]
     fn test_manual_flush_for_partial_buffer() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 5,
-        };
+        let device_id = DeviceId::new(DeviceRole::Runtime, DeviceKind::Cpu, 5);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
         let (tx, rx) = oneshot::channel();
 
@@ -945,10 +947,7 @@ mod tests {
 
     #[test]
     fn test_closure_captures_are_dropped_after_execution() {
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 6,
-        };
+        let device_id = DeviceId::new(DeviceRole::Runtime, DeviceKind::Cpu, 6);
 
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
@@ -988,10 +987,7 @@ mod tests {
     #[test]
     fn test_large_closure_uses_arena() {
         // Closure captures > 48 bytes (InlineSlot), forcing the arena path.
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 7,
-        };
+        let device_id = DeviceId::new(DeviceRole::Runtime, DeviceKind::Cpu, 7);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         let big_data = [42u8; 128]; // 128 bytes > 48 byte inline limit
@@ -1008,10 +1004,7 @@ mod tests {
     #[test]
     fn test_extra_large_closure_uses_box() {
         // Closure captures > 4096 bytes (GLOBAL_TASK_MAX_SIZE), forcing the Box fallback.
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 8,
-        };
+        let device_id = DeviceId::new(DeviceRole::Runtime, DeviceKind::Cpu, 8);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
 
         let huge_data = [7u8; 8192]; // 8KB > 4096 byte arena limit
@@ -1025,10 +1018,7 @@ mod tests {
     #[test]
     fn test_large_closure_drop_is_called() {
         // Verify that Drop runs correctly for closures stored in the arena.
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 9,
-        };
+        let device_id = DeviceId::new(DeviceRole::Runtime, DeviceKind::Cpu, 9);
         let handle = ChannelDeviceHandle::<MockService>::new(device_id);
         let drop_count = Arc::new(AtomicUsize::new(0));
 
@@ -1082,10 +1072,7 @@ mod tests {
 
         const THREADS: usize = 4;
         // Unique device_id so the global `CHANNELS` entry is independent of other tests.
-        let device_id = DeviceId {
-            type_id: 0,
-            index_id: 77,
-        };
+        let device_id = DeviceId::new(DeviceRole::Runtime, DeviceKind::Cpu, 77);
 
         let barrier = Arc::new(Barrier::new(THREADS));
         let mut handles = Vec::new();

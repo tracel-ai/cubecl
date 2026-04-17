@@ -9,7 +9,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     MemoryConfiguration, Runtime,
-    device::{DeviceId, ServerUtilitiesHandle},
+    device::{DeviceId, DeviceKind, DeviceRole, ServerUtilitiesHandle},
     ir::{
         BarrierLevel, ContiguousElements, DeviceProperties, ElemType, FloatKind,
         HardwareProperties, MatrixLayout, MemoryDeviceProperties, MmaProperties, OpaqueType,
@@ -383,10 +383,7 @@ impl Runtime for CudaRuntime {
     ) -> Vec<cubecl_core::device::DeviceId> {
         let count = cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize;
         (0..count)
-            .map(|i| DeviceId {
-                type_id: 0,
-                index_id: i as u32,
-            })
+            .map(|i| DeviceId::new(DeviceRole::Runtime, DeviceKind::DiscreteGpu, i as u16))
             .collect()
     }
 }

@@ -1,4 +1,4 @@
-use cubecl_common::device::{Device, DeviceId};
+use cubecl_common::device::{Device, DeviceId, DeviceKind, DeviceRole};
 
 #[derive(new, Clone, PartialEq, Eq, Default, Hash, Debug)]
 pub struct CpuDevice;
@@ -9,9 +9,6 @@ impl Device for CpuDevice {
     }
 
     fn to_id(&self) -> DeviceId {
-        DeviceId {
-            type_id: 0,
-            index_id: 0,
-        }
+        DeviceId::new(DeviceRole::Runtime, DeviceKind::Cpu, 0)
     }
 }

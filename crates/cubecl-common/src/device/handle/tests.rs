@@ -1,7 +1,7 @@
 use std::vec::Vec;
 
 use super::*;
-use crate::device::{Device, DeviceId, DeviceService};
+use crate::device::{Device, DeviceId, DeviceKind, DeviceRole, DeviceService};
 use crate::stub::Arc;
 
 #[test]
@@ -30,10 +30,7 @@ fn test_concurrent_increment() {
 }
 #[test]
 fn test_recursive_execution_different_state() {
-    let device_id = DeviceId {
-        type_id: 0,
-        index_id: 5,
-    };
+    let device_id = DeviceId::new(DeviceRole::Runtime, DeviceKind::Cpu, 5);
     let context = DeviceHandle::<TestDeviceState<1>>::new(device_id);
     let context_second = DeviceHandle::<TestDeviceState<2>>::new(device_id);
 
@@ -45,7 +42,7 @@ fn test_recursive_execution_different_state() {
 #[derive(Debug, Clone, Default, new)]
 /// Type is only to create different type ids.
 pub struct TestDevice<const TYPE: u8> {
-    index: u32,
+    index: u16,
 }
 
 pub struct TestDeviceState<const T: usize> {
@@ -60,10 +57,7 @@ impl<const TYPE: u8> Device for TestDevice<TYPE> {
     }
 
     fn to_id(&self) -> DeviceId {
-        DeviceId {
-            type_id: 0,
-            index_id: self.index,
-        }
+        DeviceId::new(DeviceRole::Runtime, DeviceKind::Cpu, self.index)
     }
 }
 

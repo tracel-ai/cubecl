@@ -1,5 +1,9 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use cubecl_common::{device::DeviceService, device_handle::DeviceHandle, stub::Mutex};
+use cubecl_common::{
+    device::{DeviceId, DeviceKind, DeviceRole, DeviceService},
+    device_handle::DeviceHandle,
+    stub::Mutex,
+};
 
 use std::{hint::black_box, sync::Arc};
 
@@ -34,7 +38,7 @@ impl TestService {
 }
 
 impl DeviceService for TestService {
-    fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
+    fn init(_device_id: DeviceId) -> Self {
         Self::default()
     }
 
@@ -44,8 +48,9 @@ impl DeviceService for TestService {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let device_handle = DeviceHandle::<TestService>::new(cubecl_common::device::DeviceId {
-        type_id: 0,
+    let device_handle = DeviceHandle::<TestService>::new(DeviceId {
+        role: DeviceRole::Runtime,
+        kind: DeviceKind::Cpu,
         index_id: 0,
     });
     c.bench_function("device handle single thread", |b| {

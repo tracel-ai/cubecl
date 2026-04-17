@@ -1,4 +1,4 @@
-use cubecl_common::device::{Device, DeviceId};
+use cubecl_common::device::{Device, DeviceId, DeviceKind, DeviceRole};
 
 // It is not clear if AMD has a limit on the number of bindings it can hold at
 // any given time, but it's highly unlikely that it's more than this. We can
@@ -25,9 +25,6 @@ impl Device for AmdDevice {
     }
 
     fn to_id(&self) -> DeviceId {
-        DeviceId {
-            type_id: 0,
-            index_id: self.index as u32,
-        }
+        DeviceId::new(DeviceRole::Runtime, DeviceKind::DiscreteGpu, self.index as u16)
     }
 }

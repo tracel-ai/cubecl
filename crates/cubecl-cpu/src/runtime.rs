@@ -7,7 +7,7 @@ use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
     MemoryConfiguration, Runtime,
     client::ComputeClient,
-    device::{DeviceId, ServerUtilitiesHandle},
+    device::{DeviceId, DeviceKind, DeviceRole, ServerUtilitiesHandle},
     ir::{
         DeviceProperties, HardwareProperties, MemoryDeviceProperties, TargetProperties, VectorSize,
         features::Features,
@@ -127,9 +127,6 @@ impl Runtime for CpuRuntime {
         _: u16,
         _: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
     ) -> Vec<DeviceId> {
-        vec![DeviceId {
-            type_id: 0,
-            index_id: 0,
-        }]
+        vec![DeviceId::new(DeviceRole::Runtime, DeviceKind::Cpu, 0)]
     }
 }

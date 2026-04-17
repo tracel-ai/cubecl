@@ -10,7 +10,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     MemoryConfiguration, Runtime,
-    device::{DeviceId, ServerUtilitiesHandle},
+    device::{DeviceId, DeviceKind, DeviceRole, ServerUtilitiesHandle},
     ir::{
         ContiguousElements, DeviceProperties, HardwareProperties, MatrixLayout,
         MemoryDeviceProperties, MmaProperties, TargetProperties, VectorSize, features::Plane,
@@ -273,7 +273,7 @@ impl Runtime for HipRuntime {
             }
         }
         (0..device_count())
-            .map(|i| DeviceId::new(0, i as u32))
+            .map(|i| DeviceId::new(DeviceRole::Runtime, DeviceKind::DiscreteGpu, i as u16))
             .collect()
     }
 }

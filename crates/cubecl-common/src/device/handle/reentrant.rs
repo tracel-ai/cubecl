@@ -282,6 +282,7 @@ impl DeviceStateMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::device::{DeviceKind, DeviceRole};
     use std::sync::Arc;
 
     macro_rules! make_service {
@@ -313,10 +314,7 @@ mod tests {
     /// from under those `RefMuts`. Miri can catch this use-after-free.
     #[test]
     fn test_many_services_reentrant_resize() {
-        let device = DeviceId {
-            type_id: 99,
-            index_id: 99,
-        };
+        let device = DeviceId::new(DeviceRole::Runtime, DeviceKind::Cpu, 99);
 
         let h1 = ReentrantMutexDeviceHandle::<Svc1>::new(device);
         h1.with_lock(|_| {

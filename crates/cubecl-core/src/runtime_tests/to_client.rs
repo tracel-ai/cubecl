@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use std::println;
 
-use cubecl_common::device::{Device, DeviceId};
+use cubecl_common::device::{Device, DeviceId, DeviceKind, DeviceRole};
 
 use crate::Runtime;
 use crate::prelude::*;
@@ -15,7 +15,7 @@ pub fn test_to_client<R: Runtime>() {
         return;
     }
 
-    for (device_0, device_1) in num_combination(type_id, device_count as u32) {
+    for (device_0, device_1) in num_combination(DeviceKind::DiscreteGpu, device_count as u16) {
         let device_0 = R::Device::from_id(device_0);
         let device_1 = R::Device::from_id(device_1);
 
@@ -36,12 +36,15 @@ pub fn test_to_client<R: Runtime>() {
     }
 }
 
-fn num_combination(type_id: u16, n: u32) -> Vec<(DeviceId, DeviceId)> {
+fn num_combination(kind: DeviceKind, n: u16) -> Vec<(DeviceId, DeviceId)> {
     let mut results = Vec::new();
 
     for i in 0..n {
         for j in i + 1..n {
-            results.push((DeviceId::new(type_id, i), DeviceId::new(type_id, j)));
+            results.push((
+                DeviceId::new(DeviceRole::Runtime, kind, i),
+                DeviceId::new(DeviceRole::Runtime, kind, j),
+            ));
         }
     }
 

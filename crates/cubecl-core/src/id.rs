@@ -21,8 +21,8 @@ impl CubeTuneId {
 impl core::fmt::Display for CubeTuneId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!(
-            "device-{}-{}-{}",
-            self.device.type_id, self.device.index_id, self.name
+            "device-{}-{}-{}-{}",
+            self.device.role, self.device.kind, self.device.index_id, self.name
         ))
     }
 }

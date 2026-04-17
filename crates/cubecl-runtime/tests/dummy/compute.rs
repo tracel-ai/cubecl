@@ -27,10 +27,11 @@ impl Device for DummyDevice {
     }
 
     fn to_id(&self) -> cubecl_common::device::DeviceId {
-        cubecl_common::device::DeviceId {
-            type_id: 0,
-            index_id: 0,
-        }
+        cubecl_common::device::DeviceId::new(
+            cubecl_common::device::DeviceRole::Runtime,
+            cubecl_common::device::DeviceKind::Cpu,
+            0,
+        )
     }
 }
 
@@ -128,9 +129,10 @@ impl Runtime for DummyRuntime {
         _: u16,
         _: &<Self::Server as ComputeServer>::Info,
     ) -> Vec<cubecl_common::device::DeviceId> {
-        vec![cubecl_common::device::DeviceId {
-            type_id: 0,
-            index_id: 0,
-        }]
+        vec![cubecl_common::device::DeviceId::new(
+            cubecl_common::device::DeviceRole::Runtime,
+            cubecl_common::device::DeviceKind::Cpu,
+            0,
+        )]
     }
 }
