@@ -10,8 +10,8 @@ use cubecl_core::{
     CubeDim,
     ir::{
         self as gpu, DeviceProperties, ElemType, FloatKind, InstructionModes, OpaqueType,
-        Operation, Processor, SourceLoc, StorageType,
-        features::{EnumSet, TypeUsage},
+        Operation, Processor, SourceLoc, StorageType, Type,
+        features::{AtomicUsage, EnumSet, TypeUsage},
     },
     post_processing::checked_io::CheckedIoProcessor,
     prelude::{FastMath, KernelDefinition},
@@ -90,6 +90,7 @@ pub struct Flags<D: Dialect> {
     pub use_grid_constants: bool,
     pub static_meta_length: usize,
     pub has_dynamic_meta: bool,
+    pub has_info: bool,
     pub cube_dim: CubeDim,
     pub cluster_dim: Option<CubeDim>,
     pub address_type: Item<D>,
@@ -98,6 +99,7 @@ pub struct Flags<D: Dialect> {
 #[allow(clippy::too_many_arguments)]
 #[derive(Clone, Debug)]
 pub struct CppCompiler<D: Dialect> {
+    kernel_name: String,
     barriers: Vec<BarrierOps<D>>,
     compilation_options: CompilationOptions,
     const_arrays: Vec<ConstArray<D>>,
@@ -107,7 +109,7 @@ pub struct CppCompiler<D: Dialect> {
     flags: Flags<D>,
     items: HashSet<Item<D>>,
     local_arrays: Vec<LocalArray<D>>,
-    metadata: cubecl_core::Metadata,
+    info: cubecl_core::Info,
     pipelines: Vec<PipelineOps<D>>,
     source_loc: Option<SourceLoc>,
     strategy: ExecutionMode,
@@ -134,6 +136,7 @@ impl<D: Dialect> Default for Flags<D> {
             inst_async_copy: Default::default(),
             use_grid_constants: Default::default(),
             static_meta_length: Default::default(),
+            has_info: Default::default(),
             has_dynamic_meta: Default::default(),
             cube_dim: CubeDim::new_single(),
             cluster_dim: Default::default(),
@@ -145,6 +148,7 @@ impl<D: Dialect> Default for Flags<D> {
 impl<D: Dialect> Default for CppCompiler<D> {
     fn default() -> Self {
         Self {
+            kernel_name: Default::default(),
             barriers: Default::default(),
             compilation_options: Default::default(),
             const_arrays: Default::default(),
@@ -154,7 +158,7 @@ impl<D: Dialect> Default for CppCompiler<D> {
             flags: Flags::default(),
             items: Default::default(),
             local_arrays: Default::default(),
-            metadata: Default::default(),
+            info: Default::default(),
             pipelines: Default::default(),
             source_loc: Default::default(),
             strategy: Default::default(),
@@ -191,6 +195,7 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
         self.addr_type = self.compile_type(addr_type.into());
         self.compilation_options = compilation_options.clone();
         self.strategy = strategy;
+        self.kernel_name = kernel.options.kernel_name.clone();
 
         if !self.compilation_options.supports_features.clusters {
             kernel.options.cluster_dim = None;
@@ -217,7 +222,8 @@ impl<D: Dialect> CppCompiler<D> {
         value: KernelDefinition,
         address_type: StorageType,
     ) -> ComputeKernel<D> {
-        self.build_metadata(&value);
+        let metadata = self.build_metadata(&value);
+        self.info = cubecl_core::Info::new(&value.scalars, metadata, address_type);
 
         let instructions = self.compile_scope(&mut value.body.clone());
         let tensor_maps = value
@@ -234,7 +240,7 @@ impl<D: Dialect> CppCompiler<D> {
             .scalars
             .into_iter()
             .map(|binding| (self.compile_storage_type(binding.ty), binding.count))
-            .collect();
+            .collect::<Vec<_>>();
 
         // translation flags
         let flags = Flags {
@@ -254,10 +260,9 @@ impl<D: Dialect> CppCompiler<D> {
             inst_async_copy: self.flags.inst_async_copy,
             inst_ptx_wrappers: self.flags.inst_ptx_wrappers,
             use_grid_constants: self.compilation_options.supports_features.grid_constants,
-            // TODO: At some point we should only pass dynamic meta if tensors are present,
-            // not if only arrays are present. For now, leave like this
-            has_dynamic_meta: self.metadata.static_len() > 0,
-            static_meta_length: self.metadata.static_len() as usize,
+            has_info: self.info.has_info(),
+            has_dynamic_meta: self.info.has_dynamic_meta,
+            static_meta_length: self.info.metadata.static_len() as usize,
             cube_dim: value.cube_dim,
             cluster_dim: value.options.cluster_dim,
             address_type: self.compile_type(address_type.into()),
@@ -297,6 +302,9 @@ impl<D: Dialect> CppCompiler<D> {
             barriers: self.barriers,
             const_arrays: self.const_arrays,
             local_arrays: self.local_arrays,
+            info_by_ptr: !self.compilation_options.supports_features.grid_constants,
+            has_dynamic_meta: self.info.has_dynamic_meta,
+            address_type: self.addr_type,
         };
 
         let mut cluster_dim = value.options.cluster_dim;
@@ -308,7 +316,7 @@ impl<D: Dialect> CppCompiler<D> {
             tensor_maps,
             buffers,
             scalars,
-            meta_static_len: self.metadata.static_len() as usize,
+            meta_static_len: self.info.metadata.static_len() as usize,
             cube_dim: value.cube_dim,
             body,
             extensions: self.extensions,
@@ -316,10 +324,11 @@ impl<D: Dialect> CppCompiler<D> {
             items: self.items,
             kernel_name: value.options.kernel_name,
             cluster_dim,
+            info: self.info.clone(),
         }
     }
 
-    fn build_metadata(&mut self, value: &KernelDefinition) {
+    fn build_metadata(&mut self, value: &KernelDefinition) -> cubecl_core::Metadata {
         let mut num_ext = 0;
 
         let mut all_meta: Vec<_> = value
@@ -340,7 +349,7 @@ impl<D: Dialect> CppCompiler<D> {
 
         let num_meta = all_meta.len();
 
-        self.metadata = cubecl_core::Metadata::new(num_meta as u32, num_ext);
+        cubecl_core::Metadata::new(num_meta as u32, num_ext)
     }
 
     pub(crate) fn ext_meta_position(&self, var: gpu::Variable) -> u32 {
@@ -366,7 +375,10 @@ impl<D: Dialect> CppCompiler<D> {
             .collect::<Vec<_>>();
         self.const_arrays.extend(const_arrays);
 
-        let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
+        let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(
+            self.strategy,
+            self.kernel_name.clone(),
+        ));
         let dialect_processors = D::processors();
         let mut processors: Vec<&dyn Processor> = vec![&*checked_io];
         processors.extend(dialect_processors.iter().map(|it| &**it));
@@ -974,33 +986,28 @@ impl<D: Dialect> CppCompiler<D> {
         match metadata {
             gpu::Metadata::Stride { dim, var } => {
                 let position = self.ext_meta_position(var);
-                let offset = self.metadata.stride_offset_index(position);
+                let offset = self.info.metadata.stride_offset_index(position);
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
-                    split_meta: self.compilation_options.supports_features.grid_constants,
-                    static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),
                 }
             }
             gpu::Metadata::Shape { dim, var } => {
                 let position = self.ext_meta_position(var);
-                let offset = self.metadata.shape_offset_index(position);
+                let offset = self.info.metadata.shape_offset_index(position);
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
-                    split_meta: self.compilation_options.supports_features.grid_constants,
-                    static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),
                 }
             }
             gpu::Metadata::Rank { var } => {
                 let out = self.compile_variable(out);
                 let pos = self.ext_meta_position(var);
-                let offset = self.metadata.rank_index(pos);
+                let offset = self.info.metadata.rank_index(pos);
                 super::Instruction::Metadata {
                     info_offset: self.compile_variable(offset.into()),
-                    split_meta: self.compilation_options.supports_features.grid_constants,
                     out,
                 }
             }
@@ -1015,10 +1022,9 @@ impl<D: Dialect> CppCompiler<D> {
                     }
                     _ => {
                         let id = input.id().expect("Variable should have id");
-                        let offset = self.metadata.len_index(id);
+                        let offset = self.info.metadata.len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
-                            split_meta: self.compilation_options.supports_features.grid_constants,
                             out,
                         }
                     }
@@ -1032,10 +1038,9 @@ impl<D: Dialect> CppCompiler<D> {
                     Variable::Slice { .. } => Instruction::SliceLength { input, out },
                     _ => {
                         let id = input.id().expect("Variable should have id");
-                        let offset = self.metadata.buffer_len_index(id);
+                        let offset = self.info.metadata.buffer_len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
-                            split_meta: self.compilation_options.supports_features.grid_constants,
                             out,
                         }
                     }
@@ -1434,6 +1439,9 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Arithmetic::Conj(op) => {
                 instructions.push(Instruction::Conj(self.compile_unary(op, out)))
             }
+            gpu::Arithmetic::VectorSum(op) => {
+                instructions.push(Instruction::VectorSum(self.compile_unary(op, out)))
+            }
         };
     }
 
@@ -1701,7 +1709,6 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::GlobalScalar(id) => Variable::GlobalScalar {
                 id,
                 elem: self.compile_storage_type(item.storage_type()),
-                in_struct: self.compilation_options.supports_features.grid_constants,
             },
             gpu::VariableKind::TensorMapInput(id) => {
                 self.flags.inst_tma = true;
@@ -1944,7 +1951,6 @@ impl<D: Dialect> CppCompiler<D> {
         KernelArg {
             id: binding.id,
             item: self.compile_type(binding.ty),
-            location: binding.location,
             size: binding.size,
             vis: binding.visibility,
         }
@@ -2141,13 +2147,13 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
     ];
 
     for ty in supported_types {
-        props.register_type_usage(ty, TypeUsage::all_scalar());
+        props.register_type_usage(ty, TypeUsage::all());
     }
 
     for ty in supported_atomic_types {
-        props.register_type_usage(
-            gpu::StorageType::Atomic(ty),
-            TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+        props.register_atomic_type_usage(
+            Type::new(gpu::StorageType::Atomic(ty)),
+            AtomicUsage::Add | AtomicUsage::LoadStore,
         );
     }
 }

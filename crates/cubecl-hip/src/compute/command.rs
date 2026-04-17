@@ -8,6 +8,7 @@ use crate::{
 use cubecl_common::{backtrace::BackTrace, bytes::Bytes, stream_id::StreamId};
 use cubecl_core::{
     MemoryUsage,
+    bytes::AllocationProperty,
     future::DynFut,
     server::{
         Binding, CopyDescriptor, ExecutionMode, Handle, IoError, LaunchError, ProfileError,
@@ -199,24 +200,6 @@ impl<'a> Command<'a> {
         }
     }
 
-    #[allow(unused)]
-    /// TODO: Read data using the origin stream where the data was allocated.
-    pub fn read_async_origin(
-        &mut self,
-        descriptors: Vec<CopyDescriptor>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
-        let results = self.copies_to_bytes_origin(descriptors, true);
-
-        async move {
-            let (bytes, fences) = results?;
-
-            for fence in fences {
-                fence.wait_sync();
-            }
-            Ok(bytes)
-        }
-    }
-
     fn copies_to_bytes(
         &mut self,
         descriptors: Vec<CopyDescriptor>,
@@ -229,31 +212,6 @@ impl<'a> Command<'a> {
         }
 
         Ok(result)
-    }
-
-    fn copies_to_bytes_origin(
-        &mut self,
-        descriptors: Vec<CopyDescriptor>,
-        pinned: bool,
-    ) -> Result<(Vec<Bytes>, Vec<Fence>), IoError> {
-        let mut data = Vec::with_capacity(descriptors.len());
-        let mut fences = Vec::with_capacity(descriptors.len());
-        let mut fenced = Vec::with_capacity(descriptors.len());
-
-        for descriptor in descriptors {
-            let stream = descriptor.handle.stream;
-            let bytes = self.copy_to_bytes(descriptor, pinned, Some(stream))?;
-
-            if !fenced.contains(&stream) {
-                let fence = Fence::new(self.streams.get(&stream).sys);
-                fenced.push(stream);
-                fences.push(fence);
-            }
-
-            data.push(bytes);
-        }
-
-        Ok((data, fences))
     }
 
     fn copy_to_bytes(
@@ -305,6 +263,9 @@ impl<'a> Command<'a> {
             None => self.streams.current(),
         };
 
+        // SAFETY: `resource.ptr` is a valid device pointer obtained from the memory manager,
+        // `stream.sys` is an initialized HIP stream, and `bytes` is pre-allocated with
+        // sufficient capacity for the copy.
         unsafe { write_to_cpu(&shape, &strides, elem_size, bytes, resource.ptr, stream.sys) }
     }
 
@@ -319,11 +280,7 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(())` - If the write operation succeeds.
     /// * `Err(IoError)` - If the strides are invalid or the resource cannot be accessed.
-    pub fn write_to_gpu(
-        &mut self,
-        descriptor: CopyDescriptor,
-        bytes: &Bytes,
-    ) -> Result<(), IoError> {
+    pub fn write_to_gpu(&mut self, descriptor: CopyDescriptor, data: Bytes) -> Result<(), IoError> {
         let CopyDescriptor {
             handle: binding,
             shape,
@@ -337,11 +294,25 @@ impl<'a> Command<'a> {
         }
 
         let resource = self.resource(binding)?;
+        let size = data.len();
+        let data = match data.property() {
+            AllocationProperty::File => {
+                let mut buffer = self.reserve_pinned(size, None).unwrap();
+                data.copy_into(&mut buffer);
+                buffer
+            }
+            _ => data,
+        };
         let current = self.streams.current();
 
+        // SAFETY: `resource` is a valid GPU allocation, `data` is a valid host buffer,
+        // and `current.sys` is an initialized HIP stream. The shape/strides have been
+        // validated above to be pitched row-major.
         unsafe {
-            write_to_gpu(resource, &shape, &strides, elem_size, bytes, current.sys)?;
+            write_to_gpu(resource, &shape, &strides, elem_size, &data, current.sys)?;
         };
+
+        current.drop_queue.push(data);
 
         Ok(())
     }
@@ -357,23 +328,26 @@ impl<'a> Command<'a> {
     /// * `Ok(Handle)` - A handle to the newly allocated and populated GPU memory.
     /// * `Err(IoError)` - If the allocation or data copy fails.
     pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
-        let handle = self.empty(data.len() as u64)?;
-        let shape: Shape = [data.len()].into();
-        let elem_size = 1;
-        let strides: Strides = [1].into();
-        if !has_pitched_row_major_strides(&shape, &strides) {
-            return Err(IoError::UnsupportedStrides {
-                backtrace: BackTrace::capture(),
-            });
-        }
+        let mut staging =
+            self.reserve_pinned(data.len(), None)
+                .ok_or_else(|| IoError::Unknown {
+                    backtrace: BackTrace::capture(),
+                    description: "Unable to reserve pinned memory".into(),
+                })?;
 
-        let resource = self.resource(handle.clone().binding())?;
+        staging.copy_from_slice(data);
 
-        let current = self.streams.current();
+        let handle = self.empty(staging.len() as u64)?;
 
-        unsafe {
-            write_to_gpu(resource, &shape, &strides, elem_size, data, current.sys)?;
-        }
+        self.write_to_gpu(
+            CopyDescriptor {
+                handle: handle.clone().binding(),
+                shape: [data.len()].into(),
+                strides: [1].into(),
+                elem_size: 1,
+            },
+            staging,
+        )?;
 
         Ok(handle)
     }
@@ -389,7 +363,7 @@ impl<'a> Command<'a> {
         Box::pin(async { fence.wait_sync() })
     }
 
-    /// Executes a registered CUDA kernel with the specified parameters.
+    /// Executes a registered HIP kernel with the specified parameters.
     ///
     /// # Parameters
     ///
@@ -422,6 +396,10 @@ impl<'a> Command<'a> {
             .ctx
             .execute_task(stream, kernel_id, dispatch_count, resources);
 
+        if stream.drop_queue.should_flush() {
+            stream.drop_queue.flush(|| Fence::new(stream.sys));
+        }
+
         if let Err(err) = result {
             match self.ctx.timestamps.is_empty() {
                 true => Err(err)?,
@@ -438,6 +416,14 @@ impl<'a> Command<'a> {
     }
 }
 
+/// Asynchronously copies data from GPU device memory to host memory.
+///
+/// # Safety
+///
+/// - `resource_ptr` must be a valid HIP device pointer with at least `bytes.len()` readable bytes.
+/// - `stream` must be a valid, initialized HIP stream.
+/// - `bytes` must have sufficient capacity for the copy.
+/// - The caller must synchronize the stream before reading from `bytes`.
 pub(crate) unsafe fn write_to_cpu(
     shape: &[usize],
     strides: &[usize],
@@ -449,6 +435,8 @@ pub(crate) unsafe fn write_to_cpu(
     let rank = shape.len();
 
     if rank <= 1 {
+        // SAFETY: For rank <= 1 data is contiguous. `resource_ptr` and `bytes` are valid
+        // and `bytes.len()` does not exceed the device allocation size.
         let status = unsafe {
             cubecl_hip_sys::hipMemcpyDtoHAsync(
                 bytes.as_mut_ptr() as *mut _,
@@ -472,6 +460,9 @@ pub(crate) unsafe fn write_to_cpu(
     let dim_y: usize = shape.iter().rev().skip(1).product();
     let pitch = strides[rank - 2] * elem_size;
 
+    // SAFETY: For rank > 1 data may be pitched. The 2D async copy respects the pitch
+    // (stride of the second-to-last dimension). If the 2D copy fails, we fall back to a
+    // flat 1D copy which is valid when the data happens to be contiguous.
     unsafe {
         let status = cubecl_hip_sys::hipMemcpy2DAsync(
             bytes.as_mut_ptr() as *mut _,
@@ -499,6 +490,14 @@ pub(crate) unsafe fn write_to_cpu(
     Ok(())
 }
 
+/// Asynchronously copies data from host memory to GPU device memory.
+///
+/// # Safety
+///
+/// - `resource.ptr` must be a valid HIP device pointer with at least `data.len()` writable bytes.
+/// - `stream` must be a valid, initialized HIP stream.
+/// - `data` must remain valid until the stream is synchronized.
+/// - The shape and strides must describe a valid pitched row-major layout.
 unsafe fn write_to_gpu(
     resource: GpuResource,
     shape: &Shape,
@@ -515,6 +514,8 @@ unsafe fn write_to_gpu(
         });
     }
 
+    let ptr = data as *const _ as *mut _;
+
     if rank > 1 {
         let stride = strides[rank - 2];
         let width = *shape.last().unwrap_or(&1);
@@ -522,11 +523,13 @@ unsafe fn write_to_gpu(
         let width_bytes = width * elem_size;
         let stride_bytes = stride * elem_size;
 
+        // SAFETY: For rank > 1, the 2D copy uses the computed pitch (stride) to correctly
+        // lay out rows in device memory. `resource.ptr` has been allocated with the pitched size.
         unsafe {
             let status = cubecl_hip_sys::hipMemcpy2DAsync(
                 resource.ptr,
                 stride_bytes,
-                data as *const _ as *mut _,
+                ptr,
                 width_bytes,
                 width_bytes,
                 height.max(1),
@@ -536,13 +539,11 @@ unsafe fn write_to_gpu(
             assert_eq!(status, HIP_SUCCESS, "Should send data to device");
         }
     } else {
+        // SAFETY: For rank <= 1 data is contiguous. The assertion ensures the device
+        // allocation is large enough. `ptr` points to valid host data of `data.len()` bytes.
         unsafe {
-            let status = cubecl_hip_sys::hipMemcpyHtoDAsync(
-                resource.ptr,
-                data as *const _ as *mut _,
-                data.len(),
-                stream,
-            );
+            assert!(resource.size >= data.len() as u64);
+            let status = cubecl_hip_sys::hipMemcpyHtoDAsync(resource.ptr, ptr, data.len(), stream);
             assert_eq!(status, HIP_SUCCESS, "Should send data to device");
         }
     };

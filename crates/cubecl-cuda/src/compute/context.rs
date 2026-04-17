@@ -88,6 +88,8 @@ impl CudaContext {
 
     /// Switches the current CUDA context to this context.
     pub fn unsafe_set_current(&self) -> Result<(), DriverError> {
+        // SAFETY: `self.context` is a valid CUDA context obtained from `primary_ctx::retain`
+        // during server initialization and remains valid for the server's lifetime.
         unsafe { cudarc::driver::result::ctx::set_current(self.context) }
     }
 
@@ -158,6 +160,9 @@ impl CudaContext {
 
         logger.log_compilation(&kernel_compiled);
 
+        // SAFETY: Calling NVRTC FFI to create, compile, and extract PTX from a program.
+        // The `CString` source is null-terminated and outlives the program. On compilation
+        // failure, the error log is retrieved and reported before returning.
         let ptx = unsafe {
             // I'd like to set the name to the kernel name, but keep getting UTF-8 errors so let's
             // leave it `None` for now
@@ -239,6 +244,8 @@ impl CudaContext {
         shared_mem_bytes: usize,
     ) -> Result<(), CompilationError> {
         let func_name = CString::new(entrypoint_name).unwrap();
+        // SAFETY: `ptx` is a valid null-terminated PTX binary from NVRTC. `func_name` is a
+        // null-terminated `CString` matching the kernel entry point in the compiled module.
         let func = unsafe {
             let module = cudarc::driver::result::module::load_data(ptx.as_ptr() as *const _)
                 .map_err(|err| CompilationError::Generic {
@@ -273,17 +280,21 @@ impl CudaContext {
         dispatch_count: (u32, u32, u32),
         tensor_maps: &[CUtensorMap],
         resources: &[GpuResource],
-        scalars: &[*mut c_void],
+        const_info: Option<*mut c_void>,
     ) -> Result<(), LaunchError> {
         let mut bindings = tensor_maps
             .iter()
             .map(|map| map as *const _ as *mut c_void)
             .collect::<Vec<_>>();
         bindings.extend(resources.iter().map(|memory| memory.binding));
-        bindings.extend(scalars);
+        bindings.extend(const_info);
 
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
+        // SAFETY: `kernel.func` is a valid function handle from a loaded module.
+        // `stream.sys` is a valid CUDA stream. `bindings` contains valid device pointers
+        // for all kernel arguments. The dispatch and cube dimensions are validated by
+        // the caller.
         unsafe {
             cudarc::driver::result::function::set_function_attribute(
                 kernel.func,

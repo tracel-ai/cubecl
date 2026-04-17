@@ -11,7 +11,8 @@ use std::{
 };
 
 pub(crate) const INFO_NAME: &str = "info";
-pub(crate) const STATIC_INFO_NAME: &str = "static_info";
+pub(crate) const DYNAMIC_META_NAME: &str = "dynamic_meta";
+pub(crate) const STATIC_META_NAME: &str = "info.static_meta";
 
 #[derive(Debug, Clone, Copy)]
 pub struct BinaryInstruction<D: Dialect> {
@@ -46,14 +47,11 @@ pub struct UnaryInstruction<D: Dialect> {
 pub enum Instruction<D: Dialect> {
     Metadata {
         info_offset: Variable<D>,
-        split_meta: bool,
         out: Variable<D>,
     },
     ExtendedMetadata {
         info_offset: Variable<D>,
         dim: Variable<D>,
-        split_meta: bool,
-        static_offset: u32,
         out: Variable<D>,
     },
     ConstLength {
@@ -257,6 +255,7 @@ pub enum Instruction<D: Dialect> {
     Normalize(UnaryInstruction<D>),
     FastNormalize(UnaryInstruction<D>),
     Dot(BinaryInstruction<D>),
+    VectorSum(UnaryInstruction<D>),
     Copy {
         input: Variable<D>,
         in_index: Variable<D>,
@@ -462,14 +461,21 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let cond_elem = cond.item().elem;
                 let out = out.fmt_left();
 
-                let should_broadcast =
-                    vf_cond > 1 || item_out != item_or_else || item_out != item_then;
+                // It seems to always be faster to broadcast the select, because the compiler is
+                // able to output branchless instructions when the ternary is done on native types
+                // rather than cubecl defined types.
+
+                let vf = usize::max(vf_cond, vf_out);
+                let vf = usize::max(vf, vf_then);
+                let vf = usize::max(vf, vf_or_else);
+                let should_broadcast = vf > 1;
+
+                // Keep the condition here for future testing.
+                //
+                // let should_broadcast =
+                //     vf_cond > 1 || item_out != item_or_else || item_out != item_then;
 
                 if should_broadcast {
-                    let vf = usize::max(vf_cond, vf_out);
-                    let vf = usize::max(vf, vf_then);
-                    let vf = usize::max(vf, vf_or_else);
-
                     writeln!(f, "{out} = {item_out} {{")?;
                     for i in 0..vf {
                         let theni = then.index(i);
@@ -511,35 +517,20 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
                 f.write_str("break;\n}\n}\n")
             }
-            Instruction::Metadata {
-                info_offset,
-                split_meta,
-                out,
-            } => {
+            Instruction::Metadata { info_offset, out } => {
                 let out = out.fmt_left();
-                match *split_meta {
-                    true => writeln!(f, "{out} = {STATIC_INFO_NAME}.x[{info_offset}];"),
-                    false => writeln!(f, "{out} = {INFO_NAME}[{info_offset}];"),
-                }
+                writeln!(f, "{out} = {STATIC_META_NAME}[{info_offset}];")
             }
             Instruction::ExtendedMetadata {
                 info_offset,
                 dim,
-                split_meta,
-                static_offset,
                 out,
             } => {
                 let out = out.fmt_left();
-                match *split_meta {
-                    true => writeln!(
-                        f,
-                        "{out} = {INFO_NAME}[{STATIC_INFO_NAME}.x[{info_offset}] + {dim} - {static_offset}];"
-                    ),
-                    false => writeln!(
-                        f,
-                        "{out} = {INFO_NAME}[{INFO_NAME}[{info_offset}] + {dim}];"
-                    ),
-                }
+                writeln!(
+                    f,
+                    "{out} = {DYNAMIC_META_NAME}[{STATIC_META_NAME}[{info_offset}] + {dim}];"
+                )
             }
             Instruction::Equal(it) => Equal::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::NotEqual(it) => NotEqual::format(f, &it.lhs, &it.rhs, &it.out),
@@ -702,6 +693,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 Magnitude::<D, FastSqrt>::format(f, &inst.input, &inst.out)
             }
             Instruction::Dot(inst) => Dot::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Instruction::VectorSum(inst) => VectorSumFmt::<D>::format(f, &inst.input, &inst.out),
             Instruction::VecInit { inputs, out } => {
                 let item = out.item();
                 let inputs = inputs
@@ -1106,6 +1098,27 @@ impl<D: Dialect> Dot<D> {
 
         let out = out.fmt_left();
         writeln!(f, "{out} = {};", muls.join(" + "))
+    }
+}
+
+struct VectorSumFmt<D: Dialect> {
+    _dialect: PhantomData<D>,
+}
+
+impl<D: Dialect> VectorSumFmt<D> {
+    fn format(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        let num = input.item().vectorization;
+
+        let elems = (0..num)
+            .map(|i| format!("{}", input.index(i)))
+            .collect::<Vec<_>>();
+
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {};", elems.join(" + "))
     }
 }
 

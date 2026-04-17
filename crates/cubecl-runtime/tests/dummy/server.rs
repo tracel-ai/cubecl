@@ -122,21 +122,25 @@ impl ComputeServer for DummyServer {
             .into_iter()
             .map(|b| {
                 let size = b.handle.size_in_used();
-                (
-                    self.memory_management
-                        .get_resource(b.handle.memory, b.handle.offset_start, b.handle.offset_end)
-                        .unwrap(),
-                    size,
-                )
+                let resource = self
+                    .memory_management
+                    .get_resource(
+                        b.handle.memory.clone(),
+                        b.handle.offset_start,
+                        b.handle.offset_end,
+                    )
+                    .unwrap();
+                // Keep the binding alive in the future so the memory pool
+                // doesn't reuse this storage while we still hold a pointer.
+                (resource, size, b.handle.memory)
             })
             .collect();
 
         Box::pin(async move {
             Ok(bytes
                 .into_iter()
-                .map(|(b, size)| {
-                    let bytes = b.read();
-                    Bytes::from_bytes_vec(bytes[0..size as usize].to_vec())
+                .map(|(b, size, _binding)| {
+                    Bytes::from_bytes_vec(b.read()[0..size as usize].to_vec())
                 })
                 .collect())
         })
@@ -188,7 +192,7 @@ impl ComputeServer for DummyServer {
                     .unwrap()
             })
             .collect();
-        let data = bytemuck::cast_slice(&bindings.metadata.data);
+        let data = bytemuck::cast_slice(&bindings.info.data);
         let metadata = Handle::new(stream_id, data.len() as u64);
         self.bind_with_data(data, metadata.clone(), stream_id);
 
@@ -201,27 +205,6 @@ impl ComputeServer for DummyServer {
                 )
                 .unwrap()
         });
-
-        let scalars = bindings
-            .scalars
-            .into_values()
-            .map(|s| {
-                let data = s.data();
-                let handle = Handle::new(stream_id, data.len() as u64);
-                self.bind_with_data(data, handle.clone(), stream_id);
-                handle
-            })
-            .collect::<Vec<_>>();
-
-        resources.extend(scalars.into_iter().map(|scalar| {
-            self.memory_management
-                .get_resource(
-                    scalar.memory.binding(),
-                    scalar.offset_start,
-                    scalar.offset_end,
-                )
-                .unwrap()
-        }));
 
         let mut resources: Vec<_> = resources.iter_mut().collect();
         let kernel = kernel

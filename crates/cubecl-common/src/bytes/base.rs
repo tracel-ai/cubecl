@@ -319,7 +319,12 @@ impl Bytes {
         if capacity * size_of::<E>() != byte_capacity {
             return Err(self);
         };
-        if self.controller.alloc_align() < align_of::<E>() {
+        // Vec::from_raw_parts requires that the pointer was allocated with
+        // Layout::array::<E>(capacity). On drop, Vec deallocates with that
+        // layout. If our allocation used a different alignment, the dealloc
+        // layout won't match and that's UB per the GlobalAlloc contract:
+        // https://doc.rust-lang.org/std/alloc/trait.GlobalAlloc.html#safety-1
+        if self.controller.alloc_align() != align_of::<E>() {
             return Err(self);
         }
 
@@ -329,12 +334,12 @@ impl Bytes {
 
         // SAFETY:
         // - ptr was allocated by the global allocator as per type-invariant
-        // - `E` has the same alignment as indicated by the stored layout.
+        // - alloc_align == align_of::<E> (checked above), so Vec will dealloc
+        //   with the same layout as the original allocation.
         // - capacity * size_of::<E> == layout.size()
         // - 0 <= capacity
-        // - no bytes are claimed to be initialized
+        // - length was computed from the bytemuck-ed slice into this allocation
         // - the layout represents a valid allocation, hence has allocation size less than isize::MAX
-        // - We computed the length from the bytemuck-ed slice into this allocation
         let vec = unsafe { Vec::from_raw_parts(ptr.as_ptr().cast(), length, capacity) };
         Ok(vec)
     }
@@ -388,10 +393,12 @@ impl Bytes {
         })
     }
 
-    /// Ensure the contained buffer is aligned to `align` by possibly moving it to a new buffer.
+    /// Ensure the allocation's reported alignment is at least `align`, reallocating
+    /// into a fresh controller if not. We check the controller's reported alignment
+    /// (not the raw pointer) because downstream callers such as `try_into_vec::<E>`
+    /// depend on `alloc_align()` matching the element alignment.
     fn try_enforce_runtime_align(&mut self, align: usize) -> Result<(), LayoutError> {
-        if self.as_mut_ptr().align_offset(align) == 0 {
-            // data is already aligned correctly
+        if self.controller.alloc_align() >= align {
             return Ok(());
         }
         *self = Self::try_from_data(align, self)?;
@@ -570,10 +577,9 @@ mod tests {
     };
 
     fn test_serialization_roundtrip(bytes: &Bytes) {
-        let config = bincode::config::standard();
-        let serialized =
-            bincode::serde::encode_to_vec(bytes, config).expect("serialization to succeed");
-        let (roundtripped, _) = bincode::serde::decode_from_slice(&serialized, config)
+        let mut serialized = Vec::new();
+        ciborium::ser::into_writer(bytes, &mut serialized).expect("serialization to succeed");
+        let roundtripped: Bytes = ciborium::de::from_reader(&mut serialized.as_slice())
             .expect("deserialization to succeed");
         assert_eq!(
             bytes, &roundtripped,
@@ -635,5 +641,56 @@ mod tests {
         bytes.extend_from_byte_slice(&TEST_BYTES);
         let vec = bytes.try_into_vec::<u128>().unwrap();
         assert_eq!(vec, [42u128, u128::from_ne_bytes(TEST_BYTES)]);
+    }
+
+    #[test_log::test]
+    fn test_split_and_use() {
+        let bytes = Bytes::from_elems(vec![0u8, 1, 2, 3, 4, 5, 6, 7]);
+        let (left, right) = bytes.split(4).unwrap();
+        assert_eq!(&left[..], &[0, 1, 2, 3]);
+        assert_eq!(&right[..], &[4, 5, 6, 7]);
+        let left2 = left.clone();
+        assert_eq!(&left2[..], &[0, 1, 2, 3]);
+    }
+
+    #[test_log::test]
+    fn test_split_at_zero() {
+        let bytes = Bytes::from_elems(vec![10u8, 20, 30, 40]);
+        let (left, right) = bytes.split(0).unwrap();
+        assert_eq!(left.len(), 0);
+        assert_eq!(&right[..], &[10, 20, 30, 40]);
+    }
+
+    #[test_log::test]
+    fn test_split_at_end() {
+        let bytes = Bytes::from_elems(vec![10u8, 20, 30, 40]);
+        let (left, right) = bytes.split(4).unwrap();
+        assert_eq!(&left[..], &[10, 20, 30, 40]);
+        assert_eq!(right.len(), 0);
+    }
+
+    /// `from_bytes_vec` enforces `MAX_ALIGN`, so converting the result to a Vec of
+    /// any type whose alignment is `<= MAX_ALIGN` must succeed. We iterate so the
+    /// test hits a range of underlying allocator addresses.
+    #[test_log::test]
+    fn test_from_bytes_vec_try_into_vec_aligned_type() {
+        for _ in 0..64 {
+            let bytes = Bytes::from_bytes_vec(vec![0u8; 16]);
+            let vec: Vec<u128> = bytes
+                .try_into_vec::<u128>()
+                .expect("MAX_ALIGN-aligned bytes must convert to Vec<u128>");
+            assert_eq!(vec.len(), 1);
+        }
+    }
+
+    #[test_log::test]
+    fn test_many_extends_with_growth() {
+        let mut bytes = Bytes::from_elems::<u8>(vec![]);
+        for i in 0u8..=255 {
+            bytes.extend_from_byte_slice(&[i]);
+        }
+        assert_eq!(bytes.len(), 256);
+        assert_eq!(bytes[0], 0);
+        assert_eq!(bytes[255], 255);
     }
 }

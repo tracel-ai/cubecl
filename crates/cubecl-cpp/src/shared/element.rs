@@ -126,7 +126,9 @@ impl<D: Dialect> Elem<D> {
             Elem::Atomic(AtomicKind::U32) => core::mem::size_of::<u32>(),
             Elem::Atomic(AtomicKind::U64) => core::mem::size_of::<u64>(),
             Elem::Atomic(AtomicKind::F16) => core::mem::size_of::<f16>(),
+            Elem::Atomic(AtomicKind::F16x2) => core::mem::size_of::<f32>(),
             Elem::Atomic(AtomicKind::BF16) => core::mem::size_of::<bf16>(),
+            Elem::Atomic(AtomicKind::BF16x2) => core::mem::size_of::<f32>(),
             Elem::Atomic(AtomicKind::F32) => core::mem::size_of::<f32>(),
             Elem::Atomic(AtomicKind::F64) => core::mem::size_of::<f64>(),
             Elem::Atomic(AtomicKind::_Dialect(_)) => 0,
@@ -201,7 +203,9 @@ pub enum AtomicKind<D: Dialect> {
     U32,
     U64,
     F16,
+    F16x2,
     BF16,
+    BF16x2,
     F32,
     F64,
     /// Required to construct the inner `Elem` of the atomic value
@@ -220,6 +224,24 @@ impl<D: Dialect> From<ElemType> for AtomicKind<D> {
             ElemType::UInt(UIntKind::U32) => AtomicKind::U32,
             ElemType::UInt(UIntKind::U64) => AtomicKind::U64,
             other => unimplemented!("Invalid atomic type: {other}"),
+        }
+    }
+}
+
+impl<D: Dialect> AtomicKind<D> {
+    pub fn as_elem(self) -> Elem<D> {
+        match self {
+            AtomicKind::I32 => Elem::I32,
+            AtomicKind::I64 => Elem::I64,
+            AtomicKind::U32 => Elem::U32,
+            AtomicKind::U64 => Elem::U64,
+            AtomicKind::F16 => Elem::F16,
+            AtomicKind::F16x2 => Elem::F16x2,
+            AtomicKind::BF16 => Elem::BF16,
+            AtomicKind::BF16x2 => Elem::BF16x2,
+            AtomicKind::F32 => Elem::F32,
+            AtomicKind::F64 => Elem::F64,
+            AtomicKind::_Dialect(_) => unreachable!(),
         }
     }
 }

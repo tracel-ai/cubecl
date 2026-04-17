@@ -59,4 +59,11 @@ impl AddressType {
             AddressType::U64 => IntKind::I64.into(),
         }
     }
+
+    pub fn size(&self) -> usize {
+        match self {
+            AddressType::U32 => size_of::<u32>(),
+            AddressType::U64 => size_of::<u64>(),
+        }
+    }
 }

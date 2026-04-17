@@ -20,7 +20,7 @@ workspace = true
 
 [features]
 cache = ["std", "serde_json", "dirs", "sanitize-filename"]
-compilation-cache = ["cache", "bincode"]
+compilation-cache = ["cache", "dep:ciborium"]
 default = ["std"]
 fp4 = ["float4"]
 fp8 = ["float8"]
@@ -70,7 +70,7 @@ spin = { workspace = true } # using in place of use std::sync::Mutex;
 cfg-if = { workspace = true }
 
 # Cache
-bincode = { workspace = true, features = ["std", "serde"], optional = true }
+ciborium = { workspace = true, optional = true }
 dirs = { workspace = true, optional = true }
 hashbrown = { workspace = true }
 sanitize-filename = { workspace = true, optional = true }
@@ -122,14 +122,11 @@ embassy-time = { workspace = true }
 cfg_aliases = { workspace = true }
 
 [dev-dependencies]
-bincode = { workspace = true }
+ciborium = { workspace = true }
 criterion = { version = "0.8", features = ["html_reports"] }
 dashmap = { workspace = true }
 tempfile = "3.20"
 test-log = { workspace = true, features = ["trace"] }        # Cache
-
-[profile.release]
-debug = true
 
 [[bench]]
 harness = false

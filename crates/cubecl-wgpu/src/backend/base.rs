@@ -1,6 +1,7 @@
 use super::wgsl;
 use crate::AutoRepresentationRef;
 use crate::WgpuServer;
+use cubecl_core::MemoryConfiguration;
 use cubecl_core::{
     ExecutionMode, WgpuCompilationOptions, hash::StableHash, server::KernelArguments,
 };
@@ -85,7 +86,6 @@ impl WgpuServer {
             Some(AutoRepresentationRef::Msl(repr)) => unsafe {
                 Ok(self.device.create_shader_module_passthrough(
                     wgpu::ShaderModuleDescriptorPassthrough {
-                        entry_point: entrypoint_name.to_string(),
                         label: Some(entrypoint_name),
                         msl: Some(Cow::Borrowed(source)),
                         num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
@@ -102,7 +102,7 @@ impl WgpuServer {
                     bounds_checks: false,
                     // Loop bounds are only checked in checked mode.
                     force_loop_bounding: mode == ExecutionMode::Checked,
-                    ray_query_initialization_tracking: false,
+                    ..wgpu::ShaderRuntimeChecks::unchecked()
                 };
 
                 #[cfg(not(target_family = "wasm"))]
@@ -146,36 +146,39 @@ impl WgpuServer {
         bindings: &KernelArguments,
     ) -> Arc<ComputePipeline> {
         let bindings_info = match repr {
-            Some(AutoRepresentationRef::Wgsl(repr)) => Some(wgsl::bindings(repr)),
+            Some(AutoRepresentationRef::Wgsl(repr)) => Some(wgsl::bindings(repr, bindings)),
             #[cfg(all(feature = "msl", target_os = "macos"))]
-            Some(AutoRepresentationRef::Msl(repr)) => Some(cpp_metal::bindings(repr)),
+            Some(AutoRepresentationRef::Msl(repr)) => Some(cpp_metal::bindings(repr, bindings)),
             #[cfg(feature = "spirv")]
             Some(AutoRepresentationRef::SpirV(repr)) => Some(vulkan::bindings(repr, bindings)),
             _ => None,
         };
 
         let layout = bindings_info.map(|bindings| {
-            let (mut bindings, meta) = bindings;
+            let (mut bindings, info, uniform_info) = bindings;
             // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
             // and since we can't be sure, we'll assume everything is read-write.
             if !cfg!(exclusive_memory_only) {
                 bindings.fill(cubecl_runtime::kernel::Visibility::ReadWrite);
             }
 
+            let info = info.map(|_| match uniform_info {
+                true => BufferBindingType::Uniform,
+                false => BufferBindingType::Storage { read_only: true },
+            });
+
             let bindings = bindings
                 .into_iter()
-                .chain(meta)
+                .map(|visibility| BufferBindingType::Storage {
+                    read_only: matches!(visibility, cubecl_runtime::kernel::Visibility::Read),
+                })
+                .chain(info)
                 .enumerate()
-                .map(|(i, visibility)| BindGroupLayoutEntry {
+                .map(|(i, ty)| BindGroupLayoutEntry {
                     binding: i as u32,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage {
-                            read_only: matches!(
-                                visibility,
-                                cubecl_runtime::kernel::Visibility::Read
-                            ),
-                        },
+                        ty,
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -191,7 +194,7 @@ impl WgpuServer {
             self.device
                 .create_pipeline_layout(&PipelineLayoutDescriptor {
                     label: None,
-                    bind_group_layouts: &[&layout],
+                    bind_group_layouts: &[Some(&layout)],
                     immediate_size: 0,
                 })
         });
@@ -213,64 +216,106 @@ impl WgpuServer {
     }
 }
 
-#[cfg(all(not(feature = "spirv"), not(feature = "msl")))]
 pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
+    if let Some(result) = request_vulkan_device(adapter).await {
+        return result;
+    }
+    if let Some(result) = request_metal_device(adapter).await {
+        return result;
+    }
     wgsl::request_device(adapter).await
 }
 
 #[cfg(feature = "spirv")]
-pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
+async fn request_vulkan_device(adapter: &Adapter) -> Option<(Device, Queue)> {
     if is_vulkan(adapter) {
         vulkan::request_vulkan_device(adapter).await
     } else {
-        wgsl::request_device(adapter).await
+        None
     }
+}
+
+#[cfg(not(feature = "spirv"))]
+async fn request_vulkan_device(_adapter: &Adapter) -> Option<(Device, Queue)> {
+    None
 }
 
 #[cfg(all(feature = "msl", target_os = "macos"))]
-pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
-    use super::metal;
-
+async fn request_metal_device(adapter: &Adapter) -> Option<(Device, Queue)> {
     if is_metal(adapter) {
-        metal::request_metal_device(adapter).await
+        Some(metal::request_metal_device(adapter).await)
     } else {
-        panic!("metal device not found!");
+        None
     }
 }
 
-#[cfg(all(not(feature = "spirv"), not(feature = "msl")))]
+#[cfg(not(all(feature = "msl", target_os = "macos")))]
+async fn request_metal_device(_adapter: &Adapter) -> Option<(Device, Queue)> {
+    None
+}
+
 pub fn register_features(
     adapter: &Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
+    memory_config: &MemoryConfiguration,
 ) {
+    if register_vulkan_features(adapter, props, comp_options, memory_config) {
+        return;
+    }
+    if register_metal_features(adapter, props, comp_options, memory_config) {
+        return;
+    }
     wgsl::register_wgsl_features(adapter, props, comp_options);
 }
 
 #[cfg(feature = "spirv")]
-pub fn register_features(
+pub fn register_vulkan_features(
     adapter: &Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
-) {
+    memory_config: &MemoryConfiguration,
+) -> bool {
     if is_vulkan(adapter) {
-        vulkan::register_vulkan_features(adapter, props, comp_options);
+        vulkan::register_vulkan_features(adapter, props, comp_options, memory_config)
     } else {
-        wgsl::register_wgsl_features(adapter, props, comp_options);
+        false
     }
 }
 
+#[cfg(not(feature = "spirv"))]
+pub fn register_vulkan_features(
+    _adapter: &Adapter,
+    _props: &mut DeviceProperties,
+    _comp_options: &mut WgpuCompilationOptions,
+    _memory_config: &MemoryConfiguration,
+) -> bool {
+    false
+}
+
 #[cfg(all(feature = "msl", target_os = "macos"))]
-pub fn register_features(
+pub fn register_metal_features(
     adapter: &Adapter,
     props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
-) {
+    _memory_config: &MemoryConfiguration,
+) -> bool {
     if is_metal(adapter) {
         metal::register_metal_features(adapter, props, comp_options);
+        true
     } else {
-        panic!("metal device not found!");
+        false
     }
+}
+
+#[cfg(not(all(feature = "msl", target_os = "macos")))]
+pub fn register_metal_features(
+    _adapter: &Adapter,
+    _props: &mut DeviceProperties,
+    _comp_options: &mut WgpuCompilationOptions,
+    _memory_config: &MemoryConfiguration,
+) -> bool {
+    false
 }
 
 #[cfg(feature = "spirv")]

@@ -1,6 +1,6 @@
 use cubecl_core::ir as core;
 use cubecl_core::ir::Metadata;
-use rspirv::spirv::{StorageClass, Word};
+use rspirv::spirv::Word;
 
 use crate::{SpirvCompiler, SpirvTarget, item::Item, variable::Variable};
 
@@ -16,7 +16,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
                 self.mark_uniformity(out_id, uniform);
 
-                let offset = self.metadata.rank_index(pos);
+                let offset = self.info.metadata.rank_index(pos);
                 self.load_const_metadata(offset, Some(out_id), out.item());
                 self.write(&out, out_id);
             }
@@ -41,14 +41,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 let pos = self.ext_pos(&var);
 
-                let offs_offset = self.metadata.stride_offset_index(pos);
+                let offs_offset = self.info.metadata.stride_offset_index(pos);
                 let offset = self.load_const_metadata(offs_offset, None, out.item());
                 let dim_id = self.read_as(&dim, &out.item());
 
                 let index = self.i_add(ty_id, None, offset, dim_id).unwrap();
                 self.mark_uniformity(index, uniform);
                 let index = Variable::Raw(index, out.item());
-                self.load_dyn_metadata(&index, &out, out.item());
+                self.load_dyn_metadata(&index, Some(out_id), out.item());
+                self.write(&out, out_id);
             }
             Metadata::Shape { dim, var } => {
                 let var = self.compile_variable(var);
@@ -61,13 +62,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 let pos = self.ext_pos(&var);
 
-                let offs_offset = self.metadata.shape_offset_index(pos);
+                let offs_offset = self.info.metadata.shape_offset_index(pos);
                 let offset = self.load_const_metadata(offs_offset, None, out.item());
                 let dim_id = self.read_as(&dim, &out.item());
 
                 let index = self.i_add(ty_id, None, offset, dim_id).unwrap();
                 let index = Variable::Id(index);
-                self.load_dyn_metadata(&index, &out, out.item());
+                self.load_dyn_metadata(&index, Some(out_id), out.item());
+                self.write(&out, out_id);
             }
         }
     }
@@ -84,7 +86,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let id = match var {
             Variable::GlobalInputArray(_, _, pos) | Variable::GlobalOutputArray(_, _, pos) => {
-                let offset = self.metadata.len_index(*pos);
+                let offset = self.info.metadata.len_index(*pos);
                 let id = self.load_const_metadata(offset, out_id, out_ty);
 
                 if let Some(out_id) = out_id {
@@ -130,7 +132,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::GlobalInputArray(_, _, pos) | Variable::GlobalOutputArray(_, _, pos) => *pos,
             _ => panic!("Only Input and Output have a buffer length, got: {var:?}"),
         };
-        let offset = self.metadata.buffer_len_index(position);
+        let offset = self.info.metadata.buffer_len_index(position);
         let id = self.load_const_metadata(offset, out_id, out_ty);
 
         if let Some(out) = out {
@@ -143,24 +145,29 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn load_const_metadata(&mut self, index: u32, out: Option<Word>, ty: Item) -> Word {
         self.insert_in_setup(|b| {
             let ty_id = ty.id(b);
-            let int_ptr = Item::Pointer(StorageClass::StorageBuffer, Box::new(ty)).id(b);
+            let storage_class = T::info_storage_class(b);
+            let ptr_ty = Item::Pointer(storage_class, Box::new(ty)).id(b);
             let info = b.state.info;
-            let zero = b.const_u32(0);
+            let offset = b.const_u32(b.state.scalar_bindings.len() as u32);
             let index = b.const_u32(index);
             let info_ptr = b
-                .access_chain(int_ptr, None, info, vec![zero, index])
+                .access_chain(ptr_ty, None, info, vec![offset, index])
                 .unwrap();
             b.load(ty_id, out, info_ptr, None, vec![]).unwrap()
         })
     }
 
-    pub fn load_dyn_metadata(&mut self, index: &Variable, out: &Variable, ty: Item) -> Word {
-        let info = Variable::Named {
-            id: self.state.info,
-            item: ty,
-            is_array: false,
-        };
-        self.read_indexed_unchecked(out, &info, index)
+    pub fn load_dyn_metadata(&mut self, index: &Variable, out: Option<Word>, ty: Item) -> Word {
+        let ty_id = ty.id(self);
+        let storage_class = T::info_storage_class(self);
+        let ptr_ty = Item::Pointer(storage_class, Box::new(ty)).id(self);
+        let info = self.state.info;
+        let offset = self.const_u32(self.state.scalar_bindings.len() as u32 + 1);
+        let index = self.read(index);
+        let info_ptr = self
+            .access_chain(ptr_ty, None, info, vec![offset, index])
+            .unwrap();
+        self.load(ty_id, out, info_ptr, None, vec![]).unwrap()
     }
 
     fn ext_pos(&self, var: &Variable) -> u32 {

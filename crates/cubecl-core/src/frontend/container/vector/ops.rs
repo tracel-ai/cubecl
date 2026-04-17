@@ -270,6 +270,7 @@ impl<P: Scalar + IsNan, N: Size> IsNan for Vector<P, N> {}
 impl<P: Scalar + IsInf, N: Size> IsInf for Vector<P, N> {}
 impl<P: Scalar + Normalize, N: Size> Normalize for Vector<P, N> {}
 impl<P: Scalar + Magnitude, N: Size> Magnitude for Vector<P, N> {}
+impl<P: Scalar + VectorSum, N: Size> VectorSum for Vector<P, N> {}
 impl<P: Scalar + Degrees, N: Size> Degrees for Vector<P, N> {}
 impl<P: Scalar + Radians, N: Size> Radians for Vector<P, N> {}
 

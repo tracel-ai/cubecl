@@ -174,32 +174,32 @@ mod launch {
     pub struct VirtualLayoutLaunch<C: Coordinates, S: Coordinates, R: Runtime> {
         _phantom_runtime: core::marker::PhantomData<R>,
         #[allow(clippy::type_complexity)]
-        inner: Box<dyn FnOnce(&mut cubecl::prelude::KernelLauncher<R>) + Send + Sync>,
-        hashed_arg: VirtualLayoutCompilationArg<C, S>,
+        register: Box<
+            dyn FnOnce(&mut KernelLauncher<R>) -> VirtualLayoutCompilationArg<C, S> + Send + Sync,
+        >,
     }
 
-    impl<C: Coordinates, S: Coordinates, R: cubecl::prelude::Runtime> VirtualLayoutLaunch<C, S, R> {
+    impl<C: Coordinates, S: Coordinates, R: Runtime> VirtualLayoutLaunch<C, S, R> {
         pub fn new<L: Layout<Coordinates = C, SourceCoordinates = S> + LaunchArg>(
             layout: L::RuntimeArg<R>,
         ) -> Self {
-            let comp_arg = L::compilation_arg(&layout);
-            let comp_arg_2 = comp_arg.clone();
-            let expand = move |builder: &mut KernelBuilder, is_out: bool| {
-                let expand = match is_out {
-                    true => L::expand_output(&comp_arg_2, builder),
-                    false => L::expand(&comp_arg_2, builder),
-                };
-                VirtualLayoutExpand::new(expand)
-            };
-            let hashed_arg = VirtualLayoutCompilationArg::new::<L::CompilationArg>(
-                comp_arg,
-                Rc::new(RefCell::new(expand)),
-            );
-
             Self {
                 _phantom_runtime: PhantomData,
-                inner: Box::new(move |launcher| L::register(layout, launcher)),
-                hashed_arg,
+                register: Box::new(move |launcher| {
+                    let comp_arg = L::register(layout, launcher);
+                    let comp_arg_2 = comp_arg.clone();
+                    let expand = move |builder: &mut KernelBuilder, is_out: bool| {
+                        let expand = match is_out {
+                            true => L::expand_output(&comp_arg_2, builder),
+                            false => L::expand(&comp_arg_2, builder),
+                        };
+                        VirtualLayoutExpand::new(expand)
+                    };
+                    VirtualLayoutCompilationArg::new::<L::CompilationArg>(
+                        comp_arg,
+                        Rc::new(RefCell::new(expand)),
+                    )
+                }),
             }
         }
     }
@@ -257,14 +257,12 @@ mod launch {
         type RuntimeArg<R: Runtime> = VirtualLayoutLaunch<C, S, R>;
         type CompilationArg = VirtualLayoutCompilationArg<C, S>;
 
-        fn compilation_arg<'a, R: Runtime>(
-            runtime_arg: &Self::RuntimeArg<R>,
+        fn register<R: Runtime>(
+            arg: Self::RuntimeArg<R>,
+            launcher: &mut KernelLauncher<R>,
         ) -> Self::CompilationArg {
-            runtime_arg.hashed_arg.clone()
-        }
-        fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
-            let func = arg.inner;
-            func(launcher);
+            let func = arg.register;
+            func(launcher)
         }
         fn expand(
             arg: &Self::CompilationArg,

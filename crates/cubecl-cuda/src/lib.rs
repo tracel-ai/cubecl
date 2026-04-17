@@ -11,7 +11,7 @@ pub use runtime::*;
 
 /// Re-exports for FFI interop with external CUDA libraries.
 ///
-/// These types allow extracting raw CUDA pointers and streams from CubeCL's
+/// These types allow extracting raw CUDA pointers and streams from `CubeCL`'s
 /// managed resources, enabling zero-copy interop with cuBLAS, cuSOLVER,
 /// cuTENSOR, and other CUDA FFI libraries.
 pub mod ffi_interop {

@@ -20,7 +20,7 @@ use cubecl_common::{
     future::DynFut,
     profile::ProfileDuration,
 };
-use cubecl_ir::{DeviceProperties, ElemType, VectorSize};
+use cubecl_ir::{DeviceProperties, ElemType, VectorSize, features::Features};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
@@ -758,7 +758,13 @@ impl<R: Runtime> ComputeClient<R> {
                 kernel,
                 count,
                 bindings,
-                ExecutionMode::Unchecked,
+                match self.utilities.check_mode {
+                    crate::config::compilation::BoundsCheckMode::Enforce => ExecutionMode::Checked,
+                    crate::config::compilation::BoundsCheckMode::Validate => {
+                        ExecutionMode::Validate
+                    }
+                    crate::config::compilation::BoundsCheckMode::Auto => ExecutionMode::Unchecked,
+                },
                 self.stream_id(),
             )
         }
@@ -792,6 +798,11 @@ impl<R: Runtime> ComputeClient<R> {
         &self.utilities.properties
     }
 
+    /// Get the features supported by the compute server.
+    pub fn features(&self) -> &Features {
+        &self.utilities.properties.features
+    }
+
     /// # Warning
     ///
     /// For private use only.
@@ -819,6 +830,26 @@ impl<R: Runtime> ComputeClient<R> {
         f: impl FnOnce(&mut R::Server) -> R2 + Send + 'static,
     ) -> Option<R2> {
         self.device.submit_blocking(f).ok()
+    }
+
+    /// Get all devices of a specific type available to this runtime
+    pub fn enumerate_devices(&self, type_id: u16) -> Vec<DeviceId> {
+        R::enumerate_devices(type_id, self.info())
+    }
+
+    /// Get all devices available to this runtime
+    pub fn enumerate_all_devices(&self) -> Vec<DeviceId> {
+        R::enumerate_all_devices(self.info())
+    }
+
+    /// Get the number of devices of a specific type available to this runtime
+    pub fn device_count(&self, type_id: u16) -> usize {
+        self.enumerate_devices(type_id).len()
+    }
+
+    /// Get the number of devices of a specific type available to this runtime
+    pub fn device_count_total(&self) -> usize {
+        self.enumerate_all_devices().len()
     }
 
     /// Change the memory allocation mode.

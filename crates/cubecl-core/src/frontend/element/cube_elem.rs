@@ -75,7 +75,7 @@ pub trait CubePrimitive:
         client: &ComputeClient<R>,
     ) -> EnumSet<TypeUsage> {
         let elem = Self::as_type_native_unchecked();
-        client.properties().features.type_usage(elem.storage_type())
+        client.features().type_usage(elem.storage_type())
     }
 
     fn type_size() -> usize {

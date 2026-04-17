@@ -54,7 +54,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
 
             Bitwise::CountOnes(op) => {
-                self.compile_unary_op_cast(op, out, uniform, |b, _, ty, input, out| {
+                self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
                     b.bit_count(ty, Some(out), input).unwrap();
                 });
             }
@@ -65,7 +65,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Bitwise::LeadingZeros(op) => {
                 let width = op.input.ty.storage_type().size() as u32 * 8;
-                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
                     // Indices are zero based, so subtract 1
                     let width = out_ty.const_u32(b, width - 1);
                     let msb = b.id();
@@ -75,7 +75,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Bitwise::FindFirstSet(op) => {
-                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
                     let one = out_ty.const_u32(b, 1);
                     let lsb = b.id();
                     T::find_lsb(b, ty, input, lsb);
@@ -86,7 +86,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Bitwise::TrailingZeros(op) => {
                 let width = op.input.ty.storage_type().size() as u32 * 8;
-                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
                     // find_lsb returns -1 (0xFFFFFFFF) for zero input
                     // trailing_zeros should return bit_width for zero input
                     let width_const = out_ty.const_u32(b, width);
@@ -208,4 +208,46 @@ pub(crate) fn u64_ffs<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
         high_ffs + Vector::new(32),
     );
     select_many(low_ffs.equal(Vector::new(0)), high_ffs, low_ffs)
+}
+
+/// Subtract extra leading zeros after normalizing
+#[cube]
+pub(crate) fn u16_u8_leading_zeros<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+    let width = I::type_size_bits().comptime() as u32;
+    let over_width = Vector::new(32 - width);
+
+    let x = Vector::<u32, N>::cast_from(x);
+    let lz = x.leading_zeros();
+    lz - over_width
+}
+
+/// There are three possible outcomes:
+/// * low has any set -> return low
+/// * low is empty, high has any set -> return high + 32
+/// * low and high are empty -> return 0
+#[cube]
+pub(crate) fn u64_trailing_zeros<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+    let shift = Vector::new(I::new(32));
+
+    let low = Vector::<u32, N>::cast_from(x);
+    let high = Vector::<u32, N>::cast_from(x >> shift);
+    let low_tz = Vector::trailing_zeros(low);
+    let high_tz = Vector::trailing_zeros(high);
+
+    let high_tz = select_many(
+        high_tz.equal(Vector::new(32)),
+        Vector::new(64),
+        high_tz + Vector::new(32),
+    );
+    select_many(low_tz.equal(Vector::new(32)), high_tz, low_tz)
+}
+
+/// Clamp to width
+#[cube]
+pub(crate) fn u16_u8_trailing_zeros<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
+    let width = Vector::new(I::type_size_bits().comptime() as u32);
+
+    let x = Vector::<u32, N>::cast_from(x);
+    let lz = x.trailing_zeros();
+    lz.min(width)
 }

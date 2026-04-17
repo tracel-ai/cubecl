@@ -74,6 +74,32 @@ fn assert_complex_approx_eq<R: Runtime, F: num_traits::Float + CubeElement + Dis
     }
 }
 
+fn complex_abs_value<T: num_traits::Float>(value: num_complex::Complex<T>) -> T {
+    value.re.hypot(value.im)
+}
+
+fn complex_exp_value<T: num_traits::Float>(
+    value: num_complex::Complex<T>,
+) -> num_complex::Complex<T> {
+    let magnitude = value.re.exp();
+    num_complex::Complex::new(magnitude * value.im.cos(), magnitude * value.im.sin())
+}
+
+fn complex_ln_value<T: num_traits::Float>(value: num_complex::Complex<T>) -> num_complex::Complex<T> {
+    num_complex::Complex::new(complex_abs_value(value).ln(), value.im.atan2(value.re))
+}
+
+fn complex_powc_value<T: num_traits::Float>(
+    value: num_complex::Complex<T>,
+    exp: num_complex::Complex<T>,
+) -> num_complex::Complex<T> {
+    if exp.re.is_zero() && exp.im.is_zero() {
+        return num_complex::Complex::new(T::one(), T::zero());
+    }
+
+    complex_exp_value(exp * complex_ln_value(value))
+}
+
 #[cube(launch_unchecked)]
 pub fn kernel_complex_add<C: Complex>(output: &mut Array<C>, lhs: &Array<C>, rhs: &Array<C>) {
     if ABSOLUTE_POS < output.len() {
@@ -388,7 +414,7 @@ pub fn kernel_complex_powf<C: Complex + Powf>(
 pub fn test_complex_abs_cf32<R: Runtime>(client: ComputeClient<R>) {
     type C = num_complex::Complex<f32>;
     let input = vec![C::new(3.0f32, 4.0f32), C::new(5.0f32, -12.0f32)];
-    let expected = vec![input[0].norm(), input[1].norm()];
+    let expected = vec![complex_abs_value(input[0]), complex_abs_value(input[1])];
 
     let handle_output = client.empty(2 * core::mem::size_of::<f32>());
     let handle_input = client.create_from_slice(C::as_bytes(&input));
@@ -409,7 +435,7 @@ pub fn test_complex_abs_cf32<R: Runtime>(client: ComputeClient<R>) {
 pub fn test_complex_abs_cf64<R: Runtime>(client: ComputeClient<R>) {
     type C = num_complex::Complex<f64>;
     let input = vec![C::new(3.0f64, 4.0f64), C::new(5.0f64, -12.0f64)];
-    let expected = vec![input[0].norm(), input[1].norm()];
+    let expected = vec![complex_abs_value(input[0]), complex_abs_value(input[1])];
 
     let handle_output = client.empty(2 * core::mem::size_of::<f64>());
     let handle_input = client.create_from_slice(C::as_bytes(&input));
@@ -462,7 +488,7 @@ macro_rules! test_complex_powf_op {
                 .iter()
                 .copied()
                 .zip(rhs.iter().copied())
-                .map(|(lhs, rhs)| lhs.powc(rhs))
+                .map(|(lhs, rhs)| complex_powc_value(lhs, rhs))
                 .collect::<vec::Vec<_>>();
 
             let handle_output = client.empty(lhs.len() * core::mem::size_of::<C>());

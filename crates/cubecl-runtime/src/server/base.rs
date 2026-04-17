@@ -2,6 +2,7 @@ use super::Handle;
 use crate::{
     client::ComputeClient,
     compiler::CompilationError,
+    config::{GlobalConfig, compilation::BoundsCheckMode},
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
@@ -11,7 +12,6 @@ use crate::{
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
 #[cfg(feature = "profile-tracy")]
 use alloc::format;
 use alloc::string::String;
@@ -87,6 +87,8 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub logger: Arc<ServerLogger>,
     /// How to create the allocation.
     pub layout_policy: Server::MemoryLayoutPolicy,
+    /// How to enforce bounds checking on kernels.
+    pub check_mode: BoundsCheckMode,
 }
 
 /// Defines how the memory layout is determined.
@@ -148,6 +150,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
             epoch_time: web_time::Instant::now(),
             info,
             layout_policy: allocator,
+            check_mode: GlobalConfig::get().compilation.check_mode,
         }
     }
 }
@@ -703,11 +706,9 @@ impl core::fmt::Debug for IoError {
 pub struct KernelArguments {
     /// Buffer bindings
     pub buffers: Vec<Binding>,
-    /// Packed metadata for tensor bindings (len, shape, stride, etc).
-    /// Ordered by inputs, then outputs, then tensormaps
-    pub metadata: MetadataBindingInfo,
-    /// Scalar bindings
-    pub scalars: BTreeMap<StorageType, ScalarBindingInfo>,
+    /// Packed scalars and metadata. First scalars sorted by type, then static metadata,
+    /// then dynamic metadata.
+    pub info: MetadataBindingInfo,
     /// Tensor map bindings
     pub tensor_maps: Vec<TensorMapBinding>,
 }
@@ -741,23 +742,9 @@ impl KernelArguments {
         self
     }
 
-    /// Add a scalar parameter
-    pub fn with_scalar(mut self, ty: StorageType, length: usize, data: Vec<u64>) -> Self {
-        self.scalars
-            .insert(ty, ScalarBindingInfo::new(ty, length, data));
-        self
-    }
-
-    /// Extend the scalars with `bindings`
-    pub fn with_scalars(mut self, bindings: Vec<ScalarBindingInfo>) -> Self {
-        self.scalars
-            .extend(bindings.into_iter().map(|binding| (binding.ty, binding)));
-        self
-    }
-
-    /// Set the metadata to `meta`
-    pub fn with_metadata(mut self, meta: MetadataBindingInfo) -> Self {
-        self.metadata = meta;
+    /// Set the info to `info`
+    pub fn with_info(mut self, info: MetadataBindingInfo) -> Self {
+        self.info = info;
         self
     }
 
@@ -774,30 +761,16 @@ impl KernelArguments {
 /// kernels.
 #[derive(new, Debug, Default)]
 pub struct MetadataBindingInfo {
-    /// Metadata values
+    /// Scalar and metadata values
     pub data: Vec<u64>,
-    /// Length of the static portion (rank, len, `buffer_len`, `shape_offsets`, `stride_offsets`).
-    pub static_len: usize,
+    /// Start of the dynamically sized portion of the metadata, relative to the entire info buffer
+    pub dynamic_metadata_offset: usize,
 }
 
-/// Binding of a set of scalars of the same type to execute a kernel.
-///
-/// The [`ComputeServer`] is responsible to convert those info into actual [`Binding`] when launching
-/// kernels.
-#[derive(new, Debug, Clone)]
-pub struct ScalarBindingInfo {
-    /// Type of the scalars
-    pub ty: StorageType,
-    /// Unpadded length of the underlying data
-    pub length: usize,
-    /// Type-erased data of the scalars. Padded and represented by u64 to prevent misalignment.
-    pub data: Vec<u64>,
-}
-
-impl ScalarBindingInfo {
-    /// Get data as byte slice
-    pub fn data(&self) -> &[u8] {
-        bytemuck::cast_slice(&self.data)
+impl MetadataBindingInfo {
+    /// Create a new binding info for custom data, for externally compiled kernels.
+    pub fn custom(data: Vec<u64>) -> Self {
+        Self::new(data, 0)
     }
 }
 
@@ -920,6 +893,14 @@ impl CubeCount {
     pub fn new_3d(x: u32, y: u32, z: u32) -> Self {
         CubeCount::Static(x, y, z)
     }
+
+    /// Checks whether the cube count is definitely empty, i.e. has 0 dispatches.
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Static(x, y, z) => *x == 0 || *y == 0 || *z == 0,
+            Self::Dynamic(_) => false,
+        }
+    }
 }
 
 impl Debug for CubeCount {
@@ -935,7 +916,7 @@ impl Clone for CubeCount {
     fn clone(&self) -> Self {
         match self {
             Self::Static(x, y, z) => Self::Static(*x, *y, *z),
-            Self::Dynamic(_handle) => panic!("Can't clone dynamic cube count"),
+            Self::Dynamic(binding) => Self::Dynamic(binding.clone()),
         }
     }
 }
@@ -973,7 +954,8 @@ impl CubeDim {
         // Make sure it respects the max units per cube (especially on wasm)
         let limit = properties.hardware.max_units_per_cube / plane_size;
 
-        Self::new_2d(plane_size, u32::min(limit, plane_count))
+        // Ensure at least 1 plane so CubeDim is always valid (num_elems() > 0).
+        Self::new_2d(plane_size, u32::min(limit, plane_count).max(1))
     }
 
     fn calculate_plane_count_per_cube(
@@ -1047,6 +1029,8 @@ pub enum ExecutionMode {
     /// Checked kernels are safe.
     #[default]
     Checked,
+    /// Validate OOB and alert if OOB access occurs
+    Validate,
     /// Unchecked kernels are unsafe.
     Unchecked,
 }

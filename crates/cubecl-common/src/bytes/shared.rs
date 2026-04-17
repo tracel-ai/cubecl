@@ -420,91 +420,34 @@ mod tests {
 
     #[test_log::test]
     fn test_try_into_vec_succeeds_for_u8() {
-        // try_into_vec should work because try_detach triggers init_mutable
-        let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
-        let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
-
-        let result = bytes.try_into_vec::<u8>();
-        assert!(
-            result.is_ok(),
-            "try_into_vec should succeed for shared bytes"
-        );
-
-        let vec = result.unwrap();
+        // from_elems uses the element's alignment, so try_into_vec works.
+        let bytes = Bytes::from_elems(alloc::vec![1u8, 2, 3, 4]);
+        let vec = bytes.try_into_vec::<u8>().expect("alignment matches");
         assert_eq!(vec, alloc::vec![1, 2, 3, 4]);
     }
 
     #[test_log::test]
     fn test_try_into_vec_succeeds_for_f32() {
-        // try_into_vec should work for f32 because alloc_align reports MAX_ALIGN
-        // Use aligned static data - real tensor data from files is always aligned
-        #[repr(align(4))]
-        struct AlignedData([u8; 16]);
-
-        static DATA: AlignedData = AlignedData({
-            let f32_bytes: [[u8; 4]; 4] = [
-                1.0f32.to_le_bytes(),
-                2.0f32.to_le_bytes(),
-                3.0f32.to_le_bytes(),
-                4.0f32.to_le_bytes(),
-            ];
-            let mut result = [0u8; 16];
-            let mut i = 0;
-            while i < 4 {
-                let mut j = 0;
-                while j < 4 {
-                    result[i * 4 + j] = f32_bytes[i][j];
-                    j += 1;
-                }
-                i += 1;
-            }
-            result
-        });
-        let shared = bytes::Bytes::from_static(&DATA.0);
-        let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
-
-        let result = bytes.try_into_vec::<f32>();
-        assert!(
-            result.is_ok(),
-            "try_into_vec::<f32> should succeed for shared bytes"
-        );
-
-        let vec = result.unwrap();
+        let bytes = Bytes::from_elems(alloc::vec![1.0f32, 2.0, 3.0, 4.0]);
+        let vec = bytes.try_into_vec::<f32>().expect("alignment matches");
         assert_eq!(vec, alloc::vec![1.0f32, 2.0, 3.0, 4.0]);
     }
 
     #[test_log::test]
     fn test_try_into_vec_succeeds_for_f64() {
-        // try_into_vec should work for f64 because alloc_align reports MAX_ALIGN
-        // Use aligned static data - real tensor data from files is always aligned
-        #[repr(align(16))]
-        struct AlignedData([u8; 16]);
-
-        static DATA: AlignedData = AlignedData({
-            let f64_bytes: [[u8; 8]; 2] = [1.0f64.to_le_bytes(), 2.0f64.to_le_bytes()];
-            let mut result = [0u8; 16];
-            let mut i = 0;
-            while i < 2 {
-                let mut j = 0;
-                while j < 8 {
-                    result[i * 8 + j] = f64_bytes[i][j];
-                    j += 1;
-                }
-                i += 1;
-            }
-            result
-        });
-        let shared = bytes::Bytes::from_static(&DATA.0);
-        let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
-
-        let result = bytes.try_into_vec::<f64>();
-        assert!(
-            result.is_ok(),
-            "try_into_vec::<f64> should succeed for shared bytes"
-        );
-
-        let vec = result.unwrap();
+        let bytes = Bytes::from_elems(alloc::vec![1.0f64, 2.0]);
+        let vec = bytes.try_into_vec::<f64>().expect("alignment matches");
         assert_eq!(vec, alloc::vec![1.0f64, 2.0]);
+    }
+
+    #[test_log::test]
+    fn test_try_into_vec_fails_for_shared_bytes() {
+        // from_shared allocates with MAX_ALIGN, which doesn't match u8/f32/f64,
+        // so try_into_vec correctly returns Err (alignment mismatch).
+        // Data is still accessible through Deref.
+        let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
+        let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
+        assert!(bytes.try_into_vec::<u8>().is_err());
     }
 
     #[test_log::test]

@@ -90,7 +90,7 @@ fn kernel_test_sync_plane<F: Float>(out: &mut Array<F>) {
 }
 
 pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R>) {
-    if !client.properties().features.plane.contains(Plane::Sync) {
+    if !client.features().plane.contains(Plane::Sync) {
         // We can't execute the test, skip.
         return;
     }

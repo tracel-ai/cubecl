@@ -141,23 +141,16 @@ mod launch {
         type RuntimeArg<R: Runtime> = ChainLaunch<L0, L1, R>;
         type CompilationArg = ChainCompilationArg<L0, L1>;
 
-        fn compilation_arg<'a, R: Runtime, B: BufferArg>(
-            runtime_arg: &Self::RuntimeArg<R>,
-            buffer: &B,
-        ) -> Self::CompilationArg {
-            ChainCompilationArg {
-                l0: L0::compilation_arg(&runtime_arg.l0, buffer),
-                l1: L1::compilation_arg(&runtime_arg.l1, buffer),
-            }
-        }
         fn register<R: Runtime, B: BufferArg>(
             arg: Self::RuntimeArg<R>,
             buffer: &B,
             ty: Type,
             launcher: &mut KernelLauncher<R>,
-        ) {
-            L0::register(arg.l0, buffer, ty, launcher);
-            L1::register(arg.l1, buffer, ty, launcher);
+        ) -> Self::CompilationArg {
+            ChainCompilationArg {
+                l0: L0::register(arg.l0, buffer, ty, launcher),
+                l1: L1::register(arg.l1, buffer, ty, launcher),
+            }
         }
         fn expand(
             arg: &Self::CompilationArg,

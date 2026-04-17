@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use crate::shared::AtomicKind;
+
 use super::{Dialect, Elem};
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
@@ -46,8 +48,18 @@ impl<D: Dialect> Item<D> {
     pub fn is_optimized(&self) -> bool {
         matches!(
             self.elem,
-            Elem::F16x2 | Elem::BF16x2 | Elem::FP4x2(_) | Elem::FP6x2(_) | Elem::FP8x2(_)
+            Elem::F16x2
+                | Elem::BF16x2
+                | Elem::Atomic(AtomicKind::F16x2)
+                | Elem::Atomic(AtomicKind::BF16x2)
+                | Elem::FP4x2(_)
+                | Elem::FP6x2(_)
+                | Elem::FP8x2(_)
         )
+    }
+
+    pub fn is_atomic(&self) -> bool {
+        matches!(self.elem, Elem::Atomic(_))
     }
 
     pub fn optimized(&self) -> Item<D> {
@@ -61,8 +73,18 @@ impl<D: Dialect> Item<D> {
                 vectorization: self.vectorization / 2,
                 native: self.native,
             },
+            Elem::Atomic(AtomicKind::F16) => Item {
+                elem: Elem::Atomic(AtomicKind::F16x2),
+                vectorization: self.vectorization / 2,
+                native: self.native,
+            },
             Elem::BF16 => Item {
                 elem: Elem::BF16x2,
+                vectorization: self.vectorization / 2,
+                native: self.native,
+            },
+            Elem::Atomic(AtomicKind::BF16) => Item {
+                elem: Elem::Atomic(AtomicKind::BF16x2),
                 vectorization: self.vectorization / 2,
                 native: self.native,
             },

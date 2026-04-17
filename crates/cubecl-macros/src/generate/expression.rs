@@ -545,8 +545,7 @@ impl Expression {
                 let has_value = arms
                     .iter()
                     .next()
-                    .map(|arm| arm.expr.needs_terminator())
-                    .unwrap_or(false);
+                    .is_some_and(|arm| arm.expr.needs_terminator());
 
                 let match_ = match has_value {
                     true => quote![match_expand_expr],

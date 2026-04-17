@@ -47,7 +47,13 @@ impl PinnedMemoryStorage {
     }
 }
 
+// SAFETY: `PinnedMemoryResource` contains a raw pointer to page-locked host memory.
+// It is safe to send between threads because the memory remains valid and pinned
+// regardless of which thread accesses it, and access is serialized by the `DeviceHandle`.
 unsafe impl Send for PinnedMemoryResource {}
+// SAFETY: `PinnedMemoryStorage` is only accessed from one thread at a time via the
+// `DeviceHandle`, which serializes all server access. The pinned memory it manages
+// is never shared across threads without synchronization.
 unsafe impl Send for PinnedMemoryStorage {}
 
 impl ComputeStorage for PinnedMemoryStorage {
@@ -66,6 +72,9 @@ impl ComputeStorage for PinnedMemoryStorage {
         let offset = handle.offset() as usize;
         let size = handle.size() as usize;
 
+        // SAFETY: `memory.ptr` was allocated by `cuMemAllocHost_v2` with at least
+        // `offset + size` bytes. The `add(offset)` produces a pointer within the allocation
+        // bounds as guaranteed by the storage handle's offset/size validation.
         unsafe {
             PinnedMemoryResource {
                 ptr: memory.ptr.cast::<u8>().add(offset),
@@ -79,6 +88,8 @@ impl ComputeStorage for PinnedMemoryStorage {
         tracing::instrument(level = "trace", skip(self, size))
     )]
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+        // SAFETY: Calling CUDA driver FFI to allocate page-locked (pinned) host memory.
+        // The returned pointer is stored and freed via `cuMemFreeHost` on deallocation.
         let resource = unsafe {
             let mut ptr: *mut c_void = std::ptr::null_mut();
             let ptr2ptr: *mut *mut c_void = &mut ptr;
@@ -107,9 +118,15 @@ impl ComputeStorage for PinnedMemoryStorage {
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn dealloc(&mut self, id: StorageId) {
         if let Some(resource) = self.memory.remove(&id) {
+            // SAFETY: `resource.ptr` was allocated by `cuMemAllocHost_v2` and has not been
+            // freed yet. After this call, the pointer is invalid and removed from `self.memory`.
             unsafe {
                 cudarc::driver::sys::cuMemFreeHost(resource.ptr);
             }
         }
+    }
+
+    fn flush(&mut self) {
+        // We don't wait for dealloc.
     }
 }

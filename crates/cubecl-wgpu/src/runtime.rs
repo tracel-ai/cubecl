@@ -4,17 +4,16 @@ use crate::{
 };
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_common::{future, profile::TimingMethod};
-use cubecl_core::device::ServerUtilitiesHandle;
+use cubecl_core::device::{DeviceId, ServerUtilitiesHandle};
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::zspace::{Shape, Strides};
 use cubecl_core::{Runtime, ir::TargetProperties};
 use cubecl_ir::{DeviceProperties, HardwareProperties, MemoryDeviceProperties};
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
+#[cfg(not(feature = "vulkan-validate"))]
+use cubecl_runtime::logging::ProfileLevel;
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
-use cubecl_runtime::{
-    client::ComputeClient,
-    logging::{ProfileLevel, ServerLogger},
-};
+use cubecl_runtime::{client::ComputeClient, logging::ServerLogger};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
@@ -89,6 +88,90 @@ impl Runtime for WgpuRuntime {
             mma: Default::default(),
         }
     }
+
+    fn enumerate_devices(type_id: u16, info: &wgpu::Backend) -> Vec<DeviceId> {
+        #[cfg(target_family = "wasm")]
+        {
+            let _ = type_id;
+            let _ = info;
+            // WebGPU only supports a single device currently.
+            vec![DeviceId::new(0, 0)]
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all(),
+                ..wgpu::InstanceDescriptor::new_without_display_handle()
+            });
+
+            let adapters = enumerate_all_adapters(instance, *info);
+            adapters
+                .into_iter()
+                .filter(|adapter| {
+                    // Default doesn't filter device types.
+                    if type_id == 4 {
+                        return true;
+                    }
+
+                    let device_type = adapter.get_info().device_type;
+
+                    let adapter_type_id = match device_type {
+                        wgpu::DeviceType::Other => 4,
+                        wgpu::DeviceType::IntegratedGpu => 1,
+                        wgpu::DeviceType::DiscreteGpu => 0,
+                        wgpu::DeviceType::VirtualGpu => 2,
+                        wgpu::DeviceType::Cpu => 3,
+                    };
+
+                    adapter_type_id == type_id
+                })
+                .enumerate()
+                .map(|(index, adapter)| match adapter.get_info().device_type {
+                    wgpu::DeviceType::DiscreteGpu => DeviceId::new(0, index as u32),
+                    wgpu::DeviceType::IntegratedGpu => DeviceId::new(1, index as u32),
+                    wgpu::DeviceType::VirtualGpu => DeviceId::new(2, index as u32),
+                    wgpu::DeviceType::Cpu => DeviceId::new(3, 0),
+                    wgpu::DeviceType::Other => DeviceId::new(4, 0),
+                })
+                .collect()
+        }
+    }
+
+    fn enumerate_all_devices(info: &wgpu::Backend) -> Vec<DeviceId> {
+        #[cfg(target_family = "wasm")]
+        {
+            let _ = info;
+            // WebGPU only supports a single device currently.
+            vec![DeviceId::new(0, 0)]
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all(),
+                ..wgpu::InstanceDescriptor::new_without_display_handle()
+            });
+            let adapters = enumerate_all_adapters(instance, *info);
+            adapters
+                .into_iter()
+                .enumerate()
+                .map(|(index, adapter)| match adapter.get_info().device_type {
+                    wgpu::DeviceType::DiscreteGpu => DeviceId::new(0, index as u32),
+                    wgpu::DeviceType::IntegratedGpu => DeviceId::new(1, index as u32),
+                    wgpu::DeviceType::VirtualGpu => DeviceId::new(2, index as u32),
+                    wgpu::DeviceType::Cpu => DeviceId::new(3, 0),
+                    wgpu::DeviceType::Other => DeviceId::new(4, 0),
+                })
+                .collect()
+        }
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn enumerate_all_adapters(instance: wgpu::Instance, backend: wgpu::Backend) -> Vec<wgpu::Adapter> {
+    // `enumerate_adapters` is now async & available on WebGPU
+    cubecl_common::future::block_on(instance.enumerate_adapters(backend.into()))
 }
 
 /// The values that control how a WGPU Runtime will perform its calculations.
@@ -205,8 +288,8 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
     }
 
     let mem_props = MemoryDeviceProperties {
-        max_page_size: limits.max_storage_buffer_binding_size as u64,
-        alignment: limits.min_storage_buffer_offset_alignment as u64,
+        max_page_size: limits.max_storage_buffer_binding_size,
+        alignment: limits.min_uniform_buffer_offset_alignment as u64,
     };
     let max_count = adapter_limits.max_compute_workgroups_per_dimension;
     let hardware_props = HardwareProperties {
@@ -255,7 +338,7 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
 
     let mut device_props = DeviceProperties::new(
         Default::default(),
-        mem_props.clone(),
+        mem_props,
         hardware_props,
         time_measurement,
     );
@@ -277,13 +360,18 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         .plane
         .insert(cubecl_ir::features::Plane::NonUniformControlFlow);
 
-    backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
+    backend::register_features(
+        &setup.adapter,
+        &mut device_props,
+        &mut compilation_options,
+        &options.memory_config,
+    );
 
     let logger = alloc::sync::Arc::new(ServerLogger::default());
 
     let allocator = ContiguousMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
     WgpuServer::new(
-        mem_props,
+        device_props.memory.clone(),
         options.memory_config,
         compilation_options,
         setup.device.clone(),
@@ -323,17 +411,22 @@ async fn request_adapter(
     device: &WgpuDevice,
     backend: wgpu::Backend,
 ) -> (wgpu::Instance, wgpu::Adapter) {
-    let debug = ServerLogger::default();
-    let instance_flags = match (debug.profile_level(), debug.compilation_activated()) {
-        (Some(ProfileLevel::Full), _) => InstanceFlags::advanced_debugging(),
-        (_, true) => InstanceFlags::debugging(),
-        (_, false) => InstanceFlags::default(),
+    #[cfg(not(feature = "vulkan-validate"))]
+    let instance_flags = {
+        let debug = ServerLogger::default();
+        match (debug.profile_level(), debug.compilation_activated()) {
+            (Some(ProfileLevel::Full), _) => InstanceFlags::advanced_debugging(),
+            (_, true) => InstanceFlags::debugging(),
+            (_, false) => InstanceFlags::default(),
+        }
     };
+    #[cfg(feature = "vulkan-validate")]
+    let instance_flags = InstanceFlags::advanced_debugging();
     log::debug!("{instance_flags:?}");
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: backend.into(),
         flags: instance_flags,
-        ..Default::default()
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
 
     #[allow(deprecated)]

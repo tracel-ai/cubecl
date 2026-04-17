@@ -121,7 +121,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         .unwrap(),
                     Elem::Float(width, None) => {
                         match width {
-                            16 => self.capabilities.insert(Capability::AtomicFloat16AddEXT),
+                            16 if out_ty.vectorization() == 1 => {
+                                self.capabilities.insert(Capability::AtomicFloat16AddEXT)
+                            }
+                            16 => self.capabilities.insert(Capability::AtomicFloat16VectorNV),
                             32 => self.capabilities.insert(Capability::AtomicFloat32AddEXT),
                             64 => self.capabilities.insert(Capability::AtomicFloat64AddEXT),
                             _ => unreachable!(),
@@ -158,7 +161,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         .unwrap(),
                     Elem::Float(width, None) => {
                         match width {
-                            16 => self.capabilities.insert(Capability::AtomicFloat16AddEXT),
+                            16 if out_ty.vectorization() == 1 => {
+                                self.capabilities.insert(Capability::AtomicFloat16AddEXT)
+                            }
+                            16 => self.capabilities.insert(Capability::AtomicFloat16VectorNV),
                             32 => self.capabilities.insert(Capability::AtomicFloat32AddEXT),
                             64 => self.capabilities.insert(Capability::AtomicFloat64AddEXT),
                             _ => unreachable!(),
@@ -197,7 +203,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         .unwrap(),
                     Elem::Float(width, None) => {
                         match width {
-                            16 => self.capabilities.insert(Capability::AtomicFloat16MinMaxEXT),
+                            16 if out_ty.vectorization() == 1 => {
+                                self.capabilities.insert(Capability::AtomicFloat16MinMaxEXT)
+                            }
+                            16 => self.capabilities.insert(Capability::AtomicFloat16VectorNV),
                             32 => self.capabilities.insert(Capability::AtomicFloat32MinMaxEXT),
                             64 => self.capabilities.insert(Capability::AtomicFloat64MinMaxEXT),
                             _ => unreachable!(),
@@ -232,7 +241,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         .unwrap(),
                     Elem::Float(width, None) => {
                         match width {
-                            16 => self.capabilities.insert(Capability::AtomicFloat16MinMaxEXT),
+                            16 if out_ty.vectorization() == 1 => {
+                                self.capabilities.insert(Capability::AtomicFloat16MinMaxEXT)
+                            }
+                            16 => self.capabilities.insert(Capability::AtomicFloat16VectorNV),
                             32 => self.capabilities.insert(Capability::AtomicFloat32MinMaxEXT),
                             64 => self.capabilities.insert(Capability::AtomicFloat64MinMaxEXT),
                             _ => unreachable!(),

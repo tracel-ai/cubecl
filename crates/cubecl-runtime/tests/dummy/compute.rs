@@ -32,10 +32,6 @@ impl Device for DummyDevice {
             index_id: 0,
         }
     }
-
-    fn device_count(_type_id: u16) -> usize {
-        1
-    }
 }
 
 pub type DummyClient = ComputeClient<DummyRuntime>;
@@ -126,5 +122,15 @@ impl Runtime for DummyRuntime {
 
     fn target_properties() -> cubecl_ir::TargetProperties {
         unimplemented!()
+    }
+
+    fn enumerate_devices(
+        _: u16,
+        _: &<Self::Server as ComputeServer>::Info,
+    ) -> Vec<cubecl_common::device::DeviceId> {
+        vec![cubecl_common::device::DeviceId {
+            type_id: 0,
+            index_id: 0,
+        }]
     }
 }

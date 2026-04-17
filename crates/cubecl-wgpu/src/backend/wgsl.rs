@@ -1,33 +1,32 @@
-use cubecl_core::{Compiler, prelude::Visibility};
-#[cfg(not(all(target_os = "macos", feature = "msl")))]
+use cubecl_core::{Compiler, prelude::Visibility, server::KernelArguments};
 use cubecl_core::{
     WgpuCompilationOptions,
     ir::{ElemType, UIntKind},
 };
-#[cfg(not(all(target_os = "macos", feature = "msl")))]
-use cubecl_ir::DeviceProperties;
-#[cfg(not(all(target_os = "macos", feature = "msl")))]
+use cubecl_ir::{DeviceProperties, Type};
 use wgpu::Features;
 
 use crate::WgslCompiler;
 
 pub fn bindings(
     repr: &<WgslCompiler as Compiler>::Representation,
-) -> (Vec<Visibility>, Vec<Visibility>) {
+    args: &KernelArguments,
+) -> (Vec<Visibility>, Option<Visibility>, bool) {
     let bindings = repr
         .buffers
         .iter()
-        .map(|it| it.visibility)
+        .map(|it| {
+            if it.item.elem().is_atomic() {
+                Visibility::ReadWrite
+            } else {
+                it.visibility
+            }
+        })
         .collect::<Vec<_>>();
-    let mut meta = vec![];
-    if repr.has_metadata {
-        meta.push(Visibility::Read);
-    }
-    meta.extend(repr.scalars.iter().map(|_| Visibility::Read));
-    (bindings, meta)
+    let meta = (!args.info.data.is_empty()).then_some(Visibility::Read);
+    (bindings, meta, false)
 }
 
-#[cfg(not(all(target_os = "macos", feature = "msl")))]
 pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
     let limits = adapter.limits();
     adapter
@@ -56,7 +55,6 @@ pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Que
         .unwrap()
 }
 
-#[cfg(not(all(target_os = "macos", feature = "msl")))]
 pub fn register_wgsl_features(
     adapter: &wgpu::Adapter,
     props: &mut cubecl_ir::DeviceProperties,
@@ -68,7 +66,6 @@ pub fn register_wgsl_features(
     }
 }
 
-#[cfg(not(all(target_os = "macos", feature = "msl")))]
 pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
     use cubecl_core::ir::{AddressType, ElemType, FloatKind, IntKind, StorageType};
     use cubecl_ir::features::*;
@@ -85,46 +82,33 @@ pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
 
     let supported_atomic_types = [ElemType::Int(IntKind::I32), ElemType::UInt(UIntKind::U32)];
 
-    let mut register = |ty: StorageType, uses: EnumSet<TypeUsage>| {
-        props.register_type_usage(ty, uses);
-    };
-
     for ty in supported_types {
-        register(ty.into(), TypeUsage::all_scalar())
+        props.register_type_usage(ty, TypeUsage::all())
     }
 
     for ty in supported_atomic_types {
-        register(
-            StorageType::Atomic(ty),
-            TypeUsage::AtomicLoadStore | TypeUsage::AtomicAdd,
-        )
+        props.register_atomic_type_usage(
+            Type::new(StorageType::Atomic(ty)),
+            AtomicUsage::LoadStore | AtomicUsage::Add,
+        );
     }
 
     let feats = adapter.features();
 
     if feats.contains(wgpu::Features::SHADER_INT64) {
-        register(ElemType::Int(IntKind::I64).into(), TypeUsage::all_scalar());
-        register(
-            ElemType::UInt(UIntKind::U64).into(),
-            TypeUsage::all_scalar(),
-        );
+        props.register_type_usage(ElemType::Int(IntKind::I64), TypeUsage::all());
+        props.register_type_usage(ElemType::UInt(UIntKind::U64), TypeUsage::all());
     }
     if feats.contains(wgpu::Features::SHADER_F64) {
-        register(
-            ElemType::Float(FloatKind::F64).into(),
-            TypeUsage::all_scalar(),
-        );
+        props.register_type_usage(ElemType::Float(FloatKind::F64), TypeUsage::all());
     }
     if feats.contains(wgpu::Features::SHADER_F16) {
-        register(
-            ElemType::Float(FloatKind::F16).into(),
-            TypeUsage::all_scalar(),
-        );
+        props.register_type_usage(ElemType::Float(FloatKind::F16), TypeUsage::all());
     }
     if feats.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
-        register(
-            StorageType::Atomic(ElemType::Float(FloatKind::F32)),
-            TypeUsage::AtomicLoadStore | TypeUsage::AtomicAdd,
+        props.register_atomic_type_usage(
+            Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))),
+            AtomicUsage::LoadStore | AtomicUsage::Add,
         );
     }
 }

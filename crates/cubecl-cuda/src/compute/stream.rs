@@ -12,7 +12,9 @@ use cubecl_core::{
 };
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryManagement, MemoryManagementOptions},
+    memory_management::{
+        MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, drop_queue,
+    },
     stream::EventStreamBackend,
 };
 use std::sync::Arc;
@@ -23,6 +25,13 @@ pub struct Stream {
     pub memory_management_gpu: MemoryManagement<GpuStorage>,
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
     pub errors: Vec<ServerError>,
+    pub drop_queue: drop_queue::PendingDropQueue<Fence>,
+}
+
+impl drop_queue::Fence for Fence {
+    fn sync(self) {
+        let _ = self.wait_sync().ok();
+    }
 }
 
 #[derive(new, Debug)]
@@ -69,6 +78,7 @@ impl EventStreamBackend for CudaStreamBackend {
             memory_management_gpu,
             memory_management_cpu,
             errors: Vec::new(),
+            drop_queue: Default::default(),
         }
     }
 

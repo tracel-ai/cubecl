@@ -12,6 +12,25 @@ pub struct CompilationConfig {
     #[serde(default)]
     #[cfg(std_io)]
     pub cache: Option<CacheConfig>,
+    /// Controls whether kernel launches enforce bounds checks.
+    #[serde(default)]
+    pub check_mode: BoundsCheckMode,
+}
+
+/// Bounds checks options.
+#[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+pub enum BoundsCheckMode {
+    #[serde(rename = "enforce")]
+    /// Always enforce bounds checks on every kernel launch.
+    Enforce,
+    #[serde(rename = "validate")]
+    /// Always enforce bounds checks on every kernel launch, and validate unchecked kernels for OOB.
+    Validate,
+    /// Enforce bounds checking on standard launches, but skip checks on
+    /// explicitly unchecked launches for better performance.
+    #[default]
+    #[serde(rename = "auto")]
+    Auto,
 }
 
 /// Log levels for compilation in `CubeCL`.

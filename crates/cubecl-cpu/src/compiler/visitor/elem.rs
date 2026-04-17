@@ -93,6 +93,6 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
     ];
 
     for ty in supported_types {
-        props.register_type_usage(ty, TypeUsage::all_scalar());
+        props.register_type_usage(ty, TypeUsage::all());
     }
 }

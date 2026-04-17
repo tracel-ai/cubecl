@@ -102,6 +102,13 @@ impl Item {
         }
     }
 
+    pub fn vectorization(&self) -> u32 {
+        match self {
+            Item::Vector(_, factor) => *factor,
+            _ => 1,
+        }
+    }
+
     pub fn constant<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>, value: ConstVal) -> Word {
         let scalar = self.elem().constant(b, value);
         let ty = self.id(b);

@@ -68,7 +68,6 @@ pub enum Variable<D: Dialect> {
     GlobalScalar {
         id: Id,
         elem: Elem<D>,
-        in_struct: bool,
     },
     ConstantArray(Id, Item<D>, usize),
     Constant(ConstantValue, Item<D>),
@@ -251,14 +250,7 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::Slice { id, .. } => {
                 write!(f, "slice_{id}")
             }
-            Variable::GlobalScalar {
-                id,
-                elem,
-                in_struct,
-            } => match *in_struct {
-                true => write!(f, "scalars_{elem}.x[{id}]"),
-                false => write!(f, "scalars_{elem}[{id}]"),
-            },
+            Variable::GlobalScalar { id, elem } => write!(f, "info.scalars_{elem}[{id}]"),
             Variable::Constant(number, item) if item.vectorization <= 1 => {
                 let value = format_const(number, item);
                 match item.elem() {
@@ -415,11 +407,7 @@ impl<D: Dialect> Variable<D> {
     pub fn optimized_args<const N: usize>(args: [Self; N]) -> OptimizedArgs<N, D> {
         let args_after = args.map(|a| a.optimized());
 
-        let item_reference_after = args_after[0].item();
-
-        let is_optimized = args_after
-            .iter()
-            .all(|var| var.elem() == item_reference_after.elem && var.is_optimized());
+        let is_optimized = args_after.iter().all(|var| var.is_optimized());
 
         if is_optimized {
             let vectorization_before = args

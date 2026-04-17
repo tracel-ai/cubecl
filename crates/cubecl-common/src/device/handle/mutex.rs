@@ -17,7 +17,9 @@ use hashbrown::HashMap;
 pub struct MutexDeviceHandle<S: DeviceService> {
     state: MutexDeviceState,
     device_id: DeviceId,
-    _phantom: PhantomData<S>,
+    // fn(S) makes this Send+Sync regardless of S, since the handle
+    // never holds an S — it only accesses it through the Mutex.
+    _phantom: PhantomData<fn(S)>,
 }
 
 #[derive(Clone)]
@@ -25,9 +27,6 @@ struct MutexDeviceState {
     service: Arc<Mutex<Box<dyn Any + Send>>>,
     utilities: ServerUtilitiesHandle,
 }
-
-/// Trust me.
-unsafe impl<S: DeviceService> Sync for MutexDeviceHandle<S> {}
 
 /// The global storage for all device services.
 /// In no-std, we use a global registry protected by a Mutex.

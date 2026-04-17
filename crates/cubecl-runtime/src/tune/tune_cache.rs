@@ -12,7 +12,6 @@ use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
 use alloc::string::String;
 use hashbrown::HashMap;
 
-/// In-memory cache entry
 #[derive(Debug)]
 pub(crate) enum CacheEntry {
     Done {
@@ -97,7 +96,9 @@ pub enum TuneCacheResult {
     },
     /// The operation might be cached, but we don't know yet whether the checksum is valid.
     Unchecked,
-    /// We don't know yet what is fastest, but are waiting for a result to come in.
+    /// A tuning job is in flight for this key — the worker hasn't published a result yet.
+    /// The receiver wakes (with `Err(RecvError)`) when the worker commits the result. Native
+    /// callers `block_on` it and re-query; wasm callers drop it and fall back.
     Pending,
     /// No operation is found yet.
     Miss,
@@ -134,42 +135,43 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 
     pub fn fastest(&self, key: &K) -> TuneCacheResult {
-        let result = self.in_memory_cache.get(key);
-
-        let Some(val) = result else {
+        let Some(val) = self.in_memory_cache.get(key) else {
             return TuneCacheResult::Miss;
         };
 
-        match val {
-            CacheEntry::Done {
-                checksum,
-                fastest_index,
-            } => {
-                if cfg!(std_io) {
-                    match checksum {
-                        ChecksumState::ToBeVerified(..) => TuneCacheResult::Unchecked, // Don't know yet.
-                        ChecksumState::NoMatch => TuneCacheResult::Miss, // Can't use this.
-                        ChecksumState::Match => TuneCacheResult::Hit {
-                            fastest_index: *fastest_index,
-                        },
-                    }
-                } else {
-                    // Clippy;
-                    let _ = checksum;
-                    TuneCacheResult::Hit {
-                        fastest_index: *fastest_index,
-                    }
-                }
+        let CacheEntry::Done {
+            checksum,
+            fastest_index,
+        } = val
+        else {
+            // Pending: clone the receiver so the caller can subscribe to the in-flight tune.
+            let CacheEntry::Pending = val else {
+                unreachable!()
+            };
+            return TuneCacheResult::Pending;
+        };
+
+        if cfg!(std_io) {
+            match checksum {
+                ChecksumState::ToBeVerified(..) => TuneCacheResult::Unchecked, // Don't know yet.
+                ChecksumState::NoMatch => TuneCacheResult::Miss,               // Can't use this.
+                ChecksumState::Match => TuneCacheResult::Hit {
+                    fastest_index: *fastest_index,
+                },
             }
-            CacheEntry::Pending => TuneCacheResult::Pending,
+        } else {
+            // Clippy;
+            let _ = checksum;
+            TuneCacheResult::Hit {
+                fastest_index: *fastest_index,
+            }
         }
     }
 
     #[cfg(std_io)]
-    pub fn validate_checksum(&mut self, key: &K, checksum: &str) {
-        let result = self.in_memory_cache.get_mut(key);
-        let Some(val) = result else {
-            return;
+    pub fn validate_checksum(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
+        let Some(val) = self.in_memory_cache.get_mut(key) else {
+            return TuneCacheResult::Miss;
         };
 
         if let CacheEntry::Done {
@@ -184,9 +186,13 @@ impl<K: AutotuneKey> TuneCache<K> {
                 *checksum_state = ChecksumState::NoMatch;
             }
         }
+
+        self.fastest(key)
     }
 
-    #[allow(unused)]
+    /// Mark a key as being tuned. Used by [`Tuner::tune`] under the cache mutex so that
+    /// concurrent callers see [`TuneCacheResult::Pending`] and wait on the same job instead of
+    /// starting a second one. Returns `(Sender, Receiver)`:
     pub(crate) fn mark_pending(&mut self, key: K) {
         self.in_memory_cache.insert(key, CacheEntry::Pending);
     }

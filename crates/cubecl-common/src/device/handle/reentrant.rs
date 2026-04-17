@@ -1,6 +1,5 @@
 use alloc::boxed::Box;
-use core::cell::{RefCell, RefMut};
-use core::ops::DerefMut;
+use core::cell::{Cell, RefCell};
 use core::{
     any::{Any, TypeId},
     marker::PhantomData,
@@ -12,14 +11,13 @@ use std::sync::Arc;
 use crate::device::handle::{DeviceHandleSpec, ServerUtilitiesHandle, ServiceCreationError};
 use crate::device::{DeviceId, DeviceService};
 
-type MutCell<T> = RefCell<T>;
-type MutGuard<'a, T> = RefMut<'a, T>;
-
 /// Handle for accessing a [`DeviceState`] associated with a specific device.
 pub struct ReentrantMutexDeviceHandle<S: DeviceService> {
     lock: DeviceStateLock,
     device_id: DeviceId,
-    _phantom: PhantomData<S>,
+    // fn(S) makes this Send+Sync regardless of S, since the handle
+    // never holds an S — it only accesses it through the lock.
+    _phantom: PhantomData<fn(S)>,
 }
 
 impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
@@ -34,7 +32,14 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {
-        self.lock.utilities.get(&TypeId::of::<S>()).unwrap().clone()
+        let state = self.lock.lock.lock();
+        state
+            .map
+            .borrow()
+            .get(&TypeId::of::<S>())
+            .expect("Service not yet initialized — call init() before load()")
+            .utilities
+            .clone()
     }
 
     fn flush_queue(&self) {}
@@ -43,21 +48,18 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
         &self,
         task: T,
     ) -> Result<R, super::CallError> {
-        let mut guard = self.lock();
-        Ok(task(&mut guard))
+        Ok(self.with_lock(task))
     }
 
     fn submit_blocking_scoped<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(
         &self,
         task: T,
     ) -> R {
-        let mut guard = self.lock();
-        task(&mut guard)
+        self.with_lock(task)
     }
 
     fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
-        let mut guard = self.lock();
-        task(&mut guard);
+        self.with_lock(task);
     }
 
     fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
@@ -81,9 +83,6 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
     }
 }
 
-/// There is nothing to read without a lock, and it's fine to allow locking a context reference.
-unsafe impl<S: DeviceService> Sync for ReentrantMutexDeviceHandle<S> {}
-
 impl<S: DeviceService> Clone for ReentrantMutexDeviceHandle<S> {
     fn clone(&self) -> Self {
         Self {
@@ -94,55 +93,14 @@ impl<S: DeviceService> Clone for ReentrantMutexDeviceHandle<S> {
     }
 }
 
-/// Guard providing mutable access to [`DeviceState`].
-///
-/// Automatically releases the lock when dropped.
-pub struct DeviceStateGuard<'a, S: DeviceService> {
-    guard_ref: Option<MutGuard<'a, Box<dyn Any + Send + 'static>>>,
-    guard_mutex: Option<ReentrantMutexGuard<'a, DeviceStateMap>>,
-    _phantom: PhantomData<S>,
-}
-
 /// Guard making sure only the locked device can be used.
-///
-/// Automatically releases the lock when dropped.
 pub struct DeviceGuard<'a> {
-    guard_mutex: Option<ReentrantMutexGuard<'a, DeviceStateMap>>,
-}
-
-impl<'a, S: DeviceService> Drop for DeviceStateGuard<'a, S> {
-    fn drop(&mut self) {
-        // Important to drop the ref before.
-        self.guard_ref = None;
-        self.guard_mutex = None;
-    }
+    _guard_mutex: Option<ReentrantMutexGuard<'a, DeviceStateMap>>,
 }
 
 impl<'a> Drop for DeviceGuard<'a> {
     fn drop(&mut self) {
-        self.guard_mutex = None;
-    }
-}
-
-impl<'a, S: DeviceService> core::ops::Deref for DeviceStateGuard<'a, S> {
-    type Target = S;
-
-    fn deref(&self) -> &Self::Target {
-        self.guard_ref
-            .as_ref()
-            .expect("The guard to not be dropped")
-            .downcast_ref()
-            .expect("The type to be correct")
-    }
-}
-
-impl<'a, S: DeviceService> core::ops::DerefMut for DeviceStateGuard<'a, S> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.guard_ref
-            .as_mut()
-            .expect("The guard to not be dropped")
-            .downcast_mut()
-            .expect("The type to be correct")
+        self._guard_mutex = None;
     }
 }
 
@@ -160,13 +118,11 @@ impl<S: DeviceService> ReentrantMutexDeviceHandle<S> {
     ///
     /// An error if the device already has a registered state.
     pub fn insert(device: DeviceId, state_new: S) -> Result<Self, alloc::string::String> {
-        let mut lock = Self::locate(device);
+        let lock = Self::locate(device);
         let id = TypeId::of::<S>();
 
         let state = lock.lock.lock.lock();
-
-        // It is safe for the same reasons enumerated in the lock function.
-        let (map, map_guard) = unsafe { borrow_mut_split(&state.map) };
+        let mut map = state.map.borrow_mut();
 
         if map.contains_key(&id) {
             return Err(alloc::format!(
@@ -175,14 +131,16 @@ impl<S: DeviceService> ReentrantMutexDeviceHandle<S> {
         }
 
         let utilities = state_new.utilities();
-        lock.lock.utilities.insert(id, utilities);
-
         let any: Box<dyn Any + Send + 'static> = Box::new(state_new);
-        let cell = MutCell::new(any);
+        map.insert(
+            id,
+            ReentrantMutexDeviceState {
+                service: Cell::new(Some(any)),
+                utilities,
+            },
+        );
 
-        map.insert(id, ReentrantMutexDeviceState { service: cell });
-
-        core::mem::drop(map_guard);
+        core::mem::drop(map);
         core::mem::drop(state);
 
         Ok(lock)
@@ -193,66 +151,59 @@ impl<S: DeviceService> ReentrantMutexDeviceHandle<S> {
         let state = self.lock.lock.lock();
 
         DeviceGuard {
-            guard_mutex: Some(state),
+            _guard_mutex: Some(state),
         }
     }
 
-    /// Acquires exclusive mutable access to the [`DeviceState`].
+    /// Acquires exclusive mutable access to the state and passes it to `f`.
     ///
     /// The same device can lock multiple types at the same time.
     ///
     /// # Panics
     ///
     /// If the same state type is locked multiple times on the same thread.
-    /// This can only happen with recursive locking of the same state, which isn't allowed
-    /// since having multiple mutable references to the same state isn't valid.
-    pub fn lock(&self) -> DeviceStateGuard<'_, S> {
+    fn with_lock<R>(&self, f: impl FnOnce(&mut S) -> R) -> R {
         let key = TypeId::of::<S>();
         let state = self.lock.lock.lock();
 
-        // It is safe for multiple reasons.
-        //
-        // 1. The mutability of the map is handled by each map entry with a RefCell.
-        //    Therefore, multiple mutable references to a map entry are checked.
-        // 2. Map items are never cleaned up, therefore it's impossible to remove the validity of
-        //    an entry.
-        // 3. Because of the lock, no race condition is possible.
-        //
-        // The reason why unsafe is necessary is that the [DeviceStateGuard] doesn't keep track
-        // of the borrowed map entry lifetime. But since it keeps track of both the [RefCell]
-        // and the [ReentrantMutex] guards, it is fine to erase the lifetime here.
-        let (map, map_guard) = unsafe { borrow_mut_split(&state.map) };
-
-        if !map.contains_key(&key) {
-            let state_default = S::init(self.device_id);
-            let any: Box<dyn Any + Send + 'static> = Box::new(state_default);
-            let cell = MutCell::new(any);
-
-            map.insert(key, ReentrantMutexDeviceState { service: cell });
-        }
-
-        let value = map
-            .get(&key)
-            .expect("Just validated the map contains the key.");
-        let ref_guard = match value.service.try_borrow_mut() {
-            Ok(guard) => guard,
-            #[cfg(feature = "std")]
-            Err(_) => panic!(
-                "State {} is already borrowed by the current thread {:?}",
-                core::any::type_name::<S>(),
-                std::thread::current().id()
-            ),
-            #[cfg(not(feature = "std"))]
-            Err(_) => panic!("State {} is already borrowed", core::any::type_name::<S>(),),
+        // Take the entry out of the map. This gives us owned data with
+        // no lifetime tied to the map borrow, so re-entrant calls for
+        // different service types can access the map freely.
+        let entry = {
+            let mut map = state.map.borrow_mut();
+            map.entry(key)
+                .or_insert_with(|| {
+                    let service = S::init(self.device_id);
+                    let utilities = service.utilities();
+                    ReentrantMutexDeviceState {
+                        service: Cell::new(Some(Box::new(service))),
+                        utilities,
+                    }
+                })
+                .service
+                .take()
         };
 
-        core::mem::drop(map_guard);
+        let mut entry = entry.unwrap_or_else(|| {
+            panic!(
+                "State {} is already borrowed by the current thread",
+                core::any::type_name::<S>(),
+            )
+        });
 
-        DeviceStateGuard {
-            guard_ref: Some(ref_guard),
-            guard_mutex: Some(state),
-            _phantom: PhantomData,
-        }
+        let s = entry.downcast_mut::<S>().expect("The type to be correct");
+        let result = f(s);
+
+        // Put the entry back.
+        state
+            .map
+            .borrow()
+            .get(&key)
+            .expect("Entry still exists")
+            .service
+            .replace(Some(entry));
+
+        result
     }
 }
 
@@ -270,15 +221,16 @@ struct DeviceLocator {
 #[derive(Clone)]
 struct DeviceStateLock {
     lock: Arc<ReentrantMutex<DeviceStateMap>>,
-    utilities: HashMap<TypeId, ServerUtilitiesHandle>,
 }
 
 struct DeviceStateMap {
-    map: MutCell<HashMap<TypeId, ReentrantMutexDeviceState>>,
+    map: RefCell<HashMap<TypeId, ReentrantMutexDeviceState>>,
 }
 
 struct ReentrantMutexDeviceState {
-    service: MutCell<Box<dyn Any + Send + 'static>>,
+    /// `None` means the state is currently borrowed by a `with_lock` call.
+    service: Cell<Option<Box<dyn Any + Send + 'static>>>,
+    utilities: ServerUtilitiesHandle,
 }
 
 impl DeviceStateLock {
@@ -300,7 +252,6 @@ impl DeviceStateLock {
 
                 let value = DeviceStateLock {
                     lock: Arc::new(ReentrantMutex::new(state)),
-                    utilities: HashMap::default(),
                 };
 
                 locator_state.states.insert(device, value);
@@ -323,15 +274,72 @@ impl DeviceStateLock {
 impl DeviceStateMap {
     fn new() -> Self {
         Self {
-            map: MutCell::new(HashMap::new()),
+            map: RefCell::new(HashMap::new()),
         }
     }
 }
 
-unsafe fn borrow_mut_split<'a, T>(cell: &MutCell<T>) -> (&'a mut T, MutGuard<'_, T>) {
-    let mut guard = cell.borrow_mut();
-    let item = guard.deref_mut();
-    let item: &'a mut T = unsafe { core::mem::transmute(item) };
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
 
-    (item, guard)
+    macro_rules! make_service {
+        ($name:ident) => {
+            struct $name;
+            impl DeviceService for $name {
+                fn init(_: DeviceId) -> Self {
+                    $name
+                }
+                fn utilities(&self) -> ServerUtilitiesHandle {
+                    Arc::new(())
+                }
+            }
+        };
+    }
+
+    make_service!(Svc1);
+    make_service!(Svc2);
+    make_service!(Svc3);
+    make_service!(Svc4);
+    make_service!(Svc5);
+    make_service!(Svc6);
+    make_service!(Svc7);
+    make_service!(Svc8);
+
+    /// Lock many service types on the same device to force `HashMap` resizes
+    /// while earlier services are still locked. Pre-fix, `borrow_mut_split`
+    /// transmuted a `RefMut` lifetime, and `HashMap` resize moved entries out
+    /// from under those `RefMuts`. Miri can catch this use-after-free.
+    #[test]
+    fn test_many_services_reentrant_resize() {
+        let device = DeviceId {
+            type_id: 99,
+            index_id: 99,
+        };
+
+        let h1 = ReentrantMutexDeviceHandle::<Svc1>::new(device);
+        h1.with_lock(|_| {
+            let h2 = ReentrantMutexDeviceHandle::<Svc2>::new(device);
+            h2.with_lock(|_| {
+                let h3 = ReentrantMutexDeviceHandle::<Svc3>::new(device);
+                h3.with_lock(|_| {
+                    let h4 = ReentrantMutexDeviceHandle::<Svc4>::new(device);
+                    h4.with_lock(|_| {
+                        let h5 = ReentrantMutexDeviceHandle::<Svc5>::new(device);
+                        h5.with_lock(|_| {
+                            let h6 = ReentrantMutexDeviceHandle::<Svc6>::new(device);
+                            h6.with_lock(|_| {
+                                let h7 = ReentrantMutexDeviceHandle::<Svc7>::new(device);
+                                h7.with_lock(|_| {
+                                    let h8 = ReentrantMutexDeviceHandle::<Svc8>::new(device);
+                                    h8.with_lock(|_| {});
+                                });
+                            });
+                        });
+                    });
+                });
+            });
+        });
+    }
 }

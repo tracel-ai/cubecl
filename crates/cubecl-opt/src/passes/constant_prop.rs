@@ -490,7 +490,8 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
         | Arithmetic::Rhypot(_)
         | Arithmetic::Magnitude(_)
         | Arithmetic::Normalize(_)
-        | Arithmetic::Conj(_) => None,
+        | Arithmetic::Conj(_)
+        | Arithmetic::VectorSum(_) => None,
     }
 }
 
