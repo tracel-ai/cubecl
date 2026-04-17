@@ -1,3 +1,5 @@
+use std::println;
+
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
@@ -610,6 +612,7 @@ impl<R: Runtime> ComputeClient<R> {
         let dst = dst.binding();
         let device_ids_cloned = device_ids.clone();
 
+        println!("read init_comm");
         let comms_id = CommunicationId::from(device_ids.clone());
         let is_comms_init = self
             .utilities
@@ -618,6 +621,7 @@ impl<R: Runtime> ComputeClient<R> {
             .unwrap()
             .contains(&comms_id);
 
+        println!("submit");
         self.device.submit(move |server| {
             server
                 .all_reduce(src, dst, dtype, stream_id, op, device_ids_cloned)
@@ -626,6 +630,7 @@ impl<R: Runtime> ComputeClient<R> {
 
         // Other threads could be waiting on `cudarc::nccl::result::comm_init_rank`, so we need to
         // flush right away as to not block these threads.
+        println!("flush_queue");
         if !is_comms_init {
             self.device.flush_queue();
         }

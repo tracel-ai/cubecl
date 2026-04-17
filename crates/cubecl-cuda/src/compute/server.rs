@@ -974,6 +974,7 @@ impl CudaServer {
         // SAFETY: `comm` is a valid `MaybeUninit`. `nccl_comm_id` is a unique communicator ID
         // shared across all participating ranks. `rank` is this device's position in the
         // group. `comm_init_rank` initializes the communicator, making `assume_init` valid.
+        println!("comm_init_rank");
         let communicator = unsafe {
             cudarc::nccl::result::comm_init_rank(
                 comm.as_mut_ptr(),
@@ -985,8 +986,12 @@ impl CudaServer {
             comm.assume_init()
         };
         self.communicators.insert(id.clone(), communicator);
+
+        println!("write insert");
         let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
         initialized_comms.insert(id);
+
+        println!("create end");
 
         communicator
     }
