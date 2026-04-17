@@ -395,6 +395,82 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     T::log(b, ty, add, out)
                 });
             }
+            Arithmetic::Expm1(op) => {
+                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    let relaxed = matches!(out_ty.elem(), Elem::Relaxed);
+                    let bool = out_ty.same_vectorization(Elem::Bool).id(b);
+                    let one = b
+                        .static_cast(
+                            ConstVal::from_float(1.0, 32, None),
+                            &Elem::Float(32, None),
+                            &out_ty,
+                        )
+                        .0;
+                    let half = b
+                        .static_cast(
+                            ConstVal::from_float(0.5, 32, None),
+                            &Elem::Float(32, None),
+                            &out_ty,
+                        )
+                        .0;
+                    let sixth = b
+                        .static_cast(
+                            ConstVal::from_float(1.0 / 6.0, 32, None),
+                            &Elem::Float(32, None),
+                            &out_ty,
+                        )
+                        .0;
+                    let threshold = b
+                        .static_cast(
+                            ConstVal::from_float(1.0e-5, 32, None),
+                            &Elem::Float(32, None),
+                            &out_ty,
+                        )
+                        .0;
+                    let abs = b.id();
+                    b.declare_math_mode(modes, abs);
+                    T::f_abs(b, ty, input, abs);
+                    let is_small = b.f_ord_less_than(bool, None, abs, threshold).unwrap();
+                    b.declare_math_mode(modes, is_small);
+                    let squared = b.f_mul(ty, None, input, input).unwrap();
+                    b.declare_math_mode(modes, squared);
+                    let cubed = b.f_mul(ty, None, squared, input).unwrap();
+                    b.declare_math_mode(modes, cubed);
+                    let half_squared = b.f_mul(ty, None, squared, half).unwrap();
+                    b.declare_math_mode(modes, half_squared);
+                    let sixth_cubed = b.f_mul(ty, None, cubed, sixth).unwrap();
+                    b.declare_math_mode(modes, sixth_cubed);
+                    let linear_plus_quad = b.f_add(ty, None, input, half_squared).unwrap();
+                    b.declare_math_mode(modes, linear_plus_quad);
+                    let taylor = b.f_add(ty, None, linear_plus_quad, sixth_cubed).unwrap();
+                    b.declare_math_mode(modes, taylor);
+                    let exp = b.id();
+                    b.declare_math_mode(modes, exp);
+                    T::exp(b, ty, input, exp);
+                    let native = b.f_sub(ty, None, exp, one).unwrap();
+                    b.declare_math_mode(modes, native);
+                    for id in [
+                        abs,
+                        squared,
+                        cubed,
+                        half_squared,
+                        sixth_cubed,
+                        linear_plus_quad,
+                        taylor,
+                        exp,
+                        native,
+                    ] {
+                        b.mark_uniformity(id, uniform);
+                        if relaxed {
+                            b.decorate(id, Decoration::RelaxedPrecision, []);
+                        }
+                    }
+                    if relaxed {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                    b.select(ty, Some(out), is_small, taylor, native).unwrap();
+                });
+            }
             Arithmetic::Cos(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
                     b.declare_math_mode(modes, out);

@@ -206,6 +206,17 @@ impl_unary_func!(
     f32,
     f64
 );
+impl_unary_func!(
+    Expm1,
+    exp_m1,
+    Arithmetic::Expm1,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
 impl_unary_func!(Cos, cos, Arithmetic::Cos, f16, bf16, flex32, tf32, f32, f64);
 impl_unary_func!(Sin, sin, Arithmetic::Sin, f16, bf16, flex32, tf32, f32, f64);
 impl_unary_func!(Tan, tan, Arithmetic::Tan, f16, bf16, flex32, tf32, f32, f64);
