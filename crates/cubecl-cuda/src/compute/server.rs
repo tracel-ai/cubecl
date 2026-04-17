@@ -416,8 +416,6 @@ impl ServerCommunication for CudaServer {
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<(), ServerError> {
-        println!("[{:?}] in send_recv", std::thread::current().id());
-
         let binding = src.handle.clone();
 
         // We create a command on the source server to retrieve the correct resource from the
@@ -462,12 +460,6 @@ impl ServerCommunication for CudaServer {
         let mut device_ids = vec![server_src.device_id, server_dst.device_id];
         device_ids.sort();
 
-        println!(
-            "[{:?}] device_ids: {:?}",
-            std::thread::current().id(),
-            device_ids
-        );
-
         let comm_id = CommunicationId::from(device_ids.clone());
         let comm_src = server_src
             .communicators
@@ -493,34 +485,6 @@ impl ServerCommunication for CudaServer {
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
         unsafe {
-            println!("[{:?}] group start", std::thread::current().id());
-            println!(
-                "[{:?}] resource_src: {:?}",
-                std::thread::current().id(),
-                resource_src.ptr
-            );
-            println!(
-                "[{:?}] resource_dst: {:?}",
-                std::thread::current().id(),
-                resource_dst.ptr
-            );
-            println!("[{:?}] count: {:?}", std::thread::current().id(), count);
-            println!(
-                "[{:?}] dtype: {:?}",
-                std::thread::current().id(),
-                nccl_dtype
-            );
-            println!(
-                "[{:?}] src index: {:?}",
-                std::thread::current().id(),
-                rank_src
-            );
-            println!(
-                "[{:?}] dst index: {:?}",
-                std::thread::current().id(),
-                rank_dst
-            );
-
             cudarc::nccl::result::group_start().unwrap();
             cudarc::nccl::result::send(
                 resource_src.ptr as *const _,
@@ -546,12 +510,9 @@ impl ServerCommunication for CudaServer {
                 reason: format!("NCCL recv failed: {e:?}"),
                 backtrace: BackTrace::capture(),
             })?;
-
-            println!("[{:?}] group end", std::thread::current().id());
             cudarc::nccl::result::group_end().unwrap();
         }
 
-        println!("[{:?}] send_recv finished", std::thread::current().id());
         Ok(())
     }
 

@@ -660,12 +660,6 @@ impl<R: Runtime> ComputeClient<R> {
         dtype: ElemType,
         device_ids: Vec<DeviceId>, // TODO: temporary
     ) -> Handle {
-        std::println!(
-            "[{:?}] to_client_tensor: {:?}",
-            std::thread::current().id(),
-            device_ids
-        );
-
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
 
@@ -678,14 +672,8 @@ impl<R: Runtime> ComputeClient<R> {
         self.ensure_init_collective(device_ids.clone());
         dst_server.ensure_init_collective(device_ids.clone());
 
-        std::println!("[{:?}] device submit", std::thread::current().id());
-
-        self.device.submit(move |server_src| {
-            std::println!("[{:?}] in device submit", std::thread::current().id());
-
+        self.device.submit_blocking_scoped(move |server_src| {
             dst_server.device.submit_blocking_scoped(move |server_dst| {
-                std::println!("[{:?}] client send_recv", std::thread::current().id());
-
                 R::Server::send_recv(
                     handle_cloned,
                     server_src,
@@ -697,16 +685,10 @@ impl<R: Runtime> ComputeClient<R> {
                 )
                 .unwrap();
 
-                std::println!("[{:?}] sync_coll 1", std::thread::current().id());
-
                 server_src.sync_collective(stream_id_src).unwrap();
-
-                std::println!("[{:?}] sync_coll 2", std::thread::current().id());
-
                 server_dst.sync_collective(stream_id_dst).unwrap();
             });
         });
-        self.device.flush_queue();
 
         handle
     }
