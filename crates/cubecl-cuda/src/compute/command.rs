@@ -60,13 +60,6 @@ impl<'a> Command<'a> {
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
     }
 
-    /// Switches the current CUDA context to the one associated with this command.
-    ///
-    /// Users should not make calls to other [`Command`]s while the context is switched.
-    pub fn unsafe_set_current(&self) {
-        self.ctx.unsafe_set_current().unwrap();
-    }
-
     /// Get the stream cursor.
     pub fn cursor(&self) -> u64 {
         self.streams.cursor

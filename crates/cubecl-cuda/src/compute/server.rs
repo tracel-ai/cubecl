@@ -2,7 +2,7 @@ use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::{
     CudaCompiler,
     compute::{
-        command::{Command, write_to_cpu},
+        command::Command,
         communication::{get_nccl_comm_id, get_nccl_dtype_count, to_nccl_op},
         context::CudaContext,
         stream::CudaStreamBackend,
@@ -23,7 +23,6 @@ use cubecl_core::{
         ProfileError, ProfilingToken, ReduceOperation, ServerCommunication, ServerError,
         ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
     },
-    zspace::{Shape, Strides},
 };
 use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy,
@@ -36,9 +35,8 @@ use cubecl_runtime::{
     stream::MultiStream,
 };
 use cudarc::driver::sys::{
-    CUcontext, CUresult, CUstream_st, CUtensorMapDataType, CUtensorMapFloatOOBfill,
-    CUtensorMapInterleave, CUtensorMapL2promotion, CUtensorMapSwizzle, cuCtxEnablePeerAccess,
-    cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
+    CUstream_st, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
+    CUtensorMapL2promotion, CUtensorMapSwizzle, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
 use std::{
     collections::{HashMap, hash_map::Entry},
@@ -54,7 +52,6 @@ pub struct CudaServer {
     ctx: CudaContext,
     device_id: DeviceId,
     streams: MultiStream<CudaStreamBackend>,
-    peer_activated: bool,
     utilities: Arc<ServerUtilities<Self>>,
     comm_stream: *mut CUstream_st,
     communicators: HashMap<CommunicationId, *mut cudarc::nccl::sys::ncclComm>,
@@ -515,39 +512,6 @@ impl ServerCommunication for CudaServer {
 
         Ok(())
     }
-
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
-    )]
-    fn copy(
-        handle_dst: Handle,
-        server_src: &mut Self,
-        server_dst: &mut Self,
-        src: CopyDescriptor,
-        stream_id_src: StreamId,
-        stream_id_dst: StreamId,
-    ) -> Result<(), ServerError> {
-        if server_src.peer_activated {
-            Self::change_server_peer(
-                handle_dst,
-                server_src,
-                server_dst,
-                src,
-                stream_id_src,
-                stream_id_dst,
-            )
-        } else {
-            Self::change_server_serialized(
-                handle_dst,
-                server_src,
-                server_dst,
-                src,
-                stream_id_src,
-                stream_id_dst,
-            )
-        }
-    }
 }
 
 impl CudaServer {
@@ -565,13 +529,6 @@ impl CudaServer {
 
         ctx.unsafe_set_current().unwrap();
 
-        let peer_activated = enable_one_way_peer_access(ctx.context).is_ok();
-        if peer_activated {
-            log::info!("Peer data transfer activated for device {device_id}");
-        } else {
-            log::info!("Peer data transfer not available for device {device_id}");
-        }
-
         let comm_stream = cudarc::driver::result::stream::create(
             cudarc::driver::result::stream::StreamKind::NonBlocking,
         )
@@ -580,7 +537,6 @@ impl CudaServer {
         Self {
             ctx,
             device_id,
-            peer_activated,
             streams: MultiStream::new(
                 utilities.logger.clone(),
                 CudaStreamBackend::new(
@@ -595,211 +551,6 @@ impl CudaServer {
             comm_stream,
             communicators: HashMap::default(),
         }
-    }
-
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
-    )]
-    fn change_server_peer(
-        handle_dst: Handle,
-        server_src: &mut Self,
-        server_dst: &mut Self,
-        src: CopyDescriptor,
-        stream_id_src: StreamId,
-        stream_id_dst: StreamId,
-    ) -> Result<(), ServerError> {
-        let binding = src.handle.clone();
-
-        let context_src = server_src.ctx.context;
-        let context_dst = server_dst.ctx.context;
-
-        // We create a command on the source server to retrieve the correct resource from the
-        // source memory pools. We also make sure the current stream is aligned with the stream of
-        // the binding, where the data was first allocated.
-        let mut command_src = server_src.command(
-            stream_id_src,
-            [&src.handle].into_iter(),
-            StreamErrorMode {
-                ignore: true,
-                flush: false,
-            },
-        )?;
-        let resource_src = command_src.resource(binding.clone())?;
-        let stream_src = command_src.streams.current().sys;
-        let fence_src = Fence::new(stream_src);
-
-        // We need to free the command before creating another one.
-        core::mem::drop(command_src);
-
-        // We create a new command on the destination server to reserve the necessary GPU memory
-        // and wait on the source server, making sure the execution is updated. Then, we perform
-        // the peer memcpy on the destination server.
-        let mut command_dst = server_dst.command_no_inputs(
-            stream_id_dst,
-            StreamErrorMode {
-                ignore: true,
-                flush: false,
-            },
-        )?;
-        let stream_dst = command_dst.streams.current().sys;
-
-        let memory = command_dst.reserve(handle_dst.size()).unwrap();
-        command_dst.bind(memory, handle_dst.memory.clone());
-
-        let resource_dst = command_dst.resource(handle_dst.binding())?;
-        fence_src.wait_async(stream_dst);
-
-        // SAFETY: Both `resource_src.ptr` and `resource_dst.ptr` are valid device pointers
-        // on their respective contexts. Peer access has been enabled (checked by caller).
-        // The fence ensures the source data is ready before the copy begins.
-        unsafe {
-            cudarc::driver::sys::cuMemcpyPeerAsync(
-                resource_dst.ptr,
-                context_dst,
-                resource_src.ptr,
-                context_src,
-                binding.size_in_used() as usize,
-                stream_dst,
-            )
-            .result()
-            .expect("Peer communication should be activated");
-        }
-
-        // We drop the last command.
-        core::mem::drop(command_dst);
-
-        Ok(())
-    }
-
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
-    )]
-    #[allow(unused)]
-    fn change_server_serialized(
-        handle_dst: Handle,
-        server_src: &mut Self,
-        server_dst: &mut Self,
-        src: CopyDescriptor,
-        stream_id_src: StreamId,
-        stream_id_dst: StreamId,
-    ) -> Result<(), ServerError> {
-        let shape: Shape = src.shape;
-        let strides: Strides = src.strides;
-        let elem_size = src.elem_size;
-        let binding = src.handle.clone();
-        let num_bytes = shape.iter().product::<usize>() * elem_size;
-
-        // ACTIVE: command_src
-        let mut command_src = server_src.command(
-            stream_id_src,
-            [&src.handle].into_iter(),
-            StreamErrorMode {
-                ignore: true,
-                flush: false,
-            },
-        )?;
-        let stream_src = command_src.streams.current().sys;
-        let resource_src = command_src.resource(binding.clone())?;
-
-        // ACTIVE: command_dst
-        let mut command_dst = server_dst.command_no_inputs(
-            stream_id_dst,
-            StreamErrorMode {
-                ignore: true,
-                flush: false,
-            },
-        )?;
-        let stream_dst = command_dst.streams.current().sys;
-
-        // the cpu buffer sequences before the destination resource,
-        // be cause we don't need the destination resource to exist
-        // until after the post src>cpu write fence.
-        let mut cpu_buffer = command_dst.reserve_cpu(num_bytes, true, None);
-
-        let reserved = command_dst.reserve(handle_dst.size()).unwrap();
-        command_dst.bind(reserved, handle_dst.memory.clone());
-        let resource_dst = command_dst.resource(handle_dst.binding())?;
-
-        // Since the `cpu_buffer` lives in the destination stream timeline,
-        // we ensure that the allocation of that copy buffer is complete
-        // in both timelines before we permit the source stream to proceed.
-        Fence::new(stream_dst).wait_async(stream_src);
-
-        // TODO: Interleave
-        // The entire src>cpu completes before cpu>dst starts,
-        // meaning that half of our hardware comms busses are unused
-        // at any given moment.
-        //
-        // By splitting this into k chunked writes, we could sequence:
-        // - src[0] > cpu[0]
-        // - src[1] > cpu[1]; cpu[0] > dst[0]
-        // - src[2] > cpu[2]; cpu[1] > dst[1]
-        // - ...
-        // - src[k-1] > cpu[k-1]; cpu[k-2] > dst[k-2]
-        // - cpu(k-1) > dst(k-1)
-        //
-        // By selecting a buffer with j slots, j<<k; we can restrict
-        // to an active stream with no more than j active at a time;
-        // reducing cpu buffer usage.
-        //
-        // The entire rotation can be scheduled via fence events,
-        // and delegated to the stream management after this method exits.
-        //
-        // # Challenge 1: Chunk Size Selection
-        // On a given machine, there is a "good" chunk size. It depends
-        // upon the host plane and memory, as well as the GPUs. We can
-        // probably tune to a good size, but some form of active global
-        // active policy lookup to get the size could be useful here.
-        //
-        // # Challenge 2: Sharding
-        // To leverage the existing write machinery, we don't want to
-        // change the shape of tensors; so shard selection should be
-        // taking contiguous slices of one dimension.
-        //
-        // The dimension to slice, and how to slice it, should be
-        // selected based upon the target chunk size.
-
-        command_src.unsafe_set_current();
-        // SAFETY: `resource_src.ptr` is a valid device pointer, `stream_src` is a valid
-        // CUDA stream, and `cpu_buffer` is pre-allocated with sufficient capacity.
-        // The CUDA context has been set to the source device above.
-        unsafe {
-            write_to_cpu(
-                &shape,
-                &strides,
-                elem_size,
-                &mut cpu_buffer,
-                resource_src.ptr,
-                stream_src,
-            )?;
-        }
-
-        // stream_dst waits until the stream_src write is sequenced.
-        Fence::new(stream_src).wait_async(stream_dst);
-        core::mem::drop(command_src);
-
-        // ACTIVE: command_dst
-        command_dst.unsafe_set_current();
-        // SAFETY: `resource_dst.ptr` is a valid device pointer, `stream_dst` is a valid
-        // CUDA stream, and `cpu_buffer` contains the data copied from the source device.
-        // The CUDA context has been set to the destination device above.
-        unsafe {
-            write_to_gpu(
-                &shape,
-                &strides,
-                elem_size,
-                &cpu_buffer,
-                resource_dst.ptr,
-                stream_dst,
-            )
-        }?;
-
-        core::mem::drop(cpu_buffer);
-        core::mem::drop(command_dst);
-
-        Ok(())
     }
 
     fn command_no_inputs(
@@ -1376,19 +1127,4 @@ fn check_tma_im2col(
     )?;
 
     Ok(())
-}
-
-use crate::compute::command::write_to_gpu;
-use cudarc::driver::sys::cudaError_enum::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED;
-use cudarc::driver::sys::cudaError_enum::CUDA_SUCCESS;
-
-fn enable_one_way_peer_access(ctx_src: CUcontext) -> Result<(), CUresult> {
-    // SAFETY: `ctx_src` is a valid CUDA context. `cuCtxEnablePeerAccess` is idempotent —
-    // `CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED` is treated as success.
-    unsafe {
-        match cuCtxEnablePeerAccess(ctx_src, 0) {
-            CUDA_SUCCESS | CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => Ok(()),
-            err => Err(err),
-        }
-    }
 }
