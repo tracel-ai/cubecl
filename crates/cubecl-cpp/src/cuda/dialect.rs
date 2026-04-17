@@ -76,6 +76,101 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
                 "__device__ __host__ inline bool operator==(cuDoubleComplex a, cuDoubleComplex b) { return cuCreal(a)==cuCreal(b) && cuCimag(a)==cuCimag(b); }\n",
                 "__device__ __host__ inline bool operator!=(cuDoubleComplex a, cuDoubleComplex b) { return !(a==b); }\n",
             ))?;
+            f.write_str(
+                r#"__device__ __host__ inline float cubecl_abs(cuFloatComplex a) {
+    return hypotf(cuCrealf(a), cuCimagf(a));
+}
+__device__ __host__ inline double cubecl_abs(cuDoubleComplex a) {
+    return hypot(cuCreal(a), cuCimag(a));
+}
+__device__ __host__ inline cuFloatComplex cubecl_exp(cuFloatComplex a) {
+    const float x = cuCrealf(a);
+    const float y = cuCimagf(a);
+    const float ex = expf(x);
+    return make_cuFloatComplex(ex * cosf(y), ex * sinf(y));
+}
+__device__ __host__ inline cuDoubleComplex cubecl_exp(cuDoubleComplex a) {
+    const double x = cuCreal(a);
+    const double y = cuCimag(a);
+    const double ex = exp(x);
+    return make_cuDoubleComplex(ex * cos(y), ex * sin(y));
+}
+__device__ __host__ inline cuFloatComplex cubecl_log(cuFloatComplex a) {
+    const float x = cuCrealf(a);
+    const float y = cuCimagf(a);
+    return make_cuFloatComplex(logf(hypotf(x, y)), atan2f(y, x));
+}
+__device__ __host__ inline cuDoubleComplex cubecl_log(cuDoubleComplex a) {
+    const double x = cuCreal(a);
+    const double y = cuCimag(a);
+    return make_cuDoubleComplex(log(hypot(x, y)), atan2(y, x));
+}
+__device__ __host__ inline cuFloatComplex cubecl_sin(cuFloatComplex a) {
+    const float x = cuCrealf(a);
+    const float y = cuCimagf(a);
+    return make_cuFloatComplex(sinf(x) * coshf(y), cosf(x) * sinhf(y));
+}
+__device__ __host__ inline cuDoubleComplex cubecl_sin(cuDoubleComplex a) {
+    const double x = cuCreal(a);
+    const double y = cuCimag(a);
+    return make_cuDoubleComplex(sin(x) * cosh(y), cos(x) * sinh(y));
+}
+__device__ __host__ inline cuFloatComplex cubecl_cos(cuFloatComplex a) {
+    const float x = cuCrealf(a);
+    const float y = cuCimagf(a);
+    return make_cuFloatComplex(cosf(x) * coshf(y), -sinf(x) * sinhf(y));
+}
+__device__ __host__ inline cuDoubleComplex cubecl_cos(cuDoubleComplex a) {
+    const double x = cuCreal(a);
+    const double y = cuCimag(a);
+    return make_cuDoubleComplex(cos(x) * cosh(y), -sin(x) * sinh(y));
+}
+__device__ __host__ inline cuFloatComplex cubecl_sqrt(cuFloatComplex a) {
+    const float x = cuCrealf(a);
+    const float y = cuCimagf(a);
+    const float r = hypotf(x, y);
+    if (x >= 0.0f) {
+        const float re = sqrtf(0.5f * (r + x));
+        const float im = re == 0.0f ? 0.0f : y / (2.0f * re);
+        return make_cuFloatComplex(re, im);
+    }
+    const float im = copysignf(sqrtf(0.5f * (r - x)), y);
+    const float re = im == 0.0f ? 0.0f : y / (2.0f * im);
+    return make_cuFloatComplex(re, im);
+}
+__device__ __host__ inline cuDoubleComplex cubecl_sqrt(cuDoubleComplex a) {
+    const double x = cuCreal(a);
+    const double y = cuCimag(a);
+    const double r = hypot(x, y);
+    if (x >= 0.0) {
+        const double re = sqrt(0.5 * (r + x));
+        const double im = re == 0.0 ? 0.0 : y / (2.0 * re);
+        return make_cuDoubleComplex(re, im);
+    }
+    const double im = copysign(sqrt(0.5 * (r - x)), y);
+    const double re = im == 0.0 ? 0.0 : y / (2.0 * im);
+    return make_cuDoubleComplex(re, im);
+}
+__device__ __host__ inline cuFloatComplex cubecl_tanh(cuFloatComplex a) {
+    const float x2 = 2.0f * cuCrealf(a);
+    const float y2 = 2.0f * cuCimagf(a);
+    const float denom = coshf(x2) + cosf(y2);
+    return make_cuFloatComplex(sinhf(x2) / denom, sinf(y2) / denom);
+}
+__device__ __host__ inline cuDoubleComplex cubecl_tanh(cuDoubleComplex a) {
+    const double x2 = 2.0 * cuCreal(a);
+    const double y2 = 2.0 * cuCimag(a);
+    const double denom = cosh(x2) + cos(y2);
+    return make_cuDoubleComplex(sinh(x2) / denom, sin(y2) / denom);
+}
+__device__ __host__ inline cuFloatComplex cubecl_powf(cuFloatComplex a, cuFloatComplex b) {
+    return cubecl_exp(b * cubecl_log(a));
+}
+__device__ __host__ inline cuDoubleComplex cubecl_powf(cuDoubleComplex a, cuDoubleComplex b) {
+    return cubecl_exp(b * cubecl_log(a));
+}
+"#,
+            )?;
         }
 
         // tf32 conversion function is in mma header

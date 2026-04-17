@@ -7,10 +7,14 @@ use crate::{
 };
 use cubecl_ir::{Arithmetic, ConstantValue, Operator};
 
-use crate::frontend::operation::{unary_expand, unary_expand_fixed_output};
+use crate::frontend::{
+    Abs,
+    operation::{unary_expand, unary_expand_fixed_output},
+};
 
 pub trait Complex:
     CubePrimitive
+    + Abs<AbsElem = Self::FloatElem>
     + Add<Output = Self>
     + Sub<Output = Self>
     + Mul<Output = Self>
@@ -111,6 +115,10 @@ macro_rules! impl_complex {
         }
 
         impl Scalar for $primitive {}
+
+        impl Abs for $primitive {
+            type AbsElem = $float;
+        }
 
         impl Complex for $primitive {
             type FloatElem = $float;
