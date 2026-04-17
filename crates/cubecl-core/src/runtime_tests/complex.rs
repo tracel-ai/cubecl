@@ -1,7 +1,18 @@
 use crate::{self as cubecl};
 use alloc::vec;
-use core::fmt::Display;
+use core::fmt::{Debug, Display};
 use cubecl::prelude::*;
+
+fn assert_exact_eq<R: Runtime, E: CubeElement + Debug + PartialEq>(
+    client: &ComputeClient<R>,
+    output: cubecl_runtime::server::Handle,
+    expected: &[E],
+) {
+    let actual = client.read_one_unchecked(output);
+    let actual = E::from_bytes(&actual);
+
+    assert_eq!(actual, expected);
+}
 
 fn assert_real_approx_eq<R: Runtime, F: num_traits::Float + CubeElement + Display>(
     client: &ComputeClient<R>,
@@ -70,95 +81,11 @@ pub fn kernel_complex_add<C: Complex>(output: &mut Array<C>, lhs: &Array<C>, rhs
     }
 }
 
-pub fn test_complex_add_cf32<R: Runtime>(client: ComputeClient<R>) {
-    type C = num_complex::Complex<f32>;
-    let lhs = vec![C::new(1.0f32, 2.0f32), C::new(3.0f32, 4.0f32)];
-    let rhs = vec![C::new(5.0f32, 6.0f32), C::new(7.0f32, 8.0f32)];
-    let expected = vec![C::new(6.0f32, 8.0f32), C::new(10.0f32, 12.0f32)];
-
-    let handle_output = client.empty(2 * core::mem::size_of::<C>());
-    let handle_lhs = client.create_from_slice(C::as_bytes(&lhs));
-    let handle_rhs = client.create_from_slice(C::as_bytes(&rhs));
-
-    unsafe {
-        kernel_complex_add::launch_unchecked::<C, R>(
-            &client,
-            CubeCount::new_single(),
-            CubeDim::new_1d(2),
-            ArrayArg::from_raw_parts(handle_output.clone(), 2),
-            ArrayArg::from_raw_parts(handle_lhs, 2),
-            ArrayArg::from_raw_parts(handle_rhs, 2),
-        )
-    };
-
-    let actual = client.read_one_unchecked(handle_output);
-    let actual = C::from_bytes(&actual);
-
-    assert_eq!(actual[0], expected[0]);
-    assert_eq!(actual[1], expected[1]);
-}
-
-pub fn test_complex_add_cf64<R: Runtime>(client: ComputeClient<R>) {
-    type C = num_complex::Complex<f64>;
-    let lhs = vec![C::new(1.0f64, 2.0f64), C::new(3.0f64, 4.0f64)];
-    let rhs = vec![C::new(5.0f64, 6.0f64), C::new(7.0f64, 8.0f64)];
-    let expected = vec![C::new(6.0f64, 8.0f64), C::new(10.0f64, 12.0f64)];
-
-    let handle_output = client.empty(2 * core::mem::size_of::<C>());
-    let handle_lhs = client.create_from_slice(C::as_bytes(&lhs));
-    let handle_rhs = client.create_from_slice(C::as_bytes(&rhs));
-
-    unsafe {
-        kernel_complex_add::launch_unchecked::<C, R>(
-            &client,
-            CubeCount::new_single(),
-            CubeDim::new_1d(2),
-            ArrayArg::from_raw_parts(handle_output.clone(), 2),
-            ArrayArg::from_raw_parts(handle_lhs, 2),
-            ArrayArg::from_raw_parts(handle_rhs, 2),
-        )
-    };
-
-    let actual = client.read_one_unchecked(handle_output);
-    let actual = C::from_bytes(&actual);
-
-    assert_eq!(actual[0], expected[0]);
-    assert_eq!(actual[1], expected[1]);
-}
-
 #[cube(launch_unchecked)]
 pub fn kernel_complex_mul<C: Complex>(output: &mut Array<C>, lhs: &Array<C>, rhs: &Array<C>) {
     if ABSOLUTE_POS < output.len() {
         output[ABSOLUTE_POS] = lhs[ABSOLUTE_POS] * rhs[ABSOLUTE_POS];
     }
-}
-
-pub fn test_complex_mul_cf32<R: Runtime>(client: ComputeClient<R>) {
-    type C = num_complex::Complex<f32>;
-    let lhs = vec![C::new(1.0f32, 2.0f32), C::new(3.0f32, 4.0f32)];
-    let rhs = vec![C::new(3.0f32, 4.0f32), C::new(5.0f32, 6.0f32)];
-    let expected = vec![C::new(-5.0f32, 10.0f32), C::new(-9.0f32, 38.0f32)];
-
-    let handle_output = client.empty(2 * core::mem::size_of::<C>());
-    let handle_lhs = client.create_from_slice(C::as_bytes(&lhs));
-    let handle_rhs = client.create_from_slice(C::as_bytes(&rhs));
-
-    unsafe {
-        kernel_complex_mul::launch_unchecked::<C, R>(
-            &client,
-            CubeCount::new_single(),
-            CubeDim::new_1d(2),
-            ArrayArg::from_raw_parts(handle_output.clone(), 2),
-            ArrayArg::from_raw_parts(handle_lhs, 2),
-            ArrayArg::from_raw_parts(handle_rhs, 2),
-        )
-    };
-
-    let actual = client.read_one_unchecked(handle_output);
-    let actual = C::from_bytes(&actual);
-
-    assert_eq!(actual[0], expected[0]);
-    assert_eq!(actual[1], expected[1]);
 }
 
 #[cube(launch_unchecked)]
@@ -178,80 +105,218 @@ pub fn kernel_complex_constant<C: Complex + cubecl::ScalarArgType>(
     }
 }
 
-pub fn test_complex_conj_cf32<R: Runtime>(client: ComputeClient<R>) {
-    type C = num_complex::Complex<f32>;
-    let input = vec![C::new(1.0f32, 2.0f32), C::new(3.0f32, -4.0f32)];
-    let expected = vec![C::new(1.0f32, -2.0f32), C::new(3.0f32, 4.0f32)];
+macro_rules! test_complex_binary_eq_op {
+    (
+        $test_name:ident,
+        $kernel:ident,
+        $ty:ty,
+        lhs: [$($lhs:expr),+ $(,)?],
+        rhs: [$($rhs:expr),+ $(,)?],
+        expect: |$lhs_var:ident, $rhs_var:ident| $expected:expr
+    ) => {
+        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
+            type C = $ty;
+            let lhs = vec![$($lhs),+];
+            let rhs = vec![$($rhs),+];
+            let expected = lhs
+                .iter()
+                .copied()
+                .zip(rhs.iter().copied())
+                .map(|($lhs_var, $rhs_var)| $expected)
+                .collect::<vec::Vec<_>>();
 
-    let handle_output = client.empty(2 * core::mem::size_of::<C>());
-    let handle_input = client.create_from_slice(C::as_bytes(&input));
+            let handle_output = client.empty(lhs.len() * core::mem::size_of::<C>());
+            let handle_lhs = client.create_from_slice(C::as_bytes(&lhs));
+            let handle_rhs = client.create_from_slice(C::as_bytes(&rhs));
 
-    unsafe {
-        kernel_complex_conj::launch_unchecked::<C, R>(
-            &client,
-            CubeCount::new_single(),
-            CubeDim::new_1d(2),
-            ArrayArg::from_raw_parts(handle_output.clone(), 2),
-            ArrayArg::from_raw_parts(handle_input, 2),
-        )
+            unsafe {
+                $kernel::launch_unchecked::<C, R>(
+                    &client,
+                    CubeCount::new_single(),
+                    CubeDim::new_1d(lhs.len() as u32),
+                    ArrayArg::from_raw_parts(handle_output.clone(), lhs.len()),
+                    ArrayArg::from_raw_parts(handle_lhs, lhs.len()),
+                    ArrayArg::from_raw_parts(handle_rhs, rhs.len()),
+                )
+            };
+
+            assert_exact_eq(&client, handle_output, &expected);
+        }
     };
-
-    let actual = client.read_one_unchecked(handle_output);
-    let actual = C::from_bytes(&actual);
-
-    assert_eq!(actual[0], expected[0]);
-    assert_eq!(actual[1], expected[1]);
 }
 
-pub fn test_complex_constant_cf32<R: Runtime>(client: ComputeClient<R>) {
-    type C = num_complex::Complex<f32>;
-    let input = vec![C::new(1.0f32, 2.0f32), C::new(3.0f32, 4.0f32)];
-    let scale = C::new(2.0f32, -1.0f32);
-    let expected = vec![input[0] * scale, input[1] * scale];
+macro_rules! test_complex_unary_eq_op {
+    (
+        $test_name:ident,
+        $kernel:ident,
+        $ty:ty,
+        input: [$($value:expr),+ $(,)?],
+        expect: |$value_var:ident| $expected:expr
+    ) => {
+        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
+            type C = $ty;
+            let input = vec![$($value),+];
+            let expected = input
+                .iter()
+                .copied()
+                .map(|$value_var| $expected)
+                .collect::<vec::Vec<_>>();
 
-    let handle_output = client.create_from_slice(C::as_bytes(&input));
+            let handle_output = client.empty(input.len() * core::mem::size_of::<C>());
+            let handle_input = client.create_from_slice(C::as_bytes(&input));
 
-    unsafe {
-        kernel_complex_constant::launch_unchecked::<C, R>(
-            &client,
-            CubeCount::new_single(),
-            CubeDim::new_1d(2),
-            ArrayArg::from_raw_parts(handle_output.clone(), 2),
-            scale,
-        )
+            unsafe {
+                $kernel::launch_unchecked::<C, R>(
+                    &client,
+                    CubeCount::new_single(),
+                    CubeDim::new_1d(input.len() as u32),
+                    ArrayArg::from_raw_parts(handle_output.clone(), input.len()),
+                    ArrayArg::from_raw_parts(handle_input, input.len()),
+                )
+            };
+
+            assert_exact_eq(&client, handle_output, &expected);
+        }
     };
-
-    let actual = client.read_one_unchecked(handle_output);
-    let actual = C::from_bytes(&actual);
-
-    assert_eq!(actual[0], expected[0]);
-    assert_eq!(actual[1], expected[1]);
 }
 
-pub fn test_complex_constant_cf64<R: Runtime>(client: ComputeClient<R>) {
-    type C = num_complex::Complex<f64>;
-    let input = vec![C::new(1.0f64, 2.0f64), C::new(3.0f64, 4.0f64)];
-    let scale = C::new(2.0f64, -1.0f64);
-    let expected = vec![input[0] * scale, input[1] * scale];
+macro_rules! test_complex_scalar_eq_op {
+    (
+        $test_name:ident,
+        $kernel:ident,
+        $ty:ty,
+        input: [$($value:expr),+ $(,)?],
+        scalar: $scalar:expr,
+        expect: |$value_var:ident, $scale_var:ident| $expected:expr
+    ) => {
+        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
+            type C = $ty;
+            let input = vec![$($value),+];
+            let scale = $scalar;
+            let expected = input
+                .iter()
+                .copied()
+                .map(|$value_var| {
+                    let $scale_var = scale;
+                    $expected
+                })
+                .collect::<vec::Vec<_>>();
 
-    let handle_output = client.create_from_slice(C::as_bytes(&input));
+            let handle_output = client.create_from_slice(C::as_bytes(&input));
 
-    unsafe {
-        kernel_complex_constant::launch_unchecked::<C, R>(
-            &client,
-            CubeCount::new_single(),
-            CubeDim::new_1d(2),
-            ArrayArg::from_raw_parts(handle_output.clone(), 2),
-            scale,
-        )
+            unsafe {
+                $kernel::launch_unchecked::<C, R>(
+                    &client,
+                    CubeCount::new_single(),
+                    CubeDim::new_1d(input.len() as u32),
+                    ArrayArg::from_raw_parts(handle_output.clone(), input.len()),
+                    scale,
+                )
+            };
+
+            assert_exact_eq(&client, handle_output, &expected);
+        }
     };
-
-    let actual = client.read_one_unchecked(handle_output);
-    let actual = C::from_bytes(&actual);
-
-    assert_eq!(actual[0], expected[0]);
-    assert_eq!(actual[1], expected[1]);
 }
+
+test_complex_binary_eq_op!(
+    test_complex_add_cf32,
+    kernel_complex_add,
+    num_complex::Complex<f32>,
+    lhs: [
+        num_complex::Complex::new(1.0f32, 2.0f32),
+        num_complex::Complex::new(3.0f32, 4.0f32),
+    ],
+    rhs: [
+        num_complex::Complex::new(5.0f32, 6.0f32),
+        num_complex::Complex::new(7.0f32, 8.0f32),
+    ],
+    expect: |lhs, rhs| lhs + rhs
+);
+test_complex_binary_eq_op!(
+    test_complex_add_cf64,
+    kernel_complex_add,
+    num_complex::Complex<f64>,
+    lhs: [
+        num_complex::Complex::new(1.0f64, 2.0f64),
+        num_complex::Complex::new(3.0f64, 4.0f64),
+    ],
+    rhs: [
+        num_complex::Complex::new(5.0f64, 6.0f64),
+        num_complex::Complex::new(7.0f64, 8.0f64),
+    ],
+    expect: |lhs, rhs| lhs + rhs
+);
+test_complex_binary_eq_op!(
+    test_complex_mul_cf32,
+    kernel_complex_mul,
+    num_complex::Complex<f32>,
+    lhs: [
+        num_complex::Complex::new(1.0f32, 2.0f32),
+        num_complex::Complex::new(3.0f32, 4.0f32),
+    ],
+    rhs: [
+        num_complex::Complex::new(3.0f32, 4.0f32),
+        num_complex::Complex::new(5.0f32, 6.0f32),
+    ],
+    expect: |lhs, rhs| lhs * rhs
+);
+test_complex_binary_eq_op!(
+    test_complex_mul_cf64,
+    kernel_complex_mul,
+    num_complex::Complex<f64>,
+    lhs: [
+        num_complex::Complex::new(1.0f64, 2.0f64),
+        num_complex::Complex::new(3.0f64, 4.0f64),
+    ],
+    rhs: [
+        num_complex::Complex::new(3.0f64, 4.0f64),
+        num_complex::Complex::new(5.0f64, 6.0f64),
+    ],
+    expect: |lhs, rhs| lhs * rhs
+);
+test_complex_unary_eq_op!(
+    test_complex_conj_cf32,
+    kernel_complex_conj,
+    num_complex::Complex<f32>,
+    input: [
+        num_complex::Complex::new(1.0f32, 2.0f32),
+        num_complex::Complex::new(3.0f32, -4.0f32),
+    ],
+    expect: |value| num_complex::Complex::new(value.re, -value.im)
+);
+test_complex_unary_eq_op!(
+    test_complex_conj_cf64,
+    kernel_complex_conj,
+    num_complex::Complex<f64>,
+    input: [
+        num_complex::Complex::new(1.0f64, 2.0f64),
+        num_complex::Complex::new(3.0f64, -4.0f64),
+    ],
+    expect: |value| num_complex::Complex::new(value.re, -value.im)
+);
+test_complex_scalar_eq_op!(
+    test_complex_constant_cf32,
+    kernel_complex_constant,
+    num_complex::Complex<f32>,
+    input: [
+        num_complex::Complex::new(1.0f32, 2.0f32),
+        num_complex::Complex::new(3.0f32, 4.0f32),
+    ],
+    scalar: num_complex::Complex::new(2.0f32, -1.0f32),
+    expect: |value, scale| value * scale
+);
+test_complex_scalar_eq_op!(
+    test_complex_constant_cf64,
+    kernel_complex_constant,
+    num_complex::Complex<f64>,
+    input: [
+        num_complex::Complex::new(1.0f64, 2.0f64),
+        num_complex::Complex::new(3.0f64, 4.0f64),
+    ],
+    scalar: num_complex::Complex::new(2.0f64, -1.0f64),
+    expect: |value, scale| value * scale
+);
 
 #[cube(launch_unchecked)]
 pub fn kernel_complex_abs_cf32(output: &mut Array<f32>, input: &Array<num_complex::Complex<f32>>) {
@@ -607,9 +672,21 @@ macro_rules! testgen_complex {
             }
 
             #[$crate::runtime_tests::test_log::test]
+            fn test_complex_mul_cf64() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_mul_cf64::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
             fn test_complex_conj_cf32() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::complex::test_complex_conj_cf32::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_conj_cf64() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_conj_cf64::<TestRuntime>(client);
             }
 
             #[$crate::runtime_tests::test_log::test]
