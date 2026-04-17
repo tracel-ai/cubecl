@@ -414,6 +414,8 @@ impl ServerCommunication for CudaServer {
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<(), ServerError> {
+        println!("[{:?}] in send_recv", std::thread::current().id());
+
         let binding = src.handle.clone();
 
         // We create a command on the source server to retrieve the correct resource from the
@@ -474,6 +476,8 @@ impl ServerCommunication for CudaServer {
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
         unsafe {
+            println!("[{:?}] group start", std::thread::current().id());
+
             cudarc::nccl::result::group_start().unwrap();
             cudarc::nccl::result::send(
                 resource_src.ptr as *const _,
@@ -499,9 +503,12 @@ impl ServerCommunication for CudaServer {
                 reason: format!("NCCL recv failed: {e:?}"),
                 backtrace: BackTrace::capture(),
             })?;
+
+            println!("[{:?}] group end", std::thread::current().id());
             cudarc::nccl::result::group_end().unwrap();
         }
 
+        println!("[{:?}] send_recv finished", std::thread::current().id());
         Ok(())
     }
 

@@ -672,8 +672,12 @@ impl<R: Runtime> ComputeClient<R> {
         self.ensure_init_collective(device_ids.clone());
         dst_server.ensure_init_collective(device_ids.clone());
 
+        std::println!("[{:?}] device submit", std::thread::current().id());
+
         self.device.submit(move |server_src| {
             dst_server.device.submit_blocking_scoped(move |server_dst| {
+                std::println!("[{:?}] client send_recv", std::thread::current().id());
+
                 R::Server::send_recv(
                     handle_cloned,
                     server_src,
@@ -684,7 +688,13 @@ impl<R: Runtime> ComputeClient<R> {
                     stream_id_dst,
                 )
                 .unwrap();
+
+                std::println!("[{:?}] sync_coll 1", std::thread::current().id());
+
                 server_src.sync_collective(stream_id_src).unwrap();
+
+                std::println!("[{:?}] sync_coll 2", std::thread::current().id());
+
                 server_dst.sync_collective(stream_id_dst).unwrap();
             });
         });
