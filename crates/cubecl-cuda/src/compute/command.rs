@@ -194,13 +194,19 @@ impl<'a> Command<'a> {
         &mut self,
         descriptors: Vec<CopyDescriptor>,
     ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send + use<> {
+        println!("[{:?}] in read_async", std::thread::current().id());
+
         let descriptors_moved = descriptors
             .iter()
             .map(|b| b.handle.clone())
             .collect::<Vec<_>>();
+
+        println!("[{:?}] copies_to_bytes", std::thread::current().id());
+
         let result = self.copies_to_bytes(descriptors, true);
         let fence = Fence::new(self.streams.current().sys);
 
+        println!("[{:?}] wait_sync", std::thread::current().id());
         async move {
             let sync = fence.wait_sync();
             // Release memory handle.
