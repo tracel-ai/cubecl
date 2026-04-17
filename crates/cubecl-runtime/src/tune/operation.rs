@@ -12,13 +12,20 @@ use super::{
 };
 use super::{Tunable, TunePlan};
 
+/// A type-erased delegate for a tunable function.
+///
+/// The lifetime `'inp` is the lifetime of the input data, the function must be defined such that
+/// it can be called for any lifetime `inp` and produce a `Result<Out, AutotuneError>`.
+type TuneDelegate<I, Out> =
+    dyn for<'inp> Fn(<I as TuneInputs>::At<'inp>) -> Result<Out, AutotuneError> + Send + Sync;
+
 /// A named, type-erased tunable function stored in a [`TunableSet`]. Constructed via
 /// [`Tunable::new`](super::Tunable::new); callers don't name this type directly.
 pub struct TuneFn<I: TuneInputs, Out> {
-    pub(crate) name: String,
+    pub(crate) name: Arc<str>,
+
     #[allow(clippy::type_complexity)]
-    pub(crate) func:
-        Arc<dyn for<'a> Fn(<I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> + Send + Sync>,
+    pub(crate) func: Arc<TuneDelegate<I, Out>>,
 }
 
 impl<I: TuneInputs, Out> Clone for TuneFn<I, Out> {
@@ -31,11 +38,6 @@ impl<I: TuneInputs, Out> Clone for TuneFn<I, Out> {
 }
 
 impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
-    /// The configured name of the tunable function.
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
     /// Run the wrapped function on the given inputs.
     pub fn execute<'a>(&self, inputs: <I as TuneInputs>::At<'a>) -> Result<Out, AutotuneError> {
         (self.func)(inputs)
@@ -83,11 +85,8 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
     }
 
     /// All candidate operations in this set, in registration order.
-    pub fn autotunables(&self) -> Vec<TuneFn<F, Output>> {
-        self.tunables
-            .iter()
-            .map(|tunable| tunable.function.clone())
-            .collect()
+    pub fn autotunables(&self) -> impl Iterator<Item = &TuneFn<F, Output>> {
+        self.tunables.iter().map(|tunable| &tunable.function)
     }
 
     /// Returns the [autotune plan](TunePlan) for the given set.
@@ -106,7 +105,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
     pub fn compute_checksum(&self) -> String {
         let mut checksum = String::new();
         for tune in &self.tunables {
-            checksum += tune.function.name();
+            checksum += &tune.function.name;
         }
         format!("{:x}", md5::compute(checksum))
     }

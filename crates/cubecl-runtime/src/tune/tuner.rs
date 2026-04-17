@@ -89,7 +89,7 @@ impl From<LaunchError> for AutotuneError {
 /// A successfully-queued benchmark: the profile futures for each sample, plus its metadata.
 struct PendingBench {
     index: usize,
-    name: String,
+    name: Arc<str>,
     profiles: Vec<ProfileDuration>,
 }
 
@@ -161,12 +161,12 @@ impl<K: AutotuneKey> Tuner<K> {
 
         log::info!("Tuning {key}");
 
-        let autotunables = tunables.autotunables();
+        let autotunables = tunables.autotunables().cloned().collect::<Vec<_>>();
         let mut results: Vec<AutotuneResult> = autotunables
             .iter()
             .map(|a| {
                 AutotuneResult::error(AutotuneError::Skip {
-                    name: a.name().to_string(),
+                    name: a.name.to_string(),
                 })
             })
             .collect();
@@ -175,7 +175,7 @@ impl<K: AutotuneKey> Tuner<K> {
         let checksum = tunables.compute_checksum();
 
         // Fast path: single tunable, no benchmarking needed.
-        if autotunables.len() == 1 {
+        if results.len() == 1 {
             self.cache.lock().cache_insert(key.clone(), 0);
             return TuneCacheResult::Hit { fastest_index: 0 };
         }
@@ -203,7 +203,7 @@ impl<K: AutotuneKey> Tuner<K> {
 
             for index in tunable_indices {
                 let op = &autotunables[index];
-                let name = op.name().to_string();
+                let name = op.name.clone();
                 let bench = TuneBenchmark::new(op.clone(), test_inputs.clone(), client.clone());
                 match bench.profile() {
                     Ok(profiles) => pending.push(PendingBench {
@@ -273,7 +273,7 @@ async fn process_request<K: AutotuneKey>(
 
         if profiles.is_empty() {
             results[index] = AutotuneResult::error(AutotuneError::Unknown {
-                name,
+                name: name.to_string(),
                 err: "No profiling available".to_string(),
             });
             continue;
@@ -286,7 +286,7 @@ async fn process_request<K: AutotuneKey>(
         }
 
         results[index] = AutotuneResult::success(AutotuneOutcome::new(
-            name,
+            name.to_string(),
             index,
             BenchmarkComputations::new(&BenchmarkDurations::from_durations(
                 timing_method,

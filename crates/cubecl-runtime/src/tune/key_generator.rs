@@ -7,7 +7,7 @@ use super::TuneInputs;
 )]
 pub trait KeyGenerator<K, I: TuneInputs>: Send + Sync + 'static {
     /// Generate a key from a set of inputs.
-    fn generate<'a>(&self, inputs: &I::At<'a>) -> K;
+    fn generate(&self, inputs: &I::At<'_>) -> K;
 }
 
 /// Any `for<'a> Fn(&I::At<'a>) -> K` is a [`KeyGenerator`].

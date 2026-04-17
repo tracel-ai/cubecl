@@ -160,10 +160,12 @@ where
             client,
         );
 
+        // Run the execution depending on the cache state.
         match fastest {
             TuneCacheResult::Hit { fastest_index } => {
                 #[cfg(feature = "autotune-checks")]
                 self.checks::<I, Out>(&operations, &inputs);
+
                 operations
                     .fastest(fastest_index)
                     .execute(inputs)

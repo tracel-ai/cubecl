@@ -37,14 +37,14 @@ where
     /// Returns at least one duration, otherwise an error is returned.
     pub fn profile(self) -> Result<Vec<ProfileDuration>, AutotuneError> {
         let client = self.client.clone();
-        let name = self.operation.name().to_string();
+        let name = self.operation.name.clone();
 
         // `scoped` holds exclusive device access for the whole benchmark loop and
         // accepts non-`'static` closures.
         client
             .scoped(move || self.profile_exclusive())
             .map_err(|err| AutotuneError::Unknown {
-                name,
+                name: name.to_string(),
                 err: err.to_string(),
             })?
     }
@@ -53,7 +53,7 @@ where
         self.warmup()?;
 
         let operation = self.operation.clone();
-        let name = operation.name().to_string();
+        let name = operation.name.clone();
         let num_samples = 10;
         let mut durations = Vec::new();
         for _ in 0..num_samples {
@@ -94,7 +94,9 @@ where
         }
 
         if durations.is_empty() {
-            Err(AutotuneError::InvalidSamples { name })
+            Err(AutotuneError::InvalidSamples {
+                name: name.to_string(),
+            })
         } else {
             Ok(durations)
         }
@@ -112,7 +114,7 @@ where
             let inputs = self.inputs.clone();
             let profiled = self
                 .client
-                .profile(move || op.execute(inputs), self.operation.name());
+                .profile(move || op.execute(inputs), &self.operation.name);
 
             match profiled {
                 Ok(_) => {}
@@ -125,7 +127,7 @@ where
         } else {
             let msg = alloc::format!("{:?}", errors.remove(num_warmup - 1));
             Err(AutotuneError::Unknown {
-                name: self.operation.name().to_string(),
+                name: self.operation.name.to_string(),
                 err: msg,
             })
         }

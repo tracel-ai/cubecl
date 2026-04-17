@@ -27,14 +27,14 @@ impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
         Err: Into<String> + 'static,
         Func: for<'a> Fn(<F as TuneInputs>::At<'a>) -> Result<Output, Err> + Send + Sync + 'static,
     {
-        let name = name.to_string();
+        let name: Arc<str> = Arc::from(name);
         let name_for_err = name.clone();
         Self {
             function: TuneFn {
                 name,
                 func: Arc::new(move |inputs| {
                     func(inputs).map_err(|err| AutotuneError::Unknown {
-                        name: name_for_err.clone(),
+                        name: name_for_err.to_string(),
                         err: err.into(),
                     })
                 }),
@@ -91,7 +91,7 @@ impl<K> TuneGroup<K> {
 
         Self {
             id,
-            name: Arc::new(name.to_string()),
+            name: Arc::new(name.into()),
             priority: Arc::new(f),
         }
     }
