@@ -456,10 +456,15 @@ impl ServerCommunication for CudaServer {
 
         core::mem::drop(command_dst);
 
-        // TODO: Get comms for dst also. This is gonna block, need an init_comms method here.
-
         // Get the communicator.
         let device_ids = vec![server_src.device_id, server_dst.device_id];
+
+        println!(
+            "[{:?}] device_ids: {:?}",
+            std::thread::current().id(),
+            device_ids
+        );
+
         let comm_id = CommunicationId::from(device_ids);
         let comm_src = server_src
             .communicators

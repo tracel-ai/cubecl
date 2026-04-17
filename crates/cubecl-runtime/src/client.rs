@@ -660,6 +660,12 @@ impl<R: Runtime> ComputeClient<R> {
         dtype: ElemType,
         device_ids: Vec<DeviceId>, // TODO: temporary
     ) -> Handle {
+        std::println!(
+            "[{:?}] to_client_tensor: {:?}",
+            std::thread::current().id(),
+            device_ids
+        );
+
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
 
