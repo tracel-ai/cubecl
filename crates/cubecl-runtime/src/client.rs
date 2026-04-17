@@ -559,12 +559,18 @@ impl<R: Runtime> ComputeClient<R> {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst_server))
     )]
-    pub fn to_client(&self, src: Handle, dst_server: &Self) -> Handle {
+    pub fn to_client(
+        &mut self,
+        src: Handle,
+        dst_server: &Self,
+        dtype: ElemType,
+        device_ids: Vec<DeviceId>,
+    ) -> Handle {
         let shape = [src.size_in_used() as usize];
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
         if R::Server::SERVER_COMM_ENABLED {
-            self.to_client_tensor(src_descriptor, dst_server)
+            self.to_client_tensor(src_descriptor, dst_server, dtype, device_ids)
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
                 MemoryLayoutStrategy::Contiguous,
@@ -573,6 +579,23 @@ impl<R: Runtime> ComputeClient<R> {
             );
             self.change_client_sync(src_descriptor, alloc_desc, dst_server)
                 .memory
+        }
+    }
+
+    /// Perform an `all_reduce` operation on the given devices.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, device_ids))
+    )]
+    pub fn ensure_init_collective(&mut self, device_ids: Vec<DeviceId>) {
+        let comm_id = CommunicationId::from(device_ids.clone());
+        if !self.initialized_comms.contains(&comm_id) {
+            self.device
+                .submit(move |server| server.comm_init(device_ids).unwrap());
+            self.initialized_comms.insert(comm_id);
+            // We don't want the initialization to be blocking, but we also want to flush it right away so that other
+            // threads aren't waiting on it.
+            self.device.flush_queue();
         }
     }
 
@@ -613,20 +636,12 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let src = src.binding();
         let dst = dst.binding();
-        let device_ids_cloned = device_ids.clone();
 
-        let comm_id = CommunicationId::from(device_ids.clone());
-        if !self.initialized_comms.contains(&comm_id) {
-            self.device
-                .submit_blocking(move |server| server.comm_init(device_ids))
-                .unwrap()
-                .unwrap();
-            self.initialized_comms.insert(comm_id);
-        }
+        self.ensure_init_collective(device_ids.clone());
 
         self.device.submit(move |server| {
             server
-                .all_reduce(src, dst, dtype, stream_id, op, device_ids_cloned)
+                .all_reduce(src, dst, dtype, stream_id, op, device_ids)
                 .unwrap();
         });
     }
@@ -638,41 +653,69 @@ impl<R: Runtime> ComputeClient<R> {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src_descriptor, dst_server))
     )]
-    pub fn to_client_tensor(&self, src_descriptor: CopyDescriptor, dst_server: &Self) -> Handle {
-        if R::Server::SERVER_COMM_ENABLED {
-            let stream_id_src = self.stream_id();
-            let stream_id_dst = dst_server.stream_id();
+    pub fn to_client_tensor(
+        &mut self,
+        src_descriptor: CopyDescriptor,
+        dst_server: &Self,
+        dtype: ElemType,
+        device_ids: Vec<DeviceId>, // TODO: temporary
+    ) -> Handle {
+        // if R::Server::SERVER_COMM_ENABLED {
+        let stream_id_src = self.stream_id();
+        let stream_id_dst = dst_server.stream_id();
 
-            let dst_server = dst_server.clone();
-            let handle = Handle::new(stream_id_dst, src_descriptor.handle.size_in_used());
-            let handle_cloned = handle.clone();
+        let mut dst_server = dst_server.clone();
+        let handle = Handle::new(stream_id_dst, src_descriptor.handle.size_in_used());
+        let handle_cloned = handle.clone();
 
-            // TODO: This should be made in a non-blocking API.
-            self.device
-                .submit_blocking_scoped(move |server_src| {
-                    dst_server.device.submit_blocking_scoped(|server_dst| {
-                        R::Server::copy(
-                            handle_cloned,
-                            server_src,
-                            server_dst,
-                            src_descriptor,
-                            stream_id_src,
-                            stream_id_dst,
-                        )
-                    })
-                })
+        // TODO: Find a way to get the device ids directly.
+        // dst_server.device
+        self.ensure_init_collective(device_ids.clone());
+        dst_server.ensure_init_collective(device_ids.clone());
+
+        self.device.submit(move |server_src| {
+            dst_server.device.submit_blocking_scoped(move |server_dst| {
+                R::Server::send_recv(
+                    handle_cloned,
+                    server_src,
+                    server_dst,
+                    src_descriptor,
+                    dtype,
+                    stream_id_src,
+                    stream_id_dst,
+                )
                 .unwrap();
+                server_src.sync_collective(stream_id_src).unwrap();
+                server_dst.sync_collective(stream_id_dst).unwrap();
+            });
+        });
 
-            handle
-        } else {
-            let alloc_desc = MemoryLayoutDescriptor::new(
-                MemoryLayoutStrategy::Optimized,
-                src_descriptor.shape.clone(),
-                src_descriptor.elem_size,
-            );
-            self.change_client_sync(src_descriptor, alloc_desc, dst_server)
-                .memory
-        }
+        // // TODO: This should be made in a non-blocking API.
+        // self.device
+        //     .submit_blocking_scoped(move |server_src| {
+        //         dst_server.device.submit_blocking_scoped(|server_dst| {
+        //             R::Server::copy(
+        //                 handle_cloned,
+        //                 server_src,
+        //                 server_dst,
+        //                 src_descriptor,
+        //                 stream_id_src,
+        //                 stream_id_dst,
+        //             )
+        //         })
+        //     })
+        //     .unwrap();
+
+        handle
+        // } else {
+        //     let alloc_desc = MemoryLayoutDescriptor::new(
+        //         MemoryLayoutStrategy::Optimized,
+        //         src_descriptor.shape.clone(),
+        //         src_descriptor.elem_size,
+        //     );
+        //     self.change_client_sync(src_descriptor, alloc_desc, dst_server)
+        //         .memory
+        // }
     }
 
     #[track_caller]
