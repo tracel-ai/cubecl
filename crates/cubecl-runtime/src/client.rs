@@ -632,6 +632,7 @@ impl<R: Runtime> ComputeClient<R> {
         // flush right away as to not block these threads.
         println!("flush_queue");
         if !is_comms_init {
+            println!("flush_queue true");
             self.device.flush_queue();
         }
     }
