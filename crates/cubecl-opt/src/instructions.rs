@@ -111,6 +111,7 @@ impl Optimizer {
             | Arithmetic::Exp(unary_operator)
             | Arithmetic::Log(unary_operator)
             | Arithmetic::Log1p(unary_operator)
+            | Arithmetic::Expm1(unary_operator)
             | Arithmetic::Cos(unary_operator)
             | Arithmetic::Sin(unary_operator)
             | Arithmetic::Tan(unary_operator)

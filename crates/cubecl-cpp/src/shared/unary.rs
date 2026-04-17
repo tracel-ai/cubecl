@@ -178,6 +178,7 @@ function!(FastSqrt, "__fsqrt_rn", false);
 function!(FastInverseSqrt, "__frsqrt_rn", false);
 function!(Exp, "exp");
 function!(FastExp, "__expf", false);
+function!(Expm1, "expm1", false);
 function!(Ceil, "ceil");
 function!(Trunc, "trunc");
 function!(Floor, "floor");

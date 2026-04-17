@@ -1206,6 +1206,9 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Arithmetic::Log1p(op) => {
                 instructions.push(Instruction::Log1p(self.compile_unary(op, out)))
             }
+            gpu::Arithmetic::Expm1(op) => {
+                instructions.push(Instruction::Expm1(self.compile_unary(op, out)))
+            }
             gpu::Arithmetic::Cos(op) => {
                 let op = self.compile_unary(op, out);
                 instructions.push(self.select_fast_float(
