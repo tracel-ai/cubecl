@@ -31,7 +31,7 @@ pub fn tune_benchmark<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
     // accepts non-`'static` closures.
     client
         .clone()
-        .scoped(move || profile_exclusive(operation, inputs, client))
+        .exclusive(move || profile_exclusive(operation, inputs, client))
         .map_err(|err| AutotuneError::Unknown {
             name: operation.name.to_string(),
             err: err.to_string(),

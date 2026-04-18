@@ -1,7 +1,7 @@
 use crate::{
     device::{
         DeviceId, DeviceService, ServerUtilitiesHandle,
-        handle::{CallError, DeviceHandleSpec, ServiceCreationError, channel::task::TaskResult},
+        handle::{CallError, DeviceHandleSpec, ServiceCreationError},
     },
     stream_id::StreamId,
 };
@@ -120,23 +120,6 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
             .expect("Can't have an error when submitting a task");
     }
 
-    /// Executes a task on the device thread that does not require direct
-    /// access to the `DeviceService` state, blocking until completion.
-    fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
-        &self,
-        task: T,
-    ) -> Result<R, CallError> {
-        let (sender, recv) = oneshot::channel();
-        let current = StreamId::current();
-
-        self.send::<_, SEND_FLUSH>(move || {
-            let returned = current.executes(task);
-            let _ = sender.send(returned);
-        })?;
-
-        recv.recv().map_err(|_| CallError)
-    }
-
     fn flush_queue(&self) {
         if !is_device_runner_thread(self.state.client.device_id()) {
             self.state.client.flush();
@@ -147,9 +130,11 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     ///
     /// Blocks until the task is complete. Useful for operations that need to
     /// run on the dedicated thread but reference data on the caller's stack.
-    fn exclusive_scoped<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
+    fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send>(
+        &self,
+        task: T,
+    ) -> Result<R, CallError> {
         let (sender, recv) = oneshot::channel();
-
         let current = StreamId::current();
 
         let wrapper = move || {
@@ -157,10 +142,9 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
             let _ = sender.send(returned);
         };
 
-        let boxed: Box<dyn FnOnce() -> TaskResult + Send> = Box::new(wrapper);
+        let boxed: Box<dyn FnOnce() + Send> = Box::new(wrapper);
         // SAFETY: Blocking on `recv` guarantees the closure finishes before the scope ends.
-        let static_task: Box<dyn FnOnce() -> TaskResult + Send + 'static> =
-            unsafe { std::mem::transmute(boxed) };
+        let static_task: Box<dyn FnOnce() + Send + 'static> = unsafe { std::mem::transmute(boxed) };
 
         self.send::<_, SEND_FLUSH>(static_task)?;
 
@@ -198,7 +182,7 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
     ///
     /// If the current thread is already the runner for this device, it executes
     /// immediately to prevent deadlocks and allow for recursive calls.
-    fn send<T: FnOnce() -> TaskResult + Send + 'static, const FLUSH: bool>(
+    fn send<T: FnOnce() + Send + 'static, const FLUSH: bool>(
         &self,
         task: T,
     ) -> Result<(), CallError> {
@@ -420,9 +404,6 @@ mod task {
         pub data: [u8; GLOBAL_TASK_MAX_SIZE],
     }
 
-    /// The return type of wrapped closures.
-    pub type TaskResult = ();
-
     #[repr(C, align(64))]
     /// A task is how we represent closures in memory without extra allocations.
     ///
@@ -434,7 +415,7 @@ mod task {
         // 8 bytes (usize/u64 ptr)
         data_large_ptr: AtomicPtr<u8>,
         // 8 bytes (usize/u64 ptr)
-        fn_ptr: fn(&mut Task) -> TaskResult,
+        fn_ptr: fn(&mut Task),
     }
 
     const _: () = {
@@ -461,7 +442,7 @@ mod task {
         /// alignment is smaller than `align_of::<F>()` would produce a misaligned
         /// `ptr::write` (UB). The boxed fallback uses `Box::new`, whose allocation
         /// satisfies any alignment.
-        pub fn init<F: FnOnce() -> TaskResult + Send + 'static>(&mut self, func: F) {
+        pub fn init<F: FnOnce() + Send + 'static>(&mut self, func: F) {
             let fits_inline = size_of::<F>() <= INLINE_TASK_MAX_SIZE
                 && align_of::<F>() <= align_of::<ArenaSlot>();
             let fits_arena = size_of::<F>() <= GLOBAL_TASK_MAX_SIZE
@@ -495,7 +476,7 @@ mod task {
                 // Size or alignment exceeds both slots. Heap-allocate to get a
                 // properly-aligned, pointer-sized handle, then recurse as an inline
                 // task (the Box is a pointer so it trivially fits inline).
-                let boxed: Box<dyn FnOnce() -> TaskResult + Send> = Box::new(func);
+                let boxed: Box<dyn FnOnce() + Send> = Box::new(func);
                 self.init(boxed);
             }
         }
@@ -514,10 +495,7 @@ mod task {
 /// A normal channel implementation, use for debugging.
 #[allow(dead_code)]
 mod normal_channel {
-    use crate::device::{
-        DeviceId,
-        handle::{CallError, channel::task::TaskResult},
-    };
+    use crate::device::{DeviceId, handle::CallError};
     use alloc::boxed::Box;
     use std::sync::mpsc::SyncSender;
 
@@ -526,7 +504,7 @@ mod normal_channel {
 
     /// The client-side handle used to enqueue tasks.
     pub struct DeviceClient {
-        state: SyncSender<Box<dyn FnOnce() -> TaskResult + Send + 'static>>,
+        state: SyncSender<Box<dyn FnOnce() + Send + 'static>>,
         device_id: DeviceId,
     }
 
@@ -545,13 +523,10 @@ mod normal_channel {
             &self.device_id
         }
         /// Creates a new channel and spawns a server thread to process it.
-        pub fn new<I: FnOnce() -> TaskResult + Send + 'static>(
-            device_id: DeviceId,
-            init: I,
-        ) -> Self {
-            let (sender, recv) = std::sync::mpsc::sync_channel::<
-                Box<dyn FnOnce() -> TaskResult + Send + 'static>,
-            >(CHANNEL_MAX_TASK);
+        pub fn new<I: FnOnce() + Send + 'static>(device_id: DeviceId, init: I) -> Self {
+            let (sender, recv) = std::sync::mpsc::sync_channel::<Box<dyn FnOnce() + Send + 'static>>(
+                CHANNEL_MAX_TASK,
+            );
 
             std::thread::spawn(move || {
                 init();
@@ -569,10 +544,7 @@ mod normal_channel {
         }
 
         /// Atomically reserves a slot in the buffer and writes the task.
-        pub fn enqueue<F: FnOnce() -> TaskResult + Send + 'static>(
-            &self,
-            func: F,
-        ) -> Result<(), CallError> {
+        pub fn enqueue<F: FnOnce() + Send + 'static>(&self, func: F) -> Result<(), CallError> {
             self.state.send(Box::new(func)).map_err(|_| CallError)
         }
 
@@ -590,7 +562,7 @@ mod custom_channel {
         DeviceId,
         handle::{
             CallError,
-            channel::task::{ArenaSlot, GLOBAL_TASK_MAX_SIZE, Task, TaskResult},
+            channel::task::{ArenaSlot, GLOBAL_TASK_MAX_SIZE, Task},
         },
     };
     use core::{
@@ -621,10 +593,7 @@ mod custom_channel {
             &self.state.device_id
         }
         /// Creates a new channel and spawns a server thread to process it.
-        pub fn new<I: FnOnce() -> TaskResult + Send + 'static>(
-            device_id: DeviceId,
-            init: I,
-        ) -> Self {
+        pub fn new<I: FnOnce() + Send + 'static>(device_id: DeviceId, init: I) -> Self {
             let mut server = Server::new(device_id);
             let state = server.state.clone();
 
@@ -644,10 +613,7 @@ mod custom_channel {
         }
 
         /// Atomically reserves a slot in the buffer and writes the task.
-        pub fn enqueue<F: FnOnce() -> TaskResult + Send + 'static>(
-            &self,
-            func: F,
-        ) -> Result<(), CallError> {
+        pub fn enqueue<F: FnOnce() + Send + 'static>(&self, func: F) -> Result<(), CallError> {
             loop {
                 let index = self.state.available_index.fetch_add(1, Ordering::Acquire) as usize;
                 if index >= CHANNEL_MAX_TASK {
@@ -709,7 +675,7 @@ mod custom_channel {
     impl State {
         /// Initializes the task at `index` in the current queue with `func`.
         /// Exclusive access per slot is guaranteed by `available_index.fetch_add`.
-        fn init_task_at<F: FnOnce() -> TaskResult + Send + 'static>(&self, index: usize, func: F) {
+        fn init_task_at<F: FnOnce() + Send + 'static>(&self, index: usize, func: F) {
             assert!(index < CHANNEL_MAX_TASK, "task index {index} out of bounds");
             // SAFETY: queue_ptr points to a valid buffer of CHANNEL_MAX_TASK tasks,
             // bounds checked above, and the &mut doesn't escape.
@@ -882,7 +848,7 @@ mod tests {
         let local_val = 42; // This lives on the test stack
 
         // Test exclusive_scoped
-        let result = handle.exclusive_scoped(|| local_val + 8).unwrap();
+        let result = handle.exclusive(|| local_val + 8).unwrap();
 
         assert_eq!(result, 50);
 

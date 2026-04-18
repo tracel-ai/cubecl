@@ -61,11 +61,8 @@ pub(crate) trait DeviceHandleSpec<S: DeviceService>: Sized {
     fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T);
 
     /// TODO: Docs.
-    fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
+    fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send>(
         &self,
         task: T,
     ) -> Result<R, CallError>;
-
-    /// TODO: Docs.
-    fn exclusive_scoped<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError>;
 }

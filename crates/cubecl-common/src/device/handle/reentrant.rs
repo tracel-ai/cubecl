@@ -62,20 +62,7 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
         self.with_lock(task);
     }
 
-    fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
-        &self,
-        task: T,
-    ) -> Result<R, super::CallError> {
-        let guard = self.lock_device();
-        let result = task();
-        core::mem::drop(guard);
-        Ok(result)
-    }
-
-    fn exclusive_scoped<R: Send, T: FnOnce() -> R + Send>(
-        &self,
-        task: T,
-    ) -> Result<R, super::CallError> {
+    fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, super::CallError> {
         let guard = self.lock_device();
         let result = task();
         core::mem::drop(guard);

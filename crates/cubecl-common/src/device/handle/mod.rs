@@ -80,18 +80,11 @@ impl<S: DeviceService> DeviceHandle<S> {
         self.handle.flush_queue();
     }
 
-    pub fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
+    pub fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send>(
         &self,
         task: T,
     ) -> Result<R, CallError> {
         self.handle.exclusive(task)
-    }
-
-    pub fn exclusive_scoped<R: Send, T: FnOnce() -> R + Send>(
-        &self,
-        task: T,
-    ) -> Result<R, CallError> {
-        self.handle.exclusive_scoped(task)
     }
 }
 
