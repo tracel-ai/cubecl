@@ -1019,6 +1019,75 @@ test_complex_powf_op!(
     ]
 );
 
+// Edge-case regressions: branch cuts on the negative real axis, tanh
+// saturation for moderately large |re|, and powf through log's branch cut.
+test_complex_unary_op!(
+    test_complex_sqrt_negative_real_cf32,
+    kernel_complex_sqrt,
+    sqrt,
+    num_complex::Complex<f32>,
+    1.0e-5f32,
+    [
+        num_complex::Complex::new(-4.0f32, 0.0f32),
+        num_complex::Complex::new(-0.25f32, 0.0f32),
+    ]
+);
+test_complex_unary_op!(
+    test_complex_sqrt_negative_real_cf64,
+    kernel_complex_sqrt,
+    sqrt,
+    num_complex::Complex<f64>,
+    1.0e-12f64,
+    [
+        num_complex::Complex::new(-4.0f64, 0.0f64),
+        num_complex::Complex::new(-0.25f64, 0.0f64),
+    ]
+);
+test_complex_unary_op!(
+    test_complex_tanh_large_real_cf32,
+    kernel_complex_tanh,
+    tanh,
+    num_complex::Complex<f32>,
+    1.0e-4f32,
+    [
+        num_complex::Complex::new(15.0f32, 0.5f32),
+        num_complex::Complex::new(-12.0f32, 0.25f32),
+    ]
+);
+test_complex_unary_op!(
+    test_complex_tanh_large_real_cf64,
+    kernel_complex_tanh,
+    tanh,
+    num_complex::Complex<f64>,
+    1.0e-12f64,
+    [
+        num_complex::Complex::new(30.0f64, 0.5f64),
+        num_complex::Complex::new(-25.0f64, 0.25f64),
+    ]
+);
+test_complex_powf_op!(
+    test_complex_powf_negative_base_cf32,
+    num_complex::Complex<f32>,
+    1.0e-4f32,
+    lhs: [
+        num_complex::Complex::new(-1.0f32, 0.0f32),
+    ],
+    rhs: [
+        num_complex::Complex::new(0.5f32, 0.0f32),
+    ]
+);
+test_complex_powf_op!(
+    test_complex_powf_negative_base_cf64,
+    num_complex::Complex<f64>,
+    1.0e-12f64,
+    lhs: [
+        num_complex::Complex::new(-1.0f64, 0.0f64),
+    ],
+    rhs: [
+        num_complex::Complex::new(0.5f64, 0.0f64),
+    ]
+);
+
 #[cube(launch)]
 pub fn kernel_complex_validation_core<C: ComplexCore>(
     output: &mut Array<C>,
@@ -1359,6 +1428,54 @@ macro_rules! testgen_complex_math {
             fn test_complex_powf_cf64() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::complex::test_complex_powf_cf64::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_sqrt_negative_real_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_sqrt_negative_real_cf32::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_sqrt_negative_real_cf64() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_sqrt_negative_real_cf64::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_tanh_large_real_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_tanh_large_real_cf32::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_tanh_large_real_cf64() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_tanh_large_real_cf64::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_powf_negative_base_cf32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_powf_negative_base_cf32::<
+                    TestRuntime,
+                >(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_complex_powf_negative_base_cf64() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::complex::test_complex_powf_negative_base_cf64::<
+                    TestRuntime,
+                >(client);
             }
         }
     };
