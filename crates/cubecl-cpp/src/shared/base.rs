@@ -1566,7 +1566,7 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Index(op) | gpu::Operator::UncheckedIndex(op) => {
                 instructions.push(Instruction::Index(self.compile_index(op, out)));
             }
-            gpu::Operator::IndexAssign(op) | gpu::Operator::UncheckedIndexAssign(op) => {
+            gpu::Operator::IndexMut(op) | gpu::Operator::UncheckedIndexMut(op) => {
                 instructions.push(Instruction::IndexAssign(self.compile_index_assign(op, out)));
             }
             gpu::Operator::And(op) => {
@@ -1667,7 +1667,7 @@ impl<D: Dialect> CppCompiler<D> {
 
     fn compile_index_assign(
         &mut self,
-        value: gpu::IndexAssignOperator,
+        value: gpu::IndexMutOperator,
         out: gpu::Variable,
     ) -> IndexAssignInstruction<D> {
         IndexAssignInstruction {

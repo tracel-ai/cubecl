@@ -42,9 +42,9 @@ pub mod copy_bulk {
 
         scope.register(Instruction::new(
             Operator::CopyMemoryBulk(CopyMemoryBulkOperator {
-                out_index: to_index.expand.consume(),
+                out_index: to_index.expand,
                 input,
-                in_index: from_index.expand.consume(),
+                in_index: from_index.expand,
                 len: length,
                 offset_input: input_offset,
                 offset_out: to_offset,

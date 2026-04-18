@@ -1,11 +1,12 @@
 use alloc::vec::Vec;
 use cubecl::prelude::*;
 use cubecl_common::{e4m3, e5m2, ue8m0};
+use cubecl_ir::Variable;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     self as cubecl, ScalarArgType, intrinsic,
-    ir::{ElemType, FloatKind, IntKind, ManagedVariable, UIntKind},
+    ir::{ElemType, FloatKind, IntKind, UIntKind},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -19,11 +20,17 @@ pub struct InputScalar {
 
 #[derive(Clone)]
 pub struct InputScalarExpand {
-    pub expand: ManagedVariable,
+    pub expand: Variable,
 }
 
 impl CubeType for InputScalar {
     type ExpandType = InputScalarExpand;
+}
+
+impl ExpandTypeClone for InputScalarExpand {
+    fn clone_unchecked(&self) -> Self {
+        self.clone()
+    }
 }
 
 impl IntoMut for InputScalarExpand {

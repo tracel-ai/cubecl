@@ -3,7 +3,7 @@ use core::cell::RefCell;
 
 use cubecl_ir::Scope;
 
-use crate::prelude::{CubeDebug, CubeType, IntoMut};
+use crate::prelude::{CubeDebug, CubeType, ExpandTypeClone, IntoMut};
 
 #[derive(Debug, Clone)]
 /// A cell that can store and mutate a cube type during comptime.
@@ -18,11 +18,19 @@ pub struct ComptimeCellExpand<T: CubeType> {
     pub(super) value: Rc<RefCell<T::ExpandType>>,
 }
 
+impl<T: CubeType> ExpandTypeClone for ComptimeCellExpand<T> {
+    fn clone_unchecked(&self) -> Self {
+        Self {
+            value: self.value.clone(),
+        }
+    }
+}
+
 impl<T: CubeType> CubeType for ComptimeCell<T> {
     type ExpandType = ComptimeCellExpand<T>;
 }
 
-impl<T: CubeType + Clone> ComptimeCell<T> {
+impl<T: CubeType<ExpandType: Clone> + Clone> ComptimeCell<T> {
     pub fn new(value: T) -> Self {
         Self {
             value: Rc::new(RefCell::new(value)),
@@ -49,13 +57,13 @@ impl<T: CubeType + Clone> ComptimeCell<T> {
     }
 }
 
-impl<T: CubeType + Clone> ComptimeCellExpand<T> {
+impl<T: CubeType<ExpandType: Clone> + Clone> ComptimeCellExpand<T> {
     pub fn __expand_store_method(&self, _context: &mut Scope, value: T::ExpandType) {
         let mut old = self.value.borrow_mut();
         *old = value;
     }
     pub fn __expand_read_method(&self, _scope: &mut Scope) -> T::ExpandType {
-        let value = self.value.borrow();
+        let value: core::cell::Ref<'_, T::ExpandType> = self.value.borrow();
         value.clone()
     }
 }

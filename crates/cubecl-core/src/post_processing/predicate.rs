@@ -3,8 +3,8 @@ use core::{f32, f64};
 
 use crate as cubecl;
 use cubecl_ir::{
-    Comparison, ElemType, FloatKind, Instruction, ManagedVariable, Operation, Processor, Scope,
-    ScopeProcessing, UIntKind, Variable,
+    Comparison, ElemType, FloatKind, Instruction, Operation, Processor, Scope, ScopeProcessing,
+    UIntKind, Variable,
 };
 use half::{bf16, f16};
 
@@ -58,7 +58,6 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
     out: Variable,
     mut polyfill: impl FnMut(&mut Scope, NativeExpand<T>, u32, u32) -> NativeExpand<O>,
 ) {
-    let input = ManagedVariable::Plain(input);
     let mut scope = Scope::root(false).with_global_state(processing.global_state.clone());
     scope.register_type::<ElemA>(input.storage_type());
     scope.register_size::<SizeA>(input.vector_size());
@@ -103,7 +102,7 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
 
     processing
         .instructions
-        .push(Instruction::new(Operation::Copy(*out_poly), out));
+        .push(Instruction::new(Operation::Copy(out_poly), out));
 }
 
 #[cube]

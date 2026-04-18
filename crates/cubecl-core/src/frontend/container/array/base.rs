@@ -4,7 +4,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use cubecl_ir::{ManagedVariable, Scope, VectorSize};
+use cubecl_ir::{Scope, VectorSize};
 
 use crate::frontend::{CubePrimitive, NativeExpand};
 use crate::prelude::*;
@@ -29,6 +29,16 @@ impl<E> Clone for Array<E> {
 }
 
 type ArrayExpand<E> = NativeExpand<Array<E>>;
+
+impl<E> CubeRef for ArrayExpand<E> {
+    fn __expand_as_ref_method<'a, 'b>(&'a self, _: &'b mut Scope) -> &'a Self {
+        self
+    }
+
+    fn __expand_as_mut_method<'a, 'b>(&'a mut self, _: &'b mut Scope) -> &'a mut Self {
+        self
+    }
+}
 
 /// Module that contains the implementation details of the new function.
 mod new {
@@ -83,7 +93,7 @@ mod new {
                 .into_iter()
                 .map(|value| {
                     let value: NativeExpand<C> = value.into();
-                    *value.expand
+                    value.expand
                 })
                 .collect();
             ArrayData {
@@ -127,34 +137,34 @@ mod vectorization {
     #[cube]
     impl<T: CubePrimitive + Clone> Array<T> {
         #[allow(unused_variables)]
-        pub fn as_vectorized<N: Size>(&self) -> T {
+        pub fn as_vectorized<N: Size>(&self) -> Vector<T::Scalar, N> {
             let factor = N::value();
             intrinsic!(|scope| {
                 let var = self.expand.clone();
                 let item = Type::new(var.storage_type()).with_vector_size(factor);
 
-                let new_var = if factor == 1 {
+                if factor == 1 {
                     let new_var = scope.create_local(item);
-                    let element =
-                        index::expand(scope, self.clone(), NativeExpand::from_lit(scope, 0));
+                    let element = self
+                        .__expand_index_method(scope, NativeExpand::from_lit(scope, 0))
+                        .__expand_deref_method(scope);
                     assign::expand_no_check::<T>(scope, element, new_var.clone().into());
-                    new_var
+                    new_var.into()
                 } else {
-                    let new_var = scope.create_local_mut(item);
+                    let mut new_var: NativeExpand<Vector<T::Scalar, N>> =
+                        scope.create_local_mut(item).into();
                     for i in 0..factor {
-                        let expand: Self = self.expand.clone().into();
-                        let element =
-                            index::expand(scope, expand, NativeExpand::from_lit(scope, i));
-                        index_assign::expand::<NativeExpand<Array<T>>, T>(
-                            scope,
-                            &mut new_var.clone().into(),
-                            NativeExpand::from_lit(scope, i),
-                            element,
-                        );
+                        let idx = NativeExpand::from_lit(scope, i);
+                        let element = self
+                            .__expand_index_method(scope, idx)
+                            .__expand_deref_method(scope);
+
+                        new_var
+                            .__expand_index_mut_method(scope, idx)
+                            .__expand_assign_method(scope, element.expand.into());
                     }
                     new_var
-                };
-                new_var.into()
+                }
             })
         }
     }
@@ -171,9 +181,7 @@ mod metadata {
         /// Obtain the array length
         #[allow(clippy::len_without_is_empty)]
         pub fn len(&self) -> usize {
-            intrinsic!(|scope| {
-                ManagedVariable::Plain(expand_length_native(scope, *self.expand)).into()
-            })
+            intrinsic!(|scope| { expand_length_native(scope, self.expand).into() })
         }
 
         /// Obtain the array buffer length
@@ -194,7 +202,7 @@ mod metadata {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
-    use cubecl_ir::{IndexAssignOperator, IndexOperator, Operator};
+    use cubecl_ir::{IndexMutOperator, IndexOperator, Operator};
 
     use crate::ir::Instruction;
 
@@ -208,19 +216,21 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&'a self, i: usize) -> E {
+        pub unsafe fn index_unchecked(&'a self, i: usize) -> &'a E {
             intrinsic!(|scope| {
-                let out = scope.create_local(self.expand.ty);
+                let ty = self.expand.ty;
+                let class = self.expand.pointer_class();
+                let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
                     Operator::UncheckedIndex(IndexOperator {
-                        list: *self.expand,
-                        index: i.expand.consume(),
+                        list: self.expand,
+                        index: i.expand,
                         vector_size: 0,
                         unroll_factor: 1,
                     }),
-                    *out,
+                    out,
                 ));
-                out.into()
+                scope.create_kernel_ref(out.into())
             })
         }
 
@@ -230,17 +240,21 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E) {
+        pub unsafe fn index_assign_unchecked(&'a mut self, i: usize) -> &'a mut E {
             intrinsic!(|scope| {
+                let ty = self.expand.ty;
+                let class = self.expand.pointer_class();
+                let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndexAssign(IndexAssignOperator {
-                        index: i.expand.consume(),
-                        value: value.expand.consume(),
+                    Operator::UncheckedIndexMut(IndexMutOperator {
+                        list: self.expand,
+                        index: i.expand,
                         vector_size: 0,
                         unroll_factor: 1,
                     }),
-                    *self.expand,
+                    out,
                 ));
+                scope.create_kernel_ref(out.into())
             })
         }
     }
@@ -269,13 +283,13 @@ impl<T: CubeType> Iterator for Array<T> {
     }
 }
 
-impl<T: CubePrimitive> List<T> for Array<T> {
+impl<'a, T: CubePrimitive> List<'a, T> for Array<T> {
     fn __expand_read(
         scope: &mut Scope,
-        this: &NativeExpand<Array<T>>,
+        this: &'a NativeExpand<Array<T>>,
         idx: NativeExpand<usize>,
-    ) -> NativeExpand<T> {
-        index::expand(scope, this.clone(), idx)
+    ) -> &'a NativeExpand<T> {
+        this.__expand_index_method(scope, idx)
     }
 }
 
@@ -293,16 +307,28 @@ impl<T: CubePrimitive> DerefMut for Array<T> {
     }
 }
 
-impl<T: CubePrimitive> ListExpand<T> for ArrayExpand<T> {
-    fn __expand_read_method(&self, scope: &mut Scope, idx: NativeExpand<usize>) -> NativeExpand<T> {
-        index::expand(scope, self.clone(), idx)
+impl<T: CubePrimitive> CubeDeref for ArrayExpand<T> {
+    type Target = ArrayExpand<T>;
+
+    fn __expand_deref_method(&self, _: &mut Scope) -> Self::Target {
+        self.clone()
     }
-    fn __expand_read_unchecked_method(
-        &self,
+}
+
+impl<'a, T: CubePrimitive> ListExpand<'a, T> for ArrayExpand<T> {
+    fn __expand_read_method(
+        &'a self,
         scope: &mut Scope,
         idx: NativeExpand<usize>,
-    ) -> NativeExpand<T> {
-        index_unchecked::expand(scope, self.clone(), idx)
+    ) -> &'a NativeExpand<T> {
+        self.__expand_index_method(scope, idx)
+    }
+    fn __expand_read_unchecked_method(
+        &'a self,
+        scope: &mut Scope,
+        idx: NativeExpand<usize>,
+    ) -> &'a NativeExpand<T> {
+        self.__expand_index_unchecked_method(scope, idx)
     }
 
     fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
@@ -317,26 +343,28 @@ impl<T: CubePrimitive> VectorizedExpand for ArrayExpand<T> {
     }
 }
 
-impl<T: CubePrimitive> ListMut<T> for Array<T> {
+impl<'a, T: CubePrimitive> ListMut<'a, T> for Array<T> {
     fn __expand_write(
         scope: &mut Scope,
-        this: &ArrayExpand<T>,
+        this: &'a ArrayExpand<T>,
         idx: NativeExpand<usize>,
-        value: NativeExpand<T>,
-    ) {
+    ) -> &'a mut NativeExpand<T> {
         let mut this = this.clone();
-        index_assign::expand(scope, &mut this, idx, value);
+        let reference = this.__expand_index_mut_method(scope, idx);
+        // Extend lifetime because we know the array is actually 'a
+        unsafe { core::mem::transmute(reference) }
     }
 }
 
-impl<T: CubePrimitive> ListMutExpand<T> for ArrayExpand<T> {
+impl<'a, T: CubePrimitive> ListMutExpand<'a, T> for ArrayExpand<T> {
     fn __expand_write_method(
-        &self,
+        &'a self,
         scope: &mut Scope,
         idx: NativeExpand<usize>,
-        value: NativeExpand<T>,
-    ) {
+    ) -> &'a mut NativeExpand<T> {
         let mut this = self.clone();
-        index_assign::expand(scope, &mut this, idx, value);
+        let reference = this.__expand_index_mut_method(scope, idx);
+        // Extend lifetime because we know the array is actually 'a
+        unsafe { core::mem::transmute(reference) }
     }
 }

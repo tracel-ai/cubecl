@@ -2,7 +2,10 @@ use core::iter;
 
 use crate::{
     generate::bounded_where_clause,
-    parse::cube_type::{CubeTypeEnum, CubeTypeVariant, VariantKind},
+    parse::{
+        cube_type::{CubeTypeEnum, CubeTypeVariant, VariantKind},
+        kernel::strip_ref,
+    },
     paths::{frontend_type, prelude_type},
 };
 use proc_macro2::{Span, TokenStream};
@@ -129,6 +132,7 @@ impl CubeTypeEnum {
 
     pub(crate) fn expand_type_impl(&self) -> proc_macro2::TokenStream {
         let scope = prelude_type("Scope");
+        let clone = prelude_type("ExpandTypeClone");
         let into_mut = prelude_type("IntoMut");
         let debug = prelude_type("CubeDebug");
 
@@ -148,7 +152,7 @@ impl CubeTypeEnum {
             quote! {self},
             self.variants
                 .iter()
-                .map(|v| v.map_body(name_expand, |f| quote!(#f.clone())))
+                .map(|v| v.map_body(name_expand, |f| quote!(#f.clone_unchecked())))
                 .collect(),
         );
 
@@ -181,8 +185,8 @@ impl CubeTypeEnum {
 
             impl #generics #debug for #name_expand #generic_names #where_clause {}
 
-            impl #generics Clone for #name_expand #generic_names #where_clause {
-                fn clone(&self) -> Self {
+            impl #generics #clone for #name_expand #generic_names #where_clause {
+                fn clone_unchecked(&self) -> Self {
                     #body_clone
                 }
             }
@@ -350,7 +354,7 @@ impl CubeTypeEnum {
                 VariantKind::Named => {
                     let args = variant.fields.iter().map(|f| {
                         let field_name = &f.ident;
-                        let field_ty = &f.ty;
+                        let field_ty = strip_ref(f.ty.clone());
                         quote! { #field_name: <#field_ty as #launch_arg>::CompilationArg }
                     });
                     quote! {
@@ -363,7 +367,7 @@ impl CubeTypeEnum {
                 }
                 VariantKind::Unnamed => {
                     let args = variant.fields.iter().map(|f| {
-                        let field_ty = &f.ty;
+                        let field_ty = strip_ref(f.ty.clone());
                         quote! { <#field_ty as #launch_arg>::CompilationArg }
                     });
                     quote! {

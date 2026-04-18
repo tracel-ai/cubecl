@@ -1,16 +1,18 @@
 use alloc::collections::BTreeMap;
 use alloc::{borrow::Cow, rc::Rc, string::String, string::ToString, vec::Vec};
+use bumpalo::Bump;
 use core::{
     any::TypeId,
     cell::{Ref, RefCell, RefMut},
     fmt::Display,
 };
+use derive_more::{Eq, PartialEq};
 use enumset::EnumSet;
 use hashbrown::{HashMap, HashSet};
 
 use crate::{
-    BarrierLevel, CubeFnSource, DeviceProperties, FastMath, Function, ManagedVariable, Matrix,
-    Processor, SemanticType, SourceLoc, StorageType, TargetProperties, TypeHash,
+    BarrierLevel, CubeFnSource, DeviceProperties, FastMath, Function, Matrix, Processor,
+    SemanticType, SourceLoc, StorageType, TargetProperties, TypeHash,
 };
 
 use super::{
@@ -47,6 +49,9 @@ pub type GlobalState = Rc<RefCell<GlobalStateInner>>;
 
 #[derive(Debug, PartialEq, Eq, TypeHash, Default)]
 pub struct GlobalStateInner {
+    #[partial_eq(skip)]
+    #[eq(skip)]
+    pub reference_arena: Bump,
     pub allocator: Allocator,
 
     pub functions: BTreeMap<Id, Function>,
@@ -145,9 +150,9 @@ impl Scope {
     }
 
     /// Create a new matrix element.
-    pub fn create_matrix(&mut self, matrix: Matrix) -> ManagedVariable {
+    pub fn create_matrix(&mut self, matrix: Matrix) -> Variable {
         let matrix = self.state().allocator.create_matrix(matrix);
-        self.add_matrix(*matrix);
+        self.add_matrix(matrix);
         matrix
     }
 
@@ -156,32 +161,31 @@ impl Scope {
     }
 
     /// Create a new pipeline element.
-    pub fn create_pipeline(&mut self, num_stages: u8) -> ManagedVariable {
+    pub fn create_pipeline(&mut self, num_stages: u8) -> Variable {
         self.state().allocator.create_pipeline(num_stages)
     }
 
     /// Create a new barrier element.
-    pub fn create_barrier_token(&mut self, id: Id, level: BarrierLevel) -> ManagedVariable {
-        let token = Variable::new(
+    pub fn create_barrier_token(&mut self, id: Id, level: BarrierLevel) -> Variable {
+        Variable::new(
             VariableKind::BarrierToken { id, level },
             Type::semantic(SemanticType::BarrierToken),
-        );
-        ManagedVariable::Plain(token)
+        )
     }
 
     /// Create a mutable variable of the given item type.
-    pub fn create_local_mut<I: Into<Type>>(&mut self, item: I) -> ManagedVariable {
+    pub fn create_local_mut<I: Into<Type>>(&mut self, item: I) -> Variable {
         self.state().allocator.create_local_mut(item.into())
     }
 
     /// Create a new restricted variable. The variable is
     /// Useful for _for loops_ and other algorithms that require the control over initialization.
-    pub fn create_local_restricted(&self, ty: Type) -> ManagedVariable {
-        self.state().allocator.create_local_restricted(ty)
+    pub fn create_local_restricted(&self, ty: Type) -> Variable {
+        self.state().allocator.create_local_mut(ty)
     }
 
     /// Create a new immutable variable.
-    pub fn create_local(&mut self, ty: Type) -> ManagedVariable {
+    pub fn create_local(&mut self, ty: Type) -> Variable {
         self.state().allocator.create_local(ty)
     }
 
@@ -204,6 +208,16 @@ impl Scope {
         inst.source_loc = self.debug.source_loc.clone();
         inst.modes = self.state().modes;
         self.instructions.push(inst)
+    }
+
+    /// Add a value to the global arena so we can create a kernel-wide reference to it.
+    /// The reference is `'static` for simplicity, but is only valid for the duration of the scope.
+    /// Ensure the reference lifetime is shortened to the lifetime of the underlying variable being
+    /// referenced.
+    pub fn create_kernel_ref<T: 'static>(&mut self, var: T) -> &'static mut T {
+        let state = self.global_state.borrow();
+        let reference = state.reference_arena.alloc(var);
+        unsafe { core::mem::transmute(reference) }
     }
 
     /// Resolve the element type of the given generic type.
@@ -270,6 +284,7 @@ impl Scope {
         &mut self,
         processors: impl IntoIterator<Item = &'a dyn Processor>,
     ) -> ScopeProcessing {
+        self.global_state.borrow_mut().reference_arena.reset();
         let mut variables = core::mem::take(&mut self.locals);
 
         let mut instructions = Vec::new();
@@ -308,10 +323,10 @@ impl Scope {
         item: I,
         shared_memory_size: usize,
         alignment: Option<usize>,
-    ) -> ManagedVariable {
+    ) -> Variable {
         let item = item.into();
         let index = self.new_local_index();
-        let shared_array = Variable::new(
+        Variable::new(
             VariableKind::SharedArray {
                 id: index,
                 length: shared_memory_size,
@@ -319,24 +334,18 @@ impl Scope {
                 alignment,
             },
             item,
-        );
-        ManagedVariable::Plain(shared_array)
+        )
     }
 
     /// Create a shared variable of the given item type.
-    pub fn create_shared<I: Into<Type>>(&mut self, item: I) -> ManagedVariable {
+    pub fn create_shared<I: Into<Type>>(&mut self, item: I) -> Variable {
         let item = item.into();
         let index = self.new_local_index();
-        let shared = Variable::new(VariableKind::Shared { id: index }, item);
-        ManagedVariable::Plain(shared)
+        Variable::new(VariableKind::Shared { id: index }, item)
     }
 
     /// Create a shared variable of the given item type.
-    pub fn create_const_array<I: Into<Type>>(
-        &mut self,
-        item: I,
-        data: Vec<Variable>,
-    ) -> ManagedVariable {
+    pub fn create_const_array<I: Into<Type>>(&mut self, item: I, data: Vec<Variable>) -> Variable {
         let item = item.into();
         let index = self.new_local_index();
         let const_array = Variable::new(
@@ -348,37 +357,26 @@ impl Scope {
             item,
         );
         self.const_arrays.push((const_array, data));
-        ManagedVariable::Plain(const_array)
+        const_array
     }
 
     /// Obtain the index-th input
-    pub fn input(&mut self, id: Id, item: Type) -> ManagedVariable {
-        ManagedVariable::Plain(crate::Variable::new(
-            VariableKind::GlobalInputArray(id),
-            item,
-        ))
+    pub fn input(&mut self, id: Id, item: Type) -> Variable {
+        Variable::new(VariableKind::GlobalInputArray(id), item)
     }
 
     /// Obtain the index-th output
-    pub fn output(&mut self, id: Id, item: Type) -> ManagedVariable {
-        let var = crate::Variable::new(VariableKind::GlobalOutputArray(id), item);
-        ManagedVariable::Plain(var)
+    pub fn output(&mut self, id: Id, item: Type) -> Variable {
+        Variable::new(VariableKind::GlobalOutputArray(id), item)
     }
 
     /// Obtain the index-th scalar
-    pub fn scalar(&self, id: Id, storage: StorageType) -> ManagedVariable {
-        ManagedVariable::Plain(crate::Variable::new(
-            VariableKind::GlobalScalar(id),
-            Type::new(storage),
-        ))
+    pub fn scalar(&self, id: Id, storage: StorageType) -> Variable {
+        Variable::new(VariableKind::GlobalScalar(id), Type::new(storage))
     }
 
     /// Create a local array of the given item type.
-    pub fn create_local_array<I: Into<Type>>(
-        &mut self,
-        item: I,
-        array_size: usize,
-    ) -> ManagedVariable {
+    pub fn create_local_array<I: Into<Type>>(&mut self, item: I, array_size: usize) -> Variable {
         self.state()
             .allocator
             .create_local_array(item.into(), array_size)

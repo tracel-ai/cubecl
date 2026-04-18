@@ -4,7 +4,7 @@ use alloc::vec;
 use core::ops::{Deref, DerefMut};
 
 use crate as cubecl;
-use cubecl_ir::{Instruction, ManagedVariable, OpaqueType};
+use cubecl_ir::{Instruction, OpaqueType, Variable};
 use cubecl_macros::intrinsic;
 use paste::paste;
 
@@ -44,7 +44,7 @@ impl CubePrimitive for Barrier {
 }
 
 impl NativeAssign for Barrier {
-    fn elem_init_mut(_scope: &mut Scope, elem: ManagedVariable) -> ManagedVariable {
+    fn elem_init_mut(_scope: &mut Scope, elem: Variable) -> Variable {
         elem
     }
 }
@@ -54,7 +54,7 @@ impl CubeType for BarrierToken {
 }
 
 impl NativeAssign for BarrierToken {
-    fn elem_init_mut(_scope: &mut crate::ir::Scope, elem: ManagedVariable) -> ManagedVariable {
+    fn elem_init_mut(_scope: &mut crate::ir::Scope, elem: Variable) -> Variable {
         elem
     }
 }
@@ -78,32 +78,32 @@ macro_rules! tensor_map_load {
                 #[allow(clippy::too_many_arguments)]
                 pub fn [<__expand_tma_load_ $dim d>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     scope: &mut Scope,
-                    expand: NativeExpand<Ref<Barrier>>,
-                    source: NativeExpand<TensorMap<C1, Tiled>>,
-                    destination: SliceExpand<C2, ReadWrite>,
+                    expand: &NativeExpand<Barrier>,
+                    source: &NativeExpand<TensorMap<C1, Tiled>>,
+                    destination: &mut SliceExpand<C2, ReadWrite>,
                     $($arg: NativeExpand<i32>),*
                 ) {
                     expand.[<__expand_tma_load_ $dim d_method>](scope, source, destination, $($arg),*);
                 }
             }
 
-            impl NativeExpand<Ref<Barrier>> {
+            impl NativeExpand<Barrier> {
                 #[allow(clippy::too_many_arguments)]
                 pub fn [<__expand_tma_load_ $dim d_method>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     &self,
                     scope: &mut Scope,
-                    source: NativeExpand<TensorMap<C1, Tiled>>,
-                    destination: SliceExpand<C2, ReadWrite>,
+                    source: &NativeExpand<TensorMap<C1, Tiled>>,
+                    destination: &mut SliceExpand<C2, ReadWrite>,
                     $($arg: NativeExpand<i32>),*
                 ) {
-                    let barrier = *self.expand;
-                    let source = *source.expand;
+                    let barrier = self.expand;
+                    let source = source.expand;
                     let (destination, destination_offset) = destination.__to_raw_parts();
 
                     let mem_copy = BarrierOps::TmaLoad {
                         barrier,
                         tensor_map: source,
-                        indices: vec![$(*$arg.expand),*],
+                        indices: vec![$($arg.expand),*],
                         offset_out: destination_offset
                     };
 
@@ -134,9 +134,9 @@ macro_rules! tensor_map_load_im2col {
                 #[allow(clippy::too_many_arguments)]
                 pub fn [<__expand_tma_load_im2col_ $dim d>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     scope: &mut Scope,
-                    expand: NativeExpand<Ref<Barrier>>,
-                    source: NativeExpand<TensorMap<C1, Im2col>>,
-                    destination: SliceExpand<C2, ReadWrite>,
+                    expand: &NativeExpand<Barrier>,
+                    source: &NativeExpand<TensorMap<C1, Im2col>>,
+                    destination: &mut SliceExpand<C2, ReadWrite>,
                     $($arg: NativeExpand<i32>,)*
                     $($offset: NativeExpand<u16>),*
                 ) {
@@ -144,25 +144,25 @@ macro_rules! tensor_map_load_im2col {
                 }
             }
 
-            impl NativeExpand<Ref<Barrier>> {
+            impl NativeExpand<Barrier> {
                 #[allow(clippy::too_many_arguments)]
                 pub fn [<__expand_tma_load_im2col_ $dim d_method>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     &self,
                     scope: &mut Scope,
-                    source: NativeExpand<TensorMap<C1, Im2col>>,
-                    destination: SliceExpand<C2, ReadWrite>,
+                    source: &NativeExpand<TensorMap<C1, Im2col>>,
+                    destination: &mut SliceExpand<C2, ReadWrite>,
                     $($arg: NativeExpand<i32>,)*
                     $($offset: NativeExpand<u16>),*
                 ) {
-                    let barrier = *self.expand;
-                    let source = *source.expand;
+                    let barrier = self.expand;
+                    let source = source.expand;
                     let (destination, destination_offset) = destination.__to_raw_parts();
 
                     let mem_copy = BarrierOps::TmaLoadIm2col {
                         barrier,
                         tensor_map: source,
-                        indices: vec![$(*$arg.expand),*],
-                        offsets: vec![$(*$offset.expand),*],
+                        indices: vec![$($arg.expand),*],
+                        offsets: vec![$($offset.expand),*],
                         offset_out: destination_offset,
                     };
 
@@ -192,7 +192,7 @@ impl Barrier {
             let variable =
                 scope.create_local_mut(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Unit));
             scope.register(BarrierOps::Init {
-                barrier: *variable,
+                barrier: variable,
                 is_elected: true.into(),
                 arrival_count: 1.into(),
             });
@@ -211,9 +211,9 @@ impl Barrier {
         intrinsic!(|scope| {
             let variable = scope.create_shared(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Cube));
             scope.register(BarrierOps::Init {
-                barrier: *variable,
-                is_elected: *is_elected.expand,
-                arrival_count: *arrival_count.expand,
+                barrier: variable,
+                is_elected: is_elected.expand,
+                arrival_count: arrival_count.expand,
             });
             variable.into()
         })
@@ -224,7 +224,7 @@ impl Barrier {
     pub fn shared_uninit() -> Shared<Barrier> {
         intrinsic!(|scope| {
             let variable = scope.create_shared(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Cube));
-            scope.register(BarrierOps::Declare { barrier: *variable });
+            scope.register(BarrierOps::Declare { barrier: variable });
             variable.into()
         })
     }
@@ -244,11 +244,11 @@ impl Barrier {
     #[allow(unused_variables)]
     pub fn init_manual(&self, arrival_count: u32) {
         intrinsic!(|scope| {
-            let barrier = *self.expand.clone();
+            let barrier = self.expand;
 
             scope.register(BarrierOps::InitManual {
                 barrier,
-                arrival_count: *arrival_count.expand,
+                arrival_count: arrival_count.expand,
             });
         })
     }
@@ -267,8 +267,8 @@ impl Barrier {
     #[allow(unused_variables)]
     pub fn memcpy_async<C: CubePrimitive>(&self, source: &Slice<C>, destination: &mut SliceMut<C>) {
         intrinsic!(|scope| {
-            let barrier = *self.expand;
-            let source_length = *source.length.expand;
+            let barrier = self.expand;
+            let source_length = source.length.expand;
             let (source, source_offset) = source.__to_raw_parts();
             let (destination, destination_offset) = destination.__to_raw_parts();
 
@@ -297,8 +297,8 @@ impl Barrier {
         destination: &mut SliceMut<C>,
     ) {
         intrinsic!(|scope| {
-            let barrier = *self.expand;
-            let source_length = *source.length.expand;
+            let barrier = self.expand;
+            let source_length = source.length.expand;
             let (source, source_offset) = source.__to_raw_parts();
             let (destination, destination_offset) = destination.__to_raw_parts();
 
@@ -328,8 +328,8 @@ impl Barrier {
         destination: &mut SliceMut<C>,
     ) {
         intrinsic!(|scope| {
-            let barrier = *self.expand;
-            let source_length = *source.length.expand;
+            let barrier = self.expand;
+            let source_length = source.length.expand;
             let (source, source_offset) = source.__to_raw_parts();
             let (destination, destination_offset) = destination.__to_raw_parts();
 
@@ -353,12 +353,12 @@ impl Barrier {
     /// Arrive at the barrier, decrementing arrival count
     pub fn arrive(&self) -> BarrierToken {
         intrinsic!(|scope| {
-            let barrier = *self.expand;
+            let barrier = self.expand;
             let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type() else {
                 unreachable!()
             };
             let token = scope.create_barrier_token(barrier.index().unwrap(), level);
-            scope.register(Instruction::new(BarrierOps::Arrive { barrier }, *token));
+            scope.register(Instruction::new(BarrierOps::Arrive { barrier }, token));
             token.into()
         })
     }
@@ -367,20 +367,20 @@ impl Barrier {
     #[allow(unused_variables)]
     pub fn arrive_and_expect_tx(&self, arrival_count: u32, transaction_count: u32) -> BarrierToken {
         intrinsic!(|scope| {
-            let barrier = *self.expand;
+            let barrier = self.expand;
             let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type() else {
                 unreachable!()
             };
             let token = scope.create_barrier_token(barrier.index().unwrap(), level);
-            let arrival_count: ManagedVariable = arrival_count.into();
-            let transaction_count: ManagedVariable = transaction_count.into();
+            let arrival_count: Variable = arrival_count.into();
+            let transaction_count: Variable = transaction_count.into();
             scope.register(Instruction::new(
                 BarrierOps::ArriveTx {
                     barrier,
-                    arrive_count_update: arrival_count.consume(),
-                    transaction_count_update: transaction_count.consume(),
+                    arrive_count_update: arrival_count,
+                    transaction_count_update: transaction_count,
                 },
-                *token,
+                token,
             ));
             token.into()
         })
@@ -390,11 +390,11 @@ impl Barrier {
     #[allow(unused_variables)]
     pub fn expect_tx(&self, expected_count: u32) {
         intrinsic!(|scope| {
-            let barrier = *self.expand;
-            let transaction_count: ManagedVariable = expected_count.into();
+            let barrier = self.expand;
+            let transaction_count: Variable = expected_count.into();
             scope.register(BarrierOps::ExpectTx {
                 barrier,
-                transaction_count_update: transaction_count.consume(),
+                transaction_count_update: transaction_count,
             });
         })
     }
@@ -402,7 +402,7 @@ impl Barrier {
     /// Wait until all data is loaded
     pub fn arrive_and_wait(&self) {
         intrinsic!(|scope| {
-            let barrier = *self.expand;
+            let barrier = self.expand;
             scope.register(BarrierOps::ArriveAndWait { barrier });
         })
     }
@@ -411,8 +411,8 @@ impl Barrier {
     #[allow(unused_variables)]
     pub fn wait(&self, token: BarrierToken) {
         intrinsic!(|scope| {
-            let barrier = *self.expand;
-            let token = *token.expand;
+            let barrier = self.expand;
+            let token = token.expand;
             scope.register(BarrierOps::Wait { barrier, token });
         })
     }
@@ -422,8 +422,8 @@ impl Barrier {
     #[allow(unused_variables)]
     pub fn wait_parity(&self, phase: u32) {
         intrinsic!(|scope| {
-            let barrier = *self.expand;
-            let phase = *phase.expand;
+            let barrier = self.expand;
+            let phase = phase.expand;
             scope.register(BarrierOps::WaitParity { barrier, phase });
         })
     }
@@ -503,7 +503,7 @@ pub mod copy_async_checked {
         destination: SliceExpand<C, ReadWrite>,
         copy_length: u32,
     ) {
-        let source_length = *source.length.expand;
+        let source_length = source.length.expand;
         let (source, source_offset) = source.__to_raw_parts();
         let (destination, destination_offset) = destination.__to_raw_parts();
         let scalar_size = C::as_type(scope).storage_type().size();
@@ -531,47 +531,34 @@ impl Barrier {
     /// `arrive_and_wait` should still be called afterwards.
     pub fn commit_copy_async(&self) {
         intrinsic!(|scope| {
-            let barrier = *self.expand;
+            let barrier = self.expand;
             let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type() else {
                 unreachable!()
             };
             let token = scope.create_barrier_token(barrier.index().unwrap(), level);
             scope.register(Instruction::new(
                 BarrierOps::CommitCopyAsync { barrier },
-                *token,
+                token,
             ));
         })
-    }
-}
-
-impl Deref for Shared<Barrier> {
-    type Target = Barrier;
-
-    fn deref(&self) -> &Self::Target {
-        unexpanded!()
-    }
-}
-impl Deref for SharedExpand<Barrier> {
-    type Target = NativeExpand<Ref<Barrier>>;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { self.as_type_ref_unchecked::<Ref<Barrier>>() }
-    }
-}
-
-impl DerefMut for Shared<Barrier> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        todo!()
-    }
-}
-impl DerefMut for SharedExpand<Barrier> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.as_type_mut_unchecked::<Ref<Barrier>>() }
     }
 }
 
 impl From<SharedExpand<Barrier>> for BarrierExpand {
     fn from(value: SharedExpand<Barrier>) -> Self {
         value.expand.into()
+    }
+}
+
+impl Deref for SharedExpand<Barrier> {
+    type Target = BarrierExpand;
+
+    fn deref(&self) -> &Self::Target {
+        unexpanded!()
+    }
+}
+impl DerefMut for SharedExpand<Barrier> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unexpanded!()
     }
 }

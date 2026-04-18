@@ -79,50 +79,6 @@ impl<T: CubePrimitive> Shared<T> {
     }
 }
 
-pub trait AsRefExpand<T: CubeType> {
-    /// Converts this type into a shared reference of the (usually inferred) input type.
-    fn __expand_as_ref_method(self, scope: &mut Scope) -> T::ExpandType;
-}
-impl<T: CubePrimitive> AsRefExpand<T> for NativeExpand<T> {
-    fn __expand_as_ref_method(self, _scope: &mut Scope) -> NativeExpand<T> {
-        self
-    }
-}
-pub trait AsMutExpand<T: CubeType> {
-    /// Converts this type into a shared reference of the (usually inferred) input type.
-    fn __expand_as_mut_method(self, scope: &mut Scope) -> T::ExpandType;
-}
-impl<T: CubePrimitive> AsMutExpand<T> for NativeExpand<T> {
-    fn __expand_as_mut_method(self, _scope: &mut Scope) -> <T as CubeType>::ExpandType {
-        self
-    }
-}
-
-/// Type inference won't allow things like assign to work normally, so we need to manually call
-/// `as_ref` or `as_mut` for those. Things like barrier ops should take `AsRef` so the conversion
-/// is automatic.
-impl<T: CubePrimitive> AsRef<T> for Shared<T> {
-    fn as_ref(&self) -> &T {
-        unexpanded!()
-    }
-}
-impl<T: CubePrimitive> AsRefExpand<T> for SharedExpand<T> {
-    fn __expand_as_ref_method(self, _scope: &mut Scope) -> <T as CubeType>::ExpandType {
-        self.expand.into()
-    }
-}
-
-impl<T: CubePrimitive> AsMut<T> for Shared<T> {
-    fn as_mut(&mut self) -> &mut T {
-        unexpanded!()
-    }
-}
-impl<T: CubePrimitive> AsMutExpand<T> for SharedExpand<T> {
-    fn __expand_as_mut_method(self, _scope: &mut Scope) -> <T as CubeType>::ExpandType {
-        self.expand.into()
-    }
-}
-
 impl<T: CubePrimitive> Default for Shared<T> {
     fn default() -> Self {
         Self::new()
@@ -150,7 +106,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     /// *Must* be used in uniform control flow
     /// *Must not* have any dangling references to this shared memory
     pub unsafe fn free(self) {
-        intrinsic!(|scope| { scope.register(Marker::Free(*self.expand)) })
+        intrinsic!(|scope| { scope.register(Marker::Free(self.expand)) })
     }
 }
 
@@ -163,7 +119,7 @@ fn len_static<T: CubePrimitive>(shared: &NativeExpand<SharedMemory<T>>) -> Nativ
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
-    use cubecl_ir::{IndexAssignOperator, IndexOperator, Operator};
+    use cubecl_ir::{IndexMutOperator, IndexOperator, Operator};
 
     use crate::ir::Instruction;
 
@@ -179,19 +135,21 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&'a self, i: usize) -> E {
+        pub unsafe fn index_unchecked(&'a self, i: usize) -> &'a E {
             intrinsic!(|scope| {
-                let out = scope.create_local(self.expand.ty);
+                let ty = self.expand.ty;
+                let class = self.expand.pointer_class();
+                let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
                     Operator::UncheckedIndex(IndexOperator {
-                        list: *self.expand,
-                        index: i.expand.consume(),
+                        list: self.expand,
+                        index: i.expand,
                         vector_size: 0,
                         unroll_factor: 1,
                     }),
-                    *out,
+                    out,
                 ));
-                out.into()
+                scope.create_kernel_ref(out.into())
             })
         }
 
@@ -201,29 +159,33 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E) {
+        pub unsafe fn index_assign_unchecked(&'a mut self, i: usize) -> &'a mut E {
             intrinsic!(|scope| {
+                let ty = self.expand.ty;
+                let class = self.expand.pointer_class();
+                let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndexAssign(IndexAssignOperator {
-                        index: i.expand.consume(),
-                        value: value.expand.consume(),
+                    Operator::UncheckedIndexMut(IndexMutOperator {
+                        list: self.expand,
+                        index: i.expand,
                         vector_size: 0,
                         unroll_factor: 1,
                     }),
-                    *self.expand,
+                    out,
                 ));
+                scope.create_kernel_ref(out.into())
             })
         }
     }
 }
 
-impl<T: CubePrimitive> List<T> for SharedMemory<T> {
+impl<'a, T: CubePrimitive> List<'a, T> for SharedMemory<T> {
     fn __expand_read(
         scope: &mut Scope,
-        this: &NativeExpand<SharedMemory<T>>,
+        this: &'a NativeExpand<SharedMemory<T>>,
         idx: NativeExpand<usize>,
-    ) -> NativeExpand<T> {
-        index::expand(scope, this.clone(), idx)
+    ) -> &'a NativeExpand<T> {
+        this.__expand_index_method(scope, idx)
     }
 }
 
@@ -241,16 +203,20 @@ impl<T: CubePrimitive> DerefMut for SharedMemory<T> {
     }
 }
 
-impl<T: CubePrimitive> ListExpand<T> for NativeExpand<SharedMemory<T>> {
-    fn __expand_read_method(&self, scope: &mut Scope, idx: NativeExpand<usize>) -> NativeExpand<T> {
-        index::expand(scope, self.clone(), idx)
-    }
-    fn __expand_read_unchecked_method(
-        &self,
+impl<'a, T: CubePrimitive> ListExpand<'a, T> for NativeExpand<SharedMemory<T>> {
+    fn __expand_read_method(
+        &'a self,
         scope: &mut Scope,
         idx: NativeExpand<usize>,
-    ) -> NativeExpand<T> {
-        index_unchecked::expand(scope, self.clone(), idx)
+    ) -> &'a NativeExpand<T> {
+        self.__expand_index_method(scope, idx)
+    }
+    fn __expand_read_unchecked_method(
+        &'a self,
+        scope: &mut Scope,
+        idx: NativeExpand<usize>,
+    ) -> &'a NativeExpand<T> {
+        self.__expand_index_unchecked_method(scope, idx)
     }
 
     fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
@@ -265,26 +231,60 @@ impl<T: CubePrimitive> VectorizedExpand for NativeExpand<SharedMemory<T>> {
     }
 }
 
-impl<T: CubePrimitive> ListMut<T> for SharedMemory<T> {
+impl<'a, T: CubePrimitive> ListMut<'a, T> for SharedMemory<T> {
     fn __expand_write(
         scope: &mut Scope,
-        this: &NativeExpand<SharedMemory<T>>,
+        this: &'a NativeExpand<SharedMemory<T>>,
         idx: NativeExpand<usize>,
-        value: NativeExpand<T>,
-    ) {
+    ) -> &'a mut NativeExpand<T> {
         let mut this = this.clone();
-        index_assign::expand(scope, &mut this, idx, value);
+        let reference = this.__expand_index_mut_method(scope, idx);
+        // SAFETY: This is safe because cloning smem only clones the reference to the global var
+        unsafe { core::mem::transmute(reference) }
     }
 }
 
-impl<T: CubePrimitive> ListMutExpand<T> for NativeExpand<SharedMemory<T>> {
+impl<'a, T: CubePrimitive> ListMutExpand<'a, T> for NativeExpand<SharedMemory<T>> {
     fn __expand_write_method(
-        &self,
+        &'a self,
         scope: &mut Scope,
         idx: NativeExpand<usize>,
-        value: NativeExpand<T>,
-    ) {
+    ) -> &'a mut NativeExpand<T> {
         let mut this = self.clone();
-        index_assign::expand(scope, &mut this, idx, value);
+        let reference = this.__expand_index_mut_method(scope, idx);
+        // SAFETY: This is safe because cloning smem only clones the reference to the global var
+        unsafe { core::mem::transmute(reference) }
+    }
+}
+
+impl<T: CubePrimitive> Deref for Shared<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        unexpanded!()
+    }
+}
+impl<T: CubePrimitive> DerefMut for Shared<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unexpanded!()
+    }
+}
+
+impl<T: CubePrimitive> CubeDeref for SharedExpand<T> {
+    type Target = T::ExpandType;
+
+    fn __expand_deref_method(&self, _: &mut Scope) -> Self::Target {
+        unsafe { self.as_type_ref_unchecked::<T>().clone() }
+    }
+}
+
+impl<T: CubePrimitive> Assign<NativeExpand<T>> for SharedExpand<T> {
+    fn __expand_assign_method(&mut self, scope: &mut Scope, value: NativeExpand<T>) {
+        self.__expand_deref_method(scope)
+            .__expand_assign_method(scope, value);
+    }
+
+    fn init_mut(&self, _: &mut Scope) -> Self {
+        self.clone()
     }
 }

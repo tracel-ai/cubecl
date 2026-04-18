@@ -5,7 +5,7 @@ use half::{bf16, f16};
 
 use crate::{
     flex32,
-    ir::{Arithmetic, ManagedVariable, Scope},
+    ir::{Arithmetic, Scope, Variable},
     prelude::{CubePrimitive, CubePrimitiveExpand, CubeType, NativeExpand, Reinterpret},
     tf32, unexpanded,
 };
@@ -90,7 +90,7 @@ macro_rules! impl_unary_func_scalar_out {
             $(impl $trait_name for $type {})*
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for NativeExpand<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self::Scalar {
-                    let expand_element: ManagedVariable = self.into();
+                    let expand_element: Variable = self.into();
                     let item = expand_element.ty.with_vector_size(0);
                     unary_expand_fixed_output(scope, expand_element, item, $operator).into()
                 }
@@ -121,7 +121,7 @@ macro_rules! impl_unary_func_fixed_out_ty {
             $(impl $trait_name for $type {})*
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for NativeExpand<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self::WithScalar<$out_ty> {
-                    let expand_element: ManagedVariable = self.into();
+                    let expand_element: Variable = self.into();
                     let item = <$out_ty as CubePrimitive>::as_type(scope).with_vector_size(expand_element.ty.vector_size());
                     unary_expand_fixed_output(scope, expand_element, item, $operator).into()
                 }

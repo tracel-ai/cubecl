@@ -8,7 +8,7 @@ use syn::{
 
 use crate::{
     ReplaceDefines,
-    parse::kernel::{KernelArgs, KernelParam, SelfType, normalize_kernel_ty},
+    parse::kernel::{KernelArgs, KernelParam, SelfType, expand_kernel_ty},
 };
 
 use super::{

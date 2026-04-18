@@ -62,9 +62,9 @@ pub trait Reinterpret: CubePrimitive {
         let new_var = scope.create_local(<Self as CubePrimitive>::as_type(scope));
         scope.register(Instruction::new(
             Operator::Reinterpret(UnaryOperator {
-                input: *value.expand,
+                input: value.expand,
             }),
-            *new_var.clone(),
+            new_var,
         ));
         new_var.into()
     }

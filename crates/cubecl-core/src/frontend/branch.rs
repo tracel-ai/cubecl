@@ -1,36 +1,37 @@
 use alloc::{boxed::Box, vec::Vec};
-use cubecl_ir::ManagedVariable;
+use cubecl_ir::Variable;
 use num_traits::NumCast;
 
-use crate::{ir::Switch, prelude::CubeEnum};
+use crate::{
+    ir::Switch,
+    prelude::{CubeEnum, ExpandTypeClone},
+};
 use crate::{
     ir::{Branch, If, IfElse, Loop, RangeLoop, Scope},
     prelude::Assign,
 };
 
-use super::{CubeType, Int, NativeExpand, Numeric};
+use super::{CubeType, Int, NativeExpand};
 
 /// Something that can be iterated on by a for loop. Currently only includes `Range`, `StepBy` and
 /// `Sequence`.
-pub trait Iterable<T: CubeType>: Sized {
+pub trait Iterable: Sized {
+    type Item;
+
     /// Expand a runtime loop without unrolling
     ///
     /// # Arguments
     /// # Arguments
     /// * `scope` - the expansion scope
     /// * `body` - the loop body to be executed repeatedly
-    fn expand(self, scope: &mut Scope, body: impl FnMut(&mut Scope, <T as CubeType>::ExpandType));
+    fn expand(self, scope: &mut Scope, body: impl FnMut(&mut Scope, Self::Item));
     /// Expand an unrolled loop. The body should be invoced `n` times, where `n` is the number of
     /// iterations.
     ///
     /// # Arguments
     /// * `scope` - the expansion scope
     /// * `body` - the loop body to be executed repeatedly
-    fn expand_unroll(
-        self,
-        scope: &mut Scope,
-        body: impl FnMut(&mut Scope, <T as CubeType>::ExpandType),
-    );
+    fn expand_unroll(self, scope: &mut Scope, body: impl FnMut(&mut Scope, Self::Item));
     /// Return the comptime length of this iterable, if possible
     fn const_len(&self) -> Option<usize> {
         None
@@ -62,7 +63,9 @@ impl<I: Int> RangeExpand<I> {
     }
 }
 
-impl<I: Int> Iterable<I> for RangeExpand<I> {
+impl<I: Int> Iterable for RangeExpand<I> {
+    type Item = NativeExpand<I>;
+
     fn expand_unroll(
         self,
         scope: &mut Scope,
@@ -105,15 +108,15 @@ impl<I: Int> Iterable<I> for RangeExpand<I> {
 
         body(&mut child, i.clone().into());
 
-        let mut start = *self.start.expand;
-        let mut end = *self.end.expand;
+        let mut start = self.start.expand;
+        let mut end = self.end.expand;
 
         // Normalize usize constants. Gotta fix this properly at some point.
         start.ty = I::as_type(scope);
         end.ty = I::as_type(scope);
 
         scope.register(Branch::RangeLoop(Box::new(RangeLoop {
-            i: *i,
+            i,
             start,
             end,
             step: None,
@@ -136,7 +139,9 @@ pub struct SteppedRangeExpand<I: Int> {
     inclusive: bool,
 }
 
-impl<I: Int + Into<ManagedVariable>> Iterable<I> for SteppedRangeExpand<I> {
+impl<I: Int + Into<Variable>> Iterable for SteppedRangeExpand<I> {
+    type Item = NativeExpand<I>;
+
     fn expand(
         self,
         scope: &mut Scope,
@@ -149,10 +154,10 @@ impl<I: Int + Into<ManagedVariable>> Iterable<I> for SteppedRangeExpand<I> {
         body(&mut child, i.clone().into());
 
         scope.register(Branch::RangeLoop(Box::new(RangeLoop {
-            i: *i,
-            start: *self.start.expand,
-            end: *self.end.expand,
-            step: Some(*self.step.expand),
+            i,
+            start: self.start.expand,
+            end: self.end.expand,
+            step: Some(self.step.expand),
             scope: child,
             inclusive: self.inclusive,
         })));
@@ -301,11 +306,11 @@ pub mod range_stepped {
     }
 }
 
-pub fn for_expand<I: Numeric>(
+pub fn for_expand<I: Iterable>(
     scope: &mut Scope,
-    range: impl Iterable<I>,
+    range: I,
     unroll: bool,
-    body: impl FnMut(&mut Scope, NativeExpand<I>),
+    body: impl FnMut(&mut Scope, I::Item),
 ) {
     if unroll || range.const_len() == Some(1) {
         range.expand_unroll(scope, body);
@@ -328,7 +333,7 @@ pub fn if_expand(scope: &mut Scope, condition: NativeExpand<bool>, block: impl F
             block(&mut child);
 
             scope.register(Branch::If(Box::new(If {
-                cond: *condition.expand,
+                cond: condition.expand,
                 scope: child,
             })));
         }
@@ -356,7 +361,7 @@ impl IfElseExpand {
                 else_block(&mut else_child);
 
                 scope.register(Branch::IfElse(Box::new(IfElse {
-                    cond: *runtime_cond.expand,
+                    cond: runtime_cond.expand,
                     scope_if: then_child,
                     scope_else: else_child,
                 })));
@@ -412,10 +417,10 @@ impl<C: Assign> IfElseExprExpand<C> {
             } => {
                 let mut else_child = scope.child();
                 let ret = else_block(&mut else_child);
-                out.expand_assign(&mut else_child, ret);
+                out.__expand_assign_method(&mut else_child, ret);
 
                 scope.register(Branch::IfElse(Box::new(IfElse {
-                    cond: *runtime_cond.expand,
+                    cond: runtime_cond.expand,
                     scope_if: then_child,
                     scope_else: else_child,
                 })));
@@ -443,7 +448,7 @@ pub fn if_else_expr_expand<C: Assign>(
             let mut then_child = scope.child();
             let ret = then_block(&mut then_child);
             let mut out = ret.init_mut(scope);
-            out.expand_assign(&mut then_child, ret);
+            out.__expand_assign_method(&mut then_child, ret);
 
             IfElseExprExpand::Runtime {
                 runtime_cond: condition,
@@ -475,14 +480,14 @@ impl<I: Int> SwitchExpand<I> {
     }
 
     pub fn finish(self, scope: &mut Scope) {
-        let value_var = *self.value.expand;
+        let value_var = self.value.expand;
         scope.register(Branch::Switch(Box::new(Switch {
             value: value_var,
             scope_default: self.default,
             cases: self
                 .cases
                 .into_iter()
-                .map(|it| (*it.0.expand, it.1))
+                .map(|it| (it.0.expand, it.1))
                 .collect(),
         })));
     }
@@ -520,20 +525,20 @@ impl<I: Int, C: Assign> SwitchExpandExpr<I, C> {
         let value = I::from(value).unwrap();
         let mut case_child = scope.child();
         let ret = block(&mut case_child);
-        self.out.expand_assign(&mut case_child, ret);
+        self.out.__expand_assign_method(&mut case_child, ret);
         self.cases.push((value.into(), case_child));
         self
     }
 
     pub fn finish(self, scope: &mut Scope) -> C {
-        let value_var = *self.value.expand;
+        let value_var = self.value.expand;
         scope.register(Branch::Switch(Box::new(Switch {
             value: value_var,
             scope_default: self.default,
             cases: self
                 .cases
                 .into_iter()
-                .map(|it| (*it.0.expand, it.1))
+                .map(|it| (it.0.expand, it.1))
                 .collect(),
         })));
         self.out
@@ -548,7 +553,7 @@ pub fn switch_expand_expr<I: Int, C: Assign>(
     let mut default_child = scope.child();
     let default = default_block(&mut default_child);
     let mut out = default.init_mut(scope);
-    out.expand_assign(&mut default_child, default);
+    out.__expand_assign_method(&mut default_child, default);
 
     SwitchExpandExpr {
         value,
@@ -587,7 +592,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 ..
             } => {
                 let mut case_child = scope.child();
-                block(&mut case_child, runtime_value.clone());
+                block(&mut case_child, runtime_value.clone_unchecked());
                 cases.push((value.into(), case_child));
             }
             Self::ComptimeVariant {
@@ -596,7 +601,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 matched,
             } => {
                 if value == *variant {
-                    block(scope, runtime_value.clone());
+                    block(scope, runtime_value.clone_unchecked());
                     *matched = true;
                 }
             }
@@ -616,7 +621,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 ..
             } => {
                 let mut case_child = scope.child();
-                block(&mut case_child, runtime_value.clone());
+                block(&mut case_child, runtime_value.clone_unchecked());
                 *default = Some(case_child);
             }
             Self::ComptimeVariant {
@@ -625,7 +630,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 ..
             } => {
                 if !*matched {
-                    block(scope, runtime_value.clone());
+                    block(scope, runtime_value.clone_unchecked());
                     *matched = true;
                 }
             }
@@ -642,7 +647,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 default,
                 ..
             } => {
-                let variant_var = *variant.expand;
+                let variant_var = variant.expand;
                 let scope_default = default.unwrap_or_else(|| {
                     let mut scope_default = scope.child();
                     unreachable_unchecked::expand(&mut scope_default);
@@ -652,7 +657,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 scope.register(Branch::Switch(Box::new(Switch {
                     value: variant_var,
                     scope_default,
-                    cases: cases.into_iter().map(|it| (*it.0.expand, it.1)).collect(),
+                    cases: cases.into_iter().map(|it| (it.0.expand, it.1)).collect(),
                 })));
             }
         }
@@ -669,7 +674,7 @@ pub fn match_expand<T: CubeEnum>(
     match discriminant.constant() {
         Some(const_variant) if const_variant.as_i32() == discriminant0 => {
             let runtime_value = value.runtime_value();
-            arm0(scope, runtime_value.clone());
+            arm0(scope, runtime_value.clone_unchecked());
             MatchExpand::ComptimeVariant {
                 variant: const_variant.as_i32(),
                 runtime_value,
@@ -684,7 +689,7 @@ pub fn match_expand<T: CubeEnum>(
         None => {
             let runtime_value = value.runtime_value();
             let mut case_child = scope.child();
-            arm0(&mut case_child, runtime_value.clone());
+            arm0(&mut case_child, runtime_value.clone_unchecked());
 
             MatchExpand::RuntimeVariant {
                 variant: discriminant,
@@ -728,8 +733,8 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 ..
             } => {
                 let mut case_child = scope.child();
-                let ret_val = block(&mut case_child, runtime_value.clone());
-                out.expand_assign(&mut case_child, ret_val);
+                let ret_val = block(&mut case_child, runtime_value.clone_unchecked());
+                out.__expand_assign_method(&mut case_child, ret_val);
                 cases.push((value.into(), case_child));
             }
             Self::ComptimeVariant {
@@ -739,7 +744,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 matched,
             } => {
                 if value == *variant {
-                    *out = Some(block(scope, runtime_value.clone()));
+                    *out = Some(block(scope, runtime_value.clone_unchecked()));
                     *matched = true;
                 }
             }
@@ -760,8 +765,8 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 ..
             } => {
                 let mut case_child = scope.child();
-                let ret_val = block(&mut case_child, runtime_value.clone());
-                out.expand_assign(&mut case_child, ret_val);
+                let ret_val = block(&mut case_child, runtime_value.clone_unchecked());
+                out.__expand_assign_method(&mut case_child, ret_val);
                 *default = Some(case_child);
             }
             Self::ComptimeVariant {
@@ -771,7 +776,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 ..
             } => {
                 if !*matched {
-                    *out = Some(block(scope, runtime_value.clone()));
+                    *out = Some(block(scope, runtime_value.clone_unchecked()));
                     *matched = true;
                 }
             }
@@ -791,7 +796,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 default,
                 ..
             } => {
-                let variant_var = *variant.expand;
+                let variant_var = variant.expand;
                 let scope_default = default.unwrap_or_else(|| {
                     let mut scope_default = scope.child();
                     unreachable_unchecked::expand(&mut scope_default);
@@ -800,7 +805,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 scope.register(Branch::Switch(Box::new(Switch {
                     value: variant_var,
                     scope_default,
-                    cases: cases.into_iter().map(|it| (*it.0.expand, it.1)).collect(),
+                    cases: cases.into_iter().map(|it| (it.0.expand, it.1)).collect(),
                 })));
                 out
             }
@@ -818,7 +823,7 @@ pub fn match_expand_expr<T: CubeEnum, C: Assign>(
     match discriminant.constant() {
         Some(const_variant) if const_variant.as_i32() == discriminant0 => {
             let runtime_value = value.runtime_value();
-            let out = arm0(scope, runtime_value.clone());
+            let out = arm0(scope, runtime_value.clone_unchecked());
             MatchExpandExpr::ComptimeVariant {
                 variant: const_variant.as_i32(),
                 out: Some(out),
@@ -835,10 +840,10 @@ pub fn match_expand_expr<T: CubeEnum, C: Assign>(
         None => {
             let runtime_value = value.runtime_value();
             let mut case_child = scope.child();
-            let ret_val = arm0(&mut case_child, runtime_value.clone());
+            let ret_val = arm0(&mut case_child, runtime_value.clone_unchecked());
 
             let mut out = ret_val.init_mut(scope);
-            out.expand_assign(&mut case_child, ret_val);
+            out.__expand_assign_method(&mut case_child, ret_val);
 
             MatchExpandExpr::RuntimeVariant {
                 variant: discriminant,

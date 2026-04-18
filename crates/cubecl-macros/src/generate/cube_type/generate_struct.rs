@@ -22,13 +22,13 @@ impl CubeTypeStruct {
             }
         } else {
             let expand_ty = self.expand_ty();
-            let clone_expand = self.clone_expand();
+            let clone_impl = self.clone_expand();
             let cube_type_impl = self.cube_type_impl();
             let expand_type_impl = self.expand_type_impl();
 
             quote! {
                 #expand_ty
-                #clone_expand
+                #clone_impl
                 #cube_type_impl
                 #expand_type_impl
             }
@@ -49,7 +49,7 @@ impl CubeTypeStruct {
     }
 
     fn clone_expand(&self) -> proc_macro2::TokenStream {
-        let scope = prelude_type("Scope");
+        let clone = prelude_type("ExpandTypeClone");
 
         let fields = self.fields.iter().map(TypeField::clone_field);
         let name = &self.name_expand;
@@ -58,17 +58,11 @@ impl CubeTypeStruct {
         let (generics_impl, generics_use, where_clause) = generics.split_for_impl();
 
         quote! {
-            impl #generics_impl Clone for #name #generics_use #where_clause {
-                fn clone(&self) -> Self {
+            impl #generics_impl #clone for #name #generics_use #where_clause {
+                fn clone_unchecked(&self) -> Self {
                     Self {
                         #(#fields),*
                     }
-                }
-            }
-
-            impl #generics_impl #name #generics_use #where_clause {
-                pub fn __expand_clone_method(&self, _scope: &mut #scope) -> Self {
-                    self.clone()
                 }
             }
         }
@@ -330,7 +324,12 @@ impl TypeField {
 
     pub fn clone_field(&self) -> TokenStream {
         let name = self.ident.as_ref().unwrap();
-        quote![#name: self.#name.clone()]
+        let is_comptime = self.comptime.is_present();
+        if is_comptime {
+            quote![#name: self.#name.clone()]
+        } else {
+            quote![#name: self.#name.clone_unchecked()]
+        }
     }
 
     pub fn launch_field(&self) -> TokenStream {

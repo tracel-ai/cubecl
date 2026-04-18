@@ -3,7 +3,7 @@ use core::{marker::PhantomData, ops::Neg};
 use crate::frontend::{CubePrimitive, CubeType, NativeAssign, NativeExpand};
 use crate::ir::{BinaryOperator, Instruction, Scope, Type};
 use crate::{self as cubecl, prelude::*};
-use cubecl_ir::{Comparison, ConstantValue, ManagedVariable};
+use cubecl_ir::{Comparison, ConstantValue, Variable};
 use cubecl_macros::{cube, intrinsic};
 
 /// A contiguous list of elements that supports auto-vectorized operations.
@@ -280,7 +280,7 @@ impl<P: Scalar, N: Size> CubeType for Vector<P, N> {
 impl<P: Scalar, N: Size> CubeDebug for Vector<P, N> {}
 
 impl<P: Scalar, N: Size> NativeAssign for Vector<P, N> {
-    fn elem_init_mut(scope: &mut crate::ir::Scope, elem: ManagedVariable) -> ManagedVariable {
+    fn elem_init_mut(scope: &mut crate::ir::Scope, elem: Variable) -> Variable {
         P::elem_init_mut(scope, elem)
     }
 }

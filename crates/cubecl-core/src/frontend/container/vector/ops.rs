@@ -286,10 +286,8 @@ impl<P: CountOnes + Scalar, N: Size> Vector<P, N> {
                 .with_vector_size(self.expand.ty.vector_size());
             let out = scope.create_local(out_item);
             scope.register(Instruction::new(
-                Bitwise::CountOnes(UnaryOperator {
-                    input: *self.expand,
-                }),
-                *out,
+                Bitwise::CountOnes(UnaryOperator { input: self.expand }),
+                out,
             ));
             out.into()
         })

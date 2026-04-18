@@ -5,7 +5,7 @@ use cubecl::prelude::*;
 #[cube(launch)]
 pub fn kernel_assign<F: Float>(output: &mut Array<F>) {
     if UNIT_POS == 0 {
-        let item = F::new(5.0);
+        let item = F::new(5f32);
         output[0] = item;
     }
 }
@@ -13,14 +13,14 @@ pub fn kernel_assign<F: Float>(output: &mut Array<F>) {
 #[cube(launch)]
 pub fn kernel_add_assign_array<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
     if UNIT_POS == 0 {
-        output[0] = Vector::new(F::new(5.0));
-        output[0] += Vector::new(F::new(1.0));
+        output[0] = Vector::new(F::new(5f32));
+        output[0] += Vector::new(F::new(1f32));
     }
 }
 
 #[cube(launch)]
 pub fn kernel_add_assign_vector<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
-    let mut vector = Vector::new(F::new(1.0));
+    let mut vector = Vector::new(F::new(1f32));
 
     if UNIT_POS == 0 {
         #[unroll]
@@ -34,7 +34,7 @@ pub fn kernel_add_assign_vector<F: Float, N: Size>(output: &mut Array<Vector<F, 
 #[cube(launch)]
 pub fn kernel_assign_ref<F: Float>(output: &mut Array<F>) {
     if UNIT_POS == 0 {
-        let mut value = F::new(1.0);
+        let mut value = F::new(1f32);
         assign_ref::<F>(&mut value);
         output[0] = value;
     }
@@ -42,7 +42,7 @@ pub fn kernel_assign_ref<F: Float>(output: &mut Array<F>) {
 
 #[cube]
 fn assign_ref<F: Float>(value: &mut F) {
-    *value = F::new(5.0);
+    *value = F::new(5f32);
 }
 
 pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {

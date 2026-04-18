@@ -36,17 +36,13 @@ pub struct TensorView<T: CubePrimitive> {
     pub(crate) view: ComptimeOption<TensorReinterpret>,
 }
 
-impl<T: CubePrimitive> TensorViewExpand<T> {
-    pub fn __expand_as_ref_method(&self, _: &mut Scope) -> Self {
-        self.clone()
+impl<T: CubePrimitive> CubeRef for TensorViewExpand<T> {
+    fn __expand_as_ref_method<'a, 'b>(&'a self, _: &'b mut Scope) -> &'a Self {
+        self
     }
 
-    pub fn __expand_as_mut_method(&self, _: &mut Scope) -> Self {
-        self.clone()
-    }
-
-    pub fn __expand_deref_method(&self, _: &mut Scope) -> Self {
-        self.clone()
+    fn __expand_as_mut_method<'a, 'b>(&'a mut self, _: &'b mut Scope) -> &'a mut Self {
+        self
     }
 }
 
@@ -130,11 +126,11 @@ impl<T: CubePrimitive> TensorView<T> {
             let new_layout = scope.create_local(self.layout.expand.ty);
             scope.register(Instruction::new(
                 TensorIndexingOps::Slice {
-                    layout: *self.layout.expand,
-                    offsets: offsets.iter_cloned().map(|it| *it.expand).collect(),
-                    shape: shape.iter_cloned().map(|it| *it.expand).collect(),
+                    layout: self.layout.expand,
+                    offsets: offsets.iter_cloned().map(|it| it.expand).collect(),
+                    shape: shape.iter_cloned().map(|it| it.expand).collect(),
                 },
-                *new_layout,
+                new_layout,
             ));
             TensorViewExpand {
                 buffer: self.buffer.clone(),
@@ -182,7 +178,7 @@ impl<T: CubePrimitive> TensorViewExpand<T> {
         let view = scope.create_local(Type::semantic(SemanticType::TensorView(
             dims, false, perm_dims,
         )));
-        scope.register(Instruction::new(TensorIndexingOps::CreateView, *view));
+        scope.register(Instruction::new(TensorIndexingOps::CreateView, view));
         TensorViewExpand {
             buffer: self.buffer,
             layout: self.layout,
@@ -233,16 +229,16 @@ impl<T: CubePrimitive> TensorViewBuilderExpand<T> {
         )));
         scope.register(Instruction::new(
             TensorIndexingOps::CreateLayout {
-                shape: self.shape.iter_cloned().map(|it| *it.expand).collect(),
+                shape: self.shape.iter_cloned().map(|it| it.expand).collect(),
                 strides: match self.strides {
                     ComptimeOptionExpand::None => None,
                     ComptimeOptionExpand::Some(strides) => {
-                        Some(strides.iter_cloned().map(|it| *it.expand).collect())
+                        Some(strides.iter_cloned().map(|it| it.expand).collect())
                     }
                 },
                 clamp_mode: self.clamp_mode.into(),
             },
-            *layout,
+            layout,
         ));
         TensorViewExpand {
             buffer: self.buffer,

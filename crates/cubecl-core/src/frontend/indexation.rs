@@ -1,11 +1,11 @@
 use core::ops::{Index, IndexMut};
 
 use cubecl_ir::{
-    IndexAssignOperator, Instruction, ManagedVariable, Operator, Scope, VariableKind, VectorSize,
+    IndexMutOperator, Instruction, Operator, Scope, Type, Variable, VariableKind, VectorSize,
 };
 
 use super::{CubeType, NativeExpand, index_expand, index_expand_no_vec};
-use crate::{ir::Variable, prelude::CubePrimitive, unexpanded};
+use crate::{prelude::CubePrimitive, unexpanded};
 
 /// Fake indexation so we can rewrite indexes into scalars as calls to this fake function in the
 /// non-expanded function
@@ -22,21 +22,6 @@ pub trait CubeIndex:
 
     fn cube_idx(&self, _i: Self::Idx) -> &Self::Output {
         unexpanded!()
-    }
-
-    fn expand_index(
-        scope: &mut Scope,
-        array: Self::ExpandType,
-        index: <Self::Idx as CubeType>::ExpandType,
-    ) -> <Self::Output as CubeType>::ExpandType {
-        array.expand_index(scope, index)
-    }
-    fn expand_index_unchecked(
-        scope: &mut Scope,
-        array: Self::ExpandType,
-        index: <Self::Idx as CubeType>::ExpandType,
-    ) -> <Self::Output as CubeType>::ExpandType {
-        array.expand_index_unchecked(scope, index)
     }
 }
 
@@ -61,8 +46,9 @@ pub trait ComptimeIndexMut<I>: ComptimeIndex<I> + IndexMut<I> {
 pub trait CubeIndexExpand {
     type Output;
     type Idx;
-    fn expand_index(&self, scope: &mut Scope, index: Self::Idx) -> Self::Output;
-    fn expand_index_unchecked(&self, scope: &mut Scope, index: Self::Idx) -> Self::Output;
+    fn __expand_index_method(&self, scope: &mut Scope, index: Self::Idx) -> &Self::Output;
+    fn __expand_index_unchecked_method(&self, scope: &mut Scope, index: Self::Idx)
+    -> &Self::Output;
 }
 
 pub trait CubeIndexMut:
@@ -72,45 +58,34 @@ pub trait CubeIndexMut:
     fn cube_idx_mut(&mut self, _i: <Self as CubeIndex>::Idx) -> &mut <Self as CubeIndex>::Output {
         unexpanded!()
     }
-    fn expand_index_mut(
-        scope: &mut Scope,
-        array: &mut Self::ExpandType,
-        index: <Self::Idx as CubeType>::ExpandType,
-        value: <Self::Output as CubeType>::ExpandType,
-    ) {
-        array.expand_index_mut(scope, index, value)
-    }
 }
 
 pub trait CubeIndexMutExpand: CubeIndexExpand {
-    fn expand_index_mut(
-        &mut self,
-        scope: &mut Scope,
+    fn __expand_index_mut_method<'a, 'b>(
+        &'a mut self,
+        scope: &'b mut Scope,
         index: <Self as CubeIndexExpand>::Idx,
-        value: <Self as CubeIndexExpand>::Output,
-    );
+    ) -> &'a mut <Self as CubeIndexExpand>::Output;
 }
 
-pub(crate) fn expand_index_native<A: CubeIndexExpand + Clone + Into<ManagedVariable>>(
-    scope: &mut Scope,
-    array: &A,
+pub(crate) fn expand_index_native<'a, 'b, A: CubeIndexExpand + Clone + Into<Variable>>(
+    scope: &'b mut Scope,
+    array: &'a A,
     index: NativeExpand<usize>,
     vector_size: Option<VectorSize>,
     checked: bool,
-) -> A::Output
+) -> &'a A::Output
 where
-    A::Output: From<ManagedVariable>,
+    A::Output: From<Variable> + 'static,
 {
-    let index: ManagedVariable = index.into();
-    let index_var: Variable = *index;
+    let index: Variable = index.into();
+    let index_var: Variable = index;
     let index = match index_var.kind {
-        VariableKind::Constant(value) => {
-            ManagedVariable::Plain(Variable::constant(value, usize::as_type(scope)))
-        }
+        VariableKind::Constant(value) => Variable::constant(value, usize::as_type(scope)),
         _ => index,
     };
-    let array: ManagedVariable = array.clone().into();
-    let var: Variable = *array;
+    let array: Variable = array.clone().into();
+    let var: Variable = array;
     let var = if checked {
         match var.kind {
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
@@ -127,45 +102,55 @@ where
         }
     };
 
-    var.into()
+    scope.create_kernel_ref(var.into())
 }
 
-pub(crate) fn expand_index_assign_native<
-    A: CubeIndexMutExpand<Output: Into<Variable>> + Clone + Into<Variable>,
->(
-    scope: &mut Scope,
-    array: &mut A,
+pub(crate) fn expand_index_mut_native<'a, 'b, A: CubeIndexMutExpand + Clone + Into<Variable>>(
+    scope: &'b mut Scope,
+    list: &'a mut A,
     index: NativeExpand<usize>,
-    value: A::Output,
     vector_size: Option<VectorSize>,
     checked: bool,
-) {
+) -> &'a mut A::Output
+where
+    A::Output: From<Variable> + 'static,
+{
+    let list: Variable = list.clone().into();
     let index: Variable = index.expand.into();
     let index = match index.kind {
         VariableKind::Constant(value) => Variable::constant(value, usize::as_type(scope)),
         _ => index,
     };
 
+    let ty = match vector_size {
+        Some(vector_size) => list.ty.with_vector_size(vector_size),
+        None => list.ty,
+    };
+    let class = list.pointer_class();
+    let out = scope.create_local(Type::pointer(ty, class));
     let vector_size = vector_size.unwrap_or(0);
+
     if checked {
         scope.register(Instruction::new(
-            Operator::IndexAssign(IndexAssignOperator {
+            Operator::IndexMut(IndexMutOperator {
+                list,
                 index,
-                value: value.into(),
                 vector_size,
                 unroll_factor: 1,
             }),
-            array.clone().into(),
+            list.clone().into(),
         ));
     } else {
         scope.register(Instruction::new(
-            Operator::UncheckedIndexAssign(IndexAssignOperator {
+            Operator::UncheckedIndexMut(IndexMutOperator {
+                list,
                 index,
-                value: value.into(),
                 vector_size,
                 unroll_factor: 1,
             }),
-            array.clone().into(),
+            list.clone().into(),
         ));
     }
+
+    scope.create_kernel_ref(out.into())
 }

@@ -122,6 +122,11 @@ pub enum Expression {
         index: Box<Expression>,
         span: Span,
     },
+    IndexMut {
+        expr: Box<Expression>,
+        index: Box<Expression>,
+        span: Span,
+    },
     Slice {
         span: Span,
         _ranges: Vec<Expression>,
@@ -231,7 +236,7 @@ impl Expression {
                 name,
                 is_const: true,
                 ..
-            }) => Some(quote![#name.clone()]),
+            }) => Some(quote![#name]),
             Expression::Path { path, .. } => Some(quote![#path]),
             Expression::Array { elements, .. } => {
                 let elements = elements

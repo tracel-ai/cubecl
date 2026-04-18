@@ -392,7 +392,7 @@ impl Function {
         for node in self.node_ids() {
             let ops = self[node].ops.clone();
             for op in ops.borrow().values() {
-                if let Operation::Operator(Operator::IndexAssign(_)) = &op.operation
+                if let Operation::Operator(Operator::IndexMut(_)) = &op.operation
                     && let VariableKind::LocalMut { id } = &op.out().kind
                 {
                     self.variables.remove(id);

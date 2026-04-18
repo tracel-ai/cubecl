@@ -58,7 +58,7 @@ use crate::{
 use core::marker::PhantomData;
 use cubecl_macros::{comptime_type, cube, intrinsic};
 
-use cubecl_ir::{CoopMma, ManagedVariable, Scope, StorageType, VectorSize};
+use cubecl_ir::{CoopMma, Scope, StorageType, Variable, VectorSize};
 pub use ir::{MatrixIdent, MatrixLayout};
 
 #[derive(Clone, Copy)]
@@ -98,7 +98,7 @@ pub struct MmaDefinition<A: CubeType, B: CubeType, CD: CubeType> {
 
 /// Expand type of [Matrix].
 pub struct MatrixExpand<C: CubeType, S: MatrixScope> {
-    elem: ManagedVariable,
+    elem: Variable,
     ident: MatrixIdent,
     _c: PhantomData<C>,
     _s: PhantomData<S>,
@@ -131,13 +131,25 @@ impl<C: CubeType, S: MatrixScope> Clone for MatrixExpand<C, S> {
     }
 }
 
-impl<C: CubeType, S: MatrixScope> MatrixExpand<C, S> {
-    pub fn __expand_as_ref_method(&self, _: &mut Scope) -> Self {
+impl<C: CubeType, S: MatrixScope> ExpandTypeClone for MatrixExpand<C, S> {
+    fn clone_unchecked(&self) -> Self {
         self.clone()
     }
+}
 
-    pub fn __expand_as_mut_method(&self, _: &mut Scope) -> Self {
+impl<A: CubeType, B: CubeType, CD: CubeType> ExpandTypeClone for MmaDefinitionExpand<A, B, CD> {
+    fn clone_unchecked(&self) -> Self {
         self.clone()
+    }
+}
+
+impl<C: CubeType, S: MatrixScope> CubeRef for MatrixExpand<C, S> {
+    fn __expand_as_ref_method<'a, 'b>(&'a self, _scope: &'b mut Scope) -> &'a Self {
+        self
+    }
+
+    fn __expand_as_mut_method<'a, 'b>(&'a mut self, _scope: &'b mut Scope) -> &'a mut Self {
+        self
     }
 }
 
@@ -175,7 +187,7 @@ impl<C: CubeType, S: MatrixScope> IntoMut for MatrixExpand<C, S> {
 
 impl<C: CubeType, S: MatrixScope> CubeDebug for MatrixExpand<C, S> {
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
-        scope.update_variable_name(*self.elem, name);
+        scope.update_variable_name(self.elem, name);
     }
 }
 
@@ -286,9 +298,9 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
 
         intrinsic!(|scope| {
             if ident == MatrixIdent::Accumulator {
-                load_with_layout::expand(scope, mat.clone(), value, stride, layout);
+                load_with_layout::expand(scope, &mat, value, stride, layout);
             } else {
-                load::expand(scope, mat.clone(), value, stride);
+                load::expand(scope, &mat, value, stride);
             }
             mat
         })
@@ -318,7 +330,7 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
         let mat = unsafe { Self::uninitialized(ident, m, n, k, MatrixLayout::Undefined) };
 
         intrinsic!(|scope| {
-            load_tensor::expand(scope, mat.clone(), value);
+            load_tensor::expand(scope, &mat, value);
             mat
         })
     }
@@ -510,8 +522,8 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         #[comptime] ident: MatrixIdent,
     ) -> (u32, u32) {
         intrinsic!(|scope| {
-            let lane_id: ManagedVariable = lane_id.into();
-            let elem_idx: ManagedVariable = elem_idx.into();
+            let lane_id: Variable = lane_id.into();
+            let elem_idx: Variable = elem_idx.into();
 
             let ty = match ident {
                 MatrixIdent::A => self.a_type,
@@ -537,19 +549,19 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let col = scope.create_local(u32::as_type(scope));
             scope.register(Instruction::new(
                 CoopMma::RowIndex {
-                    lane_id: *lane_id,
-                    i: *elem_idx,
+                    lane_id,
+                    i: elem_idx,
                     matrix,
                 },
-                *row,
+                row,
             ));
             scope.register(Instruction::new(
                 CoopMma::ColIndex {
-                    lane_id: *lane_id,
-                    i: *elem_idx,
+                    lane_id,
+                    i: elem_idx,
                     matrix,
                 },
-                *col,
+                col,
             ));
             (row.into(), col.into())
         })
@@ -618,7 +630,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                     factor: num_matrices,
                     transpose,
                 },
-                *out.expand,
+                out.expand,
             ));
             out
         })
@@ -645,7 +657,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                     factor: num_matrices,
                     transpose,
                 },
-                *fragment.expand,
+                fragment.expand,
             ));
         })
     }
@@ -677,7 +689,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 CoopMma::StoreMatrix {
                     offset,
                     vector_size: slice_vector_size,
-                    registers: *registers.expand,
+                    registers: registers.expand,
                     factor: num_matrices,
                     transpose,
                 },
@@ -706,9 +718,9 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
 
             let registers_d = Array::__expand_new(scope, num_registers);
 
-            let registers_a = *registers_a.expand;
-            let registers_b = *registers_b.expand;
-            let registers_c = *registers_c.expand;
+            let registers_a = registers_a.expand;
+            let registers_b = registers_b.expand;
+            let registers_c = registers_c.expand;
 
             // Only shape is actually used
             let matrix = cubecl_ir::Matrix {
@@ -728,7 +740,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                     registers_b,
                     registers_c,
                 },
-                *registers_d.expand,
+                registers_d.expand,
             ));
 
             registers_d
@@ -751,9 +763,9 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 .__expand_vector_size_method(scope, MatrixIdent::Accumulator);
             let num_registers = acc_elems / acc_vector_size;
 
-            let registers_a = *registers_a.expand;
-            let registers_b = *registers_b.expand;
-            let registers_c = *registers_c.expand;
+            let registers_a = registers_a.expand;
+            let registers_b = registers_b.expand;
+            let registers_c = registers_c.expand;
 
             // Only shape is actually used
             let matrix = cubecl_ir::Matrix {
@@ -800,9 +812,9 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
 
             let registers_d = Array::__expand_new(scope, num_registers);
 
-            let registers_a = *registers_a.expand;
-            let registers_b = *registers_b.expand;
-            let registers_c = *registers_c.expand;
+            let registers_a = registers_a.expand;
+            let registers_b = registers_b.expand;
+            let registers_c = registers_c.expand;
 
             // Only shape is actually used
             let matrix = cubecl_ir::Matrix {
@@ -821,13 +833,13 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                     registers_a,
                     registers_b,
                     registers_c,
-                    scales_a: *scales_a.expand,
-                    scales_b: *scales_b.expand,
+                    scales_a: scales_a.expand,
+                    scales_b: scales_b.expand,
                     scales_factor: self
                         .scales_factor
                         .expect("Can't execute scaled on matrix with no scales"),
                 },
-                *registers_d.expand,
+                registers_d.expand,
             ));
 
             registers_d
@@ -851,11 +863,8 @@ pub mod fill {
         mat: MatrixExpand<C, S>,
         value: NativeExpand<C>,
     ) {
-        let value: ManagedVariable = value.into();
-        scope.register(Instruction::new(
-            ir::CoopMma::Fill { value: *value },
-            *mat.elem,
-        ));
+        let value: Variable = value.into();
+        scope.register(Instruction::new(ir::CoopMma::Fill { value }, mat.elem));
     }
 }
 
@@ -877,11 +886,11 @@ pub mod load {
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
         scope: &mut Scope,
-        mat: MatrixExpand<C, S>,
+        mat: &MatrixExpand<C, S>,
         value: &SliceExpand<V, ReadOnly>,
         stride: NativeExpand<u32>,
     ) {
-        let stride: ManagedVariable = stride.into();
+        let stride: Variable = stride.into();
         assert_ne!(
             mat.ident,
             MatrixIdent::Accumulator,
@@ -893,11 +902,11 @@ pub mod load {
         scope.register(Instruction::new(
             ir::CoopMma::Load {
                 value,
-                stride: *stride,
+                stride,
                 offset,
                 layout: None,
             },
-            *mat.elem,
+            mat.elem,
         ));
     }
 }
@@ -919,7 +928,7 @@ pub mod load_tensor {
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
         scope: &mut Scope,
-        mat: MatrixExpand<C, S>,
+        mat: &MatrixExpand<C, S>,
         value: &TensorViewExpand<V>,
     ) {
         assert_ne!(
@@ -930,14 +939,14 @@ pub mod load_tensor {
 
         scope.register(Instruction::new(
             ir::CoopMma::LoadTensor {
-                buffer: *value.buffer.expand,
-                layout: *value.layout.expand,
+                buffer: value.buffer.expand,
+                layout: value.layout.expand,
                 view: match &value.view {
                     ComptimeOptionExpand::None => None,
-                    ComptimeOptionExpand::Some(view) => Some(*view.expand),
+                    ComptimeOptionExpand::Some(view) => Some(view.expand),
                 },
             },
-            *mat.elem,
+            mat.elem,
         ));
     }
 }
@@ -962,22 +971,22 @@ pub mod load_with_layout {
     #[allow(unused_variables)]
     pub fn expand<C: CubeType, V: CubePrimitive, S: MatrixScope>(
         scope: &mut Scope,
-        mat: MatrixExpand<C, S>,
+        mat: &MatrixExpand<C, S>,
         value: &SliceExpand<V, ReadOnly>,
         stride: NativeExpand<u32>,
         layout: MatrixLayout,
     ) {
-        let stride: ManagedVariable = stride.into();
+        let stride: Variable = stride.into();
         let (value, offset) = value.__to_raw_parts();
 
         scope.register(Instruction::new(
             ir::CoopMma::Load {
                 value,
-                stride: *stride,
+                stride,
                 offset,
                 layout: Some(layout),
             },
-            *mat.elem,
+            mat.elem,
         ));
     }
 }
@@ -1003,20 +1012,20 @@ pub mod store {
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
         scope: &mut Scope,
-        output: SliceExpand<O, ReadWrite>,
-        mat: MatrixExpand<C, S>,
+        output: &mut SliceExpand<O, ReadWrite>,
+        mat: &MatrixExpand<C, S>,
         stride: NativeExpand<u32>,
         layout: MatrixLayout,
     ) {
-        let stride: ManagedVariable = stride.into();
+        let stride: Variable = stride.into();
 
         let (output, offset) = output.__to_raw_parts();
 
         scope.register(Instruction::new(
             ir::CoopMma::Store {
-                mat: *mat.elem,
+                mat: mat.elem,
                 offset,
-                stride: *stride,
+                stride,
                 layout,
             },
             output,
@@ -1041,16 +1050,16 @@ pub mod store_tensor {
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
         scope: &mut Scope,
-        output: TensorViewExpand<O>,
-        mat: MatrixExpand<C, S>,
+        output: &mut TensorViewExpand<O>,
+        mat: &MatrixExpand<C, S>,
     ) {
         scope.register(Instruction::new(
             ir::CoopMma::StoreTensor {
-                mat: *mat.elem,
-                layout: *output.layout.expand,
+                mat: mat.elem,
+                layout: output.layout.expand,
                 view: match &output.view {
                     ComptimeOptionExpand::None => None,
-                    ComptimeOptionExpand::Some(view) => Some(*view.expand),
+                    ComptimeOptionExpand::Some(view) => Some(view.expand),
                 },
             },
             output.buffer.into_variable(),
@@ -1088,18 +1097,18 @@ pub mod execute {
         S: MatrixScope,
     >(
         scope: &mut Scope,
-        mat_a: MatrixExpand<A, S>,
-        mat_b: MatrixExpand<B, S>,
-        mat_c: MatrixExpand<C, S>,
-        mat_d: MatrixExpand<D, S>,
+        mat_a: &MatrixExpand<A, S>,
+        mat_b: &MatrixExpand<B, S>,
+        mat_c: &MatrixExpand<C, S>,
+        mat_d: &MatrixExpand<D, S>,
     ) {
         scope.register(Instruction::new(
             ir::CoopMma::Execute {
-                mat_a: *mat_a.elem,
-                mat_b: *mat_b.elem,
-                mat_c: *mat_c.elem,
+                mat_a: mat_a.elem,
+                mat_b: mat_b.elem,
+                mat_c: mat_c.elem,
             },
-            *mat_d.elem,
+            mat_d.elem,
         ));
     }
 }
@@ -1120,7 +1129,7 @@ pub mod cast {
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
         scope: &mut Scope,
-        input: MatrixExpand<C, S>,
+        input: &MatrixExpand<C, S>,
     ) -> MatrixExpand<O, S> {
         let ident = input.ident;
 
@@ -1132,7 +1141,7 @@ pub mod cast {
                 _s: PhantomData,
             };
         }
-        let input = *input.elem;
+        let input = input.elem;
         let input_mat = match input.kind {
             ir::VariableKind::Matrix { mat, .. } => mat,
             _ => unreachable!(),
@@ -1155,7 +1164,7 @@ pub mod cast {
             _c: PhantomData,
             _s: PhantomData,
         };
-        scope.register(Instruction::new(ir::CoopMma::Cast { input }, *output.elem));
+        scope.register(Instruction::new(ir::CoopMma::Cast { input }, output.elem));
 
         output
     }
@@ -1191,7 +1200,7 @@ pub mod cast_with_ident {
                 _s: PhantomData,
             };
         }
-        let input = *input.elem;
+        let input = input.elem;
         let input_mat = match input.kind {
             ir::VariableKind::Matrix { mat, .. } => mat,
             _ => unreachable!(),
@@ -1214,7 +1223,7 @@ pub mod cast_with_ident {
             _c: PhantomData,
             _s: PhantomData,
         };
-        scope.register(Instruction::new(ir::CoopMma::Cast { input }, *output.elem));
+        scope.register(Instruction::new(ir::CoopMma::Cast { input }, output.elem));
 
         output
     }
@@ -1222,6 +1231,12 @@ pub mod cast_with_ident {
 
 impl CubeType for MatrixLayout {
     type ExpandType = Self;
+}
+
+impl ExpandTypeClone for MatrixLayout {
+    fn clone_unchecked(&self) -> Self {
+        *self
+    }
 }
 
 impl IntoMut for MatrixLayout {
@@ -1253,8 +1268,8 @@ pub mod execute_elementwise_op {
     /// Expand method of [`execute()`].
     pub fn expand<A: CubePrimitive, S: MatrixScope>(
         scope: &mut Scope,
-        matrix_in: MatrixExpand<A, S>,
-        matrix_out: MatrixExpand<A, S>,
+        matrix_in: &MatrixExpand<A, S>,
+        matrix_out: &MatrixExpand<A, S>,
         mut op: impl FnMut(
             &mut Scope,
             NativeExpand<u32>,
@@ -1273,16 +1288,16 @@ pub mod execute_elementwise_op {
             col.clone().into(),
             elem.clone().into(),
         );
-        closure_scope.return_value = Some(*return_value.expand);
+        closure_scope.return_value = Some(return_value.expand);
 
-        let op = scope.create_function(vec![*row, *col, *elem], closure_scope);
+        let op = scope.create_function(vec![row, col, elem], closure_scope);
 
         scope.register(Instruction::new(
             ir::CoopMma::ExecuteElementwise {
-                matrix: *matrix_in.elem,
+                matrix: matrix_in.elem,
                 op,
             },
-            *matrix_out.elem,
+            matrix_out.elem,
         ));
     }
 }

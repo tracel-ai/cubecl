@@ -18,6 +18,12 @@ pub enum ComptimeOption<T: CubeType> {
     Some(T),
 }
 
+impl<T: CubeType<ExpandType: Clone>> Clone for ComptimeOptionExpand<T> {
+    fn clone(&self) -> Self {
+        self.clone_unchecked()
+    }
+}
+
 #[allow(clippy::derivable_impls)]
 impl<T: CubeType> Default for ComptimeOptionExpand<T> {
     fn default() -> Self {
@@ -75,7 +81,7 @@ impl<T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<R>>>
     }
 }
 
-impl<T: LaunchArg + 'static> LaunchArg for ComptimeOption<T> {
+impl<T: LaunchArg + 'static + CubeType> LaunchArg for ComptimeOption<T> {
     type RuntimeArg<R: Runtime> = ComptimeOptionArgs<T, R>;
     type CompilationArg = ComptimeOptionCompilationArg<T>;
 
@@ -1088,9 +1094,9 @@ mod impls {
 
             pub fn __expand_inspect_method<F>(self, scope: &mut Scope, f: F) -> Self
             where
-                F: FnOnce(&mut Scope, T::ExpandType),
+                F: FnOnce(&mut Scope, &T::ExpandType),
             {
-                if let Some(x) = self.clone() {
+                if let Some(x) = &self {
                     f(scope, x);
                 }
 
@@ -1151,9 +1157,9 @@ mod impls {
             ) -> ComptimeOptionExpand<T::Target>
             where
                 T: Deref<Target: CubeType + Sized>,
-                T::ExpandType: Deref<Target = <T::Target as CubeType>::ExpandType>,
+                T::ExpandType: CubeDeref<Target = <T::Target as CubeType>::ExpandType>,
             {
-                self.__expand_map_method(scope, |_, it| (*it).clone())
+                self.__expand_map_method(scope, |scope, it| it.__expand_deref_method(scope))
             }
 
             pub fn __expand_as_deref_mut_method(
@@ -1162,9 +1168,9 @@ mod impls {
             ) -> ComptimeOptionExpand<T::Target>
             where
                 T: DerefMut<Target: CubeType + Sized>,
-                T::ExpandType: Deref<Target = <T::Target as CubeType>::ExpandType>,
+                T::ExpandType: CubeDeref<Target = <T::Target as CubeType>::ExpandType>,
             {
-                self.__expand_map_method(scope, |_, it| (*it).clone())
+                self.__expand_map_method(scope, |scope, it| it.__expand_deref_method(scope))
             }
 
             pub fn __expand_and_then_method<U, F>(
@@ -1184,10 +1190,10 @@ mod impls {
 
             pub fn __expand_filter_method<P>(self, scope: &mut Scope, predicate: P) -> Self
             where
-                P: FnOnce(&mut Scope, T::ExpandType) -> bool,
+                P: FnOnce(&mut Scope, &T::ExpandType) -> bool,
             {
                 if let Some(x) = self
-                    && predicate(scope, x.clone())
+                    && predicate(scope, &x)
                 {
                     Some(x)
                 } else {
@@ -1221,11 +1227,15 @@ mod impls {
                 predicate: P,
             ) -> ComptimeOptionExpand<T>
             where
-                P: FnOnce(&mut Scope, T::ExpandType) -> bool,
+                P: FnOnce(&mut Scope, &mut T::ExpandType) -> bool,
             {
                 match self {
-                    Some(value) if predicate(scope, value.clone()) => {
-                        self.__expand_take_method(scope)
+                    Some(value) => {
+                        if predicate(scope, value) {
+                            self.__expand_take_method(scope)
+                        } else {
+                            None
+                        }
                     }
                     _ => None,
                 }
@@ -1288,7 +1298,7 @@ mod impls {
                 default: <T as cubecl::prelude::CubeType>::ExpandType,
             ) -> <T as cubecl::prelude::CubeType>::ExpandType {
                 {
-                    match self.clone() {
+                    match self {
                         OptionExpand::Some(x) => x,
                         OptionExpand::None => default,
                     }
@@ -1302,7 +1312,7 @@ mod impls {
                 T: Default + IntoRuntime,
             {
                 {
-                    match self.clone() {
+                    match self {
                         OptionExpand::Some(x) => x,
                         OptionExpand::None => { T::default() }.__expand_runtime_method(scope),
                     }
@@ -1313,7 +1323,7 @@ mod impls {
                 _scope: &mut cubecl::prelude::Scope,
             ) -> <T as cubecl::prelude::CubeType>::ExpandType {
                 {
-                    match self.clone() {
+                    match self {
                         OptionExpand::Some(val) => val,
                         OptionExpand::None => unsafe { core::hint::unreachable_unchecked() },
                     }
@@ -1328,7 +1338,7 @@ mod impls {
                 U: CubeType,
             {
                 {
-                    match self.clone() {
+                    match self {
                         OptionExpand::Some(_) => optb,
                         OptionExpand::None => Option::__expand_new_None(scope),
                     }
@@ -1340,7 +1350,7 @@ mod impls {
                 optb: <Option<T> as cubecl::prelude::CubeType>::ExpandType,
             ) -> <Option<T> as cubecl::prelude::CubeType>::ExpandType {
                 {
-                    match self.clone() {
+                    match self {
                         x @ OptionExpand::Some(_) => x,
                         OptionExpand::None => optb,
                     }
@@ -1352,7 +1362,7 @@ mod impls {
                 optb: <Option<T> as cubecl::prelude::CubeType>::ExpandType,
             ) -> <Option<T> as cubecl::prelude::CubeType>::ExpandType {
                 {
-                    match (self.clone(), optb.clone()) {
+                    match (self, optb) {
                         (a @ OptionExpand::Some(_), OptionExpand::None) => a,
                         (OptionExpand::None, b @ OptionExpand::Some(_)) => b,
                         _ => Option::__expand_new_None(scope),
@@ -1368,7 +1378,7 @@ mod impls {
                 U: CubeType,
             {
                 {
-                    match (self.clone(), other.clone()) {
+                    match (self, other) {
                         (OptionExpand::Some(a), OptionExpand::Some(b)) => {
                             let _arg_0 = (a, b);
                             Option::__expand_Some(scope, _arg_0)
@@ -1409,7 +1419,7 @@ mod impls {
             scope: &mut cubecl::prelude::Scope,
         ) -> <(Option<T>, Option<U>) as cubecl::prelude::CubeType>::ExpandType {
             {
-                match self.clone() {
+                match self {
                     OptionExpand::Some((a, b)) => (
                         {
                             let _arg_0 = a;

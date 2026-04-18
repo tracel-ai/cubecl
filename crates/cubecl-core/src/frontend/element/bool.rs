@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantValue, ManagedVariable, Scope, StorageType, Type};
+use cubecl_ir::{ConstantValue, Scope, StorageType, Type};
 
 use crate::{
     frontend::{CubePrimitive, CubeType},
@@ -15,7 +15,9 @@ pub trait BoolOps {
         value
     }
     fn __expand_new(_scope: &mut Scope, value: NativeExpand<bool>) -> NativeExpand<bool> {
-        ManagedVariable::Plain(ElemType::Bool.constant(value.expand.as_const().unwrap())).into()
+        ElemType::Bool
+            .constant(value.expand.as_const().unwrap())
+            .into()
     }
 }
 

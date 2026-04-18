@@ -6,7 +6,7 @@ use derive_more::Display;
 
 use crate as cubecl;
 use cubecl::prelude::*;
-use cubecl_ir::{ManagedVariable, Variable};
+use cubecl_ir::Variable;
 
 define_scalar!(ElemA);
 define_size!(SizeA);
@@ -15,7 +15,7 @@ define_size!(SizeA);
 #[cube]
 pub fn read_masked<C: CubePrimitive>(mask: bool, list: Slice<C>, index: usize, value: C) -> C {
     let index = index * usize::cast_from(mask);
-    let input = list.read_unchecked(index);
+    let input = *list.read_unchecked(index);
 
     select(mask, input, value)
 }
@@ -31,7 +31,7 @@ pub fn read_tensor_checked<C: CubePrimitive + Default + IntoRuntime>(
     let in_bounds = index < len;
     let index = index.min(len - 1);
 
-    select(in_bounds, tensor.read_unchecked(index), C::default())
+    select(in_bounds, *tensor.read_unchecked(index), C::default())
 }
 
 /// Returns the value at `index` in tensor within bounds.
@@ -43,7 +43,7 @@ pub fn read_tensor_atomic_checked<C: Scalar>(
 ) -> Atomic<C> {
     let index = index.min(tensor.buffer_len() * unroll_factor - 1);
 
-    tensor.read_unchecked(index)
+    *tensor.read_unchecked(index)
 }
 
 /// Returns the value at `index` in tensor within bounds.
@@ -62,7 +62,7 @@ pub fn read_tensor_validate<C: CubePrimitive + Default + IntoRuntime>(
 
     let index = index.min(len - 1);
 
-    select(in_bounds, tensor.read_unchecked(index), C::default())
+    select(in_bounds, *tensor.read_unchecked(index), C::default())
 }
 
 /// Returns the value at `index` in tensor within bounds.
@@ -79,7 +79,7 @@ pub fn read_tensor_atomic_validate<C: Scalar>(
     }
     let index = index.min(tensor.buffer_len() * unroll_factor - 1);
 
-    tensor.read_unchecked(index)
+    *tensor.read_unchecked(index)
 }
 
 #[cube]
@@ -97,7 +97,7 @@ fn checked_index_assign<E: Scalar, N: Size>(
     };
 
     if index < array_len * unroll_factor {
-        unsafe { out.index_assign_unchecked(index, value) };
+        unsafe { *out.index_assign_unchecked(index) = value };
     }
 }
 
@@ -118,7 +118,7 @@ fn validate_index_assign<E: Scalar, N: Size>(
     let len = array_len * unroll_factor;
 
     if index < len {
-        unsafe { out.index_assign_unchecked(index, value) };
+        unsafe { *out.index_assign_unchecked(index) = value };
     } else {
         print_oob::<Array<Vector<E, N>>>(kernel_name, OobKind::Write, index, len, out);
     }
@@ -134,7 +134,7 @@ enum OobKind {
 
 #[cube]
 #[allow(unused)]
-fn print_oob<Out: CubeType<ExpandType: Into<Variable>>>(
+fn print_oob<Out: CubeType<ExpandType: Clone + Into<Variable>>>(
     #[comptime] kernel_name: String,
     #[comptime] kind: OobKind,
     index: usize,
@@ -171,9 +171,9 @@ pub fn expand_checked_index_assign(
     scope.register_size::<SizeA>(rhs.ty.vector_size());
     checked_index_assign::expand::<ElemA, SizeA>(
         scope,
-        ManagedVariable::Plain(lhs).into(),
-        ManagedVariable::Plain(rhs).into(),
-        &mut ManagedVariable::Plain(out).into(),
+        lhs.into(),
+        rhs.into(),
+        &mut out.into(),
         out.has_buffer_length(),
         unroll_factor,
     );
@@ -192,9 +192,9 @@ pub fn expand_validate_index_assign(
     scope.register_size::<SizeA>(rhs.ty.vector_size());
     validate_index_assign::expand::<ElemA, SizeA>(
         scope,
-        ManagedVariable::Plain(lhs).into(),
-        ManagedVariable::Plain(rhs).into(),
-        &mut ManagedVariable::Plain(out).into(),
+        lhs.into(),
+        rhs.into(),
+        &mut out.into(),
         out.has_buffer_length(),
         unroll_factor,
         kernel_name.to_string(),

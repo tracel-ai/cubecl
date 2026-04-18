@@ -14,8 +14,9 @@ use quote::{ToTokens, format_ident, quote};
 use std::{collections::HashMap, iter};
 use syn::{
     AssocType, ConstParam, Expr, FnArg, GenericArgument, Generics, Ident, ItemFn, LitStr, Path,
-    ReturnType, Signature, TraitItemFn, Type, TypeMacro, TypeParam, TypeReference, Visibility,
-    parse, parse_quote, punctuated::Punctuated, spanned::Spanned, token::Mut, visit_mut::VisitMut,
+    ReturnType, Signature, TraitItemFn, Type, TypeGroup, TypeMacro, TypeParam, TypeParen,
+    TypeReference, Visibility, parse, parse_quote, punctuated::Punctuated, spanned::Spanned,
+    token::Mut, visit_mut::VisitMut,
 };
 
 use super::{desugar::Desugar, helpers::is_comptime_attr, statement::parse_pat};
@@ -409,7 +410,7 @@ impl KernelParam {
         let param = match param {
             FnArg::Typed(param) => param,
             FnArg::Receiver(param) => {
-                let normalized_ty = normalize_kernel_ty(*param.ty.clone(), false);
+                let normalized_ty = expand_kernel_ty(*param.ty.clone(), false);
 
                 let mutability = if param.reference.is_none() {
                     param.mutability
@@ -460,7 +461,7 @@ impl KernelParam {
         }
 
         let ty = *param.ty.clone();
-        let normalized_ty = normalize_kernel_ty(*param.ty, is_const);
+        let normalized_ty = expand_kernel_ty(*param.ty, is_const);
 
         let mut_token = if !is_ref { mutability } else { None };
 
@@ -510,6 +511,11 @@ impl KernelSignature {
                 _ => KernelReturns::ExpandType(*ty),
             },
         };
+        let receiver_arg = sig
+            .inputs
+            .iter()
+            .find(|it| matches!(it, FnArg::Receiver(_)))
+            .cloned();
         let sig_params = sig
             .inputs
             .into_iter()
@@ -544,17 +550,6 @@ impl KernelSignature {
             .into_iter()
             .chain(sig_params)
             .collect::<Vec<_>>();
-        let receiver_arg =
-            parameters
-                .iter()
-                .find(|it| it.name == "self")
-                .map(|recv| match &recv.ty {
-                    Type::Reference(TypeReference { mutability, .. }) => match mutability {
-                        Some(_) => parse_quote!(&mut self),
-                        None => parse_quote!(&self),
-                    },
-                    _ => parse_quote!(self),
-                });
 
         RemoveHelpers.visit_generics_mut(&mut generics);
 
@@ -735,48 +730,48 @@ impl Launch {
     }
 }
 
-pub fn normalize_kernel_ty(mut ty: Type, is_const: bool) -> Type {
-    fn normalize_ty_inner(ty: &mut Type) {
-        let cube_type = prelude_type("CubeType");
-
-        match ty {
-            Type::Group(type_group) => normalize_ty_inner(&mut type_group.elem),
-            Type::ImplTrait(_) => {
-                unimplemented!("impl trait not yet supported in kernel args")
-            }
-            // Probably won't work with inference but we can at least try
-            Type::Infer(_) => {}
-            // Do nothing
-            Type::Macro(type_macro) if type_macro.mac.path.is_ident("comptime_type") => {}
-            Type::Macro(_) => {
-                unimplemented!("Macro types not allowed for kernel args")
-            }
-            Type::Never(_) => {}
-            Type::Paren(type_paren) => normalize_ty_inner(&mut type_paren.elem),
-            Type::Ptr(type_ptr) => normalize_ty_inner(&mut type_ptr.elem),
-            Type::Reference(type_reference) => normalize_ty_inner(&mut type_reference.elem),
-            Type::TraitObject(_) => {
-                unimplemented!("Trait objects are not allowed for kernel args")
-            }
-            // the `ExpandType` of tuple equals the expand type of each constituent, so we can
-            // probably support more cases by handling each contained type separately. Won't hurt
-            // at least.
-            Type::Tuple(type_tuple) => {
-                for ty in type_tuple.elems.iter_mut() {
-                    normalize_ty_inner(ty);
-                }
-            }
-            Type::Verbatim(_) => {}
-            other => {
-                *other = parse_quote![<#other as #cube_type>::ExpandType];
-            }
-        }
-    }
+pub fn expand_kernel_ty(mut ty: Type, is_const: bool) -> Type {
     if is_const {
         ty
     } else {
-        normalize_ty_inner(&mut ty);
+        let cube_type = prelude_type("CubeType");
+        map_type_normalized(&mut ty, &|ty| parse_quote![<#ty as #cube_type>::ExpandType]);
         ty
+    }
+}
+
+pub fn map_type_normalized(ty: &mut Type, op: &impl Fn(&Type) -> Type) {
+    match ty {
+        Type::Group(type_group) => map_type_normalized(&mut type_group.elem, op),
+        Type::ImplTrait(_) => {
+            unimplemented!("impl trait not yet supported in kernel args")
+        }
+        // Probably won't work with inference but we can at least try
+        Type::Infer(_) => {}
+        // Do nothing
+        Type::Macro(type_macro) if type_macro.mac.path.is_ident("comptime_type") => {}
+        Type::Macro(_) => {
+            unimplemented!("Macro types not allowed for kernel args")
+        }
+        Type::Never(_) => {}
+        Type::Paren(type_paren) => map_type_normalized(&mut type_paren.elem, op),
+        Type::Ptr(type_ptr) => map_type_normalized(&mut type_ptr.elem, op),
+        Type::Reference(type_reference) => map_type_normalized(&mut type_reference.elem, op),
+        Type::TraitObject(_) => {
+            unimplemented!("Trait objects are not allowed for kernel args")
+        }
+        // the `ExpandType` of tuple equals the expand type of each constituent, so we can
+        // probably support more cases by handling each contained type separately. Won't hurt
+        // at least.
+        Type::Tuple(type_tuple) => {
+            for ty in type_tuple.elems.iter_mut() {
+                map_type_normalized(ty, op);
+            }
+        }
+        Type::Verbatim(_) => {}
+        other => {
+            *other = op(other);
+        }
     }
 }
 
@@ -840,4 +835,20 @@ pub fn all_path_args_mut(path: &mut Path) -> impl Iterator<Item = &mut GenericAr
             syn::PathArguments::AngleBracketed(args) => args.args.iter_mut().collect::<Vec<_>>(),
             _ => vec![],
         })
+}
+
+pub fn strip_ref(ty: Type) -> Type {
+    match ty {
+        Type::Reference(reference) => strip_ref(*reference.elem),
+        Type::Ptr(ptr) => strip_ref(*ptr.elem),
+        Type::Group(paren) => Type::Group(TypeGroup {
+            elem: Box::new(strip_ref(*paren.elem)),
+            ..paren
+        }),
+        Type::Paren(paren) => Type::Paren(TypeParen {
+            elem: Box::new(strip_ref(*paren.elem)),
+            ..paren
+        }),
+        ty => ty,
+    }
 }

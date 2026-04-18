@@ -16,7 +16,7 @@ use core::{cmp::Ordering, ops::*};
 use core::{f32, marker::PhantomData};
 
 use bytemuck::Zeroable;
-use cubecl_ir::{ConstantValue, ManagedVariable, Type};
+use cubecl_ir::{ConstantValue, Type};
 use derive_more::derive::{Debug, Display};
 use float_ord::FloatOrd;
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
@@ -272,7 +272,7 @@ impl<Marker: 'static> From<DynamicScalar<Marker>> for Variable {
 impl<Marker: 'static> From<DynamicScalar<Marker>> for NativeExpand<DynamicScalar<Marker>> {
     fn from(value: DynamicScalar<Marker>) -> Self {
         let var: Variable = value.into();
-        NativeExpand::new(ManagedVariable::Plain(var))
+        NativeExpand::new(var)
     }
 }
 

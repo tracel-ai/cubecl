@@ -1126,7 +1126,7 @@ impl WgslCompiler {
                     out: self.compile_variable(out),
                 });
             }
-            cube::Operator::IndexAssign(op) | cube::Operator::UncheckedIndexAssign(op) => {
+            cube::Operator::IndexMut(op) | cube::Operator::UncheckedIndexMut(op) => {
                 instructions.push(wgsl::Instruction::IndexAssign {
                     index: self.compile_variable(op.index),
                     rhs: self.compile_variable(op.value),

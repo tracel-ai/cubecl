@@ -30,15 +30,24 @@ impl Expression {
         let result = match expr.clone() {
             Expr::Assign(assign) => {
                 let right = Self::from_expr(*assign.right, context)?;
+                let left =
+                    context.with_lhs_assign(|context| Self::from_expr(*assign.left, context))?;
                 Expression::Assignment {
-                    left: Box::new(Self::from_expr(*assign.left, context)?),
+                    left: Box::new(left),
                     right: Box::new(right),
                 }
             }
             Expr::Binary(binary) => {
                 let span = binary.span();
-                let left = Self::from_expr(*binary.left, context)?;
+                let operator = parse_binop(&binary.op)?;
+
                 let right = Self::from_expr(*binary.right, context)?;
+                let left = if operator.is_assign() {
+                    context.with_lhs_assign(|context| Self::from_expr(*binary.left, context))?
+                } else {
+                    Self::from_expr(*binary.left, context)?
+                };
+
                 if left.is_const() && right.is_const() {
                     let left = left.as_const(context).unwrap();
                     let right = right.as_const(context).unwrap();
@@ -59,6 +68,11 @@ impl Expression {
                 tokens: literal.to_token_stream(),
             },
             Expr::Lit(literal) => Expression::Literal { value: literal.lit },
+            Expr::Unary(ExprUnary {
+                op: UnOp::Deref(_),
+                expr,
+                ..
+            }) if context.is_assign_lhs => Expression::from_expr(*expr, context)?,
             Expr::Unary(ExprUnary {
                 op: UnOp::Neg(_),
                 expr,
@@ -262,10 +276,34 @@ impl Expression {
                         }
                         index => index,
                     };
-                    Expression::Index {
-                        expr: Box::new(expr),
-                        index: Box::new(index),
-                        span,
+                    // &arr[i]
+                    if context.is_ref && !context.is_mut {
+                        Expression::Index {
+                            expr: Box::new(expr),
+                            index: Box::new(index),
+                            span,
+                        }
+                    } else
+                    // &mut arr[i] or arr[i] = value;
+                    if (context.is_ref && context.is_mut) || context.is_assign_lhs {
+                        Expression::IndexMut {
+                            expr: Box::new(expr),
+                            index: Box::new(index),
+                            span,
+                        }
+                    } else
+                    // arr[i]
+                    {
+                        let index = Expression::Index {
+                            expr: Box::new(expr),
+                            index: Box::new(index),
+                            span,
+                        };
+                        Expression::Unary {
+                            input: Box::new(index),
+                            operator: Operator::Deref,
+                            span,
+                        }
                     }
                 }
             }
@@ -389,12 +427,27 @@ impl Expression {
             }
             Expr::Infer(_) => Expression::Verbatim { tokens: quote![_] },
             Expr::Verbatim(verbatim) => Expression::Verbatim { tokens: verbatim },
-            Expr::Reference(reference) if reference.mutability.is_none() => Expression::Reference {
-                inner: Box::new(Expression::from_expr(*reference.expr, context)?),
-            },
-            Expr::Reference(reference) => Expression::MutReference {
-                inner: Box::new(Expression::from_expr(*reference.expr, context)?),
-            },
+            Expr::Reference(reference) if matches!(*reference.expr, Expr::Index(_)) => {
+                match reference.mutability {
+                    Some(_) => context.with_is_ref_mut(|context| {
+                        Expression::from_expr(*reference.expr, context)
+                    })?,
+                    None => context
+                        .with_is_ref(|context| Expression::from_expr(*reference.expr, context))?,
+                }
+            }
+            Expr::Reference(reference) if reference.mutability.is_none() => {
+                let inner = Expression::from_expr(*reference.expr, context)?;
+                Expression::Reference {
+                    inner: Box::new(inner),
+                }
+            }
+            Expr::Reference(reference) => {
+                let inner = Expression::from_expr(*reference.expr, context)?;
+                Expression::MutReference {
+                    inner: Box::new(inner),
+                }
+            }
             Expr::Closure(expr) => {
                 let (body, scope) = context.in_scope(|ctx| {
                     for arg in expr.inputs.iter() {

@@ -1,4 +1,4 @@
-use cubecl_core::ir::{IndexAssignOperator, IndexOperator, Instruction, Operator};
+use cubecl_core::ir::{IndexMutOperator, IndexOperator, Instruction, Operator};
 use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_core::{intrinsic, ir::ManagedVariable};
 
@@ -110,7 +110,7 @@ fn unaligned_vector_write<T: CubeType<ExpandType: Into<ManagedVariable>>, E: Sca
         }
         let vector_size = N::__expand_value(scope);
         scope.register(Instruction::new(
-            Operator::UncheckedIndexAssign(IndexAssignOperator {
+            Operator::UncheckedIndexMut(IndexMutOperator {
                 index: index.expand.consume(),
                 value: value.expand.consume(),
                 vector_size: 0,

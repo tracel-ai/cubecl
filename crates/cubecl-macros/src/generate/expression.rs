@@ -27,53 +27,14 @@ impl Expression {
                 right,
                 span,
                 ..
-            } if operator.is_assign() && matches!(**left, Expression::Index { .. }) => {
-                let elem = frontend_type("NativeExpand");
-                let frontend_path = frontend_path();
-                let (array, index) = left.as_index().unwrap();
-                let array = array.to_tokens(context);
-                let index = index
-                    .as_const(context)
-                    .map(|as_const| quote![#elem::from_lit(scope, #as_const)])
-                    .unwrap_or_else(|| index.to_tokens(context));
-                let right = right
-                    .as_const(context)
-                    .map(|as_const| quote![#elem::from_lit(scope, #as_const)])
-                    .unwrap_or_else(|| right.to_tokens(context));
-                let op = format_ident!("{}", operator.array_op_name());
-                let expand = with_span(
-                    context,
-                    *span,
-                    quote![#frontend_path::#op::expand(scope, _array, _index.into(), _value.into())],
-                );
-                quote! {
-                    {
-                        let _array = #array;
-                        let _index = #index;
-                        let _value = #right;
-                        #expand
-                    }
-                }
-            }
-            Expression::Binary {
-                left,
-                operator,
-                right,
-                span,
-                ..
             } => {
                 let frontend_path = frontend_path();
-                let op = format_ident!("{}", operator.op_name());
+                let op = format_ident!("__expand_{}_method", operator.op_name());
                 let left = left.to_tokens(context);
                 let right = right.to_tokens(context);
-                let expand = with_span(
-                    context,
-                    *span,
-                    quote![#frontend_path::#op::expand(scope, _lhs.into(), _rhs.into())],
-                );
+                let expand = with_span(context, *span, quote![#left.#op(scope, _rhs.into())]);
                 quote! {
                     {
-                        let _lhs = #left;
                         let _rhs = #right;
                         #expand
                     }
@@ -121,39 +82,18 @@ impl Expression {
                     quote![#expand_elem::from_lit(scope, #name)]
                 } else {
                     let name = &var.name;
-                    if var.try_consume(context) {
-                        quote![#name]
-                    } else {
-                        quote![#name.clone()]
-                    }
+                    quote![#name]
                 }
             }
             Expression::FieldAccess { base, field, .. } => {
                 let base = base
                     .as_const(context)
                     .unwrap_or_else(|| base.to_tokens(context));
-                quote![#base.#field.clone()]
+                quote![#base.#field]
             }
             Expression::Literal { value, .. } => {
                 let expand_elem = frontend_type("NativeExpand");
                 quote![#expand_elem::from_lit(scope, #value)]
-            }
-
-            Expression::Assignment { left, right, .. }
-                if matches!(**left, Expression::Index { .. }) =>
-            {
-                let (array, index) = left.as_index().unwrap();
-                let array = array.to_tokens(context);
-                let index = index.to_tokens(context);
-                let right = right.to_tokens(context);
-                quote! {
-                    {
-                        let _array = #array;
-                        let _index = #index;
-                        let _value = #right;
-                        _array.expand_index_mut(scope, _index.into(), _value.into())
-                    }
-                }
             }
             Expression::Assignment { left, right, .. } => {
                 let right = right.to_tokens(context);
@@ -161,7 +101,7 @@ impl Expression {
                 quote! {
                     {
                         let _value = #right;
-                        #left.expand_assign(scope, _value.into())
+                        #left.__expand_assign_method(scope, _value.into())
                     }
                 }
             }
@@ -171,11 +111,25 @@ impl Expression {
                 let expand = with_span(
                     context,
                     *span,
-                    quote![_array.expand_index(scope, _index.into())],
+                    quote![#expr.__expand_index_method(scope, _index.into())],
                 );
                 quote! {
                     {
-                        let _array = #expr;
+                        let _index = #index;
+                        #expand
+                    }
+                }
+            }
+            Expression::IndexMut { expr, index, span } => {
+                let expr = expr.to_tokens(context);
+                let index = index.to_tokens(context);
+                let expand = with_span(
+                    context,
+                    *span,
+                    quote![#expr.__expand_index_mut_method(scope, _index.into())],
+                );
+                quote! {
+                    {
                         let _index = #index;
                         #expand
                     }
@@ -927,7 +881,7 @@ fn init_fields<'a>(
             let it = quote_spanned![as_const.span()=> #as_const];
             return quote! {
                 #pat: {
-                    let _init = #it.clone();
+                    let _init = #it;
                     _init.into()
                 }
             };

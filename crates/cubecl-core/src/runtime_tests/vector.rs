@@ -6,7 +6,7 @@ use cubecl::prelude::*;
 #[cube(launch_unchecked)]
 pub fn kernel_vector_index<F: Float, N: Size>(output: &mut Array<F>) {
     if UNIT_POS == 0 {
-        let vector = Vector::<F, N>::new(F::new(5.0));
+        let vector = Vector::<F, N>::new(F::new(5f32));
         for i in 0..4 {
             output[i] = vector[i];
         }
@@ -45,7 +45,7 @@ pub fn test_vector_index<R: Runtime, F: Float + CubeElement>(client: ComputeClie
 pub fn kernel_vector_index_assign<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
     if UNIT_POS == 0 {
         let mut vector = RuntimeCell::<Vector<F, N>>::new(output[0]);
-        vector.store_at(0, F::new(5.0));
+        vector.store_at(0, F::new(5f32));
         output[0] = vector.consume();
     }
 }
@@ -163,7 +163,7 @@ pub fn test_vector_conditional<R: Runtime, F: Float + CubeElement>(client: Compu
 #[cube(launch_unchecked)]
 pub fn kernel_shared_memory<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
     let mut smem1 = SharedMemory::<Vector<F, N>>::new(8usize);
-    smem1[0] = Vector::new(F::new(42.0));
+    smem1[0] = Vector::new(F::new(42f32));
     output[0] = smem1[0];
 }
 

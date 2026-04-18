@@ -6,7 +6,6 @@ mod cube_elem;
 mod float;
 mod int;
 mod numeric;
-mod ptr;
 mod typemap;
 mod uint;
 
@@ -18,5 +17,4 @@ pub use cube_elem::*;
 pub use float::*;
 pub use int::*;
 pub use numeric::*;
-pub use ptr::*;
 pub use typemap::*;

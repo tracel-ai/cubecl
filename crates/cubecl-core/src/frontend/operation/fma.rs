@@ -18,14 +18,13 @@ pub mod fma {
         c: NativeExpand<C>,
     ) -> NativeExpand<C> {
         let output = scope.create_local(a.expand.ty);
-        let out = *output;
-        let a = *a.expand;
-        let b = *b.expand;
-        let c = *c.expand;
+        let a = a.expand;
+        let b = b.expand;
+        let c = c.expand;
 
         scope.register(Instruction::new(
             Arithmetic::Fma(FmaOperator { a, b, c }),
-            out,
+            output,
         ));
 
         output.into()

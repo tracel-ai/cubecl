@@ -214,7 +214,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.write(&out, out_id);
                 }
             }
-            Operator::IndexAssign(op) | Operator::UncheckedIndexAssign(op) => {
+            Operator::IndexMut(op) | Operator::UncheckedIndexMut(op) => {
                 let index = self.compile_variable(op.index);
                 let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);

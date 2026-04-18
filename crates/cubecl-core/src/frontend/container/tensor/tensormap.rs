@@ -250,13 +250,13 @@ macro_rules! tma_store {
                 #[allow(clippy::too_many_arguments)]
                 pub fn expand<T: CubePrimitive, T2: CubePrimitive<Scalar = T::Scalar>>(
                     scope: &mut Scope,
-                    src: SliceExpand<T2, ReadOnly>,
-                    dst: NativeExpand<TensorMap<T, Tiled>>,
+                    src: &SliceExpand<T2, ReadOnly>,
+                    dst: &mut NativeExpand<TensorMap<T, Tiled>>,
                     $($arg: NativeExpand<i32>),*
                 ) {
                     let (source, source_offset) = src.__to_raw_parts();
-                    let dst = *dst.expand;
-                    let coordinates = vec![$(*$arg.expand),*];
+                    let dst = dst.expand;
+                    let coordinates = vec![$($arg.expand),*];
                     scope.register(Instruction::new(
                         TmaOps::TmaStore {
                             source,
@@ -279,7 +279,7 @@ tma_store!(5, v, w, z, y, x);
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use cubecl_ir::{ManagedVariable, Metadata, VariableKind};
+    use cubecl_ir::{Metadata, Variable, VariableKind};
 
     use super::*;
     use crate::{
@@ -424,11 +424,11 @@ mod metadata {
             scope: &mut Scope,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let dim: ManagedVariable = dim.into();
+            let dim: Variable = dim.into();
             let out = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(
                 Metadata::Stride {
-                    dim: *dim,
+                    dim,
                     var: self.expand.into(),
                 },
                 out.clone().into(),
@@ -442,11 +442,11 @@ mod metadata {
             scope: &mut Scope,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let dim: ManagedVariable = dim.into();
+            let dim: Variable = dim.into();
             let out = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(
                 Metadata::Shape {
-                    dim: *dim,
+                    dim,
                     var: self.expand.into(),
                 },
                 out.clone().into(),
@@ -461,7 +461,7 @@ mod metadata {
             index: NativeExpand<usize>,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let index: ManagedVariable = index.into();
+            let index: Variable = index.into();
             let stride = self.clone().__expand_stride_method(scope, dim.clone());
             let shape = self.clone().__expand_shape_method(scope, dim.clone());
 
@@ -469,7 +469,7 @@ mod metadata {
             let num_strides = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(
                 Arithmetic::Div(BinaryOperator {
-                    lhs: *index,
+                    lhs: index,
                     rhs: stride.expand.into(),
                 }),
                 num_strides.clone().into(),
@@ -479,7 +479,7 @@ mod metadata {
             let coordinate = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(
                 Arithmetic::Modulo(BinaryOperator {
-                    lhs: *num_strides,
+                    lhs: num_strides,
                     rhs: shape.expand.into(),
                 }),
                 coordinate.clone().into(),
@@ -503,7 +503,7 @@ mod metadata {
         // Expand method of [rank](Tensor::rank).
         pub fn __expand_rank_method(self, scope: &mut Scope) -> NativeExpand<usize> {
             let out = scope.create_local(usize::as_type(scope));
-            scope.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
+            scope.register(Instruction::new(Metadata::Rank { var: self.expand }, out));
             out.into()
         }
 

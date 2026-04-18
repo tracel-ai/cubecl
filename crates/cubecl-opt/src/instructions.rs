@@ -217,7 +217,7 @@ impl Function {
                 visit_read(self, &mut index_operator.list);
                 visit_read(self, &mut index_operator.index);
             }
-            Operator::IndexAssign(op) | Operator::UncheckedIndexAssign(op) => {
+            Operator::IndexMut(op) | Operator::UncheckedIndexMut(op) => {
                 visit_read(self, &mut op.index);
                 visit_read(self, &mut op.value);
             }

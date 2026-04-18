@@ -5,12 +5,12 @@ use cubecl::prelude::*;
 #[cube(launch)]
 pub fn kernel_assign<F: Float>(output: &mut Array<F>) {
     if UNIT_POS == 0 {
-        let item = F::new(5.0);
+        let item = F::new(5f32);
         // Assign normally.
         output[0] = item;
 
         // out of bounds write should not show up in the array.
-        output[4] = F::new(10.0);
+        output[4] = F::new(10f32);
 
         // out of bounds read should be read as 0.
         output[1] = output[4];

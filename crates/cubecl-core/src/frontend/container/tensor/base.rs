@@ -24,7 +24,7 @@ type TensorExpand<T> = NativeExpand<Tensor<T>>;
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use cubecl_ir::ManagedVariable;
+    use cubecl_ir::Variable;
 
     use super::*;
     use crate::{
@@ -38,11 +38,11 @@ mod metadata {
         #[allow(unused_variables)]
         pub fn stride(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
-                let dim: ManagedVariable = dim.into();
+                let dim: Variable = dim.into();
                 let out = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::Stride {
-                        dim: *dim,
+                        dim: dim,
                         var: self.expand.clone().into(),
                     },
                     out.clone().into(),
@@ -55,11 +55,11 @@ mod metadata {
         #[allow(unused_variables)]
         pub fn shape(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
-                let dim: ManagedVariable = dim.into();
+                let dim: Variable = dim.into();
                 let out = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::Shape {
-                        dim: *dim,
+                        dim: dim,
                         var: self.expand.clone().into(),
                     },
                     out.clone().into(),
@@ -75,7 +75,7 @@ mod metadata {
         #[allow(unused_variables)]
         pub fn coordinate(&self, index: usize, dim: usize) -> usize {
             intrinsic!(|scope| {
-                let index: ManagedVariable = index.into();
+                let index: Variable = index.into();
                 let stride = self.clone().__expand_stride_method(scope, dim.clone());
                 let shape = self.clone().__expand_shape_method(scope, dim.clone());
 
@@ -83,7 +83,7 @@ mod metadata {
                 let num_strides = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Arithmetic::Div(BinaryOperator {
-                        lhs: *index,
+                        lhs: index,
                         rhs: stride.expand.into(),
                     }),
                     num_strides.clone().into(),
@@ -93,7 +93,7 @@ mod metadata {
                 let coordinate = scope.create_local(usize::as_type(scope));
                 scope.register(Instruction::new(
                     Arithmetic::Modulo(BinaryOperator {
-                        lhs: *num_strides,
+                        lhs: num_strides,
                         rhs: shape.expand.into(),
                     }),
                     coordinate.clone().into(),
@@ -135,7 +135,7 @@ mod metadata {
         pub fn rank(&self) -> usize {
             intrinsic!(|scope| {
                 let out = scope.create_local(usize::as_type(scope));
-                scope.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
+                scope.register(Instruction::new(Metadata::Rank { var: self.expand }, out));
                 out.into()
             })
         }
@@ -144,7 +144,7 @@ mod metadata {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
-    use cubecl_ir::{IndexAssignOperator, IndexOperator, Operator};
+    use cubecl_ir::{IndexMutOperator, IndexOperator, Operator};
 
     use crate::ir::Instruction;
 
@@ -158,19 +158,21 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&'a self, i: usize) -> E {
+        pub unsafe fn index_unchecked(&'a self, i: usize) -> &'a E {
             intrinsic!(|scope| {
-                let out = scope.create_local(self.expand.ty);
+                let ty = self.expand.ty;
+                let class = self.expand.pointer_class();
+                let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
                     Operator::UncheckedIndex(IndexOperator {
-                        list: *self.expand,
-                        index: i.expand.consume(),
+                        list: self.expand,
+                        index: i.expand,
                         vector_size: 0,
                         unroll_factor: 1,
                     }),
-                    *out,
+                    out,
                 ));
-                out.into()
+                scope.create_kernel_ref(out.into())
             })
         }
 
@@ -180,17 +182,21 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E) {
+        pub unsafe fn index_assign_unchecked(&'a mut self, i: usize) -> &'a mut E {
             intrinsic!(|scope| {
+                let ty = self.expand.ty;
+                let class = self.expand.pointer_class();
+                let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndexAssign(IndexAssignOperator {
-                        index: i.expand.consume(),
-                        value: value.expand.consume(),
+                    Operator::UncheckedIndexMut(IndexMutOperator {
+                        list: self.expand,
+                        index: i.expand,
                         vector_size: 0,
                         unroll_factor: 1,
                     }),
-                    *self.expand,
+                    out,
                 ));
+                scope.create_kernel_ref(out.into())
             })
         }
     }
@@ -244,13 +250,13 @@ impl<C: CubeType> IntoMut for NativeExpand<Tensor<C>> {
     }
 }
 
-impl<T: CubePrimitive> List<T> for Tensor<T> {
+impl<'a, T: CubePrimitive> List<'a, T> for Tensor<T> {
     fn __expand_read(
         scope: &mut Scope,
-        this: &NativeExpand<Tensor<T>>,
+        this: &'a NativeExpand<Tensor<T>>,
         idx: NativeExpand<usize>,
-    ) -> NativeExpand<T> {
-        index::expand(scope, this.clone(), idx)
+    ) -> &'a NativeExpand<T> {
+        this.__expand_index_method(scope, idx)
     }
 }
 
@@ -268,16 +274,20 @@ impl<T: CubePrimitive> DerefMut for Tensor<T> {
     }
 }
 
-impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Tensor<T>> {
-    fn __expand_read_method(&self, scope: &mut Scope, idx: NativeExpand<usize>) -> NativeExpand<T> {
-        index::expand(scope, self.clone(), idx)
-    }
-    fn __expand_read_unchecked_method(
-        &self,
+impl<'a, T: CubePrimitive> ListExpand<'a, T> for NativeExpand<Tensor<T>> {
+    fn __expand_read_method(
+        &'a self,
         scope: &mut Scope,
         idx: NativeExpand<usize>,
-    ) -> NativeExpand<T> {
-        index_unchecked::expand(scope, self.clone(), idx)
+    ) -> &'a NativeExpand<T> {
+        self.__expand_index_method(scope, idx)
+    }
+    fn __expand_read_unchecked_method(
+        &'a self,
+        scope: &mut Scope,
+        idx: NativeExpand<usize>,
+    ) -> &'a NativeExpand<T> {
+        self.__expand_index_unchecked_method(scope, idx)
     }
 
     fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
@@ -292,35 +302,37 @@ impl<T: CubePrimitive> VectorizedExpand for NativeExpand<Tensor<T>> {
     }
 }
 
-impl<T: CubePrimitive> ListMut<T> for Tensor<T> {
+impl<'a, T: CubePrimitive> ListMut<'a, T> for Tensor<T> {
     fn __expand_write(
         scope: &mut Scope,
-        this: &NativeExpand<Tensor<T>>,
+        this: &'a NativeExpand<Tensor<T>>,
         idx: NativeExpand<usize>,
-        value: NativeExpand<T>,
-    ) {
+    ) -> &'a mut NativeExpand<T> {
         let mut this = this.clone();
-        index_assign::expand(scope, &mut this, idx, value);
+        let reference = this.__expand_index_mut_method(scope, idx);
+        // Cloning self just clones the reference, so this is safe
+        unsafe { core::mem::transmute(reference) }
     }
 }
 
-impl<T: CubePrimitive> ListMutExpand<T> for NativeExpand<Tensor<T>> {
+impl<'a, T: CubePrimitive> ListMutExpand<'a, T> for NativeExpand<Tensor<T>> {
     fn __expand_write_method(
         &self,
         scope: &mut Scope,
         idx: NativeExpand<usize>,
-        value: NativeExpand<T>,
-    ) {
+    ) -> &'a mut NativeExpand<T> {
         let mut this = self.clone();
-        index_assign::expand(scope, &mut this, idx, value);
+        let reference = this.__expand_index_mut_method(scope, idx);
+        // Cloning self just clones the reference, so this is safe
+        unsafe { core::mem::transmute(reference) }
     }
 }
 
 impl<T: CubePrimitive> CubeRef for NativeExpand<Tensor<T>> {
-    fn __expand_as_ref_method(&self, scope: &mut Scope) -> &Self {
+    fn __expand_as_ref_method(&self, _: &mut Scope) -> &Self {
         self
     }
-    fn __expand_as_mut_method(&mut self, scope: &mut Scope) -> &mut Self {
+    fn __expand_as_mut_method(&mut self, _: &mut Scope) -> &mut Self {
         self
     }
 }

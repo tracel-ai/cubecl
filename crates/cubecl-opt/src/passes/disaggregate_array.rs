@@ -96,7 +96,7 @@ fn find_const_arrays(opt: &mut Function) -> Vec<Array> {
                     }
                 }
                 Operation::Operator(
-                    Operator::IndexAssign(assign) | Operator::UncheckedIndexAssign(assign),
+                    Operator::IndexMut(assign) | Operator::UncheckedIndexMut(assign),
                 ) => {
                     if let VariableKind::LocalArray {
                         id,
@@ -143,7 +143,7 @@ fn replace_const_arrays(opt: &mut Function, arr_id: Id, vars: &[Variable]) {
                     }
                 }
                 Operation::Operator(
-                    Operator::IndexAssign(assign) | Operator::UncheckedIndexAssign(assign),
+                    Operator::IndexMut(assign) | Operator::UncheckedIndexMut(assign),
                 ) => {
                     if let VariableKind::LocalArray { id, .. } = op.out.unwrap().kind
                         && id == arr_id

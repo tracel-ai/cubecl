@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantValue, ManagedVariable};
+use cubecl_ir::{ConstantValue, Variable};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::{NumCast, One, Zero};
 
@@ -12,10 +12,7 @@ use crate::{
     frontend::{CubePrimitive, CubeType},
     prelude::InputScalar,
 };
-use crate::{
-    ir::{Scope, Variable},
-    prelude::Scalar,
-};
+use crate::{ir::Scope, prelude::Scalar};
 
 use super::{LaunchArg, NativeAssign, NativeExpand};
 
@@ -43,15 +40,13 @@ pub trait Numeric:
     fn __expand_min_value(scope: &mut Scope) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_type(scope).elem_type();
         let var = elem.min_variable();
-        let expand = ManagedVariable::Plain(var);
-        expand.into()
+        var.into()
     }
 
     fn __expand_max_value(scope: &mut Scope) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_type(scope).elem_type();
         let var = elem.max_variable();
-        let expand = ManagedVariable::Plain(var);
-        expand.into()
+        var.into()
     }
 
     /// Create a new constant numeric.
@@ -90,7 +85,7 @@ pub trait Numeric:
         let elem = Self::as_type(scope).elem_type();
         let var: Variable = elem.constant(val.constant().unwrap());
 
-        ManagedVariable::Plain(var).into()
+        var.into()
     }
 }
 

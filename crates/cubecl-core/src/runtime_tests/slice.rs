@@ -20,10 +20,10 @@ pub fn slice_len<F: Float>(input: &Array<F>, output: &mut Array<u32>) {
 #[cube(launch)]
 pub fn slice_for<F: Float>(input: &Array<F>, output: &mut Array<F>) {
     if UNIT_POS == 0 {
-        let mut sum = F::new(0.0);
+        let mut sum = F::new(0f32);
 
         for item in input.slice(2, 4) {
-            sum += item;
+            sum += *item;
         }
 
         output[0] = sum;
@@ -33,7 +33,7 @@ pub fn slice_for<F: Float>(input: &Array<F>, output: &mut Array<F>) {
 #[cube(launch)]
 pub fn slice_mut_assign<F: Float>(input: &Array<F>, output: &mut Array<F>) {
     if UNIT_POS == 0 {
-        let slice_1 = &mut output.slice_mut(2, 3);
+        let slice_1 = output.slice_mut(2, 3);
         slice_1[0] = input[0];
     }
 }

@@ -38,7 +38,7 @@ impl ToTokens for Assign {
 
         tokens.extend(quote! {
             impl #generics #assign for #expand_name #generic_names #where_clause {
-                fn expand_assign(&mut self, scope: &mut Scope, value: Self) {
+                fn __expand_assign_method(&mut self, scope: &mut Scope, value: Self) {
                     use #assign as _;
                     #assign_body
                 }
@@ -61,10 +61,10 @@ impl Assign {
             match &field.ident {
                 Some(name) if field.comptime.is_present() => quote![self.#name = value.#name;],
                 Some(name) => {
-                    quote![self.#name.expand_assign(scope, value.#name);]
+                    quote![self.#name.__expand_assign_method(scope, value.#name);]
                 }
                 None if field.comptime.is_present() => quote![self.#index = value.#index;],
-                None => quote![self.#index.expand_assign(scope, value.#index);],
+                None => quote![self.#index.__expand_assign_method(scope, value.#index);],
             }
         });
         quote![#(#fields)*]
@@ -148,7 +148,7 @@ impl Assign {
                     let name_other = format_ident!("{name}_other");
                     match field.comptime.is_present() {
                         true => quote![*#name_this = #name_other;],
-                        false => quote![#name_this.expand_assign(scope, #name_other);],
+                        false => quote![#name_this.__expand_assign_method(scope, #name_other);],
                     }
                 });
 
@@ -210,8 +210,8 @@ impl Assign {
 
     fn assign_body_runtime_enum(&self) -> TokenStream {
         quote! {
-            self.discriminant.expand_assign(scope, value.discriminant);
-            self.value.expand_assign(scope, value.value);
+            self.discriminant.__expand_assign_method(scope, value.discriminant);
+            self.value.__expand_assign_method(scope, value.value);
         }
     }
 

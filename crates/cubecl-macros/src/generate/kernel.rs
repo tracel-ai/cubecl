@@ -4,12 +4,12 @@ use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt 
 use inflections::case::to_snake_case;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote, quote_spanned};
-use syn::{Ident, TypeParamBound};
+use syn::{Ident, TypeParamBound, parse_quote};
 
 use crate::{
     parse::kernel::{
         DefinedGeneric, KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch,
-        normalize_kernel_ty, patch_kernel_ref_lifetime,
+        expand_kernel_ty, map_type_normalized, patch_kernel_ref_lifetime, strip_ref,
     },
     paths::{frontend_type, prelude_type},
 };
@@ -106,7 +106,7 @@ impl ToTokens for KernelSignature {
 
         let return_type = match &self.returns {
             KernelReturns::ExpandType(ty) => {
-                let normalized_ty = normalize_kernel_ty(ty.clone(), false);
+                let normalized_ty = expand_kernel_ty(ty.clone(), false);
                 quote![#normalized_ty]
             }
             KernelReturns::Plain(ty) => quote![#ty],
@@ -167,12 +167,12 @@ impl Launch {
     }
 
     pub fn compilation_args_def(&self) -> (Vec<TokenStream>, Vec<Ident>) {
+        let launch_arg = prelude_type("LaunchArg");
         let mut tokens = Vec::new();
         let mut args = Vec::new();
-        let launch_arg = prelude_type("LaunchArg");
 
         self.runtime_params().for_each(|input| {
-            let ty = patch_kernel_ref_lifetime(input.ty.clone());
+            let ty = strip_ref(input.ty.clone());
             let name = &input.name;
 
             tokens.push(quote! {
@@ -190,7 +190,7 @@ impl Launch {
         let mut args = quote! {};
 
         self.runtime_params().enumerate().for_each(|(i, input)| {
-            let ty = patch_kernel_ref_lifetime(input.ty.clone());
+            let ty = strip_ref(input.ty.clone());
             let ident = &input.name;
             let var = Ident::new(format!("comp_arg_{i}").as_str(), ident.span());
 
@@ -214,10 +214,10 @@ impl Launch {
 
         let expand_fn = |ident, ty| {
             let ty = self.func.analysis.process_ty(&ty);
-            let ty = patch_kernel_ref_lifetime(ty);
+            let ty = strip_ref(ty);
 
             quote! {
-                let #ident =  <#ty as #launch_arg>::expand(&self.#ident.dynamic_cast(), &mut builder);
+                let mut #ident = <#ty as #launch_arg>::expand(&self.#ident.dynamic_cast(), &mut builder);
             }
         };
         for param in self.runtime_params() {
@@ -253,8 +253,12 @@ impl Launch {
         let args = self.func.sig.parameters.iter().map(|it| {
             let name = &it.name;
             match it.is_const {
-                true => quote![self.#name],
-                false => quote![#name],
+                true => quote![self.#name.clone()],
+                false => {
+                    let mut mapped = it.ty.clone();
+                    map_type_normalized(&mut mapped, &|_| parse_quote![#name]);
+                    quote![#mapped]
+                }
             }
         });
         let generics = self
@@ -270,7 +274,7 @@ impl Launch {
             #register_type
             self.settings.address_type.register(&mut builder.scope);
             #io_map
-            expand #generics(&mut builder.scope, #(#args.clone(),)*);
+            expand #generics(&mut builder.scope, #(#args,)*);
             builder.build(self.settings.clone())
         }
     }

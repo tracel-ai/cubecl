@@ -1,5 +1,5 @@
 use alloc::{string::String, vec::Vec};
-use cubecl_ir::{Instruction, ManagedVariable, Operation, Operator, Processor, Scope};
+use cubecl_ir::{Instruction, Operation, Operator, Processor, Scope, Variable};
 use cubecl_runtime::server::ExecutionMode;
 
 use crate::{
@@ -45,8 +45,8 @@ impl CheckedIoProcessor {
                         let has_length = op.list.has_length();
 
                         if has_length {
-                            let list = ManagedVariable::Plain(op.list);
-                            let index = ManagedVariable::Plain(op.index);
+                            let list = op.list;
+                            let index = op.index;
                             let mut scope = Scope::root(false)
                                 .with_global_state(processing.global_state.clone());
                             scope.register_type::<ElemA>(op.list.storage_type());
@@ -84,11 +84,11 @@ impl CheckedIoProcessor {
 
                             processing
                                 .instructions
-                                .push(Instruction::new(Operation::Copy(*input), instruction.out()));
+                                .push(Instruction::new(Operation::Copy(input), instruction.out()));
                             continue;
                         }
                     }
-                    Operator::IndexAssign(op) => {
+                    Operator::IndexMut(op) => {
                         let out = instruction.out();
 
                         if out.has_length() {
@@ -138,8 +138,8 @@ impl CheckedIoProcessor {
                         let has_length = op.list.has_length();
 
                         if has_length {
-                            let list = ManagedVariable::Plain(op.list);
-                            let index = ManagedVariable::Plain(op.index);
+                            let list = op.list;
+                            let index = op.index;
                             let mut scope = Scope::root(false)
                                 .with_global_state(processing.global_state.clone());
                             scope.register_type::<ElemA>(op.list.storage_type());
@@ -179,11 +179,11 @@ impl CheckedIoProcessor {
 
                             processing
                                 .instructions
-                                .push(Instruction::new(Operation::Copy(*input), instruction.out()));
+                                .push(Instruction::new(Operation::Copy(input), instruction.out()));
                             continue;
                         }
                     }
-                    Operator::IndexAssign(op) => {
+                    Operator::IndexMut(op) => {
                         let out = instruction.out();
 
                         if out.has_length() {

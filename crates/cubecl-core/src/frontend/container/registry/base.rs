@@ -3,7 +3,7 @@ use core::cell::RefCell;
 
 use cubecl_ir::Scope;
 
-use crate::prelude::{CubeDebug, CubeType, IntoMut};
+use crate::prelude::{CubeDebug, CubeType, ExpandTypeClone, IntoMut};
 
 /// It is similar to a map, but where the keys are stored at comptime, but the values can be runtime
 /// variables.
@@ -24,7 +24,9 @@ pub trait RegistryQuery<K>: Into<K> {}
 impl RegistryQuery<u32> for u32 {}
 impl RegistryQuery<usize> for usize {}
 
-impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType + Clone> Registry<K, V> {
+impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType<ExpandType: Clone> + Clone>
+    Registry<K, V>
+{
     /// Create a new registry.
     pub fn new() -> Self {
         Self::default()
@@ -160,8 +162,13 @@ impl<K, V> Clone for Registry<K, V> {
         }
     }
 }
+impl<K, V> ExpandTypeClone for Registry<K, V> {
+    fn clone_unchecked(&self) -> Self {
+        self.clone()
+    }
+}
 
-impl<K: PartialOrd + Ord, V: CubeType> CubeType for Registry<K, V> {
+impl<K: PartialOrd + Ord, V: CubeType<ExpandType: Clone>> CubeType for Registry<K, V> {
     type ExpandType = Registry<K, V::ExpandType>;
 }
 

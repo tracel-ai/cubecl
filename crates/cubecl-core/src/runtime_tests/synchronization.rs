@@ -81,12 +81,12 @@ fn kernel_test_sync_plane<F: Float>(out: &mut Array<F>) {
     let mut shared_memory = Shared::<F>::new();
 
     if UNIT_POS == 0 {
-        *shared_memory.as_mut() = F::from_int(1);
+        *shared_memory = F::from_int(1);
     }
 
     sync_plane();
 
-    out[UNIT_POS as usize] = *shared_memory.as_ref();
+    out[UNIT_POS as usize] = *shared_memory;
 }
 
 pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R>) {
@@ -120,12 +120,12 @@ fn kernel_test_sync_cube_shared<F: Float>(out: &mut Array<F>) {
     let mut shared_memory = Shared::<F>::new();
 
     if UNIT_POS == 0 {
-        *shared_memory.as_mut() = F::from_int(1);
+        *shared_memory = F::from_int(1);
     }
 
     sync_cube();
 
-    out[UNIT_POS as usize] = *shared_memory.as_ref();
+    out[UNIT_POS as usize] = *shared_memory;
 }
 
 pub fn test_sync_cube_shared<R: Runtime>(client: ComputeClient<R>) {

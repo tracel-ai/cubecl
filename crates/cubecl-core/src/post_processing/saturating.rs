@@ -1,8 +1,8 @@
 use crate as cubecl;
 use alloc::vec::Vec;
 use cubecl_ir::{
-    Arithmetic, ElemType, Instruction, IntKind, ManagedVariable, Operation, Processor, Scope,
-    ScopeProcessing, StorageType, UIntKind, Variable,
+    Arithmetic, ElemType, Instruction, IntKind, Operation, Processor, Scope, ScopeProcessing,
+    StorageType, UIntKind, Variable,
 };
 
 use crate::prelude::*;
@@ -97,8 +97,6 @@ fn run_polyfill<T: CubePrimitive>(
     out: Variable,
     mut polyfill: impl FnMut(&mut Scope, NativeExpand<T>, NativeExpand<T>) -> NativeExpand<T>,
 ) {
-    let lhs = ManagedVariable::Plain(lhs);
-    let rhs = ManagedVariable::Plain(rhs);
     let mut scope = Scope::root(false).with_global_state(processing.global_state.clone());
     scope.register_type::<ElemA>(lhs.storage_type());
     scope.register_size::<SizeA>(lhs.vector_size());
@@ -124,7 +122,7 @@ fn run_polyfill<T: CubePrimitive>(
 
     processing
         .instructions
-        .push(Instruction::new(Operation::Copy(*out_poly), out));
+        .push(Instruction::new(Operation::Copy(out_poly), out));
 }
 
 #[cube]

@@ -53,6 +53,14 @@ pub struct Context {
     level: usize,
     mut_scope_idx: usize,
     pub debug_symbols: bool,
+    /// Whether we're currently projecting a reference. Rust has magic here particularly around
+    /// index, so we need to keep track of it.
+    pub is_ref: bool,
+    /// Whether we're currently the projecting a mutable reference. Important for `index` vs
+    /// `index_mut` handling.
+    pub is_mut: bool,
+    /// Whether we're currently in a lhs assign, this changes the behavior of deref.
+    pub is_assign_lhs: bool,
 }
 
 impl Context {
@@ -77,6 +85,9 @@ impl Context {
             level: 0,
             mut_scope_idx: 0,
             debug_symbols,
+            is_ref: false,
+            is_mut: false,
+            is_assign_lhs: false,
         }
     }
 
@@ -121,6 +132,44 @@ impl Context {
         let res = with(self)?;
         self.pop_scope();
         Ok((res, self.scopes.len()))
+    }
+
+    pub fn with_lhs_assign<T>(
+        &mut self,
+        with: impl FnOnce(&mut Self) -> syn::Result<T>,
+    ) -> syn::Result<T> {
+        let current = self.is_mut;
+        self.is_mut = true;
+        self.is_assign_lhs = true;
+        let res = with(self)?;
+        self.is_mut = current;
+        self.is_assign_lhs = false;
+        Ok(res)
+    }
+
+    pub fn with_is_ref<T>(
+        &mut self,
+        with: impl FnOnce(&mut Self) -> syn::Result<T>,
+    ) -> syn::Result<T> {
+        let current = self.is_ref;
+        self.is_ref = true;
+        let res = with(self)?;
+        self.is_ref = current;
+        Ok(res)
+    }
+
+    pub fn with_is_ref_mut<T>(
+        &mut self,
+        with: impl FnOnce(&mut Self) -> syn::Result<T>,
+    ) -> syn::Result<T> {
+        let current_ref = self.is_ref;
+        let current_mut = self.is_mut;
+        self.is_ref = true;
+        self.is_mut = true;
+        let res = with(self)?;
+        self.is_ref = current_ref;
+        self.is_mut = current_mut;
+        Ok(res)
     }
 
     /// Mutable closures (for loops) have different behaviour because outer vars

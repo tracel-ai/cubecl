@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use alloc::{format, vec::Vec};
 
-use crate::{IndexAssignOperator, IndexOperator, TypeHash};
+use crate::{IndexMutOperator, IndexOperator, TypeHash};
 
 use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Variable};
 
@@ -17,8 +17,8 @@ pub enum Operator {
     CopyMemoryBulk(CopyMemoryBulkOperator),
     #[operation(pure)]
     UncheckedIndex(IndexOperator),
-    IndexAssign(IndexAssignOperator),
-    UncheckedIndexAssign(IndexAssignOperator),
+    IndexMut(IndexMutOperator),
+    UncheckedIndexMut(IndexMutOperator),
     #[operation(pure)]
     InitVector(VectorInitOperator),
     #[operation(commutative, pure)]
@@ -39,7 +39,7 @@ pub enum Operator {
 impl Display for Operator {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Operator::Index(op) => write!(f, "{}[{}]", op.list, op.index),
+            Operator::Index(op) => write!(f, "&{}[{}]", op.list, op.index),
             Operator::CopyMemory(op) => {
                 write!(f, "[{}] = {}[{}]", op.out_index, op.input, op.in_index)
             }
@@ -49,11 +49,11 @@ impl Display for Operator {
                 op.input, op.in_index, op.out_index, op.len
             ),
             Operator::UncheckedIndex(op) => {
-                write!(f, "unchecked {}[{}]", op.list, op.index)
+                write!(f, "unchecked &{}[{}]", op.list, op.index)
             }
-            Operator::IndexAssign(op) => write!(f, "[{}] = {}", op.index, op.value),
-            Operator::UncheckedIndexAssign(op) => {
-                write!(f, "unchecked [{}] = {}", op.index, op.value)
+            Operator::IndexMut(op) => write!(f, "&mut {}[{}]", op.list, op.index),
+            Operator::UncheckedIndexMut(op) => {
+                write!(f, "unchecked &mut {}[{}]", op.list, op.index)
             }
             Operator::And(op) => write!(f, "{} && {}", op.lhs, op.rhs),
             Operator::Or(op) => write!(f, "{} || {}", op.lhs, op.rhs),

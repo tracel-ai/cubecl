@@ -1,9 +1,9 @@
 use alloc::{vec, vec::Vec};
 use cubecl_ir::{
     Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, CopyMemoryBulkOperator,
-    IndexAssignOperator, IndexOperator, Instruction, ManagedVariable, MatrixLayout, Metadata,
-    Operation, OperationReflect, Operator, Processor, ScopeProcessing, Type, Variable,
-    VariableKind, VectorSize,
+    IndexMutOperator, IndexOperator, Instruction, MatrixLayout, Metadata, Operation,
+    OperationReflect, Operator, Processor, ScopeProcessing, Type, Variable, VariableKind,
+    VectorSize,
 };
 use hashbrown::HashMap;
 
@@ -20,7 +20,7 @@ pub struct UnrollProcessor {
     max_vector_size: VectorSize,
 }
 
-struct Mappings(HashMap<Variable, Vec<ManagedVariable>>);
+struct Mappings(HashMap<Variable, Vec<Variable>>);
 
 impl Mappings {
     fn get(
@@ -34,7 +34,7 @@ impl Mappings {
             .entry(var)
             .or_insert_with(|| create_unrolled(alloc, &var, vector_size, unroll_factor))
             .iter()
-            .map(|it| **it)
+            .copied()
             .collect()
     }
 }
@@ -165,44 +165,42 @@ impl UnrollProcessor {
                         mappings,
                     ))
                 }
-                Operation::Operator(Operator::IndexAssign(op)) if inst.out().is_array() => {
+                Operation::Operator(Operator::IndexMut(op)) if inst.out().is_array() => {
                     TransformAction::Replace(self.transform_array_index_assign(
                         alloc,
                         inst.out(),
                         op,
-                        Operator::IndexAssign,
+                        Operator::IndexMut,
                         unroll_factor,
                         mappings,
                     ))
                 }
-                Operation::Operator(Operator::UncheckedIndexAssign(op))
-                    if inst.out().is_array() =>
-                {
+                Operation::Operator(Operator::UncheckedIndexMut(op)) if inst.out().is_array() => {
                     TransformAction::Replace(self.transform_array_index_assign(
                         alloc,
                         inst.out(),
                         op,
-                        Operator::UncheckedIndexAssign,
+                        Operator::UncheckedIndexMut,
                         unroll_factor,
                         mappings,
                     ))
                 }
-                Operation::Operator(Operator::IndexAssign(op)) => {
+                Operation::Operator(Operator::IndexMut(op)) => {
                     TransformAction::Replace(self.transform_composite_index_assign(
                         alloc,
                         inst.out(),
                         op,
-                        Operator::IndexAssign,
+                        Operator::IndexMut,
                         unroll_factor,
                         mappings,
                     ))
                 }
-                Operation::Operator(Operator::UncheckedIndexAssign(op)) => {
+                Operation::Operator(Operator::UncheckedIndexMut(op)) => {
                     TransformAction::Replace(self.transform_composite_index_assign(
                         alloc,
                         inst.out(),
                         op,
-                        Operator::UncheckedIndexAssign,
+                        Operator::UncheckedIndexMut,
                         unroll_factor,
                         mappings,
                     ))
@@ -242,7 +240,7 @@ impl UnrollProcessor {
             Operation::CoopMma(CoopMma::Load {
                 value,
                 stride: *stride,
-                offset: *offset,
+                offset: offset,
                 layout: *layout,
             }),
             out,
@@ -269,7 +267,7 @@ impl UnrollProcessor {
             Operation::CoopMma(CoopMma::Store {
                 mat: *mat,
                 stride: *stride,
-                offset: *offset,
+                offset: offset,
                 layout: *layout,
             }),
             out,
@@ -301,11 +299,11 @@ impl UnrollProcessor {
             Instruction::new(
                 Operator::CopyMemoryBulk(CopyMemoryBulkOperator {
                     input,
-                    in_index: *in_index,
-                    out_index: *out_index,
+                    in_index,
+                    out_index,
                     len: op.len * unroll_factor,
-                    offset_input: *offset_input,
-                    offset_out: *offset_out,
+                    offset_input,
+                    offset_out,
                 }),
                 out,
             ),
@@ -324,7 +322,7 @@ impl UnrollProcessor {
         mappings: &mut Mappings,
     ) -> Vec<Instruction> {
         let (mul, start_idx) = mul_index(alloc, op.index, unroll_factor);
-        let mut indices = (0..unroll_factor).map(|i| add_index(alloc, *start_idx, i));
+        let mut indices = (0..unroll_factor).map(|i| add_index(alloc, start_idx, i));
 
         let list = unroll_array(op.list, self.max_vector_size, unroll_factor);
 
@@ -335,7 +333,7 @@ impl UnrollProcessor {
             let index = Instruction::new(
                 operator(IndexOperator {
                     list,
-                    index: *idx,
+                    index: idx,
                     vector_size: 0,
                     unroll_factor,
                 }),
@@ -353,13 +351,13 @@ impl UnrollProcessor {
         &self,
         alloc: &Allocator,
         out: Variable,
-        op: &IndexAssignOperator,
-        operator: impl Fn(IndexAssignOperator) -> Operator,
+        op: &IndexMutOperator,
+        operator: impl Fn(IndexMutOperator) -> Operator,
         unroll_factor: usize,
         mappings: &mut Mappings,
     ) -> Vec<Instruction> {
         let (mul, start_idx) = mul_index(alloc, op.index, unroll_factor);
-        let mut indices = (0..unroll_factor).map(|i| add_index(alloc, *start_idx, i));
+        let mut indices = (0..unroll_factor).map(|i| add_index(alloc, start_idx, i));
 
         let out = unroll_array(out, self.max_vector_size, unroll_factor);
 
@@ -369,8 +367,8 @@ impl UnrollProcessor {
         instructions.extend((0..unroll_factor).flat_map(|i| {
             let (add, idx) = indices.next().unwrap();
             let index = Instruction::new(
-                operator(IndexAssignOperator {
-                    index: *idx,
+                operator(IndexMutOperator {
+                    index: idx,
                     vector_size: 0,
                     value: value[i],
                     unroll_factor,
@@ -427,8 +425,8 @@ impl UnrollProcessor {
         &self,
         alloc: &Allocator,
         out: Variable,
-        op: &IndexAssignOperator,
-        operator: impl Fn(IndexAssignOperator) -> Operator,
+        op: &IndexMutOperator,
+        operator: impl Fn(IndexMutOperator) -> Operator,
         unroll_factor: usize,
         mappings: &mut Mappings,
     ) -> Vec<Instruction> {
@@ -444,7 +442,7 @@ impl UnrollProcessor {
         let out = mappings.get(alloc, out, unroll_factor, self.max_vector_size);
 
         vec![Instruction::new(
-            operator(IndexAssignOperator {
+            operator(IndexMutOperator {
                 index: sub_idx.into(),
                 vector_size: 1,
                 value: op.value,
@@ -622,10 +620,10 @@ fn create_unrolled(
     var: &Variable,
     max_vector_size: VectorSize,
     unroll_factor: usize,
-) -> Vec<ManagedVariable> {
+) -> Vec<Variable> {
     // Preserve scalars
     if var.vector_size() == 1 {
-        return vec![ManagedVariable::Plain(*var); unroll_factor];
+        return vec![*var; unroll_factor];
     }
 
     let item = Type::new(var.storage_type()).with_vector_size(max_vector_size);
@@ -637,7 +635,7 @@ fn create_unrolled(
             VariableKind::Shared { .. } => {
                 let id = allocator.new_local_index();
                 let shared = VariableKind::Shared { id };
-                ManagedVariable::Plain(Variable::new(shared, item))
+                Variable::new(shared, item)
             }
             VariableKind::LocalConst { .. } => allocator.create_local(item),
             other => panic!("Out must be local, found {other:?}"),
@@ -645,30 +643,26 @@ fn create_unrolled(
         .collect()
 }
 
-fn add_index(alloc: &Allocator, idx: Variable, i: usize) -> (Instruction, ManagedVariable) {
+fn add_index(alloc: &Allocator, idx: Variable, i: usize) -> (Instruction, Variable) {
     let add_idx = alloc.create_local(idx.ty);
     let add = Instruction::new(
         Arithmetic::Add(BinaryOperator {
             lhs: idx,
             rhs: i.into(),
         }),
-        *add_idx,
+        add_idx,
     );
     (add, add_idx)
 }
 
-fn mul_index(
-    alloc: &Allocator,
-    idx: Variable,
-    unroll_factor: usize,
-) -> (Instruction, ManagedVariable) {
+fn mul_index(alloc: &Allocator, idx: Variable, unroll_factor: usize) -> (Instruction, Variable) {
     let mul_idx = alloc.create_local(idx.ty);
     let mul = Instruction::new(
         Arithmetic::Mul(BinaryOperator {
             lhs: idx,
             rhs: unroll_factor.into(),
         }),
-        *mul_idx,
+        mul_idx,
     );
     (mul, mul_idx)
 }

@@ -29,7 +29,7 @@ impl OptimizerPass for CopyTransform {
                             reads.insert(id, (idx, op.list, op.index));
                         }
                     }
-                    Operation::Operator(Operator::IndexAssign(op))
+                    Operation::Operator(Operator::IndexMut(op))
                         if inst.out().is_memory() && inst.ty() == op.value.ty =>
                     {
                         if let Some(id) = as_versioned(&op.value) {

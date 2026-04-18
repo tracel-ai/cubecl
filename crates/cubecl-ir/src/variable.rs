@@ -1,6 +1,6 @@
 use core::{fmt::Display, hash::Hash};
 
-use crate::{BarrierLevel, FloatKind, IntKind, StorageType, TypeHash};
+use crate::{BarrierLevel, FloatKind, IntKind, PointerClass, StorageType, TypeHash};
 
 use super::{ElemType, Matrix, Type, UIntKind};
 use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
@@ -57,6 +57,29 @@ impl Variable {
             | VariableKind::SharedArray { .. }
             | VariableKind::Shared { .. }
             | VariableKind::Matrix { .. } => true,
+        }
+    }
+
+    pub fn pointer_class(&self) -> PointerClass {
+        match self.kind {
+            VariableKind::GlobalInputArray(id)
+            | VariableKind::GlobalOutputArray(id)
+            | VariableKind::TensorMapInput(id)
+            | VariableKind::TensorMapOutput(id) => PointerClass::Global(id),
+            VariableKind::SharedArray { id, .. } | VariableKind::Shared { id } => {
+                PointerClass::Shared(id)
+            }
+            VariableKind::GlobalScalar(_)
+            | VariableKind::LocalArray { .. }
+            | VariableKind::LocalMut { .. }
+            | VariableKind::LocalConst { .. }
+            | VariableKind::Versioned { .. }
+            | VariableKind::ConstantArray { .. }
+            | VariableKind::Matrix { .. }
+            | VariableKind::Builtin(..)
+            | VariableKind::Pipeline { .. }
+            | VariableKind::BarrierToken { .. } => PointerClass::Local,
+            VariableKind::Constant(..) => unimplemented!("Can't create reference to constant"),
         }
     }
 }

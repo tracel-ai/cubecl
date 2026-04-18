@@ -32,6 +32,9 @@ pub enum Operation {
     #[operation(pure)]
     #[from(ignore)]
     Reference(Variable),
+    #[operation(pure)]
+    #[from(ignore)]
+    Deref(Variable),
     #[operation(nested)]
     Arithmetic(Arithmetic),
     #[operation(nested)]
@@ -124,30 +127,6 @@ impl Display for Instruction {
                 op.in_index,
                 op.len
             ),
-            Operation::Operator(Operator::IndexAssign(op)) => {
-                write!(
-                    f,
-                    "{}[{}] = {}  : ({}, {}) -> ({})",
-                    self.out(),
-                    op.index,
-                    op.value,
-                    op.index.ty,
-                    op.value.ty,
-                    self.out().ty,
-                )
-            }
-            Operation::Operator(Operator::UncheckedIndexAssign(op)) => {
-                write!(
-                    f,
-                    "unchecked {}[{}] = {} : ({}, {}) -> ({})",
-                    self.out(),
-                    op.index,
-                    op.value,
-                    op.index.ty,
-                    op.value.ty,
-                    self.out().ty,
-                )
-            }
             Operation::Operator(Operator::Cast(op)) => {
                 write!(
                     f,
@@ -199,6 +178,7 @@ impl Display for Operation {
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
             Operation::Copy(variable) => write!(f, "{variable}"),
             Operation::Reference(variable) => write!(f, "&{variable}"),
+            Operation::Deref(variable) => write!(f, "*{variable}"),
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
             Operation::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Operation::Tma(tma_ops) => write!(f, "{tma_ops}"),
@@ -234,10 +214,9 @@ pub struct IndexOperator {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct IndexAssignOperator {
-    // list is out.
+pub struct IndexMutOperator {
+    pub list: Variable,
     pub index: Variable,
-    pub value: Variable,
     pub vector_size: VectorSize, // 0 == same as list.
     pub unroll_factor: usize,    // Adjustment factor for bounds check
 }

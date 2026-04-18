@@ -6,7 +6,7 @@ use syn::{
 
 use crate::{
     ReplaceDefines,
-    parse::kernel::{KernelArgs, KernelBody, SelfType, normalize_kernel_ty},
+    parse::kernel::{KernelArgs, KernelBody, SelfType, expand_kernel_ty},
     scope::Context,
 };
 

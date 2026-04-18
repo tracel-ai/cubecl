@@ -20,7 +20,7 @@ pub fn kernel_simple_f16_workgroup_gmem(
         n,
         k,
         cmma::MatrixLayout::RowMajor,
-        &out.to_slice(),
+        out.to_slice(),
         n as u32,
     );
 
@@ -30,7 +30,7 @@ pub fn kernel_simple_f16_workgroup_gmem(
     });
 
     cmma::store(
-        &mut out.to_slice_mut(),
+        out.to_slice_mut(),
         &matrix,
         n as u32,
         cmma::MatrixLayout::RowMajor,

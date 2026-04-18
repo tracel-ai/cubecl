@@ -194,8 +194,8 @@ impl ValueTable {
         let (expr, val) = match operator {
             Operator::Index(_) | Operator::UncheckedIndex(_) => Err(value_of_var(&out))?,
 
-            Operator::IndexAssign(_)
-            | Operator::UncheckedIndexAssign(_)
+            Operator::IndexMut(_)
+            | Operator::UncheckedIndexMut(_)
             | Operator::CopyMemoryBulk(_)
             | Operator::CopyMemory(_) => Err(None)?,
 

@@ -30,7 +30,7 @@ impl<T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<R>>> for
     }
 }
 
-impl<T: LaunchArg + Default + IntoRuntime + 'static> LaunchArg for Option<T> {
+impl<T: LaunchArg + CubeType + Default + IntoRuntime + 'static> LaunchArg for Option<T> {
     type RuntimeArg<R: Runtime> = OptionArgs<T, R>;
     type CompilationArg = OptionCompilationArg<T>;
 
@@ -188,14 +188,6 @@ mod impls {
                 .finish(scope)
         }
 
-        pub fn __expand_as_ref_method(&self, _scope: &mut Scope) -> OptionExpand<T> {
-            self.clone()
-        }
-
-        pub fn __expand_as_mut_method(&mut self, _scope: &mut Scope) -> OptionExpand<T> {
-            self.clone()
-        }
-
         pub fn __expand_expect_method(self, scope: &mut Scope, msg: &str) -> T::ExpandType
         where
             T::ExpandType: Assign,
@@ -240,9 +232,12 @@ mod impls {
         where
             F: FnOnce(&mut Scope, &T::ExpandType),
         {
-            match_expand(scope, self.clone(), discriminant("Some"), |scope, value| {
-                f(scope, &value)
-            })
+            match_expand(
+                scope,
+                self.clone_unchecked(),
+                discriminant("Some"),
+                |scope, value| f(scope, &value),
+            )
             .case(scope, discriminant("None"), |_, _| {})
             .finish(scope);
             self
@@ -297,19 +292,19 @@ mod impls {
         pub fn __expand_as_deref_method(self, scope: &mut Scope) -> OptionExpand<T::Target>
         where
             T: Deref<Target: CubeType + Default + IntoRuntime>,
-            T::ExpandType: Deref<Target = <T::Target as CubeType>::ExpandType>,
+            T::ExpandType: CubeDeref<Target = <T::Target as CubeType>::ExpandType>,
             <T::Target as CubeType>::ExpandType: Assign,
         {
-            self.__expand_map_method(scope, |_, value| (*value).clone())
+            self.__expand_map_method(scope, |scope, value| value.__expand_deref_method(scope))
         }
 
         pub fn __expand_as_deref_mut_method(self, scope: &mut Scope) -> OptionExpand<T::Target>
         where
             T: DerefMut<Target: CubeType + Default + IntoRuntime>,
-            T::ExpandType: Deref<Target = <T::Target as CubeType>::ExpandType>,
+            T::ExpandType: CubeDeref<Target = <T::Target as CubeType>::ExpandType>,
             <T::Target as CubeType>::ExpandType: Assign,
         {
-            self.__expand_map_method(scope, |_, value| (*value).clone())
+            self.__expand_map_method(scope, |scope, value| value.__expand_deref_method(scope))
         }
 
         pub fn __expand_and_then_method<U, F>(self, scope: &mut Scope, f: F) -> OptionExpand<U>
@@ -327,12 +322,12 @@ mod impls {
 
         pub fn __expand_filter_method<P>(self, scope: &mut Scope, predicate: P) -> Self
         where
-            P: FnOnce(&mut Scope, T::ExpandType) -> NativeExpand<bool>,
+            P: FnOnce(&mut Scope, &T::ExpandType) -> NativeExpand<bool>,
             T: Default + IntoRuntime,
             Self: Assign,
         {
             match_expand_expr(scope, self, discriminant("Some"), |scope, value| {
-                let cond = predicate(scope, value.clone());
+                let cond = predicate(scope, &value);
                 if_else_expr_expand(scope, cond, |scope| Option::__expand_new_Some(scope, value))
                     .or_else(scope, |scope| Option::__expand_new_None(scope))
             })
@@ -347,7 +342,7 @@ mod impls {
             F: FnOnce(&mut Scope) -> OptionExpand<T>,
             OptionExpand<T>: Assign,
         {
-            let is_some = self.clone().__expand_is_some_method(scope);
+            let is_some = self.__expand_is_some_method(scope);
             if_else_expr_expand(scope, is_some, |_| self).or_else(scope, |scope| f(scope))
         }
 
@@ -394,10 +389,10 @@ mod impls {
             OptionExpand<R>: Assign,
         {
             match_expand_expr(scope, self, discriminant("Some"), {
-                let other = other.clone();
+                let other = other.clone_unchecked();
                 |scope, value| {
                     match_expand_expr(scope, other, discriminant("Some"), {
-                        let value = value.clone();
+                        let value = value.clone_unchecked();
                         |scope, other| {
                             let value = f(scope, value, other);
                             Option::__expand_new_Some(scope, value)
@@ -707,7 +702,7 @@ mod impls {
         pub fn zip<U>(self, other: Option<U>) -> Option<(T, U)>
         where
             U: CubeType,
-            (T, U): Default + IntoRuntime,
+            (T, U): Default + CubeType + IntoRuntime,
             (T::ExpandType, U::ExpandType): Into<<(T, U) as CubeType>::ExpandType>,
             OptionExpand<(T, U)>: Assign,
         {
@@ -723,8 +718,8 @@ mod impls {
 
     #[cube(expand_only)]
     impl<
-        T: CubeType<ExpandType: Assign> + IntoRuntime + Default,
-        U: CubeType<ExpandType: Assign> + IntoRuntime + Default,
+        T: CubeType<ExpandType: Assign + Clone> + IntoRuntime + Default,
+        U: CubeType<ExpandType: Assign + Clone> + IntoRuntime + Default,
     > Option<(T, U)>
     {
         /// Unzips an option containing a tuple of two options.

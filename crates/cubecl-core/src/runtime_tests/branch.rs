@@ -7,13 +7,13 @@ use cubecl::prelude::*;
 pub fn kernel_switch_simple<F: Float>(output: &mut Array<F>, case: u32) {
     match case {
         0 => {
-            output[0] = F::new(1.0);
+            output[0] = F::new(1f32);
         }
         1 => {
-            output[0] = F::new(3.0);
+            output[0] = F::new(3f32);
         }
         _ => {
-            output[0] = F::new(5.0);
+            output[0] = F::new(5f32);
         }
     }
 }
@@ -60,7 +60,7 @@ pub fn kernel_switch_const<F: Float>(output: &mut Array<F>, case: u32) {
 #[cube(launch)]
 pub fn kernel_select<F: Float>(output: &mut Array<F>, cond: u32) {
     if UNIT_POS == 0 {
-        output[0] = select(cond == 1, F::new(3.0), F::new(5.0));
+        output[0] = select(cond == 1, F::new(3f32), F::new(5f32));
     }
 }
 
@@ -71,7 +71,7 @@ pub fn kernel_for_loop_with_break<F: Float>(output: &mut Array<F>) {
         if i > 3 {
             break;
         }
-        output[i as usize] = F::new(1.0);
+        output[i as usize] = F::new(1f32);
     }
 }
 

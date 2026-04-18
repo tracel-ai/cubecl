@@ -42,7 +42,7 @@ pub mod select {
         then: NativeExpand<C>,
         or_else: NativeExpand<C>,
     ) -> NativeExpand<C> {
-        let cond = condition.expand.consume();
+        let cond = condition.expand;
 
         if let VariableKind::Constant(value) = cond.kind {
             if value.as_bool() {
@@ -52,22 +52,21 @@ pub mod select {
             }
         }
 
-        let then = then.expand.consume();
-        let or_else = or_else.expand.consume();
+        let then = then.expand;
+        let or_else = or_else.expand;
 
         let vf = cond.vector_size();
         let vf = Ord::max(vf, then.vector_size());
         let vf = Ord::max(vf, or_else.vector_size());
 
         let output = scope.create_local(then.ty.with_vector_size(vf));
-        let out = *output;
 
         let select = Operator::Select(Select {
             cond,
             then,
             or_else,
         });
-        scope.register(Instruction::new(select, out));
+        scope.register(Instruction::new(select, output));
 
         output.into()
     }

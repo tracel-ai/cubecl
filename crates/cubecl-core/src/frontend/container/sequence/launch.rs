@@ -6,7 +6,7 @@ use cubecl_zspace::SmallVec;
 
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
-    prelude::LaunchArg,
+    prelude::{CubeType, LaunchArg},
 };
 
 use super::{Sequence, SequenceExpand};
@@ -64,7 +64,7 @@ impl<C: LaunchArg> core::fmt::Debug for SequenceCompilationArg<C> {
 }
 impl<C: LaunchArg> core::cmp::Eq for SequenceCompilationArg<C> {}
 
-impl<C: LaunchArg + 'static> LaunchArg for Sequence<C> {
+impl<C: LaunchArg + CubeType + 'static> LaunchArg for Sequence<C> {
     type RuntimeArg<R: Runtime> = SequenceArg<R, C>;
     type CompilationArg = SequenceCompilationArg<C>;
 

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, mem::take};
 
 use cubecl_ir::{
-    Id, IndexAssignOperator, IndexOperator, Instruction, Operation, Operator, Type, Variable,
+    Id, IndexMutOperator, IndexOperator, Instruction, Operation, Operator, Type, Variable,
     VariableKind, VectorInitOperator,
 };
 use stable_vec::StableVec;
@@ -48,10 +48,8 @@ impl OptimizerPass for CompositeMerge {
 
                 let op = { ops.borrow()[idx].clone() };
                 if let (
-                    Operation::Operator(Operator::IndexAssign(IndexAssignOperator {
-                        index,
-                        value,
-                        ..
+                    Operation::Operator(Operator::IndexMut(IndexMutOperator {
+                        index, value, ..
                     })),
                     Some(VariableKind::LocalMut { id }),
                 ) = (op.operation, op.out.map(|it| it.kind))

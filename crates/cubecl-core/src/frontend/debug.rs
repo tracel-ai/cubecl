@@ -92,7 +92,7 @@ macro_rules! debug_print {
 macro_rules! __expand_debug_print {
     ($scope:expr, $format:expr, $($args:expr),*) => {
         {
-            let args = $crate::__private::vec![$(*$crate::ir::ManagedVariable::from($args)),*];
+            let args = $crate::__private::vec![$($crate::ir::Variable::from($args)),*];
             $crate::frontend::printf_expand($scope, $format, args);
         }
     };

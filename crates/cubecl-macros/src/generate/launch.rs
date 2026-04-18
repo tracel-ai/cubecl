@@ -4,7 +4,9 @@ use quote::{ToTokens, format_ident, quote};
 use syn::{Ident, parse_quote};
 
 use crate::{
-    parse::kernel::{AddressType, GenericArg, KernelParam, Launch, patch_kernel_ref_lifetime},
+    parse::kernel::{
+        AddressType, GenericArg, KernelParam, Launch, patch_kernel_ref_lifetime, strip_ref,
+    },
     paths::{core_type, prelude_type},
 };
 
@@ -250,7 +252,7 @@ impl Launch {
         let mut args = self.func.sig.parameters.clone();
         let runtime_arg = core_type("RuntimeArg");
         for arg in args.iter_mut().filter(|it| !it.is_const) {
-            let ty = patch_kernel_ref_lifetime(arg.ty.clone());
+            let ty = strip_ref(arg.ty.clone());
             arg.normalized_ty = parse_quote![#runtime_arg<#ty, __R>];
             arg.mutability = None;
         }
