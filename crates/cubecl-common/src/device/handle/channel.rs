@@ -1,6 +1,6 @@
 use crate::{
     device::{
-        DeviceId, DeviceService, ServerUtilitiesHandle,
+        DeviceId, DeviceService, ServerUtilitiesHandle, ServiceStage,
         handle::{CallError, DeviceHandleSpec, ServiceCreationError, channel::task::TaskResult},
     },
     stream_id::StreamId,
@@ -254,7 +254,13 @@ struct ChannelService {
     utilities: ServerUtilitiesHandle,
 }
 
-static RUNNERS: spin::Mutex<Option<HashMap<DeviceId, DeviceClient>>> = spin::Mutex::new(None);
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+struct RunnerKey {
+    device: DeviceId,
+    stage: ServiceStage,
+}
+
+static RUNNERS: spin::Mutex<Option<HashMap<RunnerKey, DeviceClient>>> = spin::Mutex::new(None);
 /// Device/service map. The lock is held across the entire `init` sequence so `S::init` runs
 /// once per `(DeviceId, TypeId)` pair. This serializes channel creation across all
 /// backends.
@@ -286,12 +292,17 @@ impl ChannelDeviceState {
             return Ok(existing.clone());
         }
 
+        let runner_key = RunnerKey {
+            device: device_id,
+            stage: S::stage(),
+        };
+
         // A single device runner can serve multiple [`DeviceService`].
         let device_client = {
             let mut guard = RUNNERS.lock();
             let runners = guard.get_or_insert_with(HashMap::new);
             runners
-                .entry(device_id)
+                .entry(runner_key)
                 .or_insert_with(|| DeviceRunner::start(device_id))
                 .clone()
         };
