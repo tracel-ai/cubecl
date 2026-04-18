@@ -1,6 +1,6 @@
 use crate::{
     device::{
-        DeviceId, DeviceService, ServerUtilitiesHandle, ServiceStage,
+        DeviceId, DeviceService, DeviceServiceStage, ServerUtilitiesHandle,
         handle::{CallError, DeviceHandleSpec, ServiceCreationError, channel::task::TaskResult},
     },
     stream_id::StreamId,
@@ -257,7 +257,7 @@ struct ChannelService {
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 struct RunnerKey {
     device: DeviceId,
-    stage: ServiceStage,
+    stage: DeviceServiceStage,
 }
 
 static RUNNERS: spin::Mutex<Option<HashMap<RunnerKey, DeviceClient>>> = spin::Mutex::new(None);

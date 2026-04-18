@@ -53,18 +53,18 @@ pub trait DeviceService: Send + 'static {
     fn utilities(&self) -> ServerUtilitiesHandle;
     /// Which pipeline stage this service runs on.
     ///
-    /// Services on [`ServiceStage::Upstream`] produce work ahead of time (e.g. autodiff graph
-    /// construction, kernel fusion) that is consumed by [`ServiceStage::Downstream`] services,
+    /// Services on [`DeviceServiceStage::Upstream`] produce work ahead of time (e.g. autodiff graph
+    /// construction, kernel fusion) that is consumed by [`DeviceServiceStage::Downstream`] services,
     /// which stream kernels to the device.
-    fn stage() -> ServiceStage {
-        ServiceStage::Downstream
+    fn stage() -> DeviceServiceStage {
+        DeviceServiceStage::Downstream
     }
 }
 
 /// Pipeline stage a [`DeviceService`] runs on. Each stage gets its own runner thread per device,
 /// allowing upstream work to overlap with downstream kernel dispatch.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum ServiceStage {
+pub enum DeviceServiceStage {
     /// Produces work ahead of kernel dispatch (e.g. autodiff graph, fusion).
     Upstream = 0,
     /// Consumes upstream work and streams kernels to the device.
