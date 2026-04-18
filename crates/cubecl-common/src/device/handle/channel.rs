@@ -138,7 +138,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     }
 
     fn flush_queue(&self) {
-        if !is_device_runner_thread(self.state.client.device_id()) {
+        if !is_device_runner_thread(self.state.client.runner_id()) {
             self.state.client.flush();
         }
     }
@@ -202,7 +202,7 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         &self,
         task: T,
     ) -> Result<(), CallError> {
-        if is_device_runner_thread(self.state.client.device_id()) {
+        if is_device_runner_thread(self.state.client.runner_id()) {
             if let Err(err) = catch_unwind(AssertUnwindSafe(task)) {
                 log::warn!("Task failed: {err:?}");
                 return Err(CallError);
@@ -221,13 +221,13 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
 }
 
 /// Helper to verify if the current execution context is the device's runner thread.
-fn is_device_runner_thread(device_id: &DeviceId) -> bool {
-    SERVER_THREAD.with_borrow(|state| state.as_ref() == Some(device_id))
+fn is_device_runner_thread(runner_key: &RunnerId) -> bool {
+    SERVER_THREAD.with_borrow(|state| state.as_ref() == Some(runner_key))
 }
 
 std::thread_local! {
     /// The ID of the device this thread is responsible for.
-    static SERVER_THREAD: RefCell<Option<DeviceId>> = const { RefCell::new(None) };
+    static SERVER_THREAD: RefCell<Option<RunnerId>> = const { RefCell::new(None) };
 
     /// Heterogeneous map of service states owned by this thread.
     #[allow(clippy::type_complexity)]
@@ -255,16 +255,16 @@ struct ChannelService {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-struct RunnerKey {
+struct RunnerId {
     device: DeviceId,
     stage: DeviceServiceStage,
 }
 
-static RUNNERS: spin::Mutex<Option<HashMap<RunnerKey, DeviceClient>>> = spin::Mutex::new(None);
+static RUNNERS: spin::Mutex<Option<HashMap<RunnerId, DeviceClient>>> = spin::Mutex::new(None);
 /// Device/service map. The lock is held across the entire `init` sequence so `S::init` runs
 /// once per `(DeviceId, TypeId)` pair. This serializes channel creation across all
 /// backends.
-static CHANNELS: spin::Mutex<Option<HashMap<(DeviceId, TypeId), ChannelDeviceState>>> =
+static CHANNELS: spin::Mutex<Option<HashMap<(RunnerId, TypeId), ChannelDeviceState>>> =
     spin::Mutex::new(None);
 
 impl ChannelDeviceState {
@@ -273,7 +273,11 @@ impl ChannelDeviceState {
         service: Option<S>,
     ) -> Result<Self, ServiceCreationError> {
         let type_id = TypeId::of::<S>();
-        let key = (device_id, type_id);
+        let runner_id = RunnerId {
+            device: device_id,
+            stage: S::stage(),
+        };
+        let key = (runner_id, type_id);
 
         // Hold the `CHANNELS` lock across the entire init sequence so that the
         // "check missing, insert new" transition is atomic. Without this, two
@@ -292,18 +296,13 @@ impl ChannelDeviceState {
             return Ok(existing.clone());
         }
 
-        let runner_key = RunnerKey {
-            device: device_id,
-            stage: S::stage(),
-        };
-
         // A single device runner can serve multiple [`DeviceService`].
         let device_client = {
             let mut guard = RUNNERS.lock();
             let runners = guard.get_or_insert_with(HashMap::new);
             runners
-                .entry(runner_key)
-                .or_insert_with(|| DeviceRunner::start(device_id))
+                .entry(runner_id)
+                .or_insert_with(|| DeviceRunner::start(runner_id))
                 .clone()
         };
 
@@ -331,7 +330,7 @@ impl ChannelDeviceState {
 
         // Same reason in [`send]` we need to call the function directly if we are on the runner
         // thread.
-        if is_device_runner_thread(&device_id) {
+        if is_device_runner_thread(&runner_id) {
             if let Err(err) = catch_unwind(AssertUnwindSafe(initialize_service)) {
                 return Err(ServiceCreationError::new(std::format!(
                     "Service initialization failed: {err:?}"
@@ -384,10 +383,10 @@ impl ChannelService {
 
 impl DeviceRunner {
     /// Spawns a new thread, marks it with the `device_id`, and returns a `DeviceClient`.
-    pub fn start(device_id: DeviceId) -> DeviceClient {
+    pub fn start(runner_id: RunnerId) -> DeviceClient {
         let (sender_init, recv_init) = oneshot::channel();
-        let channel = DeviceClient::new(device_id, move || {
-            SERVER_THREAD.with_borrow_mut(|cell| *cell = Some(device_id));
+        let channel = DeviceClient::new(runner_id, move || {
+            SERVER_THREAD.with_borrow_mut(|cell| *cell = Some(runner_id));
             sender_init.send(()).unwrap();
         });
 
@@ -597,11 +596,11 @@ mod normal_channel {
 /// We implement a custom channel with automatic batching, no locking and
 /// no allocation (most of the time, see [`task`] for more details.
 mod custom_channel {
-    use crate::device::{
-        DeviceId,
-        handle::{
-            CallError,
-            channel::task::{ArenaSlot, GLOBAL_TASK_MAX_SIZE, Task, TaskResult},
+    use crate::device::handle::{
+        CallError,
+        channel::{
+            RunnerId,
+            task::{ArenaSlot, GLOBAL_TASK_MAX_SIZE, Task, TaskResult},
         },
     };
     use core::{
@@ -627,23 +626,23 @@ mod custom_channel {
     }
 
     impl DeviceClient {
-        /// Gets the device id associated to the channel.
-        pub fn device_id(&self) -> &DeviceId {
-            &self.state.device_id
+        /// Gets the runner id associated to the channel.
+        pub fn runner_id(&self) -> &RunnerId {
+            &self.state.runner_id
         }
         /// Creates a new channel and spawns a server thread to process it.
         pub fn new<I: FnOnce() -> TaskResult + Send + 'static>(
-            device_id: DeviceId,
+            runner_id: RunnerId,
             init: I,
         ) -> Self {
-            let mut server = Server::new(device_id);
+            let mut server = Server::new(runner_id);
             let state = server.state.clone();
 
             std::thread::Builder::new()
                 .name(std::format!(
                     "Device-{}-{}",
-                    device_id.type_id,
-                    device_id.index_id
+                    runner_id.device.type_id,
+                    runner_id.device.index_id
                 ))
                 .spawn(move || {
                     init();
@@ -713,8 +712,8 @@ mod custom_channel {
         available_index: AtomicU32,
         /// Number of tasks successfully written and ready for processing.
         enqueued_count: AtomicU32,
-        /// The device id (for debugging purposes).
-        device_id: DeviceId,
+        /// The runner id (for debugging purposes).
+        runner_id: RunnerId,
     }
 
     impl State {
@@ -763,14 +762,14 @@ mod custom_channel {
     }
 
     impl Server {
-        fn new(device_id: DeviceId) -> Self {
+        fn new(runner_id: RunnerId) -> Self {
             let mut buffers = [TaskBuffer::new(), TaskBuffer::new()];
 
             let state = Arc::new(State {
                 queue_ptr: AtomicPtr::new(buffers[0].tasks.as_mut_ptr()),
                 available_index: AtomicU32::new(0),
                 enqueued_count: AtomicU32::new(0),
-                device_id,
+                runner_id,
             });
 
             Self {
