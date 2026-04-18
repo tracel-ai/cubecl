@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -21,20 +22,10 @@ type TuneDelegate<I, Out> =
 
 /// A named, type-erased tunable function stored in a [`TunableSet`]. Constructed via
 /// [`Tunable::new`](super::Tunable::new); callers don't name this type directly.
+#[derive(new)]
 pub struct TuneFn<I: TuneInputs, Out> {
-    pub(crate) name: Arc<str>,
-
-    #[allow(clippy::type_complexity)]
-    pub(crate) func: Arc<TuneDelegate<I, Out>>,
-}
-
-impl<I: TuneInputs, Out> Clone for TuneFn<I, Out> {
-    fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            func: self.func.clone(),
-        }
-    }
+    pub(crate) name: String,
+    func: Box<TuneDelegate<I, Out>>,
 }
 
 impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
@@ -96,8 +87,8 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
 
     /// Returns the operation for the given index, matching the order returned by
     /// `autotunables`. Tunables are tried in order, so index 0 should be a good default.
-    pub fn fastest(&self, fastest_index: usize) -> TuneFn<F, Output> {
-        self.tunables[fastest_index].function.clone()
+    pub fn fastest(&self, fastest_index: usize) -> &TuneFn<F, Output> {
+        &self.tunables[fastest_index].function
     }
 
     /// Compute a checksum that invalidates outdated cached auto-tune results when the

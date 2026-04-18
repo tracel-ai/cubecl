@@ -1,4 +1,5 @@
 use super::{AutotuneError, AutotuneKey, TuneFn, TuneInputs};
+use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -27,18 +28,18 @@ impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
         Err: Into<String> + 'static,
         Func: for<'a> Fn(<F as TuneInputs>::At<'a>) -> Result<Output, Err> + Send + Sync + 'static,
     {
-        let name: Arc<str> = Arc::from(name);
+        let name: String = name.into();
         let name_for_err = name.clone();
         Self {
-            function: TuneFn {
+            function: TuneFn::new(
                 name,
-                func: Arc::new(move |inputs| {
+                Box::new(move |inputs| {
                     func(inputs).map_err(|err| AutotuneError::Unknown {
                         name: name_for_err.to_string(),
                         err: err.into(),
                     })
                 }),
-            },
+            ),
             groups: Vec::new(),
         }
     }

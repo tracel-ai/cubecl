@@ -10,7 +10,7 @@ use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::config::{Logger, autotune::AutotuneLogLevel};
 use crate::server::LaunchError;
-use crate::tune::{AutotuneResult, TuneBenchmark, TuneCache};
+use crate::tune::{AutotuneResult, TuneCache, tune_benchmark};
 use crate::{client::ComputeClient, runtime::Runtime};
 
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneInputs};
@@ -89,7 +89,7 @@ impl From<LaunchError> for AutotuneError {
 /// A successfully-queued benchmark: the profile futures for each sample, plus its metadata.
 struct PendingBench {
     index: usize,
-    name: Arc<str>,
+    name: String,
     profiles: Vec<ProfileDuration>,
 }
 
@@ -161,7 +161,7 @@ impl<K: AutotuneKey> Tuner<K> {
 
         log::info!("Tuning {key}");
 
-        let autotunables = tunables.autotunables().cloned().collect::<Vec<_>>();
+        let autotunables = tunables.autotunables().collect::<Vec<_>>();
         let mut results: Vec<AutotuneResult> = autotunables
             .iter()
             .map(|a| {
@@ -201,14 +201,11 @@ impl<K: AutotuneKey> Tuner<K> {
                 );
             }
 
-            for index in tunable_indices {
-                let op = &autotunables[index];
-                let name = op.name.clone();
-                let bench = TuneBenchmark::new(op.clone(), test_inputs.clone(), client.clone());
-                match bench.profile() {
+            for (index, op) in autotunables.iter().enumerate() {
+                match tune_benchmark(op, test_inputs.clone(), client.clone()) {
                     Ok(profiles) => pending.push(PendingBench {
                         index,
-                        name,
+                        name: op.name.clone(),
                         profiles,
                     }),
                     Err(err) => {
