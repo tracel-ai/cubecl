@@ -66,52 +66,21 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         self.state.utilities()
     }
 
-    /// Submits a task to the device thread and blocks the current thread until
-    /// the task returns a result.
-    fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
+    /// Runs `task` on the device thread, blocking until it returns.
+    fn submit_blocking<'a, R: Send, T: FnOnce(&mut S) -> R + Send + 'a>(
         &self,
         task: T,
     ) -> Result<R, CallError> {
-        let (sender, recv) = oneshot::channel();
-
-        self.submit_inner::<_, SEND_FLUSH>(move |state: &mut S| {
-            let returned = task(state);
-            sender.send(returned).unwrap();
-        })?;
-
-        recv.recv().map_err(|_| CallError)
-    }
-
-    /// Submits a task with a non-static lifetime.
-    ///
-    /// # Safety
-    ///
-    /// This uses `transmute` to erase lifetimes. This is safe only because the
-    /// current thread blocks on `recv.recv()`, ensuring the task is executed
-    /// and finished before the scope of the task's captured variables ends.
-    fn submit_blocking_scoped<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(
-        &self,
-        task: T,
-    ) -> R {
-        let (sender, recv) = oneshot::channel();
-
-        let wrapper = move |state: &mut S| {
-            let returned = task(state);
-            let _ = sender.send(returned);
-        };
-
-        let boxed: Box<dyn for<'s> FnOnce(&'s mut S) + Send> = Box::new(wrapper);
-
-        // SAFETY: The recv.recv() below ensures the 'static requirement is
-        // effectively met by blocking the caller's stack frame.
-        let static_task: Box<dyn for<'s> FnOnce(&'s mut S) + Send + 'static> =
-            unsafe { std::mem::transmute(boxed) };
-
-        self.submit_inner::<_, SEND_FLUSH>(static_task)
-            .expect("Can't have an error when submitting a scoped task");
-
-        recv.recv()
-            .expect("Scoped task failed: Runner disconnected")
+        let state = self.state.service.clone();
+        let current = StreamId::current();
+        self.run_scoped(move || {
+            state.act_on(|s| {
+                let s = s
+                    .downcast_mut::<S>()
+                    .expect("State type mismatch in Thread Local Storage");
+                current.executes(|| task(s))
+            })
+        })
     }
 
     /// Asynchronously dispatches a task to the device thread.
@@ -126,29 +95,11 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         }
     }
 
-    /// Executes a closure with a captured scope on the device thread.
-    ///
-    /// Blocks until the task is complete. Useful for operations that need to
-    /// run on the dedicated thread but reference data on the caller's stack.
-    fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send>(
-        &self,
-        task: T,
-    ) -> Result<R, CallError> {
-        let (sender, recv) = oneshot::channel();
+    /// Runs `task` on the device thread while propagating the caller's
+    /// `StreamId`, blocking until it returns.
+    fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
         let current = StreamId::current();
-
-        let wrapper = move || {
-            let returned = current.executes(task);
-            let _ = sender.send(returned);
-        };
-
-        let boxed: Box<dyn FnOnce() + Send> = Box::new(wrapper);
-        // SAFETY: Blocking on `recv` guarantees the closure finishes before the scope ends.
-        let static_task: Box<dyn FnOnce() + Send + 'static> = unsafe { std::mem::transmute(boxed) };
-
-        self.send::<_, SEND_FLUSH>(static_task)?;
-
-        recv.recv().map_err(|_| CallError)
+        self.run_scoped(move || current.executes(task))
     }
 }
 
@@ -176,6 +127,44 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         };
 
         self.send::<_, FLUSH>(func_init)
+    }
+
+    /// Dispatches a `FnOnce() -> R` on the device thread and blocks on
+    /// its result. `task` may borrow from the caller's stack.
+    fn run_scoped<'a, R: Send, T: FnOnce() -> R + Send + 'a>(
+        &self,
+        task: T,
+    ) -> Result<R, CallError> {
+        /// Builds a `'static` shim that consumes `*slot` on the device
+        /// thread. The caller has to keep `*slot` alive until the shim has run,
+        /// `run_scoped` does this by blocking on `recv.recv()`.
+        fn create_shim<W: FnOnce() + Send>(slot: &mut Option<W>) -> impl FnOnce() + Send + 'static {
+            // `*mut ()` so the shim is `'static`.
+            struct Ptr(*mut ());
+            // SAFETY: pointee is `Send` by the bound on `W`; uniqueness of
+            // access is upheld by the deref below.
+            unsafe impl Send for Ptr {}
+
+            let ptr = Ptr(slot as *mut _ as *mut ());
+            move || {
+                let _ = &ptr; // capture whole ptr so the closure is Send.
+                // SAFETY:
+                // - Caller keeps `*slot` alive through the shim's run.
+                // - `unwrap_unchecked`: the shim is `FnOnce` run at most
+                //   once, so `*slot` is always `Some` on entry.
+                // `Option::take` flips `*slot` to `None`, keeping drop
+                // correct if the shim ran, panicked, or was never enqueued.
+                let f = unsafe { (*(ptr.0 as *mut Option<W>)).take().unwrap_unchecked() };
+                f()
+            }
+        }
+
+        let (sender, recv) = oneshot::channel();
+        // Create a slot on the stack that will hold our pointer.
+        let mut slot = Some(move || sender.send(task()).unwrap());
+        // Send the erased shim to the device thread.
+        self.send::<_, SEND_FLUSH>(create_shim(&mut slot))?;
+        recv.recv().map_err(|_| CallError)
     }
 
     /// Dispatches a task to the runner.
@@ -853,10 +842,12 @@ mod tests {
         assert_eq!(result, 50);
 
         // Test submit_blocking_scoped
-        let result_mut = handle.submit_blocking_scoped(|state| {
-            state.counter = local_val;
-            state.counter
-        });
+        let result_mut = handle
+            .submit_blocking(|state| {
+                state.counter = local_val;
+                state.counter
+            })
+            .unwrap();
 
         assert_eq!(result_mut, 42);
     }
@@ -1071,6 +1062,71 @@ mod tests {
             1,
             "CountingService::init must run exactly once across {THREADS} racing callers"
         );
+    }
+
+    /// If the task panics, `submit_blocking` must return `Err`, drop the
+    /// task's captures exactly once, and leave the channel usable.
+    #[test]
+    fn test_submit_blocking_panic_drops_and_returns_err() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 10,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let drop_count = Arc::new(AtomicUsize::new(0));
+
+        struct DropSpy(Arc<AtomicUsize>);
+        impl Drop for DropSpy {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let spy = DropSpy(Arc::clone(&drop_count));
+        let result = handle.submit_blocking(move |_state| {
+            let _ = &spy;
+            panic!("boom");
+        });
+
+        assert!(result.is_err(), "panicking task must return Err");
+        assert_eq!(
+            drop_count.load(Ordering::SeqCst),
+            1,
+            "captures must be dropped exactly once on panic"
+        );
+
+        // Channel survives: next task still runs.
+        let ok = handle.submit_blocking(|state| state.counter).unwrap();
+        assert_eq!(ok, 0);
+    }
+
+    /// Same guarantees for `exclusive`.
+    #[test]
+    fn test_exclusive_panic_drops_and_returns_err() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 11,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+        let drop_count = Arc::new(AtomicUsize::new(0));
+
+        struct DropSpy(Arc<AtomicUsize>);
+        impl Drop for DropSpy {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let spy = DropSpy(Arc::clone(&drop_count));
+        let result: Result<(), _> = handle.exclusive(move || {
+            let _ = &spy;
+            panic!("boom");
+        });
+
+        assert!(result.is_err());
+        assert_eq!(drop_count.load(Ordering::SeqCst), 1);
+        let ok = handle.exclusive(|| 7).unwrap();
+        assert_eq!(ok, 7);
     }
 
     /// A closure that spills to the arena (size > 48) and carries the maximum arena

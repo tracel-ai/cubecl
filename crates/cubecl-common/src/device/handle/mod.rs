@@ -58,18 +58,11 @@ impl<S: DeviceService> DeviceHandle<S> {
         self.handle.utilities()
     }
 
-    pub fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
+    pub fn submit_blocking<'a, R: Send, T: FnOnce(&mut S) -> R + Send + 'a>(
         &self,
         task: T,
     ) -> Result<R, CallError> {
         self.handle.submit_blocking(task)
-    }
-
-    pub fn submit_blocking_scoped<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(
-        &self,
-        task: T,
-    ) -> R {
-        self.handle.submit_blocking_scoped(task)
     }
 
     pub fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {

@@ -44,18 +44,11 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
 
     fn flush_queue(&self) {}
 
-    fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
+    fn submit_blocking<'a, R: Send, T: FnOnce(&mut S) -> R + Send + 'a>(
         &self,
         task: T,
     ) -> Result<R, super::CallError> {
         Ok(self.with_lock(task))
-    }
-
-    fn submit_blocking_scoped<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(
-        &self,
-        task: T,
-    ) -> R {
-        self.with_lock(task)
     }
 
     fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
