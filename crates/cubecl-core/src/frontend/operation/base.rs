@@ -138,7 +138,7 @@ pub(crate) fn assign_op_expand<T: CubeType, Op>(
     func: impl Fn(BinaryOperator) -> Op,
 ) where
     Op: Into<Operation>,
-    NativeExpand<T>: CubeDeref<Target = NativeExpand<T>>,
+    NativeExpand<T>: ExpandDeref<Target = NativeExpand<T>>,
 {
     let lhs_value = lhs.__expand_deref_method(scope).expand;
     let lhs = lhs.expand;
@@ -228,7 +228,7 @@ pub fn assign_binary_op_expand<
     rhs: NativeExpand<V>,
     func: F,
 ) where
-    NativeExpand<A>: CubeDeref<Target = NativeExpand<A>>,
+    NativeExpand<A>: ExpandDeref<Target = NativeExpand<A>>,
 {
     let lhs_value = lhs.__expand_deref_method(scope).expand;
     let lhs: Variable = lhs.expand;
@@ -291,7 +291,7 @@ impl<E: Int> NativeExpand<E> {
         factor: NativeExpand<E>,
     ) -> NativeExpand<bool> {
         let modulo = self.__expand_rem_method(scope, factor);
-        modulo.__expand_eq_method(scope, E::from_int(0).into())
+        modulo.__expand_eq_method(scope, &E::from_int(0).into())
     }
 }
 

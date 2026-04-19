@@ -339,7 +339,7 @@ impl Function {
                 true => Comparison::LowerEqual,
                 false => Comparison::Lower,
             };
-            let tmp = *state.allocator.create_local(Type::scalar(ElemType::Bool));
+            let tmp = state.allocator.create_local(Type::scalar(ElemType::Bool));
             self[header].ops.borrow_mut().push(Instruction::new(
                 op(BinaryOperator {
                     lhs: i,

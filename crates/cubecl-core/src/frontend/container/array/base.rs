@@ -30,12 +30,12 @@ impl<E> Clone for Array<E> {
 
 type ArrayExpand<E> = NativeExpand<Array<E>>;
 
-impl<E> CubeRef for ArrayExpand<E> {
-    fn __expand_as_ref_method<'a, 'b>(&'a self, _: &'b mut Scope) -> &'a Self {
+impl<E> ExpandAsRef for ArrayExpand<E> {
+    fn __expand_as_ref_method<'a>(&'a self, _: &mut Scope) -> &'a Self {
         self
     }
 
-    fn __expand_as_mut_method<'a, 'b>(&'a mut self, _: &'b mut Scope) -> &'a mut Self {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &mut Scope) -> &'a mut Self {
         self
     }
 }
@@ -240,7 +240,7 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_assign_unchecked(&'a mut self, i: usize) -> &'a mut E {
+        pub unsafe fn index_mut_unchecked(&'a mut self, i: usize) -> &'a mut E {
             intrinsic!(|scope| {
                 let ty = self.expand.ty;
                 let class = self.expand.pointer_class();
@@ -307,11 +307,11 @@ impl<T: CubePrimitive> DerefMut for Array<T> {
     }
 }
 
-impl<T: CubePrimitive> CubeDeref for ArrayExpand<T> {
+impl<T: CubePrimitive> ExpandDeref for ArrayExpand<T> {
     type Target = ArrayExpand<T>;
 
     fn __expand_deref_method(&self, _: &mut Scope) -> Self::Target {
-        self.clone()
+        *self
     }
 }
 
@@ -349,7 +349,7 @@ impl<'a, T: CubePrimitive> ListMut<'a, T> for Array<T> {
         this: &'a ArrayExpand<T>,
         idx: NativeExpand<usize>,
     ) -> &'a mut NativeExpand<T> {
-        let mut this = this.clone();
+        let mut this = *this;
         let reference = this.__expand_index_mut_method(scope, idx);
         // Extend lifetime because we know the array is actually 'a
         unsafe { core::mem::transmute(reference) }
@@ -362,7 +362,7 @@ impl<'a, T: CubePrimitive> ListMutExpand<'a, T> for ArrayExpand<T> {
         scope: &mut Scope,
         idx: NativeExpand<usize>,
     ) -> &'a mut NativeExpand<T> {
-        let mut this = self.clone();
+        let mut this = *self;
         let reference = this.__expand_index_mut_method(scope, idx);
         // Extend lifetime because we know the array is actually 'a
         unsafe { core::mem::transmute(reference) }

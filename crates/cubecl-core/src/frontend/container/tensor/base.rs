@@ -76,8 +76,8 @@ mod metadata {
         pub fn coordinate(&self, index: usize, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let index: Variable = index.into();
-                let stride = self.clone().__expand_stride_method(scope, dim.clone());
-                let shape = self.clone().__expand_shape_method(scope, dim.clone());
+                let stride = self.__expand_stride_method(scope, dim.clone());
+                let shape = self.__expand_shape_method(scope, dim.clone());
 
                 // Compute `num_strides = index / stride`.
                 let num_strides = scope.create_local(usize::as_type(scope));
@@ -308,7 +308,7 @@ impl<'a, T: CubePrimitive> ListMut<'a, T> for Tensor<T> {
         this: &'a NativeExpand<Tensor<T>>,
         idx: NativeExpand<usize>,
     ) -> &'a mut NativeExpand<T> {
-        let mut this = this.clone();
+        let mut this = *this;
         let reference = this.__expand_index_mut_method(scope, idx);
         // Cloning self just clones the reference, so this is safe
         unsafe { core::mem::transmute(reference) }
@@ -321,14 +321,14 @@ impl<'a, T: CubePrimitive> ListMutExpand<'a, T> for NativeExpand<Tensor<T>> {
         scope: &mut Scope,
         idx: NativeExpand<usize>,
     ) -> &'a mut NativeExpand<T> {
-        let mut this = self.clone();
+        let mut this = *self;
         let reference = this.__expand_index_mut_method(scope, idx);
         // Cloning self just clones the reference, so this is safe
         unsafe { core::mem::transmute(reference) }
     }
 }
 
-impl<T: CubePrimitive> CubeRef for NativeExpand<Tensor<T>> {
+impl<T: CubePrimitive> ExpandAsRef for NativeExpand<Tensor<T>> {
     fn __expand_as_ref_method(&self, _: &mut Scope) -> &Self {
         self
     }

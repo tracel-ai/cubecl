@@ -8,7 +8,7 @@ use syn::{
 
 use crate::{
     ReplaceDefines,
-    parse::kernel::{KernelArgs, KernelParam, SelfType, expand_kernel_ty},
+    parse::kernel::{KernelArgs, KernelParam},
 };
 
 use super::{
@@ -26,7 +26,6 @@ pub struct CubeTrait {
     pub items: Vec<CubeTraitItem>,
     pub original_trait: ItemTrait,
     pub expand_supertraits: Punctuated<TypeParamBound, Token![+]>,
-    pub args: KernelArgs,
 }
 
 pub struct CubeTraitImpl {
@@ -98,7 +97,7 @@ impl CubeTraitItem {
         }
     }
 
-    pub fn associated_method(&self, args: &KernelArgs) -> Option<TokenStream> {
+    pub fn associated_method(&self) -> Option<TokenStream> {
         match self {
             CubeTraitItem::Method(sig) => {
                 let method_name = sig.name.clone();
@@ -109,8 +108,7 @@ impl CubeTraitItem {
                     format_ident!("{}", sig.name.to_string().strip_suffix("_method").unwrap());
                 let this_ty = sig.parameters.remove(0).ty;
 
-                let mut this_param =
-                    KernelParam::from_param(parse_quote!(this: #this_ty), args).unwrap();
+                let mut this_param = KernelParam::from_param(parse_quote!(this: #this_ty)).unwrap();
                 this_param.mutability = Some(Token![mut](this_ty.span()));
 
                 sig.parameters.insert(0, this_param);
@@ -217,7 +215,6 @@ impl CubeTrait {
             items,
             original_trait,
             expand_supertraits,
-            args,
         })
     }
 }

@@ -9,34 +9,38 @@ use crate::prelude::*;
 
 // NOTE: Unary comparison tests are in the unary module
 
-pub trait CubeEq: Eq + Scalar + CubeType<ExpandType: EqExpand> + Sized {
+pub trait CubeEq: Eq + CubePrimitive + CubeType<ExpandType: EqExpand> + Sized {
     fn __expand_eq(
         scope: &mut Scope,
-        lhs: NativeExpand<Self>,
-        rhs: NativeExpand<Self>,
+        lhs: &NativeExpand<Self>,
+        rhs: &NativeExpand<Self>,
     ) -> NativeExpand<bool> {
         lhs.__expand_eq_method(scope, rhs)
     }
     fn __expand_ne(
         scope: &mut Scope,
-        lhs: NativeExpand<Self>,
-        rhs: NativeExpand<Self>,
+        lhs: &NativeExpand<Self>,
+        rhs: &NativeExpand<Self>,
     ) -> NativeExpand<bool> {
         lhs.__expand_ne_method(scope, rhs)
     }
 }
 pub trait EqExpand {
-    fn __expand_eq_method(self, scope: &mut Scope, rhs: Self) -> NativeExpand<bool>;
-    fn __expand_ne_method(self, scope: &mut Scope, rhs: Self) -> NativeExpand<bool>;
+    fn __expand_eq_method(&self, scope: &mut Scope, rhs: &Self) -> NativeExpand<bool>;
+    fn __expand_ne_method(&self, scope: &mut Scope, rhs: &Self) -> NativeExpand<bool>;
 }
-impl<T: Eq + Scalar> CubeEq for T {}
+impl<T: Eq + CubePrimitive> CubeEq for T {}
 
-impl<T: Eq + Scalar> EqExpand for NativeExpand<T> {
-    fn __expand_eq_method(self, scope: &mut Scope, rhs: Self) -> NativeExpand<bool> {
-        binary_expand(scope, self.into(), rhs.into(), Comparison::Equal).into()
+impl<T: Eq + CubePrimitive> EqExpand for NativeExpand<T> {
+    fn __expand_eq_method(&self, scope: &mut Scope, rhs: &Self) -> NativeExpand<bool> {
+        let this = self.__expand_deref_method(scope);
+        let rhs = rhs.__expand_deref_method(scope);
+        cmp_expand(scope, this.into(), rhs.into(), Comparison::Equal).into()
     }
-    fn __expand_ne_method(self, scope: &mut Scope, rhs: Self) -> NativeExpand<bool> {
-        binary_expand(scope, self.into(), rhs.into(), Comparison::NotEqual).into()
+    fn __expand_ne_method(&self, scope: &mut Scope, rhs: &Self) -> NativeExpand<bool> {
+        let this = self.__expand_deref_method(scope);
+        let rhs = rhs.__expand_deref_method(scope);
+        cmp_expand(scope, this.into(), rhs.into(), Comparison::NotEqual).into()
     }
 }
 
@@ -88,8 +92,8 @@ impl CubeOrdering for Ordering {}
 pub trait CubeOrd: Ord + CubeType<ExpandType: OrdExpand> + Sized {
     fn __expand_cmp(
         scope: &mut Scope,
-        lhs: Self::ExpandType,
-        rhs: Self::ExpandType,
+        lhs: &Self::ExpandType,
+        rhs: &Self::ExpandType,
     ) -> OrderingExpand {
         lhs.__expand_cmp_method(scope, rhs)
     }
@@ -120,7 +124,7 @@ pub trait CubeOrd: Ord + CubeType<ExpandType: OrdExpand> + Sized {
     }
 }
 pub trait OrdExpand {
-    fn __expand_cmp_method(self, scope: &mut Scope, rhs: Self) -> OrderingExpand;
+    fn __expand_cmp_method(&self, scope: &mut Scope, rhs: &Self) -> OrderingExpand;
     fn __expand_min_method(self, scope: &mut Scope, rhs: Self) -> Self;
     fn __expand_max_method(self, scope: &mut Scope, rhs: Self) -> Self;
     fn __expand_clamp_method(self, scope: &mut Scope, min: Self, max: Self) -> Self;
@@ -128,7 +132,7 @@ pub trait OrdExpand {
 
 impl<T: Ord + CubePrimitive> CubeOrd for T {}
 impl<T: Ord + CubePrimitive> OrdExpand for NativeExpand<T> {
-    fn __expand_cmp_method(self, scope: &mut Scope, rhs: Self) -> OrderingExpand {
+    fn __expand_cmp_method(&self, scope: &mut Scope, rhs: &Self) -> OrderingExpand {
         let lhs_lt_rhs = self.__expand_lt_method(scope, rhs);
         let lhs_gt_rhs = self.__expand_gt_method(scope, rhs);
         let less = ordering_disc("Less");
@@ -162,55 +166,55 @@ impl<T: Ord + CubePrimitive> OrdExpand for NativeExpand<T> {
 pub trait CubePartialOrd: PartialOrd + CubeType<ExpandType: PartialOrdExpand> + Sized {
     fn __expand_partial_cmp(
         scope: &mut Scope,
-        lhs: Self::ExpandType,
-        rhs: Self::ExpandType,
+        lhs: &Self::ExpandType,
+        rhs: &Self::ExpandType,
     ) -> OptionExpand<Ordering> {
         lhs.__expand_partial_cmp_method(scope, rhs)
     }
 
     fn __expand_lt(
         scope: &mut Scope,
-        lhs: Self::ExpandType,
-        rhs: Self::ExpandType,
+        lhs: &Self::ExpandType,
+        rhs: &Self::ExpandType,
     ) -> NativeExpand<bool> {
         lhs.__expand_lt_method(scope, rhs)
     }
 
     fn __expand_le(
         scope: &mut Scope,
-        lhs: Self::ExpandType,
-        rhs: Self::ExpandType,
+        lhs: &Self::ExpandType,
+        rhs: &Self::ExpandType,
     ) -> NativeExpand<bool> {
         lhs.__expand_le_method(scope, rhs)
     }
 
     fn __expand_gt(
         scope: &mut Scope,
-        lhs: Self::ExpandType,
-        rhs: Self::ExpandType,
+        lhs: &Self::ExpandType,
+        rhs: &Self::ExpandType,
     ) -> NativeExpand<bool> {
         lhs.__expand_gt_method(scope, rhs)
     }
 
     fn __expand_ge(
         scope: &mut Scope,
-        lhs: Self::ExpandType,
-        rhs: Self::ExpandType,
+        lhs: &Self::ExpandType,
+        rhs: &Self::ExpandType,
     ) -> NativeExpand<bool> {
         lhs.__expand_ge_method(scope, rhs)
     }
 }
 pub trait PartialOrdExpand {
-    fn __expand_partial_cmp_method(self, scope: &mut Scope, rhs: Self) -> OptionExpand<Ordering>;
-    fn __expand_lt_method(self, scope: &mut Scope, rhs: Self) -> NativeExpand<bool>;
-    fn __expand_le_method(self, scope: &mut Scope, rhs: Self) -> NativeExpand<bool>;
-    fn __expand_gt_method(self, scope: &mut Scope, rhs: Self) -> NativeExpand<bool>;
-    fn __expand_ge_method(self, scope: &mut Scope, rhs: Self) -> NativeExpand<bool>;
+    fn __expand_partial_cmp_method(&self, scope: &mut Scope, rhs: &Self) -> OptionExpand<Ordering>;
+    fn __expand_lt_method(&self, scope: &mut Scope, rhs: &Self) -> NativeExpand<bool>;
+    fn __expand_le_method(&self, scope: &mut Scope, rhs: &Self) -> NativeExpand<bool>;
+    fn __expand_gt_method(&self, scope: &mut Scope, rhs: &Self) -> NativeExpand<bool>;
+    fn __expand_ge_method(&self, scope: &mut Scope, rhs: &Self) -> NativeExpand<bool>;
 }
 
 impl<T: PartialOrd + CubePrimitive> CubePartialOrd for T {}
 impl<T: PartialOrd + CubePrimitive> PartialOrdExpand for NativeExpand<T> {
-    fn __expand_partial_cmp_method(self, scope: &mut Scope, rhs: Self) -> OptionExpand<Ordering> {
+    fn __expand_partial_cmp_method(&self, scope: &mut Scope, rhs: &Self) -> OptionExpand<Ordering> {
         let lhs_lt_rhs = self.__expand_lt_method(scope, rhs);
         let lhs_gt_rhs = self.__expand_gt_method(scope, rhs);
         let less = ordering_disc("Less");
@@ -226,16 +230,24 @@ impl<T: PartialOrd + CubePrimitive> PartialOrdExpand for NativeExpand<T> {
             },
         )
     }
-    fn __expand_lt_method(self, scope: &mut Scope, rhs: Self) -> NativeExpand<bool> {
-        binary_expand(scope, self.into(), rhs.into(), Comparison::Lower).into()
+    fn __expand_lt_method(&self, scope: &mut Scope, rhs: &Self) -> NativeExpand<bool> {
+        let this = self.__expand_deref_method(scope);
+        let rhs = rhs.__expand_deref_method(scope);
+        cmp_expand(scope, this.into(), rhs.into(), Comparison::Lower).into()
     }
-    fn __expand_le_method(self, scope: &mut Scope, rhs: Self) -> NativeExpand<bool> {
-        binary_expand(scope, self.into(), rhs.into(), Comparison::LowerEqual).into()
+    fn __expand_le_method(&self, scope: &mut Scope, rhs: &Self) -> NativeExpand<bool> {
+        let this = self.__expand_deref_method(scope);
+        let rhs = rhs.__expand_deref_method(scope);
+        cmp_expand(scope, this.into(), rhs.into(), Comparison::LowerEqual).into()
     }
-    fn __expand_gt_method(self, scope: &mut Scope, rhs: Self) -> NativeExpand<bool> {
-        binary_expand(scope, self.into(), rhs.into(), Comparison::Greater).into()
+    fn __expand_gt_method(&self, scope: &mut Scope, rhs: &Self) -> NativeExpand<bool> {
+        let this = self.__expand_deref_method(scope);
+        let rhs = rhs.__expand_deref_method(scope);
+        cmp_expand(scope, this.into(), rhs.into(), Comparison::Greater).into()
     }
-    fn __expand_ge_method(self, scope: &mut Scope, rhs: Self) -> NativeExpand<bool> {
-        binary_expand(scope, self.into(), rhs.into(), Comparison::GreaterEqual).into()
+    fn __expand_ge_method(&self, scope: &mut Scope, rhs: &Self) -> NativeExpand<bool> {
+        let this = self.__expand_deref_method(scope);
+        let rhs = rhs.__expand_deref_method(scope);
+        cmp_expand(scope, this.into(), rhs.into(), Comparison::GreaterEqual).into()
     }
 }

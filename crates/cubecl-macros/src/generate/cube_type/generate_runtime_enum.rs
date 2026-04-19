@@ -87,6 +87,7 @@ impl CubeTypeEnum {
     fn expand_type_impl_runtime(&self) -> proc_macro2::TokenStream {
         let scope = prelude_type("Scope");
         let clone = prelude_type("ExpandTypeClone");
+        let into_expand = prelude_type("IntoExpand");
         let into_mut = prelude_type("IntoMut");
         let debug = prelude_type("CubeDebug");
 
@@ -118,6 +119,14 @@ impl CubeTypeEnum {
         };
 
         quote! {
+            impl #generics #into_expand for #name_expand #generic_names #where_clause {
+                type Expand = Self;
+
+                fn into_expand(self, _: &mut #scope) -> Self {
+                    self
+                }
+            }
+
             impl #generics #into_mut for #name_expand #generic_names #where_clause {
                 fn into_mut(mut self, scope: &mut #scope) -> Self {
                     Self {

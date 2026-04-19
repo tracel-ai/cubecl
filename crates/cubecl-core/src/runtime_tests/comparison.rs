@@ -19,7 +19,7 @@ macro_rules! test_binary_impl {
                 output: &mut Array<Vector<u32, N>>
             ) {
                 if ABSOLUTE_POS < rhs.len() {
-                    output[ABSOLUTE_POS] = Vector::cast_from(lhs[ABSOLUTE_POS].$cmp(rhs[ABSOLUTE_POS]));
+                    output[ABSOLUTE_POS] = Vector::cast_from(lhs[ABSOLUTE_POS].$cmp(&rhs[ABSOLUTE_POS]));
                 }
             }
 

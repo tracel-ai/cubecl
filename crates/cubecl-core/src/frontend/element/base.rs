@@ -26,7 +26,28 @@ use variadics_please::{all_tuples, all_tuples_enumerated};
 /// the generated code.
 #[diagnostic::on_unimplemented(note = "Consider using `#[derive(CubeType)]` on `{Self}`")]
 pub trait CubeType {
-    type ExpandType: ExpandTypeClone + IntoMut + CubeDebug;
+    type ExpandType: IntoExpand<Expand = Self::ExpandType> + ExpandTypeClone + IntoMut + CubeDebug;
+}
+
+impl<'a, T: IntoExpand<Expand = Self>> IntoExpand for &'a T {
+    type Expand = &'a T;
+
+    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+        self
+    }
+}
+
+impl<'a, T: IntoExpand<Expand = Self>> IntoExpand for &'a mut T {
+    type Expand = &'a mut T;
+
+    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+        self
+    }
+}
+
+pub trait IntoExpand {
+    type Expand;
+    fn into_expand(self, scope: &mut Scope) -> Self::Expand;
 }
 
 pub trait ExpandTypeClone {
@@ -38,15 +59,32 @@ pub trait ExpandTypeClone {
     fn clone_unchecked(&self) -> Self;
 }
 
-pub trait CubeRef<T = Self> {
-    fn __expand_as_ref_method<'a, 'b>(&'a self, scope: &'b mut Scope) -> &'a T;
-    fn __expand_as_mut_method<'a, 'b>(&'a mut self, scope: &'b mut Scope) -> &'a mut T;
+pub trait ExpandAsRef<T = Self> {
+    fn __expand_as_ref_method<'a>(&'a self, scope: &mut Scope) -> &'a T;
+    fn __expand_as_mut_method<'a>(&'a mut self, scope: &mut Scope) -> &'a mut T;
 }
 
-pub trait CubeDeref {
+pub trait ExpandDeref {
     type Target;
 
     fn __expand_deref_method(&self, scope: &mut Scope) -> Self::Target;
+}
+
+pub trait ExpandAsDeref: ExpandDeref {
+    fn __expand_as_deref_method<'a>(&'a self, scope: &mut Scope) -> &'a Self::Target;
+    fn __expand_as_deref_mut_method<'a>(&'a self, scope: &mut Scope) -> &'a Self::Target;
+}
+
+impl<T: ExpandDeref<Target: 'static> + ExpandAsRef> ExpandAsDeref for T {
+    fn __expand_as_deref_method<'a>(&'a self, scope: &mut Scope) -> &'a Self::Target {
+        let deref = self.__expand_deref_method(scope);
+        scope.create_kernel_ref(deref)
+    }
+
+    fn __expand_as_deref_mut_method<'a>(&'a self, scope: &mut Scope) -> &'a Self::Target {
+        let deref = self.__expand_deref_method(scope);
+        scope.create_kernel_ref(deref)
+    }
 }
 
 pub trait CubeEnum: Sized {
@@ -86,7 +124,7 @@ impl<T: NativeAssign> Assign for NativeExpand<T> {
         assign::expand(scope, value, self);
     }
     fn init_mut(&self, scope: &mut Scope) -> Self {
-        T::elem_init_mut(scope, self.expand.clone()).into()
+        T::elem_init_mut(scope, self.expand).into()
     }
 }
 
@@ -128,7 +166,9 @@ impl<T: Clone> CloneExpand for T {
 }
 
 /// Trait useful to convert a comptime value into runtime value.
-pub trait IntoRuntime: CubeType + Sized {
+pub trait IntoRuntime:
+    IntoExpand<Expand = <Self as CubeType>::ExpandType> + CubeType + Sized
+{
     fn runtime(self) -> Self {
         self
     }
@@ -273,6 +313,14 @@ pub struct NativeExpand<T> {
     pub(crate) _type: PhantomData<T>,
 }
 
+impl<T> IntoExpand for NativeExpand<T> {
+    type Expand = Self;
+
+    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+        self
+    }
+}
+
 impl<T> ExpandTypeClone for NativeExpand<T> {
     fn clone_unchecked(&self) -> Self {
         NativeExpand {
@@ -298,7 +346,7 @@ impl<T> NativeExpand<T> {
     }
 }
 
-impl<T: CubePrimitive> CubeRef for NativeExpand<T> {
+impl<T: CubePrimitive> ExpandAsRef for NativeExpand<T> {
     fn __expand_as_ref_method(&self, scope: &mut Scope) -> &Self {
         let ptr = scope.create_local(Type::pointer(self.expand.ty, PointerClass::Local));
         scope.register(Instruction::new(Operation::Reference(self.expand), ptr));
@@ -316,11 +364,17 @@ impl<T: CubePrimitive> CubeRef for NativeExpand<T> {
     }
 }
 
-impl<T: CubePrimitive> CubeDeref for NativeExpand<T> {
+impl<T: CubePrimitive> ExpandDeref for NativeExpand<T> {
     type Target = Self;
 
-    fn __expand_deref_method(&self, _: &mut Scope) -> NativeExpand<T> {
-        *self
+    fn __expand_deref_method(&self, scope: &mut Scope) -> NativeExpand<T> {
+        if let Type::Pointer(inner, _) = self.expand.ty {
+            let out = scope.create_local(*inner);
+            scope.register(Instruction::new(Operation::Deref(self.expand), out));
+            out.into()
+        } else {
+            *self
+        }
     }
 }
 
@@ -371,6 +425,18 @@ macro_rules! tuple_cube_type {
     ($($P:ident),*) => {
         impl<$($P: CubeType),*> CubeType for ($($P,)*) {
             type ExpandType = ($($P::ExpandType,)*);
+        }
+
+        impl<$($P: IntoExpand),*> IntoExpand for ($($P,)*) {
+            type Expand = ($($P::Expand,)*);
+
+            #[allow(non_snake_case, unused, clippy::unused_unit)]
+            fn into_expand(self, scope: &mut Scope) -> Self::Expand {
+                let ($($P,)*) = self;
+                ($(
+                    $P.into_expand(scope),
+                )*)
+            }
         }
 
         impl<$($P: ExpandTypeClone),*> ExpandTypeClone for ($($P,)*) {
@@ -521,6 +587,14 @@ impl<T: IntoMut> IntoMut for Option<T> {
 
 impl<T: CubeType> CubeType for Vec<T> {
     type ExpandType = Vec<T::ExpandType>;
+}
+
+impl<T: IntoExpand> IntoExpand for Vec<T> {
+    type Expand = Self;
+
+    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+        self
+    }
 }
 
 impl<T: ExpandTypeClone> ExpandTypeClone for Vec<T> {

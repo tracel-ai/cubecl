@@ -106,7 +106,7 @@ impl<I: Int> Iterable for RangeExpand<I> {
         let index_ty = I::as_type(scope);
         let i = child.create_local_restricted(index_ty);
 
-        body(&mut child, i.clone().into());
+        body(&mut child, i.into());
 
         let mut start = self.start.expand;
         let mut end = self.end.expand;
@@ -151,7 +151,7 @@ impl<I: Int + Into<Variable>> Iterable for SteppedRangeExpand<I> {
         let index_ty = I::as_type(scope);
         let i = child.create_local_restricted(index_ty);
 
-        body(&mut child, i.clone().into());
+        body(&mut child, i.into());
 
         scope.register(Branch::RangeLoop(Box::new(RangeLoop {
             i,

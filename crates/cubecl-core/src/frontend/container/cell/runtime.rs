@@ -21,6 +21,14 @@ impl<T: CubeType<ExpandType: Clone>> Clone for RuntimeCellExpand<T> {
         }
     }
 }
+
+impl<T: CubeType> IntoExpand for RuntimeCellExpand<T> {
+    type Expand = Self;
+
+    fn into_expand(self, _scope: &mut Scope) -> Self::Expand {
+        self
+    }
+}
 impl<T: CubeType> ExpandTypeClone for RuntimeCellExpand<T> {
     fn clone_unchecked(&self) -> Self {
         Self {
@@ -96,7 +104,7 @@ where
 #[cube]
 impl<T: CubeIndex> RuntimeCell<T>
 where
-    <T::Output as CubeType>::ExpandType: CubeDeref<Target = <T::Output as CubeType>::ExpandType>,
+    <T::Output as CubeType>::ExpandType: ExpandDeref<Target = <T::Output as CubeType>::ExpandType>,
 {
     /// Read a value in the cell at the given index.
     #[allow(unused_variables)]

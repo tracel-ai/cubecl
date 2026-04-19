@@ -123,7 +123,7 @@ pub struct MmaDefinitionExpand<A: CubeType, B: CubeType, CD: CubeType> {
 impl<C: CubeType, S: MatrixScope> Clone for MatrixExpand<C, S> {
     fn clone(&self) -> Self {
         Self {
-            elem: self.elem.clone(),
+            elem: self.elem,
             ident: self.ident,
             _c: self._c,
             _s: self._s,
@@ -143,12 +143,12 @@ impl<A: CubeType, B: CubeType, CD: CubeType> ExpandTypeClone for MmaDefinitionEx
     }
 }
 
-impl<C: CubeType, S: MatrixScope> CubeRef for MatrixExpand<C, S> {
-    fn __expand_as_ref_method<'a, 'b>(&'a self, _scope: &'b mut Scope) -> &'a Self {
+impl<C: CubeType, S: MatrixScope> ExpandAsRef for MatrixExpand<C, S> {
+    fn __expand_as_ref_method<'a>(&'a self, _scope: &mut Scope) -> &'a Self {
         self
     }
 
-    fn __expand_as_mut_method<'a, 'b>(&'a mut self, _scope: &'b mut Scope) -> &'a mut Self {
+    fn __expand_as_mut_method<'a>(&'a mut self, _scope: &mut Scope) -> &'a mut Self {
         self
     }
 }
@@ -179,6 +179,14 @@ impl<A: CubeType, B: CubeType, CD: CubeType> CubeType for MmaDefinition<A, B, CD
     type ExpandType = MmaDefinitionExpand<A, B, CD>;
 }
 
+impl<C: CubeType, S: MatrixScope> IntoExpand for MatrixExpand<C, S> {
+    type Expand = Self;
+
+    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+        self
+    }
+}
+
 impl<C: CubeType, S: MatrixScope> IntoMut for MatrixExpand<C, S> {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
@@ -188,6 +196,14 @@ impl<C: CubeType, S: MatrixScope> IntoMut for MatrixExpand<C, S> {
 impl<C: CubeType, S: MatrixScope> CubeDebug for MatrixExpand<C, S> {
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
         scope.update_variable_name(self.elem, name);
+    }
+}
+
+impl<A: CubeType, B: CubeType, CD: CubeType> IntoExpand for MmaDefinitionExpand<A, B, CD> {
+    type Expand = Self;
+
+    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+        self
     }
 }
 
@@ -1233,6 +1249,14 @@ impl CubeType for MatrixLayout {
     type ExpandType = Self;
 }
 
+impl IntoExpand for MatrixLayout {
+    type Expand = Self;
+
+    fn into_expand(self, _scope: &mut Scope) -> Self::Expand {
+        self
+    }
+}
+
 impl ExpandTypeClone for MatrixLayout {
     fn clone_unchecked(&self) -> Self {
         *self
@@ -1282,12 +1306,7 @@ pub mod execute_elementwise_op {
         let elem = scope.create_local(A::Scalar::as_type(scope));
 
         let mut closure_scope = scope.child();
-        let return_value = op(
-            &mut closure_scope,
-            row.clone().into(),
-            col.clone().into(),
-            elem.clone().into(),
-        );
+        let return_value = op(&mut closure_scope, row.into(), col.into(), elem.into());
         closure_scope.return_value = Some(return_value.expand);
 
         let op = scope.create_function(vec![row, col, elem], closure_scope);

@@ -1,9 +1,6 @@
 use cubecl_ir::{ConstantValue, Scope, StorageType, Type};
 
-use crate::{
-    frontend::{CubePrimitive, CubeType},
-    prelude::{CubeDebug, Scalar},
-};
+use crate::prelude::*;
 use crate::{ir::ElemType, prelude::Const};
 
 use super::{IntoRuntime, NativeAssign, NativeExpand};
@@ -48,6 +45,14 @@ impl CubePrimitive for bool {
 
 impl IntoRuntime for bool {
     fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+        self.into()
+    }
+}
+
+impl IntoExpand for bool {
+    type Expand = NativeExpand<bool>;
+
+    fn into_expand(self, _: &mut Scope) -> Self::Expand {
         self.into()
     }
 }

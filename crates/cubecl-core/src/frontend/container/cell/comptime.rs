@@ -3,7 +3,7 @@ use core::cell::RefCell;
 
 use cubecl_ir::Scope;
 
-use crate::prelude::{CubeDebug, CubeType, ExpandTypeClone, IntoMut};
+use crate::prelude::*;
 
 #[derive(Debug, Clone)]
 /// A cell that can store and mutate a cube type during comptime.
@@ -18,6 +18,13 @@ pub struct ComptimeCellExpand<T: CubeType> {
     pub(super) value: Rc<RefCell<T::ExpandType>>,
 }
 
+impl<T: CubeType> IntoExpand for ComptimeCellExpand<T> {
+    type Expand = Self;
+
+    fn into_expand(self, _scope: &mut Scope) -> Self::Expand {
+        self
+    }
+}
 impl<T: CubeType> ExpandTypeClone for ComptimeCellExpand<T> {
     fn clone_unchecked(&self) -> Self {
         Self {

@@ -132,6 +132,7 @@ impl CubeTypeEnum {
 
     pub(crate) fn expand_type_impl(&self) -> proc_macro2::TokenStream {
         let scope = prelude_type("Scope");
+        let into_expand = prelude_type("IntoExpand");
         let clone = prelude_type("ExpandTypeClone");
         let into_mut = prelude_type("IntoMut");
         let debug = prelude_type("CubeDebug");
@@ -163,7 +164,7 @@ impl CubeTypeEnum {
                 .map(|v| v.new_variant_function(name_expand, &generic_names));
 
             Some(quote! {
-                            #[allow(non_snake_case, unused, clippy::all)]
+                #[allow(non_snake_case, unused, clippy::all)]
                 impl #generics #name #generic_names #where_clause {
                     #(
                         #new_variant_functions
@@ -188,6 +189,14 @@ impl CubeTypeEnum {
             impl #generics #clone for #name_expand #generic_names #where_clause {
                 fn clone_unchecked(&self) -> Self {
                     #body_clone
+                }
+            }
+
+            impl #generics #into_expand for #name_expand #generic_names #where_clause {
+                type Expand = Self;
+
+                fn into_expand(self, _: &mut #scope) -> Self {
+                    self
                 }
             }
 

@@ -345,6 +345,13 @@ impl<T: Scalar + IntoRuntime, N: Size> IntoRuntime for Vector<T, N> {
         Self::__expand_new(scope, val)
     }
 }
+impl<T: Scalar + IntoExpand, N: Size> IntoExpand for Vector<T, N> {
+    type Expand = VectorExpand<T, N>;
+
+    fn into_expand(self, scope: &mut Scope) -> Self::Expand {
+        self.__expand_runtime_method(scope)
+    }
+}
 
 impl<T: Scalar + Into<ConstantValue>, N: Size> From<Vector<T, N>> for ConstantValue {
     fn from(value: Vector<T, N>) -> Self {

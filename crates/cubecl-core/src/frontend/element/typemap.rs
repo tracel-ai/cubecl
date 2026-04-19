@@ -282,6 +282,14 @@ impl<Marker: 'static> IntoRuntime for DynamicScalar<Marker> {
     }
 }
 
+impl<Marker: 'static> IntoExpand for DynamicScalar<Marker> {
+    type Expand = NativeExpand<Self>;
+
+    fn into_expand(self, scope: &mut Scope) -> Self::Expand {
+        self.__expand_runtime_method(scope)
+    }
+}
+
 impl<Marker: 'static> Numeric for DynamicScalar<Marker> {
     fn min_value() -> Self {
         panic!("Can't use min value in comptime with dynamic element type");

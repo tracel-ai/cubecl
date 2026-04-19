@@ -72,7 +72,7 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
             ReplaceDefines.visit_item_mut(&mut item);
 
             return Ok(TokenStream::from(quote! {
-                #[allow(dead_code, clippy::too_many_arguments)]
+                #[allow(dead_code, clippy::too_many_arguments, clippy::needless_lifetimes)]
                 #item
                 #kernel
             }));

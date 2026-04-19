@@ -1157,7 +1157,7 @@ mod impls {
             ) -> ComptimeOptionExpand<T::Target>
             where
                 T: Deref<Target: CubeType + Sized>,
-                T::ExpandType: CubeDeref<Target = <T::Target as CubeType>::ExpandType>,
+                T::ExpandType: ExpandDeref<Target = <T::Target as CubeType>::ExpandType>,
             {
                 self.__expand_map_method(scope, |scope, it| it.__expand_deref_method(scope))
             }
@@ -1168,7 +1168,7 @@ mod impls {
             ) -> ComptimeOptionExpand<T::Target>
             where
                 T: DerefMut<Target: CubeType + Sized>,
-                T::ExpandType: CubeDeref<Target = <T::Target as CubeType>::ExpandType>,
+                T::ExpandType: ExpandDeref<Target = <T::Target as CubeType>::ExpandType>,
             {
                 self.__expand_map_method(scope, |scope, it| it.__expand_deref_method(scope))
             }

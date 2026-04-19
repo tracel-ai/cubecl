@@ -239,7 +239,7 @@ fn kernel_array_float_int(array: ArrayFloatInt) {
     }
 }
 
-pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
+pub fn test_array_float_int<R: Runtime, T: Scalar + CubeElement>(
     client: &ComputeClient<R>,
     expected: T,
 ) {

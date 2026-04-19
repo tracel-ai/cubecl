@@ -168,6 +168,11 @@ mod impls {
 
     #[doc(hidden)]
     impl<T: CubeType> OptionExpand<T> {
+        pub fn __expand_is_some_method(&self, scope: &mut Scope) -> NativeExpand<bool> {
+            self.discriminant
+                .__expand_eq_method(scope, &discriminant("Some").into())
+        }
+
         pub fn __expand_is_some_and_method(
             self,
             scope: &mut Scope,
@@ -292,7 +297,7 @@ mod impls {
         pub fn __expand_as_deref_method(self, scope: &mut Scope) -> OptionExpand<T::Target>
         where
             T: Deref<Target: CubeType + Default + IntoRuntime>,
-            T::ExpandType: CubeDeref<Target = <T::Target as CubeType>::ExpandType>,
+            T::ExpandType: ExpandDeref<Target = <T::Target as CubeType>::ExpandType>,
             <T::Target as CubeType>::ExpandType: Assign,
         {
             self.__expand_map_method(scope, |scope, value| value.__expand_deref_method(scope))
@@ -301,7 +306,7 @@ mod impls {
         pub fn __expand_as_deref_mut_method(self, scope: &mut Scope) -> OptionExpand<T::Target>
         where
             T: DerefMut<Target: CubeType + Default + IntoRuntime>,
-            T::ExpandType: CubeDeref<Target = <T::Target as CubeType>::ExpandType>,
+            T::ExpandType: ExpandDeref<Target = <T::Target as CubeType>::ExpandType>,
             <T::Target as CubeType>::ExpandType: Assign,
         {
             self.__expand_map_method(scope, |scope, value| value.__expand_deref_method(scope))
@@ -427,28 +432,6 @@ mod impls {
 
     #[cube(expand_only)]
     impl<T: CubeType> Option<T> {
-        /////////////////////////////////////////////////////////////////////////
-        // Querying the contained values
-        /////////////////////////////////////////////////////////////////////////
-
-        /// Returns `true` if the option is a [`Some`] value.
-        ///
-        /// # Examples
-        ///
-        /// ```
-        /// let x: Option<u32> = Some(2);
-        /// assert_eq!(x.is_some(), true);
-        ///
-        /// let x: Option<u32> = None;
-        /// assert_eq!(x.is_some(), false);
-        /// ```
-        pub fn is_some(&self) -> bool {
-            match self {
-                Option::Some(_) => true.runtime(),
-                Option::None => false.runtime(),
-            }
-        }
-
         /// Returns `true` if the option is a [`None`] value.
         ///
         /// # Examples
@@ -669,9 +652,11 @@ mod impls {
             T: Default + IntoRuntime,
             T::ExpandType: Assign,
         {
+            let this_is_none = self.is_none();
+
             if self.is_some() && optb.is_none() {
                 self
-            } else if self.is_none() && optb.is_some() {
+            } else if this_is_none && optb.is_some() {
                 optb
             } else {
                 Option::new_None()

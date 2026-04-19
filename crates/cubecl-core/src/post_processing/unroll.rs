@@ -33,9 +33,7 @@ impl Mappings {
         self.0
             .entry(var)
             .or_insert_with(|| create_unrolled(alloc, &var, vector_size, unroll_factor))
-            .iter()
-            .copied()
-            .collect()
+            .to_vec()
     }
 }
 
@@ -240,7 +238,7 @@ impl UnrollProcessor {
             Operation::CoopMma(CoopMma::Load {
                 value,
                 stride: *stride,
-                offset: offset,
+                offset,
                 layout: *layout,
             }),
             out,
@@ -267,7 +265,7 @@ impl UnrollProcessor {
             Operation::CoopMma(CoopMma::Store {
                 mat: *mat,
                 stride: *stride,
-                offset: offset,
+                offset,
                 layout: *layout,
             }),
             out,
@@ -359,21 +357,20 @@ impl UnrollProcessor {
         let (mul, start_idx) = mul_index(alloc, op.index, unroll_factor);
         let mut indices = (0..unroll_factor).map(|i| add_index(alloc, start_idx, i));
 
-        let out = unroll_array(out, self.max_vector_size, unroll_factor);
+        let list = unroll_array(op.list, self.max_vector_size, unroll_factor);
 
-        let value = mappings.get(alloc, op.value, unroll_factor, self.max_vector_size);
-
+        let out = mappings.get(alloc, out, unroll_factor, self.max_vector_size);
         let mut instructions = vec![mul];
         instructions.extend((0..unroll_factor).flat_map(|i| {
             let (add, idx) = indices.next().unwrap();
             let index = Instruction::new(
                 operator(IndexMutOperator {
+                    list,
                     index: idx,
                     vector_size: 0,
-                    value: value[i],
                     unroll_factor,
                 }),
-                out,
+                out[i],
             );
 
             [add, index]
@@ -439,13 +436,14 @@ impl UnrollProcessor {
         let unroll_idx = index / self.max_vector_size;
         let sub_idx = index % self.max_vector_size;
 
+        let list = mappings.get(alloc, op.list, unroll_factor, self.max_vector_size);
         let out = mappings.get(alloc, out, unroll_factor, self.max_vector_size);
 
         vec![Instruction::new(
             operator(IndexMutOperator {
+                list: list[unroll_idx],
                 index: sub_idx.into(),
                 vector_size: 1,
-                value: op.value,
                 unroll_factor,
             }),
             out[unroll_idx],

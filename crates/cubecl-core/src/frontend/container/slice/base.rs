@@ -37,9 +37,9 @@ pub enum SliceOrigin<E: CubePrimitive> {
 impl<E: CubePrimitive> Clone for SliceOriginExpand<E> {
     fn clone(&self) -> Self {
         match self {
-            Self::Tensor(arg0) => Self::Tensor(arg0.clone()),
-            Self::Array(arg0) => Self::Array(arg0.clone()),
-            Self::SharedMemory(arg0) => Self::SharedMemory(arg0.clone()),
+            Self::Tensor(arg0) => Self::Tensor(*arg0),
+            Self::Array(arg0) => Self::Array(*arg0),
+            Self::SharedMemory(arg0) => Self::SharedMemory(*arg0),
         }
     }
 }
@@ -251,7 +251,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
     ) -> SliceExpand<E, IO> {
-        let length = cubecl::frontend::sub::expand(scope, end, start.clone());
+        let length = cubecl::frontend::sub::expand(scope, end, start);
 
         SliceExpand::<E, IO> {
             origin,
@@ -279,6 +279,13 @@ impl<E: CubePrimitive, IO: SliceVisibility> CubeType for Slice<E, IO> {
     type ExpandType = SliceExpand<E, IO>;
 }
 
+impl<E: CubePrimitive, IO: SliceVisibility> IntoExpand for SliceExpand<E, IO> {
+    type Expand = Self;
+
+    fn into_expand(self, _scope: &mut Scope) -> Self::Expand {
+        self
+    }
+}
 impl<E: CubePrimitive, IO: SliceVisibility> IntoMut for SliceExpand<E, IO> {
     fn into_mut(self, _scope: &mut cubecl_ir::Scope) -> Self {
         self
@@ -290,8 +297,8 @@ impl<E: CubePrimitive, IO: SliceVisibility> Clone for SliceExpand<E, IO> {
     fn clone(&self) -> Self {
         Self {
             origin: self.origin.clone(),
-            offset: self.offset.clone(),
-            length: self.length.clone(),
+            offset: self.offset,
+            length: self.length,
             vector_size: self.vector_size,
             io: PhantomData,
         }
@@ -308,12 +315,12 @@ impl<E: CubePrimitive> Iterable for SliceExpand<E, ReadOnly> {
 
     fn expand(self, scope: &mut Scope, mut body: impl FnMut(&mut Scope, Self::Item)) {
         let index_ty = u32::as_type(scope);
-        let len: Variable = self.length.clone().into();
+        let len: Variable = self.length.into();
 
         let mut child = scope.child();
         let i = child.create_local_restricted(index_ty);
 
-        let index = i.clone().into();
+        let index = i.into();
         let item = self
             .__expand_index_method(&mut child, index)
             .__expand_deref_method(&mut child);
@@ -339,12 +346,12 @@ impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E, ReadOnly> {
 
     fn expand(self, scope: &mut Scope, mut body: impl FnMut(&mut Scope, Self::Item)) {
         let index_ty = u32::as_type(scope);
-        let len: Variable = self.length.clone().into();
+        let len: Variable = self.length.into();
 
         let mut child = scope.child();
         let i = child.create_local_restricted(index_ty);
 
-        let index = i.clone().into();
+        let index = i.into();
         let item = self.__expand_index_method(&mut child, index);
         body(&mut child, item);
 
@@ -368,12 +375,12 @@ impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E, ReadWrite> {
 
     fn expand(self, scope: &mut Scope, mut body: impl FnMut(&mut Scope, Self::Item)) {
         let index_ty = u32::as_type(scope);
-        let len: Variable = self.length.clone().into();
+        let len: Variable = self.length.into();
 
         let mut child = scope.child();
         let i = child.create_local_restricted(index_ty);
 
-        let index = i.clone().into();
+        let index = i.into();
         let item = self.__expand_index_mut_method(&mut child, index);
         body(&mut child, item);
 
@@ -427,7 +434,7 @@ impl<'a, E: CubePrimitive, IO: SliceVisibility> ListExpand<'a, E> for SliceExpan
         read_offset::expand::<E>(
             scope,
             &self.origin,
-            self.offset.clone(),
+            self.offset,
             index,
             self.vector_size,
             true,
@@ -441,7 +448,7 @@ impl<'a, E: CubePrimitive, IO: SliceVisibility> ListExpand<'a, E> for SliceExpan
         read_offset::expand::<E>(
             scope,
             &self.origin,
-            self.offset.clone(),
+            self.offset,
             index,
             self.vector_size,
             false,
@@ -494,13 +501,8 @@ impl<'a, E: CubePrimitive> ListMutExpand<'a, E> for SliceExpand<E, ReadWrite> {
         index: NativeExpand<usize>,
     ) -> &'a mut NativeExpand<E> {
         let mut origin = self.origin.clone();
-        let reference = write_offset::expand::<E>(
-            scope,
-            &mut origin,
-            self.offset.clone(),
-            index,
-            self.vector_size,
-        );
+        let reference =
+            write_offset::expand::<E>(scope, &mut origin, self.offset, index, self.vector_size);
         // Safety: Cloning origin only clones the reference, so this is safe
         unsafe { core::mem::transmute(reference) }
     }
@@ -509,8 +511,8 @@ impl<'a, E: CubePrimitive> ListMutExpand<'a, E> for SliceExpand<E, ReadWrite> {
 mod read_offset {
     use super::*;
 
-    pub fn expand<'a, 'b, E: CubePrimitive>(
-        scope: &'b mut Scope,
+    pub fn expand<'a, E: CubePrimitive>(
+        scope: &mut Scope,
         origin: &'a SliceOriginExpand<E>,
         offset: <usize as CubeType>::ExpandType,
         index: <usize as CubeType>::ExpandType,
@@ -536,8 +538,8 @@ mod read_offset {
 mod write_offset {
     use super::*;
 
-    pub fn expand<'a, 'b, E: CubePrimitive>(
-        scope: &'b mut Scope,
+    pub fn expand<'a, E: CubePrimitive>(
+        scope: &mut Scope,
         origin: &'a mut SliceOriginExpand<E>,
         offset: <usize as CubeType>::ExpandType,
         index: <usize as CubeType>::ExpandType,

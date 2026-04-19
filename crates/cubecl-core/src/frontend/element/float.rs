@@ -146,6 +146,14 @@ macro_rules! impl_float {
             }
         }
 
+        impl IntoExpand for $primitive {
+            type Expand = NativeExpand<$primitive>;
+
+            fn into_expand(self, _: &mut Scope) -> Self::Expand {
+                self.into()
+            }
+        }
+
         impl Numeric for $primitive {
             fn min_value() -> Self {
                 <Self as num_traits::Float>::min_value()

@@ -3,7 +3,7 @@ use core::cell::RefCell;
 
 use cubecl_ir::Scope;
 
-use crate::prelude::{CubeDebug, CubeType, ExpandTypeClone, IntoMut};
+use crate::prelude::*;
 
 /// It is similar to a map, but where the keys are stored at comptime, but the values can be runtime
 /// variables.
@@ -165,6 +165,14 @@ impl<K, V> Clone for Registry<K, V> {
 impl<K, V> ExpandTypeClone for Registry<K, V> {
     fn clone_unchecked(&self) -> Self {
         self.clone()
+    }
+}
+
+impl<K, V> IntoExpand for Registry<K, V> {
+    type Expand = Self;
+
+    fn into_expand(self, _scope: &mut Scope) -> Self::Expand {
+        self
     }
 }
 

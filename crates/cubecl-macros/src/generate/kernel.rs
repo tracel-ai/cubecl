@@ -9,7 +9,7 @@ use syn::{Ident, TypeParamBound, parse_quote};
 use crate::{
     parse::kernel::{
         DefinedGeneric, KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch,
-        expand_kernel_ty, map_type_normalized, patch_kernel_ref_lifetime, strip_ref,
+        expand_kernel_ty, map_type_normalized, strip_ref,
     },
     paths::{frontend_type, prelude_type},
 };
@@ -98,7 +98,6 @@ fn trait_imports() -> TokenStream {
 impl ToTokens for KernelSignature {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let scope = prelude_type("Scope");
-        let cube_type = prelude_type("CubeType");
 
         let name = &self.name;
         let generics = &self.generics;

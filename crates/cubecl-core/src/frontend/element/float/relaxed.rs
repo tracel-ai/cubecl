@@ -34,6 +34,12 @@ impl IntoRuntime for flex32 {
         self.into()
     }
 }
+impl IntoExpand for flex32 {
+    type Expand = NativeExpand<flex32>;
+    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+        self.into()
+    }
+}
 
 impl Numeric for flex32 {
     fn min_value() -> Self {

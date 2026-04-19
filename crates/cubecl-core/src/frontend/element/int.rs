@@ -73,6 +73,14 @@ macro_rules! impl_int {
             }
         }
 
+        impl IntoExpand for $type {
+            type Expand = NativeExpand<$type>;
+
+            fn into_expand(self, _: &mut Scope) -> Self::Expand {
+                self.into()
+            }
+        }
+
         impl IntoMut for $type {
             fn into_mut(self, _scope: &mut Scope) -> Self {
                 self

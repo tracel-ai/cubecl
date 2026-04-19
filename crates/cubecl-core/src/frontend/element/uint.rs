@@ -36,6 +36,14 @@ macro_rules! declare_uint {
             }
         }
 
+        impl IntoExpand for $primitive {
+            type Expand = NativeExpand<$primitive>;
+
+            fn into_expand(self, _: &mut Scope) -> Self::Expand {
+                self.into()
+            }
+        }
+
         impl IntoMut for $primitive {
             fn into_mut(self, _scope: &mut Scope) -> Self {
                 self
@@ -92,8 +100,16 @@ impl CubePrimitive for usize {
 }
 
 impl IntoRuntime for usize {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
-        self.into()
+    fn __expand_runtime_method(self, scope: &mut Scope) -> NativeExpand<Self> {
+        NativeExpand::from_lit(scope, self)
+    }
+}
+
+impl IntoExpand for usize {
+    type Expand = NativeExpand<usize>;
+
+    fn into_expand(self, scope: &mut Scope) -> Self::Expand {
+        self.__expand_runtime_method(scope)
     }
 }
 
@@ -147,8 +163,16 @@ impl CubePrimitive for isize {
 }
 
 impl IntoRuntime for isize {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
-        self.into()
+    fn __expand_runtime_method(self, scope: &mut Scope) -> NativeExpand<Self> {
+        NativeExpand::from_lit(scope, self)
+    }
+}
+
+impl IntoExpand for isize {
+    type Expand = NativeExpand<isize>;
+
+    fn into_expand(self, scope: &mut Scope) -> Self::Expand {
+        self.__expand_runtime_method(scope)
     }
 }
 

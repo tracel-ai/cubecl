@@ -1,18 +1,8 @@
 use alloc::{string::String, vec::Vec};
-use cubecl_ir::{Instruction, Operation, Operator, Processor, Scope, Variable};
+use cubecl_ir::{Operation, Operator, Processor, Scope};
 use cubecl_runtime::server::ExecutionMode;
 
-use crate::{
-    define_scalar, define_size,
-    io::{
-        expand_checked_index_assign, expand_validate_index_assign, read_tensor_atomic_checked,
-        read_tensor_atomic_validate, read_tensor_checked, read_tensor_validate,
-    },
-    prelude::Vector,
-};
-
-define_scalar!(ElemA);
-define_size!(SizeA);
+use crate::io::*;
 
 #[derive(new, Debug)]
 pub struct CheckedIoProcessor {
@@ -49,30 +39,15 @@ impl CheckedIoProcessor {
                             let index = op.index;
                             let mut scope = Scope::root(false)
                                 .with_global_state(processing.global_state.clone());
-                            scope.register_type::<ElemA>(op.list.storage_type());
-                            scope.register_size::<SizeA>(op.list.vector_size());
 
-                            let input = if op.list.ty.is_atomic() {
-                                // Atomic can't really be checked, since the pointer needs to be
-                                // valid, so the kernel will probably not output the correct value if
-                                // not manually checked later, but will at least avoid out-of-bounds
-                                // memory access.
-                                read_tensor_atomic_checked::expand::<ElemA>(
-                                    &mut scope,
-                                    list.into(),
-                                    index.into(),
-                                    op.unroll_factor,
-                                )
-                                .expand
-                            } else {
-                                read_tensor_checked::expand::<Vector<ElemA, SizeA>>(
-                                    &mut scope,
-                                    list.into(),
-                                    index.into(),
-                                    op.unroll_factor,
-                                )
-                                .expand
-                            };
+                            expand_checked_index(
+                                &mut scope,
+                                list,
+                                index,
+                                instruction.out(),
+                                op.unroll_factor,
+                            );
+
                             let tmp_processing = scope.process([]);
 
                             for inst in tmp_processing.instructions {
@@ -82,9 +57,6 @@ impl CheckedIoProcessor {
                                 processing.variables.push(var);
                             }
 
-                            processing
-                                .instructions
-                                .push(Instruction::new(Operation::Copy(input), instruction.out()));
                             continue;
                         }
                     }
@@ -94,11 +66,11 @@ impl CheckedIoProcessor {
                         if out.has_length() {
                             let mut scope = Scope::root(false)
                                 .with_global_state(processing.global_state.clone());
-                            expand_checked_index_assign(
+                            expand_checked_index_mut(
                                 &mut scope,
+                                op.list,
                                 op.index,
-                                op.value,
-                                out,
+                                instruction.out(),
                                 op.unroll_factor,
                             );
 
@@ -142,32 +114,16 @@ impl CheckedIoProcessor {
                             let index = op.index;
                             let mut scope = Scope::root(false)
                                 .with_global_state(processing.global_state.clone());
-                            scope.register_type::<ElemA>(op.list.storage_type());
-                            scope.register_size::<SizeA>(op.list.vector_size());
 
-                            let input = if op.list.ty.is_atomic() {
-                                // Atomic can't really be checked, since the pointer needs to be
-                                // valid, so the kernel will probably not output the correct value if
-                                // not manually checked later, but will at least avoid out-of-bounds
-                                // memory access.
-                                read_tensor_atomic_validate::expand::<ElemA>(
-                                    &mut scope,
-                                    list.into(),
-                                    index.into(),
-                                    op.unroll_factor,
-                                    self.kernel_name.clone(),
-                                )
-                                .expand
-                            } else {
-                                read_tensor_validate::expand::<Vector<ElemA, SizeA>>(
-                                    &mut scope,
-                                    list.into(),
-                                    index.into(),
-                                    op.unroll_factor,
-                                    self.kernel_name.clone(),
-                                )
-                                .expand
-                            };
+                            expand_validate_index(
+                                &mut scope,
+                                list,
+                                index,
+                                instruction.out(),
+                                op.unroll_factor,
+                                &self.kernel_name,
+                            );
+
                             let tmp_processing = scope.process([]);
 
                             for inst in tmp_processing.instructions {
@@ -177,9 +133,6 @@ impl CheckedIoProcessor {
                                 processing.variables.push(var);
                             }
 
-                            processing
-                                .instructions
-                                .push(Instruction::new(Operation::Copy(input), instruction.out()));
                             continue;
                         }
                     }
@@ -189,11 +142,11 @@ impl CheckedIoProcessor {
                         if out.has_length() {
                             let mut scope = Scope::root(false)
                                 .with_global_state(processing.global_state.clone());
-                            expand_validate_index_assign(
+                            expand_validate_index_mut(
                                 &mut scope,
+                                op.list,
                                 op.index,
-                                op.value,
-                                out,
+                                instruction.out(),
                                 op.unroll_factor,
                                 &self.kernel_name,
                             );

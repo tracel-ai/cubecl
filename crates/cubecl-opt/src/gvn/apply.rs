@@ -96,7 +96,7 @@ impl GvnState {
                     }
                     let leaders = &mut self.block_sets.get_mut(&pred).unwrap().leaders;
                     if !leaders.contains_key(&val) {
-                        let new_temp = *state.allocator.create_local(expr.item());
+                        let new_temp = state.allocator.create_local(expr.item());
                         let new_op = ir::Instruction::new(expr.to_operation(leaders), new_temp);
                         func[pred].ops.borrow_mut().push(new_op);
                         leaders.insert(val, value_of_var(&new_temp).unwrap());
@@ -115,7 +115,7 @@ impl GvnState {
             let new_phis = new_phis
                 .into_iter()
                 .map(|entries| PhiInstruction {
-                    out: *state.allocator.create_local(entries[0].value.ty),
+                    out: state.allocator.create_local(entries[0].value.ty),
                     entries,
                 })
                 .collect::<Vec<_>>();

@@ -35,6 +35,12 @@ impl IntoRuntime for tf32 {
         self.into()
     }
 }
+impl IntoExpand for tf32 {
+    type Expand = NativeExpand<tf32>;
+    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+        self.into()
+    }
+}
 
 impl Numeric for tf32 {
     fn min_value() -> Self {

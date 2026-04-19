@@ -28,7 +28,7 @@ pub trait Cast: CubePrimitive {
             expand_error!("Cast element count must match if input is not scalar");
         }
         let new_var = scope.create_local(<Self as CubePrimitive>::as_type(scope));
-        cast::expand::<From, Self>(scope, value, new_var.clone().into());
+        cast::expand::<From, Self>(scope, value, new_var.into());
         new_var.into()
     }
 }

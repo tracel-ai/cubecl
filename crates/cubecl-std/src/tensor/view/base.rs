@@ -71,7 +71,7 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadOnly> {
     /// the target coordinate space
     #[allow(unused_variables)]
     pub fn new<V: ViewOperations<E, S>, S: Coordinates>(
-        view: &V,
+        view: V,
         layout: impl Into<VirtualLayout<C, S>>,
     ) -> Self {
         View {

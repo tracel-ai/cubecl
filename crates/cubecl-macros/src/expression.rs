@@ -129,7 +129,13 @@ pub enum Expression {
     },
     Slice {
         span: Span,
-        _ranges: Vec<Expression>,
+        expr: Box<Expression>,
+        ranges: Vec<Expression>,
+    },
+    SliceMut {
+        span: Span,
+        expr: Box<Expression>,
+        ranges: Vec<Expression>,
     },
     ArrayInit {
         init: Box<Expression>,
@@ -262,13 +268,6 @@ impl Expression {
             Expression::MethodCall { .. } if self.is_const() => Some(self.to_tokens(context)),
             Expression::Match { .. } if self.is_const() => Some(self.to_tokens(context)),
             Expression::AssertConstant { inner } => Some(inner.to_tokens(context)),
-            _ => None,
-        }
-    }
-
-    pub fn as_index(&self) -> Option<(&Expression, &Expression)> {
-        match self {
-            Expression::Index { expr, index, .. } => Some((&**expr, &**index)),
             _ => None,
         }
     }

@@ -30,6 +30,7 @@ pub trait List<'a, T: CubePrimitive>:
 
 /// Type for which we can read and write values in cube functions.
 /// For an immutable version, see [List].
+#[allow(clippy::mut_from_ref)]
 #[cube(expand_base_traits = "SliceMutOperatorExpand<'a, T>")]
 pub trait ListMut<'a, T: CubePrimitive>:
     List<'a, T> + SliceMutOperator<'a, T> + DerefMut<Target = [T]>

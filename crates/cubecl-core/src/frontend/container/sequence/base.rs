@@ -2,10 +2,7 @@ use alloc::vec::Vec;
 use cubecl_ir::Scope;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    frontend::{CubeType, IntoMut, NativeExpand, branch::Iterable},
-    prelude::{CubeDebug, CubeIndex, CubeIndexExpand, CubeRef, ExpandTypeClone},
-};
+use crate::prelude::*;
 use alloc::rc::Rc;
 use core::{cell::RefCell, ops::Deref};
 
@@ -24,6 +21,14 @@ pub struct Sequence<T: CubeType> {
 impl<T: CubeType> Default for Sequence<T> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<T: CubeType> IntoExpand for SequenceExpand<T> {
+    type Expand = Self;
+
+    fn into_expand(self, _scope: &mut Scope) -> Self::Expand {
+        self
     }
 }
 
@@ -90,8 +95,8 @@ impl<T: CubeType> Sequence<T> {
     }
 
     /// Expand function of [index](Self::index).
-    pub fn __expand_index<'a, 'b>(
-        scope: &'b mut Scope,
+    pub fn __expand_index<'a>(
+        scope: &mut Scope,
         expand: &'a SequenceExpand<T>,
         index: NativeExpand<usize>,
     ) -> &'a T::ExpandType {
@@ -99,8 +104,8 @@ impl<T: CubeType> Sequence<T> {
     }
 
     /// Expand function of [`index_mut`](Self::index_mut).
-    pub fn __expand_index_mut<'a, 'b>(
-        scope: &'b mut Scope,
+    pub fn __expand_index_mut<'a>(
+        scope: &mut Scope,
         expand: &'a SequenceExpand<T>,
         index: NativeExpand<usize>,
     ) -> &'a mut T::ExpandType {
@@ -108,12 +113,12 @@ impl<T: CubeType> Sequence<T> {
     }
 }
 
-impl<T: CubeType> CubeRef for SequenceExpand<T> {
-    fn __expand_as_ref_method<'a, 'b>(&'a self, _: &'b mut Scope) -> &'a Self {
+impl<T: CubeType> ExpandAsRef for SequenceExpand<T> {
+    fn __expand_as_ref_method<'a>(&'a self, _: &mut Scope) -> &'a Self {
         self
     }
 
-    fn __expand_as_mut_method<'a, 'b>(&'a mut self, _: &'b mut Scope) -> &'a mut Self {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &mut Scope) -> &'a mut Self {
         self
     }
 }
@@ -256,9 +261,9 @@ impl<T: CubeType> SequenceExpand<T> {
     }
 
     /// Expand method of [index](Sequence::index).
-    pub fn __expand_index_method<'a, 'b>(
+    pub fn __expand_index_method<'a>(
         &'a self,
-        _scope: &'b mut Scope,
+        _scope: &mut Scope,
         index: NativeExpand<usize>,
     ) -> &'a T::ExpandType {
         let index = index.constant().expect("Index must be constant").as_usize();
@@ -269,9 +274,10 @@ impl<T: CubeType> SequenceExpand<T> {
     }
 
     /// Expand method of [`index_mut`](Sequence::index_mut).
-    pub fn __expand_index_mut_method<'a, 'b>(
+    #[allow(clippy::mut_from_ref)]
+    pub fn __expand_index_mut_method<'a>(
         &'a self,
-        _scope: &'b mut Scope,
+        _scope: &mut Scope,
         index: NativeExpand<usize>,
     ) -> &'a mut T::ExpandType {
         let index = index.constant().expect("Index must be constant").as_usize();

@@ -4,9 +4,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::{Ident, parse_quote};
 
 use crate::{
-    parse::kernel::{
-        AddressType, GenericArg, KernelParam, Launch, patch_kernel_ref_lifetime, strip_ref,
-    },
+    parse::kernel::{AddressType, GenericArg, KernelParam, Launch, strip_ref},
     paths::{core_type, prelude_type},
 };
 

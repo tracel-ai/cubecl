@@ -429,9 +429,9 @@ mod metadata {
             scope.register(Instruction::new(
                 Metadata::Stride {
                     dim,
-                    var: self.expand.into(),
+                    var: self.expand,
                 },
-                out.clone().into(),
+                out,
             ));
             out.into()
         }
@@ -447,9 +447,9 @@ mod metadata {
             scope.register(Instruction::new(
                 Metadata::Shape {
                     dim,
-                    var: self.expand.into(),
+                    var: self.expand,
                 },
-                out.clone().into(),
+                out,
             ));
             out.into()
         }
@@ -462,17 +462,17 @@ mod metadata {
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
             let index: Variable = index.into();
-            let stride = self.clone().__expand_stride_method(scope, dim.clone());
-            let shape = self.clone().__expand_shape_method(scope, dim.clone());
+            let stride = self.__expand_stride_method(scope, dim);
+            let shape = self.__expand_shape_method(scope, dim);
 
             // Compute `num_strides = index / stride`.
             let num_strides = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(
                 Arithmetic::Div(BinaryOperator {
                     lhs: index,
-                    rhs: stride.expand.into(),
+                    rhs: stride.expand,
                 }),
-                num_strides.clone().into(),
+                num_strides,
             ));
 
             // Compute `coordinate = num_strides % shape `.
@@ -480,9 +480,9 @@ mod metadata {
             scope.register(Instruction::new(
                 Arithmetic::Modulo(BinaryOperator {
                     lhs: num_strides,
-                    rhs: shape.expand.into(),
+                    rhs: shape.expand,
                 }),
-                coordinate.clone().into(),
+                coordinate,
             ));
 
             coordinate.into()

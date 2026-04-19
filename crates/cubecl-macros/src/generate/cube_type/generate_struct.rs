@@ -265,6 +265,7 @@ impl CubeTypeStruct {
     }
 
     fn expand_type_impl(&self) -> proc_macro2::TokenStream {
+        let into_expand = prelude_type("IntoExpand");
         let into_mut = prelude_type("IntoMut");
         let debug = prelude_type("CubeDebug");
         let scope = prelude_type("Scope");
@@ -283,6 +284,14 @@ impl CubeTypeStruct {
             });
 
         quote! {
+            impl #generics #into_expand for #name_expand #generic_names #where_clause {
+                type Expand = Self;
+
+                fn into_expand(self, _: &mut #scope) -> Self {
+                    self
+                }
+            }
+
             impl #generics #into_mut for #name_expand #generic_names #where_clause {
                 fn into_mut(self, scope: &mut #scope) -> Self {
                     Self {

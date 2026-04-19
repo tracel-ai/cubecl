@@ -15,8 +15,8 @@ use std::{collections::HashMap, iter};
 use syn::{
     AssocType, ConstParam, Expr, FnArg, GenericArgument, Generics, Ident, ItemFn, LitStr, Path,
     ReturnType, Signature, TraitItemFn, Type, TypeGroup, TypeMacro, TypeParam, TypeParen,
-    TypeReference, Visibility, parse, parse_quote, punctuated::Punctuated, spanned::Spanned,
-    token::Mut, visit_mut::VisitMut,
+    Visibility, parse, parse_quote, punctuated::Punctuated, spanned::Spanned, token::Mut,
+    visit_mut::VisitMut,
 };
 
 use super::{desugar::Desugar, helpers::is_comptime_attr, statement::parse_pat};
@@ -41,14 +41,6 @@ pub(crate) struct KernelArgs {
     pub explicit_define: Flag,
     #[darling(default)]
     pub address_type: AddressType,
-}
-
-#[derive(Default, FromMeta, PartialEq, Eq, Clone, Copy)]
-pub(crate) enum SelfType {
-    #[default]
-    Owned,
-    Ref,
-    RefMut,
 }
 
 #[derive(Default, FromMeta, PartialEq, Eq, Clone, Copy)]
@@ -406,7 +398,7 @@ pub struct KernelParam {
 }
 
 impl KernelParam {
-    pub fn from_param(param: FnArg, args: &KernelArgs) -> syn::Result<Self> {
+    pub fn from_param(param: FnArg) -> syn::Result<Self> {
         let param = match param {
             FnArg::Typed(param) => param,
             FnArg::Receiver(param) => {
@@ -519,7 +511,7 @@ impl KernelSignature {
         let sig_params = sig
             .inputs
             .into_iter()
-            .map(|it| KernelParam::from_param(it, args))
+            .map(KernelParam::from_param)
             .collect::<Result<Vec<_>, _>>()?;
         let manually_defined_params = sig_params
             .iter()
@@ -542,7 +534,7 @@ impl KernelSignature {
                     true => quote![usize],
                     false => quote![#type_],
                 };
-                KernelParam::from_param(parse_quote!(#[define(#ident)] #name: #ty), args)
+                KernelParam::from_param(parse_quote!(#[define(#ident)] #name: #ty))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -773,59 +765,6 @@ pub fn map_type_normalized(ty: &mut Type, op: &impl Fn(&Type) -> Type) {
             *other = op(other);
         }
     }
-}
-
-pub fn patch_kernel_ref_lifetime(mut ty: Type) -> Type {
-    fn patch_generic_lifetime_inner(generic: &mut GenericArgument) {
-        match generic {
-            syn::GenericArgument::Lifetime(lifetime) if lifetime.ident == "_" => {
-                lifetime.ident = format_ident!("static");
-            }
-            syn::GenericArgument::Type(ty) => patch_lifetime_inner(ty),
-            syn::GenericArgument::AssocType(AssocType {
-                generics: Some(generics),
-                ..
-            }) => {
-                for generic in &mut generics.args {
-                    patch_generic_lifetime_inner(generic);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn patch_lifetime_inner(ty: &mut Type) {
-        match ty {
-            Type::Array(type_array) => patch_lifetime_inner(&mut type_array.elem),
-            Type::Group(type_group) => patch_lifetime_inner(&mut type_group.elem),
-            Type::Paren(type_paren) => patch_lifetime_inner(&mut type_paren.elem),
-            Type::Path(type_path) => {
-                let generics = all_path_args_mut(&mut type_path.path);
-                for generic in generics {
-                    patch_generic_lifetime_inner(generic);
-                }
-            }
-            Type::Ptr(type_ptr) => patch_lifetime_inner(&mut type_ptr.elem),
-            Type::Reference(type_reference) => {
-                let lifetime = type_reference.lifetime.as_ref();
-                if lifetime.is_none() || lifetime.is_some_and(|it| it.ident == "_") {
-                    type_reference.lifetime = Some(parse_quote!('static));
-                }
-                patch_lifetime_inner(&mut type_reference.elem);
-            }
-            Type::Slice(type_slice) => {
-                patch_lifetime_inner(&mut type_slice.elem);
-            }
-            Type::Tuple(type_tuple) => {
-                for ty in type_tuple.elems.iter_mut() {
-                    patch_lifetime_inner(ty);
-                }
-            }
-            _ => {}
-        }
-    }
-    patch_lifetime_inner(&mut ty);
-    ty
 }
 
 pub fn all_path_args_mut(path: &mut Path) -> impl Iterator<Item = &mut GenericArgument> {

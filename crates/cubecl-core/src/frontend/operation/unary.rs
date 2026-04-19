@@ -1,4 +1,4 @@
-use core::ops::Not;
+use core::ops::{Neg, Not};
 use cubecl_common::{e2m1, e2m1x2, e4m3, e5m2, ue8m0};
 use cubecl_ir::{Bitwise, Comparison, Operator};
 use half::{bf16, f16};
@@ -21,14 +21,6 @@ pub mod not {
         } else {
             unary_expand(scope, x.into(), Bitwise::BitwiseNot).into()
         }
-    }
-}
-
-pub mod neg {
-    use super::*;
-
-    pub fn expand<E: CubePrimitive>(scope: &mut Scope, x: NativeExpand<E>) -> NativeExpand<E> {
-        unary_expand(scope, x.into(), Arithmetic::Neg).into()
     }
 }
 
@@ -154,9 +146,43 @@ macro_rules! impl_not {
     }
 }
 
+macro_rules! impl_core_unop {
+    ($trait: ident, $method: ident, $op: expr) => {
+        paste::paste! {
+            pub trait [<Cube $trait>]: $trait<Output = Self> + CubePrimitive + Into<Variable> + CubeType<ExpandType: [<$trait Expand>]> + Sized {
+                fn [<__expand_ $method _method>](self, scope: &mut Scope) -> NativeExpand<Self> {
+                    let this: Variable = self.into();
+                    let this: NativeExpand<Self> = this.into();
+                    this.[<__expand_ $method _method>](scope)
+                }
+
+                fn [<__expand_ $method>](
+                    scope: &mut Scope,
+                    lhs: NativeExpand<Self>,
+                ) -> NativeExpand<Self> {
+                    lhs.[<__expand_ $method _method>](scope)
+                }
+            }
+
+            pub trait [<$trait Expand>] {
+                fn [<__expand_ $method _method>](self, scope: &mut Scope) -> Self;
+            }
+
+            impl<T: $trait<Output = T> + CubePrimitive + Into<Variable>> [<Cube $trait>] for T {}
+            impl<T: $trait<Output = T> + CubePrimitive> [<$trait Expand>] for NativeExpand<T> {
+                fn [<__expand_ $method _method>](self, scope: &mut Scope) -> Self {
+                    unary_expand(scope, self.into(), $op).into()
+                }
+            }
+        }
+    };
+}
+
 impl_not!(
     Not, not, bool, u8, u16, u32, u64, i8, i16, i32, i64, isize, usize
 );
+
+impl_core_unop!(Neg, neg, Arithmetic::Neg);
 
 impl_unary_func!(
     Abs,

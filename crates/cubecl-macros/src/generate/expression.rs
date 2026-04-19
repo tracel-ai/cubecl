@@ -28,14 +28,17 @@ impl Expression {
                 span,
                 ..
             } => {
-                let frontend_path = frontend_path();
                 let op = format_ident!("__expand_{}_method", operator.op_name());
                 let left = left.to_tokens(context);
                 let right = right.to_tokens(context);
-                let expand = with_span(context, *span, quote![#left.#op(scope, _rhs.into())]);
+                let rhs = match operator.is_cmp() {
+                    true => quote![&_rhs],
+                    false => quote![_rhs],
+                };
+                let expand = with_span(context, *span, quote![#left.#op(scope, #rhs)]);
                 quote! {
                     {
-                        let _rhs = #right;
+                        let _rhs = #right.into_expand(scope);
                         #expand
                     }
                 }
@@ -47,8 +50,7 @@ impl Expression {
             } => {
                 let input = input.to_tokens(context);
                 quote! {{
-                    let _inner = #input;
-                    _inner.__expand_deref_method(scope)
+                    #input.__expand_deref_method(scope)
                 }}
             }
             Expression::Unary {
@@ -57,17 +59,11 @@ impl Expression {
                 span,
                 ..
             } => {
-                let frontend_path = frontend_path();
                 let input = input.to_tokens(context);
-                let op = format_ident!("{}", operator.op_name());
-                let expand = with_span(
-                    context,
-                    *span,
-                    quote![#frontend_path::#op::expand(scope, _inner.into())],
-                );
+                let op = format_ident!("__expand_{}_method", operator.op_name());
+                let expand = with_span(context, *span, quote![#input.#op(scope)]);
                 quote! {
                     {
-                        let _inner = #input;
                         #expand
                     }
                 }
@@ -100,8 +96,8 @@ impl Expression {
                 let left = left.to_tokens(context);
                 quote! {
                     {
-                        let _value = #right;
-                        #left.__expand_assign_method(scope, _value.into())
+                        let _value = #right.into_expand(scope);
+                        #left.__expand_assign_method(scope, _value)
                     }
                 }
             }
@@ -111,11 +107,11 @@ impl Expression {
                 let expand = with_span(
                     context,
                     *span,
-                    quote![#expr.__expand_index_method(scope, _index.into())],
+                    quote![#expr.__expand_index_method(scope, _index)],
                 );
                 quote! {
                     {
-                        let _index = #index;
+                        let _index = #index.into_expand(scope);
                         #expand
                     }
                 }
@@ -126,11 +122,11 @@ impl Expression {
                 let expand = with_span(
                     context,
                     *span,
-                    quote![#expr.__expand_index_mut_method(scope, _index.into())],
+                    quote![#expr.__expand_index_mut_method(scope, _index)],
                 );
                 quote! {
                     {
-                        let _index = #index;
+                        let _index = #index.into_expand(scope);
                         #expand
                     }
                 }
@@ -239,8 +235,8 @@ impl Expression {
                 let from = from.to_tokens(context);
                 let to = quote_spanned![to.span()=> <#to as #cast>];
                 quote! {{
-                    let __from = #from;
-                    #to::__expand_cast_from(scope, __from.into())
+                    let __from = #from.into_expand(scope);
+                    #to::__expand_cast_from(scope, __from)
                 }}
             }
             Expression::ForLoop {
@@ -299,8 +295,8 @@ impl Expression {
                 let else_branch = else_branch.to_tokens(context);
                 quote! {
                     {
-                        let _cond = #condition;
-                        #path::branch::if_else_expr_expand(scope, _cond.into(), |scope| #then_block).or_else(scope, |scope| #else_branch)
+                        let _cond = #condition.into_expand(scope);
+                        #path::branch::if_else_expr_expand(scope, _cond, |scope| #then_block).or_else(scope, |scope| #else_branch)
                     }
                 }
             }
@@ -315,8 +311,8 @@ impl Expression {
                 let else_branch = else_branch.to_tokens(context);
                 quote! {
                     {
-                        let _cond = #condition;
-                        #path::branch::if_else_expand(scope, _cond.into(), |scope| #then_block).or_else(scope, |scope| #else_branch);
+                        let _cond = #condition.into_expand(scope);
+                        #path::branch::if_else_expand(scope, _cond, |scope| #then_block).or_else(scope, |scope| #else_branch);
                     }
                 }
             }
@@ -330,8 +326,8 @@ impl Expression {
                 let then_block = then_block.to_tokens(context);
                 quote! {
                     {
-                        let _cond = #condition;
-                        #path::branch::if_expand(scope, _cond.into(), |scope| #then_block);
+                        let _cond = #condition.into_expand(scope);
+                        #path::branch::if_expand(scope, _cond, |scope| #then_block);
                     }
                 }
             }
@@ -359,8 +355,8 @@ impl Expression {
                     .collect::<Vec<_>>();
                 quote! {
                     {
-                        let _val = #value;
-                        #branch::#switch(scope, _val.into(), |scope| #default)
+                        let _val = #value.into_expand(scope);
+                        #branch::#switch(scope, _val, |scope| #default)
                             #(#blocks)*
                             .finish(scope)
                     }
@@ -415,8 +411,35 @@ impl Expression {
                     quote![(#(#elements),*)]
                 }
             }
-            Expression::Slice { span, .. } => {
-                error!(*span, "Slice expressions not yet implemented")
+            Expression::Slice { span, expr, ranges } => {
+                assert_eq!(ranges.len(), 1, "Multi-slices not yet implemented");
+                let range = ranges[0].clone().to_tokens(context);
+                let receiver = expr.to_tokens(context);
+                let call = with_debug_call(
+                    context,
+                    *span,
+                    quote![#receiver.__expand_slice_method(scope, #range)],
+                );
+                quote_spanned! {*span=>
+                    {
+                        #call
+                    }
+                }
+            }
+            Expression::SliceMut { span, expr, ranges } => {
+                assert_eq!(ranges.len(), 1, "Multi-slices not yet implemented");
+                let range = ranges[0].clone().to_tokens(context);
+                let receiver = expr.to_tokens(context);
+                let call = with_debug_call(
+                    context,
+                    *span,
+                    quote![#receiver.__expand_slice_mut_method(scope, #range)],
+                );
+                quote_spanned! {*span=>
+                    {
+                        #call
+                    }
+                }
             }
             Expression::ArrayInit { init, len } => {
                 let init_ty = frontend_type("ArrayInit");
@@ -630,21 +653,21 @@ impl Expression {
                         Some(else_branch) if else_branch.needs_terminator() => {
                             let else_branch = else_branch.to_tokens(context);
                             quote! {
-                                #if_else_expr_expand(scope, __cond.into(), |scope| #block).or_else(scope, |scope| #else_branch)
+                                #if_else_expr_expand(scope, __cond, |scope| #block).or_else(scope, |scope| #else_branch)
                             }
                         }
                         Some(else_branch) => {
                             let else_branch = else_branch.to_tokens(context);
                             quote! {
-                                #if_else_expand(scope, __cond.into(), |scope| #block).or_else(scope, |scope| #else_branch);
+                                #if_else_expand(scope, __cond, |scope| #block).or_else(scope, |scope| #else_branch);
                             }
                         }
-                        None => quote![#if_expand(scope, __cond.into(), |scope| #block);],
+                        None => quote![#if_expand(scope, __cond, |scope| #block);],
                     };
 
                     quote! {{
-                        let __disc = #expr.discriminant_of_value(#name);
-                        let __cond = eq::expand(scope, #expr.discriminant(), __disc.into());
+                        let __disc = #expr.discriminant_of_value(#name).into_runtime(scope);
+                        let __cond = #expr.discriminant().__expand_eq_method(scope, __disc);
 
                         #expand
                     }}

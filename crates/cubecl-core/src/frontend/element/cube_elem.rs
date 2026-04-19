@@ -20,7 +20,6 @@ pub trait CubePrimitive:
     CubeType<ExpandType = NativeExpand<Self>>
     + NativeAssign
     + CubeDebug
-    + core::cmp::PartialEq
     + Send
     + Sync
     + 'static
@@ -123,7 +122,7 @@ impl<T: CubePrimitive> CubePrimitiveExpand for NativeExpand<T> {
 /// **not** for `Vector` or non-standard primitives like `Barrier`. Alternatively, treat these as
 /// types that can be stored in a [`Vector`]
 pub trait Scalar:
-    CubePrimitive<Scalar = Self, Size = Const<1>> + Default + IntoRuntime + Debug
+    CubePrimitive<Scalar = Self, Size = Const<1>> + Default + IntoRuntime + Debug + core::cmp::PartialEq
 {
 }
 

@@ -1,8 +1,8 @@
 use proc_macro2::Span;
 use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{
-    Expr, ExprUnary, Lit, LitInt, Pat, PatPath, Path, PathSegment, QSelf, RangeLimits, UnOp,
-    spanned::Spanned,
+    Expr, ExprIndex, ExprReference, ExprUnary, Lit, LitInt, Pat, PatPath, Path, PathSegment, QSelf,
+    RangeLimits, UnOp, spanned::Spanned,
 };
 
 use crate::{
@@ -30,8 +30,7 @@ impl Expression {
         let result = match expr.clone() {
             Expr::Assign(assign) => {
                 let right = Self::from_expr(*assign.right, context)?;
-                let left =
-                    context.with_lhs_assign(|context| Self::from_expr(*assign.left, context))?;
+                let left = Self::from_expr_lhs(*assign.left, context)?;
                 Expression::Assignment {
                     left: Box::new(left),
                     right: Box::new(right),
@@ -43,7 +42,7 @@ impl Expression {
 
                 let right = Self::from_expr(*binary.right, context)?;
                 let left = if operator.is_assign() {
-                    context.with_lhs_assign(|context| Self::from_expr(*binary.left, context))?
+                    Self::from_expr_lhs(*binary.left, context)?
                 } else {
                     Self::from_expr(*binary.left, context)?
                 };
@@ -68,11 +67,6 @@ impl Expression {
                 tokens: literal.to_token_stream(),
             },
             Expr::Lit(literal) => Expression::Literal { value: literal.lit },
-            Expr::Unary(ExprUnary {
-                op: UnOp::Deref(_),
-                expr,
-                ..
-            }) if context.is_assign_lhs => Expression::from_expr(*expr, context)?,
             Expr::Unary(ExprUnary {
                 op: UnOp::Neg(_),
                 expr,
@@ -253,58 +247,11 @@ impl Expression {
             }
             Expr::Index(expr_index) => {
                 let span = expr_index.span();
-                let expr = Expression::from_expr(*expr_index.expr.clone(), context)?;
-                let index = Expression::from_expr(*expr_index.index.clone(), context)?;
-                if expr.is_const() && index.is_const() {
-                    Expression::Verbatim {
-                        tokens: expr_index.to_token_stream(),
-                    }
-                } else if is_slice(&index) {
-                    let ranges = match index {
-                        Expression::Array { elements, .. } => elements.clone(),
-                        Expression::Tuple { elements, .. } => elements.clone(),
-                        index => vec![index],
-                    };
-                    Expression::Slice {
-                        span,
-                        _ranges: ranges,
-                    }
-                } else {
-                    let index = match index {
-                        Expression::Array { elements, span } => {
-                            generate_strided_index(&expr, elements, span)?
-                        }
-                        index => index,
-                    };
-                    // &arr[i]
-                    if context.is_ref && !context.is_mut {
-                        Expression::Index {
-                            expr: Box::new(expr),
-                            index: Box::new(index),
-                            span,
-                        }
-                    } else
-                    // &mut arr[i] or arr[i] = value;
-                    if (context.is_ref && context.is_mut) || context.is_assign_lhs {
-                        Expression::IndexMut {
-                            expr: Box::new(expr),
-                            index: Box::new(index),
-                            span,
-                        }
-                    } else
-                    // arr[i]
-                    {
-                        let index = Expression::Index {
-                            expr: Box::new(expr),
-                            index: Box::new(index),
-                            span,
-                        };
-                        Expression::Unary {
-                            input: Box::new(index),
-                            operator: Operator::Deref,
-                            span,
-                        }
-                    }
+                let index = parse_index_expr(expr_index, context, false)?;
+                Expression::Unary {
+                    input: Box::new(index),
+                    operator: Operator::Deref,
+                    span,
                 }
             }
             Expr::Repeat(repeat) => {
@@ -427,27 +374,7 @@ impl Expression {
             }
             Expr::Infer(_) => Expression::Verbatim { tokens: quote![_] },
             Expr::Verbatim(verbatim) => Expression::Verbatim { tokens: verbatim },
-            Expr::Reference(reference) if matches!(*reference.expr, Expr::Index(_)) => {
-                match reference.mutability {
-                    Some(_) => context.with_is_ref_mut(|context| {
-                        Expression::from_expr(*reference.expr, context)
-                    })?,
-                    None => context
-                        .with_is_ref(|context| Expression::from_expr(*reference.expr, context))?,
-                }
-            }
-            Expr::Reference(reference) if reference.mutability.is_none() => {
-                let inner = Expression::from_expr(*reference.expr, context)?;
-                Expression::Reference {
-                    inner: Box::new(inner),
-                }
-            }
-            Expr::Reference(reference) => {
-                let inner = Expression::from_expr(*reference.expr, context)?;
-                Expression::MutReference {
-                    inner: Box::new(inner),
-                }
-            }
+            Expr::Reference(expr_reference) => Self::from_expr_reference(expr_reference, context)?,
             Expr::Closure(expr) => {
                 let (body, scope) = context.in_scope(|ctx| {
                     for arg in expr.inputs.iter() {
@@ -484,6 +411,118 @@ impl Expression {
         };
         Ok(result)
     }
+
+    pub fn from_expr_lhs(expr: Expr, context: &mut Context) -> syn::Result<Self> {
+        let span = expr.span();
+        match expr {
+            // Skip deref if it's the target of an assignment
+            Expr::Unary(ExprUnary {
+                op: UnOp::Deref(_),
+                expr,
+                ..
+            }) => Self::from_expr(*expr, context),
+            // Skip deref and always use mutable index
+            Expr::Index(ExprIndex { expr, index, .. }) => {
+                let index = Self::from_expr(*index, context)?;
+                let expr = Self::from_expr(*expr, context)?;
+                Ok(Expression::IndexMut {
+                    expr: Box::new(expr),
+                    index: Box::new(index),
+                    span,
+                })
+            }
+            other => Self::from_expr(other, context),
+        }
+    }
+
+    pub fn from_expr_reference(expr: ExprReference, context: &mut Context) -> syn::Result<Self> {
+        let is_mutable = expr.mutability.is_some();
+        let expression = match *expr.expr {
+            Expr::Index(expr_index) => parse_index_expr(expr_index, context, is_mutable)?,
+            Expr::Unary(ExprUnary {
+                op: UnOp::Deref(_),
+                expr,
+                ..
+            }) => {
+                let span = expr.span();
+                let inner = Expression::from_expr(*expr, context)?;
+                let operator = match is_mutable {
+                    true => Operator::AsDerefMut,
+                    false => Operator::AsDeref,
+                };
+                Expression::Unary {
+                    input: Box::new(inner),
+                    operator,
+                    span,
+                }
+            }
+            other => {
+                let inner = Expression::from_expr(other, context)?;
+                match is_mutable {
+                    true => Expression::MutReference {
+                        inner: Box::new(inner),
+                    },
+                    false => Expression::Reference {
+                        inner: Box::new(inner),
+                    },
+                }
+            }
+        };
+        Ok(expression)
+    }
+}
+
+fn parse_index_expr(
+    expr_index: ExprIndex,
+    context: &mut Context,
+    is_mut: bool,
+) -> syn::Result<Expression> {
+    let span = expr_index.span();
+    let expr = Expression::from_expr(*expr_index.expr.clone(), context)?;
+    let index = Expression::from_expr(*expr_index.index.clone(), context)?;
+    let expression = if expr.is_const() && index.is_const() {
+        Expression::Verbatim {
+            tokens: expr_index.to_token_stream(),
+        }
+    } else if is_slice(&index) {
+        let ranges = match index {
+            Expression::Array { elements, .. } => elements.clone(),
+            Expression::Tuple { elements, .. } => elements.clone(),
+            index => vec![index],
+        };
+        if is_mut {
+            Expression::SliceMut {
+                span,
+                expr: Box::new(expr),
+                ranges,
+            }
+        } else {
+            Expression::Slice {
+                span,
+                expr: Box::new(expr),
+                ranges,
+            }
+        }
+    } else {
+        let index = match index {
+            Expression::Array { elements, span } => generate_strided_index(&expr, elements, span)?,
+            index => index,
+        };
+        if is_mut {
+            Expression::IndexMut {
+                expr: Box::new(expr),
+                index: Box::new(index),
+                span,
+            }
+        } else {
+            Expression::Index {
+                expr: Box::new(expr),
+                index: Box::new(index),
+                span,
+            }
+        }
+    };
+    Ok(expression)
 }
 
 pub(crate) fn add_variables_from_pat(pat: &Pat, context: &mut Context) {

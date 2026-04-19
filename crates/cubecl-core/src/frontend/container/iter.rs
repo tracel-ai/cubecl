@@ -5,7 +5,7 @@ use cubecl_ir::Variable;
 use crate::{
     ir::{Branch, RangeLoop, Scope},
     prelude::{
-        CubeDeref, CubeIndex, CubeIndexExpand, CubePrimitive, CubeType, Iterable, NativeExpand,
+        CubeIndex, CubeIndexExpand, CubePrimitive, CubeType, ExpandDeref, Iterable, NativeExpand,
     },
 };
 
@@ -17,7 +17,7 @@ pub trait SizedContainer: CubeIndex<Idx: CubePrimitive, Output = Self::Item> + S
     /// Return the length of the container.
     fn len(val: &Variable, scope: &mut Scope) -> Variable {
         // By default we use the expand len method of the Array type.
-        let val: NativeExpand<Array<Self::Item>> = val.clone().into();
+        let val: NativeExpand<Array<Self::Item>> = (*val).into();
         val.__expand_len_method(scope).expand
     }
 }
@@ -36,7 +36,7 @@ impl<T: SizedContainer + CubeType<ExpandType = NativeExpand<T>>> Iterable for Na
         let mut child = scope.child();
         let i = child.create_local_restricted(index_ty);
 
-        let index = i.clone().into();
+        let index = i.into();
         let item = self
             .__expand_index_method(&mut child, index)
             .__expand_deref_method(&mut child);

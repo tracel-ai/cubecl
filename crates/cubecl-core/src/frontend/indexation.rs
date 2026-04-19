@@ -61,15 +61,15 @@ pub trait CubeIndexMut:
 }
 
 pub trait CubeIndexMutExpand: CubeIndexExpand {
-    fn __expand_index_mut_method<'a, 'b>(
+    fn __expand_index_mut_method<'a>(
         &'a mut self,
-        scope: &'b mut Scope,
+        scope: &mut Scope,
         index: <Self as CubeIndexExpand>::Idx,
     ) -> &'a mut <Self as CubeIndexExpand>::Output;
 }
 
-pub(crate) fn expand_index_native<'a, 'b, A: CubeIndexExpand + Clone + Into<Variable>>(
-    scope: &'b mut Scope,
+pub(crate) fn expand_index_native<'a, A: CubeIndexExpand + Clone + Into<Variable>>(
+    scope: &mut Scope,
     array: &'a A,
     index: NativeExpand<usize>,
     vector_size: Option<VectorSize>,
@@ -105,8 +105,8 @@ where
     scope.create_kernel_ref(var.into())
 }
 
-pub(crate) fn expand_index_mut_native<'a, 'b, A: CubeIndexMutExpand + Clone + Into<Variable>>(
-    scope: &'b mut Scope,
+pub(crate) fn expand_index_mut_native<'a, A: CubeIndexMutExpand + Clone + Into<Variable>>(
+    scope: &mut Scope,
     list: &'a mut A,
     index: NativeExpand<usize>,
     vector_size: Option<VectorSize>,
@@ -116,7 +116,7 @@ where
     A::Output: From<Variable> + 'static,
 {
     let list: Variable = list.clone().into();
-    let index: Variable = index.expand.into();
+    let index: Variable = index.expand;
     let index = match index.kind {
         VariableKind::Constant(value) => Variable::constant(value, usize::as_type(scope)),
         _ => index,
@@ -138,7 +138,7 @@ where
                 vector_size,
                 unroll_factor: 1,
             }),
-            list.clone().into(),
+            list,
         ));
     } else {
         scope.register(Instruction::new(
@@ -148,7 +148,7 @@ where
                 vector_size,
                 unroll_factor: 1,
             }),
-            list.clone().into(),
+            list,
         ));
     }
 

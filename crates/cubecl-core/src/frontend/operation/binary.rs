@@ -11,7 +11,7 @@ use crate::{
 };
 use core::ops::*;
 use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
-use cubecl_ir::ClampOperator;
+use cubecl_ir::{ClampOperator, Operator};
 use half::{bf16, f16};
 
 pub mod sub {
@@ -304,6 +304,58 @@ impl_core_assign_binop!(BitOrAssign, bitor_assign, Bitwise::BitwiseOr);
 impl_core_assign_binop!(BitXorAssign, bitxor_assign, Bitwise::BitwiseXor);
 impl_core_assign_binop!(ShlAssign, shl_assign, Bitwise::ShiftLeft);
 impl_core_assign_binop!(ShrAssign, shr_assign, Bitwise::ShiftRight);
+
+pub trait CubeAnd:
+    CubePrimitive + Into<Variable> + CubeType<ExpandType: AndExpand> + Sized
+{
+    fn __expand_and_method(self, scope: &mut Scope, rhs: NativeExpand<Self>) -> NativeExpand<Self> {
+        let this: Variable = self.into();
+        let this: NativeExpand<Self> = this.into();
+        this.__expand_and_method(scope, rhs)
+    }
+    fn __expand_and(
+        scope: &mut Scope,
+        lhs: NativeExpand<Self>,
+        rhs: NativeExpand<Self>,
+    ) -> NativeExpand<Self> {
+        lhs.__expand_and_method(scope, rhs)
+    }
+}
+pub trait AndExpand {
+    fn __expand_and_method(self, scope: &mut Scope, rhs: Self) -> Self;
+}
+
+impl CubeAnd for bool {}
+impl<T: CubeAnd + CubePrimitive> AndExpand for NativeExpand<T> {
+    fn __expand_and_method(self, scope: &mut Scope, rhs: Self) -> Self {
+        binary_expand(scope, self.into(), rhs.into(), Operator::And).into()
+    }
+}
+
+pub trait CubeOr: CubePrimitive + Into<Variable> + CubeType<ExpandType: AndExpand> + Sized {
+    fn __expand_or_method(self, scope: &mut Scope, rhs: NativeExpand<Self>) -> NativeExpand<Self> {
+        let this: Variable = self.into();
+        let this: NativeExpand<Self> = this.into();
+        this.__expand_and_method(scope, rhs)
+    }
+    fn __expand_or(
+        scope: &mut Scope,
+        lhs: NativeExpand<Self>,
+        rhs: NativeExpand<Self>,
+    ) -> NativeExpand<Self> {
+        lhs.__expand_and_method(scope, rhs)
+    }
+}
+pub trait OrExpand {
+    fn __expand_or_method(self, scope: &mut Scope, rhs: Self) -> Self;
+}
+
+impl CubeOr for bool {}
+impl<T: CubeOr + CubePrimitive> OrExpand for NativeExpand<T> {
+    fn __expand_or_method(self, scope: &mut Scope, rhs: Self) -> Self {
+        binary_expand(scope, self.into(), rhs.into(), Operator::Or).into()
+    }
+}
 
 impl_binary_func!(
     Powf,

@@ -32,6 +32,7 @@ tracing = ["cubecl-common/tracing"]
 [dependencies]
 darling = { workspace = true }
 derive-new = { workspace = true }
+derive_more = { workspace = true }
 ident_case = { workspace = true }
 inflections = "1"
 prettyplease = "0.2"

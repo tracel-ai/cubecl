@@ -24,7 +24,7 @@ impl ToTokens for CubeTrait {
         let assoc_methods = self
             .items
             .iter()
-            .filter_map(|it| CubeTraitItem::associated_method(it, &self.args));
+            .filter_map(CubeTraitItem::associated_method);
 
         let has_expand = self
             .items

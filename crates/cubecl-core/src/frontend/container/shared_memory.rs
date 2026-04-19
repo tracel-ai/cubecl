@@ -237,7 +237,7 @@ impl<'a, T: CubePrimitive> ListMut<'a, T> for SharedMemory<T> {
         this: &'a NativeExpand<SharedMemory<T>>,
         idx: NativeExpand<usize>,
     ) -> &'a mut NativeExpand<T> {
-        let mut this = this.clone();
+        let mut this = *this;
         let reference = this.__expand_index_mut_method(scope, idx);
         // SAFETY: This is safe because cloning smem only clones the reference to the global var
         unsafe { core::mem::transmute(reference) }
@@ -250,7 +250,7 @@ impl<'a, T: CubePrimitive> ListMutExpand<'a, T> for NativeExpand<SharedMemory<T>
         scope: &mut Scope,
         idx: NativeExpand<usize>,
     ) -> &'a mut NativeExpand<T> {
-        let mut this = self.clone();
+        let mut this = *self;
         let reference = this.__expand_index_mut_method(scope, idx);
         // SAFETY: This is safe because cloning smem only clones the reference to the global var
         unsafe { core::mem::transmute(reference) }
@@ -270,11 +270,11 @@ impl<T: CubePrimitive> DerefMut for Shared<T> {
     }
 }
 
-impl<T: CubePrimitive> CubeDeref for SharedExpand<T> {
+impl<T: CubePrimitive> ExpandDeref for SharedExpand<T> {
     type Target = T::ExpandType;
 
     fn __expand_deref_method(&self, _: &mut Scope) -> Self::Target {
-        unsafe { self.as_type_ref_unchecked::<T>().clone() }
+        unsafe { *self.as_type_ref_unchecked::<T>() }
     }
 }
 
@@ -285,6 +285,6 @@ impl<T: CubePrimitive> Assign<NativeExpand<T>> for SharedExpand<T> {
     }
 
     fn init_mut(&self, _: &mut Scope) -> Self {
-        self.clone()
+        *self
     }
 }

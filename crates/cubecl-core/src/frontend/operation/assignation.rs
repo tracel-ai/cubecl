@@ -85,9 +85,9 @@ pub mod index_mut {
             impl<E: CubePrimitive> CubeIndexMut for $type<E> {}
 
             impl<E: CubePrimitive> CubeIndexMutExpand for NativeExpand<$type<E>> {
-                fn __expand_index_mut_method<'a, 'b>(
+                fn __expand_index_mut_method<'a>(
                     &'a mut self,
-                    scope: &'b mut Scope,
+                    scope: &mut Scope,
                     index: NativeExpand<usize>,
                 ) -> &'a mut Self::Output {
                     expand_index_mut_native(scope, self, index, None, true)
@@ -99,9 +99,9 @@ pub mod index_mut {
     impl<E: Scalar, N: Size> CubeIndexMut for Vector<E, N> {}
 
     impl<E: Scalar, N: Size> CubeIndexMutExpand for NativeExpand<Vector<E, N>> {
-        fn __expand_index_mut_method<'a, 'b>(
+        fn __expand_index_mut_method<'a>(
             &'a mut self,
-            scope: &'b mut Scope,
+            scope: &mut Scope,
             index: NativeExpand<usize>,
         ) -> &'a mut Self::Output {
             expand_index_mut_native::<NativeExpand<Vector<E, N>>>(scope, self, index, None, true)
@@ -127,16 +127,16 @@ pub mod index {
                 type Output = NativeExpand<E>;
                 type Idx = NativeExpand<usize>;
 
-                fn __expand_index_method<'a, 'b>(
+                fn __expand_index_method<'a>(
                     &'a self,
-                    scope: &'b mut Scope,
+                    scope: &mut Scope,
                     index: NativeExpand<usize>,
                 ) -> &'a Self::Output {
                     expand_index_native(scope, self, index, None, true)
                 }
-                fn __expand_index_unchecked_method<'a, 'b>(
+                fn __expand_index_unchecked_method<'a>(
                     &'a self,
-                    scope: &'b mut Scope,
+                    scope: &mut Scope,
                     index: NativeExpand<usize>,
                 ) -> &'a Self::Output {
                     expand_index_native(scope, self, index, None, false)
@@ -152,16 +152,16 @@ pub mod index {
     impl<E: Scalar, N: Size> CubeIndexExpand for NativeExpand<Vector<E, N>> {
         type Output = NativeExpand<E>;
         type Idx = NativeExpand<usize>;
-        fn __expand_index_method<'a, 'b>(
+        fn __expand_index_method<'a>(
             &'a self,
-            scope: &'b mut Scope,
+            scope: &mut Scope,
             index: NativeExpand<usize>,
         ) -> &'a Self::Output {
             expand_index_native(scope, self, index, None, true)
         }
-        fn __expand_index_unchecked_method<'a, 'b>(
+        fn __expand_index_unchecked_method<'a>(
             &'a self,
-            scope: &'b mut Scope,
+            scope: &mut Scope,
             index: NativeExpand<usize>,
         ) -> &'a Self::Output {
             expand_index_native(scope, self, index, None, false)

@@ -1,12 +1,12 @@
 use quote::{ToTokens, format_ident, quote};
 use syn::{
     FnArg, GenericArgument, Generics, Ident, ImplItem, ItemImpl, PathArguments, Token, Type,
-    TypePath, parse_quote, spanned::Spanned, visit_mut::VisitMut,
+    TypePath, spanned::Spanned, visit_mut::VisitMut,
 };
 
 use crate::{
     ReplaceDefines,
-    parse::kernel::{KernelArgs, KernelBody, SelfType, expand_kernel_ty},
+    parse::kernel::{KernelArgs, KernelBody},
     scope::Context,
 };
 
@@ -53,7 +53,7 @@ impl CubeImplItem {
 
                 if is_method {
                     let method = Self::handle_method_expand(func_name_expand, &mut func);
-                    let func_expand = Self::create_func_expand(struct_ty_name, &func, true, args);
+                    let func_expand = Self::create_func_expand(struct_ty_name, &func, true);
 
                     vec![
                         CubeImplItem::Fn(func),
@@ -63,7 +63,7 @@ impl CubeImplItem {
                 } else {
                     func.sig.name = func_name_expand;
 
-                    let func_expand = Self::create_func_expand(struct_ty_name, &func, false, args);
+                    let func_expand = Self::create_func_expand(struct_ty_name, &func, false);
                     vec![CubeImplItem::Fn(func), CubeImplItem::FnExpand(func_expand)]
                 }
             }
@@ -155,12 +155,7 @@ impl CubeImplItem {
     ///
     /// This is important since it allows to use the Self keyword inside
     /// methods.
-    fn create_func_expand(
-        struct_ty_name: &Type,
-        func: &KernelFn,
-        is_method: bool,
-        args: &KernelArgs,
-    ) -> KernelFn {
+    fn create_func_expand(struct_ty_name: &Type, func: &KernelFn, is_method: bool) -> KernelFn {
         let mut func_sig = func.sig.clone();
 
         // Since the function is associated to the expand type, we have to update the
