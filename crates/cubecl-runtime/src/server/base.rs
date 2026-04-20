@@ -11,6 +11,7 @@ use crate::{
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
+use ahash::AHasher;
 use alloc::boxed::Box;
 #[cfg(feature = "profile-tracy")]
 use alloc::format;
@@ -417,7 +418,7 @@ impl From<Vec<DeviceId>> for CommunicationId {
     fn from(mut value: Vec<DeviceId>) -> Self {
         // Make sure that device ids are sorted so that any combination of the same devices uses the same communicator.
         value.sort();
-        let mut hasher = DefaultHashBuilder::default().build_hasher();
+        let mut hasher = AHasher::default();
         value.hash(&mut hasher);
         CommunicationId {
             id: hasher.finish(),
