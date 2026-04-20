@@ -20,7 +20,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::{
     fmt::Debug,
-    hash::{BuildHasher, Hash, Hasher},
+    hash::{Hash, Hasher},
 };
 use cubecl_common::{
     backtrace::BackTrace,
@@ -33,7 +33,7 @@ use cubecl_common::{
 };
 use cubecl_ir::{DeviceProperties, ElemType, StorageType};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
-use hashbrown::{DefaultHashBuilder, HashSet};
+use hashbrown::HashSet;
 use thiserror::Error;
 
 #[derive(Error, Clone)]
