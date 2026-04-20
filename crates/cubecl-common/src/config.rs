@@ -1,3 +1,6 @@
+/// Reusable logger configuration and sink management.
+pub mod logger;
+
 use alloc::sync::Arc;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
