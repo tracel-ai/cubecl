@@ -1,4 +1,4 @@
-use super::{AutotuneKey, AutotuneOutput, TunableSet, Tuner};
+use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
 use crate::{client::ComputeClient, runtime::Runtime, tune::TuneCacheResult};
 use alloc::string::ToString;
 use alloc::sync::Arc;
@@ -49,10 +49,10 @@ where
     ///
     /// Returns a cached `Arc<TunableSet>` keyed by the `TypeId` of `init_set`. The
     /// initializer runs at most once per process.
-    pub fn init<In, Out, F>(&self, init_set: F) -> Arc<TunableSet<AK, In, Out>>
+    pub fn init<I, Out, F>(&self, init_set: F) -> Arc<TunableSet<AK, I, Out>>
     where
-        F: Fn() -> TunableSet<AK, In, Out> + 'static + Send + Sync,
-        In: Clone + Send + 'static,
+        F: Fn() -> TunableSet<AK, I, Out> + 'static + Send + Sync,
+        I: TuneInputs,
         Out: AutotuneOutput,
     {
         let sets = self.sets.read();
@@ -97,11 +97,13 @@ where
     }
 
     #[cfg(feature = "autotune-checks")]
-    fn checks<In: Send + Clone + 'static, Out: AutotuneOutput>(
+    fn checks<'a, I: TuneInputs, Out: AutotuneOutput>(
         &self,
-        operations: &TunableSet<AK, In, Out>,
-        inputs: &In,
-    ) {
+        operations: &TunableSet<AK, I, Out>,
+        inputs: &<I as TuneInputs>::At<'a>,
+    ) where
+        <I as TuneInputs>::At<'a>: Clone + Send,
+    {
         use alloc::vec::Vec;
 
         let mut checks_outputs = Vec::new();
@@ -115,15 +117,15 @@ where
 
     /// Execute the fastest operation in a [`TunableSet`], triggering a tuning pass on
     /// the first call for a given key.
-    pub fn execute<R: Runtime, In, Out>(
+    pub fn execute<'a, R: Runtime, I: TuneInputs, Out>(
         &self,
         id: &ID,
         client: &ComputeClient<R>,
-        operations: Arc<TunableSet<AK, In, Out>>,
-        inputs: In,
+        operations: Arc<TunableSet<AK, I, Out>>,
+        inputs: <I as TuneInputs>::At<'a>,
     ) -> Out
     where
-        In: Clone + Send + 'static,
+        <I as TuneInputs>::At<'a>: Clone + Send,
         Out: AutotuneOutput,
     {
         let key = operations.generate_key(&inputs);
@@ -143,14 +145,14 @@ where
         // First, check for a cache hit under a read lock.
         if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
             #[cfg(feature = "autotune-checks")]
-            self.checks(&operations, &inputs);
+            self.checks::<I, Out>(&operations, &inputs);
             return operations
                 .fastest(fastest_index)
                 .execute(inputs)
                 .expect("Should run when selected by autotune.");
         }
 
-        let fastest = tuner.check_tune(
+        let fastest = tuner.check_tune::<R, I, Out>(
             &key,
             &inputs,
             &operations,
@@ -158,16 +160,16 @@ where
             client,
         );
 
-        // Resolve the cache state into a `done_rx` we can wait on. Hit → run immediately;
-        // Pending → attach to the in-flight tune; Miss → kick one off.
+        // Run the execution depending on the cache state.
         match fastest {
             TuneCacheResult::Hit { fastest_index } => {
                 #[cfg(feature = "autotune-checks")]
-                self.checks(&operations, &inputs);
-                return operations
+                self.checks::<I, Out>(&operations, &inputs);
+
+                operations
                     .fastest(fastest_index)
                     .execute(inputs)
-                    .expect("Should run when selected by autotune.");
+                    .expect("Should run when selected by autotune.")
             }
             TuneCacheResult::Unchecked | TuneCacheResult::Miss => {
                 panic!(
@@ -175,8 +177,7 @@ where
                 )
             }
             TuneCacheResult::Pending => {
-                // If we're still waiting for the result, eg. on wasm, just fallback to trying all operations.
-                let operations: &TunableSet<AK, In, Out> = &operations;
+                // Still waiting (e.g. on wasm). Try all operations as a fallback.
                 for i in 0..operations.len() {
                     if let Ok(output) = operations.fastest(i).execute(inputs.clone()) {
                         return output;

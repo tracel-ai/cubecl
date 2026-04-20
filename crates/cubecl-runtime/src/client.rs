@@ -300,31 +300,14 @@ impl<R: Runtime> ComputeClient<R> {
         .memory
     }
 
-    /// Executes a task that has exclusive access to the current device.
-    pub fn exclusive<Re: Send + 'static, F: FnOnce() -> Re + Send + 'static>(
-        &self,
-        task: F,
-    ) -> Result<Re, ServerError> {
-        // We first flush current tasks enqueued on the device.
-        self.flush()?;
-
-        // We then launch the task.
-        self.device
-            .exclusive(task)
-            .map_err(|err| ServerError::Generic {
-                reason: format!("Communication channel with the server is down: {err:?}"),
-                backtrace: BackTrace::capture(),
-            })
-    }
-
     /// todo: docs
-    pub fn scoped<'a, Re: Send, F: FnOnce() -> Re + Send + 'a>(
+    pub fn exclusive<'a, Re: Send + 'static, F: FnOnce() -> Re + Send + 'a>(
         &'a self,
         task: F,
     ) -> Result<Re, ServerError> {
         // We then launch the task.
         self.device
-            .exclusive_scoped(task)
+            .exclusive(task)
             .map_err(|err| ServerError::Generic {
                 reason: format!("Communication channel with the server is down: {err:?}"),
                 backtrace: BackTrace::capture(),
@@ -344,7 +327,7 @@ impl<R: Runtime> ComputeClient<R> {
     ) -> Result<Re, ServerError> {
         // We then launch the task.
         self.device
-            .exclusive_scoped(move || task(input))
+            .exclusive(move || task(input))
             .map_err(|err| ServerError::Generic {
                 reason: format!("Communication channel with the server is down: {err:?}"),
                 backtrace: BackTrace::capture(),
@@ -668,23 +651,28 @@ impl<R: Runtime> ComputeClient<R> {
 
         // Even though we do a blocking submit, the actual data transfer is executed asynchronously
         // on the communication stream.
-        self.device.submit_blocking_scoped(move |server_src| {
-            dst_server.device.submit_blocking_scoped(move |server_dst| {
-                R::Server::send_recv(
-                    handle_cloned,
-                    server_src,
-                    server_dst,
-                    src_descriptor,
-                    dtype,
-                    stream_id_src,
-                    stream_id_dst,
-                )
-                .unwrap();
+        self.device
+            .submit_blocking(move |server_src| {
+                dst_server
+                    .device
+                    .submit_blocking(move |server_dst| {
+                        R::Server::send_recv(
+                            handle_cloned,
+                            server_src,
+                            server_dst,
+                            src_descriptor,
+                            dtype,
+                            stream_id_src,
+                            stream_id_dst,
+                        )
+                        .unwrap();
 
-                server_src.sync_collective(stream_id_src).unwrap();
-                server_dst.sync_collective(stream_id_dst).unwrap();
-            });
-        });
+                        server_src.sync_collective(stream_id_src).unwrap();
+                        server_dst.sync_collective(stream_id_dst).unwrap();
+                    })
+                    .unwrap();
+            })
+            .unwrap();
 
         handle
     }
@@ -958,7 +946,7 @@ impl<R: Runtime> ComputeClient<R> {
         #[allow(unused_mut, reason = "Used in profile-tracy")]
         let mut result = self
             .device
-            .exclusive_scoped(move || {
+            .exclusive(move || {
                 // We first get mut access to the server to create a token.
                 // Then we free to server, since it's going to be accessed in `func()`.
                 let token =
