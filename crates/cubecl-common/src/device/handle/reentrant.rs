@@ -31,7 +31,7 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
         Self::locate(device_id)
     }
 
-    fn id(&self) -> DeviceId {
+    fn device_id(&self) -> DeviceId {
         self.device_id
     }
 

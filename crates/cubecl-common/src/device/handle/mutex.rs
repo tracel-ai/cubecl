@@ -72,7 +72,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
         }
     }
 
-    fn id(&self) -> DeviceId {
+    fn device_id(&self) -> DeviceId {
         self.device_id
     }
 

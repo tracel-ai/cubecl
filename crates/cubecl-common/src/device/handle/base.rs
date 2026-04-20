@@ -26,7 +26,7 @@ pub(crate) trait DeviceHandleSpec<S: DeviceService>: Sized {
     fn new(device_id: DeviceId) -> Self;
 
     /// Retrieves the device ID for this handle.
-    fn id(&self) -> DeviceId;
+    fn device_id(&self) -> DeviceId;
 
     /// Retrieves the server utilities for this thread.
     fn utilities(&self) -> ServerUtilitiesHandle;
