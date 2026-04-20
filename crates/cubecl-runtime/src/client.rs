@@ -5,9 +5,10 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError, KernelArguments,
-        MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
-        ProfileError, ReduceOperation, ServerCommunication, ServerError, ServerUtilities,
+        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
+        KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
+        MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
+        ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
 };
@@ -581,6 +582,7 @@ impl<R: Runtime> ComputeClient<R> {
         self.device.submit(move |server| {
             server.sync_collective(stream_id).unwrap();
         });
+
         // We don't actually need or want to sync the server here, but we need to make sure any
         // task enqueued on the communication channel is done.
         self.device.flush_queue();
@@ -592,7 +594,7 @@ impl<R: Runtime> ComputeClient<R> {
         tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
     )]
     pub fn all_reduce(
-        &self,
+        &mut self,
         src: Handle,
         dst: Handle,
         dtype: ElemType,
@@ -606,12 +608,29 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let src = src.binding();
         let dst = dst.binding();
+        let device_ids_cloned = device_ids.clone();
+
+        let comms_id = CommunicationId::from(device_ids.clone());
+        let is_comms_init = self
+            .utilities
+            .initialized_comms
+            .read()
+            .unwrap()
+            .contains(&comms_id);
 
         self.device.submit(move |server| {
             server
-                .all_reduce(src, dst, dtype, stream_id, op, device_ids)
+                .all_reduce(src, dst, dtype, stream_id, op, device_ids_cloned)
                 .unwrap();
         });
+
+        // Other threads could be waiting on `cudarc::nccl::result::comm_init_rank`, so we need to
+        // flush right away as to not block these threads.
+        if !is_comms_init {
+            self.device.flush_queue();
+            let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
+            initialized_comms.insert(comms_id);
+        }
     }
 
     /// Transfer data from one client to another

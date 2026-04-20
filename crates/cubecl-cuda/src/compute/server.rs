@@ -3,7 +3,7 @@ use crate::{
     CudaCompiler,
     compute::{
         command::{Command, write_to_cpu},
-        communication::{CudaCommId, get_nccl_comm_id, get_nccl_dtype_count, to_nccl_op},
+        communication::{get_nccl_comm_id, get_nccl_dtype_count, to_nccl_op},
         context::CudaContext,
         stream::CudaStreamBackend,
         sync::Fence,
@@ -19,9 +19,9 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Binding, CopyDescriptor, Handle, KernelArguments, LaunchError, ProfileError,
-        ProfilingToken, ReduceOperation, ServerCommunication, ServerError, ServerUtilities,
-        StreamErrorMode, TensorMapBinding, TensorMapMeta,
+        Binding, CommunicationId, CopyDescriptor, Handle, KernelArguments, LaunchError,
+        ProfileError, ProfilingToken, ReduceOperation, ServerCommunication, ServerError,
+        ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
     },
     zspace::{Shape, Strides},
 };
@@ -55,7 +55,7 @@ pub struct CudaServer {
     peer_activated: bool,
     utilities: Arc<ServerUtilities<Self>>,
     comm_stream: *mut CUstream_st,
-    communicators: HashMap<CudaCommId, *mut cudarc::nccl::sys::ncclComm>,
+    communicators: HashMap<CommunicationId, *mut cudarc::nccl::sys::ncclComm>,
 }
 
 // SAFETY: `CudaServer` is only accessed from one thread at a time via the `DeviceHandle`,
@@ -322,7 +322,7 @@ impl ServerCommunication for CudaServer {
         Fence::new(stream).wait_async(self.comm_stream);
 
         // Get the communicator, if it doesn't exist, initialize it.
-        let id = CudaCommId::from(device_ids.clone());
+        let id = CommunicationId::from(device_ids.clone());
         let entry = self.communicators.get(&id);
         let comm = match entry {
             Some(c) => *c,
@@ -334,6 +334,7 @@ impl ServerCommunication for CudaServer {
         // SAFETY: `resource_src.ptr` and `resource_dst.ptr` are valid device pointers.
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
+
         unsafe {
             cudarc::nccl::result::all_reduce(
                 resource_src.ptr as *const _,
@@ -963,7 +964,7 @@ impl CudaServer {
     }
 
     fn create_communicator(&mut self, device_ids: Vec<DeviceId>) -> *mut ncclComm {
-        let id = CudaCommId::from(device_ids.clone());
+        let id = CommunicationId::from(device_ids.clone());
         let mut comm = MaybeUninit::uninit();
         let rank = device_ids
             .iter()
@@ -984,7 +985,10 @@ impl CudaServer {
             .unwrap();
             comm.assume_init()
         };
-        self.communicators.insert(id, communicator);
+        self.communicators.insert(id.clone(), communicator);
+
+        let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
+        initialized_comms.insert(id);
 
         communicator
     }

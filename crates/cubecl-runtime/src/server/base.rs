@@ -11,13 +11,17 @@ use crate::{
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
+use ahash::AHasher;
 use alloc::boxed::Box;
 #[cfg(feature = "profile-tracy")]
 use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::fmt::Debug;
+use core::{
+    fmt::Debug,
+    hash::{Hash, Hasher},
+};
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::Bytes,
@@ -25,9 +29,11 @@ use cubecl_common::{
     future::DynFut,
     profile::ProfileDuration,
     stream_id::StreamId,
+    stub::RwLock,
 };
 use cubecl_ir::{DeviceProperties, ElemType, StorageType};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
+use hashbrown::HashSet;
 use thiserror::Error;
 
 #[derive(Error, Clone)]
@@ -89,6 +95,8 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub layout_policy: Server::MemoryLayoutPolicy,
     /// How to enforce bounds checking on kernels.
     pub check_mode: BoundsCheckMode,
+    /// A set containing the ids for which the inter-device communication has already been initialized.
+    pub initialized_comms: RwLock<HashSet<CommunicationId>>,
 }
 
 /// Defines how the memory layout is determined.
@@ -151,6 +159,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
             info,
             layout_policy: allocator,
             check_mode: GlobalConfig::get().compilation.check_mode,
+            initialized_comms: RwLock::new(HashSet::default()),
         }
     }
 }
@@ -396,6 +405,25 @@ where
 
     /// Update the memory mode of allocation in the server.
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
+}
+
+/// An ID unique to any unordered combination of devices.
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub struct CommunicationId {
+    /// The ID as a `String`.
+    pub id: u64,
+}
+
+impl From<Vec<DeviceId>> for CommunicationId {
+    fn from(mut value: Vec<DeviceId>) -> Self {
+        // Make sure that device ids are sorted so that any combination of the same devices uses the same communicator.
+        value.sort();
+        let mut hasher = AHasher::default();
+        value.hash(&mut hasher);
+        CommunicationId {
+            id: hasher.finish(),
+        }
+    }
 }
 
 /// Different reduce operations.
