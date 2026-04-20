@@ -321,6 +321,7 @@ impl ServerCommunication for CudaServer {
         // Wait for data to be ready on compute stream.
         Fence::new(stream).wait_async(self.comm_stream);
 
+        println!("[{:?}] all_reduce get_comm", std::thread::current().id());
         // Get the communicator, if it doesn't exist, initialize it.
         let id = CommunicationId::from(device_ids.clone());
         let entry = self.communicators.get(&id);
@@ -334,6 +335,8 @@ impl ServerCommunication for CudaServer {
         // SAFETY: `resource_src.ptr` and `resource_dst.ptr` are valid device pointers.
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
+
+        println!("[{:?}] nccl all_reduce", std::thread::current().id());
         unsafe {
             cudarc::nccl::result::all_reduce(
                 resource_src.ptr as *const _,
@@ -974,7 +977,7 @@ impl CudaServer {
         // SAFETY: `comm` is a valid `MaybeUninit`. `nccl_comm_id` is a unique communicator ID
         // shared across all participating ranks. `rank` is this device's position in the
         // group. `comm_init_rank` initializes the communicator, making `assume_init` valid.
-        println!("comm_init_rank");
+        println!("[{:?}] comm_init_rank", std::thread::current().id());
         let communicator = unsafe {
             cudarc::nccl::result::comm_init_rank(
                 comm.as_mut_ptr(),
@@ -987,11 +990,11 @@ impl CudaServer {
         };
         self.communicators.insert(id.clone(), communicator);
 
-        println!("write insert");
+        println!("[{:?}] write insert", std::thread::current().id());
         let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
         initialized_comms.insert(id);
 
-        println!("create end");
+        println!("[{:?}] create end", std::thread::current().id());
 
         communicator
     }

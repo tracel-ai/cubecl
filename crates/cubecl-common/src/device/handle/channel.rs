@@ -12,6 +12,7 @@ use std::{
     cell::RefCell,
     marker::PhantomData,
     panic::{AssertUnwindSafe, catch_unwind},
+    println,
 };
 
 use custom_channel::DeviceClient;
@@ -138,7 +139,9 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     }
 
     fn flush_queue(&self) {
+        println!("[{:?}] in flush_queue", std::thread::current().id());
         if !is_device_runner_thread(self.state.client.device_id()) {
+            println!("[{:?}] flush_queue true", std::thread::current().id());
             self.state.client.flush();
         }
     }

@@ -612,7 +612,10 @@ impl<R: Runtime> ComputeClient<R> {
         let dst = dst.binding();
         let device_ids_cloned = device_ids.clone();
 
-        println!("read init_comm");
+        println!(
+            "[{:?}] all_reduce read init comm",
+            std::thread::current().id()
+        );
         let comms_id = CommunicationId::from(device_ids.clone());
         let is_comms_init = self
             .utilities
@@ -621,7 +624,7 @@ impl<R: Runtime> ComputeClient<R> {
             .unwrap()
             .contains(&comms_id);
 
-        println!("submit");
+        println!("[{:?}] all_reduce submit", std::thread::current().id());
         self.device.submit(move |server| {
             server
                 .all_reduce(src, dst, dtype, stream_id, op, device_ids_cloned)
@@ -630,9 +633,12 @@ impl<R: Runtime> ComputeClient<R> {
 
         // Other threads could be waiting on `cudarc::nccl::result::comm_init_rank`, so we need to
         // flush right away as to not block these threads.
-        println!("flush_queue");
+        println!(
+            "[{:?}] all_reduce do flush_queue?",
+            std::thread::current().id()
+        );
         if !is_comms_init {
-            println!("flush_queue true");
+            println!("[{:?}] all_reduce flush_queue", std::thread::current().id());
             self.device.flush_queue();
         }
     }
