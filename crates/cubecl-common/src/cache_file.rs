@@ -13,6 +13,20 @@ pub struct CacheFile {
     path: PathBuf,
     lock: FileLock,
     cursor: u64,
+    /// `false` when the underlying file could not be created / opened
+    /// (missing parent directory, read-only mount, sandbox / hardened
+    /// runtime refusal, etc.). All subsequent ops on an invalid cache
+    /// file are no-ops — callers see an empty cache and fall through
+    /// to recompute-from-scratch paths rather than panicking.
+    ///
+    /// This replaces the previous panic-on-unwrap behavior that
+    /// cascaded into "Task failed: Any { .. }" warnings across burn's
+    /// fusion runtime when a downstream IR operation tried to use a
+    /// tensor whose producing kernel never got registered because the
+    /// cache file couldn't be opened. See
+    /// https://github.com/chrislin95/cubecl branch fix/fastdivmod-zero-guard
+    /// commit log for the motivating bug report.
+    valid: bool,
 }
 
 impl Display for CacheFile {
@@ -23,33 +37,110 @@ impl Display for CacheFile {
 
 impl CacheFile {
     /// Create a new cache file.
+    ///
+    /// If the parent directory can't be created OR the file can't be
+    /// opened (common failure mode in sandboxed / ad-hoc-signed bundle
+    /// apps where `$HOME/.cache/<name>/<version>/` write access is
+    /// silently denied), we log a warning and return an "invalid"
+    /// CacheFile. Subsequent `lock()` / `write()` calls become no-ops,
+    /// so callers silently skip the disk cache and recompute
+    /// every time. Slow, but never panics.
     pub fn new<P: Into<PathBuf>>(path: P, lock_max_duration: Duration) -> Self {
         let path: PathBuf = path.into();
+        let mut valid = true;
 
         // We check before trying to create the file, since it might erase the content of an
         // existing file.
         if !fs::exists(&path).unwrap_or(false) {
             if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).ok();
+                if let Err(err) = fs::create_dir_all(parent) {
+                    log::warn!(
+                        "cubecl cache: failed to create parent dir {:?}: {}; \
+                         cache will be disabled for this entry",
+                        parent,
+                        err
+                    );
+                    valid = false;
+                }
             }
 
-            File::create(&path).unwrap();
+            // Even if `create_dir_all` appeared to succeed, the actual
+            // `File::create` can still fail (permission, read-only FS,
+            // race with a cleanup process). Log and disable rather
+            // than panicking — the original `.unwrap()` here is what
+            // cascaded into 7-9 burn-fusion panics when the cache
+            // subdir was unwritable.
+            if valid {
+                if let Err(err) = File::create(&path) {
+                    log::warn!(
+                        "cubecl cache: failed to create file {:?}: {}; \
+                         cache will be disabled for this entry",
+                        path,
+                        err
+                    );
+                    valid = false;
+                }
+            }
         }
 
         Self {
             lock: FileLock::new(&path, lock_max_duration),
             path,
             cursor: 0,
+            valid,
         }
     }
 
     /// Locks the file and returns the content that wasn't synced since the last lock.
+    ///
+    /// Returns `None` when the cache file is invalid OR when the
+    /// underlying file cannot be opened (disappeared, permission
+    /// changed, etc.). Callers already treat `None` as "no new
+    /// content" so degrading to this path is safe.
     pub fn lock(&mut self) -> Option<BufReader<File>> {
+        if !self.valid {
+            return None;
+        }
+
         self.lock.lock();
 
-        let mut file = File::open(&self.path).unwrap();
-        let end = file.metadata().unwrap().len();
-        file.seek(SeekFrom::Start(self.cursor)).unwrap();
+        let mut file = match File::open(&self.path) {
+            Ok(f) => f,
+            Err(err) => {
+                log::warn!(
+                    "cubecl cache: File::open({:?}) failed during lock(): {}; \
+                     skipping cache read",
+                    self.path,
+                    err
+                );
+                self.lock.unlock();
+                self.valid = false;
+                return None;
+            }
+        };
+        let end = match file.metadata() {
+            Ok(m) => m.len(),
+            Err(err) => {
+                log::warn!(
+                    "cubecl cache: metadata({:?}) failed: {}; skipping cache read",
+                    self.path,
+                    err
+                );
+                self.lock.unlock();
+                self.valid = false;
+                return None;
+            }
+        };
+        if let Err(err) = file.seek(SeekFrom::Start(self.cursor)) {
+            log::warn!(
+                "cubecl cache: seek on {:?} failed: {}; skipping cache read",
+                self.path,
+                err
+            );
+            self.lock.unlock();
+            self.valid = false;
+            return None;
+        }
 
         if self.cursor < end {
             let buf = BufReader::new(file);
@@ -67,18 +158,42 @@ impl CacheFile {
 
     /// Write the content to the file.
     ///
-    /// Panics if the file isn't locked or there is an internal error.
+    /// Panics if the file isn't locked (the lock precondition is a
+    /// caller-side API contract). File I/O errors are logged and
+    /// swallowed — a missed cache write is not fatal.
     pub fn write(&mut self, content: &[u8]) {
         if !self.lock.is_lock {
             panic!("The cache file should be locked before writing content to it.")
         }
+        if !self.valid {
+            return;
+        }
 
-        let mut file = fs::OpenOptions::new()
-            .append(true)
-            .open(&self.path)
-            .unwrap();
+        let mut file = match fs::OpenOptions::new().append(true).open(&self.path) {
+            Ok(f) => f,
+            Err(err) => {
+                log::warn!(
+                    "cubecl cache: append-open({:?}) failed: {}; skipping write",
+                    self.path,
+                    err
+                );
+                self.valid = false;
+                return;
+            }
+        };
 
-        self.cursor += file.write(content).unwrap() as u64;
+        match file.write(content) {
+            Ok(n) => self.cursor += n as u64,
+            Err(err) => {
+                log::warn!(
+                    "cubecl cache: write({:?}, {} bytes) failed: {}; skipping",
+                    self.path,
+                    content.len(),
+                    err
+                );
+                self.valid = false;
+            }
+        }
     }
 }
 
