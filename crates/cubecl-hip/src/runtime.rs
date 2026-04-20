@@ -273,7 +273,7 @@ impl Runtime for HipRuntime {
             }
         }
         (0..device_count())
-            .map(|i| DeviceId::new(0, i as u32))
+            .map(|i| DeviceId::new(0, i as u16))
             .collect()
     }
 }

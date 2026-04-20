@@ -5,9 +5,10 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError, KernelArguments,
-        MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
-        ProfileError, ReduceOperation, ServerCommunication, ServerError, ServerUtilities,
+        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
+        KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
+        MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
+        ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
 };
@@ -299,31 +300,14 @@ impl<R: Runtime> ComputeClient<R> {
         .memory
     }
 
-    /// Executes a task that has exclusive access to the current device.
-    pub fn exclusive<Re: Send + 'static, F: FnOnce() -> Re + Send + 'static>(
-        &self,
-        task: F,
-    ) -> Result<Re, ServerError> {
-        // We first flush current tasks enqueued on the device.
-        self.flush()?;
-
-        // We then launch the task.
-        self.device
-            .exclusive(task)
-            .map_err(|err| ServerError::Generic {
-                reason: format!("Communication channel with the server is down: {err:?}"),
-                backtrace: BackTrace::capture(),
-            })
-    }
-
     /// todo: docs
-    pub fn scoped<'a, Re: Send, F: FnOnce() -> Re + Send + 'a>(
+    pub fn exclusive<'a, Re: Send + 'static, F: FnOnce() -> Re + Send + 'a>(
         &'a self,
         task: F,
     ) -> Result<Re, ServerError> {
         // We then launch the task.
         self.device
-            .exclusive_scoped(task)
+            .exclusive(task)
             .map_err(|err| ServerError::Generic {
                 reason: format!("Communication channel with the server is down: {err:?}"),
                 backtrace: BackTrace::capture(),
@@ -343,7 +327,7 @@ impl<R: Runtime> ComputeClient<R> {
     ) -> Result<Re, ServerError> {
         // We then launch the task.
         self.device
-            .exclusive_scoped(move || task(input))
+            .exclusive(move || task(input))
             .map_err(|err| ServerError::Generic {
                 reason: format!("Communication channel with the server is down: {err:?}"),
                 backtrace: BackTrace::capture(),
@@ -581,6 +565,7 @@ impl<R: Runtime> ComputeClient<R> {
         self.device.submit(move |server| {
             server.sync_collective(stream_id).unwrap();
         });
+
         // We don't actually need or want to sync the server here, but we need to make sure any
         // task enqueued on the communication channel is done.
         self.device.flush_queue();
@@ -592,7 +577,7 @@ impl<R: Runtime> ComputeClient<R> {
         tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
     )]
     pub fn all_reduce(
-        &self,
+        &mut self,
         src: Handle,
         dst: Handle,
         dtype: ElemType,
@@ -606,12 +591,29 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let src = src.binding();
         let dst = dst.binding();
+        let device_ids_cloned = device_ids.clone();
+
+        let comms_id = CommunicationId::from(device_ids.clone());
+        let is_comms_init = self
+            .utilities
+            .initialized_comms
+            .read()
+            .unwrap()
+            .contains(&comms_id);
 
         self.device.submit(move |server| {
             server
-                .all_reduce(src, dst, dtype, stream_id, op, device_ids)
+                .all_reduce(src, dst, dtype, stream_id, op, device_ids_cloned)
                 .unwrap();
         });
+
+        // Other threads could be waiting on `cudarc::nccl::result::comm_init_rank`, so we need to
+        // flush right away as to not block these threads.
+        if !is_comms_init {
+            self.device.flush_queue();
+            let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
+            initialized_comms.insert(comms_id);
+        }
     }
 
     /// Transfer data from one client to another
@@ -632,18 +634,22 @@ impl<R: Runtime> ComputeClient<R> {
 
             // TODO: This should be made in a non-blocking API.
             self.device
-                .submit_blocking_scoped(move |server_src| {
-                    dst_server.device.submit_blocking_scoped(|server_dst| {
-                        R::Server::copy(
-                            handle_cloned,
-                            server_src,
-                            server_dst,
-                            src_descriptor,
-                            stream_id_src,
-                            stream_id_dst,
-                        )
-                    })
+                .submit_blocking(move |server_src| {
+                    dst_server
+                        .device
+                        .submit_blocking(|server_dst| {
+                            R::Server::copy(
+                                handle_cloned,
+                                server_src,
+                                server_dst,
+                                src_descriptor,
+                                stream_id_src,
+                                stream_id_dst,
+                            )
+                        })
+                        .unwrap()
                 })
+                .unwrap()
                 .unwrap();
 
             handle
@@ -927,7 +933,7 @@ impl<R: Runtime> ComputeClient<R> {
         #[allow(unused_mut, reason = "Used in profile-tracy")]
         let mut result = self
             .device
-            .exclusive_scoped(move || {
+            .exclusive(move || {
                 // We first get mut access to the server to create a token.
                 // Then we free to server, since it's going to be accessed in `func()`.
                 let token =

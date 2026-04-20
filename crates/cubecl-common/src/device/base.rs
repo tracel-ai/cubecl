@@ -7,7 +7,7 @@ pub struct DeviceId {
     /// The type id identifies the type of the device.
     pub type_id: u16,
     /// The index id identifies the device number.
-    pub index_id: u32,
+    pub index_id: u16,
 }
 
 /// Device trait for all cubecl devices.

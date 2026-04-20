@@ -10,10 +10,10 @@ use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::config::{Logger, autotune::AutotuneLogLevel};
 use crate::server::LaunchError;
-use crate::tune::{AutotuneResult, TuneBenchmark, TuneCache};
+use crate::tune::{AutotuneResult, TuneCache, tune_benchmark};
 use crate::{client::ComputeClient, runtime::Runtime};
 
-use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult};
+use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneInputs};
 
 #[derive(Debug)]
 /// Runs autotune benchmarks for a single device and caches the results.
@@ -86,7 +86,7 @@ impl From<LaunchError> for AutotuneError {
     }
 }
 
-/// A queued benchmark: one sample-set of profile futures plus its metadata.
+/// A successfully-queued benchmark: the profile futures for each sample, plus its metadata.
 struct PendingBench {
     index: usize,
     name: String,
@@ -120,38 +120,37 @@ impl<K: AutotuneKey> Tuner<K> {
         self.cache.lock().fastest(key)
     }
 
-    /// Kick off a tuning job for `key`, or return immediately if the cache already has
-    /// a result or another thread is tuning it.
-    pub fn check_tune<R: Runtime, In: Send + Clone + 'static, Out: AutotuneOutput>(
+    /// Check the cache, validate checksums if needed, and kick off a tuning job if the
+    /// key is a miss. Returns the resolved cache state.
+    pub fn check_tune<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
         &self,
         key: &K,
-        inputs: &In,
-        tunables: &TunableSet<K, In, Out>,
-        #[allow(unused_variables)] checksum: impl FnOnce() -> String + Send + Sync,
+        inputs: &F::At<'a>,
+        tunables: &TunableSet<K, F, Out>,
+        #[cfg_attr(not(std_io), allow(unused))] checksum: impl FnOnce() -> String + Send + Sync,
         client: &ComputeClient<R>,
-    ) -> TuneCacheResult {
+    ) -> TuneCacheResult
+    where
+        <F as TuneInputs>::At<'a>: Clone + Send,
+    {
         {
             let mut cache = self.cache.lock();
+            let cur = cache.fastest(key);
 
-            #[allow(unused_mut)]
-            let mut cur = cache.fastest(key);
-
-            // Try to validate current if need be.
             #[cfg(std_io)]
-            if matches!(cur, TuneCacheResult::Unchecked) {
-                // Checksum validation may retroactively turn an Unchecked entry into a Hit.
+            let cur = if matches!(cur, TuneCacheResult::Unchecked) {
                 let mut log = self.logger.lock();
                 let checksum = checksum();
                 if let AutotuneLogLevel::Full = log.log_level_autotune() {
                     log.log_autotune(&format!("validate checksum key={key}, checksum={checksum}"));
                 }
-                cur = cache.validate_checksum(key, &checksum)
-            }
+                cache.validate_checksum(key, &checksum)
+            } else {
+                cur
+            };
 
             match cur {
-                // Already pending or done, return current state.
                 TuneCacheResult::Hit { .. } | TuneCacheResult::Pending => return cur,
-                // Otherwise we start tuning, mark this as pending.
                 TuneCacheResult::Miss | TuneCacheResult::Unchecked => {
                     cache.mark_pending(key.clone())
                 }
@@ -162,12 +161,12 @@ impl<K: AutotuneKey> Tuner<K> {
 
         log::info!("Tuning {key}");
 
-        let autotunables = tunables.autotunables();
+        let autotunables = tunables.autotunables().collect::<Vec<_>>();
         let mut results: Vec<AutotuneResult> = autotunables
             .iter()
             .map(|a| {
                 AutotuneResult::error(AutotuneError::Skip {
-                    name: a.name().to_string(),
+                    name: a.name.to_string(),
                 })
             })
             .collect();
@@ -176,12 +175,12 @@ impl<K: AutotuneKey> Tuner<K> {
         let checksum = tunables.compute_checksum();
 
         // Fast path: single tunable, no benchmarking needed.
-        if autotunables.len() == 1 {
+        if results.len() == 1 {
             self.cache.lock().cache_insert(key.clone(), 0);
             return TuneCacheResult::Hit { fastest_index: 0 };
         }
 
-        let test_inputs = tunables.inputs_generator(key, inputs)();
+        let test_inputs = tunables.generate_inputs(key, inputs);
         let mut plan = tunables.plan(key);
         let mut context_logs = match self.logger.lock().log_level_autotune() {
             AutotuneLogLevel::Full => Some(String::new()),
@@ -202,14 +201,11 @@ impl<K: AutotuneKey> Tuner<K> {
                 );
             }
 
-            for index in tunable_indices {
-                let op = &autotunables[index];
-                let name = op.name().to_string();
-                let bench = TuneBenchmark::new(op.clone(), test_inputs.clone(), client.clone());
-                match bench.profile() {
+            for (index, op) in autotunables.iter().enumerate() {
+                match tune_benchmark(op, test_inputs.clone(), client.clone()) {
                     Ok(profiles) => pending.push(PendingBench {
                         index,
-                        name,
+                        name: op.name.clone(),
                         profiles,
                     }),
                     Err(err) => {
@@ -242,7 +238,6 @@ impl<K: AutotuneKey> Tuner<K> {
                 process_request(request, &cache, &logger).await;
             });
 
-            // Pending results.
             return TuneCacheResult::Pending;
         }
 
@@ -275,7 +270,7 @@ async fn process_request<K: AutotuneKey>(
 
         if profiles.is_empty() {
             results[index] = AutotuneResult::error(AutotuneError::Unknown {
-                name,
+                name: name.to_string(),
                 err: "No profiling available".to_string(),
             });
             continue;
@@ -288,7 +283,7 @@ async fn process_request<K: AutotuneKey>(
         }
 
         results[index] = AutotuneResult::success(AutotuneOutcome::new(
-            name,
+            name.to_string(),
             index,
             BenchmarkComputations::new(&BenchmarkDurations::from_durations(
                 timing_method,
