@@ -276,7 +276,7 @@ impl ServerCommunication for CudaServer {
 
     fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
         let id = CommunicationId::from(device_ids.clone());
-        if let Entry::Vacant(e) = self.communicators.entry(id) {
+        if let Entry::Vacant(e) = self.communicators.entry(id.clone()) {
             let mut comm = MaybeUninit::uninit();
             let mut device_ids = device_ids.clone();
             device_ids.sort();
@@ -302,6 +302,9 @@ impl ServerCommunication for CudaServer {
                 })?;
                 e.insert(comm.assume_init());
             }
+
+            let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
+            initialized_comms.insert(id);
         }
 
         Ok(())
@@ -861,36 +864,6 @@ impl CudaServer {
         )?;
 
         Ok(())
-    }
-
-    fn create_communicator(&mut self, device_ids: Vec<DeviceId>) -> *mut ncclComm {
-        let id = CommunicationId::from(device_ids.clone());
-        let mut comm = MaybeUninit::uninit();
-        let rank = device_ids
-            .iter()
-            .position(|id| id.index_id as i32 == self.device_id)
-            .expect("Device's peer id should be in the list of device ids.");
-        let nccl_comm_id = get_nccl_comm_id(device_ids.clone());
-
-        // SAFETY: `comm` is a valid `MaybeUninit`. `nccl_comm_id` is a unique communicator ID
-        // shared across all participating ranks. `rank` is this device's position in the
-        // group. `comm_init_rank` initializes the communicator, making `assume_init` valid.
-        let communicator = unsafe {
-            cudarc::nccl::result::comm_init_rank(
-                comm.as_mut_ptr(),
-                device_ids.len() as i32,
-                nccl_comm_id,
-                rank as i32,
-            )
-            .unwrap();
-            comm.assume_init()
-        };
-        self.communicators.insert(id.clone(), communicator);
-
-        let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
-        initialized_comms.insert(id);
-
-        communicator
     }
 
     pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {

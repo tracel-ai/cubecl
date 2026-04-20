@@ -578,10 +578,17 @@ impl<R: Runtime> ComputeClient<R> {
     )]
     pub fn ensure_init_collective(&mut self, device_ids: Vec<DeviceId>) {
         let comm_id = CommunicationId::from(device_ids.clone());
-        if !self.initialized_comms.contains(&comm_id) {
+        let is_comms_init = self
+            .utilities
+            .initialized_comms
+            .read()
+            .unwrap()
+            .contains(&comm_id);
+        if !is_comms_init {
             self.device
                 .submit(move |server| server.comm_init(device_ids).unwrap());
-            self.initialized_comms.insert(comm_id);
+            let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
+            initialized_comms.insert(comm_id);
             // We don't want the initialization to be blocking, but we also want to flush it right away so that other
             // threads aren't waiting on it.
             self.device.flush_queue();
