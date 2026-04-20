@@ -1,5 +1,3 @@
-use std::println;
-
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
@@ -612,12 +610,7 @@ impl<R: Runtime> ComputeClient<R> {
         let dst = dst.binding();
         let device_ids_cloned = device_ids.clone();
 
-        println!(
-            "[{:?}] all_reduce read init comm",
-            std::thread::current().id()
-        );
         let comms_id = CommunicationId::from(device_ids.clone());
-        println!("{:?} comms_id {:?}", device_ids_cloned, comms_id);
         let is_comms_init = self
             .utilities
             .initialized_comms
@@ -625,7 +618,6 @@ impl<R: Runtime> ComputeClient<R> {
             .unwrap()
             .contains(&comms_id);
 
-        println!("[{:?}] all_reduce submit", std::thread::current().id());
         self.device.submit(move |server| {
             server
                 .all_reduce(src, dst, dtype, stream_id, op, device_ids_cloned)
@@ -634,21 +626,11 @@ impl<R: Runtime> ComputeClient<R> {
 
         // Other threads could be waiting on `cudarc::nccl::result::comm_init_rank`, so we need to
         // flush right away as to not block these threads.
-        println!(
-            "[{:?}] all_reduce do flush_queue?",
-            std::thread::current().id()
-        );
         if !is_comms_init {
-            println!("[{:?}] all_reduce flush_queue", std::thread::current().id());
             self.device.flush_queue();
             let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
             initialized_comms.insert(comms_id);
         }
-
-        println!(
-            "[{:?}] client all_reduce finished",
-            std::thread::current().id()
-        );
     }
 
     /// Transfer data from one client to another
