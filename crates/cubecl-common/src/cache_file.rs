@@ -158,15 +158,24 @@ impl CacheFile {
 
     /// Write the content to the file.
     ///
-    /// Panics if the file isn't locked (the lock precondition is a
-    /// caller-side API contract). File I/O errors are logged and
-    /// swallowed — a missed cache write is not fatal.
+    /// The `valid` check comes BEFORE the `is_lock` check: `lock()`'s
+    /// error paths call `self.lock.unlock()` on their way out, which
+    /// clears `is_lock`. If we checked `is_lock` first, every failed
+    /// `lock()` would turn a subsequent `Cache::insert` write into
+    /// a panic — exactly the cascade the "gracefully handle cache
+    /// I/O failures" patch (commit a784b98) was meant to eliminate.
+    /// A failed `lock()` sets `valid = false`, so we silently no-op.
+    ///
+    /// Panics if the file isn't locked when the cache is still valid
+    /// (the lock precondition is a caller-side API contract). File
+    /// I/O errors are logged and swallowed — a missed cache write
+    /// is not fatal.
     pub fn write(&mut self, content: &[u8]) {
-        if !self.lock.is_lock {
-            panic!("The cache file should be locked before writing content to it.")
-        }
         if !self.valid {
             return;
+        }
+        if !self.lock.is_lock {
+            panic!("The cache file should be locked before writing content to it.")
         }
 
         let mut file = match fs::OpenOptions::new().append(true).open(&self.path) {
