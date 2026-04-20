@@ -454,15 +454,15 @@ pub trait ServerCommunication {
         todo!() // For backends other than cuda.
     }
 
-    /// TODO
+    /// Initialize the communication between the devices in `device_ids`.
     ///
     /// # Arguments
     ///
-    /// * `comms_id` - The [`CommunicationId`] unique to the combination of communicating devices.
+    /// * `device_ids` - The IDs of the devices that need communication.
     ///
     /// # Returns
     ///
-    /// TODO
+    /// Returns a `Result` containing an `ServerError` if the operation fails.
     #[allow(unused_variables)]
     fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
         unimplemented!()

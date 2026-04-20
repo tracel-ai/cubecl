@@ -662,7 +662,6 @@ impl<R: Runtime> ComputeClient<R> {
         let handle = Handle::new(stream_id_dst, src_descriptor.handle.size_in_used());
         let handle_cloned = handle.clone();
 
-        // TODO: Find a way to get the device ids directly.
         let device_ids = vec![self.device.id(), dst_server.device.id()];
         self.ensure_init_collective(device_ids.clone());
         dst_server.ensure_init_collective(device_ids.clone());
