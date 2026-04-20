@@ -364,6 +364,7 @@ impl ServerCommunication for CudaServer {
         // SAFETY: `resource_src.ptr` and `resource_dst.ptr` are valid device pointers.
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
+
         unsafe {
             cudarc::nccl::result::all_reduce(
                 resource_src.ptr as *const _,
@@ -860,6 +861,36 @@ impl CudaServer {
         )?;
 
         Ok(())
+    }
+
+    fn create_communicator(&mut self, device_ids: Vec<DeviceId>) -> *mut ncclComm {
+        let id = CommunicationId::from(device_ids.clone());
+        let mut comm = MaybeUninit::uninit();
+        let rank = device_ids
+            .iter()
+            .position(|id| id.index_id as i32 == self.device_id)
+            .expect("Device's peer id should be in the list of device ids.");
+        let nccl_comm_id = get_nccl_comm_id(device_ids.clone());
+
+        // SAFETY: `comm` is a valid `MaybeUninit`. `nccl_comm_id` is a unique communicator ID
+        // shared across all participating ranks. `rank` is this device's position in the
+        // group. `comm_init_rank` initializes the communicator, making `assume_init` valid.
+        let communicator = unsafe {
+            cudarc::nccl::result::comm_init_rank(
+                comm.as_mut_ptr(),
+                device_ids.len() as i32,
+                nccl_comm_id,
+                rank as i32,
+            )
+            .unwrap();
+            comm.assume_init()
+        };
+        self.communicators.insert(id.clone(), communicator);
+
+        let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
+        initialized_comms.insert(id);
+
+        communicator
     }
 
     pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {

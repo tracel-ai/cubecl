@@ -1,5 +1,6 @@
 #[test]
 #[should_panic]
+#[cfg(not(miri))]
 #[allow(clippy::all)]
 fn test_recursive_execution_same_state() {
     let device_id = DeviceId {

@@ -27,7 +27,6 @@ use cubecl_zspace::Shape;
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
 use cubecl_common::stream_id::StreamId;
-use hashbrown::HashSet;
 
 /// The `ComputeClient` is the entry point to require tasks from the `ComputeServer`.
 /// It should be obtained for a specific device via the Compute struct.
@@ -35,7 +34,6 @@ pub struct ComputeClient<R: Runtime> {
     device: DeviceHandle<R::Server>,
     utilities: Arc<ServerUtilities<R::Server>>,
     stream_id: Option<StreamId>,
-    initialized_comms: HashSet<CommunicationId>,
 }
 
 impl<R: Runtime> Clone for ComputeClient<R> {
@@ -44,7 +42,6 @@ impl<R: Runtime> Clone for ComputeClient<R> {
             device: self.device.clone(),
             utilities: self.utilities.clone(),
             stream_id: self.stream_id,
-            initialized_comms: self.initialized_comms.clone(),
         }
     }
 }
@@ -65,7 +62,6 @@ impl<R: Runtime> ComputeClient<R> {
             device: context,
             utilities,
             stream_id: None,
-            initialized_comms: HashSet::default(),
         }
     }
 
@@ -83,7 +79,6 @@ impl<R: Runtime> ComputeClient<R> {
             device: context,
             utilities,
             stream_id: None,
-            initialized_comms: HashSet::default(),
         }
     }
 
