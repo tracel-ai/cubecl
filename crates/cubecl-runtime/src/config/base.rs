@@ -43,6 +43,10 @@ impl RuntimeConfig for CubeClRuntimeConfig {
         &["cubecl.toml", "CubeCL.toml"]
     }
 
+    fn section_file_names() -> &'static [(&'static str, &'static str)] {
+        &[("burn.toml", "cubecl"), ("Burn.toml", "cubecl")]
+    }
+
     #[cfg(std_io)]
     fn override_from_env(mut self) -> Self {
         use super::compilation::CompilationLogLevel;

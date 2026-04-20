@@ -27,6 +27,15 @@ pub trait RuntimeConfig:
     /// The first existing file wins.
     fn file_names() -> &'static [&'static str];
 
+    /// File names searched in each directory, where only a specific TOML section is loaded
+    /// instead of the whole file.
+    ///
+    /// Each entry is `(file_name, section_name)` and the section must deserialize to `Self`.
+    /// Checked after [`Config::file_names`] at each directory level.
+    fn section_file_names() -> &'static [(&'static str, &'static str)] {
+        &[]
+    }
+
     /// Hook to override fields from environment variables after loading from disk.
     ///
     /// The default implementation returns `self` unchanged.
@@ -111,6 +120,12 @@ pub trait RuntimeConfig:
                 }
             }
 
+            for (name, section) in Self::section_file_names() {
+                if let Ok(content) = Self::from_section_file_path(dir.join(name), section) {
+                    return content;
+                }
+            }
+
             if !dir.pop() {
                 break;
             }
@@ -126,6 +141,38 @@ pub trait RuntimeConfig:
         let config: Self = match toml::from_str(&content) {
             Ok(val) => val,
             Err(err) => panic!("The file provided doesn't have the right format => {err:?}"),
+        };
+
+        Ok(config)
+    }
+
+    /// Loads configuration from a specific TOML section of the file at the given path.
+    #[cfg(std_io)]
+    fn from_section_file_path<P: AsRef<std::path::Path>>(
+        path: P,
+        section: &str,
+    ) -> std::io::Result<Self> {
+        let content = std::fs::read_to_string(path)?;
+        let mut table: toml::Table = match toml::from_str(&content) {
+            Ok(val) => val,
+            Err(err) => panic!("The file provided doesn't have the right format => {err:?}"),
+        };
+
+        let value = match table.remove(section) {
+            Some(val) => val,
+            None => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    alloc::format!("Section '{section}' not found"),
+                ));
+            }
+        };
+
+        let config: Self = match value.try_into() {
+            Ok(val) => val,
+            Err(err) => {
+                panic!("The section '{section}' doesn't have the right format => {err:?}")
+            }
         };
 
         Ok(config)
