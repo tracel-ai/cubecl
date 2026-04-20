@@ -640,6 +640,8 @@ impl<R: Runtime> ComputeClient<R> {
         if !is_comms_init {
             println!("[{:?}] all_reduce flush_queue", std::thread::current().id());
             self.device.flush_queue();
+            let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
+            initialized_comms.insert(comms_id);
         }
 
         println!(
