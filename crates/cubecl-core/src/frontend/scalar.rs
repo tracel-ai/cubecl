@@ -80,6 +80,7 @@ impl InputScalar {
                     UIntKind::U64 => write::<u64>(val, &mut out.data),
                 },
                 ElemType::Bool => panic!("Bool isn't a scalar"),
+                ElemType::Complex(_) => unimplemented!("Complex not supported for scalar input"),
             },
             other => unimplemented!("{other} not supported for scalars"),
         };

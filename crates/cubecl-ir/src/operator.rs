@@ -31,6 +31,10 @@ pub enum Operator {
     Cast(UnaryOperator),
     #[operation(pure)]
     Reinterpret(UnaryOperator),
+    #[operation(pure)]
+    Real(UnaryOperator),
+    #[operation(pure)]
+    Imag(UnaryOperator),
     /// A select statement/ternary
     #[operation(pure)]
     Select(Select),
@@ -71,6 +75,8 @@ impl Display for Operator {
             }
             Operator::Cast(op) => write!(f, "cast({})", op.input),
             Operator::Reinterpret(op) => write!(f, "reinterpret({})", op.input),
+            Operator::Real(op) => write!(f, "{}.real()", op.input),
+            Operator::Imag(op) => write!(f, "{}.imag()", op.input),
         }
     }
 }

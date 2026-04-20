@@ -6,7 +6,7 @@ use half::{bf16, f16};
 use crate::{
     flex32,
     ir::{Arithmetic, ManagedVariable, Scope},
-    prelude::{CubePrimitive, CubePrimitiveExpand, CubeType, NativeExpand, Reinterpret},
+    prelude::{CubePrimitive, CubePrimitiveExpand, CubeType, NativeExpand, Reinterpret, Scalar},
     tf32, unexpanded,
 };
 
@@ -64,6 +64,57 @@ impl Exp for f32 {
     fn exp(self) -> Self {
         self.exp()
     }
+}
+
+pub trait Abs:
+    CubePrimitive
+    + CubeType<
+        ExpandType: AbsExpand<
+            AbsElem = Self::AbsElem,
+            AbsOut = NativeExpand<Self::WithScalar<Self::AbsElem>>,
+        >,
+    > + Sized
+{
+    type AbsElem: Scalar;
+
+    #[allow(unused_variables)]
+    fn abs(self) -> Self::WithScalar<Self::AbsElem> {
+        unexpanded!()
+    }
+
+    fn __expand_abs(
+        scope: &mut Scope,
+        x: NativeExpand<Self>,
+    ) -> NativeExpand<Self::WithScalar<Self::AbsElem>> {
+        x.__expand_abs_method(scope)
+    }
+}
+
+pub trait AbsExpand: CubePrimitiveExpand {
+    type AbsElem: Scalar;
+    type AbsOut;
+
+    fn __expand_abs_method(self, scope: &mut Scope) -> Self::AbsOut;
+}
+
+impl<T: Abs> AbsExpand for NativeExpand<T> {
+    type AbsElem = T::AbsElem;
+    type AbsOut = NativeExpand<T::WithScalar<T::AbsElem>>;
+
+    fn __expand_abs_method(self, scope: &mut Scope) -> Self::AbsOut {
+        let expand_element: ManagedVariable = self.into();
+        let item = <T::AbsElem as CubePrimitive>::as_type(scope)
+            .with_vector_size(expand_element.ty.vector_size());
+        unary_expand_fixed_output(scope, expand_element, item, Arithmetic::Abs).into()
+    }
+}
+
+macro_rules! impl_abs_same_type {
+    ($($type:ty),*) => {
+        $(impl Abs for $type {
+            type AbsElem = $type;
+        })*
+    };
 }
 
 macro_rules! impl_unary_func_scalar_out {
@@ -158,30 +209,9 @@ impl_not!(
     Not, not, bool, u8, u16, u32, u64, i8, i16, i32, i64, isize, usize
 );
 
-impl_unary_func!(
-    Abs,
-    abs,
-    Arithmetic::Abs,
-    e2m1,
-    e4m3,
-    e5m2,
-    ue8m0,
-    f16,
-    bf16,
-    flex32,
-    tf32,
-    f32,
-    f64,
-    i8,
-    i16,
-    i32,
-    i64,
-    u8,
-    u16,
-    u32,
-    u64,
-    usize,
-    isize
+impl_abs_same_type!(
+    e2m1, e4m3, e5m2, ue8m0, f16, bf16, flex32, tf32, f32, f64, i8, i16, i32, i64, u8, u16, u32,
+    u64, usize, isize
 );
 impl_unary_func!(
     Exp,
@@ -192,9 +222,23 @@ impl_unary_func!(
     flex32,
     tf32,
     // f32,
-    f64
+    f64,
+    num_complex::Complex<f32>,
+    num_complex::Complex<f64>
 );
-impl_unary_func!(Log, ln, Arithmetic::Log, f16, bf16, flex32, tf32, f32, f64);
+impl_unary_func!(
+    Log,
+    ln,
+    Arithmetic::Log,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64,
+    num_complex::Complex<f32>,
+    num_complex::Complex<f64>
+);
 impl_unary_func!(
     Log1p,
     log1p,
@@ -217,8 +261,32 @@ impl_unary_func!(
     f32,
     f64
 );
-impl_unary_func!(Cos, cos, Arithmetic::Cos, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(Sin, sin, Arithmetic::Sin, f16, bf16, flex32, tf32, f32, f64);
+impl_unary_func!(
+    Cos,
+    cos,
+    Arithmetic::Cos,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64,
+    num_complex::Complex<f32>,
+    num_complex::Complex<f64>
+);
+impl_unary_func!(
+    Sin,
+    sin,
+    Arithmetic::Sin,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64,
+    num_complex::Complex<f32>,
+    num_complex::Complex<f64>
+);
 impl_unary_func!(Tan, tan, Arithmetic::Tan, f16, bf16, flex32, tf32, f32, f64);
 impl_unary_func!(
     Tanh,
@@ -229,7 +297,9 @@ impl_unary_func!(
     flex32,
     tf32,
     f32,
-    f64
+    f64,
+    num_complex::Complex<f32>,
+    num_complex::Complex<f64>
 );
 impl_unary_func!(
     Sinh,
@@ -350,7 +420,9 @@ impl_unary_func!(
     flex32,
     tf32,
     f32,
-    f64
+    f64,
+    num_complex::Complex<f32>,
+    num_complex::Complex<f64>
 );
 impl_unary_func!(
     InverseSqrt,

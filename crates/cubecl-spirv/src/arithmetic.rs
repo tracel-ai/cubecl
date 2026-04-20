@@ -787,6 +787,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     _ => unreachable!(),
                 },
             ),
+            Arithmetic::Conj(_) => unimplemented!("Conj not supported on SPIRV"),
         }
     }
 }

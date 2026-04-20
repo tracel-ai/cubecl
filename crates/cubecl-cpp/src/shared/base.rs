@@ -78,6 +78,7 @@ pub struct Flags<D: Dialect> {
     pub elem_bf16: bool,
     pub elem_f16: bool,
     pub elem_tf32: bool,
+    pub elem_complex: bool,
     pub indexes: CubeIndexFlags,
     pub op_barrier: bool,
     pub op_pipeline: bool,
@@ -124,6 +125,7 @@ impl<D: Dialect> Default for Flags<D> {
             elem_bf16: Default::default(),
             elem_f16: Default::default(),
             elem_tf32: Default::default(),
+            elem_complex: Default::default(),
             indexes: Default::default(),
             op_barrier: Default::default(),
             op_pipeline: Default::default(),
@@ -252,6 +254,7 @@ impl<D: Dialect> CppCompiler<D> {
             elem_bf16: self.flags.elem_bf16,
             elem_f16: self.flags.elem_f16,
             elem_tf32: self.flags.elem_tf32,
+            elem_complex: self.flags.elem_complex,
             inst_tma: self.flags.inst_tma,
             inst_tma_im2col: self.flags.inst_tma_im2col,
             inst_async_copy: self.flags.inst_async_copy,
@@ -1369,6 +1372,7 @@ impl<D: Dialect> CppCompiler<D> {
                     gpu::ElemType::Int(_) => gpu::ConstantValue::Int(1),
                     gpu::ElemType::UInt(_) => gpu::ConstantValue::UInt(1),
                     gpu::ElemType::Bool => gpu::ConstantValue::Bool(true),
+                    gpu::ElemType::Complex(_) => unimplemented!("Recip not supported for complex"),
                 };
                 let div = Instruction::Div(BinaryInstruction {
                     lhs: Variable::Constant(lhs, self.compile_type(op.input.ty)),
@@ -1434,6 +1438,9 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Arithmetic::Dot(op) => {
                 instructions.push(Instruction::Dot(self.compile_binary(op, out)))
+            }
+            gpu::Arithmetic::Conj(op) => {
+                instructions.push(Instruction::Conj(self.compile_unary(op, out)))
             }
             gpu::Arithmetic::VectorSum(op) => {
                 instructions.push(Instruction::VectorSum(self.compile_unary(op, out)))
@@ -1637,6 +1644,12 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Operator::Reinterpret(op) => {
                 instructions.push(Instruction::Bitcast(self.compile_unary(op, out)))
+            }
+            gpu::Operator::Real(op) => {
+                instructions.push(Instruction::Real(self.compile_unary(op, out)))
+            }
+            gpu::Operator::Imag(op) => {
+                instructions.push(Instruction::Imag(self.compile_unary(op, out)))
             }
         };
     }
@@ -2071,6 +2084,13 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::UIntKind::U64 => Elem::U64,
             },
             gpu::ElemType::Bool => Elem::Bool,
+            gpu::ElemType::Complex(kind) => {
+                self.flags.elem_complex = true;
+                match kind {
+                    gpu::ComplexKind::C32 => Elem::CF32,
+                    gpu::ComplexKind::C64 => Elem::CF64,
+                }
+            }
         }
     }
 }
