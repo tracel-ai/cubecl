@@ -316,7 +316,7 @@ impl<R: Runtime> ComputeClient<R> {
     /// dodo: Docs
     pub fn memory_persistent_allocation<
         'a,
-        Re: Send + 'static,
+        Re: Send,
         Input: Send,
         F: FnOnce(Input) -> Re + Send + 'a,
     >(
