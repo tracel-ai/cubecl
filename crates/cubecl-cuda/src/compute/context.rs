@@ -68,7 +68,8 @@ impl CudaContext {
             context,
             module_names: HashMap::new(),
             ptx_cache: {
-                let config = cubecl_runtime::config::GlobalConfig::get();
+                use cubecl_runtime::config::RuntimeConfig;
+                let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
                 if let Some(cache) = &config.compilation.cache {
                     let root = cache.root();
                     Some(CompilationCache::new(

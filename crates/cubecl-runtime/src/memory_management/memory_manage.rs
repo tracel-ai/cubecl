@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     config::{
-        GlobalConfig,
+        CubeClRuntimeConfig, RuntimeConfig,
         memory::{MemoryLogLevel, PersistentMemory},
     },
     logging::ServerLogger,
@@ -329,7 +329,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             })
             .collect();
 
-        let config = GlobalConfig::get().memory.persistent_memory.clone();
+        let config = CubeClRuntimeConfig::get().memory.persistent_memory.clone();
 
         let mode = match options.memory {
             MemoryAllocationOption::Provided(mode) => mode,

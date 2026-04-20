@@ -1,4 +1,4 @@
-use super::GlobalConfig;
+use super::{CubeClRuntimeConfig, RuntimeConfig};
 use crate::config::{
     autotune::AutotuneLogLevel, compilation::CompilationLogLevel, memory::MemoryLogLevel,
     profiling::ProfilingLogLevel, streaming::StreamingLogLevel,
@@ -125,7 +125,7 @@ pub struct Logger {
     memory_index: Vec<usize>,
 
     /// Global configuration for logging settings.
-    pub config: Arc<GlobalConfig>,
+    pub config: Arc<CubeClRuntimeConfig>,
 }
 
 impl Default for Logger {
@@ -142,7 +142,7 @@ impl Logger {
     ///
     /// Note that creating a logger is quite expensive.
     pub fn new() -> Self {
-        let config = GlobalConfig::get();
+        let config = CubeClRuntimeConfig::get();
         let mut loggers = Vec::new();
         let mut compilation_index = Vec::new();
         let mut profiling_index = Vec::new();
