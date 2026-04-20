@@ -128,9 +128,9 @@ impl Runtime for WgpuRuntime {
                 })
                 .enumerate()
                 .map(|(index, adapter)| match adapter.get_info().device_type {
-                    wgpu::DeviceType::DiscreteGpu => DeviceId::new(0, index as u32),
-                    wgpu::DeviceType::IntegratedGpu => DeviceId::new(1, index as u32),
-                    wgpu::DeviceType::VirtualGpu => DeviceId::new(2, index as u32),
+                    wgpu::DeviceType::DiscreteGpu => DeviceId::new(0, index as u16),
+                    wgpu::DeviceType::IntegratedGpu => DeviceId::new(1, index as u16),
+                    wgpu::DeviceType::VirtualGpu => DeviceId::new(2, index as u16),
                     wgpu::DeviceType::Cpu => DeviceId::new(3, 0),
                     wgpu::DeviceType::Other => DeviceId::new(4, 0),
                 })
@@ -157,9 +157,9 @@ impl Runtime for WgpuRuntime {
                 .into_iter()
                 .enumerate()
                 .map(|(index, adapter)| match adapter.get_info().device_type {
-                    wgpu::DeviceType::DiscreteGpu => DeviceId::new(0, index as u32),
-                    wgpu::DeviceType::IntegratedGpu => DeviceId::new(1, index as u32),
-                    wgpu::DeviceType::VirtualGpu => DeviceId::new(2, index as u32),
+                    wgpu::DeviceType::DiscreteGpu => DeviceId::new(0, index as u16),
+                    wgpu::DeviceType::IntegratedGpu => DeviceId::new(1, index as u16),
+                    wgpu::DeviceType::VirtualGpu => DeviceId::new(2, index as u16),
                     wgpu::DeviceType::Cpu => DeviceId::new(3, 0),
                     wgpu::DeviceType::Other => DeviceId::new(4, 0),
                 })

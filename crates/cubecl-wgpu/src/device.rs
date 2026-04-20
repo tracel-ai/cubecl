@@ -58,7 +58,7 @@ impl Device for WgpuDevice {
             2 => Self::VirtualGpu(device_id.index_id as usize),
             3 => Self::Cpu,
             4 => Self::DefaultDevice,
-            5 => Self::Existing(device_id.index_id),
+            5 => Self::Existing(device_id.index_id as u32),
             _ => Self::DefaultDevice,
         }
     }
@@ -66,12 +66,12 @@ impl Device for WgpuDevice {
     fn to_id(&self) -> DeviceId {
         #[allow(deprecated)]
         match self {
-            Self::DiscreteGpu(index) => DeviceId::new(0, *index as u32),
-            Self::IntegratedGpu(index) => DeviceId::new(1, *index as u32),
-            Self::VirtualGpu(index) => DeviceId::new(2, *index as u32),
+            Self::DiscreteGpu(index) => DeviceId::new(0, *index as u16),
+            Self::IntegratedGpu(index) => DeviceId::new(1, *index as u16),
+            Self::VirtualGpu(index) => DeviceId::new(2, *index as u16),
             Self::Cpu => DeviceId::new(3, 0),
             Self::BestAvailable | WgpuDevice::DefaultDevice => DeviceId::new(4, 0),
-            Self::Existing(id) => DeviceId::new(5, *id),
+            Self::Existing(id) => DeviceId::new(5, *id as u16),
         }
     }
 }

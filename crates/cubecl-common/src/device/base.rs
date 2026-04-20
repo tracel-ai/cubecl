@@ -7,7 +7,7 @@ pub struct DeviceId {
     /// The type id identifies the type of the device.
     pub type_id: u16,
     /// The index id identifies the device number.
-    pub index_id: u32,
+    pub index_id: u16,
 }
 
 /// Device trait for all cubecl devices.
@@ -51,4 +51,22 @@ pub trait DeviceService: Send + 'static {
     fn init(device_id: DeviceId) -> Self;
     /// Get the service utilities.
     fn utilities(&self) -> ServerUtilitiesHandle;
+    /// Which pipeline stage this service runs on.
+    ///
+    /// Services on [`DeviceServiceStage::Upstream`] produce work ahead of time (e.g. autodiff graph
+    /// construction, kernel fusion) that is consumed by [`DeviceServiceStage::Downstream`] services,
+    /// which stream kernels to the device.
+    fn stage() -> DeviceServiceStage {
+        DeviceServiceStage::Downstream
+    }
+}
+
+/// Pipeline stage a [`DeviceService`] runs on. Each stage gets its own runner thread per device,
+/// allowing upstream work to overlap with downstream kernel dispatch.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum DeviceServiceStage {
+    /// Produces work ahead of kernel dispatch (e.g. autodiff graph, fusion).
+    Upstream = 0,
+    /// Consumes upstream work and streams kernels to the device.
+    Downstream = 1,
 }
