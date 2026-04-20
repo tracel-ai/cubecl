@@ -16,8 +16,7 @@ pub fn hypot<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector<
     let a = lhs.abs();
     let b = rhs.abs();
     let max_val = max(a, b);
-    let zero = Vector::new(F::from_int(0));
-    let max_val_is_zero = max_val.equal(&zero);
+    let max_val_is_zero = max_val.equal(&Vector::new(F::from_int(0)));
     let max_val_safe = select_many(max_val_is_zero, one, max_val);
     let min_val = min(a, b);
     let t = min_val / max_val_safe;
@@ -43,8 +42,7 @@ pub fn rhypot<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector
     let a = lhs.abs();
     let b = rhs.abs();
     let max_val = max(a, b);
-    let zero = Vector::new(F::from_int(0));
-    let max_val_is_zero = max_val.equal(&zero);
+    let max_val_is_zero = max_val.equal(&Vector::new(F::from_int(0)));
     let max_val_safe = select_many(max_val_is_zero, one, max_val);
     let min_val = min(a, b);
     let t = min_val / max_val_safe;

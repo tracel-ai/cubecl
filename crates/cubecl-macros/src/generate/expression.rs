@@ -127,35 +127,27 @@ impl Expression {
                 span,
                 ..
             } => {
-                let (args, arg_names) = map_args(args, context);
+                let args = map_args(args, context);
                 let (generics, path) = split_generics(func, context);
 
                 let call = with_debug_call(
                     context,
                     *span,
-                    quote![#path::expand #generics(scope, #(#arg_names),*)],
+                    quote![#path::expand #generics(scope, #(#args),*)],
                 );
 
-                quote_spanned! {*span=>
-                    {
-                        #(#args)*
-                        #call
-                    }
-                }
+                quote_spanned! {*span=>{#call}}
             }
             Expression::CompilerIntrinsic { func, args } => {
-                let (args, arg_names) = map_args(args, context);
+                let args = map_args(args, context);
                 let mut path = func.clone();
                 let generics = core::mem::replace(
                     &mut path.segments.last_mut().unwrap().arguments,
                     PathArguments::None,
                 );
-                quote! {
-                    {
-                        #(#args)*
-                        #path::expand #generics(scope, #(#arg_names),*)
-                    }
-                }
+                quote! {{
+                    #path::expand #generics(scope, #(#args),*)
+                }}
             }
             Expression::FunctionCall {
                 args,
@@ -170,20 +162,12 @@ impl Expression {
                     quote![#ty_path]
                 };
 
-                let (args, arg_names) = map_args(args, context);
+                let args = map_args(args, context);
                 let mut name = func.clone();
                 name.ident = format_ident!("__expand_{}", name.ident);
-                let call = with_debug_call(
-                    context,
-                    *span,
-                    quote![#ty_path::#name(scope, #(#arg_names),*)],
-                );
-                quote_spanned! {*span=>
-                    {
-                        #(#args)*
-                        #call
-                    }
-                }
+                let call =
+                    with_debug_call(context, *span, quote![#ty_path::#name(scope, #(#args),*)]);
+                quote_spanned! {*span=>{#call}}
             }
             Expression::MethodCall {
                 receiver,
@@ -194,21 +178,16 @@ impl Expression {
                 ..
             } => {
                 let method = format_ident!("__expand_{method}_method");
-                let (args, arg_names) = map_args(args, context);
+                let args = map_args(args, context);
                 let receiver = receiver
                     .as_const(context)
                     .unwrap_or_else(|| receiver.to_tokens(context));
                 let call = with_debug_call(
                     context,
                     *span,
-                    quote![#receiver.#method #generics(scope, #(#arg_names),*)],
+                    quote![#receiver.#method #generics(scope, #(#args),*)],
                 );
-                quote_spanned! {*span=>
-                    {
-                        #(#args)*
-                        #call
-                    }
-                }
+                quote_spanned! {*span=>{#call}}
             }
             Expression::Break => {
                 let path = frontend_path();
@@ -837,34 +816,15 @@ fn split_generics(path: &Expression, context: &mut Context) -> (PathArguments, T
     (generics, quote![#path])
 }
 
-fn map_args(args: &[Expression], context: &mut Context) -> (Vec<TokenStream>, Vec<TokenStream>) {
-    let names: Vec<_> = (0..args.len()).map(|i| format_ident!("_arg_{i}")).collect();
-    let values = names
-        .iter()
-        .zip(args.iter())
-        .map(|(i, value)| {
-            if matches!(value, Expression::Closure { .. }) {
-                quote![]
-            } else {
-                let tokens = value
-                    .as_const(context)
-                    .unwrap_or_else(|| value.to_tokens(context));
-                quote_spanned![tokens.span()=> let #i = #tokens;]
-            }
+fn map_args(args: &[Expression], context: &mut Context) -> Vec<TokenStream> {
+    args.iter()
+        .map(|value| {
+            let tokens = value
+                .as_const(context)
+                .unwrap_or_else(|| value.to_tokens(context));
+            quote_spanned![tokens.span()=> #tokens.into()]
         })
-        .collect();
-    let names = names
-        .into_iter()
-        .zip(args.iter())
-        .map(|(name, value)| {
-            if matches!(value, Expression::Closure { .. }) {
-                value.to_tokens(context)
-            } else {
-                quote![#name.into()]
-            }
-        })
-        .collect();
-    (values, names)
+        .collect()
 }
 
 fn init_fields<'a>(

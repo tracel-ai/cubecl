@@ -29,8 +29,7 @@ pub mod set_polyfill {
 #[cube]
 pub fn erf<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let erf = erf_positive(x.abs());
-    let zero = Vector::new(F::new(0f32));
-    select_many(x.less_than(&zero), -erf, erf)
+    select_many(x.less_than(&Vector::new(F::new(0f32))), -erf, erf)
 }
 
 /// An approximation of the error function: <https://en.wikipedia.org/wiki/Error_function#Numerical_approximations>
