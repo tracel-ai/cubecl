@@ -1,3 +1,5 @@
+use std::println;
+
 use crate::{Runtime, prelude::*};
 use alloc::vec::Vec;
 use cubecl_common::device::Device;

@@ -617,6 +617,7 @@ impl<R: Runtime> ComputeClient<R> {
             std::thread::current().id()
         );
         let comms_id = CommunicationId::from(device_ids.clone());
+        println!("{:?} comms_id {:?}", device_ids_cloned, comms_id);
         let is_comms_init = self
             .utilities
             .initialized_comms
