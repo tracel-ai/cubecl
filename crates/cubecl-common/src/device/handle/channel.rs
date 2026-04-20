@@ -63,7 +63,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
     }
 
     fn device_id(&self) -> DeviceId {
-        *self.state.client.device_id()
+        self.state.client.runner_id().device
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {
