@@ -1,6 +1,6 @@
 use cubecl_runtime::{
     server::Handle,
-    tune::{Tunable, TunableSet},
+    tune::{CloneInputGenerator, Tunable, TunableSet},
 };
 
 use crate::dummy::{
@@ -10,53 +10,45 @@ use crate::dummy::{
 
 use super::DummyElementwiseAdditionSlowWrong;
 
-#[allow(clippy::ptr_arg, reason = "Needed for type inference")]
-fn clone_bindings(_key: &String, bindings: &Vec<Handle>) -> Vec<Handle> {
-    bindings.clone()
-}
-
 type TestSet = TunableSet<String, Vec<Handle>, ()>;
 
 pub fn addition_set(
     client: DummyClient,
     shapes: Vec<Vec<usize>>,
 ) -> TunableSet<String, Vec<Handle>, ()> {
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+    let op_add_slow = OneKernelAutotuneOperation::new(
+        KernelTask::new(DummyElementwiseAdditionSlowWrong),
+        client.clone(),
+    );
     TestSet::new(
         move |_input: &Vec<Handle>| format!("{}-{}", "add", log_shape_input_key(&shapes)),
-        clone_bindings,
+        CloneInputGenerator,
     )
-    .with(Tunable::new(
-        "default_name",
-        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone()),
-    ))
-    .with(Tunable::new(
-        "default_name",
-        OneKernelAutotuneOperation::new(
-            KernelTask::new(DummyElementwiseAdditionSlowWrong),
-            client.clone(),
-        ),
-    ))
+    .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
+    .with(Tunable::new("add_slow_wrong", move |inputs| {
+        op_add_slow.run(inputs)
+    }))
 }
 
 pub fn multiplication_set(client: DummyClient, shapes: Vec<Vec<usize>>) -> TestSet {
+    let op_mul_slow = OneKernelAutotuneOperation::new(
+        KernelTask::new(DummyElementwiseMultiplicationSlowWrong),
+        client.clone(),
+    );
+    let op_mul = OneKernelAutotuneOperation::new(
+        KernelTask::new(DummyElementwiseMultiplication),
+        client.clone(),
+    );
     TestSet::new(
         move |_input: &Vec<Handle>| format!("{}-{}", "mul", log_shape_input_key(&shapes)),
-        clone_bindings,
+        CloneInputGenerator,
     )
-    .with(Tunable::new(
-        "default_name",
-        OneKernelAutotuneOperation::new(
-            KernelTask::new(DummyElementwiseMultiplicationSlowWrong),
-            client.clone(),
-        ),
-    ))
-    .with(Tunable::new(
-        "default_name",
-        OneKernelAutotuneOperation::new(
-            KernelTask::new(DummyElementwiseMultiplication),
-            client.clone(),
-        ),
-    ))
+    .with(Tunable::new("mul_slow_wrong", move |inputs| {
+        op_mul_slow.run(inputs)
+    }))
+    .with(Tunable::new("mul", move |inputs| op_mul.run(inputs)))
 }
 
 pub fn log_shape_input_key(shapes: &[Vec<usize>]) -> String {

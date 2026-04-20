@@ -44,38 +44,18 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
 
     fn flush_queue(&self) {}
 
-    fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
+    fn submit_blocking<'a, R: Send, T: FnOnce(&mut S) -> R + Send + 'a>(
         &self,
         task: T,
     ) -> Result<R, super::CallError> {
         Ok(self.with_lock(task))
     }
 
-    fn submit_blocking_scoped<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(
-        &self,
-        task: T,
-    ) -> R {
-        self.with_lock(task)
-    }
-
     fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
         self.with_lock(task);
     }
 
-    fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
-        &self,
-        task: T,
-    ) -> Result<R, super::CallError> {
-        let guard = self.lock_device();
-        let result = task();
-        core::mem::drop(guard);
-        Ok(result)
-    }
-
-    fn exclusive_scoped<R: Send, T: FnOnce() -> R + Send>(
-        &self,
-        task: T,
-    ) -> Result<R, super::CallError> {
+    fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, super::CallError> {
         let guard = self.lock_device();
         let result = task();
         core::mem::drop(guard);

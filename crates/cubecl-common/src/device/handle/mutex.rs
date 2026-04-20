@@ -76,7 +76,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
 
     fn flush_queue(&self) {}
 
-    fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
+    fn submit_blocking<'a, R: Send, T: FnOnce(&mut S) -> R + Send + 'a>(
         &self,
         task: T,
     ) -> Result<R, CallError> {
@@ -127,28 +127,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
         })
     }
 
-    fn submit_blocking_scoped<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(
-        &self,
-        task: T,
-    ) -> R {
-        let mut guard = self.state.service.lock().unwrap();
-        let state = guard.downcast_mut::<S>().expect("State type mismatch");
-
-        task(state)
-    }
-
-    fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
-        &self,
-        task: T,
-    ) -> Result<R, CallError> {
-        let lock = self.device_lock();
-        let guard = lock.lock();
-        let result = Ok(task());
-        core::mem::drop(guard);
-        result
-    }
-
-    fn exclusive_scoped<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
+    fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
         let lock = self.device_lock();
         let guard = lock.lock();
         let result = Ok(task());
