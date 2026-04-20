@@ -6,6 +6,16 @@ use cubecl_macros::cube;
 
 use crate::{self as cubecl, prelude::*};
 
+pub(crate) fn read_variable(scope: &mut Scope, var: Variable) -> Variable {
+    if let Type::Pointer(inner, _) = var.ty {
+        let out = scope.create_local(*inner);
+        scope.register(Instruction::new(Operation::Deref(var), out));
+        out
+    } else {
+        var
+    }
+}
+
 pub(crate) fn binary_expand<F, Op>(
     scope: &mut Scope,
     lhs: Variable,
@@ -16,6 +26,8 @@ where
     F: Fn(BinaryOperator) -> Op,
     Op: Into<Operation>,
 {
+    let lhs = read_variable(scope, lhs);
+    let rhs = read_variable(scope, rhs);
     let item_lhs = lhs.ty;
     let item_rhs = rhs.ty;
 
@@ -161,6 +173,7 @@ where
     F: Fn(UnaryOperator) -> Op,
     Op: Into<Operation>,
 {
+    let input = read_variable(scope, input);
     let item = input.ty;
 
     let out = scope.create_local(item);

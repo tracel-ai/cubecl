@@ -66,6 +66,56 @@ mod new {
     }
 }
 
+mod components {
+    use cubecl_ir::Operator;
+
+    use super::*;
+
+    #[cube]
+    impl<P: Scalar, N: Size> Vector<P, N> {
+        #[allow(unused)]
+        pub fn extract(self, index: usize) -> P {
+            intrinsic!(|scope| {
+                if self.expand.vector_size() > 1 {
+                    let this = read_variable(scope, self.expand);
+                    let index = read_variable(scope, index.expand);
+                    let out = scope.create_local(P::as_type(scope));
+                    scope.register(Instruction::new(
+                        Operator::ExtractComponent(BinaryOperator {
+                            lhs: this,
+                            rhs: index,
+                        }),
+                        out,
+                    ));
+                    out.into()
+                } else {
+                    self.expand.into()
+                }
+            })
+        }
+
+        #[allow(unused)]
+        pub fn insert(&mut self, index: usize, value: P) {
+            intrinsic!(|scope| {
+                if self.expand.vector_size() > 1 {
+                    let this = read_variable(scope, self.expand);
+                    let value = read_variable(scope, value.expand);
+                    let index = read_variable(scope, index.expand);
+                    scope.register(Instruction::new(
+                        Operator::InsertComponent(BinaryOperator {
+                            lhs: index,
+                            rhs: value,
+                        }),
+                        this,
+                    ));
+                } else {
+                    assign::expand_element(scope, value.expand, self.expand);
+                }
+            })
+        }
+    }
+}
+
 mod numeric {
     use super::*;
 
@@ -207,10 +257,12 @@ macro_rules! impl_vector_comparison {
                         " the second vector."
                     )]
                     #[allow(unused_variables)]
-                    pub fn $name(self, other: Self) -> Vector<bool, N> {
+                    pub fn $name(&self, other: &Self) -> Vector<bool, N> {
                         intrinsic!(|scope| {
-                            let size = self.expand.ty.vector_size();
-                            let lhs = self.expand.into();
+                            let this = self.__expand_deref_method(scope);
+                            let other = other.__expand_deref_method(scope);
+                            let size = this.expand.ty.vector_size();
+                            let lhs = this.expand;
                             let rhs = other.expand.into();
 
                             let output = scope.create_local_mut(Vector::<bool, N>::as_type(scope));
@@ -248,7 +300,7 @@ mod bool_and {
     impl<N: Size> Vector<bool, N> {
         /// Return a new vector with the element-wise and of the vectors
         #[allow(unused_variables)]
-        pub fn and(self, other: Self) -> Vector<bool, N> {
+        pub fn vec_and(self, other: Self) -> Vector<bool, N> {
             intrinsic!(
                 |scope| binary_expand(scope, self.expand, other.expand, Operator::And).into()
             )

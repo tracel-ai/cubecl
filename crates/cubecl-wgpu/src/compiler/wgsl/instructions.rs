@@ -66,9 +66,9 @@ pub enum Instruction {
         out: Variable,
     },
     // Index assign handles casting to correct output variable.
-    IndexAssign {
+    IndexMut {
+        list: Variable,
         index: Variable,
-        rhs: Variable,
         out: Variable,
     },
     // Index handles casting to correct local variable.
@@ -77,6 +77,10 @@ pub enum Instruction {
         out: Variable,
     },
     Reference {
+        input: Variable,
+        out: Variable,
+    },
+    Deref {
         input: Variable,
         out: Variable,
     },
@@ -443,6 +447,16 @@ pub enum Instruction {
         inputs: Vec<Variable>,
         out: Variable,
     },
+    Extract {
+        vector: Variable,
+        index: Variable,
+        out: Variable,
+    },
+    Insert {
+        vector: Variable,
+        index: Variable,
+        value: Variable,
+    },
     Copy {
         input: Variable,
         in_index: Variable,
@@ -573,12 +587,12 @@ impl Display for Instruction {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = !{input};")
             }
-            Instruction::Index { lhs, rhs, out } => index(f, lhs, rhs, out, None, None),
-            Instruction::IndexAssign {
-                index: lhs,
-                rhs,
-                out,
-            } => index_assign(f, lhs, rhs, out, None),
+            Instruction::Index { lhs, rhs, out } => {
+                writeln!(f, "let {out} = &{lhs}[{rhs}];")
+            }
+            Instruction::IndexMut { list, index, out } => {
+                writeln!(f, "let {out} = &{list}[{index}];")
+            }
             Instruction::Copy {
                 input,
                 in_index,
@@ -759,17 +773,14 @@ impl Display for Instruction {
             Instruction::LowerEqual { lhs, rhs, out } => comparison(lhs, rhs, out, "<=", f),
             Instruction::GreaterEqual { lhs, rhs, out } => comparison(lhs, rhs, out, ">=", f),
             Instruction::NotEqual { lhs, rhs, out } => comparison(lhs, rhs, out, "!=", f),
+            Instruction::Assign { input, out } if input.is_ptr() && out.is_ptr() => {
+                writeln!(f, "let {out} = {input};")
+            }
             Instruction::Assign { input, out } => {
                 let vec_left = out.item().vectorization_factor();
                 let vec_right = input.item().vectorization_factor();
 
-                if out.is_atomic() {
-                    if input.is_memory() {
-                        writeln!(f, "let {out} = &{input};")
-                    } else {
-                        writeln!(f, "let {out} = {input};")
-                    }
-                } else if vec_left != vec_right {
+                if vec_left != vec_right {
                     if vec_right == 1 {
                         let input = input.fmt_cast_to(out.item());
                         let out = out.fmt_left();
@@ -790,6 +801,10 @@ impl Display for Instruction {
             }
             Instruction::Reference { input, out } => {
                 writeln!(f, "let {out} = &{input};")
+            }
+            Instruction::Deref { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = *{input};")
             }
             Instruction::Metadata { info_offset, out } => {
                 let out = out.fmt_left();
@@ -1141,6 +1156,17 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 let inputs = inputs.iter().map(|var| var.to_string()).collect::<Vec<_>>();
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {item}({});", inputs.join(", "))
+            }
+            Instruction::Extract { vector, index, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {vector}[{index}];")
+            }
+            Instruction::Insert {
+                vector,
+                index,
+                value,
+            } => {
+                writeln!(f, "{vector}[{index}] = {value};")
             }
             Instruction::Comment { content } => {
                 if content.contains('\n') {

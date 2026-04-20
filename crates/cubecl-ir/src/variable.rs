@@ -38,6 +38,22 @@ impl Variable {
         self.ty.storage_type()
     }
 
+    pub fn is_rvalue(&self) -> bool {
+        // Constant variables are just aliases to values in the IR, so are actually rvalues at least
+        // in WGSL, SPIR-V and LLVM.
+        matches!(
+            self.kind,
+            VariableKind::Constant(..)
+                | VariableKind::Builtin(..)
+                | VariableKind::LocalConst { .. }
+                | VariableKind::Versioned { .. }
+        )
+    }
+
+    pub fn has_location(&self) -> bool {
+        !self.is_rvalue()
+    }
+
     pub fn can_mutate(&self) -> bool {
         match self.kind {
             VariableKind::GlobalInputArray(_)

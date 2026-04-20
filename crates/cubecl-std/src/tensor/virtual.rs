@@ -300,8 +300,8 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
         &self,
         layout: impl Layout<Coordinates = C, SourceCoordinates = Coords1d> + 'static,
     ) -> View<Vector<E, N>, C, ReadWrite> {
-        let mut this: VirtualTensor<E, N, ReadWrite> = *self;
-        View::new_mut::<VirtualTensor<E, N, ReadWrite>, Coords1d>(&mut this, layout)
+        let this: VirtualTensor<E, N, ReadWrite> = *self;
+        View::new_mut::<VirtualTensor<E, N, ReadWrite>, Coords1d>(this, layout)
     }
     pub fn __expand_view_mut<C: Coordinates + 'static>(
         scope: &mut Scope,
@@ -327,7 +327,7 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
     pub fn as_view_mut(&mut self) -> View<Vector<E, N>, usize, ReadWrite> {
         let vector_size = self.vector_size();
         View::new_mut::<VirtualTensor<E, N, ReadWrite>, usize>(
-            self,
+            self.clone(),
             SimpleLayout::new(self.len() * vector_size, vector_size),
         )
     }

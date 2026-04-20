@@ -96,18 +96,6 @@ pub mod index_mut {
         };
     }
 
-    impl<E: Scalar, N: Size> CubeIndexMut for Vector<E, N> {}
-
-    impl<E: Scalar, N: Size> CubeIndexMutExpand for NativeExpand<Vector<E, N>> {
-        fn __expand_index_mut_method<'a>(
-            &'a mut self,
-            scope: &mut Scope,
-            index: NativeExpand<usize>,
-        ) -> &'a mut Self::Output {
-            expand_index_mut_native::<NativeExpand<Vector<E, N>>>(scope, self, index, None, true)
-        }
-    }
-
     impl_index!(Array);
     impl_index!(Tensor);
     impl_index!(SharedMemory);
@@ -143,29 +131,6 @@ pub mod index {
                 }
             }
         };
-    }
-
-    impl<E: Scalar, N: Size> CubeIndex for Vector<E, N> {
-        type Output = E;
-        type Idx = usize;
-    }
-    impl<E: Scalar, N: Size> CubeIndexExpand for NativeExpand<Vector<E, N>> {
-        type Output = NativeExpand<E>;
-        type Idx = NativeExpand<usize>;
-        fn __expand_index_method<'a>(
-            &'a self,
-            scope: &mut Scope,
-            index: NativeExpand<usize>,
-        ) -> &'a Self::Output {
-            expand_index_native(scope, self, index, None, true)
-        }
-        fn __expand_index_unchecked_method<'a>(
-            &'a self,
-            scope: &mut Scope,
-            index: NativeExpand<usize>,
-        ) -> &'a Self::Output {
-            expand_index_native(scope, self, index, None, false)
-        }
     }
 
     impl_index!(Array);

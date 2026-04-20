@@ -27,7 +27,7 @@ pub struct ReinterpretSlice<S: CubePrimitive, T: CubePrimitive> {
 
 #[cube]
 impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
-    pub fn new(slice: Slice<S>) -> ReinterpretSlice<S, T> {
+    pub fn new(slice: &Slice<S>) -> ReinterpretSlice<S, T> {
         let in_vector_size = slice.vector_size();
         let source_size = S::Scalar::type_size();
         let target_size = T::Scalar::type_size();
@@ -49,7 +49,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
                 }
             }
             None => ReinterpretSlice::<S, T> {
-                slice,
+                slice: unsafe { slice.downcast_unchecked() },
                 vector_size: in_vector_size,
                 load_many,
                 _phantom: PhantomData,
@@ -103,7 +103,7 @@ pub struct ReinterpretSliceMut<S: CubePrimitive, T: CubePrimitive> {
 
 #[cube]
 impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
-    pub fn new(slice: SliceMut<S>) -> ReinterpretSliceMut<S, T> {
+    pub fn new(slice: &mut SliceMut<S>) -> ReinterpretSliceMut<S, T> {
         let in_vector_size = slice.vector_size();
         let source_size = S::Scalar::type_size();
         let target_size = T::Scalar::type_size();
@@ -125,7 +125,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
                 }
             }
             None => ReinterpretSliceMut::<S, T> {
-                slice,
+                slice: unsafe { slice.downcast_unchecked() },
                 vector_size: in_vector_size,
                 load_many,
                 _phantom: PhantomData,

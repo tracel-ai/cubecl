@@ -1029,7 +1029,7 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
             let n_elem = i * vector_size_a + k;
             let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::A);
             let value = a[(row * size_k as u32 + col) as usize];
-            reg[k] = value;
+            reg.insert(k, value);
         }
         registers_a[i] = reg;
     }
@@ -1043,7 +1043,7 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
             let n_elem = i * vector_size_b + k;
             let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::B);
             let value = b[(row * size_n as u32 + col) as usize];
-            reg[k] = value;
+            reg.insert(k, value);
         }
         registers_b[i] = reg;
     }
@@ -1057,7 +1057,7 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
             let n_elem = i * vector_size_c + k;
             let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::Accumulator);
             let value = c[(row * size_n as u32 + col) as usize];
-            reg[k] = value;
+            reg.insert(k, value);
         }
         registers_c[i] = reg;
     }
@@ -1072,7 +1072,7 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
         for k in 0..vector_size_d {
             let n_elem = i * vector_size_d + k;
             let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::Accumulator);
-            out[(row * size_n as u32 + col) as usize] = reg[k];
+            out[(row * size_n as u32 + col) as usize] = reg.extract(k);
         }
     }
 }
@@ -1234,7 +1234,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
             let (row, col) =
                 def.position_of_nth(lane_id as u32, n_elem as u32, MatrixIdent::Accumulator);
             let value = c[row as usize * size_n + col as usize];
-            reg[k] = value;
+            reg.insert(k, value);
         }
         registers_c[i] = reg;
     }
@@ -1250,7 +1250,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
             let n_elem = i * vector_size_d + k;
             let (row, col) =
                 def.position_of_nth(lane_id as u32, n_elem as u32, MatrixIdent::Accumulator);
-            out[row as usize * size_n + col as usize] = reg[k];
+            out[row as usize * size_n + col as usize] = reg.extract(k);
         }
     }
 }
@@ -1410,7 +1410,7 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
     let scales_idx_a = def.scales_index(lane_id, MatrixIdent::A);
     #[unroll]
     for i in 0..scales_count {
-        scales_register_a[i] = scales_a[scales_idx_a as usize * scales_factor + i];
+        scales_register_a.insert(i, scales_a[scales_idx_a as usize * scales_factor + i]);
     }
 
     // Load B
@@ -1427,7 +1427,7 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
     let scales_idx_b = def.scales_index(lane_id, MatrixIdent::B);
     #[unroll]
     for i in 0..scales_count {
-        scales_register_b[i] = scales_b[scales_idx_b as usize * scales_factor + i];
+        scales_register_b.insert(i, scales_b[scales_idx_b as usize * scales_factor + i]);
     }
 
     // Load C

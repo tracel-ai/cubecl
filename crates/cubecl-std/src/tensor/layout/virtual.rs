@@ -26,24 +26,27 @@ impl<C: Coordinates, S: Coordinates> VirtualLayout<C, S> {
     /// Virtual version of [`Layout::to_source_pos`]
     #[allow(unused)]
     pub fn to_source_pos(&self, pos: C) -> S {
-        intrinsic!(|scope| { self.state.__expand_to_source_pos_method(scope, pos) })
+        intrinsic!(|scope| { self.state.__expand_to_source_pos_virt_method(scope, pos) })
     }
 
     /// Virtual version of [`Layout::to_source_pos_checked`]
     #[allow(unused)]
     pub fn to_source_pos_checked(&self, pos: C) -> (S, bool) {
-        intrinsic!(|scope| { self.state.__expand_to_source_pos_checked_method(scope, pos) })
+        intrinsic!(|scope| {
+            self.state
+                .__expand_to_source_pos_checked_virt_method(scope, pos)
+        })
     }
 
     /// Virtual version of [`Layout::shape`]
     pub fn shape(&self) -> C {
-        intrinsic!(|scope| { self.state.__expand_shape_method(scope) })
+        intrinsic!(|scope| { self.state.__expand_shape_virt_method(scope) })
     }
 
     /// Virtual version of [`Layout::is_in_bounds`]
     #[allow(unused)]
     pub fn is_in_bounds(&self, pos: C) -> bool {
-        intrinsic!(|scope| { self.state.__expand_is_in_bounds_method(scope, pos) })
+        intrinsic!(|scope| { self.state.__expand_is_in_bounds_virt_method(scope, pos) })
     }
 }
 
@@ -79,6 +82,20 @@ impl<C: Coordinates, S: Coordinates> CubeType for VirtualLayout<C, S> {
     type ExpandType = VirtualLayoutExpand<C, S>;
 }
 
+impl<C: Coordinates, S: Coordinates> IntoExpand for VirtualLayoutExpand<C, S> {
+    type Expand = VirtualLayoutExpand<C, S>;
+
+    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+        self
+    }
+}
+
+impl<C: Coordinates, S: Coordinates> ExpandTypeClone for VirtualLayoutExpand<C, S> {
+    fn clone_unchecked(&self) -> Self {
+        self.clone()
+    }
+}
+
 impl<C: Coordinates, S: Coordinates> IntoMut for VirtualLayoutExpand<C, S> {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
@@ -92,18 +109,18 @@ mod private {
     pub trait Sealed {}
 }
 pub trait VirtualLayoutOperationsExpand<C: CubeType, S: CubeType>: private::Sealed {
-    fn __expand_to_source_pos_method(
+    fn __expand_to_source_pos_virt_method(
         &self,
         scope: &mut Scope,
         pos: <C as CubeType>::ExpandType,
     ) -> <S as CubeType>::ExpandType;
-    fn __expand_to_source_pos_checked_method(
+    fn __expand_to_source_pos_checked_virt_method(
         &self,
         scope: &mut Scope,
         pos: <C as CubeType>::ExpandType,
     ) -> <(S, bool) as CubeType>::ExpandType;
-    fn __expand_shape_method(&self, scope: &mut Scope) -> <C as CubeType>::ExpandType;
-    fn __expand_is_in_bounds_method(
+    fn __expand_shape_virt_method(&self, scope: &mut Scope) -> <C as CubeType>::ExpandType;
+    fn __expand_is_in_bounds_virt_method(
         &self,
         scope: &mut Scope,
         pos: <C as CubeType>::ExpandType,
@@ -112,32 +129,35 @@ pub trait VirtualLayoutOperationsExpand<C: CubeType, S: CubeType>: private::Seal
 
 impl<L: LayoutExpand> private::Sealed for L {}
 impl<L: LayoutExpand> VirtualLayoutOperationsExpand<L::Coordinates, L::SourceCoordinates> for L {
-    fn __expand_to_source_pos_method(
+    fn __expand_to_source_pos_virt_method(
         &self,
         scope: &mut Scope,
         pos: <L::Coordinates as CubeType>::ExpandType,
     ) -> <L::SourceCoordinates as CubeType>::ExpandType {
-        <L as LayoutExpand>::__expand_to_source_pos_method(self.clone(), scope, pos)
+        <L as LayoutExpand>::__expand_to_source_pos_method(self, scope, pos)
     }
 
-    fn __expand_to_source_pos_checked_method(
+    fn __expand_to_source_pos_checked_virt_method(
         &self,
         scope: &mut Scope,
         pos: <L::Coordinates as CubeType>::ExpandType,
     ) -> <(L::SourceCoordinates, bool) as CubeType>::ExpandType {
-        <L as LayoutExpand>::__expand_to_source_pos_checked_method(self.clone(), scope, pos)
+        <L as LayoutExpand>::__expand_to_source_pos_checked_method(self, scope, pos)
     }
 
-    fn __expand_shape_method(&self, scope: &mut Scope) -> <L::Coordinates as CubeType>::ExpandType {
-        <L as LayoutExpand>::__expand_shape_method(self.clone(), scope)
+    fn __expand_shape_virt_method(
+        &self,
+        scope: &mut Scope,
+    ) -> <L::Coordinates as CubeType>::ExpandType {
+        <L as LayoutExpand>::__expand_shape_method(self, scope)
     }
 
-    fn __expand_is_in_bounds_method(
+    fn __expand_is_in_bounds_virt_method(
         &self,
         scope: &mut Scope,
         pos: <L::Coordinates as CubeType>::ExpandType,
     ) -> NativeExpand<bool> {
-        <L as LayoutExpand>::__expand_is_in_bounds_method(self.clone(), scope, pos)
+        <L as LayoutExpand>::__expand_is_in_bounds_method(self, scope, pos)
     }
 }
 

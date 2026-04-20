@@ -211,8 +211,8 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
     fn __expand_tensor_map_load_method(
         &self,
         _scope: &mut Scope,
-        _barrier: NativeExpand<Ref<Barrier>>,
-        _shared_memory: SliceExpand<Vector<F, NF>, ReadWrite>,
+        _barrier: &NativeExpand<Barrier>,
+        _shared_memory: &mut SliceExpand<Vector<F, NF>, ReadWrite>,
         _pos: C::ExpandType,
     ) {
         panic!("Can't use tensor map functions on quantized view");

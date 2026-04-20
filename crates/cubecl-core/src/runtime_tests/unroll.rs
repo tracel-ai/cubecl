@@ -15,7 +15,7 @@ pub fn unroll_add<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
     let mut out = Vector::<u32, N>::empty();
     #[unroll]
     for i in 0..N::value() {
-        out[i] = c[i];
+        out.insert(i, c.extract(i));
     }
 
     output[0] = Vector::cast_from(out);

@@ -6,7 +6,7 @@ use super::Coordinates;
 /// A layout that represents the mapping from a conceptual multi-dimensional tensor to a linear
 /// storage. Some layouts may be transformers meant to be composed with others (i.e. swizzling),
 /// others will represent the actual underlying structure of the data.
-#[cube(expand_base_traits = "Clone")]
+#[cube(expand_base_traits = "ExpandTypeClone")]
 pub trait Layout {
     /// The coordinate type used by the conceptual tensor represented by this layout, i.e.
     /// `(u32, u32, u32)` for a fixed-rank 3D tensor.

@@ -25,7 +25,8 @@ pub fn kernel_add_assign_vector<F: Float, N: Size>(output: &mut Array<Vector<F, 
     if UNIT_POS == 0 {
         #[unroll]
         for i in 0..N::value() {
-            vector[i] += F::cast_from(i);
+            // This is awkward but shouldn't be done anyways in a real program
+            vector.insert(i, vector.extract(i) + F::cast_from(i));
         }
         output[0] = vector;
     }

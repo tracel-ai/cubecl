@@ -159,9 +159,7 @@ mod vectorization {
                             .__expand_index_method(scope, idx)
                             .__expand_deref_method(scope);
 
-                        new_var
-                            .__expand_index_mut_method(scope, idx)
-                            .__expand_assign_method(scope, element.expand.into());
+                        new_var.__expand_insert_method(scope, idx, element.expand.into());
                     }
                     new_var
                 }

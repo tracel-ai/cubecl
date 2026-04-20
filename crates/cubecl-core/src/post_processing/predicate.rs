@@ -118,8 +118,9 @@ fn is_nan<F: Float, U: Int, N: Size>(
     let bits: Vector<U, N> = Vector::<U, N>::reinterpret(x);
 
     let abs_bits = bits & Vector::new(U::cast_from(abs_mask));
+    let inf_bits = Vector::new(U::cast_from(inf_bits));
 
-    abs_bits.greater_than(Vector::new(U::cast_from(inf_bits)))
+    abs_bits.greater_than(&inf_bits)
 }
 
 // Same trick as NaN detection following IEEE 754, but check for all 0 bits equality
@@ -136,6 +137,7 @@ fn is_inf<F: Float, U: Int, N: Size>(
     let bits: Vector<U, N> = Vector::<U, N>::reinterpret(x);
 
     let abs_bits = bits & Vector::new(U::cast_from(abs_mask));
+    let inf_bits = Vector::new(U::cast_from(inf_bits));
 
-    abs_bits.equal(Vector::new(U::cast_from(inf_bits)))
+    abs_bits.equal(&inf_bits)
 }

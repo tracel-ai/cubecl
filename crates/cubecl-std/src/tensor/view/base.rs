@@ -58,6 +58,20 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeType for View<E, C, IO> {
     type ExpandType = ViewExpand<E, C, IO>;
 }
 
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> IntoExpand for ViewExpand<E, C, IO> {
+    type Expand = ViewExpand<E, C, IO>;
+
+    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+        self
+    }
+}
+
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> ExpandTypeClone for ViewExpand<E, C, IO> {
+    fn clone_unchecked(&self) -> Self {
+        self.clone()
+    }
+}
+
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> IntoMut for ViewExpand<E, C, IO> {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
@@ -162,7 +176,7 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadWrite> {
     /// Create a new mutable tensor view from an underlying concrete storage and a layout to map it
     /// into the target coordinate space
     pub fn new_mut<V: ViewOperationsMut<E, S>, S: Coordinates>(
-        _view: &mut V,
+        _view: V,
         _layout: impl Into<VirtualLayout<C, S>>,
     ) -> View<E, C, ReadWrite> {
         View {
@@ -305,10 +319,10 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
 
     pub fn __expand_to_linear_slice_method(self, scope: &mut Scope) -> SliceExpand<E, ReadOnly> {
         let shape = self.inner.read().__expand_shape_method(scope);
-        let origin = C::__expand_from_int(scope, shape.clone(), 0);
+        let origin = C::__expand_from_int(scope, shape.clone_unchecked(), 0);
         // Inclusive end so clamping works correctly
-        let one = C::__expand_from_int(scope, shape.clone(), 1);
-        let shape = C::__expand_max(scope, shape, one.clone());
+        let one = C::__expand_from_int(scope, shape.clone_unchecked(), 1);
+        let shape = C::__expand_max(scope, shape, one.clone_unchecked());
         let end = C::__expand_sub(scope, shape, one);
         self.inner
             .read()
@@ -393,8 +407,8 @@ impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> ViewExpand
         checked: bool,
     ) -> ViewExpand<E, C, ReadOnly> {
         let shape = self.__expand_shape_method(scope);
-        let pos = C::__expand_min(scope, pos, shape.clone());
-        let max_size = C::__expand_sub(scope, shape, pos.clone());
+        let pos = C::__expand_min(scope, pos, shape.clone_unchecked());
+        let max_size = C::__expand_sub(scope, shape, pos.clone_unchecked());
         let size = C::__expand_min(scope, size, max_size);
         let layout = SliceLayout::__expand_new(scope, pos, size, checked);
         self.clone().__expand_view_method(scope, layout.into())
@@ -425,13 +439,12 @@ impl<E: CubePrimitive, C: Coordinates> View<E, C, ReadWrite> {
 
 impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
     /// Expand method for [`View::write`]
-    pub fn __expand_write_method(
-        self,
+    pub fn __expand_write_method<'a>(
+        &'a mut self,
         scope: &mut Scope,
         pos: C::ExpandType,
-        value: NativeExpand<E>,
-    ) {
-        self.inner.write().__expand_write_method(scope, pos, value);
+    ) -> &'a mut NativeExpand<E> {
+        self.inner.write().__expand_write_method(scope, pos)
     }
 
     /// Expand method for [`View::write_checked`]
@@ -451,10 +464,10 @@ impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
         scope: &mut Scope,
     ) -> SliceExpand<E, ReadWrite> {
         let shape = self.inner.read().__expand_shape_method(scope);
-        let origin = C::__expand_from_int(scope, shape.clone(), 0);
+        let origin = C::__expand_from_int(scope, shape.clone_unchecked(), 0);
         // Inclusive end so clamping works correctly
-        let one = C::__expand_from_int(scope, shape.clone(), 1);
-        let shape = C::__expand_max(scope, shape, one.clone());
+        let one = C::__expand_from_int(scope, shape.clone_unchecked(), 1);
+        let shape = C::__expand_max(scope, shape, one.clone_unchecked());
         let end = C::__expand_sub(scope, shape, one);
         self.inner
             .write()
@@ -540,8 +553,8 @@ impl<E: CubePrimitive, C: Coordinates + 'static> ViewExpand<E, C, ReadWrite> {
         checked: bool,
     ) -> ViewExpand<E, C, ReadWrite> {
         let shape = self.__expand_shape_method(scope);
-        let pos = C::__expand_min(scope, pos, shape.clone());
-        let max_size = C::__expand_sub(scope, shape, pos.clone());
+        let pos = C::__expand_min(scope, pos, shape.clone_unchecked());
+        let max_size = C::__expand_sub(scope, shape, pos.clone_unchecked());
         let size = C::__expand_min(scope, size, max_size);
         let layout = SliceLayout::__expand_new(scope, pos, size, checked);
         self.clone().__expand_view_mut_method(scope, layout.into())
@@ -565,8 +578,8 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
     pub fn __expand_tensor_map_load_method(
         self,
         scope: &mut Scope,
-        barrier: NativeExpand<Ref<Barrier>>,
-        shared_memory: SliceExpand<E, ReadWrite>,
+        barrier: &NativeExpand<Barrier>,
+        shared_memory: &mut SliceExpand<E, ReadWrite>,
         pos: C::ExpandType,
     ) {
         self.inner
@@ -587,7 +600,7 @@ impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
     pub fn __expand_tensor_map_store_method(
         self,
         scope: &mut Scope,
-        shared_memory: SliceExpand<E, ReadOnly>,
+        shared_memory: &SliceExpand<E, ReadOnly>,
         pos: C::ExpandType,
     ) {
         self.inner

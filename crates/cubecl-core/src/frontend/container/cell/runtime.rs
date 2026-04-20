@@ -86,33 +86,16 @@ impl<T: CubePrimitive> RuntimeCell<T> {
 }
 
 #[cube]
-impl<T: CubeIndexMut> RuntimeCell<T>
-where
-    <T::Output as CubeType>::ExpandType: Assign,
-{
+impl<S: Scalar, N: Size> RuntimeCell<Vector<S, N>> {
+    /// Extract the value in the cell at the given index.
+    #[allow(unused_variables)]
+    pub fn extract(&mut self, index: usize) -> S {
+        intrinsic!(|scope| { self.value.__expand_extract_method(scope, index) })
+    }
+
     /// Store a new value in the cell at the given index.
     #[allow(unused_variables)]
-    pub fn store_at(&mut self, index: <T as CubeIndex>::Idx, value: <T as CubeIndex>::Output) {
-        intrinsic!(|scope| {
-            self.value
-                .__expand_index_mut_method(scope, index)
-                .__expand_assign_method(scope, value);
-        })
-    }
-}
-
-#[cube]
-impl<T: CubeIndex> RuntimeCell<T>
-where
-    <T::Output as CubeType>::ExpandType: ExpandDeref<Target = <T::Output as CubeType>::ExpandType>,
-{
-    /// Read a value in the cell at the given index.
-    #[allow(unused_variables)]
-    pub fn read_at(&self, index: T::Idx) -> T::Output {
-        intrinsic!(|scope| {
-            self.value
-                .__expand_index_method(scope, index)
-                .__expand_deref_method(scope)
-        })
+    pub fn insert(&mut self, index: usize, value: S) {
+        intrinsic!(|scope| { self.value.__expand_insert_method(scope, index, value) })
     }
 }

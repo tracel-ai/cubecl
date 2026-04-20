@@ -1,6 +1,7 @@
 use darling::FromMeta;
 use syn::{
-    Attribute, Expr, ExprReference, Stmt, parse_quote,
+    Attribute, Expr, ExprReference, Stmt, parse_quote, parse_quote_spanned,
+    spanned::Spanned,
     visit_mut::{self, VisitMut},
 };
 
@@ -213,9 +214,10 @@ impl VisitMut for ReplaceIndex {
                 ReplaceIndexMut.visit_expr_mut(expr);
             }
             Expr::Index(index) => {
+                let span = index.span();
                 let inner = &index.expr;
                 let index = &index.index;
-                *i = parse_quote![*#inner.cube_idx(#index)]
+                *i = parse_quote_spanned![span=>*#inner.cube_idx(#index)]
             }
             _ => {}
         }
@@ -226,9 +228,10 @@ impl VisitMut for ReplaceIndex {
 impl VisitMut for ReplaceIndexMut {
     fn visit_expr_mut(&mut self, i: &mut syn::Expr) {
         if let Expr::Index(index) = i {
+            let span = index.span();
             let inner = &index.expr;
             let index = &index.index;
-            *i = parse_quote![*#inner.cube_idx_mut(#index)]
+            *i = parse_quote_spanned![span=>*#inner.cube_idx_mut(#index)]
         }
         visit_mut::visit_expr_mut(self, i);
     }

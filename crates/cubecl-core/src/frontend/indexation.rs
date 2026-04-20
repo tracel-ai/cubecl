@@ -138,7 +138,7 @@ where
                 vector_size,
                 unroll_factor: 1,
             }),
-            list,
+            out,
         ));
     } else {
         scope.register(Instruction::new(
@@ -148,7 +148,7 @@ where
                 vector_size,
                 unroll_factor: 1,
             }),
-            list,
+            out,
         ));
     }
 

@@ -472,13 +472,15 @@ impl KernelParam {
     /// Useful when the param is used in functions or methods associated to the
     /// expand type.
     pub fn plain_normalized_self(&mut self) {
-        if let Type::Path(pat) = &self.ty
-            && pat
-                .path
-                .get_ident()
-                .filter(|ident| *ident == "Self")
-                .is_some()
-        {
+        fn is_self(ty: &Type) -> bool {
+            match ty {
+                Type::Path(type_path) if type_path.path.is_ident("Self") => true,
+                Type::Ptr(type_ptr) => is_self(&type_ptr.elem),
+                Type::Reference(type_reference) => is_self(&type_reference.elem),
+                _ => false,
+            }
+        }
+        if is_self(&self.ty) {
             self.normalized_ty = self.ty.clone();
         }
     }

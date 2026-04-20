@@ -4,7 +4,9 @@ use variadics_please::all_tuples;
 
 /// A set of coordinates used in layouts. Contains some utilities for comptime inspection.
 #[cube]
-pub trait Coordinates: CubeType + Clone {
+pub trait Coordinates:
+    CubeType<ExpandType: Clone + ExpandDeref<Target = Self::ExpandType>> + Clone
+{
     /// Add two coordinates together and return the result.
     fn add(this: Self, other: Self) -> Self;
     /// Subtract two coordinates from each other and return the result.

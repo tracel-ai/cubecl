@@ -8,7 +8,7 @@ use cubecl_core::{self as cubecl, prelude::barrier::Barrier, unexpanded};
 #[cube(expand_base_traits = "VectorizedExpand")]
 pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Vectorized {
     #[allow(unused)]
-    fn read(&self, pos: C) -> T {
+    fn read(&self, pos: C) -> &T {
         unexpanded!()
     }
 
@@ -57,19 +57,19 @@ pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Vectorized {
 #[cube(expand_base_traits = "ViewOperationsExpand<T, C>")]
 pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>: ViewOperations<T, C> {
     #[allow(unused)]
-    fn write(&self, pos: C, value: T) {
+    fn write<'a>(&'a self, pos: C) -> &'a mut T {
         unexpanded!()
     }
 
     #[allow(unused)]
-    fn write_checked(&self, pos: C, value: T) {
+    fn write_checked<'a>(&'a self, pos: C) -> &'a mut T {
         unexpanded!()
     }
 
     /// Create a mutable slice starting from `pos`, with `size`.
     /// The layout handles translation into concrete indices.
     #[allow(unused, clippy::wrong_self_convention)]
-    fn to_linear_slice_mut(&self, pos: C, size: C) -> Slice<T, ReadWrite> {
+    fn to_linear_slice_mut<'a>(&'a self, pos: C, size: C) -> &'a mut Slice<T, ReadWrite> {
         unexpanded!()
     }
 
@@ -86,7 +86,7 @@ impl<'a, T: CubePrimitive, C: Coordinates, V: ViewOperations<T, C>> ViewOperatio
 where
     &'a V: CubeType<ExpandType = V::ExpandType>,
 {
-    fn read(&self, pos: C) -> T {
+    fn read(&self, pos: C) -> &T {
         V::read(self, pos)
     }
 

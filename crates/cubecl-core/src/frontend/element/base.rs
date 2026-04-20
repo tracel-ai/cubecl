@@ -1,7 +1,7 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
     ir::{ConstantValue, Scope, Variable, VariableKind},
-    prelude::{DynamicSize, KernelBuilder, KernelLauncher, assign},
+    prelude::{DynamicSize, KernelBuilder, KernelLauncher, Scalar, assign, read_variable},
     unexpanded,
 };
 use alloc::{boxed::Box, vec::Vec};
@@ -347,10 +347,8 @@ impl<T> NativeExpand<T> {
 }
 
 impl<T: CubePrimitive> ExpandAsRef for NativeExpand<T> {
-    fn __expand_as_ref_method(&self, scope: &mut Scope) -> &Self {
-        let ptr = scope.create_local(Type::pointer(self.expand.ty, PointerClass::Local));
-        scope.register(Instruction::new(Operation::Reference(self.expand), ptr));
-        scope.create_kernel_ref(ptr.into())
+    fn __expand_as_ref_method(&self, _: &mut Scope) -> &Self {
+        self
     }
 
     fn __expand_as_mut_method(&mut self, scope: &mut Scope) -> &mut Self {
@@ -368,13 +366,7 @@ impl<T: CubePrimitive> ExpandDeref for NativeExpand<T> {
     type Target = Self;
 
     fn __expand_deref_method(&self, scope: &mut Scope) -> NativeExpand<T> {
-        if let Type::Pointer(inner, _) = self.expand.ty {
-            let out = scope.create_local(*inner);
-            scope.register(Instruction::new(Operation::Deref(self.expand), out));
-            out.into()
-        } else {
-            *self
-        }
+        read_variable(scope, self.expand).into()
     }
 }
 
@@ -552,7 +544,7 @@ impl<T> From<Variable> for NativeExpand<T> {
     }
 }
 
-impl<T: CubePrimitive> NativeExpand<T> {
+impl<T: Scalar> NativeExpand<T> {
     /// Create an [`NativeExpand`] from a value that is normally a literal.
     pub fn from_lit<L: Into<ConstantValue>>(scope: &Scope, lit: L) -> Self {
         let variable: ConstantValue = lit.into();

@@ -8,7 +8,7 @@ pub fn kernel_vector_index<F: Float, N: Size>(output: &mut Array<F>) {
     if UNIT_POS == 0 {
         let vector = Vector::<F, N>::new(F::new(5f32));
         for i in 0..4 {
-            output[i] = vector[i];
+            output[i] = vector.extract(i);
         }
     }
 }
@@ -45,7 +45,7 @@ pub fn test_vector_index<R: Runtime, F: Float + CubeElement>(client: ComputeClie
 pub fn kernel_vector_index_assign<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
     if UNIT_POS == 0 {
         let mut vector = RuntimeCell::<Vector<F, N>>::new(output[0]);
-        vector.store_at(0, F::new(5f32));
+        vector.insert(0, F::new(5f32));
         output[0] = vector.consume();
     }
 }
@@ -79,7 +79,7 @@ pub fn kernel_vector_loop_unroll<F: Float, N: Size>(output: &mut Array<Vector<F,
         let mut vector = output[0];
         #[unroll]
         for k in 0..N::value() {
-            vector[k] += F::cast_from(k);
+            vector.insert(k, vector.extract(k) + F::cast_from(k));
         }
         output[0] = vector;
     }
@@ -197,7 +197,7 @@ macro_rules! impl_vector_comparison {
                 output: &mut Array<Vector<u32, N>>,
             ) {
                 if UNIT_POS == 0 {
-                    output[0] = Vector::cast_from(lhs[0].$cmp(rhs[0]));
+                    output[0] = Vector::cast_from(lhs[0].$cmp(&rhs[0]));
                 }
             }
 

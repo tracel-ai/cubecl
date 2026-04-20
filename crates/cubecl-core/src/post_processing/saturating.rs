@@ -151,8 +151,8 @@ fn saturating_add_signed<I: Int, U: Int, N: Size>(
     let uy = Vector::<U, N>::cast_from(y);
     let res = ux + uy;
     let ux = (ux >> shift) + Vector::<U, N>::cast_from(I::max_value());
-    let cond =
-        Vector::<I, N>::cast_from((ux ^ uy) | !(uy ^ res)).greater_equal(Vector::new(I::new(0)));
+    let zero = Vector::new(I::new(0));
+    let cond = Vector::<I, N>::cast_from((ux ^ uy) | !(uy ^ res)).greater_equal(&zero);
     select_many(cond, Vector::cast_from(ux), Vector::cast_from(res))
 }
 
@@ -170,6 +170,7 @@ fn saturating_sub_signed<I: Int, U: Int, N: Size>(
     let uy = Vector::<U, N>::cast_from(y);
     let res = ux - uy;
     let ux = (ux >> shift) + Vector::<U, N>::cast_from(I::max_value());
-    let cond = Vector::<I, N>::cast_from((ux ^ uy) & (ux ^ res)).less_than(Vector::new(I::new(0)));
+    let zero = Vector::new(I::new(0));
+    let cond = Vector::<I, N>::cast_from((ux ^ uy) & (ux ^ res)).less_than(&zero);
     select_many(cond, Vector::cast_from(ux), Vector::cast_from(res))
 }

@@ -22,8 +22,14 @@ pub struct ComptimeEventBus {
 }
 
 type EventItem = Box<dyn Any>;
-type Call<E> =
-    Box<dyn Fn(&mut Scope, &Box<dyn Any>, <E as CubeType>::ExpandType, ComptimeEventBusExpand)>;
+type Call<E> = Box<
+    dyn FnMut(
+        &mut Scope,
+        &mut Box<dyn Any>,
+        <E as CubeType>::ExpandType,
+        &mut ComptimeEventBusExpand,
+    ),
+>;
 
 struct Payload<E: CubeType> {
     listener: Box<dyn Any>,
@@ -65,11 +71,11 @@ impl ComptimeEventBus {
             // method. The listener is passed as a dynamic type and casted during the function call.
             let call =
                 |scope: &mut cubecl::prelude::Scope,
-                 listener: &Box<dyn Any>,
+                 listener: &mut Box<dyn Any>,
                  event: <L::Event as cubecl::prelude::CubeType>::ExpandType,
-                 bus: <ComptimeEventBus as cubecl::prelude::CubeType>::ExpandType| {
-                    let listener: &L::ExpandType = listener.downcast_ref().unwrap();
-                    listener.clone().__expand_on_event_method(scope, event, bus)
+                 bus: &mut <ComptimeEventBus as cubecl::prelude::CubeType>::ExpandType| {
+                    let listener: &mut L::ExpandType = listener.downcast_mut().unwrap();
+                    listener.__expand_on_event_method(scope, event, bus)
                 };
             let call: Call<L::Event> = Box::new(call);
 
@@ -94,16 +100,17 @@ impl ComptimeEventBus {
     pub fn event<E: CubeType + 'static>(&mut self, event: E) {
         intrinsic!(|scope| {
             let type_id = TypeId::of::<E>();
-            let family = self.listener_family.borrow();
-            let listeners = match family.get(&type_id) {
+            let family = self.listener_family.clone();
+            let mut family = family.borrow_mut();
+            let listeners = match family.get_mut(&type_id) {
                 Some(val) => val,
                 None => return,
             };
 
-            for listener in listeners.iter() {
-                let payload = listener.downcast_ref::<Payload<E>>().unwrap();
-                let call = &payload.call;
-                call(scope, &payload.listener, event.clone(), self.clone());
+            for listener in listeners.iter_mut() {
+                let mut payload = listener.downcast_mut::<Payload<E>>().unwrap();
+                let call = &mut payload.call;
+                call(scope, &mut payload.listener, event.clone_unchecked(), self);
             }
         })
     }

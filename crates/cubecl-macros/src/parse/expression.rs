@@ -67,13 +67,6 @@ impl Expression {
                 tokens: literal.to_token_stream(),
             },
             Expr::Lit(literal) => Expression::Literal { value: literal.lit },
-            Expr::Unary(ExprUnary {
-                op: UnOp::Neg(_),
-                expr,
-                ..
-            }) if matches!(*expr, Expr::Lit(_)) => Expression::Verbatim {
-                tokens: quote![-{#expr}],
-            },
             Expr::Path(path) => {
                 let name = path.path.get_ident();
                 if let Some(var) = name.and_then(|ident| context.variable(ident)) {
@@ -143,7 +136,7 @@ impl Expression {
                     .iter()
                     .map(|arg| Expression::from_expr(arg.clone(), context))
                     .collect::<Result<Vec<_>, _>>()?;
-                let receiver = Expression::from_expr(*method.receiver.clone(), context)?;
+                let receiver = Expression::from_expr_receiver(*method.receiver.clone(), context)?;
 
                 if receiver.is_const()
                     && args.iter().all(|arg| arg.is_const())
@@ -469,6 +462,15 @@ impl Expression {
             }
         };
         Ok(expression)
+    }
+
+    pub fn from_expr_receiver(expr: Expr, context: &mut Context) -> syn::Result<Self> {
+        match expr {
+            // Assuming immutable is not ideal, but unsure we can fix this. For now just make atomics work.
+            // Rust does a lot of magic around indexing that we can't really replicate
+            Expr::Index(expr_index) => parse_index_expr(expr_index, context, false),
+            other => Self::from_expr(other, context),
+        }
     }
 }
 

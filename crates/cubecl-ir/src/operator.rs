@@ -21,6 +21,10 @@ pub enum Operator {
     UncheckedIndexMut(IndexMutOperator),
     #[operation(pure)]
     InitVector(VectorInitOperator),
+    #[operation(pure)]
+    ExtractComponent(BinaryOperator),
+    #[operation(pure)]
+    InsertComponent(BinaryOperator),
     #[operation(commutative, pure)]
     And(BinaryOperator),
     #[operation(commutative, pure)]
@@ -66,6 +70,8 @@ impl Display for Operator {
                     .collect::<Vec<_>>();
                 write!(f, "vec({})", inits.join(", "))
             }
+            Operator::ExtractComponent(op) => write!(f, "{}[{}]", op.lhs, op.rhs),
+            Operator::InsertComponent(op) => write!(f, "[{}] = {}", op.lhs, op.rhs),
             Operator::Select(op) => {
                 write!(f, "{} ? {} : {}", op.cond, op.then, op.or_else)
             }

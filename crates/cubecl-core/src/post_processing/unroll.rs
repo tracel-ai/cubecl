@@ -2,8 +2,7 @@ use alloc::{vec, vec::Vec};
 use cubecl_ir::{
     Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, CopyMemoryBulkOperator,
     IndexMutOperator, IndexOperator, Instruction, MatrixLayout, Metadata, Operation,
-    OperationReflect, Operator, Processor, ScopeProcessing, Type, Variable, VariableKind,
-    VectorSize,
+    OperationReflect, Operator, Processor, ScopeProcessing, Variable, VariableKind, VectorSize,
 };
 use hashbrown::HashMap;
 
@@ -123,28 +122,8 @@ impl UnrollProcessor {
                         unroll_factor,
                     ))
                 }
-                Operation::Operator(Operator::Index(op)) if op.list.is_array() => {
-                    TransformAction::Replace(self.transform_array_index(
-                        alloc,
-                        inst.out(),
-                        op,
-                        Operator::Index,
-                        unroll_factor,
-                        mappings,
-                    ))
-                }
-                Operation::Operator(Operator::UncheckedIndex(op)) if op.list.is_array() => {
-                    TransformAction::Replace(self.transform_array_index(
-                        alloc,
-                        inst.out(),
-                        op,
-                        Operator::UncheckedIndex,
-                        unroll_factor,
-                        mappings,
-                    ))
-                }
                 Operation::Operator(Operator::Index(op)) => {
-                    TransformAction::Replace(self.transform_composite_index(
+                    TransformAction::Replace(self.transform_array_index(
                         alloc,
                         inst.out(),
                         op,
@@ -154,7 +133,7 @@ impl UnrollProcessor {
                     ))
                 }
                 Operation::Operator(Operator::UncheckedIndex(op)) => {
-                    TransformAction::Replace(self.transform_composite_index(
+                    TransformAction::Replace(self.transform_array_index(
                         alloc,
                         inst.out(),
                         op,
@@ -163,28 +142,17 @@ impl UnrollProcessor {
                         mappings,
                     ))
                 }
-                Operation::Operator(Operator::IndexMut(op)) if inst.out().is_array() => {
-                    TransformAction::Replace(self.transform_array_index_assign(
+                Operation::Operator(Operator::ExtractComponent(op)) => {
+                    TransformAction::Replace(self.transform_composite_extract(
                         alloc,
                         inst.out(),
                         op,
-                        Operator::IndexMut,
-                        unroll_factor,
-                        mappings,
-                    ))
-                }
-                Operation::Operator(Operator::UncheckedIndexMut(op)) if inst.out().is_array() => {
-                    TransformAction::Replace(self.transform_array_index_assign(
-                        alloc,
-                        inst.out(),
-                        op,
-                        Operator::UncheckedIndexMut,
                         unroll_factor,
                         mappings,
                     ))
                 }
                 Operation::Operator(Operator::IndexMut(op)) => {
-                    TransformAction::Replace(self.transform_composite_index_assign(
+                    TransformAction::Replace(self.transform_array_index_assign(
                         alloc,
                         inst.out(),
                         op,
@@ -194,7 +162,7 @@ impl UnrollProcessor {
                     ))
                 }
                 Operation::Operator(Operator::UncheckedIndexMut(op)) => {
-                    TransformAction::Replace(self.transform_composite_index_assign(
+                    TransformAction::Replace(self.transform_array_index_assign(
                         alloc,
                         inst.out(),
                         op,
@@ -203,6 +171,9 @@ impl UnrollProcessor {
                         mappings,
                     ))
                 }
+                Operation::Operator(Operator::InsertComponent(op)) => TransformAction::Replace(
+                    self.transform_composite_insert(alloc, inst.out(), op, unroll_factor, mappings),
+                ),
                 Operation::Metadata(op) => {
                     TransformAction::Replace(self.transform_metadata(inst.out(), op, args))
                 }
@@ -383,17 +354,16 @@ impl UnrollProcessor {
     /// to a local index and an unroll index, then indexes the proper variable. Note that this requires
     /// the index to be constant - it needs to be decomposed at compile time, otherwise it wouldn't
     /// work.
-    fn transform_composite_index(
+    fn transform_composite_extract(
         &self,
         alloc: &Allocator,
         out: Variable,
-        op: &IndexOperator,
-        operator: impl Fn(IndexOperator) -> Operator,
+        op: &BinaryOperator,
         unroll_factor: usize,
         mappings: &mut Mappings,
     ) -> Vec<Instruction> {
         let index = op
-            .index
+            .rhs
             .as_const()
             .expect("Can't unroll non-constant vector index")
             .as_usize();
@@ -401,14 +371,12 @@ impl UnrollProcessor {
         let unroll_idx = index / self.max_vector_size;
         let sub_idx = index % self.max_vector_size;
 
-        let value = mappings.get(alloc, op.list, unroll_factor, self.max_vector_size);
+        let value = mappings.get(alloc, op.lhs, unroll_factor, self.max_vector_size);
 
         vec![Instruction::new(
-            operator(IndexOperator {
-                list: value[unroll_idx],
-                index: sub_idx.into(),
-                vector_size: 1,
-                unroll_factor,
+            Operator::ExtractComponent(BinaryOperator {
+                lhs: value[unroll_idx],
+                rhs: sub_idx.into(),
             }),
             out,
         )]
@@ -418,17 +386,16 @@ impl UnrollProcessor {
     /// to a local index and an unroll index, then indexes the proper variable. Note that this requires
     /// the index to be constant - it needs to be decomposed at compile time, otherwise it wouldn't
     /// work.
-    fn transform_composite_index_assign(
+    fn transform_composite_insert(
         &self,
         alloc: &Allocator,
         out: Variable,
-        op: &IndexMutOperator,
-        operator: impl Fn(IndexMutOperator) -> Operator,
+        op: &BinaryOperator,
         unroll_factor: usize,
         mappings: &mut Mappings,
     ) -> Vec<Instruction> {
         let index = op
-            .index
+            .lhs
             .as_const()
             .expect("Can't unroll non-constant vector index")
             .as_usize();
@@ -436,15 +403,12 @@ impl UnrollProcessor {
         let unroll_idx = index / self.max_vector_size;
         let sub_idx = index % self.max_vector_size;
 
-        let list = mappings.get(alloc, op.list, unroll_factor, self.max_vector_size);
         let out = mappings.get(alloc, out, unroll_factor, self.max_vector_size);
 
         vec![Instruction::new(
-            operator(IndexMutOperator {
-                list: list[unroll_idx],
-                index: sub_idx.into(),
-                vector_size: 1,
-                unroll_factor,
+            Operator::InsertComponent(BinaryOperator {
+                lhs: sub_idx.into(),
+                rhs: op.rhs,
             }),
             out[unroll_idx],
         )]
@@ -624,7 +588,7 @@ fn create_unrolled(
         return vec![*var; unroll_factor];
     }
 
-    let item = Type::new(var.storage_type()).with_vector_size(max_vector_size);
+    let item = var.ty.with_vector_size(max_vector_size);
     (0..unroll_factor)
         .map(|_| match var.kind {
             VariableKind::LocalMut { .. } | VariableKind::Versioned { .. } => {

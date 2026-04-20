@@ -39,6 +39,14 @@ impl<T: CubeType> IntoMut for Sequence<T> {
 }
 impl<T: CubeType> CubeDebug for Sequence<T> {}
 
+impl<T: CubeType> ExpandDeref for SequenceExpand<T> {
+    type Target = Self;
+
+    fn __expand_deref_method(&self, _: &mut Scope) -> Self::Target {
+        self.clone()
+    }
+}
+
 impl<T: CubeType + Clone> Sequence<T> {
     pub fn rev(&self) -> Self {
         Self {
