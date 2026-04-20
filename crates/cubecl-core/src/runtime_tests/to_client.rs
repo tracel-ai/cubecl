@@ -45,7 +45,10 @@ fn num_combination(type_id: u16, n: u32) -> Vec<(DeviceId, DeviceId)> {
 
     for i in 0..n {
         for j in i + 1..n {
-            results.push((DeviceId::new(type_id, i), DeviceId::new(type_id, j)));
+            results.push((
+                DeviceId::new(type_id, i as u16),
+                DeviceId::new(type_id, j as u16),
+            ));
         }
     }
 

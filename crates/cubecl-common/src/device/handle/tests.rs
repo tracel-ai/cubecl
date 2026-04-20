@@ -45,7 +45,7 @@ fn test_recursive_execution_different_state() {
 #[derive(Debug, Clone, Default, new)]
 /// Type is only to create different type ids.
 pub struct TestDevice<const TYPE: u8> {
-    index: u32,
+    index: u16,
 }
 
 pub struct TestDeviceState<const T: usize> {

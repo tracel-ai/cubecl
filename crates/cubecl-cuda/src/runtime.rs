@@ -385,7 +385,7 @@ impl Runtime for CudaRuntime {
         (0..count)
             .map(|i| DeviceId {
                 type_id: 0,
-                index_id: i as u32,
+                index_id: i as u16,
             })
             .collect()
     }
