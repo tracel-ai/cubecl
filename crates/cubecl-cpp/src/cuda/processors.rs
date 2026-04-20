@@ -24,7 +24,7 @@ impl Processor for CudaMmaProcessor {
                     let mut scope =
                         Scope::root(false).with_global_state(processing.global_state.clone());
                     let row_idx: ManagedVariable = row_index::expand(
-                        &mut scope,
+                        &scope,
                         lane_id.into(),
                         i.into(),
                         elems_per_reg as u32,
@@ -51,7 +51,7 @@ impl Processor for CudaMmaProcessor {
                     let mut scope =
                         Scope::root(false).with_global_state(processing.global_state.clone());
                     let col_idx: ManagedVariable = col_index::expand(
-                        &mut scope,
+                        &scope,
                         lane_id.into(),
                         i.into(),
                         elems_per_reg as u32,

@@ -15,7 +15,7 @@ use super::base::{unary_expand, unary_expand_fixed_output};
 pub mod not {
     use super::*;
 
-    pub fn expand<T: CubeNot>(scope: &mut Scope, x: NativeExpand<T>) -> NativeExpand<T> {
+    pub fn expand<T: CubeNot>(scope: &Scope, x: NativeExpand<T>) -> NativeExpand<T> {
         if x.expand.ty.is_bool() {
             unary_expand(scope, x.into(), Operator::Not).into()
         } else {
@@ -33,18 +33,18 @@ macro_rules! impl_unary_func {
                     unexpanded!()
                 }
 
-                fn [<__expand_ $method_name>](scope: &mut Scope, x: NativeExpand<Self>) -> NativeExpand<Self> {
+                fn [<__expand_ $method_name>](scope: &Scope, x: NativeExpand<Self>) -> NativeExpand<Self> {
                     x.[<__expand_ $method_name _method>](scope)
                 }
             }
 
             pub trait [<$trait_name Expand>] {
-                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self;
+                fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self;
             }
 
             $(impl $trait_name for $type {})*
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for NativeExpand<T> {
-                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self {
+                fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self {
                     unary_expand(scope, self.into(), $operator).into()
                 }
             }
@@ -70,18 +70,18 @@ macro_rules! impl_unary_func_scalar_out {
                     unexpanded!()
                 }
 
-                fn [<__expand_ $method_name>](scope: &mut Scope, x: NativeExpand<Self>) -> NativeExpand<Self::Scalar> {
+                fn [<__expand_ $method_name>](scope: &Scope, x: NativeExpand<Self>) -> NativeExpand<Self::Scalar> {
                     x.[<__expand_ $method_name _method>](scope)
                 }
             }
 
             pub trait [<$trait_name Expand>]: CubePrimitiveExpand {
-                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self::Scalar;
+                fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self::Scalar;
             }
 
             $(impl $trait_name for $type {})*
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for NativeExpand<T> {
-                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self::Scalar {
+                fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self::Scalar {
                     let expand_element: Variable = self.into();
                     let item = expand_element.ty.with_vector_size(0);
                     unary_expand_fixed_output(scope, expand_element, item, $operator).into()
@@ -101,18 +101,18 @@ macro_rules! impl_unary_func_fixed_out_ty {
                     unexpanded!()
                 }
 
-                fn [<__expand_ $method_name>](scope: &mut Scope, x: NativeExpand<Self>) -> NativeExpand<Self::WithScalar<$out_ty>> {
+                fn [<__expand_ $method_name>](scope: &Scope, x: NativeExpand<Self>) -> NativeExpand<Self::WithScalar<$out_ty>> {
                     x.[<__expand_ $method_name _method>](scope)
                 }
             }
 
             pub trait [<$trait_name Expand>]: CubePrimitiveExpand {
-                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self::WithScalar<$out_ty>;
+                fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self::WithScalar<$out_ty>;
             }
 
             $(impl $trait_name for $type {})*
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for NativeExpand<T> {
-                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self::WithScalar<$out_ty> {
+                fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self::WithScalar<$out_ty> {
                     let expand_element: Variable = self.into();
                     let item = <$out_ty as CubePrimitive>::as_type(scope).with_vector_size(expand_element.ty.vector_size());
                     unary_expand_fixed_output(scope, expand_element, item, $operator).into()
@@ -127,18 +127,18 @@ macro_rules! impl_not {
     ($trait_name:ident, $method_name:ident, $($type:ty),*) => {
         paste::paste! {
             pub trait [<Cube $trait_name>]: $trait_name<Output = Self> + CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]> {
-                fn [<__expand_ $method_name>](scope: &mut Scope, x: NativeExpand<Self>) -> NativeExpand<Self> {
+                fn [<__expand_ $method_name>](scope: &Scope, x: NativeExpand<Self>) -> NativeExpand<Self> {
                     x.[<__expand_ $method_name _method>](scope)
                 }
             }
 
             pub trait [<$trait_name Expand>] {
-                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self;
+                fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self;
             }
 
             $(impl [<Cube $trait_name>] for $type {})*
             impl<T: [<Cube $trait_name>] + CubePrimitive> [<$trait_name Expand>] for NativeExpand<T> {
-                fn [<__expand_ $method_name _method>](self, scope: &mut Scope) -> Self {
+                fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self {
                     not::expand(scope, self.into())
                 }
             }
@@ -150,14 +150,14 @@ macro_rules! impl_core_unop {
     ($trait: ident, $method: ident, $op: expr) => {
         paste::paste! {
             pub trait [<Cube $trait>]: $trait<Output = Self> + CubePrimitive + Into<Variable> + CubeType<ExpandType: [<$trait Expand>]> + Sized {
-                fn [<__expand_ $method _method>](self, scope: &mut Scope) -> NativeExpand<Self> {
+                fn [<__expand_ $method _method>](self, scope: &Scope) -> NativeExpand<Self> {
                     let this: Variable = self.into();
                     let this: NativeExpand<Self> = this.into();
                     this.[<__expand_ $method _method>](scope)
                 }
 
                 fn [<__expand_ $method>](
-                    scope: &mut Scope,
+                    scope: &Scope,
                     lhs: NativeExpand<Self>,
                 ) -> NativeExpand<Self> {
                     lhs.[<__expand_ $method _method>](scope)
@@ -165,12 +165,12 @@ macro_rules! impl_core_unop {
             }
 
             pub trait [<$trait Expand>] {
-                fn [<__expand_ $method _method>](self, scope: &mut Scope) -> Self;
+                fn [<__expand_ $method _method>](self, scope: &Scope) -> Self;
             }
 
             impl<T: $trait<Output = T> + CubePrimitive + Into<Variable>> [<Cube $trait>] for T {}
             impl<T: $trait<Output = T> + CubePrimitive> [<$trait Expand>] for NativeExpand<T> {
-                fn [<__expand_ $method _method>](self, scope: &mut Scope) -> Self {
+                fn [<__expand_ $method _method>](self, scope: &Scope) -> Self {
                     unary_expand(scope, self.into(), $op).into()
                 }
             }
@@ -591,11 +591,11 @@ pub trait FloatBits:
 {
     type Bits: CubePrimitive;
 
-    fn __expand_from_bits(scope: &mut Scope, bits: NativeExpand<Self::Bits>) -> NativeExpand<Self> {
+    fn __expand_from_bits(scope: &Scope, bits: NativeExpand<Self::Bits>) -> NativeExpand<Self> {
         Self::__expand_reinterpret(scope, bits)
     }
 
-    fn __expand_to_bits(scope: &mut Scope, this: NativeExpand<Self>) -> NativeExpand<Self::Bits> {
+    fn __expand_to_bits(scope: &Scope, this: NativeExpand<Self>) -> NativeExpand<Self::Bits> {
         <Self::Bits as Reinterpret>::__expand_reinterpret(scope, this)
     }
 }
@@ -603,13 +603,13 @@ pub trait FloatBits:
 pub trait FloatBitsExpand: Sized {
     type Bits: CubePrimitive;
 
-    fn __expand_to_bits_method(self, scope: &mut Scope) -> NativeExpand<Self::Bits>;
+    fn __expand_to_bits_method(self, scope: &Scope) -> NativeExpand<Self::Bits>;
 }
 
 impl<F: FloatBits> FloatBitsExpand for NativeExpand<F> {
     type Bits = F::Bits;
 
-    fn __expand_to_bits_method(self, scope: &mut Scope) -> NativeExpand<Self::Bits> {
+    fn __expand_to_bits_method(self, scope: &Scope) -> NativeExpand<Self::Bits> {
         <Self::Bits as Reinterpret>::__expand_reinterpret(scope, self)
     }
 }

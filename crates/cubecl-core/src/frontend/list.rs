@@ -52,7 +52,7 @@ where
     }
 
     fn __expand_read(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &'a Self::ExpandType,
         index: NativeExpand<usize>,
     ) -> &'a <T as CubeType>::ExpandType {
@@ -71,7 +71,7 @@ where
     }
 
     fn __expand_read(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &'a Self::ExpandType,
         index: NativeExpand<usize>,
     ) -> &'a <T as CubeType>::ExpandType {
@@ -90,7 +90,7 @@ where
     }
 
     fn __expand_write(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &'a Self::ExpandType,
         index: NativeExpand<usize>,
     ) -> &'a mut T::ExpandType {
@@ -109,7 +109,7 @@ where
     }
 
     fn __expand_write(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &'a Self::ExpandType,
         index: NativeExpand<usize>,
     ) -> &'a mut T::ExpandType {
@@ -121,14 +121,14 @@ pub trait Vectorized: CubeType<ExpandType: VectorizedExpand> {
     fn vector_size(&self) -> VectorSize {
         unexpanded!()
     }
-    fn __expand_vector_size(_scope: &mut Scope, this: Self::ExpandType) -> VectorSize {
+    fn __expand_vector_size(_scope: &Scope, this: Self::ExpandType) -> VectorSize {
         this.vector_size()
     }
 }
 
 pub trait VectorizedExpand {
     fn vector_size(&self) -> VectorSize;
-    fn __expand_vector_size_method(&self, _scope: &mut Scope) -> VectorSize {
+    fn __expand_vector_size_method(&self, _scope: &Scope) -> VectorSize {
         self.vector_size()
     }
 }

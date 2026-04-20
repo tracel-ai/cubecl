@@ -287,13 +287,13 @@ impl CubeTypeStruct {
             impl #generics #into_expand for #name_expand #generic_names #where_clause {
                 type Expand = Self;
 
-                fn into_expand(self, _: &mut #scope) -> Self {
+                fn into_expand(self, _: &#scope) -> Self {
                     self
                 }
             }
 
             impl #generics #into_mut for #name_expand #generic_names #where_clause {
-                fn into_mut(self, scope: &mut #scope) -> Self {
+                fn into_mut(self, scope: &#scope) -> Self {
                     Self {
                         #(#body),*
                     }

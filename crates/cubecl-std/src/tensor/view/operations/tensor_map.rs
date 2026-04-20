@@ -11,7 +11,7 @@ macro_rules! impl_tensor_map {
             impl<T: CubePrimitive> ViewOperationsExpand<T, $coords> for NativeExpand<TensorMap<T, Tiled>> {
                 fn __expand_read_method(
                     &self,
-                    _scope: &mut Scope,
+                    _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                 ) -> <T as CubeType>::ExpandType {
                     unimplemented!("Can't read from tensor map");
@@ -19,7 +19,7 @@ macro_rules! impl_tensor_map {
 
                 fn __expand_read_checked_method(
                     &self,
-                    _scope: &mut Scope,
+                    _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                 ) -> <T as CubeType>::ExpandType {
                     unimplemented!("Can't read from tensor map");
@@ -27,7 +27,7 @@ macro_rules! impl_tensor_map {
 
                 fn __expand_read_masked_method(
                     &self,
-                    _scope: &mut Scope,
+                    _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                     _mask_value: <T as CubeType>::ExpandType,
                 ) -> <T as CubeType>::ExpandType {
@@ -36,7 +36,7 @@ macro_rules! impl_tensor_map {
 
                 fn __expand_read_unchecked_method(
                     &self,
-                    _scope: &mut Scope,
+                    _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                 ) -> <T as CubeType>::ExpandType {
                     unimplemented!("Can't read from tensor map");
@@ -44,20 +44,20 @@ macro_rules! impl_tensor_map {
 
                 fn __expand_to_linear_slice_method(
                     &self,
-                    _scope: &mut Scope,
+                    _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                     _end: <$coords as CubeType>::ExpandType,
                 ) -> SliceExpand<T, ReadOnly> {
                     unimplemented!("Can't read from tensor map");
                 }
 
-                fn __expand_shape_method(&self, _scope: &mut Scope) -> <$coords as CubeType>::ExpandType {
+                fn __expand_shape_method(&self, _scope: &Scope) -> <$coords as CubeType>::ExpandType {
                     unimplemented!("Can't read from tensor map");
                 }
 
                 fn __expand_is_in_bounds_method(
                     &self,
-                    _scope: &mut Scope,
+                    _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                 ) -> NativeExpand<bool> {
                     // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
@@ -67,7 +67,7 @@ macro_rules! impl_tensor_map {
                 #[allow(unused_parens)]
                 fn __expand_tensor_map_load_method(
                     &self,
-                    scope: &mut Scope,
+                    scope: &Scope,
                     barrier: NativeExpand<Ref<Barrier>>,
                     shared_memory: SliceExpand<T, ReadWrite>,
                     pos: <$coords as CubeType>::ExpandType,
@@ -83,7 +83,7 @@ macro_rules! impl_tensor_map {
             impl<T: CubePrimitive> ViewOperationsMutExpand<T, $coords> for NativeExpand<TensorMap<T, Tiled>> {
                 fn __expand_write_method(
                     &self,
-                    _scope: &mut Scope,
+                    _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                     _value: <T as CubeType>::ExpandType,
                 ) {
@@ -92,7 +92,7 @@ macro_rules! impl_tensor_map {
 
                 fn __expand_write_checked_method(
                     &self,
-                    _scope: &mut Scope,
+                    _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                     _value: <T as CubeType>::ExpandType,
                 ) {
@@ -101,7 +101,7 @@ macro_rules! impl_tensor_map {
 
                 fn __expand_to_linear_slice_mut_method(
                     &self,
-                    _scope: &mut Scope,
+                    _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                     _end: <$coords as CubeType>::ExpandType,
                 ) -> SliceExpand<T, ReadWrite> {
@@ -111,7 +111,7 @@ macro_rules! impl_tensor_map {
                 #[allow(unused_parens)]
                 fn __expand_tensor_map_store_method(
                     &self,
-                    scope: &mut Scope,
+                    scope: &Scope,
                     shared_memory: SliceExpand<T, ReadOnly>,
                     pos: <$coords as CubeType>::ExpandType,
                 ) {
@@ -145,7 +145,7 @@ macro_rules! impl_tensor_map_im2col {
             impl<T: CubePrimitive> ViewOperationsExpand<T, $coords> for NativeExpand<TensorMap<T, Im2col>> {
                 fn __expand_read_method(
                     &self,
-                    _scope: &mut Scope,
+                    _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                 ) -> <T as CubeType>::ExpandType {
                     unimplemented!("Can't read from tensor map");
@@ -153,7 +153,7 @@ macro_rules! impl_tensor_map_im2col {
 
                 fn __expand_read_checked_method(
                     &self,
-                    _scope: &mut Scope,
+                    _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                 ) -> <T as CubeType>::ExpandType {
                     unimplemented!("Can't read from tensor map");
@@ -161,7 +161,7 @@ macro_rules! impl_tensor_map_im2col {
 
                 fn __expand_read_masked_method(
                     &self,
-                    _scope: &mut Scope,
+                    _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                     _mask_value: <T as CubeType>::ExpandType,
                 ) -> <T as CubeType>::ExpandType {
@@ -170,7 +170,7 @@ macro_rules! impl_tensor_map_im2col {
 
                 fn __expand_read_unchecked_method(
                     &self,
-                    _scope: &mut Scope,
+                    _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                 ) -> <T as CubeType>::ExpandType {
                     unimplemented!("Can't read from tensor map");
@@ -178,20 +178,20 @@ macro_rules! impl_tensor_map_im2col {
 
                 fn __expand_to_linear_slice_method(
                     &self,
-                    _scope: &mut Scope,
+                    _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                     _end: <$coords as CubeType>::ExpandType,
                 ) -> SliceExpand<T, ReadOnly> {
                     unimplemented!("Can't read from tensor map");
                 }
 
-                fn __expand_shape_method(&self, _scope: &mut Scope) -> <$coords as CubeType>::ExpandType {
+                fn __expand_shape_method(&self, _scope: &Scope) -> <$coords as CubeType>::ExpandType {
                     unimplemented!("Can't read from tensor map");
                 }
 
                 fn __expand_is_in_bounds_method(
                     &self,
-                    _scope: &mut Scope,
+                    _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                 ) -> NativeExpand<bool> {
                     // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
@@ -201,7 +201,7 @@ macro_rules! impl_tensor_map_im2col {
                 #[allow(unused_parens)]
                 fn __expand_tensor_map_load_method(
                     &self,
-                    scope: &mut Scope,
+                    scope: &Scope,
                     barrier: NativeExpand<Ref<Barrier>>,
                     shared_memory: SliceExpand<T, ReadWrite>,
                     pos: <$coords as CubeType>::ExpandType,
@@ -227,17 +227,13 @@ impl_tensor_map_im2col!(3, (Coords3i, Coords1d), n, w, c; x);
 impl_tensor_map_im2col!(4, (Coords4i, Coords2d), n, h, w, c; y, x);
 impl_tensor_map_im2col!(5, (Coords5i, Coords3d), n, d, h, w, c; z, y, x);
 
-fn as_i32<T: CubePrimitive>(
-    scope: &mut Scope,
-    pos: &SequenceExpand<T>,
-    i: usize,
-) -> NativeExpand<i32> {
+fn as_i32<T: CubePrimitive>(scope: &Scope, pos: &SequenceExpand<T>, i: usize) -> NativeExpand<i32> {
     let x = pos.__expand_index_method(scope, i);
     i32::__expand_cast_from(scope, x)
 }
 
 fn as_u16<T: CubePrimitive>(
-    scope: &mut Scope,
+    scope: &Scope,
     offs: &SequenceExpand<T>,
     i: usize,
 ) -> NativeExpand<u16> {
@@ -254,7 +250,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
 {
     fn __expand_read_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: SequenceExpand<N>,
     ) -> <T as CubeType>::ExpandType {
         unimplemented!("Can't read from tensor map");
@@ -262,7 +258,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
 
     fn __expand_read_checked_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: SequenceExpand<N>,
     ) -> <T as CubeType>::ExpandType {
         unimplemented!("Can't read from tensor map");
@@ -270,7 +266,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
 
     fn __expand_read_masked_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: SequenceExpand<N>,
         _mask_value: <T as CubeType>::ExpandType,
     ) -> <T as CubeType>::ExpandType {
@@ -279,7 +275,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
 
     fn __expand_read_unchecked_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: SequenceExpand<N>,
     ) -> <T as CubeType>::ExpandType {
         unimplemented!("Can't read from tensor map");
@@ -287,20 +283,20 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
 
     fn __expand_to_linear_slice_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: SequenceExpand<N>,
         _end: SequenceExpand<N>,
     ) -> SliceExpand<T, ReadOnly> {
         unimplemented!("Can't read from tensor map");
     }
 
-    fn __expand_shape_method(&self, _scope: &mut Scope) -> SequenceExpand<N> {
+    fn __expand_shape_method(&self, _scope: &Scope) -> SequenceExpand<N> {
         unimplemented!("Can't read from tensor map");
     }
 
     fn __expand_is_in_bounds_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: SequenceExpand<N>,
     ) -> NativeExpand<bool> {
         // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
@@ -310,7 +306,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
     #[allow(unused_parens)]
     fn __expand_tensor_map_load_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         barrier: NativeExpand<Ref<Barrier>>,
         shared_memory: SliceExpand<T, ReadWrite>,
         pos: SequenceExpand<N>,
@@ -364,7 +360,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T
 {
     fn __expand_write_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: SequenceExpand<N>,
         _value: <T as CubeType>::ExpandType,
     ) {
@@ -373,7 +369,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T
 
     fn __expand_write_checked_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: SequenceExpand<N>,
         _value: <T as CubeType>::ExpandType,
     ) {
@@ -382,7 +378,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T
 
     fn __expand_to_linear_slice_mut_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: SequenceExpand<N>,
         _end: SequenceExpand<N>,
     ) -> SliceExpand<T, ReadWrite> {
@@ -392,7 +388,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T
     #[allow(unused_parens)]
     fn __expand_tensor_map_store_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         shared_memory: SliceExpand<T, ReadOnly>,
         pos: SequenceExpand<N>,
     ) {
@@ -445,7 +441,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
 {
     fn __expand_read_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: (SequenceExpand<P>, SequenceExpand<O>),
     ) -> <T as CubeType>::ExpandType {
         unimplemented!("Can't read from tensor map");
@@ -453,7 +449,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
 
     fn __expand_read_checked_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: (SequenceExpand<P>, SequenceExpand<O>),
     ) -> <T as CubeType>::ExpandType {
         unimplemented!("Can't read from tensor map");
@@ -461,7 +457,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
 
     fn __expand_read_masked_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: (SequenceExpand<P>, SequenceExpand<O>),
         _mask_value: <T as CubeType>::ExpandType,
     ) -> <T as CubeType>::ExpandType {
@@ -470,7 +466,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
 
     fn __expand_read_unchecked_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: (SequenceExpand<P>, SequenceExpand<O>),
     ) -> <T as CubeType>::ExpandType {
         unimplemented!("Can't read from tensor map");
@@ -478,20 +474,20 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
 
     fn __expand_to_linear_slice_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: (SequenceExpand<P>, SequenceExpand<O>),
         _end: (SequenceExpand<P>, SequenceExpand<O>),
     ) -> SliceExpand<T, ReadOnly> {
         unimplemented!("Can't read from tensor map");
     }
 
-    fn __expand_shape_method(&self, _scope: &mut Scope) -> (SequenceExpand<P>, SequenceExpand<O>) {
+    fn __expand_shape_method(&self, _scope: &Scope) -> (SequenceExpand<P>, SequenceExpand<O>) {
         unimplemented!("Can't read from tensor map");
     }
 
     fn __expand_is_in_bounds_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: (SequenceExpand<P>, SequenceExpand<O>),
     ) -> NativeExpand<bool> {
         // Bounds checks are done in hardware, so treat them as always in bounds for the kernels
@@ -501,7 +497,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
     #[allow(unused_parens)]
     fn __expand_tensor_map_load_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         barrier: NativeExpand<Ref<Barrier>>,
         shared_memory: SliceExpand<T, ReadWrite>,
         pos: (SequenceExpand<P>, SequenceExpand<O>),

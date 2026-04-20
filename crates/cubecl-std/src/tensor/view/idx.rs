@@ -13,7 +13,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeIndexExpand for ViewExpand
 
     fn __expand_index_method<'a>(
         &'a self,
-        scope: &mut Scope,
+        scope: &Scope,
         index: C::ExpandType,
     ) -> &'a Self::Output {
         self.__expand_read_method(scope, index)
@@ -21,7 +21,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeIndexExpand for ViewExpand
 
     fn __expand_index_unchecked_method<'a>(
         &'a self,
-        scope: &mut Scope,
+        scope: &Scope,
         index: C::ExpandType,
     ) -> &'a Self::Output {
         self.__expand_read_unchecked_method(scope, index)
@@ -32,7 +32,7 @@ impl<E: CubePrimitive, C: Coordinates> CubeIndexMut for View<E, C, ReadWrite> {}
 impl<E: CubePrimitive, C: Coordinates> CubeIndexMutExpand for ViewExpand<E, C, ReadWrite> {
     fn __expand_index_mut_method<'a>(
         &'a mut self,
-        scope: &mut Scope,
+        scope: &Scope,
         index: C::ExpandType,
     ) -> &'a mut Self::Output {
         self.__expand_write_method(scope, index)

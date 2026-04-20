@@ -340,7 +340,7 @@ impl<T: Scalar + Default, N: Size> Default for Vector<T, N> {
 }
 
 impl<T: Scalar + IntoRuntime, N: Size> IntoRuntime for Vector<T, N> {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> Self::ExpandType {
+    fn __expand_runtime_method(self, scope: &Scope) -> Self::ExpandType {
         let val = self.val.__expand_runtime_method(scope);
         Self::__expand_new(scope, val)
     }
@@ -348,7 +348,7 @@ impl<T: Scalar + IntoRuntime, N: Size> IntoRuntime for Vector<T, N> {
 impl<T: Scalar + IntoExpand, N: Size> IntoExpand for Vector<T, N> {
     type Expand = VectorExpand<T, N>;
 
-    fn into_expand(self, scope: &mut Scope) -> Self::Expand {
+    fn into_expand(self, scope: &Scope) -> Self::Expand {
         self.__expand_runtime_method(scope)
     }
 }

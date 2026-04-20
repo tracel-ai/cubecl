@@ -7,13 +7,13 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperations<T, Coords1d> for Slic
 impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
     for SliceExpand<T, IO>
 {
-    fn __expand_read_method(&self, scope: &mut Scope, pos: NativeExpand<usize>) -> <T>::ExpandType {
+    fn __expand_read_method(&self, scope: &Scope, pos: NativeExpand<usize>) -> <T>::ExpandType {
         <Self as ListExpand<T>>::__expand_read_method(self, scope, pos)
     }
 
     fn __expand_read_checked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
     ) -> <T>::ExpandType {
         let len = self.__expand_len_method(scope);
@@ -25,7 +25,7 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
 
     fn __expand_read_masked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
         mask_value: <T>::ExpandType,
     ) -> <T>::ExpandType {
@@ -37,7 +37,7 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
 
     fn __expand_read_unchecked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
     ) -> <T>::ExpandType {
         <Self as ListExpand<T>>::__expand_read_unchecked_method(self, scope, pos)
@@ -45,7 +45,7 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
 
     fn __expand_to_linear_slice_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
         end: NativeExpand<usize>,
     ) -> SliceExpand<T, ReadOnly> {
@@ -57,13 +57,13 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
         <Self as SliceOperatorExpand<T>>::__expand_slice_method(self, scope, start, end)
     }
 
-    fn __expand_shape_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
+    fn __expand_shape_method(&self, scope: &Scope) -> NativeExpand<usize> {
         <Self as ListExpand<T>>::__expand_len_method(self, scope)
     }
 
     fn __expand_is_in_bounds_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
     ) -> NativeExpand<bool> {
         let len = self.__expand_shape_method(scope);
@@ -72,7 +72,7 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
 
     fn __expand_tensor_map_load_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _barrier: NativeExpand<Ref<Barrier>>,
         _shared_memory: SliceExpand<T, ReadWrite>,
         _pos: NativeExpand<usize>,
@@ -85,7 +85,7 @@ impl<T: CubePrimitive> ViewOperationsMut<T, Coords1d> for Slice<T, ReadWrite> {}
 impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T, ReadWrite> {
     fn __expand_write_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
         value: <T>::ExpandType,
     ) {
@@ -94,7 +94,7 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T, R
 
     fn __expand_write_checked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
         value: <T>::ExpandType,
     ) {
@@ -107,7 +107,7 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T, R
 
     fn __expand_to_linear_slice_mut_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
         end: NativeExpand<usize>,
     ) -> SliceExpand<T, ReadWrite> {
@@ -121,7 +121,7 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T, R
 
     fn __expand_tensor_map_store_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _shared_memory: SliceExpand<T, ReadOnly>,
         _pos: <Coords1d as CubeType>::ExpandType,
     ) {

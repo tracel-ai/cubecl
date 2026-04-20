@@ -116,7 +116,7 @@ impl ToTokens for KernelSignature {
             quote! {
                 fn #name #generics(
                     #receiver,
-                    scope: &mut #scope,
+                    scope: &#scope,
                     #(#args),*
                 ) -> #return_type #where_clause
             }
@@ -124,7 +124,7 @@ impl ToTokens for KernelSignature {
             let args = &self.parameters;
             quote! {
                 fn #name #generics(
-                    scope: &mut #scope,
+                    scope: &#scope,
                     #(#args),*
                 ) -> #return_type #where_clause
             }

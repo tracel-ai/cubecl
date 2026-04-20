@@ -53,7 +53,7 @@ mod new {
             }
         }
 
-        pub fn __expand_new(scope: &mut Scope, val: NativeExpand<P>) -> VectorExpand<P, N> {
+        pub fn __expand_new(scope: &Scope, val: NativeExpand<P>) -> VectorExpand<P, N> {
             Vector::<P, N>::__expand_cast_from(scope, val)
         }
     }
@@ -222,7 +222,7 @@ mod size {
         }
 
         /// Expand function of [size](Self::size).
-        pub fn __expand_size(scope: &mut Scope, element: NativeExpand<Vector<P, N>>) -> VectorSize {
+        pub fn __expand_size(scope: &Scope, element: NativeExpand<Vector<P, N>>) -> VectorSize {
             element.__expand_vector_size_method(scope)
         }
     }
@@ -234,7 +234,7 @@ mod size {
         }
 
         /// Expand method of [size](Vector::size).
-        pub fn __expand_size_method(&self, _scope: &mut Scope) -> VectorSize {
+        pub fn __expand_size_method(&self, _scope: &Scope) -> VectorSize {
             self.size()
         }
     }
@@ -332,7 +332,7 @@ impl<P: Scalar, N: Size> CubeType for Vector<P, N> {
 impl<P: Scalar, N: Size> CubeDebug for Vector<P, N> {}
 
 impl<P: Scalar, N: Size> NativeAssign for Vector<P, N> {
-    fn elem_init_mut(scope: &mut crate::ir::Scope, elem: Variable) -> Variable {
+    fn elem_init_mut(scope: &Scope, elem: Variable) -> Variable {
         P::elem_init_mut(scope, elem)
     }
 }

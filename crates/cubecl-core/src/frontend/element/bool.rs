@@ -11,7 +11,7 @@ pub trait BoolOps {
     fn new(value: bool) -> bool {
         value
     }
-    fn __expand_new(_scope: &mut Scope, value: NativeExpand<bool>) -> NativeExpand<bool> {
+    fn __expand_new(_scope: &Scope, value: NativeExpand<bool>) -> NativeExpand<bool> {
         ElemType::Bool
             .constant(value.expand.as_const().unwrap())
             .into()
@@ -44,7 +44,7 @@ impl CubePrimitive for bool {
 }
 
 impl IntoRuntime for bool {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+    fn __expand_runtime_method(self, _scope: &Scope) -> NativeExpand<Self> {
         self.into()
     }
 }
@@ -52,7 +52,7 @@ impl IntoRuntime for bool {
 impl IntoExpand for bool {
     type Expand = NativeExpand<bool>;
 
-    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+    fn into_expand(self, _: &Scope) -> Self::Expand {
         self.into()
     }
 }

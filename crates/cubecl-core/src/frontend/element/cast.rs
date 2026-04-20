@@ -15,7 +15,7 @@ pub trait Cast: CubePrimitive {
     fn cast_from<From: CubePrimitive>(value: From) -> Self;
 
     fn __expand_cast_from<From: CubePrimitive>(
-        scope: &mut Scope,
+        scope: &Scope,
         value: NativeExpand<From>,
     ) -> <Self as CubeType>::ExpandType {
         if Self::as_type(scope) == From::as_type(scope) {
@@ -53,7 +53,7 @@ pub trait Reinterpret: CubePrimitive {
     }
 
     fn __expand_reinterpret<From: CubePrimitive>(
-        scope: &mut Scope,
+        scope: &Scope,
         value: NativeExpand<From>,
     ) -> <Self as CubeType>::ExpandType {
         let size_in = value.expand.ty.size();
@@ -69,7 +69,7 @@ pub trait Reinterpret: CubePrimitive {
         new_var.into()
     }
 
-    fn __expand_reinterpret_vectorization<From: CubePrimitive>(scope: &mut Scope) -> usize {
+    fn __expand_reinterpret_vectorization<From: CubePrimitive>(scope: &Scope) -> usize {
         let type_size = From::__expand_type_size(scope);
         type_size / Self::Scalar::__expand_type_size(scope)
     }

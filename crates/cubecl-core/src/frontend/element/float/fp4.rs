@@ -28,13 +28,13 @@ impl CubePrimitive for e2m1 {
 }
 
 impl IntoRuntime for e2m1 {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+    fn __expand_runtime_method(self, _scope: &Scope) -> NativeExpand<Self> {
         self.into()
     }
 }
 impl IntoExpand for e2m1 {
     type Expand = NativeExpand<e2m1>;
-    fn into_expand(self, _scope: &mut Scope) -> Self::Expand {
+    fn into_expand(self, _scope: &Scope) -> Self::Expand {
         self.into()
     }
 }
@@ -70,13 +70,13 @@ impl CubePrimitive for e2m1x2 {
 }
 
 impl IntoRuntime for e2m1x2 {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+    fn __expand_runtime_method(self, _scope: &Scope) -> NativeExpand<Self> {
         self.into()
     }
 }
 impl IntoExpand for e2m1x2 {
     type Expand = NativeExpand<e2m1x2>;
-    fn into_expand(self, _scope: &mut Scope) -> Self::Expand {
+    fn into_expand(self, _scope: &Scope) -> Self::Expand {
         self.into()
     }
 }

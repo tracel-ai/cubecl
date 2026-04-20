@@ -37,11 +37,11 @@ pub struct TensorView<T: CubePrimitive> {
 }
 
 impl<T: CubePrimitive> ExpandAsRef for TensorViewExpand<T> {
-    fn __expand_as_ref_method<'a>(&'a self, _: &mut Scope) -> &'a Self {
+    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
         self
     }
 
-    fn __expand_as_mut_method<'a>(&'a mut self, _: &mut Scope) -> &'a mut Self {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
         self
     }
 }
@@ -160,7 +160,7 @@ impl<T: CubePrimitive> TensorView<T> {
 impl<T: CubePrimitive> TensorViewExpand<T> {
     pub fn __expand_permuted_method(
         self,
-        scope: &mut Scope,
+        scope: &Scope,
         permutation: SequenceExpand<usize>,
     ) -> TensorViewExpand<T> {
         let dims = permutation.len();
@@ -206,7 +206,7 @@ impl<T: CubePrimitive> TensorViewBuilder<T> {
 impl<T: CubePrimitive> TensorViewBuilderExpand<T> {
     pub fn __expand_with_strides_method(
         mut self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         strides: SequenceExpand<u32>,
     ) -> Self {
         self.strides = ComptimeOptionExpand::Some(strides);
@@ -215,14 +215,14 @@ impl<T: CubePrimitive> TensorViewBuilderExpand<T> {
 
     pub fn __expand_with_clamp_mode_method(
         mut self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         clamp_mode: TensorClampMode,
     ) -> Self {
         self.clamp_mode = clamp_mode;
         self
     }
 
-    pub fn __expand_finish_method(self, scope: &mut Scope) -> TensorViewExpand<T> {
+    pub fn __expand_finish_method(self, scope: &Scope) -> TensorViewExpand<T> {
         let layout = scope.create_local(Type::semantic(SemanticType::TensorLayout(
             self.shape.len(),
             self.clamp_mode.into(),
@@ -264,6 +264,6 @@ impl<T: CubePrimitive> LaunchArg for TensorView<T> {
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
         let build = TensorViewBuilder::<T>::expand(arg, builder);
-        build.__expand_finish_method(&mut builder.scope)
+        build.__expand_finish_method(&builder.scope)
     }
 }

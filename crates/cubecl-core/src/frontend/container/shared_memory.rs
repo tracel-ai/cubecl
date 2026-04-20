@@ -29,7 +29,7 @@ pub struct SharedMemory<E: CubePrimitive> {
 }
 
 impl<T: CubePrimitive> IntoMut for NativeExpand<SharedMemory<T>> {
-    fn into_mut(self, _scope: &mut Scope) -> Self {
+    fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
 }
@@ -39,7 +39,7 @@ impl<T: CubePrimitive> CubeType for SharedMemory<T> {
 }
 
 impl<T: CubePrimitive> IntoMut for NativeExpand<Shared<T>> {
-    fn into_mut(self, _scope: &mut Scope) -> Self {
+    fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
 }
@@ -85,7 +85,7 @@ impl<T: CubePrimitive> Default for Shared<T> {
     }
 }
 impl<T: CubePrimitive> Shared<T> {
-    pub fn __expand_default(scope: &mut Scope) -> <Self as CubeType>::ExpandType {
+    pub fn __expand_default(scope: &Scope) -> <Self as CubeType>::ExpandType {
         Self::__expand_new(scope)
     }
 }
@@ -181,7 +181,7 @@ mod indexation {
 
 impl<'a, T: CubePrimitive> List<'a, T> for SharedMemory<T> {
     fn __expand_read(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &'a NativeExpand<SharedMemory<T>>,
         idx: NativeExpand<usize>,
     ) -> &'a NativeExpand<T> {
@@ -206,20 +206,20 @@ impl<T: CubePrimitive> DerefMut for SharedMemory<T> {
 impl<'a, T: CubePrimitive> ListExpand<'a, T> for NativeExpand<SharedMemory<T>> {
     fn __expand_read_method(
         &'a self,
-        scope: &mut Scope,
+        scope: &Scope,
         idx: NativeExpand<usize>,
     ) -> &'a NativeExpand<T> {
         self.__expand_index_method(scope, idx)
     }
     fn __expand_read_unchecked_method(
         &'a self,
-        scope: &mut Scope,
+        scope: &Scope,
         idx: NativeExpand<usize>,
     ) -> &'a NativeExpand<T> {
         self.__expand_index_unchecked_method(scope, idx)
     }
 
-    fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
+    fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
         Self::__expand_len_method(self, scope)
     }
 }
@@ -233,7 +233,7 @@ impl<T: CubePrimitive> VectorizedExpand for NativeExpand<SharedMemory<T>> {
 
 impl<'a, T: CubePrimitive> ListMut<'a, T> for SharedMemory<T> {
     fn __expand_write(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &'a NativeExpand<SharedMemory<T>>,
         idx: NativeExpand<usize>,
     ) -> &'a mut NativeExpand<T> {
@@ -247,7 +247,7 @@ impl<'a, T: CubePrimitive> ListMut<'a, T> for SharedMemory<T> {
 impl<'a, T: CubePrimitive> ListMutExpand<'a, T> for NativeExpand<SharedMemory<T>> {
     fn __expand_write_method(
         &'a self,
-        scope: &mut Scope,
+        scope: &Scope,
         idx: NativeExpand<usize>,
     ) -> &'a mut NativeExpand<T> {
         let mut this = *self;
@@ -273,18 +273,18 @@ impl<T: CubePrimitive> DerefMut for Shared<T> {
 impl<T: CubePrimitive> ExpandDeref for SharedExpand<T> {
     type Target = T::ExpandType;
 
-    fn __expand_deref_method(&self, _: &mut Scope) -> Self::Target {
+    fn __expand_deref_method(&self, _: &Scope) -> Self::Target {
         unsafe { *self.as_type_ref_unchecked::<T>() }
     }
 }
 
 impl<T: CubePrimitive> Assign<NativeExpand<T>> for SharedExpand<T> {
-    fn __expand_assign_method(&mut self, scope: &mut Scope, value: NativeExpand<T>) {
+    fn __expand_assign_method(&mut self, scope: &Scope, value: NativeExpand<T>) {
         self.__expand_deref_method(scope)
             .__expand_assign_method(scope, value);
     }
 
-    fn init_mut(&self, _: &mut Scope) -> Self {
+    fn init_mut(&self, _: &Scope) -> Self {
         *self
     }
 }

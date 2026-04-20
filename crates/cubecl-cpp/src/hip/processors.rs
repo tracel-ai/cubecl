@@ -23,8 +23,7 @@ impl Processor for HipMmaProcessor {
                     let mut scope =
                         Scope::root(false).with_global_state(processing.global_state.clone());
                     let row_idx: ManagedVariable =
-                        row_index::expand(&mut scope, lane_id.into(), i.into(), matrix.ident)
-                            .into();
+                        row_index::expand(&scope, lane_id.into(), i.into(), matrix.ident).into();
                     let tmp_processing = scope.process([]);
                     for inst in tmp_processing.instructions {
                         processing.instructions.push(inst);
@@ -44,8 +43,7 @@ impl Processor for HipMmaProcessor {
                     let mut scope =
                         Scope::root(false).with_global_state(processing.global_state.clone());
                     let row_idx: ManagedVariable =
-                        col_index::expand(&mut scope, lane_id.into(), i.into(), matrix.ident)
-                            .into();
+                        col_index::expand(&scope, lane_id.into(), i.into(), matrix.ident).into();
                     let tmp_processing = scope.process([]);
                     for inst in tmp_processing.instructions {
                         processing.instructions.push(inst);

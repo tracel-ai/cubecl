@@ -238,7 +238,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
         unexpanded!()
     }
     pub fn __expand_new(
-        scope: &mut Scope,
+        scope: &Scope,
         origin: SliceOriginExpand<E>,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
@@ -246,7 +246,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
         Self::__expand_new_expand(scope, origin, start, end)
     }
     pub fn __expand_new_expand(
-        scope: &mut Scope,
+        scope: &Scope,
         origin: SliceOriginExpand<E>,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
@@ -282,12 +282,12 @@ impl<E: CubePrimitive, IO: SliceVisibility> CubeType for Slice<E, IO> {
 impl<E: CubePrimitive, IO: SliceVisibility> IntoExpand for SliceExpand<E, IO> {
     type Expand = Self;
 
-    fn into_expand(self, _scope: &mut Scope) -> Self::Expand {
+    fn into_expand(self, _scope: &Scope) -> Self::Expand {
         self
     }
 }
 impl<E: CubePrimitive, IO: SliceVisibility> IntoMut for SliceExpand<E, IO> {
-    fn into_mut(self, _scope: &mut cubecl_ir::Scope) -> Self {
+    fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
 }
@@ -313,18 +313,18 @@ impl<E: CubePrimitive> SizedContainer for Slice<E, ReadOnly> {
 impl<E: CubePrimitive> Iterable for SliceExpand<E, ReadOnly> {
     type Item = E::ExpandType;
 
-    fn expand(self, scope: &mut Scope, mut body: impl FnMut(&mut Scope, Self::Item)) {
+    fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
         let index_ty = u32::as_type(scope);
         let len: Variable = self.length.into();
 
-        let mut child = scope.child();
+        let child = scope.child();
         let i = child.create_local_restricted(index_ty);
 
         let index = i.into();
         let item = self
-            .__expand_index_method(&mut child, index)
-            .__expand_deref_method(&mut child);
-        body(&mut child, item);
+            .__expand_index_method(&child, index)
+            .__expand_deref_method(&child);
+        body(&child, item);
 
         scope.register(Branch::RangeLoop(Box::new(RangeLoop {
             i,
@@ -336,7 +336,7 @@ impl<E: CubePrimitive> Iterable for SliceExpand<E, ReadOnly> {
         })));
     }
 
-    fn expand_unroll(self, _scope: &mut Scope, _body: impl FnMut(&mut Scope, Self::Item)) {
+    fn expand_unroll(self, _scope: &Scope, _body: impl FnMut(&Scope, Self::Item)) {
         unimplemented!("Can't unroll slice iterator")
     }
 }
@@ -344,16 +344,16 @@ impl<E: CubePrimitive> Iterable for SliceExpand<E, ReadOnly> {
 impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E, ReadOnly> {
     type Item = &'a E::ExpandType;
 
-    fn expand(self, scope: &mut Scope, mut body: impl FnMut(&mut Scope, Self::Item)) {
+    fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
         let index_ty = u32::as_type(scope);
         let len: Variable = self.length.into();
 
-        let mut child = scope.child();
+        let child = scope.child();
         let i = child.create_local_restricted(index_ty);
 
         let index = i.into();
-        let item = self.__expand_index_method(&mut child, index);
-        body(&mut child, item);
+        let item = self.__expand_index_method(&child, index);
+        body(&child, item);
 
         scope.register(Branch::RangeLoop(Box::new(RangeLoop {
             i,
@@ -365,7 +365,7 @@ impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E, ReadOnly> {
         })));
     }
 
-    fn expand_unroll(self, _scope: &mut Scope, _body: impl FnMut(&mut Scope, Self::Item)) {
+    fn expand_unroll(self, _scope: &Scope, _body: impl FnMut(&Scope, Self::Item)) {
         unimplemented!("Can't unroll slice iterator")
     }
 }
@@ -373,16 +373,16 @@ impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E, ReadOnly> {
 impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E, ReadWrite> {
     type Item = &'a mut E::ExpandType;
 
-    fn expand(self, scope: &mut Scope, mut body: impl FnMut(&mut Scope, Self::Item)) {
+    fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
         let index_ty = u32::as_type(scope);
         let len: Variable = self.length.into();
 
-        let mut child = scope.child();
+        let child = scope.child();
         let i = child.create_local_restricted(index_ty);
 
         let index = i.into();
-        let item = self.__expand_index_mut_method(&mut child, index);
-        body(&mut child, item);
+        let item = self.__expand_index_mut_method(&child, index);
+        body(&child, item);
 
         scope.register(Branch::RangeLoop(Box::new(RangeLoop {
             i,
@@ -394,7 +394,7 @@ impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E, ReadWrite> {
         })));
     }
 
-    fn expand_unroll(self, _scope: &mut Scope, _body: impl FnMut(&mut Scope, Self::Item)) {
+    fn expand_unroll(self, _scope: &Scope, _body: impl FnMut(&Scope, Self::Item)) {
         unimplemented!("Can't unroll slice iterator")
     }
 }
@@ -408,16 +408,12 @@ impl<E: CubePrimitive, IO: SliceVisibility> CubeIndexExpand for SliceExpand<E, I
     type Output = E::ExpandType;
     type Idx = NativeExpand<usize>;
 
-    fn __expand_index_method(
-        &self,
-        scope: &mut Scope,
-        index: NativeExpand<usize>,
-    ) -> &Self::Output {
+    fn __expand_index_method(&self, scope: &Scope, index: NativeExpand<usize>) -> &Self::Output {
         self.__expand_read_method(scope, index)
     }
     fn __expand_index_unchecked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &Self::Output {
         self.__expand_read_unchecked_method(scope, index)
@@ -428,7 +424,7 @@ impl<'a, E: CubePrimitive, IO: SliceVisibility> List<'a, E> for Slice<E, IO> {}
 impl<'a, E: CubePrimitive, IO: SliceVisibility> ListExpand<'a, E> for SliceExpand<E, IO> {
     fn __expand_read_method(
         &'a self,
-        scope: &mut cubecl_ir::Scope,
+        scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &'a <E as CubeType>::ExpandType {
         read_offset::expand::<E>(
@@ -442,7 +438,7 @@ impl<'a, E: CubePrimitive, IO: SliceVisibility> ListExpand<'a, E> for SliceExpan
     }
     fn __expand_read_unchecked_method(
         &'a self,
-        scope: &mut cubecl_ir::Scope,
+        scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &'a <E as CubeType>::ExpandType {
         read_offset::expand::<E>(
@@ -455,7 +451,7 @@ impl<'a, E: CubePrimitive, IO: SliceVisibility> ListExpand<'a, E> for SliceExpan
         )
     }
 
-    fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
+    fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
         Self::__expand_len(scope, self)
     }
 }
@@ -486,7 +482,7 @@ impl<E: CubePrimitive> CubeIndexMut for Slice<E, ReadWrite> {}
 impl<E: CubePrimitive> CubeIndexMutExpand for SliceExpand<E, ReadWrite> {
     fn __expand_index_mut_method(
         &mut self,
-        scope: &mut Scope,
+        scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &mut Self::Output {
         self.__expand_write_method(scope, index)
@@ -497,7 +493,7 @@ impl<'a, E: CubePrimitive> ListMut<'a, E> for Slice<E, ReadWrite> {}
 impl<'a, E: CubePrimitive> ListMutExpand<'a, E> for SliceExpand<E, ReadWrite> {
     fn __expand_write_method(
         &'a self,
-        scope: &mut cubecl_ir::Scope,
+        scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &'a mut NativeExpand<E> {
         let mut origin = self.origin.clone();
@@ -512,7 +508,7 @@ mod read_offset {
     use super::*;
 
     pub fn expand<'a, E: CubePrimitive>(
-        scope: &mut Scope,
+        scope: &Scope,
         origin: &'a SliceOriginExpand<E>,
         offset: <usize as CubeType>::ExpandType,
         index: <usize as CubeType>::ExpandType,
@@ -539,7 +535,7 @@ mod write_offset {
     use super::*;
 
     pub fn expand<'a, E: CubePrimitive>(
-        scope: &mut Scope,
+        scope: &Scope,
         origin: &'a mut SliceOriginExpand<E>,
         offset: <usize as CubeType>::ExpandType,
         index: <usize as CubeType>::ExpandType,

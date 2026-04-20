@@ -56,9 +56,9 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
     processing: &mut ScopeProcessing,
     input: Variable,
     out: Variable,
-    mut polyfill: impl FnMut(&mut Scope, NativeExpand<T>, u32, u32) -> NativeExpand<O>,
+    mut polyfill: impl FnMut(&Scope, NativeExpand<T>, u32, u32) -> NativeExpand<O>,
 ) {
-    let mut scope = Scope::root(false).with_global_state(processing.global_state.clone());
+    let scope = Scope::root(false).with_global_state(processing.global_state.clone());
     scope.register_type::<ElemA>(input.storage_type());
     scope.register_size::<SizeA>(input.vector_size());
 
@@ -90,7 +90,7 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
 
         let exp_bits = bit_width as u32 - mantissa_bits - 1;
 
-        polyfill(&mut scope, input.into(), mantissa_bits, exp_bits).expand
+        polyfill(&scope, input.into(), mantissa_bits, exp_bits).expand
     } else {
         panic!("Should be float")
     };

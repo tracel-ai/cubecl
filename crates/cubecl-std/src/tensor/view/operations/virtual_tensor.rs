@@ -15,7 +15,7 @@ impl<T: Numeric, N: Size, IO: Clone> ViewOperationsExpand<Vector<T, N>, Coords1d
 {
     fn __expand_read_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
     ) -> <Vector<T, N> as CubeType>::ExpandType {
         <Self as ListExpand<Vector<T, N>>>::__expand_read_method(self, scope, pos)
@@ -23,7 +23,7 @@ impl<T: Numeric, N: Size, IO: Clone> ViewOperationsExpand<Vector<T, N>, Coords1d
 
     fn __expand_read_checked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
     ) -> <Vector<T, N> as CubeType>::ExpandType {
         let zero = Vector::__expand_cast_from(scope, 0.into());
@@ -32,7 +32,7 @@ impl<T: Numeric, N: Size, IO: Clone> ViewOperationsExpand<Vector<T, N>, Coords1d
 
     fn __expand_read_masked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
         mask_value: <Vector<T, N> as CubeType>::ExpandType,
     ) -> <Vector<T, N> as CubeType>::ExpandType {
@@ -43,7 +43,7 @@ impl<T: Numeric, N: Size, IO: Clone> ViewOperationsExpand<Vector<T, N>, Coords1d
 
     fn __expand_read_unchecked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
     ) -> <Vector<T, N> as CubeType>::ExpandType {
         <Self as ListExpand<Vector<T, N>>>::__expand_read_unchecked_method(self, scope, pos)
@@ -51,7 +51,7 @@ impl<T: Numeric, N: Size, IO: Clone> ViewOperationsExpand<Vector<T, N>, Coords1d
 
     fn __expand_to_linear_slice_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
         end: NativeExpand<usize>,
     ) -> SliceExpand<Vector<T, N>, ReadOnly> {
@@ -63,13 +63,13 @@ impl<T: Numeric, N: Size, IO: Clone> ViewOperationsExpand<Vector<T, N>, Coords1d
         <Self as SliceOperatorExpand<Vector<T, N>>>::__expand_slice_method(self, scope, start, end)
     }
 
-    fn __expand_shape_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
+    fn __expand_shape_method(&self, scope: &Scope) -> NativeExpand<usize> {
         self.clone().__expand_buffer_len_method(scope)
     }
 
     fn __expand_is_in_bounds_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
     ) -> NativeExpand<bool> {
         let len = self.clone().__expand_buffer_len_method(scope);
@@ -78,7 +78,7 @@ impl<T: Numeric, N: Size, IO: Clone> ViewOperationsExpand<Vector<T, N>, Coords1d
 
     fn __expand_tensor_map_load_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _barrier: NativeExpand<Ref<Barrier>>,
         _shared_memory: SliceExpand<Vector<T, N>, ReadWrite>,
         _pos: NativeExpand<usize>,
@@ -96,7 +96,7 @@ impl<T: Numeric, N: Size> ViewOperationsMutExpand<Vector<T, N>, Coords1d>
 {
     fn __expand_write_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
         value: <Vector<T, N> as CubeType>::ExpandType,
     ) {
@@ -105,7 +105,7 @@ impl<T: Numeric, N: Size> ViewOperationsMutExpand<Vector<T, N>, Coords1d>
 
     fn __expand_write_checked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
         value: <Vector<T, N> as CubeType>::ExpandType,
     ) {
@@ -118,7 +118,7 @@ impl<T: Numeric, N: Size> ViewOperationsMutExpand<Vector<T, N>, Coords1d>
 
     fn __expand_to_linear_slice_mut_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: NativeExpand<usize>,
         end: NativeExpand<usize>,
     ) -> SliceExpand<Vector<T, N>, ReadWrite> {
@@ -134,7 +134,7 @@ impl<T: Numeric, N: Size> ViewOperationsMutExpand<Vector<T, N>, Coords1d>
 
     fn __expand_tensor_map_store_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _shared_memory: SliceExpand<Vector<T, N>, ReadOnly>,
         _pos: <Coords1d as CubeType>::ExpandType,
     ) {

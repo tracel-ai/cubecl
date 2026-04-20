@@ -122,13 +122,13 @@ impl CubeTypeEnum {
             impl #generics #into_expand for #name_expand #generic_names #where_clause {
                 type Expand = Self;
 
-                fn into_expand(self, _: &mut #scope) -> Self {
+                fn into_expand(self, _: &#scope) -> Self {
                     self
                 }
             }
 
             impl #generics #into_mut for #name_expand #generic_names #where_clause {
-                fn into_mut(mut self, scope: &mut #scope) -> Self {
+                fn into_mut(mut self, scope: &#scope) -> Self {
                     Self {
                         discriminant: #into_mut::into_mut(self.discriminant, scope),
                         value: #into_mut::into_mut(self.value, scope)
@@ -493,7 +493,7 @@ impl CubeTypeVariant {
                         cubecl::unexpanded!()
                     }
 
-                    pub fn #expand_function(_: &mut #scope, value: <#ty as #cube_type>::ExpandType) -> #ident_ty_expand #generics {
+                    pub fn #expand_function(_: &#scope, value: <#ty as #cube_type>::ExpandType) -> #ident_ty_expand #generics {
                         #ident_ty_expand #generics {
                             discriminant: #index.into(),
                             value
@@ -507,7 +507,7 @@ impl CubeTypeVariant {
                         cubecl::unexpanded!()
                     }
 
-                    pub fn #expand_function(scope: &mut #scope) -> #ident_ty_expand #generics {
+                    pub fn #expand_function(scope: &#scope) -> #ident_ty_expand #generics {
                         #ident_ty_expand #generics {
                             discriminant: #index.into(),
                             value: <#value_ty as #into_runtime>::__expand_runtime_method(Default::default(), scope),

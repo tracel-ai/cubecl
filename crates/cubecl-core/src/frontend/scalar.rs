@@ -36,13 +36,13 @@ impl ExpandTypeClone for InputScalarExpand {
 impl IntoExpand for InputScalarExpand {
     type Expand = Self;
 
-    fn into_expand(self, _scope: &mut Scope) -> Self::Expand {
+    fn into_expand(self, _scope: &Scope) -> Self::Expand {
         self
     }
 }
 
 impl IntoMut for InputScalarExpand {
-    fn into_mut(self, _scope: &mut Scope) -> Self {
+    fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
 }

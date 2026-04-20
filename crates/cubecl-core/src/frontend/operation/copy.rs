@@ -30,7 +30,7 @@ pub mod copy_bulk {
 
     /// The expand function for [`copy_bulk()`]
     pub fn expand<C: CubePrimitive>(
-        scope: &mut Scope,
+        scope: &Scope,
         from: SliceExpand<C, ReadOnly>,
         from_index: NativeExpand<usize>,
         to: SliceExpand<C, ReadWrite>,

@@ -71,7 +71,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
     }
 
     pub fn __expand_view(
-        scope: &mut Scope,
+        scope: &Scope,
         this: QuantizedViewExpand<Q, NQ, S, F, NF, C>,
     ) -> ViewExpand<Vector<F, NF>, C, ReadOnly> {
         this.__expand_view_method(scope)
@@ -94,10 +94,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         }
     }
 
-    pub fn __expand_view_method(
-        self,
-        _scope: &mut Scope,
-    ) -> ViewExpand<Vector<F, NF>, C, ReadOnly> {
+    pub fn __expand_view_method(self, _scope: &Scope) -> ViewExpand<Vector<F, NF>, C, ReadOnly> {
         ViewExpand::new(self)
     }
 }
@@ -124,7 +121,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
 {
     fn __expand_read_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
     ) -> NativeExpand<Vector<F, NF>> {
         let value = self.values.clone().__expand_read_method(scope, pos.clone());
@@ -135,7 +132,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
 
     fn __expand_read_checked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
     ) -> NativeExpand<Vector<F, NF>> {
         let value = self
@@ -152,7 +149,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
 
     fn __expand_read_masked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
         mask_value: NativeExpand<Vector<F, NF>>,
     ) -> NativeExpand<Vector<F, NF>> {
@@ -172,7 +169,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
 
     fn __expand_read_unchecked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
     ) -> NativeExpand<Vector<F, NF>> {
         let value = self
@@ -189,20 +186,20 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
 
     fn __expand_to_linear_slice_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _pos: <C>::ExpandType,
         _end: <C>::ExpandType,
     ) -> SliceExpand<Vector<F, NF>, ReadOnly> {
         panic!("Can't create raw slice for quantized view")
     }
 
-    fn __expand_shape_method(&self, scope: &mut Scope) -> <C>::ExpandType {
+    fn __expand_shape_method(&self, scope: &Scope) -> <C>::ExpandType {
         self.values.clone().__expand_shape_method(scope)
     }
 
     fn __expand_is_in_bounds_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: C::ExpandType,
     ) -> NativeExpand<bool> {
         self.values.clone().__expand_is_in_bounds_method(scope, pos)
@@ -210,7 +207,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
 
     fn __expand_tensor_map_load_method(
         &self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _barrier: &NativeExpand<Barrier>,
         _shared_memory: &mut SliceExpand<Vector<F, NF>, ReadWrite>,
         _pos: C::ExpandType,

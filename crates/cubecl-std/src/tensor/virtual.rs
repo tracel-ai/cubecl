@@ -32,7 +32,7 @@ pub struct VirtualTensorExpand<E: Numeric, N: Size, IO> {
 
 impl<'a, E: Numeric, N: Size, IO: Clone> List<'a, Vector<E, N>> for VirtualTensor<E, N, IO> {
     fn __expand_read(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &'a VirtualTensorExpand<E, N, IO>,
         index: <usize as CubeType>::ExpandType,
     ) -> &'a <Vector<E, N> as CubeType>::ExpandType {
@@ -59,7 +59,7 @@ impl<'a, E: Numeric, N: Size, IO: Clone> ListExpand<'a, Vector<E, N>>
 {
     fn __expand_read_method(
         &'a self,
-        scope: &mut Scope,
+        scope: &Scope,
         index: <usize as CubeType>::ExpandType,
     ) -> &'a <Vector<E, N> as CubeType>::ExpandType {
         self.state.__expand_read_method(scope, index)
@@ -67,13 +67,13 @@ impl<'a, E: Numeric, N: Size, IO: Clone> ListExpand<'a, Vector<E, N>>
 
     fn __expand_read_unchecked_method(
         &'a self,
-        _scope: &mut Scope,
+        _scope: &Scope,
         _index: NativeExpand<usize>,
     ) -> &'a <Vector<E, N> as CubeType>::ExpandType {
         todo!("VirtualTensor don't support read unchecked yet");
     }
 
-    fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
+    fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
         self.state.clone().__expand_len_method(scope)
     }
 }
@@ -94,7 +94,7 @@ impl<'a, E: Numeric, N: Size, IO: Clone> SliceOperatorExpand<'a, Vector<E, N>>
 {
     fn __expand_slice_method(
         &'a self,
-        scope: &mut Scope,
+        scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
     ) -> &'a SliceExpand<Vector<E, N>, ReadOnly> {
@@ -105,7 +105,7 @@ impl<'a, E: Numeric, N: Size, IO: Clone> SliceOperatorExpand<'a, Vector<E, N>>
 
     fn __expand_to_slice_method(
         &'a self,
-        scope: &mut Scope,
+        scope: &Scope,
     ) -> &'a SliceExpand<Vector<E, N>, ReadOnly> {
         let end = self.clone().__expand_buffer_len_method(scope);
         self.state
@@ -140,13 +140,13 @@ impl<E: Numeric, N: Size, IO: Clone> VirtualTensor<E, N, IO> {
     }
 
     pub fn __expand_as_tensor_map(
-        context: &mut Scope,
+        context: &Scope,
         this: &<Self as CubeType>::ExpandType,
     ) -> <ComptimeOption<TensorMap<E, Tiled>> as CubeType>::ExpandType {
         this.__expand_as_tensor_map_method(context)
     }
     pub fn __expand_as_slice<'a>(
-        context: &mut Scope,
+        context: &Scope,
         this: &'a <Self as CubeType>::ExpandType,
         start: <usize as CubeType>::ExpandType,
         end: <usize as CubeType>::ExpandType,
@@ -154,27 +154,27 @@ impl<E: Numeric, N: Size, IO: Clone> VirtualTensor<E, N, IO> {
         this.__expand_as_slice_method(context, start, end)
     }
     pub fn __expand_shape(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &<Self as CubeType>::ExpandType,
         axis: <usize as CubeType>::ExpandType,
     ) -> <usize as CubeType>::ExpandType {
         this.__expand_shape_method(scope, axis)
     }
     pub fn __expand_stride(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &<Self as CubeType>::ExpandType,
         axis: <usize as CubeType>::ExpandType,
     ) -> <usize as CubeType>::ExpandType {
         this.__expand_stride_method(scope, axis)
     }
     pub fn __expand_rank(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &<Self as CubeType>::ExpandType,
     ) -> <usize as CubeType>::ExpandType {
         this.__expand_rank_method(scope)
     }
     pub fn __expand_buffer_len(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &<Self as CubeType>::ExpandType,
     ) -> <usize as CubeType>::ExpandType {
         this.__expand_buffer_len_method(scope)
@@ -185,14 +185,14 @@ impl<E: Numeric, N: Size, IO: Clone> VirtualTensor<E, N, IO> {
 impl<E: Numeric, N: Size, IO: Clone> VirtualTensorExpand<E, N, IO> {
     pub fn __expand_as_tensor_map_method(
         &self,
-        context: &mut Scope,
+        context: &Scope,
     ) -> <ComptimeOption<TensorMap<E, Tiled>> as CubeType>::ExpandType {
         self.state.clone().__expand_as_tensor_map_method(context)
     }
 
     pub fn __expand_as_slice_method(
         &self,
-        context: &mut Scope,
+        context: &Scope,
         start: <usize as CubeType>::ExpandType,
         end: <usize as CubeType>::ExpandType,
     ) -> &<Slice<Vector<E, N>> as CubeType>::ExpandType {
@@ -201,7 +201,7 @@ impl<E: Numeric, N: Size, IO: Clone> VirtualTensorExpand<E, N, IO> {
 
     pub fn __expand_shape_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         axis: <usize as CubeType>::ExpandType,
     ) -> <usize as CubeType>::ExpandType {
         let _arg_0 = axis;
@@ -212,7 +212,7 @@ impl<E: Numeric, N: Size, IO: Clone> VirtualTensorExpand<E, N, IO> {
 
     pub fn __expand_stride_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         axis: <usize as CubeType>::ExpandType,
     ) -> <usize as CubeType>::ExpandType {
         let _arg_0 = axis;
@@ -221,16 +221,16 @@ impl<E: Numeric, N: Size, IO: Clone> VirtualTensorExpand<E, N, IO> {
             .__expand_stride_method(scope, _arg_0.into())
     }
 
-    pub fn __expand_rank_method(&self, scope: &mut Scope) -> <usize as CubeType>::ExpandType {
+    pub fn __expand_rank_method(&self, scope: &Scope) -> <usize as CubeType>::ExpandType {
         self.state.__expand_rank_method(scope)
     }
 
-    pub fn __expand_buffer_len_method(&self, scope: &mut Scope) -> <usize as CubeType>::ExpandType {
+    pub fn __expand_buffer_len_method(&self, scope: &Scope) -> <usize as CubeType>::ExpandType {
         self.state.__expand_buffer_len_method(scope)
     }
 
     pub fn __expand_read<'a>(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &'a Self,
         index: <usize as CubeType>::ExpandType,
     ) -> &'a <Vector<E, N> as CubeType>::ExpandType {
@@ -238,7 +238,7 @@ impl<E: Numeric, N: Size, IO: Clone> VirtualTensorExpand<E, N, IO> {
     }
 
     pub fn __expand_shape(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &Self,
         axis: <usize as CubeType>::ExpandType,
     ) -> <usize as CubeType>::ExpandType {
@@ -246,14 +246,14 @@ impl<E: Numeric, N: Size, IO: Clone> VirtualTensorExpand<E, N, IO> {
     }
 
     pub fn __expand_stride(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &Self,
         axis: <usize as CubeType>::ExpandType,
     ) -> <usize as CubeType>::ExpandType {
         VirtualTensor::<E, N, IO>::__expand_stride(scope, this, axis)
     }
 
-    pub fn __expand_rank(scope: &mut Scope, this: &Self) -> <usize as CubeType>::ExpandType {
+    pub fn __expand_rank(scope: &Scope, this: &Self) -> <usize as CubeType>::ExpandType {
         VirtualTensor::<E, N, IO>::__expand_rank(scope, this)
     }
 }
@@ -286,7 +286,7 @@ impl<E: Numeric, N: Size, IO: Clone + 'static> VirtualTensorExpand<E, N, IO> {
     /// layouts
     pub fn __expand_view_method<C: Coordinates + 'static>(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         layout: VirtualLayoutExpand<C, Coords1d>,
     ) -> ViewExpand<Vector<E, N>, C, ReadOnly> {
         View::__expand_new::<VirtualTensor<E, N, IO>, Coords1d>(scope, self.clone(), layout)
@@ -304,7 +304,7 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
         View::new_mut::<VirtualTensor<E, N, ReadWrite>, Coords1d>(this, layout)
     }
     pub fn __expand_view_mut<C: Coordinates + 'static>(
-        scope: &mut Scope,
+        scope: &Scope,
         this: VirtualTensorExpand<E, N, ReadWrite>,
         layout: VirtualLayoutExpand<C, Coords1d>,
     ) -> ViewExpand<Vector<E, N>, C, ReadWrite> {
@@ -314,7 +314,7 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
 impl<E: Numeric, N: Size> VirtualTensorExpand<E, N, ReadWrite> {
     pub fn __expand_view_mut_method<C: Coordinates + 'static>(
         self,
-        scope: &mut Scope,
+        scope: &Scope,
         layout: VirtualLayoutExpand<C, Coords1d>,
     ) -> ViewExpand<Vector<E, N>, C, ReadWrite> {
         View::__expand_new_mut::<VirtualTensor<E, N, ReadWrite>, Coords1d>(scope, self, layout)
@@ -343,7 +343,7 @@ impl<E: Numeric, N: Size, IO: Clone + 'static> VirtualTensor<E, N, IO> {
 
 impl<'a, E: Numeric, N: Size> ListMut<'a, Vector<E, N>> for VirtualTensor<E, N, ReadWrite> {
     fn __expand_write(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &'a VirtualTensorExpand<E, N, ReadWrite>,
         index: <usize as CubeType>::ExpandType,
     ) -> &'a mut <Vector<E, N> as CubeType>::ExpandType {
@@ -356,7 +356,7 @@ impl<'a, E: Numeric, N: Size> ListMutExpand<'a, Vector<E, N>>
 {
     fn __expand_write_method(
         &'a self,
-        scope: &mut Scope,
+        scope: &Scope,
         index: <usize as CubeType>::ExpandType,
     ) -> &'a mut <Vector<E, N> as CubeType>::ExpandType {
         self.state.clone().__expand_write_method(scope, index)
@@ -373,7 +373,7 @@ impl<'a, E: Numeric, N: Size> SliceMutOperatorExpand<'a, Vector<E, N>>
     #[allow(unused_variables)]
     fn __expand_slice_mut_method(
         &'a mut self,
-        scope: &mut Scope,
+        scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
     ) -> &'a mut SliceExpand<Vector<E, N>, cubecl_core::prelude::ReadWrite> {
@@ -383,7 +383,7 @@ impl<'a, E: Numeric, N: Size> SliceMutOperatorExpand<'a, Vector<E, N>>
     #[allow(unused_variables)]
     fn __expand_to_slice_mut_method(
         &'a mut self,
-        scope: &mut Scope,
+        scope: &Scope,
     ) -> &'a mut SliceExpand<Vector<E, N>, cubecl_core::prelude::ReadWrite> {
         todo!("VirtualTensor don't support slice mut yet");
     }
@@ -397,7 +397,7 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadOnly> {
 
     /// Expand function of [`Self::new`].
     pub fn __expand_new<V: VirtualTensorOperations<E, N> + 'static>(
-        _scope: &mut Scope,
+        _scope: &Scope,
         v: V::ExpandType,
     ) -> VirtualTensorExpand<E, N, ReadOnly> {
         VirtualTensorExpand {
@@ -415,7 +415,7 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
 
     /// Expand function of [`Self::new`].
     pub fn __expand_new<V: VirtualTensorOperations<E, N> + 'static>(
-        _scope: &mut Scope,
+        _scope: &Scope,
         v: V::ExpandType,
     ) -> VirtualTensorExpand<E, N, ReadWrite> {
         VirtualTensorExpand {
@@ -481,7 +481,7 @@ mod __cube_type {
     impl<E: Numeric, N: Size, IO: Clone> IntoExpand for VirtualTensorExpand<E, N, IO> {
         type Expand = VirtualTensorExpand<E, N, IO>;
 
-        fn into_expand(self, _: &mut Scope) -> Self::Expand {
+        fn into_expand(self, _: &Scope) -> Self::Expand {
             self
         }
     }
@@ -493,7 +493,7 @@ mod __cube_type {
     }
 
     impl<E: Numeric, N: Size, IO> IntoMut for VirtualTensorExpand<E, N, IO> {
-        fn into_mut(self, _scope: &mut Scope) -> Self {
+        fn into_mut(self, _scope: &Scope) -> Self {
             self
         }
     }
@@ -511,14 +511,14 @@ mod __tensor {
     {
         fn __expand_read_method(
             &self,
-            scope: &mut Scope,
+            scope: &Scope,
             index: NativeExpand<usize>,
         ) -> &'static NativeExpand<Vector<E, N>> {
             unsafe { core::mem::transmute(self.__expand_index_unchecked_method(scope, index)) }
         }
         fn __expand_read_window_method(
             &self,
-            context: &mut Scope,
+            context: &Scope,
             start: NativeExpand<usize>,
             end: NativeExpand<usize>,
         ) -> &'static SliceExpand<Vector<E, N>, ReadOnly> {
@@ -527,7 +527,7 @@ mod __tensor {
 
         fn __expand_write_method(
             &self,
-            scope: &mut Scope,
+            scope: &Scope,
             index: NativeExpand<usize>,
         ) -> &'static mut NativeExpand<Vector<E, N>> {
             let mut this = *self;
@@ -538,7 +538,7 @@ mod __tensor {
 
         fn __expand_shape_method(
             &self,
-            scope: &mut Scope,
+            scope: &Scope,
             axis: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
             self.clone().__expand_shape_method(scope, axis)
@@ -546,25 +546,25 @@ mod __tensor {
 
         fn __expand_stride_method(
             &self,
-            scope: &mut Scope,
+            scope: &Scope,
             axis: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
             self.clone().__expand_stride_method(scope, axis)
         }
 
-        fn __expand_rank_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
+        fn __expand_rank_method(&self, scope: &Scope) -> NativeExpand<usize> {
             self.clone().__expand_rank_method(scope)
         }
-        fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
+        fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
             self.clone().__expand_len_method(scope)
         }
-        fn __expand_buffer_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
+        fn __expand_buffer_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
             self.clone().__expand_buffer_len_method(scope)
         }
 
         fn __expand_as_tensor_map_method(
             &self,
-            scope: &mut Scope,
+            scope: &Scope,
         ) -> ComptimeOptionExpand<TensorMap<E, Tiled>> {
             ComptimeOption::__expand_new_None(scope)
         }
@@ -581,14 +581,14 @@ mod __tensor_map {
     {
         fn __expand_read_method(
             &self,
-            _scope: &mut Scope,
+            _scope: &Scope,
             _index: NativeExpand<usize>,
         ) -> &'static NativeExpand<Vector<E, N>> {
             todo!()
         }
         fn __expand_read_window_method(
             &self,
-            _context: &mut Scope,
+            _context: &Scope,
             _start: NativeExpand<usize>,
             _end: NativeExpand<usize>,
         ) -> &'static SliceExpand<Vector<E, N>, ReadOnly> {
@@ -597,7 +597,7 @@ mod __tensor_map {
 
         fn __expand_write_method(
             &self,
-            _scope: &mut Scope,
+            _scope: &Scope,
             _index: NativeExpand<usize>,
         ) -> &'static mut NativeExpand<Vector<E, N>> {
             todo!()
@@ -605,7 +605,7 @@ mod __tensor_map {
 
         fn __expand_shape_method(
             &self,
-            _scope: &mut Scope,
+            _scope: &Scope,
             _axis: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
             todo!()
@@ -613,25 +613,25 @@ mod __tensor_map {
 
         fn __expand_stride_method(
             &self,
-            _scope: &mut Scope,
+            _scope: &Scope,
             _axis: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
             todo!()
         }
 
-        fn __expand_rank_method(&self, _scope: &mut Scope) -> NativeExpand<usize> {
+        fn __expand_rank_method(&self, _scope: &Scope) -> NativeExpand<usize> {
             todo!()
         }
-        fn __expand_len_method(&self, _scope: &mut Scope) -> NativeExpand<usize> {
+        fn __expand_len_method(&self, _scope: &Scope) -> NativeExpand<usize> {
             todo!()
         }
-        fn __expand_buffer_len_method(&self, _scope: &mut Scope) -> NativeExpand<usize> {
+        fn __expand_buffer_len_method(&self, _scope: &Scope) -> NativeExpand<usize> {
             todo!()
         }
 
         fn __expand_as_tensor_map_method(
             &self,
-            scope: &mut Scope,
+            scope: &Scope,
         ) -> ComptimeOptionExpand<TensorMap<E, Tiled>> {
             ComptimeOption::__expand_new_Some(scope, self.clone())
         }

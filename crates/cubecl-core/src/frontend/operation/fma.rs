@@ -12,7 +12,7 @@ pub mod fma {
     use cubecl_ir::{Arithmetic, FmaOperator, Instruction, Scope};
 
     pub fn expand<C: CubePrimitive>(
-        scope: &mut Scope,
+        scope: &Scope,
         a: NativeExpand<C>,
         b: NativeExpand<C>,
         c: NativeExpand<C>,

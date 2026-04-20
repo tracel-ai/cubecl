@@ -253,6 +253,7 @@ impl Display for Function {
         let instructions = self
             .scope
             .instructions
+            .borrow()
             .iter()
             .map(|it| it.to_string())
             .join("\n");

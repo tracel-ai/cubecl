@@ -91,7 +91,7 @@ where
     }
 
     fn __expand_read(
-        scope: &mut Scope,
+        scope: &Scope,
         this: Self::ExpandType,
         pos: C::ExpandType,
     ) -> <T as CubeType>::ExpandType {
@@ -110,7 +110,7 @@ where
     }
 
     fn __expand_read(
-        scope: &mut Scope,
+        scope: &Scope,
         this: Self::ExpandType,
         pos: C::ExpandType,
     ) -> <T as CubeType>::ExpandType {
@@ -129,7 +129,7 @@ where
     }
 
     fn __expand_write(
-        scope: &mut Scope,
+        scope: &Scope,
         this: Self::ExpandType,
         pos: C::ExpandType,
         value: T::ExpandType,
@@ -149,7 +149,7 @@ where
     }
 
     fn __expand_write(
-        scope: &mut Scope,
+        scope: &Scope,
         this: Self::ExpandType,
         pos: C::ExpandType,
         value: T::ExpandType,

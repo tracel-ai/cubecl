@@ -18,7 +18,7 @@ macro_rules! constant {
             use super::*;
 
             /// Expansion of the constant variable.
-            pub fn expand(scope: &mut Scope) -> NativeExpand<u32> {
+            pub fn expand(scope: &Scope) -> NativeExpand<u32> {
                 NativeExpand::new(crate::ir::Variable::builtin(
                     $var,
                     u32::as_type(scope).storage_type(),
@@ -39,7 +39,7 @@ macro_rules! constant_usize {
             use super::*;
 
             /// Expansion of the constant variable.
-            pub fn expand(scope: &mut Scope) -> NativeExpand<usize> {
+            pub fn expand(scope: &Scope) -> NativeExpand<usize> {
                 NativeExpand::new(crate::ir::Variable::builtin(
                     $var,
                     usize::as_type(scope).storage_type(),

@@ -15,21 +15,17 @@ impl<T: CubePrimitive, C: Coordinates, IO: Clone> ViewOperations<T, C> for View<
 impl<T: CubePrimitive, C: Coordinates, IO: Clone> ViewOperationsExpand<T, C>
     for ViewExpand<T, C, IO>
 {
-    fn __expand_read_method(&self, scope: &mut Scope, pos: <C>::ExpandType) -> <T>::ExpandType {
+    fn __expand_read_method(&self, scope: &Scope, pos: <C>::ExpandType) -> <T>::ExpandType {
         ViewExpand::__expand_read_method(self.clone(), scope, pos)
     }
 
-    fn __expand_read_checked_method(
-        &self,
-        scope: &mut Scope,
-        pos: <C>::ExpandType,
-    ) -> <T>::ExpandType {
+    fn __expand_read_checked_method(&self, scope: &Scope, pos: <C>::ExpandType) -> <T>::ExpandType {
         ViewExpand::__expand_read_checked_method(self.clone(), scope, pos)
     }
 
     fn __expand_read_masked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
         mask_value: <T>::ExpandType,
     ) -> <T>::ExpandType {
@@ -38,7 +34,7 @@ impl<T: CubePrimitive, C: Coordinates, IO: Clone> ViewOperationsExpand<T, C>
 
     fn __expand_read_unchecked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
     ) -> <T>::ExpandType {
         ViewExpand::__expand_read_unchecked_method(self.clone(), scope, pos)
@@ -46,20 +42,20 @@ impl<T: CubePrimitive, C: Coordinates, IO: Clone> ViewOperationsExpand<T, C>
 
     fn __expand_to_linear_slice_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
         end: <C>::ExpandType,
     ) -> SliceExpand<T, ReadOnly> {
         ViewExpand::__expand_to_linear_slice_inner_method(self.clone(), scope, pos, end)
     }
 
-    fn __expand_shape_method(&self, scope: &mut Scope) -> <C>::ExpandType {
+    fn __expand_shape_method(&self, scope: &Scope) -> <C>::ExpandType {
         ViewExpand::__expand_shape_method(self, scope)
     }
 
     fn __expand_is_in_bounds_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
     ) -> NativeExpand<bool> {
         ViewExpand::__expand_is_in_bounds_method(self, scope, pos)
@@ -67,7 +63,7 @@ impl<T: CubePrimitive, C: Coordinates, IO: Clone> ViewOperationsExpand<T, C>
 
     fn __expand_tensor_map_load_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         barrier: NativeExpand<Ref<Barrier>>,
         shared_memory: SliceExpand<T, ReadWrite>,
         pos: C::ExpandType,
@@ -86,18 +82,13 @@ impl<T: CubePrimitive, C: Coordinates> ViewOperationsMut<T, C> for View<T, C, Re
 impl<T: CubePrimitive, C: Coordinates> ViewOperationsMutExpand<T, C>
     for ViewExpand<T, C, ReadWrite>
 {
-    fn __expand_write_method(
-        &self,
-        scope: &mut Scope,
-        pos: <C>::ExpandType,
-        value: <T>::ExpandType,
-    ) {
+    fn __expand_write_method(&self, scope: &Scope, pos: <C>::ExpandType, value: <T>::ExpandType) {
         ViewExpand::__expand_write_method(self.clone(), scope, pos, value);
     }
 
     fn __expand_write_checked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
         value: <T>::ExpandType,
     ) {
@@ -106,7 +97,7 @@ impl<T: CubePrimitive, C: Coordinates> ViewOperationsMutExpand<T, C>
 
     fn __expand_to_linear_slice_mut_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
         end: <C>::ExpandType,
     ) -> SliceExpand<T, ReadWrite> {
@@ -115,7 +106,7 @@ impl<T: CubePrimitive, C: Coordinates> ViewOperationsMutExpand<T, C>
 
     fn __expand_tensor_map_store_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         shared_memory: SliceExpand<T, ReadOnly>,
         pos: C::ExpandType,
     ) {

@@ -33,7 +33,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType<ExpandType: Clone> + Cl
     }
 
     /// Expand function of [`Self::new`].
-    pub fn __expand_new(_: &mut Scope) -> Registry<K, V::ExpandType> {
+    pub fn __expand_new(_: &Scope) -> Registry<K, V::ExpandType> {
         Registry {
             map: Rc::new(RefCell::new(BTreeMap::new())),
         }
@@ -82,7 +82,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType<ExpandType: Clone> + Cl
 
     /// Expand function of [`Self::find`].
     pub fn __expand_find<Query: RegistryQuery<K>>(
-        _scope: &mut Scope,
+        _scope: &Scope,
         state: Registry<K, V::ExpandType>,
         key: Query,
     ) -> V::ExpandType {
@@ -94,7 +94,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType<ExpandType: Clone> + Cl
 
     /// Expand function of [`Self::find_or_default`].
     pub fn __expand_find_or_default<Query: RegistryQuery<K>>(
-        _scope: &mut Scope,
+        _scope: &Scope,
         state: Registry<K, V::ExpandType>,
         key: Query,
     ) -> V::ExpandType
@@ -116,7 +116,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType<ExpandType: Clone> + Cl
 
     /// Expand function of [`Self::insert`].
     pub fn __expand_insert<Key: Into<K>>(
-        _scope: &mut Scope,
+        _scope: &Scope,
         state: Registry<K, V::ExpandType>,
         key: Key,
         value: V::ExpandType,
@@ -130,7 +130,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType<ExpandType: Clone> + Cl
 
 impl<K: PartialOrd + Ord + core::fmt::Debug, V: Clone> Registry<K, V> {
     /// Expand method of [`Self::find`].
-    pub fn __expand_find_method(&self, _scope: &mut Scope, key: K) -> V {
+    pub fn __expand_find_method(&self, _scope: &Scope, key: K) -> V {
         let map = self.map.as_ref().borrow();
 
         match map.get(&key) {
@@ -140,7 +140,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: Clone> Registry<K, V> {
     }
 
     /// Expand method of [`Self::insert`].
-    pub fn __expand_insert_method(self, _scope: &mut Scope, key: K, value: V) {
+    pub fn __expand_insert_method(self, _scope: &Scope, key: K, value: V) {
         let mut map = self.map.as_ref().borrow_mut();
 
         map.insert(key, value);
@@ -171,7 +171,7 @@ impl<K, V> ExpandTypeClone for Registry<K, V> {
 impl<K, V> IntoExpand for Registry<K, V> {
     type Expand = Self;
 
-    fn into_expand(self, _scope: &mut Scope) -> Self::Expand {
+    fn into_expand(self, _scope: &Scope) -> Self::Expand {
         self
     }
 }
@@ -181,7 +181,7 @@ impl<K: PartialOrd + Ord, V: CubeType<ExpandType: Clone>> CubeType for Registry<
 }
 
 impl<K: PartialOrd + Ord, V: IntoMut + Clone> IntoMut for Registry<K, V> {
-    fn into_mut(self, scope: &mut crate::ir::Scope) -> Self {
+    fn into_mut(self, scope: &Scope) -> Self {
         let mut map = self.map.borrow_mut();
         map.iter_mut().for_each(|(_k, v)| {
             *v = IntoMut::into_mut(v.clone(), scope);

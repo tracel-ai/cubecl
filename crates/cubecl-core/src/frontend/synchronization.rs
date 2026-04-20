@@ -19,7 +19,7 @@ pub fn sync_cube() {}
 pub mod sync_cube {
     use super::*;
 
-    pub fn expand(scope: &mut Scope) {
+    pub fn expand(scope: &Scope) {
         scope.register(Synchronization::SyncCube)
     }
 }
@@ -34,7 +34,7 @@ pub fn sync_plane() {
 pub mod sync_plane {
     use super::*;
 
-    pub fn expand(scope: &mut Scope) {
+    pub fn expand(scope: &Scope) {
         scope.register(Synchronization::SyncPlane);
     }
 }
@@ -47,7 +47,7 @@ pub fn sync_storage() {}
 pub mod sync_storage {
     use super::*;
 
-    pub fn expand(scope: &mut Scope) {
+    pub fn expand(scope: &Scope) {
         scope.register(Synchronization::SyncStorage)
     }
 }
@@ -64,7 +64,7 @@ pub fn sync_async_proxy_shared() {
 pub mod sync_async_proxy_shared {
     use super::*;
 
-    pub fn expand(scope: &mut Scope) {
+    pub fn expand(scope: &Scope) {
         scope.register(Synchronization::SyncAsyncProxyShared)
     }
 }

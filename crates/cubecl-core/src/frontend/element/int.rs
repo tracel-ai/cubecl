@@ -37,7 +37,7 @@ pub trait Int:
     const BITS: u32;
 
     fn new(val: i64) -> Self;
-    fn __expand_new(scope: &mut Scope, val: i64) -> <Self as CubeType>::ExpandType {
+    fn __expand_new(scope: &Scope, val: i64) -> <Self as CubeType>::ExpandType {
         __expand_new(scope, val)
     }
 }
@@ -68,7 +68,7 @@ macro_rules! impl_int {
         }
 
         impl IntoRuntime for $type {
-            fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+            fn __expand_runtime_method(self, _scope: &Scope) -> NativeExpand<Self> {
                 self.into()
             }
         }
@@ -76,13 +76,13 @@ macro_rules! impl_int {
         impl IntoExpand for $type {
             type Expand = NativeExpand<$type>;
 
-            fn into_expand(self, _: &mut Scope) -> Self::Expand {
+            fn into_expand(self, _: &Scope) -> Self::Expand {
                 self.into()
             }
         }
 
         impl IntoMut for $type {
-            fn into_mut(self, _scope: &mut Scope) -> Self {
+            fn into_mut(self, _scope: &Scope) -> Self {
                 self
             }
         }

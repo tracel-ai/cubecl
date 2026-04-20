@@ -32,7 +32,7 @@ pub trait CubeType {
 impl<'a, T: IntoExpand<Expand = Self>> IntoExpand for &'a T {
     type Expand = &'a T;
 
-    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+    fn into_expand(self, _: &Scope) -> Self::Expand {
         self
     }
 }
@@ -40,14 +40,14 @@ impl<'a, T: IntoExpand<Expand = Self>> IntoExpand for &'a T {
 impl<'a, T: IntoExpand<Expand = Self>> IntoExpand for &'a mut T {
     type Expand = &'a mut T;
 
-    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+    fn into_expand(self, _: &Scope) -> Self::Expand {
         self
     }
 }
 
 pub trait IntoExpand {
     type Expand;
-    fn into_expand(self, scope: &mut Scope) -> Self::Expand;
+    fn into_expand(self, scope: &Scope) -> Self::Expand;
 }
 
 pub trait ExpandTypeClone {
@@ -60,28 +60,28 @@ pub trait ExpandTypeClone {
 }
 
 pub trait ExpandAsRef<T = Self> {
-    fn __expand_as_ref_method<'a>(&'a self, scope: &mut Scope) -> &'a T;
-    fn __expand_as_mut_method<'a>(&'a mut self, scope: &mut Scope) -> &'a mut T;
+    fn __expand_as_ref_method<'a>(&'a self, scope: &Scope) -> &'a T;
+    fn __expand_as_mut_method<'a>(&'a mut self, scope: &Scope) -> &'a mut T;
 }
 
 pub trait ExpandDeref {
     type Target;
 
-    fn __expand_deref_method(&self, scope: &mut Scope) -> Self::Target;
+    fn __expand_deref_method(&self, scope: &Scope) -> Self::Target;
 }
 
 pub trait ExpandAsDeref: ExpandDeref {
-    fn __expand_as_deref_method<'a>(&'a self, scope: &mut Scope) -> &'a Self::Target;
-    fn __expand_as_deref_mut_method<'a>(&'a self, scope: &mut Scope) -> &'a Self::Target;
+    fn __expand_as_deref_method<'a>(&'a self, scope: &Scope) -> &'a Self::Target;
+    fn __expand_as_deref_mut_method<'a>(&'a self, scope: &Scope) -> &'a Self::Target;
 }
 
 impl<T: ExpandDeref<Target: 'static> + ExpandAsRef> ExpandAsDeref for T {
-    fn __expand_as_deref_method<'a>(&'a self, scope: &mut Scope) -> &'a Self::Target {
+    fn __expand_as_deref_method<'a>(&'a self, scope: &Scope) -> &'a Self::Target {
         let deref = self.__expand_deref_method(scope);
         scope.create_kernel_ref(deref)
     }
 
-    fn __expand_as_deref_mut_method<'a>(&'a self, scope: &mut Scope) -> &'a Self::Target {
+    fn __expand_as_deref_mut_method<'a>(&'a self, scope: &Scope) -> &'a Self::Target {
         let deref = self.__expand_deref_method(scope);
         scope.create_kernel_ref(deref)
     }
@@ -105,44 +105,44 @@ pub trait CubeEnum: Sized {
 
 pub trait Assign<T = Self> {
     /// Assign `value` to `self` in `scope`.
-    fn __expand_assign_method(&mut self, scope: &mut Scope, value: T);
+    fn __expand_assign_method(&mut self, scope: &Scope, value: T);
     /// Create a new mutable variable of this type in `scope`.
-    fn init_mut(&self, scope: &mut Scope) -> Self;
+    fn init_mut(&self, scope: &Scope) -> Self;
 }
 
 impl<T: CubePrimitive> Assign for T {
-    fn __expand_assign_method(&mut self, _scope: &mut Scope, value: Self) {
+    fn __expand_assign_method(&mut self, _scope: &Scope, value: Self) {
         *self = value;
     }
-    fn init_mut(&self, _scope: &mut Scope) -> Self {
+    fn init_mut(&self, _scope: &Scope) -> Self {
         *self
     }
 }
 
 impl<T: NativeAssign> Assign for NativeExpand<T> {
-    fn __expand_assign_method(&mut self, scope: &mut Scope, value: Self) {
+    fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
         assign::expand(scope, value, self);
     }
-    fn init_mut(&self, scope: &mut Scope) -> Self {
+    fn init_mut(&self, scope: &Scope) -> Self {
         T::elem_init_mut(scope, self.expand).into()
     }
 }
 
 impl<T: Assign> Assign for Option<T> {
-    fn __expand_assign_method(&mut self, scope: &mut Scope, value: Self) {
+    fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
         match (self, value) {
             (Some(this), Some(other)) => this.__expand_assign_method(scope, other),
             (None, None) => {}
             _ => panic!("Can't assign mismatched enum variants"),
         }
     }
-    fn init_mut(&self, scope: &mut Scope) -> Self {
+    fn init_mut(&self, scope: &Scope) -> Self {
         self.as_ref().map(|value| value.init_mut(scope))
     }
 }
 
 impl<T: Assign> Assign for Vec<T> {
-    fn __expand_assign_method(&mut self, scope: &mut Scope, value: Self) {
+    fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
         assert!(
             self.len() == value.len(),
             "Can't assign mismatched vector lengths"
@@ -151,16 +151,16 @@ impl<T: Assign> Assign for Vec<T> {
             this.__expand_assign_method(scope, other);
         }
     }
-    fn init_mut(&self, scope: &mut Scope) -> Self {
+    fn init_mut(&self, scope: &Scope) -> Self {
         self.iter().map(|it| it.init_mut(scope)).collect()
     }
 }
 
 pub trait CloneExpand {
-    fn __expand_clone_method(&self, scope: &mut Scope) -> Self;
+    fn __expand_clone_method(&self, scope: &Scope) -> Self;
 }
 impl<T: Clone> CloneExpand for T {
-    fn __expand_clone_method(&self, _: &mut Scope) -> Self {
+    fn __expand_clone_method(&self, _: &Scope) -> Self {
         self.clone()
     }
 }
@@ -173,7 +173,7 @@ pub trait IntoRuntime:
         self
     }
 
-    fn __expand_runtime_method(self, scope: &mut Scope) -> Self::ExpandType;
+    fn __expand_runtime_method(self, scope: &Scope) -> Self::ExpandType;
 }
 
 /// Trait for marking a function return value as comptime when the compiler can't infer it.
@@ -189,10 +189,10 @@ impl<T: Sized> IntoComptime for T {}
 /// Convert an expand type to a version with mutable registers when necessary.
 pub trait IntoMut: Sized {
     /// Convert the variable into a potentially new mutable variable in `scope`, copying if needed.
-    fn into_mut(self, scope: &mut Scope) -> Self;
+    fn into_mut(self, scope: &Scope) -> Self;
 }
 
-pub fn into_mut_assign<T: Assign>(value: T, scope: &mut Scope) -> T {
+pub fn into_mut_assign<T: Assign>(value: T, scope: &Scope) -> T {
     let mut out = value.init_mut(scope);
     out.__expand_assign_method(scope, value);
     out
@@ -202,17 +202,17 @@ pub trait CubeDebug: Sized {
     /// Set the debug name of this type's expansion. Should do nothing for types that don't appear
     /// at runtime
     #[allow(unused)]
-    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {}
+    fn set_debug_name(&self, scope: &Scope, name: &'static str) {}
 }
 
 impl<T: CubeDebug> CubeDebug for &T {
-    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+    fn set_debug_name(&self, scope: &Scope, name: &'static str) {
         T::set_debug_name(self, scope, name);
     }
 }
 
 impl<T: CubeDebug> CubeDebug for &mut T {
-    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+    fn set_debug_name(&self, scope: &Scope, name: &'static str) {
         T::set_debug_name(self, scope, name);
     }
 }
@@ -316,7 +316,7 @@ pub struct NativeExpand<T> {
 impl<T> IntoExpand for NativeExpand<T> {
     type Expand = Self;
 
-    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+    fn into_expand(self, _: &Scope) -> Self::Expand {
         self
     }
 }
@@ -347,11 +347,11 @@ impl<T> NativeExpand<T> {
 }
 
 impl<T: CubePrimitive> ExpandAsRef for NativeExpand<T> {
-    fn __expand_as_ref_method(&self, _: &mut Scope) -> &Self {
+    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 
-    fn __expand_as_mut_method(&mut self, scope: &mut Scope) -> &mut Self {
+    fn __expand_as_mut_method(&mut self, scope: &Scope) -> &mut Self {
         assert!(
             self.expand.can_mutate(),
             "Can't create mutable reference to immutable variable"
@@ -365,7 +365,7 @@ impl<T: CubePrimitive> ExpandAsRef for NativeExpand<T> {
 impl<T: CubePrimitive> ExpandDeref for NativeExpand<T> {
     type Target = Self;
 
-    fn __expand_deref_method(&self, scope: &mut Scope) -> NativeExpand<T> {
+    fn __expand_deref_method(&self, scope: &Scope) -> NativeExpand<T> {
         read_variable(scope, self.expand).into()
     }
 }
@@ -423,7 +423,7 @@ macro_rules! tuple_cube_type {
             type Expand = ($($P::Expand,)*);
 
             #[allow(non_snake_case, unused, clippy::unused_unit)]
-            fn into_expand(self, scope: &mut Scope) -> Self::Expand {
+            fn into_expand(self, scope: &Scope) -> Self::Expand {
                 let ($($P,)*) = self;
                 ($(
                     $P.into_expand(scope),
@@ -446,7 +446,7 @@ macro_rules! tuple_init {
     ($($P:ident),*) => {
         impl<$($P: IntoMut),*> IntoMut for ($($P,)*) {
             #[allow(non_snake_case, unused, clippy::unused_unit)]
-            fn into_mut(self, scope: &mut Scope) -> Self {
+            fn into_mut(self, scope: &Scope) -> Self {
                 let ($($P,)*) = self;
                 ($(
                     $P.into_mut(scope),
@@ -464,7 +464,7 @@ macro_rules! tuple_runtime {
     ($($P:ident),*) => {
         impl<$($P: IntoRuntime),*> IntoRuntime for ($($P,)*) {
             #[allow(non_snake_case, unused, clippy::unused_unit)]
-            fn __expand_runtime_method(self, scope: &mut Scope) -> Self::ExpandType {
+            fn __expand_runtime_method(self, scope: &Scope) -> Self::ExpandType {
                 let ($($P,)*) = self;
                 ($(
                     $P.__expand_runtime_method(scope),
@@ -477,14 +477,14 @@ macro_rules! tuple_assign {
     ($(($n: tt, $P:ident)),*) => {
         impl<$($P: Assign),*> Assign for ($($P,)*) {
             #[allow(non_snake_case, unused, clippy::unused_unit)]
-            fn __expand_assign_method(&mut self, scope: &mut Scope, value: Self) {
+            fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
                 let ($($P,)*) = self;
                 $(
                     $P.__expand_assign_method(scope, value.$n);
                 )*
             }
             #[allow(non_snake_case, unused, clippy::unused_unit)]
-            fn init_mut(&self, scope: &mut Scope) -> Self {
+            fn init_mut(&self, scope: &Scope) -> Self {
                 let ($($P,)*) = self;
                 ($(
                     $P.init_mut(scope),
@@ -502,19 +502,19 @@ all_tuples_enumerated!(tuple_assign, 0, 12, P);
 
 /// Trait for native types that can be assigned. For non-native composites, use the normal [`Assign`].
 pub trait NativeAssign: CubeType {
-    fn elem_init_mut(scope: &mut Scope, elem: Variable) -> Variable {
+    fn elem_init_mut(scope: &Scope, elem: Variable) -> Variable {
         init_mut_expand_element(scope, &elem)
     }
 }
 
 impl<T: NativeAssign> IntoMut for NativeExpand<T> {
-    fn into_mut(self, scope: &mut Scope) -> Self {
+    fn into_mut(self, scope: &Scope) -> Self {
         into_mut_assign(self, scope)
     }
 }
 
 impl<T> CubeDebug for NativeExpand<T> {
-    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+    fn set_debug_name(&self, scope: &Scope, name: &'static str) {
         scope.update_variable_name(self.expand, name);
     }
 }
@@ -526,7 +526,7 @@ impl<T> NativeExpand<T> {
     }
 
     // Expanded version of vectorization factor.
-    pub fn __expand_vector_size_method(self, _scope: &mut Scope) -> VectorSize {
+    pub fn __expand_vector_size_method(self, _scope: &Scope) -> VectorSize {
         self.expand.ty.vector_size()
     }
 
@@ -561,18 +561,18 @@ impl<T: Scalar> NativeExpand<T> {
         }
     }
 
-    pub fn __expand_into_lit_unchecked_method(self, _scope: &mut Scope) -> T {
+    pub fn __expand_into_lit_unchecked_method(self, _scope: &Scope) -> T {
         let value = self.constant().unwrap();
         T::from_const_value(value)
     }
 }
 
-pub(crate) fn init_mut_expand_element(scope: &mut Scope, element: &Variable) -> Variable {
+pub(crate) fn init_mut_expand_element(scope: &Scope, element: &Variable) -> Variable {
     scope.create_local_mut(element.ty)
 }
 
 impl<T: IntoMut> IntoMut for Option<T> {
-    fn into_mut(self, scope: &mut Scope) -> Self {
+    fn into_mut(self, scope: &Scope) -> Self {
         self.map(|o| IntoMut::into_mut(o, scope))
     }
 }
@@ -584,7 +584,7 @@ impl<T: CubeType> CubeType for Vec<T> {
 impl<T: IntoExpand> IntoExpand for Vec<T> {
     type Expand = Self;
 
-    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+    fn into_expand(self, _: &Scope) -> Self::Expand {
         self
     }
 }
@@ -596,17 +596,14 @@ impl<T: ExpandTypeClone> ExpandTypeClone for Vec<T> {
 }
 
 impl<T: IntoMut> IntoMut for Vec<T> {
-    fn into_mut(self, scope: &mut Scope) -> Self {
+    fn into_mut(self, scope: &Scope) -> Self {
         self.into_iter().map(|e| e.into_mut(scope)).collect()
     }
 }
 impl<T: CubeDebug> CubeDebug for Vec<T> {}
 
 /// Create a constant element of the correct type during expansion.
-pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
-    scope: &mut Scope,
-    val: C,
-) -> NativeExpand<Out> {
+pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(scope: &Scope, val: C) -> NativeExpand<Out> {
     let input: ConstantValue = val.into();
     Out::as_type(scope).constant(input).into()
 }
@@ -627,11 +624,11 @@ impl LaunchArg for () {
 }
 
 pub trait DefaultExpand: CubeType {
-    fn __expand_default(scope: &mut Scope) -> Self::ExpandType;
+    fn __expand_default(scope: &Scope) -> Self::ExpandType;
 }
 
 impl<T: CubeType + Default + IntoRuntime> DefaultExpand for T {
-    fn __expand_default(scope: &mut Scope) -> T::ExpandType {
+    fn __expand_default(scope: &Scope) -> T::ExpandType {
         T::default().__expand_runtime_method(scope)
     }
 }

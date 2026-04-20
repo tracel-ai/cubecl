@@ -44,7 +44,7 @@ impl CubePrimitive for Barrier {
 }
 
 impl NativeAssign for Barrier {
-    fn elem_init_mut(_scope: &mut Scope, elem: Variable) -> Variable {
+    fn elem_init_mut(_scope: &Scope, elem: Variable) -> Variable {
         elem
     }
 }
@@ -54,7 +54,7 @@ impl CubeType for BarrierToken {
 }
 
 impl NativeAssign for BarrierToken {
-    fn elem_init_mut(_scope: &mut crate::ir::Scope, elem: Variable) -> Variable {
+    fn elem_init_mut(_scope: &Scope, elem: Variable) -> Variable {
         elem
     }
 }
@@ -77,7 +77,7 @@ macro_rules! tensor_map_load {
 
                 #[allow(clippy::too_many_arguments)]
                 pub fn [<__expand_tma_load_ $dim d>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
-                    scope: &mut Scope,
+                    scope: &Scope,
                     expand: &NativeExpand<Barrier>,
                     source: &NativeExpand<TensorMap<C1, Tiled>>,
                     destination: &mut SliceExpand<C2, ReadWrite>,
@@ -91,7 +91,7 @@ macro_rules! tensor_map_load {
                 #[allow(clippy::too_many_arguments)]
                 pub fn [<__expand_tma_load_ $dim d_method>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     &self,
-                    scope: &mut Scope,
+                    scope: &Scope,
                     source: &NativeExpand<TensorMap<C1, Tiled>>,
                     destination: &mut SliceExpand<C2, ReadWrite>,
                     $($arg: NativeExpand<i32>),*
@@ -133,7 +133,7 @@ macro_rules! tensor_map_load_im2col {
 
                 #[allow(clippy::too_many_arguments)]
                 pub fn [<__expand_tma_load_im2col_ $dim d>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
-                    scope: &mut Scope,
+                    scope: &Scope,
                     expand: &NativeExpand<Barrier>,
                     source: &NativeExpand<TensorMap<C1, Im2col>>,
                     destination: &mut SliceExpand<C2, ReadWrite>,
@@ -148,7 +148,7 @@ macro_rules! tensor_map_load_im2col {
                 #[allow(clippy::too_many_arguments)]
                 pub fn [<__expand_tma_load_im2col_ $dim d_method>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     &self,
-                    scope: &mut Scope,
+                    scope: &Scope,
                     source: &NativeExpand<TensorMap<C1, Im2col>>,
                     destination: &mut SliceExpand<C2, ReadWrite>,
                     $($arg: NativeExpand<i32>,)*
@@ -452,7 +452,7 @@ pub mod copy_async {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        scope: &mut Scope,
+        scope: &Scope,
         source: SliceExpand<C, ReadOnly>,
         destination: SliceExpand<C, ReadWrite>,
         copy_length: u32,
@@ -498,7 +498,7 @@ pub mod copy_async_checked {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        scope: &mut Scope,
+        scope: &Scope,
         source: SliceExpand<C, ReadOnly>,
         destination: SliceExpand<C, ReadWrite>,
         copy_length: u32,

@@ -131,7 +131,7 @@ fn name_of_var(scope: &Scope, var: Variable) -> Cow<'static, str> {
 
 #[allow(missing_docs)]
 pub fn expand_checked_index(
-    scope: &mut Scope,
+    scope: &Scope,
     list: Variable,
     index: Variable,
     out: Variable,
@@ -146,7 +146,7 @@ pub fn expand_checked_index(
 
 #[allow(missing_docs)]
 pub fn expand_validate_index(
-    scope: &mut Scope,
+    scope: &Scope,
     list: Variable,
     index: Variable,
     out: Variable,
@@ -168,7 +168,7 @@ pub fn expand_validate_index(
 
 #[allow(missing_docs)]
 pub fn expand_checked_index_mut(
-    scope: &mut Scope,
+    scope: &Scope,
     list: Variable,
     index: Variable,
     out: Variable,
@@ -189,7 +189,7 @@ pub fn expand_checked_index_mut(
 
 #[allow(missing_docs)]
 pub fn expand_validate_index_mut(
-    scope: &mut Scope,
+    scope: &Scope,
     list: Variable,
     index: Variable,
     out: Variable,

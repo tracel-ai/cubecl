@@ -37,7 +37,7 @@ pub mod select {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        scope: &mut Scope,
+        scope: &Scope,
         condition: NativeExpand<bool>,
         then: NativeExpand<C>,
         or_else: NativeExpand<C>,

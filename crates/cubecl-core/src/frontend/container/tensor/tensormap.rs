@@ -130,7 +130,7 @@ impl<E: CubePrimitive, K: TensorMapKind> Copy for TensorMap<E, K> {}
 impl<E: CubePrimitive, K: TensorMapKind> TensorMap<E, K> {}
 
 impl<E: CubePrimitive, K: TensorMapKind> IntoMut for NativeExpand<TensorMap<E, K>> {
-    fn into_mut(self, _scope: &mut Scope) -> Self {
+    fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
 }
@@ -178,7 +178,7 @@ pub mod tma_group_commit {
 
     use super::*;
 
-    pub fn expand(scope: &mut Scope) {
+    pub fn expand(scope: &Scope) {
         scope.register(TmaOps::CommitGroup)
     }
 }
@@ -193,7 +193,7 @@ pub mod tma_group_wait {
 
     use super::*;
 
-    pub fn expand(scope: &mut Scope, max_pending: u32) {
+    pub fn expand(scope: &Scope, max_pending: u32) {
         scope.register(TmaOps::WaitGroup { max_pending })
     }
 }
@@ -222,7 +222,7 @@ pub mod tma_group_wait_read {
 
     use super::*;
 
-    pub fn expand(scope: &mut Scope, max_pending: u32) {
+    pub fn expand(scope: &Scope, max_pending: u32) {
         scope.register(TmaOps::WaitGroupRead { max_pending })
     }
 }
@@ -249,7 +249,7 @@ macro_rules! tma_store {
 
                 #[allow(clippy::too_many_arguments)]
                 pub fn expand<T: CubePrimitive, T2: CubePrimitive<Scalar = T::Scalar>>(
-                    scope: &mut Scope,
+                    scope: &Scope,
                     src: &SliceExpand<T2, ReadOnly>,
                     dst: &mut NativeExpand<TensorMap<T, Tiled>>,
                     $($arg: NativeExpand<i32>),*
@@ -348,7 +348,7 @@ mod metadata {
 
         // Expand function of [buffer](TensorMap::buffer).
         pub fn __expand_buffer(
-            scope: &mut Scope,
+            scope: &Scope,
             expand: NativeExpand<TensorMap<T, K>>,
         ) -> NativeExpand<Tensor<T>> {
             expand.__expand_buffer_method(scope)
@@ -356,7 +356,7 @@ mod metadata {
 
         // Expand function of [stride](TensorMap::stride).
         pub fn __expand_stride(
-            scope: &mut Scope,
+            scope: &Scope,
             expand: NativeExpand<TensorMap<T, K>>,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
@@ -365,7 +365,7 @@ mod metadata {
 
         // Expand function of [shape](TensorMap::shape).
         pub fn __expand_shape(
-            scope: &mut Scope,
+            scope: &Scope,
             expand: NativeExpand<TensorMap<T, K>>,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
@@ -374,7 +374,7 @@ mod metadata {
 
         // Expand function of [coordinate](TensorMap::coordinate).
         pub fn __expand_coordinate(
-            scope: &mut Scope,
+            scope: &Scope,
             expand: NativeExpand<TensorMap<T, K>>,
             index: NativeExpand<usize>,
             dim: NativeExpand<usize>,
@@ -384,7 +384,7 @@ mod metadata {
 
         // Expand function of [len](TensorMap::len).
         pub fn __expand_len(
-            scope: &mut Scope,
+            scope: &Scope,
             expand: NativeExpand<TensorMap<T, K>>,
         ) -> NativeExpand<usize> {
             expand.__expand_len_method(scope)
@@ -392,7 +392,7 @@ mod metadata {
 
         // Expand function of [buffer_len](TensorMap::buffer_len).
         pub fn __expand_buffer_len(
-            scope: &mut Scope,
+            scope: &Scope,
             expand: NativeExpand<TensorMap<T, K>>,
         ) -> NativeExpand<usize> {
             expand.__expand_buffer_len_method(scope)
@@ -400,7 +400,7 @@ mod metadata {
 
         // Expand function of [rank](TensorMap::rank).
         pub fn __expand_rank(
-            scope: &mut Scope,
+            scope: &Scope,
             expand: NativeExpand<TensorMap<T, K>>,
         ) -> NativeExpand<usize> {
             expand.__expand_rank_method(scope)
@@ -409,7 +409,7 @@ mod metadata {
 
     impl<T: CubePrimitive, K: TensorMapKind> NativeExpand<TensorMap<T, K>> {
         // Expand method of [buffer](TensorMap::buffer).
-        pub fn __expand_buffer_method(self, scope: &mut Scope) -> NativeExpand<Tensor<T>> {
+        pub fn __expand_buffer_method(self, scope: &Scope) -> NativeExpand<Tensor<T>> {
             let tensor = match self.expand.kind {
                 VariableKind::TensorMapInput(id) => scope.input(id, self.expand.ty),
                 VariableKind::TensorMapOutput(id) => scope.output(id, self.expand.ty),
@@ -421,7 +421,7 @@ mod metadata {
         // Expand method of [stride](Tensor::stride).
         pub fn __expand_stride_method(
             self,
-            scope: &mut Scope,
+            scope: &Scope,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
             let dim: Variable = dim.into();
@@ -439,7 +439,7 @@ mod metadata {
         // Expand method of [shape](Tensor::shape).
         pub fn __expand_shape_method(
             self,
-            scope: &mut Scope,
+            scope: &Scope,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
             let dim: Variable = dim.into();
@@ -457,7 +457,7 @@ mod metadata {
         // Expand method of [coordinate](Tensor::coordinate).
         pub fn __expand_coordinate_method(
             self,
-            scope: &mut Scope,
+            scope: &Scope,
             index: NativeExpand<usize>,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
@@ -489,19 +489,19 @@ mod metadata {
         }
 
         // Expand method of [len](Tensor::len).
-        pub fn __expand_len_method(self, scope: &mut Scope) -> NativeExpand<usize> {
+        pub fn __expand_len_method(self, scope: &Scope) -> NativeExpand<usize> {
             let elem: NativeExpand<Array<u32>> = self.expand.into();
             elem.__expand_len_method(scope)
         }
 
         // Expand method of [buffer_len](Tensor::buffer_len).
-        pub fn __expand_buffer_len_method(self, scope: &mut Scope) -> NativeExpand<usize> {
+        pub fn __expand_buffer_len_method(self, scope: &Scope) -> NativeExpand<usize> {
             let elem: NativeExpand<Array<u32>> = self.expand.into();
             elem.__expand_buffer_len_method(scope)
         }
 
         // Expand method of [rank](Tensor::rank).
-        pub fn __expand_rank_method(self, scope: &mut Scope) -> NativeExpand<usize> {
+        pub fn __expand_rank_method(self, scope: &Scope) -> NativeExpand<usize> {
             let out = scope.create_local(usize::as_type(scope));
             scope.register(Instruction::new(Metadata::Rank { var: self.expand }, out));
             out.into()
@@ -510,7 +510,7 @@ mod metadata {
         /// Expand method of [`TensorMap::downcast`].
         pub fn __expand_downcast_method<E: CubePrimitive>(
             self,
-            scope: &mut Scope,
+            scope: &Scope,
         ) -> NativeExpand<TensorMap<E, K>> {
             if T::as_type(scope) != E::as_type(scope) && !is_tf32::<E, T>(scope) {
                 panic!("Downcast should only be used to satisfy the Rust type system.")

@@ -37,13 +37,13 @@ pub trait Numeric:
     fn min_value() -> Self;
     fn max_value() -> Self;
 
-    fn __expand_min_value(scope: &mut Scope) -> <Self as CubeType>::ExpandType {
+    fn __expand_min_value(scope: &Scope) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_type(scope).elem_type();
         let var = elem.min_variable();
         var.into()
     }
 
-    fn __expand_max_value(scope: &mut Scope) -> <Self as CubeType>::ExpandType {
+    fn __expand_max_value(scope: &Scope) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_type(scope).elem_type();
         let var = elem.max_variable();
         var.into()
@@ -78,10 +78,7 @@ pub trait Numeric:
         unexpanded!()
     }
 
-    fn __expand_from_int(
-        scope: &mut Scope,
-        val: NativeExpand<i64>,
-    ) -> <Self as CubeType>::ExpandType {
+    fn __expand_from_int(scope: &Scope, val: NativeExpand<i64>) -> <Self as CubeType>::ExpandType {
         let elem = Self::as_type(scope).elem_type();
         let var: Variable = elem.constant(val.constant().unwrap());
 
@@ -135,21 +132,21 @@ impl<T: ScalarArgSettings> LaunchArg for T {
 }
 
 pub trait ZeroExpand: CubeType + Zero {
-    fn __expand_zero(scope: &mut Scope) -> Self::ExpandType;
+    fn __expand_zero(scope: &Scope) -> Self::ExpandType;
 }
 
 pub trait OneExpand: CubeType + One {
-    fn __expand_one(scope: &mut Scope) -> Self::ExpandType;
+    fn __expand_one(scope: &Scope) -> Self::ExpandType;
 }
 
 impl<T: CubeType + Zero + IntoRuntime> ZeroExpand for T {
-    fn __expand_zero(scope: &mut Scope) -> Self::ExpandType {
+    fn __expand_zero(scope: &Scope) -> Self::ExpandType {
         T::zero().__expand_runtime_method(scope)
     }
 }
 
 impl<T: CubeType + One + IntoRuntime> OneExpand for T {
-    fn __expand_one(scope: &mut Scope) -> Self::ExpandType {
+    fn __expand_one(scope: &Scope) -> Self::ExpandType {
         T::one().__expand_runtime_method(scope)
     }
 }

@@ -38,12 +38,12 @@ impl ToTokens for Assign {
 
         tokens.extend(quote! {
             impl #generics #assign for #expand_name #generic_names #where_clause {
-                fn __expand_assign_method(&mut self, scope: &mut Scope, value: Self) {
+                fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
                     use #assign as _;
                     #assign_body
                 }
 
-                fn init_mut(&self, scope: &mut #scope) -> Self {
+                fn init_mut(&self, scope: &#scope) -> Self {
                     use #assign as _;
                     #init_mut_body
                 }

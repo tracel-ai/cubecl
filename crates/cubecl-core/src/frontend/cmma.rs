@@ -144,11 +144,11 @@ impl<A: CubeType, B: CubeType, CD: CubeType> ExpandTypeClone for MmaDefinitionEx
 }
 
 impl<C: CubeType, S: MatrixScope> ExpandAsRef for MatrixExpand<C, S> {
-    fn __expand_as_ref_method<'a>(&'a self, _scope: &mut Scope) -> &'a Self {
+    fn __expand_as_ref_method<'a>(&'a self, _scope: &Scope) -> &'a Self {
         self
     }
 
-    fn __expand_as_mut_method<'a>(&'a mut self, _scope: &mut Scope) -> &'a mut Self {
+    fn __expand_as_mut_method<'a>(&'a mut self, _scope: &Scope) -> &'a mut Self {
         self
     }
 }
@@ -182,19 +182,19 @@ impl<A: CubeType, B: CubeType, CD: CubeType> CubeType for MmaDefinition<A, B, CD
 impl<C: CubeType, S: MatrixScope> IntoExpand for MatrixExpand<C, S> {
     type Expand = Self;
 
-    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+    fn into_expand(self, _: &Scope) -> Self::Expand {
         self
     }
 }
 
 impl<C: CubeType, S: MatrixScope> IntoMut for MatrixExpand<C, S> {
-    fn into_mut(self, _scope: &mut Scope) -> Self {
+    fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
 }
 
 impl<C: CubeType, S: MatrixScope> CubeDebug for MatrixExpand<C, S> {
-    fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
+    fn set_debug_name(&self, scope: &Scope, name: &'static str) {
         scope.update_variable_name(self.elem, name);
     }
 }
@@ -202,13 +202,13 @@ impl<C: CubeType, S: MatrixScope> CubeDebug for MatrixExpand<C, S> {
 impl<A: CubeType, B: CubeType, CD: CubeType> IntoExpand for MmaDefinitionExpand<A, B, CD> {
     type Expand = Self;
 
-    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+    fn into_expand(self, _: &Scope) -> Self::Expand {
         self
     }
 }
 
 impl<A: CubeType, B: CubeType, CD: CubeType> IntoMut for MmaDefinitionExpand<A, B, CD> {
-    fn into_mut(self, _scope: &mut Scope) -> Self {
+    fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
 }
@@ -875,7 +875,7 @@ pub mod fill {
 
     /// Expand method of [`fill()`].
     pub fn expand<C: Scalar, S: MatrixScope>(
-        scope: &mut Scope,
+        scope: &Scope,
         mat: MatrixExpand<C, S>,
         value: NativeExpand<C>,
     ) {
@@ -901,7 +901,7 @@ pub mod load {
     /// Expand method of [`load()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
-        scope: &mut Scope,
+        scope: &Scope,
         mat: &MatrixExpand<C, S>,
         value: &SliceExpand<V, ReadOnly>,
         stride: NativeExpand<u32>,
@@ -943,7 +943,7 @@ pub mod load_tensor {
     /// Expand method of [`load()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
-        scope: &mut Scope,
+        scope: &Scope,
         mat: &MatrixExpand<C, S>,
         value: &TensorViewExpand<V>,
     ) {
@@ -986,7 +986,7 @@ pub mod load_with_layout {
     /// Expand method of [`load_with_layout()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubeType, V: CubePrimitive, S: MatrixScope>(
-        scope: &mut Scope,
+        scope: &Scope,
         mat: &MatrixExpand<C, S>,
         value: &SliceExpand<V, ReadOnly>,
         stride: NativeExpand<u32>,
@@ -1027,7 +1027,7 @@ pub mod store {
     /// Expand method of [`store()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
-        scope: &mut Scope,
+        scope: &Scope,
         output: &mut SliceExpand<O, ReadWrite>,
         mat: &MatrixExpand<C, S>,
         stride: NativeExpand<u32>,
@@ -1065,7 +1065,7 @@ pub mod store_tensor {
     /// Expand method of [`store()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
-        scope: &mut Scope,
+        scope: &Scope,
         output: &mut TensorViewExpand<O>,
         mat: &MatrixExpand<C, S>,
     ) {
@@ -1112,7 +1112,7 @@ pub mod execute {
         D: CubePrimitive,
         S: MatrixScope,
     >(
-        scope: &mut Scope,
+        scope: &Scope,
         mat_a: &MatrixExpand<A, S>,
         mat_b: &MatrixExpand<B, S>,
         mat_c: &MatrixExpand<C, S>,
@@ -1144,7 +1144,7 @@ pub mod cast {
     /// Expand method of [`cast()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
-        scope: &mut Scope,
+        scope: &Scope,
         input: &MatrixExpand<C, S>,
     ) -> MatrixExpand<O, S> {
         let ident = input.ident;
@@ -1204,7 +1204,7 @@ pub mod cast_with_ident {
     /// Expand method of [`cast()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
-        scope: &mut Scope,
+        scope: &Scope,
         input: MatrixExpand<C, S>,
         ident: MatrixIdent,
     ) -> MatrixExpand<O, S> {
@@ -1252,7 +1252,7 @@ impl CubeType for MatrixLayout {
 impl IntoExpand for MatrixLayout {
     type Expand = Self;
 
-    fn into_expand(self, _scope: &mut Scope) -> Self::Expand {
+    fn into_expand(self, _scope: &Scope) -> Self::Expand {
         self
     }
 }
@@ -1264,7 +1264,7 @@ impl ExpandTypeClone for MatrixLayout {
 }
 
 impl IntoMut for MatrixLayout {
-    fn into_mut(self, _scope: &mut crate::ir::Scope) -> Self {
+    fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
 }
@@ -1291,11 +1291,11 @@ pub mod execute_elementwise_op {
 
     /// Expand method of [`execute()`].
     pub fn expand<A: CubePrimitive, S: MatrixScope>(
-        scope: &mut Scope,
+        scope: &Scope,
         matrix_in: &MatrixExpand<A, S>,
         matrix_out: &MatrixExpand<A, S>,
         mut op: impl FnMut(
-            &mut Scope,
+            &Scope,
             NativeExpand<u32>,
             NativeExpand<u32>,
             NativeExpand<A::Scalar>,

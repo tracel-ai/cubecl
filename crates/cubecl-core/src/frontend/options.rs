@@ -2,9 +2,9 @@ use cubecl_ir::{FastMath, Scope};
 use enumset::EnumSet;
 
 pub fn fast_math_expand<R>(
-    scope: &mut Scope,
+    scope: &Scope,
     value: EnumSet<FastMath>,
-    body: impl FnOnce(&mut Scope) -> R,
+    body: impl FnOnce(&Scope) -> R,
 ) -> R {
     let prev = scope.state().modes.fp_math_mode;
     scope.state_mut().modes.fp_math_mode = value;

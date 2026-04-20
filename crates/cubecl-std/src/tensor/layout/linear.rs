@@ -40,7 +40,7 @@ impl LinearViewLayout {
 impl LinearViewLayoutExpand {
     fn __expand_inner_method(
         self,
-        _scope: &mut Scope,
+        _scope: &Scope,
     ) -> Rc<dyn VirtualLayoutOperationsExpand<Coords1d, Coords1d>> {
         match self {
             LinearViewLayoutExpand::Plain(layout) => Rc::new(layout),

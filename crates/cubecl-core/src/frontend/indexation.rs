@@ -46,9 +46,8 @@ pub trait ComptimeIndexMut<I>: ComptimeIndex<I> + IndexMut<I> {
 pub trait CubeIndexExpand {
     type Output;
     type Idx;
-    fn __expand_index_method(&self, scope: &mut Scope, index: Self::Idx) -> &Self::Output;
-    fn __expand_index_unchecked_method(&self, scope: &mut Scope, index: Self::Idx)
-    -> &Self::Output;
+    fn __expand_index_method(&self, scope: &Scope, index: Self::Idx) -> &Self::Output;
+    fn __expand_index_unchecked_method(&self, scope: &Scope, index: Self::Idx) -> &Self::Output;
 }
 
 pub trait CubeIndexMut:
@@ -63,13 +62,13 @@ pub trait CubeIndexMut:
 pub trait CubeIndexMutExpand: CubeIndexExpand {
     fn __expand_index_mut_method<'a>(
         &'a mut self,
-        scope: &mut Scope,
+        scope: &Scope,
         index: <Self as CubeIndexExpand>::Idx,
     ) -> &'a mut <Self as CubeIndexExpand>::Output;
 }
 
 pub(crate) fn expand_index_native<'a, A: CubeIndexExpand + Clone + Into<Variable>>(
-    scope: &mut Scope,
+    scope: &Scope,
     array: &'a A,
     index: NativeExpand<usize>,
     vector_size: Option<VectorSize>,
@@ -106,7 +105,7 @@ where
 }
 
 pub(crate) fn expand_index_mut_native<'a, A: CubeIndexMutExpand + Clone + Into<Variable>>(
-    scope: &mut Scope,
+    scope: &Scope,
     list: &'a mut A,
     index: NativeExpand<usize>,
     vector_size: Option<VectorSize>,

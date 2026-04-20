@@ -37,11 +37,11 @@ impl CheckedIoProcessor {
                         if has_length {
                             let list = op.list;
                             let index = op.index;
-                            let mut scope = Scope::root(false)
+                            let scope = Scope::root(false)
                                 .with_global_state(processing.global_state.clone());
 
                             expand_checked_index(
-                                &mut scope,
+                                &scope,
                                 list,
                                 index,
                                 instruction.out(),
@@ -64,10 +64,10 @@ impl CheckedIoProcessor {
                         let out = instruction.out();
 
                         if out.has_length() {
-                            let mut scope = Scope::root(false)
+                            let scope = Scope::root(false)
                                 .with_global_state(processing.global_state.clone());
                             expand_checked_index_mut(
-                                &mut scope,
+                                &scope,
                                 op.list,
                                 op.index,
                                 instruction.out(),
@@ -112,11 +112,11 @@ impl CheckedIoProcessor {
                         if has_length {
                             let list = op.list;
                             let index = op.index;
-                            let mut scope = Scope::root(false)
+                            let scope = Scope::root(false)
                                 .with_global_state(processing.global_state.clone());
 
                             expand_validate_index(
-                                &mut scope,
+                                &scope,
                                 list,
                                 index,
                                 instruction.out(),
@@ -140,10 +140,10 @@ impl CheckedIoProcessor {
                         let out = instruction.out();
 
                         if out.has_length() {
-                            let mut scope = Scope::root(false)
+                            let scope = Scope::root(false)
                                 .with_global_state(processing.global_state.clone());
                             expand_validate_index_mut(
-                                &mut scope,
+                                &scope,
                                 op.list,
                                 op.index,
                                 instruction.out(),

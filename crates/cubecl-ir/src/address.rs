@@ -41,7 +41,7 @@ impl AddressType {
         }
     }
 
-    pub fn register(&self, scope: &mut Scope) {
+    pub fn register(&self, scope: &Scope) {
         scope.register_type::<usize>(self.unsigned_type());
         scope.register_type::<isize>(self.signed_type());
     }

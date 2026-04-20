@@ -36,13 +36,13 @@ pub struct KernelLauncher<R: Runtime> {
 
 impl<R: Runtime> KernelLauncher<R> {
     #[cfg(feature = "std")]
-    pub fn with_scope<T>(&mut self, fun: impl FnMut(&mut Scope) -> T) -> T {
-        SCOPE.with_borrow_mut(fun)
+    pub fn with_scope<T>(&mut self, fun: impl FnMut(&Scope) -> T) -> T {
+        SCOPE.with_borrow(fun)
     }
 
     #[cfg(not(feature = "std"))]
-    pub fn with_scope<T>(&mut self, mut fun: impl FnMut(&mut Scope) -> T) -> T {
-        fun(&mut self.scope)
+    pub fn with_scope<T>(&mut self, mut fun: impl FnMut(&Scope) -> T) -> T {
+        fun(&self.scope)
     }
 
     #[cfg(feature = "std")]

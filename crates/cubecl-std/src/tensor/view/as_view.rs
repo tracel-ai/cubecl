@@ -17,7 +17,7 @@ pub trait AsView<E: CubePrimitive>:
     }
 
     fn __expand_view<C: Coordinates + 'static>(
-        scope: &mut Scope,
+        scope: &Scope,
         this: Self::ExpandType,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
     ) -> ViewExpand<E, C, ReadOnly> {
@@ -31,7 +31,7 @@ pub trait AsViewExpand<E: CubePrimitive> {
     #[allow(unused)]
     fn __expand_view_method<C: Coordinates + 'static>(
         self,
-        scope: &mut Scope,
+        scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
     ) -> ViewExpand<E, C, ReadOnly>;
 }
@@ -50,7 +50,7 @@ pub trait AsViewMutExpand<E: CubePrimitive>: AsViewExpand<E> {
     #[allow(clippy::too_many_arguments)]
     fn __expand_view_mut_method<C: Coordinates + 'static>(
         self,
-        scope: &mut Scope,
+        scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
     ) -> ViewExpand<E, C, ReadWrite>;
 }
@@ -64,7 +64,7 @@ macro_rules! impl_as_view {
             type SourceCoords = $coords;
             fn __expand_view_method<C: Coordinates + 'static>(
                 self,
-                scope: &mut Scope,
+                scope: &Scope,
                 layout: VirtualLayoutExpand<C, $coords>,
             ) -> super::ViewExpand<E, C, ReadOnly> {
                 View::__expand_new::<$ty<E>, $coords>(scope, self, layout)
@@ -75,7 +75,7 @@ macro_rules! impl_as_view {
         impl<E: CubePrimitive> AsViewMutExpand<E> for NativeExpand<$ty<E>> {
             fn __expand_view_mut_method<C: Coordinates + 'static>(
                 self,
-                scope: &mut Scope,
+                scope: &Scope,
                 layout: VirtualLayoutExpand<C, $coords>,
             ) -> super::ViewExpand<E, C, ReadWrite> {
                 View::__expand_new_mut::<$ty<E>, $coords>(scope, self, layout)
@@ -102,7 +102,7 @@ impl<E: CubePrimitive, IO: SliceVisibility + 'static> AsViewExpand<E> for SliceE
     type SourceCoords = Coords1d;
     fn __expand_view_method<C: Coordinates + 'static>(
         self,
-        scope: &mut Scope,
+        scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
     ) -> ViewExpand<E, C, ReadOnly> {
         View::__expand_new::<Slice<E, IO>, Self::SourceCoords>(scope, self, layout)
@@ -120,7 +120,7 @@ impl<E: CubePrimitive> AsViewMut<E> for Slice<E, ReadWrite> {
 impl<E: CubePrimitive> AsViewMutExpand<E> for SliceExpand<E, ReadWrite> {
     fn __expand_view_mut_method<C: Coordinates + 'static>(
         self,
-        scope: &mut cubecl::prelude::Scope,
+        scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
     ) -> ViewExpand<E, C, ReadWrite> {
         View::__expand_new_mut::<Slice<E, ReadWrite>, Coords1d>(scope, self, layout)
@@ -143,7 +143,7 @@ macro_rules! as_view_tensor_map {
                     }
 
                     fn [<__expand_view_ $dim>]<C: Coordinates + 'static>(
-                        scope: &mut Scope,
+                        scope: &Scope,
                         this: Self::ExpandType,
                         layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
                     ) -> ViewExpand<E, C, ReadOnly> {
@@ -157,7 +157,7 @@ macro_rules! as_view_tensor_map {
                     #[allow(unused)]
                     fn [<__expand_view_ $dim _method>]<C: Coordinates + 'static>(
                         self,
-                        scope: &mut Scope,
+                        scope: &Scope,
                         layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
                     ) -> ViewExpand<E, C, ReadOnly>;
                 )*
@@ -180,7 +180,7 @@ macro_rules! as_view_tensor_map {
                     #[allow(clippy::too_many_arguments)]
                     fn [<__expand_view_mut_ $dim _method>]<C: Coordinates + 'static>(
                         self,
-                        scope: &mut Scope,
+                        scope: &Scope,
                         layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
                     ) -> ViewExpand<E, C, ReadWrite>;
                 )*
@@ -191,7 +191,7 @@ macro_rules! as_view_tensor_map {
                 $(
                     fn [<__expand_view_ $dim _method>]<C: Coordinates + 'static>(
                         self,
-                        scope: &mut Scope,
+                        scope: &Scope,
                         layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
                     ) -> super::ViewExpand<E, C, ReadOnly> {
                         View::__expand_new::<TensorMap<E, Tiled>, [<Coords $dim>]>(scope, self, layout)
@@ -204,7 +204,7 @@ macro_rules! as_view_tensor_map {
                 $(
                     fn [<__expand_view_mut_ $dim _method>]<C: Coordinates + 'static>(
                         self,
-                        scope: &mut Scope,
+                        scope: &Scope,
                         layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
                     ) -> super::ViewExpand<E, C, ReadWrite> {
                         View::__expand_new_mut::<TensorMap<E, Tiled>, [<Coords $dim>]>(scope, self, layout)

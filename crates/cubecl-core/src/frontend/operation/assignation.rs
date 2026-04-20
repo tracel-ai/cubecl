@@ -16,7 +16,7 @@ pub mod cast {
     use super::*;
 
     pub fn expand<From: CubeType, To: CubeType>(
-        scope: &mut Scope,
+        scope: &Scope,
         input: NativeExpand<From>,
         output: NativeExpand<To>,
     ) {
@@ -41,7 +41,7 @@ pub mod assign {
     /// If you want to assign to a manually initialized const variable, look into
     /// [`expand_no_check()`].
     pub fn expand<C: CubeType>(
-        scope: &mut Scope,
+        scope: &Scope,
         input: NativeExpand<C>,
         output: &mut NativeExpand<C>,
     ) {
@@ -58,7 +58,7 @@ pub mod assign {
     ///
     /// You can't assign to a const variable with this [`expand()`].
     pub fn expand_no_check<C: CubeType>(
-        scope: &mut Scope,
+        scope: &Scope,
         input: NativeExpand<C>,
         output: NativeExpand<C>,
     ) {
@@ -68,7 +68,7 @@ pub mod assign {
         scope.register(Instruction::new(Operation::Copy(input), output));
     }
 
-    pub fn expand_element(scope: &mut Scope, input: Variable, output: Variable) {
+    pub fn expand_element(scope: &Scope, input: Variable, output: Variable) {
         if output.is_immutable() {
             panic!("Can't assign a value to a const variable. Try to use `RuntimeCell`.");
         }
@@ -87,7 +87,7 @@ pub mod index_mut {
             impl<E: CubePrimitive> CubeIndexMutExpand for NativeExpand<$type<E>> {
                 fn __expand_index_mut_method<'a>(
                     &'a mut self,
-                    scope: &mut Scope,
+                    scope: &Scope,
                     index: NativeExpand<usize>,
                 ) -> &'a mut Self::Output {
                     expand_index_mut_native(scope, self, index, None, true)
@@ -117,14 +117,14 @@ pub mod index {
 
                 fn __expand_index_method<'a>(
                     &'a self,
-                    scope: &mut Scope,
+                    scope: &Scope,
                     index: NativeExpand<usize>,
                 ) -> &'a Self::Output {
                     expand_index_native(scope, self, index, None, true)
                 }
                 fn __expand_index_unchecked_method<'a>(
                     &'a self,
-                    scope: &mut Scope,
+                    scope: &Scope,
                     index: NativeExpand<usize>,
                 ) -> &'a Self::Output {
                     expand_index_native(scope, self, index, None, false)

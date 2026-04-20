@@ -12,7 +12,7 @@ macro_rules! impl_operations_1d {
         impl<T: CubePrimitive> ViewOperationsExpand<T, Coords1d> for $expand {
             fn __expand_read_method(
                 &self,
-                scope: &mut Scope,
+                scope: &Scope,
                 pos: NativeExpand<usize>,
             ) -> <T>::ExpandType {
                 <Self as ListExpand<T>>::__expand_read_method(&self, scope, pos)
@@ -20,7 +20,7 @@ macro_rules! impl_operations_1d {
 
             fn __expand_read_checked_method(
                 &self,
-                scope: &mut Scope,
+                scope: &Scope,
                 pos: NativeExpand<usize>,
             ) -> <T>::ExpandType {
                 let len = self.clone().__expand_buffer_len_method(scope);
@@ -32,7 +32,7 @@ macro_rules! impl_operations_1d {
 
             fn __expand_read_masked_method(
                 &self,
-                scope: &mut Scope,
+                scope: &Scope,
                 pos: NativeExpand<usize>,
                 mask_value: <T>::ExpandType,
             ) -> <T>::ExpandType {
@@ -44,7 +44,7 @@ macro_rules! impl_operations_1d {
 
             fn __expand_read_unchecked_method(
                 &self,
-                scope: &mut Scope,
+                scope: &Scope,
                 pos: NativeExpand<usize>,
             ) -> <T>::ExpandType {
                 <Self as ListExpand<T>>::__expand_read_unchecked_method(self, scope, pos)
@@ -52,7 +52,7 @@ macro_rules! impl_operations_1d {
 
             fn __expand_to_linear_slice_method(
                 &self,
-                scope: &mut Scope,
+                scope: &Scope,
                 pos: NativeExpand<usize>,
                 end: NativeExpand<usize>,
             ) -> SliceExpand<T, ReadOnly> {
@@ -64,13 +64,13 @@ macro_rules! impl_operations_1d {
                 <Self as SliceOperatorExpand<T>>::__expand_slice_method(self, scope, start, end)
             }
 
-            fn __expand_shape_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
+            fn __expand_shape_method(&self, scope: &Scope) -> NativeExpand<usize> {
                 self.clone().__expand_buffer_len_method(scope)
             }
 
             fn __expand_is_in_bounds_method(
                 &self,
-                scope: &mut Scope,
+                scope: &Scope,
                 pos: NativeExpand<usize>,
             ) -> NativeExpand<bool> {
                 let len = self.clone().__expand_buffer_len_method(scope);
@@ -79,7 +79,7 @@ macro_rules! impl_operations_1d {
 
             fn __expand_tensor_map_load_method(
                 &self,
-                _scope: &mut Scope,
+                _scope: &Scope,
                 _barrier: NativeExpand<Ref<Barrier>>,
                 _shared_memory: SliceExpand<T, ReadWrite>,
                 _pos: NativeExpand<usize>,
@@ -92,7 +92,7 @@ macro_rules! impl_operations_1d {
         impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for $expand {
             fn __expand_write_method(
                 &self,
-                scope: &mut Scope,
+                scope: &Scope,
                 pos: NativeExpand<usize>,
                 value: <T>::ExpandType,
             ) {
@@ -101,7 +101,7 @@ macro_rules! impl_operations_1d {
 
             fn __expand_write_checked_method(
                 &self,
-                scope: &mut Scope,
+                scope: &Scope,
                 pos: NativeExpand<usize>,
                 value: <T>::ExpandType,
             ) {
@@ -114,7 +114,7 @@ macro_rules! impl_operations_1d {
 
             fn __expand_to_linear_slice_mut_method(
                 &self,
-                scope: &mut Scope,
+                scope: &Scope,
                 pos: NativeExpand<usize>,
                 end: NativeExpand<usize>,
             ) -> SliceExpand<T, ReadWrite> {
@@ -130,7 +130,7 @@ macro_rules! impl_operations_1d {
 
             fn __expand_tensor_map_store_method(
                 &self,
-                _scope: &mut Scope,
+                _scope: &Scope,
                 _shared_memory: SliceExpand<T, ReadOnly>,
                 _pos: <Coords1d as CubeType>::ExpandType,
             ) {

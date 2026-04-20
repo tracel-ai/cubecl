@@ -221,7 +221,7 @@ mod vector {
         // Expand function of [size](Tensor::vector_size).
         pub fn __expand_vector_size(
             expand: <Self as CubeType>::ExpandType,
-            scope: &mut Scope,
+            scope: &Scope,
         ) -> VectorSize {
             expand.__expand_vector_size_method(scope)
         }
@@ -245,14 +245,14 @@ impl<T: CubeType> CubeType for Tensor<T> {
 }
 
 impl<C: CubeType> IntoMut for NativeExpand<Tensor<C>> {
-    fn into_mut(self, _scope: &mut Scope) -> Self {
+    fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
 }
 
 impl<'a, T: CubePrimitive> List<'a, T> for Tensor<T> {
     fn __expand_read(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &'a NativeExpand<Tensor<T>>,
         idx: NativeExpand<usize>,
     ) -> &'a NativeExpand<T> {
@@ -277,20 +277,20 @@ impl<T: CubePrimitive> DerefMut for Tensor<T> {
 impl<'a, T: CubePrimitive> ListExpand<'a, T> for NativeExpand<Tensor<T>> {
     fn __expand_read_method(
         &'a self,
-        scope: &mut Scope,
+        scope: &Scope,
         idx: NativeExpand<usize>,
     ) -> &'a NativeExpand<T> {
         self.__expand_index_method(scope, idx)
     }
     fn __expand_read_unchecked_method(
         &'a self,
-        scope: &mut Scope,
+        scope: &Scope,
         idx: NativeExpand<usize>,
     ) -> &'a NativeExpand<T> {
         self.__expand_index_unchecked_method(scope, idx)
     }
 
-    fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
+    fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
         Self::__expand_len(scope, self)
     }
 }
@@ -304,7 +304,7 @@ impl<T: CubePrimitive> VectorizedExpand for NativeExpand<Tensor<T>> {
 
 impl<'a, T: CubePrimitive> ListMut<'a, T> for Tensor<T> {
     fn __expand_write(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &'a NativeExpand<Tensor<T>>,
         idx: NativeExpand<usize>,
     ) -> &'a mut NativeExpand<T> {
@@ -318,7 +318,7 @@ impl<'a, T: CubePrimitive> ListMut<'a, T> for Tensor<T> {
 impl<'a, T: CubePrimitive> ListMutExpand<'a, T> for NativeExpand<Tensor<T>> {
     fn __expand_write_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         idx: NativeExpand<usize>,
     ) -> &'a mut NativeExpand<T> {
         let mut this = *self;
@@ -329,10 +329,10 @@ impl<'a, T: CubePrimitive> ListMutExpand<'a, T> for NativeExpand<Tensor<T>> {
 }
 
 impl<T: CubePrimitive> ExpandAsRef for NativeExpand<Tensor<T>> {
-    fn __expand_as_ref_method(&self, _: &mut Scope) -> &Self {
+    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
         self
     }
-    fn __expand_as_mut_method(&mut self, _: &mut Scope) -> &mut Self {
+    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }

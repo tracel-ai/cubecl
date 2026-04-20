@@ -6,7 +6,7 @@ use cubecl_macros::cube;
 
 use crate::{self as cubecl, prelude::*};
 
-pub(crate) fn read_variable(scope: &mut Scope, var: Variable) -> Variable {
+pub(crate) fn read_variable(scope: &Scope, var: Variable) -> Variable {
     if let Type::Pointer(inner, _) = var.ty {
         let out = scope.create_local(*inner);
         scope.register(Instruction::new(Operation::Deref(var), out));
@@ -16,12 +16,7 @@ pub(crate) fn read_variable(scope: &mut Scope, var: Variable) -> Variable {
     }
 }
 
-pub(crate) fn binary_expand<F, Op>(
-    scope: &mut Scope,
-    lhs: Variable,
-    rhs: Variable,
-    func: F,
-) -> Variable
+pub(crate) fn binary_expand<F, Op>(scope: &Scope, lhs: Variable, rhs: Variable, func: F) -> Variable
 where
     F: Fn(BinaryOperator) -> Op,
     Op: Into<Operation>,
@@ -45,7 +40,7 @@ where
 }
 
 pub(crate) fn index_expand_no_vec<F>(
-    scope: &mut Scope,
+    scope: &Scope,
     list: Variable,
     index: Variable,
     func: F,
@@ -72,7 +67,7 @@ where
     output
 }
 pub(crate) fn index_expand<F, Op>(
-    scope: &mut Scope,
+    scope: &Scope,
     list: Variable,
     index: Variable,
     vector_size: Option<VectorSize>,
@@ -106,7 +101,7 @@ where
 }
 
 pub(crate) fn binary_expand_fixed_output<F>(
-    scope: &mut Scope,
+    scope: &Scope,
     lhs: Variable,
     rhs: Variable,
     out_item: Type,
@@ -123,7 +118,7 @@ where
     out
 }
 
-pub(crate) fn cmp_expand<F>(scope: &mut Scope, lhs: Variable, rhs: Variable, func: F) -> Variable
+pub(crate) fn cmp_expand<F>(scope: &Scope, lhs: Variable, rhs: Variable, func: F) -> Variable
 where
     F: Fn(BinaryOperator) -> Comparison,
 {
@@ -144,7 +139,7 @@ where
 }
 
 pub(crate) fn assign_op_expand<T: CubeType, Op>(
-    scope: &mut Scope,
+    scope: &Scope,
     lhs: &mut NativeExpand<T>,
     rhs: NativeExpand<T>,
     func: impl Fn(BinaryOperator) -> Op,
@@ -168,7 +163,7 @@ pub(crate) fn assign_op_expand<T: CubeType, Op>(
     scope.register(Instruction::new(op, lhs));
 }
 
-pub fn unary_expand<F, Op>(scope: &mut Scope, input: Variable, func: F) -> Variable
+pub fn unary_expand<F, Op>(scope: &Scope, input: Variable, func: F) -> Variable
 where
     F: Fn(UnaryOperator) -> Op,
     Op: Into<Operation>,
@@ -186,7 +181,7 @@ where
 }
 
 pub fn unary_expand_fixed_output<F, Op>(
-    scope: &mut Scope,
+    scope: &Scope,
     input: Variable,
     out_item: Type,
     func: F,
@@ -204,7 +199,7 @@ where
     output
 }
 
-pub fn init_expand<F>(scope: &mut Scope, input: Variable, mutable: bool, func: F) -> Variable
+pub fn init_expand<F>(scope: &Scope, input: Variable, mutable: bool, func: F) -> Variable
 where
     F: Fn(Variable) -> Operation,
 {
@@ -236,7 +231,7 @@ pub fn assign_binary_op_expand<
     F: Fn(BinaryOperator) -> Op,
     Op: Into<Operation>,
 >(
-    scope: &mut Scope,
+    scope: &Scope,
     lhs: &mut NativeExpand<A>,
     rhs: NativeExpand<V>,
     func: F,
@@ -260,7 +255,7 @@ pub trait DivCeil: Int + CubeType<ExpandType: DivCeilExpand<Self>> {
     fn div_ceil(self, divisor: Self) -> Self;
 
     fn __expand_div_ceil(
-        scope: &mut Scope,
+        scope: &Scope,
         a: NativeExpand<Self>,
         b: NativeExpand<Self>,
     ) -> NativeExpand<Self> {
@@ -269,15 +264,11 @@ pub trait DivCeil: Int + CubeType<ExpandType: DivCeilExpand<Self>> {
 }
 
 pub trait DivCeilExpand<E: Int> {
-    fn __expand_div_ceil_method(self, scope: &mut Scope, divisor: Self) -> Self;
+    fn __expand_div_ceil_method(self, scope: &Scope, divisor: Self) -> Self;
 }
 
 impl<E: DivCeil> DivCeilExpand<E> for NativeExpand<E> {
-    fn __expand_div_ceil_method(
-        self,
-        scope: &mut Scope,
-        divisor: NativeExpand<E>,
-    ) -> NativeExpand<E> {
+    fn __expand_div_ceil_method(self, scope: &Scope, divisor: NativeExpand<E>) -> NativeExpand<E> {
         div_ceil::expand::<E>(scope, self, divisor)
     }
 }
@@ -300,7 +291,7 @@ impl_div_ceil!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 impl<E: Int> NativeExpand<E> {
     pub fn __expand_is_multiple_of_method(
         self,
-        scope: &mut Scope,
+        scope: &Scope,
         factor: NativeExpand<E>,
     ) -> NativeExpand<bool> {
         let modulo = self.__expand_rem_method(scope, factor);

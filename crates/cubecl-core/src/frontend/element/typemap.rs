@@ -277,7 +277,7 @@ impl<Marker: 'static> From<DynamicScalar<Marker>> for NativeExpand<DynamicScalar
 }
 
 impl<Marker: 'static> IntoRuntime for DynamicScalar<Marker> {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> NativeExpand<Self> {
+    fn __expand_runtime_method(self, scope: &Scope) -> NativeExpand<Self> {
         NativeExpand::from_lit(scope, self)
     }
 }
@@ -285,7 +285,7 @@ impl<Marker: 'static> IntoRuntime for DynamicScalar<Marker> {
 impl<Marker: 'static> IntoExpand for DynamicScalar<Marker> {
     type Expand = NativeExpand<Self>;
 
-    fn into_expand(self, scope: &mut Scope) -> Self::Expand {
+    fn into_expand(self, scope: &Scope) -> Self::Expand {
         self.__expand_runtime_method(scope)
     }
 }

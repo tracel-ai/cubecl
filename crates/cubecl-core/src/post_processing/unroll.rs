@@ -493,51 +493,51 @@ impl UnrollProcessor {
             if let Operation::Branch(branch) = &mut instruction.operation {
                 match branch {
                     Branch::If(op) => {
-                        op.scope.instructions = self.transform_instructions(
+                        op.scope.register_all(self.transform_instructions(
                             allocator,
-                            op.scope.instructions.drain(..).collect(),
+                            op.scope.take_instructions(),
                             mappings,
-                        );
+                        ));
                     }
                     Branch::IfElse(op) => {
-                        op.scope_if.instructions = self.transform_instructions(
+                        op.scope_if.register_all(self.transform_instructions(
                             allocator,
-                            op.scope_if.instructions.drain(..).collect(),
+                            op.scope_if.take_instructions(),
                             mappings,
-                        );
-                        op.scope_else.instructions = self.transform_instructions(
+                        ));
+                        op.scope_else.register_all(self.transform_instructions(
                             allocator,
-                            op.scope_else.instructions.drain(..).collect(),
+                            op.scope_else.take_instructions(),
                             mappings,
-                        );
+                        ));
                     }
                     Branch::Switch(op) => {
                         for (_, case) in &mut op.cases {
-                            case.instructions = self.transform_instructions(
+                            case.register_all(self.transform_instructions(
                                 allocator,
-                                case.instructions.drain(..).collect(),
+                                case.take_instructions(),
                                 mappings,
-                            );
+                            ));
                         }
-                        op.scope_default.instructions = self.transform_instructions(
+                        op.scope_default.register_all(self.transform_instructions(
                             allocator,
-                            op.scope_default.instructions.drain(..).collect(),
+                            op.scope_default.take_instructions(),
                             mappings,
-                        );
+                        ));
                     }
                     Branch::RangeLoop(op) => {
-                        op.scope.instructions = self.transform_instructions(
+                        op.scope.register_all(self.transform_instructions(
                             allocator,
-                            op.scope.instructions.drain(..).collect(),
+                            op.scope.take_instructions(),
                             mappings,
-                        );
+                        ));
                     }
                     Branch::Loop(op) => {
-                        op.scope.instructions = self.transform_instructions(
+                        op.scope.register_all(self.transform_instructions(
                             allocator,
-                            op.scope.instructions.drain(..).collect(),
+                            op.scope.take_instructions(),
                             mappings,
-                        );
+                        ));
                     }
                     _ => {}
                 }

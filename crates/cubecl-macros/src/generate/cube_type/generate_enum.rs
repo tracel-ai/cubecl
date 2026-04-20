@@ -177,7 +177,7 @@ impl CubeTypeEnum {
 
         quote! {
             impl #generics #into_mut for #name_expand #generic_names #where_clause {
-                fn into_mut(self, scope: &mut #scope) -> Self {
+                fn into_mut(self, scope: &#scope) -> Self {
                     #body_init
                 }
             }
@@ -195,7 +195,7 @@ impl CubeTypeEnum {
             impl #generics #into_expand for #name_expand #generic_names #where_clause {
                 type Expand = Self;
 
-                fn into_expand(self, _: &mut #scope) -> Self {
+                fn into_expand(self, _: &#scope) -> Self {
                     self
                 }
             }
@@ -704,7 +704,7 @@ impl CubeTypeVariant {
                         cubecl::unexpanded!()
                     }
 
-                    pub fn #expand_function(_: &mut #scope, #(#args_with_expand_types),*) -> #ident_ty_expand #generics {
+                    pub fn #expand_function(_: &#scope, #(#args_with_expand_types),*) -> #ident_ty_expand #generics {
                         #ident_ty_expand #turbofish ::#ident {#(#args),*}
                     }
                 }
@@ -737,7 +737,7 @@ impl CubeTypeVariant {
                         cubecl::unexpanded!()
                     }
 
-                    pub fn #expand_function(_: &mut #scope, #(#args_with_expand_types),*) -> #ident_ty_expand #generics {
+                    pub fn #expand_function(_: &#scope, #(#args_with_expand_types),*) -> #ident_ty_expand #generics {
                         #ident_ty_expand #turbofish ::#ident(#(#args),*)
                     }
                 }
@@ -748,7 +748,7 @@ impl CubeTypeVariant {
                         cubecl::unexpanded!()
                     }
 
-                    pub fn #expand_function(_: &mut #scope) -> #ident_ty_expand #generics {
+                    pub fn #expand_function(_: &#scope) -> #ident_ty_expand #generics {
                         #ident_ty_expand #turbofish ::#ident
                     }
                 }

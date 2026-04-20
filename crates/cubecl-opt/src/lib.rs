@@ -351,7 +351,7 @@ impl Function {
         for mut instruction in processed.instructions {
             let mut removed = false;
             for transform in state.transformers.iter() {
-                match transform.maybe_transform(&mut scope, &instruction) {
+                match transform.maybe_transform(&scope, &instruction) {
                     TransformAction::Ignore => {}
                     TransformAction::Replace(replacement) => {
                         self.current_block_mut()

@@ -31,11 +31,11 @@ impl<E> Clone for Array<E> {
 type ArrayExpand<E> = NativeExpand<Array<E>>;
 
 impl<E> ExpandAsRef for ArrayExpand<E> {
-    fn __expand_as_ref_method<'a>(&'a self, _: &mut Scope) -> &'a Self {
+    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
         self
     }
 
-    fn __expand_as_mut_method<'a>(&'a mut self, _: &mut Scope) -> &'a mut Self {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
         self
     }
 }
@@ -73,7 +73,7 @@ mod new {
 
         /// Expand function of [`from_data`](Array::from_data).
         pub fn __expand_from_data<C: CubePrimitive>(
-            scope: &mut Scope,
+            scope: &Scope,
             data: ArrayData<C>,
         ) -> <Self as CubeType>::ExpandType {
             let var = scope.create_const_array(T::as_type(scope), data.values);
@@ -123,7 +123,7 @@ mod vector {
         // Expand function of [size](Tensor::vector_size).
         pub fn __expand_vector_size(
             expand: <Self as CubeType>::ExpandType,
-            scope: &mut Scope,
+            scope: &Scope,
         ) -> VectorSize {
             expand.__expand_vector_size_method(scope)
         }
@@ -263,7 +263,7 @@ impl<C: CubeType> CubeType for Array<C> {
 }
 
 impl<C: CubeType> IntoMut for NativeExpand<Array<C>> {
-    fn into_mut(self, _scope: &mut crate::ir::Scope) -> Self {
+    fn into_mut(self, _scope: &Scope) -> Self {
         // The type can't be deeply cloned/copied.
         self
     }
@@ -283,7 +283,7 @@ impl<T: CubeType> Iterator for Array<T> {
 
 impl<'a, T: CubePrimitive> List<'a, T> for Array<T> {
     fn __expand_read(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &'a NativeExpand<Array<T>>,
         idx: NativeExpand<usize>,
     ) -> &'a NativeExpand<T> {
@@ -308,7 +308,7 @@ impl<T: CubePrimitive> DerefMut for Array<T> {
 impl<T: CubePrimitive> ExpandDeref for ArrayExpand<T> {
     type Target = ArrayExpand<T>;
 
-    fn __expand_deref_method(&self, _: &mut Scope) -> Self::Target {
+    fn __expand_deref_method(&self, _: &Scope) -> Self::Target {
         *self
     }
 }
@@ -316,20 +316,20 @@ impl<T: CubePrimitive> ExpandDeref for ArrayExpand<T> {
 impl<'a, T: CubePrimitive> ListExpand<'a, T> for ArrayExpand<T> {
     fn __expand_read_method(
         &'a self,
-        scope: &mut Scope,
+        scope: &Scope,
         idx: NativeExpand<usize>,
     ) -> &'a NativeExpand<T> {
         self.__expand_index_method(scope, idx)
     }
     fn __expand_read_unchecked_method(
         &'a self,
-        scope: &mut Scope,
+        scope: &Scope,
         idx: NativeExpand<usize>,
     ) -> &'a NativeExpand<T> {
         self.__expand_index_unchecked_method(scope, idx)
     }
 
-    fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
+    fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
         Array::<T>::__expand_len(scope, self)
     }
 }
@@ -343,7 +343,7 @@ impl<T: CubePrimitive> VectorizedExpand for ArrayExpand<T> {
 
 impl<'a, T: CubePrimitive> ListMut<'a, T> for Array<T> {
     fn __expand_write(
-        scope: &mut Scope,
+        scope: &Scope,
         this: &'a ArrayExpand<T>,
         idx: NativeExpand<usize>,
     ) -> &'a mut NativeExpand<T> {
@@ -357,7 +357,7 @@ impl<'a, T: CubePrimitive> ListMut<'a, T> for Array<T> {
 impl<'a, T: CubePrimitive> ListMutExpand<'a, T> for ArrayExpand<T> {
     fn __expand_write_method(
         &'a self,
-        scope: &mut Scope,
+        scope: &Scope,
         idx: NativeExpand<usize>,
     ) -> &'a mut NativeExpand<T> {
         let mut this = *self;

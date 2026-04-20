@@ -31,13 +31,13 @@ impl CubePrimitive for tf32 {
 }
 
 impl IntoRuntime for tf32 {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+    fn __expand_runtime_method(self, _scope: &Scope) -> NativeExpand<Self> {
         self.into()
     }
 }
 impl IntoExpand for tf32 {
     type Expand = NativeExpand<tf32>;
-    fn into_expand(self, _: &mut Scope) -> Self::Expand {
+    fn into_expand(self, _: &Scope) -> Self::Expand {
         self.into()
     }
 }

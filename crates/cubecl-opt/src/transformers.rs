@@ -42,5 +42,5 @@ pub enum TransformAction {
 /// A transformer that can modify instructions before they get added to the control flow graph.
 pub trait IrTransformer: core::fmt::Debug {
     /// Inspect an instruction and potentially transform it.
-    fn maybe_transform(&self, scope: &mut Scope, inst: &Instruction) -> TransformAction;
+    fn maybe_transform(&self, scope: &Scope, inst: &Instruction) -> TransformAction;
 }

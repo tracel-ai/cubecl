@@ -87,7 +87,7 @@ impl cubecl_core::Compiler for WgslCompiler {
 impl WgslCompiler {
     fn compile_shader(
         &mut self,
-        mut value: kernel::KernelDefinition,
+        value: kernel::KernelDefinition,
         mode: ExecutionMode,
         address_type: StorageType,
     ) -> Result<wgsl::ComputeShader, CompilationError> {
@@ -125,7 +125,7 @@ impl WgslCompiler {
         self.buffer_vis = value.buffers.iter().map(|it| it.visibility).collect();
 
         let address_type = self.compile_storage_type(address_type);
-        let instructions = self.compile_scope(&mut value.body);
+        let instructions = self.compile_scope(&value.body);
         let extensions = register_extensions(&instructions);
         let body = wgsl::Body {
             instructions,
@@ -443,11 +443,12 @@ impl WgslCompiler {
         self.compile_variable(var)
     }
 
-    fn compile_scope(&mut self, scope: &mut cube::Scope) -> Vec<wgsl::Instruction> {
+    fn compile_scope(&mut self, scope: &cube::Scope) -> Vec<wgsl::Instruction> {
         let mut instructions = Vec::new();
 
         let const_arrays = scope
             .const_arrays
+            .borrow_mut()
             .drain(..)
             .map(|(var, values)| ConstantArray {
                 index: var.index().unwrap(),
@@ -491,7 +492,7 @@ impl WgslCompiler {
         instructions: &mut Vec<wgsl::Instruction>,
         operation: cube::Operation,
         out: Option<cube::Variable>,
-        scope: &mut cube::Scope,
+        scope: &cube::Scope,
     ) {
         match operation {
             cube::Operation::Copy(variable) => instructions.push(wgsl::Instruction::Assign {
@@ -629,23 +630,23 @@ impl WgslCompiler {
 
     fn compile_branch(&mut self, instructions: &mut Vec<wgsl::Instruction>, branch: cube::Branch) {
         match branch {
-            cube::Branch::If(mut op) => instructions.push(wgsl::Instruction::If {
+            cube::Branch::If(op) => instructions.push(wgsl::Instruction::If {
                 cond: self.compile_variable(op.cond),
-                instructions: self.compile_scope(&mut op.scope),
+                instructions: self.compile_scope(&op.scope),
             }),
-            cube::Branch::IfElse(mut op) => instructions.push(wgsl::Instruction::IfElse {
+            cube::Branch::IfElse(op) => instructions.push(wgsl::Instruction::IfElse {
                 cond: self.compile_variable(op.cond),
-                instructions_if: self.compile_scope(&mut op.scope_if),
-                instructions_else: self.compile_scope(&mut op.scope_else),
+                instructions_if: self.compile_scope(&op.scope_if),
+                instructions_else: self.compile_scope(&op.scope_else),
             }),
-            cube::Branch::Switch(mut op) => instructions.push(wgsl::Instruction::Switch {
+            cube::Branch::Switch(op) => instructions.push(wgsl::Instruction::Switch {
                 value: self.compile_variable(op.value),
-                instructions_default: self.compile_scope(&mut op.scope_default),
+                instructions_default: self.compile_scope(&op.scope_default),
                 cases: op
                     .cases
                     .into_iter()
-                    .map(|(val, mut scope)| {
-                        (self.compile_variable(val), self.compile_scope(&mut scope))
+                    .map(|(val, scope)| {
+                        (self.compile_variable(val), self.compile_scope(&scope))
                     })
                     .collect(),
             }),
@@ -653,18 +654,18 @@ impl WgslCompiler {
             // No unreachable hint in WGSL
             cube::Branch::Unreachable => instructions.push(wgsl::Instruction::Return),
             cube::Branch::Break => instructions.push(wgsl::Instruction::Break),
-            cube::Branch::RangeLoop(mut range_loop) => {
+            cube::Branch::RangeLoop(range_loop) => {
                 instructions.push(wgsl::Instruction::RangeLoop {
                     i: self.compile_variable(range_loop.i),
                     start: self.compile_variable(range_loop.start),
                     end: self.compile_variable(range_loop.end),
                     step: range_loop.step.map(|it| self.compile_variable(it)),
                     inclusive: range_loop.inclusive,
-                    instructions: self.compile_scope(&mut range_loop.scope),
+                    instructions: self.compile_scope(&range_loop.scope),
                 })
             }
-            cube::Branch::Loop(mut op) => instructions.push(wgsl::Instruction::Loop {
-                instructions: self.compile_scope(&mut op.scope),
+            cube::Branch::Loop(op) => instructions.push(wgsl::Instruction::Loop {
+                instructions: self.compile_scope(&op.scope),
             }),
         };
     }
@@ -773,7 +774,7 @@ impl WgslCompiler {
         value: cube::Arithmetic,
         out: Option<cube::Variable>,
         instructions: &mut Vec<wgsl::Instruction>,
-        scope: &mut Scope,
+        scope: &Scope,
     ) {
         let out = out.unwrap();
         match value {
@@ -910,14 +911,14 @@ impl WgslCompiler {
                 })
             }
             cube::Arithmetic::Hypot(op) => {
-                let mut scope = scope.child();
-                expand_hypot(&mut scope, op.lhs, op.rhs, out);
-                instructions.extend(self.compile_scope(&mut scope));
+                let scope = scope.child();
+                expand_hypot(&scope, op.lhs, op.rhs, out);
+                instructions.extend(self.compile_scope(&scope));
             }
             cube::Arithmetic::Rhypot(op) => {
-                let mut scope = scope.child();
-                expand_rhypot(&mut scope, op.lhs, op.rhs, out);
-                instructions.extend(self.compile_scope(&mut scope));
+                let scope = scope.child();
+                expand_rhypot(&scope, op.lhs, op.rhs, out);
+                instructions.extend(self.compile_scope(&scope));
             }
 
             cube::Arithmetic::Sqrt(op) => instructions.push(wgsl::Instruction::Sqrt {
@@ -947,17 +948,17 @@ impl WgslCompiler {
                 out: self.compile_variable(out),
             }),
             cube::Arithmetic::Erf(op) => {
-                let mut scope = scope.child();
-                expand_erf(&mut scope, op.input, out);
-                instructions.extend(self.compile_scope(&mut scope));
+                let scope = scope.child();
+                expand_erf(&scope, op.input, out);
+                instructions.extend(self.compile_scope(&scope));
             }
             cube::Arithmetic::MulHi(op) => {
-                let mut scope = scope.child();
+                let scope = scope.child();
                 match self.compilation_options.supports_u64 {
-                    true => expand_himul_64(&mut scope, op.lhs, op.rhs, out),
-                    false => expand_himul_sim(&mut scope, op.lhs, op.rhs, out),
+                    true => expand_himul_64(&scope, op.lhs, op.rhs, out),
+                    false => expand_himul_sim(&scope, op.lhs, op.rhs, out),
                 }
-                instructions.extend(self.compile_scope(&mut scope));
+                instructions.extend(self.compile_scope(&scope));
             }
             cube::Arithmetic::Recip(op) => instructions.push(wgsl::Instruction::Recip {
                 input: self.compile_variable(op.input),

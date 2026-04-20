@@ -23,12 +23,7 @@ pub struct ComptimeEventBus {
 
 type EventItem = Box<dyn Any>;
 type Call<E> = Box<
-    dyn FnMut(
-        &mut Scope,
-        &mut Box<dyn Any>,
-        <E as CubeType>::ExpandType,
-        &mut ComptimeEventBusExpand,
-    ),
+    dyn FnMut(&Scope, &mut Box<dyn Any>, <E as CubeType>::ExpandType, &mut ComptimeEventBusExpand),
 >;
 
 struct Payload<E: CubeType> {
@@ -70,7 +65,7 @@ impl ComptimeEventBus {
             // This is necessary since we need to clone the expand type when calling the expand
             // method. The listener is passed as a dynamic type and casted during the function call.
             let call =
-                |scope: &mut cubecl::prelude::Scope,
+                |scope: &Scope,
                  listener: &mut Box<dyn Any>,
                  event: <L::Event as cubecl::prelude::CubeType>::ExpandType,
                  bus: &mut <ComptimeEventBus as cubecl::prelude::CubeType>::ExpandType| {
