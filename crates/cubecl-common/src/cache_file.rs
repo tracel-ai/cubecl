@@ -41,7 +41,7 @@ impl CacheFile {
     /// If the parent directory can't be created OR the file can't be
     /// opened (common failure mode in sandboxed / ad-hoc-signed bundle
     /// apps where `$HOME/.cache/<name>/<version>/` write access is
-    /// silently denied), we log a warning and return an "invalid"
+    /// silently denied), we log an error and return an "invalid"
     /// CacheFile. Subsequent `lock()` / `write()` calls become no-ops,
     /// so callers silently skip the disk cache and recompute
     /// every time. Slow, but never panics.
@@ -49,15 +49,19 @@ impl CacheFile {
         let path: PathBuf = path.into();
         let mut valid = true;
 
+        log::debug!("cubecl cache: CacheFile::new({:?})", path);
+
         // We check before trying to create the file, since it might erase the content of an
         // existing file.
         if !fs::exists(&path).unwrap_or(false) {
             if let Some(parent) = path.parent() {
                 if let Err(err) = fs::create_dir_all(parent) {
-                    log::warn!(
-                        "cubecl cache: failed to create parent dir {:?}: {}; \
+                    log::error!(
+                        "cubecl cache: create_dir_all({:?}) failed: kind={:?} raw_os_error={:?} err={}; \
                          cache will be disabled for this entry",
                         parent,
+                        err.kind(),
+                        err.raw_os_error(),
                         err
                     );
                     valid = false;
@@ -72,10 +76,14 @@ impl CacheFile {
             // subdir was unwritable.
             if valid {
                 if let Err(err) = File::create(&path) {
-                    log::warn!(
-                        "cubecl cache: failed to create file {:?}: {}; \
-                         cache will be disabled for this entry",
+                    let parent_exists = path.parent().map(|p| p.exists()).unwrap_or(false);
+                    log::error!(
+                        "cubecl cache: File::create({:?}) failed: kind={:?} raw_os_error={:?} \
+                         parent_exists={} err={}; cache will be disabled for this entry",
                         path,
+                        err.kind(),
+                        err.raw_os_error(),
+                        parent_exists,
                         err
                     );
                     valid = false;
@@ -102,15 +110,32 @@ impl CacheFile {
             return None;
         }
 
-        self.lock.lock();
+        if !self.lock.lock() {
+            // FileLock gave up (lock file can't be created even after
+            // waiting lock_max_duration — typically because the parent
+            // dir is missing and create_new keeps returning NotFound,
+            // which used to spin forever here).
+            log::error!(
+                "cubecl cache: FileLock::lock({:?}) gave up; disabling cache entry",
+                self.path
+            );
+            self.valid = false;
+            return None;
+        }
 
         let mut file = match File::open(&self.path) {
             Ok(f) => f,
             Err(err) => {
-                log::warn!(
-                    "cubecl cache: File::open({:?}) failed during lock(): {}; \
-                     skipping cache read",
+                let path_exists = self.path.exists();
+                let parent_exists = self.path.parent().map(|p| p.exists()).unwrap_or(false);
+                log::error!(
+                    "cubecl cache: File::open({:?}) failed during lock(): kind={:?} \
+                     raw_os_error={:?} path_exists={} parent_exists={} err={}",
                     self.path,
+                    err.kind(),
+                    err.raw_os_error(),
+                    path_exists,
+                    parent_exists,
                     err
                 );
                 self.lock.unlock();
@@ -121,9 +146,11 @@ impl CacheFile {
         let end = match file.metadata() {
             Ok(m) => m.len(),
             Err(err) => {
-                log::warn!(
-                    "cubecl cache: metadata({:?}) failed: {}; skipping cache read",
+                log::error!(
+                    "cubecl cache: metadata({:?}) failed: kind={:?} raw_os_error={:?} err={}",
                     self.path,
+                    err.kind(),
+                    err.raw_os_error(),
                     err
                 );
                 self.lock.unlock();
@@ -132,9 +159,12 @@ impl CacheFile {
             }
         };
         if let Err(err) = file.seek(SeekFrom::Start(self.cursor)) {
-            log::warn!(
-                "cubecl cache: seek on {:?} failed: {}; skipping cache read",
+            log::error!(
+                "cubecl cache: seek({:?}, cursor={}) failed: kind={:?} raw_os_error={:?} err={}",
                 self.path,
+                self.cursor,
+                err.kind(),
+                err.raw_os_error(),
                 err
             );
             self.lock.unlock();
@@ -166,24 +196,37 @@ impl CacheFile {
     /// I/O failures" patch (commit a784b98) was meant to eliminate.
     /// A failed `lock()` sets `valid = false`, so we silently no-op.
     ///
-    /// Panics if the file isn't locked when the cache is still valid
-    /// (the lock precondition is a caller-side API contract). File
-    /// I/O errors are logged and swallowed — a missed cache write
-    /// is not fatal.
+    /// When the cache IS valid but `write()` is called with no lock
+    /// held, that's a genuine caller-side API misuse. During active
+    /// diagnosis of the autotune panic cascade we log loudly and
+    /// no-op rather than panic — a single misuse should not take
+    /// down training. Flip the `return` back to a `panic!` once the
+    /// root cause of the cache-lock failures is identified and fixed.
     pub fn write(&mut self, content: &[u8]) {
         if !self.valid {
             return;
         }
         if !self.lock.is_lock {
-            panic!("The cache file should be locked before writing content to it.")
+            log::error!(
+                "cubecl cache: write({:?}, {} bytes) called without lock held; \
+                 skipping (caller-side API misuse — should have called lock() first)",
+                self.path,
+                content.len()
+            );
+            return;
         }
 
         let mut file = match fs::OpenOptions::new().append(true).open(&self.path) {
             Ok(f) => f,
             Err(err) => {
-                log::warn!(
-                    "cubecl cache: append-open({:?}) failed: {}; skipping write",
+                let path_exists = self.path.exists();
+                log::error!(
+                    "cubecl cache: append-open({:?}) failed: kind={:?} raw_os_error={:?} \
+                     path_exists={} err={}",
                     self.path,
+                    err.kind(),
+                    err.raw_os_error(),
+                    path_exists,
                     err
                 );
                 self.valid = false;
@@ -194,10 +237,12 @@ impl CacheFile {
         match file.write(content) {
             Ok(n) => self.cursor += n as u64,
             Err(err) => {
-                log::warn!(
-                    "cubecl cache: write({:?}, {} bytes) failed: {}; skipping",
+                log::error!(
+                    "cubecl cache: write({:?}, {} bytes) failed: kind={:?} raw_os_error={:?} err={}",
                     self.path,
                     content.len(),
+                    err.kind(),
+                    err.raw_os_error(),
                     err
                 );
                 self.valid = false;
@@ -237,12 +282,23 @@ impl FileLock {
             lock_max_duration,
         }
     }
-    pub fn lock(&mut self) {
+
+    /// Acquire the lock.
+    ///
+    /// Returns `true` on success, `false` if we gave up waiting —
+    /// either because a peer held the lock longer than
+    /// `lock_max_duration`, or because `create_new` kept failing
+    /// with a non-AlreadyExists error (NotFound when the parent
+    /// directory is missing, PermissionDenied under sandboxing,
+    /// etc.). The previous implementation spun forever in that
+    /// second case; now we log and bail.
+    pub fn lock(&mut self) -> bool {
         if self.is_lock {
-            return;
+            return true;
         }
 
         let waiting_total = std::time::SystemTime::now();
+        let mut other_error_logged = false;
 
         loop {
             match fs::OpenOptions::new()
@@ -261,21 +317,56 @@ impl FileLock {
                         if let Ok(true) = self.maybe_cleanup_frozen_lock() {
                             log::debug!("Removed frozen lock file");
                         } else {
+                            if waiting_total.elapsed().unwrap_or_default()
+                                > self.lock_max_duration
+                            {
+                                log::error!(
+                                    "cubecl cache: FileLock::lock({:?}) timed out after {:?} \
+                                     waiting for peer to release lock; giving up",
+                                    self.path_lock,
+                                    self.lock_max_duration
+                                );
+                                return false;
+                            }
                             std::thread::sleep(Duration::from_millis(30));
                         }
                     }
                     _ => {
-                        if waiting_total.elapsed().unwrap() > self.lock_max_duration {
-                            fs::remove_file(&self.path_lock).ok();
-                        } else {
-                            std::thread::sleep(Duration::from_millis(30));
+                        if !other_error_logged {
+                            let parent_exists = self
+                                .path_lock
+                                .parent()
+                                .map(|p| p.exists())
+                                .unwrap_or(false);
+                            log::error!(
+                                "cubecl cache: FileLock::lock({:?}) unexpected I/O error: \
+                                 kind={:?} raw_os_error={:?} parent_exists={} err={}",
+                                self.path_lock,
+                                err.kind(),
+                                err.raw_os_error(),
+                                parent_exists,
+                                err
+                            );
+                            other_error_logged = true;
                         }
+                        if waiting_total.elapsed().unwrap_or_default() > self.lock_max_duration {
+                            fs::remove_file(&self.path_lock).ok();
+                            log::error!(
+                                "cubecl cache: FileLock::lock({:?}) giving up after {:?} \
+                                 (persistent non-AlreadyExists error)",
+                                self.path_lock,
+                                self.lock_max_duration
+                            );
+                            return false;
+                        }
+                        std::thread::sleep(Duration::from_millis(30));
                     }
                 },
             };
         }
 
         self.is_lock = true;
+        true
     }
 
     pub fn unlock(&mut self) {
