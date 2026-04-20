@@ -1,6 +1,6 @@
+use core::cell::UnsafeCell;
 use std::{
     any::{Any, TypeId},
-    cell::RefCell,
     collections::HashMap,
     rc::Rc,
 };
@@ -18,7 +18,7 @@ use cubecl_core::{self as cubecl, intrinsic};
 pub struct ComptimeEventBus {
     #[allow(unused)]
     #[cube(comptime)]
-    listener_family: Rc<RefCell<HashMap<TypeId, Vec<EventItem>>>>,
+    listener_family: Rc<UnsafeCell<HashMap<TypeId, Vec<EventItem>>>>,
 }
 
 type EventItem = Box<dyn Any>;
@@ -43,7 +43,7 @@ impl ComptimeEventBus {
     pub fn new() -> Self {
         intrinsic!(|_| {
             ComptimeEventBusExpand {
-                listener_family: Rc::new(RefCell::new(HashMap::new())),
+                listener_family: Rc::new(UnsafeCell::new(HashMap::new())),
             }
         })
     }
@@ -58,7 +58,7 @@ impl ComptimeEventBus {
     pub fn listener<L: EventListener>(&mut self, listener: L) {
         intrinsic!(|_| {
             let type_id = TypeId::of::<L::Event>();
-            let mut listeners = self.listener_family.borrow_mut();
+            let mut listeners = unsafe { self.listener_family.get().as_mut_unchecked() };
 
             // The call dynamic function erases the [EventListener] type.
             //
@@ -96,7 +96,7 @@ impl ComptimeEventBus {
         intrinsic!(|scope| {
             let type_id = TypeId::of::<E>();
             let family = self.listener_family.clone();
-            let mut family = family.borrow_mut();
+            let family = unsafe { family.get().as_mut_unchecked() };
             let listeners = match family.get_mut(&type_id) {
                 Some(val) => val,
                 None => return,

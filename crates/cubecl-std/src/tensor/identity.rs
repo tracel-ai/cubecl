@@ -22,7 +22,7 @@ fn identity_kernel<C: Numeric, N: Size>(
         while offset < output.vector_size() {
             let remainder = (start_pos + offset) % gap;
             if remainder == 0 {
-                vector[offset] = C::from_int(1);
+                vector.insert(offset, C::from_int(1));
                 offset += gap;
             } else {
                 offset += gap - remainder;

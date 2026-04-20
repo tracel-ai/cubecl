@@ -8,7 +8,7 @@ use cubecl_core::{self as cubecl, prelude::barrier::Barrier, unexpanded};
 #[cube(expand_base_traits = "VectorizedExpand")]
 pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Vectorized {
     #[allow(unused)]
-    fn read(&self, pos: C) -> &T {
+    fn read(&self, pos: C) -> T {
         unexpanded!()
     }
 
@@ -29,8 +29,8 @@ pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Vectorized {
 
     /// Create a slice starting from `pos`, with `size`.
     /// The layout handles translation into concrete indices.
-    #[allow(unused)]
-    fn to_linear_slice(&self, pos: C, size: C) -> Slice<T, ReadOnly> {
+    #[allow(unused, clippy::needless_lifetimes)]
+    fn to_linear_slice<'a>(&'a self, pos: C, size: C) -> &'a Slice<T, ReadOnly> {
         unexpanded!()
     }
 
@@ -53,107 +53,108 @@ pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Vectorized {
 }
 
 /// Type for which we can read and write values in cube functions.
-/// For an immutable version, see [List].
-#[cube(expand_base_traits = "ViewOperationsExpand<T, C>")]
-pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>: ViewOperations<T, C> {
+/// For an immutable version, see [List]."
+pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>:
+    ViewOperations<T, C> + cubecl::prelude::CubeType<ExpandType: ViewOperationsMutExpand<T, C>>
+{
     #[allow(unused)]
-    fn write<'a>(&'a self, pos: C) -> &'a mut T {
+    fn write(&self, pos: C, value: T) {
         unexpanded!()
     }
 
     #[allow(unused)]
-    fn write_checked<'a>(&'a self, pos: C) -> &'a mut T {
+    fn write_checked(&self, pos: C, value: T) {
         unexpanded!()
     }
 
     /// Create a mutable slice starting from `pos`, with `size`.
     /// The layout handles translation into concrete indices.
-    #[allow(unused, clippy::wrong_self_convention)]
+    #[allow(
+        unused,
+        clippy::wrong_self_convention,
+        clippy::mut_from_ref,
+        clippy::needless_lifetimes
+    )]
     fn to_linear_slice_mut<'a>(&'a self, pos: C, size: C) -> &'a mut Slice<T, ReadWrite> {
         unexpanded!()
     }
 
-    ///.Execute a TMA store into global memory, if the underlying storage supports it.
-    /// Panics if it's unsupported.
+    /// Execute a TMA store into global memory, if the underlying storage supports it.
+    /// Panics if it\'s unsupported.
     #[allow(unused)]
     fn tensor_map_store(&self, shared_memory: &Slice<T>, pos: C) {
         unexpanded!()
     }
-}
-
-// Automatic implementation for references to List.
-impl<'a, T: CubePrimitive, C: Coordinates, V: ViewOperations<T, C>> ViewOperations<T, C> for &'a V
-where
-    &'a V: CubeType<ExpandType = V::ExpandType>,
-{
-    fn read(&self, pos: C) -> &T {
-        V::read(self, pos)
-    }
-
-    fn __expand_read(
-        scope: &Scope,
-        this: Self::ExpandType,
-        pos: C::ExpandType,
-    ) -> <T as CubeType>::ExpandType {
-        V::__expand_read(scope, this, pos)
-    }
-}
-
-// Automatic implementation for mutable references to List.
-impl<'a, T: CubePrimitive, C: Coordinates, L: ViewOperations<T, C>> ViewOperations<T, C>
-    for &'a mut L
-where
-    &'a mut L: CubeType<ExpandType = L::ExpandType>,
-{
-    fn read(&self, pos: C) -> T {
-        L::read(self, pos)
-    }
-
-    fn __expand_read(
-        scope: &Scope,
-        this: Self::ExpandType,
-        pos: C::ExpandType,
-    ) -> <T as CubeType>::ExpandType {
-        L::__expand_read(scope, this, pos)
-    }
-}
-
-// Automatic implementation for references to ListMut.
-impl<'a, T: CubePrimitive, C: Coordinates, L: ViewOperationsMut<T, C>> ViewOperationsMut<T, C>
-    for &'a L
-where
-    &'a L: CubeType<ExpandType = L::ExpandType>,
-{
-    fn write(&self, pos: C, value: T) {
-        L::write(self, pos, value);
-    }
 
     fn __expand_write(
         scope: &Scope,
-        this: Self::ExpandType,
-        pos: C::ExpandType,
-        value: T::ExpandType,
+        this: &<Self as CubeType>::ExpandType,
+        pos: <C as CubeType>::ExpandType,
+        value: <T as CubeType>::ExpandType,
     ) {
-        L::__expand_write(scope, this, pos, value);
+        this.__expand_write_method(scope, pos, value)
+    }
+
+    fn __expand_write_checked(
+        scope: &Scope,
+        this: &<Self as CubeType>::ExpandType,
+        pos: <C as CubeType>::ExpandType,
+        value: <T as CubeType>::ExpandType,
+    ) {
+        this.__expand_write_checked_method(scope, pos, value)
+    }
+
+    fn __expand_to_linear_slice_mut<'a>(
+        scope: &Scope,
+        this: &'a <Self as CubeType>::ExpandType,
+        pos: <C as CubeType>::ExpandType,
+        size: <C as CubeType>::ExpandType,
+    ) -> &'a mut <Slice<T, ReadWrite> as CubeType>::ExpandType {
+        this.__expand_to_linear_slice_mut_method(scope, pos, size)
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn __expand_tensor_map_store(
+        scope: &Scope,
+        this: &<Self as CubeType>::ExpandType,
+        shared_memory: &<Slice<T> as CubeType>::ExpandType,
+        pos: <C as CubeType>::ExpandType,
+    ) {
+        this.__expand_tensor_map_store_method(scope, shared_memory, pos)
     }
 }
 
-// Automatic implementation for mutable references to ListMut.
-impl<'a, T: CubePrimitive, C: Coordinates, L: ViewOperationsMut<T, C>> ViewOperationsMut<T, C>
-    for &'a mut L
-where
-    &'a mut L: CubeType<ExpandType = L::ExpandType>,
+/// Type for which we can read and write values in cube functions.
+/// For an immutable version, see [List].
+#[allow(clippy::too_many_arguments)]
+pub trait ViewOperationsMutExpand<T: CubePrimitive, C: Coordinates>:
+    ViewOperationsExpand<T, C>
 {
-    fn write(&self, pos: C, value: T) {
-        L::write(self, pos, value);
-    }
+    fn __expand_write_method(
+        &self,
+        scope: &cubecl::prelude::Scope,
+        pos: <C as cubecl::prelude::CubeType>::ExpandType,
+        value: <T as cubecl::prelude::CubeType>::ExpandType,
+    ) -> ();
 
-    fn __expand_write(
+    fn __expand_write_checked_method(
+        &self,
+        scope: &cubecl::prelude::Scope,
+        pos: <C as cubecl::prelude::CubeType>::ExpandType,
+        value: <T as cubecl::prelude::CubeType>::ExpandType,
+    ) -> ();
+
+    #[allow(clippy::mut_from_ref)]
+    fn __expand_to_linear_slice_mut_method<'a>(
+        &'a self,
         scope: &Scope,
-        this: Self::ExpandType,
-        pos: C::ExpandType,
-        value: T::ExpandType,
-    ) {
-        L::__expand_write(scope, this, pos, value);
-    }
+        pos: <C as CubeType>::ExpandType,
+        size: <C as CubeType>::ExpandType,
+    ) -> &'a mut <Slice<T, ReadWrite> as CubeType>::ExpandType;
+
+    fn __expand_tensor_map_store_method(
+        &self,
+        scope: &Scope,
+        shared_memory: &<Slice<T> as CubeType>::ExpandType,
+        pos: <C as CubeType>::ExpandType,
+    ) -> ();
 }

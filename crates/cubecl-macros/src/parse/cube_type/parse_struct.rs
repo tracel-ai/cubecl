@@ -17,6 +17,7 @@ pub struct CubeTypeStruct {
     pub generics: Generics,
     pub vis: Visibility,
     pub skip_bounds: Flag,
+    pub derive: Option<syn::Meta>,
 }
 
 #[derive(FromField, Clone, Debug)]

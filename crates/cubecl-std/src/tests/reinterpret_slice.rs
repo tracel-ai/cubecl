@@ -75,10 +75,10 @@ fn kernel_read_shared_memory(output: &mut Array<f16>) {
     let mut mem = SharedMemory::<Vector<i8, Const<4>>>::new(1usize);
     if UNIT_POS == 0 {
         let mut vector = Vector::empty();
-        vector[0] = 0_i8;
-        vector[1] = 60_i8;
-        vector[2] = 64_i8;
-        vector[3] = -56_i8;
+        vector.insert(0, 0_i8);
+        vector.insert(1, 60_i8);
+        vector.insert(2, 64_i8);
+        vector.insert(3, -56_i8);
         mem[0] = vector;
     }
     sync_cube();

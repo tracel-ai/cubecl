@@ -38,7 +38,7 @@ impl ViewLayoutLaunchArg for PlainLayout {
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
         let len = <usize as LaunchArg>::expand(&(), builder);
-        PlainLayout::__expand_new(&mut builder.scope, len)
+        PlainLayout::__expand_new(&builder.scope, len)
     }
 }
 

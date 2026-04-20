@@ -53,12 +53,18 @@ impl CubeTypeEnum {
     }
 
     pub(crate) fn expand_ty(&self) -> proc_macro2::TokenStream {
+        let expand_derives = match &self.derive {
+            Some(derives) => quote![#[#derives]],
+            None => quote![],
+        };
+
         let name = &self.name_expand;
         let variants = self.variants.iter().map(CubeTypeVariant::expand_variant);
         let generics = &self.generics;
         let vis = &self.vis;
 
         quote! {
+            #expand_derives
             #vis enum #name #generics {
                 #(#variants),*
             }

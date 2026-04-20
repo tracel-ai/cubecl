@@ -36,12 +36,18 @@ impl CubeTypeStruct {
     }
 
     fn expand_ty(&self) -> proc_macro2::TokenStream {
+        let expand_derives = match &self.derive {
+            Some(derives) => quote![#[#derives]],
+            None => quote![],
+        };
+
         let fields = self.fields.iter().map(TypeField::expand_field);
         let name = &self.name_expand;
         let generics = &self.generics;
         let vis = &self.vis;
 
         quote! {
+            #expand_derives
             #vis struct #name #generics {
                 #(#fields),*
             }

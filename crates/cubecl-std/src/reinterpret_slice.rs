@@ -70,7 +70,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
                     let elem = slice[first + k];
                     #[unroll]
                     for j in 0..self.vector_size {
-                        vector[k * self.vector_size + j] = elem[j];
+                        vector.insert(k * self.vector_size + j, elem.extract(j));
                     }
                 }
                 T::reinterpret(vector)
@@ -146,7 +146,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
                     let elem = slice[first + k];
                     #[unroll]
                     for j in 0..self.vector_size {
-                        vector[k * self.vector_size + j] = elem[j];
+                        vector.insert(k * self.vector_size + j, elem.extract(j));
                     }
                 }
                 T::reinterpret(vector)
@@ -170,7 +170,7 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
                     let mut vector = Vector::empty();
                     #[unroll]
                     for j in 0..vector_size {
-                        vector[j] = reinterpreted[k * vector_size + j];
+                        vector.insert(j, reinterpreted.extract(k * vector_size + j));
                     }
                     slice[first + k] = vector;
                 }

@@ -113,7 +113,7 @@ macro_rules! impl_virtual_read {
                     .layout
                     .clone()
                     .__expand_to_source_pos_method(scope, pos);
-                self.view.clone().__expand_read_method(scope, pos)
+                self.view.__expand_read_method(scope, pos)
             }
 
             fn __expand_read_checked_method(
@@ -156,12 +156,12 @@ macro_rules! impl_virtual_read {
                 self.view.__expand_read_unchecked_method(scope, pos)
             }
 
-            fn __expand_to_linear_slice_method(
-                &self,
+            fn __expand_to_linear_slice_method<'a>(
+                &'a self,
                 scope: &Scope,
                 pos: <C>::ExpandType,
                 end: <C>::ExpandType,
-            ) -> SliceExpand<T, ReadOnly> {
+            ) -> &'a SliceExpand<T, ReadOnly> {
                 let pos = self
                     .layout
                     .clone()
@@ -186,15 +186,15 @@ macro_rules! impl_virtual_read {
                     .layout
                     .clone()
                     .__expand_to_source_pos_checked_method(scope, pos);
-                let in_bounds_view = self.view.clone().__expand_is_in_bounds_method(scope, pos);
-                and::expand(scope, in_bounds_layout, in_bounds_view)
+                let in_bounds_view = self.view.__expand_is_in_bounds_method(scope, pos);
+                in_bounds_layout.__expand_and_method(scope, in_bounds_view)
             }
 
             fn __expand_tensor_map_load_method(
                 &self,
                 scope: &Scope,
-                barrier: NativeExpand<Ref<Barrier>>,
-                shared_memory: SliceExpand<T, ReadWrite>,
+                barrier: &NativeExpand<Barrier>,
+                shared_memory: &mut SliceExpand<T, ReadWrite>,
                 pos: C::ExpandType,
             ) {
                 let pos = self
@@ -246,12 +246,12 @@ where
         });
     }
 
-    fn __expand_to_linear_slice_mut_method(
-        &self,
+    fn __expand_to_linear_slice_mut_method<'a>(
+        &'a self,
         scope: &Scope,
         pos: <C>::ExpandType,
         end: <C>::ExpandType,
-    ) -> SliceExpand<T, ReadWrite> {
+    ) -> &'a mut SliceExpand<T, ReadWrite> {
         let pos = self
             .layout
             .clone()
@@ -267,7 +267,7 @@ where
     fn __expand_tensor_map_store_method(
         &self,
         scope: &Scope,
-        shared_memory: SliceExpand<T, ReadOnly>,
+        shared_memory: &SliceExpand<T, ReadOnly>,
         pos: C::ExpandType,
     ) {
         let pos = self

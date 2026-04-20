@@ -106,7 +106,7 @@ fn copy_kernel<T: Numeric, N: Size>(
 
     #[unroll]
     for i in 0..elems_per_thread {
-        registers[i] = input[offset_linear + i];
+        registers[i] = input.read_checked(offset_linear + i);
     }
 
     let offset_output = out_layout.to_source_pos(offset_linear);
@@ -140,7 +140,7 @@ fn copy_kernel_pack<T: Numeric, N: Size>(
         #[unroll]
         for k in 0..vector_size {
             let offset_input = offset_input + offset + k;
-            reg[k] = input[offset_input];
+            reg.insert(k, input.read_checked(offset_input));
         }
         registers[i] = reg;
     }
@@ -230,7 +230,10 @@ fn copy_kernel_packed<T: Int, N: Size>(
         for k in 0..vector_size {
             let offset_input = offset_input + offset + k;
 
-            reg[k] = index_packed(input, offset_input, &in_shape, packed_dim, packing, rank);
+            reg.insert(
+                k,
+                index_packed(input, offset_input, &in_shape, packed_dim, packing, rank),
+            );
         }
         registers[i] = reg;
     }

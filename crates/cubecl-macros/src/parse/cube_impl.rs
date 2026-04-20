@@ -48,8 +48,9 @@ impl CubeImplItem {
                     .iter()
                     .any(|param| matches!(param, FnArg::Receiver(_)));
                 let func_name_expand = format_ident!("__expand_{}", func.sig.ident);
-                let mut func =
-                    KernelFn::from_sig_and_block(func.vis, func.sig, func.block, full_name, args)?;
+                let mut func = KernelFn::from_sig_and_block(
+                    func.attrs, func.vis, func.sig, func.block, full_name, args,
+                )?;
 
                 if is_method {
                     let method = Self::handle_method_expand(func_name_expand, &mut func);
@@ -136,6 +137,7 @@ impl CubeImplItem {
 
         let cfg_debug = cfg!(debug_symbols) && !func.args.no_debug_symbols.is_present();
         KernelFn {
+            attrs: func.attrs.clone(),
             vis: func.vis.clone(),
             sig: method_sig,
             body,
@@ -194,6 +196,7 @@ impl CubeImplItem {
 
         let cfg_debug = cfg!(debug_symbols) && !func.args.no_debug_symbols.is_present();
         KernelFn {
+            attrs: func.attrs.clone(),
             vis: func.vis.clone(),
             sig: func_sig,
             body: KernelBody::Verbatim(body),

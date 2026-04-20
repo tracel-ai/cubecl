@@ -131,7 +131,7 @@ impl<T: CubeType> ExpandAsRef for SequenceExpand<T> {
     }
 }
 
-impl<T: CubeType<ExpandType: Clone>> CubeIndex for Sequence<T> {
+impl<T: CubeType> CubeIndex for Sequence<T> {
     type Output = T;
     type Idx = usize;
 }
@@ -144,7 +144,7 @@ impl<T: CubeType> Deref for Sequence<T> {
     }
 }
 
-impl<T: CubeType<ExpandType: Clone>> CubeIndexExpand for SequenceExpand<T> {
+impl<T: CubeType> CubeIndexExpand for SequenceExpand<T> {
     type Output = T::ExpandType;
     type Idx = NativeExpand<usize>;
 

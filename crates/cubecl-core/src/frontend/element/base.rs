@@ -306,6 +306,21 @@ macro_rules! launch_tuple {
 
 all_tuples!(launch_tuple, 2, 12, T, t);
 
+macro_rules! deref_tuple {
+    ($(($T:ident, $t:ident)),*) => {
+        impl<$($T: ExpandDeref),*> ExpandDeref for ($($T),*) {
+            type Target = ($($T::Target),*);
+
+            fn __expand_deref_method(&self, scope: &Scope) -> Self::Target {
+                let ($($t),*) = self;
+                ($($t.__expand_deref_method(scope)),*)
+            }
+        }
+    };
+}
+
+all_tuples!(deref_tuple, 2, 12, T, t);
+
 /// Expand type of a native GPU type, i.e. scalar primitives, arrays, shared memory.
 #[derive(new, Clone, Copy)]
 pub struct NativeExpand<T> {
@@ -544,13 +559,10 @@ impl<T> From<Variable> for NativeExpand<T> {
     }
 }
 
-impl<T: Scalar> NativeExpand<T> {
+impl<T: Scalar + Into<ConstantValue>> NativeExpand<T> {
     /// Create an [`NativeExpand`] from a value that is normally a literal.
-    pub fn from_lit<L: Into<ConstantValue>>(scope: &Scope, lit: L) -> Self {
-        let variable: ConstantValue = lit.into();
-        let variable = T::as_type(scope).constant(variable);
-
-        NativeExpand::new(variable)
+    pub fn from_lit(scope: &Scope, lit: T) -> Self {
+        T::as_type(scope).constant(lit.into()).into()
     }
 
     /// Get the [`ConstantValue`] from the variable.

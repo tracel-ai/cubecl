@@ -1,4 +1,3 @@
-use cubecl_core as cubecl;
 use cubecl_core::{prelude::*, unexpanded};
 
 use crate::tensor::{View, ViewExpand, layout::*};
@@ -94,7 +93,7 @@ impl<E: CubePrimitive, IO: SliceVisibility + 'static> AsView<E> for Slice<E, IO>
         &self,
         layout: impl Into<VirtualLayout<C, Coords1d>>,
     ) -> View<E, C, ReadOnly> {
-        View::new::<Slice<E, IO>, Coords1d>(self, layout)
+        View::new::<Slice<E, IO>, Coords1d>(*self, layout)
     }
 }
 
@@ -114,7 +113,7 @@ impl<E: CubePrimitive> AsViewMut<E> for Slice<E, ReadWrite> {
         &mut self,
         layout: impl Into<VirtualLayout<C, Coords1d>>,
     ) -> View<E, C, ReadWrite> {
-        View::new_mut::<Slice<E, ReadWrite>, Coords1d>(self, layout)
+        View::new_mut::<Slice<E, ReadWrite>, Coords1d>(*self, layout)
     }
 }
 impl<E: CubePrimitive> AsViewMutExpand<E> for SliceExpand<E, ReadWrite> {

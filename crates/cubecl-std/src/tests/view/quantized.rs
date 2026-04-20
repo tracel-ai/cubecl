@@ -44,7 +44,7 @@ pub fn kernel_quantized_view<F: Float, N: Size>(
     output: &mut Array<Vector<F, N>>,
 ) {
     if (UNIT_POS as usize) < lhs.shape() {
-        output[UNIT_POS as usize] = lhs[UNIT_POS as usize];
+        output[UNIT_POS as usize] = lhs.read(UNIT_POS as usize);
     }
 }
 

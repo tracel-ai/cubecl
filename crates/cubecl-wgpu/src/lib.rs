@@ -36,9 +36,9 @@ mod tests {
     //
     // Also include f16, this is an extension but supported by wgpu and WebGPU.
     cubecl_core::testgen_all!(f32: [f16, f32], i32: [i32, i64], u32: [u32, u64]);
-    // cubecl_std::testgen!();
-    // cubecl_std::testgen_tensor_identity!([flex32, f32, u32]);
-    // cubecl_std::testgen_quantized_view!(f32);
+    cubecl_std::testgen!();
+    cubecl_std::testgen_tensor_identity!([flex32, f32, u32]);
+    cubecl_std::testgen_quantized_view!(f32);
 }
 
 #[cfg(all(test, feature = "spirv"))]

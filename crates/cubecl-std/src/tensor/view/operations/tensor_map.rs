@@ -42,12 +42,12 @@ macro_rules! impl_tensor_map {
                     unimplemented!("Can't read from tensor map");
                 }
 
-                fn __expand_to_linear_slice_method(
-                    &self,
+                fn __expand_to_linear_slice_method<'a>(
+                    &'a self,
                     _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                     _end: <$coords as CubeType>::ExpandType,
-                ) -> SliceExpand<T, ReadOnly> {
+                ) -> &'a SliceExpand<T, ReadOnly> {
                     unimplemented!("Can't read from tensor map");
                 }
 
@@ -68,14 +68,14 @@ macro_rules! impl_tensor_map {
                 fn __expand_tensor_map_load_method(
                     &self,
                     scope: &Scope,
-                    barrier: NativeExpand<Ref<Barrier>>,
-                    shared_memory: SliceExpand<T, ReadWrite>,
+                    barrier: &NativeExpand<Barrier>,
+                    shared_memory: &mut SliceExpand<T, ReadWrite>,
                     pos: <$coords as CubeType>::ExpandType,
                 ) {
-                    let shared = shared_memory.__expand_downcast_method(scope);
+                    let mut shared = shared_memory.__expand_downcast_method(scope);
                     let ($($var),*) = pos;
                     let ($($var),*) = ($(i32::__expand_cast_from(scope, $var)),*);
-                    barrier.[<__expand_tma_load_ $dim d_method>]::<T, T>(scope, self.clone(), shared, $($var),*);
+                    barrier.[<__expand_tma_load_ $dim d_method>]::<T, T>(scope, self, &mut shared, $($var),*);
                 }
             }
 
@@ -99,12 +99,12 @@ macro_rules! impl_tensor_map {
                     unimplemented!("Can't write to tensor map");
                 }
 
-                fn __expand_to_linear_slice_mut_method(
-                    &self,
+                fn __expand_to_linear_slice_mut_method<'a>(
+                    &'a self,
                     _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                     _end: <$coords as CubeType>::ExpandType,
-                ) -> SliceExpand<T, ReadWrite> {
+                ) -> &'a mut SliceExpand<T, ReadWrite> {
                     unimplemented!("Can't write to tensor map");
                 }
 
@@ -112,13 +112,14 @@ macro_rules! impl_tensor_map {
                 fn __expand_tensor_map_store_method(
                     &self,
                     scope: &Scope,
-                    shared_memory: SliceExpand<T, ReadOnly>,
+                    shared_memory: &SliceExpand<T, ReadOnly>,
                     pos: <$coords as CubeType>::ExpandType,
                 ) {
                     let shared = shared_memory.__expand_downcast_method(scope);
                     let ($($var),*) = pos;
                     let ($($var),*) = ($(i32::__expand_cast_from(scope, $var)),*);
-                    [<tma_store_ $dim d>]::expand::<T, T>(scope, shared, self.clone(), $($var),*);
+                    let mut this = self.clone();
+                    [<tma_store_ $dim d>]::expand::<T, T>(scope, &shared, &mut this, $($var),*);
                 }
             }
         }
@@ -176,12 +177,12 @@ macro_rules! impl_tensor_map_im2col {
                     unimplemented!("Can't read from tensor map");
                 }
 
-                fn __expand_to_linear_slice_method(
-                    &self,
+                fn __expand_to_linear_slice_method<'a>(
+                    &'a self,
                     _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                     _end: <$coords as CubeType>::ExpandType,
-                ) -> SliceExpand<T, ReadOnly> {
+                ) -> &'a SliceExpand<T, ReadOnly> {
                     unimplemented!("Can't read from tensor map");
                 }
 
@@ -202,17 +203,17 @@ macro_rules! impl_tensor_map_im2col {
                 fn __expand_tensor_map_load_method(
                     &self,
                     scope: &Scope,
-                    barrier: NativeExpand<Ref<Barrier>>,
-                    shared_memory: SliceExpand<T, ReadWrite>,
+                    barrier: &NativeExpand<Barrier>,
+                    shared_memory: &mut SliceExpand<T, ReadWrite>,
                     pos: <$coords as CubeType>::ExpandType,
                 ) {
-                    let shared = shared_memory.__expand_downcast_method(scope);
+                    let mut shared = shared_memory.__expand_downcast_method(scope);
                     let ($($pos),*) = pos.0;
                     let ($($pos),*) = ($(i32::__expand_cast_from(scope, $pos)),*);
                     let ($($offs),*) = pos.1;
                     let ($($offs),*) = ($(u16::__expand_cast_from(scope, $offs)),*);
 
-                    barrier.[<__expand_tma_load_im2col_ $dim d_method>]::<T, T>(scope, self.clone(), shared, $($pos),*, $($offs),*);
+                    barrier.[<__expand_tma_load_im2col_ $dim d_method>]::<T, T>(scope, self, &mut shared, $($pos),*, $($offs),*);
                 }
             }
         }
@@ -228,7 +229,9 @@ impl_tensor_map_im2col!(4, (Coords4i, Coords2d), n, h, w, c; y, x);
 impl_tensor_map_im2col!(5, (Coords5i, Coords3d), n, d, h, w, c; z, y, x);
 
 fn as_i32<T: CubePrimitive>(scope: &Scope, pos: &SequenceExpand<T>, i: usize) -> NativeExpand<i32> {
-    let x = pos.__expand_index_method(scope, i);
+    let x = pos
+        .__expand_index_method(scope, i.into_expand(scope))
+        .__expand_deref_method(scope);
     i32::__expand_cast_from(scope, x)
 }
 
@@ -237,7 +240,9 @@ fn as_u16<T: CubePrimitive>(
     offs: &SequenceExpand<T>,
     i: usize,
 ) -> NativeExpand<u16> {
-    let x = offs.__expand_index_method(scope, i);
+    let x = offs
+        .__expand_index_method(scope, i.into_expand(scope))
+        .__expand_deref_method(scope);
     u16::__expand_cast_from(scope, x)
 }
 
@@ -281,12 +286,12 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
         unimplemented!("Can't read from tensor map");
     }
 
-    fn __expand_to_linear_slice_method(
-        &self,
+    fn __expand_to_linear_slice_method<'a>(
+        &'a self,
         _scope: &Scope,
         _pos: SequenceExpand<N>,
         _end: SequenceExpand<N>,
-    ) -> SliceExpand<T, ReadOnly> {
+    ) -> &'a SliceExpand<T, ReadOnly> {
         unimplemented!("Can't read from tensor map");
     }
 
@@ -307,36 +312,36 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
     fn __expand_tensor_map_load_method(
         &self,
         scope: &Scope,
-        barrier: NativeExpand<Ref<Barrier>>,
-        shared_memory: SliceExpand<T, ReadWrite>,
+        barrier: &NativeExpand<Barrier>,
+        shared_memory: &mut SliceExpand<T, ReadWrite>,
         pos: SequenceExpand<N>,
     ) {
-        let shared: SliceExpand<T, ReadWrite> =
+        let mut shared: SliceExpand<T, ReadWrite> =
             shared_memory.__expand_downcast_unchecked_method(scope);
         let rank = pos.len();
         let pos = &pos;
         match rank {
             1 => {
                 let x = as_i32(scope, pos, 0);
-                barrier.__expand_tma_load_1d_method(scope, self.clone(), shared, x);
+                barrier.__expand_tma_load_1d_method(scope, self, &mut shared, x);
             }
             2 => {
                 let y = as_i32(scope, pos, 0);
                 let x = as_i32(scope, pos, 1);
-                barrier.__expand_tma_load_2d_method(scope, self.clone(), shared, y, x);
+                barrier.__expand_tma_load_2d_method(scope, self, &mut shared, y, x);
             }
             3 => {
                 let z = as_i32(scope, pos, 0);
                 let y = as_i32(scope, pos, 1);
                 let x = as_i32(scope, pos, 2);
-                barrier.__expand_tma_load_3d_method(scope, self.clone(), shared, z, y, x);
+                barrier.__expand_tma_load_3d_method(scope, self, &mut shared, z, y, x);
             }
             4 => {
                 let w = as_i32(scope, pos, 0);
                 let z = as_i32(scope, pos, 1);
                 let y = as_i32(scope, pos, 2);
                 let x = as_i32(scope, pos, 3);
-                barrier.__expand_tma_load_4d_method(scope, self.clone(), shared, w, z, y, x);
+                barrier.__expand_tma_load_4d_method(scope, self, &mut shared, w, z, y, x);
             }
             5 => {
                 let v = as_i32(scope, pos, 0);
@@ -344,7 +349,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
                 let z = as_i32(scope, pos, 2);
                 let y = as_i32(scope, pos, 3);
                 let x = as_i32(scope, pos, 4);
-                barrier.__expand_tma_load_5d_method(scope, self.clone(), shared, v, w, z, y, x);
+                barrier.__expand_tma_load_5d_method(scope, self, &mut shared, v, w, z, y, x);
             }
             _ => panic!("TMA only supports 1D-5D loads"),
         }
@@ -376,12 +381,12 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T
         unimplemented!("Can't write to tensor map");
     }
 
-    fn __expand_to_linear_slice_mut_method(
-        &self,
+    fn __expand_to_linear_slice_mut_method<'a>(
+        &'a self,
         _scope: &Scope,
         _pos: SequenceExpand<N>,
         _end: SequenceExpand<N>,
-    ) -> SliceExpand<T, ReadWrite> {
+    ) -> &'a mut SliceExpand<T, ReadWrite> {
         unimplemented!("Can't write to tensor map");
     }
 
@@ -389,9 +394,10 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T
     fn __expand_tensor_map_store_method(
         &self,
         scope: &Scope,
-        shared_memory: SliceExpand<T, ReadOnly>,
+        shared_memory: &SliceExpand<T, ReadOnly>,
         pos: SequenceExpand<N>,
     ) {
+        let mut this = *self;
         let shared: SliceExpand<T, ReadOnly> =
             shared_memory.__expand_downcast_unchecked_method(scope);
         let rank = pos.len();
@@ -399,25 +405,25 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T
         match rank {
             1 => {
                 let x = as_i32(scope, pos, 0);
-                tma_store_1d::expand(scope, shared, self.clone(), x);
+                tma_store_1d::expand(scope, &shared, &mut this, x);
             }
             2 => {
                 let y = as_i32(scope, pos, 0);
                 let x = as_i32(scope, pos, 1);
-                tma_store_2d::expand(scope, shared, self.clone(), y, x);
+                tma_store_2d::expand(scope, &shared, &mut this, y, x);
             }
             3 => {
                 let z = as_i32(scope, pos, 0);
                 let y = as_i32(scope, pos, 1);
                 let x = as_i32(scope, pos, 2);
-                tma_store_3d::expand(scope, shared, self.clone(), z, y, x);
+                tma_store_3d::expand(scope, &shared, &mut this, z, y, x);
             }
             4 => {
                 let w = as_i32(scope, pos, 0);
                 let z = as_i32(scope, pos, 1);
                 let y = as_i32(scope, pos, 2);
                 let x = as_i32(scope, pos, 3);
-                tma_store_4d::expand(scope, shared, self.clone(), w, z, y, x);
+                tma_store_4d::expand(scope, &shared, &mut this, w, z, y, x);
             }
             5 => {
                 let v = as_i32(scope, pos, 0);
@@ -425,7 +431,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T
                 let z = as_i32(scope, pos, 2);
                 let y = as_i32(scope, pos, 3);
                 let x = as_i32(scope, pos, 4);
-                tma_store_5d::expand(scope, shared, self.clone(), v, w, z, y, x);
+                tma_store_5d::expand(scope, &shared, &mut this, v, w, z, y, x);
             }
             _ => panic!("TMA store supports 1D-5D loads"),
         }
@@ -472,12 +478,12 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
         unimplemented!("Can't read from tensor map");
     }
 
-    fn __expand_to_linear_slice_method(
-        &self,
+    fn __expand_to_linear_slice_method<'a>(
+        &'a self,
         _scope: &Scope,
         _pos: (SequenceExpand<P>, SequenceExpand<O>),
         _end: (SequenceExpand<P>, SequenceExpand<O>),
-    ) -> SliceExpand<T, ReadOnly> {
+    ) -> &'a SliceExpand<T, ReadOnly> {
         unimplemented!("Can't read from tensor map");
     }
 
@@ -498,11 +504,11 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
     fn __expand_tensor_map_load_method(
         &self,
         scope: &Scope,
-        barrier: NativeExpand<Ref<Barrier>>,
-        shared_memory: SliceExpand<T, ReadWrite>,
+        barrier: &NativeExpand<Barrier>,
+        shared_memory: &mut SliceExpand<T, ReadWrite>,
         pos: (SequenceExpand<P>, SequenceExpand<O>),
     ) {
-        let shared: SliceExpand<T, ReadWrite> =
+        let mut shared: SliceExpand<T, ReadWrite> =
             shared_memory.__expand_downcast_unchecked_method(scope);
         let (pos, offs) = &pos;
         let rank = pos.len();
@@ -513,7 +519,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
                 let w = as_i32(scope, pos, 1);
                 let c = as_i32(scope, pos, 2);
                 let x = as_u16(scope, offs, 0);
-                barrier.__expand_tma_load_im2col_3d_method(scope, self.clone(), shared, n, w, c, x);
+                barrier.__expand_tma_load_im2col_3d_method(scope, self, &mut shared, n, w, c, x);
             }
             4 => {
                 let n = as_i32(scope, pos, 0);
@@ -524,8 +530,8 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
                 let x = as_u16(scope, offs, 1);
                 barrier.__expand_tma_load_im2col_4d_method(
                     scope,
-                    self.clone(),
-                    shared,
+                    self,
+                    &mut shared,
                     n,
                     h,
                     w,
@@ -545,8 +551,8 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
                 let x = as_u16(scope, offs, 2);
                 barrier.__expand_tma_load_im2col_5d_method(
                     scope,
-                    self.clone(),
-                    shared,
+                    self,
+                    &mut shared,
                     n,
                     d,
                     h,

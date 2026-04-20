@@ -77,7 +77,7 @@ fn copy_perpendicular<T: Numeric, N: Size>(
             #[unroll]
             for o in 0..vector_size {
                 let vector = accumulators.index_mut(o);
-                vector[i] = batched[o];
+                vector.insert(i, batched.extract(o));
             }
         }
 

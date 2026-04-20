@@ -1,7 +1,5 @@
-use alloc::rc::Rc;
-
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, ir::UIntKind, unexpanded, zspace::Shape};
+use cubecl_core::{self as cubecl, ir::UIntKind, zspace::Shape};
 
 use crate::tensor::{
     View, is_contiguous, is_contiguous_pitched,
@@ -31,21 +29,15 @@ pub enum LinearViewLayout {
     Permuted(PermutedLayout),
 }
 
-impl LinearViewLayout {
-    fn inner(&self) -> &PlainLayout {
-        unexpanded!()
-    }
-}
-
 impl LinearViewLayoutExpand {
     fn __expand_inner_method(
-        self,
+        &self,
         _scope: &Scope,
-    ) -> Rc<dyn VirtualLayoutOperationsExpand<Coords1d, Coords1d>> {
+    ) -> &dyn VirtualLayoutOperationsExpand<Coords1d, Coords1d> {
         match self {
-            LinearViewLayoutExpand::Plain(layout) => Rc::new(layout),
-            LinearViewLayoutExpand::Strided(layout) => Rc::new(layout),
-            LinearViewLayoutExpand::Permuted(layout) => Rc::new(layout),
+            LinearViewLayoutExpand::Plain(layout) => layout,
+            LinearViewLayoutExpand::Strided(layout) => layout,
+            LinearViewLayoutExpand::Permuted(layout) => layout,
         }
     }
 }
@@ -138,8 +130,12 @@ impl Layout for LinearViewLayout {
     type Coordinates = Coords1d;
     type SourceCoordinates = Coords1d;
 
+    #[allow(unused)]
     fn to_source_pos(&self, pos: Self::Coordinates) -> usize {
-        self.inner().to_source_pos(pos)
+        intrinsic!(|scope| {
+            let inner = self.__expand_inner_method(scope);
+            inner.__expand_to_source_pos_virt_method(scope, pos)
+        })
     }
 
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (usize, bool) {
@@ -147,11 +143,18 @@ impl Layout for LinearViewLayout {
     }
 
     fn shape(&self) -> Self::Coordinates {
-        self.inner().shape()
+        intrinsic!(|scope| {
+            let inner = self.__expand_inner_method(scope);
+            inner.__expand_shape_virt_method(scope)
+        })
     }
 
+    #[allow(unused)]
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
-        self.inner().is_in_bounds(pos)
+        intrinsic!(|scope| {
+            let inner = self.__expand_inner_method(scope);
+            inner.__expand_is_in_bounds_virt_method(scope, pos)
+        })
     }
 }
 

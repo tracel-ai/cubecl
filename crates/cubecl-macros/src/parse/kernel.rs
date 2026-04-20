@@ -13,10 +13,10 @@ use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use std::{collections::HashMap, iter};
 use syn::{
-    AssocType, ConstParam, Expr, FnArg, GenericArgument, Generics, Ident, ItemFn, LitStr, Path,
-    ReturnType, Signature, TraitItemFn, Type, TypeGroup, TypeMacro, TypeParam, TypeParen,
-    Visibility, parse, parse_quote, punctuated::Punctuated, spanned::Spanned, token::Mut,
-    visit_mut::VisitMut,
+    AssocType, Attribute, ConstParam, Expr, FnArg, GenericArgument, Generics, Ident, ItemFn,
+    LitStr, Path, ReturnType, Signature, TraitItemFn, Type, TypeGroup, TypeMacro, TypeParam,
+    TypeParen, Visibility, parse, parse_quote, punctuated::Punctuated, spanned::Spanned,
+    token::Mut, visit_mut::VisitMut,
 };
 
 use super::{desugar::Desugar, helpers::is_comptime_attr, statement::parse_pat};
@@ -297,6 +297,7 @@ pub struct Launch {
 
 #[derive(Clone)]
 pub struct KernelFn {
+    pub attrs: Vec<Attribute>,
     pub vis: Visibility,
     pub sig: KernelSignature,
     pub body: KernelBody,
@@ -581,6 +582,7 @@ impl KernelSignature {
 
 impl KernelFn {
     pub fn from_sig_and_block(
+        attrs: Vec<Attribute>,
         vis: Visibility,
         sig: Signature,
         mut block: syn::Block,
@@ -606,6 +608,7 @@ impl KernelFn {
         Self::patch_mut_owned_inputs(&mut block, &sig);
 
         Ok(KernelFn {
+            attrs,
             vis,
             sig,
             body: KernelBody::Block(block),
@@ -664,6 +667,7 @@ impl Launch {
             // a module. By setting the visibility to pub here, we
             // ensure that the function is visible outside that
             // module.
+            function.attrs,
             Visibility::Public(parse_quote![pub]),
             function.sig,
             *function.block,

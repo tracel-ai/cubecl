@@ -184,12 +184,12 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.scheme)
     }
 
-    fn __expand_to_linear_slice_method(
-        &self,
+    fn __expand_to_linear_slice_method<'a>(
+        &'a self,
         _scope: &Scope,
         _pos: <C>::ExpandType,
         _end: <C>::ExpandType,
-    ) -> SliceExpand<Vector<F, NF>, ReadOnly> {
+    ) -> &'a SliceExpand<Vector<F, NF>, ReadOnly> {
         panic!("Can't create raw slice for quantized view")
     }
 

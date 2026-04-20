@@ -137,8 +137,9 @@ impl CubeTraitImplItem {
                 let name = func.sig.ident.clone();
                 let full_name = quote!(#struct_ty::#name).to_string();
 
-                let mut func =
-                    KernelFn::from_sig_and_block(func.vis, func.sig, func.block, full_name, args)?;
+                let mut func = KernelFn::from_sig_and_block(
+                    func.attrs, func.vis, func.sig, func.block, full_name, args,
+                )?;
                 if is_method {
                     func.sig.name = format_ident!("__expand_{}_method", func.sig.name);
                     CubeTraitImplItem::Method(func)

@@ -169,7 +169,7 @@ impl<'a, E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<'a, E> for S
 
     fn __expand_to_slice_method(&'a self, scope: &Scope) -> &'a SliceExpand<E, ReadOnly> {
         let slice = SliceExpand {
-            origin: self.origin.clone(),
+            origin: self.origin,
             io: core::marker::PhantomData,
             offset: self.offset,
             length: self.length,
@@ -191,7 +191,7 @@ impl<'a, E: CubePrimitive> SliceMutOperatorExpand<'a, E> for SliceExpand<E, Read
         let offset = start.__expand_add_method(scope, self.offset);
 
         let slice = SliceExpand {
-            origin: self.origin.clone(),
+            origin: self.origin,
             io: core::marker::PhantomData,
             offset,
             length,
@@ -205,7 +205,7 @@ impl<'a, E: CubePrimitive> SliceMutOperatorExpand<'a, E> for SliceExpand<E, Read
         scope: &Scope,
     ) -> &'a mut SliceExpand<E, ReadWrite> {
         let slice = SliceExpand {
-            origin: self.origin.clone(),
+            origin: self.origin,
             io: core::marker::PhantomData,
             offset: self.offset,
             length: self.length,

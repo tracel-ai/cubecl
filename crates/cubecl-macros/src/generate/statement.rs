@@ -46,13 +46,10 @@ impl Statement {
                     (true, Some(init)) => {
                         let into_mut = frontend_type("IntoMut");
                         let init_ty =
-                            quote_spanned![init.span()=> #into_mut::into_mut(_init, scope)];
-                        Some(quote! {
-                            {
-                                let _init = #init;
-                                #init_ty
-                            }
-                        })
+                            quote_spanned![init.span()=> #into_mut::into_mut(#init, scope)];
+                        Some(quote! {{
+                            #init_ty
+                        }})
                     }
                     (_, init) => init,
                 };
@@ -64,13 +61,12 @@ impl Statement {
                             let debug_var = frontend_type("debug_var_expand");
 
                             quote![
-                                #debug_var(scope, #name_str, __init)
+                                #debug_var(scope, #name_str, #init)
                             ]
                         } else {
-                            quote![__init]
+                            quote![#init]
                         };
                         init = quote! {{
-                            let __init = #init;
                             #init_var
                         }};
                     }
@@ -95,8 +91,7 @@ impl Statement {
                 quote! {
                     #define_func!(#name);
                     {
-                        let __init = #value;
-                        scope.#register::<#name>(__init);
+                        scope.#register::<#name>(#value);
                     }
                 }
             }

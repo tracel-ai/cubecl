@@ -31,6 +31,7 @@ pub struct EventListenerPosTwo {
 }
 
 #[derive(CubeType, Clone)]
+#[expand(derive(Clone))]
 pub struct Counter {
     #[cube(comptime)]
     value: u32,
@@ -88,10 +89,10 @@ impl EventListener for EventListenerPosTwo {
 }
 
 #[cube]
-fn test_1(items: SliceMut<f32>) {
+fn test_1(items: &mut SliceMut<f32>) {
     let mut bus = ComptimeEventBus::new();
-    let listener_zero = EventListenerPosZero { items };
-    let listener_one = EventListenerPosOne { items };
+    let listener_zero = EventListenerPosZero { items: *items };
+    let listener_one = EventListenerPosOne { items: *items };
 
     bus.listener::<EventListenerPosZero>(listener_zero);
     bus.listener::<EventListenerPosOne>(listener_one);
@@ -100,10 +101,10 @@ fn test_1(items: SliceMut<f32>) {
 }
 
 #[cube]
-fn test_2(items: SliceMut<f32>) {
+fn test_2(items: &mut SliceMut<f32>) {
     let mut bus = ComptimeEventBus::new();
-    let listener_zero = EventListenerPosZero { items };
-    let listener_one = EventListenerPosOne { items };
+    let listener_zero = EventListenerPosZero { items: *items };
+    let listener_one = EventListenerPosOne { items: *items };
 
     bus.listener::<EventListenerPosZero>(listener_zero);
     bus.listener::<EventListenerPosOne>(listener_one);
@@ -112,12 +113,12 @@ fn test_2(items: SliceMut<f32>) {
 }
 
 #[cube]
-fn test_3(items: SliceMut<f32>) {
+fn test_3(items: &mut SliceMut<f32>) {
     let mut bus = ComptimeEventBus::new();
-    let listener_zero = EventListenerPosZero { items };
-    let listener_one = EventListenerPosOne { items };
+    let listener_zero = EventListenerPosZero { items: *items };
+    let listener_one = EventListenerPosOne { items: *items };
     let listener_two = EventListenerPosTwo {
-        items,
+        items: *items,
         times: ComptimeCell::new(Counter { value: 0u32 }),
     };
 

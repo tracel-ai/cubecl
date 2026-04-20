@@ -72,11 +72,18 @@ impl CubeTypeEnum {
     fn expand_value_ty(&self) -> proc_macro2::TokenStream {
         let cube_enum = prelude_type("CubeEnum");
         let expand_elem = frontend_type("NativeExpand");
+
+        let expand_derives = match &self.derive {
+            Some(derives) => quote![#[#derives]],
+            None => quote![],
+        };
+
         let name_expand = &self.name_expand;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
         let vis = &self.vis;
 
         quote! {
+            #expand_derives
             #vis struct #name_expand #generics #where_clause {
                 discriminant: #expand_elem<i32>,
                 value: <#name_expand #generic_names as #cube_enum>::RuntimeValue,

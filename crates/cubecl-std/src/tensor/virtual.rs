@@ -21,8 +21,6 @@ pub struct VirtualTensor<E: Numeric, N: Size, IO = ReadOnly> {
     _p: PhantomData<IO>,
 }
 
-impl<E: Numeric, N: Size, IO: Clone> Copy for VirtualTensor<E, N, IO> {}
-
 /// Expand type for [`VirtualTensor`].
 #[derive(Clone)]
 pub struct VirtualTensorExpand<E: Numeric, N: Size, IO> {
@@ -300,7 +298,7 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
         &self,
         layout: impl Layout<Coordinates = C, SourceCoordinates = Coords1d> + 'static,
     ) -> View<Vector<E, N>, C, ReadWrite> {
-        let this: VirtualTensor<E, N, ReadWrite> = *self;
+        let this: VirtualTensor<E, N, ReadWrite> = self.clone();
         View::new_mut::<VirtualTensor<E, N, ReadWrite>, Coords1d>(this, layout)
     }
     pub fn __expand_view_mut<C: Coordinates + 'static>(
@@ -474,7 +472,7 @@ pub trait VirtualTensorOperations<E: Numeric, N: Size>: Vectorized {
 mod __cube_type {
     use super::*;
 
-    impl<'a, E: Numeric, N: Size, IO: Clone> CubeType for VirtualTensor<E, N, IO> {
+    impl<E: Numeric, N: Size, IO: Clone> CubeType for VirtualTensor<E, N, IO> {
         type ExpandType = VirtualTensorExpand<E, N, IO>;
     }
 
@@ -633,7 +631,7 @@ mod __tensor_map {
             &self,
             scope: &Scope,
         ) -> ComptimeOptionExpand<TensorMap<E, Tiled>> {
-            ComptimeOption::__expand_new_Some(scope, self.clone())
+            ComptimeOption::__expand_new_Some(scope, *self)
         }
     }
 }

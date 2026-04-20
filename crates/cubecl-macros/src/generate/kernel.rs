@@ -16,6 +16,7 @@ use crate::{
 
 impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
+        let attrs = &self.attrs;
         let vis = &self.vis;
         let sig = &self.sig;
         let body = match &self.body {
@@ -72,6 +73,7 @@ impl KernelFn {
 
         let out = quote! {
             #[allow(unused_mut)]
+            #(#attrs)*
             #vis #sig {
                 #debug_source;
                 #(#debug_params)*

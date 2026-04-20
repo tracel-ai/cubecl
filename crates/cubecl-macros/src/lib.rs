@@ -129,7 +129,7 @@ pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
 }
 
 /// Derive macro to define a cube type that is not launched
-#[proc_macro_derive(CubeType, attributes(cube))]
+#[proc_macro_derive(CubeType, attributes(cube, expand))]
 pub fn module_derive_cube_type(input: TokenStream) -> TokenStream {
     gen_cube_type(input, false)
 }

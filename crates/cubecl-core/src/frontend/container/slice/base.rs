@@ -34,13 +34,10 @@ pub enum SliceOrigin<E: CubePrimitive> {
     SharedMemory(SharedMemory<E>),
 }
 
+impl<E: CubePrimitive> Copy for SliceOriginExpand<E> {}
 impl<E: CubePrimitive> Clone for SliceOriginExpand<E> {
     fn clone(&self) -> Self {
-        match self {
-            Self::Tensor(arg0) => Self::Tensor(*arg0),
-            Self::Array(arg0) => Self::Array(*arg0),
-            Self::SharedMemory(arg0) => Self::SharedMemory(*arg0),
-        }
+        *self
     }
 }
 
@@ -76,6 +73,7 @@ impl SliceVisibility for ReadOnly {}
 
 impl SliceVisibility for ReadWrite {}
 
+#[derive(Clone, Copy)]
 pub struct SliceExpand<E: CubePrimitive, IO: SliceVisibility> {
     pub(crate) origin: SliceOriginExpand<E>,
     pub(crate) io: PhantomData<IO>,
@@ -98,7 +96,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> ExpandTypeClone for SliceExpand<E, I
 
 impl<E: CubePrimitive, IO: SliceVisibility> SliceExpand<E, IO> {
     pub fn __to_raw_parts(&self) -> (Variable, Variable) {
-        let expand = match self.origin.clone() {
+        let expand = match self.origin {
             SliceOriginExpand::Tensor(expand) => expand.expand,
             SliceOriginExpand::Array(expand) => expand.expand,
             SliceOriginExpand::SharedMemory(expand) => expand.expand,
@@ -293,17 +291,6 @@ impl<E: CubePrimitive, IO: SliceVisibility> IntoMut for SliceExpand<E, IO> {
 }
 
 impl<E: CubePrimitive, IO: SliceVisibility> CubeDebug for SliceExpand<E, IO> {}
-impl<E: CubePrimitive, IO: SliceVisibility> Clone for SliceExpand<E, IO> {
-    fn clone(&self) -> Self {
-        Self {
-            origin: self.origin.clone(),
-            offset: self.offset,
-            length: self.length,
-            vector_size: self.vector_size,
-            io: PhantomData,
-        }
-    }
-}
 
 // TODO: Fix
 impl<E: CubePrimitive> SizedContainer for Slice<E, ReadOnly> {
@@ -470,6 +457,14 @@ impl<T: CubePrimitive> DerefMut for Slice<T, ReadWrite> {
     }
 }
 
+impl<T: CubePrimitive, IO: SliceVisibility> ExpandDeref for SliceExpand<T, IO> {
+    type Target = Self;
+
+    fn __expand_deref_method(&self, _: &Scope) -> Self::Target {
+        *self
+    }
+}
+
 impl<E: CubePrimitive, IO: SliceVisibility> Vectorized for Slice<E, IO> {}
 impl<E: CubePrimitive, IO: SliceVisibility> VectorizedExpand for SliceExpand<E, IO> {
     fn vector_size(&self) -> VectorSize {
@@ -496,7 +491,7 @@ impl<'a, E: CubePrimitive> ListMutExpand<'a, E> for SliceExpand<E, ReadWrite> {
         scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &'a mut NativeExpand<E> {
-        let mut origin = self.origin.clone();
+        let mut origin = self.origin;
         let reference =
             write_offset::expand::<E>(scope, &mut origin, self.offset, index, self.vector_size);
         // Safety: Cloning origin only clones the reference, so this is safe
