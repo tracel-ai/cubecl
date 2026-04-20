@@ -641,6 +641,11 @@ impl<R: Runtime> ComputeClient<R> {
             println!("[{:?}] all_reduce flush_queue", std::thread::current().id());
             self.device.flush_queue();
         }
+
+        println!(
+            "[{:?}] client all_reduce finished",
+            std::thread::current().id()
+        );
     }
 
     /// Transfer data from one client to another
