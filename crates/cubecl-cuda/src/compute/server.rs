@@ -528,7 +528,7 @@ impl CudaServer {
         device_id: DeviceId,
         utilities: ServerUtilities<Self>,
     ) -> Self {
-        let config = GlobalConfig::get();
+        let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
 
         ctx.unsafe_set_current().unwrap();
