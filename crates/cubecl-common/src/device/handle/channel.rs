@@ -604,7 +604,15 @@ mod custom_channel {
             let state = server.state.clone();
 
             std::thread::Builder::new()
-                .name(std::format!("Device-{:?}", runner_id,))
+                .name(std::format!(
+                    "DS{}-{}-{}",
+                    match runner_id.stage {
+                        crate::device::DeviceServiceStage::Upstream => "U",
+                        crate::device::DeviceServiceStage::Downstream => "D",
+                    },
+                    runner_id.device.type_id,
+                    runner_id.device.index_id
+                ))
                 .spawn(move || {
                     init();
                     server.start();
