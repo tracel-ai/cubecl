@@ -197,23 +197,18 @@ impl CacheFile {
     /// A failed `lock()` sets `valid = false`, so we silently no-op.
     ///
     /// When the cache IS valid but `write()` is called with no lock
-    /// held, that's a genuine caller-side API misuse. During active
-    /// diagnosis of the autotune panic cascade we log loudly and
-    /// no-op rather than panic — a single misuse should not take
-    /// down training. Flip the `return` back to a `panic!` once the
-    /// root cause of the cache-lock failures is identified and fixed.
+    /// held, that's a genuine caller-side API misuse and we panic.
+    /// The root cause of the original cache-lock failure cascade
+    /// (autotune cache wrote to `/target/...` on macOS bundles,
+    /// read-only filesystem) was fixed in the `Target` fallback
+    /// commit (ddf43b7f); the panic is the correct response to a
+    /// caller that forgets to `lock()` first.
     pub fn write(&mut self, content: &[u8]) {
         if !self.valid {
             return;
         }
         if !self.lock.is_lock {
-            log::error!(
-                "cubecl cache: write({:?}, {} bytes) called without lock held; \
-                 skipping (caller-side API misuse — should have called lock() first)",
-                self.path,
-                content.len()
-            );
-            return;
+            panic!("The cache file should be locked before writing content to it.")
         }
 
         let mut file = match fs::OpenOptions::new().append(true).open(&self.path) {
