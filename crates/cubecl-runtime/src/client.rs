@@ -325,13 +325,20 @@ impl<R: Runtime> ComputeClient<R> {
         input: Input,
         task: F,
     ) -> Result<Re, ServerError> {
-        // We then launch the task.
-        self.device
-            .exclusive(move || task(input))
-            .map_err(|err| ServerError::Generic {
-                reason: format!("Communication channel with the server is down: {err:?}"),
-                backtrace: BackTrace::capture(),
-            })
+        let stream_id = StreamId::current();
+
+        self.device.submit(move |server| {
+            server.allocation_mode(MemoryAllocationMode::Persistent, stream_id);
+        });
+
+        // All tasks created on the same stream will have persistent memory.
+        let output = task(input);
+
+        self.device.submit(move |server| {
+            server.allocation_mode(MemoryAllocationMode::Auto, stream_id);
+        });
+
+        Ok(output)
     }
 
     /// Returns a resource handle containing the given [Bytes].
@@ -854,34 +861,6 @@ impl<R: Runtime> ComputeClient<R> {
         self.device
             .submit(move |server| server.allocation_mode(mode, stream_id));
     }
-
-    // TODO: Remove that or rework for performance.
-    //
-    // /// Use a persistent memory strategy to execute the provided function.
-    // ///
-    // /// # Notes
-    // ///
-    // /// - Using that memory strategy is beneficial for stating model parameters and similar workflows.
-    // /// - You can call [`Self::memory_cleanup()`] if you want to free persistent memory.
-    // pub fn memory_persistent_allocation<
-    //     Input: Send + 'static,
-    //     Output: Send + 'static,
-    //     Func: Fn(Input) -> Output + Send + 'static,
-    // >(
-    //     &self,
-    //     input: Input,
-    //     func: Func,
-    // ) -> Output {
-    //     let stream_id = self.stream_id();
-    //     self.device
-    //         .submit_blocking(move |server| {
-    //             server.allocation_mode(MemoryAllocationMode::Persistent, stream_id);
-    //             let output = func(input);
-    //             server.allocation_mode(MemoryAllocationMode::Auto, stream_id);
-    //             output
-    //         })
-    //         .unwrap()
-    // }
 
     /// Ask the client to release memory that it can release.
     ///

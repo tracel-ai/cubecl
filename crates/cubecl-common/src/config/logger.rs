@@ -119,11 +119,9 @@ impl LoggerSinks {
 
         #[cfg(std_io)]
         if let Some(file) = &config.file {
-            self.insert(
-                &mut indices,
-                LoggerId::File(file.clone()),
-                || LoggerKind::File(FileLogger::new(file, config.append)),
-            );
+            self.insert(&mut indices, LoggerId::File(file.clone()), || {
+                LoggerKind::File(FileLogger::new(file, config.append))
+            });
         }
 
         #[cfg(feature = "std")]
@@ -137,11 +135,9 @@ impl LoggerSinks {
         }
 
         if let Some(level) = config.log {
-            self.insert(
-                &mut indices,
-                LoggerId::LogCrate(level),
-                || LoggerKind::Log(level),
-            );
+            self.insert(&mut indices, LoggerId::LogCrate(level), || {
+                LoggerKind::Log(level)
+            });
         }
 
         indices
@@ -247,4 +243,3 @@ impl FileLogger {
         self.writer.flush().expect("Can complete write operation.");
     }
 }
-

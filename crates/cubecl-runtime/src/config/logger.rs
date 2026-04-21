@@ -6,8 +6,8 @@ use crate::config::{
 use alloc::{sync::Arc, vec::Vec};
 use core::fmt::Display;
 
-pub(crate) use cubecl_common::config::logger::{LogLevel, LoggerConfig};
 use cubecl_common::config::logger::LoggerSinks;
+pub(crate) use cubecl_common::config::logger::{LogLevel, LoggerConfig};
 
 /// Central logging utility for `CubeCL`, managing multiple log outputs.
 #[derive(Debug)]
@@ -39,7 +39,10 @@ impl Logger {
         let compilation_index = register_enabled(
             &mut sinks,
             &config.compilation.logger,
-            !matches!(config.compilation.logger.level, CompilationLogLevel::Disabled),
+            !matches!(
+                config.compilation.logger.level,
+                CompilationLogLevel::Disabled
+            ),
         );
         let profiling_index = register_enabled(
             &mut sinks,
