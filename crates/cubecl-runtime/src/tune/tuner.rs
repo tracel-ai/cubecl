@@ -201,7 +201,9 @@ impl<K: AutotuneKey> Tuner<K> {
                 );
             }
 
-            for (index, op) in autotunables.iter().enumerate() {
+            for index in tunable_indices {
+                let op = autotunables[index];
+
                 match tune_benchmark(op, test_inputs.clone(), client.clone()) {
                     Ok(profiles) => pending.push(PendingBench {
                         index,
