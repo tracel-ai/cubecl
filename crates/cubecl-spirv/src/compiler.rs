@@ -20,7 +20,7 @@ use cubecl_core::{
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, SharedLiveness, Uniformity};
 use cubecl_runtime::{
     compiler::CompilationError,
-    config::{GlobalConfig, compilation::CompilationLogLevel},
+    config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel},
 };
 use rspirv::{
     binary::Assemble,
@@ -95,7 +95,7 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
 
 fn debug_symbols_activated() -> bool {
     matches!(
-        GlobalConfig::get().compilation.logger.level,
+        CubeClRuntimeConfig::get().compilation.logger.level,
         CompilationLogLevel::Full
     )
 }

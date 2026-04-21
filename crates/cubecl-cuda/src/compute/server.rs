@@ -27,7 +27,7 @@ use cubecl_core::{
 use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy,
     compiler::CubeTask,
-    config::GlobalConfig,
+    config::{CubeClRuntimeConfig, RuntimeConfig},
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     server::ComputeServer,

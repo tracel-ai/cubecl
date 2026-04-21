@@ -27,7 +27,7 @@ use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage};
 use cubecl_runtime::{
     compiler::CubeTask,
-    config::GlobalConfig,
+    config::{CubeClRuntimeConfig, RuntimeConfig},
     logging::ServerLogger,
     memory_management::MemoryAllocationMode,
     server::ComputeServer,
@@ -82,7 +82,7 @@ impl WgpuServer {
             utilities.logger.clone(),
         );
 
-        let config = GlobalConfig::get();
+        let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
 
         Self {
@@ -101,7 +101,7 @@ impl WgpuServer {
             ),
             #[cfg(feature = "spirv")]
             spirv_cache: {
-                let config = cubecl_runtime::config::GlobalConfig::get();
+                let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
                 if let Some(cache) = &config.compilation.cache {
                     let root = cache.root();
                     Some(CompilationCache::new(
