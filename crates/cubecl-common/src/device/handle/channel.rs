@@ -574,11 +574,23 @@ mod custom_channel {
     use core::{
         hint::spin_loop,
         sync::atomic::{AtomicPtr, AtomicU32, Ordering},
+        time::Duration,
     };
     use std::{sync::Arc, vec::Vec};
 
     /// Maximum number of [`Task`] that can be queued.
     pub const CHANNEL_MAX_TASK: usize = 32;
+
+    /// Number of `spin_loop` iterations before the server starts yielding.
+    /// At ~10–50ns per iteration, gives a ~100–500µs hot window to absorb
+    /// back-to-back submits without any syscall.
+    const SPIN_BUDGET: u32 = 100_000;
+    /// Number of `thread::yield_now` calls after the spin budget is exhausted,
+    /// before the server drops to sleeping.
+    const YIELD_BUDGET: u32 = 10_000;
+    /// Sleep duration once both the spin and yield budgets are exhausted.
+    /// Bounds the wake-up latency from a fully idle state.
+    const SLEEP_STEP: Duration = Duration::from_micros(250);
 
     /// The client-side handle used to enqueue tasks.
     pub struct DeviceClient {
@@ -748,18 +760,29 @@ mod custom_channel {
 
         /// Main execution loop for the device thread.
         fn start(&mut self) {
+            let mut idle_count: u32 = 0;
             loop {
                 if self.ready_to_execute {
                     self.execute_tasks();
+                    idle_count = 0;
                 }
 
                 let queue_size = self.state.enqueued_count.load(Ordering::Acquire) as usize;
 
                 if queue_size >= CHANNEL_MAX_TASK {
                     self.fetch();
-                } else {
-                    spin_loop();
+                    idle_count = 0;
+                    continue;
                 }
+
+                if idle_count < SPIN_BUDGET {
+                    spin_loop();
+                } else if idle_count < SPIN_BUDGET + YIELD_BUDGET {
+                    std::thread::yield_now();
+                } else {
+                    std::thread::sleep(SLEEP_STEP);
+                }
+                idle_count = idle_count.saturating_add(1);
             }
         }
 
