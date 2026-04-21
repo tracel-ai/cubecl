@@ -9,6 +9,8 @@ fn main() {
     // Setup cfg aliases
     cfg_aliases! {
         multi_threading: { all(feature = "std", not(target_family = "wasm")) },
+        // Filesystem and environment access for config loading and caching.
+        std_io: { all(feature = "std", any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android")) },
         // TODO: We can't yet activate it for everything because of how error handling is done in matmul.
         backtrace: { all(test, feature="std") },
     }

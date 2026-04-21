@@ -11,7 +11,7 @@ use cubecl_ir::{
     DeviceProperties, ManagedVariable, Scope, StorageType, TargetProperties, Variable, VariableKind,
 };
 use cubecl_runtime::{
-    config::{GlobalConfig, compilation::CompilationLogLevel},
+    config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel},
     kernel::Visibility,
 };
 
@@ -149,7 +149,7 @@ impl KernelBuilder {
     pub fn new() -> Self {
         let debug = DEBUG.load(Ordering::Relaxed);
         let debug = if debug == -1 {
-            let val = match GlobalConfig::get().compilation.logger.level {
+            let val = match CubeClRuntimeConfig::get().compilation.logger.level {
                 CompilationLogLevel::Full => 1,
                 _ => 0,
             };

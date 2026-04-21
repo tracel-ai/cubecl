@@ -500,7 +500,8 @@ mod task {
 /// A normal channel implementation, use for debugging.
 #[allow(dead_code)]
 mod normal_channel {
-    use crate::device::{DeviceId, handle::CallError};
+    use super::RunnerId;
+    use crate::device::handle::CallError;
     use alloc::boxed::Box;
     use std::sync::mpsc::SyncSender;
 
@@ -510,25 +511,25 @@ mod normal_channel {
     /// The client-side handle used to enqueue tasks.
     pub struct DeviceClient {
         state: SyncSender<Box<dyn FnOnce() + Send + 'static>>,
-        device_id: DeviceId,
+        runner_id: RunnerId,
     }
 
     impl Clone for DeviceClient {
         fn clone(&self) -> Self {
             Self {
                 state: self.state.clone(),
-                device_id: self.device_id,
+                runner_id: self.runner_id,
             }
         }
     }
 
     impl DeviceClient {
         /// Gets the device id associated to the channel.
-        pub fn device_id(&self) -> &DeviceId {
-            &self.device_id
+        pub fn runner_id(&self) -> &RunnerId {
+            &self.runner_id
         }
         /// Creates a new channel and spawns a server thread to process it.
-        pub fn new<I: FnOnce() + Send + 'static>(device_id: DeviceId, init: I) -> Self {
+        pub fn new<I: FnOnce() + Send + 'static>(runner_id: RunnerId, init: I) -> Self {
             let (sender, recv) = std::sync::mpsc::sync_channel::<Box<dyn FnOnce() + Send + 'static>>(
                 CHANNEL_MAX_TASK,
             );
@@ -544,7 +545,7 @@ mod normal_channel {
 
             Self {
                 state: sender,
-                device_id,
+                runner_id,
             }
         }
 
@@ -604,7 +605,11 @@ mod custom_channel {
 
             std::thread::Builder::new()
                 .name(std::format!(
-                    "Device-{}-{}",
+                    "DS{}-{}-{}",
+                    match runner_id.stage {
+                        crate::device::DeviceServiceStage::Upstream => "U",
+                        crate::device::DeviceServiceStage::Downstream => "D",
+                    },
                     runner_id.device.type_id,
                     runner_id.device.index_id
                 ))

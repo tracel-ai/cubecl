@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     compiler::{CompilationError, Compiler, CubeTask},
-    config::{GlobalConfig, compilation::CompilationLogLevel},
+    config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel},
     id::KernelId,
     server::{CubeDim, ExecutionMode},
 };
@@ -226,7 +226,7 @@ static COMPILATION_LEVEL: AtomicI8 = AtomicI8::new(-1);
 fn compilation_level() -> u8 {
     let compilation_level = COMPILATION_LEVEL.load(Ordering::Relaxed);
     if compilation_level == -1 {
-        let val = match GlobalConfig::get().compilation.logger.level {
+        let val = match CubeClRuntimeConfig::get().compilation.logger.level {
             CompilationLogLevel::Full => 2,
             CompilationLogLevel::Disabled => 0,
             CompilationLogLevel::Basic => 1,
