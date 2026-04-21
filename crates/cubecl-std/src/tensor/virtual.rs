@@ -96,9 +96,7 @@ impl<'a, E: Numeric, N: Size, IO: Clone> SliceOperatorExpand<'a, Vector<E, N>>
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
     ) -> &'a SliceExpand<Vector<E, N>, ReadOnly> {
-        self.state
-            .clone()
-            .__expand_read_window_method(scope, start, end)
+        self.state.__expand_read_window_method(scope, start, end)
     }
 
     fn __expand_to_slice_method(
@@ -106,9 +104,7 @@ impl<'a, E: Numeric, N: Size, IO: Clone> SliceOperatorExpand<'a, Vector<E, N>>
         scope: &Scope,
     ) -> &'a SliceExpand<Vector<E, N>, ReadOnly> {
         let end = self.clone().__expand_buffer_len_method(scope);
-        self.state
-            .clone()
-            .__expand_read_window_method(scope, 0.into(), end)
+        self.state.__expand_read_window_method(scope, 0.into(), end)
     }
 }
 
@@ -357,7 +353,7 @@ impl<'a, E: Numeric, N: Size> ListMutExpand<'a, Vector<E, N>>
         scope: &Scope,
         index: <usize as CubeType>::ExpandType,
     ) -> &'a mut <Vector<E, N> as CubeType>::ExpandType {
-        self.state.clone().__expand_write_method(scope, index)
+        self.state.__expand_write_method(scope, index)
     }
 }
 
@@ -389,7 +385,7 @@ impl<'a, E: Numeric, N: Size> SliceMutOperatorExpand<'a, Vector<E, N>>
 
 impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadOnly> {
     /// Create a new [read only](ReadOnly) [virtual tensor](VirtualTensor).
-    pub fn new<V: VirtualTensorOperations<E, N> + 'static>(_v: &V) -> Self {
+    pub fn new<V: VirtualTensorOperations<E, N> + 'static>(_v: V) -> Self {
         unexpanded!()
     }
 
@@ -407,7 +403,7 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadOnly> {
 
 impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
     /// Create a new [read write](ReadWrite) [virtual tensor](VirtualTensor).
-    pub fn new<V: VirtualTensorOperations<E, N> + 'static>(_v: &mut V) -> Self {
+    pub fn new<V: VirtualTensorOperations<E, N> + 'static>(_v: V) -> Self {
         unexpanded!()
     }
 
@@ -433,19 +429,20 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
 /// This trait is kind of unsafe, [`VirtualTensorOperations::write`] doesn't follow the mutability
 /// rules, but it won't lead to any undefined behavior.
 #[cube(expand_base_traits = "VectorizedExpand")]
+#[allow(clippy::mut_from_ref, clippy::needless_lifetimes)]
 pub trait VirtualTensorOperations<E: Numeric, N: Size>: Vectorized {
     fn as_tensor_map(&self) -> ComptimeOption<TensorMap<E, Tiled>> {
         unexpanded!()
     }
     /// Read the tensor at the given index.
-    fn read(&self, _index: usize) -> &'static Vector<E, N> {
+    fn read<'a>(&'a self, _index: usize) -> &'a Vector<E, N> {
         unexpanded!()
     }
-    fn read_window(&self, _start: usize, _end: usize) -> &'static Slice<Vector<E, N>, ReadOnly> {
+    fn read_window<'a>(&'a self, _start: usize, _end: usize) -> &'a Slice<Vector<E, N>, ReadOnly> {
         unexpanded!()
     }
     /// Write the tensor at the given index.
-    fn write(&self, _index: usize) -> &'static mut Vector<E, N> {
+    fn write<'a>(&'a self, _index: usize) -> &'a mut Vector<E, N> {
         unexpanded!()
     }
     /// Get the shape of the tensor at the given axis.
@@ -497,6 +494,18 @@ mod __cube_type {
     }
 
     impl<E: Numeric, N: Size, IO> CubeDebug for VirtualTensorExpand<E, N, IO> {}
+
+    impl<E: Numeric, N: Size, IO: Clone> AsRefExpand for VirtualTensorExpand<E, N, IO> {
+        fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+            self
+        }
+    }
+
+    impl<E: Numeric, N: Size, IO: Clone> AsMutExpand for VirtualTensorExpand<E, N, IO> {
+        fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+            self
+        }
+    }
 }
 
 /// Enable tensors to be virtual.

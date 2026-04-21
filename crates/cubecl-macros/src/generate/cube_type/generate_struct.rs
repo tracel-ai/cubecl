@@ -220,6 +220,7 @@ impl CubeTypeStruct {
 
     fn launch_arg_impl(&self) -> proc_macro2::TokenStream {
         let launch_arg = prelude_type("LaunchArg");
+        let cube_type = prelude_type("CubeType");
         let body_input =
             self.fields
                 .iter()
@@ -261,7 +262,7 @@ impl CubeTypeStruct {
                 fn expand(
                     arg: &Self::CompilationArg,
                     builder: &mut KernelBuilder,
-                ) -> <Self as CubeType>::ExpandType {
+                ) -> <Self as #cube_type>::ExpandType {
                     #name_expand {
                         #(#body_input),*
                     }
@@ -274,7 +275,10 @@ impl CubeTypeStruct {
         let into_expand = prelude_type("IntoExpand");
         let into_mut = prelude_type("IntoMut");
         let debug = prelude_type("CubeDebug");
+        let as_ref = prelude_type("AsRefExpand");
+        let as_mut = prelude_type("AsMutExpand");
         let scope = prelude_type("Scope");
+
         let name_expand = &self.name_expand;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
         let body = self
@@ -307,6 +311,16 @@ impl CubeTypeStruct {
             }
 
             impl #generics #debug for #name_expand #generic_names #where_clause {}
+            impl #generics #as_ref for #name_expand #generic_names #where_clause {
+                fn __expand_as_ref_method<'a>(&'a self, _: &#scope) -> &'a Self {
+                    self
+                }
+            }
+            impl #generics #as_mut for #name_expand #generic_names #where_clause {
+                fn __expand_as_mut_method<'a>(&'a mut self, _: &#scope) -> &'a mut Self {
+                    self
+                }
+            }
         }
     }
 

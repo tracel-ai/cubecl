@@ -38,7 +38,7 @@ impl ToTokens for Assign {
 
         tokens.extend(quote! {
             impl #generics #assign for #expand_name #generic_names #where_clause {
-                fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
+                fn __expand_assign_method(&mut self, scope: &#scope, value: Self) {
                     use #assign as _;
                     #assign_body
                 }

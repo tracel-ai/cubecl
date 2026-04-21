@@ -104,6 +104,17 @@ impl<C: Coordinates, S: Coordinates> IntoMut for VirtualLayoutExpand<C, S> {
 
 impl<C: Coordinates, S: Coordinates> CubeDebug for VirtualLayoutExpand<C, S> {}
 
+impl<C: Coordinates, S: Coordinates> AsRefExpand for VirtualLayoutExpand<C, S> {
+    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+        self
+    }
+}
+impl<C: Coordinates, S: Coordinates> AsMutExpand for VirtualLayoutExpand<C, S> {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+        self
+    }
+}
+
 // We need to seal the trait to allow us to blanket implement `From<L>` below
 mod private {
     pub trait Sealed {}

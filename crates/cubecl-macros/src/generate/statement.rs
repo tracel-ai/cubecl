@@ -4,6 +4,7 @@ use syn::{Token, spanned::Spanned};
 
 use crate::{
     expression::Expression,
+    parse::kernel::expand_kernel_ty,
     paths::{frontend_type, prelude_type},
     scope::Context,
     statement::{DefineKind, Statement},
@@ -13,7 +14,6 @@ impl Statement {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
         match self {
             Statement::Local { variable, init } => {
-                let cube_type = frontend_type("CubeType");
                 let name = &variable.name;
                 let is_mut = variable.is_mut_owned || init.as_deref().is_some_and(is_mut_owned);
                 let mutable = variable.is_mut_owned.then(|| quote![mut]);
@@ -37,8 +37,9 @@ impl Statement {
                     })
                 };
                 let ty = variable.ty.as_ref().map(|ty| {
+                    let ty = expand_kernel_ty(ty.clone(), is_const);
                     quote_spanned! {
-                        ty.span()=> :<#ty as #cube_type>::ExpandType
+                        ty.span()=> :#ty
                     }
                 });
 

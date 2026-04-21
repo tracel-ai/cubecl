@@ -241,10 +241,14 @@ impl Expression {
             Expr::Index(expr_index) => {
                 let span = expr_index.span();
                 let index = parse_index_expr(expr_index, context, false)?;
-                Expression::Unary {
-                    input: Box::new(index),
-                    operator: Operator::Deref,
-                    span,
+                if matches!(index, Expression::Verbatim { .. }) {
+                    index
+                } else {
+                    Expression::Unary {
+                        input: Box::new(index),
+                        operator: Operator::Deref,
+                        span,
+                    }
                 }
             }
             Expr::Repeat(repeat) => {

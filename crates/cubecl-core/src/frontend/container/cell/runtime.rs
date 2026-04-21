@@ -99,3 +99,14 @@ impl<S: Scalar, N: Size> RuntimeCell<Vector<S, N>> {
         intrinsic!(|scope| { self.value.__expand_insert_method(scope, index, value) })
     }
 }
+
+impl<T: CubeType> AsRefExpand for RuntimeCellExpand<T> {
+    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+        self
+    }
+}
+impl<T: CubeType> AsMutExpand for RuntimeCellExpand<T> {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+        self
+    }
+}

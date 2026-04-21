@@ -309,7 +309,7 @@ pub fn kernel_simple_f16_workgroup_tensor(
     let rhs = TensorView::new(*rhs, seq![n as u32, size_k]).finish();
     let mut out = TensorView::new(*out, seq![m as u32, n as u32]).finish();
 
-    let a = unsafe {
+    let mut a = unsafe {
         cmma::Matrix::<f16, Cube>::uninitialized(
             cmma::MatrixIdent::A,
             m,
@@ -318,7 +318,7 @@ pub fn kernel_simple_f16_workgroup_tensor(
             MatrixLayout::Undefined,
         )
     };
-    let b = unsafe {
+    let mut b = unsafe {
         cmma::Matrix::<f16, Cube>::uninitialized(
             cmma::MatrixIdent::B,
             m,
@@ -341,8 +341,8 @@ pub fn kernel_simple_f16_workgroup_tensor(
         let rhs = rhs.slice(seq![0, k_offs], seq![n as u32, k as u32]);
         let rhs = rhs.permuted(seq![1, 0]);
 
-        cmma::load_tensor(&a, &lhs);
-        cmma::load_tensor(&b, &rhs);
+        cmma::load_tensor(&mut a, &lhs);
+        cmma::load_tensor(&mut b, &rhs);
 
         cmma::execute(&a, &b, &c, &c);
     }
@@ -352,7 +352,7 @@ pub fn kernel_simple_f16_workgroup_tensor(
 
 #[cube(launch)]
 pub fn cast_matrix_f16(input: &Array<f32>, out: &mut Array<f16>) {
-    let acc = unsafe {
+    let mut acc = unsafe {
         cmma::Matrix::<f32>::uninitialized(
             cmma::MatrixIdent::Accumulator,
             16usize,
@@ -361,7 +361,7 @@ pub fn cast_matrix_f16(input: &Array<f32>, out: &mut Array<f16>) {
             cmma::MatrixLayout::Undefined,
         )
     };
-    cmma::load_with_layout(&acc, input.to_slice(), 16, cmma::MatrixLayout::RowMajor);
+    cmma::load_with_layout(&mut acc, input.to_slice(), 16, cmma::MatrixLayout::RowMajor);
 
     let output: cmma::Matrix<f16> = cmma::cast(&acc);
 
@@ -375,7 +375,7 @@ pub fn cast_matrix_f16(input: &Array<f32>, out: &mut Array<f16>) {
 
 #[cube(launch)]
 pub fn cast_matrix_bf16(input: &Array<f32>, out: &mut Array<bf16>) {
-    let acc = unsafe {
+    let mut acc = unsafe {
         cmma::Matrix::<f32>::uninitialized(
             cmma::MatrixIdent::Accumulator,
             16usize,
@@ -384,7 +384,7 @@ pub fn cast_matrix_bf16(input: &Array<f32>, out: &mut Array<bf16>) {
             cmma::MatrixLayout::Undefined,
         )
     };
-    cmma::load_with_layout(&acc, input.to_slice(), 16, cmma::MatrixLayout::RowMajor);
+    cmma::load_with_layout(&mut acc, input.to_slice(), 16, cmma::MatrixLayout::RowMajor);
 
     let output: cmma::Matrix<bf16> = cmma::cast(&acc);
 

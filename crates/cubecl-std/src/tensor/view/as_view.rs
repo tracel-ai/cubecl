@@ -29,7 +29,7 @@ pub trait AsViewExpand<E: CubePrimitive> {
 
     #[allow(unused)]
     fn __expand_view_method<C: Coordinates + 'static>(
-        self,
+        &self,
         scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
     ) -> ViewExpand<E, C, ReadOnly>;
@@ -48,7 +48,7 @@ pub trait AsViewMut<E: CubePrimitive>: AsView<E> {
 pub trait AsViewMutExpand<E: CubePrimitive>: AsViewExpand<E> {
     #[allow(clippy::too_many_arguments)]
     fn __expand_view_mut_method<C: Coordinates + 'static>(
-        self,
+        &mut self,
         scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
     ) -> ViewExpand<E, C, ReadWrite>;
@@ -62,22 +62,22 @@ macro_rules! impl_as_view {
         impl<E: CubePrimitive> AsViewExpand<E> for NativeExpand<$ty<E>> {
             type SourceCoords = $coords;
             fn __expand_view_method<C: Coordinates + 'static>(
-                self,
+                &self,
                 scope: &Scope,
                 layout: VirtualLayoutExpand<C, $coords>,
             ) -> super::ViewExpand<E, C, ReadOnly> {
-                View::__expand_new::<$ty<E>, $coords>(scope, self, layout)
+                View::__expand_new::<$ty<E>, $coords>(scope, self.clone(), layout)
             }
         }
 
         impl<E: CubePrimitive> AsViewMut<E> for $ty<E> {}
         impl<E: CubePrimitive> AsViewMutExpand<E> for NativeExpand<$ty<E>> {
             fn __expand_view_mut_method<C: Coordinates + 'static>(
-                self,
+                &mut self,
                 scope: &Scope,
                 layout: VirtualLayoutExpand<C, $coords>,
             ) -> super::ViewExpand<E, C, ReadWrite> {
-                View::__expand_new_mut::<$ty<E>, $coords>(scope, self, layout)
+                View::__expand_new_mut::<$ty<E>, $coords>(scope, self.clone(), layout)
             }
         }
     };
@@ -100,11 +100,11 @@ impl<E: CubePrimitive, IO: SliceVisibility + 'static> AsView<E> for Slice<E, IO>
 impl<E: CubePrimitive, IO: SliceVisibility + 'static> AsViewExpand<E> for SliceExpand<E, IO> {
     type SourceCoords = Coords1d;
     fn __expand_view_method<C: Coordinates + 'static>(
-        self,
+        &self,
         scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
     ) -> ViewExpand<E, C, ReadOnly> {
-        View::__expand_new::<Slice<E, IO>, Self::SourceCoords>(scope, self, layout)
+        View::__expand_new::<Slice<E, IO>, Self::SourceCoords>(scope, *self, layout)
     }
 }
 
@@ -118,11 +118,11 @@ impl<E: CubePrimitive> AsViewMut<E> for Slice<E, ReadWrite> {
 }
 impl<E: CubePrimitive> AsViewMutExpand<E> for SliceExpand<E, ReadWrite> {
     fn __expand_view_mut_method<C: Coordinates + 'static>(
-        self,
+        &mut self,
         scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
     ) -> ViewExpand<E, C, ReadWrite> {
-        View::__expand_new_mut::<Slice<E, ReadWrite>, Coords1d>(scope, self, layout)
+        View::__expand_new_mut::<Slice<E, ReadWrite>, Coords1d>(scope, *self, layout)
     }
 }
 

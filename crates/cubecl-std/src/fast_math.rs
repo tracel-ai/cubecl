@@ -9,6 +9,7 @@ use cubecl_core::{self as cubecl};
 /// Implementation based on ONNX:
 /// <https://github.com/microsoft/onnxruntime/blob/main/onnxruntime/core/providers/cuda/shared_inc/fast_divmod.h>
 #[derive(CubeType, Clone, Copy)]
+#[expand(derive(Clone, Copy))]
 pub enum FastDivmod<I: FastDivmodInt> {
     Fast {
         divisor: I,

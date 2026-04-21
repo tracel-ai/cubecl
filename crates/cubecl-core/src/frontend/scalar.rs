@@ -49,6 +49,17 @@ impl IntoMut for InputScalarExpand {
 
 impl CubeDebug for InputScalarExpand {}
 
+impl AsRefExpand for InputScalarExpand {
+    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+        self
+    }
+}
+impl AsMutExpand for InputScalarExpand {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+        self
+    }
+}
+
 impl InputScalar {
     /// Creates an [`InputScalar`] from the given element and dtype.
     ///

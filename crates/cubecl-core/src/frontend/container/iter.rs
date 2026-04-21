@@ -5,7 +5,7 @@ use cubecl_ir::Variable;
 use crate::{
     ir::{Branch, RangeLoop, Scope},
     prelude::{
-        CubeIndex, CubeIndexExpand, CubePrimitive, CubeType, ExpandDeref, Iterable, NativeExpand,
+        CubeIndex, CubeIndexExpand, CubePrimitive, CubeType, DerefExpand, Iterable, NativeExpand,
     },
 };
 

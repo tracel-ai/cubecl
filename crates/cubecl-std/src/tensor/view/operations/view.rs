@@ -86,7 +86,7 @@ impl<T: CubePrimitive, C: Coordinates> ViewOperationsMutExpand<T, C>
         pos: <C>::ExpandType,
         value: <T>::ExpandType,
     ) {
-        ViewExpand::__expand_write_checked_method(self.clone(), scope, pos, value);
+        ViewExpand::__expand_write_checked_method(self, scope, pos, value);
     }
 
     fn __expand_to_linear_slice_mut_method<'a>(
@@ -104,6 +104,6 @@ impl<T: CubePrimitive, C: Coordinates> ViewOperationsMutExpand<T, C>
         shared_memory: &SliceExpand<T, ReadOnly>,
         pos: C::ExpandType,
     ) {
-        ViewExpand::__expand_tensor_map_store_method(self.clone(), scope, shared_memory, pos)
+        ViewExpand::__expand_tensor_map_store_method(self, scope, shared_memory, pos)
     }
 }

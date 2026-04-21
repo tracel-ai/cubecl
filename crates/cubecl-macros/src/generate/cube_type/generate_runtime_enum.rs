@@ -96,6 +96,8 @@ impl CubeTypeEnum {
         let clone = prelude_type("ExpandTypeClone");
         let into_expand = prelude_type("IntoExpand");
         let into_mut = prelude_type("IntoMut");
+        let as_ref = prelude_type("AsRefExpand");
+        let as_mut = prelude_type("AsMutExpand");
         let debug = prelude_type("CubeDebug");
 
         let name = &self.ident;
@@ -145,6 +147,16 @@ impl CubeTypeEnum {
 
             impl #generics #debug for #name #generic_names #where_clause {}
             impl #generics #debug for #name_expand #generic_names #where_clause {}
+            impl #generics #as_ref for #name_expand #generic_names #where_clause {
+                fn __expand_as_ref_method<'a>(&'a self, _: &#scope) -> &'a Self {
+                    self
+                }
+            }
+            impl #generics #as_mut for #name_expand #generic_names #where_clause {
+                fn __expand_as_mut_method<'a>(&'a mut self, _: &#scope) -> &'a mut Self {
+                    self
+                }
+            }
 
             impl #generics #clone for #name_expand #generic_names #where_clause {
                 fn clone_unchecked(&self) -> Self {

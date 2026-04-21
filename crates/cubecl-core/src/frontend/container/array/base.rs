@@ -30,11 +30,7 @@ impl<E> Clone for Array<E> {
 
 type ArrayExpand<E> = NativeExpand<Array<E>>;
 
-impl<E> ExpandAsRef for ArrayExpand<E> {
-    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
-        self
-    }
-
+impl<E> AsMutExpand for ArrayExpand<E> {
     fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
         self
     }
@@ -305,7 +301,7 @@ impl<T: CubePrimitive> DerefMut for Array<T> {
     }
 }
 
-impl<T: CubePrimitive> ExpandDeref for ArrayExpand<T> {
+impl<T: CubePrimitive> DerefExpand for ArrayExpand<T> {
     type Target = ArrayExpand<T>;
 
     fn __expand_deref_method(&self, _: &Scope) -> Self::Target {

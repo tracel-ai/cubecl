@@ -297,7 +297,7 @@ mod impls {
         pub fn __expand_as_deref_method(self, scope: &Scope) -> OptionExpand<T::Target>
         where
             T: Deref<Target: CubeType + Default + IntoRuntime>,
-            T::ExpandType: ExpandDeref<Target = <T::Target as CubeType>::ExpandType>,
+            T::ExpandType: DerefExpand<Target = <T::Target as CubeType>::ExpandType>,
             <T::Target as CubeType>::ExpandType: Assign,
         {
             self.__expand_map_method(scope, |scope, value| value.__expand_deref_method(scope))
@@ -306,7 +306,7 @@ mod impls {
         pub fn __expand_as_deref_mut_method(self, scope: &Scope) -> OptionExpand<T::Target>
         where
             T: DerefMut<Target: CubeType + Default + IntoRuntime>,
-            T::ExpandType: ExpandDeref<Target = <T::Target as CubeType>::ExpandType>,
+            T::ExpandType: DerefExpand<Target = <T::Target as CubeType>::ExpandType>,
             <T::Target as CubeType>::ExpandType: Assign,
         {
             self.__expand_map_method(scope, |scope, value| value.__expand_deref_method(scope))

@@ -107,63 +107,100 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceExpand<E, IO> {
 }
 
 #[cube]
-impl<E: Scalar, N: Size, IO: SliceVisibility> Slice<Vector<E, N>, IO> {
+impl<'a, E: Scalar, N: Size, IO: SliceVisibility> Slice<Vector<E, N>, IO> {
     /// Reinterprets how items are loaded and stored in memory.slicebase
     ///
     /// # Warning
     ///
     /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
     #[allow(unused_variables)]
-    pub fn with_vector_size<N2: Size>(&self) -> Slice<Vector<E, N2>, IO> {
+    pub fn with_vector_size<N2: Size>(&'a self) -> &'a Slice<Vector<E, N2>, IO> {
         intrinsic!(|scope| {
-            let vector_size = N2::__expand_value(scope);
-            let (input, offset) = self.__to_raw_parts();
-            let mut item = input.ty;
+            let slice = self.clone().with_vector_size_inner::<N2>(scope);
+            scope.create_kernel_ref(slice)
+        })
+    }
 
-            let current = input.ty.vector_size();
-            let mut out = self
-                .clone()
-                .__expand_downcast_unchecked_method::<Vector<E, N2>>(scope);
-
-            if vector_size == item.vector_size() {
-                return out;
-            }
-
-            if current < vector_size {
-                let ratio = vector_size / current;
-                let length = self.length.clone().__expand_div_method(scope, ratio.into());
-                let offset = self.offset.clone().__expand_div_method(scope, ratio.into());
-                out.length = length;
-                out.offset = offset;
-            } else {
-                let ratio = current / vector_size;
-                let length = self.length.clone().__expand_mul_method(scope, ratio.into());
-                let offset = self.offset.clone().__expand_mul_method(scope, ratio.into());
-                out.length = length;
-                out.offset = offset;
-            }
-
-            out.vector_size = Some(vector_size);
-            out
+    /// Reinterprets how items are loaded and stored in memory.slicebase
+    ///
+    /// # Warning
+    ///
+    /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
+    #[allow(unused_variables)]
+    pub fn with_vector_size_mut<N2: Size>(&'a mut self) -> &'a mut Slice<Vector<E, N2>, IO> {
+        intrinsic!(|scope| {
+            let slice = self.clone().with_vector_size_inner::<N2>(scope);
+            scope.create_kernel_ref(slice)
         })
     }
 }
 
+impl<E: Scalar, N: Size, IO: SliceVisibility> SliceExpand<Vector<E, N>, IO> {
+    fn with_vector_size_inner<N2: Size>(self, scope: &Scope) -> SliceExpand<Vector<E, N2>, IO> {
+        let vector_size = N2::__expand_value(scope);
+        let (input, _) = self.__to_raw_parts();
+        let item = input.ty;
+
+        let current = input.ty.vector_size();
+        let mut out = self
+            .clone()
+            .__expand_downcast_unchecked_method::<Vector<E, N2>>(scope);
+
+        if vector_size == item.vector_size() {
+            return out;
+        }
+
+        if current < vector_size {
+            let ratio = vector_size / current;
+            let length = self.length.__expand_div_method(scope, ratio.into());
+            let offset = self.offset.__expand_div_method(scope, ratio.into());
+            out.length = length;
+            out.offset = offset;
+        } else {
+            let ratio = current / vector_size;
+            let length = self.length.__expand_mul_method(scope, ratio.into());
+            let offset = self.offset.__expand_mul_method(scope, ratio.into());
+            out.length = length;
+            out.offset = offset;
+        }
+
+        out.vector_size = Some(vector_size);
+        out
+    }
+}
+
 #[cube]
-impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
+impl<'a, E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
     /// Returns the same slice, but with the type reinterpreted as `Vector`.
     /// Preserves existing vector size of the primitive.
-    pub fn into_vectorized(&self) -> Slice<Vector<E::Scalar, E::Size>, IO> {
+    pub fn as_vectorized(&'a self) -> &'a Slice<Vector<E::Scalar, E::Size>, IO> {
         intrinsic!(|scope| {
-            SliceExpand::<Vector<E::Scalar, E::Size>, IO> {
+            let slice = SliceExpand::<Vector<E::Scalar, E::Size>, IO> {
                 origin: self.origin.clone().cast_unchecked(),
                 io: self.io.clone(),
                 offset: self.offset.clone(),
                 length: self.length.clone(),
                 vector_size: self.vector_size,
-            }
+            };
+            scope.create_kernel_ref(slice)
         })
     }
+
+    /// Returns the same slice, but with the type reinterpreted as `Vector`.
+    /// Preserves existing vector size of the primitive.
+    pub fn as_vectorized_mut(&'a mut self) -> &'a mut Slice<Vector<E::Scalar, E::Size>, IO> {
+        intrinsic!(|scope| {
+            let slice = SliceExpand::<Vector<E::Scalar, E::Size>, IO> {
+                origin: self.origin.clone().cast_unchecked(),
+                io: self.io.clone(),
+                offset: self.offset.clone(),
+                length: self.length.clone(),
+                vector_size: self.vector_size,
+            };
+            scope.create_kernel_ref(slice)
+        })
+    }
+
     /// Downcast the slice to the given type and panic if the type isn't the same.
     ///
     /// This function should only be used to satisfy the Rust type system, when two generic
@@ -275,6 +312,17 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
 
 impl<E: CubePrimitive, IO: SliceVisibility> CubeType for Slice<E, IO> {
     type ExpandType = SliceExpand<E, IO>;
+}
+
+impl<E: CubePrimitive, IO: SliceVisibility> AsRefExpand for SliceExpand<E, IO> {
+    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+        self
+    }
+}
+impl<E: CubePrimitive, IO: SliceVisibility> AsMutExpand for SliceExpand<E, IO> {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+        self
+    }
 }
 
 impl<E: CubePrimitive, IO: SliceVisibility> IntoExpand for SliceExpand<E, IO> {
@@ -457,7 +505,7 @@ impl<T: CubePrimitive> DerefMut for Slice<T, ReadWrite> {
     }
 }
 
-impl<T: CubePrimitive, IO: SliceVisibility> ExpandDeref for SliceExpand<T, IO> {
+impl<T: CubePrimitive, IO: SliceVisibility> DerefExpand for SliceExpand<T, IO> {
     type Target = Self;
 
     fn __expand_deref_method(&self, _: &Scope) -> Self::Target {

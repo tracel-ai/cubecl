@@ -9,7 +9,22 @@ use crate::prelude::*;
 
 // NOTE: Unary comparison tests are in the unary module
 
-pub trait CubeEq: Eq + CubePrimitive + CubeType<ExpandType: EqExpand> + Sized {
+pub trait CubeEq:
+    Eq
+    + CubePrimitive
+    + CubeType<ExpandType: EqExpand>
+    + Sized
+    + IntoExpand<Expand = <Self as CubeType>::ExpandType>
+{
+    fn __expand_eq_method(&self, scope: &Scope, rhs: &NativeExpand<Self>) -> NativeExpand<bool> {
+        let this = (*self).into_expand(scope);
+        Self::__expand_eq(scope, &this, rhs)
+    }
+    fn __expand_ne_method(&self, scope: &Scope, rhs: &NativeExpand<Self>) -> NativeExpand<bool> {
+        let this = (*self).into_expand(scope);
+        Self::__expand_ne(scope, &this, rhs)
+    }
+
     fn __expand_eq(
         scope: &Scope,
         lhs: &NativeExpand<Self>,
@@ -29,7 +44,7 @@ pub trait EqExpand {
     fn __expand_eq_method(&self, scope: &Scope, rhs: &Self) -> NativeExpand<bool>;
     fn __expand_ne_method(&self, scope: &Scope, rhs: &Self) -> NativeExpand<bool>;
 }
-impl<T: Eq + CubePrimitive> CubeEq for T {}
+impl<T: Eq + CubePrimitive + IntoExpand<Expand = <Self as CubeType>::ExpandType>> CubeEq for T {}
 
 impl<T: Eq + CubePrimitive> EqExpand for NativeExpand<T> {
     fn __expand_eq_method(&self, scope: &Scope, rhs: &Self) -> NativeExpand<bool> {
@@ -89,7 +104,27 @@ pub trait CubeOrdering {
 
 impl CubeOrdering for Ordering {}
 
-pub trait CubeOrd: Ord + CubeType<ExpandType: OrdExpand> + Sized {
+pub trait CubeOrd:
+    Ord + CubeType<ExpandType: OrdExpand> + Sized + IntoExpand<Expand = <Self as CubeType>::ExpandType>
+{
+    fn __expand_min_method(self, scope: &Scope, rhs: Self::ExpandType) -> Self::ExpandType {
+        let this = self.into_expand(scope);
+        Self::__expand_min(scope, this, rhs)
+    }
+    fn __expand_max_method(self, scope: &Scope, rhs: Self::ExpandType) -> Self::ExpandType {
+        let this = self.into_expand(scope);
+        Self::__expand_max(scope, this, rhs)
+    }
+    fn __expand_clamp_method(
+        self,
+        scope: &Scope,
+        min: Self::ExpandType,
+        max: Self::ExpandType,
+    ) -> Self::ExpandType {
+        let this = self.into_expand(scope);
+        Self::__expand_clamp(scope, this, min, max)
+    }
+
     fn __expand_cmp(
         scope: &Scope,
         lhs: &Self::ExpandType,
@@ -130,7 +165,7 @@ pub trait OrdExpand {
     fn __expand_clamp_method(self, scope: &Scope, min: Self, max: Self) -> Self;
 }
 
-impl<T: Ord + CubePrimitive> CubeOrd for T {}
+impl<T: Ord + CubePrimitive + IntoExpand<Expand = <Self as CubeType>::ExpandType>> CubeOrd for T {}
 impl<T: Ord + CubePrimitive> OrdExpand for NativeExpand<T> {
     fn __expand_cmp_method(&self, scope: &Scope, rhs: &Self) -> OrderingExpand {
         let lhs_lt_rhs = self.__expand_lt_method(scope, rhs);

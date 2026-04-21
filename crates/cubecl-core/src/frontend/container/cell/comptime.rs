@@ -90,3 +90,14 @@ impl<T: CubeType> Clone for ComptimeCellExpand<T> {
         }
     }
 }
+
+impl<T: CubeType> AsRefExpand for ComptimeCellExpand<T> {
+    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+        self
+    }
+}
+impl<T: CubeType> AsMutExpand for ComptimeCellExpand<T> {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+        self
+    }
+}

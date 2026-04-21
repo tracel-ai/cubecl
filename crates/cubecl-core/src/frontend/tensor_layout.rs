@@ -36,16 +36,6 @@ pub struct TensorView<T: CubePrimitive> {
     pub(crate) view: ComptimeOption<TensorReinterpret>,
 }
 
-impl<T: CubePrimitive> ExpandAsRef for TensorViewExpand<T> {
-    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
-        self
-    }
-
-    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
-        self
-    }
-}
-
 #[derive_cube_comptime]
 pub struct TensorLayout;
 

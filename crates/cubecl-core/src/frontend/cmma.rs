@@ -139,35 +139,36 @@ impl<C: CubeType, S: MatrixScope> ExpandTypeClone for MatrixExpand<C, S> {
 
 impl<A: CubeType, B: CubeType, CD: CubeType> ExpandTypeClone for MmaDefinitionExpand<A, B, CD> {
     fn clone_unchecked(&self) -> Self {
-        self.clone()
+        *self
     }
 }
 
-impl<C: CubeType, S: MatrixScope> ExpandAsRef for MatrixExpand<C, S> {
+impl<C: CubeType, S: MatrixScope> AsRefExpand for MatrixExpand<C, S> {
     fn __expand_as_ref_method<'a>(&'a self, _scope: &Scope) -> &'a Self {
         self
     }
-
+}
+impl<C: CubeType, S: MatrixScope> AsMutExpand for MatrixExpand<C, S> {
     fn __expand_as_mut_method<'a>(&'a mut self, _scope: &Scope) -> &'a mut Self {
         self
     }
 }
 
+impl<A: CubeType, B: CubeType, CD: CubeType> AsRefExpand for MmaDefinitionExpand<A, B, CD> {
+    fn __expand_as_ref_method<'a>(&'a self, _scope: &Scope) -> &'a Self {
+        self
+    }
+}
+impl<A: CubeType, B: CubeType, CD: CubeType> AsMutExpand for MmaDefinitionExpand<A, B, CD> {
+    fn __expand_as_mut_method<'a>(&'a mut self, _scope: &Scope) -> &'a mut Self {
+        self
+    }
+}
+
+impl<A: CubeType, B: CubeType, CD: CubeType> Copy for MmaDefinitionExpand<A, B, CD> {}
 impl<A: CubeType, B: CubeType, CD: CubeType> Clone for MmaDefinitionExpand<A, B, CD> {
     fn clone(&self) -> Self {
-        Self {
-            m: self.m,
-            n: self.n,
-            k: self.k,
-            a_type: self.a_type,
-            b_type: self.b_type,
-            cd_type: self.cd_type,
-            scales_factor: self.scales_factor,
-            scales_type: self.scales_type,
-            _a: PhantomData,
-            _b: PhantomData,
-            _cd: PhantomData,
-        }
+        *self
     }
 }
 
@@ -279,12 +280,9 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
     where
         C: Scalar,
     {
-        let mat = unsafe { Self::uninitialized(ident, m, n, k, layout) };
-
-        intrinsic!(|scope| {
-            fill::expand(scope, mat.clone(), value);
-            mat
-        })
+        let mut mat = unsafe { Self::uninitialized(ident, m, n, k, layout) };
+        fill(&mut mat, value);
+        mat
     }
 
     /// Create a new matrix that is going to be used in the
@@ -310,16 +308,14 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
         value: &Slice<C>,
         stride: u32,
     ) -> Self {
-        let mat = unsafe { Self::uninitialized(ident, m, n, k, layout) };
+        let mut mat = unsafe { Self::uninitialized(ident, m, n, k, layout) };
 
-        intrinsic!(|scope| {
-            if ident == MatrixIdent::Accumulator {
-                load_with_layout::expand(scope, &mat, value, stride, layout);
-            } else {
-                load::expand(scope, &mat, value, stride);
-            }
-            mat
-        })
+        if comptime![ident == MatrixIdent::Accumulator] {
+            load_with_layout(&mut mat, value, stride, layout);
+        } else {
+            load(&mut mat, value, stride);
+        }
+        mat
     }
 
     /// Create a new matrix that is going to be used in the
@@ -343,12 +339,9 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
         #[comptime] k: usize,
         value: &TensorView<C>,
     ) -> Self {
-        let mat = unsafe { Self::uninitialized(ident, m, n, k, MatrixLayout::Undefined) };
-
-        intrinsic!(|scope| {
-            load_tensor::expand(scope, &mat, value);
-            mat
-        })
+        let mut mat = unsafe { Self::uninitialized(ident, m, n, k, MatrixLayout::Undefined) };
+        load_tensor(&mut mat, value);
+        mat
     }
 }
 
@@ -865,7 +858,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
 
 /// Fill the matrix with the provided value.
 #[allow(unused_variables)]
-pub fn fill<C: Scalar, S: MatrixScope>(mat: &Matrix<C, S>, value: C) {
+pub fn fill<C: Scalar, S: MatrixScope>(mat: &mut Matrix<C, S>, value: C) {
     unexpanded!()
 }
 
@@ -876,7 +869,7 @@ pub mod fill {
     /// Expand method of [`fill()`].
     pub fn expand<C: Scalar, S: MatrixScope>(
         scope: &Scope,
-        mat: MatrixExpand<C, S>,
+        mat: &mut MatrixExpand<C, S>,
         value: NativeExpand<C>,
     ) {
         let value: Variable = value.into();
@@ -887,7 +880,7 @@ pub mod fill {
 /// Load the matrix with the provided array using the stride.
 #[allow(unused_variables)]
 pub fn load<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
-    mat: &Matrix<C, S>,
+    mat: &mut Matrix<C, S>,
     value: &Slice<V>,
     stride: u32,
 ) {
@@ -902,7 +895,7 @@ pub mod load {
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
         scope: &Scope,
-        mat: &MatrixExpand<C, S>,
+        mat: &mut MatrixExpand<C, S>,
         value: &SliceExpand<V, ReadOnly>,
         stride: NativeExpand<u32>,
     ) {
@@ -930,7 +923,7 @@ pub mod load {
 /// Load the matrix with the provided array using the tensor layout.
 #[allow(unused_variables)]
 pub fn load_tensor<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
-    mat: &Matrix<C, S>,
+    mat: &mut Matrix<C, S>,
     value: &TensorView<V>,
 ) {
     unexpanded!()
@@ -944,7 +937,7 @@ pub mod load_tensor {
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
         scope: &Scope,
-        mat: &MatrixExpand<C, S>,
+        mat: &mut MatrixExpand<C, S>,
         value: &TensorViewExpand<V>,
     ) {
         assert_ne!(
@@ -971,7 +964,7 @@ pub mod load_tensor {
 /// Explicit layouts are required when loading accumulators.
 #[allow(unused_variables)]
 pub fn load_with_layout<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
-    mat: &Matrix<C, S>,
+    mat: &mut Matrix<C, S>,
     value: &Slice<V>,
     stride: u32,
     layout: MatrixLayout,
@@ -987,7 +980,7 @@ pub mod load_with_layout {
     #[allow(unused_variables)]
     pub fn expand<C: CubeType, V: CubePrimitive, S: MatrixScope>(
         scope: &Scope,
-        mat: &MatrixExpand<C, S>,
+        mat: &mut MatrixExpand<C, S>,
         value: &SliceExpand<V, ReadOnly>,
         stride: NativeExpand<u32>,
         layout: MatrixLayout,
@@ -1270,6 +1263,17 @@ impl IntoMut for MatrixLayout {
 }
 
 impl CubeDebug for MatrixLayout {}
+
+impl AsRefExpand for MatrixLayout {
+    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+        self
+    }
+}
+impl AsMutExpand for MatrixLayout {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+        self
+    }
+}
 
 /// Execute an elementwise op on the matrix fragment.
 ///

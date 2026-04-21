@@ -177,6 +177,10 @@ impl VisitMut for ReplaceIndices {
             ComptimeIndex as _, ComptimeIndexMut as _
         };];
         i.block.stmts.insert(0, import);
+
+        i.attrs
+            .push(parse_quote!(#[allow(clippy::borrow_deref_ref)]));
+
         visit_mut::visit_item_fn_mut(self, i);
     }
 
@@ -187,6 +191,10 @@ impl VisitMut for ReplaceIndices {
             ComptimeIndex as _, ComptimeIndexMut as _
         };];
         i.block.stmts.insert(0, import);
+
+        i.attrs
+            .push(parse_quote!(#[allow(clippy::borrow_deref_ref)]));
+
         visit_mut::visit_impl_item_fn_mut(self, i);
     }
 
@@ -199,6 +207,10 @@ impl VisitMut for ReplaceIndices {
             };];
             block.stmts.insert(0, import);
         }
+
+        i.attrs
+            .push(parse_quote!(#[allow(clippy::borrow_deref_ref)]));
+
         visit_mut::visit_trait_item_fn_mut(self, i);
     }
 }

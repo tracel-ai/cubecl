@@ -38,6 +38,12 @@ impl<T: CubePrimitive> CubeType for SharedMemory<T> {
     type ExpandType = NativeExpand<SharedMemory<T>>;
 }
 
+impl<T: CubePrimitive> AsMutExpand for SharedMemoryExpand<T> {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+        self
+    }
+}
+
 impl<T: CubePrimitive> IntoMut for NativeExpand<Shared<T>> {
     fn into_mut(self, _scope: &Scope) -> Self {
         self
@@ -46,6 +52,12 @@ impl<T: CubePrimitive> IntoMut for NativeExpand<Shared<T>> {
 
 impl<T: CubePrimitive> CubeType for Shared<T> {
     type ExpandType = NativeExpand<Shared<T>>;
+}
+
+impl<T: CubePrimitive> AsMutExpand for SharedExpand<T> {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+        self
+    }
 }
 
 #[cube]
@@ -70,12 +82,20 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 }
 
 #[cube]
-impl<T: CubePrimitive> Shared<T> {
+impl<'a, T: CubePrimitive> Shared<T> {
     pub fn new() -> Self {
         intrinsic!(|scope| {
             let var = scope.create_shared(T::as_type(scope));
             NativeExpand::new(var)
         })
+    }
+
+    pub fn inner_ref(&'a self) -> &'a T {
+        intrinsic!(|scope| { unsafe { self.as_type_ref_unchecked() } })
+    }
+
+    pub fn inner_mut(&'a mut self) -> &'a mut T {
+        intrinsic!(|scope| { unsafe { self.as_type_mut_unchecked() } })
     }
 }
 
@@ -270,11 +290,24 @@ impl<T: CubePrimitive> DerefMut for Shared<T> {
     }
 }
 
-impl<T: CubePrimitive> ExpandDeref for SharedExpand<T> {
+impl<T: CubePrimitive> DerefExpand for SharedExpand<T> {
     type Target = T::ExpandType;
 
     fn __expand_deref_method(&self, _: &Scope) -> Self::Target {
         unsafe { *self.as_type_ref_unchecked::<T>() }
+    }
+}
+
+impl<T: CubePrimitive> AsDerefExpand for SharedExpand<T> {
+    type Target = T::ExpandType;
+
+    fn __expand_as_deref_method<'a>(&'a self, _: &Scope) -> &'a Self::Target {
+        unsafe { self.as_type_ref_unchecked::<T>() }
+    }
+}
+impl<T: CubePrimitive> AsDerefMutExpand for SharedExpand<T> {
+    fn __expand_as_deref_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self::Target {
+        unsafe { self.as_type_mut_unchecked::<T>() }
     }
 }
 

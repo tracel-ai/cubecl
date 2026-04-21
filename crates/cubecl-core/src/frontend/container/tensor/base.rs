@@ -250,6 +250,20 @@ impl<C: CubeType> IntoMut for NativeExpand<Tensor<C>> {
     }
 }
 
+impl<T: CubePrimitive> DerefExpand for TensorExpand<T> {
+    type Target = TensorExpand<T>;
+
+    fn __expand_deref_method(&self, _: &Scope) -> Self::Target {
+        *self
+    }
+}
+
+impl<T: CubeType> AsMutExpand for TensorExpand<T> {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+        self
+    }
+}
+
 impl<'a, T: CubePrimitive> List<'a, T> for Tensor<T> {
     fn __expand_read(
         scope: &Scope,
@@ -325,14 +339,5 @@ impl<'a, T: CubePrimitive> ListMutExpand<'a, T> for NativeExpand<Tensor<T>> {
         let reference = this.__expand_index_mut_method(scope, idx);
         // Cloning self just clones the reference, so this is safe
         unsafe { core::mem::transmute(reference) }
-    }
-}
-
-impl<T: CubePrimitive> ExpandAsRef for NativeExpand<Tensor<T>> {
-    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
-        self
-    }
-    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
-        self
     }
 }

@@ -26,7 +26,12 @@ use variadics_please::{all_tuples, all_tuples_enumerated};
 /// the generated code.
 #[diagnostic::on_unimplemented(note = "Consider using `#[derive(CubeType)]` on `{Self}`")]
 pub trait CubeType {
-    type ExpandType: IntoExpand<Expand = Self::ExpandType> + ExpandTypeClone + IntoMut + CubeDebug;
+    type ExpandType: IntoExpand<Expand = Self::ExpandType>
+        + ExpandTypeClone
+        + IntoMut
+        + CubeDebug
+        + AsRefExpand
+        + AsMutExpand;
 }
 
 impl<'a, T: IntoExpand<Expand = Self>> IntoExpand for &'a T {
@@ -59,31 +64,40 @@ pub trait ExpandTypeClone {
     fn clone_unchecked(&self) -> Self;
 }
 
-pub trait ExpandAsRef<T = Self> {
+/// Expand version of [`AsRef`](core::convert::AsRef). Like [`AsRef<Self>`](core::convert::AsRef)
+/// it's implemented for all [`ExpandType`](CubeType::ExpandType)s. This is called when the Rust
+/// code uses `&x`.
+pub trait AsRefExpand<T = Self> {
     fn __expand_as_ref_method<'a>(&'a self, scope: &Scope) -> &'a T;
+}
+
+/// Expand verison of [`AsMut`](core::convert::AsMut). The `Self` version must be implemented by
+/// all [`ExpandType`](CubeType::ExpandType)s, since `CubeCL` also uses it to implement `&mut x`.
+pub trait AsMutExpand<T = Self> {
     fn __expand_as_mut_method<'a>(&'a mut self, scope: &Scope) -> &'a mut T;
 }
 
-pub trait ExpandDeref {
+/// `CubeCL` version of [`Deref`](core::ops::Deref). Unlike those traits, this trait produces owned
+/// values directly. Maps to `*x`.
+pub trait DerefExpand {
     type Target;
 
     fn __expand_deref_method(&self, scope: &Scope) -> Self::Target;
 }
 
-pub trait ExpandAsDeref: ExpandDeref {
+pub trait AsDerefExpand {
+    type Target;
     fn __expand_as_deref_method<'a>(&'a self, scope: &Scope) -> &'a Self::Target;
-    fn __expand_as_deref_mut_method<'a>(&'a self, scope: &Scope) -> &'a Self::Target;
 }
 
-impl<T: ExpandDeref<Target: 'static> + ExpandAsRef> ExpandAsDeref for T {
-    fn __expand_as_deref_method<'a>(&'a self, scope: &Scope) -> &'a Self::Target {
-        let deref = self.__expand_deref_method(scope);
-        scope.create_kernel_ref(deref)
-    }
+pub trait AsDerefMutExpand: AsDerefExpand {
+    fn __expand_as_deref_mut_method<'a>(&'a mut self, scope: &Scope) -> &'a mut Self::Target;
+}
 
-    fn __expand_as_deref_mut_method<'a>(&'a self, scope: &Scope) -> &'a Self::Target {
-        let deref = self.__expand_deref_method(scope);
-        scope.create_kernel_ref(deref)
+impl<T> AsDerefExpand for &mut T {
+    type Target = T;
+    fn __expand_as_deref_method<'a>(&'a self, _: &Scope) -> &'a T {
+        self
     }
 }
 
@@ -306,9 +320,33 @@ macro_rules! launch_tuple {
 
 all_tuples!(launch_tuple, 2, 12, T, t);
 
+macro_rules! as_ref_tuple {
+    ($(($T:ident, $t:ident)),*) => {
+        impl<$($T: AsRefExpand),*> AsRefExpand for ($($T),*) {
+            fn __expand_as_ref_method(&self, _: &Scope) -> &($($T),*) {
+                self
+            }
+        }
+    };
+}
+
+all_tuples!(as_ref_tuple, 2, 12, T, t);
+
+macro_rules! as_mut_tuple {
+    ($(($T:ident, $t:ident)),*) => {
+        impl<$($T: AsMutExpand),*> AsMutExpand for ($($T),*) {
+            fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut ($($T),*) {
+                self
+            }
+        }
+    };
+}
+
+all_tuples!(as_mut_tuple, 2, 12, T, t);
+
 macro_rules! deref_tuple {
     ($(($T:ident, $t:ident)),*) => {
-        impl<$($T: ExpandDeref),*> ExpandDeref for ($($T),*) {
+        impl<$($T: DerefExpand),*> DerefExpand for ($($T),*) {
             type Target = ($($T::Target),*);
 
             fn __expand_deref_method(&self, scope: &Scope) -> Self::Target {
@@ -361,11 +399,14 @@ impl<T> NativeExpand<T> {
     }
 }
 
-impl<T: CubePrimitive> ExpandAsRef for NativeExpand<T> {
+impl<T> AsRefExpand for NativeExpand<T> {
     fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
         self
     }
+}
 
+#[diagnostic::do_not_recommend]
+impl<T: CubePrimitive> AsMutExpand for NativeExpand<T> {
     fn __expand_as_mut_method(&mut self, scope: &Scope) -> &mut Self {
         assert!(
             self.expand.can_mutate(),
@@ -377,7 +418,7 @@ impl<T: CubePrimitive> ExpandAsRef for NativeExpand<T> {
     }
 }
 
-impl<T: CubePrimitive> ExpandDeref for NativeExpand<T> {
+impl<T: CubePrimitive> DerefExpand for NativeExpand<T> {
     type Target = Self;
 
     fn __expand_deref_method(&self, scope: &Scope) -> NativeExpand<T> {
@@ -509,11 +550,11 @@ macro_rules! tuple_assign {
     }
 }
 
-all_tuples!(tuple_cube_type, 0, 12, P);
-all_tuples!(tuple_debug, 0, 12, P);
-all_tuples!(tuple_init, 0, 12, P);
-all_tuples!(tuple_runtime, 0, 12, P);
-all_tuples_enumerated!(tuple_assign, 0, 12, P);
+all_tuples!(tuple_cube_type, 2, 12, P);
+all_tuples!(tuple_debug, 2, 12, P);
+all_tuples!(tuple_init, 2, 12, P);
+all_tuples!(tuple_runtime, 2, 12, P);
+all_tuples_enumerated!(tuple_assign, 2, 12, P);
 
 /// Trait for native types that can be assigned. For non-native composites, use the normal [`Assign`].
 pub trait NativeAssign: CubeType {
@@ -614,10 +655,25 @@ impl<T: IntoMut> IntoMut for Vec<T> {
 }
 impl<T: CubeDebug> CubeDebug for Vec<T> {}
 
+impl<T: AsRefExpand> AsRefExpand for Vec<T> {
+    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+        self
+    }
+}
+impl<T: AsMutExpand> AsMutExpand for Vec<T> {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+        self
+    }
+}
+
 /// Create a constant element of the correct type during expansion.
 pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(scope: &Scope, val: C) -> NativeExpand<Out> {
     let input: ConstantValue = val.into();
     Out::as_type(scope).constant(input).into()
+}
+
+impl CubeType for () {
+    type ExpandType = ();
 }
 
 impl LaunchArg for () {
@@ -632,6 +688,50 @@ impl LaunchArg for () {
         _: &Self::CompilationArg,
         _builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
+    }
+}
+
+impl Assign for () {
+    fn __expand_assign_method(&mut self, _: &Scope, _: Self) {}
+    fn init_mut(&self, _: &Scope) -> Self {}
+}
+
+impl IntoRuntime for () {
+    fn __expand_runtime_method(self, _: &Scope) -> Self::ExpandType {
+        self
+    }
+}
+
+impl IntoExpand for () {
+    type Expand = ();
+
+    fn into_expand(self, _: &Scope) -> Self::Expand {
+        self
+    }
+}
+
+impl CubeDebug for () {}
+
+impl ExpandTypeClone for () {
+    fn clone_unchecked(&self) -> Self {
+        *self
+    }
+}
+
+impl IntoMut for () {
+    fn into_mut(self, _: &Scope) -> Self {
+        self
+    }
+}
+
+impl AsRefExpand for () {
+    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+        self
+    }
+}
+impl AsMutExpand for () {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+        self
     }
 }
 

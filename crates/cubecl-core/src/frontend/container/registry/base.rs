@@ -193,3 +193,14 @@ impl<K: PartialOrd + Ord, V: IntoMut + Clone> IntoMut for Registry<K, V> {
 }
 
 impl<K: PartialOrd + Ord, V> CubeDebug for Registry<K, V> {}
+
+impl<K, V> AsRefExpand for Registry<K, V> {
+    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+        self
+    }
+}
+impl<K, V> AsMutExpand for Registry<K, V> {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+        self
+    }
+}

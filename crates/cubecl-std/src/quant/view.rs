@@ -28,7 +28,7 @@ use half::{bf16, f16};
 /// this.
 /// Must ensure `block_size.is_multiple_of(vector_size * scheme.num_quants())`.
 #[expect(dead_code, reason = "only used in expand")]
-#[derive(CubeType, CubeLaunch, Clone, Copy)]
+#[derive(CubeType, CubeLaunch, Clone)]
 pub struct QuantizedView<
     Q: Scalar,
     NQ: Size,

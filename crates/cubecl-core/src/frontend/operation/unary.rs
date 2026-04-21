@@ -6,7 +6,9 @@ use half::{bf16, f16};
 use crate::{
     flex32,
     ir::{Arithmetic, Scope, Variable},
-    prelude::{CubePrimitive, CubePrimitiveExpand, CubeType, NativeExpand, Reinterpret},
+    prelude::{
+        CubePrimitive, CubePrimitiveExpand, CubeType, IntoExpand, NativeExpand, Reinterpret,
+    },
     tf32, unexpanded,
 };
 
@@ -126,7 +128,16 @@ macro_rules! impl_unary_func_fixed_out_ty {
 macro_rules! impl_not {
     ($trait_name:ident, $method_name:ident, $($type:ty),*) => {
         paste::paste! {
-            pub trait [<Cube $trait_name>]: $trait_name<Output = Self> + CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]> {
+            pub trait [<Cube $trait_name>]:
+                $trait_name<Output = Self>
+                + CubePrimitive
+                + CubeType<ExpandType: [<$trait_name Expand>]>
+                + IntoExpand<Expand = <Self as CubeType>::ExpandType> {
+                fn [<__expand_ $method_name _method>](self, scope: &Scope) -> NativeExpand<Self> {
+                    let this = self.into_expand(scope);
+                    this.[<__expand_ $method_name _method>](scope)
+                }
+
                 fn [<__expand_ $method_name>](scope: &Scope, x: NativeExpand<Self>) -> NativeExpand<Self> {
                     x.[<__expand_ $method_name _method>](scope)
                 }

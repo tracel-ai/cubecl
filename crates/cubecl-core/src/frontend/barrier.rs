@@ -59,6 +59,12 @@ impl NativeAssign for BarrierToken {
     }
 }
 
+impl AsMutExpand for NativeExpand<BarrierToken> {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+        self
+    }
+}
+
 macro_rules! tensor_map_load {
     ($dim: literal, $($arg: expr),*) => {
         paste! {
@@ -453,8 +459,8 @@ pub mod copy_async {
 
     pub fn expand<C: CubePrimitive>(
         scope: &Scope,
-        source: SliceExpand<C, ReadOnly>,
-        destination: SliceExpand<C, ReadWrite>,
+        source: &SliceExpand<C, ReadOnly>,
+        destination: &mut SliceExpand<C, ReadWrite>,
         copy_length: u32,
     ) {
         let source_length = copy_length.into();
@@ -499,8 +505,8 @@ pub mod copy_async_checked {
 
     pub fn expand<C: CubePrimitive>(
         scope: &Scope,
-        source: SliceExpand<C, ReadOnly>,
-        destination: SliceExpand<C, ReadWrite>,
+        source: &SliceExpand<C, ReadOnly>,
+        destination: &mut SliceExpand<C, ReadWrite>,
         copy_length: u32,
     ) {
         let source_length = source.length.expand;

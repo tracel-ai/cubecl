@@ -21,7 +21,6 @@ pub struct View<E: CubePrimitive, C: Coordinates, IO: Clone = ReadOnly> {
 // `View` is a dummy type so it's always send/sync
 unsafe impl<E: CubePrimitive, C: Coordinates, IO: Clone> Send for View<E, C, IO> {}
 unsafe impl<E: CubePrimitive, C: Coordinates, IO: Clone> Sync for View<E, C, IO> {}
-impl<E: CubePrimitive, C: Coordinates, IO: Clone> Copy for View<E, C, IO> {}
 
 #[derive(Clone)]
 pub(super) enum ViewType<E: CubePrimitive, C: Coordinates> {
@@ -80,6 +79,24 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> IntoMut for ViewExpand<E, C, I
 
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeDebug for ViewExpand<E, C, IO> {}
 
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> AsRefExpand for ViewExpand<E, C, IO> {
+    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+        self
+    }
+}
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> AsMutExpand for ViewExpand<E, C, IO> {
+    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+        self
+    }
+}
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> DerefExpand for ViewExpand<E, C, IO> {
+    type Target = Self;
+
+    fn __expand_deref_method(&self, _: &Scope) -> Self::Target {
+        self.clone()
+    }
+}
+
 impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadOnly> {
     /// Create a new tensor view from an underlying concrete storage and a layout to map it into
     /// the target coordinate space
@@ -123,11 +140,11 @@ impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> View<E, C,
 
 impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> ViewExpand<E, C, IO> {
     pub fn __expand_view_method<T: Coordinates + 'static>(
-        self,
+        &self,
         scope: &Scope,
         layout: VirtualLayoutExpand<T, C>,
     ) -> ViewExpand<E, T, ReadOnly> {
-        View::__expand_new::<View<E, C, IO>, C>(scope, self, layout)
+        View::__expand_new::<View<E, C, IO>, C>(scope, self.clone(), layout)
     }
 
     pub fn new<V: ViewOperationsExpand<E, C> + 'static>(view: V) -> Self {
@@ -164,11 +181,11 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadWrite> {
 
 impl<E: CubePrimitive, C: Coordinates + 'static> ViewExpand<E, C, ReadWrite> {
     pub fn __expand_view_mut_method<T: Coordinates + 'static>(
-        self,
+        &self,
         scope: &Scope,
         layout: VirtualLayoutExpand<T, C>,
     ) -> ViewExpand<E, T, ReadWrite> {
-        View::__expand_new_mut::<View<E, C, ReadWrite>, C>(scope, self, layout)
+        View::__expand_new_mut::<View<E, C, ReadWrite>, C>(scope, self.clone(), layout)
     }
 }
 
@@ -263,7 +280,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
     /// # Safety
     ///
     /// No checking is done on whether the slice is contiguous in memory.
-    pub fn to_linear_slice(&self) -> Slice<E, ReadOnly> {
+    pub fn to_linear_slice(&self) -> &Slice<E, ReadOnly> {
         unexpanded!()
     }
 
@@ -448,7 +465,7 @@ impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
 
     /// Expand method for [`View::write_checked`]
     pub fn __expand_write_checked_method(
-        self,
+        &self,
         scope: &Scope,
         pos: C::ExpandType,
         value: NativeExpand<E>,
@@ -597,7 +614,7 @@ impl<E: CubePrimitive, C: Coordinates> View<E, C, ReadWrite> {
 
 impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
     pub fn __expand_tensor_map_store_method(
-        self,
+        &self,
         scope: &Scope,
         shared_memory: &SliceExpand<E, ReadOnly>,
         pos: C::ExpandType,
