@@ -196,6 +196,7 @@ impl<'a> Command<'a> {
         let fence = Fence::new(self.streams.current().sys);
 
         async move {
+            println!("[{:?}] read_aync wait fence", std::thread::current().id());
             let sync = fence.wait_sync();
             // Release memory handle.
             core::mem::drop(descriptors_moved);
