@@ -86,9 +86,11 @@ impl MemoryPool for PersistentPool {
 
         if let Some(positions) = self.sizes.get_mut(&effective_size) {
             for pos in positions {
-                let slice = &self.slices[*pos];
+                let slice = &mut self.slices[*pos];
 
                 if slice.is_free() {
+                    slice.storage.utilization.size = size;
+                    slice.storage.utilization.offset = 0;
                     return Some(slice.handle.clone());
                 }
             }
