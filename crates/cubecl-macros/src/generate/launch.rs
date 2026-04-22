@@ -1,10 +1,13 @@
 use ident_case::RenameRule;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
-use syn::{Ident, parse_quote};
+use syn::{GenericParam, Generics, Ident, parse_quote};
 
 use crate::{
-    parse::kernel::{AddressType, GenericArg, KernelParam, Launch, strip_ref},
+    parse::{
+        kernel::{AddressType, GenericArg, Launch, strip_ref},
+        signature::KernelParam,
+    },
     paths::{core_type, prelude_type},
 };
 
@@ -142,7 +145,8 @@ impl Launch {
 
         let settings = self.configure_settings();
         let kernel_name = self.kernel_name();
-        let kernel_generics = self.kernel_generics.split_for_impl();
+        let kernel_generics = self.kernel_call_generics();
+        let kernel_generics = kernel_generics.split_for_impl();
         let kernel_generics = kernel_generics.1.as_turbofish();
         let comptime_args = self.comptime_params().map(|it| &it.name);
         let (registers, args) = self.arg_registers();
@@ -260,6 +264,16 @@ impl Launch {
     pub fn kernel_name(&self) -> Ident {
         let kernel_name = RenameRule::PascalCase.apply_to_field(self.func.sig.name.to_string());
         format_ident!("{kernel_name}")
+    }
+
+    pub fn kernel_call_generics(&self) -> Generics {
+        let mut generics = self.kernel_generics.clone();
+        generics.params = generics
+            .params
+            .into_iter()
+            .filter(|it| !matches!(it, GenericParam::Lifetime(..)))
+            .collect();
+        generics
     }
 
     pub fn comptime_params(&self) -> impl Iterator<Item = &KernelParam> {

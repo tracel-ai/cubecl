@@ -7,14 +7,12 @@ use syn::{
 };
 
 use crate::{
-    ReplaceDefines,
-    parse::kernel::{KernelArgs, KernelParam},
-};
-
-use super::{
-    StripBounds, StripDefault,
-    helpers::{RemoveHelpers, ReplaceIndices},
-    kernel::{KernelFn, KernelSignature},
+    RemoveHelpers, ReplaceDefines, ReplaceIndices,
+    parse::{
+        StripBounds, StripDefault,
+        kernel::{KernelArgs, KernelFn},
+        signature::{KernelParam, KernelSignature},
+    },
 };
 
 pub struct CubeTrait {

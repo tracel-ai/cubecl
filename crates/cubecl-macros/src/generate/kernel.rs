@@ -3,14 +3,11 @@ use std::collections::HashMap;
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use inflections::case::to_snake_case;
 use proc_macro2::TokenStream;
-use quote::{ToTokens, format_ident, quote, quote_spanned};
+use quote::{format_ident, quote, quote_spanned};
 use syn::{Ident, TypeParamBound, parse_quote};
 
 use crate::{
-    parse::kernel::{
-        DefinedGeneric, KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch,
-        expand_kernel_ty, map_type_normalized, strip_ref,
-    },
+    parse::kernel::{DefinedGeneric, KernelBody, KernelFn, Launch, map_type_normalized, strip_ref},
     paths::{frontend_type, prelude_type},
 };
 
@@ -94,54 +91,6 @@ fn trait_imports() -> TokenStream {
     quote! {
         use #into_runtime as _;
         use #assign as _;
-    }
-}
-
-impl ToTokens for KernelSignature {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let scope = prelude_type("Scope");
-
-        let name = &self.name;
-        let generics = &self.generics;
-        let where_clause = &generics.where_clause;
-
-        let return_type = match &self.returns {
-            KernelReturns::ExpandType(ty) => {
-                let normalized_ty = expand_kernel_ty(ty.clone(), false);
-                quote![#normalized_ty]
-            }
-            KernelReturns::Plain(ty) => quote![#ty],
-        };
-        let out = if let Some(receiver) = &self.receiver_arg {
-            let args = self.parameters.iter().skip(1);
-
-            quote! {
-                fn #name #generics(
-                    #receiver,
-                    scope: &#scope,
-                    #(#args),*
-                ) -> #return_type #where_clause
-            }
-        } else {
-            let args = &self.parameters;
-            quote! {
-                fn #name #generics(
-                    scope: &#scope,
-                    #(#args),*
-                ) -> #return_type #where_clause
-            }
-        };
-
-        tokens.extend(out);
-    }
-}
-
-impl ToTokens for KernelParam {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let name = &self.name;
-        let ty = &self.normalized_ty;
-        let mut_ = &self.mutability;
-        tokens.extend(quote![#mut_ #name: #ty]);
     }
 }
 

@@ -7,7 +7,7 @@ use std::{
 use quote::format_ident;
 use syn::{Ident, Type, parse_quote};
 
-use crate::parse::kernel::KernelParam;
+use crate::parse::signature::KernelParam;
 
 pub const KEYWORDS: [&str; 31] = [
     "ABSOLUTE_POS",

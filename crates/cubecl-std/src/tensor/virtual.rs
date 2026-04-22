@@ -433,20 +433,20 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
 /// This trait is kind of unsafe, [`VirtualTensorOperations::write`] doesn't follow the mutability
 /// rules, but it won't lead to any undefined behavior.
 #[cube(expand_base_traits = "VectorizedExpand")]
-#[allow(clippy::mut_from_ref, clippy::needless_lifetimes)]
+#[allow(clippy::mut_from_ref)]
 pub trait VirtualTensorOperations<E: Numeric, N: Size>: Vectorized {
     fn as_tensor_map(&self) -> ComptimeOption<TensorMap<E, Tiled>> {
         unexpanded!()
     }
     /// Read the tensor at the given index.
-    fn read<'a>(&'a self, _index: usize) -> &'a Vector<E, N> {
+    fn read(&self, _index: usize) -> &Vector<E, N> {
         unexpanded!()
     }
-    fn read_window<'a>(&'a self, _start: usize, _end: usize) -> &'a Slice<Vector<E, N>, ReadOnly> {
+    fn read_window(&self, _start: usize, _end: usize) -> &Slice<Vector<E, N>, ReadOnly> {
         unexpanded!()
     }
     /// Write the tensor at the given index.
-    fn write<'a>(&'a self, _index: usize) -> &'a mut Vector<E, N> {
+    fn write(&self, _index: usize) -> &mut Vector<E, N> {
         unexpanded!()
     }
     /// Get the shape of the tensor at the given axis.

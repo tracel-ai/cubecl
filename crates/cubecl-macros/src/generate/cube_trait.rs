@@ -150,7 +150,7 @@ impl CubeTraitImpl {
             #unsafety impl #generics #trait_name for #struct_name #impl_where {
                 #(#items)*
                 #(
-                    #[allow(unused, clone_on_copy, clippy::all)]
+                    #[allow(unused, clippy::all)]
                     #fns
                 )*
             }
@@ -193,7 +193,7 @@ impl CubeTraitImpl {
             #unsafety impl #generics #trait_name for #struct_name #impl_where {
                 #(#others)*
                 #(
-                    #[allow(unused, clone_on_copy, clippy::all)]
+                    #[allow(unused, clippy::all)]
                     #methods
                 )*
             }
