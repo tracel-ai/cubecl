@@ -274,7 +274,7 @@ impl ComputeServer for CudaServer {
 impl ServerCommunication for CudaServer {
     const SERVER_COMM_ENABLED: bool = true;
 
-    fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
+    fn comm_init(&mut self, device_ids: &Vec<DeviceId>) -> Result<(), ServerError> {
         let id = CommunicationId::from(device_ids.clone());
         if let Entry::Vacant(e) = self.communicators.entry(id.clone()) {
             let mut comm = MaybeUninit::uninit();
@@ -512,6 +512,132 @@ impl ServerCommunication for CudaServer {
                 backtrace: BackTrace::capture(),
             })?;
             cudarc::nccl::result::group_end().unwrap();
+        }
+
+        Ok(())
+    }
+
+    fn recv(
+        &mut self,
+        handle: Handle,
+        dtype: ElemType,
+        stream_id: StreamId,
+        device_ids: &Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        // We create a new command on the destination server to reserve the necessary GPU memory
+        // and wait on the source server, making sure the execution is updated. Then, we perform
+        // the peer memcpy on the destination server.
+        let mut command_dst = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
+        )?;
+
+        let memory = command_dst.reserve(handle.size()).unwrap();
+        command_dst.bind(memory, handle.memory.clone());
+
+        let resource_dst = command_dst.resource(handle.binding())?;
+
+        core::mem::drop(command_dst);
+
+        // Get the communicator.
+        let mut device_ids = device_ids.clone();
+        device_ids.sort();
+        let comm_id = CommunicationId::from(device_ids.clone());
+        let comm = self
+            .communicators
+            .get(&comm_id)
+            .expect("Communicator for this ID should exist");
+
+        let rank_src = device_ids
+            .iter()
+            .position(|id| id.index_id != self.device_id.index_id)
+            .unwrap() as i32;
+
+        // Perform the `send_recv` operation.
+        let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_dst.size);
+        // SAFETY: `resource_src.ptr` and `resource_dst.ptr` are valid device pointers.
+        // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
+        // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
+
+        unsafe {
+            cudarc::nccl::result::recv(
+                resource_dst.ptr as *mut _,
+                count,
+                nccl_dtype,
+                rank_src,
+                *comm,
+                self.comm_stream as _,
+            )
+            .map_err(|e| ServerError::Generic {
+                reason: format!("NCCL recv failed: {e:?}"),
+                backtrace: BackTrace::capture(),
+            })?;
+        }
+
+        Ok(())
+    }
+
+    fn send(
+        &mut self,
+        desc: CopyDescriptor,
+        dtype: ElemType,
+        stream_id: StreamId,
+        device_ids: &Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        let binding = desc.handle.clone();
+
+        // We create a command on the source server to retrieve the correct resource from the
+        // source memory pools. We also make sure the current stream is aligned with the stream of
+        // the binding, where the data was first allocated.
+        let mut command_src = self.command(
+            stream_id,
+            [&desc.handle].into_iter(),
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
+        )?;
+        let resource_src = command_src.resource(binding.clone())?;
+
+        // We need to free the command before creating another one.
+        core::mem::drop(command_src);
+
+        // Get the communicator.
+        let mut device_ids = device_ids.clone();
+        device_ids.sort();
+        let comm_id = CommunicationId::from(device_ids.clone());
+        let comm = self
+            .communicators
+            .get(&comm_id)
+            .expect("Communicator for this ID should exist");
+
+        let rank_dst = device_ids
+            .iter()
+            .position(|id| id.index_id != self.device_id.index_id)
+            .unwrap() as i32;
+
+        // Perform the `send_recv` operation.
+        let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_src.size);
+        // SAFETY: `resource_src.ptr` and `resource_dst.ptr` are valid device pointers.
+        // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
+        // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
+
+        unsafe {
+            cudarc::nccl::result::send(
+                resource_src.ptr as *const _,
+                count,
+                nccl_dtype,
+                rank_dst,
+                *comm,
+                self.comm_stream as _,
+            )
+            .map_err(|e| ServerError::Generic {
+                reason: format!("NCCL send failed: {e:?}"),
+                backtrace: BackTrace::capture(),
+            })?;
         }
 
         Ok(())

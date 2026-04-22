@@ -576,11 +576,10 @@ impl<R: Runtime> ComputeClient<R> {
             .contains(&comm_id);
         if !is_comms_init {
             self.device
-                .submit(move |server| server.comm_init(device_ids).unwrap());
+                .submit(move |server| server.comm_init(&device_ids).unwrap());
             let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
             initialized_comms.insert(comm_id);
-            // We don't want the initialization to be blocking, but we also want to flush it right away so that other
-            // threads aren't waiting on it.
+            // Flush immediately so other devices aren't blocked waiting on this initialization.
             self.device.flush_queue();
         }
     }
@@ -653,33 +652,26 @@ impl<R: Runtime> ComputeClient<R> {
         let handle_cloned = handle.clone();
 
         let device_ids = vec![self.device.device_id(), dst_server.device.device_id()];
+        let device_ids_cloned = device_ids.clone();
         self.ensure_init_collective(device_ids.clone());
         dst_server.ensure_init_collective(device_ids.clone());
 
-        // Even though we do a blocking submit, the actual data transfer is executed asynchronously
-        // on the communication stream.
-        self.device
-            .submit_blocking(move |server_src| {
-                dst_server
-                    .device
-                    .submit_blocking(move |server_dst| {
-                        R::Server::send_recv(
-                            handle_cloned,
-                            server_src,
-                            server_dst,
-                            src_descriptor,
-                            dtype,
-                            stream_id_src,
-                            stream_id_dst,
-                        )
-                        .unwrap();
+        self.device.submit(move |server_src| {
+            server_src
+                .send(src_descriptor, dtype, stream_id_src, &device_ids)
+                .unwrap()
+        });
+        // `ServerCommunication::recv` is blocking and waits on the corresponding `send`. We flush the operation
+        // right away so that the destination server doesn't end up in a deadlock. The actual data transfer is still
+        // executed asynchronously on the communication stream.
+        self.device.flush_queue();
 
-                        server_src.sync_collective(stream_id_src).unwrap();
-                        server_dst.sync_collective(stream_id_dst).unwrap();
-                    })
-                    .unwrap();
-            })
-            .unwrap();
+        dst_server.device.submit(move |server_dst| {
+            server_dst
+                .recv(handle_cloned, dtype, stream_id_dst, &device_ids_cloned)
+                .unwrap();
+            server_dst.sync_collective(stream_id_dst).unwrap();
+        });
 
         handle
     }

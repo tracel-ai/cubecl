@@ -464,7 +464,7 @@ pub trait ServerCommunication {
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
     #[allow(unused_variables)]
-    fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
+    fn comm_init(&mut self, device_ids: &Vec<DeviceId>) -> Result<(), ServerError> {
         unimplemented!()
     }
 
@@ -520,6 +520,28 @@ pub trait ServerCommunication {
         dtype: ElemType,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
+    ) -> Result<(), ServerError> {
+        unimplemented!()
+    }
+
+    #[allow(unused_variables)]
+    fn recv(
+        &mut self,
+        handle: Handle,
+        dtype: ElemType,
+        stream_id: StreamId,
+        device_ids: &Vec<DeviceId>,
+    ) -> Result<(), ServerError> {
+        unimplemented!()
+    }
+
+    #[allow(unused_variables)]
+    fn send(
+        &mut self,
+        desc: CopyDescriptor,
+        dtype: ElemType,
+        stream_id: StreamId,
+        device_ids: &Vec<DeviceId>,
     ) -> Result<(), ServerError> {
         unimplemented!()
     }
