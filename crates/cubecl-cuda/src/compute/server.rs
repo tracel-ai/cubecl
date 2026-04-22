@@ -289,11 +289,6 @@ impl ServerCommunication for CudaServer {
             // SAFETY: `comm` is a valid `MaybeUninit`. `nccl_comm_id` is a unique communicator ID
             // shared across all participating ranks. `rank` is this device's position in the
             // group. `comm_init_rank` initializes the communicator, making `assume_init` valid.
-            println!(
-                "[{:?}] init_comm_rank device {:?}",
-                std::thread::current().id(),
-                self.device_id.index_id
-            );
             unsafe {
                 cudarc::nccl::result::comm_init_rank(
                     comm.as_mut_ptr(),
@@ -307,20 +302,9 @@ impl ServerCommunication for CudaServer {
                 })?;
                 e.insert(comm.assume_init());
             }
-            println!(
-                "[{:?}] inited comm {:?}",
-                std::thread::current().id(),
-                self.device_id.index_id
-            );
 
             let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
             initialized_comms.insert(id);
-
-            println!(
-                "[{:?}] utilities write done {:?}",
-                std::thread::current().id(),
-                self.device_id.index_id
-            );
         }
 
         Ok(())
@@ -384,12 +368,6 @@ impl ServerCommunication for CudaServer {
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
 
-        println!(
-            "[{:?}] server all_reduce {:?}",
-            std::thread::current().id(),
-            self.device_id.index_id
-        );
-
         unsafe {
             cudarc::nccl::result::all_reduce(
                 resource_src.ptr as *const _,
@@ -410,12 +388,6 @@ impl ServerCommunication for CudaServer {
     }
 
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        println!(
-            "[{:?}] server sync_collective {:?}",
-            std::thread::current().id(),
-            self.device_id.index_id
-        );
-
         let mut command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -590,12 +562,6 @@ impl ServerCommunication for CudaServer {
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
 
-        println!(
-            "[{:?}] nccl recv {:?}",
-            std::thread::current().id(),
-            self.device_id.index_id
-        );
-
         unsafe {
             cudarc::nccl::result::recv(
                 resource_dst.ptr as *mut _,
@@ -610,12 +576,6 @@ impl ServerCommunication for CudaServer {
                 backtrace: BackTrace::capture(),
             })?;
         }
-
-        println!(
-            "[{:?}] nccl recv finished {:?}",
-            std::thread::current().id(),
-            self.device_id.index_id
-        );
 
         Ok(())
     }
@@ -665,12 +625,6 @@ impl ServerCommunication for CudaServer {
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
 
-        println!(
-            "[{:?}] nccl send {:?}",
-            std::thread::current().id(),
-            self.device_id.index_id
-        );
-
         unsafe {
             cudarc::nccl::result::send(
                 resource_src.ptr as *const _,
@@ -685,12 +639,6 @@ impl ServerCommunication for CudaServer {
                 backtrace: BackTrace::capture(),
             })?;
         }
-
-        println!(
-            "[{:?}] nccl send finished {:?}",
-            std::thread::current().id(),
-            self.device_id.index_id
-        );
 
         Ok(())
     }

@@ -579,8 +579,7 @@ impl<R: Runtime> ComputeClient<R> {
                 .submit(move |server| server.comm_init(&device_ids).unwrap());
             let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
             initialized_comms.insert(comm_id);
-            // We don't want the initialization to be blocking, but we also want to flush it right away so that other
-            // threads aren't waiting on it.
+            // Flush immediately so other devices aren't blocked waiting on this initialization.
             self.device.flush_queue();
         }
     }
@@ -657,31 +656,21 @@ impl<R: Runtime> ComputeClient<R> {
         self.ensure_init_collective(device_ids.clone());
         dst_server.ensure_init_collective(device_ids.clone());
 
-        // Even though we do a blocking submit, the actual data transfer is executed asynchronously
-        // on the communication stream.
-
-        std::println!("[{:?}] submit_blocking send", std::thread::current().id(),);
-
         self.device.submit(move |server_src| {
             server_src
                 .send(src_descriptor, dtype, stream_id_src, &device_ids)
                 .unwrap()
         });
+        // `ServerCommunication::recv` is blocking and waits on the corresponding `send`. We flush the operation
+        // right away so that the destination server doesn't end up in a deadlock. The actual data transfer is still
+        // executed asynchronously on the communication stream.
         self.device.flush_queue();
 
-        std::println!("[{:?}] submit recv", std::thread::current().id(),);
-
         dst_server.device.submit(move |server_dst| {
-            std::println!("[{:?}] in submit recv", std::thread::current().id(),);
             server_dst
                 .recv(handle_cloned, dtype, stream_id_dst, &device_ids_cloned)
                 .unwrap();
-            std::println!(
-                "[{:?}] in submit sync_collective",
-                std::thread::current().id(),
-            );
             server_dst.sync_collective(stream_id_dst).unwrap();
-            std::println!("[{:?}] in submit finished", std::thread::current().id(),);
         });
 
         handle
