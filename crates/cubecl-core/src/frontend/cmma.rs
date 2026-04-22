@@ -144,23 +144,23 @@ impl<A: CubeType, B: CubeType, CD: CubeType> ExpandTypeClone for MmaDefinitionEx
 }
 
 impl<C: CubeType, S: MatrixScope> AsRefExpand for MatrixExpand<C, S> {
-    fn __expand_as_ref_method<'a>(&'a self, _scope: &Scope) -> &'a Self {
+    fn __expand_as_ref_method(&self, _scope: &Scope) -> &Self {
         self
     }
 }
 impl<C: CubeType, S: MatrixScope> AsMutExpand for MatrixExpand<C, S> {
-    fn __expand_as_mut_method<'a>(&'a mut self, _scope: &Scope) -> &'a mut Self {
+    fn __expand_as_mut_method(&mut self, _scope: &Scope) -> &mut Self {
         self
     }
 }
 
 impl<A: CubeType, B: CubeType, CD: CubeType> AsRefExpand for MmaDefinitionExpand<A, B, CD> {
-    fn __expand_as_ref_method<'a>(&'a self, _scope: &Scope) -> &'a Self {
+    fn __expand_as_ref_method(&self, _scope: &Scope) -> &Self {
         self
     }
 }
 impl<A: CubeType, B: CubeType, CD: CubeType> AsMutExpand for MmaDefinitionExpand<A, B, CD> {
-    fn __expand_as_mut_method<'a>(&'a mut self, _scope: &Scope) -> &'a mut Self {
+    fn __expand_as_mut_method(&mut self, _scope: &Scope) -> &mut Self {
         self
     }
 }
@@ -1265,12 +1265,12 @@ impl IntoMut for MatrixLayout {
 impl CubeDebug for MatrixLayout {}
 
 impl AsRefExpand for MatrixLayout {
-    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 }
 impl AsMutExpand for MatrixLayout {
-    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }

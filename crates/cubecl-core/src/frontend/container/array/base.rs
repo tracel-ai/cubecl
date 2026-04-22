@@ -31,7 +31,7 @@ impl<E> Clone for Array<E> {
 type ArrayExpand<E> = NativeExpand<Array<E>>;
 
 impl<E> AsMutExpand for ArrayExpand<E> {
-    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }
@@ -203,14 +203,14 @@ mod indexation {
     use super::*;
 
     #[cube]
-    impl<'a, E: CubePrimitive> Array<E> {
+    impl<E: CubePrimitive> Array<E> {
         /// Perform an unchecked index into the array
         ///
         /// # Safety
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&'a self, i: usize) -> &'a E {
+        pub unsafe fn index_unchecked(&self, i: usize) -> &E {
             intrinsic!(|scope| {
                 let ty = self.expand.ty;
                 let class = self.expand.pointer_class();
@@ -234,7 +234,7 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_mut_unchecked(&'a mut self, i: usize) -> &'a mut E {
+        pub unsafe fn index_mut_unchecked(&mut self, i: usize) -> &mut E {
             intrinsic!(|scope| {
                 let ty = self.expand.ty;
                 let class = self.expand.pointer_class();
@@ -277,16 +277,6 @@ impl<T: CubeType> Iterator for Array<T> {
     }
 }
 
-impl<'a, T: CubePrimitive> List<'a, T> for Array<T> {
-    fn __expand_read(
-        scope: &Scope,
-        this: &'a NativeExpand<Array<T>>,
-        idx: NativeExpand<usize>,
-    ) -> &'a NativeExpand<T> {
-        this.__expand_index_method(scope, idx)
-    }
-}
-
 impl<T: CubePrimitive> Deref for Array<T> {
     type Target = [T];
 
@@ -309,19 +299,16 @@ impl<T: CubePrimitive> DerefExpand for ArrayExpand<T> {
     }
 }
 
-impl<'a, T: CubePrimitive> ListExpand<'a, T> for ArrayExpand<T> {
-    fn __expand_read_method(
-        &'a self,
-        scope: &Scope,
-        idx: NativeExpand<usize>,
-    ) -> &'a NativeExpand<T> {
+impl<T: CubePrimitive> List<T> for Array<T> {}
+impl<T: CubePrimitive> ListExpand<T> for ArrayExpand<T> {
+    fn __expand_read_method(&self, scope: &Scope, idx: NativeExpand<usize>) -> &NativeExpand<T> {
         self.__expand_index_method(scope, idx)
     }
     fn __expand_read_unchecked_method(
-        &'a self,
+        &self,
         scope: &Scope,
         idx: NativeExpand<usize>,
-    ) -> &'a NativeExpand<T> {
+    ) -> &NativeExpand<T> {
         self.__expand_index_unchecked_method(scope, idx)
     }
 
@@ -337,25 +324,13 @@ impl<T: CubePrimitive> VectorizedExpand for ArrayExpand<T> {
     }
 }
 
-impl<'a, T: CubePrimitive> ListMut<'a, T> for Array<T> {
-    fn __expand_write(
-        scope: &Scope,
-        this: &'a ArrayExpand<T>,
-        idx: NativeExpand<usize>,
-    ) -> &'a mut NativeExpand<T> {
-        let mut this = *this;
-        let reference = this.__expand_index_mut_method(scope, idx);
-        // Extend lifetime because we know the array is actually 'a
-        unsafe { core::mem::transmute(reference) }
-    }
-}
-
-impl<'a, T: CubePrimitive> ListMutExpand<'a, T> for ArrayExpand<T> {
+impl<T: CubePrimitive> ListMut<T> for Array<T> {}
+impl<T: CubePrimitive> ListMutExpand<T> for ArrayExpand<T> {
     fn __expand_write_method(
-        &'a self,
+        &self,
         scope: &Scope,
         idx: NativeExpand<usize>,
-    ) -> &'a mut NativeExpand<T> {
+    ) -> &mut NativeExpand<T> {
         let mut this = *self;
         let reference = this.__expand_index_mut_method(scope, idx);
         // Extend lifetime because we know the array is actually 'a

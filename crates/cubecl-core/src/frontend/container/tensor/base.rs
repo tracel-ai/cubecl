@@ -151,14 +151,14 @@ mod indexation {
     use super::*;
 
     #[cube]
-    impl<'a, E: CubePrimitive> Tensor<E> {
+    impl<E: CubePrimitive> Tensor<E> {
         /// Perform an unchecked index into the array
         ///
         /// # Safety
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&'a self, i: usize) -> &'a E {
+        pub unsafe fn index_unchecked(&self, i: usize) -> &E {
             intrinsic!(|scope| {
                 let ty = self.expand.ty;
                 let class = self.expand.pointer_class();
@@ -182,7 +182,7 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_assign_unchecked(&'a mut self, i: usize) -> &'a mut E {
+        pub unsafe fn index_assign_unchecked(&mut self, i: usize) -> &mut E {
             intrinsic!(|scope| {
                 let ty = self.expand.ty;
                 let class = self.expand.pointer_class();
@@ -259,20 +259,12 @@ impl<T: CubePrimitive> DerefExpand for TensorExpand<T> {
 }
 
 impl<T: CubeType> AsMutExpand for TensorExpand<T> {
-    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }
 
-impl<'a, T: CubePrimitive> List<'a, T> for Tensor<T> {
-    fn __expand_read(
-        scope: &Scope,
-        this: &'a NativeExpand<Tensor<T>>,
-        idx: NativeExpand<usize>,
-    ) -> &'a NativeExpand<T> {
-        this.__expand_index_method(scope, idx)
-    }
-}
+impl<T: CubePrimitive> List<T> for Tensor<T> {}
 
 impl<T: CubePrimitive> Deref for Tensor<T> {
     type Target = [T];
@@ -288,19 +280,15 @@ impl<T: CubePrimitive> DerefMut for Tensor<T> {
     }
 }
 
-impl<'a, T: CubePrimitive> ListExpand<'a, T> for NativeExpand<Tensor<T>> {
-    fn __expand_read_method(
-        &'a self,
-        scope: &Scope,
-        idx: NativeExpand<usize>,
-    ) -> &'a NativeExpand<T> {
+impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Tensor<T>> {
+    fn __expand_read_method(&self, scope: &Scope, idx: NativeExpand<usize>) -> &NativeExpand<T> {
         self.__expand_index_method(scope, idx)
     }
     fn __expand_read_unchecked_method(
-        &'a self,
+        &self,
         scope: &Scope,
         idx: NativeExpand<usize>,
-    ) -> &'a NativeExpand<T> {
+    ) -> &NativeExpand<T> {
         self.__expand_index_unchecked_method(scope, idx)
     }
 
@@ -316,25 +304,13 @@ impl<T: CubePrimitive> VectorizedExpand for NativeExpand<Tensor<T>> {
     }
 }
 
-impl<'a, T: CubePrimitive> ListMut<'a, T> for Tensor<T> {
-    fn __expand_write(
-        scope: &Scope,
-        this: &'a NativeExpand<Tensor<T>>,
-        idx: NativeExpand<usize>,
-    ) -> &'a mut NativeExpand<T> {
-        let mut this = *this;
-        let reference = this.__expand_index_mut_method(scope, idx);
-        // Cloning self just clones the reference, so this is safe
-        unsafe { core::mem::transmute(reference) }
-    }
-}
-
-impl<'a, T: CubePrimitive> ListMutExpand<'a, T> for NativeExpand<Tensor<T>> {
+impl<T: CubePrimitive> ListMut<T> for Tensor<T> {}
+impl<T: CubePrimitive> ListMutExpand<T> for NativeExpand<Tensor<T>> {
     fn __expand_write_method(
         &self,
         scope: &Scope,
         idx: NativeExpand<usize>,
-    ) -> &'a mut NativeExpand<T> {
+    ) -> &mut NativeExpand<T> {
         let mut this = *self;
         let reference = this.__expand_index_mut_method(scope, idx);
         // Cloning self just clones the reference, so this is safe

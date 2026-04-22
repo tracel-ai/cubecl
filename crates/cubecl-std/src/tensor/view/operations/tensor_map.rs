@@ -42,12 +42,12 @@ macro_rules! impl_tensor_map {
                     unimplemented!("Can't read from tensor map");
                 }
 
-                fn __expand_to_linear_slice_method<'a>(
-                    &'a self,
+                fn __expand_to_linear_slice_method(
+                    &self,
                     _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                     _end: <$coords as CubeType>::ExpandType,
-                ) -> &'a SliceExpand<T, ReadOnly> {
+                ) -> &SliceExpand<T, ReadOnly> {
                     unimplemented!("Can't read from tensor map");
                 }
 
@@ -99,12 +99,12 @@ macro_rules! impl_tensor_map {
                     unimplemented!("Can't write to tensor map");
                 }
 
-                fn __expand_to_linear_slice_mut_method<'a>(
-                    &'a self,
+                fn __expand_to_linear_slice_mut_method(
+                    &self,
                     _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                     _end: <$coords as CubeType>::ExpandType,
-                ) -> &'a mut SliceExpand<T, ReadWrite> {
+                ) -> &mut SliceExpand<T, ReadWrite> {
                     unimplemented!("Can't write to tensor map");
                 }
 
@@ -177,12 +177,12 @@ macro_rules! impl_tensor_map_im2col {
                     unimplemented!("Can't read from tensor map");
                 }
 
-                fn __expand_to_linear_slice_method<'a>(
-                    &'a self,
+                fn __expand_to_linear_slice_method(
+                    &self,
                     _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
                     _end: <$coords as CubeType>::ExpandType,
-                ) -> &'a SliceExpand<T, ReadOnly> {
+                ) -> &SliceExpand<T, ReadOnly> {
                     unimplemented!("Can't read from tensor map");
                 }
 
@@ -286,12 +286,12 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
         unimplemented!("Can't read from tensor map");
     }
 
-    fn __expand_to_linear_slice_method<'a>(
-        &'a self,
+    fn __expand_to_linear_slice_method(
+        &self,
         _scope: &Scope,
         _pos: SequenceExpand<N>,
         _end: SequenceExpand<N>,
-    ) -> &'a SliceExpand<T, ReadOnly> {
+    ) -> &SliceExpand<T, ReadOnly> {
         unimplemented!("Can't read from tensor map");
     }
 
@@ -381,12 +381,12 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T
         unimplemented!("Can't write to tensor map");
     }
 
-    fn __expand_to_linear_slice_mut_method<'a>(
-        &'a self,
+    fn __expand_to_linear_slice_mut_method(
+        &self,
         _scope: &Scope,
         _pos: SequenceExpand<N>,
         _end: SequenceExpand<N>,
-    ) -> &'a mut SliceExpand<T, ReadWrite> {
+    ) -> &mut SliceExpand<T, ReadWrite> {
         unimplemented!("Can't write to tensor map");
     }
 
@@ -478,12 +478,12 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
         unimplemented!("Can't read from tensor map");
     }
 
-    fn __expand_to_linear_slice_method<'a>(
-        &'a self,
+    fn __expand_to_linear_slice_method(
+        &self,
         _scope: &Scope,
         _pos: (SequenceExpand<P>, SequenceExpand<O>),
         _end: (SequenceExpand<P>, SequenceExpand<O>),
-    ) -> &'a SliceExpand<T, ReadOnly> {
+    ) -> &SliceExpand<T, ReadOnly> {
         unimplemented!("Can't read from tensor map");
     }
 

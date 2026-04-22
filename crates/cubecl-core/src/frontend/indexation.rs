@@ -60,11 +60,11 @@ pub trait CubeIndexMut:
 }
 
 pub trait CubeIndexMutExpand: CubeIndexExpand {
-    fn __expand_index_mut_method<'a>(
-        &'a mut self,
+    fn __expand_index_mut_method(
+        &mut self,
         scope: &Scope,
         index: <Self as CubeIndexExpand>::Idx,
-    ) -> &'a mut <Self as CubeIndexExpand>::Output;
+    ) -> &mut <Self as CubeIndexExpand>::Output;
 }
 
 pub(crate) fn expand_index_native<'a, A: CubeIndexExpand + Clone + Into<Variable>>(

@@ -28,15 +28,7 @@ pub struct VirtualTensorExpand<E: Numeric, N: Size, IO> {
     _p: PhantomData<IO>,
 }
 
-impl<'a, E: Numeric, N: Size, IO: Clone> List<'a, Vector<E, N>> for VirtualTensor<E, N, IO> {
-    fn __expand_read(
-        scope: &Scope,
-        this: &'a VirtualTensorExpand<E, N, IO>,
-        index: <usize as CubeType>::ExpandType,
-    ) -> &'a <Vector<E, N> as CubeType>::ExpandType {
-        this.__expand_read_method(scope, index)
-    }
-}
+impl<E: Numeric, N: Size, IO: Clone> List<Vector<E, N>> for VirtualTensor<E, N, IO> {}
 
 impl<T: Numeric, N: Size, IO: Clone> Deref for VirtualTensor<T, N, IO> {
     type Target = [Vector<T, N>];
@@ -52,22 +44,20 @@ impl<T: Numeric, N: Size> DerefMut for VirtualTensor<T, N, ReadWrite> {
     }
 }
 
-impl<'a, E: Numeric, N: Size, IO: Clone> ListExpand<'a, Vector<E, N>>
-    for VirtualTensorExpand<E, N, IO>
-{
+impl<E: Numeric, N: Size, IO: Clone> ListExpand<Vector<E, N>> for VirtualTensorExpand<E, N, IO> {
     fn __expand_read_method(
-        &'a self,
+        &self,
         scope: &Scope,
         index: <usize as CubeType>::ExpandType,
-    ) -> &'a <Vector<E, N> as CubeType>::ExpandType {
+    ) -> &<Vector<E, N> as CubeType>::ExpandType {
         self.state.__expand_read_method(scope, index)
     }
 
     fn __expand_read_unchecked_method(
-        &'a self,
+        &self,
         _scope: &Scope,
         _index: NativeExpand<usize>,
-    ) -> &'a <Vector<E, N> as CubeType>::ExpandType {
+    ) -> &<Vector<E, N> as CubeType>::ExpandType {
         todo!("VirtualTensor don't support read unchecked yet");
     }
 
@@ -83,26 +73,20 @@ impl<E: Numeric, N: Size, IO: Clone> VectorizedExpand for VirtualTensorExpand<E,
     }
 }
 
-impl<'a, E: Numeric, N: Size, IO: Clone> SliceOperator<'a, Vector<E, N>>
-    for VirtualTensor<E, N, IO>
-{
-}
-impl<'a, E: Numeric, N: Size, IO: Clone> SliceOperatorExpand<'a, Vector<E, N>>
+impl<E: Numeric, N: Size, IO: Clone> SliceOperator<Vector<E, N>> for VirtualTensor<E, N, IO> {}
+impl<E: Numeric, N: Size, IO: Clone> SliceOperatorExpand<Vector<E, N>>
     for VirtualTensorExpand<E, N, IO>
 {
     fn __expand_slice_method(
-        &'a self,
+        &self,
         scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &'a SliceExpand<Vector<E, N>, ReadOnly> {
+    ) -> &SliceExpand<Vector<E, N>, ReadOnly> {
         self.state.__expand_read_window_method(scope, start, end)
     }
 
-    fn __expand_to_slice_method(
-        &'a self,
-        scope: &Scope,
-    ) -> &'a SliceExpand<Vector<E, N>, ReadOnly> {
+    fn __expand_to_slice_method(&self, scope: &Scope) -> &SliceExpand<Vector<E, N>, ReadOnly> {
         let end = self.clone().__expand_buffer_len_method(scope);
         self.state.__expand_read_window_method(scope, 0.into(), end)
     }
@@ -339,50 +323,36 @@ impl<E: Numeric, N: Size, IO: Clone + 'static> VirtualTensor<E, N, IO> {
     }
 }
 
-impl<'a, E: Numeric, N: Size> ListMut<'a, Vector<E, N>> for VirtualTensor<E, N, ReadWrite> {
-    fn __expand_write(
-        scope: &Scope,
-        this: &'a VirtualTensorExpand<E, N, ReadWrite>,
-        index: <usize as CubeType>::ExpandType,
-    ) -> &'a mut <Vector<E, N> as CubeType>::ExpandType {
-        this.__expand_write_method(scope, index)
-    }
-}
-
-impl<'a, E: Numeric, N: Size> ListMutExpand<'a, Vector<E, N>>
-    for VirtualTensorExpand<E, N, ReadWrite>
-{
+impl<E: Numeric, N: Size> ListMut<Vector<E, N>> for VirtualTensor<E, N, ReadWrite> {}
+impl<E: Numeric, N: Size> ListMutExpand<Vector<E, N>> for VirtualTensorExpand<E, N, ReadWrite> {
     fn __expand_write_method(
-        &'a self,
+        &self,
         scope: &Scope,
         index: <usize as CubeType>::ExpandType,
-    ) -> &'a mut <Vector<E, N> as CubeType>::ExpandType {
+    ) -> &mut <Vector<E, N> as CubeType>::ExpandType {
         self.state.__expand_write_method(scope, index)
     }
 }
 
-impl<'a, E: Numeric, N: Size> SliceMutOperator<'a, Vector<E, N>>
-    for VirtualTensor<E, N, ReadWrite>
-{
-}
-impl<'a, E: Numeric, N: Size> SliceMutOperatorExpand<'a, Vector<E, N>>
+impl<E: Numeric, N: Size> SliceMutOperator<Vector<E, N>> for VirtualTensor<E, N, ReadWrite> {}
+impl<E: Numeric, N: Size> SliceMutOperatorExpand<Vector<E, N>>
     for VirtualTensorExpand<E, N, ReadWrite>
 {
     #[allow(unused_variables)]
     fn __expand_slice_mut_method(
-        &'a mut self,
+        &mut self,
         scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &'a mut SliceExpand<Vector<E, N>, cubecl_core::prelude::ReadWrite> {
+    ) -> &mut SliceExpand<Vector<E, N>, cubecl_core::prelude::ReadWrite> {
         todo!("VirtualTensor don't support slice mut yet");
     }
 
     #[allow(unused_variables)]
     fn __expand_to_slice_mut_method(
-        &'a mut self,
+        &mut self,
         scope: &Scope,
-    ) -> &'a mut SliceExpand<Vector<E, N>, cubecl_core::prelude::ReadWrite> {
+    ) -> &mut SliceExpand<Vector<E, N>, cubecl_core::prelude::ReadWrite> {
         todo!("VirtualTensor don't support slice mut yet");
     }
 }
@@ -500,13 +470,13 @@ mod __cube_type {
     impl<E: Numeric, N: Size, IO> CubeDebug for VirtualTensorExpand<E, N, IO> {}
 
     impl<E: Numeric, N: Size, IO: Clone> AsRefExpand for VirtualTensorExpand<E, N, IO> {
-        fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+        fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
             self
         }
     }
 
     impl<E: Numeric, N: Size, IO: Clone> AsMutExpand for VirtualTensorExpand<E, N, IO> {
-        fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+        fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
             self
         }
     }

@@ -140,7 +140,7 @@ impl<E: CubePrimitive, K: TensorMapKind> CubeType for TensorMap<E, K> {
 }
 
 impl<E: CubePrimitive, K: TensorMapKind> AsMutExpand for NativeExpand<TensorMap<E, K>> {
-    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }

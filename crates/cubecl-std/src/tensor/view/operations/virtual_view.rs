@@ -156,12 +156,12 @@ macro_rules! impl_virtual_read {
                 self.view.__expand_read_unchecked_method(scope, pos)
             }
 
-            fn __expand_to_linear_slice_method<'a>(
-                &'a self,
+            fn __expand_to_linear_slice_method(
+                &self,
                 scope: &Scope,
                 pos: <C>::ExpandType,
                 end: <C>::ExpandType,
-            ) -> &'a SliceExpand<T, ReadOnly> {
+            ) -> &SliceExpand<T, ReadOnly> {
                 let pos = self
                     .layout
                     .clone()
@@ -246,12 +246,12 @@ where
         });
     }
 
-    fn __expand_to_linear_slice_mut_method<'a>(
-        &'a self,
+    fn __expand_to_linear_slice_mut_method(
+        &self,
         scope: &Scope,
         pos: <C>::ExpandType,
         end: <C>::ExpandType,
-    ) -> &'a mut SliceExpand<T, ReadWrite> {
+    ) -> &mut SliceExpand<T, ReadWrite> {
         let pos = self
             .layout
             .clone()

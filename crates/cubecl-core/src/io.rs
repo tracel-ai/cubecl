@@ -22,11 +22,11 @@ pub fn read_masked<C: CubePrimitive>(mask: bool, list: &Slice<C>, index: usize, 
 
 /// Returns the value at `index` in tensor within bounds.
 #[cube]
-pub fn checked_index<'a, E: Scalar, N: Size>(
-    tensor: &'a Array<Vector<E, N>>,
+pub fn checked_index<E: Scalar, N: Size>(
+    tensor: &Array<Vector<E, N>>,
     index: usize,
     #[comptime] unroll_factor: usize,
-) -> &'a Vector<E, N> {
+) -> &Vector<E, N> {
     let len = tensor.buffer_len() * unroll_factor;
     let index = index.min(len - 1);
 
@@ -35,12 +35,12 @@ pub fn checked_index<'a, E: Scalar, N: Size>(
 
 /// Returns the value at `index` in tensor within bounds.
 #[cube]
-pub fn validate_index<'a, E: Scalar, N: Size>(
-    tensor: &'a Array<Vector<E, N>>,
+pub fn validate_index<E: Scalar, N: Size>(
+    tensor: &Array<Vector<E, N>>,
     index: usize,
     #[comptime] unroll_factor: usize,
     #[comptime] kernel_name: String,
-) -> &'a Vector<E, N> {
+) -> &Vector<E, N> {
     let len = tensor.buffer_len() * unroll_factor;
     let in_bounds = index < len;
     if !in_bounds {
@@ -53,12 +53,12 @@ pub fn validate_index<'a, E: Scalar, N: Size>(
 }
 
 #[cube]
-fn checked_index_mut<'a, E: Scalar, N: Size>(
-    out: &'a mut Array<Vector<E, N>>,
+fn checked_index_mut<E: Scalar, N: Size>(
+    out: &mut Array<Vector<E, N>>,
     index: usize,
     #[comptime] has_buffer_len: bool,
     #[comptime] unroll_factor: usize,
-) -> &'a mut Vector<E, N> {
+) -> &mut Vector<E, N> {
     let array_len = if has_buffer_len {
         out.buffer_len()
     } else {
@@ -72,13 +72,13 @@ fn checked_index_mut<'a, E: Scalar, N: Size>(
 }
 
 #[cube]
-fn validate_index_mut<'a, E: Scalar, N: Size>(
-    out: &'a mut Array<Vector<E, N>>,
+fn validate_index_mut<E: Scalar, N: Size>(
+    out: &mut Array<Vector<E, N>>,
     index: usize,
     #[comptime] has_buffer_len: bool,
     #[comptime] unroll_factor: usize,
     #[comptime] kernel_name: String,
-) -> &'a mut Vector<E, N> {
+) -> &mut Vector<E, N> {
     let array_len = if has_buffer_len {
         out.buffer_len()
     } else {

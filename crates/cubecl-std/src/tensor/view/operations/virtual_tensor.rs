@@ -51,12 +51,12 @@ impl<T: Numeric, N: Size, IO: Clone> ViewOperationsExpand<Vector<T, N>, Coords1d
             .__expand_deref_method(scope)
     }
 
-    fn __expand_to_linear_slice_method<'a>(
-        &'a self,
+    fn __expand_to_linear_slice_method(
+        &self,
         scope: &Scope,
         pos: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &'a SliceExpand<Vector<T, N>, ReadOnly> {
+    ) -> &SliceExpand<Vector<T, N>, ReadOnly> {
         // Convert to exclusive end
         let end = end.__expand_add_method(scope, 1usize.into_expand(scope));
         // Handling for shapes that are 0 in at least one dim, ensures the slice is not
@@ -120,12 +120,12 @@ impl<T: Numeric, N: Size> ViewOperationsMutExpand<Vector<T, N>, Coords1d>
         })
     }
 
-    fn __expand_to_linear_slice_mut_method<'a>(
-        &'a self,
+    fn __expand_to_linear_slice_mut_method(
+        &self,
         scope: &Scope,
         pos: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &'a mut SliceExpand<Vector<T, N>, ReadWrite> {
+    ) -> &mut SliceExpand<Vector<T, N>, ReadWrite> {
         // Convert to exclusive end
         let end = end.__expand_add_method(scope, 1usize.into_expand(scope));
         // Handling for shapes that are 0 in at least one dim, ensures the slice is not

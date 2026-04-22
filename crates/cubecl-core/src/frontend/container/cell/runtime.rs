@@ -101,12 +101,12 @@ impl<S: Scalar, N: Size> RuntimeCell<Vector<S, N>> {
 }
 
 impl<T: CubeType> AsRefExpand for RuntimeCellExpand<T> {
-    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 }
 impl<T: CubeType> AsMutExpand for RuntimeCellExpand<T> {
-    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }

@@ -68,13 +68,13 @@ pub trait ExpandTypeClone {
 /// it's implemented for all [`ExpandType`](CubeType::ExpandType)s. This is called when the Rust
 /// code uses `&x`.
 pub trait AsRefExpand<T = Self> {
-    fn __expand_as_ref_method<'a>(&'a self, scope: &Scope) -> &'a T;
+    fn __expand_as_ref_method(&self, scope: &Scope) -> &T;
 }
 
 /// Expand verison of [`AsMut`](core::convert::AsMut). The `Self` version must be implemented by
 /// all [`ExpandType`](CubeType::ExpandType)s, since `CubeCL` also uses it to implement `&mut x`.
 pub trait AsMutExpand<T = Self> {
-    fn __expand_as_mut_method<'a>(&'a mut self, scope: &Scope) -> &'a mut T;
+    fn __expand_as_mut_method(&mut self, scope: &Scope) -> &mut T;
 }
 
 /// `CubeCL` version of [`Deref`](core::ops::Deref). Unlike those traits, this trait produces owned
@@ -87,16 +87,16 @@ pub trait DerefExpand {
 
 pub trait AsDerefExpand {
     type Target;
-    fn __expand_as_deref_method<'a>(&'a self, scope: &Scope) -> &'a Self::Target;
+    fn __expand_as_deref_method(&self, scope: &Scope) -> &Self::Target;
 }
 
 pub trait AsDerefMutExpand: AsDerefExpand {
-    fn __expand_as_deref_mut_method<'a>(&'a mut self, scope: &Scope) -> &'a mut Self::Target;
+    fn __expand_as_deref_mut_method(&mut self, scope: &Scope) -> &mut Self::Target;
 }
 
 impl<T> AsDerefExpand for &mut T {
     type Target = T;
-    fn __expand_as_deref_method<'a>(&'a self, _: &Scope) -> &'a T {
+    fn __expand_as_deref_method(&self, _: &Scope) -> &T {
         self
     }
 }
@@ -656,12 +656,12 @@ impl<T: IntoMut> IntoMut for Vec<T> {
 impl<T: CubeDebug> CubeDebug for Vec<T> {}
 
 impl<T: AsRefExpand> AsRefExpand for Vec<T> {
-    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 }
 impl<T: AsMutExpand> AsMutExpand for Vec<T> {
-    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }
@@ -725,12 +725,12 @@ impl IntoMut for () {
 }
 
 impl AsRefExpand for () {
-    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 }
 impl AsMutExpand for () {
-    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }

@@ -122,12 +122,12 @@ impl<T: CubeType> Sequence<T> {
 }
 
 impl<T: CubeType> AsRefExpand for SequenceExpand<T> {
-    fn __expand_as_ref_method<'a>(&'a self, _: &Scope) -> &'a Self {
+    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 }
 impl<T: CubeType> AsMutExpand for SequenceExpand<T> {
-    fn __expand_as_mut_method<'a>(&'a mut self, _: &Scope) -> &'a mut Self {
+    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }
@@ -266,11 +266,11 @@ impl<T: CubeType> SequenceExpand<T> {
     }
 
     /// Expand method of [index](Sequence::index).
-    pub fn __expand_index_method<'a>(
-        &'a self,
+    pub fn __expand_index_method(
+        &self,
         _scope: &Scope,
         index: NativeExpand<usize>,
-    ) -> &'a T::ExpandType {
+    ) -> &T::ExpandType {
         let index = index.constant().expect("Index must be constant").as_usize();
         let values = self.values.borrow();
         let reference = &values[index];
@@ -280,11 +280,11 @@ impl<T: CubeType> SequenceExpand<T> {
 
     /// Expand method of [`index_mut`](Sequence::index_mut).
     #[allow(clippy::mut_from_ref)]
-    pub fn __expand_index_mut_method<'a>(
-        &'a self,
+    pub fn __expand_index_mut_method(
+        &self,
         _scope: &Scope,
         index: NativeExpand<usize>,
-    ) -> &'a mut T::ExpandType {
+    ) -> &mut T::ExpandType {
         let index = index.constant().expect("Index must be constant").as_usize();
         let mut values = self.values.borrow_mut();
         let reference = &mut values[index];
