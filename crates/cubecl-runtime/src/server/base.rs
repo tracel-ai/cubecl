@@ -2,7 +2,7 @@ use super::Handle;
 use crate::{
     client::ComputeClient,
     compiler::CompilationError,
-    config::{GlobalConfig, compilation::BoundsCheckMode},
+    config::{CubeClRuntimeConfig, RuntimeConfig, compilation::BoundsCheckMode},
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
@@ -158,7 +158,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
             epoch_time: web_time::Instant::now(),
             info,
             layout_policy: allocator,
-            check_mode: GlobalConfig::get().compilation.check_mode,
+            check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
         }
     }

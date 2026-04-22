@@ -17,7 +17,7 @@ mod reentrant;
 
 #[cfg(all(feature = "std", multi_threading))]
 type Inner<S> = channel::ChannelDeviceHandle<S>;
-// type Inner<S> = reentrant::ReentrantMutexDeviceHandle<S>;
+// type Inner<S> = mutex::MutexDeviceHandle<S>;
 #[cfg(all(feature = "std", not(multi_threading)))]
 type Inner<S> = reentrant::ReentrantMutexDeviceHandle<S>;
 #[cfg(all(not(feature = "std"), not(multi_threading)))]
@@ -54,7 +54,7 @@ impl<S: DeviceService> DeviceHandle<S> {
         }
     }
 
-    pub fn id(&self) -> DeviceId {
+    pub fn device_id(&self) -> DeviceId {
         self.handle.device_id()
     }
 

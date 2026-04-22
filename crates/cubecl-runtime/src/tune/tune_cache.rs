@@ -111,9 +111,13 @@ impl<K: AutotuneKey> TuneCache<K> {
     ) -> Self {
         #[cfg(std_io)]
         {
+            use crate::config::RuntimeConfig;
             use std::format;
 
-            let root = crate::config::GlobalConfig::get().autotune.cache.root();
+            let root = crate::config::CubeClRuntimeConfig::get()
+                .autotune
+                .cache
+                .root();
             let options = cubecl_common::cache::CacheOption::default();
             let mut cache = TuneCache {
                 in_memory_cache: HashMap::new(),

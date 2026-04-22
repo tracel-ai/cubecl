@@ -67,10 +67,6 @@ impl WgpuServer {
         source: &str,
         mode: ExecutionMode,
     ) -> Result<ShaderModule, CompilationError> {
-        #[allow(unused_assignments)]
-        #[cfg(not(target_family = "wasm"))]
-        let mut error_scope = None;
-
         match repr {
             #[cfg(feature = "spirv")]
             Some(AutoRepresentationRef::SpirV(repr)) => unsafe {
@@ -94,7 +90,6 @@ impl WgpuServer {
                 ))
             },
             _ => {
-                let _ = entrypoint_name; // otherwise unused
                 let checks = wgpu::ShaderRuntimeChecks {
                     // Cube does not need wgpu bounds checks - OOB behaviour is instead
                     // checked by cube (if enabled).
@@ -105,30 +100,53 @@ impl WgpuServer {
                     ..wgpu::ShaderRuntimeChecks::unchecked()
                 };
 
-                #[cfg(not(target_family = "wasm"))]
-                {
-                    error_scope = Some(self.device.push_error_scope(wgpu::ErrorFilter::Validation));
-                }
+                log::trace!("[cubecl-wgpu] compiling WGSL module `{entrypoint_name}`\n{source}");
+
+                let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
 
                 // SAFETY: Cube guarantees OOB safety when launching in checked mode. Launching in unchecked mode
                 // is only available through the use of unsafe code.
                 let module = unsafe {
                     self.device.create_shader_module_trusted(
                         ShaderModuleDescriptor {
-                            label: None,
+                            label: Some(entrypoint_name),
                             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
                         },
                         checks,
                     )
                 };
 
+                // `pop()` detaches from the LIFO stack immediately; only the
+                // result is async. Safe to interleave with other push/pops.
+                let err_future = error_scope.pop();
+
                 #[cfg(not(target_family = "wasm"))]
-                if let Some(scope) = error_scope
-                    && let Some(err) = cubecl_common::future::block_on(scope.pop())
-                {
+                if let Some(err) = cubecl_common::future::block_on(err_future) {
+                    log::error!(
+                        "[cubecl-wgpu] WGSL compilation failed for kernel `{entrypoint_name}`:\n{err}\n--- shader source ({} bytes) ---\n{source}\n--- end shader ---",
+                        source.len()
+                    );
                     return Err(CompilationError::Generic {
-                        reason: format!("{err}"),
+                        reason: format!(
+                            "WGSL compilation failed for kernel `{entrypoint_name}`: {err}"
+                        ),
                         backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                    });
+                }
+
+                // On wasm we can't block; spawn a task that awaits the pop
+                // future and logs.
+                #[cfg(target_family = "wasm")]
+                {
+                    let entrypoint_name = entrypoint_name.to_string();
+                    let source = source.to_string();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        if let Some(err) = err_future.await {
+                            log::error!(
+                                "[cubecl-wgpu] WGSL compilation failed for kernel `{entrypoint_name}`:\n{err}\n--- shader source ({} bytes) ---\n{source}\n--- end shader ---",
+                                source.len()
+                            );
+                        }
                     });
                 }
 

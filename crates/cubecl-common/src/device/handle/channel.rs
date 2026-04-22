@@ -504,7 +504,8 @@ mod task {
 /// A normal channel implementation, use for debugging.
 #[allow(dead_code)]
 mod normal_channel {
-    use crate::device::{DeviceId, handle::CallError};
+    use super::RunnerId;
+    use crate::device::handle::CallError;
     use alloc::boxed::Box;
     use std::sync::mpsc::SyncSender;
 
@@ -514,25 +515,25 @@ mod normal_channel {
     /// The client-side handle used to enqueue tasks.
     pub struct DeviceClient {
         state: SyncSender<Box<dyn FnOnce() + Send + 'static>>,
-        device_id: DeviceId,
+        runner_id: RunnerId,
     }
 
     impl Clone for DeviceClient {
         fn clone(&self) -> Self {
             Self {
                 state: self.state.clone(),
-                device_id: self.device_id,
+                runner_id: self.runner_id,
             }
         }
     }
 
     impl DeviceClient {
         /// Gets the device id associated to the channel.
-        pub fn device_id(&self) -> &DeviceId {
-            &self.device_id
+        pub fn runner_id(&self) -> &RunnerId {
+            &self.runner_id
         }
         /// Creates a new channel and spawns a server thread to process it.
-        pub fn new<I: FnOnce() + Send + 'static>(device_id: DeviceId, init: I) -> Self {
+        pub fn new<I: FnOnce() + Send + 'static>(runner_id: RunnerId, init: I) -> Self {
             let (sender, recv) = std::sync::mpsc::sync_channel::<Box<dyn FnOnce() + Send + 'static>>(
                 CHANNEL_MAX_TASK,
             );
@@ -548,7 +549,7 @@ mod normal_channel {
 
             Self {
                 state: sender,
-                device_id,
+                runner_id,
             }
         }
 
@@ -577,11 +578,37 @@ mod custom_channel {
     use core::{
         hint::spin_loop,
         sync::atomic::{AtomicPtr, AtomicU32, Ordering},
+        time::Duration,
     };
     use std::{sync::Arc, vec::Vec};
 
     /// Maximum number of [`Task`] that can be queued.
     pub const CHANNEL_MAX_TASK: usize = 32;
+
+    /// Number of `spin_loop` iterations before the server starts yielding.
+    /// Gives a hot window to absorb back-to-back submits without any syscall.
+    const SPIN_BUDGET_SERVER: u32 = 8192;
+    /// Number of `thread::yield_now` calls after the spin budget is exhausted,
+    /// before the server drops to sleeping.
+    const YIELD_BUDGET_SERVER: u32 = 64;
+    /// Sleep duration once both the spin and yield budgets are exhausted.
+    /// Bounds the wake-up latency from a fully idle state.
+    const SLEEP_STEP_SERVER: Duration = Duration::from_micros(150);
+
+    /// The client has the buffer to fill plus we add a factor of two to account for the double
+    /// buffering approach.
+    const CLIENT_BUDGET_FACTOR: u32 = CHANNEL_MAX_TASK as u32 * 2u32;
+
+    /// Number of `spin_loop` iterations on the client before yielding when the
+    /// queue is full. Longer than the server budget because a producer stall is
+    /// expected to resolve quickly (the server only needs to swap buffers).
+    const SPIN_BUDGET_CLIENT: u32 = SPIN_BUDGET_SERVER * CLIENT_BUDGET_FACTOR;
+    /// Number of `thread::yield_now` calls on the client after the spin budget
+    /// is exhausted, before dropping to sleeping.
+    const YIELD_BUDGET_CLIENT: u32 = YIELD_BUDGET_SERVER * CLIENT_BUDGET_FACTOR;
+    /// Sleep duration on the client once both budgets are exhausted. Kept short
+    /// to avoid stalling the producer's critical path.
+    const SLEEP_STEP_CLIENT: Duration = Duration::from_micros(75);
 
     /// The client-side handle used to enqueue tasks.
     pub struct DeviceClient {
@@ -608,7 +635,11 @@ mod custom_channel {
 
             std::thread::Builder::new()
                 .name(std::format!(
-                    "Device-{}-{}",
+                    "DS{}-{}-{}",
+                    match runner_id.stage {
+                        crate::device::DeviceServiceStage::Upstream => "U",
+                        crate::device::DeviceServiceStage::Downstream => "D",
+                    },
                     runner_id.device.type_id,
                     runner_id.device.index_id
                 ))
@@ -623,11 +654,19 @@ mod custom_channel {
 
         /// Atomically reserves a slot in the buffer and writes the task.
         pub fn enqueue<F: FnOnce() + Send + 'static>(&self, func: F) -> Result<(), CallError> {
+            let mut idle_count: u32 = 0;
             loop {
                 let index = self.state.available_index.fetch_add(1, Ordering::Acquire) as usize;
                 if index >= CHANNEL_MAX_TASK {
-                    // The queue is full; spin until the server flushes/swaps buffers.
-                    spin_loop();
+                    // The queue is full; back off until the server flushes/swaps buffers.
+                    if idle_count < SPIN_BUDGET_CLIENT {
+                        spin_loop();
+                    } else if idle_count < SPIN_BUDGET_CLIENT + YIELD_BUDGET_CLIENT {
+                        std::thread::yield_now();
+                    } else {
+                        std::thread::sleep(SLEEP_STEP_CLIENT);
+                    }
+                    idle_count = idle_count.saturating_add(1);
                     continue;
                 }
 
@@ -747,18 +786,29 @@ mod custom_channel {
 
         /// Main execution loop for the device thread.
         fn start(&mut self) {
+            let mut idle_count: u32 = 0;
             loop {
                 if self.ready_to_execute {
                     self.execute_tasks();
+                    idle_count = 0;
                 }
 
                 let queue_size = self.state.enqueued_count.load(Ordering::Acquire) as usize;
 
                 if queue_size >= CHANNEL_MAX_TASK {
                     self.fetch();
-                } else {
-                    spin_loop();
+                    idle_count = 0;
+                    continue;
                 }
+
+                if idle_count < SPIN_BUDGET_SERVER {
+                    spin_loop();
+                } else if idle_count < SPIN_BUDGET_SERVER + YIELD_BUDGET_SERVER {
+                    std::thread::yield_now();
+                } else {
+                    std::thread::sleep(SLEEP_STEP_SERVER);
+                }
+                idle_count = idle_count.saturating_add(1);
             }
         }
 

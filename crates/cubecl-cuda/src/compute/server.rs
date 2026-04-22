@@ -27,7 +27,7 @@ use cubecl_core::{
 use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy,
     compiler::CubeTask,
-    config::GlobalConfig,
+    config::{CubeClRuntimeConfig, RuntimeConfig},
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     server::ComputeServer,
@@ -556,7 +556,7 @@ impl CudaServer {
         device_id: DeviceId,
         utilities: ServerUtilities<Self>,
     ) -> Self {
-        let config = GlobalConfig::get();
+        let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
 
         ctx.unsafe_set_current().unwrap();
