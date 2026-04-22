@@ -54,7 +54,7 @@ impl<S: DeviceService> DeviceHandle<S> {
         }
     }
 
-    pub fn id(&self) -> DeviceId {
+    pub fn device_id(&self) -> DeviceId {
         self.handle.device_id()
     }
 

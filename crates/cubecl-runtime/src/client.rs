@@ -652,7 +652,7 @@ impl<R: Runtime> ComputeClient<R> {
         let handle = Handle::new(stream_id_dst, src_descriptor.handle.size_in_used());
         let handle_cloned = handle.clone();
 
-        let device_ids = vec![self.device.id(), dst_server.device.id()];
+        let device_ids = vec![self.device.device_id(), dst_server.device.device_id()];
         self.ensure_init_collective(device_ids.clone());
         dst_server.ensure_init_collective(device_ids.clone());
 
