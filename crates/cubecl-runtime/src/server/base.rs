@@ -464,7 +464,7 @@ pub trait ServerCommunication {
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
     #[allow(unused_variables)]
-    fn comm_init(&mut self, device_ids: &Vec<DeviceId>) -> Result<(), ServerError> {
+    fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
         unimplemented!()
     }
 

@@ -576,7 +576,7 @@ impl<R: Runtime> ComputeClient<R> {
             .contains(&comm_id);
         if !is_comms_init {
             self.device
-                .submit(move |server| server.comm_init(&device_ids).unwrap());
+                .submit(move |server| server.comm_init(device_ids).unwrap());
             let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
             initialized_comms.insert(comm_id);
             // Flush immediately so other devices aren't blocked waiting on this initialization.

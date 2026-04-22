@@ -274,7 +274,7 @@ impl ComputeServer for CudaServer {
 impl ServerCommunication for CudaServer {
     const SERVER_COMM_ENABLED: bool = true;
 
-    fn comm_init(&mut self, device_ids: &Vec<DeviceId>) -> Result<(), ServerError> {
+    fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
         let id = CommunicationId::from(device_ids.clone());
         if let Entry::Vacant(e) = self.communicators.entry(id.clone()) {
             let mut comm = MaybeUninit::uninit();
