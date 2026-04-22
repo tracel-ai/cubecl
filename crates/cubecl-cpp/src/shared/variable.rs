@@ -546,6 +546,7 @@ impl<D: Dialect> Variable<D> {
             | Variable::SharedArray(_, _, _)
             | Variable::GlobalInputArray(_, _)
             | Variable::GlobalOutputArray(_, _) => format!("{self}"),
+            _ if self.item().is_ptr() => format!("{self}"),
             _ => format!("&{self}"),
         }
     }
@@ -562,6 +563,9 @@ impl<D: Dialect> Variable<D> {
 
 impl<D: Dialect> FmtLeft for Variable<D> {
     fn fmt_left(&self) -> String {
+        if self.item().is_ptr() {
+            return format!("*{self}");
+        }
         match self {
             Self::LocalConst { item, .. } => match item {
                 Item::Atomic(_) => {

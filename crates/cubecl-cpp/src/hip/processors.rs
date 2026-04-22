@@ -1,10 +1,9 @@
 use cubecl_core::{
     self as cubecl,
-    ir::{Instruction, ManagedVariable, Scope},
-};
-use cubecl_core::{
-    cube,
-    ir::{CoopMma, MatrixIdent, Operation, Processor, ScopeProcessing},
+    ir::{
+        CoopMma, Instruction, MatrixIdent, Operation, Processor, Scope, ScopeProcessing, Variable,
+    },
+    prelude::*,
 };
 
 #[derive(new, Debug)]
@@ -18,11 +17,9 @@ impl Processor for HipMmaProcessor {
         for instruction in instructions {
             match instruction.operation {
                 Operation::CoopMma(CoopMma::RowIndex { lane_id, i, matrix }) => {
-                    let lane_id = ManagedVariable::Plain(lane_id);
-                    let i = ManagedVariable::Plain(i);
-                    let mut scope =
+                    let scope =
                         Scope::root(false).with_global_state(processing.global_state.clone());
-                    let row_idx: ManagedVariable =
+                    let row_idx: Variable =
                         row_index::expand(&scope, lane_id.into(), i.into(), matrix.ident).into();
                     let tmp_processing = scope.process([]);
                     for inst in tmp_processing.instructions {
@@ -33,16 +30,14 @@ impl Processor for HipMmaProcessor {
                     }
 
                     processing.instructions.push(Instruction::new(
-                        Operation::Copy(*row_idx),
+                        Operation::Copy(row_idx),
                         instruction.out(),
                     ));
                 }
                 Operation::CoopMma(CoopMma::ColIndex { lane_id, i, matrix }) => {
-                    let lane_id = ManagedVariable::Plain(lane_id);
-                    let i = ManagedVariable::Plain(i);
-                    let mut scope =
+                    let scope =
                         Scope::root(false).with_global_state(processing.global_state.clone());
-                    let row_idx: ManagedVariable =
+                    let row_idx: Variable =
                         col_index::expand(&scope, lane_id.into(), i.into(), matrix.ident).into();
                     let tmp_processing = scope.process([]);
                     for inst in tmp_processing.instructions {
@@ -53,7 +48,7 @@ impl Processor for HipMmaProcessor {
                     }
 
                     processing.instructions.push(Instruction::new(
-                        Operation::Copy(*row_idx),
+                        Operation::Copy(row_idx),
                         instruction.out(),
                     ));
                 }

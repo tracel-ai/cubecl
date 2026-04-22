@@ -1,6 +1,6 @@
 use cubecl_ir::{
-    Arithmetic, BinaryOperator, Comparison, ElemType, IndexOperator, Instruction, Operation,
-    Operator, Scope, Type, UnaryOperator, Variable, VectorSize,
+    Arithmetic, BinaryOperator, Comparison, ElemType, IndexOperator, Instruction, Operation, Scope,
+    Type, UnaryOperator, Variable, VectorSize,
 };
 use cubecl_macros::cube;
 
@@ -39,33 +39,6 @@ where
     output
 }
 
-pub(crate) fn index_expand_no_vec<F>(
-    scope: &Scope,
-    list: Variable,
-    index: Variable,
-    func: F,
-) -> Variable
-where
-    F: Fn(IndexOperator) -> Operator,
-{
-    let item_lhs = list.ty;
-
-    let class = list.pointer_class();
-    let ty = item_lhs.with_vector_size(0);
-
-    let output = scope.create_local(Type::pointer(ty, class));
-
-    let op = func(IndexOperator {
-        list,
-        index,
-        vector_size: 0,
-        unroll_factor: 1,
-    });
-
-    scope.register(Instruction::new(op, output));
-
-    output
-}
 pub(crate) fn index_expand<F, Op>(
     scope: &Scope,
     list: Variable,

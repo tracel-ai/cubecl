@@ -560,11 +560,11 @@ impl Deref for SharedExpand<Barrier> {
     type Target = BarrierExpand;
 
     fn deref(&self) -> &Self::Target {
-        unexpanded!()
+        unsafe { self.as_type_ref_unchecked() }
     }
 }
 impl DerefMut for SharedExpand<Barrier> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unexpanded!()
+        unsafe { self.as_type_mut_unchecked() }
     }
 }

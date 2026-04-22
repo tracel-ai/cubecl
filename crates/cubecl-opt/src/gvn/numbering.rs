@@ -114,7 +114,18 @@ impl ValueTable {
                 let num = self.lookup_or_add_var(variable)?;
                 Ok((Expression::Copy(num, item), out))
             }
-            Operation::Reference(_) => todo!(),
+            Operation::Reference(variable) => {
+                let item = inst.ty();
+                let out = value_of_var(&inst.out());
+                let num = self.lookup_or_add_var(variable)?;
+                Ok((Expression::Reference(num, item), out))
+            }
+            Operation::Deref(variable) => {
+                let item = inst.ty();
+                let out = value_of_var(&inst.out());
+                let num = self.lookup_or_add_var(variable)?;
+                Ok((Expression::Deref(num, item), out))
+            }
             Operation::Arithmetic(arithmetic) => {
                 self.create_expr_arithmetic(arithmetic, inst.out())
             }

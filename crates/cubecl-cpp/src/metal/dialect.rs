@@ -300,12 +300,16 @@ struct alignas({alignment}) {item} {{"
                 write!(f, "atomic_{inner}")
             }
             Item::Pointer(inner, class) => {
+                let constness = match item.is_const_ptr() {
+                    true => "const ".to_string(),
+                    false => String::new(),
+                };
                 let address_space = match class {
                     shared::PointerClass::Global(vis) => (*vis).into(),
                     shared::PointerClass::Shared => AddressSpace::ThreadGroup,
                     shared::PointerClass::Local => AddressSpace::Thread,
                 };
-                write!(f, "{address_space}")?;
+                write!(f, "{constness}{address_space}")?;
                 Self::compile_item(f, inner.as_ref())?;
                 f.write_str("*")
             }

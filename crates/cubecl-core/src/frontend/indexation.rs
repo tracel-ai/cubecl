@@ -4,7 +4,7 @@ use cubecl_ir::{
     IndexMutOperator, Instruction, Operator, Scope, Type, Variable, VariableKind, VectorSize,
 };
 
-use super::{CubeType, NativeExpand, index_expand, index_expand_no_vec};
+use super::{CubeType, NativeExpand, index_expand};
 use crate::{prelude::CubePrimitive, unexpanded};
 
 /// Fake indexation so we can rewrite indexes into scalars as calls to this fake function in the
@@ -84,21 +84,10 @@ where
         _ => index,
     };
     let array: Variable = array.clone().into();
-    let var: Variable = array;
     let var = if checked {
-        match var.kind {
-            VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
-                index_expand_no_vec(scope, array, index, Operator::Index)
-            }
-            _ => index_expand(scope, array, index, vector_size, Operator::Index),
-        }
+        index_expand(scope, array, index, vector_size, Operator::Index)
     } else {
-        match var.kind {
-            VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
-                index_expand_no_vec(scope, array, index, Operator::UncheckedIndex)
-            }
-            _ => index_expand(scope, array, index, vector_size, Operator::UncheckedIndex),
-        }
+        index_expand(scope, array, index, vector_size, Operator::UncheckedIndex)
     };
 
     scope.create_kernel_ref(var.into())

@@ -40,6 +40,14 @@ impl<D: Dialect> Item<D> {
         Intern::new(self)
     }
 
+    /// Type of the value, unwrapping pointers
+    pub fn value_ty(&self) -> &Item<D> {
+        match self {
+            Item::Pointer(inner, _) => inner.value_ty(),
+            other => other,
+        }
+    }
+
     pub fn elem(&self) -> &Elem<D> {
         match self {
             Item::Scalar(elem) | Item::NativeVector(elem, _) => elem,
@@ -171,5 +179,27 @@ impl<D: Dialect> Item<D> {
             Elem::FP8x2(kind) => Some(Elem::FP8(kind)),
             _ => None,
         }
+    }
+
+    pub fn is_atomic(&self) -> bool {
+        match self {
+            Item::Scalar(..) | Item::Vector(..) | Item::NativeVector(..) => false,
+            Item::Atomic(_) => true,
+            Item::Pointer(inner, _) => inner.is_atomic(),
+        }
+    }
+
+    pub fn is_ptr(&self) -> bool {
+        matches!(self, Item::Pointer(..))
+    }
+
+    pub fn is_const_ptr(&self) -> bool {
+        matches!(
+            self,
+            Item::Pointer(
+                _,
+                PointerClass::Global(Visibility::Read | Visibility::ReadWrite)
+            )
+        ) && !self.is_atomic()
     }
 }

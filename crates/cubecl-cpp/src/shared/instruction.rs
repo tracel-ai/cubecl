@@ -30,9 +30,9 @@ pub struct IndexInstruction<D: Dialect> {
 }
 
 #[derive(Debug, Clone)]
-pub struct IndexAssignInstruction<D: Dialect> {
+pub struct IndexMutInstruction<D: Dialect> {
+    pub list: Variable<D>,
     pub index: Variable<D>,
-    pub value: Variable<D>,
     pub vector_size: u32,
     pub out: Variable<D>,
 }
@@ -83,9 +83,10 @@ pub enum Instruction<D: Dialect> {
     SaturatingSub(BinaryInstruction<D>),
     HiMul(BinaryInstruction<D>),
     Index(IndexInstruction<D>),
-    IndexAssign(IndexAssignInstruction<D>),
+    IndexMut(IndexMutInstruction<D>),
     Assign(UnaryInstruction<D>),
     Reference(UnaryInstruction<D>),
+    Deref(UnaryInstruction<D>),
     SpecialCast(UnaryInstruction<D>),
     RangeLoop {
         i: Variable<D>,
@@ -99,6 +100,8 @@ pub enum Instruction<D: Dialect> {
         inputs: Vec<Variable<D>>,
         out: Variable<D>,
     },
+    InsertComponent(BinaryInstruction<D>),
+    ExtractComponent(BinaryInstruction<D>),
     Loop {
         instructions: Vec<Self>,
     },
@@ -360,8 +363,8 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Index(it) => {
                 Index::format(f, &it.list, &it.index, &it.out, it.vector_size)
             }
-            Instruction::IndexAssign(it) => {
-                IndexAssign::format(f, &it.index, &it.value, &it.out, it.vector_size)
+            Instruction::IndexMut(it) => {
+                IndexMut::format(f, &it.list, &it.index, &it.out, it.vector_size)
             }
             Instruction::Copy {
                 input,
@@ -385,8 +388,13 @@ impl<D: Dialect> Display for Instruction<D> {
             }
             Instruction::Assign(it) => Assign::format(f, &it.input, &it.out),
             Instruction::Reference(it) => {
+                let out_ty = it.out.item();
+                let out = it.out;
+                writeln!(f, "{out_ty} {out} = {};", it.input.fmt_ptr())
+            }
+            Instruction::Deref(it) => {
                 let out = it.out.fmt_left();
-                writeln!(f, "{out} = {};", it.input.fmt_ptr())
+                writeln!(f, "{out} = *{};", it.input)
             }
             Instruction::RangeLoop {
                 i,
@@ -682,6 +690,12 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     .collect::<Vec<_>>();
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {item}{{{}}};", inputs.join(","))
+            }
+            Instruction::InsertComponent(inst) => {
+                InsertComponent::format(f, &inst.lhs, &inst.rhs, &inst.out)
+            }
+            Instruction::ExtractComponent(inst) => {
+                ExtractComponent::format(f, &inst.lhs, &inst.rhs, &inst.out)
             }
             Instruction::Printf {
                 format_string,

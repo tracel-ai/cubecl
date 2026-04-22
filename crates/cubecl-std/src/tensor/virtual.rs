@@ -307,11 +307,15 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
 }
 impl<E: Numeric, N: Size> VirtualTensorExpand<E, N, ReadWrite> {
     pub fn __expand_view_mut_method<C: Coordinates + 'static>(
-        self,
+        &self,
         scope: &Scope,
         layout: VirtualLayoutExpand<C, Coords1d>,
     ) -> ViewExpand<Vector<E, N>, C, ReadWrite> {
-        View::__expand_new_mut::<VirtualTensor<E, N, ReadWrite>, Coords1d>(scope, self, layout)
+        View::__expand_new_mut::<VirtualTensor<E, N, ReadWrite>, Coords1d>(
+            scope,
+            self.clone(),
+            layout,
+        )
     }
 }
 

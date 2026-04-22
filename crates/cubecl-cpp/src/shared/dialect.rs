@@ -416,7 +416,7 @@ pub trait DialectInstructions<D: Dialect> {
                 writeln!(
                     f,
                     "{} = atomicAdd(
-                    reinterpret_cast<{addr_space}{}*>({lhs}),
+                    reinterpret_cast<{}>({lhs}),
                     reinterpret_cast<const {addr_space}{}&>({rhs}));",
                     out_tmp.fmt_left(),
                     lhs.item(),

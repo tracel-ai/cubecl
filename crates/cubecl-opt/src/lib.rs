@@ -41,10 +41,10 @@ use cubecl_ir::{
 };
 use gvn::GvnPass;
 use passes::{
-    CompositeMerge, ConstEval, ConstOperandSimplify, CopyTransform, DisaggregateArray,
-    EliminateConstBranches, EliminateDeadBlocks, EliminateDeadPhi, EliminateUnusedVariables,
-    EmptyBranchToSelect, InlineAssignments, MergeBlocks, MergeSameExpressions, OptimizerPass,
-    ReduceStrength, RemoveIndexScalar,
+    CompositeMerge, ConstEval, ConstOperandSimplify, CopyTransform, EliminateConstBranches,
+    EliminateDeadBlocks, EliminateDeadPhi, EliminateUnusedVariables, EmptyBranchToSelect,
+    InlineAssignments, MergeBlocks, MergeSameExpressions, OptimizerPass, ReduceStrength,
+    RemoveIndexScalar,
 };
 use petgraph::{Direction, prelude::StableDiGraph, visit::EdgeRef};
 
@@ -320,7 +320,7 @@ impl Function {
     }
 
     /// Recursively parse a scope into the graph
-    pub fn parse_scope(&mut self, state: &GlobalState, mut scope: Scope) -> bool {
+    pub fn parse_scope(&mut self, state: &GlobalState, scope: Scope) -> bool {
         let processed = scope.process(state.processors.iter().map(|it| &**it));
 
         for var in processed.variables {
@@ -329,7 +329,7 @@ impl Function {
             }
         }
 
-        for (var, values) in scope.const_arrays.clone() {
+        for (var, values) in scope.const_arrays.borrow().clone() {
             let VariableKind::ConstantArray {
                 id,
                 length,
@@ -480,8 +480,8 @@ impl Function {
         // Need more optimization rounds in between.
 
         let arrays_prop = AtomicCounter::new(0);
-        log::debug!("Applying {}", DisaggregateArray.name());
-        DisaggregateArray.apply_post_ssa(self, state, arrays_prop.clone());
+        // log::debug!("Applying {}", DisaggregateArray.name());
+        // DisaggregateArray.apply_post_ssa(self, state, arrays_prop.clone());
         if arrays_prop.get() > 0 {
             self.invalidate_analysis::<Liveness>();
             self.ssa_transform(state);
@@ -605,7 +605,7 @@ mod test {
     use cubecl_core as cubecl;
     use cubecl_core::cube;
     use cubecl_core::prelude::*;
-    use cubecl_ir::{ElemType, ManagedVariable, Type, UIntKind, Variable, VariableKind};
+    use cubecl_ir::{ElemType, Type, UIntKind, Variable, VariableKind};
 
     use crate::Optimizer;
 
@@ -625,21 +625,24 @@ mod test {
     #[test_log::test]
     #[ignore = "no good way to assert opt is applied"]
     fn test_pre() {
-        let mut ctx = Scope::root(false);
-        let x = ManagedVariable::Plain(Variable::new(
+        let ctx = Scope::root(false);
+        let x = Variable::new(
             VariableKind::GlobalScalar(0),
             Type::scalar(ElemType::UInt(UIntKind::U32)),
-        ));
-        let cond = ManagedVariable::Plain(Variable::new(
+        )
+        .into();
+        let cond = Variable::new(
             VariableKind::GlobalScalar(1),
             Type::scalar(ElemType::UInt(UIntKind::U32)),
-        ));
-        let arr = ManagedVariable::Plain(Variable::new(
+        )
+        .into();
+        let mut arr = Variable::new(
             VariableKind::GlobalOutputArray(0),
             Type::scalar(ElemType::UInt(UIntKind::U32)),
-        ));
+        )
+        .into();
 
-        pre_kernel::expand(&mut ctx, x.into(), cond.into(), arr.into());
+        pre_kernel::expand(&ctx, x, cond, &mut arr);
         let opt = Optimizer::new(ctx, CubeDim::new_1d(1), vec![], vec![]);
         println!("{opt}")
     }

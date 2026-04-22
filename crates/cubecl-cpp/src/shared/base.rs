@@ -1,10 +1,10 @@
 use super::{
     BinaryInstruction, Body, Component, ComputeKernel, ConstArray, Dialect, Elem, FP4Kind, FP6Kind,
-    FP8Kind, Fragment, FragmentIdent, FragmentLayout, IndexAssignInstruction, IndexInstruction,
-    Instruction, Item, KernelArg, LocalArray, SharedMemory, UnaryInstruction, Variable,
-    WarpInstruction, WmmaInstruction, barrier::BarrierOps, pipeline::PipelineOps,
+    FP8Kind, Fragment, FragmentIdent, FragmentLayout, IndexInstruction, Instruction, Item,
+    KernelArg, LocalArray, SharedMemory, UnaryInstruction, Variable, WarpInstruction,
+    WmmaInstruction, barrier::BarrierOps, pipeline::PipelineOps,
 };
-use crate::shared::{MmaShape, PointerClass};
+use crate::shared::{IndexMutInstruction, MmaShape, PointerClass};
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
     CubeDim,
@@ -19,6 +19,7 @@ use cubecl_core::{
 };
 use cubecl_opt::{Optimizer, SharedLiveness};
 use cubecl_runtime::compiler::{CompilationError, Compiler};
+use itertools::Itertools;
 use std::{collections::HashSet, fmt::Debug};
 
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
@@ -192,7 +193,13 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
             });
         }
 
-        self.buffer_vis = kernel.buffers.iter().map(|it| it.visibility).collect();
+        self.buffer_vis = kernel
+            .buffers
+            .iter()
+            .chain(kernel.tensor_maps.iter())
+            .sorted_by_key(|it| it.id)
+            .map(|it| it.visibility)
+            .collect();
         self.addr_type = self.compile_type(addr_type.into());
         self.compilation_options = compilation_options.clone();
         self.strategy = strategy;
@@ -362,6 +369,7 @@ impl<D: Dialect> CppCompiler<D> {
 
         let const_arrays = scope
             .const_arrays
+            .borrow_mut()
             .drain(..)
             .map(|(var, values)| ConstArray {
                 index: var.index().unwrap(),
@@ -416,6 +424,12 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Operation::Reference(variable) => {
                 instructions.push(Instruction::Reference(UnaryInstruction {
+                    input: self.compile_variable(variable),
+                    out: self.compile_variable(out.unwrap()),
+                }))
+            }
+            gpu::Operation::Deref(variable) => {
+                instructions.push(Instruction::Deref(UnaryInstruction {
                     input: self.compile_variable(variable),
                     out: self.compile_variable(out.unwrap()),
                 }))
@@ -1567,7 +1581,7 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Index(self.compile_index(op, out)));
             }
             gpu::Operator::IndexMut(op) | gpu::Operator::UncheckedIndexMut(op) => {
-                instructions.push(Instruction::IndexAssign(self.compile_index_assign(op, out)));
+                instructions.push(Instruction::IndexMut(self.compile_index_mut(op, out)));
             }
             gpu::Operator::And(op) => {
                 instructions.push(Instruction::And(self.compile_binary(op, out)))
@@ -1586,6 +1600,12 @@ impl<D: Dialect> CppCompiler<D> {
                     .collect(),
                 out: self.compile_variable(out),
             }),
+            gpu::Operator::InsertComponent(op) => {
+                instructions.push(Instruction::InsertComponent(self.compile_binary(op, out)))
+            }
+            gpu::Operator::ExtractComponent(op) => {
+                instructions.push(Instruction::ExtractComponent(self.compile_binary(op, out)))
+            }
             gpu::Operator::CopyMemory(op) => instructions.push(Instruction::Copy {
                 input: self.compile_variable(op.input),
                 in_index: self.compile_variable(op.in_index),
@@ -1665,14 +1685,14 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_index_assign(
+    fn compile_index_mut(
         &mut self,
         value: gpu::IndexMutOperator,
         out: gpu::Variable,
-    ) -> IndexAssignInstruction<D> {
-        IndexAssignInstruction {
+    ) -> IndexMutInstruction<D> {
+        IndexMutInstruction {
+            list: self.compile_variable(value.list),
             index: self.compile_variable(value.index),
-            value: self.compile_variable(value.value),
             vector_size: value.vector_size as u32,
             out: self.compile_variable(out),
         }

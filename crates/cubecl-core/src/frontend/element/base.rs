@@ -360,7 +360,7 @@ macro_rules! deref_tuple {
 all_tuples!(deref_tuple, 2, 12, T, t);
 
 /// Expand type of a native GPU type, i.e. scalar primitives, arrays, shared memory.
-#[derive(new, Clone, Copy)]
+#[derive(new, Clone, Copy, Debug)]
 pub struct NativeExpand<T> {
     pub expand: Variable,
     pub(crate) _type: PhantomData<T>,

@@ -9,7 +9,7 @@ use crate::prelude::AddressType;
 
 /// The kernel integrator allows you to create a [kernel definition](KernelDefinition) based on
 /// [kernel expansion](KernelExpansion) and [kernel settings](KernelSettings).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct KernelIntegrator {
     expansion: KernelExpansion,
     buffer_bindings: Vec<KernelArg>,
@@ -18,7 +18,7 @@ pub struct KernelIntegrator {
 }
 
 /// The information necessary to compile a [kernel definition](KernelDefinition).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct KernelExpansion {
     pub buffers: Vec<BufferInfo>,
     pub scalars: Vec<ScalarInfo>,

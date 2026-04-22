@@ -1,8 +1,8 @@
 use std::{collections::HashMap, mem::take};
 
 use cubecl_ir::{
-    Id, IndexMutOperator, IndexOperator, Instruction, Operation, Operator, Type, Variable,
-    VariableKind, VectorInitOperator,
+    BinaryOperator, Id, Instruction, Operation, Operator, Type, Variable, VariableKind,
+    VectorInitOperator,
 };
 use stable_vec::StableVec;
 
@@ -48,8 +48,9 @@ impl OptimizerPass for CompositeMerge {
 
                 let op = { ops.borrow()[idx].clone() };
                 if let (
-                    Operation::Operator(Operator::IndexMut(IndexMutOperator {
-                        index, value, ..
+                    Operation::Operator(Operator::InsertComponent(BinaryOperator {
+                        lhs: index,
+                        rhs: value,
                     })),
                     Some(VariableKind::LocalMut { id }),
                 ) = (op.operation, op.out.map(|it| it.kind))
@@ -118,16 +119,18 @@ impl OptimizerPass for RemoveIndexScalar {
         for block in blocks {
             let ops = func[block].ops.clone();
             for op in ops.borrow_mut().values_mut() {
-                if let Operation::Operator(Operator::Index(IndexOperator { list, index, .. })) =
-                    &mut op.operation
-                    && !list.is_array()
+                if let Operation::Operator(Operator::ExtractComponent(BinaryOperator {
+                    lhs: vector,
+                    rhs: index,
+                    ..
+                })) = &mut op.operation
                     && let Some(index) = index.as_const()
                 {
                     let index = index.as_u32();
-                    let vector_size = list.ty.vector_size();
+                    let vector_size = vector.ty.vector_size();
                     if vector_size == 1 {
                         assert_eq!(index, 0, "Can't index into scalar");
-                        op.operation = Operation::Copy(*list);
+                        op.operation = Operation::Copy(*vector);
                         changes.inc();
                     }
                 }

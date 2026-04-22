@@ -12,6 +12,14 @@ impl Expression {
                 let input = leaders[val].as_var();
                 Operation::Copy(input)
             }
+            Expression::Reference(val, _) => {
+                let input = leaders[val].as_var();
+                Operation::Reference(input)
+            }
+            Expression::Deref(val, _) => {
+                let input = leaders[val].as_var();
+                Operation::Deref(input)
+            }
             Expression::Value(value) | Expression::Volatile(value) => {
                 Operation::Copy(value.as_var())
             }

@@ -308,7 +308,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
             }
             Item::Atomic(inner) => Self::compile_item(f, inner.as_ref()),
             Item::Pointer(inner, class) => {
-                if let PointerClass::Global(Visibility::Read) = class {
+                if let PointerClass::Global(Visibility::Read | Visibility::Uniform) = class {
                     f.write_str("const ")?;
                 }
                 write!(f, "{inner}*")

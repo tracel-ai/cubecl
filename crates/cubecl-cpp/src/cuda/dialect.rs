@@ -204,12 +204,12 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
         let mut items_deduplicated = HashSet::new();
 
         for item in items {
-            let mut item = *item;
+            let mut item = *item.value_ty();
             match item {
                 Item::NativeVector(..) => {
                     continue;
                 }
-                Item::Atomic(inner) | Item::Pointer(inner, _) => {
+                Item::Atomic(inner) => {
                     item = *inner;
                 }
                 _ => {}
@@ -327,7 +327,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
             }
             Item::Atomic(inner) => Self::compile_item(f, inner.as_ref()),
             Item::Pointer(inner, class) => {
-                if let PointerClass::Global(Visibility::Read) = class {
+                if let PointerClass::Global(Visibility::Read | Visibility::Uniform) = class {
                     f.write_str("const ")?;
                 }
                 write!(f, "{inner}*")

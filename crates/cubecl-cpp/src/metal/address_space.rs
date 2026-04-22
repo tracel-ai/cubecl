@@ -2,7 +2,7 @@ use cubecl_core::prelude::Visibility;
 
 use crate::{
     Dialect,
-    shared::{Component, KernelArg, Variable},
+    shared::{Component, Item, KernelArg, PointerClass, Variable},
 };
 
 use super::BufferAttribute;
@@ -70,6 +70,13 @@ impl From<Visibility> for AddressSpace {
 
 impl<D: Dialect> From<&Variable<D>> for AddressSpace {
     fn from(value: &Variable<D>) -> Self {
+        if let Item::Pointer(_, class) = value.item() {
+            return match class {
+                PointerClass::Global(visibility) => visibility.into(),
+                PointerClass::Shared => AddressSpace::ThreadGroup,
+                PointerClass::Local => AddressSpace::Thread,
+            };
+        }
         match value {
             Variable::AbsolutePosBaseName
             | Variable::AbsolutePosX

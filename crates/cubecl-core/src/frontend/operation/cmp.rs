@@ -9,10 +9,10 @@ use crate::prelude::*;
 
 // NOTE: Unary comparison tests are in the unary module
 
-pub trait CubeEq:
-    Eq
+pub trait CubePartialEq:
+    PartialEq
     + CubePrimitive
-    + CubeType<ExpandType: EqExpand>
+    + CubeType<ExpandType: PartialEqExpand>
     + Sized
     + IntoExpand<Expand = <Self as CubeType>::ExpandType>
 {
@@ -40,13 +40,16 @@ pub trait CubeEq:
         lhs.__expand_ne_method(scope, rhs)
     }
 }
-pub trait EqExpand {
+pub trait PartialEqExpand {
     fn __expand_eq_method(&self, scope: &Scope, rhs: &Self) -> NativeExpand<bool>;
     fn __expand_ne_method(&self, scope: &Scope, rhs: &Self) -> NativeExpand<bool>;
 }
-impl<T: Eq + CubePrimitive + IntoExpand<Expand = <Self as CubeType>::ExpandType>> CubeEq for T {}
+impl<T: PartialEq + CubePrimitive + IntoExpand<Expand = <Self as CubeType>::ExpandType>>
+    CubePartialEq for T
+{
+}
 
-impl<T: Eq + CubePrimitive> EqExpand for NativeExpand<T> {
+impl<T: PartialEq + CubePrimitive> PartialEqExpand for NativeExpand<T> {
     fn __expand_eq_method(&self, scope: &Scope, rhs: &Self) -> NativeExpand<bool> {
         let this = self.__expand_deref_method(scope);
         let rhs = rhs.__expand_deref_method(scope);

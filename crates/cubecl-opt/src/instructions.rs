@@ -42,6 +42,7 @@ impl Function {
         match op {
             Operation::Copy(variable) => visit_read(self, variable),
             Operation::Reference(variable) => visit_read(self, variable),
+            Operation::Deref(variable) => visit_read(self, variable),
             Operation::Arithmetic(arithmetic) => self.visit_arithmetic(arithmetic, visit_read),
             Operation::Comparison(comparison) => self.visit_compare(comparison, visit_read),
             Operation::Bitwise(bitwise) => self.visit_bitwise(bitwise, visit_read),
@@ -207,7 +208,10 @@ impl Function {
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match op {
-            Operator::And(binary_operator) | Operator::Or(binary_operator) => {
+            Operator::And(binary_operator)
+            | Operator::Or(binary_operator)
+            | Operator::ExtractComponent(binary_operator)
+            | Operator::InsertComponent(binary_operator) => {
                 self.visit_binop(binary_operator, visit_read)
             }
             Operator::Not(unary_operator)
@@ -218,8 +222,8 @@ impl Function {
                 visit_read(self, &mut index_operator.index);
             }
             Operator::IndexMut(op) | Operator::UncheckedIndexMut(op) => {
+                visit_read(self, &mut op.list);
                 visit_read(self, &mut op.index);
-                visit_read(self, &mut op.value);
             }
             Operator::InitVector(vector_init_operator) => {
                 for input in &mut vector_init_operator.inputs {
