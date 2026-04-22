@@ -83,6 +83,9 @@ hashbrown = { workspace = true }
 
 cfg-if = { workspace = true }
 
+[target.'cfg(target_family = "wasm")'.dependencies]
+wasm-bindgen-futures = { workspace = true }
+
 ## wgpu dependency for platforms other than macOS
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 wgpu = { workspace = true, features = ["fragile-send-sync-non-atomic-wasm"] }
