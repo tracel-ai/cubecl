@@ -667,7 +667,7 @@ impl<R: Runtime> ComputeClient<R> {
                 .send(src_descriptor, dtype, stream_id_src, &device_ids)
                 .unwrap()
         });
-        // Need to flush_queue I assume.
+        self.device.flush_queue();
 
         std::println!("[{:?}] submit recv", std::thread::current().id(),);
 
