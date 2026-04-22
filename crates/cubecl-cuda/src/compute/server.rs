@@ -612,7 +612,7 @@ impl ServerCommunication for CudaServer {
         }
 
         println!(
-            "[{:?}] nccl recv {:?}",
+            "[{:?}] nccl recv finished {:?}",
             std::thread::current().id(),
             self.device_id.index_id
         );

@@ -662,12 +662,12 @@ impl<R: Runtime> ComputeClient<R> {
 
         std::println!("[{:?}] submit_blocking send", std::thread::current().id(),);
 
-        self.device
-            .submit_blocking(move |server_src| {
-                server_src.send(src_descriptor, dtype, stream_id_src, &device_ids)
-            })
-            .unwrap()
-            .unwrap();
+        self.device.submit(move |server_src| {
+            server_src
+                .send(src_descriptor, dtype, stream_id_src, &device_ids)
+                .unwrap()
+        });
+        // Need to flush_queue I assume.
 
         std::println!("[{:?}] submit recv", std::thread::current().id(),);
 
