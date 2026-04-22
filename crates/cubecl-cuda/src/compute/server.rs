@@ -589,6 +589,13 @@ impl ServerCommunication for CudaServer {
         // SAFETY: `resource_src.ptr` and `resource_dst.ptr` are valid device pointers.
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
+
+        println!(
+            "[{:?}] nccl recv {:?}",
+            std::thread::current().id(),
+            self.device_id.index_id
+        );
+
         unsafe {
             cudarc::nccl::result::recv(
                 resource_dst.ptr as *mut _,
@@ -603,6 +610,12 @@ impl ServerCommunication for CudaServer {
                 backtrace: BackTrace::capture(),
             })?;
         }
+
+        println!(
+            "[{:?}] nccl recv {:?}",
+            std::thread::current().id(),
+            self.device_id.index_id
+        );
 
         Ok(())
     }
@@ -651,6 +664,13 @@ impl ServerCommunication for CudaServer {
         // SAFETY: `resource_src.ptr` and `resource_dst.ptr` are valid device pointers.
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
+
+        println!(
+            "[{:?}] nccl send {:?}",
+            std::thread::current().id(),
+            self.device_id.index_id
+        );
+
         unsafe {
             cudarc::nccl::result::send(
                 resource_src.ptr as *const _,
@@ -665,6 +685,12 @@ impl ServerCommunication for CudaServer {
                 backtrace: BackTrace::capture(),
             })?;
         }
+
+        println!(
+            "[{:?}] nccl send finished {:?}",
+            std::thread::current().id(),
+            self.device_id.index_id
+        );
 
         Ok(())
     }

@@ -659,6 +659,9 @@ impl<R: Runtime> ComputeClient<R> {
 
         // Even though we do a blocking submit, the actual data transfer is executed asynchronously
         // on the communication stream.
+
+        std::println!("[{:?}] submit_blocking send", std::thread::current().id(),);
+
         self.device
             .submit_blocking(move |server_src| {
                 server_src.send(src_descriptor, dtype, stream_id_src, &device_ids)
@@ -666,11 +669,19 @@ impl<R: Runtime> ComputeClient<R> {
             .unwrap()
             .unwrap();
 
+        std::println!("[{:?}] submit recv", std::thread::current().id(),);
+
         dst_server.device.submit(move |server_dst| {
+            std::println!("[{:?}] in submit recv", std::thread::current().id(),);
             server_dst
                 .recv(handle_cloned, dtype, stream_id_dst, &device_ids_cloned)
                 .unwrap();
+            std::println!(
+                "[{:?}] in submit sync_collective",
+                std::thread::current().id(),
+            );
             server_dst.sync_collective(stream_id_dst).unwrap();
+            std::println!("[{:?}] in submit finished", std::thread::current().id(),);
         });
 
         handle
