@@ -647,18 +647,20 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id_src = self.stream_id();
         let stream_id_dst = dst_server.stream_id();
 
+        let device_id_src = self.device.device_id();
+        let device_id_dst = dst_server.device.device_id();
+
         let mut dst_server = dst_server.clone();
         let handle = Handle::new(stream_id_dst, src_descriptor.handle.size_in_used());
         let handle_cloned = handle.clone();
 
-        let device_ids = vec![self.device.device_id(), dst_server.device.device_id()];
-        let device_ids_cloned = device_ids.clone();
+        let device_ids = vec![device_id_src, device_id_dst];
         self.ensure_init_collective(device_ids.clone());
-        dst_server.ensure_init_collective(device_ids.clone());
+        dst_server.ensure_init_collective(device_ids);
 
         self.device.submit(move |server_src| {
             server_src
-                .send(src_descriptor, dtype, stream_id_src, &device_ids)
+                .send(src_descriptor, dtype, stream_id_src, device_id_dst)
                 .unwrap()
         });
         // `ServerCommunication::recv` is blocking and waits on the corresponding `send`. We flush the operation
@@ -668,7 +670,7 @@ impl<R: Runtime> ComputeClient<R> {
 
         dst_server.device.submit(move |server_dst| {
             server_dst
-                .recv(handle_cloned, dtype, stream_id_dst, &device_ids_cloned)
+                .recv(handle_cloned, dtype, stream_id_dst, device_id_src)
                 .unwrap();
             server_dst.sync_collective(stream_id_dst).unwrap();
         });
