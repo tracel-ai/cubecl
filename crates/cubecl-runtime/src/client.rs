@@ -663,10 +663,6 @@ impl<R: Runtime> ComputeClient<R> {
                 .send(src_descriptor, dtype, stream_id_src, device_id_dst)
                 .unwrap()
         });
-        // `ServerCommunication::recv` is blocking and waits on the corresponding `send`. We flush the operation
-        // right away so that the destination server doesn't end up in a deadlock. The actual data transfer is still
-        // executed asynchronously on the communication stream.
-        self.device.flush_queue();
 
         dst_server.device.submit(move |server_dst| {
             server_dst
@@ -674,6 +670,12 @@ impl<R: Runtime> ComputeClient<R> {
                 .unwrap();
             server_dst.sync_collective(stream_id_dst).unwrap();
         });
+
+        // `ServerCommunication::send` and`ServerCommunication::recv` are blocking: they each wait for the corresponding recv/send
+        // call to be made. We flush the operations right away so that the neither server ends up in a deadlock.
+        // The actual data transfer is still executed asynchronously on the communication stream.
+        self.device.flush_queue();
+        dst_server.device.flush_queue();
 
         handle
     }
