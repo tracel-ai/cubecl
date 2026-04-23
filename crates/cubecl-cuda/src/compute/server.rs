@@ -431,8 +431,14 @@ impl ServerCommunication for CudaServer {
         // We need to free the command before creating another one.
         core::mem::drop(command);
 
-        // // Wait for data to be ready on compute stream.
-        // Fence::new(stream).wait_async(self.comm_stream);
+        println!(
+            "[{:?}] server send: {} ",
+            std::thread::current().id(),
+            self.device_id.index_id
+        );
+
+        // Wait for data to be ready on compute stream.
+        Fence::new(stream).wait_async(self.comm_stream);
 
         // Get the communicator.
         let mut device_ids = vec![device_id_dst, self.device_id];
@@ -453,6 +459,11 @@ impl ServerCommunication for CudaServer {
         // SAFETY: `resource.ptr` is a valid device pointer.
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
+        println!(
+            "[{:?}] server nccl send: {} ",
+            std::thread::current().id(),
+            self.device_id.index_id
+        );
         unsafe {
             cudarc::nccl::result::send(
                 resource.ptr as *const _,
@@ -467,6 +478,12 @@ impl ServerCommunication for CudaServer {
                 backtrace: BackTrace::capture(),
             })?;
         }
+
+        println!(
+            "[{:?}] server send finished: {} ",
+            std::thread::current().id(),
+            self.device_id.index_id
+        );
 
         Ok(())
     }
@@ -495,6 +512,12 @@ impl ServerCommunication for CudaServer {
 
         core::mem::drop(command_dst);
 
+        println!(
+            "[{:?}] server recv: {} ",
+            std::thread::current().id(),
+            self.device_id.index_id
+        );
+
         // Get the communicator.
         let mut device_ids = vec![device_id_src, self.device_id];
         device_ids.sort();
@@ -514,6 +537,12 @@ impl ServerCommunication for CudaServer {
         // SAFETY: `resource.ptr` is a valid device pointer.
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
+
+        println!(
+            "[{:?}] server nccl recv: {} ",
+            std::thread::current().id(),
+            self.device_id.index_id
+        );
         unsafe {
             cudarc::nccl::result::recv(
                 resource_dst.ptr as *mut _,
@@ -528,6 +557,12 @@ impl ServerCommunication for CudaServer {
                 backtrace: BackTrace::capture(),
             })?;
         }
+
+        println!(
+            "[{:?}] server recv finished: {} ",
+            std::thread::current().id(),
+            self.device_id.index_id
+        );
 
         Ok(())
     }

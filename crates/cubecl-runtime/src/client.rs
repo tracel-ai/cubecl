@@ -1,3 +1,5 @@
+use std::println;
+
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
@@ -650,15 +652,32 @@ impl<R: Runtime> ComputeClient<R> {
         let device_id_src = self.device.device_id();
         let device_id_dst = dst_server.device.device_id();
 
+        println!(
+            "[{:?}] to_client: {} -> {}",
+            std::thread::current().id(),
+            device_id_src.index_id,
+            device_id_dst.index_id
+        );
+
         let mut dst_server = dst_server.clone();
         let handle = Handle::new(stream_id_dst, src_descriptor.handle.size_in_used());
         let handle_cloned = handle.clone();
 
         let device_ids = vec![device_id_src, device_id_dst];
+        println!(
+            "[{:?}] to_client ensure init 1",
+            std::thread::current().id()
+        );
         self.ensure_init_collective(device_ids.clone());
+        println!(
+            "[{:?}] to_client ensure init 2",
+            std::thread::current().id()
+        );
         dst_server.ensure_init_collective(device_ids);
 
+        println!("[{:?}] submit send", std::thread::current().id());
         self.device.submit(move |server_src| {
+            println!("[{:?}] In submit send", std::thread::current().id(),);
             server_src
                 .send(src_descriptor, dtype, stream_id_src, device_id_dst)
                 .unwrap()
@@ -666,14 +685,25 @@ impl<R: Runtime> ComputeClient<R> {
         // `ServerCommunication::recv` is blocking and waits on the corresponding `send`. We flush the operation
         // right away so that the destination server doesn't end up in a deadlock. The actual data transfer is still
         // executed asynchronously on the communication stream.
+        println!("[{:?}] flush queue", std::thread::current().id());
         self.device.flush_queue();
 
+        println!("[{:?}] submit recv", std::thread::current().id());
         dst_server.device.submit(move |server_dst| {
+            println!("[{:?}] In submit recv", std::thread::current().id(),);
             server_dst
                 .recv(handle_cloned, dtype, stream_id_dst, device_id_src)
                 .unwrap();
+            println!("[{:?}] In submit sync", std::thread::current().id(),);
             server_dst.sync_collective(stream_id_dst).unwrap();
         });
+
+        println!(
+            "[{:?}] to_client finished: {} -> {}",
+            std::thread::current().id(),
+            device_id_src.index_id,
+            device_id_dst.index_id
+        );
 
         handle
     }
