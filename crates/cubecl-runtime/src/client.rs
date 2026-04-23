@@ -544,12 +544,12 @@ impl<R: Runtime> ComputeClient<R> {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst_server))
     )]
-    pub fn to_client(&self, src: Handle, dst_server: &Self) -> Handle {
+    pub fn to_client(&mut self, src: Handle, dst_server: &Self, dtype: ElemType) -> Handle {
         let shape = [src.size_in_used() as usize];
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
         if R::Server::SERVER_COMM_ENABLED {
-            self.to_client_tensor(src_descriptor, dst_server)
+            self.to_client_tensor(src_descriptor, dst_server, dtype)
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
                 MemoryLayoutStrategy::Contiguous,
@@ -558,6 +558,29 @@ impl<R: Runtime> ComputeClient<R> {
             );
             self.change_client_sync(src_descriptor, alloc_desc, dst_server)
                 .memory
+        }
+    }
+
+    /// Perform an `all_reduce` operation on the given devices.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, device_ids))
+    )]
+    pub fn ensure_init_collective(&mut self, device_ids: Vec<DeviceId>) {
+        let comm_id = CommunicationId::from(device_ids.clone());
+        let is_comms_init = self
+            .utilities
+            .initialized_comms
+            .read()
+            .unwrap()
+            .contains(&comm_id);
+        if !is_comms_init {
+            self.device
+                .submit(move |server| server.comm_init(device_ids).unwrap());
+            let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
+            initialized_comms.insert(comm_id);
+            // Flush immediately so other devices aren't blocked waiting on this initialization.
+            self.device.flush_queue();
         }
     }
 
@@ -598,29 +621,14 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let src = src.binding();
         let dst = dst.binding();
-        let device_ids_cloned = device_ids.clone();
 
-        let comms_id = CommunicationId::from(device_ids.clone());
-        let is_comms_init = self
-            .utilities
-            .initialized_comms
-            .read()
-            .unwrap()
-            .contains(&comms_id);
+        self.ensure_init_collective(device_ids.clone());
 
         self.device.submit(move |server| {
             server
-                .all_reduce(src, dst, dtype, stream_id, op, device_ids_cloned)
+                .all_reduce(src, dst, dtype, stream_id, op, device_ids)
                 .unwrap();
         });
-
-        // Other threads could be waiting on `cudarc::nccl::result::comm_init_rank`, so we need to
-        // flush right away as to not block these threads.
-        if !is_comms_init {
-            self.device.flush_queue();
-            let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
-            initialized_comms.insert(comms_id);
-        }
     }
 
     /// Transfer data from one client to another
@@ -630,45 +638,46 @@ impl<R: Runtime> ComputeClient<R> {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src_descriptor, dst_server))
     )]
-    pub fn to_client_tensor(&self, src_descriptor: CopyDescriptor, dst_server: &Self) -> Handle {
-        if R::Server::SERVER_COMM_ENABLED {
-            let stream_id_src = self.stream_id();
-            let stream_id_dst = dst_server.stream_id();
+    pub fn to_client_tensor(
+        &mut self,
+        src_descriptor: CopyDescriptor,
+        dst_server: &Self,
+        dtype: ElemType,
+    ) -> Handle {
+        let stream_id_src = self.stream_id();
+        let stream_id_dst = dst_server.stream_id();
 
-            let dst_server = dst_server.clone();
-            let handle = Handle::new(stream_id_dst, src_descriptor.handle.size_in_used());
-            let handle_cloned = handle.clone();
+        let device_id_src = self.device.device_id();
+        let device_id_dst = dst_server.device.device_id();
 
-            // TODO: This should be made in a non-blocking API.
-            self.device
-                .submit_blocking(move |server_src| {
-                    dst_server
-                        .device
-                        .submit_blocking(|server_dst| {
-                            R::Server::copy(
-                                handle_cloned,
-                                server_src,
-                                server_dst,
-                                src_descriptor,
-                                stream_id_src,
-                                stream_id_dst,
-                            )
-                        })
-                        .unwrap()
-                })
+        let mut dst_server = dst_server.clone();
+        let handle = Handle::new(stream_id_dst, src_descriptor.handle.size_in_used());
+        let handle_cloned = handle.clone();
+
+        let device_ids = vec![device_id_src, device_id_dst];
+        self.ensure_init_collective(device_ids.clone());
+        dst_server.ensure_init_collective(device_ids);
+
+        self.device.submit(move |server_src| {
+            server_src
+                .send(src_descriptor, dtype, stream_id_src, device_id_dst)
                 .unwrap()
-                .unwrap();
+        });
 
-            handle
-        } else {
-            let alloc_desc = MemoryLayoutDescriptor::new(
-                MemoryLayoutStrategy::Optimized,
-                src_descriptor.shape.clone(),
-                src_descriptor.elem_size,
-            );
-            self.change_client_sync(src_descriptor, alloc_desc, dst_server)
-                .memory
-        }
+        dst_server.device.submit(move |server_dst| {
+            server_dst
+                .recv(handle_cloned, dtype, stream_id_dst, device_id_src)
+                .unwrap();
+            server_dst.sync_collective(stream_id_dst).unwrap();
+        });
+
+        // `ServerCommunication::send` and`ServerCommunication::recv` are blocking: they each wait for the corresponding recv/send
+        // call to be made. We flush the operations right away so that the neither server ends up in a deadlock.
+        // The actual data transfer is still executed asynchronously on the communication stream.
+        self.device.flush_queue();
+        dst_server.device.flush_queue();
+
+        handle
     }
 
     #[track_caller]

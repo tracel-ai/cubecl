@@ -21,13 +21,17 @@ pub fn test_to_client<R: Runtime>() {
 
         println!("Moving data from {device_0:?} to {device_1:?} ...");
 
-        let client_0 = R::client(&device_0);
+        let mut client_0 = R::client(&device_0);
         let client_1 = R::client(&device_1);
 
         let expected = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
         let input = client_0.create_from_slice(f32::as_bytes(&expected));
 
-        let output = client_0.to_client(input, &client_1);
+        let output = client_0.to_client(
+            input,
+            &client_1,
+            cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32),
+        );
 
         let actual = client_1.read_one_unchecked(output);
         let actual = f32::from_bytes(&actual);

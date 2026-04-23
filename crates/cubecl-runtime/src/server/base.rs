@@ -454,6 +454,20 @@ pub trait ServerCommunication {
         todo!() // For backends other than cuda.
     }
 
+    /// Initialize the communication between the devices in `device_ids`.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_ids` - The IDs of the devices that need communication.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing an `ServerError` if the operation fails.
+    #[allow(unused_variables)]
+    fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
+        unimplemented!()
+    }
+
     /// Performs an `all_reduce` operation on the input data and writes it to the output buffer.
     /// see <https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html#allreduce>
     ///
@@ -461,6 +475,7 @@ pub trait ServerCommunication {
     ///
     /// * `src` - The data to be reduced.
     /// * `dst` - Where to write the result.
+    /// * `dtype` - The element type of the data being reduced
     /// * `stream_id` - The data's stream id.
     /// * `op` - The reduce's aggregation operation e.g. mean, sum, etc.
     /// * `device_ids` - The list of device ids from which to `all_reduce`.
@@ -481,40 +496,50 @@ pub trait ServerCommunication {
         unimplemented!()
     }
 
-    /// Copies data from a source server to a destination server.
+    /// Sends data from this server to a destination server.
     ///
     /// # Arguments
     ///
-    /// * `server_src` - A mutable reference to the source server from which data is copied.
-    /// * `server_dst` - A mutable reference to the destination server receiving the data.
-    /// * `src` - A descriptor specifying the data to be copied, including shape, strides, and binding.
-    /// * `stream_id_src` - The stream ID associated with the source server's operation.
-    /// * `stream_id_dst` - The stream ID associated with the destination server's operation.
+    /// * `desc` - A descriptor specifying the data to be sent, including shape, strides, and binding.
+    /// * `dtype` - The element type of the data being sent.
+    /// * `stream_id` - The stream ID associated with the server's operation.
+    /// * `device_id_dst` - ID of the device receiving the data.
     ///
     /// # Returns
     ///
-    /// Returns a `Result` containing an `Allocation` on success, or an `IoError` if the operation fails.
-    ///
-    /// # Panics
-    ///
-    /// Panics if server communication is not enabled (`SERVER_COMM_ENABLED` is `false`) or if the
-    /// trait is incorrectly implemented by the server.
+    /// Returns a `Result` containing an `ServerError` if the operation fails.
     #[allow(unused_variables)]
-    fn copy(
-        handle_dst: Handle,
-        server_src: &mut Self,
-        server_dst: &mut Self,
-        src: CopyDescriptor,
-        stream_id_src: StreamId,
-        stream_id_dst: StreamId,
+    fn send(
+        &mut self,
+        desc: CopyDescriptor,
+        dtype: ElemType,
+        stream_id: StreamId,
+        device_id_dst: DeviceId,
     ) -> Result<(), ServerError> {
-        if !Self::SERVER_COMM_ENABLED {
-            panic!("Server-to-server communication is not supported by this server.");
-        } else {
-            panic!(
-                "[Internal Error] The `ServerCommunication` trait is incorrectly implemented by the server."
-            );
-        }
+        unimplemented!()
+    }
+
+    /// Receive data from another server.
+    ///
+    /// # Arguments
+    ///
+    /// * `handle` - The handle in which the received data is written.
+    /// * `dtype` - The element type of the data being sent.
+    /// * `stream_id` - The stream ID associated with the server's operation.
+    /// * `device_id_src` - ID of the device sending the data.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing an `ServerError` if the operation fails.
+    #[allow(unused_variables)]
+    fn recv(
+        &mut self,
+        handle: Handle,
+        dtype: ElemType,
+        stream_id: StreamId,
+        device_id_src: DeviceId,
+    ) -> Result<(), ServerError> {
+        unimplemented!()
     }
 }
 

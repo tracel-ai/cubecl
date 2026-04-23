@@ -31,6 +31,10 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
         Self::locate(device_id)
     }
 
+    fn device_id(&self) -> DeviceId {
+        self.device_id
+    }
+
     fn utilities(&self) -> ServerUtilitiesHandle {
         let state = self.lock.lock.lock();
         state

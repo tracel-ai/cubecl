@@ -25,6 +25,9 @@ pub(crate) trait DeviceHandleSpec<S: DeviceService>: Sized {
     /// If a runner thread for this `device_id` does not exist, it will be spawned.
     fn new(device_id: DeviceId) -> Self;
 
+    /// Retrieves the device ID for this handle.
+    fn device_id(&self) -> DeviceId;
+
     /// Retrieves the server utilities for this thread.
     fn utilities(&self) -> ServerUtilitiesHandle;
 
