@@ -496,30 +496,48 @@ pub trait ServerCommunication {
         unimplemented!()
     }
 
-    /// Sends data from a source server to a destination server.
+    /// Sends data from this server to a destination server.
     ///
     /// # Arguments
     ///
-    /// * `handle_dst` - The handle in which the received data is written.
-    /// * `server_src` - A mutable reference to the source server from which data is sent.
-    /// * `server_dst` - A mutable reference to the destination server receiving the data.
-    /// * `src` - A descriptor specifying the data to be copied, including shape, strides, and binding.
+    /// * `desc` - A descriptor specifying the data to be sent, including shape, strides, and binding.
     /// * `dtype` - The element type of the data being sent.
-    /// * `stream_id_src` - The stream ID associated with the source server's operation.
-    /// * `stream_id_dst` - The stream ID associated with the destination server's operation.
+    /// * `stream_id` - The stream ID associated with the server's operation.
+    /// * `device_id_dst` - ID of the device receiving the data.
     ///
     /// # Returns
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
     #[allow(unused_variables)]
-    fn send_recv(
-        handle_dst: Handle,
-        server_src: &mut Self,
-        server_dst: &mut Self,
-        src: CopyDescriptor,
+    fn send(
+        &mut self,
+        desc: CopyDescriptor,
         dtype: ElemType,
-        stream_id_src: StreamId,
-        stream_id_dst: StreamId,
+        stream_id: StreamId,
+        device_id_dst: DeviceId,
+    ) -> Result<(), ServerError> {
+        unimplemented!()
+    }
+
+    /// Receive data from another server.
+    ///
+    /// # Arguments
+    ///
+    /// * `handle` - The handle in which the received data is written.
+    /// * `dtype` - The element type of the data being sent.
+    /// * `stream_id` - The stream ID associated with the server's operation.
+    /// * `device_id_src` - ID of the device sending the data.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing an `ServerError` if the operation fails.
+    #[allow(unused_variables)]
+    fn recv(
+        &mut self,
+        handle: Handle,
+        dtype: ElemType,
+        stream_id: StreamId,
+        device_id_src: DeviceId,
     ) -> Result<(), ServerError> {
         unimplemented!()
     }

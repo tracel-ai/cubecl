@@ -404,114 +404,129 @@ impl ServerCommunication for CudaServer {
         Ok(())
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip(server_src, server_dst, src))
-    )]
-    fn send_recv(
-        handle_dst: Handle,
-        server_src: &mut Self,
-        server_dst: &mut Self,
-        src: CopyDescriptor,
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(desc)))]
+    fn send(
+        &mut self,
+        desc: CopyDescriptor,
         dtype: ElemType,
-        stream_id_src: StreamId,
-        stream_id_dst: StreamId,
+        stream_id: StreamId,
+        device_id_dst: DeviceId,
     ) -> Result<(), ServerError> {
-        let binding = src.handle.clone();
+        let binding = desc.handle.clone();
 
         // We create a command on the source server to retrieve the correct resource from the
         // source memory pools. We also make sure the current stream is aligned with the stream of
         // the binding, where the data was first allocated.
-        let mut command_src = server_src.command(
-            stream_id_src,
-            [&src.handle].into_iter(),
+        let mut command = self.command(
+            stream_id,
+            [&desc.handle].into_iter(),
             StreamErrorMode {
                 ignore: true,
                 flush: false,
             },
         )?;
-        let resource_src = command_src.resource(binding.clone())?;
-        let stream_src = command_src.streams.current().sys;
-        let fence_src = Fence::new(stream_src);
+        let resource = command.resource(binding.clone())?;
+        let stream = command.streams.current().sys;
 
         // We need to free the command before creating another one.
-        core::mem::drop(command_src);
+        core::mem::drop(command);
 
-        // We create a new command on the destination server to reserve the necessary GPU memory
-        // and wait on the source server, making sure the execution is updated. Then, we perform
-        // the peer memcpy on the destination server.
-        let mut command_dst = server_dst.command_no_inputs(
-            stream_id_dst,
+        // Wait for data to be ready on compute stream.
+        Fence::new(stream).wait_async(self.comm_stream);
+
+        // Get the communicator.
+        let mut device_ids = vec![device_id_dst, self.device_id];
+        device_ids.sort();
+        let comm_id = CommunicationId::from(device_ids.clone());
+        let comm = self
+            .communicators
+            .get(&comm_id)
+            .expect("Communicator for this ID should exist");
+
+        let rank_dst = device_ids
+            .iter()
+            .position(|id| id.index_id != self.device_id.index_id)
+            .unwrap() as i32;
+
+        // Perform the `send` operation.
+        let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource.size);
+        // SAFETY: `resource.ptr` is a valid device pointer.
+        // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
+        // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
+        unsafe {
+            cudarc::nccl::result::send(
+                resource.ptr as *const _,
+                count,
+                nccl_dtype,
+                rank_dst,
+                *comm,
+                self.comm_stream as _,
+            )
+            .map_err(|e| ServerError::Generic {
+                reason: format!("NCCL send failed: {e:?}"),
+                backtrace: BackTrace::capture(),
+            })?;
+        }
+
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace"))]
+    fn recv(
+        &mut self,
+        handle: Handle,
+        dtype: ElemType,
+        stream_id: StreamId,
+        device_id_src: DeviceId,
+    ) -> Result<(), ServerError> {
+        // We create a new command on the destination server to reserve the necessary GPU memory.
+        let mut command_dst = self.command_no_inputs(
+            stream_id,
             StreamErrorMode {
                 ignore: true,
                 flush: false,
             },
         )?;
-        let stream_dst = command_dst.streams.current().sys;
 
-        let memory = command_dst.reserve(handle_dst.size()).unwrap();
-        command_dst.bind(memory, handle_dst.memory.clone());
+        let memory = command_dst.reserve(handle.size()).unwrap();
+        command_dst.bind(memory, handle.memory.clone());
 
-        let resource_dst = command_dst.resource(handle_dst.binding())?;
-        fence_src.wait_async(stream_dst);
+        let resource_dst = command_dst.resource(handle.binding())?;
 
         core::mem::drop(command_dst);
 
         // Get the communicator.
-        let mut device_ids = vec![server_src.device_id, server_dst.device_id];
+        let mut device_ids = vec![device_id_src, self.device_id];
         device_ids.sort();
-
         let comm_id = CommunicationId::from(device_ids.clone());
-        let comm_src = server_src
-            .communicators
-            .get(&comm_id)
-            .expect("Communicator for this ID should exist");
-        let comm_dst = server_dst
+        let comm = self
             .communicators
             .get(&comm_id)
             .expect("Communicator for this ID should exist");
 
         let rank_src = device_ids
             .iter()
-            .position(|id| id.index_id == server_src.device_id.index_id)
-            .unwrap() as i32;
-        let rank_dst = device_ids
-            .iter()
-            .position(|id| id.index_id == server_dst.device_id.index_id)
+            .position(|id| id.index_id != self.device_id.index_id)
             .unwrap() as i32;
 
-        // Perform the `send_recv` operation.
-        let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_src.size);
-        // SAFETY: `resource_src.ptr` and `resource_dst.ptr` are valid device pointers.
+        // Perform the `recv` operation.
+        let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_dst.size);
+        // SAFETY: `resource.ptr` is a valid device pointer.
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
         unsafe {
-            cudarc::nccl::result::group_start().unwrap();
-            cudarc::nccl::result::send(
-                resource_src.ptr as *const _,
-                count,
-                nccl_dtype,
-                rank_dst,
-                *comm_src,
-                server_src.comm_stream as _,
-            )
-            .map_err(|e| ServerError::Generic {
-                reason: format!("NCCL send failed: {e:?}"),
-                backtrace: BackTrace::capture(),
-            })?;
             cudarc::nccl::result::recv(
                 resource_dst.ptr as *mut _,
                 count,
                 nccl_dtype,
                 rank_src,
-                *comm_dst,
-                server_dst.comm_stream as _,
+                *comm,
+                self.comm_stream as _,
             )
             .map_err(|e| ServerError::Generic {
                 reason: format!("NCCL recv failed: {e:?}"),
                 backtrace: BackTrace::capture(),
             })?;
-            cudarc::nccl::result::group_end().unwrap();
         }
 
         Ok(())
