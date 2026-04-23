@@ -541,28 +541,6 @@ pub trait ServerCommunication {
     ) -> Result<(), ServerError> {
         unimplemented!()
     }
-
-    #[allow(unused_variables)]
-    fn recv(
-        &mut self,
-        handle: Handle,
-        dtype: ElemType,
-        stream_id: StreamId,
-        device_ids: &Vec<DeviceId>,
-    ) -> Result<(), ServerError> {
-        unimplemented!()
-    }
-
-    #[allow(unused_variables)]
-    fn send(
-        &mut self,
-        desc: CopyDescriptor,
-        dtype: ElemType,
-        stream_id: StreamId,
-        device_ids: &Vec<DeviceId>,
-    ) -> Result<(), ServerError> {
-        unimplemented!()
-    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
