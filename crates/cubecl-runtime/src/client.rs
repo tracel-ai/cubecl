@@ -697,6 +697,8 @@ impl<R: Runtime> ComputeClient<R> {
             println!("[{:?}] In submit sync", std::thread::current().id(),);
             server_dst.sync_collective(stream_id_dst).unwrap();
         });
+        // Ensure that the source server isn't blocked on the send
+        dst_server.device.flush_queue();
 
         println!(
             "[{:?}] to_client finished: {} -> {}",
