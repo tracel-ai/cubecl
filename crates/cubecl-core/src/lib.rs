@@ -115,10 +115,11 @@ pub enum VectorizationError {
 /// but doesn't guarantee to always return the actual maximum possible vector size.
 /// That is, it may be overly strict.
 ///
-/// Currently, this checks that the stride of the axis is 1, that it's shape is
-/// divisible by a candidate vector size and that the smallest stride that is not 1
-/// is divisible by the vector size.
-/// The last condition ensure that the current axis is contiguous within the next stride.
+/// Currently, this checks that the stride of the axis is 1, that its shape is
+/// divisible by a candidate vector size and that every non-broadcast stride outside
+/// the axis is divisible by the vector size.
+/// The last condition ensures a vectorized read on `axis` stays contiguous in the
+/// source buffer as coordinates in other dimensions change.
 pub fn tensor_vector_size_parallel(
     optimized_vector_sizes: impl Iterator<Item = VectorSize>,
     shape: &Shape,
@@ -144,11 +145,18 @@ pub fn try_tensor_vector_size_parallel(
 
     let axis_shape = shape.get(axis).ok_or(VectorizationError::AxisOutOfBounds)?;
 
-    let next_stride = *strides
+    // Smallest non-zero stride among non-axis dims. Stride 0 is a broadcast and
+    // never contributes to the source offset, so it can be ignored. Every other
+    // dim can shift the source offset when its coord changes, so its stride must
+    // be a multiple of the vector size for vectorized reads to stay aligned.
+    // Unit-size dims are included for simplicity; they only cause false negatives
+    // (vectorization disabled) rather than incorrect output.
+    let next_stride = strides
         .iter()
-        .filter(|&&stride| stride > 1)
+        .enumerate()
+        .filter_map(|(i, &s)| (i != axis && s != 0).then_some(s))
         .min()
-        .unwrap_or(&0);
+        .unwrap_or(0);
 
     supported_vector_sizes
         .filter(|&vector_size| axis_shape % vector_size == 0 && next_stride % vector_size == 0)
@@ -210,3 +218,64 @@ pub type ExpandType<T> = <T as crate::prelude::CubeType>::ExpandType;
 #[cfg(feature = "export_tests")]
 /// Tests only useful for runtimes.
 pub mod runtime_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn try_parallel(
+        sizes: &[VectorSize],
+        shape: &[usize],
+        strides: &[usize],
+        axis: usize,
+    ) -> Result<VectorSize, VectorizationError> {
+        try_tensor_vector_size_parallel(
+            sizes.iter().copied(),
+            &Shape::from(shape.iter().copied()),
+            &Strides::new(strides),
+            axis,
+        )
+    }
+
+    #[test]
+    fn parallel_contiguous_picks_max_vector_size() {
+        // Contiguous [1, 9, 4], vectorize along last dim (stride 1).
+        // Outer stride 4 is a multiple of 4, so vec_size = 4 is safe.
+        let v = try_parallel(&[1, 2, 4], &[1, 9, 4], &[36, 4, 1], 2).unwrap();
+        assert_eq!(v, 4);
+    }
+
+    #[test]
+    fn parallel_unfold_step_one_rejects_vectorization() {
+        // Unfold view produced by `unfold(1, 4, 1)` on a [1, 12] contiguous tensor:
+        // shape [1, 9, 4], strides [12, 1, 1]. The frame dim has stride 1, so each
+        // step in the frame coord shifts the source offset by 1 - not a multiple
+        // of any vec_size > 1, so vectorized reads would be unaligned and return
+        // the wrong data. Must fall back to vec_size = 1.
+        let v = try_parallel(&[1, 2, 4], &[1, 9, 4], &[12, 1, 1], 2).unwrap();
+        assert_eq!(v, 1);
+    }
+
+    #[test]
+    fn parallel_unfold_step_two_allows_vectorization() {
+        // Same unfold pattern but with step=2: strides [12, 2, 1]. Frame coord
+        // shifts source by 2 (still not a multiple of 4), so vec_size = 4 must
+        // be rejected - but vec_size = 2 is fine.
+        let v = try_parallel(&[1, 2, 4], &[1, 9, 4], &[12, 2, 1], 2).unwrap();
+        assert_eq!(v, 2);
+    }
+
+    #[test]
+    fn parallel_broadcast_dim_ignored() {
+        // Broadcast dim has stride 0; it never shifts the source offset, so
+        // it should not disqualify vectorization.
+        let v = try_parallel(&[1, 2, 4], &[1, 9, 4], &[0, 4, 1], 2).unwrap();
+        assert_eq!(v, 4);
+    }
+
+    #[test]
+    fn parallel_axis_stride_not_one_is_error() {
+        let err = try_parallel(&[1, 2, 4], &[1, 9, 4], &[36, 1, 4], 2).unwrap_err();
+        assert!(matches!(err, VectorizationError::StrideMismatch));
+    }
+}
