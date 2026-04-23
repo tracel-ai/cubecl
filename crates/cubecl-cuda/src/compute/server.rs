@@ -431,8 +431,8 @@ impl ServerCommunication for CudaServer {
         // We need to free the command before creating another one.
         core::mem::drop(command);
 
-        // Wait for data to be ready on compute stream.
-        Fence::new(stream).wait_async(self.comm_stream);
+        // // Wait for data to be ready on compute stream.
+        // Fence::new(stream).wait_async(self.comm_stream);
 
         // Get the communicator.
         let mut device_ids = vec![device_id_dst, self.device_id];
