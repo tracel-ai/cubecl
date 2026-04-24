@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use alloc::{format, vec::Vec};
 
-use crate::{IndexMutOperator, IndexOperator, TypeHash};
+use crate::{IndexOperator, TypeHash};
 
 use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Variable};
 
@@ -17,8 +17,8 @@ pub enum Operator {
     CopyMemoryBulk(CopyMemoryBulkOperator),
     #[operation(pure)]
     UncheckedIndex(IndexOperator),
-    IndexMut(IndexMutOperator),
-    UncheckedIndexMut(IndexMutOperator),
+    IndexMut(IndexOperator),
+    UncheckedIndexMut(IndexOperator),
     #[operation(pure)]
     InitVector(VectorInitOperator),
     #[operation(pure)]

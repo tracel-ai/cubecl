@@ -1,13 +1,13 @@
 use cubecl_core::ir::{
     self as core, BinaryOperator, Comparison, Instruction, InstructionModes, Operation, Operator,
-    UnaryOperator,
+    Type, UnaryOperator,
 };
 use rspirv::spirv::{Capability, Decoration, MemoryAccess, Word};
 
 use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
-    variable::IndexedVariable,
+    variable::Variable,
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
@@ -31,6 +31,20 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             Operation::Reference(_) => todo!(),
+            Operation::Deref(var) => {
+                let input = self.compile_variable(var);
+                let out = self.compile_variable(inst.out());
+
+                let id = self.load_aligned(&input, &out);
+
+                self.write(&out, id);
+            }
+            Operation::DerefAssign(var) => {
+                let input = self.compile_variable(var);
+                let out = self.compile_variable(inst.out());
+
+                self.store_aligned(&out, &input);
+            }
             Operation::Arithmetic(operator) => {
                 self.compile_arithmetic(operator, inst.out, inst.modes, uniform)
             }
@@ -192,35 +206,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_operator(&mut self, op: Operator, out: Option<core::Variable>, uniform: bool) {
         let out = out.unwrap();
         match op {
-            Operator::Index(op) | Operator::UncheckedIndex(op) => {
-                let is_atomic = op.list.ty.is_atomic();
-                let value = self.compile_variable(op.list);
+            Operator::Index(op)
+            | Operator::UncheckedIndex(op)
+            | Operator::IndexMut(op)
+            | Operator::UncheckedIndexMut(op) => {
+                let list = self.compile_variable(op.list);
                 let index = self.compile_variable(op.index);
                 let out = self.compile_variable(out);
 
-                if is_atomic {
-                    let ptr = match self.index(&value, &index) {
-                        IndexedVariable::Pointer(ptr, _) => ptr,
-                        _ => unreachable!("Atomic is always pointer"),
-                    };
-                    self.state.atomic_scopes.insert(ptr, value.scope());
-                    let out_id = out.as_binding().unwrap();
+                let ptr = self.index(&list, &index, &out);
 
-                    // This isn't great but atomics can't currently be constructed so should be fine
-                    self.merge_binding(out_id, ptr);
-                } else {
-                    let out_id = self.read_indexed(&out, &value, &index);
-                    self.mark_uniformity(out_id, uniform);
-                    self.write(&out, out_id);
-                }
-            }
-            Operator::IndexMut(op) | Operator::UncheckedIndexMut(op) => {
-                let index = self.compile_variable(op.index);
-                let value = self.compile_variable(op.value);
-                let out = self.compile_variable(out);
-                let value_id = self.read_as(&value, &out.indexed_item());
-
-                self.write_indexed(&out, &index, value_id);
+                self.write(&out, ptr);
             }
             Operator::Cast(op) => {
                 let input = self.compile_variable(op.input);
@@ -276,7 +272,56 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.composite_construct(ty, Some(out_id), values).unwrap();
                 self.write(&out, out_id);
             }
+            Operator::InsertComponent(op) => {
+                let value = self.compile_variable(op.rhs);
+                let output = self.compile_variable(out);
+
+                let value = self.read(&value);
+                let out_value = self.read(&output);
+                let out_ty = output.item().id(self);
+                let write_id = self.write_id(&output);
+
+                if let Some(index) = op.lhs.as_const() {
+                    let index = index.as_u32();
+                    self.composite_insert(out_ty, Some(write_id), value, out_value, [index])
+                        .unwrap();
+                } else {
+                    let index = self.compile_variable(op.lhs);
+                    let index = self.read(&index);
+
+                    self.vector_insert_dynamic(out_ty, Some(write_id), out_value, value, index)
+                        .unwrap();
+                }
+
+                self.write(&output, write_id);
+            }
+            Operator::ExtractComponent(op) => {
+                let vector = self.compile_variable(op.lhs);
+                let output = self.compile_variable(out);
+
+                let vector = self.read(&vector);
+                let out_ty = output.item().id(self);
+                let write_id = self.write_id(&output);
+
+                if let Some(index) = op.rhs.as_const() {
+                    let index = index.as_u32();
+                    self.composite_extract(out_ty, Some(write_id), vector, [index])
+                        .unwrap();
+                } else {
+                    let index = self.compile_variable(op.rhs);
+                    let index = self.read(&index);
+
+                    self.vector_extract_dynamic(out_ty, Some(write_id), vector, index)
+                        .unwrap();
+                }
+
+                self.write(&output, write_id);
+            }
             Operator::CopyMemory(op) => {
+                let ptr_ty_in =
+                    self.compile_type(Type::pointer(op.input.ty, op.input.pointer_class()));
+                let ptr_ty_out = self.compile_type(Type::pointer(out.ty, out.pointer_class()));
+
                 let input = self.compile_variable(op.input);
                 let in_index = self.compile_variable(op.in_index);
                 let out = self.compile_variable(out);
@@ -284,11 +329,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 let align = input.item().size().max(out.item().size());
 
-                let in_ptr = self.index_ptr(&input, &in_index);
-                let out_ptr = self.index_ptr(&out, &out_index);
+                let tmp = Variable::Raw(self.id(), ptr_ty_in);
+                let source = self.index(&input, &in_index, &tmp);
+                let tmp = Variable::Raw(self.id(), ptr_ty_out);
+                let target = self.index(&out, &out_index, &tmp);
+
                 self.copy_memory(
-                    out_ptr,
-                    in_ptr,
+                    target,
+                    source,
                     Some(MemoryAccess::ALIGNED),
                     [align.into()],
                     None,
@@ -298,6 +346,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Operator::CopyMemoryBulk(op) => {
                 self.capabilities.insert(Capability::Addresses);
+
+                let ptr_ty_in =
+                    self.compile_type(Type::pointer(op.input.ty, op.input.pointer_class()));
+                let ptr_ty_out = self.compile_type(Type::pointer(out.ty, out.pointer_class()));
+
                 let input = self.compile_variable(op.input);
                 let in_index = self.compile_variable(op.in_index);
                 let out = self.compile_variable(out);
@@ -305,8 +358,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let len = op.len;
                 let size = len as u32 * out.item().size();
 
-                let source = self.index_ptr(&input, &in_index);
-                let target = self.index_ptr(&out, &out_index);
+                let tmp = Variable::Raw(self.id(), ptr_ty_in);
+                let source = self.index(&input, &in_index, &tmp);
+                let tmp = Variable::Raw(self.id(), ptr_ty_out);
+                let target = self.index(&out, &out_index, &tmp);
                 let size_id = self.const_u32(size);
 
                 self.copy_memory_sized(

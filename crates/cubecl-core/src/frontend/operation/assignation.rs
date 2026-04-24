@@ -45,14 +45,11 @@ pub mod assign {
         input: NativeExpand<C>,
         output: &mut NativeExpand<C>,
     ) {
-        let output = output.expand;
-        let input = input.expand;
-
-        if output.is_immutable() {
+        if output.expand.is_immutable() {
             panic!("Can't assign a value to a const variable. Try to use `RuntimeCell`.");
         }
 
-        scope.register(Instruction::new(Operation::Copy(input), output));
+        expand_no_check(scope, input, output);
     }
     /// Expand the assign operation without any check.
     ///
@@ -60,20 +57,20 @@ pub mod assign {
     pub fn expand_no_check<C: CubeType>(
         scope: &Scope,
         input: NativeExpand<C>,
-        output: NativeExpand<C>,
+        output: &mut NativeExpand<C>,
     ) {
         let output = output.expand;
         let input = input.expand;
 
-        scope.register(Instruction::new(Operation::Copy(input), output));
+        expand_element(scope, input, output);
     }
 
     pub fn expand_element(scope: &Scope, input: Variable, output: Variable) {
-        if output.is_immutable() {
-            panic!("Can't assign a value to a const variable. Try to use `RuntimeCell`.");
+        if output.ty.is_ptr() && !input.ty.is_ptr() {
+            scope.register(Instruction::new(Operation::DerefAssign(input), output));
+        } else {
+            scope.register(Instruction::new(Operation::Copy(input), output));
         }
-
-        scope.register(Instruction::new(Operation::Copy(input), output));
     }
 }
 

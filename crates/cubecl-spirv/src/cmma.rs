@@ -4,7 +4,7 @@ use crate::{
     lookups::Matrix,
     variable::Variable,
 };
-use cubecl_core::ir::{self as core, CoopMma, ElemType, Id, MatrixLayout, MatrixScope};
+use cubecl_core::ir::{self as core, CoopMma, ElemType, Id, MatrixLayout, MatrixScope, Type};
 use rspirv::{
     dr::Operand,
     spirv::{
@@ -67,6 +67,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         offset: core::Variable,
         layout: Option<MatrixLayout>,
     ) {
+        let ptr_ty = self.compile_type(Type::pointer(value.ty, value.pointer_class()));
         let mat = self.compile_variable(mat);
         let mat = self.matrix_var(&mat).1;
 
@@ -92,7 +93,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let memory_layout = self.const_u32(layout as u32);
 
         let offset = self.compile_variable(offset);
-        let ptr = self.index_ptr(&value, &offset);
+        let indexed_ptr = Variable::Raw(self.id(), ptr_ty);
+        let ptr = self.index(&value, &offset, &indexed_ptr);
         let out_ty = self.item(&mat);
         let ty = out_ty.id(self);
 
@@ -188,6 +190,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         offset: core::Variable,
         layout: MatrixLayout,
     ) {
+        let ptr_ty = self.compile_type(Type::pointer(out.ty, out.pointer_class()));
         let mat = self.compile_variable(mat);
         let mat = self.matrix_var(&mat).1;
         let item = self.item(&mat);
@@ -202,7 +205,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let layout = compile_layout(layout).unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
         let offset = self.compile_variable(offset);
-        let ptr = self.index_ptr(&out, &offset);
+
+        let tmp = Variable::Raw(self.id(), ptr_ty);
+        let ptr = self.index(&out, &offset, &tmp);
 
         let align = out.item().size();
 

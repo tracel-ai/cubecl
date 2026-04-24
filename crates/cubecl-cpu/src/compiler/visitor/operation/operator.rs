@@ -1,4 +1,4 @@
-use cubecl_core::ir::{IndexMutOperator, IndexOperator, Operator, StorageType, VariableKind};
+use cubecl_core::ir::{IndexOperator, Operator, StorageType, VariableKind};
 use tracel_llvm::mlir_rs::{
     dialect::{
         arith, index, memref,
@@ -189,7 +189,7 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    fn visit_index_assign(&mut self, index_assign: &IndexMutOperator, out: Variable) {
+    fn visit_index_assign(&mut self, index_assign: &IndexOperator, out: Variable) {
         assert!(index_assign.vector_size == 0);
         let value = self.get_variable(index_assign.value);
         let memref = self.get_memory(out);

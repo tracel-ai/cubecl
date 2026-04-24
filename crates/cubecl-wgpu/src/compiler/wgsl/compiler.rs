@@ -509,6 +509,12 @@ impl WgslCompiler {
                 input: self.compile_variable(variable),
                 out: self.compile_variable(out.unwrap()),
             }),
+            cube::Operation::DerefAssign(variable) => {
+                instructions.push(wgsl::Instruction::DerefAssign {
+                    input: self.compile_variable(variable),
+                    out: self.compile_variable(out.unwrap()),
+                })
+            }
             cube::Operation::Arithmetic(op) => {
                 self.compile_arithmetic(op, out, instructions, scope)
             }
@@ -645,9 +651,7 @@ impl WgslCompiler {
                 cases: op
                     .cases
                     .into_iter()
-                    .map(|(val, scope)| {
-                        (self.compile_variable(val), self.compile_scope(&scope))
-                    })
+                    .map(|(val, scope)| (self.compile_variable(val), self.compile_scope(&scope)))
                     .collect(),
             }),
             cube::Branch::Return => instructions.push(wgsl::Instruction::Return),

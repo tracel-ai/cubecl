@@ -29,14 +29,6 @@ pub struct IndexInstruction<D: Dialect> {
     pub out: Variable<D>,
 }
 
-#[derive(Debug, Clone)]
-pub struct IndexMutInstruction<D: Dialect> {
-    pub list: Variable<D>,
-    pub index: Variable<D>,
-    pub vector_size: u32,
-    pub out: Variable<D>,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct UnaryInstruction<D: Dialect> {
     pub input: Variable<D>,
@@ -83,8 +75,9 @@ pub enum Instruction<D: Dialect> {
     SaturatingSub(BinaryInstruction<D>),
     HiMul(BinaryInstruction<D>),
     Index(IndexInstruction<D>),
-    IndexMut(IndexMutInstruction<D>),
+    IndexMut(IndexInstruction<D>),
     Assign(UnaryInstruction<D>),
+    DerefAssign(UnaryInstruction<D>),
     Reference(UnaryInstruction<D>),
     Deref(UnaryInstruction<D>),
     SpecialCast(UnaryInstruction<D>),
@@ -387,6 +380,9 @@ impl<D: Dialect> Display for Instruction<D> {
                 Ok(())
             }
             Instruction::Assign(it) => Assign::format(f, &it.input, &it.out),
+            Instruction::DerefAssign(it) => {
+                writeln!(f, "*{} = {};", it.out, it.input)
+            }
             Instruction::Reference(it) => {
                 let out_ty = it.out.item();
                 let out = it.out;

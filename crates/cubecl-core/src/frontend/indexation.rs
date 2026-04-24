@@ -1,7 +1,7 @@
 use core::ops::{Index, IndexMut};
 
 use cubecl_ir::{
-    IndexMutOperator, Instruction, Operator, Scope, Type, Variable, VariableKind, VectorSize,
+    IndexOperator, Instruction, Operator, Scope, Type, Variable, VariableKind, VectorSize,
 };
 
 use super::{CubeType, NativeExpand, index_expand};
@@ -120,7 +120,7 @@ where
 
     if checked {
         scope.register(Instruction::new(
-            Operator::IndexMut(IndexMutOperator {
+            Operator::IndexMut(IndexOperator {
                 list,
                 index,
                 vector_size,
@@ -130,7 +130,7 @@ where
         ));
     } else {
         scope.register(Instruction::new(
-            Operator::UncheckedIndexMut(IndexMutOperator {
+            Operator::UncheckedIndexMut(IndexOperator {
                 list,
                 index,
                 vector_size,

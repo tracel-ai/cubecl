@@ -563,9 +563,6 @@ impl<D: Dialect> Variable<D> {
 
 impl<D: Dialect> FmtLeft for Variable<D> {
     fn fmt_left(&self) -> String {
-        if self.item().is_ptr() {
-            return format!("*{self}");
-        }
         match self {
             Self::LocalConst { item, .. } => match item {
                 Item::Atomic(_) => {

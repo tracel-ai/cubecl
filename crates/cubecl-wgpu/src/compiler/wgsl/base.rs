@@ -452,9 +452,6 @@ impl Display for IndexedVariable {
 
 impl Variable {
     pub fn fmt_left(&self) -> String {
-        if self.is_ptr() {
-            return format!("*{self}");
-        }
         match self {
             Variable::LocalConst { .. } => {
                 format!("let {self}")

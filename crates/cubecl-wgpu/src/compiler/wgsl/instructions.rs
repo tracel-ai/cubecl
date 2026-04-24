@@ -82,6 +82,10 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    DerefAssign {
+        input: Variable,
+        out: Variable,
+    },
     Modulo {
         lhs: Variable,
         rhs: Variable,
@@ -771,9 +775,6 @@ impl Display for Instruction {
             Instruction::LowerEqual { lhs, rhs, out } => comparison(lhs, rhs, out, "<=", f),
             Instruction::GreaterEqual { lhs, rhs, out } => comparison(lhs, rhs, out, ">=", f),
             Instruction::NotEqual { lhs, rhs, out } => comparison(lhs, rhs, out, "!=", f),
-            Instruction::Assign { input, out } if input.is_ptr() && out.is_ptr() => {
-                writeln!(f, "let {out} = {input};")
-            }
             Instruction::Assign { input, out } => {
                 let vec_left = out.item().vectorization_factor();
                 let vec_right = input.item().vectorization_factor();
@@ -803,6 +804,9 @@ impl Display for Instruction {
             Instruction::Deref { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = *{input};")
+            }
+            Instruction::DerefAssign { input, out } => {
+                writeln!(f, "*{out} = {input};")
             }
             Instruction::Metadata { info_offset, out } => {
                 let out = out.fmt_left();

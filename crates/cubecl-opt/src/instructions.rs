@@ -43,6 +43,10 @@ impl Function {
             Operation::Copy(variable) => visit_read(self, variable),
             Operation::Reference(variable) => visit_read(self, variable),
             Operation::Deref(variable) => visit_read(self, variable),
+            Operation::DerefAssign(variable) => {
+                visit_read(self, variable);
+                visit_read(self, out.as_mut().unwrap());
+            }
             Operation::Arithmetic(arithmetic) => self.visit_arithmetic(arithmetic, visit_read),
             Operation::Comparison(comparison) => self.visit_compare(comparison, visit_read),
             Operation::Bitwise(bitwise) => self.visit_bitwise(bitwise, visit_read),

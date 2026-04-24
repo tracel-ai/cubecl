@@ -139,7 +139,7 @@ fn len_static<T: CubePrimitive>(shared: &NativeExpand<SharedMemory<T>>) -> Nativ
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
-    use cubecl_ir::{IndexMutOperator, IndexOperator, Operator};
+    use cubecl_ir::{IndexOperator, Operator};
 
     use crate::ir::Instruction;
 
@@ -185,7 +185,7 @@ mod indexation {
                 let class = self.expand.pointer_class();
                 let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndexMut(IndexMutOperator {
+                    Operator::UncheckedIndexMut(IndexOperator {
                         list: self.expand,
                         index: i.expand,
                         vector_size: 0,

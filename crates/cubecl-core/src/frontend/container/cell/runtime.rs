@@ -67,7 +67,8 @@ impl<T: CubePrimitive> RuntimeCell<T> {
     #[allow(unused_variables)]
     pub fn store(&self, value: T) {
         intrinsic!(|scope| {
-            expand_no_check(scope, value, self.value.clone());
+            let mut this = self.value.clone();
+            expand_no_check(scope, value, &mut this);
         })
     }
 

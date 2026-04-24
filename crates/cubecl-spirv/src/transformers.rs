@@ -1,8 +1,8 @@
 use cubecl_core::{
     define_scalar, define_size,
     ir::{
-        Arithmetic, Bitwise, ElemType, Instruction, IntKind, ManagedVariable, Operation, Operator,
-        Scope, Type, UIntKind, UnaryOperator, Variable,
+        Arithmetic, Bitwise, ElemType, Instruction, IntKind, Operation, Operator, Scope, Type,
+        UIntKind, UnaryOperator, Variable,
     },
     prelude::{assign, expand_erf, expand_hypot, expand_rhypot},
 };
@@ -24,7 +24,7 @@ impl IrTransformer for ErfTransform {
     fn maybe_transform(&self, scope: &Scope, inst: &Instruction) -> TransformAction {
         match &inst.operation {
             Operation::Arithmetic(Arithmetic::Erf(op)) => {
-                let mut scope = scope.child();
+                let scope = scope.child();
                 expand_erf(&scope, op.input, inst.out.unwrap());
                 TransformAction::Replace(into_instructions(scope))
             }
@@ -41,7 +41,7 @@ impl IrTransformer for HypotTransform {
     fn maybe_transform(&self, scope: &Scope, inst: &Instruction) -> TransformAction {
         match &inst.operation {
             Operation::Arithmetic(Arithmetic::Hypot(op)) => {
-                let mut scope = scope.child();
+                let scope = scope.child();
                 expand_hypot(&scope, op.lhs, op.rhs, inst.out.unwrap());
                 TransformAction::Replace(into_instructions(scope))
             }
@@ -58,7 +58,7 @@ impl IrTransformer for RhypotTransform {
     fn maybe_transform(&self, scope: &Scope, inst: &Instruction) -> TransformAction {
         match &inst.operation {
             Operation::Arithmetic(Arithmetic::Rhypot(op)) => {
-                let mut scope = scope.child();
+                let scope = scope.child();
                 expand_rhypot(&scope, op.lhs, op.rhs, inst.out.unwrap());
                 TransformAction::Replace(into_instructions(scope))
             }
@@ -89,42 +89,32 @@ impl IrTransformer for BitwiseTransform {
         };
         match op {
             Bitwise::CountOnes(op) if is_u64(op.input) && !self.arbitrary_bitwise => {
-                let mut scope = scope.child();
+                let scope = scope.child();
                 scope.register_type::<IntA>(op.input.storage_type());
                 scope.register_size::<SizeA>(op.input.vector_size());
-                let res = u64_count_bits::expand::<IntA, SizeA>(
-                    &scope,
-                    ManagedVariable::Plain(op.input).into(),
-                );
-                assign::expand_no_check(&scope, res, ManagedVariable::Plain(inst.out()).into());
+                let res = u64_count_bits::expand::<IntA, SizeA>(&scope, op.input.into());
+                assign::expand_no_check(&scope, res, &mut inst.out().into());
                 TransformAction::Replace(into_instructions(scope))
             }
             Bitwise::CountOnes(op) if is_u16_u8(op.input) && !self.arbitrary_bitwise => {
                 let u32 = Type::new(UIntKind::U32.into()).with_vector_size(op.input.vector_size());
                 let tmp = scope.create_local(u32);
-                let cast =
-                    Instruction::new(Operator::Cast(UnaryOperator { input: op.input }), *tmp);
-                let op = Instruction::new(
-                    Bitwise::CountOnes(UnaryOperator { input: *tmp }),
-                    inst.out(),
-                );
+                let cast = Instruction::new(Operator::Cast(UnaryOperator { input: op.input }), tmp);
+                let op =
+                    Instruction::new(Bitwise::CountOnes(UnaryOperator { input: tmp }), inst.out());
                 TransformAction::Replace(vec![cast, op])
             }
             Bitwise::ReverseBits(op)
                 if op.input.storage_type().size() != 4 && !self.arbitrary_bitwise =>
             {
-                let mut scope = scope.child();
+                let scope = scope.child();
                 scope.register_type::<IntA>(op.input.ty.storage_type());
                 scope.register_size::<SizeA>(op.input.vector_size());
-                let input = ManagedVariable::Plain(op.input);
+                let input = op.input;
                 match op.input.storage_type().size() {
                     8 => {
                         let res = u64_reverse::expand::<IntA, SizeA>(&scope, input.into());
-                        assign::expand_no_check(
-                            &scope,
-                            res,
-                            ManagedVariable::Plain(inst.out()).into(),
-                        );
+                        assign::expand_no_check(&scope, res, &mut inst.out().into());
                         TransformAction::Replace(into_instructions(scope))
                     }
                     width => {
@@ -133,77 +123,59 @@ impl IrTransformer for BitwiseTransform {
                             input.into(),
                             width as u32 * 8,
                         );
-                        assign::expand_no_check(
-                            &scope,
-                            res,
-                            ManagedVariable::Plain(inst.out()).into(),
-                        );
+                        assign::expand_no_check(&scope, res, &mut inst.out().into());
                         TransformAction::Replace(into_instructions(scope))
                     }
                 }
             }
             Bitwise::LeadingZeros(op) if is_u64(op.input) => {
-                let mut scope = scope.child();
+                let scope = scope.child();
                 scope.register_type::<IntA>(op.input.storage_type());
                 scope.register_size::<SizeA>(op.input.vector_size());
-                let res = u64_leading_zeros::expand::<IntA, SizeA>(
-                    &scope,
-                    ManagedVariable::Plain(op.input).into(),
-                );
-                assign::expand_no_check(&scope, res, ManagedVariable::Plain(inst.out()).into());
+                let res = u64_leading_zeros::expand::<IntA, SizeA>(&scope, op.input.into());
+                assign::expand_no_check(&scope, res, &mut inst.out().into());
                 TransformAction::Replace(into_instructions(scope))
             }
             Bitwise::LeadingZeros(op) if is_u16_u8(op.input) => {
-                let mut scope = scope.child();
+                let scope = scope.child();
                 scope.register_type::<IntA>(op.input.storage_type());
                 scope.register_size::<SizeA>(op.input.vector_size());
-                let res = u16_u8_leading_zeros::expand::<IntA, SizeA>(
-                    &scope,
-                    ManagedVariable::Plain(op.input).into(),
-                );
-                assign::expand_no_check(&scope, res, ManagedVariable::Plain(inst.out()).into());
+                let res = u16_u8_leading_zeros::expand::<IntA, SizeA>(&scope, op.input.into());
+                assign::expand_no_check(&scope, res, &mut inst.out().into());
                 TransformAction::Replace(into_instructions(scope))
             }
             Bitwise::FindFirstSet(op) if is_u64(op.input) => {
-                let mut scope = scope.child();
+                let scope = scope.child();
                 scope.register_type::<IntA>(op.input.storage_type());
                 scope.register_size::<SizeA>(op.input.vector_size());
-                let res =
-                    u64_ffs::expand::<IntA, SizeA>(&scope, ManagedVariable::Plain(op.input).into());
-                assign::expand_no_check(&scope, res, ManagedVariable::Plain(inst.out()).into());
+                let res = u64_ffs::expand::<IntA, SizeA>(&scope, op.input.into());
+                assign::expand_no_check(&scope, res, &mut inst.out().into());
                 TransformAction::Replace(into_instructions(scope))
             }
             Bitwise::FindFirstSet(op) if is_u16_u8(op.input) => {
                 let u32 = Type::new(UIntKind::U32.into()).with_vector_size(op.input.vector_size());
                 let tmp = scope.create_local(u32);
-                let cast =
-                    Instruction::new(Operator::Cast(UnaryOperator { input: op.input }), *tmp);
+                let cast = Instruction::new(Operator::Cast(UnaryOperator { input: op.input }), tmp);
                 let op = Instruction::new(
-                    Bitwise::FindFirstSet(UnaryOperator { input: *tmp }),
+                    Bitwise::FindFirstSet(UnaryOperator { input: tmp }),
                     inst.out(),
                 );
                 TransformAction::Replace(vec![cast, op])
             }
             Bitwise::TrailingZeros(op) if is_u64(op.input) => {
-                let mut scope = scope.child();
+                let scope = scope.child();
                 scope.register_type::<IntA>(op.input.storage_type());
                 scope.register_size::<SizeA>(op.input.vector_size());
-                let res = u64_trailing_zeros::expand::<IntA, SizeA>(
-                    &scope,
-                    ManagedVariable::Plain(op.input).into(),
-                );
-                assign::expand_no_check(&scope, res, ManagedVariable::Plain(inst.out()).into());
+                let res = u64_trailing_zeros::expand::<IntA, SizeA>(&scope, op.input.into());
+                assign::expand_no_check(&scope, res, &mut inst.out().into());
                 TransformAction::Replace(into_instructions(scope))
             }
             Bitwise::TrailingZeros(op) if is_u16_u8(op.input) => {
-                let mut scope = scope.child();
+                let scope = scope.child();
                 scope.register_type::<IntA>(op.input.storage_type());
                 scope.register_size::<SizeA>(op.input.vector_size());
-                let res = u16_u8_trailing_zeros::expand::<IntA, SizeA>(
-                    &scope,
-                    ManagedVariable::Plain(op.input).into(),
-                );
-                assign::expand_no_check(&scope, res, ManagedVariable::Plain(inst.out()).into());
+                let res = u16_u8_trailing_zeros::expand::<IntA, SizeA>(&scope, op.input.into());
+                assign::expand_no_check(&scope, res, &mut inst.out().into());
                 TransformAction::Replace(into_instructions(scope))
             }
             _ => TransformAction::Ignore,
@@ -228,6 +200,6 @@ fn is_u16_u8(var: Variable) -> bool {
     )
 }
 
-fn into_instructions(mut scope: Scope) -> Vec<Instruction> {
+fn into_instructions(scope: Scope) -> Vec<Instruction> {
     scope.process([]).instructions
 }

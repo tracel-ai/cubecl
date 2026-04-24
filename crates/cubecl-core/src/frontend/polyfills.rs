@@ -57,7 +57,7 @@ pub fn expand_erf(scope: &Scope, input: Variable, out: Variable) {
     scope.register_type::<ElemA>(input.ty.storage_type());
     scope.register_size::<SizeA>(input.vector_size());
     let res = erf::expand::<ElemA, SizeA>(scope, input.into());
-    assign::expand_no_check(scope, res, out.into());
+    assign::expand_no_check(scope, res, &mut out.into());
 }
 
 #[cube]
@@ -80,11 +80,11 @@ pub fn expand_himul_64(scope: &Scope, lhs: Variable, rhs: Variable, out: Variabl
     match lhs.ty.elem_type() {
         ElemType::Int(_) => {
             let res = himul_i64::expand::<SizeA>(scope, lhs.into(), rhs.into());
-            assign::expand_no_check(scope, res, out.into());
+            assign::expand_no_check(scope, res, &mut out.into());
         }
         ElemType::UInt(_) => {
             let res = himul_u64::expand::<SizeA>(scope, lhs.into(), rhs.into());
-            assign::expand_no_check(scope, res, out.into());
+            assign::expand_no_check(scope, res, &mut out.into());
         }
         _ => unreachable!(),
     };
@@ -116,5 +116,5 @@ fn himul_sim<N: Size>(lhs: Vector<u32, N>, rhs: Vector<u32, N>) -> Vector<u32, N
 pub fn expand_himul_sim(scope: &Scope, lhs: Variable, rhs: Variable, out: Variable) {
     scope.register_size::<SizeA>(lhs.vector_size());
     let res = himul_sim::expand::<SizeA>(scope, lhs.into(), rhs.into());
-    assign::expand_no_check(scope, res, out.into());
+    assign::expand_no_check(scope, res, &mut out.into());
 }

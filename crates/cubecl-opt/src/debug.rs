@@ -313,6 +313,7 @@ impl Display for Expression {
             Expression::Copy(val, _) => write!(f, "copy({val})"),
             Expression::Reference(val, _) => write!(f, "ref({val})"),
             Expression::Deref(val, _) => write!(f, "deref({val})"),
+            Expression::DerefAssign(val, _) => write!(f, "deref_assign({val})"),
             Expression::Value(value) => write!(f, "{value}"),
             Expression::Volatile(value) => write!(f, "volatile({value})"),
             Expression::Phi(entries) => write!(

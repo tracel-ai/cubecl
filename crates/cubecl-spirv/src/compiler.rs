@@ -150,7 +150,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
 
     fn compile(
         &mut self,
-        mut value: KernelDefinition,
+        value: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
         addr_type: StorageType,

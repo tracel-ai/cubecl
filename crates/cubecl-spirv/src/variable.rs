@@ -288,14 +288,6 @@ impl Variable {
     }
 }
 
-#[derive(Debug)]
-pub enum IndexedVariable {
-    Pointer(Word, Item),
-    Composite(Word, u32, Item),
-    DynamicComposite(Word, u32, Item),
-    Scalar(Variable),
-}
-
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_variable(&mut self, variable: ir::Variable) -> Variable {
         let item = variable.ty;
@@ -443,95 +435,23 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn index(&mut self, variable: &Variable, index: &Variable) -> IndexedVariable {
-        let access_chain = Builder::in_bounds_access_chain;
+    pub fn index(&mut self, variable: &Variable, index: &Variable, out: &Variable) -> Word {
         let index_id = self.read(index);
+        let write_id = self.write_id(out);
+        let ptr_ty = out.item().id(self);
+        let access_chain = |this, id, indices| {
+            Builder::in_bounds_access_chain(this, ptr_ty, Some(write_id), id, indices).unwrap()
+        };
         match variable {
-            Variable::GlobalInputArray(id, item, pos)
-            | Variable::GlobalOutputArray(id, item, pos) => {
-                let storage_class = self.state.buffers[*pos as usize].storage_class;
-                let ptr_ty = Item::Pointer(storage_class, Box::new(item.clone())).id(self);
+            Variable::GlobalInputArray(id, ..) | Variable::GlobalOutputArray(id, ..) => {
                 let zero = self.const_u32(0);
-                let id = access_chain(self, ptr_ty, None, *id, vec![zero, index_id]).unwrap();
-
-                IndexedVariable::Pointer(id, item.clone())
+                access_chain(self, *id, vec![zero, index_id])
             }
-            Variable::Local {
-                id,
-                item: Item::Vector(elem, _),
-            } => {
-                let ptr_ty =
-                    Item::Pointer(StorageClass::Function, Box::new(Item::Scalar(*elem))).id(self);
-                let id = access_chain(self, ptr_ty, None, *id, vec![index_id]).unwrap();
-
-                IndexedVariable::Pointer(id, Item::Scalar(*elem))
-            }
-            Variable::Shared(id, Item::Vector(elem, _)) => {
-                let ptr_ty =
-                    Item::Pointer(StorageClass::Workgroup, Box::new(Item::Scalar(*elem))).id(self);
-
-                let mut index = vec![index_id];
-                if self.compilation_options.vulkan.supports_explicit_smem {
-                    index.insert(0, self.const_u32(0));
-                }
-
-                let id = access_chain(self, ptr_ty, None, *id, index).unwrap();
-
-                IndexedVariable::Pointer(id, Item::Scalar(*elem))
-            }
-            Variable::LocalBinding {
-                id,
-                item: Item::Vector(elem, vec),
-                variable,
-            } if index.as_const().is_some() => IndexedVariable::Composite(
-                self.get_binding(*id, variable),
-                index.as_const().unwrap().as_u64() as u32,
-                Item::Vector(*elem, *vec),
-            ),
-            Variable::LocalBinding {
-                id,
-                item: Item::Vector(elem, vec),
-                variable,
-            } => IndexedVariable::DynamicComposite(
-                self.get_binding(*id, variable),
-                index_id,
-                Item::Vector(*elem, *vec),
-            ),
-            Variable::Versioned {
-                id,
-                item: Item::Vector(elem, vec),
-                variable,
-            } if index.as_const().is_some() => IndexedVariable::Composite(
-                self.get_versioned(*id, variable),
-                index.as_const().unwrap().as_u64() as u32,
-                Item::Vector(*elem, *vec),
-            ),
-            Variable::Versioned {
-                id,
-                item: Item::Vector(elem, vec),
-                variable,
-            } => IndexedVariable::DynamicComposite(
-                self.get_versioned(*id, variable),
-                index_id,
-                Item::Vector(*elem, *vec),
-            ),
             Variable::Shared(id, item)
                 if self.compilation_options.vulkan.supports_explicit_smem =>
             {
-                let ptr_ty =
-                    Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
                 let index = vec![self.const_u32(0)];
-                let id = access_chain(self, ptr_ty, None, *id, index).unwrap();
-                IndexedVariable::Pointer(id, item.clone())
-            }
-            Variable::Local { .. }
-            | Variable::Shared(..)
-            | Variable::LocalBinding { .. }
-            | Variable::Versioned { .. } => IndexedVariable::Scalar(variable.clone()),
-            Variable::Constant(_, val, item) => {
-                let scalar_item = Item::Scalar(item.elem());
-                let (id, val) = self.static_cast(*val, &item.elem(), &scalar_item);
-                IndexedVariable::Scalar(Variable::Constant(id, val, scalar_item))
+                access_chain(self, *id, index)
             }
             Variable::Slice { ptr, offset, .. } => {
                 let item = Item::Scalar(Elem::Int(32, false));
@@ -540,122 +460,19 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Some(ConstVal::Bit32(0)) => *offset,
                     _ => self.i_add(int, None, *offset, index_id).unwrap(),
                 };
-                self.index(ptr, &Variable::Raw(index, item))
+                self.index(ptr, &Variable::Raw(index, item), out)
             }
-            Variable::SharedArray(id, item, _) => {
-                let ptr_ty =
-                    Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
+            Variable::SharedArray(id, ..) => {
                 let mut index = vec![index_id];
                 if self.compilation_options.vulkan.supports_explicit_smem {
                     index.insert(0, self.const_u32(0));
                 }
-                let id = access_chain(self, ptr_ty, None, *id, index).unwrap();
-                IndexedVariable::Pointer(id, item.clone())
+                access_chain(self, *id, index)
             }
-            Variable::ConstantArray(id, item, _) | Variable::LocalArray(id, item, _) => {
-                let ptr_ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
-                let id = access_chain(self, ptr_ty, None, *id, vec![index_id]).unwrap();
-                IndexedVariable::Pointer(id, item.clone())
+            Variable::ConstantArray(id, ..) | Variable::LocalArray(id, ..) => {
+                access_chain(self, *id, vec![index_id])
             }
             var => unimplemented!("Can't index into {var:?}"),
-        }
-    }
-
-    pub fn read_indexed(&mut self, out: &Variable, variable: &Variable, index: &Variable) -> Word {
-        let indexed = self.index(variable, index);
-
-        let read = |b: &mut Self| match indexed {
-            IndexedVariable::Pointer(ptr, item) => {
-                let align = item.size();
-                let ty = item.id(b);
-                let out_id = b.write_id(out);
-                b.load(
-                    ty,
-                    Some(out_id),
-                    ptr,
-                    Some(MemoryAccess::ALIGNED),
-                    [align.into()],
-                )
-                .unwrap()
-            }
-            IndexedVariable::Composite(var, index, item) => {
-                let elem = item.elem();
-                let ty = elem.id(b);
-                let out_id = b.write_id(out);
-                b.composite_extract(ty, Some(out_id), var, vec![index])
-                    .unwrap()
-            }
-            IndexedVariable::DynamicComposite(var, index, item) => {
-                let elem = item.elem();
-                let ty = elem.id(b);
-                let out_id = b.write_id(out);
-                b.vector_extract_dynamic(ty, Some(out_id), var, index)
-                    .unwrap()
-            }
-            IndexedVariable::Scalar(var) => {
-                let ty = out.item().id(b);
-                let input = b.read(&var);
-                let out_id = b.write_id(out);
-                b.copy_object(ty, Some(out_id), input).unwrap();
-                b.write(out, out_id);
-                out_id
-            }
-        };
-
-        read(self)
-    }
-
-    pub fn read_indexed_unchecked(
-        &mut self,
-        out: &Variable,
-        variable: &Variable,
-        index: &Variable,
-    ) -> Word {
-        let indexed = self.index(variable, index);
-
-        match indexed {
-            IndexedVariable::Pointer(ptr, item) => {
-                let align = item.size();
-                let ty = item.id(self);
-                let out_id = self.write_id(out);
-                self.load(
-                    ty,
-                    Some(out_id),
-                    ptr,
-                    Some(MemoryAccess::ALIGNED),
-                    [align.into()],
-                )
-                .unwrap()
-            }
-            IndexedVariable::Composite(var, index, item) => {
-                let elem = item.elem();
-                let ty = elem.id(self);
-                let out_id = self.write_id(out);
-                self.composite_extract(ty, Some(out_id), var, vec![index])
-                    .unwrap()
-            }
-            IndexedVariable::DynamicComposite(var, index, item) => {
-                let elem = item.elem();
-                let ty = elem.id(self);
-                let out_id = self.write_id(out);
-                self.vector_extract_dynamic(ty, Some(out_id), var, index)
-                    .unwrap()
-            }
-            IndexedVariable::Scalar(var) => {
-                let ty = out.item().id(self);
-                let input = self.read(&var);
-                let out_id = self.write_id(out);
-                self.copy_object(ty, Some(out_id), input).unwrap();
-                self.write(out, out_id);
-                out_id
-            }
-        }
-    }
-
-    pub fn index_ptr(&mut self, var: &Variable, index: &Variable) -> Word {
-        match self.index(var, index) {
-            IndexedVariable::Pointer(ptr, _) => ptr,
-            other => unreachable!("{other:?}"),
         }
     }
 
@@ -702,59 +519,30 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn write_indexed(&mut self, out: &Variable, index: &Variable, value: Word) {
-        let variable = self.index(out, index);
+    pub fn load_aligned(&mut self, ptr: &Variable, out: &Variable) -> Word {
+        let out_ty = out.item().id(self);
+        let write_id = self.write_id(out);
+        let align = ptr.item().size();
 
-        let write = |b: &mut Self| match variable {
-            IndexedVariable::Pointer(ptr, item) => {
-                let align = item.size();
-                b.store(ptr, value, Some(MemoryAccess::ALIGNED), [align.into()])
-                    .unwrap()
-            }
-            IndexedVariable::Composite(var, index, item) => {
-                let ty = item.id(b);
-                let id = b
-                    .composite_insert(ty, None, value, var, vec![index])
-                    .unwrap();
-                b.write(out, id);
-            }
-            IndexedVariable::DynamicComposite(var, index, item) => {
-                let ty = item.id(b);
-                let id = b
-                    .vector_insert_dynamic(ty, None, value, var, index)
-                    .unwrap();
-                b.write(out, id);
-            }
-            IndexedVariable::Scalar(var) => b.write(&var, value),
-        };
+        let ptr = self.read(ptr);
 
-        write(self)
+        self.load(
+            out_ty,
+            Some(write_id),
+            ptr,
+            Some(MemoryAccess::ALIGNED),
+            [align.into()],
+        )
+        .unwrap()
     }
 
-    pub fn write_indexed_unchecked(&mut self, out: &Variable, index: &Variable, value: Word) {
-        let variable = self.index(out, index);
+    pub fn store_aligned(&mut self, ptr: &Variable, value: &Variable) {
+        let align = ptr.item().size();
 
-        match variable {
-            IndexedVariable::Pointer(ptr, item) => {
-                let align = item.size();
-                self.store(ptr, value, Some(MemoryAccess::ALIGNED), [align.into()])
-                    .unwrap()
-            }
-            IndexedVariable::Composite(var, index, item) => {
-                let ty = item.id(self);
-                let out_id = self
-                    .composite_insert(ty, None, value, var, vec![index])
-                    .unwrap();
-                self.write(out, out_id);
-            }
-            IndexedVariable::DynamicComposite(var, index, item) => {
-                let ty = item.id(self);
-                let out_id = self
-                    .vector_insert_dynamic(ty, None, value, var, index)
-                    .unwrap();
-                self.write(out, out_id);
-            }
-            IndexedVariable::Scalar(var) => self.write(&var, value),
-        }
+        let ptr = self.read(ptr);
+        let value = self.read(value);
+
+        self.store(ptr, value, Some(MemoryAccess::ALIGNED), [align.into()])
+            .unwrap()
     }
 }

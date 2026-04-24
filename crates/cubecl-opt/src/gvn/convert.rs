@@ -20,6 +20,10 @@ impl Expression {
                 let input = leaders[val].as_var();
                 Operation::Deref(input)
             }
+            Expression::DerefAssign(val, _) => {
+                let input = leaders[val].as_var();
+                Operation::DerefAssign(input)
+            }
             Expression::Value(value) | Expression::Volatile(value) => {
                 Operation::Copy(value.as_var())
             }

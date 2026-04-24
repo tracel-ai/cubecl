@@ -29,7 +29,7 @@ pub fn expand_hypot(scope: &Scope, lhs: Variable, rhs: Variable, out: Variable) 
     scope.register_type::<ElemA>(lhs.ty.storage_type());
     scope.register_size::<SizeA>(lhs.vector_size());
     let res = hypot::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into());
-    assign::expand_no_check(scope, res, out.into());
+    assign::expand_no_check(scope, res, &mut out.into());
 }
 
 /// Computes the reciprocal of the hypotenuse of a right triangle given the lengths of the other two sides.
@@ -55,5 +55,5 @@ pub fn expand_rhypot(scope: &Scope, lhs: Variable, rhs: Variable, out: Variable)
     scope.register_type::<ElemA>(lhs.ty.storage_type());
     scope.register_size::<SizeA>(lhs.vector_size());
     let res = rhypot::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into());
-    assign::expand_no_check(scope, res, out.into());
+    assign::expand_no_check(scope, res, &mut out.into());
 }

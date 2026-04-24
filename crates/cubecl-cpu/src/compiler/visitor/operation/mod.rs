@@ -147,6 +147,7 @@ impl<'a> Visitor<'a> {
                 }
             }
             Operation::Reference(_) => todo!(),
+            Operation::Deref(_) => todo!(),
             Operation::Metadata(metadata) => {
                 self.visit_metadata(metadata, out);
             }

@@ -43,7 +43,7 @@ impl Compiler for MlirCompiler {
 
     fn compile(
         &mut self,
-        mut kernel: KernelDefinition,
+        kernel: KernelDefinition,
         _compilation_options: &Self::CompilationOptions, // TODO pass this through the visitor, though it doesn't need anything for the moment
         mode: ExecutionMode, // TODO support this by adding array bound checking
         addr_type: StorageType,

@@ -1,8 +1,8 @@
 use alloc::{vec, vec::Vec};
 use cubecl_ir::{
-    Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, CopyMemoryBulkOperator,
-    IndexMutOperator, IndexOperator, Instruction, MatrixLayout, Metadata, Operation,
-    OperationReflect, Operator, Processor, ScopeProcessing, Variable, VariableKind, VectorSize,
+    Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, CopyMemoryBulkOperator, IndexOperator,
+    Instruction, MatrixLayout, Metadata, Operation, OperationReflect, Operator, Processor,
+    ScopeProcessing, Variable, VariableKind, VectorSize,
 };
 use hashbrown::HashMap;
 
@@ -320,8 +320,8 @@ impl UnrollProcessor {
         &self,
         alloc: &Allocator,
         out: Variable,
-        op: &IndexMutOperator,
-        operator: impl Fn(IndexMutOperator) -> Operator,
+        op: &IndexOperator,
+        operator: impl Fn(IndexOperator) -> Operator,
         unroll_factor: usize,
         mappings: &mut Mappings,
     ) -> Vec<Instruction> {
@@ -335,7 +335,7 @@ impl UnrollProcessor {
         instructions.extend((0..unroll_factor).flat_map(|i| {
             let (add, idx) = indices.next().unwrap();
             let index = Instruction::new(
-                operator(IndexMutOperator {
+                operator(IndexOperator {
                     list,
                     index: idx,
                     vector_size: 0,

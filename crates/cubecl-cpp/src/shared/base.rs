@@ -4,7 +4,7 @@ use super::{
     KernelArg, LocalArray, SharedMemory, UnaryInstruction, Variable, WarpInstruction,
     WmmaInstruction, barrier::BarrierOps, pipeline::PipelineOps,
 };
-use crate::shared::{IndexMutInstruction, MmaShape, PointerClass};
+use crate::shared::{MmaShape, PointerClass};
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
     CubeDim,
@@ -417,6 +417,12 @@ impl<D: Dialect> CppCompiler<D> {
 
         match instruction.operation {
             gpu::Operation::Copy(variable) => {
+                instructions.push(Instruction::Assign(UnaryInstruction {
+                    input: self.compile_variable(variable),
+                    out: self.compile_variable(out.unwrap()),
+                }));
+            }
+            gpu::Operation::DerefAssign(variable) => {
                 instructions.push(Instruction::Assign(UnaryInstruction {
                     input: self.compile_variable(variable),
                     out: self.compile_variable(out.unwrap()),
@@ -1581,7 +1587,7 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Index(self.compile_index(op, out)));
             }
             gpu::Operator::IndexMut(op) | gpu::Operator::UncheckedIndexMut(op) => {
-                instructions.push(Instruction::IndexMut(self.compile_index_mut(op, out)));
+                instructions.push(Instruction::IndexMut(self.compile_index(op, out)));
             }
             gpu::Operator::And(op) => {
                 instructions.push(Instruction::And(self.compile_binary(op, out)))
@@ -1681,19 +1687,6 @@ impl<D: Dialect> CppCompiler<D> {
         BinaryInstruction {
             lhs: self.compile_variable(value.lhs),
             rhs: self.compile_variable(value.rhs),
-            out: self.compile_variable(out),
-        }
-    }
-
-    fn compile_index_mut(
-        &mut self,
-        value: gpu::IndexMutOperator,
-        out: gpu::Variable,
-    ) -> IndexMutInstruction<D> {
-        IndexMutInstruction {
-            list: self.compile_variable(value.list),
-            index: self.compile_variable(value.index),
-            vector_size: value.vector_size as u32,
             out: self.compile_variable(out),
         }
     }

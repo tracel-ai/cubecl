@@ -140,12 +140,12 @@ mod vectorization {
                 let item = Type::new(var.storage_type()).with_vector_size(factor);
 
                 if factor == 1 {
-                    let new_var = scope.create_local(item);
+                    let mut new_var = scope.create_local(item).into();
                     let element = self
                         .__expand_index_method(scope, NativeExpand::from_lit(scope, 0))
                         .__expand_deref_method(scope);
-                    assign::expand_no_check::<T>(scope, element, new_var.clone().into());
-                    new_var.into()
+                    assign::expand_no_check::<T>(scope, element, &mut new_var);
+                    new_var.expand.into()
                 } else {
                     let mut new_var: NativeExpand<Vector<T::Scalar, N>> =
                         scope.create_local_mut(item).into();
@@ -196,7 +196,7 @@ mod metadata {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
-    use cubecl_ir::{IndexMutOperator, IndexOperator, Operator};
+    use cubecl_ir::{IndexOperator, Operator};
 
     use crate::ir::Instruction;
 
@@ -240,7 +240,7 @@ mod indexation {
                 let class = self.expand.pointer_class();
                 let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndexMut(IndexMutOperator {
+                    Operator::UncheckedIndexMut(IndexOperator {
                         list: self.expand,
                         index: i.expand,
                         vector_size: 0,

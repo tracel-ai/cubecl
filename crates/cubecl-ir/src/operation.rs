@@ -35,6 +35,9 @@ pub enum Operation {
     #[operation(pure)]
     #[from(ignore)]
     Deref(Variable),
+    #[operation(pure)]
+    #[from(ignore)]
+    DerefAssign(Variable),
     #[operation(nested)]
     Arithmetic(Arithmetic),
     #[operation(nested)]
@@ -138,6 +141,9 @@ impl Display for Instruction {
                     self.out().ty,
                 )
             }
+            Operation::DerefAssign(_) => {
+                write!(f, "*{} = {}", self.out(), self.operation)
+            }
             Operation::Operator(Operator::Reinterpret(op)) => {
                 write!(f, "{} = bitcast<{}>({})", self.out(), self.ty(), op.input)
             }
@@ -179,6 +185,7 @@ impl Display for Operation {
             Operation::Copy(variable) => write!(f, "{variable}"),
             Operation::Reference(variable) => write!(f, "&{variable}"),
             Operation::Deref(variable) => write!(f, "*{variable}"),
+            Operation::DerefAssign(variable) => write!(f, "{variable}"),
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
             Operation::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Operation::Tma(tma_ops) => write!(f, "{tma_ops}"),
@@ -205,16 +212,6 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct IndexOperator {
-    pub list: Variable,
-    pub index: Variable,
-    pub vector_size: VectorSize, // 0 == same as list.
-    pub unroll_factor: usize,    // Adjustment factor for bounds check
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
-#[allow(missing_docs)]
-pub struct IndexMutOperator {
     pub list: Variable,
     pub index: Variable,
     pub vector_size: VectorSize, // 0 == same as list.

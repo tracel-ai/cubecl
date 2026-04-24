@@ -80,6 +80,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 .root_scope
                 .debug
                 .entry_loc
+                .borrow()
                 .clone()
                 .unwrap();
 
@@ -378,7 +379,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     fn debug_enabled(&self) -> bool {
-        self.debug_symbols && self.opt.global_state.root_scope.debug.entry_loc.is_some()
+        self.debug_symbols
+            && self
+                .opt
+                .global_state
+                .root_scope
+                .debug
+                .entry_loc
+                .borrow()
+                .is_some()
     }
 
     #[track_caller]
