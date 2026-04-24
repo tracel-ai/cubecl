@@ -1,49 +1,68 @@
-use super::{AutotuneKey, IntoTuneFn, TuneFn};
+use super::{AutotuneError, AutotuneKey, TuneFn, TuneInputs};
+use alloc::boxed::Box;
+use alloc::string::ToString;
 use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
 use core::sync::atomic::{AtomicU32, Ordering};
 use hashbrown::HashMap;
 
-/// A tunable wraps a [function](TuneFn) that can be included in multiple [groups](TuneGroup).
-///
-/// When a tunable is part of multiple groups, it will be autotuned when one of those groups is
-/// prioritized.
-pub struct Tunable<K, Inputs, Output> {
-    pub(crate) function: Arc<dyn TuneFn<Inputs = Inputs, Output = Output>>,
+/// A single candidate for autotune: a named [`TuneFn`] plus the [groups](TuneGroup) it
+/// belongs to. A tunable is autotuned whenever any of its groups is prioritized.
+pub struct Tunable<K, F: TuneInputs, Output> {
+    pub(crate) function: TuneFn<F, Output>,
     groups: Vec<(TuneGroup<K>, PriorityFunc<K>)>,
 }
 
-impl<K, Inputs, Output> Tunable<K, Inputs, Output> {
-    /// Create a new tunable based on a function.
-    pub fn new<Marker, Name: Into<String>>(
-        name: Name,
-        function: impl IntoTuneFn<Inputs, Output, Marker>,
-    ) -> Self {
+impl<K, F: TuneInputs, Output: 'static> Tunable<K, F, Output> {
+    /// Create a tunable from a closure.
+    ///
+    /// The `for<'a> Fn(F::At<'a>) -> _` bound is spelled out directly in the
+    /// `where`-clause (rather than hidden behind a helper trait) so that Rust closure
+    /// inference sees it: otherwise `move |input| …` picks a single concrete lifetime
+    /// and fails with `implementation of FnOnce is not general enough` whenever
+    /// `F::At<'a>` actually depends on `'a`.
+    ///
+    /// For multi-input kernels, destructure a tuple:
+    /// `Tunable::new("name", |(lhs, rhs, out)| body)`.
+    pub fn new<Func, Err>(name: &str, func: Func) -> Self
+    where
+        Err: Into<String> + 'static,
+        Func: for<'a> Fn(<F as TuneInputs>::At<'a>) -> Result<Output, Err> + Send + Sync + 'static,
+    {
+        let name: String = name.into();
+        let name_for_err = name.clone();
         Self {
-            function: Arc::new(function.into_tunable(name.into())),
+            function: TuneFn::new(
+                name,
+                Box::new(move |inputs| {
+                    func(inputs).map_err(|err| AutotuneError::Unknown {
+                        name: name_for_err.to_string(),
+                        err: err.into(),
+                    })
+                }),
+            ),
             groups: Vec::new(),
         }
     }
 
-    /// Tag the current tunable as part of the given [group](TuneGroup).
-    /// `group` is a tuning group with a corresponding priority function.
-    /// `priority` is the intra-group priority, applied after the group priority to further sort entries
+    /// Add this tunable to a [`TuneGroup`] with the given intra-group priority.
     ///
-    /// Groups are tuned in order of priority, and then each entry in the group is tuned based on the
-    /// intra-group priority. Negative priorities ensure the entry is never tuned for this key.
-    pub fn group<F: Fn(&K) -> i8 + 'static>(mut self, group: &TuneGroup<K>, priority: F) -> Self {
+    /// Groups are autotuned in order of their priority; within each group, tunables are
+    /// tried in order of `priority(key)`. A negative priority skips the tunable for this
+    /// key.
+    pub fn group(
+        mut self,
+        group: &TuneGroup<K>,
+        priority: impl Fn(&K) -> i8 + Send + Sync + 'static,
+    ) -> Self {
         self.groups.push((group.clone(), Arc::new(priority)));
         self
     }
 }
 
-/// A tune group encapsulates a priority that can be calculated based on an
-/// [autotune key](AutotuneKey).
+/// A priority bucket for tunables, computed from the [autotune key](AutotuneKey).
 ///
-/// During autotuning, the higher prioritized groups will be autotuned first, and if a tunable
-/// returns a valid result, no more groups will be autotuned afterward.
-///
-/// Note that tunables themselves have a priority dictating the order in which they are autotuned in
-/// each group.
+/// Higher-priority groups are autotuned first; once any tunable in a group returns a
+/// valid result, no later groups are tried.
 pub struct TuneGroup<K> {
     id: u32,
     name: Arc<String>,
@@ -68,7 +87,7 @@ impl<K> Clone for TuneGroup<K> {
 
 impl<K> TuneGroup<K> {
     /// Create a new group based on a priority function.
-    pub fn new<F: Fn(&K) -> i8 + 'static, S: Into<String>>(name: S, f: F) -> Self {
+    pub fn new(name: &str, f: impl Fn(&K) -> i8 + Send + Sync + 'static) -> Self {
         let id = GROUP_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         Self {
@@ -103,7 +122,10 @@ struct Cleanup {
 }
 
 impl TunePlan {
-    pub fn new<K: AutotuneKey, In, Out>(key: &K, tunables: &[Tunable<K, In, Out>]) -> Self {
+    pub fn new<K: AutotuneKey, F: TuneInputs, Out>(
+        key: &K,
+        tunables: &[Tunable<K, F, Out>],
+    ) -> Self {
         let mut priorities = Vec::<i8>::new();
         let mut no_groups = Vec::new();
         let mut groups = HashMap::<i8, GroupPlan>::new();
@@ -277,7 +299,7 @@ impl TunePlan {
     }
 }
 
-type PriorityFunc<K> = Arc<dyn Fn(&K) -> i8>;
+type PriorityFunc<K> = Arc<dyn Fn(&K) -> i8 + Send + Sync>;
 
 static GROUP_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -564,7 +586,7 @@ mod tests {
         assert!(plan.next(None).is_empty());
     }
 
-    fn fake_kernel() -> Result<(), String> {
+    fn fake_kernel(_: ()) -> Result<(), String> {
         Ok(())
     }
 }

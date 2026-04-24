@@ -27,7 +27,7 @@ impl Device for AmdDevice {
     fn to_id(&self) -> DeviceId {
         DeviceId {
             type_id: 0,
-            index_id: self.index as u32,
+            index_id: self.index as u16,
         }
     }
 }

@@ -22,7 +22,7 @@ use cubecl_core::{
 use cubecl_runtime::{
     allocator::ContiguousMemoryLayoutPolicy,
     compiler::CubeTask,
-    config::GlobalConfig,
+    config::{CubeClRuntimeConfig, RuntimeConfig},
     id::KernelId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode},
@@ -48,7 +48,7 @@ impl CpuServer {
     ) -> Self {
         let backend =
             ScheduledCpuBackend::new(memory_properties, memory_config, utilities.logger.clone());
-        let config = GlobalConfig::get();
+        let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
 
         let scheduler = SchedulerMultiStream::new(

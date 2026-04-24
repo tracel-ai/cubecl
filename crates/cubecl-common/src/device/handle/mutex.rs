@@ -25,6 +25,7 @@ pub struct MutexDeviceHandle<S: DeviceService> {
 #[derive(Clone)]
 struct MutexDeviceState {
     service: Arc<Mutex<Box<dyn Any + Send>>>,
+    device_id: DeviceId,
     utilities: ServerUtilitiesHandle,
 }
 
@@ -58,6 +59,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
                 let utilities = state.utilities();
                 MutexDeviceState {
                     service: Arc::new(Mutex::new(Box::new(state))),
+                    device_id,
                     utilities,
                 }
             })
@@ -70,13 +72,17 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
         }
     }
 
+    fn device_id(&self) -> DeviceId {
+        self.device_id
+    }
+
     fn utilities(&self) -> ServerUtilitiesHandle {
         self.state.utilities.clone()
     }
 
     fn flush_queue(&self) {}
 
-    fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
+    fn submit_blocking<'a, R: Send, T: FnOnce(&mut S) -> R + Send + 'a>(
         &self,
         task: T,
     ) -> Result<R, CallError> {
@@ -115,6 +121,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
                 let utilities = service.utilities();
                 MutexDeviceState {
                     service: Arc::new(Mutex::new(Box::new(service))),
+                    device_id,
                     utilities,
                 }
             })
@@ -127,28 +134,7 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
         })
     }
 
-    fn submit_blocking_scoped<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(
-        &self,
-        task: T,
-    ) -> R {
-        let mut guard = self.state.service.lock().unwrap();
-        let state = guard.downcast_mut::<S>().expect("State type mismatch");
-
-        task(state)
-    }
-
-    fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
-        &self,
-        task: T,
-    ) -> Result<R, CallError> {
-        let lock = self.device_lock();
-        let guard = lock.lock();
-        let result = Ok(task());
-        core::mem::drop(guard);
-        result
-    }
-
-    fn exclusive_scoped<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
+    fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
         let lock = self.device_lock();
         let guard = lock.lock();
         let result = Ok(task());

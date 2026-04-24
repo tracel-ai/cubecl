@@ -54,14 +54,14 @@ jobs:
       - name: checkout
         uses: actions/checkout@v6
       # --------------------------------------------------------------------------------
-      - name: Setup Rust
-        uses: tracel-ai/github-actions/setup-rust@v8
+      - name: Install Rust
+        uses: tracel-ai/github-actions/install-rust@v10
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
       # --------------------------------------------------------------------------------
       - name: Audit
-        run: cargo xtask check audit
+        run: xtask check audit
       # --------------------------------------------------------------------------------
       - name: Format
         shell: bash
@@ -69,13 +69,13 @@ jobs:
           # work around for colors
           # see: https://github.com/rust-lang/rustfmt/issues/3385
           TERM: xterm-256color
-        run: cargo xtask check format
+        run: xtask check format
       # --------------------------------------------------------------------------------
       - name: Lint
-        run: cargo xtask check lint
+        run: xtask check lint
       # --------------------------------------------------------------------------------
       - name: Typos
-        uses: tracel-ai/github-actions/check-typos@v8
+        uses: tracel-ai/github-actions/check-typos@v10
 
   documentation:
     runs-on: ubuntu-22.04
@@ -90,17 +90,17 @@ jobs:
       - name: checkout
         uses: actions/checkout@v6
       # --------------------------------------------------------------------------------
-      - name: Setup Rust
-        uses: tracel-ai/github-actions/setup-rust@v8
+      - name: Install Rust
+        uses: tracel-ai/github-actions/install-rust@v10
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
       # --------------------------------------------------------------------------------
       - name: Documentation Build
-        run: cargo xtask doc build
+        run: xtask doc build
       # --------------------------------------------------------------------------------
       - name: Documentation Tests
-        run: cargo xtask doc tests
+        run: xtask doc tests
 
   linux-std-tests:
     runs-on: [
@@ -126,73 +126,58 @@ jobs:
       - name: checkout
         uses: actions/checkout@v6
       # --------------------------------------------------------------------------------
-      - name: Setup Linux runner
-        uses: tracel-ai/github-actions/setup-linux@v8
-        with:
-          apt-packages: "build-essential"
-      # --------------------------------------------------------------------------------
-      - name: Setup Rust
-        uses: tracel-ai/github-actions/setup-rust@v8
+      - name: Install Rust
+        uses: tracel-ai/github-actions/install-rust@v10
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
+          apt-packages: build-essential
+      # --------------------------------------------------------------------------------
+      - name: Install Mesa
+        uses: tracel-ai/github-actions/install-mesa@v10
+      # --------------------------------------------------------------------------------
+      - name: Install Vulkan SDK
+        uses: tracel-ai/github-actions/install-vulkan-sdk@v10
       # --------------------------------------------------------------------------------
       - name: Tests
-        run: cargo xtask test --ci
+        run: xtask test --ci
 
-  # windows-std-tests:
-  #   runs-on: windows-2022
-  #   needs: [prepare-checks, code-quality]
-  #   env:
-  #     DISABLE_WGPU: '1'
-  #   # Keep the stragegy to be able to easily add new rust versions if required
-  #   strategy:
-  #     matrix:
-  #       rust: [stable]
-  #       include:
-  #         - rust: stable
-  #           toolchain: stable
-  #   steps:
-  #     - name: checkout
-  #       uses: actions/checkout@v6
-  #     # --------------------------------------------------------------------------------
-  #     - name: Setup Rust
-  #       uses: tracel-ai/github-actions/setup-rust@v8
-  #       with:
-  #         rust-toolchain: ${{ matrix.toolchain }}
-  #         cache-key: ${{ matrix.rust }}-windows
-  #     # --------------------------------------------------------------------------------
-  #     - name: Setup Windows runner
-  #       if: env.DISABLE_WGPU != '1'
-  #       uses: tracel-ai/github-actions/setup-windows@v8
-  #       with:
-  #         dxc-release: ${{ env.DXC_RELEASE }}
-  #         dxc-filename: ${{ env.DXC_FILENAME }}
-  #         mesa-version: ${{ env.MESA_VERSION }}
-  #         warp-version: ${{ env.WARP_VERSION }}
-  #     # --------------------------------------------------------------------------------
-  #     - name: Tests
-  #       run: cargo xtask test --ci
+  linux-miri-tests:
+    runs-on: [
+      '@id:cubecl-linux-miri-tests-${{ matrix.rust }}-${{ github.run_id }}-${{ github.run_attempt }}',
+      '@image-family:ubuntu-2404-lts-amd64',
+      '@image-project:ubuntu-os-cloud',
+      '@disk-size:100',
+      '@keep-alive:false',
+      '@machine-type:n2-standard-16',
+      '@os:linux',
+      '@zones:northamerica-northeast1-b'
+      ]
+    needs: [prepare-checks, code-quality]
+    strategy:
+      matrix:
+        rust: [nightly]
+        include:
+          - rust: nightly
+            toolchain: nightly
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+      # --------------------------------------------------------------------------------
+      - name: Install Rust
+        uses: tracel-ai/github-actions/install-rust@v10
+        with:
+          rust-toolchain: ${{ matrix.toolchain }}
+          cache-key: ${{ matrix.rust }}-miri-tests
+          enable-cache: false
+          apt-packages: build-essential
+      # --------------------------------------------------------------------------------
+      - name: Install Mesa
+        uses: tracel-ai/github-actions/install-mesa@v10
+      # --------------------------------------------------------------------------------
+      - name: Install Vulkan SDK
+        uses: tracel-ai/github-actions/install-vulkan-sdk@v10
+      # --------------------------------------------------------------------------------
+      - name: Tests
+        run: xtask +n test --miri ub-only --ci
 
-  # macos-std-tests:
-  #   runs-on: macos-14
-  #   needs: [prepare-checks, code-quality]
-  #   # Keep the stragegy to be able to easily add new rust versions if required
-  #   strategy:
-  #     matrix:
-  #       rust: [stable]
-  #       include:
-  #         - rust: stable
-  #           toolchain: stable
-  #   steps:
-  #     - name: checkout
-  #       uses: actions/checkout@v6
-  #     # --------------------------------------------------------------------------------
-  #     - name: Setup Rust
-  #       uses: tracel-ai/github-actions/setup-rust@v8
-  #       with:
-  #         rust-toolchain: ${{ matrix.toolchain }}
-  #         cache-key: ${{ matrix.rust }}-macos
-  #     # --------------------------------------------------------------------------------
-  #     - name: Tests
-  #       run: cargo xtask test --ci

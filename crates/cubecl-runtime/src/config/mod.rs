@@ -16,4 +16,5 @@ mod base;
 mod logger;
 
 pub use base::*;
+pub use cubecl_common::config::RuntimeConfig;
 pub use logger::Logger;

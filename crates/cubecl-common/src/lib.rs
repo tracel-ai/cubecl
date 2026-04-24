@@ -30,9 +30,6 @@ pub mod device_handle {
     pub use super::device::handle::DeviceHandle;
 }
 
-/// Map utilities and implementations.
-pub mod map;
-
 /// Utilities module to manipulate bytes.
 #[cfg(feature = "serde")]
 pub mod bytes;
@@ -56,6 +53,9 @@ pub mod compilation_cache;
 
 /// Module for benchmark timings
 pub mod benchmark;
+
+/// Runtime configuration trait shared across crates.
+pub mod config;
 
 /// Module for profiling any executable part
 pub mod profile;

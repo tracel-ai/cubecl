@@ -55,10 +55,11 @@ enumset = { workspace = true }
 hashbrown = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true, optional = true }
-variadics_please = { workspace = true }
 web-time = { workspace = true }
 
 thiserror = { workspace = true }
+ahash = "0.8.12"
+md5 = { workspace = true }
 
 # Persistent cache deps - has to match the cfg(std_io) cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android"))'.dependencies]
@@ -67,7 +68,6 @@ cubecl-common = { path = "../cubecl-common", version = "=0.10.0-pre.3", default-
     "serde",
     "hash",
 ] }
-md5 = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }
 
 # Tracy if enabled.

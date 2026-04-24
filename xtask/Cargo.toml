@@ -1,15 +1,16 @@
 [package]
 name = "xtask"
-version = "4.9.0"
 edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 log = { workspace = true }
-strum = { workspace = true }
-tracel-xtask = { workspace = true }
 glob = "0.3.1"
+strum = { version = "0.28", features = ["derive"] }
+tracel-xtask = "=4.16.0"
+# ### For local development. ###
+# tracel-xtask = { path = "../../xtask/crates/tracel-xtask", default-features = false }
 
 [dev-dependencies]
 rstest = { workspace = true }

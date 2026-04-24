@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicI32, Ordering};
 
-use crate::config::GlobalConfig;
+use crate::config::{CubeClRuntimeConfig, RuntimeConfig};
 
 /// Autotune levels:
 ///
@@ -44,7 +44,7 @@ pub fn anchor(x: usize, max: Option<usize>, min: Option<usize>, base: Option<usi
 fn load_autotune_level() -> u32 {
     let autotune_level = AUTOTUNE_LEVEL.load(Ordering::Relaxed);
     if autotune_level == -1 {
-        let config = GlobalConfig::get();
+        let config = CubeClRuntimeConfig::get();
         let level = match config.autotune.level {
             crate::config::autotune::AutotuneLevel::Minimal => 0,
             crate::config::autotune::AutotuneLevel::Balanced => 1,

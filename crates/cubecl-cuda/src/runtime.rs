@@ -51,8 +51,8 @@ impl DeviceService for CudaServer {
 
         // To get the supported WMMA features, and memory properties, we have to initialize the server immediately.
         cudarc::driver::result::init().unwrap();
-        let device_id = device.index as i32;
-        let device_ptr = cudarc::driver::result::device::get(device_id).unwrap();
+        let device_index = device.index as i32;
+        let device_ptr = cudarc::driver::result::device::get(device_index).unwrap();
         let arch_major;
         // SAFETY: Calling CUDA driver FFI to query compute capability attributes.
         // `device_ptr` is a valid device handle obtained from `cudarc::driver::result::device::get`.
@@ -385,7 +385,7 @@ impl Runtime for CudaRuntime {
         (0..count)
             .map(|i| DeviceId {
                 type_id: 0,
-                index_id: i as u32,
+                index_id: i as u16,
             })
             .collect()
     }

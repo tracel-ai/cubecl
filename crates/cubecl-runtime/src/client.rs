@@ -5,9 +5,10 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError, KernelArguments,
-        MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy,
-        ProfileError, ReduceOperation, ServerCommunication, ServerError, ServerUtilities,
+        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
+        KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
+        MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
+        ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
 };
@@ -299,31 +300,14 @@ impl<R: Runtime> ComputeClient<R> {
         .memory
     }
 
-    /// Executes a task that has exclusive access to the current device.
-    pub fn exclusive<Re: Send + 'static, F: FnOnce() -> Re + Send + 'static>(
-        &self,
-        task: F,
-    ) -> Result<Re, ServerError> {
-        // We first flush current tasks enqueued on the device.
-        self.flush()?;
-
-        // We then launch the task.
-        self.device
-            .exclusive(task)
-            .map_err(|err| ServerError::Generic {
-                reason: format!("Communication channel with the server is down: {err:?}"),
-                backtrace: BackTrace::capture(),
-            })
-    }
-
     /// todo: docs
-    pub fn scoped<'a, Re: Send, F: FnOnce() -> Re + Send + 'a>(
+    pub fn exclusive<'a, Re: Send + 'static, F: FnOnce() -> Re + Send + 'a>(
         &'a self,
         task: F,
     ) -> Result<Re, ServerError> {
         // We then launch the task.
         self.device
-            .exclusive_scoped(task)
+            .exclusive(task)
             .map_err(|err| ServerError::Generic {
                 reason: format!("Communication channel with the server is down: {err:?}"),
                 backtrace: BackTrace::capture(),
@@ -341,13 +325,20 @@ impl<R: Runtime> ComputeClient<R> {
         input: Input,
         task: F,
     ) -> Result<Re, ServerError> {
-        // We then launch the task.
-        self.device
-            .exclusive_scoped(move || task(input))
-            .map_err(|err| ServerError::Generic {
-                reason: format!("Communication channel with the server is down: {err:?}"),
-                backtrace: BackTrace::capture(),
-            })
+        let stream_id = StreamId::current();
+
+        self.device.submit(move |server| {
+            server.allocation_mode(MemoryAllocationMode::Persistent, stream_id);
+        });
+
+        // All tasks created on the same stream will have persistent memory.
+        let output = task(input);
+
+        self.device.submit(move |server| {
+            server.allocation_mode(MemoryAllocationMode::Auto, stream_id);
+        });
+
+        Ok(output)
     }
 
     /// Returns a resource handle containing the given [Bytes].
@@ -553,12 +544,12 @@ impl<R: Runtime> ComputeClient<R> {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src, dst_server))
     )]
-    pub fn to_client(&self, src: Handle, dst_server: &Self) -> Handle {
+    pub fn to_client(&mut self, src: Handle, dst_server: &Self, dtype: ElemType) -> Handle {
         let shape = [src.size_in_used() as usize];
         let src_descriptor = src.copy_descriptor(shape.into(), [1].into(), 1);
 
         if R::Server::SERVER_COMM_ENABLED {
-            self.to_client_tensor(src_descriptor, dst_server)
+            self.to_client_tensor(src_descriptor, dst_server, dtype)
         } else {
             let alloc_desc = MemoryLayoutDescriptor::new(
                 MemoryLayoutStrategy::Contiguous,
@@ -567,6 +558,29 @@ impl<R: Runtime> ComputeClient<R> {
             );
             self.change_client_sync(src_descriptor, alloc_desc, dst_server)
                 .memory
+        }
+    }
+
+    /// Perform an `all_reduce` operation on the given devices.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, device_ids))
+    )]
+    pub fn ensure_init_collective(&mut self, device_ids: Vec<DeviceId>) {
+        let comm_id = CommunicationId::from(device_ids.clone());
+        let is_comms_init = self
+            .utilities
+            .initialized_comms
+            .read()
+            .unwrap()
+            .contains(&comm_id);
+        if !is_comms_init {
+            self.device
+                .submit(move |server| server.comm_init(device_ids).unwrap());
+            let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
+            initialized_comms.insert(comm_id);
+            // Flush immediately so other devices aren't blocked waiting on this initialization.
+            self.device.flush_queue();
         }
     }
 
@@ -581,6 +595,7 @@ impl<R: Runtime> ComputeClient<R> {
         self.device.submit(move |server| {
             server.sync_collective(stream_id).unwrap();
         });
+
         // We don't actually need or want to sync the server here, but we need to make sure any
         // task enqueued on the communication channel is done.
         self.device.flush_queue();
@@ -592,7 +607,7 @@ impl<R: Runtime> ComputeClient<R> {
         tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
     )]
     pub fn all_reduce(
-        &self,
+        &mut self,
         src: Handle,
         dst: Handle,
         dtype: ElemType,
@@ -606,6 +621,8 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let src = src.binding();
         let dst = dst.binding();
+
+        self.ensure_init_collective(device_ids.clone());
 
         self.device.submit(move |server| {
             server
@@ -621,41 +638,46 @@ impl<R: Runtime> ComputeClient<R> {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, src_descriptor, dst_server))
     )]
-    pub fn to_client_tensor(&self, src_descriptor: CopyDescriptor, dst_server: &Self) -> Handle {
-        if R::Server::SERVER_COMM_ENABLED {
-            let stream_id_src = self.stream_id();
-            let stream_id_dst = dst_server.stream_id();
+    pub fn to_client_tensor(
+        &mut self,
+        src_descriptor: CopyDescriptor,
+        dst_server: &Self,
+        dtype: ElemType,
+    ) -> Handle {
+        let stream_id_src = self.stream_id();
+        let stream_id_dst = dst_server.stream_id();
 
-            let dst_server = dst_server.clone();
-            let handle = Handle::new(stream_id_dst, src_descriptor.handle.size_in_used());
-            let handle_cloned = handle.clone();
+        let device_id_src = self.device.device_id();
+        let device_id_dst = dst_server.device.device_id();
 
-            // TODO: This should be made in a non-blocking API.
-            self.device
-                .submit_blocking_scoped(move |server_src| {
-                    dst_server.device.submit_blocking_scoped(|server_dst| {
-                        R::Server::copy(
-                            handle_cloned,
-                            server_src,
-                            server_dst,
-                            src_descriptor,
-                            stream_id_src,
-                            stream_id_dst,
-                        )
-                    })
-                })
+        let mut dst_server = dst_server.clone();
+        let handle = Handle::new(stream_id_dst, src_descriptor.handle.size_in_used());
+        let handle_cloned = handle.clone();
+
+        let device_ids = vec![device_id_src, device_id_dst];
+        self.ensure_init_collective(device_ids.clone());
+        dst_server.ensure_init_collective(device_ids);
+
+        self.device.submit(move |server_src| {
+            server_src
+                .send(src_descriptor, dtype, stream_id_src, device_id_dst)
+                .unwrap()
+        });
+
+        dst_server.device.submit(move |server_dst| {
+            server_dst
+                .recv(handle_cloned, dtype, stream_id_dst, device_id_src)
                 .unwrap();
+            server_dst.sync_collective(stream_id_dst).unwrap();
+        });
 
-            handle
-        } else {
-            let alloc_desc = MemoryLayoutDescriptor::new(
-                MemoryLayoutStrategy::Optimized,
-                src_descriptor.shape.clone(),
-                src_descriptor.elem_size,
-            );
-            self.change_client_sync(src_descriptor, alloc_desc, dst_server)
-                .memory
-        }
+        // `ServerCommunication::send` and`ServerCommunication::recv` are blocking: they each wait for the corresponding recv/send
+        // call to be made. We flush the operations right away so that the neither server ends up in a deadlock.
+        // The actual data transfer is still executed asynchronously on the communication stream.
+        self.device.flush_queue();
+        dst_server.device.flush_queue();
+
+        handle
     }
 
     #[track_caller]
@@ -849,34 +871,6 @@ impl<R: Runtime> ComputeClient<R> {
             .submit(move |server| server.allocation_mode(mode, stream_id));
     }
 
-    // TODO: Remove that or rework for performance.
-    //
-    // /// Use a persistent memory strategy to execute the provided function.
-    // ///
-    // /// # Notes
-    // ///
-    // /// - Using that memory strategy is beneficial for stating model parameters and similar workflows.
-    // /// - You can call [`Self::memory_cleanup()`] if you want to free persistent memory.
-    // pub fn memory_persistent_allocation<
-    //     Input: Send + 'static,
-    //     Output: Send + 'static,
-    //     Func: Fn(Input) -> Output + Send + 'static,
-    // >(
-    //     &self,
-    //     input: Input,
-    //     func: Func,
-    // ) -> Output {
-    //     let stream_id = self.stream_id();
-    //     self.device
-    //         .submit_blocking(move |server| {
-    //             server.allocation_mode(MemoryAllocationMode::Persistent, stream_id);
-    //             let output = func(input);
-    //             server.allocation_mode(MemoryAllocationMode::Auto, stream_id);
-    //             output
-    //         })
-    //         .unwrap()
-    // }
-
     /// Ask the client to release memory that it can release.
     ///
     /// Nb: Results will vary on what the memory allocator deems beneficial,
@@ -927,7 +921,7 @@ impl<R: Runtime> ComputeClient<R> {
         #[allow(unused_mut, reason = "Used in profile-tracy")]
         let mut result = self
             .device
-            .exclusive_scoped(move || {
+            .exclusive(move || {
                 // We first get mut access to the server to create a token.
                 // Then we free to server, since it's going to be accessed in `func()`.
                 let token =

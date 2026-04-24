@@ -2,7 +2,7 @@ mod base;
 
 pub use base::*;
 
-use crate::device::{DeviceService, ServerUtilitiesHandle};
+use crate::device::{DeviceId, DeviceService, ServerUtilitiesHandle};
 
 #[cfg(feature = "std")]
 #[allow(dead_code)]
@@ -17,7 +17,7 @@ mod reentrant;
 
 #[cfg(all(feature = "std", multi_threading))]
 type Inner<S> = channel::ChannelDeviceHandle<S>;
-// type Inner<S> = reentrant::ReentrantMutexDeviceHandle<S>;
+// type Inner<S> = mutex::MutexDeviceHandle<S>;
 #[cfg(all(feature = "std", not(multi_threading)))]
 type Inner<S> = reentrant::ReentrantMutexDeviceHandle<S>;
 #[cfg(all(not(feature = "std"), not(multi_threading)))]
@@ -54,22 +54,19 @@ impl<S: DeviceService> DeviceHandle<S> {
         }
     }
 
+    pub fn device_id(&self) -> DeviceId {
+        self.handle.device_id()
+    }
+
     pub fn utilities(&self) -> ServerUtilitiesHandle {
         self.handle.utilities()
     }
 
-    pub fn submit_blocking<R: Send + 'static, T: FnOnce(&mut S) -> R + Send + 'static>(
+    pub fn submit_blocking<'a, R: Send, T: FnOnce(&mut S) -> R + Send + 'a>(
         &self,
         task: T,
     ) -> Result<R, CallError> {
         self.handle.submit_blocking(task)
-    }
-
-    pub fn submit_blocking_scoped<'a, R: Send + 'a, T: FnOnce(&mut S) -> R + Send + 'a>(
-        &self,
-        task: T,
-    ) -> R {
-        self.handle.submit_blocking_scoped(task)
     }
 
     pub fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
@@ -80,18 +77,8 @@ impl<S: DeviceService> DeviceHandle<S> {
         self.handle.flush_queue();
     }
 
-    pub fn exclusive<R: Send + 'static, T: FnOnce() -> R + Send + 'static>(
-        &self,
-        task: T,
-    ) -> Result<R, CallError> {
+    pub fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError> {
         self.handle.exclusive(task)
-    }
-
-    pub fn exclusive_scoped<R: Send, T: FnOnce() -> R + Send>(
-        &self,
-        task: T,
-    ) -> Result<R, CallError> {
-        self.handle.exclusive_scoped(task)
     }
 }
 
