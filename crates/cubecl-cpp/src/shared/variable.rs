@@ -63,8 +63,7 @@ pub enum Variable<D: Dialect> {
     ClusterIndexX,
     ClusterIndexY,
     ClusterIndexZ,
-    GlobalInputArray(Id, Item<D>),
-    GlobalOutputArray(Id, Item<D>),
+    GlobalBuffer(Id, Item<D>),
     GlobalScalar {
         id: Id,
         elem: Elem<D>,
@@ -155,8 +154,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::ClusterIndexX => Item::Scalar(Elem::U32),
             Variable::ClusterIndexY => Item::Scalar(Elem::U32),
             Variable::ClusterIndexZ => Item::Scalar(Elem::U32),
-            Variable::GlobalInputArray(_, e) => *e,
-            Variable::GlobalOutputArray(_, e) => *e,
+            Variable::GlobalBuffer(_, e) => *e,
             Variable::LocalArray(_, e, _) => *e,
             Variable::SharedArray(_, e, _) => *e,
             Variable::Shared(_, e) => *e,
@@ -183,7 +181,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
 
         matches!(
             self,
-            Variable::LocalConst { .. } | Variable::GlobalInputArray { .. }
+            Variable::LocalConst { .. } | Variable::GlobalBuffer { .. }
         )
     }
 }
@@ -213,12 +211,11 @@ pub(crate) fn format_const<D: Dialect>(number: &ConstantValue, item: &Item<D>) -
 impl<D: Dialect> Display for Variable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::GlobalInputArray(id, _) => f.write_fmt(format_args!("buffer_{id}")),
-            Variable::GlobalOutputArray(id, _) => write!(f, "buffer_{id}"),
+            Variable::GlobalBuffer(id, _) => write!(f, "buffer_{id}"),
             Variable::TensorMap(id) => write!(f, "tensor_map_{id}"),
-            Variable::LocalMut { id, .. } => f.write_fmt(format_args!("l_mut_{id}")),
-            Variable::LocalConst { id, .. } => f.write_fmt(format_args!("l_{id}")),
-            Variable::Named { name, .. } => f.write_fmt(format_args!("{name}")),
+            Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
+            Variable::LocalConst { id, .. } => write!(f, "l_{id}"),
+            Variable::Named { name, .. } => write!(f, "{name}"),
             Variable::Slice { id, .. } => {
                 write!(f, "slice_{id}")
             }
@@ -272,7 +269,7 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::ClusterIndexY => D::compile_cluster_pos_y(f),
             Variable::ClusterIndexZ => D::compile_cluster_pos_z(f),
 
-            Variable::ConstantArray(number, _, _) => f.write_fmt(format_args!("arrays_{number}")),
+            Variable::ConstantArray(number, _, _) => write!(f, "arrays_{number}"),
             Variable::LocalArray(id, _, _) => {
                 write!(f, "l_arr_{id}")
             }
@@ -398,12 +395,7 @@ impl<D: Dialect> Variable<D> {
 
     pub fn optimized(&self) -> Self {
         match self {
-            Variable::GlobalInputArray(id, item) => {
-                Variable::GlobalInputArray(*id, item.optimized())
-            }
-            Variable::GlobalOutputArray(id, item) => {
-                Variable::GlobalOutputArray(*id, item.optimized())
-            }
+            Variable::GlobalBuffer(id, item) => Variable::GlobalBuffer(*id, item.optimized()),
             Variable::LocalMut { id, item } => Variable::LocalMut {
                 id: *id,
                 item: item.optimized(),
@@ -489,8 +481,7 @@ impl<D: Dialect> Variable<D> {
             Variable::BarrierToken { .. } => false,
             Variable::ConstantArray(_, _, _) => false,
             Variable::Constant(_, _) => true,
-            Variable::GlobalInputArray(_, _) => false,
-            Variable::GlobalOutputArray(_, _) => false,
+            Variable::GlobalBuffer(_, _) => false,
             Variable::GlobalScalar { .. } => true,
             Variable::LocalArray(_, _, _) => false,
             Variable::LocalConst { .. } => false,
@@ -520,8 +511,7 @@ impl<D: Dialect> Variable<D> {
 
     pub fn id(&self) -> Option<Id> {
         match self {
-            Variable::GlobalInputArray(id, ..) => Some(*id),
-            Variable::GlobalOutputArray(id, ..) => Some(*id),
+            Variable::GlobalBuffer(id, ..) => Some(*id),
             Variable::GlobalScalar { id, .. } => Some(*id),
             Variable::ConstantArray(id, ..) => Some(*id),
             Variable::LocalMut { id, .. } => Some(*id),
@@ -544,8 +534,7 @@ impl<D: Dialect> Variable<D> {
         match self {
             Variable::Slice { .. }
             | Variable::SharedArray(_, _, _)
-            | Variable::GlobalInputArray(_, _)
-            | Variable::GlobalOutputArray(_, _) => format!("{self}"),
+            | Variable::GlobalBuffer(_, _) => format!("{self}"),
             _ if self.item().is_ptr() => format!("{self}"),
             _ => format!("&{self}"),
         }

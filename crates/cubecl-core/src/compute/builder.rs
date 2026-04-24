@@ -46,7 +46,7 @@ impl KernelBuilder {
             visibility: Visibility::ReadWrite,
             has_extended_meta: true,
         });
-        self.scope.output(id, item)
+        self.scope.global(id, item)
     }
 
     /// Register a tensor map and return the [element](Variable) to be used for kernel expansion.
@@ -58,7 +58,7 @@ impl KernelBuilder {
             visibility: Visibility::ReadWrite,
             has_extended_meta: true,
         });
-        Variable::new(VariableKind::TensorMapInput(id), item)
+        Variable::new(VariableKind::TensorMap(id), item)
     }
 
     /// Register a tensor map and return the [element](Variable) to be used for kernel expansion.
@@ -70,7 +70,7 @@ impl KernelBuilder {
             visibility: Visibility::Read,
             has_extended_meta: true,
         });
-        Variable::new(VariableKind::TensorMapOutput(id), item)
+        Variable::new(VariableKind::TensorMap(id), item)
     }
 
     /// Register an input array and return the [element](Variable) to be used for kernel expansion.
@@ -82,7 +82,7 @@ impl KernelBuilder {
             visibility: Visibility::Read,
             has_extended_meta: true,
         });
-        self.scope.input(id, item)
+        self.scope.global(id, item)
     }
 
     /// Register an output array and return the [element](Variable) to be used for kernel expansion.
@@ -94,7 +94,7 @@ impl KernelBuilder {
             visibility: Visibility::ReadWrite,
             has_extended_meta: false,
         });
-        self.scope.output(id, item)
+        self.scope.global(id, item)
     }
 
     /// Register an output that uses the same resource as the input as the given position.
@@ -105,7 +105,7 @@ impl KernelBuilder {
             .expect("Position valid");
 
         input.visibility = Visibility::ReadWrite;
-        self.scope.input(position, input.item)
+        self.scope.global(position, input.item)
     }
 
     /// Register an input array and return the [element](Variable) to be used for kernel expansion.
@@ -117,7 +117,7 @@ impl KernelBuilder {
             visibility: Visibility::Read,
             has_extended_meta: false,
         });
-        self.scope.input(id, item)
+        self.scope.global(id, item)
     }
 
     pub fn runtime_properties(&mut self, properties: TargetProperties) {

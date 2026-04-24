@@ -15,8 +15,7 @@ use rspirv::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Variable {
-    GlobalInputArray(Word, Item, u32),
-    GlobalOutputArray(Word, Item, u32),
+    GlobalBuffer(Word, Item, u32),
     GlobalScalar(Word, Elem),
     Constant(Word, ConstVal, Item),
     Local {
@@ -53,9 +52,7 @@ pub enum Variable {
 impl Variable {
     pub fn scope(&self) -> spirv::Scope {
         match self {
-            Variable::GlobalInputArray(..)
-            | Variable::GlobalOutputArray(..)
-            | Variable::GlobalScalar(..) => spirv::Scope::Device,
+            Variable::GlobalBuffer(..) | Variable::GlobalScalar(..) => spirv::Scope::Device,
             Variable::SharedArray(..) | Variable::Shared(..) => spirv::Scope::Workgroup,
             Variable::CoopMatrix(..) => spirv::Scope::Subgroup,
             Variable::Slice { ptr, .. } => ptr.scope(),
@@ -188,8 +185,7 @@ impl From<f32> for ConstVal {
 impl Variable {
     pub fn id<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>) -> Word {
         match self {
-            Variable::GlobalInputArray(id, _, _) => *id,
-            Variable::GlobalOutputArray(id, _, _) => *id,
+            Variable::GlobalBuffer(id, _, _) => *id,
             Variable::GlobalScalar(id, _) => *id,
             Variable::Constant(id, _, _) => *id,
             Variable::Local { id, .. } => *id,
@@ -213,8 +209,7 @@ impl Variable {
 
     pub fn item(&self) -> Item {
         match self {
-            Variable::GlobalInputArray(_, item, _) => item.clone(),
-            Variable::GlobalOutputArray(_, item, _) => item.clone(),
+            Variable::GlobalBuffer(_, item, _) => item.clone(),
             Variable::GlobalScalar(_, elem) => Item::Scalar(*elem),
             Variable::Constant(_, _, item) => item.clone(),
             Variable::Local { item, .. } => item.clone(),
@@ -257,8 +252,7 @@ impl Variable {
     pub fn has_len(&self) -> bool {
         matches!(
             self,
-            Variable::GlobalInputArray(_, _, _)
-                | Variable::GlobalOutputArray(_, _, _)
+            Variable::GlobalBuffer(_, _, _)
                 | Variable::Slice { .. }
                 | Variable::SharedArray(_, _, _)
                 | Variable::ConstantArray(_, _, _)
@@ -267,10 +261,7 @@ impl Variable {
     }
 
     pub fn has_buffer_len(&self) -> bool {
-        matches!(
-            self,
-            Variable::GlobalInputArray(_, _, _) | Variable::GlobalOutputArray(_, _, _)
-        )
+        matches!(self, Variable::GlobalBuffer(_, _, _))
     }
 
     pub fn as_const(&self) -> Option<ConstVal> {
@@ -304,13 +295,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Variable::Constant(id, const_val, item)
                 }
             }
-            ir::VariableKind::GlobalInputArray(pos) => {
+            ir::VariableKind::GlobalBuffer(pos) => {
                 let buffer = self.state.buffers[pos as usize];
-                Variable::GlobalInputArray(buffer.id, self.compile_type(item), pos)
-            }
-            ir::VariableKind::GlobalOutputArray(pos) => {
-                let buffer = self.state.buffers[pos as usize];
-                Variable::GlobalOutputArray(buffer.id, self.compile_type(item), pos)
+                Variable::GlobalBuffer(buffer.id, self.compile_type(item), pos)
             }
             ir::VariableKind::GlobalScalar(id) => self.global_scalar(id, item.storage_type()),
             ir::VariableKind::LocalMut { id } => {
@@ -390,8 +377,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             ir::VariableKind::BarrierToken { .. } => {
                 panic!("Barrier not supported.")
             }
-            ir::VariableKind::TensorMapInput(_) => panic!("Tensor map not supported."),
-            ir::VariableKind::TensorMapOutput(_) => panic!("Tensor map not supported."),
+            ir::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
         }
     }
 
@@ -443,7 +429,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Builder::in_bounds_access_chain(this, ptr_ty, Some(write_id), id, indices).unwrap()
         };
         match variable {
-            Variable::GlobalInputArray(id, ..) | Variable::GlobalOutputArray(id, ..) => {
+            Variable::GlobalBuffer(id, ..) => {
                 let zero = self.const_u32(0);
                 access_chain(self, *id, vec![zero, index_id])
             }
@@ -485,8 +471,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::GlobalScalar(id, _) => *id,
             Variable::Raw(id, _) => *id,
             Variable::Constant(_, _, _) => panic!("Can't write to constant scalar"),
-            Variable::GlobalInputArray(_, _, _)
-            | Variable::GlobalOutputArray(_, _, _)
+            Variable::GlobalBuffer(_, _, _)
             | Variable::Slice { .. }
             | Variable::SharedArray(_, _, _)
             | Variable::ConstantArray(_, _, _)

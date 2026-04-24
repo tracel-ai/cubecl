@@ -417,8 +417,7 @@ mod metadata {
         // Expand method of [buffer](TensorMap::buffer).
         pub fn __expand_buffer_method(self, scope: &Scope) -> NativeExpand<Tensor<T>> {
             let tensor = match self.expand.kind {
-                VariableKind::TensorMapInput(id) => scope.input(id, self.expand.ty),
-                VariableKind::TensorMapOutput(id) => scope.output(id, self.expand.ty),
+                VariableKind::TensorMap(id) => scope.global(id, self.expand.ty),
                 _ => unreachable!(),
             };
             tensor.into()

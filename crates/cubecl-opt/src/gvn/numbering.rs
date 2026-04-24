@@ -210,9 +210,9 @@ impl ValueTable {
                 let item = out.ty;
                 let out = value_of_var(&out);
                 let var = match var.kind {
-                    VariableKind::GlobalInputArray { .. }
-                    | VariableKind::GlobalOutputArray { .. }
-                    | VariableKind::GlobalScalar { .. } => self.lookup_or_add_var(var)?,
+                    VariableKind::GlobalBuffer { .. } | VariableKind::GlobalScalar { .. } => {
+                        self.lookup_or_add_var(var)?
+                    }
                     VariableKind::ConstantArray { length, .. }
                     | VariableKind::SharedArray { length, .. }
                     | VariableKind::LocalArray { length, .. } => {

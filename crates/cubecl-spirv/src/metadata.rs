@@ -85,7 +85,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let ty_id = out_ty.id(self);
 
         let id = match var {
-            Variable::GlobalInputArray(_, _, pos) | Variable::GlobalOutputArray(_, _, pos) => {
+            Variable::GlobalBuffer(_, _, pos) => {
                 let offset = self.info.metadata.len_index(*pos);
                 let id = self.load_const_metadata(offset, out_id, out_ty);
 
@@ -129,7 +129,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .unwrap_or_else(|| self.compile_type(self.addr_type.into()));
 
         let position = match var {
-            Variable::GlobalInputArray(_, _, pos) | Variable::GlobalOutputArray(_, _, pos) => *pos,
+            Variable::GlobalBuffer(_, _, pos) => *pos,
             _ => panic!("Only Input and Output have a buffer length, got: {var:?}"),
         };
         let offset = self.info.metadata.buffer_len_index(position);
@@ -188,7 +188,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn ext_pos(&self, var: &Variable) -> u32 {
         let pos = match var {
-            Variable::GlobalInputArray(_, _, pos) | Variable::GlobalOutputArray(_, _, pos) => *pos,
+            Variable::GlobalBuffer(_, _, pos) => *pos,
             _ => panic!("Only global buffers have rank"),
         };
         self.ext_meta_pos[pos as usize]

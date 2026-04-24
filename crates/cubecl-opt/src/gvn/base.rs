@@ -78,12 +78,10 @@ pub struct Local {
 pub enum Value {
     Constant(ConstantValue, Type),
     Local(Local),
-    Input(Id, Type),
+    Global(Id, Type),
     Scalar(Id, StorageType),
     ConstArray(Id, Type, usize, usize),
     Builtin(Builtin, StorageType),
-    // Metadata only
-    Output(Id, Type),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
@@ -125,11 +123,10 @@ impl Value {
         match self {
             Value::Constant(_, ty) => *ty,
             Value::Local(local) => local.item,
-            Value::Input(_, item) => *item,
+            Value::Global(_, item) => *item,
             Value::Scalar(_, elem) => Type::new(*elem),
             Value::ConstArray(_, item, _, _) => *item,
             Value::Builtin(_, ty) => Type::new(*ty),
-            Value::Output(_, item) => *item,
         }
     }
 }

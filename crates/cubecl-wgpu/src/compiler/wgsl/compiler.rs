@@ -266,8 +266,8 @@ impl WgslCompiler {
     pub(crate) fn compile_variable(&mut self, value: cube::Variable) -> wgsl::Variable {
         let item = value.ty;
         match value.kind {
-            cube::VariableKind::GlobalInputArray(id) => {
-                wgsl::Variable::GlobalInputArray(id, self.compile_type(item))
+            cube::VariableKind::GlobalBuffer(id) => {
+                wgsl::Variable::GlobalBuffer(id, self.compile_type(item))
             }
             cube::VariableKind::GlobalScalar(id) => {
                 wgsl::Variable::GlobalScalar(id, self.compile_storage_type(item.storage_type()))
@@ -282,9 +282,6 @@ impl WgslCompiler {
                 id,
                 item: self.compile_type(item),
             },
-            cube::VariableKind::GlobalOutputArray(id) => {
-                wgsl::Variable::GlobalOutputArray(id, self.compile_type(item))
-            }
             cube::VariableKind::Constant(value) => {
                 wgsl::Variable::Constant(value, self.compile_type(item))
             }
@@ -433,8 +430,7 @@ impl WgslCompiler {
             cube::VariableKind::BarrierToken { .. } => {
                 panic!("Barrier not supported.")
             }
-            cube::VariableKind::TensorMapInput(_) => panic!("Tensor map not supported."),
-            cube::VariableKind::TensorMapOutput(_) => panic!("Tensor map not supported."),
+            cube::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
         }
     }
 
@@ -716,14 +712,7 @@ impl WgslCompiler {
                 }
             }
             cube::Metadata::Length { var } => match var.kind {
-                cube::VariableKind::GlobalInputArray(id) => {
-                    let offset = self.info.metadata.len_index(id);
-                    wgsl::Instruction::Metadata {
-                        out: self.compile_variable(out),
-                        info_offset: self.compile_variable(offset.into()),
-                    }
-                }
-                cube::VariableKind::GlobalOutputArray(id) => {
+                cube::VariableKind::GlobalBuffer(id) => {
                     let offset = self.info.metadata.len_index(id);
                     wgsl::Instruction::Metadata {
                         out: self.compile_variable(out),
@@ -736,14 +725,7 @@ impl WgslCompiler {
                 },
             },
             cube::Metadata::BufferLength { var } => match var.kind {
-                cube::VariableKind::GlobalInputArray(id) => {
-                    let offset = self.info.metadata.buffer_len_index(id);
-                    wgsl::Instruction::Metadata {
-                        out: self.compile_variable(out),
-                        info_offset: self.compile_variable(offset.into()),
-                    }
-                }
-                cube::VariableKind::GlobalOutputArray(id) => {
+                cube::VariableKind::GlobalBuffer(id) => {
                     let offset = self.info.metadata.buffer_len_index(id);
                     wgsl::Instruction::Metadata {
                         out: self.compile_variable(out),

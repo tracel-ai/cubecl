@@ -1723,18 +1723,14 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_variable(&mut self, value: gpu::Variable) -> Variable<D> {
         let item = value.ty;
         match value.kind {
-            gpu::VariableKind::GlobalInputArray(id) => {
-                Variable::GlobalInputArray(id, self.compile_type(item))
+            gpu::VariableKind::GlobalBuffer(id) => {
+                Variable::GlobalBuffer(id, self.compile_type(item))
             }
             gpu::VariableKind::GlobalScalar(id) => Variable::GlobalScalar {
                 id,
                 elem: self.compile_storage_type(item.storage_type()),
             },
-            gpu::VariableKind::TensorMapInput(id) => {
-                self.flags.inst_tma = true;
-                Variable::TensorMap(id)
-            }
-            gpu::VariableKind::TensorMapOutput(id) => {
+            gpu::VariableKind::TensorMap(id) => {
                 self.flags.inst_tma = true;
                 Variable::TensorMap(id)
             }
@@ -1750,9 +1746,6 @@ impl<D: Dialect> CppCompiler<D> {
                 id,
                 item: self.compile_type(item),
             },
-            gpu::VariableKind::GlobalOutputArray(id) => {
-                Variable::GlobalOutputArray(id, self.compile_type(item))
-            }
             gpu::VariableKind::Constant(value) => {
                 Variable::Constant(value, self.compile_type(item))
             }

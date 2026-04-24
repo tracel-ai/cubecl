@@ -72,11 +72,10 @@ impl GvnState {
                 matches!(
                     k,
                     Value::Constant(_, _)
-                        | Value::Input(_, _)
+                        | Value::Global(_, _)
                         | Value::Scalar(_, _)
                         | Value::ConstArray(_, _, _, _)
                         | Value::Builtin(..)
-                        | Value::Output(_, _)
                 )
             })
             .map(|(k, v)| (*v, *k))

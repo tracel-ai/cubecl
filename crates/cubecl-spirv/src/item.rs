@@ -442,11 +442,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_function_param_type(&mut self, var: core::Variable) -> Word {
         match var.kind {
-            core::VariableKind::GlobalInputArray(id)
-            | core::VariableKind::GlobalOutputArray(id) => {
+            core::VariableKind::GlobalBuffer(id) => {
                 self.state.base_lookups.buffers[id as usize].struct_ptr_ty_id
             }
-            core::VariableKind::TensorMapInput(_) | core::VariableKind::TensorMapOutput(_) => {
+            core::VariableKind::TensorMap(_) => {
                 unimplemented!("Tensor maps not supported")
             }
             core::VariableKind::LocalArray { .. } => {

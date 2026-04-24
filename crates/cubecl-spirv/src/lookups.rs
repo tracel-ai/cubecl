@@ -418,10 +418,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn init_function_param(&mut self, param: ir::Variable, param_id: Word) {
         let item = self.compile_type(param.ty);
         match param.kind {
-            VariableKind::GlobalInputArray(id)
-            | VariableKind::GlobalOutputArray(id)
-            | VariableKind::TensorMapInput(id)
-            | VariableKind::TensorMapOutput(id) => {
+            VariableKind::GlobalBuffer(id) | VariableKind::TensorMap(id) => {
                 self.state.buffers[id as usize].id = param_id;
             }
             VariableKind::SharedArray { id, .. } => {

@@ -45,7 +45,7 @@ impl Value {
                 },
                 *item,
             ),
-            Value::Input(id, item) => Variable::new(VariableKind::GlobalInputArray(*id), *item),
+            Value::Global(id, item) => Variable::new(VariableKind::GlobalBuffer(*id), *item),
             Value::Scalar(id, elem) => {
                 Variable::new(VariableKind::GlobalScalar(*id), Type::new(*elem))
             }
@@ -58,7 +58,6 @@ impl Value {
                 *item,
             ),
             Value::Builtin(builtin, ty) => Variable::builtin(*builtin, *ty),
-            Value::Output(id, item) => Variable::new(VariableKind::GlobalOutputArray(*id), *item),
         }
     }
 }
@@ -66,8 +65,7 @@ impl Value {
 pub fn value_of_var(var: &Variable) -> Option<Value> {
     let item = var.ty;
     let val = match var.kind {
-        VariableKind::GlobalInputArray(id) => Value::Input(id, item),
-        VariableKind::GlobalOutputArray(id) => Value::Output(id, item),
+        VariableKind::GlobalBuffer(id) => Value::Global(id, item),
         VariableKind::GlobalScalar(id) => Value::Scalar(id, item.storage_type()),
         VariableKind::Versioned { id, version } => Value::Local(Local { id, version, item }),
         VariableKind::LocalConst { id } => Value::Local(Local {
@@ -91,8 +89,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
         VariableKind::BarrierToken { .. } => {
             panic!("Barrier is not supported")
         }
-        VariableKind::TensorMapInput(_) => panic!("Tensor map is not supported"),
-        VariableKind::TensorMapOutput(_) => panic!("Tensor map is not supported"),
+        VariableKind::TensorMap(_) => panic!("Tensor map is not supported"),
     };
     Some(val)
 }

@@ -11,7 +11,7 @@ impl IrTransformer for ErfTransform {
     fn maybe_transform(&self, scope: &Scope, inst: &Instruction) -> TransformAction {
         match &inst.operation {
             Operation::Arithmetic(Arithmetic::Erf(op)) => {
-                let mut scope = scope.child();
+                let scope = scope.child();
                 expand_erf(&scope, op.input, inst.out.unwrap());
                 TransformAction::Replace(scope.process([]).instructions)
             }

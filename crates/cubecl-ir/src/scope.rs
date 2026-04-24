@@ -360,14 +360,9 @@ impl Scope {
         const_array
     }
 
-    /// Obtain the index-th input
-    pub fn input(&self, id: Id, item: Type) -> Variable {
-        Variable::new(VariableKind::GlobalInputArray(id), item)
-    }
-
-    /// Obtain the index-th output
-    pub fn output(&self, id: Id, item: Type) -> Variable {
-        Variable::new(VariableKind::GlobalOutputArray(id), item)
+    /// Obtain the index-th buffer
+    pub fn global(&self, id: Id, item: Type) -> Variable {
+        Variable::new(VariableKind::GlobalBuffer(id), item)
     }
 
     /// Obtain the index-th scalar

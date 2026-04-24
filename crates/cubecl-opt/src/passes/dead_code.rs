@@ -63,10 +63,8 @@ fn search_loop(func: &mut Function, state: &GlobalState) -> bool {
                 continue;
             }
             let Some(out) = op.out else { continue };
-            if !matches!(
-                out.kind,
-                VariableKind::GlobalInputArray(_) | VariableKind::GlobalOutputArray(_)
-            ) && !var_used.borrow().contains(&out)
+            if !matches!(out.kind, VariableKind::GlobalBuffer(_))
+                && !var_used.borrow().contains(&out)
             {
                 func[node].ops.borrow_mut().remove(idx);
                 contains_modification = true;

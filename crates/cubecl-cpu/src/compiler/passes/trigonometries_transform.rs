@@ -11,7 +11,7 @@ impl IrTransformer for HypotTransform {
     fn maybe_transform(&self, scope: &Scope, inst: &Instruction) -> TransformAction {
         match &inst.operation {
             Operation::Arithmetic(Arithmetic::Hypot(op)) => {
-                let mut scope = scope.child();
+                let scope = scope.child();
                 expand_hypot(&scope, op.lhs, op.rhs, inst.out.unwrap());
                 TransformAction::Replace(scope.process([]).instructions)
             }
@@ -27,7 +27,7 @@ impl IrTransformer for RhypotTransform {
     fn maybe_transform(&self, scope: &Scope, inst: &Instruction) -> TransformAction {
         match &inst.operation {
             Operation::Arithmetic(Arithmetic::Rhypot(op)) => {
-                let mut scope = scope.child();
+                let scope = scope.child();
                 expand_rhypot(&scope, op.lhs, op.rhs, inst.out.unwrap());
                 TransformAction::Replace(scope.process([]).instructions)
             }

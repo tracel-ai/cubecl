@@ -296,10 +296,7 @@ pub fn global_buffer_id(variable: &core::Variable) -> Option<Id> {
         return Some(id);
     }
     match variable.kind {
-        VariableKind::GlobalInputArray(id)
-        | VariableKind::GlobalOutputArray(id)
-        | VariableKind::TensorMapInput(id)
-        | VariableKind::TensorMapOutput(id) => Some(id),
+        VariableKind::GlobalBuffer(id) | VariableKind::TensorMap(id) => Some(id),
         _ => None,
     }
 }
@@ -641,7 +638,7 @@ mod test {
         )
         .into();
         let mut arr = Variable::new(
-            VariableKind::GlobalOutputArray(0),
+            VariableKind::GlobalBuffer(0),
             Type::scalar(ElemType::UInt(UIntKind::U32)),
         )
         .into();

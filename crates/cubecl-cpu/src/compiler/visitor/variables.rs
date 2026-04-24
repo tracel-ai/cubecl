@@ -156,9 +156,7 @@ impl<'a> Visitor<'a> {
 
     pub fn get_memory(&mut self, variable: Variable) -> Value<'a, 'a> {
         match variable.kind {
-            VariableKind::GlobalInputArray(id) | VariableKind::GlobalOutputArray(id) => {
-                self.args_manager.buffers[id as usize]
-            }
+            VariableKind::GlobalBuffer(id) => self.args_manager.buffers[id as usize],
             VariableKind::SharedArray { id, .. } => *self
                 .args_manager
                 .shared_memory_values
@@ -204,8 +202,7 @@ impl<'a> Visitor<'a> {
     pub fn is_memory(&self, variable: Variable) -> bool {
         matches!(
             variable.kind,
-            VariableKind::GlobalInputArray(_)
-                | VariableKind::GlobalOutputArray(_)
+            VariableKind::GlobalBuffer(_)
                 | VariableKind::LocalMut { .. }
                 | VariableKind::LocalArray { .. }
                 | VariableKind::ConstantArray { .. }

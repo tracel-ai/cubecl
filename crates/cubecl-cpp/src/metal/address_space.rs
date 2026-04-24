@@ -100,8 +100,7 @@ impl<D: Dialect> From<&Variable<D>> for AddressSpace {
             | Variable::CubeCountZ
             | Variable::PlaneDim
             | Variable::UnitPosPlane => AddressSpace::None,
-            Variable::GlobalInputArray(..) => AddressSpace::ConstDevice,
-            Variable::GlobalOutputArray(..) => AddressSpace::Device,
+            Variable::GlobalBuffer(..) => AddressSpace::Device,
             Variable::GlobalScalar { .. } => {
                 if value.is_const() {
                     AddressSpace::ConstDevice

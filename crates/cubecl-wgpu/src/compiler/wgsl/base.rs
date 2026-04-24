@@ -7,8 +7,7 @@ use std::fmt::Display;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Variable {
-    GlobalInputArray(Id, Item),
-    GlobalOutputArray(Id, Item),
+    GlobalBuffer(Id, Item),
     GlobalScalar(Id, Elem),
     Constant(ConstantValue, Item),
     LocalMut {
@@ -102,8 +101,7 @@ impl Variable {
             Variable::LocalInvocationIdX => true,
             Variable::LocalInvocationIdY => true,
             Variable::LocalInvocationIdZ => true,
-            Variable::GlobalInputArray(_, _) => false,
-            Variable::GlobalOutputArray(_, _) => false,
+            Variable::GlobalBuffer(_, _) => false,
             Variable::SharedArray(_, _, _) => false,
             Variable::SharedValue(_, _) => false,
             Variable::ConstantArray(_, _, _) => false,
@@ -148,17 +146,13 @@ impl Variable {
     pub fn is_memory(&self) -> bool {
         matches!(
             self,
-            Self::GlobalInputArray(..)
-                | Self::GlobalOutputArray(..)
-                | Self::SharedArray(..)
-                | Self::SharedValue(..)
+            Self::GlobalBuffer(..) | Self::SharedArray(..) | Self::SharedValue(..)
         )
     }
 
     pub fn item(&self) -> Item {
         match self {
-            Self::GlobalInputArray(_, e) => *e,
-            Self::GlobalOutputArray(_, e) => *e,
+            Self::GlobalBuffer(_, e) => *e,
             Self::SharedArray(_, e, _) => *e,
             Self::SharedValue(_, e) => *e,
             Self::ConstantArray(_, e, _) => *e,
@@ -369,16 +363,13 @@ impl Display for Item {
 impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::GlobalInputArray(number, _) => {
+            Variable::GlobalBuffer(number, _) => {
                 write!(f, "buffer_{number}_global")
             }
             Variable::LocalScalar { id: index, .. } => write!(f, "s_{index}"),
             Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
             Variable::LocalConst { id, .. } => write!(f, "l_{id}"),
             Variable::Named { name, .. } => f.write_str(name),
-            Variable::GlobalOutputArray(number, _) => {
-                write!(f, "buffer_{number}_global")
-            }
             Variable::GlobalScalar(number, elem) => {
                 write!(f, "info.scalars_{elem}[{number}]")
             }

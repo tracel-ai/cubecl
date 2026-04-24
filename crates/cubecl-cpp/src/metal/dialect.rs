@@ -1129,7 +1129,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 };
                 if let Item::Vector(inner, _) = value.item() {
                     match value {
-                        Variable::GlobalInputArray(..) => writeln!(
+                        Variable::GlobalBuffer(..) => writeln!(
                             f,
                             "simdgroup_load({frag}, (device {inner}*)({value} + {offset}), {stride}, 0, {transpose});"
                         ),

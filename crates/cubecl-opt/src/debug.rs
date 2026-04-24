@@ -288,11 +288,10 @@ impl Display for Value {
         match self {
             Value::Constant(constant, _) => write!(f, "{constant}"),
             Value::Local(local) => write!(f, "{local}"),
-            Value::Input(id, _) => write!(f, "input({id})"),
+            Value::Global(id, _) => write!(f, "global({id})"),
             Value::Scalar(id, elem) => write!(f, "scalar({elem}, {id})"),
             Value::ConstArray(id, _, _, _) => write!(f, "const_array({id})"),
             Value::Builtin(builtin, _) => write!(f, "{builtin:?}"),
-            Value::Output(id, _) => write!(f, "output({id})"),
         }
     }
 }

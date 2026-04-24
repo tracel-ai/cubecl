@@ -209,8 +209,7 @@ impl Uniformity {
             VariableKind::ConstantArray { .. }
             | VariableKind::SharedArray { .. }
             | VariableKind::Shared { .. }
-            | VariableKind::GlobalInputArray(_)
-            | VariableKind::GlobalOutputArray(_)
+            | VariableKind::GlobalBuffer(_)
             | VariableKind::GlobalScalar(_)
             | VariableKind::Constant(_) => true,
             VariableKind::Builtin(builtin) => match builtin {
@@ -255,8 +254,7 @@ impl Uniformity {
             | VariableKind::Pipeline { .. } => {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)
             }
-            VariableKind::TensorMapInput(_) => true,
-            VariableKind::TensorMapOutput(_) => true,
+            VariableKind::TensorMap(_) => true,
         }
     }
 
