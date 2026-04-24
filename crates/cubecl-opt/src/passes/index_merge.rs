@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use cubecl_ir::{CopyMemoryOperator, Id, Instruction, Operation, Operator, Variable, VariableKind};
+use cubecl_ir::{
+    CopyMemoryOperator, Id, Instruction, Memory, Operation, Operator, Variable, VariableKind,
+};
 
 use crate::{AtomicCounter, Function, GlobalState};
 
@@ -20,16 +22,14 @@ impl OptimizerPass for CopyTransform {
             for idx in indices {
                 let inst = ops.borrow()[idx].clone();
                 match &inst.operation {
-                    Operation::Operator(Operator::Index(op))
-                        if op.list.is_memory()
-                            && op.list.ty == inst.ty()
-                            && !is_reused(func, state, &inst.out) =>
+                    Operation::Memory(Memory::Index(op))
+                        if &&op.list.ty == inst.ty() && !is_reused(func, state, &inst.out) =>
                     {
                         if let Some(id) = as_versioned(&inst.out()) {
                             reads.insert(id, (idx, op.list, op.index));
                         }
                     }
-                    Operation::Operator(Operator::IndexMut(op)) if inst.out().is_memory() => {
+                    Operation::Operator(Memory::IndexMut(op)) => {
                         if let Some(id) = as_versioned(&inst.out.unwrap()) {
                             writes.insert(id, (idx, op.list, op.index));
                         }
@@ -51,7 +51,7 @@ impl OptimizerPass for CopyTransform {
                 }
 
                 ops.borrow_mut().remove(read_idx);
-                let copy = Operator::CopyMemory(CopyMemoryOperator {
+                let copy = Memory::CopyMemory(CopyMemoryOperator {
                     out_index,
                     input,
                     in_index,

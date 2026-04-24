@@ -1,7 +1,7 @@
 use cubecl_ir::{
     Arithmetic, AtomicOp, BarrierOps, BinaryOperator, Bitwise, Comparison, CoopMma, Instruction,
-    Metadata, NonSemantic, Operation, Operator, Plane, TensorIndexingOps, TmaOps, UnaryOperator,
-    Variable,
+    Memory, Metadata, NonSemantic, Operation, Operator, Plane, TensorIndexingOps, TmaOps,
+    UnaryOperator, Variable,
 };
 
 use crate::{ControlFlow, Function, GlobalState};
@@ -24,8 +24,14 @@ impl Function {
         state: &GlobalState,
         inst: &mut Instruction,
         visit_read: impl FnMut(&mut Self, &mut Variable),
-        visit_write: impl FnMut(&mut Self, &mut Variable),
+        mut visit_write: impl FnMut(&mut Self, &mut Variable),
     ) {
+        if let Operation::Memory(Memory::Store(op)) = &mut inst.operation {
+            visit_write(self, &mut op.lhs);
+        }
+        if let Operation::Memory(Memory::CopyMemory(op)) = &mut inst.operation {
+            visit_write(self, &mut op.target);
+        }
         self.visit_out(&mut inst.out, visit_write);
         self.visit_operation(state, &mut inst.operation, &mut inst.out, visit_read);
     }
@@ -41,12 +47,7 @@ impl Function {
     ) {
         match op {
             Operation::Copy(variable) => visit_read(self, variable),
-            Operation::Reference(variable) => visit_read(self, variable),
-            Operation::Deref(variable) => visit_read(self, variable),
-            Operation::DerefAssign(variable) => {
-                visit_read(self, variable);
-                visit_read(self, out.as_mut().unwrap());
-            }
+            Operation::Memory(memory) => self.visit_memory(memory, visit_read),
             Operation::Arithmetic(arithmetic) => self.visit_arithmetic(arithmetic, visit_read),
             Operation::Comparison(comparison) => self.visit_compare(comparison, visit_read),
             Operation::Bitwise(bitwise) => self.visit_bitwise(bitwise, visit_read),
@@ -204,6 +205,30 @@ impl Function {
         }
     }
 
+    pub fn visit_memory(
+        &mut self,
+        memory: &mut Memory,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        match memory {
+            Memory::Reference(variable) => visit_read(self, variable),
+            Memory::Index(index_operator) => {
+                visit_read(self, &mut index_operator.list);
+                visit_read(self, &mut index_operator.index);
+            }
+            Memory::IndexMut(index_operator) => {
+                visit_read(self, &mut index_operator.list);
+                visit_read(self, &mut index_operator.index);
+            }
+            Memory::Load(variable) => visit_read(self, variable),
+            Memory::Store(binop) => self.visit_binop(binop, visit_read),
+            Memory::CopyMemory(copy_memory_operator) => {
+                visit_read(self, &mut copy_memory_operator.source);
+                visit_read(self, &mut copy_memory_operator.target);
+            }
+        }
+    }
+
     /// Visit an operator with a set of read and write visitors. Each visitor will be called with
     /// each read or written to variable.
     pub fn visit_operator(
@@ -221,28 +246,10 @@ impl Function {
             Operator::Not(unary_operator)
             | Operator::Cast(unary_operator)
             | Operator::Reinterpret(unary_operator) => self.visit_unop(unary_operator, visit_read),
-            Operator::Index(index_operator) | Operator::UncheckedIndex(index_operator) => {
-                visit_read(self, &mut index_operator.list);
-                visit_read(self, &mut index_operator.index);
-            }
-            Operator::IndexMut(op) | Operator::UncheckedIndexMut(op) => {
-                visit_read(self, &mut op.list);
-                visit_read(self, &mut op.index);
-            }
             Operator::InitVector(vector_init_operator) => {
                 for input in &mut vector_init_operator.inputs {
                     visit_read(self, input)
                 }
-            }
-            Operator::CopyMemory(copy_operator) => {
-                visit_read(self, &mut copy_operator.input);
-                visit_read(self, &mut copy_operator.in_index);
-                visit_read(self, &mut copy_operator.out_index);
-            }
-            Operator::CopyMemoryBulk(copy_bulk_operator) => {
-                visit_read(self, &mut copy_bulk_operator.input);
-                visit_read(self, &mut copy_bulk_operator.in_index);
-                visit_read(self, &mut copy_bulk_operator.out_index);
             }
             Operator::Select(select) => {
                 visit_read(self, &mut select.cond);

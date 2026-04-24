@@ -7,7 +7,7 @@ use crate::{
 use alloc::{boxed::Box, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
-use cubecl_ir::{Instruction, Operation, PointerClass, Type, VectorSize};
+use cubecl_ir::{Instruction, Memory, PointerClass, Type, VectorSize};
 use cubecl_runtime::runtime::Runtime;
 use half::{bf16, f16};
 use variadics_please::{all_tuples, all_tuples_enumerated};
@@ -413,7 +413,7 @@ impl<T: CubePrimitive> AsMutExpand for NativeExpand<T> {
             "Can't create mutable reference to immutable variable"
         );
         let ptr = scope.create_local(Type::pointer(self.expand.ty, PointerClass::Local));
-        scope.register(Instruction::new(Operation::Reference(self.expand), ptr));
+        scope.register(Instruction::new(Memory::Reference(self.expand), ptr));
         scope.create_kernel_ref(ptr.into())
     }
 }

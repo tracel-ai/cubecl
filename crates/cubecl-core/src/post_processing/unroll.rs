@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 use cubecl_ir::{
-    Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, CopyMemoryBulkOperator, IndexOperator,
-    Instruction, MatrixLayout, Metadata, Operation, OperationReflect, Operator, Processor,
+    Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, IndexOperator, Instruction,
+    MatrixLayout, Memory, Metadata, Operation, OperationReflect, Operator, Processor,
     ScopeProcessing, Variable, VariableKind, VectorSize,
 };
 use hashbrown::HashMap;
@@ -104,40 +104,22 @@ impl UnrollProcessor {
             let unroll_factor = vector_size / self.max_vector_size;
 
             match &inst.operation {
-                Operation::Operator(Operator::CopyMemoryBulk(op)) => TransformAction::Replace(
-                    self.transform_memcpy(alloc, op, inst.out(), unroll_factor),
-                ),
-                Operation::Operator(Operator::CopyMemory(op)) => {
-                    TransformAction::Replace(self.transform_memcpy(
-                        alloc,
-                        &CopyMemoryBulkOperator {
-                            out_index: op.out_index,
-                            input: op.input,
-                            in_index: op.in_index,
-                            len: 1,
-                            offset_input: 0.into(),
-                            offset_out: 0.into(),
-                        },
-                        inst.out(),
-                        unroll_factor,
-                    ))
-                }
-                Operation::Operator(Operator::Index(op)) => {
+                Operation::Memory(Memory::Index(op)) => {
                     TransformAction::Replace(self.transform_array_index(
                         alloc,
                         inst.out(),
                         op,
-                        Operator::Index,
+                        Memory::Index,
                         unroll_factor,
                         mappings,
                     ))
                 }
-                Operation::Operator(Operator::UncheckedIndex(op)) => {
+                Operation::Memory(Memory::IndexMut(op)) => {
                     TransformAction::Replace(self.transform_array_index(
                         alloc,
                         inst.out(),
                         op,
-                        Operator::UncheckedIndex,
+                        Memory::IndexMut,
                         unroll_factor,
                         mappings,
                     ))
@@ -147,26 +129,6 @@ impl UnrollProcessor {
                         alloc,
                         inst.out(),
                         op,
-                        unroll_factor,
-                        mappings,
-                    ))
-                }
-                Operation::Operator(Operator::IndexMut(op)) => {
-                    TransformAction::Replace(self.transform_array_index_assign(
-                        alloc,
-                        inst.out(),
-                        op,
-                        Operator::IndexMut,
-                        unroll_factor,
-                        mappings,
-                    ))
-                }
-                Operation::Operator(Operator::UncheckedIndexMut(op)) => {
-                    TransformAction::Replace(self.transform_array_index_assign(
-                        alloc,
-                        inst.out(),
-                        op,
-                        Operator::UncheckedIndexMut,
                         unroll_factor,
                         mappings,
                     ))
@@ -244,41 +206,6 @@ impl UnrollProcessor {
         vec![mul, store]
     }
 
-    /// Transforms memcpy into one with higher length and adjusted indices/offsets
-    fn transform_memcpy(
-        &self,
-        alloc: &Allocator,
-        op: &CopyMemoryBulkOperator,
-        out: Variable,
-        unroll_factor: usize,
-    ) -> Vec<Instruction> {
-        let (mul1, in_index) = mul_index(alloc, op.in_index, unroll_factor);
-        let (mul2, offset_input) = mul_index(alloc, op.offset_input, unroll_factor);
-        let (mul3, out_index) = mul_index(alloc, op.out_index, unroll_factor);
-        let (mul4, offset_out) = mul_index(alloc, op.offset_out, unroll_factor);
-
-        let input = unroll_array(op.input, self.max_vector_size, unroll_factor);
-        let out = unroll_array(out, self.max_vector_size, unroll_factor);
-
-        vec![
-            mul1,
-            mul2,
-            mul3,
-            mul4,
-            Instruction::new(
-                Operator::CopyMemoryBulk(CopyMemoryBulkOperator {
-                    input,
-                    in_index,
-                    out_index,
-                    len: op.len * unroll_factor,
-                    offset_input,
-                    offset_out,
-                }),
-                out,
-            ),
-        ]
-    }
-
     /// Transforms indexing into multiple index operations, each offset by 1 from the base. The base
     /// is also multiplied by the unroll factor to compensate for the lower actual vectorization.
     fn transform_array_index(
@@ -286,7 +213,7 @@ impl UnrollProcessor {
         alloc: &Allocator,
         out: Variable,
         op: &IndexOperator,
-        operator: impl Fn(IndexOperator) -> Operator,
+        operator: impl Fn(IndexOperator) -> Memory,
         unroll_factor: usize,
         mappings: &mut Mappings,
     ) -> Vec<Instruction> {
@@ -305,45 +232,10 @@ impl UnrollProcessor {
                     index: idx,
                     vector_size: 0,
                     unroll_factor,
+                    checked: op.checked,
                 }),
                 out[i],
             );
-            [add, index]
-        }));
-
-        instructions
-    }
-
-    /// Transforms index assign into multiple index assign operations, each offset by 1 from the base.
-    /// The base is also multiplied by the unroll factor to compensate for the lower actual vectorization.
-    fn transform_array_index_assign(
-        &self,
-        alloc: &Allocator,
-        out: Variable,
-        op: &IndexOperator,
-        operator: impl Fn(IndexOperator) -> Operator,
-        unroll_factor: usize,
-        mappings: &mut Mappings,
-    ) -> Vec<Instruction> {
-        let (mul, start_idx) = mul_index(alloc, op.index, unroll_factor);
-        let mut indices = (0..unroll_factor).map(|i| add_index(alloc, start_idx, i));
-
-        let list = unroll_array(op.list, self.max_vector_size, unroll_factor);
-
-        let out = mappings.get(alloc, out, unroll_factor, self.max_vector_size);
-        let mut instructions = vec![mul];
-        instructions.extend((0..unroll_factor).flat_map(|i| {
-            let (add, idx) = indices.next().unwrap();
-            let index = Instruction::new(
-                operator(IndexOperator {
-                    list,
-                    index: idx,
-                    vector_size: 0,
-                    unroll_factor,
-                }),
-                out[i],
-            );
-
             [add, index]
         }));
 

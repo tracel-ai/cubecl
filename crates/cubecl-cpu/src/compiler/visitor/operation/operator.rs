@@ -1,4 +1,4 @@
-use cubecl_core::ir::{IndexOperator, Operator, StorageType, VariableKind};
+use cubecl_core::ir::{BinaryOperator, IndexOperator, Operator, StorageType, VariableKind};
 use tracel_llvm::mlir_rs::{
     dialect::{
         arith, index, memref,
@@ -149,28 +149,23 @@ impl<'a> Visitor<'a> {
         }
     }
 
+    fn visit_extract(&mut self, op: &BinaryOperator, out: Variable) -> Value<'a, 'a> {
+        let mut index = self.get_variable(op.rhs);
+        let u32_int = IntegerType::new(self.context, 32).into();
+        if index.r#type() != u32_int {
+            index = self.append_operation_with_result(index::casts(index, u32_int, self.location));
+        }
+        let to_extract = self.get_variable(op.lhs);
+        let res = out.ty.to_type(self.context);
+        let vector_extract =
+            llvm::extractelement(self.context, res, to_extract, index, self.location);
+        self.append_operation_with_result(vector_extract)
+    }
+
     fn visit_index(&mut self, index: &IndexOperator, out: Variable) -> Value<'a, 'a> {
         assert!(index.vector_size == 0);
-        let mut index_value = self.get_index(index.index, out.ty, index.list.ty.is_vectorized());
-        if !self.is_memory(index.list) {
-            let to_extract = self.get_variable(index.list);
-            // Item of size 1
-            if !to_extract.r#type().is_vector() {
-                return to_extract;
-            }
-            let res = index.list.storage_type().to_type(self.context);
-            if index_value.r#type().is_index() {
-                let u32_int = IntegerType::new(self.context, 32).into();
-                index_value = self.append_operation_with_result(index::casts(
-                    index_value,
-                    u32_int,
-                    self.location,
-                ));
-            }
-            let vector_extract =
-                llvm::extractelement(self.context, res, to_extract, index_value, self.location);
-            self.append_operation_with_result(vector_extract)
-        } else if out.ty.is_vectorized() {
+        let index_value = self.get_index(index.index, out.ty, index.list.ty.is_vectorized());
+        if out.ty.is_vectorized() {
             let vector_type = Type::vector(
                 &[out.vector_size() as u64],
                 index.list.storage_type().to_type(self.context),
@@ -189,27 +184,22 @@ impl<'a> Visitor<'a> {
         }
     }
 
+    fn visit_insert(&mut self, op: &BinaryOperator, out: Variable) -> Value<'a, 'a> {
+        let mut index = self.get_variable(op.lhs);
+        let u32_int = IntegerType::new(self.context, 32).into();
+        if index.r#type() != u32_int {
+            index = self.append_operation_with_result(index::casts(index, u32_int, self.location));
+        }
+        let memref = self.get_memory(out);
+        let to_insert = self.get_variable(op.rhs);
+        let vector_extract = memref::store(to_insert, memref, &[index], self.location);
+        self.append_operation_with_result(vector_extract)
+    }
+
     fn visit_index_assign(&mut self, index_assign: &IndexOperator, out: Variable) {
         assert!(index_assign.vector_size == 0);
         let value = self.get_variable(index_assign.value);
         let memref = self.get_memory(out);
-        if matches!(
-            out.kind,
-            VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. }
-        ) {
-            let indices = self.get_index(
-                index_assign.index,
-                index_assign.value.ty,
-                out.ty.is_vectorized(),
-            );
-            let operation = if index_assign.value.ty.is_vectorized() {
-                vector::store(self.context, value, memref, &[indices], self.location).into()
-            } else {
-                memref::store(value, memref, &[indices], self.location)
-            };
-            self.block.append_operation(operation);
-            return;
-        }
         let operation = if index_assign.value.ty.is_vectorized() {
             let indices = self.get_index(
                 index_assign.index,

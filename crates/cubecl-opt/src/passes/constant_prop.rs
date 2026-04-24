@@ -571,15 +571,9 @@ fn try_const_eval_operator(op: &mut Operator, out_ty: Option<Type>) -> Option<Co
             })
         }
         Operator::Cast(op) => op.input.as_const().map(|val| val.cast_to(out_ty.unwrap())),
-        Operator::Index(_)
-        | Operator::CopyMemory(_)
-        | Operator::CopyMemoryBulk(_)
-        | Operator::UncheckedIndex(_)
-        | Operator::IndexMut(_)
-        | Operator::InitVector(_)
+        Operator::InitVector(_)
         | Operator::InsertComponent(_)
         | Operator::ExtractComponent(_)
-        | Operator::UncheckedIndexMut(_)
         | Operator::Reinterpret(_)
         | Operator::Select(_) => None,
     }

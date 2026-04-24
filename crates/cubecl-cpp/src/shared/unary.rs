@@ -354,7 +354,7 @@ impl<D: Dialect> Unary<D> for Assign {
         let item = out.item();
         let item = item.value_ty();
 
-        if item.vectorization() == 1 || input.item() == *item {
+        if item.vectorization() == 1 || input.item().value_ty() == item {
             write!(f, "{} = ", out.fmt_left())?;
             Self::format_scalar(f, *input, *item.elem())?;
             f.write_str(";\n")

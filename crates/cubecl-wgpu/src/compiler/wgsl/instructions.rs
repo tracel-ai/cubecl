@@ -78,11 +78,11 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
-    Deref {
+    Load {
         input: Variable,
         out: Variable,
     },
-    DerefAssign {
+    Store {
         input: Variable,
         out: Variable,
     },
@@ -459,17 +459,9 @@ pub enum Instruction {
         index: Variable,
         value: Variable,
     },
-    Copy {
-        input: Variable,
-        in_index: Variable,
-        out: Variable,
-        out_index: Variable,
-    },
     CopyBulk {
-        input: Variable,
-        in_index: Variable,
-        out: Variable,
-        out_index: Variable,
+        source: Variable,
+        target: Variable,
         len: u32,
     },
     Comment {
@@ -595,29 +587,15 @@ impl Display for Instruction {
             Instruction::IndexMut { list, index, out } => {
                 writeln!(f, "let {out} = &{list}[{index}];")
             }
-            Instruction::Copy {
-                input,
-                in_index,
-                out,
-                out_index,
-            } => {
-                let rhs = format!("{input}[{in_index}]");
-                let lhs = format!("{out}[{out_index}]");
-                writeln!(f, "{lhs} = {rhs};")
-            }
             Instruction::CopyBulk {
-                input,
-                in_index,
-                out,
-                out_index,
+                source,
+                target,
                 len,
             } => {
-                for i in 0..*len {
-                    let rhs = format!("{input}[{in_index} + {i}]");
-                    let lhs = format!("{out}[{out_index} + {i}]");
-                    writeln!(f, "{lhs} = {rhs};")?;
+                if *len > 1 {
+                    panic!("WGSL doesn't support bulk copy yet");
                 }
-                Ok(())
+                writeln!(f, "*{target} = {source};")
             }
             Instruction::Modulo { lhs, rhs, out } => {
                 let lhs = lhs.fmt_cast_to(out.item());
@@ -801,11 +779,11 @@ impl Display for Instruction {
             Instruction::Reference { input, out } => {
                 writeln!(f, "let {out} = &{input};")
             }
-            Instruction::Deref { input, out } => {
+            Instruction::Load { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = *{input};")
             }
-            Instruction::DerefAssign { input, out } => {
+            Instruction::Store { input, out } => {
                 writeln!(f, "*{out} = {input};")
             }
             Instruction::Metadata { info_offset, out } => {

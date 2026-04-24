@@ -198,7 +198,13 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
             .iter()
             .chain(kernel.tensor_maps.iter())
             .sorted_by_key(|it| it.id)
-            .map(|it| it.visibility)
+            .map(|it| {
+                if it.ty.is_atomic() {
+                    Visibility::ReadWrite
+                } else {
+                    it.visibility
+                }
+            })
             .collect();
         self.addr_type = self.compile_type(addr_type.into());
         self.compilation_options = compilation_options.clone();
@@ -422,27 +428,10 @@ impl<D: Dialect> CppCompiler<D> {
                     out: self.compile_variable(out.unwrap()),
                 }));
             }
-            gpu::Operation::DerefAssign(variable) => {
-                instructions.push(Instruction::Assign(UnaryInstruction {
-                    input: self.compile_variable(variable),
-                    out: self.compile_variable(out.unwrap()),
-                }));
-            }
-            gpu::Operation::Reference(variable) => {
-                instructions.push(Instruction::Reference(UnaryInstruction {
-                    input: self.compile_variable(variable),
-                    out: self.compile_variable(out.unwrap()),
-                }))
-            }
-            gpu::Operation::Deref(variable) => {
-                instructions.push(Instruction::Deref(UnaryInstruction {
-                    input: self.compile_variable(variable),
-                    out: self.compile_variable(out.unwrap()),
-                }))
-            }
             gpu::Operation::Arithmetic(op) => {
                 self.compile_arithmetic(op, out, instruction.modes, instructions)
             }
+            gpu::Operation::Memory(op) => self.compile_memory(op, out, instructions),
             gpu::Operation::Comparison(op) => self.compile_comparison(op, out, instructions),
             gpu::Operation::Bitwise(op) => self.compile_bitwise(op, out, instructions),
             gpu::Operation::Operator(op) => self.compile_operator(op, out, instructions),
@@ -1575,6 +1564,41 @@ impl<D: Dialect> CppCompiler<D> {
         };
     }
 
+    fn compile_memory(
+        &mut self,
+        value: gpu::Memory,
+        out: Option<gpu::Variable>,
+        instructions: &mut Vec<Instruction<D>>,
+    ) {
+        match value {
+            gpu::Memory::Reference(variable) => {
+                instructions.push(Instruction::Reference(UnaryInstruction {
+                    input: self.compile_variable(variable),
+                    out: self.compile_variable(out.unwrap()),
+                }))
+            }
+            gpu::Memory::Index(op) => {
+                instructions.push(Instruction::Index(self.compile_index(op, out.unwrap())))
+            }
+            gpu::Memory::IndexMut(op) => {
+                instructions.push(Instruction::IndexMut(self.compile_index(op, out.unwrap())))
+            }
+            gpu::Memory::Load(variable) => instructions.push(Instruction::Load(UnaryInstruction {
+                input: self.compile_variable(variable),
+                out: self.compile_variable(out.unwrap()),
+            })),
+            gpu::Memory::Store(op) => instructions.push(Instruction::Store(UnaryInstruction {
+                input: self.compile_variable(op.rhs),
+                out: self.compile_variable(op.lhs),
+            })),
+            gpu::Memory::CopyMemory(op) => instructions.push(Instruction::Copy {
+                source: self.compile_variable(op.source),
+                dest: self.compile_variable(op.target),
+                len: op.len as u32,
+            }),
+        };
+    }
+
     fn compile_operator(
         &mut self,
         value: gpu::Operator,
@@ -1583,12 +1607,6 @@ impl<D: Dialect> CppCompiler<D> {
     ) {
         let out = out.unwrap();
         match value {
-            gpu::Operator::Index(op) | gpu::Operator::UncheckedIndex(op) => {
-                instructions.push(Instruction::Index(self.compile_index(op, out)));
-            }
-            gpu::Operator::IndexMut(op) | gpu::Operator::UncheckedIndexMut(op) => {
-                instructions.push(Instruction::IndexMut(self.compile_index(op, out)));
-            }
             gpu::Operator::And(op) => {
                 instructions.push(Instruction::And(self.compile_binary(op, out)))
             }
@@ -1612,19 +1630,6 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::ExtractComponent(op) => {
                 instructions.push(Instruction::ExtractComponent(self.compile_binary(op, out)))
             }
-            gpu::Operator::CopyMemory(op) => instructions.push(Instruction::Copy {
-                input: self.compile_variable(op.input),
-                in_index: self.compile_variable(op.in_index),
-                out: self.compile_variable(out),
-                out_index: self.compile_variable(op.out_index),
-            }),
-            gpu::Operator::CopyMemoryBulk(op) => instructions.push(Instruction::CopyBulk {
-                input: self.compile_variable(op.input),
-                in_index: self.compile_variable(op.in_index),
-                out: self.compile_variable(out),
-                out_index: self.compile_variable(op.out_index),
-                len: op.len as u32,
-            }),
             gpu::Operator::Select(op) => instructions.push(Instruction::Select {
                 cond: self.compile_variable(op.cond),
                 then: self.compile_variable(op.then),

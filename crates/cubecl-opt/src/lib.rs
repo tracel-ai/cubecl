@@ -36,15 +36,14 @@ use std::{
 use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::Writes};
 use cubecl_core::CubeDim;
 use cubecl_ir::{
-    self as core, Allocator, Branch, Id, Operation, Operator, Processor, Scope, Type, Variable,
-    VariableKind,
+    self as core, Allocator, Branch, Id, Operation, Operator, PointerClass, Processor, Scope, Type,
+    Variable, VariableKind,
 };
 use gvn::GvnPass;
 use passes::{
-    CompositeMerge, ConstEval, ConstOperandSimplify, CopyTransform, EliminateConstBranches,
-    EliminateDeadBlocks, EliminateDeadPhi, EliminateUnusedVariables, EmptyBranchToSelect,
-    InlineAssignments, MergeBlocks, MergeSameExpressions, OptimizerPass, ReduceStrength,
-    RemoveIndexScalar,
+    CompositeMerge, ConstEval, ConstOperandSimplify, EliminateConstBranches, EliminateDeadBlocks,
+    EliminateDeadPhi, EliminateUnusedVariables, EmptyBranchToSelect, InlineAssignments,
+    MergeBlocks, MergeSameExpressions, OptimizerPass, ReduceStrength, RemoveIndexScalar,
 };
 use petgraph::{Direction, prelude::StableDiGraph, visit::EdgeRef};
 
@@ -291,6 +290,11 @@ pub fn local_variable_id(variable: &core::Variable) -> Option<Id> {
 }
 
 pub fn global_buffer_id(variable: &core::Variable) -> Option<Id> {
+    if let Type::Pointer(_, class) = variable.ty
+        && let PointerClass::Global(id) = class
+    {
+        return Some(id);
+    }
     match variable.kind {
         VariableKind::GlobalInputArray(id)
         | VariableKind::GlobalOutputArray(id)
@@ -392,7 +396,7 @@ impl Function {
         for node in self.node_ids() {
             let ops = self[node].ops.clone();
             for op in ops.borrow().values() {
-                if let Operation::Operator(Operator::IndexMut(_)) = &op.operation
+                if let Operation::Operator(Operator::InsertComponent(_)) = &op.operation
                     && let VariableKind::LocalMut { id } = &op.out().kind
                 {
                     self.variables.remove(id);
@@ -493,8 +497,8 @@ impl Function {
         GvnPass.apply_post_ssa(self, state, gvn_count.clone());
         log::debug!("Applying {}", ReduceStrength.name());
         ReduceStrength.apply_post_ssa(self, state, gvn_count.clone());
-        log::debug!("Applying {}", CopyTransform.name());
-        CopyTransform.apply_post_ssa(self, state, gvn_count.clone());
+        // log::debug!("Applying {}", CopyTransform.name());
+        // CopyTransform.apply_post_ssa(self, state, gvn_count.clone());
 
         if gvn_count.get() > 0 {
             self.apply_post_ssa_passes(state);

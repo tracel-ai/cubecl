@@ -4,8 +4,8 @@ use std::{
 };
 
 use cubecl_ir::{
-    self as ir, Arithmetic, Comparison, ComparisonOpCode, Metadata, OpCode, Operation,
-    OperationReflect, Operator, Variable, VariableKind,
+    self as ir, Arithmetic, Comparison, ComparisonOpCode, Memory, Metadata, OpCode, Operation,
+    OperationReflect, Variable, VariableKind,
 };
 
 use crate::PhiInstruction;
@@ -114,30 +114,13 @@ impl ValueTable {
                 let num = self.lookup_or_add_var(variable)?;
                 Ok((Expression::Copy(num, item), out))
             }
-            Operation::Reference(variable) => {
-                let item = inst.ty();
-                let out = value_of_var(&inst.out());
-                let num = self.lookup_or_add_var(variable)?;
-                Ok((Expression::Reference(num, item), out))
-            }
-            Operation::Deref(variable) => {
-                let item = inst.ty();
-                let out = value_of_var(&inst.out());
-                let num = self.lookup_or_add_var(variable)?;
-                Ok((Expression::Deref(num, item), out))
-            }
-            Operation::DerefAssign(variable) => {
-                let item = inst.ty();
-                let out = value_of_var(&inst.out());
-                let num = self.lookup_or_add_var(variable)?;
-                Ok((Expression::DerefAssign(num, item), out))
-            }
+            Operation::Memory(memory) => self.create_expr_memory(memory, inst.out),
             Operation::Arithmetic(arithmetic) => {
                 self.create_expr_arithmetic(arithmetic, inst.out())
             }
             Operation::Comparison(cmp) => self.create_expr_cmp(cmp, inst.out()),
             Operation::Bitwise(bitwise) => self.create_expr_simple_op(bitwise, inst.out()),
-            Operation::Operator(operator) => self.create_expr_operator(operator, inst.out()),
+            Operation::Operator(operator) => self.create_expr_simple_op(operator, inst.out()),
             Operation::Metadata(metadata) => self.create_expr_meta(metadata, inst.out()),
             Operation::Plane(_) | Operation::Atomic(_) => Err(value_of_var(&inst.out())),
             Operation::Branch(_)
@@ -203,20 +186,15 @@ impl ValueTable {
         }
     }
 
-    fn create_expr_operator(
+    fn create_expr_memory(
         &mut self,
-        operator: &Operator,
-        out: Variable,
+        memory: &Memory,
+        out: Option<Variable>,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
-        let (expr, val) = match operator {
-            Operator::Index(_) | Operator::UncheckedIndex(_) => Err(value_of_var(&out))?,
-
-            Operator::IndexMut(_)
-            | Operator::UncheckedIndexMut(_)
-            | Operator::CopyMemoryBulk(_)
-            | Operator::CopyMemory(_) => Err(None)?,
-
-            op => self.create_expr_simple_op(op, out)?,
+        let (expr, val) = match memory {
+            Memory::Load(_) => Err(value_of_var(&out.unwrap()))?,
+            Memory::Store(..) | Memory::CopyMemory(..) => Err(None)?,
+            op => self.create_expr_simple_op(op, out.unwrap())?,
         };
         Ok((expr, val))
     }

@@ -631,6 +631,13 @@ impl Type {
     pub fn constant(&self, value: ConstantValue) -> Variable {
         Variable::constant(value, *self)
     }
+
+    pub fn value_type(&self) -> Type {
+        match self {
+            Type::Pointer(inner, _) => **inner,
+            other => *other,
+        }
+    }
 }
 
 impl Display for Type {

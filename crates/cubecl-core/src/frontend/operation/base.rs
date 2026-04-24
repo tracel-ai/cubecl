@@ -1,6 +1,6 @@
 use cubecl_ir::{
-    Arithmetic, BinaryOperator, Comparison, ElemType, IndexOperator, Instruction, Operation, Scope,
-    Type, UnaryOperator, Variable, VectorSize,
+    Arithmetic, BinaryOperator, Comparison, ElemType, IndexOperator, Instruction, Memory,
+    Operation, Scope, Type, UnaryOperator, Variable, VectorSize,
 };
 use cubecl_macros::cube;
 
@@ -9,7 +9,7 @@ use crate::{self as cubecl, prelude::*};
 pub(crate) fn read_variable(scope: &Scope, var: Variable) -> Variable {
     if let Type::Pointer(inner, _) = var.ty {
         let out = scope.create_local(*inner);
-        scope.register(Instruction::new(Operation::Deref(var), out));
+        scope.register(Instruction::new(Memory::Load(var), out));
         out
     } else {
         var
@@ -39,17 +39,13 @@ where
     output
 }
 
-pub(crate) fn index_expand<F, Op>(
+pub(crate) fn index_expand(
     scope: &Scope,
     list: Variable,
     index: Variable,
     vector_size: Option<VectorSize>,
-    func: F,
-) -> Variable
-where
-    F: Fn(IndexOperator) -> Op,
-    Op: Into<Operation>,
-{
+    checked: bool,
+) -> Variable {
     let item_lhs = list.ty;
 
     let ty = if let Some(vector_size) = vector_size {
@@ -61,11 +57,12 @@ where
     let class = list.pointer_class();
     let output = scope.create_local(Type::pointer(ty, class));
 
-    let op = func(IndexOperator {
+    let op = Memory::Index(IndexOperator {
         list,
         index,
         vector_size: vector_size.unwrap_or(0),
         unroll_factor: 1,
+        checked,
     });
 
     scope.register(Instruction::new(op, output));
@@ -128,12 +125,14 @@ pub(crate) fn assign_op_expand<T: CubeType, Op>(
         panic!("Can't have a mutable operation on a const variable. Try to use `RuntimeCell`.");
     }
 
+    let tmp = scope.create_local(lhs.ty.value_type());
     let op = func(BinaryOperator {
         lhs: lhs_value,
         rhs,
     });
 
-    scope.register(Instruction::new(op, lhs));
+    scope.register(Instruction::new(op, tmp));
+    assign::expand_element(scope, tmp, lhs);
 }
 
 pub fn unary_expand<F, Op>(scope: &Scope, input: Variable, func: F) -> Variable

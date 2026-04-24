@@ -499,22 +499,7 @@ impl WgslCompiler {
                 input: self.compile_variable(variable),
                 out: self.compile_variable(out.unwrap()),
             }),
-            cube::Operation::Reference(variable) => {
-                instructions.push(wgsl::Instruction::Reference {
-                    input: self.compile_variable(variable),
-                    out: self.compile_variable(out.unwrap()),
-                })
-            }
-            cube::Operation::Deref(variable) => instructions.push(wgsl::Instruction::Deref {
-                input: self.compile_variable(variable),
-                out: self.compile_variable(out.unwrap()),
-            }),
-            cube::Operation::DerefAssign(variable) => {
-                instructions.push(wgsl::Instruction::DerefAssign {
-                    input: self.compile_variable(variable),
-                    out: self.compile_variable(out.unwrap()),
-                })
-            }
+            cube::Operation::Memory(memory) => self.compile_memory(memory, out, instructions),
             cube::Operation::Arithmetic(op) => {
                 self.compile_arithmetic(op, out, instructions, scope)
             }
@@ -770,6 +755,45 @@ impl WgslCompiler {
                     out: self.compile_variable(out),
                 },
             },
+        }
+    }
+
+    fn compile_memory(
+        &mut self,
+        value: cube::Memory,
+        out: Option<cube::Variable>,
+        instructions: &mut Vec<wgsl::Instruction>,
+    ) {
+        match value {
+            cube::Memory::Index(op) => {
+                instructions.push(wgsl::Instruction::Index {
+                    lhs: self.compile_variable(op.list),
+                    rhs: self.compile_variable(op.index),
+                    out: self.compile_variable(out.unwrap()),
+                });
+            }
+            cube::Memory::IndexMut(op) => instructions.push(wgsl::Instruction::IndexMut {
+                list: self.compile_variable(op.list),
+                index: self.compile_variable(op.index),
+                out: self.compile_variable(out.unwrap()),
+            }),
+            cube::Memory::Reference(variable) => instructions.push(wgsl::Instruction::Reference {
+                input: self.compile_variable(variable),
+                out: self.compile_variable(out.unwrap()),
+            }),
+            cube::Memory::Load(variable) => instructions.push(wgsl::Instruction::Load {
+                input: self.compile_variable(variable),
+                out: self.compile_variable(out.unwrap()),
+            }),
+            cube::Memory::Store(op) => instructions.push(wgsl::Instruction::Store {
+                input: self.compile_variable(op.rhs),
+                out: self.compile_variable(op.lhs),
+            }),
+            cube::Memory::CopyMemory(op) => instructions.push(wgsl::Instruction::CopyBulk {
+                source: self.compile_variable(op.source),
+                target: self.compile_variable(op.target),
+                len: op.len as u32,
+            }),
         }
     }
 
@@ -1128,19 +1152,7 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
-            cube::Operator::Index(op) | cube::Operator::UncheckedIndex(op) => {
-                instructions.push(wgsl::Instruction::Index {
-                    lhs: self.compile_variable(op.list),
-                    rhs: self.compile_variable(op.index),
-                    out: self.compile_variable(out),
-                });
-            }
-            cube::Operator::IndexMut(op) | cube::Operator::UncheckedIndexMut(op) => instructions
-                .push(wgsl::Instruction::IndexMut {
-                    list: self.compile_variable(op.list),
-                    index: self.compile_variable(op.index),
-                    out: self.compile_variable(out),
-                }),
+
             cube::Operator::And(op) => instructions.push(wgsl::Instruction::And {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
@@ -1176,19 +1188,6 @@ impl WgslCompiler {
                 vector: self.compile_variable(out),
                 index: self.compile_variable(op.lhs),
                 value: self.compile_variable(op.rhs),
-            }),
-            cube::Operator::CopyMemory(op) => instructions.push(wgsl::Instruction::Copy {
-                input: self.compile_variable(op.input),
-                in_index: self.compile_variable(op.in_index),
-                out: self.compile_variable(out),
-                out_index: self.compile_variable(op.out_index),
-            }),
-            cube::Operator::CopyMemoryBulk(op) => instructions.push(wgsl::Instruction::CopyBulk {
-                input: self.compile_variable(op.input),
-                in_index: self.compile_variable(op.in_index),
-                out: self.compile_variable(out),
-                out_index: self.compile_variable(op.out_index),
-                len: op.len as u32,
             }),
             cube::Operator::Select(op) => instructions.push(wgsl::Instruction::Select {
                 cond: self.compile_variable(op.cond),

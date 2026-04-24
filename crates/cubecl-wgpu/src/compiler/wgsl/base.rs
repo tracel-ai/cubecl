@@ -204,7 +204,7 @@ impl Variable {
         }
 
         // Noop cast.
-        if self.item() == item {
+        if self.item() == item || self.is_ptr() {
             return format!("{self}");
         }
 

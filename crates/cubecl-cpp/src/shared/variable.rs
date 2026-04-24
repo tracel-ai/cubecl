@@ -565,8 +565,9 @@ impl<D: Dialect> FmtLeft for Variable<D> {
     fn fmt_left(&self) -> String {
         match self {
             Self::LocalConst { item, .. } => match item {
-                Item::Atomic(_) => {
-                    format!("{item}* {self}")
+                // Pointer constness is determined by the type, not variable kind
+                Item::Pointer(..) => {
+                    format!("{item} {self}")
                 }
                 _ => {
                     format!("const {item} {self}")

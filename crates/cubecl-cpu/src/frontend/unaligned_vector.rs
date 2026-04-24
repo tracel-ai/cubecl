@@ -1,4 +1,4 @@
-use cubecl_core::ir::{IndexOperator, Instruction, Operator};
+use cubecl_core::ir::{IndexOperator, Instruction, Memory};
 use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_core::{intrinsic, ir::Variable};
 
@@ -84,11 +84,12 @@ fn unaligned_vector_read<T: CubeType<ExpandType: Into<Variable>>, E: Scalar, N: 
         let vector_size = N::__expand_value(scope);
         let out = scope.create_local(Type::pointer(list.ty, list.pointer_class()));
         scope.register(Instruction::new(
-            Operator::UncheckedIndex(IndexOperator {
+            Memory::Index(IndexOperator {
                 list: list,
                 index: index.expand,
                 vector_size: 0,
                 unroll_factor: 1,
+                checked: false,
             }),
             out,
         ));
@@ -112,11 +113,12 @@ fn unaligned_vector_write<T: CubeType<ExpandType: Into<Variable>>, E: Scalar, N:
         let vector_size = N::__expand_value(scope);
         let out = scope.create_local(Type::pointer(list.ty, list.pointer_class()));
         scope.register(Instruction::new(
-            Operator::UncheckedIndexMut(IndexOperator {
+            Memory::IndexMut(IndexOperator {
                 list,
                 index: index.expand,
                 vector_size: 0,
                 unroll_factor: 1,
+                checked: false,
             }),
             out,
         ));

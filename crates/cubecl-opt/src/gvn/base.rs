@@ -90,9 +90,6 @@ pub enum Value {
 pub enum Expression {
     Instruction(Instruction),
     Copy(u32, Type),
-    Reference(u32, Type),
-    Deref(u32, Type),
-    DerefAssign(u32, Type),
     Value(Value),
     Volatile(Value),
     Phi(Vec<(Value, NodeIndex)>),
@@ -102,10 +99,7 @@ impl Expression {
     pub fn depends_on(&self) -> SmallVec<[u32; 4]> {
         match self {
             Expression::Instruction(instruction) => instruction.args.clone(),
-            Expression::Copy(val, _)
-            | Expression::Reference(val, _)
-            | Expression::Deref(val, _)
-            | Expression::DerefAssign(val, _) => SmallVec::from_slice(&[*val]),
+            Expression::Copy(val, _) => SmallVec::from_slice(&[*val]),
             Expression::Phi(_) | Expression::Volatile(_) | Expression::Value(_) => SmallVec::new(),
         }
     }
@@ -119,9 +113,6 @@ impl Expression {
         match self {
             Expression::Instruction(instruction) => instruction.item,
             Expression::Copy(_, item) => *item,
-            Expression::Reference(_, item) => *item,
-            Expression::Deref(_, item) => *item,
-            Expression::DerefAssign(_, item) => *item,
             Expression::Value(value) => value.item(),
             Expression::Volatile(value) => value.item(),
             Expression::Phi(entries) => entries[0].0.item(),

@@ -2,8 +2,9 @@ use core::fmt::Display;
 
 use super::{Branch, CoopMma, NonSemantic, Plane, Synchronization, Type, Variable};
 use crate::{
-    Arithmetic, AtomicOp, Bitwise, Id, InstructionModes, Metadata, OperationArgs, OperationReflect,
-    Operator, Scope, TensorIndexingOps, TmaOps, VectorSize, comparison::Comparison, marker::Marker,
+    Arithmetic, AtomicOp, Bitwise, Id, InstructionModes, Memory, Metadata, OperationArgs,
+    OperationReflect, Operator, Scope, TensorIndexingOps, TmaOps, VectorSize,
+    comparison::Comparison, marker::Marker,
 };
 use crate::{BarrierOps, SourceLoc, TypeHash};
 use alloc::{
@@ -29,15 +30,8 @@ pub enum Operation {
     #[operation(pure)]
     #[from(ignore)]
     Copy(Variable),
-    #[operation(pure)]
-    #[from(ignore)]
-    Reference(Variable),
-    #[operation(pure)]
-    #[from(ignore)]
-    Deref(Variable),
-    #[operation(pure)]
-    #[from(ignore)]
-    DerefAssign(Variable),
+    #[operation(nested)]
+    Memory(Memory),
     #[operation(nested)]
     Arithmetic(Arithmetic),
     #[operation(nested)]
@@ -113,23 +107,6 @@ impl Instruction {
 impl Display for Instruction {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match &self.operation {
-            Operation::Operator(Operator::CopyMemory(op)) => write!(
-                f,
-                "copy_mem({}[{}], {}[{}])",
-                self.out(),
-                op.out_index,
-                op.input,
-                op.in_index
-            ),
-            Operation::Operator(Operator::CopyMemoryBulk(op)) => write!(
-                f,
-                "copy_mem_bulk({}[{}], {}[{}], {})",
-                self.out(),
-                op.out_index,
-                op.input,
-                op.in_index,
-                op.len
-            ),
             Operation::Operator(Operator::Cast(op)) => {
                 write!(
                     f,
@@ -140,9 +117,6 @@ impl Display for Instruction {
                     op.input.ty,
                     self.out().ty,
                 )
-            }
-            Operation::DerefAssign(_) => {
-                write!(f, "*{} = {}", self.out(), self.operation)
             }
             Operation::Operator(Operator::Reinterpret(op)) => {
                 write!(f, "{} = bitcast<{}>({})", self.out(), self.ty(), op.input)
@@ -172,6 +146,7 @@ impl Display for Instruction {
 impl Display for Operation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Operation::Memory(memory) => write!(f, "{memory}"),
             Operation::Arithmetic(arithmetic) => write!(f, "{arithmetic}"),
             Operation::Comparison(comparison) => write!(f, "{comparison}"),
             Operation::Bitwise(bitwise) => write!(f, "{bitwise}"),
@@ -183,9 +158,6 @@ impl Display for Operation {
             Operation::Plane(plane) => write!(f, "{plane}"),
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
             Operation::Copy(variable) => write!(f, "{variable}"),
-            Operation::Reference(variable) => write!(f, "&{variable}"),
-            Operation::Deref(variable) => write!(f, "*{variable}"),
-            Operation::DerefAssign(variable) => write!(f, "{variable}"),
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
             Operation::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Operation::Tma(tma_ops) => write!(f, "{tma_ops}"),
@@ -216,6 +188,7 @@ pub struct IndexOperator {
     pub index: Variable,
     pub vector_size: VectorSize, // 0 == same as list.
     pub unroll_factor: usize,    // Adjustment factor for bounds check
+    pub checked: bool,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

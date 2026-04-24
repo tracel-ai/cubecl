@@ -237,6 +237,18 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
             }
         })
     }
+
+    pub fn as_ptr(&self) -> &E {
+        intrinsic!(|scope| {
+            as_ptr::expand(scope, &self.origin, self.offset, self.vector_size, true)
+        })
+    }
+
+    pub fn as_ptr_mut(&mut self) -> &mut E {
+        intrinsic!(|scope| {
+            as_ptr_mut::expand(scope, &mut self.origin, self.offset, self.vector_size, true)
+        })
+    }
 }
 
 #[cube]
@@ -547,6 +559,54 @@ impl<E: CubePrimitive> ListMutExpand<E> for SliceExpand<E, ReadWrite> {
     }
 }
 
+mod as_ptr {
+    use super::*;
+
+    pub fn expand<'a, E: CubePrimitive>(
+        scope: &Scope,
+        origin: &'a SliceOriginExpand<E>,
+        offset: <usize as CubeType>::ExpandType,
+        vector_size: Option<VectorSize>,
+        checked: bool,
+    ) -> &'a <E as cubecl::prelude::CubeType>::ExpandType {
+        match origin {
+            SliceOriginExpand::Tensor(expand) => {
+                expand_index_native(scope, expand, offset, vector_size, checked)
+            }
+            SliceOriginExpand::Array(expand) => {
+                expand_index_native(scope, expand, offset, vector_size, checked)
+            }
+            SliceOriginExpand::SharedMemory(expand) => {
+                expand_index_native(scope, expand, offset, vector_size, checked)
+            }
+        }
+    }
+}
+
+mod as_ptr_mut {
+    use super::*;
+
+    pub fn expand<'a, E: CubePrimitive>(
+        scope: &Scope,
+        origin: &'a mut SliceOriginExpand<E>,
+        offset: <usize as CubeType>::ExpandType,
+        vector_size: Option<VectorSize>,
+        checked: bool,
+    ) -> &'a mut <E as cubecl::prelude::CubeType>::ExpandType {
+        match origin {
+            SliceOriginExpand::Tensor(expand) => {
+                expand_index_mut_native(scope, expand, offset, vector_size, checked)
+            }
+            SliceOriginExpand::Array(expand) => {
+                expand_index_mut_native(scope, expand, offset, vector_size, checked)
+            }
+            SliceOriginExpand::SharedMemory(expand) => {
+                expand_index_mut_native(scope, expand, offset, vector_size, checked)
+            }
+        }
+    }
+}
+
 mod read_offset {
     use super::*;
 
@@ -560,7 +620,7 @@ mod read_offset {
     ) -> &'a <E as cubecl::prelude::CubeType>::ExpandType {
         let index = offset.__expand_add_method(scope, index);
 
-        match &origin {
+        match origin {
             SliceOriginExpand::Tensor(expand) => {
                 expand_index_native(scope, expand, index, vector_size, checked)
             }

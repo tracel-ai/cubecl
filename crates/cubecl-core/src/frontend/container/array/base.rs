@@ -196,7 +196,7 @@ mod metadata {
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
-    use cubecl_ir::{IndexOperator, Operator};
+    use cubecl_ir::{IndexOperator, Memory};
 
     use crate::ir::Instruction;
 
@@ -216,11 +216,12 @@ mod indexation {
                 let class = self.expand.pointer_class();
                 let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndex(IndexOperator {
+                    Memory::Index(IndexOperator {
                         list: self.expand,
                         index: i.expand,
                         vector_size: 0,
                         unroll_factor: 1,
+                        checked: false,
                     }),
                     out,
                 ));
@@ -240,11 +241,12 @@ mod indexation {
                 let class = self.expand.pointer_class();
                 let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
-                    Operator::UncheckedIndexMut(IndexOperator {
+                    Memory::IndexMut(IndexOperator {
                         list: self.expand,
                         index: i.expand,
                         vector_size: 0,
                         unroll_factor: 1,
+                        checked: false,
                     }),
                     out,
                 ));

@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use alloc::{format, vec::Vec};
 
-use crate::{IndexOperator, TypeHash};
+use crate::TypeHash;
 
 use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Variable};
 
@@ -11,14 +11,6 @@ use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Vari
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = OperatorOpCode)]
 pub enum Operator {
-    #[operation(pure)]
-    Index(IndexOperator),
-    CopyMemory(CopyMemoryOperator),
-    CopyMemoryBulk(CopyMemoryBulkOperator),
-    #[operation(pure)]
-    UncheckedIndex(IndexOperator),
-    IndexMut(IndexOperator),
-    UncheckedIndexMut(IndexOperator),
     #[operation(pure)]
     InitVector(VectorInitOperator),
     #[operation(pure)]
@@ -43,22 +35,6 @@ pub enum Operator {
 impl Display for Operator {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Operator::Index(op) => write!(f, "&{}[{}]", op.list, op.index),
-            Operator::CopyMemory(op) => {
-                write!(f, "[{}] = {}[{}]", op.out_index, op.input, op.in_index)
-            }
-            Operator::CopyMemoryBulk(op) => write!(
-                f,
-                "memcpy([{}], {}[{}], {})",
-                op.input, op.in_index, op.out_index, op.len
-            ),
-            Operator::UncheckedIndex(op) => {
-                write!(f, "unchecked &{}[{}]", op.list, op.index)
-            }
-            Operator::IndexMut(op) => write!(f, "&mut {}[{}]", op.list, op.index),
-            Operator::UncheckedIndexMut(op) => {
-                write!(f, "unchecked &mut {}[{}]", op.list, op.index)
-            }
             Operator::And(op) => write!(f, "{} && {}", op.lhs, op.rhs),
             Operator::Or(op) => write!(f, "{} || {}", op.lhs, op.rhs),
             Operator::Not(op) => write!(f, "!{}", op.input),
@@ -109,21 +85,9 @@ pub struct VectorInitOperator {
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct CopyMemoryOperator {
-    pub out_index: Variable,
-    pub input: Variable,
-    pub in_index: Variable,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
-#[allow(missing_docs)]
-pub struct CopyMemoryBulkOperator {
-    pub out_index: Variable,
-    pub input: Variable,
-    pub in_index: Variable,
+    pub source: Variable,
+    pub target: Variable,
     pub len: usize,
-    pub offset_input: Variable,
-    pub offset_out: Variable,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

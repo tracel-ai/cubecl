@@ -1,13 +1,12 @@
 use cubecl_core::ir::{
-    self as core, BinaryOperator, Comparison, Instruction, InstructionModes, Operation, Operator,
-    Type, UnaryOperator,
+    self as core, BinaryOperator, Comparison, Instruction, InstructionModes, Memory, Operation,
+    Operator, UnaryOperator,
 };
-use rspirv::spirv::{Capability, Decoration, MemoryAccess, Word};
+use rspirv::spirv::{Decoration, MemoryAccess, Word};
 
 use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
-    variable::Variable,
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
@@ -16,7 +15,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         if !matches!(inst.operation, Operation::NonSemantic(_)) {
             self.set_source_loc(&inst.source_loc);
         }
-        let uniform = matches!(inst.out, Some(out) if self.uniformity.is_var_uniform(out));
+        let uniform = inst
+            .out
+            .is_some_and(|out| self.uniformity.is_var_uniform(out));
         match inst.operation {
             Operation::Copy(var) => {
                 let input = self.compile_variable(var);
@@ -30,21 +31,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.mark_uniformity(out_id, uniform);
                 self.write(&out, out_id);
             }
-            Operation::Reference(_) => todo!(),
-            Operation::Deref(var) => {
-                let input = self.compile_variable(var);
-                let out = self.compile_variable(inst.out());
-
-                let id = self.load_aligned(&input, &out);
-
-                self.write(&out, id);
-            }
-            Operation::DerefAssign(var) => {
-                let input = self.compile_variable(var);
-                let out = self.compile_variable(inst.out());
-
-                self.store_aligned(&out, &input);
-            }
+            Operation::Memory(mem) => self.compile_memory(mem, inst.out),
             Operation::Arithmetic(operator) => {
                 self.compile_arithmetic(operator, inst.out, inst.modes, uniform)
             }
@@ -203,21 +190,73 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn compile_operator(&mut self, op: Operator, out: Option<core::Variable>, uniform: bool) {
-        let out = out.unwrap();
-        match op {
-            Operator::Index(op)
-            | Operator::UncheckedIndex(op)
-            | Operator::IndexMut(op)
-            | Operator::UncheckedIndexMut(op) => {
+    pub fn compile_memory(&mut self, mem: Memory, out: Option<core::Variable>) {
+        match mem {
+            Memory::Index(op) | Memory::IndexMut(op) => {
                 let list = self.compile_variable(op.list);
                 let index = self.compile_variable(op.index);
-                let out = self.compile_variable(out);
+                let out = self.compile_variable(out.unwrap());
 
                 let ptr = self.index(&list, &index, &out);
 
                 self.write(&out, ptr);
             }
+            Memory::Reference(_) => todo!(),
+            Memory::Load(variable) => {
+                let ptr = self.compile_variable(variable);
+                let out = self.compile_variable(out.unwrap());
+
+                let id = self.load_aligned(&ptr, &out);
+                self.write(&out, id);
+            }
+            Memory::Store(op) => {
+                let ptr = self.compile_variable(op.lhs);
+                let value = self.compile_variable(op.rhs);
+
+                self.store_aligned(&ptr, &value);
+            }
+            Memory::CopyMemory(op) => {
+                let source = self.compile_variable(op.source);
+                let target = self.compile_variable(op.target);
+
+                let out_ty = target.item();
+                let align = source.item().size().max(target.item().size());
+
+                let source = self.read(&source);
+                let target = self.read(&target);
+
+                if op.len == 1 {
+                    self.copy_memory(
+                        target,
+                        source,
+                        Some(MemoryAccess::ALIGNED),
+                        [align.into()],
+                        None,
+                        [],
+                    )
+                    .unwrap();
+                } else {
+                    let size = op.len as u32 * out_ty.size();
+                    let size_id = self.const_u32(size);
+
+                    self.copy_memory_sized(
+                        target,
+                        source,
+                        size_id,
+                        Some(MemoryAccess::ALIGNED),
+                        [size.into()],
+                        None,
+                        [],
+                    )
+                    .unwrap();
+                }
+            }
+        }
+    }
+
+    pub fn compile_operator(&mut self, op: Operator, out: Option<core::Variable>, uniform: bool) {
+        let out = out.unwrap();
+        match op {
             Operator::Cast(op) => {
                 let input = self.compile_variable(op.input);
                 let out = self.compile_variable(out);
@@ -316,64 +355,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
 
                 self.write(&output, write_id);
-            }
-            Operator::CopyMemory(op) => {
-                let ptr_ty_in =
-                    self.compile_type(Type::pointer(op.input.ty, op.input.pointer_class()));
-                let ptr_ty_out = self.compile_type(Type::pointer(out.ty, out.pointer_class()));
-
-                let input = self.compile_variable(op.input);
-                let in_index = self.compile_variable(op.in_index);
-                let out = self.compile_variable(out);
-                let out_index = self.compile_variable(op.out_index);
-
-                let align = input.item().size().max(out.item().size());
-
-                let tmp = Variable::Raw(self.id(), ptr_ty_in);
-                let source = self.index(&input, &in_index, &tmp);
-                let tmp = Variable::Raw(self.id(), ptr_ty_out);
-                let target = self.index(&out, &out_index, &tmp);
-
-                self.copy_memory(
-                    target,
-                    source,
-                    Some(MemoryAccess::ALIGNED),
-                    [align.into()],
-                    None,
-                    [],
-                )
-                .unwrap();
-            }
-            Operator::CopyMemoryBulk(op) => {
-                self.capabilities.insert(Capability::Addresses);
-
-                let ptr_ty_in =
-                    self.compile_type(Type::pointer(op.input.ty, op.input.pointer_class()));
-                let ptr_ty_out = self.compile_type(Type::pointer(out.ty, out.pointer_class()));
-
-                let input = self.compile_variable(op.input);
-                let in_index = self.compile_variable(op.in_index);
-                let out = self.compile_variable(out);
-                let out_index = self.compile_variable(op.out_index);
-                let len = op.len;
-                let size = len as u32 * out.item().size();
-
-                let tmp = Variable::Raw(self.id(), ptr_ty_in);
-                let source = self.index(&input, &in_index, &tmp);
-                let tmp = Variable::Raw(self.id(), ptr_ty_out);
-                let target = self.index(&out, &out_index, &tmp);
-                let size_id = self.const_u32(size);
-
-                self.copy_memory_sized(
-                    target,
-                    source,
-                    size_id,
-                    Some(MemoryAccess::ALIGNED),
-                    [size.into()],
-                    None,
-                    [],
-                )
-                .unwrap();
             }
             Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out, uniform),
         }

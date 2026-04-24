@@ -77,9 +77,9 @@ pub enum Instruction<D: Dialect> {
     Index(IndexInstruction<D>),
     IndexMut(IndexInstruction<D>),
     Assign(UnaryInstruction<D>),
-    DerefAssign(UnaryInstruction<D>),
+    Store(UnaryInstruction<D>),
     Reference(UnaryInstruction<D>),
-    Deref(UnaryInstruction<D>),
+    Load(UnaryInstruction<D>),
     SpecialCast(UnaryInstruction<D>),
     RangeLoop {
         i: Variable<D>,
@@ -251,16 +251,8 @@ pub enum Instruction<D: Dialect> {
     Dot(BinaryInstruction<D>),
     VectorSum(UnaryInstruction<D>),
     Copy {
-        input: Variable<D>,
-        in_index: Variable<D>,
-        out: Variable<D>,
-        out_index: Variable<D>,
-    },
-    CopyBulk {
-        input: Variable<D>,
-        in_index: Variable<D>,
-        out: Variable<D>,
-        out_index: Variable<D>,
+        source: Variable<D>,
+        dest: Variable<D>,
         len: u32,
     },
     Printf {
@@ -359,28 +351,14 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::IndexMut(it) => {
                 IndexMut::format(f, &it.list, &it.index, &it.out, it.vector_size)
             }
-            Instruction::Copy {
-                input,
-                in_index,
-                out,
-                out_index,
-            } => {
-                writeln!(f, "{out}[{out_index}] = {input}[{in_index}];")
-            }
-            Instruction::CopyBulk {
-                input,
-                in_index,
-                out,
-                out_index,
-                len,
-            } => {
+            Instruction::Copy { source, dest, len } => {
                 for i in 0..*len {
-                    writeln!(f, "{out}[{out_index} + {i}] = {input}[{in_index} + {i}];")?;
+                    writeln!(f, "*({dest} + {i}) = {source} + {i};")?;
                 }
                 Ok(())
             }
             Instruction::Assign(it) => Assign::format(f, &it.input, &it.out),
-            Instruction::DerefAssign(it) => {
+            Instruction::Store(it) => {
                 writeln!(f, "*{} = {};", it.out, it.input)
             }
             Instruction::Reference(it) => {
@@ -388,7 +366,7 @@ impl<D: Dialect> Display for Instruction<D> {
                 let out = it.out;
                 writeln!(f, "{out_ty} {out} = {};", it.input.fmt_ptr())
             }
-            Instruction::Deref(it) => {
+            Instruction::Load(it) => {
                 let out = it.out.fmt_left();
                 writeln!(f, "{out} = *{};", it.input)
             }

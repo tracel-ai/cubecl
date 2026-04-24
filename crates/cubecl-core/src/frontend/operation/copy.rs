@@ -12,44 +12,33 @@ use crate::prelude::*;
 /// # Example
 ///
 /// ```ignore
-/// copy_bulk(input.as_slice(), idx, shared, shared_idx, 16);
+/// copy_bulk(input.as_slice(), shared, 16);
 /// ```
-pub fn copy_bulk<C: CubePrimitive>(
-    _from: &Slice<C>,
-    _from_index: usize,
-    _to: &mut SliceMut<C>,
-    _to_index: usize,
-    _length: usize,
-) {
-}
+pub fn copy_bulk<C: CubePrimitive>(_from: &Slice<C>, _to: &mut SliceMut<C>, _length: usize) {}
 
 pub mod copy_bulk {
-    use crate::ir::{CopyMemoryBulkOperator, Instruction, Operator, Scope};
+    use cubecl_ir::{CopyMemoryOperator, Memory};
+
+    use crate::ir::{Instruction, Scope};
 
     use super::*;
 
     /// The expand function for [`copy_bulk()`]
     pub fn expand<C: CubePrimitive>(
         scope: &Scope,
-        from: SliceExpand<C, ReadOnly>,
-        from_index: NativeExpand<usize>,
-        to: SliceExpand<C, ReadWrite>,
-        to_index: NativeExpand<usize>,
+        from: &SliceExpand<C, ReadOnly>,
+        to: &mut SliceExpand<C, ReadWrite>,
         length: usize,
     ) {
-        let (input, input_offset) = from.__to_raw_parts();
-        let (to, to_offset) = to.__to_raw_parts();
+        let source = from.__expand_as_ptr_method(scope).expand;
+        let target = to.__expand_as_ptr_mut_method(scope).expand;
 
-        scope.register(Instruction::new(
-            Operator::CopyMemoryBulk(CopyMemoryBulkOperator {
-                out_index: to_index.expand,
-                input,
-                in_index: from_index.expand,
+        scope.register(Instruction::no_out(Memory::CopyMemory(
+            CopyMemoryOperator {
+                source,
+                target,
                 len: length,
-                offset_input: input_offset,
-                offset_out: to_offset,
-            }),
-            to,
-        ));
+            },
+        )));
     }
 }

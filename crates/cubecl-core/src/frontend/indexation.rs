@@ -1,7 +1,7 @@
 use core::ops::{Index, IndexMut};
 
 use cubecl_ir::{
-    IndexOperator, Instruction, Operator, Scope, Type, Variable, VariableKind, VectorSize,
+    IndexOperator, Instruction, Memory, Scope, Type, Variable, VariableKind, VectorSize,
 };
 
 use super::{CubeType, NativeExpand, index_expand};
@@ -84,11 +84,7 @@ where
         _ => index,
     };
     let array: Variable = array.clone().into();
-    let var = if checked {
-        index_expand(scope, array, index, vector_size, Operator::Index)
-    } else {
-        index_expand(scope, array, index, vector_size, Operator::UncheckedIndex)
-    };
+    let var = index_expand(scope, array, index, vector_size, checked);
 
     scope.create_kernel_ref(var.into())
 }
@@ -118,27 +114,16 @@ where
     let out = scope.create_local(Type::pointer(ty, class));
     let vector_size = vector_size.unwrap_or(0);
 
-    if checked {
-        scope.register(Instruction::new(
-            Operator::IndexMut(IndexOperator {
-                list,
-                index,
-                vector_size,
-                unroll_factor: 1,
-            }),
-            out,
-        ));
-    } else {
-        scope.register(Instruction::new(
-            Operator::UncheckedIndexMut(IndexOperator {
-                list,
-                index,
-                vector_size,
-                unroll_factor: 1,
-            }),
-            out,
-        ));
-    }
+    scope.register(Instruction::new(
+        Memory::IndexMut(IndexOperator {
+            list,
+            index,
+            vector_size,
+            unroll_factor: 1,
+            checked,
+        }),
+        out,
+    ));
 
     scope.create_kernel_ref(out.into())
 }

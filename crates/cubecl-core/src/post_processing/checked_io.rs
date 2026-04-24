@@ -1,5 +1,5 @@
 use alloc::{string::String, vec::Vec};
-use cubecl_ir::{Operation, Operator, Processor, Scope};
+use cubecl_ir::{Memory, Operation, Processor, Scope};
 use cubecl_runtime::server::ExecutionMode;
 
 use crate::io::*;
@@ -29,9 +29,9 @@ impl CheckedIoProcessor {
         core::mem::swap(&mut processing.instructions, &mut instructions);
 
         for instruction in instructions {
-            if let Operation::Operator(operator) = &instruction.operation {
-                match operator {
-                    Operator::Index(op) => {
+            if let Operation::Memory(memory) = &instruction.operation {
+                match memory {
+                    Memory::Index(op) if op.checked => {
                         let has_length = op.list.has_length();
 
                         if has_length {
@@ -60,7 +60,7 @@ impl CheckedIoProcessor {
                             continue;
                         }
                     }
-                    Operator::IndexMut(op) => {
+                    Memory::IndexMut(op) if op.checked => {
                         let out = instruction.out();
 
                         if out.has_length() {
@@ -104,9 +104,9 @@ impl CheckedIoProcessor {
         core::mem::swap(&mut processing.instructions, &mut instructions);
 
         for instruction in instructions {
-            if let Operation::Operator(operator) = &instruction.operation {
-                match operator {
-                    Operator::Index(op) => {
+            if let Operation::Memory(memory) = &instruction.operation {
+                match memory {
+                    Memory::Index(op) if op.checked => {
                         let has_length = op.list.has_length();
 
                         if has_length {
@@ -136,7 +136,7 @@ impl CheckedIoProcessor {
                             continue;
                         }
                     }
-                    Operator::IndexMut(op) => {
+                    Memory::IndexMut(op) if op.checked => {
                         let out = instruction.out();
 
                         if out.has_length() {
