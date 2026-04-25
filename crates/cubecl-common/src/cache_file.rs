@@ -23,9 +23,8 @@ pub struct CacheFile {
     /// cascaded into "Task failed: Any { .. }" warnings across burn's
     /// fusion runtime when a downstream IR operation tried to use a
     /// tensor whose producing kernel never got registered because the
-    /// cache file couldn't be opened. See
-    /// https://github.com/chrislin95/cubecl branch fix/fastdivmod-zero-guard
-    /// commit log for the motivating bug report.
+    /// cache file couldn't be opened. See the `fix/fastdivmod-zero-guard`
+    /// branch commit log for the motivating bug report.
     valid: bool,
 }
 
@@ -42,7 +41,7 @@ impl CacheFile {
     /// opened (common failure mode in sandboxed / ad-hoc-signed bundle
     /// apps where `$HOME/.cache/<name>/<version>/` write access is
     /// silently denied), we log an error and return an "invalid"
-    /// CacheFile. Subsequent `lock()` / `write()` calls become no-ops,
+    /// `CacheFile`. Subsequent `lock()` / `write()` calls become no-ops,
     /// so callers silently skip the disk cache and recompute
     /// every time. Slow, but never panics.
     pub fn new<P: Into<PathBuf>>(path: P, lock_max_duration: Duration) -> Self {
@@ -54,18 +53,18 @@ impl CacheFile {
         // We check before trying to create the file, since it might erase the content of an
         // existing file.
         if !fs::exists(&path).unwrap_or(false) {
-            if let Some(parent) = path.parent() {
-                if let Err(err) = fs::create_dir_all(parent) {
-                    log::error!(
-                        "cubecl cache: create_dir_all({:?}) failed: kind={:?} raw_os_error={:?} err={}; \
-                         cache will be disabled for this entry",
-                        parent,
-                        err.kind(),
-                        err.raw_os_error(),
-                        err
-                    );
-                    valid = false;
-                }
+            if let Some(parent) = path.parent()
+                && let Err(err) = fs::create_dir_all(parent)
+            {
+                log::error!(
+                    "cubecl cache: create_dir_all({:?}) failed: kind={:?} raw_os_error={:?} err={}; \
+                     cache will be disabled for this entry",
+                    parent,
+                    err.kind(),
+                    err.raw_os_error(),
+                    err
+                );
+                valid = false;
             }
 
             // Even if `create_dir_all` appeared to succeed, the actual
@@ -74,20 +73,18 @@ impl CacheFile {
             // than panicking — the original `.unwrap()` here is what
             // cascaded into 7-9 burn-fusion panics when the cache
             // subdir was unwritable.
-            if valid {
-                if let Err(err) = File::create(&path) {
-                    let parent_exists = path.parent().map(|p| p.exists()).unwrap_or(false);
-                    log::error!(
-                        "cubecl cache: File::create({:?}) failed: kind={:?} raw_os_error={:?} \
-                         parent_exists={} err={}; cache will be disabled for this entry",
-                        path,
-                        err.kind(),
-                        err.raw_os_error(),
-                        parent_exists,
-                        err
-                    );
-                    valid = false;
-                }
+            if valid && let Err(err) = File::create(&path) {
+                let parent_exists = path.parent().map(|p| p.exists()).unwrap_or(false);
+                log::error!(
+                    "cubecl cache: File::create({:?}) failed: kind={:?} raw_os_error={:?} \
+                     parent_exists={} err={}; cache will be disabled for this entry",
+                    path,
+                    err.kind(),
+                    err.raw_os_error(),
+                    parent_exists,
+                    err
+                );
+                valid = false;
             }
         }
 
@@ -283,8 +280,8 @@ impl FileLock {
     /// Returns `true` on success, `false` if we gave up waiting —
     /// either because a peer held the lock longer than
     /// `lock_max_duration`, or because `create_new` kept failing
-    /// with a non-AlreadyExists error (NotFound when the parent
-    /// directory is missing, PermissionDenied under sandboxing,
+    /// with a non-`AlreadyExists` error (`NotFound` when the parent
+    /// directory is missing, `PermissionDenied` under sandboxing,
     /// etc.). The previous implementation spun forever in that
     /// second case; now we log and bail.
     pub fn lock(&mut self) -> bool {
