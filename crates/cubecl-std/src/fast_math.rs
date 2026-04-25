@@ -74,6 +74,12 @@ impl<I: FastDivmodInt> FastDivmod<I> {
 }
 
 fn find_params_u32(divisor: u32) -> (u32, u32) {
+    // Empty (zero-sized) tensor dims propagate here as divisor == 0. The
+    // GPU never iterates on those, so any params will do — return zeros
+    // instead of dividing by zero.
+    if divisor == 0 {
+        return (0, 0);
+    }
     let div_64 = divisor as u64;
     let shift = divisor.next_power_of_two().trailing_zeros();
     let multiplier = ((1u64 << 32) * ((1u64 << shift) - div_64)) / div_64 + 1;
@@ -81,6 +87,9 @@ fn find_params_u32(divisor: u32) -> (u32, u32) {
 }
 
 fn find_params_u64(divisor: u64) -> (u32, u64) {
+    if divisor == 0 {
+        return (0, 0);
+    }
     let div_128 = divisor as u128;
     let shift = divisor.next_power_of_two().trailing_zeros();
     let multiplier = ((1u128 << 64) * ((1u128 << shift) - div_128)) / div_128 + 1;
