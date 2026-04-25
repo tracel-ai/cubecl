@@ -25,8 +25,8 @@ impl CacheConfig {
         match self {
             Self::Local => std::env::current_dir().unwrap(),
             Self::Target => {
-                let dir_original = std::env::current_dir()
-                    .unwrap_or_else(|_| std::path::PathBuf::from("/"));
+                let dir_original =
+                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
                 let mut dir = dir_original.clone();
 
                 // Search for Cargo.toml in parent directories to locate project root.

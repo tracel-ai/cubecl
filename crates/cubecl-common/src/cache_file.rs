@@ -312,8 +312,7 @@ impl FileLock {
                         if let Ok(true) = self.maybe_cleanup_frozen_lock() {
                             log::debug!("Removed frozen lock file");
                         } else {
-                            if waiting_total.elapsed().unwrap_or_default()
-                                > self.lock_max_duration
+                            if waiting_total.elapsed().unwrap_or_default() > self.lock_max_duration
                             {
                                 log::error!(
                                     "cubecl cache: FileLock::lock({:?}) timed out after {:?} \
@@ -328,11 +327,8 @@ impl FileLock {
                     }
                     _ => {
                         if !other_error_logged {
-                            let parent_exists = self
-                                .path_lock
-                                .parent()
-                                .map(|p| p.exists())
-                                .unwrap_or(false);
+                            let parent_exists =
+                                self.path_lock.parent().map(|p| p.exists()).unwrap_or(false);
                             log::error!(
                                 "cubecl cache: FileLock::lock({:?}) unexpected I/O error: \
                                  kind={:?} raw_os_error={:?} parent_exists={} err={}",
