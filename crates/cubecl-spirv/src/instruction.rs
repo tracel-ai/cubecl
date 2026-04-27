@@ -201,7 +201,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 self.write(&out, ptr);
             }
-            Memory::Reference(_) => todo!(),
+            // In SPIR-V, variables are already pointers. So for reference we just treat the out
+            // var as an alias for the input.
+            Memory::Reference(variable) => {
+                let var = self.compile_variable(variable).id(self);
+                let out_id = out.unwrap().index().unwrap();
+                self.state.lookups.bindings.insert(out_id, var);
+            }
             Memory::Load(variable) => {
                 let ptr = self.compile_variable(variable);
                 let out = self.compile_variable(out.unwrap());

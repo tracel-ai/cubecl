@@ -23,8 +23,8 @@ default = [
     "cubecl-core/default",
 ]
 
-std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 mlir-dump = []
+std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 tracing = [
     "cubecl-runtime/tracing",
@@ -56,13 +56,12 @@ bytemuck = { workspace = true }
 derive-new = { workspace = true }
 half = { workspace = true }
 log = { workspace = true }
+paste = { workspace = true }
 serde = { workspace = true }
 sysinfo = { workspace = true }
 tracel-llvm = { workspace = true }
-paste = { workspace = true }
 
 [dev-dependencies]
-test-log = { workspace = true, features = ["trace"] }
 cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.1", features = [
     "export_tests",
 ] }
@@ -71,8 +70,7 @@ cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.1", features = [
 ] }
 paste = { workspace = true }
 pretty_assertions = { workspace = true }
+test-log = { workspace = true, features = ["trace"] }
 
 [build-dependencies]
-tracel-llvm-bundler = { version = "20.1.4-6" }
-### For development
-# tracel-llvm-bundler = { path = "../../../tracel-llvm/crates/tracel-llvm-bundler" }
+tracel-llvm-bundler = { workspace = true }

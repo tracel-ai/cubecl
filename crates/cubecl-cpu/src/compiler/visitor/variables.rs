@@ -131,7 +131,7 @@ impl<'a> Visitor<'a> {
                     &[vectorization_factor as u64],
                     lhs.storage_type().to_type(self.context),
                 );
-                lhs_value = self.append_operation_with_result(vector::splat(
+                lhs_value = self.append_operation_with_result(vector::broadcast(
                     self.context,
                     vector_type,
                     lhs_value,
@@ -143,7 +143,7 @@ impl<'a> Visitor<'a> {
                     &[vectorization_factor as u64],
                     rhs.storage_type().to_type(self.context),
                 );
-                rhs_value = self.append_operation_with_result(vector::splat(
+                rhs_value = self.append_operation_with_result(vector::broadcast(
                     self.context,
                     vector_type,
                     rhs_value,
@@ -199,18 +199,6 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    pub fn is_memory(&self, variable: Variable) -> bool {
-        matches!(
-            variable.kind,
-            VariableKind::GlobalBuffer(_)
-                | VariableKind::LocalMut { .. }
-                | VariableKind::LocalArray { .. }
-                | VariableKind::ConstantArray { .. }
-                | VariableKind::SharedArray { .. }
-                | VariableKind::Shared { .. }
-        )
-    }
-
     pub fn get_variable(&self, variable: Variable) -> Value<'a, 'a> {
         match variable.kind {
             VariableKind::LocalConst { .. } => *self
@@ -264,7 +252,7 @@ impl<'a> Visitor<'a> {
                 match variable.ty.is_vectorized() {
                     true => {
                         let vector = Type::vector(&[variable.vector_size() as u64], const_type);
-                        self.append_operation_with_result(vector::splat(
+                        self.append_operation_with_result(vector::broadcast(
                             self.context,
                             vector,
                             value,
@@ -331,7 +319,7 @@ impl<'a> Visitor<'a> {
                             &[variable.vector_size() as u64],
                             variable.storage_type().to_type(self.context),
                         );
-                        self.append_operation_with_result(vector::splat(
+                        self.append_operation_with_result(vector::broadcast(
                             self.context,
                             vector,
                             value,
@@ -358,7 +346,7 @@ impl<'a> Visitor<'a> {
                             &[variable.vector_size() as u64],
                             variable.storage_type().to_type(self.context),
                         );
-                        self.append_operation_with_result(vector::splat(
+                        self.append_operation_with_result(vector::broadcast(
                             self.context,
                             vector,
                             value,

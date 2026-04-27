@@ -36,8 +36,8 @@ use std::{
 use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::Writes};
 use cubecl_core::CubeDim;
 use cubecl_ir::{
-    self as core, Allocator, Branch, Id, Operation, Operator, PointerClass, Processor, Scope, Type,
-    Variable, VariableKind,
+    self as core, Allocator, Branch, Id, Memory, Operation, Operator, PointerClass, Processor,
+    Scope, Type, Variable, VariableKind,
 };
 use gvn::GvnPass;
 use passes::{
@@ -402,6 +402,21 @@ impl Function {
         }
     }
 
+    /// Remove referenced variables from SSA transformation because they must stay a pointer and
+    /// can't be replaced with a value
+    fn exempt_referenced_locals(&mut self) {
+        for node in self.node_ids() {
+            let ops = self[node].ops.clone();
+            for op in ops.borrow().values() {
+                if let Operation::Memory(Memory::Reference(var)) = &op.operation
+                    && let VariableKind::LocalMut { id } = &var.kind
+                {
+                    self.variables.remove(id);
+                }
+            }
+        }
+    }
+
     /// Mutable reference to the current basic block
     pub(crate) fn current_block_mut(&mut self) -> &mut BasicBlock {
         let current_block = self.current_block.unwrap();
@@ -447,6 +462,7 @@ impl Function {
 
     fn transform_ssa_and_merge_composites(&mut self, state: &GlobalState) {
         self.exempt_index_assign_locals();
+        self.exempt_referenced_locals();
         self.ssa_transform(state);
 
         let mut done = false;
@@ -455,6 +471,7 @@ impl Function {
             CompositeMerge.apply_post_ssa(self, state, changes.clone());
             if changes.get() > 0 {
                 self.exempt_index_assign_locals();
+                self.exempt_referenced_locals();
                 self.ssa_transform(state);
             } else {
                 done = true;

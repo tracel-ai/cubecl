@@ -326,7 +326,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     fn scope(&mut self, var: &crate::variable::Variable) -> Word {
-        let value = self.scope_of(var) as u32;
+        let value = var.scope() as u32;
         self.const_u32(value)
     }
 
@@ -345,17 +345,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.const_u32(value.bits())
     }
 
-    fn scope_of(&mut self, var: &crate::variable::Variable) -> Scope {
-        let id = var.id(self);
-        *self
-            .state
-            .atomic_scopes
-            .get(&id)
-            .expect("Atomic should have a scope registered")
-    }
-
     fn semantics_of(&mut self, var: &crate::variable::Variable) -> MemorySemantics {
-        match self.scope_of(var) {
+        match var.scope() {
             Scope::Device => MemorySemantics::UNIFORM_MEMORY,
             Scope::Workgroup => MemorySemantics::WORKGROUP_MEMORY,
             Scope::Subgroup => MemorySemantics::SUBGROUP_MEMORY,

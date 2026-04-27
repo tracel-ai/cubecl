@@ -23,6 +23,9 @@ use super::Visitor;
 impl<'a> Visitor<'a> {
     pub fn visit_operation(&mut self, operation: &Operation) {
         match operation {
+            Operation::Memory(memory) => {
+                self.visit_memory(memory, None);
+            }
             Operation::NonSemantic(NonSemantic::Print {
                 format_string,
                 args,
@@ -121,6 +124,9 @@ impl<'a> Visitor<'a> {
 
     pub fn visit_operation_with_out(&mut self, operation: &Operation, out: Variable) {
         match operation {
+            Operation::Memory(memory) => {
+                self.visit_memory(memory, Some(out));
+            }
             Operation::Atomic(_atomic) => {
                 todo!("Atomic operation are not yet supported");
             }

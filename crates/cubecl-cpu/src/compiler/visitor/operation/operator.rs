@@ -1,15 +1,66 @@
-use cubecl_core::ir::{BinaryOperator, IndexOperator, Operator, StorageType, VariableKind};
+use cubecl_core::ir::{BinaryOperator, IndexOperator, Memory, Operator, StorageType};
 use tracel_llvm::mlir_rs::{
     dialect::{
         arith, index, memref,
         ods::{self, llvm, vector},
     },
-    ir::{Operation, r#type::IntegerType},
+    ir::{
+        Operation,
+        r#type::{IntegerType, MemRefType, StridedLayoutAttr},
+    },
 };
 
 use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
+    pub fn visit_memory(&mut self, memory: &Memory, out: Option<Variable>) {
+        match memory {
+            Memory::Reference(variable) => {
+                let memref = self.get_memory(*variable);
+                self.insert_variable(out.unwrap(), memref);
+            }
+            Memory::Index(index) | Memory::IndexMut(index) => {
+                let value = self.visit_index(index);
+                self.insert_variable(out.unwrap(), value);
+            }
+            Memory::Load(variable) => {
+                let out = out.unwrap();
+                let memref = self.get_variable(*variable);
+                let zero = self.create_constant_index(0);
+                let operation = if out.ty.is_vectorized() {
+                    let vector_type = Type::vector(
+                        &[out.vector_size() as u64],
+                        out.storage_type().to_type(self.context),
+                    );
+                    vector::load(self.context, vector_type, memref, &[zero], self.location).into()
+                } else {
+                    memref::load(memref, &[zero], self.location)
+                };
+                let value = self.append_operation_with_result(operation);
+                self.insert_variable(out, value);
+            }
+            Memory::Store(op) => {
+                let memref = self.get_variable(op.lhs);
+                let value = self.get_variable(op.rhs);
+                let zero = self.create_constant_index(0);
+                let operation = if op.rhs.ty.is_vectorized() {
+                    vector::store(self.context, value, memref, &[zero], self.location).into()
+                } else {
+                    memref::store(value, memref, &[zero], self.location)
+                };
+                self.block.append_operation(operation);
+            }
+            // memref.copy is missing from the dialect bindings, so use load/store for now
+            Memory::CopyMemory(op) => {
+                assert_eq!(op.len, 1, "Bulk copy not supported on CPU");
+                let source = self.get_variable(op.source);
+                let target = self.get_variable(op.target);
+                self.block
+                    .append_operation(memref::copy(source, target, self.location));
+            }
+        }
+    }
+
     pub fn visit_operator_with_out(&mut self, operator: &Operator, out: Variable) {
         match operator {
             Operator::And(and) => {
@@ -20,56 +71,6 @@ impl<'a> Visitor<'a> {
             }
             Operator::Cast(cast) => {
                 self.visit_cast(cast.input, out);
-            }
-            Operator::CopyMemory(copy_memory) => {
-                let memref = self.get_memory(copy_memory.input);
-                let in_index = self.get_index(
-                    copy_memory.in_index,
-                    copy_memory.input.ty,
-                    copy_memory.input.ty.is_vectorized(),
-                );
-                let out_memref = self.get_memory(out);
-                let out_index =
-                    self.get_index(copy_memory.out_index, out.ty, out.ty.is_vectorized());
-                if out.ty.is_vectorized() {
-                    let result = out.ty.to_type(self.context);
-                    let value = self.append_operation_with_result(vector::load(
-                        self.context,
-                        result,
-                        memref,
-                        &[in_index],
-                        self.location,
-                    ));
-                    self.block.append_operation(vector::store(
-                        self.context,
-                        value,
-                        out_memref,
-                        &[out_index],
-                        self.location,
-                    ));
-                } else {
-                    let value = self.append_operation_with_result(memref::load(
-                        memref,
-                        &[in_index],
-                        self.location,
-                    ));
-                    self.block.append_operation(memref::store(
-                        value,
-                        out_memref,
-                        &[out_index],
-                        self.location,
-                    ));
-                }
-            }
-            Operator::CopyMemoryBulk(_copy_memory_bulk) => {
-                todo!("copy_memory_bulk is not implemented {}", operator)
-            }
-            Operator::Index(index) | Operator::UncheckedIndex(index) => {
-                let load_ssa = self.visit_index(index, out);
-                self.insert_variable(out, load_ssa);
-            }
-            Operator::IndexMut(index_assign) | Operator::UncheckedIndexMut(index_assign) => {
-                self.visit_index_assign(index_assign, out)
             }
             Operator::InitVector(init_vector) => {
                 let inputs: Vec<_> = init_vector
@@ -86,6 +87,11 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, init_vector);
             }
+            Operator::ExtractComponent(op) => {
+                let value = self.visit_extract(op, out);
+                self.insert_variable(out, value);
+            }
+            Operator::InsertComponent(op) => self.visit_insert(op, out),
             Operator::Not(not) => {
                 let lhs = self.get_variable(not.input);
                 let mask = self.create_int_constant_from_item(not.input.ty, -1);
@@ -119,7 +125,7 @@ impl<'a> Visitor<'a> {
                         &[out.vector_size() as u64],
                         select.then.storage_type().to_type(self.context),
                     );
-                    then = self.append_operation_with_result(vector::splat(
+                    then = self.append_operation_with_result(vector::broadcast(
                         self.context,
                         vector,
                         then,
@@ -131,7 +137,7 @@ impl<'a> Visitor<'a> {
                         &[out.vector_size() as u64],
                         select.or_else.storage_type().to_type(self.context),
                     );
-                    or_else = self.append_operation_with_result(vector::splat(
+                    or_else = self.append_operation_with_result(vector::broadcast(
                         self.context,
                         vector,
                         or_else,
@@ -162,66 +168,46 @@ impl<'a> Visitor<'a> {
         self.append_operation_with_result(vector_extract)
     }
 
-    fn visit_index(&mut self, index: &IndexOperator, out: Variable) -> Value<'a, 'a> {
+    fn visit_index(&mut self, index: &IndexOperator) -> Value<'a, 'a> {
         assert!(index.vector_size == 0);
-        let index_value = self.get_index(index.index, out.ty, index.list.ty.is_vectorized());
-        if out.ty.is_vectorized() {
-            let vector_type = Type::vector(
-                &[out.vector_size() as u64],
-                index.list.storage_type().to_type(self.context),
-            );
-            let memref = self.get_memory(index.list);
-            self.append_operation_with_result(vector::load(
-                self.context,
-                vector_type,
-                memref,
-                &[index_value],
-                self.location,
-            ))
-        } else {
-            let memref = self.get_memory(index.list);
-            self.append_operation_with_result(memref::load(memref, &[index_value], self.location))
-        }
+        let ty = index.list.ty;
+        let index_value = self.get_index(index.index, ty, ty.is_vectorized());
+        let memref = self.get_memory(index.list);
+
+        let value_ty = index.list.storage_type().to_type(self.context);
+        let layout = StridedLayoutAttr::new(self.context, i64::MIN, &[1]);
+        let memref_ty = MemRefType::new(
+            value_ty,
+            &[ty.vector_size() as i64],
+            Some(layout.into()),
+            None,
+        );
+
+        let view = memref::subview(
+            self.context,
+            memref,
+            &[index_value],
+            &[],
+            &[],
+            &[i64::MIN],
+            &[ty.vector_size() as i64],
+            &[1],
+            memref_ty,
+            self.location,
+        );
+        self.append_operation_with_result(view)
     }
 
-    fn visit_insert(&mut self, op: &BinaryOperator, out: Variable) -> Value<'a, 'a> {
+    fn visit_insert(&mut self, op: &BinaryOperator, out: Variable) {
         let mut index = self.get_variable(op.lhs);
-        let u32_int = IntegerType::new(self.context, 32).into();
-        if index.r#type() != u32_int {
-            index = self.append_operation_with_result(index::casts(index, u32_int, self.location));
+        let index_ty = Type::index(self.context);
+        if index.r#type() != index_ty {
+            index = self.append_operation_with_result(index::casts(index, index_ty, self.location));
         }
         let memref = self.get_memory(out);
         let to_insert = self.get_variable(op.rhs);
-        let vector_extract = memref::store(to_insert, memref, &[index], self.location);
-        self.append_operation_with_result(vector_extract)
-    }
-
-    fn visit_index_assign(&mut self, index_assign: &IndexOperator, out: Variable) {
-        assert!(index_assign.vector_size == 0);
-        let value = self.get_variable(index_assign.value);
-        let memref = self.get_memory(out);
-        let operation = if index_assign.value.ty.is_vectorized() {
-            let indices = self.get_index(
-                index_assign.index,
-                index_assign.value.ty,
-                out.ty.is_vectorized(),
-            );
-            vector::store(self.context, value, memref, &[indices], self.location)
-        } else {
-            let vector_type = Type::vector(
-                &[out.vector_size() as u64],
-                index_assign.value.storage_type().to_type(self.context),
-            );
-            let indices = self.get_index(index_assign.index, out.ty, out.ty.is_vectorized());
-            let splat = self.append_operation_with_result(vector::splat(
-                self.context,
-                vector_type,
-                value,
-                self.location,
-            ));
-            vector::store(self.context, splat, memref, &[indices], self.location)
-        };
-        self.block.append_operation(operation);
+        let vector_insert = memref::store(to_insert, memref, &[index], self.location);
+        self.block.append_operation(vector_insert);
     }
 
     pub(crate) fn visit_cast(&mut self, to_cast: Variable, out: Variable) {
@@ -231,7 +217,7 @@ impl<'a> Visitor<'a> {
         if !to_cast.ty.is_vectorized() && out.ty.is_vectorized() {
             let r#type = to_cast.storage_type().to_type(self.context);
             let vector_type = Type::vector(&[out.vector_size() as u64], r#type);
-            value = self.append_operation_with_result(vector::splat(
+            value = self.append_operation_with_result(vector::broadcast(
                 self.context,
                 vector_type,
                 value,

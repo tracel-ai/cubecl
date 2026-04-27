@@ -122,7 +122,7 @@ impl<'a> Visitor<'a> {
                     clamp.input.storage_type().to_type(self.context),
                 );
                 if clamp.input.ty.is_vectorized() && !clamp.min_value.ty.is_vectorized() {
-                    min = self.append_operation_with_result(vector::splat(
+                    min = self.append_operation_with_result(vector::broadcast(
                         self.context,
                         vector_type,
                         min,
@@ -131,7 +131,7 @@ impl<'a> Visitor<'a> {
                 }
 
                 if clamp.input.ty.is_vectorized() && !clamp.max_value.ty.is_vectorized() {
-                    max = self.append_operation_with_result(vector::splat(
+                    max = self.append_operation_with_result(vector::broadcast(
                         self.context,
                         vector_type,
                         max,
@@ -388,7 +388,7 @@ impl<'a> Visitor<'a> {
                             self.location,
                         ));
                         let vector_type = normalize.input.ty.to_type(self.context);
-                        let square_root = self.append_operation_with_result(vector::splat(
+                        let square_root = self.append_operation_with_result(vector::broadcast(
                             self.context,
                             vector_type,
                             square_root,

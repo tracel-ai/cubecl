@@ -51,6 +51,15 @@ pub enum Variable {
 
 impl Variable {
     pub fn scope(&self) -> spirv::Scope {
+        if let Item::Pointer(class, _) = self.item() {
+            return match class {
+                StorageClass::StorageBuffer
+                | StorageClass::PhysicalStorageBuffer
+                | StorageClass::Uniform => spirv::Scope::Device,
+                StorageClass::Workgroup => spirv::Scope::Workgroup,
+                _ => spirv::Scope::Invocation,
+            };
+        }
         match self {
             Variable::GlobalBuffer(..) | Variable::GlobalScalar(..) => spirv::Scope::Device,
             Variable::SharedArray(..) | Variable::Shared(..) => spirv::Scope::Workgroup,
