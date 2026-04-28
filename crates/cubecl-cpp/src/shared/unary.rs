@@ -101,6 +101,15 @@ pub trait FunctionFmt<D: Dialect> {
         input: Input,
         elem: Elem<D>,
     ) -> std::fmt::Result {
+        if matches!(elem, Elem::CF32 | Elem::CF64) {
+            return match Self::base_function_name() {
+                "exp" | "log" | "sin" | "cos" | "sqrt" => {
+                    write!(f, "cubecl_{}({input})", Self::base_function_name())
+                }
+                _ => write!(f, "{}({input})", Self::function_name(elem)),
+            };
+        }
+
         if Self::half_support() {
             write!(f, "{}({input})", Self::function_name(elem))
         } else {
@@ -169,6 +178,7 @@ function!(FastSqrt, "__fsqrt_rn", false);
 function!(FastInverseSqrt, "__frsqrt_rn", false);
 function!(Exp, "exp");
 function!(FastExp, "__expf", false);
+function!(Expm1, "expm1", false);
 function!(Ceil, "ceil");
 function!(Trunc, "trunc");
 function!(Floor, "floor");
@@ -177,7 +187,35 @@ function!(FastRecip, "__frcp_rn", false);
 function!(FastTanh, "__tanhf", false);
 
 function!(Erf, "erf", false);
-function!(Abs, "abs", false);
+
+pub struct Abs;
+
+impl<D: Dialect> FunctionFmt<D> for Abs {
+    fn base_function_name() -> &'static str {
+        "abs"
+    }
+
+    fn half_support() -> bool {
+        false
+    }
+}
+
+impl<D: Dialect> Unary<D> for Abs {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _out_elem: Elem<D>,
+    ) -> std::fmt::Result {
+        match input.elem() {
+            Elem::CF32 | Elem::CF64 => write!(f, "cubecl_abs({input})"),
+            elem => Self::format_unary(f, input, elem),
+        }
+    }
+
+    fn can_optimize() -> bool {
+        false
+    }
+}
 
 pub struct Log1p;
 
@@ -203,7 +241,10 @@ impl<D: Dialect> Unary<D> for Tanh {
         input: Input,
         _out_elem: Elem<D>,
     ) -> std::fmt::Result {
-        D::compile_instruction_tanh_scalar(f, input)
+        match input.elem() {
+            Elem::CF32 | Elem::CF64 => write!(f, "cubecl_tanh({input})"),
+            _ => D::compile_instruction_tanh_scalar(f, input),
+        }
     }
 
     fn can_optimize() -> bool {
@@ -411,8 +452,10 @@ impl<D: Dialect> Unary<D> for IsNan {
         input: Input,
         _elem: Elem<D>,
     ) -> std::fmt::Result {
-        // Format unary function name based on *input* elem dtype
         let elem = input.elem();
+        if matches!(elem, Elem::CF32 | Elem::CF64) {
+            unreachable!("IsNan is not part of the complex contract (rejected by validation)");
+        }
         write!(f, "{}({input})", elem_function_name("isnan", elem))
     }
 
@@ -429,8 +472,10 @@ impl<D: Dialect> Unary<D> for IsInf {
         input: Input,
         _elem: Elem<D>,
     ) -> std::fmt::Result {
-        // Format unary function name based on *input* elem dtype
         let elem = input.elem();
+        if matches!(elem, Elem::CF32 | Elem::CF64) {
+            unreachable!("IsInf is not part of the complex contract (rejected by validation)");
+        }
         write!(f, "{}({input})", elem_function_name("isinf", elem))
     }
 

@@ -290,6 +290,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
                 shared::Elem::Bool => f.write_str("bool"),
                 shared::Elem::Barrier(_) => panic!("Barrier object not supported in HIP"),
                 shared::Elem::Atomic(inner) => inner.fmt(f),
+                shared::Elem::CF32 | shared::Elem::CF64 => {
+                    f.write_str("#error Complex not supported in HIP\n")
+                }
                 shared::Elem::_Dialect(_) => Ok(()),
             }
         }

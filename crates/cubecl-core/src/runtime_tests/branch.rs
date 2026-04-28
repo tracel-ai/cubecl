@@ -65,6 +65,14 @@ pub fn kernel_select<F: Float>(output: &mut Array<F>, cond: u32) {
 }
 
 #[cube(launch)]
+pub fn kernel_if_literal_u8(output: &mut Array<u8>, cond: u32) {
+    if UNIT_POS == 0 {
+        let value = if cond == 1 { 1u8 } else { 0u8 };
+        output[0] = value;
+    }
+}
+
+#[cube(launch)]
 pub fn kernel_for_loop_with_break<F: Float>(output: &mut Array<F>) {
     let max_iterations = comptime!(20_i32);
     for i in 0..max_iterations {
@@ -185,6 +193,23 @@ pub fn test_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>,
     }
 }
 
+pub fn test_if_literal_u8<R: Runtime>(client: ComputeClient<R>, cond: bool) {
+    let handle = client.create_from_slice(u8::as_bytes(&[9u8]));
+
+    kernel_if_literal_u8::launch::<R>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        unsafe { ArrayArg::from_raw_parts(handle.clone(), 1) },
+        if cond { 1 } else { 0 },
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    let actual = u8::from_bytes(&actual);
+
+    assert_eq!(actual[0], if cond { 1 } else { 0 });
+}
+
 pub fn test_for_loop_with_break<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let zeros = vec![F::new(0.0); 20];
     let handle = client.create_from_slice(F::as_bytes(&zeros));
@@ -255,6 +280,18 @@ macro_rules! testgen_branch {
             cubecl_core::runtime_tests::branch::test_select::<TestRuntime, FloatType>(
                 client, false,
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_if_literal_u8_true() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::branch::test_if_literal_u8::<TestRuntime>(client, true);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_if_literal_u8_false() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::branch::test_if_literal_u8::<TestRuntime>(client, false);
         }
 
         #[$crate::runtime_tests::test_log::test]

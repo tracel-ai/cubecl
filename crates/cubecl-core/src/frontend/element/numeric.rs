@@ -23,7 +23,7 @@ use super::{LaunchArg, NativeAssign, NativeExpand};
 /// Used in kernels that should work for both.
 pub trait Numeric:
     Copy
-    + Abs
+    + Abs<AbsElem = Self>
     + VectorSum
     + Remainder
     + Scalar

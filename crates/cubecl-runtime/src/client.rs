@@ -840,6 +840,20 @@ impl<R: Runtime> ComputeClient<R> {
             .unwrap()
     }
 
+    /// Execute a closure with mutable access to the underlying compute server.
+    ///
+    /// This is the general-purpose escape hatch for backend-specific operations
+    /// that are not covered by the `ComputeClient` API (e.g., extracting a raw
+    /// CUDA stream for FFI interop).
+    ///
+    /// Returns `None` if the device handle call fails.
+    pub fn with_server<R2: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut R::Server) -> R2 + Send + 'static,
+    ) -> Option<R2> {
+        self.device.submit_blocking(f).ok()
+    }
+
     /// Get all devices of a specific type available to this runtime
     pub fn enumerate_devices(&self, type_id: u16) -> Vec<DeviceId> {
         R::enumerate_devices(type_id, self.info())

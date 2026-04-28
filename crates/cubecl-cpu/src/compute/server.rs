@@ -19,6 +19,7 @@ use cubecl_core::{
     },
     zspace::{Shape, Strides, strides},
 };
+use cubecl_runtime::server::LaunchError;
 use cubecl_runtime::{
     allocator::ContiguousMemoryLayoutPolicy,
     compiler::CubeTask,
@@ -287,7 +288,14 @@ impl ComputeServer for CpuServer {
             .iter()
             .for_each(|b| self.streams_pool.push(b.stream));
         let bindings = self.prepare_bindings(bindings);
-        let task = self.prepare_task(kernel, count, bindings, kind).unwrap();
+        let task = match self.prepare_task(kernel, count, bindings, kind) {
+            Ok(task) => task,
+            Err(error) => {
+                let stream = self.scheduler.stream(&stream_id);
+                stream.error(LaunchError::CompilationError(error).into());
+                return;
+            }
+        };
 
         self.scheduler.register(stream_id, task, &self.streams_pool);
     }

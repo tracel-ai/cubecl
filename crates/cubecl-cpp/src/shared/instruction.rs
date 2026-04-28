@@ -166,6 +166,7 @@ pub enum Instruction<D: Dialect> {
     Log(UnaryInstruction<D>),
     FastLog(UnaryInstruction<D>),
     Log1p(UnaryInstruction<D>),
+    Expm1(UnaryInstruction<D>),
     Cos(UnaryInstruction<D>),
     Sin(UnaryInstruction<D>),
     Tan(UnaryInstruction<D>),
@@ -247,6 +248,9 @@ pub enum Instruction<D: Dialect> {
         out: Variable<D>,
     },
     Neg(UnaryInstruction<D>),
+    Conj(UnaryInstruction<D>),
+    Real(UnaryInstruction<D>),
+    Imag(UnaryInstruction<D>),
     Magnitude(UnaryInstruction<D>),
     FastMagnitude(UnaryInstruction<D>),
     Normalize(UnaryInstruction<D>),
@@ -542,6 +546,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Log(it) => Log::format(f, &it.input, &it.out),
             Instruction::FastLog(it) => FastLog::format(f, &it.input, &it.out),
             Instruction::Log1p(it) => Log1p::format(f, &it.input, &it.out),
+            Instruction::Expm1(it) => Expm1::format(f, &it.input, &it.out),
             Instruction::Cos(it) => Cos::format(f, &it.input, &it.out),
             Instruction::FastCos(it) => FastCos::format(f, &it.input, &it.out),
             Instruction::Sin(it) => Sin::format(f, &it.input, &it.out),
@@ -659,6 +664,25 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Neg(UnaryInstruction { input, out }) => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = -{input};")
+            }
+            Instruction::Conj(UnaryInstruction { input, out }) => {
+                let elem = out.elem();
+                let out_left = out.fmt_left();
+                // cuComplex structs have fields .x (real) and .y (imag).
+                let make_fn = match elem {
+                    Elem::CF32 => "make_cuFloatComplex",
+                    Elem::CF64 => "make_cuDoubleComplex",
+                    _ => unreachable!("Conj lowering requires a complex element type"),
+                };
+                writeln!(f, "{out_left} = {make_fn}({input}.x, -{input}.y);")
+            }
+            Instruction::Real(UnaryInstruction { input, out }) => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {input}.x;")
+            }
+            Instruction::Imag(UnaryInstruction { input, out }) => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {input}.y;")
             }
             Instruction::Normalize(inst) => {
                 Normalize::<D, InverseSqrt>::format(f, &inst.input, &inst.out)

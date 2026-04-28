@@ -169,6 +169,7 @@ impl From<(ConstantValue, Item)> for ConstVal {
             ConstantValue::Float(val) => ConstVal::from_float(val, width, elem.float_encoding()),
             ConstantValue::UInt(val) => ConstVal::from_uint(val, width),
             ConstantValue::Bool(val) => ConstVal::from_bool(val),
+            ConstantValue::Complex(_, _) => unimplemented!("Complex not supported on SPIRV"),
         }
     }
 }

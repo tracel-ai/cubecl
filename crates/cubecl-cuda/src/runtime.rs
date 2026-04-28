@@ -11,10 +11,10 @@ use cubecl_core::{
     MemoryConfiguration, Runtime,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        BarrierLevel, ContiguousElements, DeviceProperties, ElemType, FloatKind,
+        BarrierLevel, ComplexKind, ContiguousElements, DeviceProperties, ElemType, FloatKind,
         HardwareProperties, MatrixLayout, MemoryDeviceProperties, MmaProperties, OpaqueType,
         SemanticType, StorageType, TargetProperties, Type, VectorSize,
-        features::{AtomicUsage, Plane, Tma, TypeUsage},
+        features::{AtomicUsage, ComplexUsage, Plane, Tma, TypeUsage},
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -173,6 +173,14 @@ impl DeviceService for CudaServer {
             TimingMethod::System,
         );
         register_supported_types(&mut device_props);
+        for complex in [ComplexKind::C32, ComplexKind::C64] {
+            let ty = StorageType::Scalar(ElemType::Complex(complex));
+            device_props.register_type_usage(ty, TypeUsage::Conversion | TypeUsage::Buffer);
+            device_props.register_complex_usage(
+                ty,
+                ComplexUsage::Core | ComplexUsage::Compare | ComplexUsage::Math,
+            );
+        }
         device_props.register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
         if arch_version >= 60 {
             device_props.register_atomic_type_usage(

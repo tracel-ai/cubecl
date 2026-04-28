@@ -300,6 +300,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     .unwrap();
             }
             Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out, uniform),
+            Operator::Real(_) | Operator::Imag(_) => {
+                unimplemented!("Real/Imag not supported on SPIRV")
+            }
         }
     }
 
