@@ -18,8 +18,7 @@ impl<T: Numeric, N: Size, IO: Clone> ViewOperationsExpand<Vector<T, N>, Coords1d
         scope: &Scope,
         pos: NativeExpand<usize>,
     ) -> <Vector<T, N> as CubeType>::ExpandType {
-        <Self as ListExpand<Vector<T, N>>>::__expand_read_method(self, scope, pos)
-            .__expand_deref_method(scope)
+        Self::__expand_read_method(self, scope, pos)
     }
 
     fn __expand_read_checked_method(
@@ -47,8 +46,7 @@ impl<T: Numeric, N: Size, IO: Clone> ViewOperationsExpand<Vector<T, N>, Coords1d
         scope: &Scope,
         pos: NativeExpand<usize>,
     ) -> <Vector<T, N> as CubeType>::ExpandType {
-        <Self as ListExpand<Vector<T, N>>>::__expand_read_unchecked_method(self, scope, pos)
-            .__expand_deref_method(scope)
+        self.__expand_read_method(scope, pos)
     }
 
     fn __expand_to_linear_slice_method(
@@ -102,8 +100,7 @@ impl<T: Numeric, N: Size> ViewOperationsMutExpand<Vector<T, N>, Coords1d>
         pos: NativeExpand<usize>,
         value: <Vector<T, N> as CubeType>::ExpandType,
     ) {
-        <Self as ListMutExpand<Vector<T, N>>>::__expand_write_method(self, scope, pos)
-            .__expand_assign_method(scope, value)
+        self.__expand_write_method(scope, pos, value)
     }
 
     fn __expand_write_checked_method(
@@ -115,8 +112,7 @@ impl<T: Numeric, N: Size> ViewOperationsMutExpand<Vector<T, N>, Coords1d>
         let len = self.clone().__expand_buffer_len_method(scope);
         let in_bounds = pos.__expand_lt_method(scope, &len);
         if_expand(scope, in_bounds, |scope| {
-            <Self as ListMutExpand<Vector<T, N>>>::__expand_write_method(self, scope, pos)
-                .__expand_assign_method(scope, value)
+            self.__expand_write_method(scope, pos, value)
         })
     }
 

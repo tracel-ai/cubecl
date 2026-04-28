@@ -95,7 +95,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType<ExpandType: Clone> + Cl
     /// Expand function of [`Self::find_or_default`].
     pub fn __expand_find_or_default<Query: RegistryQuery<K>>(
         _scope: &Scope,
-        state: Registry<K, V::ExpandType>,
+        state: &mut Registry<K, V::ExpandType>,
         key: Query,
     ) -> V::ExpandType
     where
@@ -117,7 +117,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: CubeType<ExpandType: Clone> + Cl
     /// Expand function of [`Self::insert`].
     pub fn __expand_insert<Key: Into<K>>(
         _scope: &Scope,
-        state: Registry<K, V::ExpandType>,
+        state: &mut Registry<K, V::ExpandType>,
         key: Key,
         value: V::ExpandType,
     ) {
@@ -140,7 +140,7 @@ impl<K: PartialOrd + Ord + core::fmt::Debug, V: Clone> Registry<K, V> {
     }
 
     /// Expand method of [`Self::insert`].
-    pub fn __expand_insert_method(self, _scope: &Scope, key: K, value: V) {
+    pub fn __expand_insert_method(&mut self, _scope: &Scope, key: K, value: V) {
         let mut map = self.map.as_ref().borrow_mut();
 
         map.insert(key, value);

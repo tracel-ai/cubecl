@@ -1,4 +1,7 @@
-use core::{marker::PhantomData, ops::Not};
+use core::{
+    marker::PhantomData,
+    ops::{Not, Rem},
+};
 use cubecl_ir::{Bitwise, ConstantValue, ElemType, Instruction, Type, UIntKind, UnaryOperator};
 use cubecl_macros::{cube, intrinsic};
 use num_traits::{NumCast, One, ToPrimitive, Zero};
@@ -271,6 +274,14 @@ impl<P: Scalar + Magnitude, N: Size> Magnitude for Vector<P, N> {}
 impl<P: Scalar + VectorSum, N: Size> VectorSum for Vector<P, N> {}
 impl<P: Scalar + Degrees, N: Size> Degrees for Vector<P, N> {}
 impl<P: Scalar + Radians, N: Size> Radians for Vector<P, N> {}
+
+impl<P: Scalar + Rem<Output = P>, N: Size> Rem for Vector<P, N> {
+    type Output = Self;
+
+    fn rem(self, rhs: Self) -> Self::Output {
+        Vector::new(self.val.rem(rhs.val))
+    }
+}
 
 impl<P: Scalar + Ord, N: Size> Ord for Vector<P, N> {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {

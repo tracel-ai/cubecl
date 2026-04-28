@@ -224,10 +224,9 @@ macro_rules! impl_binary_func_mixed_types {
 macro_rules! impl_core_binop {
     ($trait: ident, $method: ident, $op: expr) => {
         paste::paste! {
-            pub trait [<Cube $trait>]: $trait<Output = Self> + CubePrimitive + Into<Variable> + CubeType<ExpandType: [<$trait Expand>]> + Sized {
+            pub trait [<Cube $trait>]: $trait<Output = Self> + CubePrimitive + IntoRuntime + CubeType<ExpandType: [<$trait Expand>]> + Sized {
                 fn [<__expand_ $method _method>](self, scope: &Scope, rhs: NativeExpand<Self>) -> NativeExpand<Self> {
-                    let this: Variable = self.into();
-                    let this: NativeExpand<Self> = this.into();
+                    let this = self.__expand_runtime_method(scope);
                     this.[<__expand_ $method _method>](scope, rhs)
                 }
 
@@ -244,7 +243,7 @@ macro_rules! impl_core_binop {
                 fn [<__expand_ $method _method>](self, scope: &Scope, rhs: Self) -> Self;
             }
 
-            impl<T: $trait<Output = T> + CubePrimitive + Into<Variable>> [<Cube $trait>] for T {}
+            impl<T: $trait<Output = T> + CubePrimitive + IntoRuntime> [<Cube $trait>] for T {}
             impl<T: $trait<Output = T> + CubePrimitive> [<$trait Expand>] for NativeExpand<T> {
                 fn [<__expand_ $method _method>](self, scope: &Scope, rhs: Self) -> Self {
                     binary_expand(scope, self.into(), rhs.into(), $op).into()

@@ -158,7 +158,7 @@ mod indexation {
         /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
         /// always in bounds
         #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&self, i: usize) -> &E {
+        pub unsafe fn read_unchecked(&self, i: usize) -> &E {
             intrinsic!(|scope| {
                 let ty = self.expand.ty;
                 let class = self.expand.pointer_class();
