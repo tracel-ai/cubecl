@@ -902,10 +902,9 @@ impl<D: Dialect> Remainder<D> {
             out.elem(),
             Elem::I8 | Elem::I16 | Elem::I32 | Elem::U8 | Elem::U16 | Elem::U32 | Elem::U64
         );
-        let out_elem = out.elem();
         let rem_expr = |lhs, rhs, floor: &str| {
             if is_int {
-                format!("{lhs} - {rhs} * ({out_elem}){floor}((float){lhs} / (float){rhs})")
+                format!("{lhs} % {rhs}")
             } else {
                 format!("{lhs} - {rhs} * {floor}({lhs} / {rhs})")
             }

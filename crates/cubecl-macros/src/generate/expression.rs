@@ -819,12 +819,25 @@ fn split_generics(path: &Expression, context: &mut Context) -> (PathArguments, T
 fn map_args(args: &[Expression], context: &mut Context) -> Vec<TokenStream> {
     args.iter()
         .map(|value| {
+            let is_closure = is_closure(value);
             let tokens = value
                 .as_const(context)
                 .unwrap_or_else(|| value.to_tokens(context));
-            quote_spanned![tokens.span()=> #tokens.into()]
+            if is_closure {
+                tokens
+            } else {
+                quote_spanned![tokens.span()=> (#tokens).into()]
+            }
         })
         .collect()
+}
+
+fn is_closure(expr: &Expression) -> bool {
+    match expr {
+        Expression::Reference { inner } | Expression::MutReference { inner } => is_closure(inner),
+        Expression::Closure { .. } => true,
+        _ => false,
+    }
 }
 
 fn init_fields<'a>(

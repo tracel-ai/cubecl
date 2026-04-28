@@ -5,7 +5,7 @@ use num_traits::{NumCast, One, Zero};
 use crate::compute::KernelLauncher;
 use crate::{IntoRuntime, ScalarArgType, compute::KernelBuilder};
 use crate::{
-    frontend::{Abs, Remainder, VectorSum},
+    frontend::{Abs, Modulo, VectorSum},
     unexpanded,
 };
 use crate::{
@@ -22,7 +22,7 @@ pub trait Numeric:
     Copy
     + Abs
     + VectorSum
-    + Remainder
+    + Modulo
     + Scalar
     + NativeAssign
     + Into<NativeExpand<Self>>

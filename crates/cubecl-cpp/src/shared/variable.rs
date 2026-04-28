@@ -616,26 +616,32 @@ impl<D: Dialect> Display for IndexedVariable<D> {
             return write!(f, "{}({value})", item.elem());
         }
 
-        let ref_ = matches!(var, Variable::LocalConst { .. })
-            .then_some("const&")
-            .unwrap_or("&");
+        let item = var.item();
+        let addr_space = D::address_space_for_variable(&self.var);
+        let ty = match var {
+            _ if item.is_ptr() => {
+                format!("{item}")
+            }
+            Variable::LocalConst { item, .. } => format!("{addr_space}{item} const&"),
+            _ => format!("{addr_space}{item}&"),
+        };
+        let accessor = match var.item().is_ptr() {
+            true => "->",
+            false => ".",
+        };
 
         if self.var.item().vectorization() > 1 {
             if self.optimized {
-                let item = self.var.item();
-                let addr_space = D::address_space_for_variable(&self.var);
                 write!(
                     f,
-                    "(reinterpret_cast<{addr_space}{item} {ref_}>({var})).i_{}",
+                    "(reinterpret_cast<{ty}>({var})){accessor}i_{}",
                     self.index
                 )
             } else {
-                write!(f, "{var}.i_{}", self.index)
+                write!(f, "{var}{accessor}i_{}", self.index)
             }
         } else if self.optimized {
-            let item = self.var.item();
-            let addr_space = D::address_space_for_variable(&self.var);
-            write!(f, "reinterpret_cast<{addr_space}{item} {ref_}>({var})")
+            write!(f, "reinterpret_cast<{ty}>({var})")
         } else {
             write!(f, "{var}")
         }

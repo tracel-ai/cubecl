@@ -98,7 +98,6 @@ mod components {
         pub fn insert(&mut self, index: usize, value: P) {
             intrinsic!(|scope| {
                 if self.expand.vector_size() > 1 {
-                    let this = read_variable(scope, self.expand);
                     let value = read_variable(scope, value.expand);
                     let index = read_variable(scope, index.expand);
                     scope.register(Instruction::new(
@@ -106,7 +105,7 @@ mod components {
                             lhs: index,
                             rhs: value,
                         }),
-                        this,
+                        self.expand,
                     ));
                 } else {
                     assign::expand_element(scope, value.expand, self.expand);

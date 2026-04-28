@@ -102,7 +102,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     };
                 });
             }
-            Arithmetic::Remainder(op) => {
+            Arithmetic::Modulo(op) => {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
@@ -134,7 +134,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     };
                 });
             }
-            Arithmetic::Modulo(op) => {
+            Arithmetic::Remainder(op) => {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),

@@ -284,13 +284,13 @@ impl_core_binop!(Add, add, Arithmetic::Add);
 impl_core_binop!(Sub, sub, Arithmetic::Sub);
 impl_core_binop!(Mul, mul, Arithmetic::Mul);
 impl_core_binop!(Div, div, Arithmetic::Div);
-impl_core_binop!(Rem, rem, Arithmetic::Modulo);
+impl_core_binop!(Rem, rem, Arithmetic::Remainder);
 
 impl_core_assign_binop!(AddAssign, add_assign, Arithmetic::Add);
 impl_core_assign_binop!(SubAssign, sub_assign, Arithmetic::Sub);
 impl_core_assign_binop!(MulAssign, mul_assign, Arithmetic::Mul);
 impl_core_assign_binop!(DivAssign, div_assign, Arithmetic::Div);
-impl_core_assign_binop!(RemAssign, rem_assign, Arithmetic::Modulo);
+impl_core_assign_binop!(RemAssign, rem_assign, Arithmetic::Remainder);
 
 impl_core_binop!(BitAnd, bitand, Bitwise::BitwiseAnd);
 impl_core_binop!(BitOr, bitor, Bitwise::BitwiseOr);
@@ -404,9 +404,9 @@ impl_binary_func!(
     f64
 );
 impl_binary_func!(
-    Remainder,
-    remainder,
-    Arithmetic::Remainder,
+    Modulo,
+    modulo,
+    Arithmetic::Modulo,
     e2m1,
     e4m3,
     e5m2,
