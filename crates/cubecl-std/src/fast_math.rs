@@ -74,6 +74,14 @@ impl<I: FastDivmodInt> FastDivmod<I> {
 }
 
 fn find_params_u32(divisor: u32) -> (u32, u32) {
+    // A zero divisor arises only when a tensor has a zero-sized dimension
+    // (e.g. Brush's `sh_coeffs_rest` of shape [N, 0, 3] at SH degree 0).
+    // Such tensors cause 0 workgroups to be dispatched, so these params are
+    // never read by any kernel thread — return a dummy pair instead of
+    // panicking during kernel launch preparation.
+    if divisor == 0 {
+        return (0, 0);
+    }
     let div_64 = divisor as u64;
     let shift = divisor.next_power_of_two().trailing_zeros();
     let multiplier = ((1u64 << 32) * ((1u64 << shift) - div_64)) / div_64 + 1;
@@ -81,6 +89,9 @@ fn find_params_u32(divisor: u32) -> (u32, u32) {
 }
 
 fn find_params_u64(divisor: u64) -> (u32, u64) {
+    if divisor == 0 {
+        return (0, 0);
+    }
     let div_128 = divisor as u128;
     let shift = divisor.next_power_of_two().trailing_zeros();
     let multiplier = ((1u128 << 64) * ((1u128 << shift) - div_128)) / div_128 + 1;
