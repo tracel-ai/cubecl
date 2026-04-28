@@ -149,6 +149,7 @@ macro_rules! function {
 }
 
 function!(Log, "log");
+function!(Log2, "log2");
 function!(FastLog, "__logf", false);
 function!(Sin, "sin");
 function!(Cos, "cos");
@@ -168,6 +169,7 @@ function!(InverseSqrt, "rsqrt");
 function!(FastSqrt, "__fsqrt_rn", false);
 function!(FastInverseSqrt, "__frsqrt_rn", false);
 function!(Exp, "exp");
+function!(Exp2, "exp2");
 function!(FastExp, "__expf", false);
 function!(Ceil, "ceil");
 function!(Trunc, "trunc");

@@ -1190,6 +1190,9 @@ impl<D: Dialect> CppCompiler<D> {
                     Instruction::FastExp(op),
                 ));
             }
+            gpu::Arithmetic::Exp2(op) => {
+                instructions.push(Instruction::Exp2(self.compile_unary(op, out)));
+            }
             gpu::Arithmetic::Log(op) => {
                 let op = self.compile_unary(op, out);
                 instructions.push(self.select_fast_float(
@@ -1199,6 +1202,9 @@ impl<D: Dialect> CppCompiler<D> {
                     Instruction::Log(op),
                     Instruction::FastLog(op),
                 ));
+            }
+            gpu::Arithmetic::Log2(op) => {
+                instructions.push(Instruction::Log2(self.compile_unary(op, out)));
             }
             gpu::Arithmetic::Log1p(op) => {
                 instructions.push(Instruction::Log1p(self.compile_unary(op, out)))
