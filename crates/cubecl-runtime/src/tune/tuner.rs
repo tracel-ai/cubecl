@@ -3,8 +3,6 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::profile::ProfileDuration;
 use derive_more::Display;
-use hashbrown::HashSet;
-use itertools::Itertools;
 
 use core::time::Duration;
 

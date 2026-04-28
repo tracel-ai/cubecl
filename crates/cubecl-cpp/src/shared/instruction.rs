@@ -1086,7 +1086,7 @@ impl<D: Dialect> VectorSumFmt<D> {
         input: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
-        let num = input.item().vectorization;
+        let num = input.item().vectorization();
 
         let elems = (0..num)
             .map(|i| format!("{}", input.index(i)))
