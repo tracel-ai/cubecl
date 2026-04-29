@@ -113,7 +113,7 @@ fn unaligned_vector_write<T: CubeType<ExpandType: Into<Variable>>, E: Scalar, N:
         let vector_size = N::__expand_value(scope);
         let out = scope.create_local(Type::pointer(list.ty, list.pointer_class()));
         scope.register(Instruction::new(
-            Memory::IndexMut(IndexOperator {
+            Memory::Index(IndexOperator {
                 list,
                 index: index.expand,
                 vector_size: 0,

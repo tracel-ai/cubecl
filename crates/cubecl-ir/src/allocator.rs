@@ -43,6 +43,13 @@ impl PartialEq for Allocator {
 impl Eq for Allocator {}
 
 impl Allocator {
+    pub fn clone_deep(&self) -> Self {
+        Allocator {
+            local_mut_pool: Rc::new(RefCell::new(self.local_mut_pool.borrow().clone())),
+            next_id: Rc::new(AtomicU32::new(self.next_id.load(Ordering::SeqCst))),
+        }
+    }
+
     /// Create a new immutable local variable of type specified by `item`.
     pub fn create_local(&self, ty: Type) -> Variable {
         let id = self.new_local_index();

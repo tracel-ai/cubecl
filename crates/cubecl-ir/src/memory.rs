@@ -13,8 +13,6 @@ pub enum Memory {
     Reference(Variable),
     #[operation(pure)]
     Index(IndexOperator),
-    #[operation(pure)]
-    IndexMut(IndexOperator),
     Load(Variable),
     Store(BinaryOperator),
     CopyMemory(CopyMemoryOperator),
@@ -25,7 +23,6 @@ impl Display for Memory {
         match self {
             Memory::Reference(variable) => write!(f, "&{variable}"),
             Memory::Index(op) => write!(f, "&{}[{}]", op.list, op.index),
-            Memory::IndexMut(op) => write!(f, "&mut {}[{}]", op.list, op.index),
             Memory::Load(variable) => write!(f, "load({variable})"),
             Memory::Store(op) => write!(f, "store({}, {})", op.lhs, op.rhs),
             Memory::CopyMemory(op) => {

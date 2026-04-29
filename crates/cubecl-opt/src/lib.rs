@@ -36,8 +36,8 @@ use std::{
 use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::Writes};
 use cubecl_core::CubeDim;
 use cubecl_ir::{
-    self as core, Allocator, Branch, Id, Memory, Operation, Operator, PointerClass, Processor,
-    Scope, Type, Variable, VariableKind,
+    self as core, Allocator, Branch, Id, Memory, Operation, Operator, Processor, Scope, Type,
+    Variable, VariableKind,
 };
 use gvn::GvnPass;
 use passes::{
@@ -65,8 +65,8 @@ pub use petgraph::graph::{EdgeIndex, NodeIndex};
 pub use transformers::*;
 pub use version::PhiInstruction;
 
-use crate::analyses::liveness::Captures;
 pub use crate::analyses::liveness::shared::{SharedLiveness, SharedMemory};
+use crate::analyses::{liveness::Captures, pointer_source::PointerSource};
 
 /// An atomic counter with a simplified interface.
 #[derive(Clone, Debug, Default)]
@@ -290,11 +290,6 @@ pub fn local_variable_id(variable: &core::Variable) -> Option<Id> {
 }
 
 pub fn global_buffer_id(variable: &core::Variable) -> Option<Id> {
-    if let Type::Pointer(_, class) = variable.ty
-        && let PointerClass::Global(id) = class
-    {
-        return Some(id);
-    }
     match variable.kind {
         VariableKind::GlobalBuffer(id) | VariableKind::TensorMap(id) => Some(id),
         _ => None,
@@ -492,6 +487,7 @@ impl Function {
         self.parse_graph(state, scope);
         self.split_critical_edges();
         self.transform_ssa_and_merge_composites(state);
+        self.analysis::<PointerSource>(state);
         self.apply_post_ssa_passes(state);
 
         // Special expensive passes that should only run once.
@@ -542,7 +538,9 @@ impl Function {
         self.split_critical_edges();
         self.transform_ssa_and_merge_composites(state);
         self.split_free();
+        self.analysis::<PointerSource>(state);
         self.analysis::<SharedLiveness>(state);
+        self.update_buffer_vis(state);
     }
 
     fn update_buffer_vis(&mut self, state: &GlobalState) {

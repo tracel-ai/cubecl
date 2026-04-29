@@ -75,7 +75,6 @@ pub enum Instruction<D: Dialect> {
     SaturatingSub(BinaryInstruction<D>),
     HiMul(BinaryInstruction<D>),
     Index(IndexInstruction<D>),
-    IndexMut(IndexInstruction<D>),
     Assign(UnaryInstruction<D>),
     Store(UnaryInstruction<D>),
     Reference(UnaryInstruction<D>),
@@ -347,9 +346,6 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Index(it) => {
                 Index::format(f, &it.list, &it.index, &it.out, it.vector_size)
-            }
-            Instruction::IndexMut(it) => {
-                IndexMut::format(f, &it.list, &it.index, &it.out, it.vector_size)
             }
             Instruction::Copy { source, dest, len } => {
                 for i in 0..*len {

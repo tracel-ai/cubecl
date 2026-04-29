@@ -192,7 +192,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_memory(&mut self, mem: Memory, out: Option<core::Variable>) {
         match mem {
-            Memory::Index(op) | Memory::IndexMut(op) => {
+            Memory::Index(op) => {
                 let list = self.compile_variable(op.list);
                 let index = self.compile_variable(op.index);
                 let out = self.compile_variable(out.unwrap());

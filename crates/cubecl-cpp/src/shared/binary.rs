@@ -406,35 +406,7 @@ impl<D: Dialect> Binary<D> for Min {
     }
 }
 
-pub struct IndexMut;
 pub struct Index;
-
-impl IndexMut {
-    pub fn format<D: Dialect>(
-        f: &mut Formatter<'_>,
-        list: &Variable<D>,
-        index: &Variable<D>,
-        out_ptr: &Variable<D>,
-        vector_size: u32,
-    ) -> std::fmt::Result {
-        if vector_size > 0 {
-            let item = Item::new(list.elem(), vector_size as usize);
-            let addr_space = D::address_space_for_variable(list);
-            let qualifier = list.const_qualifier();
-            let tmp = Variable::tmp_declared(item);
-
-            writeln!(
-                f,
-                "{qualifier} {addr_space}{item} *{tmp} = reinterpret_cast<{qualifier} {item}*>({list});"
-            )?;
-
-            return IndexMut::format(f, &tmp, index, out_ptr, 0);
-        }
-
-        let ptr_ty = out_ptr.item();
-        writeln!(f, "{ptr_ty} {out_ptr} = &{list}[{index}];")
-    }
-}
 
 impl Index {
     pub(crate) fn format<D: Dialect>(
@@ -445,14 +417,17 @@ impl Index {
         vector_size: u32,
     ) -> std::fmt::Result {
         if vector_size > 0 {
+            let Item::Pointer(_, class) = out.item() else {
+                unreachable!()
+            };
+
             let item = Item::new(list.elem(), vector_size as usize);
-            let addr_space = D::address_space_for_variable(list);
-            let qualifier = list.const_qualifier();
+            let item_ptr = Item::Pointer(item.intern(), class);
             let tmp = Variable::tmp_declared(item);
 
             writeln!(
                 f,
-                "{qualifier} {addr_space}{item} *{tmp} = reinterpret_cast<{qualifier} {item}*>({list});"
+                "{item_ptr} {tmp} = reinterpret_cast<{item_ptr}>({list});"
             )?;
 
             return Index::format(f, &tmp, index, out, 0);

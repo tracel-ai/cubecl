@@ -104,7 +104,8 @@ fn calculate_block_sets(opt: &mut Function, state: &GlobalState, block: NodeInde
             generated.insert(id);
         }
     });
-    for op in ops.borrow_mut().values_mut().rev() {
+    let mut ops = ops.borrow().clone();
+    for op in ops.values_mut().rev() {
         // Reads must be tracked after writes
         opt.visit_out(&mut op.out, |_, var| {
             if let Some(id) = local_variable_id(var) {

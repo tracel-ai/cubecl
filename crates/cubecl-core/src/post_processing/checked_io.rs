@@ -60,7 +60,7 @@ impl CheckedIoProcessor {
                             continue;
                         }
                     }
-                    Memory::IndexMut(op) if op.checked => {
+                    Memory::Index(op) if op.checked => {
                         let out = instruction.out();
 
                         if out.has_length() {
@@ -136,7 +136,7 @@ impl CheckedIoProcessor {
                             continue;
                         }
                     }
-                    Memory::IndexMut(op) if op.checked => {
+                    Memory::Index(op) if op.checked => {
                         let out = instruction.out();
 
                         if out.has_length() {

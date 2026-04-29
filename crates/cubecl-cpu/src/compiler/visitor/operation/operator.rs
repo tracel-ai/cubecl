@@ -19,7 +19,7 @@ impl<'a> Visitor<'a> {
                 let memref = self.get_memory(*variable);
                 self.insert_variable(out.unwrap(), memref);
             }
-            Memory::Index(index) | Memory::IndexMut(index) => {
+            Memory::Index(index) => {
                 let value = self.visit_index(index);
                 self.insert_variable(out.unwrap(), value);
             }

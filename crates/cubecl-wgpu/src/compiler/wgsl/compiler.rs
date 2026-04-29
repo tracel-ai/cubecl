@@ -754,11 +754,6 @@ impl WgslCompiler {
                     out: self.compile_variable(out.unwrap()),
                 });
             }
-            cube::Memory::IndexMut(op) => instructions.push(wgsl::Instruction::IndexMut {
-                list: self.compile_variable(op.list),
-                index: self.compile_variable(op.index),
-                out: self.compile_variable(out.unwrap()),
-            }),
             cube::Memory::Reference(variable) => instructions.push(wgsl::Instruction::Reference {
                 input: self.compile_variable(variable),
                 out: self.compile_variable(out.unwrap()),

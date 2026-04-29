@@ -62,6 +62,21 @@ pub struct GlobalStateInner {
     pub device_properties: Option<Rc<DeviceProperties>>,
 }
 
+impl GlobalStateInner {
+    fn clone_deep(&self) -> Self {
+        Self {
+            reference_arena: Bump::new(),
+            allocator: self.allocator.clone_deep(),
+            functions: self.functions.clone(),
+            typemap: self.typemap.clone(),
+            sizemap: self.sizemap.clone(),
+            modes: self.modes,
+            target_properties: self.target_properties.clone(),
+            device_properties: self.device_properties.clone(),
+        }
+    }
+}
+
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
 pub struct ValidationErrors {
@@ -412,6 +427,13 @@ impl Scope {
                 .variable_names
                 .borrow_mut()
                 .insert(variable, name.into());
+        }
+    }
+
+    pub fn clone_deep(&self) -> Scope {
+        Scope {
+            global_state: Rc::new(RefCell::new(self.global_state.borrow().clone_deep())),
+            ..self.clone()
         }
     }
 }

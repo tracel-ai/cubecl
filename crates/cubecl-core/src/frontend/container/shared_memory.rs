@@ -186,7 +186,7 @@ mod indexation {
                 let class = self.expand.pointer_class();
                 let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
-                    Memory::IndexMut(IndexOperator {
+                    Memory::Index(IndexOperator {
                         list: self.expand,
                         index: i.expand,
                         vector_size: 0,

@@ -63,12 +63,6 @@ pub enum Instruction {
         rhs: Variable,
         out: Variable,
     },
-    // Index assign handles casting to correct output variable.
-    IndexMut {
-        list: Variable,
-        index: Variable,
-        out: Variable,
-    },
     // Index handles casting to correct local variable.
     Assign {
         input: Variable,
@@ -583,9 +577,6 @@ impl Display for Instruction {
             }
             Instruction::Index { lhs, rhs, out } => {
                 writeln!(f, "let {out} = &{lhs}[{rhs}];")
-            }
-            Instruction::IndexMut { list, index, out } => {
-                writeln!(f, "let {out} = &{list}[{index}];")
             }
             Instruction::CopyBulk {
                 source,

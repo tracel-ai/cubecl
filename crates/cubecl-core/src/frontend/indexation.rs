@@ -115,7 +115,7 @@ where
     let vector_size = vector_size.unwrap_or(0);
 
     scope.register(Instruction::new(
-        Memory::IndexMut(IndexOperator {
+        Memory::Index(IndexOperator {
             list,
             index,
             vector_size,

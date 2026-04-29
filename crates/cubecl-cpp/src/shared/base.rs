@@ -17,9 +17,8 @@ use cubecl_core::{
     prelude::{FastMath, KernelDefinition, Visibility},
     server::ExecutionMode,
 };
-use cubecl_opt::{Optimizer, SharedLiveness};
+use cubecl_opt::{BufferVisibility, Optimizer, SharedLiveness};
 use cubecl_runtime::compiler::{CompilationError, Compiler};
-use itertools::Itertools;
 use std::{collections::HashSet, fmt::Debug};
 
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
@@ -193,19 +192,6 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
             });
         }
 
-        self.buffer_vis = kernel
-            .buffers
-            .iter()
-            .chain(kernel.tensor_maps.iter())
-            .sorted_by_key(|it| it.id)
-            .map(|it| {
-                if it.ty.is_atomic() {
-                    Visibility::ReadWrite
-                } else {
-                    it.visibility
-                }
-            })
-            .collect();
         self.addr_type = self.compile_type(addr_type.into());
         self.compilation_options = compilation_options.clone();
         self.strategy = strategy;
@@ -239,16 +225,38 @@ impl<D: Dialect> CppCompiler<D> {
         let metadata = self.build_metadata(&value);
         self.info = cubecl_core::Info::new(&value.scalars, metadata, address_type);
 
-        let instructions = self.compile_scope(&mut value.body.clone());
+        let body = value.body.clone_deep();
+
+        let mut opt = Optimizer::shared_only(value.body, value.cube_dim);
+        let shared_allocs = opt.main.analysis::<SharedLiveness>(&opt.global_state);
+        let buffer_vis = opt.global_state.buffer_visibility.borrow();
+
+        self.buffer_vis = buffer_vis
+            .iter()
+            .map(|vis| match vis.writable {
+                false => Visibility::Read,
+                true => Visibility::ReadWrite,
+            })
+            .collect();
+
+        for buffer in &value.buffers {
+            if buffer.ty.is_atomic() {
+                self.buffer_vis[buffer.id as usize] = Visibility::ReadWrite;
+            }
+        }
+
+        let address_type = self.compile_type(address_type.into());
+        let instructions = self.compile_scope(&body);
+
         let tensor_maps = value
             .tensor_maps
             .into_iter()
-            .map(|b| self.compile_binding(b))
+            .map(|b| self.compile_binding(b, &buffer_vis))
             .collect();
         let buffers = value
             .buffers
             .into_iter()
-            .map(|b| self.compile_binding(b))
+            .map(|b| self.compile_binding(b, &buffer_vis))
             .collect();
         let scalars = value
             .scalars
@@ -256,33 +264,6 @@ impl<D: Dialect> CppCompiler<D> {
             .map(|binding| (self.compile_storage_type(binding.ty), binding.count))
             .collect::<Vec<_>>();
 
-        // translation flags
-        let flags = Flags {
-            indexes: D::builtin_rules(&self.flags.indexes),
-            inst_wmma: self.flags.inst_wmma,
-            op_pipeline: self.flags.op_pipeline,
-            op_barrier: self.flags.op_barrier,
-            elem_fp4: self.flags.elem_fp4,
-            elem_fp6: self.flags.elem_fp6,
-            elem_fp8: self.flags.elem_fp8,
-            elem_bf16: self.flags.elem_bf16,
-            elem_f16: self.flags.elem_f16,
-            elem_tf32: self.flags.elem_tf32,
-            inst_tma: self.flags.inst_tma,
-            inst_tma_im2col: self.flags.inst_tma_im2col,
-            inst_async_copy: self.flags.inst_async_copy,
-            inst_ptx_wrappers: self.flags.inst_ptx_wrappers,
-            use_grid_constants: self.compilation_options.supports_features.grid_constants,
-            has_info: self.info.has_info(),
-            has_dynamic_meta: self.info.has_dynamic_meta,
-            static_meta_length: self.info.metadata.static_len() as usize,
-            cube_dim: value.cube_dim,
-            cluster_dim: value.options.cluster_dim,
-            address_type: self.compile_type(address_type.into()),
-        };
-
-        let mut opt = Optimizer::shared_only(value.body, value.cube_dim);
-        let shared_allocs = opt.main.analysis::<SharedLiveness>(&opt.global_state);
         let shared_memories = shared_allocs
             .allocations
             .values()
@@ -318,6 +299,31 @@ impl<D: Dialect> CppCompiler<D> {
             info_by_ptr: !self.compilation_options.supports_features.grid_constants,
             has_dynamic_meta: self.info.has_dynamic_meta,
             address_type: self.addr_type,
+        };
+
+        // translation flags
+        let flags = Flags {
+            indexes: D::builtin_rules(&self.flags.indexes),
+            inst_wmma: self.flags.inst_wmma,
+            op_pipeline: self.flags.op_pipeline,
+            op_barrier: self.flags.op_barrier,
+            elem_fp4: self.flags.elem_fp4,
+            elem_fp6: self.flags.elem_fp6,
+            elem_fp8: self.flags.elem_fp8,
+            elem_bf16: self.flags.elem_bf16,
+            elem_f16: self.flags.elem_f16,
+            elem_tf32: self.flags.elem_tf32,
+            inst_tma: self.flags.inst_tma,
+            inst_tma_im2col: self.flags.inst_tma_im2col,
+            inst_async_copy: self.flags.inst_async_copy,
+            inst_ptx_wrappers: self.flags.inst_ptx_wrappers,
+            use_grid_constants: self.compilation_options.supports_features.grid_constants,
+            has_info: self.info.has_info(),
+            has_dynamic_meta: self.info.has_dynamic_meta,
+            static_meta_length: self.info.metadata.static_len() as usize,
+            cube_dim: value.cube_dim,
+            cluster_dim: value.options.cluster_dim,
+            address_type,
         };
 
         let mut cluster_dim = value.options.cluster_dim;
@@ -370,7 +376,7 @@ impl<D: Dialect> CppCompiler<D> {
         self.ext_meta_positions[id as usize]
     }
 
-    fn compile_scope(&mut self, scope: &mut gpu::Scope) -> Vec<Instruction<D>> {
+    fn compile_scope(&mut self, scope: &gpu::Scope) -> Vec<Instruction<D>> {
         let mut instructions = Vec::new();
 
         let const_arrays = scope
@@ -1072,39 +1078,37 @@ impl<D: Dialect> CppCompiler<D> {
 
     fn compile_branch(&mut self, instructions: &mut Vec<Instruction<D>>, branch: gpu::Branch) {
         match branch {
-            gpu::Branch::If(mut op) => instructions.push(Instruction::If {
+            gpu::Branch::If(op) => instructions.push(Instruction::If {
                 cond: self.compile_variable(op.cond),
-                instructions: self.compile_scope(&mut op.scope),
+                instructions: self.compile_scope(&op.scope),
             }),
-            gpu::Branch::IfElse(mut op) => instructions.push(Instruction::IfElse {
+            gpu::Branch::IfElse(op) => instructions.push(Instruction::IfElse {
                 cond: self.compile_variable(op.cond),
-                instructions_if: self.compile_scope(&mut op.scope_if),
-                instructions_else: self.compile_scope(&mut op.scope_else),
+                instructions_if: self.compile_scope(&op.scope_if),
+                instructions_else: self.compile_scope(&op.scope_else),
             }),
-            gpu::Branch::Switch(mut op) => instructions.push(Instruction::Switch {
+            gpu::Branch::Switch(op) => instructions.push(Instruction::Switch {
                 value: self.compile_variable(op.value),
-                instructions_default: self.compile_scope(&mut op.scope_default),
+                instructions_default: self.compile_scope(&op.scope_default),
                 instructions_cases: op
                     .cases
                     .into_iter()
-                    .map(|(val, mut block)| {
-                        (self.compile_variable(val), self.compile_scope(&mut block))
-                    })
+                    .map(|(val, block)| (self.compile_variable(val), self.compile_scope(&block)))
                     .collect(),
             }),
             gpu::Branch::Return => instructions.push(Instruction::Return),
             gpu::Branch::Break => instructions.push(Instruction::Break),
             gpu::Branch::Unreachable => instructions.push(Instruction::Unreachable),
-            gpu::Branch::RangeLoop(mut range_loop) => instructions.push(Instruction::RangeLoop {
+            gpu::Branch::RangeLoop(range_loop) => instructions.push(Instruction::RangeLoop {
                 i: self.compile_variable(range_loop.i),
                 start: self.compile_variable(range_loop.start),
                 end: self.compile_variable(range_loop.end),
                 step: range_loop.step.map(|it| self.compile_variable(it)),
                 inclusive: range_loop.inclusive,
-                instructions: self.compile_scope(&mut range_loop.scope),
+                instructions: self.compile_scope(&range_loop.scope),
             }),
-            gpu::Branch::Loop(mut op) => instructions.push(Instruction::Loop {
-                instructions: self.compile_scope(&mut op.scope),
+            gpu::Branch::Loop(op) => instructions.push(Instruction::Loop {
+                instructions: self.compile_scope(&op.scope),
             }),
         };
     }
@@ -1580,9 +1584,6 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Memory::Index(op) => {
                 instructions.push(Instruction::Index(self.compile_index(op, out.unwrap())))
             }
-            gpu::Memory::IndexMut(op) => {
-                instructions.push(Instruction::IndexMut(self.compile_index(op, out.unwrap())))
-            }
             gpu::Memory::Load(variable) => instructions.push(Instruction::Load(UnaryInstruction {
                 input: self.compile_variable(variable),
                 out: self.compile_variable(out.unwrap()),
@@ -1960,11 +1961,18 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_binding(&mut self, binding: cubecl_runtime::kernel::KernelArg) -> KernelArg<D> {
+    fn compile_binding(
+        &mut self,
+        binding: cubecl_runtime::kernel::KernelArg,
+        buffer_vis: &[BufferVisibility],
+    ) -> KernelArg<D> {
         KernelArg {
             id: binding.id,
             item: self.compile_type(binding.ty),
-            vis: binding.visibility,
+            vis: match buffer_vis[binding.id as usize].writable || binding.ty.is_atomic() {
+                false => Visibility::Read,
+                true => Visibility::ReadWrite,
+            },
         }
     }
 

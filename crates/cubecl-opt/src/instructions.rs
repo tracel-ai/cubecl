@@ -4,7 +4,7 @@ use cubecl_ir::{
     UnaryOperator, Variable,
 };
 
-use crate::{ControlFlow, Function, GlobalState};
+use crate::{ControlFlow, Function, GlobalState, analyses::pointer_source::PointerSource};
 
 impl Function {
     pub fn visit_out(
@@ -26,11 +26,16 @@ impl Function {
         visit_read: impl FnMut(&mut Self, &mut Variable),
         mut visit_write: impl FnMut(&mut Self, &mut Variable),
     ) {
-        if let Operation::Memory(Memory::Store(op)) = &mut inst.operation {
-            visit_write(self, &mut op.lhs);
+        let pointer_source = self.analysis::<PointerSource>(state);
+        if let Operation::Memory(Memory::Store(op)) = &mut inst.operation
+            && let Some(source) = pointer_source.borrow_mut().get_mut(&op.lhs)
+        {
+            visit_write(self, source);
         }
-        if let Operation::Memory(Memory::CopyMemory(op)) = &mut inst.operation {
-            visit_write(self, &mut op.target);
+        if let Operation::Memory(Memory::CopyMemory(op)) = &mut inst.operation
+            && let Some(source) = pointer_source.borrow_mut().get_mut(&op.target)
+        {
+            visit_write(self, source);
         }
         self.visit_out(&mut inst.out, visit_write);
         self.visit_operation(state, &mut inst.operation, &mut inst.out, visit_read);
@@ -47,7 +52,7 @@ impl Function {
     ) {
         match op {
             Operation::Copy(variable) => visit_read(self, variable),
-            Operation::Memory(memory) => self.visit_memory(memory, visit_read),
+            Operation::Memory(memory) => self.visit_memory(memory, state, visit_read),
             Operation::Arithmetic(arithmetic) => self.visit_arithmetic(arithmetic, visit_read),
             Operation::Comparison(comparison) => self.visit_compare(comparison, visit_read),
             Operation::Bitwise(bitwise) => self.visit_bitwise(bitwise, visit_read),
@@ -208,23 +213,31 @@ impl Function {
     pub fn visit_memory(
         &mut self,
         memory: &mut Memory,
+        state: &GlobalState,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
+        let pointer_source = self.analysis::<PointerSource>(state);
         match memory {
             Memory::Reference(variable) => visit_read(self, variable),
             Memory::Index(index_operator) => {
                 visit_read(self, &mut index_operator.list);
                 visit_read(self, &mut index_operator.index);
             }
-            Memory::IndexMut(index_operator) => {
-                visit_read(self, &mut index_operator.list);
-                visit_read(self, &mut index_operator.index);
+            Memory::Load(variable) => {
+                visit_read(self, variable);
+
+                if let Some(source) = pointer_source.borrow_mut().get_mut(variable) {
+                    visit_read(self, source);
+                }
             }
-            Memory::Load(variable) => visit_read(self, variable),
             Memory::Store(binop) => self.visit_binop(binop, visit_read),
-            Memory::CopyMemory(copy_memory_operator) => {
-                visit_read(self, &mut copy_memory_operator.source);
-                visit_read(self, &mut copy_memory_operator.target);
+            Memory::CopyMemory(op) => {
+                visit_read(self, &mut op.source);
+                visit_read(self, &mut op.target);
+
+                if let Some(source) = pointer_source.borrow_mut().get_mut(&op.source) {
+                    visit_read(self, source);
+                }
             }
         }
     }

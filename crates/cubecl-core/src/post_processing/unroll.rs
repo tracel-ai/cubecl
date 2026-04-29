@@ -114,16 +114,6 @@ impl UnrollProcessor {
                         mappings,
                     ))
                 }
-                Operation::Memory(Memory::IndexMut(op)) => {
-                    TransformAction::Replace(self.transform_array_index(
-                        alloc,
-                        inst.out(),
-                        op,
-                        Memory::IndexMut,
-                        unroll_factor,
-                        mappings,
-                    ))
-                }
                 Operation::Operator(Operator::ExtractComponent(op)) => {
                     TransformAction::Replace(self.transform_composite_extract(
                         alloc,
