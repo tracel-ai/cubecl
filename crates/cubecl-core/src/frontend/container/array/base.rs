@@ -50,7 +50,7 @@ mod new {
         #[allow(unused_variables)]
         pub fn new(#[comptime] length: usize) -> Self {
             intrinsic!(|scope| {
-                let elem = T::as_type(scope);
+                let elem = T::__expand_as_type(scope);
                 scope.create_local_array(elem, length).into()
             })
         }
@@ -72,7 +72,7 @@ mod new {
             scope: &Scope,
             data: ArrayData<C>,
         ) -> <Self as CubeType>::ExpandType {
-            let var = scope.create_const_array(T::as_type(scope), data.values);
+            let var = scope.create_const_array(T::__expand_as_type(scope), data.values);
             NativeExpand::new(var)
         }
     }
@@ -181,7 +181,7 @@ mod metadata {
         /// Obtain the array buffer length
         pub fn buffer_len(&self) -> usize {
             intrinsic!(|scope| {
-                let out = scope.create_local(usize::as_type(scope));
+                let out = scope.create_local(usize::__expand_as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::BufferLength {
                         var: self.expand.clone().into(),

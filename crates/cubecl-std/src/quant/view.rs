@@ -342,7 +342,7 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static, IO: Sli
 
     #[allow(clippy::missing_transmute_annotations)]
     unsafe {
-        match E::as_type(&builder.scope).storage_type() {
+        match E::__expand_as_type(&builder.scope).storage_type() {
             StorageType::Scalar(ElemType::Float(ty)) => match ty {
                 FloatKind::F16 => t(expand_dynamic_f::<f16, NF, C>(
                     values, scales, scheme, builder,

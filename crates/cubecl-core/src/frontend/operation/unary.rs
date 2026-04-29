@@ -116,7 +116,7 @@ macro_rules! impl_unary_func_fixed_out_ty {
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for NativeExpand<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self::WithScalar<$out_ty> {
                     let expand_element: Variable = self.into();
-                    let item = <$out_ty as CubePrimitive>::as_type(scope).with_vector_size(expand_element.ty.vector_size());
+                    let item = <$out_ty as CubePrimitive>::__expand_as_type(scope).with_vector_size(expand_element.ty.vector_size());
                     unary_expand_fixed_output(scope, expand_element, item, $operator).into()
                 }
             }

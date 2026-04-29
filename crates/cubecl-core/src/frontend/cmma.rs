@@ -244,7 +244,7 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
         layout: MatrixLayout,
     ) -> Self {
         intrinsic!(|scope| {
-            let elem = C::as_type(scope).storage_type();
+            let elem = C::__expand_as_type(scope).storage_type();
             let elem = scope.create_matrix(ir::Matrix::new(ident, m, n, k, elem, layout, S::SCOPE));
             MatrixExpand {
                 elem,
@@ -365,9 +365,9 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     #[allow(unused_variables)]
     pub fn new(#[comptime] m: usize, #[comptime] n: usize, #[comptime] k: usize) -> Self {
         intrinsic!(|scope| {
-            let a_type = A::as_type(scope).storage_type();
-            let b_type = B::as_type(scope).storage_type();
-            let cd_type = CD::as_type(scope).storage_type();
+            let a_type = A::__expand_as_type(scope).storage_type();
+            let b_type = B::__expand_as_type(scope).storage_type();
+            let cd_type = CD::__expand_as_type(scope).storage_type();
 
             MmaDefinitionExpand {
                 m,
@@ -408,9 +408,9 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         #[comptime] scale_factor: usize,
     ) -> Self {
         intrinsic!(|scope| {
-            let a_type = A::as_type(scope).storage_type();
-            let b_type = B::as_type(scope).storage_type();
-            let cd_type = CD::as_type(scope).storage_type();
+            let a_type = A::__expand_as_type(scope).storage_type();
+            let b_type = B::__expand_as_type(scope).storage_type();
+            let cd_type = CD::__expand_as_type(scope).storage_type();
 
             MmaDefinitionExpand {
                 m,
@@ -420,7 +420,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 b_type,
                 cd_type,
                 scales_factor: Some(scale_factor),
-                scales_type: Some(S::as_type(scope).storage_type()),
+                scales_type: Some(S::__expand_as_type(scope).storage_type()),
                 _a: PhantomData,
                 _b: PhantomData,
                 _cd: PhantomData,
@@ -554,8 +554,8 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 scope: ir::MatrixScope::Plane,
             };
 
-            let row = scope.create_local(u32::as_type(scope));
-            let col = scope.create_local(u32::as_type(scope));
+            let row = scope.create_local(u32::__expand_as_type(scope));
+            let col = scope.create_local(u32::__expand_as_type(scope));
             scope.register(Instruction::new(
                 CoopMma::RowIndex {
                     lane_id,
@@ -1156,7 +1156,7 @@ pub mod cast {
             _ => unreachable!(),
         };
 
-        let elem = O::as_type(scope).storage_type();
+        let elem = O::__expand_as_type(scope).storage_type();
         let elem = scope.create_matrix(ir::Matrix::new(
             ident,
             input_mat.m,
@@ -1215,7 +1215,7 @@ pub mod cast_with_ident {
             _ => unreachable!(),
         };
 
-        let elem = O::as_type(scope).storage_type();
+        let elem = O::__expand_as_type(scope).storage_type();
         let elem = scope.create_matrix(ir::Matrix::new(
             ident,
             input_mat.m,
@@ -1305,9 +1305,9 @@ pub mod execute_elementwise_op {
             NativeExpand<A::Scalar>,
         ) -> NativeExpand<A::Scalar>,
     ) {
-        let row = scope.create_local(u32::as_type(scope));
-        let col = scope.create_local(u32::as_type(scope));
-        let elem = scope.create_local(A::Scalar::as_type(scope));
+        let row = scope.create_local(u32::__expand_as_type(scope));
+        let col = scope.create_local(u32::__expand_as_type(scope));
+        let elem = scope.create_local(A::Scalar::__expand_as_type(scope));
 
         let mut closure_scope = scope.child();
         let return_value = op(&mut closure_scope, row.into(), col.into(), elem.into());

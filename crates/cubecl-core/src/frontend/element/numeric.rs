@@ -38,13 +38,13 @@ pub trait Numeric:
     fn max_value() -> Self;
 
     fn __expand_min_value(scope: &Scope) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_type(scope).elem_type();
+        let elem = Self::__expand_as_type(scope).elem_type();
         let var = elem.min_variable();
         var.into()
     }
 
     fn __expand_max_value(scope: &Scope) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_type(scope).elem_type();
+        let elem = Self::__expand_as_type(scope).elem_type();
         let var = elem.max_variable();
         var.into()
     }
@@ -79,7 +79,7 @@ pub trait Numeric:
     }
 
     fn __expand_from_int(scope: &Scope, val: NativeExpand<i64>) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_type(scope).elem_type();
+        let elem = Self::__expand_as_type(scope).elem_type();
         let var: Variable = elem.constant(val.constant().unwrap());
 
         var.into()
@@ -93,7 +93,7 @@ pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
     fn expand_scalar(builder: &mut KernelBuilder) -> NativeExpand<Self> {
         builder
-            .scalar(Self::as_type(&builder.scope).storage_type())
+            .scalar(Self::__expand_as_type(&builder.scope).storage_type())
             .into()
     }
 }

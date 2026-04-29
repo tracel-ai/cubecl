@@ -120,7 +120,7 @@ impl InputScalar {
     /// Performs casting if necessary.
     pub fn get<C: Scalar>(&self) -> C {
         intrinsic!(|scope| {
-            let dtype = C::as_type(scope);
+            let dtype = C::__expand_as_type(scope);
             if self.expand.ty == dtype {
                 return self.expand.clone().into();
             }

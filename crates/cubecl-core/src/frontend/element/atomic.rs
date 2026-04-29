@@ -26,7 +26,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     pub fn load(&self) -> Inner {
         intrinsic!(|scope| {
             let pointer: Variable = self.clone().into();
-            let new_var = scope.create_local(Inner::as_type(scope));
+            let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Load(UnaryOperator { input: pointer }),
                 new_var,
@@ -54,7 +54,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
             let value: Variable = value.into();
-            let new_var = scope.create_local(Inner::as_type(scope));
+            let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Swap(BinaryOperator {
                     lhs: ptr,
@@ -72,7 +72,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
             let value: Variable = value.into();
-            let new_var = scope.create_local(Inner::as_type(scope));
+            let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Add(BinaryOperator {
                     lhs: ptr,
@@ -90,7 +90,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
             let value: Variable = value.into();
-            let new_var = scope.create_local(Inner::as_type(scope));
+            let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Sub(BinaryOperator {
                     lhs: ptr,
@@ -109,7 +109,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
             let value: Variable = value.into();
-            let new_var = scope.create_local(Inner::as_type(scope));
+            let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Max(BinaryOperator {
                     lhs: ptr,
@@ -128,7 +128,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
             let value: Variable = value.into();
-            let new_var = scope.create_local(Inner::as_type(scope));
+            let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Min(BinaryOperator {
                     lhs: ptr,
@@ -154,7 +154,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
             let pointer: Variable = self.clone().into();
             let cmp: Variable = cmp.into();
             let value: Variable = value.into();
-            let new_var = scope.create_local(Inner::as_type(scope));
+            let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::CompareAndSwap(CompareAndSwapOperator {
                     input: pointer,
@@ -173,7 +173,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
             let value: Variable = value.into();
-            let new_var = scope.create_local(Inner::as_type(scope));
+            let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::And(BinaryOperator {
                     lhs: ptr,
@@ -191,7 +191,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
             let value: Variable = value.into();
-            let new_var = scope.create_local(Inner::as_type(scope));
+            let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Or(BinaryOperator {
                     lhs: ptr,
@@ -209,7 +209,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
             let value: Variable = value.into();
-            let new_var = scope.create_local(Inner::as_type(scope));
+            let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Xor(BinaryOperator {
                     lhs: ptr,
@@ -236,8 +236,8 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
         Inner::as_type_native().map(Type::atomic)
     }
 
-    fn as_type(scope: &Scope) -> Type {
-        Type::atomic(Inner::as_type(scope))
+    fn __expand_as_type(scope: &Scope) -> Type {
+        Type::atomic(Inner::__expand_as_type(scope))
     }
 
     fn as_type_native_unchecked() -> Type {

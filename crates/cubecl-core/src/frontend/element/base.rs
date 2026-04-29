@@ -603,7 +603,7 @@ impl<T> From<Variable> for NativeExpand<T> {
 impl<T: Scalar + Into<ConstantValue>> NativeExpand<T> {
     /// Create an [`NativeExpand`] from a value that is normally a literal.
     pub fn from_lit(scope: &Scope, lit: T) -> Self {
-        T::as_type(scope).constant(lit.into()).into()
+        T::__expand_as_type(scope).constant(lit.into()).into()
     }
 
     /// Get the [`ConstantValue`] from the variable.
@@ -669,7 +669,7 @@ impl<T: AsMutExpand> AsMutExpand for Vec<T> {
 /// Create a constant element of the correct type during expansion.
 pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(scope: &Scope, val: C) -> NativeExpand<Out> {
     let input: ConstantValue = val.into();
-    Out::as_type(scope).constant(input).into()
+    Out::__expand_as_type(scope).constant(input).into()
 }
 
 impl CubeType for () {

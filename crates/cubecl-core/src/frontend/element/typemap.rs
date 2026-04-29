@@ -247,7 +247,7 @@ impl<Marker: 'static> CubePrimitive for DynamicScalar<Marker> {
     type WithScalar<S: Scalar> = S;
 
     /// Return the element type to use on GPU
-    fn as_type(scope: &Scope) -> Type {
+    fn __expand_as_type(scope: &Scope) -> Type {
         Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
     }
 

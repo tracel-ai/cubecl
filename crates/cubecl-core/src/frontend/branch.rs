@@ -99,7 +99,7 @@ impl<I: Int> Iterable for RangeExpand<I> {
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, <I as CubeType>::ExpandType)) {
         let mut child = scope.child();
-        let index_ty = I::as_type(scope);
+        let index_ty = I::__expand_as_type(scope);
         let i = child.create_local_restricted(index_ty);
 
         body(&mut child, i.into());
@@ -108,8 +108,8 @@ impl<I: Int> Iterable for RangeExpand<I> {
         let mut end = self.end.expand;
 
         // Normalize usize constants. Gotta fix this properly at some point.
-        start.ty = I::as_type(scope);
-        end.ty = I::as_type(scope);
+        start.ty = I::__expand_as_type(scope);
+        end.ty = I::__expand_as_type(scope);
 
         scope.register(Branch::RangeLoop(Box::new(RangeLoop {
             i,
@@ -140,7 +140,7 @@ impl<I: Int + Into<Variable>> Iterable for SteppedRangeExpand<I> {
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, <I as CubeType>::ExpandType)) {
         let child = scope.child();
-        let index_ty = I::as_type(scope);
+        let index_ty = I::__expand_as_type(scope);
         let i = child.create_local_restricted(index_ty);
 
         body(&child, i.into());

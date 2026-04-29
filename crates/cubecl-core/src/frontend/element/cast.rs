@@ -18,7 +18,7 @@ pub trait Cast: CubePrimitive {
         scope: &Scope,
         value: NativeExpand<From>,
     ) -> <Self as CubeType>::ExpandType {
-        if Self::as_type(scope) == From::as_type(scope) {
+        if Self::__expand_as_type(scope) == From::__expand_as_type(scope) {
             return value.expand.into();
         }
         let vec_in = value.expand.vector_size();
@@ -27,7 +27,7 @@ pub trait Cast: CubePrimitive {
         if vec_in > 1 && elems_in != elems_out {
             expand_error!("Cast element count must match if input is not scalar");
         }
-        let new_var = scope.create_local(<Self as CubePrimitive>::as_type(scope));
+        let new_var = scope.create_local(<Self as CubePrimitive>::__expand_as_type(scope));
         cast::expand::<From, Self>(scope, value, new_var.into());
         new_var.into()
     }
@@ -59,7 +59,7 @@ pub trait Reinterpret: CubePrimitive {
         let size_in = value.expand.ty.size();
         let size_out = Self::__expand_type_size(scope);
         expand_assert!(size_in == size_out, "Reinterpret type sizes must match");
-        let new_var = scope.create_local(<Self as CubePrimitive>::as_type(scope));
+        let new_var = scope.create_local(<Self as CubePrimitive>::__expand_as_type(scope));
         scope.register(Instruction::new(
             Operator::Reinterpret(UnaryOperator {
                 input: value.expand,

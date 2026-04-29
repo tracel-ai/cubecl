@@ -466,7 +466,7 @@ pub mod copy_async {
         let source_length = copy_length.into();
         let (source, source_offset) = source.__to_raw_parts();
         let (destination, destination_offset) = destination.__to_raw_parts();
-        let scalar_size = C::as_type(scope).storage_type().size();
+        let scalar_size = C::__expand_as_type(scope).storage_type().size();
 
         let mem_copy = BarrierOps::CopyAsync {
             source,
@@ -512,7 +512,7 @@ pub mod copy_async_checked {
         let source_length = source.length.expand;
         let (source, source_offset) = source.__to_raw_parts();
         let (destination, destination_offset) = destination.__to_raw_parts();
-        let scalar_size = C::as_type(scope).storage_type().size();
+        let scalar_size = C::__expand_as_type(scope).storage_type().size();
 
         let mem_copy = BarrierOps::CopyAsync {
             source,

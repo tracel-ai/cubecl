@@ -207,13 +207,20 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
     /// types are supposed to be the same.
     pub fn downcast<T: CubePrimitive>(&self) -> Slice<T, IO> {
         intrinsic!(|scope| {
-            if T::as_type(scope) != E::as_type(scope) && !is_tf32::<E, T>(scope) {
-                let elems = [T::as_type(scope).elem_type(), E::as_type(scope).elem_type()];
+            if T::__expand_as_type(scope) != E::__expand_as_type(scope) && !is_tf32::<E, T>(scope) {
+                let elems = [
+                    T::__expand_as_type(scope).elem_type(),
+                    E::__expand_as_type(scope).elem_type(),
+                ];
                 let is_flex32_cast = elems.contains(&ElemType::Float(FloatKind::F32))
                     && elems.contains(&ElemType::Float(FloatKind::Flex32));
 
                 if !is_flex32_cast {
-                    panic!("Downcast should only be used to satisfy the Rust type system.")
+                    panic!(
+                        "Downcast should only be used to satisfy the Rust type system.
+Expected types to be the same, got [{}, {}]",
+                        elems[0], elems[1]
+                    )
                 }
             }
 
@@ -361,7 +368,7 @@ impl<E: CubePrimitive> Iterable for SliceExpand<E, ReadOnly> {
     type Item = E::ExpandType;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
-        let index_ty = u32::as_type(scope);
+        let index_ty = u32::__expand_as_type(scope);
         let len: Variable = self.length.into();
 
         let child = scope.child();
@@ -392,7 +399,7 @@ impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E, ReadOnly> {
     type Item = &'a E::ExpandType;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
-        let index_ty = u32::as_type(scope);
+        let index_ty = u32::__expand_as_type(scope);
         let len: Variable = self.length.into();
 
         let child = scope.child();
@@ -421,7 +428,7 @@ impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E, ReadWrite> {
     type Item = &'a mut E::ExpandType;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
-        let index_ty = u32::as_type(scope);
+        let index_ty = u32::__expand_as_type(scope);
         let len: Variable = self.length.into();
 
         let child = scope.child();

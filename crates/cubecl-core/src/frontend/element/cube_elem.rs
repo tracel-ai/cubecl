@@ -31,8 +31,8 @@ pub trait CubePrimitive:
     type WithScalar<S: Scalar>: CubePrimitive;
 
     /// Return the element type to use on GPU.
-    fn as_type(_scope: &Scope) -> Type {
-        Self::as_type_native().expect("To be overridden if not native")
+    fn as_type() -> Type {
+        Self::as_type_native_unchecked()
     }
 
     /// Native or static element type.
@@ -91,20 +91,24 @@ pub trait CubePrimitive:
         Self::as_type_native_unchecked().vector_size()
     }
 
+    fn __expand_as_type(_scope: &Scope) -> Type {
+        Self::as_type_native().expect("To be overridden if not native")
+    }
+
     fn __expand_type_size(scope: &Scope) -> usize {
-        Self::as_type(scope).size()
+        Self::__expand_as_type(scope).size()
     }
 
     fn __expand_type_size_bits(scope: &Scope) -> usize {
-        Self::as_type(scope).size_bits()
+        Self::__expand_as_type(scope).size_bits()
     }
 
     fn __expand_packing_factor(scope: &Scope) -> usize {
-        Self::as_type(scope).packing_factor()
+        Self::__expand_as_type(scope).packing_factor()
     }
 
     fn __expand_vector_size(scope: &Scope) -> usize {
-        Self::as_type(scope).vector_size()
+        Self::__expand_as_type(scope).vector_size()
     }
 }
 
@@ -128,10 +132,10 @@ pub trait Scalar:
 
 #[cube]
 pub fn type_of<E: CubePrimitive>() -> comptime_type!(Type) {
-    intrinsic!(|scope| { E::as_type(scope) })
+    intrinsic!(|scope| { E::__expand_as_type(scope) })
 }
 
 #[cube]
 pub fn storage_type_of<E: CubePrimitive>() -> comptime_type!(StorageType) {
-    intrinsic!(|scope| { E::as_type(scope).storage_type() })
+    intrinsic!(|scope| { E::__expand_as_type(scope).storage_type() })
 }

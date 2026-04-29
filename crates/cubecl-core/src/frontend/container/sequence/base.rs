@@ -114,7 +114,7 @@ impl<T: CubeType> Sequence<T> {
     /// Expand function of [`index_mut`](Self::index_mut).
     pub fn __expand_index_mut<'a>(
         scope: &Scope,
-        expand: &'a SequenceExpand<T>,
+        expand: &'a mut SequenceExpand<T>,
         index: NativeExpand<usize>,
     ) -> &'a mut T::ExpandType {
         expand.__expand_index_mut_method(scope, index)
@@ -137,6 +137,8 @@ impl<T: CubeType> CubeIndex for Sequence<T> {
     type Idx = usize;
 }
 
+impl<T: CubeType> CubeIndexMut for Sequence<T> {}
+
 impl<T: CubeType> Deref for Sequence<T> {
     type Target = [T];
 
@@ -155,6 +157,16 @@ impl<T: CubeType> CubeIndexExpand for SequenceExpand<T> {
 
     fn __expand_index_unchecked_method(&self, scope: &Scope, index: Self::Idx) -> &Self::Output {
         self.__expand_index_method(scope, index)
+    }
+}
+
+impl<T: CubeType> CubeIndexMutExpand for SequenceExpand<T> {
+    fn __expand_index_mut_method(
+        &mut self,
+        scope: &Scope,
+        index: <Self as CubeIndexExpand>::Idx,
+    ) -> &mut <Self as CubeIndexExpand>::Output {
+        self.__expand_index_mut_method(scope, index)
     }
 }
 
@@ -281,7 +293,7 @@ impl<T: CubeType> SequenceExpand<T> {
     /// Expand method of [`index_mut`](Sequence::index_mut).
     #[allow(clippy::mut_from_ref)]
     pub fn __expand_index_mut_method(
-        &self,
+        &mut self,
         _scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &mut T::ExpandType {

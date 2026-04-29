@@ -66,7 +66,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     pub fn new(#[comptime] size: usize) -> Self {
         intrinsic!(|scope| {
             scope
-                .create_shared_array(T::as_type(scope), size, None)
+                .create_shared_array(T::__expand_as_type(scope), size, None)
                 .into()
         })
     }
@@ -85,7 +85,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 impl<T: CubePrimitive> Shared<T> {
     pub fn new() -> Self {
         intrinsic!(|scope| {
-            let var = scope.create_shared(T::as_type(scope));
+            let var = scope.create_shared(T::__expand_as_type(scope));
             NativeExpand::new(var)
         })
     }
@@ -115,7 +115,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     #[allow(unused_variables)]
     pub fn new_aligned(#[comptime] size: usize, #[comptime] alignment: usize) -> SharedMemory<T> {
         intrinsic!(|scope| {
-            let var = scope.create_shared_array(T::as_type(scope), size, Some(alignment));
+            let var = scope.create_shared_array(T::__expand_as_type(scope), size, Some(alignment));
             NativeExpand::new(var)
         })
     }

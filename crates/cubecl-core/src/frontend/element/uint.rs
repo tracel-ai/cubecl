@@ -94,7 +94,7 @@ impl CubePrimitive for usize {
         value as usize
     }
 
-    fn as_type(scope: &Scope) -> Type {
+    fn __expand_as_type(scope: &Scope) -> Type {
         Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
     }
 }
@@ -157,7 +157,7 @@ impl CubePrimitive for isize {
         value as isize
     }
 
-    fn as_type(scope: &Scope) -> Type {
+    fn __expand_as_type(scope: &Scope) -> Type {
         Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
     }
 }

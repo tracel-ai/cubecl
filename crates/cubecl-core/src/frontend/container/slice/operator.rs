@@ -4,10 +4,10 @@ use crate::{ir::Scope, prelude::*, unexpanded};
 use cubecl_common::tf32;
 
 pub(crate) fn is_tf32<C: CubePrimitive, T: CubePrimitive>(scope: &Scope) -> bool {
-    let ty_c = C::as_type(scope).storage_type();
-    let ty_t = T::as_type(scope).storage_type();
-    let ty_f32 = f32::as_type(scope).storage_type();
-    let ty_tf32 = tf32::as_type(scope).storage_type();
+    let ty_c = C::__expand_as_type(scope).storage_type();
+    let ty_t = T::__expand_as_type(scope).storage_type();
+    let ty_f32 = f32::__expand_as_type(scope).storage_type();
+    let ty_tf32 = tf32::__expand_as_type(scope).storage_type();
 
     (ty_c == ty_f32 && ty_t == ty_tf32) || (ty_c == ty_tf32 && ty_t == ty_f32)
 }

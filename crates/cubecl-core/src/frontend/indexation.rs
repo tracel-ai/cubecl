@@ -80,7 +80,7 @@ where
     let index: Variable = index.into();
     let index_var: Variable = index;
     let index = match index_var.kind {
-        VariableKind::Constant(value) => Variable::constant(value, usize::as_type(scope)),
+        VariableKind::Constant(value) => Variable::constant(value, usize::__expand_as_type(scope)),
         _ => index,
     };
     let array: Variable = array.clone().into();
@@ -102,7 +102,7 @@ where
     let list: Variable = list.clone().into();
     let index: Variable = index.expand;
     let index = match index.kind {
-        VariableKind::Constant(value) => Variable::constant(value, usize::as_type(scope)),
+        VariableKind::Constant(value) => Variable::constant(value, usize::__expand_as_type(scope)),
         _ => index,
     };
 

@@ -79,7 +79,7 @@ mod components {
                 if self.expand.vector_size() > 1 {
                     let this = read_variable(scope, self.expand);
                     let index = read_variable(scope, index.expand);
-                    let out = scope.create_local(P::as_type(scope));
+                    let out = scope.create_local(P::__expand_as_type(scope));
                     scope.register(Instruction::new(
                         Operator::ExtractComponent(BinaryOperator {
                             lhs: this,
@@ -162,7 +162,7 @@ mod fill {
         #[allow(unused_variables)]
         pub fn fill(self, value: P) -> Self {
             intrinsic!(|scope| {
-                let output = scope.create_local(Vector::<P, N>::as_type(scope));
+                let output = scope.create_local(Vector::<P, N>::__expand_as_type(scope));
 
                 cast::expand::<P, Vector<P, N>>(scope, value, output.clone().into());
 
@@ -264,7 +264,7 @@ macro_rules! impl_vector_comparison {
                             let lhs = this.expand;
                             let rhs = other.expand.into();
 
-                            let output = scope.create_local_mut(Vector::<bool, N>::as_type(scope));
+                            let output = scope.create_local_mut(Vector::<bool, N>::__expand_as_type(scope));
 
                             scope.register(Instruction::new(
                                 Comparison::$operator(BinaryOperator { lhs, rhs }),
@@ -341,8 +341,8 @@ impl<P: Scalar, N: Size> CubePrimitive for Vector<P, N> {
     type Size = N;
     type WithScalar<S: Scalar> = Vector<S, N>;
 
-    fn as_type(scope: &Scope) -> Type {
-        Type::with_vector_size(P::as_type(scope), N::__expand_value(scope))
+    fn __expand_as_type(scope: &Scope) -> Type {
+        Type::with_vector_size(P::__expand_as_type(scope), N::__expand_value(scope))
     }
 
     fn as_type_native() -> Option<Type> {

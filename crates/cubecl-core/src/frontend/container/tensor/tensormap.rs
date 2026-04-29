@@ -160,7 +160,7 @@ impl<E: CubePrimitive, K: TensorMapKind> LaunchArg for TensorMap<E, K> {
         arg: Self::RuntimeArg<R>,
         launcher: &mut KernelLauncher<R>,
     ) -> Self::CompilationArg {
-        let ty = launcher.with_scope(|scope| E::as_type(scope));
+        let ty = launcher.with_scope(|scope| E::__expand_as_type(scope));
         launcher.register_tensor_map(arg, ty);
     }
 
@@ -168,7 +168,7 @@ impl<E: CubePrimitive, K: TensorMapKind> LaunchArg for TensorMap<E, K> {
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> NativeExpand<TensorMap<E, K>> {
-        let tensor = builder.output_tensor_map(E::as_type(&builder.scope));
+        let tensor = builder.output_tensor_map(E::__expand_as_type(&builder.scope));
         tensor.into()
     }
 }
@@ -430,7 +430,7 @@ mod metadata {
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
             let dim: Variable = dim.into();
-            let out = scope.create_local(usize::as_type(scope));
+            let out = scope.create_local(usize::__expand_as_type(scope));
             scope.register(Instruction::new(
                 Metadata::Stride {
                     dim,
@@ -448,7 +448,7 @@ mod metadata {
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
             let dim: Variable = dim.into();
-            let out = scope.create_local(usize::as_type(scope));
+            let out = scope.create_local(usize::__expand_as_type(scope));
             scope.register(Instruction::new(
                 Metadata::Shape {
                     dim,
@@ -471,7 +471,7 @@ mod metadata {
             let shape = self.__expand_shape_method(scope, dim);
 
             // Compute `num_strides = index / stride`.
-            let num_strides = scope.create_local(usize::as_type(scope));
+            let num_strides = scope.create_local(usize::__expand_as_type(scope));
             scope.register(Instruction::new(
                 Arithmetic::Div(BinaryOperator {
                     lhs: index,
@@ -481,7 +481,7 @@ mod metadata {
             ));
 
             // Compute `coordinate = num_strides % shape `.
-            let coordinate = scope.create_local(usize::as_type(scope));
+            let coordinate = scope.create_local(usize::__expand_as_type(scope));
             scope.register(Instruction::new(
                 Arithmetic::Modulo(BinaryOperator {
                     lhs: num_strides,
@@ -507,7 +507,7 @@ mod metadata {
 
         // Expand method of [rank](Tensor::rank).
         pub fn __expand_rank_method(self, scope: &Scope) -> NativeExpand<usize> {
-            let out = scope.create_local(usize::as_type(scope));
+            let out = scope.create_local(usize::__expand_as_type(scope));
             scope.register(Instruction::new(Metadata::Rank { var: self.expand }, out));
             out.into()
         }
@@ -517,7 +517,7 @@ mod metadata {
             self,
             scope: &Scope,
         ) -> NativeExpand<TensorMap<E, K>> {
-            if T::as_type(scope) != E::as_type(scope) && !is_tf32::<E, T>(scope) {
+            if T::__expand_as_type(scope) != E::__expand_as_type(scope) && !is_tf32::<E, T>(scope) {
                 panic!("Downcast should only be used to satisfy the Rust type system.")
             }
 

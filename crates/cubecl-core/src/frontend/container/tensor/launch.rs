@@ -85,7 +85,7 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
         arg: Self::RuntimeArg<R>,
         launcher: &mut KernelLauncher<R>,
     ) -> Self::CompilationArg {
-        let ty = launcher.with_scope(|scope| C::as_type(scope));
+        let ty = launcher.with_scope(|scope| C::__expand_as_type(scope));
         let compilation_arg = match &arg {
             TensorArg::Handle { .. } => TensorCompilationArg { inplace: None },
             TensorArg::Alias { input_pos, .. } => TensorCompilationArg {
@@ -99,7 +99,7 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
     fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<Tensor<C>> {
         match arg.inplace {
             Some(pos) => builder.inplace_output(pos).into(),
-            None => builder.output_tensor(C::as_type(&builder.scope)).into(),
+            None => builder.output_tensor(C::__expand_as_type(&builder.scope)).into(),
         }
     }
 }

@@ -484,7 +484,7 @@ fn parse_index_expr(
     is_mut: bool,
 ) -> syn::Result<Expression> {
     let span = expr_index.span();
-    let expr = Expression::from_expr(*expr_index.expr.clone(), context)?;
+    let expr = Expression::from_expr_receiver(*expr_index.expr.clone(), context)?;
     let index = Expression::from_expr(*expr_index.index.clone(), context)?;
     let expression = if expr.is_const() && index.is_const() {
         Expression::Verbatim {

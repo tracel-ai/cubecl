@@ -30,7 +30,7 @@ impl<T: SizedContainer + CubeType<ExpandType = NativeExpand<T>>> Iterable for Na
         scope: &Scope,
         mut body: impl FnMut(&Scope, <T::Item as CubeType>::ExpandType),
     ) {
-        let index_ty = u32::as_type(scope);
+        let index_ty = u32::__expand_as_type(scope);
         let len: Variable = T::len(&self.expand, scope);
 
         let mut child = scope.child();

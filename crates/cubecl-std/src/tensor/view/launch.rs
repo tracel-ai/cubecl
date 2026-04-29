@@ -620,7 +620,7 @@ mod dynamic {
             arg: Self::RuntimeArg<R>,
             launcher: &mut KernelLauncher<R>,
         ) -> Self::CompilationArg {
-            let ty = launcher.with_scope(|scope| E::as_type(scope));
+            let ty = launcher.with_scope(|scope| E::__expand_as_type(scope));
             match arg {
                 ViewArg::Array(buffer, layout) => ViewCompilationArg::Array {
                     layout: layout.register(&buffer, ty, launcher),
@@ -658,7 +658,7 @@ mod dynamic {
             arg: &Self::CompilationArg,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
-            let ty = E::as_type(&builder.scope);
+            let ty = E::__expand_as_type(&builder.scope);
             match arg {
                 ViewCompilationArg::Array { buffer, layout } => {
                     let layout = layout.expand(ty, builder);

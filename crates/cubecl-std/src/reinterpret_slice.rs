@@ -216,6 +216,6 @@ pub mod size_of {
     use super::*;
     #[allow(unused, clippy::all)]
     pub fn expand<S: CubePrimitive>(context: &Scope) -> u32 {
-        S::as_type(context).size() as u32
+        S::__expand_as_type(context).size() as u32
     }
 }
