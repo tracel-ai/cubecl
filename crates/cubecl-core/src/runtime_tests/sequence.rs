@@ -2,7 +2,7 @@ use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 
 #[cube(launch)]
-pub fn sequence_for_loop<F: Float>(output: &mut Array<F>) {
+pub fn sequence_for_loop<F: Float>(output: &mut [F]) {
     if UNIT_POS != 0 {
         terminate!();
     }
@@ -17,7 +17,7 @@ pub fn sequence_for_loop<F: Float>(output: &mut Array<F>) {
 }
 
 #[cube(launch)]
-pub fn sequence_index<F: Float>(output: &mut Array<F>) {
+pub fn sequence_index<F: Float>(output: &mut [F]) {
     if UNIT_POS != 0 {
         terminate!();
     }

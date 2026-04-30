@@ -25,21 +25,21 @@ pub fn kernel_with_comptime_tag(mut output: ComptimeTag) {
 }
 
 #[cube(launch)]
-pub fn kernel_with_generics<F: Float>(output: &mut Array<F>) {
+pub fn kernel_with_generics<F: Float>(output: &mut [F]) {
     if UNIT_POS == 0 {
         output[0] = F::new(5f32);
     }
 }
 
 #[cube(launch)]
-pub fn kernel_without_generics(output: &mut Array<f32>) {
+pub fn kernel_without_generics(output: &mut [f32]) {
     if UNIT_POS == 0 {
         output[0] = 5.0;
     }
 }
 
 #[cube(launch, address_type = "dynamic")]
-pub fn kernel_dynamic_addressing(output: &mut Array<f32>) {
+pub fn kernel_dynamic_addressing(output: &mut [f32]) {
     if UNIT_POS == 0 {
         output[0] = 5.0;
     }
@@ -47,7 +47,7 @@ pub fn kernel_dynamic_addressing(output: &mut Array<f32>) {
 
 #[cube(launch)]
 pub fn kernel_with_max_shared(
-    output: &mut Array<u32>,
+    output: &mut [u32],
     #[comptime] shared_size_1: usize,
     #[comptime] shared_size_2: usize,
 ) {
@@ -66,7 +66,7 @@ pub fn kernel_with_max_shared(
 }
 
 #[cube(launch)]
-pub fn kernel_resource_errors(output: &mut Array<u32>, #[comptime] shared_size: usize) {
+pub fn kernel_resource_errors(output: &mut [u32], #[comptime] shared_size: usize) {
     let mut shared = SharedMemory::<u32>::new(shared_size);
     // Add some dummy code to prevent smem from being optimized out
     shared[0] = 0;

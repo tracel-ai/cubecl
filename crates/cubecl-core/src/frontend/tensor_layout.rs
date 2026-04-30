@@ -1,3 +1,5 @@
+use alloc::boxed::Box;
+
 use cubecl_ir::{ClampMode, Instruction, SemanticType, TensorIndexingOps};
 
 use crate::{self as cubecl, unexpanded};
@@ -26,10 +28,10 @@ impl From<TensorClampMode> for ClampMode {
 }
 
 // OpTypeTensorLayoutNV with optional OpTypeTensorViewNV
-#[derive(CubeType, Clone, Copy)]
+#[derive(CubeType, Clone)]
 pub struct TensorView<T: CubePrimitive> {
     #[allow(unused)]
-    pub(crate) buffer: Array<T>,
+    pub(crate) buffer: Box<[T]>,
     #[allow(unused)]
     pub(crate) layout: TensorLayout,
     #[allow(unused)]
@@ -79,7 +81,7 @@ impl NativeAssign for TensorReinterpret {}
 #[derive(CubeType, CubeLaunch)]
 pub struct TensorViewBuilder<T: CubePrimitive> {
     #[allow(unused)]
-    buffer: Array<T>,
+    buffer: Box<[T]>,
     #[allow(unused)]
     shape: Sequence<u32>,
     /// Strides default to contiguous strides
@@ -91,9 +93,9 @@ pub struct TensorViewBuilder<T: CubePrimitive> {
 #[cube]
 impl<T: CubePrimitive> TensorView<T> {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(buffer: Array<T>, shape: Sequence<u32>) -> TensorViewBuilder<T> {
+    pub fn new(buffer: &[T], shape: Sequence<u32>) -> TensorViewBuilder<T> {
         TensorViewBuilder::<T> {
-            buffer,
+            buffer: unsafe { buffer.as_boxed_unchecked() },
             shape,
             strides: ComptimeOption::new_None(),
             clamp_mode: comptime![TensorClampMode::Constant(0)],

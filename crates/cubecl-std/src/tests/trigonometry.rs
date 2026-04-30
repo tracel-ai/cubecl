@@ -5,7 +5,7 @@ use cubecl_core as cubecl;
 use crate::trigonometry::*;
 
 #[cube(launch_unchecked)]
-fn kernel_to_degrees(input: &Array<f32>, output: &mut Array<f32>) {
+fn kernel_to_degrees(input: &[f32], output: &mut [f32]) {
     if (UNIT_POS as usize) < input.len() {
         output[UNIT_POS as usize] = to_degrees::<f32>(input[UNIT_POS as usize]);
     }
@@ -43,7 +43,7 @@ pub fn test_to_degrees<R: Runtime>(client: ComputeClient<R>) {
 }
 
 #[cube(launch_unchecked)]
-fn kernel_to_radians(input: &Array<f32>, output: &mut Array<f32>) {
+fn kernel_to_radians(input: &[f32], output: &mut [f32]) {
     if (UNIT_POS as usize) < input.len() {
         output[UNIT_POS as usize] = to_radians::<f32>(input[UNIT_POS as usize]);
     }

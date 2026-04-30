@@ -118,7 +118,7 @@ impl OptimizerPass for ReduceStrength {
                         ));
                         changes.inc();
                     }
-                    Arithmetic::Modulo(op) if is_pow2(op.rhs) => {
+                    Arithmetic::Rem(op) if is_pow2(op.rhs) => {
                         let const_val = op.rhs.as_const().unwrap().as_u32();
 
                         new_ops.push(Instruction::new(

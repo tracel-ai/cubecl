@@ -4,9 +4,9 @@ use cubecl::{features::Plane, prelude::*, server::Handle};
 use std::marker::PhantomData;
 
 #[cube(launch_unchecked)]
-fn sum_basic<F: Float>(input: &Array<F>, output: &mut Array<F>, #[comptime] end: Option<usize>) {
+fn sum_basic<F: Float>(input: &[F], output: &mut [F], #[comptime] end: Option<usize>) {
     let unroll = end.is_some();
-    let end = end.unwrap_or_else(|| input.len());
+    let end = end.unwrap_or(input.len());
 
     let mut sum = F::new(0.0f32);
 
@@ -20,8 +20,8 @@ fn sum_basic<F: Float>(input: &Array<F>, output: &mut Array<F>, #[comptime] end:
 
 #[cube(launch_unchecked)]
 fn sum_subgroup<F: Float>(
-    input: &Array<F>,
-    output: &mut Array<F>,
+    input: &[F],
+    output: &mut [F],
     #[comptime] subgroup: bool,
     #[comptime] end: Option<usize>,
 ) {
@@ -65,12 +65,8 @@ impl SumKind for SumPlane {
 }
 
 #[cube(launch_unchecked)]
-fn sum_trait<F: Float, K: SumKind>(
-    input: &Array<F>,
-    output: &mut Array<F>,
-    #[comptime] end: Option<usize>,
-) {
-    output[UNIT_POS as usize] = K::sum(input.to_slice(), end);
+fn sum_trait<F: Float, K: SumKind>(input: &[F], output: &mut [F], #[comptime] end: Option<usize>) {
+    output[UNIT_POS as usize] = K::sum(input, end);
 }
 
 #[cube]
@@ -82,11 +78,11 @@ trait CreateSeries: 'static + Send + Sync {
 
 #[cube(launch_unchecked)]
 fn series<F: Float, S: CreateSeries>(
-    input: &Array<F>,
-    output: &mut Array<F>,
+    input: &[F],
+    output: &mut [F],
     #[comptime] end: Option<usize>,
 ) {
-    output[UNIT_POS as usize] = S::execute(input.to_slice(), end);
+    output[UNIT_POS as usize] = S::execute(input, end);
 }
 
 struct SumThenMul<K: SumKind> {

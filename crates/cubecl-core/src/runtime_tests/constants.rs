@@ -4,7 +4,7 @@ use crate as cubecl;
 use crate::prelude::*;
 
 #[cube(launch)]
-fn constant_array_kernel<F: Float>(out: &mut Array<F>, #[comptime] data: Vec<u32>) {
+fn constant_array_kernel<F: Float>(out: &mut [F], #[comptime] data: Vec<u32>) {
     let array = Array::<F>::from_data(data);
 
     if UNIT_POS == 0 {

@@ -60,32 +60,6 @@ impl CheckedIoProcessor {
                             continue;
                         }
                     }
-                    Memory::Index(op) if op.checked => {
-                        let out = instruction.out();
-
-                        if out.has_length() {
-                            let scope = Scope::root(false)
-                                .with_global_state(processing.global_state.clone());
-                            expand_checked_index_mut(
-                                &scope,
-                                op.list,
-                                op.index,
-                                instruction.out(),
-                                op.unroll_factor,
-                            );
-
-                            let tmp_processing = scope.process([]);
-
-                            for inst in tmp_processing.instructions {
-                                processing.instructions.push(inst);
-                            }
-                            for var in tmp_processing.variables {
-                                processing.variables.push(var);
-                            }
-
-                            continue;
-                        }
-                    }
                     _ => {}
                 }
             }
@@ -119,33 +93,6 @@ impl CheckedIoProcessor {
                                 &scope,
                                 list,
                                 index,
-                                instruction.out(),
-                                op.unroll_factor,
-                                &self.kernel_name,
-                            );
-
-                            let tmp_processing = scope.process([]);
-
-                            for inst in tmp_processing.instructions {
-                                processing.instructions.push(inst);
-                            }
-                            for var in tmp_processing.variables {
-                                processing.variables.push(var);
-                            }
-
-                            continue;
-                        }
-                    }
-                    Memory::Index(op) if op.checked => {
-                        let out = instruction.out();
-
-                        if out.has_length() {
-                            let scope = Scope::root(false)
-                                .with_global_state(processing.global_state.clone());
-                            expand_validate_index_mut(
-                                &scope,
-                                op.list,
-                                op.index,
                                 instruction.out(),
                                 op.unroll_factor,
                                 &self.kernel_name,

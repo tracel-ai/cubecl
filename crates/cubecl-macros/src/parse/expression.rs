@@ -136,7 +136,10 @@ impl Expression {
                     .iter()
                     .map(|arg| Expression::from_expr(arg.clone(), context))
                     .collect::<Result<Vec<_>, _>>()?;
-                let receiver = Expression::from_expr_receiver(*method.receiver.clone(), context)?;
+                // Hack to at least somewhat support mutable methods
+                let ends_in_mut = method.method.to_string().ends_with("_mut");
+                let receiver =
+                    Expression::from_expr_receiver(*method.receiver.clone(), ends_in_mut, context)?;
 
                 if receiver.is_const()
                     && args.iter().all(|arg| arg.is_const())
@@ -196,17 +199,14 @@ impl Expression {
                     .start
                     .map(|start| Expression::from_expr(*start, context))
                     .transpose()?
-                    .unwrap_or_else(|| {
-                        let lit = Lit::Int(LitInt::new("0", span));
-                        Expression::Literal { value: lit }
-                    });
+                    .map(Box::new);
                 let end = range
                     .end
                     .map(|end| Expression::from_expr(*end, context))
                     .transpose()?
                     .map(Box::new);
                 Expression::Range {
-                    start: Box::new(start),
+                    start,
                     end,
                     span,
                     inclusive: matches!(range.limits, RangeLimits::Closed(..)),
@@ -468,11 +468,15 @@ impl Expression {
         Ok(expression)
     }
 
-    pub fn from_expr_receiver(expr: Expr, context: &mut Context) -> syn::Result<Self> {
+    pub fn from_expr_receiver(
+        expr: Expr,
+        ends_in_mut: bool,
+        context: &mut Context,
+    ) -> syn::Result<Self> {
         match expr {
             // Assuming immutable is not ideal, but unsure we can fix this. For now just make atomics work.
             // Rust does a lot of magic around indexing that we can't really replicate
-            Expr::Index(expr_index) => parse_index_expr(expr_index, context, false),
+            Expr::Index(expr_index) => parse_index_expr(expr_index, context, ends_in_mut),
             other => Self::from_expr(other, context),
         }
     }
@@ -484,30 +488,11 @@ fn parse_index_expr(
     is_mut: bool,
 ) -> syn::Result<Expression> {
     let span = expr_index.span();
-    let expr = Expression::from_expr_receiver(*expr_index.expr.clone(), context)?;
+    let expr = Expression::from_expr_receiver(*expr_index.expr.clone(), is_mut, context)?;
     let index = Expression::from_expr(*expr_index.index.clone(), context)?;
     let expression = if expr.is_const() && index.is_const() {
         Expression::Verbatim {
             tokens: expr_index.to_token_stream(),
-        }
-    } else if is_slice(&index) {
-        let ranges = match index {
-            Expression::Array { elements, .. } => elements.clone(),
-            Expression::Tuple { elements, .. } => elements.clone(),
-            index => vec![index],
-        };
-        if is_mut {
-            Expression::SliceMut {
-                span,
-                expr: Box::new(expr),
-                ranges,
-            }
-        } else {
-            Expression::Slice {
-                span,
-                expr: Box::new(expr),
-                ranges,
-            }
         }
     } else {
         let index = match index {
@@ -588,15 +573,6 @@ fn generate_strided_index(
         })
         .unwrap();
     Ok(sum)
-}
-
-fn is_slice(index: &Expression) -> bool {
-    match index {
-        Expression::Range { .. } => true,
-        Expression::Array { elements, .. } => elements.iter().any(is_slice),
-        Expression::Tuple { elements, .. } => elements.iter().any(is_slice),
-        _ => false,
-    }
 }
 
 fn fn_associated_type(path: &Expression) -> Option<(Path, Option<QSelf>, PathSegment)> {

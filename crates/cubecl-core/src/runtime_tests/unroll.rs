@@ -2,7 +2,7 @@ use crate::{self as cubecl, as_bytes, as_type};
 use cubecl::prelude::*;
 
 #[cube(launch)]
-pub fn unroll_add<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
+pub fn unroll_add<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     if UNIT_POS != 0 {
         terminate!();
     }
@@ -22,7 +22,7 @@ pub fn unroll_add<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
 }
 
 #[cube(launch)]
-pub fn unroll_load_store<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
+pub fn unroll_load_store<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     if UNIT_POS != 0 {
         terminate!();
     }

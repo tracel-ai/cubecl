@@ -32,7 +32,7 @@ pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Vectorized {
     /// Create a slice starting from `pos`, with `size`.
     /// The layout handles translation into concrete indices.
     #[allow(unused)]
-    fn to_linear_slice(&self, pos: C, size: C) -> &[T] {
+    fn as_linear_slice(&self, pos: C, size: C) -> &[T] {
         unexpanded!()
     }
 
@@ -71,7 +71,7 @@ pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>: ViewOperations<T,
     /// Create a mutable slice starting from `pos`, with `size`.
     /// The layout handles translation into concrete indices.
     #[allow(unused, clippy::wrong_self_convention)]
-    fn to_linear_slice_mut(&self, pos: C, size: C) -> &mut [T] {
+    fn as_linear_slice_mut(&self, pos: C, size: C) -> &mut [T] {
         unexpanded!()
     }
 

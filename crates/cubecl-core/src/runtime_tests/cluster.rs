@@ -4,7 +4,7 @@ use crate::prelude::*;
 use crate::{self as cubecl};
 
 #[cube(launch, cluster_dim = CubeDim::new_3d(1, 2, 3))]
-fn cluster_meta_kernel(out: &mut Array<u32>) {
+fn cluster_meta_kernel(out: &mut [u32]) {
     if UNIT_POS == 0 {
         if CUBE_POS == 0 {
             out[0] = CUBE_CLUSTER_DIM;

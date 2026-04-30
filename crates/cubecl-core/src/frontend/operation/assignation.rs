@@ -1,4 +1,6 @@
-use core::ops::{Index, IndexMut};
+use core::ops::{
+    Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
+};
 
 use cubecl_ir::{Operator, Scope, Variable};
 
@@ -7,6 +9,9 @@ use crate::{
     prelude::*,
 };
 use crate::{ir, unexpanded};
+
+type ArrayExpand<E> = NativeExpand<Array<E>>;
+type TensorExpand<E> = NativeExpand<Tensor<E>>;
 
 pub mod cast {
     use ir::Instruction;
@@ -90,21 +95,58 @@ pub mod index_mut {
                     unexpanded!()
                 }
             }
+
+            impl<E: CubePrimitive> IndexMut<Range<usize>> for $type<E> {
+                fn index_mut(&mut self, _idx: Range<usize>) -> &mut Self::Output {
+                    unexpanded!()
+                }
+            }
+
+            impl<E: CubePrimitive> IndexMut<RangeFrom<usize>> for $type<E> {
+                fn index_mut(&mut self, _idx: RangeFrom<usize>) -> &mut Self::Output {
+                    unexpanded!()
+                }
+            }
+
+            impl<E: CubePrimitive> IndexMut<RangeFull> for $type<E> {
+                fn index_mut(&mut self, _idx: RangeFull) -> &mut Self::Output {
+                    unexpanded!()
+                }
+            }
+
+            impl<E: CubePrimitive> IndexMut<RangeInclusive<usize>> for $type<E> {
+                fn index_mut(&mut self, _idx: RangeInclusive<usize>) -> &mut Self::Output {
+                    unexpanded!()
+                }
+            }
+
+            impl<E: CubePrimitive> IndexMut<RangeTo<usize>> for $type<E> {
+                fn index_mut(&mut self, _idx: RangeTo<usize>) -> &mut Self::Output {
+                    unexpanded!()
+                }
+            }
+
+            impl<E: CubePrimitive> IndexMut<RangeToInclusive<usize>> for $type<E> {
+                fn index_mut(&mut self, _idx: RangeToInclusive<usize>) -> &mut Self::Output {
+                    unexpanded!()
+                }
+            }
+
             impl<E: CubePrimitive> IndexMutExpand<NativeExpand<usize>> for NativeExpand<$type<E>> {
                 fn __expand_index_mut_method(
                     &mut self,
                     scope: &Scope,
                     index: NativeExpand<usize>,
-                ) -> &mut Self::Output {
-                    expand_index_mut_native(scope, self, index, None, true)
+                ) -> &mut E::ExpandType {
+                    self.__expand_write_method(scope, index)
                 }
 
                 fn __expand_index_mut_unchecked_method(
                     &mut self,
                     scope: &Scope,
                     index: NativeExpand<usize>,
-                ) -> &mut Self::Output {
-                    expand_index_mut_native(scope, self, index, None, false)
+                ) -> &mut E::ExpandType {
+                    self.__expand_write_unchecked_method(scope, index)
                 }
             }
         };
@@ -113,6 +155,10 @@ pub mod index_mut {
     impl_index!(Array);
     impl_index!(Tensor);
     impl_index!(SharedMemory);
+
+    impl_slice_ranges!(ArrayExpand);
+    impl_slice_ranges!(TensorExpand);
+    impl_slice_ranges!(SharedMemoryExpand);
 }
 
 pub mod index {
@@ -128,6 +174,54 @@ pub mod index {
                 }
             }
 
+            impl<E: CubePrimitive> Index<Range<usize>> for $type<E> {
+                type Output = [E];
+
+                fn index(&self, _idx: Range<usize>) -> &Self::Output {
+                    unexpanded!()
+                }
+            }
+
+            impl<E: CubePrimitive> Index<RangeFrom<usize>> for $type<E> {
+                type Output = [E];
+
+                fn index(&self, _idx: RangeFrom<usize>) -> &Self::Output {
+                    unexpanded!()
+                }
+            }
+
+            impl<E: CubePrimitive> Index<RangeFull> for $type<E> {
+                type Output = [E];
+
+                fn index(&self, _idx: RangeFull) -> &Self::Output {
+                    unexpanded!()
+                }
+            }
+
+            impl<E: CubePrimitive> Index<RangeInclusive<usize>> for $type<E> {
+                type Output = [E];
+
+                fn index(&self, _idx: RangeInclusive<usize>) -> &Self::Output {
+                    unexpanded!()
+                }
+            }
+
+            impl<E: CubePrimitive> Index<RangeTo<usize>> for $type<E> {
+                type Output = [E];
+
+                fn index(&self, _idx: RangeTo<usize>) -> &Self::Output {
+                    unexpanded!()
+                }
+            }
+
+            impl<E: CubePrimitive> Index<RangeToInclusive<usize>> for $type<E> {
+                type Output = [E];
+
+                fn index(&self, _idx: RangeToInclusive<usize>) -> &Self::Output {
+                    unexpanded!()
+                }
+            }
+
             impl<E: CubePrimitive> IndexExpand<NativeExpand<usize>> for NativeExpand<$type<E>> {
                 type Output = NativeExpand<E>;
 
@@ -136,14 +230,14 @@ pub mod index {
                     scope: &Scope,
                     index: NativeExpand<usize>,
                 ) -> &Self::Output {
-                    expand_index_native(scope, self, index, None, true)
+                    self.__expand_read_method(scope, index)
                 }
                 fn __expand_index_unchecked_method(
                     &self,
                     scope: &Scope,
                     index: NativeExpand<usize>,
                 ) -> &Self::Output {
-                    expand_index_native(scope, self, index, None, false)
+                    self.__expand_read_unchecked_method(scope, index)
                 }
             }
         };

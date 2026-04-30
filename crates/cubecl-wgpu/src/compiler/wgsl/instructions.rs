@@ -80,7 +80,7 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
-    Modulo {
+    ModFloor {
         lhs: Variable,
         rhs: Variable,
         out: Variable,
@@ -588,13 +588,13 @@ impl Display for Instruction {
                 }
                 writeln!(f, "*{target} = *{source};")
             }
-            Instruction::Modulo { lhs, rhs, out } => {
+            Instruction::Remainder { lhs, rhs, out } => {
                 let lhs = lhs.fmt_cast_to(out.item());
                 let rhs = rhs.fmt_cast_to(out.item());
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {lhs} % {rhs};")
             }
-            Instruction::Remainder { lhs, rhs, out } => {
+            Instruction::ModFloor { lhs, rhs, out } => {
                 let f_type = out.item().with_elem(Elem::F32);
                 let ty = out.item();
                 let lhs_f = lhs.fmt_cast_to(f_type);

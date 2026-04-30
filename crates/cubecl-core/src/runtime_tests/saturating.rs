@@ -4,9 +4,9 @@ use cubecl::prelude::*;
 
 #[cube(launch_unchecked)]
 pub fn kernel_saturating_add<I: Int, N: Size>(
-    lhs: &Array<Vector<I, N>>,
-    rhs: &Array<Vector<I, N>>,
-    output: &mut Array<Vector<I, N>>,
+    lhs: &[Vector<I, N>],
+    rhs: &[Vector<I, N>],
+    output: &mut [Vector<I, N>],
 ) {
     if (UNIT_POS as usize) < output.len() {
         output[UNIT_POS as usize] =
@@ -16,9 +16,9 @@ pub fn kernel_saturating_add<I: Int, N: Size>(
 
 #[cube(launch_unchecked)]
 pub fn kernel_saturating_sub<I: Int, N: Size>(
-    lhs: &Array<Vector<I, N>>,
-    rhs: &Array<Vector<I, N>>,
-    output: &mut Array<Vector<I, N>>,
+    lhs: &[Vector<I, N>],
+    rhs: &[Vector<I, N>],
+    output: &mut [Vector<I, N>],
 ) {
     if (UNIT_POS as usize) < output.len() {
         output[UNIT_POS as usize] =

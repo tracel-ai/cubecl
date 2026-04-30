@@ -5,8 +5,8 @@ use crate::{ReinterpretSlice, ReinterpretSliceMut};
 use half::f16;
 
 #[cube(launch_unchecked)]
-fn kernel_read_global<N: Size>(input: &Array<Vector<i8, N>>, output: &mut Array<f16>) {
-    let list = ReinterpretSlice::<_, f16>::new(input.to_slice());
+fn kernel_read_global<N: Size>(input: &[Vector<i8, N>], output: &mut [f16]) {
+    let list = ReinterpretSlice::<_, f16>::new(input);
     output[UNIT_POS as usize] = list.read(UNIT_POS as usize);
 }
 
@@ -38,8 +38,8 @@ pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R>, vector_size: u
 }
 
 #[cube(launch_unchecked)]
-fn kernel_write_global<N: Size>(output: &mut Array<Vector<i8, N>>, input: &Array<f16>) {
-    let mut list = ReinterpretSliceMut::<_, f16>::new(output.to_slice_mut());
+fn kernel_write_global<N: Size>(output: &mut [Vector<i8, N>], input: &[f16]) {
+    let mut list = ReinterpretSliceMut::<_, f16>::new(output);
     list.write(UNIT_POS as usize, input[UNIT_POS as usize]);
 }
 
@@ -71,7 +71,7 @@ pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R>, vector_size: 
 }
 
 #[cube(launch_unchecked)]
-fn kernel_read_shared_memory(output: &mut Array<f16>) {
+fn kernel_read_shared_memory(output: &mut [f16]) {
     let mut mem = SharedMemory::<Vector<i8, Const<4>>>::new(1usize);
     if UNIT_POS == 0 {
         let mut vector = Vector::empty();
@@ -82,7 +82,7 @@ fn kernel_read_shared_memory(output: &mut Array<f16>) {
         mem[0] = vector;
     }
     sync_cube();
-    let list = ReinterpretSlice::<_, f16>::new(mem.to_slice());
+    let list = ReinterpretSlice::<_, f16>::new(mem.as_slice());
     output[UNIT_POS as usize] = list.read(UNIT_POS as usize);
 }
 
@@ -111,9 +111,9 @@ pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R>) {
 }
 
 #[cube(launch_unchecked)]
-fn kernel_write_shared_memory<N: Size>(output: &mut Array<Vector<i8, N>>, input: &Array<f16>) {
+fn kernel_write_shared_memory<N: Size>(output: &mut [Vector<i8, N>], input: &[f16]) {
     let mut mem = SharedMemory::<Vector<i8, N>>::new(1usize);
-    let mut list = ReinterpretSliceMut::<_, f16>::new(mem.to_slice_mut());
+    let mut list = ReinterpretSliceMut::<_, f16>::new(mem.as_mut_slice());
     let unit_pos = UNIT_POS as usize;
     list.write(unit_pos, input[unit_pos]);
     output[2 * unit_pos] = mem[2 * unit_pos];

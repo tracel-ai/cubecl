@@ -24,15 +24,12 @@ pub trait Binary<D: Dialect> {
         }
     }
 
-    fn format_scalar<Lhs, Rhs>(
+    fn format_scalar<Lhs: Component<D>, Rhs: Component<D>>(
         f: &mut Formatter<'_>,
         lhs: Lhs,
         rhs: Rhs,
         item: Item<D>,
-    ) -> std::fmt::Result
-    where
-        Lhs: Component<D>,
-        Rhs: Component<D>;
+    ) -> std::fmt::Result;
 
     fn unroll_vec(
         f: &mut Formatter<'_>,
@@ -130,7 +127,6 @@ operator!(Add, "+");
 operator!(Sub, "-");
 operator!(Div, "/");
 operator!(Mul, "*");
-operator!(Modulo, "%");
 operator!(Equal, "==");
 operator!(NotEqual, "!=");
 operator!(Lower, "<");
@@ -144,6 +140,76 @@ operator!(BitwiseAnd, "&");
 operator!(BitwiseXor, "^");
 operator!(Or, "||");
 operator!(And, "&&");
+
+pub struct Remainder;
+
+impl<D: Dialect> Binary<D> for Remainder {
+    fn format_scalar<Lhs: Display, Rhs: Display>(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: Lhs,
+        rhs: Rhs,
+        out_item: Item<D>,
+    ) -> std::fmt::Result {
+        let out_elem = out_item.elem();
+        match out_elem {
+            Elem::<D>::I16 | Elem::<D>::U16 | Elem::<D>::I8 | Elem::<D>::U8 => {
+                write!(f, "{out_elem}({lhs} % {rhs})")
+            }
+            Elem::<D>::F16 | Elem::<D>::BF16 => {
+                let f32 = Elem::<D>::F32;
+                write!(f, "{out_elem}(fmodf({f32}({lhs}), {f32}({rhs}))))")
+            }
+            Elem::<D>::F32 => {
+                write!(f, "fmodf({lhs}, {rhs})")
+            }
+            Elem::<D>::F64 => {
+                write!(f, "fmod({lhs}, {rhs})")
+            }
+            _ => write!(f, "{lhs} % {rhs}"),
+        }
+    }
+
+    fn can_optimize() -> bool {
+        false
+    }
+}
+
+pub struct ModFloor;
+
+impl<D: Dialect> Binary<D> for ModFloor {
+    fn format_scalar<Lhs: Component<D>, Rhs: Component<D>>(
+        f: &mut Formatter<'_>,
+        lhs: Lhs,
+        rhs: Rhs,
+        item: Item<D>,
+    ) -> std::fmt::Result {
+        let is_uint = matches!(item.elem(), Elem::U8 | Elem::U16 | Elem::U32 | Elem::U64);
+        if is_uint {
+            // Remainder is cheaper and unsigned ints don't have a difference
+            return Remainder::format_scalar(f, lhs, rhs, item);
+        }
+
+        let floor = {
+            let prefix = match item.elem() {
+                Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
+                Elem::F16x2 | Elem::BF16x2 => D::compile_instruction_half2_function_name_prefix(),
+                _ => "",
+            };
+            format!("{prefix}floor")
+        };
+
+        let is_int = matches!(item.elem(), Elem::I8 | Elem::I16 | Elem::I32 | Elem::I64);
+        let out_elem = item.elem();
+        if is_int {
+            write!(
+                f,
+                "{lhs} - {rhs} * ({out_elem}){floor}((float){lhs} / (float){rhs})"
+            )
+        } else {
+            write!(f, "{lhs} - {rhs} * {floor}({lhs} / {rhs})")
+        }
+    }
+}
 
 pub struct FastDiv;
 

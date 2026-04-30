@@ -142,25 +142,25 @@ fn test_3(items: &mut [f32]) {
 }
 
 #[cube(launch_unchecked)]
-fn launch_test_1(output: &mut Array<f32>) {
+fn launch_test_1(output: &mut [f32]) {
     output[0] = 0.0;
     output[1] = 0.0;
-    test_1(output.to_slice_mut());
+    test_1(output);
 }
 
 #[cube(launch_unchecked)]
-fn launch_test_2(output: &mut Array<f32>) {
+fn launch_test_2(output: &mut [f32]) {
     output[0] = 0.0;
     output[1] = 0.0;
-    test_2(output.to_slice_mut());
+    test_2(output);
 }
 
 #[cube(launch_unchecked)]
-fn launch_test_3(output: &mut Array<f32>) {
+fn launch_test_3(output: &mut [f32]) {
     output[0] = 0.0;
     output[1] = 0.0;
     output[2] = 0.0;
-    test_3(output.to_slice_mut());
+    test_3(output);
 }
 
 pub fn event_test_1<R: Runtime>(client: ComputeClient<R>) {

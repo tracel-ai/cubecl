@@ -37,7 +37,7 @@ impl<T: Numeric, N: Size, IO: Clone> ViewOperationsExpand<Vector<T, N>, Coords1d
         mask_value: <Vector<T, N> as CubeType>::ExpandType,
     ) -> <Vector<T, N> as CubeType>::ExpandType {
         let in_bounds = self.__expand_is_in_bounds_method(scope, pos);
-        let slice = self.__expand_to_slice_method(scope);
+        let slice = self.__expand_as_slice_method(scope);
         read_masked::expand::<Vector<T, N>>(scope, in_bounds, slice, pos, mask_value)
     }
 
@@ -49,7 +49,7 @@ impl<T: Numeric, N: Size, IO: Clone> ViewOperationsExpand<Vector<T, N>, Coords1d
         self.__expand_read_method(scope, pos)
     }
 
-    fn __expand_to_linear_slice_method(
+    fn __expand_as_linear_slice_method(
         &self,
         scope: &Scope,
         pos: NativeExpand<usize>,
@@ -116,7 +116,7 @@ impl<T: Numeric, N: Size> ViewOperationsMutExpand<Vector<T, N>, Coords1d>
         })
     }
 
-    fn __expand_to_linear_slice_mut_method(
+    fn __expand_as_linear_slice_mut_method(
         &self,
         scope: &Scope,
         pos: NativeExpand<usize>,
@@ -128,7 +128,7 @@ impl<T: Numeric, N: Size> ViewOperationsMutExpand<Vector<T, N>, Coords1d>
         // negative length.
         let start = clamp_max::expand(scope, pos, end);
         let mut this = self.clone();
-        let slice = <Self as SliceMutOperatorExpand<Vector<T, N>>>::__expand_slice_mut_method(
+        let slice = <Self as SliceOperatorExpand<Vector<T, N>>>::__expand_slice_mut_method(
             &mut this, scope, start, end,
         );
         // Arrays are internally references, so this is actually 'a

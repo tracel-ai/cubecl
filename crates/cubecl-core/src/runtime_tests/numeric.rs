@@ -3,13 +3,13 @@ use cubecl::prelude::*;
 use cubecl_ir::{ElemType, FloatKind, UIntKind};
 
 #[cube(launch)]
-pub fn kernel_define<N: Numeric>(array: &mut Array<N>, #[define(N)] _elem: ElemType) {
+pub fn kernel_define<N: Numeric>(array: &mut [N], #[define(N)] _elem: ElemType) {
     array[UNIT_POS as usize] += N::cast_from(5.0f32);
 }
 
 #[cube(launch)]
 pub fn kernel_define_many<N: Numeric, N2: Numeric>(
-    array: &mut Array<N>,
+    array: &mut [N],
     second: Array<N2>,
     #[define(N, N2)] _defines: [ElemType; 2],
 ) {

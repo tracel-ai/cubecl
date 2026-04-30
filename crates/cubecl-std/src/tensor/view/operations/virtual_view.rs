@@ -156,7 +156,7 @@ macro_rules! impl_virtual_read {
                 self.view.__expand_read_unchecked_method(scope, pos)
             }
 
-            fn __expand_to_linear_slice_method(
+            fn __expand_as_linear_slice_method(
                 &self,
                 scope: &Scope,
                 pos: <C>::ExpandType,
@@ -170,7 +170,7 @@ macro_rules! impl_virtual_read {
                     .layout
                     .clone()
                     .__expand_to_source_pos_method(scope, end);
-                self.view.__expand_to_linear_slice_method(scope, pos, end)
+                self.view.__expand_as_linear_slice_method(scope, pos, end)
             }
 
             fn __expand_shape_method(&self, scope: &Scope) -> <C>::ExpandType {
@@ -246,7 +246,7 @@ where
         });
     }
 
-    fn __expand_to_linear_slice_mut_method(
+    fn __expand_as_linear_slice_mut_method(
         &self,
         scope: &Scope,
         pos: <C>::ExpandType,
@@ -261,7 +261,7 @@ where
             .clone()
             .__expand_to_source_pos_method(scope, end);
         self.view
-            .__expand_to_linear_slice_mut_method(scope, pos, end)
+            .__expand_as_linear_slice_mut_method(scope, pos, end)
     }
 
     fn __expand_tensor_map_store_method(

@@ -1202,9 +1202,6 @@ impl<D: Dialect> CppCompiler<D> {
                 D::register_instruction_extension(&mut self.extensions, &instruction);
                 instructions.push(instruction)
             }
-            gpu::Arithmetic::Modulo(op) => {
-                instructions.push(Instruction::Modulo(self.compile_binary(op, out)))
-            }
             gpu::Arithmetic::Abs(op) => {
                 instructions.push(Instruction::Abs(self.compile_unary(op, out)))
             }
@@ -1425,8 +1422,11 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Arithmetic::Trunc(op) => {
                 instructions.push(Instruction::Trunc(self.compile_unary(op, out)))
             }
-            gpu::Arithmetic::Remainder(op) => {
-                instructions.push(Instruction::Remainder(self.compile_binary(op, out)))
+            gpu::Arithmetic::Rem(op) => {
+                instructions.push(Instruction::Rem(self.compile_binary(op, out)))
+            }
+            gpu::Arithmetic::ModFloor(op) => {
+                instructions.push(Instruction::ModFloor(self.compile_binary(op, out)));
             }
             gpu::Arithmetic::Fma(op) => instructions.push(Instruction::Fma {
                 a: self.compile_variable(op.a),

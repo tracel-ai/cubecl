@@ -268,7 +268,15 @@ impl<C: CubeType> IntoMut for NativeExpand<Array<C>> {
 }
 
 impl<T: CubePrimitive> SizedContainer<usize> for Array<T> {
-    type Item = T;
+    fn len(&self) -> usize {
+        unexpanded!()
+    }
+}
+
+impl<T: CubePrimitive> SizedContainerExpand<usize> for ArrayExpand<T> {
+    fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
+        self.__expand_len_method(scope)
+    }
 }
 
 impl<T: CubeType> Iterator for Array<T> {
@@ -304,14 +312,30 @@ impl<T: CubePrimitive> DerefExpand for ArrayExpand<T> {
 impl<T: CubePrimitive> List<T> for Array<T> {}
 impl<T: CubePrimitive> ListExpand<T> for ArrayExpand<T> {
     fn __expand_read_method(&self, scope: &Scope, idx: NativeExpand<usize>) -> &NativeExpand<T> {
-        self.__expand_index_method(scope, idx)
+        expand_index_native(scope, self, idx, None, true)
     }
     fn __expand_read_unchecked_method(
         &self,
         scope: &Scope,
         idx: NativeExpand<usize>,
     ) -> &NativeExpand<T> {
-        self.__expand_index_unchecked_method(scope, idx)
+        expand_index_native(scope, self, idx, None, false)
+    }
+
+    fn __expand_write_method(
+        &mut self,
+        scope: &Scope,
+        idx: NativeExpand<usize>,
+    ) -> &mut NativeExpand<T> {
+        expand_index_mut_native(scope, self, idx, None, true)
+    }
+
+    fn __expand_write_unchecked_method(
+        &mut self,
+        scope: &Scope,
+        idx: NativeExpand<usize>,
+    ) -> &mut NativeExpand<T> {
+        expand_index_mut_native(scope, self, idx, None, false)
     }
 
     fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
@@ -323,19 +347,5 @@ impl<T: CubePrimitive> Vectorized for Array<T> {}
 impl<T: CubePrimitive> VectorizedExpand for ArrayExpand<T> {
     fn vector_size(&self) -> VectorSize {
         self.expand.ty.vector_size()
-    }
-}
-
-impl<T: CubePrimitive> ListMut<T> for Array<T> {}
-impl<T: CubePrimitive> ListMutExpand<T> for ArrayExpand<T> {
-    fn __expand_write_method(
-        &self,
-        scope: &Scope,
-        idx: NativeExpand<usize>,
-    ) -> &mut NativeExpand<T> {
-        let mut this = *self;
-        let reference = this.__expand_index_mut_method(scope, idx);
-        // Extend lifetime because we know the array is actually 'a
-        unsafe { core::mem::transmute(reference) }
     }
 }

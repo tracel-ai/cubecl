@@ -3,7 +3,7 @@ use crate::{self as cubecl, as_type};
 use cubecl::prelude::*;
 
 #[cube(launch)]
-pub fn kernel_properties(output: &mut Array<u32>) {
+pub fn kernel_properties(output: &mut [u32]) {
     if UNIT_POS == 0 {
         let properties = comptime::device_properties().comptime();
         output[0] = properties.hardware.plane_size_min;

@@ -10,7 +10,6 @@ use crate::{
     unexpanded,
 };
 use core::ops::*;
-use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
 use cubecl_ir::{ClampOperator, Operator};
 use half::{bf16, f16};
 
@@ -284,13 +283,13 @@ impl_core_binop!(Add, add, Arithmetic::Add);
 impl_core_binop!(Sub, sub, Arithmetic::Sub);
 impl_core_binop!(Mul, mul, Arithmetic::Mul);
 impl_core_binop!(Div, div, Arithmetic::Div);
-impl_core_binop!(Rem, rem, Arithmetic::Remainder);
+impl_core_binop!(Rem, rem, Arithmetic::Rem);
 
 impl_core_assign_binop!(AddAssign, add_assign, Arithmetic::Add);
 impl_core_assign_binop!(SubAssign, sub_assign, Arithmetic::Sub);
 impl_core_assign_binop!(MulAssign, mul_assign, Arithmetic::Mul);
 impl_core_assign_binop!(DivAssign, div_assign, Arithmetic::Div);
-impl_core_assign_binop!(RemAssign, rem_assign, Arithmetic::Remainder);
+impl_core_assign_binop!(RemAssign, rem_assign, Arithmetic::Rem);
 
 impl_core_binop!(BitAnd, bitand, Bitwise::BitwiseAnd);
 impl_core_binop!(BitOr, bitor, Bitwise::BitwiseOr);
@@ -404,13 +403,9 @@ impl_binary_func!(
     f64
 );
 impl_binary_func!(
-    Modulo,
-    modulo,
-    Arithmetic::Modulo,
-    e2m1,
-    e4m3,
-    e5m2,
-    ue8m0,
+    ModFloor,
+    mod_floor,
+    Arithmetic::ModFloor,
     f16,
     bf16,
     flex32,

@@ -6,7 +6,7 @@ use cubecl::prelude::*;
 use cubecl_ir::features::AtomicUsage;
 
 #[cube(launch)]
-pub fn kernel_atomic_add<I: Numeric, N: Size>(output: &mut Array<Atomic<Vector<I, N>>>) {
+pub fn kernel_atomic_add<I: Numeric, N: Size>(output: &mut [Atomic<Vector<I, N>>]) {
     if UNIT_POS == 0 {
         output[0].fetch_add(Vector::from_int(5));
     }
@@ -58,7 +58,7 @@ pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(
 }
 
 #[cube(launch)]
-pub fn kernel_atomic_min<I: Numeric, N: Size>(output: &mut Array<Atomic<Vector<I, N>>>) {
+pub fn kernel_atomic_min<I: Numeric, N: Size>(output: &mut [Atomic<Vector<I, N>>]) {
     if UNIT_POS == 0 {
         output[0].fetch_min(Vector::from_int(5));
     }
@@ -100,7 +100,7 @@ pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(
 }
 
 #[cube(launch)]
-pub fn kernel_atomic_max<I: Numeric, N: Size>(output: &mut Array<Atomic<Vector<I, N>>>) {
+pub fn kernel_atomic_max<I: Numeric, N: Size>(output: &mut [Atomic<Vector<I, N>>]) {
     if UNIT_POS == 0 {
         output[0].fetch_max(Vector::from_int(5));
     }

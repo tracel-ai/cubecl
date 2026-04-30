@@ -12,7 +12,7 @@ pub enum Operation<U: Int + hash::Hash + Eq + Debug> {
 
 #[cube(launch)]
 pub fn kernel_const_match_simple<F: Float, U: Int + hash::Hash + Eq + Debug>(
-    output: &mut Array<F>,
+    output: &mut [F],
     #[comptime] op: Operation<U>,
 ) {
     match op {

@@ -6,15 +6,12 @@ use cubecl_ir::OpaqueType;
 use num_traits::Zero;
 
 #[cube(launch)]
-pub fn async_copy_test<F: Float, N: Size>(
-    input: &Array<Vector<F, N>>,
-    output: &mut Array<Vector<F, N>>,
-) {
+pub fn async_copy_test<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut [Vector<F, N>]) {
     let barrier = Barrier::local();
     let mut smem = SharedMemory::<Vector<F, N>>::new(1usize);
 
-    let source = input.slice(2, 3);
-    let destination = smem.slice_mut(0, 1);
+    let source = &input[2..3];
+    let destination = &mut smem[..1];
 
     barrier.memcpy_async(source, destination);
 
@@ -58,8 +55,8 @@ fn one_load<F: Float, N: Size>(lhs: &Tensor<Vector<F, N>>, output: &mut Tensor<V
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_cube();
 
-    // Can't use lhs.to_slice() because then generated input_length will not exist
-    barrier.memcpy_async(lhs.slice(0usize, 4usize), lhs_smem.to_slice_mut());
+    // Can't use lhs.as_slice() because then generated input_length will not exist
+    barrier.memcpy_async(&lhs[0..4], lhs_smem.as_mut_slice());
 
     barrier.arrive_and_wait();
 
@@ -86,8 +83,8 @@ fn two_loads<F: Float, N: Size>(
     let start = UNIT_POS_X as usize * num_data / 2;
     let end = start + num_data / 2;
 
-    barrier.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
-    barrier.memcpy_async(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
+    barrier.memcpy_async(&lhs[start..end], &mut lhs_smem[start..end]);
+    barrier.memcpy_async(&rhs[start..end], &mut rhs_smem[start..end]);
 
     barrier.arrive_and_wait();
     let mut dot = Vector::default();
@@ -123,8 +120,8 @@ fn two_independent_loads<F: Float, N: Size>(
         output[i] = Vector::zeroed();
     }
 
-    barrier_0.memcpy_async(lhs.slice(start, end), lhs_smem.slice_mut(start, end));
-    barrier_1.memcpy_async(rhs.slice(start, end), rhs_smem.slice_mut(start, end));
+    barrier_0.memcpy_async(&lhs[start..end], &mut lhs_smem[start..end]);
+    barrier_1.memcpy_async(&rhs[start..end], &mut rhs_smem[start..end]);
 
     let mut dot = Vector::zero();
 

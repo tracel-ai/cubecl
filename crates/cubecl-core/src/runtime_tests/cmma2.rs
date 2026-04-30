@@ -8,7 +8,7 @@ use cubecl::prelude::*;
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
 pub fn kernel_simple_f16_workgroup_gmem(
-    out: &mut Array<f32>,
+    out: &mut [f32],
     beta: f32,
     #[comptime] size: (usize, usize, usize),
 ) {
@@ -20,7 +20,7 @@ pub fn kernel_simple_f16_workgroup_gmem(
         n,
         k,
         cmma::MatrixLayout::RowMajor,
-        out.to_slice(),
+        &*out,
         n as u32,
     );
 
@@ -29,12 +29,7 @@ pub fn kernel_simple_f16_workgroup_gmem(
         elem * row as f32 + col as f32 + beta
     });
 
-    cmma::store(
-        out.to_slice_mut(),
-        &matrix,
-        n as u32,
-        cmma::MatrixLayout::RowMajor,
-    );
+    cmma::store(out, &matrix, n as u32, cmma::MatrixLayout::RowMajor);
 }
 
 pub fn test_elemwise_cube<R: Runtime>(client: ComputeClient<R>, cube_dimensions: u32) {

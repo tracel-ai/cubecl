@@ -807,7 +807,7 @@ impl WgslCompiler {
                 c: self.compile_variable(op.c),
                 out: self.compile_variable(out),
             }),
-            cube::Arithmetic::Modulo(op) => instructions.push(wgsl::Instruction::Modulo {
+            cube::Arithmetic::ModFloor(op) => instructions.push(wgsl::Instruction::ModFloor {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
@@ -975,7 +975,7 @@ impl WgslCompiler {
                 max_value: self.compile_variable(op.max_value),
                 out: self.compile_variable(out),
             }),
-            cube::Arithmetic::Remainder(op) => instructions.push(wgsl::Instruction::Remainder {
+            cube::Arithmetic::Rem(op) => instructions.push(wgsl::Instruction::Remainder {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),

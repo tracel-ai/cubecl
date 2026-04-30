@@ -164,6 +164,11 @@ impl GenericAnalysis {
                 Type::Group(type_group) => process_ty_inner(&mut type_group.elem, map),
                 Type::Paren(type_paren) => process_ty_inner(&mut type_paren.elem, map),
                 Type::Path(type_path) => {
+                    if let Some(GenericArg { expand_ty, .. }) =
+                        type_path.path.get_ident().and_then(|ident| map.get(ident))
+                    {
+                        type_path.path = expand_ty.clone();
+                    }
                     let generics = all_path_args_mut(&mut type_path.path);
                     for generic in generics {
                         process_generic_param_inner(generic, map);

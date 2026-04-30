@@ -63,7 +63,7 @@ impl OptimizerPass for ConstOperandSimplify {
                             changes.inc();
                         }
                         // x % 1 == 0, 0 % x == 0
-                        Arithmetic::Modulo(bin_op)
+                        Arithmetic::ModFloor(bin_op) | Arithmetic::Rem(bin_op)
                             if bin_op.rhs.is_constant(1) || bin_op.lhs.is_constant(0) =>
                         {
                             op.operation = Operation::Copy(op.ty().constant(ConstantValue::Int(0)));
@@ -337,8 +337,8 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
         Arithmetic::Powi(op) => {
             const_eval_float!(op.lhs, op.rhs; num::Float::powf)
         }
-        Arithmetic::Modulo(op) => const_eval!(% op.lhs, op.rhs),
-        Arithmetic::Remainder(op) => const_eval!(% op.lhs, op.rhs),
+        Arithmetic::ModFloor(op) => const_eval!(% op.lhs, op.rhs),
+        Arithmetic::Rem(op) => const_eval!(% op.lhs, op.rhs),
         Arithmetic::MulHi(op) => {
             use ConstantValue::*;
             let ty = op.lhs.ty;

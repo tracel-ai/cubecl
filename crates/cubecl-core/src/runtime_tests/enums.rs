@@ -90,7 +90,7 @@ pub fn kernel_runtime_values(test: TestEnum<i32>) {
 }
 
 #[cube(launch)]
-pub fn kernel_scalar_enum(test: TestEnum<i32>, output: &mut Array<f32>) {
+pub fn kernel_scalar_enum(test: TestEnum<i32>, output: &mut [f32]) {
     match test {
         TestEnum::A(x, y) | TestEnum::F { x, y } => {
             output[0] = f32::cast_from(x) + f32::cast_from(y);
@@ -108,7 +108,7 @@ pub fn kernel_scalar_enum(test: TestEnum<i32>, output: &mut Array<f32>) {
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_runtime_variants_empty(test: u32, output: &mut Array<f32>) {
+pub fn kernel_runtime_variants_empty(test: u32, output: &mut [f32]) {
     let test = if test == 0 {
         RuntimeEnumEmpty::new_A()
     } else if test == 1 {
@@ -130,7 +130,7 @@ pub fn kernel_runtime_variants_empty(test: u32, output: &mut Array<f32>) {
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_runtime_variants_empty_wildcard(test: RuntimeEnumEmpty, output: &mut Array<f32>) {
+pub fn kernel_runtime_variants_empty_wildcard(test: RuntimeEnumEmpty, output: &mut [f32]) {
     match test {
         RuntimeEnumEmpty::B => {
             output[0] = 20.0;
@@ -142,7 +142,7 @@ pub fn kernel_runtime_variants_empty_wildcard(test: RuntimeEnumEmpty, output: &m
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_runtime_variants_value(test: RuntimeEnumSingleValue, output: &mut Array<f32>) {
+pub fn kernel_runtime_variants_value(test: RuntimeEnumSingleValue, output: &mut [f32]) {
     let value: i32 = match test {
         RuntimeEnumSingleValue::B(bstruct) => bstruct.x,
         RuntimeEnumSingleValue::A => 0i32,

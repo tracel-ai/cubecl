@@ -559,20 +559,28 @@ impl<E: CubePrimitive> ExpandTypeClone for &mut SliceExpand<E> {
 impl<E: CubePrimitive> CubeDebug for SliceExpand<E> {}
 
 impl<E: CubePrimitive> SizedContainer<usize> for [E] {
-    type Item = E;
+    fn len(&self) -> usize {
+        unexpanded!()
+    }
+}
+
+impl<E: CubePrimitive> SizedContainerExpand<usize> for SliceExpand<E> {
+    fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
+        self.__expand_len_method(scope)
+    }
 }
 
 impl<E: CubePrimitive> Iterable for SliceExpand<E> {
     type Item = E::ExpandType;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
-        let index_ty = u32::__expand_as_type(scope);
+        let index_ty = usize::__expand_as_type(scope);
         let len: Variable = self.length.into();
 
         let child = scope.child();
         let i = child.create_local_restricted(index_ty);
 
-        let index = i.into();
+        let index = NativeExpand::new(i);
         let item = self
             .__expand_index_method(&child, index)
             .__expand_deref_method(&child);
@@ -597,13 +605,13 @@ impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E> {
     type Item = &'a E::ExpandType;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
-        let index_ty = u32::__expand_as_type(scope);
+        let index_ty = usize::__expand_as_type(scope);
         let len: Variable = self.length.into();
 
         let child = scope.child();
         let i = child.create_local_restricted(index_ty);
 
-        let index = i.into();
+        let index = NativeExpand::new(i);
         let item = self.__expand_index_method(&child, index);
         body(&child, item);
 
@@ -626,13 +634,13 @@ impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E> {
     type Item = &'a mut E::ExpandType;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
-        let index_ty = u32::__expand_as_type(scope);
+        let index_ty = usize::__expand_as_type(scope);
         let len: Variable = self.length.into();
 
         let child = scope.child();
         let i = child.create_local_restricted(index_ty);
 
-        let index = i.into();
+        let index = NativeExpand::new(i);
         let item = self.__expand_index_mut_method(&child, index);
         body(&child, item);
 
@@ -666,6 +674,26 @@ impl<E: CubePrimitive> IndexExpand<NativeExpand<usize>> for SliceExpand<E> {
     }
 }
 
+impl<E: CubePrimitive> IndexMutExpand<NativeExpand<usize>> for SliceExpand<E> {
+    fn __expand_index_mut_method(
+        &mut self,
+        scope: &Scope,
+        index: NativeExpand<usize>,
+    ) -> &mut Self::Output {
+        self.__expand_write_method(scope, index)
+    }
+
+    fn __expand_index_mut_unchecked_method(
+        &mut self,
+        scope: &Scope,
+        index: NativeExpand<usize>,
+    ) -> &mut Self::Output {
+        self.__expand_write_unchecked_method(scope, index)
+    }
+}
+
+impl_slice_ranges!(SliceExpand);
+
 impl<E: CubePrimitive> List<E> for Box<[E]> {}
 impl<E: CubePrimitive> List<E> for [E] {}
 impl<E: CubePrimitive> ListExpand<E> for SliceExpand<E> {
@@ -698,6 +726,36 @@ impl<E: CubePrimitive> ListExpand<E> for SliceExpand<E> {
         )
     }
 
+    fn __expand_write_method(
+        &mut self,
+        scope: &Scope,
+        index: NativeExpand<usize>,
+    ) -> &mut NativeExpand<E> {
+        write_offset::expand::<E>(
+            scope,
+            &mut self.origin,
+            self.offset,
+            index,
+            self.vector_size,
+            true,
+        )
+    }
+
+    fn __expand_write_unchecked_method(
+        &mut self,
+        scope: &Scope,
+        index: NativeExpand<usize>,
+    ) -> &mut NativeExpand<E> {
+        write_offset::expand::<E>(
+            scope,
+            &mut self.origin,
+            self.offset,
+            index,
+            self.vector_size,
+            false,
+        )
+    }
+
     fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
         self.__expand_len_method(scope)
     }
@@ -720,40 +778,6 @@ impl<E: CubePrimitive> VectorizedExpand for SliceExpand<E> {
     }
 }
 
-impl<E: CubePrimitive> IndexMutExpand<NativeExpand<usize>> for SliceExpand<E> {
-    fn __expand_index_mut_method(
-        &mut self,
-        scope: &Scope,
-        index: NativeExpand<usize>,
-    ) -> &mut Self::Output {
-        self.__expand_write_method(scope, index)
-    }
-
-    fn __expand_index_mut_unchecked_method(
-        &mut self,
-        scope: &Scope,
-        index: NativeExpand<usize>,
-    ) -> &mut Self::Output {
-        self.__expand_write_method(scope, index)
-    }
-}
-
-impl<E: CubePrimitive> ListMut<E> for Box<[E]> {}
-impl<E: CubePrimitive> ListMut<E> for [E] {}
-impl<E: CubePrimitive> ListMutExpand<E> for SliceExpand<E> {
-    fn __expand_write_method(
-        &self,
-        scope: &Scope,
-        index: NativeExpand<usize>,
-    ) -> &mut NativeExpand<E> {
-        let mut origin = self.origin;
-        let reference =
-            write_offset::expand::<E>(scope, &mut origin, self.offset, index, self.vector_size);
-        // Safety: Cloning origin only clones the reference, so this is safe
-        unsafe { core::mem::transmute(reference) }
-    }
-}
-
 mod as_ptr {
     use super::*;
 
@@ -772,7 +796,7 @@ mod as_ptr {
                 expand_index_native(scope, expand, offset, vector_size, checked)
             }
             SliceOriginExpand::SharedMemory(expand) => {
-                expand_index_native(scope, expand, offset, vector_size, checked)
+                expand_index_native(scope, expand, offset, vector_size, false)
             }
         }
     }
@@ -796,7 +820,7 @@ mod as_ptr_mut {
                 expand_index_mut_native(scope, expand, offset, vector_size, checked)
             }
             SliceOriginExpand::SharedMemory(expand) => {
-                expand_index_mut_native(scope, expand, offset, vector_size, checked)
+                expand_index_mut_native(scope, expand, offset, vector_size, false)
             }
         }
     }
@@ -823,7 +847,7 @@ mod read_offset {
                 expand_index_native(scope, expand, index, vector_size, checked)
             }
             SliceOriginExpand::SharedMemory(expand) => {
-                expand_index_native(scope, expand, index, vector_size, checked)
+                expand_index_native(scope, expand, index, vector_size, false)
             }
         }
     }
@@ -838,19 +862,68 @@ mod write_offset {
         offset: <usize as CubeType>::ExpandType,
         index: <usize as CubeType>::ExpandType,
         vector_size: Option<VectorSize>,
+        checked: bool,
     ) -> &'a mut E::ExpandType {
         let index = offset.__expand_add_method(scope, index);
 
         match origin {
             SliceOriginExpand::Tensor(expand) => {
-                expand_index_mut_native(scope, expand, index, vector_size, true)
+                expand_index_mut_native(scope, expand, index, vector_size, checked)
             }
             SliceOriginExpand::Array(expand) => {
-                expand_index_mut_native(scope, expand, index, vector_size, false)
+                expand_index_mut_native(scope, expand, index, vector_size, checked)
             }
             SliceOriginExpand::SharedMemory(expand) => {
                 expand_index_mut_native(scope, expand, index, vector_size, false)
             }
+        }
+    }
+}
+
+impl<C: CubePrimitive> LaunchArg for [C] {
+    type RuntimeArg<R: Runtime> = ArrayArg<R>;
+    type CompilationArg = ArrayCompilationArg;
+
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
+        Array::<C>::register(arg, launcher)
+    }
+
+    fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> SliceExpand<C> {
+        let source = Array::<C>::expand(arg, builder);
+        let scope = &builder.scope;
+        let length = source.__expand_buffer_len_method(scope);
+        SliceExpand {
+            origin: SliceOriginExpand::Array(source),
+            offset: NativeExpand::from_lit(scope, 0),
+            length,
+            vector_size: None,
+        }
+    }
+}
+
+impl<C: CubePrimitive> LaunchArg for Box<[C]> {
+    type RuntimeArg<R: Runtime> = ArrayArg<R>;
+    type CompilationArg = ArrayCompilationArg;
+
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
+        Array::<C>::register(arg, launcher)
+    }
+
+    fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> SliceExpand<C> {
+        let source = Array::<C>::expand(arg, builder);
+        let scope = &builder.scope;
+        let length = source.__expand_buffer_len_method(scope);
+        SliceExpand {
+            origin: SliceOriginExpand::Array(source),
+            offset: NativeExpand::from_lit(scope, 0),
+            length,
+            vector_size: None,
         }
     }
 }

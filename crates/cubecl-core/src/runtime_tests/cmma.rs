@@ -19,14 +19,14 @@ use num_traits::NumCast;
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_f16_m16n16k16_gmem(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>) {
+pub fn kernel_simple_f16_m16n16k16_gmem(lhs: &[f16], rhs: &[f16], out: &mut [f32]) {
     let a = cmma::Matrix::<f16>::from_slice(
         cmma::MatrixIdent::A,
         16usize,
         16usize,
         16usize,
         cmma::MatrixLayout::RowMajor,
-        lhs.to_slice(),
+        lhs,
         16,
     );
     let b = cmma::Matrix::<f16>::from_slice(
@@ -35,7 +35,7 @@ pub fn kernel_simple_f16_m16n16k16_gmem(lhs: &Array<f16>, rhs: &Array<f16>, out:
         16usize,
         16usize,
         cmma::MatrixLayout::ColMajor,
-        rhs.to_slice(),
+        rhs,
         16,
     );
     let c = cmma::Matrix::<f32>::from_value(
@@ -49,15 +49,15 @@ pub fn kernel_simple_f16_m16n16k16_gmem(lhs: &Array<f16>, rhs: &Array<f16>, out:
 
     cmma::execute(&a, &b, &c, &c);
 
-    cmma::store(out.to_slice_mut(), &c, 16, cmma::MatrixLayout::RowMajor);
+    cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
 }
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
 pub fn kernel_simple_1_vectorized<N: Size>(
-    lhs: &Array<Vector<f16, N>>,
-    rhs: &Array<Vector<f16, N>>,
-    out: &mut Array<Vector<f32, N>>,
+    lhs: &[Vector<f16, N>],
+    rhs: &[Vector<f16, N>],
+    out: &mut [Vector<f32, N>],
 ) {
     let a = cmma::Matrix::<Vector<f16, N>>::from_slice(
         cmma::MatrixIdent::A,
@@ -65,7 +65,7 @@ pub fn kernel_simple_1_vectorized<N: Size>(
         16usize,
         16usize,
         cmma::MatrixLayout::RowMajor,
-        lhs.to_slice(),
+        lhs,
         16,
     );
     let b = cmma::Matrix::<Vector<f16, N>>::from_slice(
@@ -74,7 +74,7 @@ pub fn kernel_simple_1_vectorized<N: Size>(
         16usize,
         16usize,
         cmma::MatrixLayout::ColMajor,
-        rhs.to_slice(),
+        rhs,
         16,
     );
     let c = cmma::Matrix::<f32>::from_value(
@@ -88,15 +88,15 @@ pub fn kernel_simple_1_vectorized<N: Size>(
 
     cmma::execute(&a, &b, &c, &c);
 
-    cmma::store(out.to_slice_mut(), &c, 16, cmma::MatrixLayout::RowMajor);
+    cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
 }
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
 pub fn kernel_simple_1_vectorized_offset<N: Size>(
-    lhs: &Array<Vector<f16, N>>,
-    rhs: &Array<Vector<f16, N>>,
-    out: &mut Array<Vector<f32, N>>,
+    lhs: &[Vector<f16, N>],
+    rhs: &[Vector<f16, N>],
+    out: &mut [Vector<f32, N>],
     offset_lhs: usize,
     offset_rhs: usize,
     offset_out: usize,
@@ -111,7 +111,7 @@ pub fn kernel_simple_1_vectorized_offset<N: Size>(
         16usize,
         16usize,
         cmma::MatrixLayout::RowMajor,
-        lhs.slice(offset_lhs, len_lhs),
+        &lhs[offset_lhs..len_lhs],
         16,
     );
     let b = cmma::Matrix::<Vector<f16, N>>::from_slice(
@@ -120,7 +120,7 @@ pub fn kernel_simple_1_vectorized_offset<N: Size>(
         16usize,
         16usize,
         cmma::MatrixLayout::ColMajor,
-        rhs.slice(offset_rhs, len_rhs),
+        &rhs[offset_rhs..len_rhs],
         16,
     );
     let c = cmma::Matrix::<f32>::from_value(
@@ -135,7 +135,7 @@ pub fn kernel_simple_1_vectorized_offset<N: Size>(
     cmma::execute(&a, &b, &c, &c);
 
     cmma::store(
-        out.slice_mut(offset_out, len_out),
+        &mut out[offset_out..len_out],
         &c,
         16,
         cmma::MatrixLayout::RowMajor,
@@ -144,14 +144,14 @@ pub fn kernel_simple_1_vectorized_offset<N: Size>(
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_2(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f16>) {
+pub fn kernel_simple_2(lhs: &[f16], rhs: &[f16], out: &mut [f16]) {
     let a = cmma::Matrix::<f16>::from_slice(
         cmma::MatrixIdent::A,
         8usize,
         8usize,
         8usize,
         cmma::MatrixLayout::RowMajor,
-        lhs.to_slice(),
+        lhs,
         8,
     );
     let b = cmma::Matrix::<f16>::from_slice(
@@ -160,7 +160,7 @@ pub fn kernel_simple_2(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f16>)
         8usize,
         8usize,
         cmma::MatrixLayout::ColMajor,
-        rhs.to_slice(),
+        rhs,
         8,
     );
     let c = cmma::Matrix::<f16>::from_value(
@@ -174,19 +174,19 @@ pub fn kernel_simple_2(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f16>)
 
     cmma::execute(&a, &b, &c, &c);
 
-    cmma::store(out.to_slice_mut(), &c, 8, cmma::MatrixLayout::RowMajor);
+    cmma::store(out, &c, 8, cmma::MatrixLayout::RowMajor);
 }
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_3(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>) {
+pub fn kernel_simple_3(lhs: &[f16], rhs: &[f16], out: &mut [f32]) {
     let a = cmma::Matrix::<f16>::from_slice(
         cmma::MatrixIdent::A,
         8usize,
         8usize,
         8usize,
         cmma::MatrixLayout::RowMajor,
-        lhs.to_slice(),
+        lhs,
         8,
     );
     let b = cmma::Matrix::<f16>::from_slice(
@@ -195,7 +195,7 @@ pub fn kernel_simple_3(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>)
         8usize,
         8usize,
         cmma::MatrixLayout::ColMajor,
-        rhs.to_slice(),
+        rhs,
         8,
     );
     let c = cmma::Matrix::<f32>::from_value(
@@ -209,19 +209,19 @@ pub fn kernel_simple_3(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>)
 
     cmma::execute(&a, &b, &c, &c);
 
-    cmma::store(out.to_slice_mut(), &c, 8, cmma::MatrixLayout::RowMajor);
+    cmma::store(out, &c, 8, cmma::MatrixLayout::RowMajor);
 }
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_tf32(lhs: &Array<tf32>, rhs: &Array<tf32>, out: &mut Array<f32>) {
+pub fn kernel_simple_tf32(lhs: &[tf32], rhs: &[tf32], out: &mut [f32]) {
     let a = cmma::Matrix::<tf32>::from_slice(
         cmma::MatrixIdent::A,
         16usize,
         16usize,
         8usize,
         cmma::MatrixLayout::RowMajor,
-        lhs.to_slice(),
+        lhs,
         8,
     );
     let b = cmma::Matrix::<tf32>::from_slice(
@@ -230,7 +230,7 @@ pub fn kernel_simple_tf32(lhs: &Array<tf32>, rhs: &Array<tf32>, out: &mut Array<
         16usize,
         8usize,
         cmma::MatrixLayout::RowMajor,
-        rhs.to_slice(),
+        rhs,
         16,
     );
     let c = cmma::Matrix::<f32>::from_value(
@@ -244,15 +244,15 @@ pub fn kernel_simple_tf32(lhs: &Array<tf32>, rhs: &Array<tf32>, out: &mut Array<
 
     cmma::execute(&a, &b, &c, &c);
 
-    cmma::store(out.to_slice_mut(), &c, 16, cmma::MatrixLayout::RowMajor);
+    cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
 }
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
 pub fn kernel_simple_f16_workgroup_gmem(
-    lhs: &Array<f16>,
-    rhs: &Array<f16>,
-    out: &mut Array<f32>,
+    lhs: &[f16],
+    rhs: &[f16],
+    out: &mut [f32],
     #[comptime] size: (usize, usize, usize),
 ) {
     let (m, n, k) = size;
@@ -263,7 +263,7 @@ pub fn kernel_simple_f16_workgroup_gmem(
         n,
         k,
         cmma::MatrixLayout::RowMajor,
-        lhs.to_slice(),
+        lhs,
         k as u32,
     );
     let b = cmma::Matrix::<f16, Cube>::from_slice(
@@ -272,7 +272,7 @@ pub fn kernel_simple_f16_workgroup_gmem(
         n,
         k,
         cmma::MatrixLayout::ColMajor,
-        rhs.to_slice(),
+        rhs,
         k as u32,
     );
     let c = cmma::Matrix::<f32, Cube>::from_value(
@@ -286,28 +286,23 @@ pub fn kernel_simple_f16_workgroup_gmem(
 
     cmma::execute(&a, &b, &c, &c);
 
-    cmma::store(
-        out.to_slice_mut(),
-        &c,
-        n as u32,
-        cmma::MatrixLayout::RowMajor,
-    );
+    cmma::store(out, &c, n as u32, cmma::MatrixLayout::RowMajor);
 }
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
 pub fn kernel_simple_f16_workgroup_tensor(
-    lhs: &Array<f16>,
-    rhs: &Array<f16>,
-    out: &mut Array<f32>,
+    lhs: &[f16],
+    rhs: &[f16],
+    out: &mut [f32],
     size_k: u32,
     #[comptime] size: (usize, usize, usize),
 ) {
     let (m, n, k) = size;
 
-    let lhs = TensorView::new(*lhs, seq![m as u32, size_k]).finish();
-    let rhs = TensorView::new(*rhs, seq![n as u32, size_k]).finish();
-    let mut out = TensorView::new(*out, seq![m as u32, n as u32]).finish();
+    let lhs = TensorView::new(lhs, seq![m as u32, size_k]).finish();
+    let rhs = TensorView::new(rhs, seq![n as u32, size_k]).finish();
+    let mut out = TensorView::new(&*out, seq![m as u32, n as u32]).finish();
 
     let mut a = unsafe {
         cmma::Matrix::<f16, Cube>::uninitialized(
@@ -351,7 +346,7 @@ pub fn kernel_simple_f16_workgroup_tensor(
 }
 
 #[cube(launch)]
-pub fn cast_matrix_f16(input: &Array<f32>, out: &mut Array<f16>) {
+pub fn cast_matrix_f16(input: &[f32], out: &mut [f16]) {
     let mut acc = unsafe {
         cmma::Matrix::<f32>::uninitialized(
             cmma::MatrixIdent::Accumulator,
@@ -361,20 +356,15 @@ pub fn cast_matrix_f16(input: &Array<f32>, out: &mut Array<f16>) {
             cmma::MatrixLayout::Undefined,
         )
     };
-    cmma::load_with_layout(&mut acc, input.to_slice(), 16, cmma::MatrixLayout::RowMajor);
+    cmma::load_with_layout(&mut acc, input, 16, cmma::MatrixLayout::RowMajor);
 
     let output: cmma::Matrix<f16> = cmma::cast(&acc);
 
-    cmma::store(
-        out.to_slice_mut(),
-        &output,
-        16,
-        cmma::MatrixLayout::RowMajor,
-    );
+    cmma::store(out, &output, 16, cmma::MatrixLayout::RowMajor);
 }
 
 #[cube(launch)]
-pub fn cast_matrix_bf16(input: &Array<f32>, out: &mut Array<bf16>) {
+pub fn cast_matrix_bf16(input: &[f32], out: &mut [bf16]) {
     let mut acc = unsafe {
         cmma::Matrix::<f32>::uninitialized(
             cmma::MatrixIdent::Accumulator,
@@ -384,16 +374,11 @@ pub fn cast_matrix_bf16(input: &Array<f32>, out: &mut Array<bf16>) {
             cmma::MatrixLayout::Undefined,
         )
     };
-    cmma::load_with_layout(&mut acc, input.to_slice(), 16, cmma::MatrixLayout::RowMajor);
+    cmma::load_with_layout(&mut acc, input, 16, cmma::MatrixLayout::RowMajor);
 
     let output: cmma::Matrix<bf16> = cmma::cast(&acc);
 
-    cmma::store(
-        out.to_slice_mut(),
-        &output,
-        16,
-        cmma::MatrixLayout::RowMajor,
-    );
+    cmma::store(out, &output, 16, cmma::MatrixLayout::RowMajor);
 }
 
 pub fn test_simple_1_vectorized<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
@@ -872,9 +857,9 @@ pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R>, cube_dimensions: C
 
 #[cube(launch)]
 pub fn kernel_strided(
-    lhs: &Array<f16>,
-    rhs: &Array<f16>,
-    out: &mut Array<f32>,
+    lhs: &[f16],
+    rhs: &[f16],
+    out: &mut [f32],
     #[comptime] stride_lhs: u32,
     #[comptime] stride_rhs: u32,
 ) {
@@ -884,7 +869,7 @@ pub fn kernel_strided(
         16usize,
         16usize,
         cmma::MatrixLayout::RowMajor,
-        lhs.to_slice(),
+        lhs,
         stride_lhs,
     );
     let b = cmma::Matrix::<f16>::from_slice(
@@ -893,7 +878,7 @@ pub fn kernel_strided(
         16usize,
         16usize,
         cmma::MatrixLayout::ColMajor,
-        rhs.to_slice(),
+        rhs,
         stride_rhs,
     );
     let c = cmma::Matrix::<f32>::from_value(
@@ -907,7 +892,7 @@ pub fn kernel_strided(
 
     cmma::execute(&a, &b, &c, &c);
 
-    cmma::store(out.to_slice_mut(), &c, 16, cmma::MatrixLayout::RowMajor);
+    cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
 }
 
 pub fn test_cmma_strided<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
@@ -1193,15 +1178,15 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
 
     let mut stage_a = SharedMemory::new_aligned(size_m * size_k, 16usize);
     let mut stage_b = SharedMemory::new_aligned(size_k * size_n, 16usize);
-    bar.memcpy_async_cooperative(a.to_slice(), stage_a.to_slice_mut());
-    bar.memcpy_async_cooperative(b.to_slice(), stage_b.to_slice_mut());
+    bar.memcpy_async_cooperative(a.as_slice(), stage_a.as_mut_slice());
+    bar.memcpy_async_cooperative(b.as_slice(), stage_b.as_mut_slice());
     bar.arrive_and_wait();
 
     let row = lane_id % 16;
 
     let col_a = (lane_id / 16) * width;
     let start_a = row * size_k + col_a;
-    let slice_a = stage_a.slice(start_a, start_a + width);
+    let slice_a = &stage_a[start_a..start_a + width];
     let vector_count_a = def.vectors_per_lane(MatrixIdent::A);
 
     let size!(NA) = def.vector_size(MatrixIdent::A);
@@ -1210,7 +1195,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     // B frags are only 2 registers, so top 16 threads do nothing
     let col_b = 0;
     let start_b = row * size_n + col_b;
-    let slice_b = stage_b.slice(start_b, start_b + width);
+    let slice_b = &stage_b[start_b..start_b + width];
     let vector_count_b = def.vectors_per_lane(MatrixIdent::B);
 
     let size!(NB) = def.vector_size(MatrixIdent::B);

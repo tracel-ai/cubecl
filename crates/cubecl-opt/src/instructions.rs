@@ -118,10 +118,10 @@ impl Function {
             | Arithmetic::Powi(binary_operator)
             | Arithmetic::Hypot(binary_operator)
             | Arithmetic::Rhypot(binary_operator)
-            | Arithmetic::Modulo(binary_operator)
+            | Arithmetic::ModFloor(binary_operator)
             | Arithmetic::Max(binary_operator)
             | Arithmetic::Min(binary_operator)
-            | Arithmetic::Remainder(binary_operator)
+            | Arithmetic::Rem(binary_operator)
             | Arithmetic::Dot(binary_operator)
             | Arithmetic::MulHi(binary_operator)
             | Arithmetic::ArcTan2(binary_operator) => self.visit_binop(binary_operator, visit_read),

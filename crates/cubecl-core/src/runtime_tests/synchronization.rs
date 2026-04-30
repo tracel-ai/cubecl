@@ -6,7 +6,7 @@ use cubecl_ir::features::Plane;
 
 #[cube(launch)]
 /// First 32 elements should be 1, while last 32 elements may or may not be 1
-fn kernel_test_sync_cube(buffer: &mut Array<u32>, out: &mut Array<u32>) {
+fn kernel_test_sync_cube(buffer: &mut [u32], out: &mut [u32]) {
     let unit_pos = UNIT_POS as usize;
     buffer[unit_pos] = UNIT_POS;
     sync_cube();
@@ -39,7 +39,7 @@ pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R>) {
 
 #[cube(launch)]
 /// First 32 elements should be 1, while last 32 elements may or may not be 1
-fn kernel_test_finished_sync_cube(buffer: &mut Array<u32>, out: &mut Array<u32>) {
+fn kernel_test_finished_sync_cube(buffer: &mut [u32], out: &mut [u32]) {
     let unit_pos = UNIT_POS as usize;
     buffer[unit_pos] = UNIT_POS;
     if UNIT_POS > 16 {
@@ -77,7 +77,7 @@ pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R>) {
 
 #[cube(launch)]
 /// First 32 elements should be 1, while last 32 elements may or may not be 1
-fn kernel_test_sync_plane<F: Float>(out: &mut Array<F>) {
+fn kernel_test_sync_plane<F: Float>(out: &mut [F]) {
     let mut shared_memory = Shared::<F>::new();
 
     if UNIT_POS == 0 {
@@ -116,7 +116,7 @@ pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R>) {
 
 #[cube(launch)]
 /// All 64 elements should be 1
-fn kernel_test_sync_cube_shared<F: Float>(out: &mut Array<F>) {
+fn kernel_test_sync_cube_shared<F: Float>(out: &mut [F]) {
     let mut shared_memory = Shared::<F>::new();
 
     if UNIT_POS == 0 {

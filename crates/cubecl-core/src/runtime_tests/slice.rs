@@ -2,27 +2,27 @@ use crate::{self as cubecl, as_bytes, as_type};
 use cubecl::prelude::*;
 
 #[cube(launch)]
-pub fn slice_select<F: Float>(input: &Array<F>, output: &mut Array<F>) {
+pub fn slice_select<F: Float>(input: &[F], output: &mut [F]) {
     if UNIT_POS == 0 {
-        let slice = input.slice(2, 3);
+        let slice = &input[2..3];
         output[0] = slice[0];
     }
 }
 
 #[cube(launch)]
-pub fn slice_len<F: Float>(input: &Array<F>, output: &mut Array<u32>) {
+pub fn slice_len<F: Float>(input: &[F], output: &mut [u32]) {
     if UNIT_POS == 0 {
-        let slice = input.slice(2, 4);
+        let slice = &input[2..4];
         output[0] = slice.len() as u32;
     }
 }
 
 #[cube(launch)]
-pub fn slice_for<F: Float>(input: &Array<F>, output: &mut Array<F>) {
+pub fn slice_for<F: Float>(input: &[F], output: &mut [F]) {
     if UNIT_POS == 0 {
         let mut sum = F::new(0f32);
 
-        for item in input.slice(2, 4) {
+        for item in &input[2..4] {
             sum += *item;
         }
 
@@ -31,17 +31,17 @@ pub fn slice_for<F: Float>(input: &Array<F>, output: &mut Array<F>) {
 }
 
 #[cube(launch)]
-pub fn slice_mut_assign<F: Float>(input: &Array<F>, output: &mut Array<F>) {
+pub fn slice_mut_assign<F: Float>(input: &[F], output: &mut [F]) {
     if UNIT_POS == 0 {
-        let slice_1 = output.slice_mut(2, 3);
+        let slice_1 = &mut output[2..3];
         slice_1[0] = input[0];
     }
 }
 
 #[cube(launch)]
-pub fn slice_mut_len(output: &mut Array<u32>) {
+pub fn slice_mut_len(output: &mut [u32]) {
     if UNIT_POS == 0 {
-        let slice = output.slice_mut(0, 2).as_vectorized_mut();
+        let slice = output[..2].as_vectorized_mut();
         output[0] = slice.len() as u32;
     }
 }

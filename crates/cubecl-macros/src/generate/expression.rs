@@ -329,21 +329,35 @@ impl Expression {
                 inclusive,
                 span,
             } => {
-                let start = start
-                    .as_const(context)
-                    .unwrap_or_else(|| start.to_tokens(context));
-                if let Some(end) = end {
-                    let range = frontend_type("RangeExpand");
-                    let end = end
-                        .as_const(context)
-                        .unwrap_or_else(|| end.to_tokens(context));
-                    quote! {
-                        {
-                            #range::new(#start.into(), #end.into(), #inclusive)
-                        }
+                let start = start.as_ref().map(|start| start.to_tokens(context));
+                let end = end.as_ref().map(|end| end.to_tokens(context));
+
+                match (start, end, *inclusive) {
+                    (Some(start), Some(end), false) => {
+                        let range = prelude_type("RangeExpand");
+                        quote! {{#range::new(#start.into(), #end.into())}}
                     }
-                } else {
-                    error!(*span, "Slice range not yet supported")
+                    (Some(start), None, false) => {
+                        let range = prelude_type("RangeFromExpand");
+                        quote! {{#range::new(#start.into())}}
+                    }
+                    (None, None, _) => {
+                        let range = prelude_type("RangeFullExpand");
+                        quote! {{#range{}}}
+                    }
+                    (Some(start), Some(end), true) => {
+                        let range = prelude_type("RangeInclusiveExpand");
+                        quote! {{#range::new(#start.into(), #end.into())}}
+                    }
+                    (None, Some(end), false) => {
+                        let range = prelude_type("RangeToExpand");
+                        quote! {{#range::new(#end.into())}}
+                    }
+                    (None, Some(end), true) => {
+                        let range = prelude_type("RangeToInclusiveExpand");
+                        quote! {{#range::new(#end.into())}}
+                    }
+                    _ => error!(*span, "Slice range not yet supported"),
                 }
             }
 
@@ -360,36 +374,6 @@ impl Expression {
                 } else {
                     let elements = elements.iter().map(|it| it.to_tokens(context));
                     quote![(#(#elements),*)]
-                }
-            }
-            Expression::Slice { span, expr, ranges } => {
-                assert_eq!(ranges.len(), 1, "Multi-slices not yet implemented");
-                let range = ranges[0].clone().to_tokens(context);
-                let receiver = expr.to_tokens(context);
-                let call = with_debug_call(
-                    context,
-                    *span,
-                    quote![#receiver.__expand_slice_method(scope, #range)],
-                );
-                quote_spanned! {*span=>
-                    {
-                        #call
-                    }
-                }
-            }
-            Expression::SliceMut { span, expr, ranges } => {
-                assert_eq!(ranges.len(), 1, "Multi-slices not yet implemented");
-                let range = ranges[0].clone().to_tokens(context);
-                let receiver = expr.to_tokens(context);
-                let call = with_debug_call(
-                    context,
-                    *span,
-                    quote![#receiver.__expand_slice_mut_method(scope, #range)],
-                );
-                quote_spanned! {*span=>
-                    {
-                        #call
-                    }
                 }
             }
             Expression::ArrayInit { init, len } => {

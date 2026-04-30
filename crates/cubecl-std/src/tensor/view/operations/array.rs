@@ -26,7 +26,7 @@ macro_rules! impl_operations_1d {
             ) -> <T>::ExpandType {
                 let len = self.__expand_buffer_len_method(scope);
                 let in_bounds = pos.__expand_lt_method(scope, &len);
-                let slice = self.__expand_to_slice_method(scope);
+                let slice = self.__expand_as_slice_method(scope);
                 let zero = T::__expand_cast_from(scope, 0.into());
                 read_masked::expand::<T>(scope, in_bounds, slice, pos, zero)
             }
@@ -39,7 +39,7 @@ macro_rules! impl_operations_1d {
             ) -> <T>::ExpandType {
                 let len = self.__expand_buffer_len_method(scope);
                 let in_bounds = pos.__expand_lt_method(scope, &len);
-                let slice = self.__expand_to_slice_method(scope);
+                let slice = self.__expand_as_slice_method(scope);
                 read_masked::expand::<T>(scope, in_bounds, slice, pos, mask_value)
             }
 
@@ -52,7 +52,7 @@ macro_rules! impl_operations_1d {
                     .__expand_deref_method(scope)
             }
 
-            fn __expand_to_linear_slice_method(
+            fn __expand_as_linear_slice_method(
                 &self,
                 scope: &Scope,
                 pos: NativeExpand<usize>,
@@ -98,7 +98,8 @@ macro_rules! impl_operations_1d {
                 pos: NativeExpand<usize>,
                 value: <T>::ExpandType,
             ) {
-                <Self as ListMutExpand<T>>::__expand_write_method(&self, scope, pos)
+                let mut this = self.clone();
+                <Self as ListExpand<T>>::__expand_write_method(&mut this, scope, pos)
                     .__expand_assign_method(scope, value);
             }
 
@@ -108,15 +109,16 @@ macro_rules! impl_operations_1d {
                 pos: NativeExpand<usize>,
                 value: <T>::ExpandType,
             ) {
+                let mut this = self.clone();
                 let len = self.clone().__expand_buffer_len_method(scope);
                 let in_bounds = pos.__expand_lt_method(scope, &len);
                 if_expand(scope, in_bounds.into(), |scope| {
-                    <Self as ListMutExpand<T>>::__expand_write_method(&self, scope, pos)
+                    <Self as ListExpand<T>>::__expand_write_method(&mut this, scope, pos)
                         .__expand_assign_method(scope, value);
                 })
             }
 
-            fn __expand_to_linear_slice_mut_method(
+            fn __expand_as_linear_slice_mut_method(
                 &self,
                 scope: &Scope,
                 pos: NativeExpand<usize>,
@@ -128,7 +130,7 @@ macro_rules! impl_operations_1d {
                 // negative length.
                 let start = clamp_max::expand(scope, pos, end.clone());
                 let mut this = self.clone();
-                let slice = <Self as SliceMutOperatorExpand<T>>::__expand_slice_mut_method(
+                let slice = <Self as SliceOperatorExpand<T>>::__expand_slice_mut_method(
                     &mut this, scope, start, end,
                 );
                 // Arrays are internally references, so this is actually 'a

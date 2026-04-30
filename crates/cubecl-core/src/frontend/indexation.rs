@@ -5,7 +5,7 @@ use cubecl_ir::{
 };
 
 use super::{CubeType, NativeExpand, index_expand};
-use crate::prelude::CubePrimitive;
+use crate::{frontend::ExpandTypeClone, prelude::CubePrimitive};
 
 /// Trait bound that can be used to guarantee the expand also implements `IndexExpand`
 pub trait CubeIndex<I: CubeType>:
@@ -96,18 +96,15 @@ where
 {
 }
 
-pub(crate) fn expand_index_native<
-    'a,
-    A: IndexExpand<NativeExpand<usize>> + Clone + Into<Variable>,
->(
+pub(crate) fn expand_index_native<'a, A: ExpandTypeClone + Into<Variable>, O>(
     scope: &Scope,
     array: &'a A,
     index: NativeExpand<usize>,
     vector_size: Option<VectorSize>,
     checked: bool,
-) -> &'a A::Output
+) -> &'a O
 where
-    A::Output: From<Variable> + 'static,
+    O: From<Variable> + 'static,
 {
     let index: Variable = index.into();
     let index_var: Variable = index;
@@ -115,26 +112,23 @@ where
         VariableKind::Constant(value) => Variable::constant(value, usize::__expand_as_type(scope)),
         _ => index,
     };
-    let array: Variable = array.clone().into();
+    let array: Variable = array.clone_unchecked().into();
     let var = index_expand(scope, array, index, vector_size, checked);
 
     scope.create_kernel_ref(var.into())
 }
 
-pub(crate) fn expand_index_mut_native<
-    'a,
-    A: IndexMutExpand<NativeExpand<usize>> + Clone + Into<Variable>,
->(
+pub(crate) fn expand_index_mut_native<'a, A: ExpandTypeClone + Into<Variable>, O>(
     scope: &Scope,
     list: &'a mut A,
     index: NativeExpand<usize>,
     vector_size: Option<VectorSize>,
     checked: bool,
-) -> &'a mut A::Output
+) -> &'a mut O
 where
-    A::Output: From<Variable> + 'static,
+    O: From<Variable> + 'static,
 {
-    let list: Variable = list.clone().into();
+    let list: Variable = list.clone_unchecked().into();
     let index: Variable = index.expand;
     let index = match index.kind {
         VariableKind::Constant(value) => Variable::constant(value, usize::__expand_as_type(scope)),

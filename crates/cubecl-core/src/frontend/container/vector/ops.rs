@@ -258,7 +258,7 @@ impl<P: Scalar + ArcCosh, N: Size> ArcCosh for Vector<P, N> {}
 impl<P: Scalar + ArcTanh, N: Size> ArcTanh for Vector<P, N> {}
 impl<P: Scalar + ArcTan2, N: Size> ArcTan2 for Vector<P, N> {}
 impl<P: Scalar + Recip, N: Size> Recip for Vector<P, N> {}
-impl<P: Scalar + Modulo, N: Size> Modulo for Vector<P, N> {}
+impl<P: Scalar + ModFloor, N: Size> ModFloor for Vector<P, N> {}
 impl<P: Scalar + Round, N: Size> Round for Vector<P, N> {}
 impl<P: Scalar + Floor, N: Size> Floor for Vector<P, N> {}
 impl<P: Scalar + Ceil, N: Size> Ceil for Vector<P, N> {}

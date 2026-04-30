@@ -280,7 +280,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
     /// # Safety
     ///
     /// No checking is done on whether the slice is contiguous in memory.
-    pub fn to_linear_slice(&self) -> &[E] {
+    pub fn as_linear_slice(&self) -> &[E] {
         unexpanded!()
     }
 
@@ -334,7 +334,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
         self.inner.read().vector_size()
     }
 
-    pub fn __expand_to_linear_slice_method(&self, scope: &Scope) -> &SliceExpand<E> {
+    pub fn __expand_as_linear_slice_method(&self, scope: &Scope) -> &SliceExpand<E> {
         let shape = self.inner.read().__expand_shape_method(scope);
         let origin = C::__expand_from_int(scope, shape.clone_unchecked(), 0);
         // Inclusive end so clamping works correctly
@@ -343,10 +343,10 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
         let end = C::__expand_sub(scope, shape, one);
         self.inner
             .read()
-            .__expand_to_linear_slice_method(scope, origin, end)
+            .__expand_as_linear_slice_method(scope, origin, end)
     }
 
-    pub(super) fn __expand_to_linear_slice_inner_method(
+    pub(super) fn __expand_as_linear_slice_inner_method(
         &self,
         scope: &Scope,
         pos: C::ExpandType,
@@ -354,7 +354,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
     ) -> &SliceExpand<E> {
         self.inner
             .read()
-            .__expand_to_linear_slice_method(scope, pos, end)
+            .__expand_as_linear_slice_method(scope, pos, end)
     }
 }
 
@@ -473,7 +473,7 @@ impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
             .__expand_write_checked_method(scope, pos, value);
     }
 
-    pub fn __expand_to_linear_slice_mut_method(&mut self, scope: &Scope) -> &mut SliceExpand<E> {
+    pub fn __expand_as_linear_slice_mut_method(&mut self, scope: &Scope) -> &mut SliceExpand<E> {
         let shape = self.inner.read().__expand_shape_method(scope);
         let origin = C::__expand_from_int(scope, shape.clone_unchecked(), 0);
         // Inclusive end so clamping works correctly
@@ -482,7 +482,7 @@ impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
         let end = C::__expand_sub(scope, shape, one);
         self.inner
             .write()
-            .__expand_to_linear_slice_mut_method(scope, origin, end)
+            .__expand_as_linear_slice_mut_method(scope, origin, end)
     }
 
     pub(super) fn __expand_to_linear_slice_mut_inner_method(
@@ -493,7 +493,7 @@ impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
     ) -> &mut SliceExpand<E> {
         self.inner
             .write()
-            .__expand_to_linear_slice_mut_method(scope, pos, end)
+            .__expand_as_linear_slice_mut_method(scope, pos, end)
     }
 }
 

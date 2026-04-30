@@ -10,9 +10,9 @@ trait methods, and how CubeCL works behind the scenes.
 #[cube]
 trait MyTrait {
     /// Does not get added to an expand trait.
-    fn my_function(x: &Array<f32>) -> f32;
+    fn my_function(x: &[f32]) -> f32;
     /// Generates an expand copy in the expand trait.
-    fn my_function_2(&self, x: &Array<f32>) -> f32;
+    fn my_function_2(&self, x: &[f32]) -> f32;
 }
 ```
 

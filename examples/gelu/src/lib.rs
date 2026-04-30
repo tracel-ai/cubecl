@@ -3,7 +3,7 @@ use cubecl::{num_traits::One, prelude::*};
 #[cube(launch_unchecked)]
 /// A [Vector] represents a contiguous series of elements where SIMD operations may be available.
 /// The runtime will automatically use SIMD instructions when possible for improved performance.
-fn gelu_array<F: Float, N: Size>(input: &Array<Vector<F, N>>, output: &mut Array<Vector<F, N>>) {
+fn gelu_array<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut [Vector<F, N>]) {
     if ABSOLUTE_POS < input.len() {
         output[ABSOLUTE_POS] = gelu_scalar(input[ABSOLUTE_POS]);
     }

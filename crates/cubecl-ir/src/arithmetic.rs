@@ -51,13 +51,15 @@ pub enum Arithmetic {
     Erf(UnaryOperator),
     Recip(UnaryOperator),
     Clamp(ClampOperator),
-    Modulo(BinaryOperator),
     Neg(UnaryOperator),
     #[operation(commutative)]
     Max(BinaryOperator),
     #[operation(commutative)]
     Min(BinaryOperator),
-    Remainder(BinaryOperator),
+    /// Rust `Rem::rem`
+    Rem(BinaryOperator),
+    /// Pytorch %, or mod in SPIR-V
+    ModFloor(BinaryOperator),
     Magnitude(UnaryOperator),
     Normalize(UnaryOperator),
     #[operation(commutative)]
@@ -111,11 +113,11 @@ impl Display for Arithmetic {
             Arithmetic::Clamp(op) => {
                 write!(f, "{}.clamp({}, {})", op.input, op.min_value, op.max_value)
             }
-            Arithmetic::Modulo(op) => write!(f, "{} % {}", op.lhs, op.rhs),
             Arithmetic::Neg(op) => write!(f, "-{}", op.input),
             Arithmetic::Max(op) => write!(f, "{}.max({})", op.lhs, op.rhs),
             Arithmetic::Min(op) => write!(f, "{}.min({})", op.lhs, op.rhs),
-            Arithmetic::Remainder(op) => write!(f, "{} rem {}", op.lhs, op.rhs),
+            Arithmetic::Rem(op) => write!(f, "{} % {}", op.lhs, op.rhs),
+            Arithmetic::ModFloor(op) => write!(f, "{}.mod_floor({})", op.lhs, op.rhs),
             Arithmetic::Magnitude(op) => write!(f, "{}.length()", op.input),
             Arithmetic::Normalize(op) => write!(f, "{}.normalize()", op.input),
             Arithmetic::Dot(op) => write!(f, "{}.dot({})", op.lhs, op.rhs),

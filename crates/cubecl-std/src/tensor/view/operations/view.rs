@@ -40,13 +40,13 @@ impl<T: CubePrimitive, C: Coordinates, IO: Clone> ViewOperationsExpand<T, C>
         ViewExpand::__expand_read_unchecked_method(self, scope, pos)
     }
 
-    fn __expand_to_linear_slice_method(
+    fn __expand_as_linear_slice_method(
         &self,
         scope: &Scope,
         pos: <C>::ExpandType,
         end: <C>::ExpandType,
     ) -> &SliceExpand<T> {
-        ViewExpand::__expand_to_linear_slice_inner_method(self, scope, pos, end)
+        ViewExpand::__expand_as_linear_slice_inner_method(self, scope, pos, end)
     }
 
     fn __expand_shape_method(&self, scope: &Scope) -> <C>::ExpandType {
@@ -89,7 +89,7 @@ impl<T: CubePrimitive, C: Coordinates> ViewOperationsMutExpand<T, C>
         ViewExpand::__expand_write_checked_method(self, scope, pos, value);
     }
 
-    fn __expand_to_linear_slice_mut_method(
+    fn __expand_as_linear_slice_mut_method(
         &self,
         scope: &Scope,
         pos: <C>::ExpandType,

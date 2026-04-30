@@ -107,7 +107,7 @@ impl Ranges {
                             }
                         }
                     }
-                    Arithmetic::Modulo(binop) if is_uint(inst.ty()) => {
+                    Arithmetic::ModFloor(binop) if is_uint(inst.ty()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(state, &binop.lhs);
                             let rhs_range = self.range_of(state, &binop.rhs);

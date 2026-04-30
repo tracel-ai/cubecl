@@ -184,7 +184,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         dequantize_aligned::expand::<Q, S, F, NQ, NF>(scope, value, scale, self.scheme)
     }
 
-    fn __expand_to_linear_slice_method(
+    fn __expand_as_linear_slice_method(
         &self,
         _scope: &Scope,
         _pos: <C>::ExpandType,

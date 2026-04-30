@@ -236,14 +236,14 @@ impl Launch {
     /// For example a kernel:
     /// ```text
     /// #[cube(launch)]
-    /// fn my_kernel(input: &Array<f32>, output: &mut Array<f32>) {}
+    /// fn my_kernel(input: &[f32], output: &mut [f32]) {}
     /// ```
     /// would produce the name `my_kernel`.
     ///
     /// If a generic has the `Float` or `Numeric` bound the kernel also has a
     /// suffix with the name of that type in use:
     /// ```text
-    /// fn my_kernel<F: Float>(input: &Array<F>, output: &mut Array<F>) {}
+    /// fn my_kernel<F: Float>(input: &[F], output: &mut [F]) {}
     /// ```
     /// now produces the name `my_kernel_f16` or `my_kernel_f32` etc. depending
     /// on which variant of the kernel is launched by the user.

@@ -1,10 +1,12 @@
+#![allow(clippy::needless_range_loop)]
+
 use alloc::{vec, vec::Vec};
 
 use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 
 #[cube(launch_unchecked)]
-pub fn kernel_vector_index<F: Float, N: Size>(output: &mut Array<F>) {
+pub fn kernel_vector_index<F: Float, N: Size>(output: &mut [F]) {
     if UNIT_POS == 0 {
         let vector = Vector::<F, N>::new(F::new(5f32));
         for i in 0..4 {
@@ -42,7 +44,7 @@ pub fn test_vector_index<R: Runtime, F: Float + CubeElement>(client: ComputeClie
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_vector_index_assign<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
+pub fn kernel_vector_index_assign<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     if UNIT_POS == 0 {
         let mut vector = RuntimeCell::<Vector<F, N>>::new(output[0]);
         vector.insert(0, F::new(5f32));
@@ -74,7 +76,7 @@ pub fn test_vector_index_assign<R: Runtime, F: Float + CubeElement>(client: Comp
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_vector_loop_unroll<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
+pub fn kernel_vector_loop_unroll<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     if UNIT_POS == 0 {
         let mut vector = output[0];
         #[unroll]
@@ -111,9 +113,9 @@ pub fn test_vector_loop_unroll<R: Runtime, F: Float + CubeElement>(client: Compu
 
 #[cube(launch_unchecked)]
 pub fn kernel_vector_conditional<F: Float, N: Size>(
-    input: &Array<Vector<F, N>>,
-    flag: &Array<u32>,
-    output: &mut Array<Vector<F, N>>,
+    input: &[Vector<F, N>],
+    flag: &[u32],
+    output: &mut [Vector<F, N>],
 ) {
     let cond = flag[0] == u32::new(0);
     let vector = if cond { input[0] } else { input[1] };
@@ -161,7 +163,7 @@ pub fn test_vector_conditional<R: Runtime, F: Float + CubeElement>(client: Compu
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_shared_memory<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
+pub fn kernel_shared_memory<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     let mut smem1 = SharedMemory::<Vector<F, N>>::new(8usize);
     smem1[0] = Vector::new(F::new(42f32));
     output[0] = smem1[0];
@@ -192,9 +194,9 @@ macro_rules! impl_vector_comparison {
         ::paste::paste! {
             #[cube(launch)]
             pub fn [< kernel_vector_ $cmp >]<F: Float, N: Size>(
-                lhs: &Array<Vector<F, N>>,
-                rhs: &Array<Vector<F, N>>,
-                output: &mut Array<Vector<u32, N>>,
+                lhs: &[Vector<F, N>],
+                rhs: &[Vector<F, N>],
+                output: &mut [Vector<u32, N>],
             ) {
                 if UNIT_POS == 0 {
                     output[0] = Vector::cast_from(lhs[0].$cmp(&rhs[0]));

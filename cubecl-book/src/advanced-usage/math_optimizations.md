@@ -17,7 +17,7 @@ performance-critical sections of the code.
 /// Only the inverse square root has reduced precision/no special handling. Everything else is full
 /// precision.
 #[cube(launch_unchecked)]
-fn run_on_array<F: Float>(input: &Array<F>, alpha: F, epsilon: F, output: &mut Array<F>) {
+fn run_on_array<F: Float>(input: &[F], alpha: F, epsilon: F, output: &mut [F]) {
     if ABSOLUTE_POS < input.len() {
         output[ABSOLUTE_POS] = alpha * fast_rsqrt::<F>(input[ABSOLUTE_POS]) + epsilon;
     }
@@ -69,7 +69,7 @@ but not constant, divisor (i.e. width). For example:
 
 ```rust
 #[cube(launch)]
-pub fn some_2d_kernel<F: Float>(output: &mut Array<F>, width: u32) {
+pub fn some_2d_kernel<F: Float>(output: &mut [F], width: u32) {
     let y = ABSOLUTE_POS / width;
     let x = ABSOLUTE_POS % width;
     //...
@@ -93,7 +93,7 @@ This is faster even if you only use division or modulo, and _much_ faster if you
 
 ```rust
 #[cube(launch)]
-pub fn some_2d_kernel<F: Float>(output: &mut Array<F>, width: FastDivmod) {
+pub fn some_2d_kernel<F: Float>(output: &mut [F], width: FastDivmod) {
     let (y, x) = width.div_mod(ABSOLUTE_POS);
     //...
 }

@@ -95,7 +95,7 @@ pub fn index_offset_contiguous_fastdivmod(
 #[cube(launch, address_type = "dynamic")]
 fn copy_kernel<T: Numeric, N: Size>(
     input: &LinearView<Vector<T, N>>,
-    output: &mut Tensor<Vector<T, N>>,
+    output: &mut [Vector<T, N>],
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: usize,
     #[define(T)] _elem: StorageType,
@@ -113,14 +113,14 @@ fn copy_kernel<T: Numeric, N: Size>(
 
     #[unroll]
     for i in 0..elems_per_thread {
-        output[offset_output + i] = registers[i];
+        write_checked(output, offset_output + i, registers[i]);
     }
 }
 
 #[cube(launch, address_type = "dynamic")]
 fn copy_kernel_pack<T: Numeric, N: Size>(
     input: &LinearView<T>,
-    output: &mut Tensor<Vector<T, N>>,
+    output: &mut [Vector<T, N>],
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: usize,
     #[define(T)] _elem: StorageType,
@@ -149,7 +149,7 @@ fn copy_kernel_pack<T: Numeric, N: Size>(
 
     #[unroll]
     for i in 0..vectors_per_thread {
-        output[offset_output + i] = registers[i];
+        write_checked(output, offset_output + i, registers[i]);
     }
 }
 
@@ -373,7 +373,7 @@ pub fn copy_gpu_ref<R: Runtime>(
         address_type,
         out_vec,
         input,
-        output.into_tensor_arg(),
+        output.clone().into_array_arg(),
         out_layout,
         elems_per_unit,
         dtype,

@@ -1,7 +1,40 @@
+use core::marker::PhantomData;
+
 use super::CubeType;
 use crate as cubecl;
 use crate::{prelude::*, unexpanded};
 use cubecl_ir::{Scope, VectorSize};
+use derive_more::{Deref, DerefMut};
+
+/// Hack to avoid reimplementing `SliceIndexExpand` for every container. Rust uses `SliceIndex<[T]>`
+/// for this same purpose, but we need a slightly hackier version since we can't just deref to slice.
+#[repr(transparent)]
+#[derive(Deref, DerefMut)]
+pub struct ListExpandMarker<E: CubePrimitive, T: ListExpand<E>> {
+    #[deref]
+    #[deref_mut]
+    list: T,
+    _e: PhantomData<E>,
+}
+
+impl<E: CubePrimitive, T: ListExpand<E>> From<T> for ListExpandMarker<E, T> {
+    fn from(value: T) -> Self {
+        ListExpandMarker {
+            list: value,
+            _e: PhantomData,
+        }
+    }
+}
+
+impl<E: CubePrimitive, T: ListExpand<E>> ListExpandMarker<E, T> {
+    pub fn from_ref(value: &T) -> &ListExpandMarker<E, T> {
+        unsafe { core::mem::transmute(value) }
+    }
+
+    pub fn from_mut(value: &mut T) -> &mut ListExpandMarker<E, T> {
+        unsafe { core::mem::transmute(value) }
+    }
+}
 
 /// Type from which we can read values in cube functions.
 /// For a mutable version, see [`ListMut`].
@@ -13,25 +46,32 @@ pub trait List<T: CubePrimitive>: SliceOperator<T> + Vectorized {
         unexpanded!()
     }
 
+    /// Read without any bounds checks
+    ///
+    /// # Safety
+    /// Accessing an out of bounds index is undefined behavior
     #[allow(unused)]
-    fn read_unchecked(&self, index: usize) -> &T {
+    unsafe fn read_unchecked(&self, index: usize) -> &T {
+        unexpanded!()
+    }
+
+    #[allow(unused)]
+    fn write(&mut self, index: usize) -> &mut T {
+        unexpanded!()
+    }
+
+    /// Write without any bounds checks
+    ///
+    /// # Safety
+    /// Accessing an out of bounds index is undefined behavior
+    #[allow(unused)]
+    unsafe fn write_unchecked(&mut self, index: usize) -> &mut T {
         unexpanded!()
     }
 
     #[allow(unused)]
     fn len(&self) -> usize {
         unexpanded!();
-    }
-}
-
-/// Type for which we can read and write values in cube functions.
-/// For an immutable version, see [List].
-#[allow(clippy::mut_from_ref)]
-#[cube(expand_base_traits = "SliceMutOperatorExpand<T>")]
-pub trait ListMut<T: CubePrimitive>: List<T> + SliceMutOperator<T> {
-    #[allow(unused)]
-    fn write(&self, index: usize) -> &mut T {
-        unexpanded!()
     }
 }
 

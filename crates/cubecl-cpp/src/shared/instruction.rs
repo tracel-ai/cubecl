@@ -57,8 +57,6 @@ pub enum Instruction<D: Dialect> {
     DeclareVariable {
         var: Variable<D>,
     },
-    Modulo(BinaryInstruction<D>),
-    Remainder(BinaryInstruction<D>),
     Add(BinaryInstruction<D>),
     SaturatingAdd(BinaryInstruction<D>),
     Fma {
@@ -68,6 +66,8 @@ pub enum Instruction<D: Dialect> {
         out: Variable<D>,
     },
     Div(BinaryInstruction<D>),
+    Rem(BinaryInstruction<D>),
+    ModFloor(BinaryInstruction<D>),
     FastDiv(BinaryInstruction<D>),
     FastRecip(UnaryInstruction<D>),
     Mul(BinaryInstruction<D>),
@@ -333,7 +333,7 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Sub(it) => Sub::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::SaturatingSub(it) => SaturatingSub::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::HiMul(it) => HiMul::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Modulo(inst) => Modulo::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Instruction::ModFloor(inst) => ModFloor::format(f, &inst.lhs, &inst.rhs, &inst.out),
             Instruction::BitwiseOr(it) => BitwiseOr::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::BitwiseAnd(it) => BitwiseAnd::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::BitwiseXor(it) => BitwiseXor::format(f, &it.lhs, &it.rhs, &it.out),
@@ -635,7 +635,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::AtomicXor(BinaryInstruction { lhs, rhs, out }) => {
                 D::compile_atomic_xor(f, lhs, rhs, out)
             }
-            Instruction::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Instruction::Rem(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
             Instruction::Neg(UnaryInstruction { input, out }) => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = -{input};")
@@ -870,96 +870,6 @@ impl<D: Dialect> Clamp<D> {
             )?;
 
             Ok(())
-        }
-    }
-}
-
-struct Remainder<D: Dialect> {
-    _dialect: PhantomData<D>,
-}
-
-impl<D: Dialect> Remainder<D> {
-    fn format(
-        f: &mut core::fmt::Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
-    ) -> core::fmt::Result {
-        let floor = |elem| {
-            let prefix = match elem {
-                Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
-                Elem::F16x2 | Elem::BF16x2 => D::compile_instruction_half2_function_name_prefix(),
-                _ => "",
-            };
-            format!("{prefix}floor")
-        };
-
-        let is_int = matches!(
-            out.elem(),
-            Elem::I8 | Elem::I16 | Elem::I32 | Elem::U8 | Elem::U16 | Elem::U32 | Elem::U64
-        );
-        let rem_expr = |lhs, rhs, floor: &str| {
-            if is_int {
-                format!("{lhs} % {rhs}")
-            } else {
-                format!("{lhs} - {rhs} * {floor}({lhs} / {rhs})")
-            }
-        };
-
-        if let Item::Vector(..) = out.item() {
-            let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
-            let [lhs, rhs, out_optimized] = optimized.args;
-
-            let item_out_original = out.item();
-            let item_out_optimized = out_optimized.item();
-
-            let index = match item_out_optimized {
-                Item::Vector(_, index) => index,
-                _ => 1,
-            };
-
-            let floor = floor(*item_out_optimized.elem());
-
-            let mut write_op =
-                |lhs: &Variable<D>, rhs: &Variable<D>, out: &Variable<D>, item_out: Item<D>| {
-                    let out = out.fmt_left();
-                    writeln!(f, "{out} = {item_out}{{")?;
-                    for i in 0..index {
-                        let lhsi = lhs.index(i);
-                        let rhsi = rhs.index(i);
-
-                        let rem = rem_expr(lhsi.to_string(), rhsi.to_string(), &floor);
-                        writeln!(f, "{rem}")?;
-                        f.write_str(", ")?;
-                    }
-
-                    f.write_str("};\n")
-                };
-
-            if item_out_original == item_out_optimized {
-                write_op(&lhs, &rhs, out, item_out_optimized)
-            } else {
-                let out_tmp = Variable::tmp(item_out_optimized);
-
-                write_op(&lhs, &rhs, &out_tmp, item_out_optimized)?;
-
-                let addr_space = D::address_space_for_variable(&out_tmp);
-                let qualifier = out.const_qualifier();
-                let out = out.fmt_left();
-
-                writeln!(
-                    f,
-                    "{out} = reinterpret_cast<{addr_space}{item_out_original}{qualifier}&>({out_tmp});\n"
-                )?;
-
-                Ok(())
-            }
-        } else {
-            let floor = floor(out.elem());
-
-            let out = out.fmt_left();
-            let rem = rem_expr(lhs.to_string(), rhs.to_string(), &floor);
-            writeln!(f, "{out} = {rem};")
         }
     }
 }

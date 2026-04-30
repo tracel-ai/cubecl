@@ -9,38 +9,38 @@
 //!
 //! ```rust, ignore
 //! #[cube(launch)]
-//! pub fn example(lhs: &Array<F16>, rhs: &Array<F16>, out: &mut Array<F32>) {
-//!     let a = cmma::Matrix::<F16>::new(
+//! pub fn example(lhs: &[f16], rhs: &[f16], out: &mut [f32]) {
+//!     let a = cmma::Matrix::<f16>::new(
 //!         cmma::MatrixIdent::A,
 //!         16,
 //!         16,
 //!         16,
 //!         cmma::MatrixLayout::RowMajor,
 //!     );
-//!     let b = cmma::Matrix::<F16>::new(
+//!     let b = cmma::Matrix::<f16>::new(
 //!         cmma::MatrixIdent::B,
 //!         16,
 //!         16,
 //!         16,
 //!         cmma::MatrixLayout::ColMajor,
 //!     );
-//!     let c = cmma::Matrix::<F32>::new(
+//!     let c = cmma::Matrix::<f32>::new(
 //!         cmma::MatrixIdent::Accumulator,
 //!         16,
 //!         16,
 //!         16,
 //!         cmma::MatrixLayout::Undefined,
 //!     );
-//!     cmma::fill::<F32>(&c, F32::new(0.0));
-//!     cmma::load::<F16>(&a, lhs.as_slice(), u32::new(16));
-//!     cmma::load::<F16>(&b, rhs.as_slice(), u32::new(16));
+//!     cmma::fill(&c, 0.0);
+//!     cmma::load(&a, lhs.as_slice(), 16);
+//!     cmma::load(&b, rhs.as_slice(), 16);
 //!
-//!     cmma::execute::<F16, F16, F32, F32>(&a, &b, &c, &c);
+//!     cmma::execute(&a, &b, &c, &c);
 //!
-//!     cmma::store::<F32>(
-//!         out.as_slice_mut(),
+//!     cmma::store(
+//!         out.as_mut_slice(),
 //!         &c,
-//!         u32::new(16),
+//!         16,
 //!         cmma::MatrixLayout::RowMajor,
 //!     );
 //! }
@@ -942,10 +942,11 @@ pub mod load_tensor {
             MatrixIdent::Accumulator,
             "Loading accumulator requires explicit layout. Use `load_with_layout` instead."
         );
+        let (buffer, _) = value.buffer.__to_raw_parts();
 
         scope.register(Instruction::new(
             ir::CoopMma::LoadTensor {
-                buffer: value.buffer.expand,
+                buffer,
                 layout: value.layout.expand,
                 view: match &value.view {
                     ComptimeOptionExpand::None => None,
@@ -1057,6 +1058,7 @@ pub mod store_tensor {
         output: &mut TensorViewExpand<O>,
         mat: &MatrixExpand<C, S>,
     ) {
+        let (buffer, _) = output.buffer.__to_raw_parts();
         scope.register(Instruction::new(
             ir::CoopMma::StoreTensor {
                 mat: mat.elem,
@@ -1066,7 +1068,7 @@ pub mod store_tensor {
                     ComptimeOptionExpand::Some(view) => Some(view.expand),
                 },
             },
-            output.buffer.into_variable(),
+            buffer,
         ));
     }
 }

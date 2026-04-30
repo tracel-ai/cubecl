@@ -42,7 +42,7 @@ used as local variables:
 # }
 #
 #[cube(launch_unchecked)]
-pub fn kernel_struct_example(pair: &Pair<Array<f32>>, output: &mut Array<f32>) {
+pub fn kernel_struct_example(pair: &Pair<Array<f32>>, output: &mut [f32]) {
     output[UNIT_POS] = pair.left[UNIT_POS] + pair.right[UNIT_POS];
 }
 #
@@ -207,7 +207,7 @@ impl Pair<Array<f32>> {
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_struct_example(pair: &Pair<Array<f32>>, output: &mut Array<f32>) {
+pub fn kernel_struct_example(pair: &Pair<Array<f32>>, output: &mut [f32]) {
     output[UNIT_POS] = pair.sum(UNIT_POS);
 }
 #

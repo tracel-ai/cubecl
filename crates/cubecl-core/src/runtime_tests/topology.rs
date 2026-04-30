@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use cubecl::prelude::*;
 
 #[cube(launch, address_type = "dynamic")]
-pub fn kernel_absolute_pos(output1: &mut Array<u32>) {
+pub fn kernel_absolute_pos(output1: &mut [u32]) {
     if ABSOLUTE_POS >= output1.len() {
         terminate!();
     }

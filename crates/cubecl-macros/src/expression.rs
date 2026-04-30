@@ -105,7 +105,7 @@ pub enum Expression {
         default: Block,
     },
     Range {
-        start: Box<Expression>,
+        start: Option<Box<Expression>>,
         end: Option<Box<Expression>>,
         span: Span,
         inclusive: bool,
@@ -126,16 +126,6 @@ pub enum Expression {
         expr: Box<Expression>,
         index: Box<Expression>,
         span: Span,
-    },
-    Slice {
-        span: Span,
-        expr: Box<Expression>,
-        ranges: Vec<Expression>,
-    },
-    SliceMut {
-        span: Span,
-        expr: Box<Expression>,
-        ranges: Vec<Expression>,
     },
     ArrayInit {
         init: Box<Expression>,

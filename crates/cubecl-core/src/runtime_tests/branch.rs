@@ -4,7 +4,7 @@ use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 
 #[cube(launch_unchecked)]
-pub fn kernel_switch_simple<F: Float>(output: &mut Array<F>, case: u32) {
+pub fn kernel_switch_simple<F: Float>(output: &mut [F], case: u32) {
     match case {
         0 => {
             output[0] = F::new(1f32);
@@ -19,7 +19,7 @@ pub fn kernel_switch_simple<F: Float>(output: &mut Array<F>, case: u32) {
 }
 
 #[cube(launch)]
-pub fn kernel_switch_value_expr<F: Float>(output: &mut Array<F>, case: u32) {
+pub fn kernel_switch_value_expr<F: Float>(output: &mut [F], case: u32) {
     if UNIT_POS == 0 {
         let value = match case {
             0 => F::new(1.0f32),
@@ -31,7 +31,7 @@ pub fn kernel_switch_value_expr<F: Float>(output: &mut Array<F>, case: u32) {
 }
 
 #[cube(launch)]
-pub fn kernel_switch_or_arm<F: Float>(output: &mut Array<F>, case: u32) {
+pub fn kernel_switch_or_arm<F: Float>(output: &mut [F], case: u32) {
     if UNIT_POS == 0 {
         let value = match case {
             0 => F::new(1.0f32),
@@ -46,7 +46,7 @@ const CASE_0: u32 = 0;
 const CASE_1: u32 = 1;
 
 #[cube(launch)]
-pub fn kernel_switch_const<F: Float>(output: &mut Array<F>, case: u32) {
+pub fn kernel_switch_const<F: Float>(output: &mut [F], case: u32) {
     if UNIT_POS == 0 {
         let value = match case {
             CASE_0 => F::new(1.0f32),
@@ -58,14 +58,14 @@ pub fn kernel_switch_const<F: Float>(output: &mut Array<F>, case: u32) {
 }
 
 #[cube(launch)]
-pub fn kernel_select<F: Float>(output: &mut Array<F>, cond: u32) {
+pub fn kernel_select<F: Float>(output: &mut [F], cond: u32) {
     if UNIT_POS == 0 {
         output[0] = select(cond == 1, F::new(3f32), F::new(5f32));
     }
 }
 
 #[cube(launch)]
-pub fn kernel_for_loop_with_break<F: Float>(output: &mut Array<F>) {
+pub fn kernel_for_loop_with_break<F: Float>(output: &mut [F]) {
     let max_iterations = comptime!(20_i32);
     for i in 0..max_iterations {
         if i > 3 {

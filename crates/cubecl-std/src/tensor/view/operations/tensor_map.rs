@@ -42,7 +42,7 @@ macro_rules! impl_tensor_map {
                     unimplemented!("Can't read from tensor map");
                 }
 
-                fn __expand_to_linear_slice_method(
+                fn __expand_as_linear_slice_method(
                     &self,
                     _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
@@ -99,7 +99,7 @@ macro_rules! impl_tensor_map {
                     unimplemented!("Can't write to tensor map");
                 }
 
-                fn __expand_to_linear_slice_mut_method(
+                fn __expand_as_linear_slice_mut_method(
                     &self,
                     _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
@@ -177,7 +177,7 @@ macro_rules! impl_tensor_map_im2col {
                     unimplemented!("Can't read from tensor map");
                 }
 
-                fn __expand_to_linear_slice_method(
+                fn __expand_as_linear_slice_method(
                     &self,
                     _scope: &Scope,
                     _pos: <$coords as CubeType>::ExpandType,
@@ -286,7 +286,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsExpand<T, S
         unimplemented!("Can't read from tensor map");
     }
 
-    fn __expand_to_linear_slice_method(
+    fn __expand_as_linear_slice_method(
         &self,
         _scope: &Scope,
         _pos: SequenceExpand<N>,
@@ -379,7 +379,7 @@ impl<T: CubePrimitive, N: CubePrimitive + Coordinates> ViewOperationsMutExpand<T
         unimplemented!("Can't write to tensor map");
     }
 
-    fn __expand_to_linear_slice_mut_method(
+    fn __expand_as_linear_slice_mut_method(
         &self,
         _scope: &Scope,
         _pos: SequenceExpand<N>,
@@ -474,7 +474,7 @@ impl<T: CubePrimitive, P: CubePrimitive + Coordinates, O: CubePrimitive + Coordi
         unimplemented!("Can't read from tensor map");
     }
 
-    fn __expand_to_linear_slice_method(
+    fn __expand_as_linear_slice_method(
         &self,
         _scope: &Scope,
         _pos: (SequenceExpand<P>, SequenceExpand<O>),

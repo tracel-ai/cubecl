@@ -121,59 +121,7 @@ impl<R: Runtime> ArrayBinding<R> {
     }
 }
 
-// impl<C: CubePrimitive> LaunchArg for &'static Array<C> {
-//     type OwnedType = Array<C>;
-//     type RuntimeArg<R: Runtime> = ArrayArg<R>;
-//     type CompilationArg = ArrayCompilationArg;
 
-//     fn register<R: Runtime>(
-//         arg: Self::RuntimeArg<R>,
-//         launcher: &mut KernelLauncher<R>,
-//     ) -> Self::CompilationArg {
-//         let ty = launcher.with_scope(|scope| C::as_type(scope));
-//         let compilation_arg = match &arg {
-//             ArrayArg::Handle { .. } => ArrayCompilationArg { inplace: None },
-//             ArrayArg::Alias { input_pos, .. } => ArrayCompilationArg {
-//                 inplace: Some(*input_pos as Id),
-//             },
-//         };
-//         launcher.register_array(arg, ty);
-//         compilation_arg
-//     }
-
-//     fn expand(_arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<Array<C>> {
-//         let ty = C::as_type(&builder.scope);
-//         builder.input_array(ty).into()
-//     }
-// }
-
-// impl<C: CubePrimitive> LaunchArg for &'static mut Array<C> {
-//     type OwnedType = Array<C>;
-//     type RuntimeArg<R: Runtime> = ArrayArg<R>;
-//     type CompilationArg = ArrayCompilationArg;
-
-//     fn register<R: Runtime>(
-//         arg: Self::RuntimeArg<R>,
-//         launcher: &mut KernelLauncher<R>,
-//     ) -> Self::CompilationArg {
-//         let ty = launcher.with_scope(|scope| C::as_type(scope));
-//         let compilation_arg = match &arg {
-//             ArrayArg::Handle { .. } => ArrayCompilationArg { inplace: None },
-//             ArrayArg::Alias { input_pos, .. } => ArrayCompilationArg {
-//                 inplace: Some(*input_pos as Id),
-//             },
-//         };
-//         launcher.register_array(arg, ty);
-//         compilation_arg
-//     }
-
-//     fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<Array<C>> {
-//         match arg.inplace {
-//             Some(id) => builder.inplace_output(id).into(),
-//             None => builder.output_array(C::as_type(&builder.scope)).into(),
-//         }
-//     }
-// }
 
 impl<C: CubePrimitive> LaunchArg for Array<C> {
     type RuntimeArg<R: Runtime> = ArrayArg<R>;

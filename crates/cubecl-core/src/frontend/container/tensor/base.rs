@@ -92,7 +92,7 @@ mod metadata {
                 // Compute `coordinate = num_strides % shape `.
                 let coordinate = scope.create_local(usize::__expand_as_type(scope));
                 scope.register(Instruction::new(
-                    Arithmetic::Modulo(BinaryOperator {
+                    Arithmetic::Rem(BinaryOperator {
                         lhs: num_strides,
                         rhs: shape.expand.into(),
                     }),
@@ -231,7 +231,15 @@ mod vector {
 }
 
 impl<T: CubePrimitive> SizedContainer<usize> for Tensor<T> {
-    type Item = T;
+    fn len(&self) -> usize {
+        unexpanded!()
+    }
+}
+
+impl<T: CubePrimitive> SizedContainerExpand<usize> for TensorExpand<T> {
+    fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
+        self.__expand_len_method(scope)
+    }
 }
 
 impl<T: CubeType> Iterator for &Tensor<T> {
@@ -284,18 +292,34 @@ impl<T: CubePrimitive> DerefMut for Tensor<T> {
 
 impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Tensor<T>> {
     fn __expand_read_method(&self, scope: &Scope, idx: NativeExpand<usize>) -> &NativeExpand<T> {
-        self.__expand_index_method(scope, idx)
+        expand_index_native(scope, self, idx, None, true)
     }
     fn __expand_read_unchecked_method(
         &self,
         scope: &Scope,
         idx: NativeExpand<usize>,
     ) -> &NativeExpand<T> {
-        self.__expand_index_unchecked_method(scope, idx)
+        expand_index_native(scope, self, idx, None, false)
+    }
+
+    fn __expand_write_method(
+        &mut self,
+        scope: &Scope,
+        idx: NativeExpand<usize>,
+    ) -> &mut NativeExpand<T> {
+        expand_index_mut_native(scope, self, idx, None, true)
+    }
+
+    fn __expand_write_unchecked_method(
+        &mut self,
+        scope: &Scope,
+        idx: NativeExpand<usize>,
+    ) -> &mut NativeExpand<T> {
+        expand_index_mut_native(scope, self, idx, None, false)
     }
 
     fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
-        Self::__expand_len(scope, self)
+        Self::__expand_len_method(self, scope)
     }
 }
 
@@ -303,19 +327,5 @@ impl<T: CubePrimitive> Vectorized for Tensor<T> {}
 impl<T: CubePrimitive> VectorizedExpand for NativeExpand<Tensor<T>> {
     fn vector_size(&self) -> VectorSize {
         self.expand.ty.vector_size()
-    }
-}
-
-impl<T: CubePrimitive> ListMut<T> for Tensor<T> {}
-impl<T: CubePrimitive> ListMutExpand<T> for NativeExpand<Tensor<T>> {
-    fn __expand_write_method(
-        &self,
-        scope: &Scope,
-        idx: NativeExpand<usize>,
-    ) -> &mut NativeExpand<T> {
-        let mut this = *self;
-        let reference = this.__expand_index_mut_method(scope, idx);
-        // Cloning self just clones the reference, so this is safe
-        unsafe { core::mem::transmute(reference) }
     }
 }

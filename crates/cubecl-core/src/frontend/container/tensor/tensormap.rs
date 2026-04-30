@@ -483,7 +483,7 @@ mod metadata {
             // Compute `coordinate = num_strides % shape `.
             let coordinate = scope.create_local(usize::__expand_as_type(scope));
             scope.register(Instruction::new(
-                Arithmetic::Modulo(BinaryOperator {
+                Arithmetic::Rem(BinaryOperator {
                     lhs: num_strides,
                     rhs: shape.expand,
                 }),

@@ -75,19 +75,31 @@ impl<E: Numeric, N: Size, IO: Clone> SliceOperatorExpand<Vector<E, N>>
         self.state.__expand_read_window_method(scope, start, end)
     }
 
-    fn __expand_to_slice_method(&self, scope: &Scope) -> &SliceExpand<Vector<E, N>> {
-        let end = self.clone().__expand_buffer_len_method(scope);
-        self.state.__expand_read_window_method(scope, 0.into(), end)
+    fn __expand_slice_mut_method(
+        &mut self,
+        _: &Scope,
+        _: NativeExpand<usize>,
+        _: NativeExpand<usize>,
+    ) -> &mut SliceExpand<Vector<E, N>> {
+        todo!("VirtualTensor don't support slice mut yet");
     }
 }
 
 #[cube]
 impl<E: Numeric, N: Size, IO: Clone> VirtualTensor<E, N, IO> {
+    pub fn as_slice(&self) -> &[Vector<E, N>] {
+        self.slice(0, self.len())
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [Vector<E, N>] {
+        self.slice_mut(0, self.len())
+    }
+
     pub fn as_tensor_map(&self) -> ComptimeOption<TensorMap<E, Tiled>> {
         intrinsic!(|scope| self.state.__expand_as_tensor_map_method(scope))
     }
     #[allow(unused)]
-    pub fn as_slice(&self, start: usize, end: usize) -> &[Vector<E, N>] {
+    pub fn slice(&self, start: usize, end: usize) -> &[Vector<E, N>] {
         intrinsic!(|scope| self.state.__expand_read_window_method(scope, start, end))
     }
     /// Get the shape of the tensor at the given axis.
@@ -202,26 +214,6 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
     #[allow(unused)]
     pub fn write(&self, index: usize, value: Vector<E, N>) {
         intrinsic!(|scope| self.state.__expand_write_method(scope, index, value))
-    }
-}
-
-impl<E: Numeric, N: Size> SliceMutOperator<Vector<E, N>> for VirtualTensor<E, N, ReadWrite> {}
-impl<E: Numeric, N: Size> SliceMutOperatorExpand<Vector<E, N>>
-    for VirtualTensorExpand<E, N, ReadWrite>
-{
-    #[allow(unused_variables)]
-    fn __expand_slice_mut_method(
-        &mut self,
-        scope: &Scope,
-        start: NativeExpand<usize>,
-        end: NativeExpand<usize>,
-    ) -> &mut SliceExpand<Vector<E, N>> {
-        todo!("VirtualTensor don't support slice mut yet");
-    }
-
-    #[allow(unused_variables)]
-    fn __expand_to_slice_mut_method(&mut self, scope: &Scope) -> &mut SliceExpand<Vector<E, N>> {
-        todo!("VirtualTensor don't support slice mut yet");
     }
 }
 

@@ -324,7 +324,7 @@ impl<'a> Visitor<'a> {
                 };
                 self.insert_variable(out, value);
             }
-            Arithmetic::Modulo(modulo) => {
+            Arithmetic::Rem(modulo) => {
                 let (lhs, rhs) = self.get_binary_op_variable(modulo.lhs, modulo.rhs);
                 let value = if modulo.lhs.storage_type().is_signed_int() {
                     self.append_operation_with_result(arith::remsi(lhs, rhs, self.location))
@@ -457,7 +457,7 @@ impl<'a> Visitor<'a> {
                     self.append_operation_with_result(arith::divf(one, value, self.location));
                 self.insert_variable(out, recip);
             }
-            Arithmetic::Remainder(remainder) => {
+            Arithmetic::ModFloor(remainder) => {
                 let (lhs, rhs) = self.get_binary_op_variable(remainder.lhs, remainder.rhs);
                 let value = if remainder.lhs.storage_type().is_signed_int() {
                     // TODO: check what is PyTorch behaviour with signed integer
