@@ -189,7 +189,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         _scope: &Scope,
         _pos: <C>::ExpandType,
         _end: <C>::ExpandType,
-    ) -> &SliceExpand<Vector<F, NF>, ReadOnly> {
+    ) -> &SliceExpand<Vector<F, NF>> {
         panic!("Can't create raw slice for quantized view")
     }
 
@@ -209,7 +209,7 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         &self,
         _scope: &Scope,
         _barrier: &NativeExpand<Barrier>,
-        _shared_memory: &mut SliceExpand<Vector<F, NF>, ReadWrite>,
+        _shared_memory: &mut SliceExpand<Vector<F, NF>>,
         _pos: C::ExpandType,
     ) {
         panic!("Can't use tensor map functions on quantized view");

@@ -32,7 +32,7 @@ fn sum_subgroup<F: Float>(
 
 #[cube]
 trait SumKind: 'static + Send + Sync {
-    fn sum<F: Float>(input: &Slice<F>, #[comptime] end: Option<usize>) -> F;
+    fn sum<F: Float>(input: &[F], #[comptime] end: Option<usize>) -> F;
 }
 
 struct SumBasic;
@@ -40,9 +40,9 @@ struct SumPlane;
 
 #[cube]
 impl SumKind for SumBasic {
-    fn sum<F: Float>(input: &Slice<F>, #[comptime] end: Option<usize>) -> F {
+    fn sum<F: Float>(input: &[F], #[comptime] end: Option<usize>) -> F {
         let unroll = end.is_some();
-        let end = end.unwrap_or_else(|| input.len());
+        let end = end.unwrap_or(input.len());
 
         let mut sum = F::new(0.0f32);
 
@@ -57,7 +57,7 @@ impl SumKind for SumBasic {
 
 #[cube]
 impl SumKind for SumPlane {
-    fn sum<F: Float>(input: &Slice<F>, #[comptime] _end: Option<usize>) -> F {
+    fn sum<F: Float>(input: &[F], #[comptime] _end: Option<usize>) -> F {
         plane_sum(input[UNIT_POS as usize])
     }
 }
@@ -75,7 +75,7 @@ fn sum_trait<F: Float, K: SumKind>(
 trait CreateSeries: 'static + Send + Sync {
     type SumKind: SumKind;
 
-    fn execute<F: Float>(input: &Slice<F>, #[comptime] end: Option<usize>) -> F;
+    fn execute<F: Float>(input: &[F], #[comptime] end: Option<usize>) -> F;
 }
 
 #[cube(launch_unchecked)]
@@ -95,7 +95,7 @@ struct SumThenMul<K: SumKind> {
 impl<K: SumKind> CreateSeries for SumThenMul<K> {
     type SumKind = K;
 
-    fn execute<F: Float>(input: &Slice<F>, #[comptime] end: Option<usize>) -> F {
+    fn execute<F: Float>(input: &[F], #[comptime] end: Option<usize>) -> F {
         let val = Self::SumKind::sum(input, end);
         val * input[UNIT_POS as usize]
     }

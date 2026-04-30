@@ -32,14 +32,14 @@ pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Vectorized {
     /// Create a slice starting from `pos`, with `size`.
     /// The layout handles translation into concrete indices.
     #[allow(unused)]
-    fn to_linear_slice(&self, pos: C, size: C) -> &Slice<T, ReadOnly> {
+    fn to_linear_slice(&self, pos: C, size: C) -> &[T] {
         unexpanded!()
     }
 
     ///.Execute a TMA load into shared memory, if the underlying storage supports it.
     /// Panics if it's unsupported.
     #[allow(unused)]
-    fn tensor_map_load(&self, barrier: &Barrier, shared_memory: &mut Slice<T, ReadWrite>, pos: C) {
+    fn tensor_map_load(&self, barrier: &Barrier, shared_memory: &mut [T], pos: C) {
         unexpanded!()
     }
 
@@ -71,14 +71,14 @@ pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>: ViewOperations<T,
     /// Create a mutable slice starting from `pos`, with `size`.
     /// The layout handles translation into concrete indices.
     #[allow(unused, clippy::wrong_self_convention)]
-    fn to_linear_slice_mut(&self, pos: C, size: C) -> &mut Slice<T, ReadWrite> {
+    fn to_linear_slice_mut(&self, pos: C, size: C) -> &mut [T] {
         unexpanded!()
     }
 
     /// Execute a TMA store into global memory, if the underlying storage supports it.
     /// Panics if it\'s unsupported.
     #[allow(unused)]
-    fn tensor_map_store(&self, shared_memory: &Slice<T>, pos: C) {
+    fn tensor_map_store(&self, shared_memory: &[T], pos: C) {
         unexpanded!()
     }
 }

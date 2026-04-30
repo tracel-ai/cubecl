@@ -45,7 +45,7 @@ impl<T: CubePrimitive, C: Coordinates, IO: Clone> ViewOperationsExpand<T, C>
         scope: &Scope,
         pos: <C>::ExpandType,
         end: <C>::ExpandType,
-    ) -> &SliceExpand<T, ReadOnly> {
+    ) -> &SliceExpand<T> {
         ViewExpand::__expand_to_linear_slice_inner_method(self, scope, pos, end)
     }
 
@@ -65,7 +65,7 @@ impl<T: CubePrimitive, C: Coordinates, IO: Clone> ViewOperationsExpand<T, C>
         &self,
         scope: &Scope,
         barrier: &NativeExpand<Barrier>,
-        shared_memory: &mut SliceExpand<T, ReadWrite>,
+        shared_memory: &mut SliceExpand<T>,
         pos: C::ExpandType,
     ) {
         ViewExpand::__expand_tensor_map_load_method(self, scope, barrier, shared_memory, pos)
@@ -94,14 +94,14 @@ impl<T: CubePrimitive, C: Coordinates> ViewOperationsMutExpand<T, C>
         scope: &Scope,
         pos: <C>::ExpandType,
         end: <C>::ExpandType,
-    ) -> &mut SliceExpand<T, ReadWrite> {
+    ) -> &mut SliceExpand<T> {
         ViewExpand::__expand_to_linear_slice_mut_inner_method(self, scope, pos, end)
     }
 
     fn __expand_tensor_map_store_method(
         &self,
         scope: &Scope,
-        shared_memory: &SliceExpand<T, ReadOnly>,
+        shared_memory: &SliceExpand<T>,
         pos: C::ExpandType,
     ) {
         ViewExpand::__expand_tensor_map_store_method(self, scope, shared_memory, pos)

@@ -57,7 +57,7 @@ macro_rules! impl_operations_1d {
                 scope: &Scope,
                 pos: NativeExpand<usize>,
                 end: NativeExpand<usize>,
-            ) -> &SliceExpand<T, ReadOnly> {
+            ) -> &SliceExpand<T> {
                 // Convert to exclusive end
                 let end = end.__expand_add_method(scope, 1usize.into_expand(scope));
                 // Handling for shapes that are 0 in at least one dim, ensures the slice is not
@@ -83,7 +83,7 @@ macro_rules! impl_operations_1d {
                 &self,
                 _scope: &Scope,
                 _barrier: &NativeExpand<Barrier>,
-                _shared_memory: &mut SliceExpand<T, ReadWrite>,
+                _shared_memory: &mut SliceExpand<T>,
                 _pos: NativeExpand<usize>,
             ) {
                 unimplemented!("Not a tensor map");
@@ -121,7 +121,7 @@ macro_rules! impl_operations_1d {
                 scope: &Scope,
                 pos: NativeExpand<usize>,
                 end: NativeExpand<usize>,
-            ) -> &mut SliceExpand<T, ReadWrite> {
+            ) -> &mut SliceExpand<T> {
                 // Convert to exclusive end
                 let end = end.__expand_add_method(scope, 1usize.into_expand(scope));
                 // Handling for shapes that are 0 in at least one dim, ensures the slice is not
@@ -138,7 +138,7 @@ macro_rules! impl_operations_1d {
             fn __expand_tensor_map_store_method(
                 &self,
                 _scope: &Scope,
-                _shared_memory: &SliceExpand<T, ReadOnly>,
+                _shared_memory: &SliceExpand<T>,
                 _pos: <Coords1d as CubeType>::ExpandType,
             ) {
                 unimplemented!("Not a tensor map");

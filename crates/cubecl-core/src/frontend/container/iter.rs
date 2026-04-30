@@ -11,7 +11,7 @@ use crate::{
 
 use super::Array;
 
-pub trait SizedContainer: CubeIndex<Idx: CubePrimitive, Output = Self::Item> + Sized {
+pub trait SizedContainer: CubeIndex<Idx: CubePrimitive, Output = Self::Item> {
     type Item: CubePrimitive;
 
     /// Return the length of the container.

@@ -3,10 +3,9 @@ use crate::tensor::layout::Coords1d;
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, io::read_masked, prelude::barrier::Barrier};
 
-impl<T: CubePrimitive, IO: SliceVisibility> ViewOperations<T, Coords1d> for Slice<T, IO> {}
-impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
-    for SliceExpand<T, IO>
-{
+impl<T: CubePrimitive> ViewOperations<T, Coords1d> for Box<[T]> {}
+impl<T: CubePrimitive> ViewOperations<T, Coords1d> for [T] {}
+impl<T: CubePrimitive> ViewOperationsExpand<T, Coords1d> for SliceExpand<T> {
     fn __expand_read_method(&self, scope: &Scope, pos: NativeExpand<usize>) -> <T>::ExpandType {
         <Self as ListExpand<T>>::__expand_read_method(self, scope, pos).__expand_deref_method(scope)
     }
@@ -49,7 +48,7 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
         scope: &Scope,
         pos: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &SliceExpand<T, ReadOnly> {
+    ) -> &SliceExpand<T> {
         // Convert to exclusive end
         let end = end.__expand_add_method(scope, 1usize.into_expand(scope));
         // Handling for shapes that are 0 in at least one dim, ensures the slice is not
@@ -75,15 +74,16 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
         &self,
         _scope: &Scope,
         _barrier: &NativeExpand<Barrier>,
-        _shared_memory: &mut SliceExpand<T, ReadWrite>,
+        _shared_memory: &mut SliceExpand<T>,
         _pos: NativeExpand<usize>,
     ) {
         unimplemented!("Not a tensor map");
     }
 }
 
-impl<T: CubePrimitive> ViewOperationsMut<T, Coords1d> for Slice<T, ReadWrite> {}
-impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T, ReadWrite> {
+impl<T: CubePrimitive> ViewOperationsMut<T, Coords1d> for Box<[T]> {}
+impl<T: CubePrimitive> ViewOperationsMut<T, Coords1d> for [T] {}
+impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T> {
     fn __expand_write_method(
         &self,
         scope: &Scope,
@@ -113,7 +113,7 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T, R
         scope: &Scope,
         pos: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &mut SliceExpand<T, ReadWrite> {
+    ) -> &mut SliceExpand<T> {
         // Convert to exclusive end
         let end = end.__expand_add_method(scope, 1usize.into_expand(scope));
         // Handling for shapes that are 0 in at least one dim, ensures the slice is not
@@ -130,7 +130,7 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T, R
     fn __expand_tensor_map_store_method(
         &self,
         _scope: &Scope,
-        _shared_memory: &SliceExpand<T, ReadOnly>,
+        _shared_memory: &SliceExpand<T>,
         _pos: <Coords1d as CubeType>::ExpandType,
     ) {
         unimplemented!("Not a tensor map");

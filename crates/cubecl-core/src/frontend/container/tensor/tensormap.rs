@@ -241,7 +241,7 @@ macro_rules! tma_store {
             /// ``memcpy_async_tensor_wait_read``.
             #[allow(unused)]
             pub fn [<tma_store_ $dim d>]<T: CubePrimitive, T2: CubePrimitive<Scalar = T::Scalar>>(
-                src: &Slice<T2>,
+                src: &[T2],
                 dst: &mut TensorMap<T, Tiled>,
                 $($arg: i32),*
             ) {
@@ -256,7 +256,7 @@ macro_rules! tma_store {
                 #[allow(clippy::too_many_arguments)]
                 pub fn expand<T: CubePrimitive, T2: CubePrimitive<Scalar = T::Scalar>>(
                     scope: &Scope,
-                    src: &SliceExpand<T2, ReadOnly>,
+                    src: &SliceExpand<T2>,
                     dst: &mut NativeExpand<TensorMap<T, Tiled>>,
                     $($arg: NativeExpand<i32>),*
                 ) {

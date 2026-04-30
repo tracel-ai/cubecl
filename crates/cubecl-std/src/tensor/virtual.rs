@@ -71,11 +71,11 @@ impl<E: Numeric, N: Size, IO: Clone> SliceOperatorExpand<Vector<E, N>>
         scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &SliceExpand<Vector<E, N>, ReadOnly> {
+    ) -> &SliceExpand<Vector<E, N>> {
         self.state.__expand_read_window_method(scope, start, end)
     }
 
-    fn __expand_to_slice_method(&self, scope: &Scope) -> &SliceExpand<Vector<E, N>, ReadOnly> {
+    fn __expand_to_slice_method(&self, scope: &Scope) -> &SliceExpand<Vector<E, N>> {
         let end = self.clone().__expand_buffer_len_method(scope);
         self.state.__expand_read_window_method(scope, 0.into(), end)
     }
@@ -87,7 +87,7 @@ impl<E: Numeric, N: Size, IO: Clone> VirtualTensor<E, N, IO> {
         intrinsic!(|scope| self.state.__expand_as_tensor_map_method(scope))
     }
     #[allow(unused)]
-    pub fn as_slice(&self, start: usize, end: usize) -> &Slice<Vector<E, N>> {
+    pub fn as_slice(&self, start: usize, end: usize) -> &[Vector<E, N>] {
         intrinsic!(|scope| self.state.__expand_read_window_method(scope, start, end))
     }
     /// Get the shape of the tensor at the given axis.
@@ -215,15 +215,12 @@ impl<E: Numeric, N: Size> SliceMutOperatorExpand<Vector<E, N>>
         scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &mut SliceExpand<Vector<E, N>, cubecl_core::prelude::ReadWrite> {
+    ) -> &mut SliceExpand<Vector<E, N>> {
         todo!("VirtualTensor don't support slice mut yet");
     }
 
     #[allow(unused_variables)]
-    fn __expand_to_slice_mut_method(
-        &mut self,
-        scope: &Scope,
-    ) -> &mut SliceExpand<Vector<E, N>, cubecl_core::prelude::ReadWrite> {
+    fn __expand_to_slice_mut_method(&mut self, scope: &Scope) -> &mut SliceExpand<Vector<E, N>> {
         todo!("VirtualTensor don't support slice mut yet");
     }
 }
@@ -283,7 +280,7 @@ pub trait VirtualTensorOperations<E: Numeric, N: Size>: Vectorized {
     fn read(&self, _index: usize) -> Vector<E, N> {
         unexpanded!()
     }
-    fn read_window(&self, _start: usize, _end: usize) -> &Slice<Vector<E, N>, ReadOnly> {
+    fn read_window(&self, _start: usize, _end: usize) -> &[Vector<E, N>] {
         unexpanded!()
     }
     /// Write the tensor at the given index.
@@ -375,7 +372,7 @@ mod __tensor {
             context: &Scope,
             start: NativeExpand<usize>,
             end: NativeExpand<usize>,
-        ) -> &'static SliceExpand<Vector<E, N>, ReadOnly> {
+        ) -> &'static SliceExpand<Vector<E, N>> {
             unsafe { core::mem::transmute(self.__expand_slice_method(context, start, end)) }
         }
 
@@ -445,7 +442,7 @@ mod __tensor_map {
             _context: &Scope,
             _start: NativeExpand<usize>,
             _end: NativeExpand<usize>,
-        ) -> &'static SliceExpand<Vector<E, N>, ReadOnly> {
+        ) -> &'static SliceExpand<Vector<E, N>> {
             todo!()
         }
 

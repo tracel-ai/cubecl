@@ -1,4 +1,6 @@
-use super::{ReadOnly, ReadWrite, Slice, SliceExpand, SliceOriginExpand, SliceVisibility};
+use alloc::boxed::Box;
+
+use super::{SliceExpand, SliceOriginExpand};
 use crate as cubecl;
 use crate::{ir::Scope, prelude::*, unexpanded};
 use cubecl_common::tf32;
@@ -19,14 +21,14 @@ impl<E: CubePrimitive> SliceOperatorExpand<E> for NativeExpand<SharedMemory<E>> 
         scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &SliceExpand<E, ReadOnly> {
-        let slice = Slice::__expand_new(scope, SliceOriginExpand::SharedMemory(*self), start, end);
+    ) -> &SliceExpand<E> {
+        let slice = SliceExpand::new(scope, SliceOriginExpand::SharedMemory(*self), start, end);
         scope.create_kernel_ref(slice)
     }
 
-    fn __expand_to_slice_method(&self, scope: &Scope) -> &SliceExpand<E, ReadOnly> {
+    fn __expand_to_slice_method(&self, scope: &Scope) -> &SliceExpand<E> {
         let len = expand_length_native(scope, self.expand);
-        let slice = Slice::__expand_new(
+        let slice = SliceExpand::new(
             scope,
             SliceOriginExpand::SharedMemory(*self),
             0usize.into(),
@@ -43,14 +45,14 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for NativeExpand<SharedMemory<E
         scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &mut SliceExpand<E, ReadWrite> {
-        let slice = Slice::__expand_new(scope, SliceOriginExpand::SharedMemory(*self), start, end);
+    ) -> &mut SliceExpand<E> {
+        let slice = SliceExpand::new(scope, SliceOriginExpand::SharedMemory(*self), start, end);
         scope.create_kernel_ref(slice)
     }
 
-    fn __expand_to_slice_mut_method(&mut self, scope: &Scope) -> &mut SliceExpand<E, ReadWrite> {
+    fn __expand_to_slice_mut_method(&mut self, scope: &Scope) -> &mut SliceExpand<E> {
         let len = expand_length_native(scope, self.expand);
-        let slice = Slice::__expand_new(
+        let slice = SliceExpand::new(
             scope,
             SliceOriginExpand::SharedMemory(*self),
             0usize.into(),
@@ -67,15 +69,14 @@ impl<E: CubePrimitive> SliceOperatorExpand<E> for NativeExpand<Tensor<E>> {
         scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &SliceExpand<E, ReadOnly> {
-        let slice = Slice::__expand_new(scope, SliceOriginExpand::Tensor(*self), start, end);
+    ) -> &SliceExpand<E> {
+        let slice = SliceExpand::new(scope, SliceOriginExpand::Tensor(*self), start, end);
         scope.create_kernel_ref(slice)
     }
 
-    fn __expand_to_slice_method(&self, scope: &Scope) -> &SliceExpand<E, ReadOnly> {
+    fn __expand_to_slice_method(&self, scope: &Scope) -> &SliceExpand<E> {
         let len = self.clone().__expand_len_method(scope);
-        let slice =
-            Slice::__expand_new(scope, SliceOriginExpand::Tensor(*self), 0usize.into(), len);
+        let slice = SliceExpand::new(scope, SliceOriginExpand::Tensor(*self), 0usize.into(), len);
         scope.create_kernel_ref(slice)
     }
 }
@@ -87,15 +88,14 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for NativeExpand<Tensor<E>> {
         scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &mut SliceExpand<E, ReadWrite> {
-        let slice = Slice::__expand_new(scope, SliceOriginExpand::Tensor(*self), start, end);
+    ) -> &mut SliceExpand<E> {
+        let slice = SliceExpand::new(scope, SliceOriginExpand::Tensor(*self), start, end);
         scope.create_kernel_ref(slice)
     }
 
-    fn __expand_to_slice_mut_method(&mut self, scope: &Scope) -> &mut SliceExpand<E, ReadWrite> {
+    fn __expand_to_slice_mut_method(&mut self, scope: &Scope) -> &mut SliceExpand<E> {
         let len = self.clone().__expand_len_method(scope);
-        let slice =
-            Slice::__expand_new(scope, SliceOriginExpand::Tensor(*self), 0usize.into(), len);
+        let slice = SliceExpand::new(scope, SliceOriginExpand::Tensor(*self), 0usize.into(), len);
         scope.create_kernel_ref(slice)
     }
 }
@@ -107,14 +107,14 @@ impl<E: CubePrimitive> SliceOperatorExpand<E> for NativeExpand<Array<E>> {
         scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &SliceExpand<E, ReadOnly> {
-        let slice = Slice::__expand_new(scope, SliceOriginExpand::Array(*self), start, end);
+    ) -> &SliceExpand<E> {
+        let slice = SliceExpand::new(scope, SliceOriginExpand::Array(*self), start, end);
         scope.create_kernel_ref(slice)
     }
 
-    fn __expand_to_slice_method(&self, scope: &Scope) -> &SliceExpand<E, ReadOnly> {
+    fn __expand_to_slice_method(&self, scope: &Scope) -> &SliceExpand<E> {
         let len = self.clone().__expand_len_method(scope);
-        let slice = Slice::__expand_new(scope, SliceOriginExpand::Array(*self), 0usize.into(), len);
+        let slice = SliceExpand::new(scope, SliceOriginExpand::Array(*self), 0usize.into(), len);
         scope.create_kernel_ref(slice)
     }
 }
@@ -126,31 +126,31 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for NativeExpand<Array<E>> {
         scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &mut SliceExpand<E, ReadWrite> {
-        let slice = Slice::__expand_new(scope, SliceOriginExpand::Array(*self), start, end);
+    ) -> &mut SliceExpand<E> {
+        let slice = SliceExpand::new(scope, SliceOriginExpand::Array(*self), start, end);
         scope.create_kernel_ref(slice)
     }
 
-    fn __expand_to_slice_mut_method(&mut self, scope: &Scope) -> &mut SliceExpand<E, ReadWrite> {
+    fn __expand_to_slice_mut_method(&mut self, scope: &Scope) -> &mut SliceExpand<E> {
         let len = self.clone().__expand_len_method(scope);
-        let slice = Slice::__expand_new(scope, SliceOriginExpand::Array(*self), 0usize.into(), len);
+        let slice = SliceExpand::new(scope, SliceOriginExpand::Array(*self), 0usize.into(), len);
         scope.create_kernel_ref(slice)
     }
 }
 
-impl<E: CubePrimitive, IO: SliceVisibility> SliceOperator<E> for Slice<E, IO> {}
-impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpand<E, IO> {
+impl<E: CubePrimitive> SliceOperator<E> for Box<[E]> {}
+impl<E: CubePrimitive> SliceOperator<E> for [E] {}
+impl<E: CubePrimitive> SliceOperatorExpand<E> for SliceExpand<E> {
     fn __expand_slice_method(
         &self,
         scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &SliceExpand<E, ReadOnly> {
+    ) -> &SliceExpand<E> {
         let length = end.__expand_sub_method(scope, start);
         let offset = start.__expand_add_method(scope, self.offset);
         let slice = SliceExpand {
             origin: self.origin.clone_unchecked(),
-            io: core::marker::PhantomData,
             offset,
             length,
             vector_size: self.vector_size,
@@ -158,10 +158,9 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpa
         scope.create_kernel_ref(slice)
     }
 
-    fn __expand_to_slice_method(&self, scope: &Scope) -> &SliceExpand<E, ReadOnly> {
+    fn __expand_to_slice_method(&self, scope: &Scope) -> &SliceExpand<E> {
         let slice = SliceExpand {
             origin: self.origin,
-            io: core::marker::PhantomData,
             offset: self.offset,
             length: self.length,
             vector_size: self.vector_size,
@@ -170,20 +169,20 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpa
     }
 }
 
-impl<E: CubePrimitive> SliceMutOperator<E> for Slice<E, ReadWrite> {}
-impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
+impl<E: CubePrimitive> SliceMutOperator<E> for Box<[E]> {}
+impl<E: CubePrimitive> SliceMutOperator<E> for [E] {}
+impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E> {
     fn __expand_slice_mut_method(
         &mut self,
         scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &mut SliceExpand<E, ReadWrite> {
+    ) -> &mut SliceExpand<E> {
         let length = end.__expand_sub_method(scope, start);
         let offset = start.__expand_add_method(scope, self.offset);
 
         let slice = SliceExpand {
             origin: self.origin,
-            io: core::marker::PhantomData,
             offset,
             length,
             vector_size: self.vector_size,
@@ -191,10 +190,9 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
         scope.create_kernel_ref(slice)
     }
 
-    fn __expand_to_slice_mut_method(&mut self, scope: &Scope) -> &mut SliceExpand<E, ReadWrite> {
+    fn __expand_to_slice_mut_method(&mut self, scope: &Scope) -> &mut SliceExpand<E> {
         let slice = SliceExpand {
             origin: self.origin,
-            io: core::marker::PhantomData,
             offset: self.offset,
             length: self.length,
             vector_size: self.vector_size,
@@ -209,13 +207,13 @@ pub trait SliceOperator<E: CubePrimitive> {
     /// In `checked` mode, if the `end` index is out-of-bound, it is replaced by
     /// the length of `self`.
     #[allow(unused_variables)]
-    fn slice(&self, start: usize, end: usize) -> &Slice<E, ReadOnly> {
+    fn slice(&self, start: usize, end: usize) -> &[E] {
         unexpanded!()
     }
 
     /// Reinterprete the current type as a read-only slice.
     #[allow(unused_variables)]
-    fn to_slice(&self) -> &Slice<E, ReadOnly> {
+    fn to_slice(&self) -> &[E] {
         unexpanded!()
     }
 }
@@ -226,13 +224,13 @@ pub trait SliceMutOperator<E: CubePrimitive> {
     /// In `checked` mode, if the `end` index is out-of-bound, it is replaced by
     /// the length of `self`.
     #[allow(unused_variables)]
-    fn slice_mut(&mut self, start: usize, end: usize) -> &mut Slice<E, ReadWrite> {
+    fn slice_mut(&mut self, start: usize, end: usize) -> &mut [E] {
         unexpanded!()
     }
 
     /// Reinterprete the current type as a read-write slice.
     #[allow(unused_variables)]
-    fn to_slice_mut(&mut self) -> &mut Slice<E, ReadWrite> {
+    fn to_slice_mut(&mut self) -> &mut [E] {
         unexpanded!()
     }
 }

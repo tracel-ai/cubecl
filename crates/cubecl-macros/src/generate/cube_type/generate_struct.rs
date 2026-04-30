@@ -312,12 +312,12 @@ impl CubeTypeStruct {
 
             impl #generics #debug for #name_expand #generic_names #where_clause {}
             impl #generics #as_ref for #name_expand #generic_names #where_clause {
-                fn __expand_as_ref_method<'a>(&'a self, _: &#scope) -> &'a Self {
+                fn __expand_as_ref_method(&self, _: &#scope) -> &Self {
                     self
                 }
             }
             impl #generics #as_mut for #name_expand #generic_names #where_clause {
-                fn __expand_as_mut_method<'a>(&'a mut self, _: &#scope) -> &'a mut Self {
+                fn __expand_as_mut_method(&mut self, _: &#scope) -> &mut Self {
                     self
                 }
             }
@@ -352,12 +352,13 @@ impl TypeField {
     }
 
     pub fn clone_field(&self) -> TokenStream {
+        let clone = prelude_type("ExpandTypeClone");
         let name = self.ident.as_ref().unwrap();
         let is_comptime = self.comptime.is_present();
         if is_comptime {
             quote![#name: self.#name.clone()]
         } else {
-            quote![#name: self.#name.clone_unchecked()]
+            quote![#name: #clone::clone_unchecked(&self.#name)]
         }
     }
 

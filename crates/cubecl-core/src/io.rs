@@ -13,7 +13,7 @@ define_size!(SizeA);
 
 /// Returns the value at `index` in `list` if `condition` is `true`, otherwise returns `value`.
 #[cube]
-pub fn read_masked<C: CubePrimitive>(mask: bool, list: &Slice<C>, index: usize, value: C) -> C {
+pub fn read_masked<C: CubePrimitive>(mask: bool, list: &[C], index: usize, value: C) -> C {
     let index = index * usize::cast_from(mask);
     let input = *list.read_unchecked(index);
 

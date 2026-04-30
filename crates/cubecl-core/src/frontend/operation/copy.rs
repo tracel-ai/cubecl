@@ -14,7 +14,7 @@ use crate::prelude::*;
 /// ```ignore
 /// copy_bulk(input.as_slice(), shared, 16);
 /// ```
-pub fn copy_bulk<C: CubePrimitive>(_from: &Slice<C>, _to: &mut SliceMut<C>, _length: usize) {}
+pub fn copy_bulk<C: CubePrimitive>(_from: &[C], _to: &mut [C], _length: usize) {}
 
 pub mod copy_bulk {
     use cubecl_ir::{CopyMemoryOperator, Memory};
@@ -26,8 +26,8 @@ pub mod copy_bulk {
     /// The expand function for [`copy_bulk()`]
     pub fn expand<C: CubePrimitive>(
         scope: &Scope,
-        from: &SliceExpand<C, ReadOnly>,
-        to: &mut SliceExpand<C, ReadWrite>,
+        from: &SliceExpand<C>,
+        to: &mut SliceExpand<C>,
         length: usize,
     ) {
         let source = from.__expand_as_ptr_method(scope).expand;

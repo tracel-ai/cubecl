@@ -161,7 +161,7 @@ macro_rules! impl_virtual_read {
                 scope: &Scope,
                 pos: <C>::ExpandType,
                 end: <C>::ExpandType,
-            ) -> &SliceExpand<T, ReadOnly> {
+            ) -> &SliceExpand<T> {
                 let pos = self
                     .layout
                     .clone()
@@ -194,7 +194,7 @@ macro_rules! impl_virtual_read {
                 &self,
                 scope: &Scope,
                 barrier: &NativeExpand<Barrier>,
-                shared_memory: &mut SliceExpand<T, ReadWrite>,
+                shared_memory: &mut SliceExpand<T>,
                 pos: C::ExpandType,
             ) {
                 let pos = self
@@ -251,7 +251,7 @@ where
         scope: &Scope,
         pos: <C>::ExpandType,
         end: <C>::ExpandType,
-    ) -> &mut SliceExpand<T, ReadWrite> {
+    ) -> &mut SliceExpand<T> {
         let pos = self
             .layout
             .clone()
@@ -267,7 +267,7 @@ where
     fn __expand_tensor_map_store_method(
         &self,
         scope: &Scope,
-        shared_memory: &SliceExpand<T, ReadOnly>,
+        shared_memory: &SliceExpand<T>,
         pos: C::ExpandType,
     ) {
         let pos = self

@@ -87,42 +87,42 @@ impl_as_view!(Array, Coords1d);
 impl_as_view!(Tensor, Coords1d);
 impl_as_view!(SharedMemory, Coords1d);
 
-impl<E: CubePrimitive, IO: SliceVisibility + 'static> AsView<E> for Slice<E, IO> {
+impl<E: CubePrimitive> AsView<E> for [E] {
     type SourceCoords = Coords1d;
     fn view<C: Coordinates + 'static>(
         &self,
         layout: impl Into<VirtualLayout<C, Coords1d>>,
     ) -> View<E, C, ReadOnly> {
-        View::new::<Slice<E, IO>, Coords1d>(*self, layout)
+        View::new::<Box<[E]>, Coords1d>(unsafe { self.as_boxed_unchecked() }, layout)
     }
 }
 
-impl<E: CubePrimitive, IO: SliceVisibility + 'static> AsViewExpand<E> for SliceExpand<E, IO> {
+impl<E: CubePrimitive> AsViewExpand<E> for SliceExpand<E> {
     type SourceCoords = Coords1d;
     fn __expand_view_method<C: Coordinates + 'static>(
         &self,
         scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
     ) -> ViewExpand<E, C, ReadOnly> {
-        View::__expand_new::<Slice<E, IO>, Self::SourceCoords>(scope, *self, layout)
+        View::__expand_new::<Box<[E]>, Self::SourceCoords>(scope, *self, layout)
     }
 }
 
-impl<E: CubePrimitive> AsViewMut<E> for Slice<E, ReadWrite> {
+impl<E: CubePrimitive> AsViewMut<E> for [E] {
     fn view_mut<C: Coordinates + 'static>(
         &mut self,
         layout: impl Into<VirtualLayout<C, Coords1d>>,
     ) -> View<E, C, ReadWrite> {
-        View::new_mut::<Slice<E, ReadWrite>, Coords1d>(*self, layout)
+        View::new_mut::<Box<[E]>, Coords1d>(unsafe { self.as_boxed_unchecked() }, layout)
     }
 }
-impl<E: CubePrimitive> AsViewMutExpand<E> for SliceExpand<E, ReadWrite> {
+impl<E: CubePrimitive> AsViewMutExpand<E> for SliceExpand<E> {
     fn __expand_view_mut_method<C: Coordinates + 'static>(
         &mut self,
         scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
     ) -> ViewExpand<E, C, ReadWrite> {
-        View::__expand_new_mut::<Slice<E, ReadWrite>, Coords1d>(scope, *self, layout)
+        View::__expand_new_mut::<Box<[E]>, Coords1d>(scope, *self, layout)
     }
 }
 

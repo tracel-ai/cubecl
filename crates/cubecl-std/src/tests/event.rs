@@ -14,19 +14,19 @@ pub struct EventFloat {
     pub value: f32,
 }
 
-#[derive(CubeType, Clone)]
+#[derive(CubeType)]
 pub struct EventListenerPosZero {
-    items: SliceMut<f32>,
+    items: Box<[f32]>,
 }
 
-#[derive(CubeType, Clone)]
+#[derive(CubeType)]
 pub struct EventListenerPosOne {
-    items: SliceMut<f32>,
+    items: Box<[f32]>,
 }
 
-#[derive(CubeType, Clone)]
+#[derive(CubeType)]
 pub struct EventListenerPosTwo {
-    items: SliceMut<f32>,
+    items: Box<[f32]>,
     times: ComptimeCell<Counter>,
 }
 
@@ -89,10 +89,14 @@ impl EventListener for EventListenerPosTwo {
 }
 
 #[cube]
-fn test_1(items: &mut SliceMut<f32>) {
+fn test_1(items: &mut [f32]) {
     let mut bus = ComptimeEventBus::new();
-    let listener_zero = EventListenerPosZero { items: *items };
-    let listener_one = EventListenerPosOne { items: *items };
+    let listener_zero = EventListenerPosZero {
+        items: unsafe { items.as_boxed_unchecked() },
+    };
+    let listener_one = EventListenerPosOne {
+        items: unsafe { items.as_boxed_unchecked() },
+    };
 
     bus.listener::<EventListenerPosZero>(listener_zero);
     bus.listener::<EventListenerPosOne>(listener_one);
@@ -101,10 +105,14 @@ fn test_1(items: &mut SliceMut<f32>) {
 }
 
 #[cube]
-fn test_2(items: &mut SliceMut<f32>) {
+fn test_2(items: &mut [f32]) {
     let mut bus = ComptimeEventBus::new();
-    let listener_zero = EventListenerPosZero { items: *items };
-    let listener_one = EventListenerPosOne { items: *items };
+    let listener_zero = EventListenerPosZero {
+        items: unsafe { items.as_boxed_unchecked() },
+    };
+    let listener_one = EventListenerPosOne {
+        items: unsafe { items.as_boxed_unchecked() },
+    };
 
     bus.listener::<EventListenerPosZero>(listener_zero);
     bus.listener::<EventListenerPosOne>(listener_one);
@@ -113,12 +121,16 @@ fn test_2(items: &mut SliceMut<f32>) {
 }
 
 #[cube]
-fn test_3(items: &mut SliceMut<f32>) {
+fn test_3(items: &mut [f32]) {
     let mut bus = ComptimeEventBus::new();
-    let listener_zero = EventListenerPosZero { items: *items };
-    let listener_one = EventListenerPosOne { items: *items };
+    let listener_zero = EventListenerPosZero {
+        items: unsafe { items.as_boxed_unchecked() },
+    };
+    let listener_one = EventListenerPosOne {
+        items: unsafe { items.as_boxed_unchecked() },
+    };
     let listener_two = EventListenerPosTwo {
-        items: *items,
+        items: unsafe { items.as_boxed_unchecked() },
         times: ComptimeCell::new(Counter { value: 0u32 }),
     };
 

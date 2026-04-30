@@ -54,7 +54,7 @@ impl<T: Numeric, N: Size, IO: Clone> ViewOperationsExpand<Vector<T, N>, Coords1d
         scope: &Scope,
         pos: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &SliceExpand<Vector<T, N>, ReadOnly> {
+    ) -> &SliceExpand<Vector<T, N>> {
         // Convert to exclusive end
         let end = end.__expand_add_method(scope, 1usize.into_expand(scope));
         // Handling for shapes that are 0 in at least one dim, ensures the slice is not
@@ -80,7 +80,7 @@ impl<T: Numeric, N: Size, IO: Clone> ViewOperationsExpand<Vector<T, N>, Coords1d
         &self,
         _scope: &Scope,
         _barrier: &NativeExpand<Barrier>,
-        _shared_memory: &mut SliceExpand<Vector<T, N>, ReadWrite>,
+        _shared_memory: &mut SliceExpand<Vector<T, N>>,
         _pos: NativeExpand<usize>,
     ) {
         unimplemented!("Not a tensor map");
@@ -121,7 +121,7 @@ impl<T: Numeric, N: Size> ViewOperationsMutExpand<Vector<T, N>, Coords1d>
         scope: &Scope,
         pos: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> &mut SliceExpand<Vector<T, N>, ReadWrite> {
+    ) -> &mut SliceExpand<Vector<T, N>> {
         // Convert to exclusive end
         let end = end.__expand_add_method(scope, 1usize.into_expand(scope));
         // Handling for shapes that are 0 in at least one dim, ensures the slice is not
@@ -138,7 +138,7 @@ impl<T: Numeric, N: Size> ViewOperationsMutExpand<Vector<T, N>, Coords1d>
     fn __expand_tensor_map_store_method(
         &self,
         _scope: &Scope,
-        _shared_memory: &SliceExpand<Vector<T, N>, ReadOnly>,
+        _shared_memory: &SliceExpand<Vector<T, N>>,
         _pos: <Coords1d as CubeType>::ExpandType,
     ) {
         unimplemented!("Not a tensor map");

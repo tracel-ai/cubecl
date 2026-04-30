@@ -14,10 +14,7 @@ use crate::{
     unexpanded,
 };
 
-use super::{
-    CubePrimitive, CubeType, NativeExpand, ReadOnly, ReadWrite, Slice, SliceExpand, SliceMut,
-    TensorMap,
-};
+use super::{CubePrimitive, CubeType, NativeExpand, SliceExpand, TensorMap};
 
 /// A mechanism for awaiting on asynchronous data transfers
 /// Behavior is defined by its ``BarrierLevel``.
@@ -75,7 +72,7 @@ macro_rules! tensor_map_load {
                 pub fn [<tma_load_ $dim d>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     &self,
                     source: &TensorMap<C1, Tiled>,
-                    destination: &mut SliceMut<C2>,
+                    destination: &mut [C2],
                     $($arg: i32),*
                 ) {
                     unexpanded!()
@@ -86,7 +83,7 @@ macro_rules! tensor_map_load {
                     scope: &Scope,
                     expand: &NativeExpand<Barrier>,
                     source: &NativeExpand<TensorMap<C1, Tiled>>,
-                    destination: &mut SliceExpand<C2, ReadWrite>,
+                    destination: &mut SliceExpand<C2>,
                     $($arg: NativeExpand<i32>),*
                 ) {
                     expand.[<__expand_tma_load_ $dim d_method>](scope, source, destination, $($arg),*);
@@ -99,7 +96,7 @@ macro_rules! tensor_map_load {
                     &self,
                     scope: &Scope,
                     source: &NativeExpand<TensorMap<C1, Tiled>>,
-                    destination: &mut SliceExpand<C2, ReadWrite>,
+                    destination: &mut SliceExpand<C2>,
                     $($arg: NativeExpand<i32>),*
                 ) {
                     let barrier = self.expand;
@@ -130,7 +127,7 @@ macro_rules! tensor_map_load_im2col {
                 pub fn [<tma_load_im2col_ $dim d>]<C1: CubePrimitive, C2: CubePrimitive<Scalar = C1::Scalar>>(
                     &self,
                     source: &TensorMap<C1, Im2col>,
-                    destination: &mut SliceMut<C2>,
+                    destination: &mut [C2],
                     $($arg: i32,)*
                     $($offset: u16),*
                 ) {
@@ -142,7 +139,7 @@ macro_rules! tensor_map_load_im2col {
                     scope: &Scope,
                     expand: &NativeExpand<Barrier>,
                     source: &NativeExpand<TensorMap<C1, Im2col>>,
-                    destination: &mut SliceExpand<C2, ReadWrite>,
+                    destination: &mut SliceExpand<C2>,
                     $($arg: NativeExpand<i32>,)*
                     $($offset: NativeExpand<u16>),*
                 ) {
@@ -156,7 +153,7 @@ macro_rules! tensor_map_load_im2col {
                     &self,
                     scope: &Scope,
                     source: &NativeExpand<TensorMap<C1, Im2col>>,
-                    destination: &mut SliceExpand<C2, ReadWrite>,
+                    destination: &mut SliceExpand<C2>,
                     $($arg: NativeExpand<i32>,)*
                     $($offset: NativeExpand<u16>),*
                 ) {
@@ -271,7 +268,7 @@ impl Barrier {
     /// This will try to copy the whole source slice, so
     /// make sure source length <= destination length
     #[allow(unused_variables)]
-    pub fn memcpy_async<C: CubePrimitive>(&self, source: &Slice<C>, destination: &mut SliceMut<C>) {
+    pub fn memcpy_async<C: CubePrimitive>(&self, source: &[C], destination: &mut [C]) {
         intrinsic!(|scope| {
             let barrier = self.expand;
             let source_length = source.length.expand;
@@ -297,11 +294,7 @@ impl Barrier {
     /// This will try to copy the whole source slice, so
     /// make sure source length <= destination length
     #[allow(unused_variables)]
-    pub fn memcpy_async_cooperative<C: CubePrimitive>(
-        &self,
-        source: &Slice<C>,
-        destination: &mut SliceMut<C>,
-    ) {
+    pub fn memcpy_async_cooperative<C: CubePrimitive>(&self, source: &[C], destination: &mut [C]) {
         intrinsic!(|scope| {
             let barrier = self.expand;
             let source_length = source.length.expand;
@@ -328,11 +321,7 @@ impl Barrier {
     /// This will try to copy the whole source slice, so
     /// make sure source length <= destination length
     #[allow(unused_variables)]
-    pub fn memcpy_async_tx<C: CubePrimitive>(
-        &self,
-        source: &Slice<C>,
-        destination: &mut SliceMut<C>,
-    ) {
+    pub fn memcpy_async_tx<C: CubePrimitive>(&self, source: &[C], destination: &mut [C]) {
         intrinsic!(|scope| {
             let barrier = self.expand;
             let source_length = source.length.expand;
@@ -446,11 +435,7 @@ impl Barrier {
 ///
 /// This will try to copy the entire `copy_size`, so make sure the full width is in bounds.
 /// Starting address must be aligned to the full copy size.
-pub fn copy_async<C: CubePrimitive>(
-    _source: &Slice<C>,
-    _destination: &mut SliceMut<C>,
-    _copy_size: u32,
-) {
+pub fn copy_async<C: CubePrimitive>(_source: &[C], _destination: &mut [C], _copy_size: u32) {
     unexpanded!()
 }
 
@@ -459,8 +444,8 @@ pub mod copy_async {
 
     pub fn expand<C: CubePrimitive>(
         scope: &Scope,
-        source: &SliceExpand<C, ReadOnly>,
-        destination: &mut SliceExpand<C, ReadWrite>,
+        source: &SliceExpand<C>,
+        destination: &mut SliceExpand<C>,
         copy_length: u32,
     ) {
         let source_length = copy_length.into();
@@ -493,8 +478,8 @@ pub mod copy_async {
 /// Starting address must be aligned to the full copy size.
 /// **This will silently fail if the address is only aligned to the source length and not the copy size!**
 pub fn copy_async_checked<C: CubePrimitive>(
-    _source: &Slice<C>,
-    _destination: &mut SliceMut<C>,
+    _source: &[C],
+    _destination: &mut [C],
     _copy_size: u32,
 ) {
     unexpanded!();
@@ -505,8 +490,8 @@ pub mod copy_async_checked {
 
     pub fn expand<C: CubePrimitive>(
         scope: &Scope,
-        source: &SliceExpand<C, ReadOnly>,
-        destination: &mut SliceExpand<C, ReadWrite>,
+        source: &SliceExpand<C>,
+        destination: &mut SliceExpand<C>,
         copy_length: u32,
     ) {
         let source_length = source.length.expand;

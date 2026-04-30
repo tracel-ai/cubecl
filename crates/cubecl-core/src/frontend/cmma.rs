@@ -46,10 +46,7 @@
 //! }
 //! ```
 
-use super::{
-    CubeDebug, CubePrimitive, CubeType, IntoMut, NativeExpand, ReadOnly, Slice, SliceExpand,
-    SliceMut,
-};
+use super::{CubeDebug, CubePrimitive, CubeType, IntoMut, NativeExpand, SliceExpand};
 use crate::{self as cubecl, prelude::*};
 use crate::{
     ir::{self, Instruction},
@@ -305,7 +302,7 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
         #[comptime] n: usize,
         #[comptime] k: usize,
         layout: MatrixLayout,
-        value: &Slice<C>,
+        value: &[C],
         stride: u32,
     ) -> Self {
         let mut mat = unsafe { Self::uninitialized(ident, m, n, k, layout) };
@@ -622,7 +619,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     #[allow(unused_variables)]
     pub fn load_matrix<E: CubePrimitive, NO: Size>(
         &self,
-        row: &Slice<E>,
+        row: &[E],
         #[comptime] ident: MatrixIdent,
         #[comptime] num_matrices: usize,
         #[comptime] transpose: bool,
@@ -648,7 +645,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     #[allow(unused_variables)]
     pub fn load_matrix_inplace<E: Scalar, N: Size>(
         &self,
-        row: &Slice<E>,
+        row: &[E],
         fragment: &mut Array<Vector<E, N>>,
         #[comptime] ident: MatrixIdent,
         #[comptime] num_matrices: usize,
@@ -684,7 +681,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     #[allow(unused_variables)]
     pub fn store_matrix<E: CubePrimitive, N: Size>(
         &self,
-        row: &mut Slice<E, ReadWrite>,
+        row: &mut [E],
         registers: &Array<Vector<E::Scalar, N>>,
         #[comptime] ident: MatrixIdent,
         #[comptime] num_matrices: usize,
@@ -881,7 +878,7 @@ pub mod fill {
 #[allow(unused_variables)]
 pub fn load<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
     mat: &mut Matrix<C, S>,
-    value: &Slice<V>,
+    value: &[V],
     stride: u32,
 ) {
     unexpanded!()
@@ -896,7 +893,7 @@ pub mod load {
     pub fn expand<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
         scope: &Scope,
         mat: &mut MatrixExpand<C, S>,
-        value: &SliceExpand<V, ReadOnly>,
+        value: &SliceExpand<V>,
         stride: NativeExpand<u32>,
     ) {
         let stride: Variable = stride.into();
@@ -965,7 +962,7 @@ pub mod load_tensor {
 #[allow(unused_variables)]
 pub fn load_with_layout<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
     mat: &mut Matrix<C, S>,
-    value: &Slice<V>,
+    value: &[V],
     stride: u32,
     layout: MatrixLayout,
 ) {
@@ -981,7 +978,7 @@ pub mod load_with_layout {
     pub fn expand<C: CubeType, V: CubePrimitive, S: MatrixScope>(
         scope: &Scope,
         mat: &mut MatrixExpand<C, S>,
-        value: &SliceExpand<V, ReadOnly>,
+        value: &SliceExpand<V>,
         stride: NativeExpand<u32>,
         layout: MatrixLayout,
     ) {
@@ -1003,7 +1000,7 @@ pub mod load_with_layout {
 /// Store the matrix in the given array following the given stride and layout.
 #[allow(unused_variables)]
 pub fn store<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
-    output: &mut SliceMut<O>,
+    output: &mut [O],
     mat: &Matrix<C, S>,
     stride: u32,
     layout: MatrixLayout,
@@ -1013,15 +1010,13 @@ pub fn store<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
 
 /// Module containing the expand function for [`store()`].
 pub mod store {
-    use crate::prelude::ReadWrite;
-
     use super::*;
 
     /// Expand method of [`store()`].
     #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
         scope: &Scope,
-        output: &mut SliceExpand<O, ReadWrite>,
+        output: &mut SliceExpand<O>,
         mat: &MatrixExpand<C, S>,
         stride: NativeExpand<u32>,
         layout: MatrixLayout,

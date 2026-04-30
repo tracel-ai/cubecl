@@ -161,7 +161,7 @@ impl CubeTypeEnum {
             quote! {self},
             self.variants
                 .iter()
-                .map(|v| v.map_body(name_expand, |f| quote!(#f.clone_unchecked())))
+                .map(|v| v.map_body(name_expand, |f| quote!(#clone::clone_unchecked(#f))))
                 .collect(),
         );
 
@@ -194,12 +194,12 @@ impl CubeTypeEnum {
             impl #generics #debug for #name_expand #generic_names #where_clause {}
 
             impl #generics #as_ref for #name_expand #generic_names #where_clause {
-                fn __expand_as_ref_method<'a>(&'a self, _: &#scope) -> &'a Self {
+                fn __expand_as_ref_method(&self, _: &#scope) -> &Self {
                     self
                 }
             }
             impl #generics #as_mut for #name_expand #generic_names #where_clause {
-                fn __expand_as_mut_method<'a>(&'a mut self, _: &#scope) -> &'a mut Self {
+                fn __expand_as_mut_method(&mut self, _: &#scope) -> &mut Self {
                     self
                 }
             }

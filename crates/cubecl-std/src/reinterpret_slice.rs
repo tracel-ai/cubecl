@@ -11,9 +11,9 @@ use cubecl_core::{self as cubecl, ir::VectorSize, unexpanded};
 ///
 /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
 #[derive(CubeType)]
-pub struct ReinterpretSlice<S: CubePrimitive, T: CubePrimitive> {
+pub struct ReinterpretSlice<'a, S: CubePrimitive, T: CubePrimitive> {
     // Dummy vector size for downcasting later
-    slice: Slice<S>,
+    slice: &'a [S],
 
     #[cube(comptime)]
     vector_size: VectorSize,
@@ -26,8 +26,8 @@ pub struct ReinterpretSlice<S: CubePrimitive, T: CubePrimitive> {
 }
 
 #[cube]
-impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
-    pub fn new(slice: &Slice<S>) -> ReinterpretSlice<S, T> {
+impl<'a, S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<'a, S, T> {
+    pub fn new(slice: &'a [S]) -> ReinterpretSlice<'a, S, T> {
         let in_vector_size = slice.vector_size();
         let source_size = S::Scalar::type_size();
         let target_size = T::Scalar::type_size();
@@ -41,14 +41,14 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
                 let size!(N2) = vector_size;
                 let slice = slice.as_vectorized().with_vector_size::<N2>();
 
-                ReinterpretSlice::<S, T> {
+                ReinterpretSlice::<'a, S, T> {
                     slice: unsafe { slice.downcast_unchecked() },
                     vector_size,
                     load_many,
                     _phantom: PhantomData,
                 }
             }
-            None => ReinterpretSlice::<S, T> {
+            None => ReinterpretSlice::<'a, S, T> {
                 slice: unsafe { slice.downcast_unchecked() },
                 vector_size: in_vector_size,
                 load_many,
@@ -88,8 +88,8 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<S, T> {
 ///
 /// Currently, this only work with `cube(launch_unchecked)` and is not supported on wgpu.
 #[derive(CubeType)]
-pub struct ReinterpretSliceMut<S: CubePrimitive, T: CubePrimitive> {
-    slice: SliceMut<S>,
+pub struct ReinterpretSliceMut<'a, S: CubePrimitive, T: CubePrimitive> {
+    slice: &'a mut [S],
 
     #[cube(comptime)]
     vector_size: VectorSize,
@@ -102,8 +102,8 @@ pub struct ReinterpretSliceMut<S: CubePrimitive, T: CubePrimitive> {
 }
 
 #[cube]
-impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
-    pub fn new(slice: &mut SliceMut<S>) -> ReinterpretSliceMut<S, T> {
+impl<'a, S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<'a, S, T> {
+    pub fn new(slice: &'a mut [S]) -> ReinterpretSliceMut<'a, S, T> {
         let in_vector_size = slice.vector_size();
         let source_size = S::Scalar::type_size();
         let target_size = T::Scalar::type_size();
@@ -115,17 +115,17 @@ impl<S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<S, T> {
         match comptime!(optimized_vector_size) {
             Some(vector_size) => {
                 let size!(N2) = vector_size;
-                let slice = slice.as_vectorized().with_vector_size::<N2>();
+                let slice = slice.as_vectorized_mut().with_vector_size_mut::<N2>();
 
-                ReinterpretSliceMut::<S, T> {
-                    slice: unsafe { slice.downcast_unchecked() },
+                ReinterpretSliceMut::<'a, S, T> {
+                    slice: unsafe { slice.downcast_mut_unchecked() },
                     vector_size,
                     load_many,
                     _phantom: PhantomData,
                 }
             }
-            None => ReinterpretSliceMut::<S, T> {
-                slice: unsafe { slice.downcast_unchecked() },
+            None => ReinterpretSliceMut::<'a, S, T> {
+                slice: unsafe { slice.downcast_mut_unchecked() },
                 vector_size: in_vector_size,
                 load_many,
                 _phantom: PhantomData,
