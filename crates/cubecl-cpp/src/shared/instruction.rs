@@ -349,7 +349,7 @@ impl<D: Dialect> Display for Instruction<D> {
             }
             Instruction::Copy { source, dest, len } => {
                 for i in 0..*len {
-                    writeln!(f, "*({dest} + {i}) = {source} + {i};")?;
+                    writeln!(f, "*({dest} + {i}) = *({source} + {i});")?;
                 }
                 Ok(())
             }

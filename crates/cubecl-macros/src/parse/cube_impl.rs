@@ -10,10 +10,7 @@ use crate::{
     scope::Context,
 };
 
-use super::{
-    helpers::{RemoveHelpers, ReplaceIndices},
-    kernel::KernelFn,
-};
+use super::{helpers::RemoveHelpers, kernel::KernelFn};
 
 pub struct CubeImpl {
     pub unsafety: Option<Token![unsafe]>,
@@ -236,7 +233,6 @@ impl CubeImpl {
             .collect::<Result<_, _>>()?;
 
         RemoveHelpers.visit_item_impl_mut(&mut item_impl);
-        ReplaceIndices.visit_item_impl_mut(&mut item_impl);
         ReplaceDefines.visit_item_impl_mut(&mut item_impl);
 
         let mut attrs = item_impl.attrs;

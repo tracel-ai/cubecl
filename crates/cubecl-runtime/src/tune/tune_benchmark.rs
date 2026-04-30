@@ -69,12 +69,12 @@ fn profile_exclusive<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
             Ok((out, duration)) => match out {
                 Ok(_) => Some(duration),
                 Err(err) => {
-                    log::trace!("Error while autotuning {err:?}");
+                    log::trace!("Error while autotuning {err}");
                     None
                 }
             },
             Err(err) => {
-                log::trace!("Error while autotuning {err:?}");
+                log::trace!("Error while autotuning {err}");
                 None
             }
         };

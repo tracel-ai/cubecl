@@ -586,7 +586,7 @@ impl Display for Instruction {
                 if *len > 1 {
                     panic!("WGSL doesn't support bulk copy yet");
                 }
-                writeln!(f, "*{target} = {source};")
+                writeln!(f, "*{target} = *{source};")
             }
             Instruction::Modulo { lhs, rhs, out } => {
                 let lhs = lhs.fmt_cast_to(out.item());

@@ -267,7 +267,7 @@ impl<C: CubeType> IntoMut for NativeExpand<Array<C>> {
     }
 }
 
-impl<T: CubePrimitive> SizedContainer for Array<T> {
+impl<T: CubePrimitive> SizedContainer<usize> for Array<T> {
     type Item = T;
 }
 

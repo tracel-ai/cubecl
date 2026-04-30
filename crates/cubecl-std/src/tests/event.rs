@@ -60,7 +60,7 @@ impl EventListener for EventListenerPosOne {
 
     fn on_event(&mut self, event: Self::Event, _bus: &mut ComptimeEventBus) {
         comment!("On event pos one");
-        self.items[1] = (f32::cast_from(event.value) * 2.0) + self.items[1];
+        self.items[1] += f32::cast_from(event.value) * 2.0;
     }
 }
 
@@ -70,7 +70,7 @@ impl EventListener for EventListenerPosTwo {
 
     fn on_event(&mut self, event: Self::Event, bus: &mut ComptimeEventBus) {
         comment!("On event pos two");
-        self.items[2] = event.value + self.items[2];
+        self.items[2] += event.value;
 
         let times = self.times.read();
         self.times.store(Counter {

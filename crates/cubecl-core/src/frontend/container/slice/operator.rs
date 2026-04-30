@@ -234,3 +234,30 @@ pub trait SliceMutOperator<E: CubePrimitive> {
         unexpanded!()
     }
 }
+
+// Simple heuristic
+const MEMCPY_UNROLL_LIMIT: usize = 8;
+
+pub trait MemcpyExpand<E: CubePrimitive>: SliceMutOperatorExpand<E> {
+    fn __expand_copy_from_slice_method(&mut self, scope: &Scope, source: &SliceExpand<E>) {
+        let dest = self.__expand_to_slice_mut_method(scope);
+        let len = source.__expand_len_method(scope);
+        let unroll = source
+            .const_len()
+            .is_some_and(|it| it <= MEMCPY_UNROLL_LIMIT);
+        for_expand(
+            scope,
+            range::expand(scope, 0usize.into_expand(scope), len),
+            unroll,
+            |scope, idx| {
+                copy::expand(
+                    scope,
+                    source.__expand_index_method(scope, idx),
+                    dest.__expand_index_mut_method(scope, idx),
+                );
+            },
+        );
+    }
+}
+
+impl<E: CubePrimitive, T: SliceMutOperatorExpand<E>> MemcpyExpand<E> for T {}

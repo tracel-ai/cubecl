@@ -5,69 +5,101 @@ use cubecl_ir::{
 };
 
 use super::{CubeType, NativeExpand, index_expand};
-use crate::{prelude::CubePrimitive, unexpanded};
+use crate::prelude::CubePrimitive;
 
-/// Fake indexation so we can rewrite indexes into scalars as calls to this fake function in the
-/// non-expanded function
-pub trait CubeIndex:
-    CubeType<
-    ExpandType: CubeIndexExpand<
-        Idx = <Self::Idx as CubeType>::ExpandType,
-        Output = <Self::Output as CubeType>::ExpandType,
-    >,
->
+/// Trait bound that can be used to guarantee the expand also implements `IndexExpand`
+pub trait CubeIndex<I: CubeType>:
+    Index<I, Output: CubeType>
+    + CubeType<
+        ExpandType: IndexExpand<I::ExpandType, Output = <Self::Output as CubeType>::ExpandType>,
+    >
 {
-    type Output: CubeType;
-    type Idx: CubeType;
+    fn index_unchecked(&self, index: I) -> &Self::Output {
+        self.index(index)
+    }
 
-    fn cube_idx(&self, _i: Self::Idx) -> &Self::Output {
-        unexpanded!()
+    fn __expand_index<'this>(
+        scope: &Scope,
+        this: &'this Self::ExpandType,
+        index: I::ExpandType,
+    ) -> &'this <Self::Output as CubeType>::ExpandType {
+        this.__expand_index_method(scope, index)
+    }
+    fn __expand_index_unchecked<'this>(
+        scope: &Scope,
+        this: &'this Self::ExpandType,
+        index: I::ExpandType,
+    ) -> &'this <Self::Output as CubeType>::ExpandType {
+        this.__expand_index_unchecked_method(scope, index)
     }
 }
 
-/// Workaround for comptime indexing, since the helper that replaces index operators doesn't know
-/// about whether a variable is comptime. Has the same signature in unexpanded code, so it will
-/// automatically dispatch the correct one.
-pub trait ComptimeIndex<I>: Index<I> {
-    fn cube_idx(&self, i: I) -> &Self::Output {
-        self.index(i)
-    }
+impl<I: CubeType, T: Index<I> + CubeType + ?Sized> CubeIndex<I> for T
+where
+    T::Output: CubeType,
+    T::ExpandType:
+        IndexExpand<I::ExpandType, Output = <<T as Index<I>>::Output as CubeType>::ExpandType>,
+{
 }
 
-impl<I, T: Index<I>> ComptimeIndex<I> for T {}
-impl<I, T: IndexMut<I>> ComptimeIndexMut<I> for T {}
-
-pub trait ComptimeIndexMut<I>: ComptimeIndex<I> + IndexMut<I> {
-    fn cube_idx_mut(&mut self, i: I) -> &mut Self::Output {
-        self.index_mut(i)
-    }
-}
-
-pub trait CubeIndexExpand {
+pub trait IndexExpand<I> {
     type Output;
-    type Idx;
-    fn __expand_index_method(&self, scope: &Scope, index: Self::Idx) -> &Self::Output;
-    fn __expand_index_unchecked_method(&self, scope: &Scope, index: Self::Idx) -> &Self::Output;
+    fn __expand_index_method(&self, scope: &Scope, index: I) -> &Self::Output;
+    fn __expand_index_unchecked_method(&self, scope: &Scope, index: I) -> &Self::Output;
 }
 
-pub trait CubeIndexMut:
-    CubeIndex
-    + CubeType<ExpandType: CubeIndexMutExpand<Output = <Self::Output as CubeType>::ExpandType>>
+pub trait CubeIndexMut<I: CubeType>:
+    CubeIndex<I>
+    + IndexMut<I>
+    + CubeType<
+        ExpandType: IndexMutExpand<I::ExpandType, Output = <Self::Output as CubeType>::ExpandType>,
+    >
 {
-    fn cube_idx_mut(&mut self, _i: <Self as CubeIndex>::Idx) -> &mut <Self as CubeIndex>::Output {
-        unexpanded!()
+    fn index_mut_unchecked(&mut self, index: I) -> &mut Self::Output {
+        self.index_mut(index)
+    }
+
+    fn __expand_index_mut<'this>(
+        scope: &Scope,
+        this: &'this mut Self::ExpandType,
+        index: I::ExpandType,
+    ) -> &'this mut <Self::Output as CubeType>::ExpandType {
+        this.__expand_index_mut_method(scope, index)
+    }
+    fn __expand_index_mut_unchecked<'this>(
+        scope: &Scope,
+        this: &'this mut Self::ExpandType,
+        index: I::ExpandType,
+    ) -> &'this mut <Self::Output as CubeType>::ExpandType {
+        this.__expand_index_mut_unchecked_method(scope, index)
     }
 }
 
-pub trait CubeIndexMutExpand: CubeIndexExpand {
+pub trait IndexMutExpand<I>: IndexExpand<I> {
     fn __expand_index_mut_method(
         &mut self,
         scope: &Scope,
-        index: <Self as CubeIndexExpand>::Idx,
-    ) -> &mut <Self as CubeIndexExpand>::Output;
+        index: I,
+    ) -> &mut <Self as IndexExpand<I>>::Output;
+    fn __expand_index_mut_unchecked_method(
+        &mut self,
+        scope: &Scope,
+        index: I,
+    ) -> &mut <Self as IndexExpand<I>>::Output;
 }
 
-pub(crate) fn expand_index_native<'a, A: CubeIndexExpand + Clone + Into<Variable>>(
+impl<I: CubeType, T: IndexMut<I> + CubeIndex<I>> CubeIndexMut<I> for T
+where
+    T::Output: CubeType,
+    T::ExpandType:
+        IndexMutExpand<I::ExpandType, Output = <<T as Index<I>>::Output as CubeType>::ExpandType>,
+{
+}
+
+pub(crate) fn expand_index_native<
+    'a,
+    A: IndexExpand<NativeExpand<usize>> + Clone + Into<Variable>,
+>(
     scope: &Scope,
     array: &'a A,
     index: NativeExpand<usize>,
@@ -89,7 +121,10 @@ where
     scope.create_kernel_ref(var.into())
 }
 
-pub(crate) fn expand_index_mut_native<'a, A: CubeIndexMutExpand + Clone + Into<Variable>>(
+pub(crate) fn expand_index_mut_native<
+    'a,
+    A: IndexMutExpand<NativeExpand<usize>> + Clone + Into<Variable>,
+>(
     scope: &Scope,
     list: &'a mut A,
     index: NativeExpand<usize>,

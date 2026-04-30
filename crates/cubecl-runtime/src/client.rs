@@ -959,7 +959,7 @@ impl<R: Runtime> ComputeClient<R> {
             })
             .unwrap()
             .map_err(|err| ProfileError::Unknown {
-                reason: alloc::format!("{err:?}"),
+                reason: alloc::format!("{err}"),
                 backtrace: BackTrace::capture(),
             })?;
 

@@ -5,13 +5,13 @@ use cubecl_ir::Variable;
 use crate::{
     ir::{Branch, RangeLoop, Scope},
     prelude::{
-        CubeIndex, CubeIndexExpand, CubePrimitive, CubeType, DerefExpand, Iterable, NativeExpand,
+        CubeIndex, CubePrimitive, CubeType, DerefExpand, IndexExpand, Iterable, NativeExpand,
     },
 };
 
 use super::Array;
 
-pub trait SizedContainer: CubeIndex<Idx: CubePrimitive, Output = Self::Item> {
+pub trait SizedContainer<I: CubePrimitive>: CubeIndex<I, Output = Self::Item> {
     type Item: CubePrimitive;
 
     /// Return the length of the container.
@@ -22,7 +22,9 @@ pub trait SizedContainer: CubeIndex<Idx: CubePrimitive, Output = Self::Item> {
     }
 }
 
-impl<T: SizedContainer + CubeType<ExpandType = NativeExpand<T>>> Iterable for NativeExpand<T> {
+impl<T: SizedContainer<usize> + CubeType<ExpandType = NativeExpand<T>>> Iterable
+    for NativeExpand<T>
+{
     type Item = <T::Item as CubeType>::ExpandType;
 
     fn expand(

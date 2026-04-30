@@ -4,10 +4,8 @@ use crate::prelude::*;
 ///
 /// # Arguments
 ///
-/// `from` - The array/tensor/shared memory to copy from
-/// `from_index` - The `from` index to start the copy from
-/// `to` - The array/tensor/shared memory to copy to
-/// `to_index` - The `to` index to copy the elements to
+/// `from` - slice to copy from
+/// `to` - slice to copy to
 ///
 /// # Example
 ///
@@ -38,6 +36,46 @@ pub mod copy_bulk {
                 source,
                 target,
                 len: length,
+            },
+        )));
+    }
+}
+
+/// Copy one element between two array-likes without intermediates.
+///
+/// # Arguments
+///
+/// `from` - The reference to copy from
+/// `to` - The reference to copy to
+///
+/// # Example
+///
+/// ```ignore
+/// copy(input[0], shared[0]);
+/// ```
+pub fn copy<C: CubePrimitive>(_from: &C, _to: &mut C) {}
+
+pub mod copy {
+    use cubecl_ir::{CopyMemoryOperator, Memory};
+
+    use crate::ir::{Instruction, Scope};
+
+    use super::*;
+
+    /// The expand function for [`copy_bulk()`]
+    pub fn expand<C: CubePrimitive>(
+        scope: &Scope,
+        from: &NativeExpand<C>,
+        to: &mut NativeExpand<C>,
+    ) {
+        let source = from.expand;
+        let target = to.expand;
+
+        scope.register(Instruction::no_out(Memory::CopyMemory(
+            CopyMemoryOperator {
+                source,
+                target,
+                len: 1,
             },
         )));
     }

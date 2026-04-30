@@ -7,7 +7,7 @@ use generate::autotune::generate_autotune_key;
 use parse::{
     cube_impl::CubeImpl,
     cube_trait::{CubeTrait, CubeTraitImpl},
-    helpers::{RemoveHelpers, ReplaceIndices},
+    helpers::RemoveHelpers,
     kernel::{Launch, from_tokens},
 };
 use proc_macro::TokenStream;
@@ -68,7 +68,6 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
         Item::Fn(kernel) => {
             let kernel = Launch::from_item_fn(kernel, args)?;
             RemoveHelpers.visit_item_mut(&mut item);
-            ReplaceIndices.visit_item_mut(&mut item);
             ReplaceDefines.visit_item_mut(&mut item);
 
             return Ok(TokenStream::from(quote! {

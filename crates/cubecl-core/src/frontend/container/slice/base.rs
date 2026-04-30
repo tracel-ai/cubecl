@@ -558,7 +558,7 @@ impl<E: CubePrimitive> ExpandTypeClone for &mut SliceExpand<E> {
 
 impl<E: CubePrimitive> CubeDebug for SliceExpand<E> {}
 
-impl<E: CubePrimitive> SizedContainer for [E] {
+impl<E: CubePrimitive> SizedContainer<usize> for [E] {
     type Item = E;
 }
 
@@ -651,19 +651,8 @@ impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E> {
     }
 }
 
-impl<E: CubePrimitive> CubeIndex for Box<[E]> {
-    type Output = E;
-    type Idx = usize;
-}
-
-impl<E: CubePrimitive> CubeIndex for [E] {
-    type Output = E;
-    type Idx = usize;
-}
-
-impl<E: CubePrimitive> CubeIndexExpand for SliceExpand<E> {
+impl<E: CubePrimitive> IndexExpand<NativeExpand<usize>> for SliceExpand<E> {
     type Output = E::ExpandType;
-    type Idx = NativeExpand<usize>;
 
     fn __expand_index_method(&self, scope: &Scope, index: NativeExpand<usize>) -> &Self::Output {
         self.__expand_read_method(scope, index)
@@ -731,10 +720,16 @@ impl<E: CubePrimitive> VectorizedExpand for SliceExpand<E> {
     }
 }
 
-impl<E: CubePrimitive> CubeIndexMut for Box<[E]> {}
-impl<E: CubePrimitive> CubeIndexMut for [E] {}
-impl<E: CubePrimitive> CubeIndexMutExpand for SliceExpand<E> {
+impl<E: CubePrimitive> IndexMutExpand<NativeExpand<usize>> for SliceExpand<E> {
     fn __expand_index_mut_method(
+        &mut self,
+        scope: &Scope,
+        index: NativeExpand<usize>,
+    ) -> &mut Self::Output {
+        self.__expand_write_method(scope, index)
+    }
+
+    fn __expand_index_mut_unchecked_method(
         &mut self,
         scope: &Scope,
         index: NativeExpand<usize>,

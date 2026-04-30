@@ -171,14 +171,14 @@ impl CudaContext {
             let program =
                 cudarc::nvrtc::result::create_program(source.as_c_str(), None).map_err(|err| {
                     CompilationError::Generic {
-                        reason: format!("{err:?}"),
+                        reason: format!("{err}"),
                         backtrace: BackTrace::capture(),
                     }
                 })?;
             if cudarc::nvrtc::result::compile_program(program, &options).is_err() {
                 let log_raw = cudarc::nvrtc::result::get_program_log(program).map_err(|err| {
                     CompilationError::Generic {
-                        reason: format!("{err:?}"),
+                        reason: format!("{err}"),
                         backtrace: BackTrace::capture(),
                     }
                 })?;
@@ -205,7 +205,7 @@ impl CudaContext {
                 })?;
             };
             cudarc::nvrtc::result::get_ptx(program).map_err(|err| CompilationError::Generic {
-                reason: format!("{err:?}"),
+                reason: format!("{err}"),
                 backtrace: BackTrace::capture(),
             })?
         };
@@ -250,7 +250,7 @@ impl CudaContext {
         let func = unsafe {
             let module = cudarc::driver::result::module::load_data(ptx.as_ptr() as *const _)
                 .map_err(|err| CompilationError::Generic {
-                    reason: format!("Unable to load the PTX: {err:?}"),
+                    reason: format!("Unable to load the PTX: {err}"),
                     backtrace: BackTrace::capture(),
                 })?;
 
@@ -303,7 +303,7 @@ impl CudaContext {
                 kernel.shared_mem_bytes as i32,
             )
             .map_err(|err| LaunchError::Unknown {
-                reason: format!("{err:?}"),
+                reason: format!("{err}"),
                 backtrace: BackTrace::capture(),
             })?;
             cudarc::driver::result::launch_kernel(
@@ -317,7 +317,7 @@ impl CudaContext {
                 &mut bindings,
             )
             .map_err(|err| LaunchError::Unknown {
-                reason: format!("{err:?}"),
+                reason: format!("{err}"),
                 backtrace: BackTrace::capture(),
             })?;
         };

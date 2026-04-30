@@ -230,7 +230,7 @@ mod vector {
     }
 }
 
-impl<T: CubePrimitive> SizedContainer for Tensor<T> {
+impl<T: CubePrimitive> SizedContainer<usize> for Tensor<T> {
     type Item = T;
 }
 

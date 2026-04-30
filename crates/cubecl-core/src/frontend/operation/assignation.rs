@@ -1,10 +1,12 @@
+use core::ops::{Index, IndexMut};
+
 use cubecl_ir::{Operator, Scope, Variable};
 
-use crate::ir;
 use crate::{
     frontend::{Array, SharedMemory, Tensor},
     prelude::*,
 };
+use crate::{ir, unexpanded};
 
 pub mod cast {
     use ir::Instruction;
@@ -83,15 +85,26 @@ pub mod index_mut {
 
     macro_rules! impl_index {
         ($type:ident) => {
-            impl<E: CubePrimitive> CubeIndexMut for $type<E> {}
-
-            impl<E: CubePrimitive> CubeIndexMutExpand for NativeExpand<$type<E>> {
+            impl<E: CubePrimitive> IndexMut<usize> for $type<E> {
+                fn index_mut(&mut self, _idx: usize) -> &mut Self::Output {
+                    unexpanded!()
+                }
+            }
+            impl<E: CubePrimitive> IndexMutExpand<NativeExpand<usize>> for NativeExpand<$type<E>> {
                 fn __expand_index_mut_method(
                     &mut self,
                     scope: &Scope,
                     index: NativeExpand<usize>,
                 ) -> &mut Self::Output {
                     expand_index_mut_native(scope, self, index, None, true)
+                }
+
+                fn __expand_index_mut_unchecked_method(
+                    &mut self,
+                    scope: &Scope,
+                    index: NativeExpand<usize>,
+                ) -> &mut Self::Output {
+                    expand_index_mut_native(scope, self, index, None, false)
                 }
             }
         };
@@ -107,14 +120,16 @@ pub mod index {
 
     macro_rules! impl_index {
         ($type:ident) => {
-            impl<E: CubePrimitive> CubeIndex for $type<E> {
+            impl<E: CubePrimitive> Index<usize> for $type<E> {
                 type Output = E;
-                type Idx = usize;
+
+                fn index(&self, _idx: usize) -> &Self::Output {
+                    unexpanded!()
+                }
             }
 
-            impl<E: CubePrimitive> CubeIndexExpand for NativeExpand<$type<E>> {
+            impl<E: CubePrimitive> IndexExpand<NativeExpand<usize>> for NativeExpand<$type<E>> {
                 type Output = NativeExpand<E>;
-                type Idx = NativeExpand<usize>;
 
                 fn __expand_index_method(
                     &self,

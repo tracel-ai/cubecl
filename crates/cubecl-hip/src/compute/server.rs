@@ -78,7 +78,7 @@ impl ComputeServer for HipServer {
             },
         ) {
             Ok(val) => val,
-            Err(err) => unreachable!("{err:?}"),
+            Err(err) => unreachable!("{err}"),
         };
 
         let reserved = command.reserve(size).unwrap();
@@ -113,7 +113,7 @@ impl ComputeServer for HipServer {
             },
         ) {
             Ok(val) => val,
-            Err(err) => unreachable!("{err:?}"),
+            Err(err) => unreachable!("{err}"),
         };
 
         for (descriptor, data) in descriptors {
@@ -135,7 +135,7 @@ impl ComputeServer for HipServer {
         if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id) {
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
                 Ok(stream) => stream,
-                Err(err) => unreachable!("{err:?}"),
+                Err(err) => unreachable!("{err}"),
             };
             stream.current().errors.push(err);
         }
@@ -244,7 +244,7 @@ impl ComputeServer for HipServer {
             },
         ) {
             Ok(val) => val,
-            Err(err) => unreachable!("{err:?}"),
+            Err(err) => unreachable!("{err}"),
         };
         command.allocation_mode(mode)
     }

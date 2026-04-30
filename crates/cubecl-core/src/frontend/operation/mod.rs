@@ -3,7 +3,7 @@ mod base;
 mod binary;
 mod branch;
 mod cmp;
-mod copy;
+mod copy_op;
 #[path = "fma.rs"]
 mod fma_internal;
 mod unary;
@@ -13,6 +13,6 @@ pub use base::*;
 pub use binary::*;
 pub use branch::*;
 pub use cmp::*;
-pub use copy::*;
+pub use copy_op::*;
 pub use fma_internal::*;
 pub use unary::*;

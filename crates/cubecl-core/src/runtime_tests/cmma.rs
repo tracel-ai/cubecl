@@ -1453,8 +1453,8 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
     for i in 0..vector_count_d {
         let n_elem = i * vector_size_d;
         let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::Accumulator);
-        let idx = row as usize * size_n + col as usize;
-        out[idx / out.vector_size()] = registers_d[i];
+        let idx = (row as usize * size_n + col as usize) / out.vector_size();
+        out[idx] = registers_d[i];
     }
 }
 

@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 use cubecl::{features::Plane, prelude::*, server::Handle};
 use std::marker::PhantomData;
 

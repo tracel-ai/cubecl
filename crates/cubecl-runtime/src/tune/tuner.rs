@@ -389,7 +389,7 @@ fn log_result<K: AutotuneKey>(
                     Ok(val) => {
                         logger.log_autotune(&format!("{val}"));
                     }
-                    Err(err) => logger.log_autotune(&format!("{err:?}")),
+                    Err(err) => logger.log_autotune(&format!("{err}")),
                 }
             }
         }

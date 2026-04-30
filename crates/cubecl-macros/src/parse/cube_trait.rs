@@ -7,7 +7,7 @@ use syn::{
 };
 
 use crate::{
-    RemoveHelpers, ReplaceDefines, ReplaceIndices,
+    RemoveHelpers, ReplaceDefines,
     parse::{
         StripBounds, StripDefault,
         kernel::{KernelArgs, KernelFn},
@@ -232,7 +232,6 @@ impl CubeTraitImpl {
             .collect::<Result<_, _>>()?;
 
         RemoveHelpers.visit_item_impl_mut(&mut item_impl);
-        ReplaceIndices.visit_item_impl_mut(&mut item_impl);
         ReplaceDefines.visit_item_impl_mut(&mut item_impl);
 
         let struct_name = *item_impl.self_ty;

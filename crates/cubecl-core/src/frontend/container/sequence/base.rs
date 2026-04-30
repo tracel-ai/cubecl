@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::prelude::*;
 use alloc::rc::Rc;
-use core::{cell::RefCell, ops::Deref};
+use core::{
+    cell::RefCell,
+    ops::{Deref, Index, IndexMut},
+};
 
 /// A sequence of [cube types](CubeType) that is inlined during compilation.
 ///
@@ -132,12 +135,19 @@ impl<T: CubeType> AsMutExpand for SequenceExpand<T> {
     }
 }
 
-impl<T: CubeType> CubeIndex for Sequence<T> {
+impl<T: CubeType> Index<usize> for Sequence<T> {
     type Output = T;
-    type Idx = usize;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        self.values.index(index)
+    }
 }
 
-impl<T: CubeType> CubeIndexMut for Sequence<T> {}
+impl<T: CubeType> IndexMut<usize> for Sequence<T> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        self.values.index_mut(index)
+    }
+}
 
 impl<T: CubeType> Deref for Sequence<T> {
     type Target = [T];
@@ -147,25 +157,36 @@ impl<T: CubeType> Deref for Sequence<T> {
     }
 }
 
-impl<T: CubeType> CubeIndexExpand for SequenceExpand<T> {
+impl<T: CubeType> IndexExpand<NativeExpand<usize>> for SequenceExpand<T> {
     type Output = T::ExpandType;
-    type Idx = NativeExpand<usize>;
 
-    fn __expand_index_method(&self, scope: &Scope, index: Self::Idx) -> &Self::Output {
+    fn __expand_index_method(&self, scope: &Scope, index: NativeExpand<usize>) -> &Self::Output {
         self.__expand_index_method(scope, index)
     }
 
-    fn __expand_index_unchecked_method(&self, scope: &Scope, index: Self::Idx) -> &Self::Output {
+    fn __expand_index_unchecked_method(
+        &self,
+        scope: &Scope,
+        index: NativeExpand<usize>,
+    ) -> &Self::Output {
         self.__expand_index_method(scope, index)
     }
 }
 
-impl<T: CubeType> CubeIndexMutExpand for SequenceExpand<T> {
+impl<T: CubeType> IndexMutExpand<NativeExpand<usize>> for SequenceExpand<T> {
     fn __expand_index_mut_method(
         &mut self,
         scope: &Scope,
-        index: <Self as CubeIndexExpand>::Idx,
-    ) -> &mut <Self as CubeIndexExpand>::Output {
+        index: NativeExpand<usize>,
+    ) -> &mut T::ExpandType {
+        self.__expand_index_mut_method(scope, index)
+    }
+
+    fn __expand_index_mut_unchecked_method(
+        &mut self,
+        scope: &Scope,
+        index: NativeExpand<usize>,
+    ) -> &mut T::ExpandType {
         self.__expand_index_mut_method(scope, index)
     }
 }
