@@ -133,7 +133,7 @@ impl Expression {
                 let call = with_debug_call(
                     context,
                     *span,
-                    quote![#path::expand #generics(scope, #(#args),*)],
+                    quote_spanned![*span=>#path::expand #generics(scope, #(#args),*)],
                 );
 
                 quote_spanned! {*span=>{#call}}

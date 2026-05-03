@@ -28,12 +28,17 @@ impl Function {
     ) {
         let pointer_source = self.analysis::<PointerSource>(state);
         if let Operation::Memory(Memory::Store(op)) = &mut inst.operation
-            && let Some(source) = pointer_source.borrow_mut().get_mut(&op.lhs)
+            && let Some(source) = pointer_source.borrow_mut().get_mut(&op.ptr)
         {
             visit_write(self, source);
         }
         if let Operation::Memory(Memory::CopyMemory(op)) = &mut inst.operation
             && let Some(source) = pointer_source.borrow_mut().get_mut(&op.target)
+        {
+            visit_write(self, source);
+        }
+        if let Operation::Operator(Operator::InsertComponent(_)) = &mut inst.operation
+            && let Some(source) = pointer_source.borrow_mut().get_mut(&inst.out())
         {
             visit_write(self, source);
         }
@@ -230,7 +235,10 @@ impl Function {
                     visit_read(self, source);
                 }
             }
-            Memory::Store(binop) => self.visit_binop(binop, visit_read),
+            Memory::Store(op) => {
+                visit_read(self, &mut op.ptr);
+                visit_read(self, &mut op.value);
+            }
             Memory::CopyMemory(op) => {
                 visit_read(self, &mut op.source);
                 visit_read(self, &mut op.target);
@@ -252,8 +260,7 @@ impl Function {
         match op {
             Operator::And(binary_operator)
             | Operator::Or(binary_operator)
-            | Operator::ExtractComponent(binary_operator)
-            | Operator::InsertComponent(binary_operator) => {
+            | Operator::ExtractComponent(binary_operator) => {
                 self.visit_binop(binary_operator, visit_read)
             }
             Operator::Not(unary_operator)
@@ -263,6 +270,11 @@ impl Function {
                 for input in &mut vector_init_operator.inputs {
                     visit_read(self, input)
                 }
+            }
+            Operator::InsertComponent(vector_insert_operator) => {
+                visit_read(self, &mut vector_insert_operator.vector);
+                visit_read(self, &mut vector_insert_operator.index);
+                visit_read(self, &mut vector_insert_operator.value);
             }
             Operator::Select(select) => {
                 visit_read(self, &mut select.cond);

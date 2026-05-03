@@ -1589,8 +1589,8 @@ impl<D: Dialect> CppCompiler<D> {
                 out: self.compile_variable(out.unwrap()),
             })),
             gpu::Memory::Store(op) => instructions.push(Instruction::Store(UnaryInstruction {
-                input: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.lhs),
+                input: self.compile_variable(op.value),
+                out: self.compile_variable(op.ptr),
             })),
             gpu::Memory::CopyMemory(op) => instructions.push(Instruction::Copy {
                 source: self.compile_variable(op.source),
@@ -1626,7 +1626,11 @@ impl<D: Dialect> CppCompiler<D> {
                 out: self.compile_variable(out),
             }),
             gpu::Operator::InsertComponent(op) => {
-                instructions.push(Instruction::InsertComponent(self.compile_binary(op, out)))
+                instructions.push(Instruction::InsertComponent(BinaryInstruction {
+                    lhs: self.compile_variable(op.index),
+                    rhs: self.compile_variable(op.value),
+                    out: self.compile_variable(out),
+                }))
             }
             gpu::Operator::ExtractComponent(op) => {
                 instructions.push(Instruction::ExtractComponent(self.compile_binary(op, out)))

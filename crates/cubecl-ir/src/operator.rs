@@ -16,7 +16,7 @@ pub enum Operator {
     #[operation(pure)]
     ExtractComponent(BinaryOperator),
     #[operation(pure)]
-    InsertComponent(BinaryOperator),
+    InsertComponent(VectorInsertOperator),
     #[operation(commutative, pure)]
     And(BinaryOperator),
     #[operation(commutative, pure)]
@@ -47,7 +47,9 @@ impl Display for Operator {
                 write!(f, "vec({})", inits.join(", "))
             }
             Operator::ExtractComponent(op) => write!(f, "{}[{}]", op.lhs, op.rhs),
-            Operator::InsertComponent(op) => write!(f, "[{}] = {}", op.lhs, op.rhs),
+            Operator::InsertComponent(op) => {
+                write!(f, "{}[{}] = {}", op.vector, op.index, op.value)
+            }
             Operator::Select(op) => {
                 write!(f, "{} ? {} : {}", op.cond, op.then, op.or_else)
             }
@@ -79,6 +81,15 @@ pub struct ReinterpretSliceOperator {
 #[allow(missing_docs)]
 pub struct VectorInitOperator {
     pub inputs: Vec<Variable>,
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
+pub struct VectorInsertOperator {
+    pub vector: Variable,
+    pub index: Variable,
+    pub value: Variable,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

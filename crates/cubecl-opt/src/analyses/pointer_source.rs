@@ -52,6 +52,10 @@ impl PointerSource {
             pointer_sources: RefCell::new(pointer_sources),
         }
     }
+
+    pub fn get(&self, var: &Variable) -> Option<Variable> {
+        self.borrow().get(var).copied()
+    }
 }
 
 impl Analysis for PointerSource {

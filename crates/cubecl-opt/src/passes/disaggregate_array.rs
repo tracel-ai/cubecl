@@ -1,10 +1,14 @@
 use std::collections::HashMap;
 
 use cubecl_ir::{
-    Id, Instruction, Operation, Operator, Type, UnaryOperator, Variable, VariableKind,
+    Id, Instruction, Memory, Operation, Operator, Type, UnaryOperator, Variable, VariableKind,
 };
 
-use crate::{AtomicCounter, Function, GlobalState, analyses::writes::Writes, local_variable_id};
+use crate::{
+    AtomicCounter, Function, GlobalState,
+    analyses::{pointer_source::PointerSource, writes::Writes},
+    local_variable_id,
+};
 
 use super::OptimizerPass;
 
@@ -41,20 +45,21 @@ impl OptimizerPass for DisaggregateArray {
             let old_insts = func[block].ops.take();
             let arr_id = id;
             let vars = (0..length)
-                .map(|_| state.allocator.create_local(item))
+                .map(|_| state.allocator.create_local_mut(item))
                 .collect::<Vec<_>>();
             for var in &vars {
                 let local_id = local_variable_id(var).unwrap();
                 func.variables.insert(local_id, var.ty);
-                let assign =
+                let init =
                     Instruction::new(Operator::Cast(UnaryOperator { input: 0u32.into() }), *var);
-                func[block].ops.borrow_mut().push(assign);
+                func[block].ops.borrow_mut().push(init);
             }
             func[block]
                 .ops
                 .borrow_mut()
                 .extend(old_insts.into_iter().map(|it| it.1));
             replace_const_arrays(func, arr_id, &vars);
+            func.invalidate_analysis::<PointerSource>();
             changes.inc();
         }
     }
@@ -74,50 +79,24 @@ fn find_const_arrays(opt: &mut Function) -> Vec<Array> {
     for block in opt.node_ids() {
         let ops = opt[block].ops.clone();
         for op in ops.borrow().values() {
-            match &op.operation {
-                Operation::Operator(Operator::Index(index) | Operator::UncheckedIndex(index)) => {
-                    if let VariableKind::LocalArray {
+            if let Operation::Memory(Memory::Index(index)) = &op.operation
+                && let VariableKind::LocalArray {
+                    id,
+                    length,
+                    unroll_factor,
+                } = index.list.kind
+            {
+                let item = index.list.ty;
+                arrays.insert(
+                    id,
+                    Array {
                         id,
-                        length,
-                        unroll_factor,
-                    } = index.list.kind
-                    {
-                        let item = index.list.ty;
-                        arrays.insert(
-                            id,
-                            Array {
-                                id,
-                                length: length * unroll_factor,
-                                item,
-                            },
-                        );
-                        let is_const = index.index.as_const().is_some();
-                        *track_consts.entry(id).or_insert(is_const) &= is_const;
-                    }
-                }
-                Operation::Operator(
-                    Operator::IndexMut(assign) | Operator::UncheckedIndexMut(assign),
-                ) => {
-                    if let VariableKind::LocalArray {
-                        id,
-                        length,
-                        unroll_factor,
-                    } = op.out().kind
-                    {
-                        let item = op.out().ty;
-                        arrays.insert(
-                            id,
-                            Array {
-                                id,
-                                length: length * unroll_factor,
-                                item,
-                            },
-                        );
-                        let is_const = assign.index.as_const().is_some();
-                        *track_consts.entry(id).or_insert(is_const) &= is_const;
-                    }
-                }
-                _ => {}
+                        length: length * unroll_factor,
+                        item,
+                    },
+                );
+                let is_const = index.index.as_const().is_some();
+                *track_consts.entry(id).or_insert(is_const) &= is_const;
             }
         }
     }
@@ -129,32 +108,17 @@ fn find_const_arrays(opt: &mut Function) -> Vec<Array> {
         .collect()
 }
 
-fn replace_const_arrays(opt: &mut Function, arr_id: Id, vars: &[Variable]) {
-    for block in opt.node_ids() {
-        let ops = opt[block].ops.clone();
+fn replace_const_arrays(func: &mut Function, arr_id: Id, vars: &[Variable]) {
+    for block in func.node_ids() {
+        let ops = func[block].ops.clone();
         for op in ops.borrow_mut().values_mut() {
-            match &mut op.operation.clone() {
-                Operation::Operator(Operator::Index(index) | Operator::UncheckedIndex(index)) => {
-                    if let VariableKind::LocalArray { id, .. } = index.list.kind
-                        && id == arr_id
-                    {
-                        let const_index = index.index.as_const().unwrap().as_i64() as usize;
-                        op.operation = Operation::Copy(vars[const_index]);
-                    }
-                }
-                Operation::Operator(
-                    Operator::IndexMut(assign) | Operator::UncheckedIndexMut(assign),
-                ) => {
-                    if let VariableKind::LocalArray { id, .. } = op.out.unwrap().kind
-                        && id == arr_id
-                    {
-                        let const_index = assign.index.as_const().unwrap().as_i64() as usize;
-                        let out = vars[const_index];
-                        *op = Instruction::new(Operation::Copy(assign.value), out);
-                        opt.invalidate_analysis::<Writes>();
-                    }
-                }
-                _ => {}
+            if let Operation::Memory(Memory::Index(index)) = &mut op.operation.clone()
+                && let VariableKind::LocalArray { id, .. } = index.list.kind
+                && id == arr_id
+            {
+                let const_index = index.index.as_const().unwrap().as_i64() as usize;
+                op.operation = Operation::Memory(Memory::Reference(vars[const_index]));
+                func.invalidate_analysis::<Writes>();
             }
         }
     }

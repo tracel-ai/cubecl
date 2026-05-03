@@ -769,6 +769,7 @@ fn dump_spirv(
     if let Ok(dir) = std::env::var("CUBECL_DEBUG_SPIRV")
         && let Some(repr) = compiled.repr.as_ref().and_then(|repr| repr.as_spirv())
     {
+        std::fs::create_dir_all(&dir).unwrap();
         let name = name
             .split("<")
             .take_while(|it| !it.ends_with("Runtime"))

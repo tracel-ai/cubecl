@@ -1,4 +1,6 @@
-use cubecl_core::ir::{BinaryOperator, IndexOperator, Memory, Operator, StorageType};
+use cubecl_core::ir::{
+    BinaryOperator, IndexOperator, Memory, Operator, StorageType, VectorInsertOperator,
+};
 use tracel_llvm::mlir_rs::{
     dialect::{
         arith, index, memref,
@@ -40,10 +42,10 @@ impl<'a> Visitor<'a> {
                 self.insert_variable(out, value);
             }
             Memory::Store(op) => {
-                let memref = self.get_variable(op.lhs);
-                let value = self.get_variable(op.rhs);
+                let memref = self.get_variable(op.ptr);
+                let value = self.get_variable(op.value);
                 let zero = self.create_constant_index(0);
-                let operation = if op.rhs.ty.is_vectorized() {
+                let operation = if op.value.ty.is_vectorized() {
                     vector::store(self.context, value, memref, &[zero], self.location).into()
                 } else {
                     memref::store(value, memref, &[zero], self.location)
@@ -198,14 +200,14 @@ impl<'a> Visitor<'a> {
         self.append_operation_with_result(view)
     }
 
-    fn visit_insert(&mut self, op: &BinaryOperator, out: Variable) {
-        let mut index = self.get_variable(op.lhs);
+    fn visit_insert(&mut self, op: &VectorInsertOperator, out: Variable) {
+        let mut index = self.get_variable(op.index);
         let index_ty = Type::index(self.context);
         if index.r#type() != index_ty {
             index = self.append_operation_with_result(index::casts(index, index_ty, self.location));
         }
         let memref = self.get_memory(out);
-        let to_insert = self.get_variable(op.rhs);
+        let to_insert = self.get_variable(op.value);
         let vector_insert = memref::store(to_insert, memref, &[index], self.location);
         self.block.append_operation(vector_insert);
     }

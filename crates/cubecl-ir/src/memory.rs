@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use crate::{BinaryOperator, CopyMemoryOperator, IndexOperator, TypeHash, Variable};
+use crate::{CopyMemoryOperator, IndexOperator, StoreOperator, TypeHash, Variable};
 
 use crate::OperationReflect;
 
@@ -14,7 +14,7 @@ pub enum Memory {
     #[operation(pure)]
     Index(IndexOperator),
     Load(Variable),
-    Store(BinaryOperator),
+    Store(StoreOperator),
     CopyMemory(CopyMemoryOperator),
 }
 
@@ -24,7 +24,7 @@ impl Display for Memory {
             Memory::Reference(variable) => write!(f, "&{variable}"),
             Memory::Index(op) => write!(f, "&{}[{}]", op.list, op.index),
             Memory::Load(variable) => write!(f, "load({variable})"),
-            Memory::Store(op) => write!(f, "store({}, {})", op.lhs, op.rhs),
+            Memory::Store(op) => write!(f, "store({}, {})", op.ptr, op.value),
             Memory::CopyMemory(op) => {
                 write!(f, "memcpy({}, {}, {})", op.source, op.target, op.len)
             }

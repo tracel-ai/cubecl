@@ -37,7 +37,7 @@ pub mod cast {
 }
 
 pub mod assign {
-    use cubecl_ir::{BinaryOperator, Memory};
+    use cubecl_ir::{Memory, StoreOperator};
     use ir::{Instruction, Operation};
 
     use crate::prelude::NativeExpand;
@@ -75,9 +75,9 @@ pub mod assign {
 
     pub fn expand_element(scope: &Scope, input: Variable, output: Variable) {
         if output.ty.is_ptr() && !input.ty.is_ptr() {
-            scope.register(Instruction::no_out(Memory::Store(BinaryOperator {
-                lhs: output,
-                rhs: input,
+            scope.register(Instruction::no_out(Memory::Store(StoreOperator {
+                ptr: output,
+                value: input,
             })));
         } else {
             scope.register(Instruction::new(Operation::Copy(input), output));

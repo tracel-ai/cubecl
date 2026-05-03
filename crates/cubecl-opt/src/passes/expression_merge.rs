@@ -54,8 +54,10 @@ fn search_loop(func: &mut Function, state: &GlobalState) -> bool {
                 | Operation::Operator(Operator::Cast(UnaryOperator { input }))
                 | Operation::Operator(Operator::Reinterpret(UnaryOperator { input }))
                 | Operation::CoopMma(CoopMma::Cast { input })
-                    if (input.is_immutable() || input.is_array())
-                        && (op.out().is_immutable() || op.out().is_array())
+                    if (input.is_immutable() || input.is_array() || input.ty.is_ptr())
+                        && (op.out().is_immutable()
+                            || op.out().is_array()
+                            || op.out().ty.is_ptr())
                         && input.ty == op.ty() =>
                 {
                     func.visit_all(

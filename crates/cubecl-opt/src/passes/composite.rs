@@ -2,11 +2,14 @@ use std::{collections::HashMap, mem::take};
 
 use cubecl_ir::{
     BinaryOperator, Id, Instruction, Operation, Operator, Type, Variable, VariableKind,
-    VectorInitOperator,
+    VectorInitOperator, VectorInsertOperator,
 };
 use stable_vec::StableVec;
 
-use crate::{AtomicCounter, Function, GlobalState, local_variable_id};
+use crate::{
+    AtomicCounter, Function, GlobalState, analyses::pointer_source::PointerSource,
+    local_variable_id,
+};
 
 use super::OptimizerPass;
 
@@ -29,6 +32,7 @@ pub struct CompositeMerge;
 impl OptimizerPass for CompositeMerge {
     fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
         let blocks = func.node_ids();
+        let ptr_source = func.analysis::<PointerSource>(state);
 
         for block in blocks {
             let mut assigns = HashMap::<Id, Vec<(usize, u32, Variable)>>::new();
@@ -48,13 +52,16 @@ impl OptimizerPass for CompositeMerge {
 
                 let op = { ops.borrow()[idx].clone() };
                 if let (
-                    Operation::Operator(Operator::InsertComponent(BinaryOperator {
-                        lhs: index,
-                        rhs: value,
+                    Operation::Operator(Operator::InsertComponent(VectorInsertOperator {
+                        index,
+                        value,
+                        ..
                     })),
                     Some(VariableKind::LocalMut { id }),
-                ) = (op.operation, op.out.map(|it| it.kind))
-                    && value.is_immutable()
+                ) = (
+                    op.operation,
+                    op.out.map(|it| ptr_source.get(&it).unwrap_or(it).kind),
+                ) && value.is_immutable()
                 {
                     let item = op.out.unwrap().ty;
                     if let Some(index) = index.as_const() {

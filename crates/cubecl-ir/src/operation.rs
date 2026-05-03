@@ -194,6 +194,14 @@ pub struct IndexOperator {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
+pub struct StoreOperator {
+    pub ptr: Variable,
+    pub value: Variable,
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
 pub struct BinaryOperator {
     pub lhs: Variable,
     pub rhs: Variable,

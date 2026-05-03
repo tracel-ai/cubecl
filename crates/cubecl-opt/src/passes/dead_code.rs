@@ -22,6 +22,12 @@ use super::OptimizerPass;
 pub struct EliminateUnusedVariables;
 
 impl OptimizerPass for EliminateUnusedVariables {
+    fn apply_pre_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        while search_loop(func, state) {
+            changes.inc();
+        }
+    }
+
     fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
         while search_loop(func, state) {
             changes.inc();

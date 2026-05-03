@@ -67,7 +67,7 @@ mod new {
 }
 
 mod components {
-    use cubecl_ir::Operator;
+    use cubecl_ir::{Operator, VectorInsertOperator};
 
     use super::*;
 
@@ -98,12 +98,14 @@ mod components {
         pub fn insert(&mut self, index: usize, value: P) {
             intrinsic!(|scope| {
                 if self.expand.vector_size() > 1 {
+                    let vector = read_variable(scope, self.expand);
                     let value = read_variable(scope, value.expand);
                     let index = read_variable(scope, index.expand);
                     scope.register(Instruction::new(
-                        Operator::InsertComponent(BinaryOperator {
-                            lhs: index,
-                            rhs: value,
+                        Operator::InsertComponent(VectorInsertOperator {
+                            vector,
+                            index,
+                            value,
                         }),
                         self.expand,
                     ));

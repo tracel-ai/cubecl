@@ -763,8 +763,8 @@ impl WgslCompiler {
                 out: self.compile_variable(out.unwrap()),
             }),
             cube::Memory::Store(op) => instructions.push(wgsl::Instruction::Store {
-                input: self.compile_variable(op.rhs),
-                out: self.compile_variable(op.lhs),
+                input: self.compile_variable(op.value),
+                out: self.compile_variable(op.ptr),
             }),
             cube::Memory::CopyMemory(op) => instructions.push(wgsl::Instruction::CopyBulk {
                 source: self.compile_variable(op.source),
@@ -1163,8 +1163,8 @@ impl WgslCompiler {
             }),
             cube::Operator::InsertComponent(op) => instructions.push(wgsl::Instruction::Insert {
                 vector: self.compile_variable(out),
-                index: self.compile_variable(op.lhs),
-                value: self.compile_variable(op.rhs),
+                index: self.compile_variable(op.index),
+                value: self.compile_variable(op.value),
             }),
             cube::Operator::Select(op) => instructions.push(wgsl::Instruction::Select {
                 cond: self.compile_variable(op.cond),

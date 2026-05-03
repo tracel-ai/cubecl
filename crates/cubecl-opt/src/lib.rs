@@ -66,7 +66,10 @@ pub use transformers::*;
 pub use version::PhiInstruction;
 
 pub use crate::analyses::liveness::shared::{SharedLiveness, SharedMemory};
-use crate::analyses::{liveness::Captures, pointer_source::PointerSource};
+use crate::{
+    analyses::{liveness::Captures, pointer_source::PointerSource},
+    passes::{CopyTransform, DisaggregateArray, InlineRef},
+};
 
 /// An atomic counter with a simplified interface.
 #[derive(Clone, Debug, Default)]
@@ -399,7 +402,13 @@ impl Function {
 
     /// Remove referenced variables from SSA transformation because they must stay a pointer and
     /// can't be replaced with a value
-    fn exempt_referenced_locals(&mut self) {
+    fn exempt_referenced_locals(&mut self, state: &GlobalState) {
+        self.analysis::<PointerSource>(state);
+
+        // Eliminate unneeded refs
+        InlineRef.apply_pre_ssa(self, state, AtomicCounter::new(0));
+        EliminateUnusedVariables.apply_pre_ssa(self, state, AtomicCounter::new(0));
+
         for node in self.node_ids() {
             let ops = self[node].ops.clone();
             for op in ops.borrow().values() {
@@ -457,7 +466,7 @@ impl Function {
 
     fn transform_ssa_and_merge_composites(&mut self, state: &GlobalState) {
         self.exempt_index_assign_locals();
-        self.exempt_referenced_locals();
+        self.exempt_referenced_locals(state);
         self.ssa_transform(state);
 
         let mut done = false;
@@ -466,7 +475,7 @@ impl Function {
             CompositeMerge.apply_post_ssa(self, state, changes.clone());
             if changes.get() > 0 {
                 self.exempt_index_assign_locals();
-                self.exempt_referenced_locals();
+                self.exempt_referenced_locals(state);
                 self.ssa_transform(state);
             } else {
                 done = true;
@@ -494,11 +503,11 @@ impl Function {
         // Need more optimization rounds in between.
 
         let arrays_prop = AtomicCounter::new(0);
-        // log::debug!("Applying {}", DisaggregateArray.name());
-        // DisaggregateArray.apply_post_ssa(self, state, arrays_prop.clone());
+        log::debug!("Applying {}", DisaggregateArray.name());
+        DisaggregateArray.apply_post_ssa(self, state, arrays_prop.clone());
         if arrays_prop.get() > 0 {
             self.invalidate_analysis::<Liveness>();
-            self.ssa_transform(state);
+            self.transform_ssa_and_merge_composites(state);
             self.apply_post_ssa_passes(state);
         }
 
@@ -507,8 +516,8 @@ impl Function {
         GvnPass.apply_post_ssa(self, state, gvn_count.clone());
         log::debug!("Applying {}", ReduceStrength.name());
         ReduceStrength.apply_post_ssa(self, state, gvn_count.clone());
-        // log::debug!("Applying {}", CopyTransform.name());
-        // CopyTransform.apply_post_ssa(self, state, gvn_count.clone());
+        log::debug!("Applying {}", CopyTransform.name());
+        CopyTransform.apply_post_ssa(self, state, gvn_count.clone());
 
         if gvn_count.get() > 0 {
             self.apply_post_ssa_passes(state);

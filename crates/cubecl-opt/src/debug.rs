@@ -122,7 +122,7 @@ impl Display for Function {
                     true => " @ uniform",
                     false => "",
                 };
-                writeln!(f, ";{is_uniform}\n")?;
+                writeln!(f, ";{is_uniform}")?;
             }
             if !bb.phi_nodes.borrow().is_empty() {
                 writeln!(f)?;

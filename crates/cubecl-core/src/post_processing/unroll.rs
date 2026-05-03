@@ -2,7 +2,7 @@ use alloc::{vec, vec::Vec};
 use cubecl_ir::{
     Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, IndexOperator, Instruction,
     MatrixLayout, Memory, Metadata, Operation, OperationReflect, Operator, Processor,
-    ScopeProcessing, Variable, VariableKind, VectorSize,
+    ScopeProcessing, Variable, VariableKind, VectorInsertOperator, VectorSize,
 };
 use hashbrown::HashMap;
 
@@ -272,12 +272,12 @@ impl UnrollProcessor {
         &self,
         alloc: &Allocator,
         out: Variable,
-        op: &BinaryOperator,
+        op: &VectorInsertOperator,
         unroll_factor: usize,
         mappings: &mut Mappings,
     ) -> Vec<Instruction> {
         let index = op
-            .lhs
+            .index
             .as_const()
             .expect("Can't unroll non-constant vector index")
             .as_usize();
@@ -285,12 +285,14 @@ impl UnrollProcessor {
         let unroll_idx = index / self.max_vector_size;
         let sub_idx = index % self.max_vector_size;
 
+        let vector = mappings.get(alloc, op.vector, unroll_factor, self.max_vector_size);
         let out = mappings.get(alloc, out, unroll_factor, self.max_vector_size);
 
         vec![Instruction::new(
-            Operator::InsertComponent(BinaryOperator {
-                lhs: sub_idx.into(),
-                rhs: op.rhs,
+            Operator::InsertComponent(VectorInsertOperator {
+                vector: vector[unroll_idx],
+                index: sub_idx.into(),
+                value: op.value,
             }),
             out[unroll_idx],
         )]

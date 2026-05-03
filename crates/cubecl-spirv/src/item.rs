@@ -331,6 +331,10 @@ impl Elem {
             _ => None,
         }
     }
+
+    pub fn width(&self) -> u32 {
+        self.size() * 8
+    }
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {

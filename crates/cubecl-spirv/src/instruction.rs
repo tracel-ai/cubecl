@@ -216,8 +216,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, id);
             }
             Memory::Store(op) => {
-                let ptr = self.compile_variable(op.lhs);
-                let value = self.compile_variable(op.rhs);
+                let ptr = self.compile_variable(op.ptr);
+                let value = self.compile_variable(op.value);
 
                 self.store_aligned(&ptr, &value);
             }
@@ -318,23 +318,24 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             Operator::InsertComponent(op) => {
-                let value = self.compile_variable(op.rhs);
+                let vector = self.compile_variable(op.vector);
+                let value = self.compile_variable(op.value);
                 let output = self.compile_variable(out);
 
+                let vector = self.read(&vector);
                 let value = self.read(&value);
-                let out_value = self.read(&output);
                 let out_ty = output.item().id(self);
                 let write_id = self.write_id(&output);
 
-                if let Some(index) = op.lhs.as_const() {
+                if let Some(index) = op.index.as_const() {
                     let index = index.as_u32();
-                    self.composite_insert(out_ty, Some(write_id), value, out_value, [index])
+                    self.composite_insert(out_ty, Some(write_id), value, vector, [index])
                         .unwrap();
                 } else {
-                    let index = self.compile_variable(op.lhs);
+                    let index = self.compile_variable(op.index);
                     let index = self.read(&index);
 
-                    self.vector_insert_dynamic(out_ty, Some(write_id), out_value, value, index)
+                    self.vector_insert_dynamic(out_ty, Some(write_id), vector, value, index)
                         .unwrap();
                 }
 

@@ -451,7 +451,7 @@ pub enum PointerClass {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Type {
     /// Scalar type containing a single storage element
     Scalar(StorageType),
@@ -463,6 +463,24 @@ pub enum Type {
     Atomic(Intern<Type>),
     /// Pointer of `Type` into a `PointerClass`
     Pointer(Intern<Type>, PointerClass),
+}
+
+/// `Intern` hashes the pointer, not the values, leading to unstable hashes across runs.
+/// Fix this by manually hashing the value.
+impl core::hash::Hash for Type {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        match self {
+            Type::Scalar(storage_type) => storage_type.hash(state),
+            Type::Vector(intern, _) => intern.as_ref().hash(state),
+            Type::Semantic(semantic_type) => semantic_type.hash(state),
+            Type::Atomic(intern) => intern.as_ref().hash(state),
+            Type::Pointer(intern, pointer_class) => {
+                intern.as_ref().hash(state);
+                pointer_class.hash(state);
+            }
+        }
+    }
 }
 
 pub type VectorSize = usize;
@@ -647,7 +665,7 @@ impl Display for Type {
             Type::Scalar(ty) => write!(f, "{ty}"),
             Type::Vector(ty, vector_size) => write!(f, "vector<{ty}, {vector_size}>"),
             Type::Atomic(ty) => write!(f, "atomic<{ty}>"),
-            Type::Pointer(ty, pointer_class) => write!(f, "ptr<{ty}, {pointer_class}"),
+            Type::Pointer(ty, pointer_class) => write!(f, "ptr<{ty}, {pointer_class}>"),
         }
     }
 }
