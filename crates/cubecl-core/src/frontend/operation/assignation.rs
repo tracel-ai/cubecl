@@ -74,13 +74,22 @@ pub mod assign {
     }
 
     pub fn expand_element(scope: &Scope, input: Variable, output: Variable) {
-        if output.ty.is_ptr() && !input.ty.is_ptr() {
-            scope.register(Instruction::no_out(Memory::Store(StoreOperator {
-                ptr: output,
-                value: input,
-            })));
-        } else {
-            scope.register(Instruction::new(Operation::Copy(input), output));
+        match (input.ty.is_ptr(), output.ty.is_ptr()) {
+            (true, false) => {
+                // ptr -> value = load
+                scope.register(Instruction::new(Memory::Load(input), output));
+            }
+            (false, true) => {
+                // value -> ptr = store
+                scope.register(Instruction::no_out(Memory::Store(StoreOperator {
+                    ptr: output,
+                    value: input,
+                })));
+            }
+            _ => {
+                // same ty = copy
+                scope.register(Instruction::new(Operation::Copy(input), output));
+            }
         }
     }
 }

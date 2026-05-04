@@ -2,7 +2,7 @@ use alloc::{format, string::String, vec, vec::Vec};
 use derive_new::new;
 
 use super::Variable;
-use crate::{Closure, OperationCode, OperationReflect};
+use crate::{Closure, OperationArgs, OperationCode, OperationReflect};
 use crate::{StorageType, TypeHash};
 use core::fmt::Display;
 
@@ -209,6 +209,80 @@ impl OperationReflect for CoopMma {
             | CmmaOpCode::LoadMatrix
             | CmmaOpCode::StoreMatrix => None,
             CmmaOpCode::Cast => Some(CoopMma::Cast { input: args[0] }),
+        }
+    }
+
+    fn sanitize_args(&mut self, scope: &crate::Scope) {
+        match self {
+            CoopMma::Fill { value } => value.sanitize_args_ptr(scope),
+            CoopMma::Load { stride, offset, .. } => {
+                stride.sanitize_args_ptr(scope);
+                offset.sanitize_args_ptr(scope);
+            }
+            CoopMma::LoadTensor { .. } => {}
+            CoopMma::Execute {
+                mat_a,
+                mat_b,
+                mat_c,
+            } => {
+                mat_a.sanitize_args_ptr(scope);
+                mat_b.sanitize_args_ptr(scope);
+                mat_c.sanitize_args_ptr(scope);
+            }
+            CoopMma::Store {
+                mat,
+                stride,
+                offset,
+                ..
+            } => {
+                mat.sanitize_args_ptr(scope);
+                stride.sanitize_args_ptr(scope);
+                offset.sanitize_args_ptr(scope);
+            }
+            CoopMma::StoreTensor { mat, .. } => mat.sanitize_args_ptr(scope),
+            CoopMma::Cast { input } => input.sanitize_args_ptr(scope),
+            CoopMma::RowIndex { lane_id, i, .. } => {
+                lane_id.sanitize_args_ptr(scope);
+                i.sanitize_args_ptr(scope);
+            }
+            CoopMma::ColIndex { lane_id, i, .. } => {
+                lane_id.sanitize_args_ptr(scope);
+                i.sanitize_args_ptr(scope);
+            }
+            CoopMma::LoadMatrix { offset, .. } => {
+                offset.sanitize_args_ptr(scope);
+            }
+            CoopMma::StoreMatrix {
+                offset, registers, ..
+            } => {
+                registers.sanitize_args_ptr(scope);
+                offset.sanitize_args_ptr(scope);
+            }
+            CoopMma::ExecuteManual {
+                registers_a,
+                registers_b,
+                registers_c,
+                ..
+            } => {
+                registers_a.sanitize_args_ptr(scope);
+                registers_b.sanitize_args_ptr(scope);
+                registers_c.sanitize_args_ptr(scope);
+            }
+            CoopMma::ExecuteScaled {
+                registers_a,
+                registers_b,
+                registers_c,
+                scales_a,
+                scales_b,
+                ..
+            } => {
+                registers_a.sanitize_args_ptr(scope);
+                registers_b.sanitize_args_ptr(scope);
+                registers_c.sanitize_args_ptr(scope);
+                scales_a.sanitize_args_ptr(scope);
+                scales_b.sanitize_args_ptr(scope);
+            }
+            CoopMma::ExecuteElementwise { .. } => {}
         }
     }
 }

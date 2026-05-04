@@ -1128,31 +1128,31 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::AtomicStore(self.compile_unary(op, out)))
             }
             gpu::AtomicOp::Swap(op) => {
-                instructions.push(Instruction::AtomicSwap(self.compile_binary(op, out)))
+                instructions.push(Instruction::AtomicSwap(self.compile_atomic_binary(op, out)))
             }
             gpu::AtomicOp::Add(op) => {
-                instructions.push(Instruction::AtomicAdd(self.compile_binary(op, out)))
+                instructions.push(Instruction::AtomicAdd(self.compile_atomic_binary(op, out)))
             }
             gpu::AtomicOp::Sub(op) => {
-                instructions.push(Instruction::AtomicSub(self.compile_binary(op, out)))
+                instructions.push(Instruction::AtomicSub(self.compile_atomic_binary(op, out)))
             }
             gpu::AtomicOp::Max(op) => {
-                instructions.push(Instruction::AtomicMax(self.compile_binary(op, out)))
+                instructions.push(Instruction::AtomicMax(self.compile_atomic_binary(op, out)))
             }
             gpu::AtomicOp::Min(op) => {
-                instructions.push(Instruction::AtomicMin(self.compile_binary(op, out)))
+                instructions.push(Instruction::AtomicMin(self.compile_atomic_binary(op, out)))
             }
             gpu::AtomicOp::And(op) => {
-                instructions.push(Instruction::AtomicAnd(self.compile_binary(op, out)))
+                instructions.push(Instruction::AtomicAnd(self.compile_atomic_binary(op, out)))
             }
             gpu::AtomicOp::Or(op) => {
-                instructions.push(Instruction::AtomicOr(self.compile_binary(op, out)))
+                instructions.push(Instruction::AtomicOr(self.compile_atomic_binary(op, out)))
             }
             gpu::AtomicOp::Xor(op) => {
-                instructions.push(Instruction::AtomicXor(self.compile_binary(op, out)))
+                instructions.push(Instruction::AtomicXor(self.compile_atomic_binary(op, out)))
             }
             gpu::AtomicOp::CompareAndSwap(op) => instructions.push(Instruction::AtomicCAS {
-                input: self.compile_variable(op.input),
+                input: self.compile_variable(op.ptr),
                 cmp: self.compile_variable(op.cmp),
                 val: self.compile_variable(op.val),
                 out: self.compile_variable(out),
@@ -1697,6 +1697,18 @@ impl<D: Dialect> CppCompiler<D> {
         BinaryInstruction {
             lhs: self.compile_variable(value.lhs),
             rhs: self.compile_variable(value.rhs),
+            out: self.compile_variable(out),
+        }
+    }
+
+    fn compile_atomic_binary(
+        &mut self,
+        value: gpu::AtomicBinaryOperator,
+        out: gpu::Variable,
+    ) -> BinaryInstruction<D> {
+        BinaryInstruction {
+            lhs: self.compile_variable(value.ptr),
+            rhs: self.compile_variable(value.value),
             out: self.compile_variable(out),
         }
     }

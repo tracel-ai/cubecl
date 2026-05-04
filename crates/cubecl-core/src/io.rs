@@ -64,7 +64,7 @@ pub fn validate_index<E: Scalar, N: Size>(
         print_oob::<Tensor<Vector<E, N>>>(kernel_name, index, len, tensor);
     }
 
-    let index = index.min(len - 1);
+    let index = index.min(len);
 
     unsafe { tensor.read_unchecked(index) }
 }

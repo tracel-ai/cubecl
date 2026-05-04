@@ -1,5 +1,5 @@
-use crate::OperationCode;
 use crate::{ClampMode, TypeHash};
+use crate::{OperationArgs, OperationCode};
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use core::fmt::Display;
@@ -38,6 +38,20 @@ impl OperationReflect for TensorIndexingOps {
             TensorIndexingOps::CreateLayout { .. }
             | TensorIndexingOps::CreateView
             | TensorIndexingOps::Slice { .. } => None,
+        }
+    }
+
+    fn sanitize_args(&mut self, scope: &crate::Scope) {
+        match self {
+            TensorIndexingOps::CreateLayout { shape, strides, .. } => {
+                shape.sanitize_args_ptr(scope);
+                strides.sanitize_args_ptr(scope);
+            }
+            TensorIndexingOps::CreateView => {}
+            TensorIndexingOps::Slice { offsets, shape, .. } => {
+                offsets.sanitize_args_ptr(scope);
+                shape.sanitize_args_ptr(scope);
+            }
         }
     }
 }

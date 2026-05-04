@@ -1,7 +1,8 @@
 use super::{CubePrimitive, Numeric};
 use crate::{
+    frontend::read_variable,
     ir::{ConstantValue, Scope, Variable, VariableKind},
-    prelude::{DynamicSize, KernelBuilder, KernelLauncher, Scalar, assign, read_variable},
+    prelude::{DynamicSize, KernelBuilder, KernelLauncher, Scalar, assign},
     unexpanded,
 };
 use alloc::{boxed::Box, vec::Vec};
@@ -621,7 +622,7 @@ impl<T: Scalar + Into<ConstantValue>> NativeExpand<T> {
 }
 
 pub(crate) fn init_mut_expand_element(scope: &Scope, element: &Variable) -> Variable {
-    scope.create_local_mut(element.ty)
+    scope.create_local_mut(element.value_type())
 }
 
 impl<T: IntoMut> IntoMut for Option<T> {

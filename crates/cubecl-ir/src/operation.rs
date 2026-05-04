@@ -29,7 +29,7 @@ use itertools::Itertools;
 pub enum Operation {
     #[operation(pure)]
     #[from(ignore)]
-    Copy(Variable),
+    Copy(#[args(allow_ptr)] Variable),
     #[operation(nested)]
     Memory(Memory),
     #[operation(nested)]
@@ -195,6 +195,7 @@ pub struct IndexOperator {
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct StoreOperator {
+    #[args(allow_ptr)]
     pub ptr: Variable,
     pub value: Variable,
 }
@@ -205,6 +206,15 @@ pub struct StoreOperator {
 pub struct BinaryOperator {
     pub lhs: Variable,
     pub rhs: Variable,
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
+pub struct AtomicBinaryOperator {
+    #[args(allow_ptr)]
+    pub ptr: Variable,
+    pub value: Variable,
 }
 
 /// Closure passed to an intrinsic

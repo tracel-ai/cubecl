@@ -95,6 +95,10 @@ impl Variable {
             VariableKind::Constant(..) => unimplemented!("Can't create reference to constant"),
         }
     }
+
+    pub fn value_type(&self) -> Type {
+        self.ty.value_type()
+    }
 }
 
 pub type Id = u32;

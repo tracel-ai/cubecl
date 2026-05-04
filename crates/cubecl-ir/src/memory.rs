@@ -13,7 +13,7 @@ pub enum Memory {
     Reference(Variable),
     #[operation(pure)]
     Index(IndexOperator),
-    Load(Variable),
+    Load(#[args(allow_ptr)] Variable),
     Store(StoreOperator),
     CopyMemory(CopyMemoryOperator),
 }

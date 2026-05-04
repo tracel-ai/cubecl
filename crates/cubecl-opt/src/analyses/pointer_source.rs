@@ -23,11 +23,11 @@ impl Deref for PointerSource {
 }
 
 impl PointerSource {
-    pub fn new(opt: &mut Function, state: &GlobalState) -> Self {
-        let blocks = opt.analysis::<PostOrder>(state).reverse();
+    pub fn new(func: &mut Function, state: &GlobalState) -> Self {
+        let blocks = func.analysis::<PostOrder>(state).reverse();
         let mut pointer_sources = HashMap::new();
         for block in blocks {
-            let insts = opt[block].ops.borrow().clone();
+            let insts = func[block].ops.borrow().clone();
             let insts = insts.values();
             for inst in insts.filter(|it| it.out.is_some_and(|it| it.ty.is_ptr())) {
                 let Some(out) = inst.out else {

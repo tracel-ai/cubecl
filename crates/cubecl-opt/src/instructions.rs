@@ -1,7 +1,7 @@
 use cubecl_ir::{
-    Arithmetic, AtomicOp, BarrierOps, BinaryOperator, Bitwise, Comparison, CoopMma, Instruction,
-    Memory, Metadata, NonSemantic, Operation, Operator, Plane, TensorIndexingOps, TmaOps,
-    UnaryOperator, Variable,
+    Arithmetic, AtomicBinaryOperator, AtomicOp, BarrierOps, BinaryOperator, Bitwise, Comparison,
+    CoopMma, Instruction, Memory, Metadata, NonSemantic, Operation, Operator, Plane,
+    TensorIndexingOps, TmaOps, UnaryOperator, Variable,
 };
 
 use crate::{ControlFlow, Function, GlobalState, analyses::pointer_source::PointerSource};
@@ -62,7 +62,7 @@ impl Function {
             Operation::Comparison(comparison) => self.visit_compare(comparison, visit_read),
             Operation::Bitwise(bitwise) => self.visit_bitwise(bitwise, visit_read),
             Operation::Operator(operator) => self.visit_operator(operator, visit_read),
-            Operation::Atomic(atomic) => self.visit_atomic(atomic, out, visit_read),
+            Operation::Atomic(atomic) => self.visit_atomic(atomic, out, state, visit_read),
             Operation::Metadata(meta) => self.visit_meta(meta, visit_read),
             // Sync has no outputs
             Operation::Synchronization(_) => {}
@@ -288,6 +288,7 @@ impl Function {
         &mut self,
         atomic: &mut AtomicOp,
         out: &mut Option<Variable>,
+        state: &GlobalState,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match atomic {
@@ -299,7 +300,7 @@ impl Function {
             | AtomicOp::Or(binary_operator)
             | AtomicOp::Xor(binary_operator)
             | AtomicOp::Swap(binary_operator) => {
-                self.visit_binop(binary_operator, visit_read);
+                self.visit_atomic_binop(binary_operator, state, visit_read);
             }
             AtomicOp::Load(unary_operator) => {
                 self.visit_unop(unary_operator, visit_read);
@@ -689,5 +690,19 @@ impl Function {
     ) {
         visit_read(self, &mut binop.lhs);
         visit_read(self, &mut binop.rhs);
+    }
+
+    fn visit_atomic_binop(
+        &mut self,
+        binop: &mut AtomicBinaryOperator,
+        state: &GlobalState,
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+    ) {
+        let ptr_source = self.analysis::<PointerSource>(state);
+        visit_read(self, &mut binop.ptr);
+        visit_read(self, &mut binop.value);
+        if let Some(source) = ptr_source.borrow_mut().get_mut(&binop.ptr) {
+            visit_read(self, source);
+        }
     }
 }

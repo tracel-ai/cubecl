@@ -11,8 +11,8 @@ use enumset::EnumSet;
 use hashbrown::{HashMap, HashSet};
 
 use crate::{
-    BarrierLevel, CubeFnSource, DeviceProperties, FastMath, Function, Matrix, Processor,
-    SemanticType, SourceLoc, StorageType, TargetProperties, TypeHash,
+    BarrierLevel, CubeFnSource, DeviceProperties, FastMath, Function, Matrix, OperationReflect,
+    Processor, SemanticType, SourceLoc, StorageType, TargetProperties, TypeHash,
 };
 
 use super::{
@@ -220,6 +220,7 @@ impl Scope {
     /// Register an [`Instruction`] into the scope.
     pub fn register<T: Into<Instruction>>(&self, instruction: T) {
         let mut inst = instruction.into();
+        inst.operation.sanitize_args(self);
         inst.source_loc = self.debug.source_loc.borrow().clone();
         inst.modes = self.state().modes;
         self.instructions.borrow_mut().push(inst)

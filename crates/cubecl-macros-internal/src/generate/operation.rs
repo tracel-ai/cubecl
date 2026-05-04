@@ -135,6 +135,39 @@ impl Operation {
         }
     }
 
+    fn generate_sanitize(&self) -> TokenStream {
+        let variants = self.variants();
+        let match_variants = variants.iter().map(|variant| {
+            let ident = &variant.ident;
+            if variant.nested.is_present() {
+                quote![Self::#ident(child) => crate::OperationReflect::sanitize_args(child, scope)]
+            } else if variant.fields.is_empty() {
+                quote![Self::#ident => {}]
+            } else if variant.fields.fields[0].ident.is_some() {
+                let names = variant
+                    .fields
+                    .fields
+                    .iter()
+                    .filter(|it| !it.allow_ptr.is_present())
+                    .map(|it| it.ident.clone().unwrap())
+                    .collect::<Vec<_>>();
+                let body = quote![{
+                    #(crate::OperationArgs::sanitize_args_ptr(#names, scope);)*
+                }];
+                quote![Self::#ident { #(#names),* } => #body]
+            } else if !variant.fields.fields[0].allow_ptr.is_present() {
+                quote![Self::#ident(args) => crate::OperationArgs::sanitize_args_ptr(args, scope)]
+            } else {
+                quote![Self::#ident(args) => {}]
+            }
+        });
+        quote! {
+            match self {
+                #(#match_variants),*
+            }
+        }
+    }
+
     fn generate_operation_impl(&self) -> TokenStream {
         let name = &self.ident;
         let opcode_name = &self.opcode_name;
@@ -146,6 +179,7 @@ impl Operation {
         let commutative =
             self.generate_bool_property(|x| x.commutative, |x| x.commutative, "is_commutative");
         let pure = self.generate_bool_property(|x| x.pure, |x| x.pure, "is_pure");
+        let sanitize = self.generate_sanitize();
 
         quote![impl #generics crate::OperationReflect for #name #generic_names #where_clause {
             type OpCode = #opcode_name;
@@ -158,6 +192,9 @@ impl Operation {
             }
             fn from_code_and_args(op_code: Self::OpCode, args: &[crate::Variable]) -> Option<Self> {
                 #from_args_impl
+            }
+            fn sanitize_args(&mut self, scope: &crate::Scope) {
+                #sanitize
             }
 
             #commutative

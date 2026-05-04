@@ -26,6 +26,8 @@ impl OperationReflect for Marker {
     fn op_code(&self) -> Self::OpCode {
         self.__match_opcode()
     }
+
+    fn sanitize_args(&mut self, _: &crate::Scope) {}
 }
 
 impl Display for Marker {

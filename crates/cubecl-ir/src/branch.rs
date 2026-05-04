@@ -1,7 +1,7 @@
 use alloc::{boxed::Box, format, vec::Vec};
 use core::fmt::Display;
 
-use crate::OperationReflect;
+use crate::{OperationArgs, OperationReflect};
 
 use super::{OperationCode, Scope, Variable};
 use crate::TypeHash;
@@ -35,6 +35,17 @@ impl OperationReflect for Branch {
 
     fn op_code(&self) -> Self::OpCode {
         self.__match_opcode()
+    }
+
+    fn sanitize_args(&mut self, scope: &Scope) {
+        match self {
+            Branch::If(if_) => if_.cond.sanitize_args_ptr(scope),
+            Branch::IfElse(if_else) => if_else.cond.sanitize_args_ptr(scope),
+            Branch::Switch(switch) => switch.value.sanitize_args_ptr(scope),
+            Branch::RangeLoop(range_loop) => range_loop.sanitize_args_ptr(scope),
+            Branch::Loop(_) => {}
+            Branch::Return | Branch::Break | Branch::Unreachable => {}
+        }
     }
 }
 
@@ -110,6 +121,15 @@ pub struct RangeLoop {
     pub step: Option<Variable>,
     pub inclusive: bool,
     pub scope: Scope,
+}
+
+impl RangeLoop {
+    pub fn sanitize_args_ptr(&mut self, scope: &Scope) {
+        self.i.sanitize_args_ptr(scope);
+        self.start.sanitize_args_ptr(scope);
+        self.end.sanitize_args_ptr(scope);
+        self.step.sanitize_args_ptr(scope);
+    }
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

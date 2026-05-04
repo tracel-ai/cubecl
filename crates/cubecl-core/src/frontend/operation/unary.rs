@@ -5,7 +5,6 @@ use half::{bf16, f16};
 
 use crate::{
     flex32,
-    frontend::read_variable,
     ir::{Arithmetic, Scope, Variable},
     prelude::{
         CubePrimitive, CubePrimitiveExpand, CubeType, IntoExpand, NativeExpand, Reinterpret,
@@ -85,8 +84,8 @@ macro_rules! impl_unary_func_scalar_out {
             $(impl $trait_name for $type {})*
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for NativeExpand<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self::Scalar {
-                    let expand_element = read_variable(scope, self.into());
-                    let item = expand_element.ty.with_vector_size(0);
+                    let expand_element = self.expand;
+                    let item = expand_element.value_type().with_vector_size(0);
                     unary_expand_fixed_output(scope, expand_element, item, $operator).into()
                 }
             }

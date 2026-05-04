@@ -1,4 +1,4 @@
-use darling::{FromDeriveInput, FromField, ast::Data};
+use darling::{FromDeriveInput, FromField, ast::Data, util::Flag};
 use syn::{Generics, Ident};
 
 #[derive(FromDeriveInput)]
@@ -13,4 +13,5 @@ pub struct OpArgs {
 #[darling(attributes(args))]
 pub struct OpArgsField {
     pub ident: Option<Ident>,
+    pub allow_ptr: Flag,
 }

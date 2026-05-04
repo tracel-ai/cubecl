@@ -96,7 +96,9 @@ pub struct VectorInsertOperator {
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct CopyMemoryOperator {
+    #[args(allow_ptr)]
     pub source: Variable,
+    #[args(allow_ptr)]
     pub target: Variable,
     pub len: usize,
 }

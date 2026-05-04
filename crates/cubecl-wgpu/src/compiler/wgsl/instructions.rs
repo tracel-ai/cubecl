@@ -369,44 +369,44 @@ pub enum Instruction {
         out: Variable,
     },
     AtomicCompareExchangeWeak {
-        lhs: Variable,
+        ptr: Variable,
         cmp: Variable,
         value: Variable,
         out: Variable,
     },
     AtomicAdd {
-        lhs: Variable,
-        rhs: Variable,
+        ptr: Variable,
+        value: Variable,
         out: Variable,
     },
     AtomicSub {
-        lhs: Variable,
-        rhs: Variable,
+        ptr: Variable,
+        value: Variable,
         out: Variable,
     },
     AtomicMax {
-        lhs: Variable,
-        rhs: Variable,
+        ptr: Variable,
+        value: Variable,
         out: Variable,
     },
     AtomicMin {
-        lhs: Variable,
-        rhs: Variable,
+        ptr: Variable,
+        value: Variable,
         out: Variable,
     },
     AtomicAnd {
-        lhs: Variable,
-        rhs: Variable,
+        ptr: Variable,
+        value: Variable,
         out: Variable,
     },
     AtomicOr {
-        lhs: Variable,
-        rhs: Variable,
+        ptr: Variable,
+        value: Variable,
         out: Variable,
     },
     AtomicXor {
-        lhs: Variable,
-        rhs: Variable,
+        ptr: Variable,
+        value: Variable,
         out: Variable,
     },
     Subgroup(Subgroup),
@@ -1040,36 +1040,36 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 write!(f, "{out} = atomicExchange({lhs}, {rhs});")
             }
-            Instruction::AtomicAdd { lhs, rhs, out } => {
+            Instruction::AtomicAdd { ptr, value, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicAdd({lhs}, {rhs});")
+                write!(f, "{out} = atomicAdd({ptr}, {value});")
             }
-            Instruction::AtomicSub { lhs, rhs, out } => {
+            Instruction::AtomicSub { ptr, value, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicSub({lhs}, {rhs});")
+                write!(f, "{out} = atomicSub({ptr}, {value});")
             }
-            Instruction::AtomicMax { lhs, rhs, out } => {
+            Instruction::AtomicMax { ptr, value, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicMax({lhs}, {rhs});")
+                write!(f, "{out} = atomicMax({ptr}, {value});")
             }
-            Instruction::AtomicMin { lhs, rhs, out } => {
+            Instruction::AtomicMin { ptr, value, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicMin({lhs}, {rhs});")
+                write!(f, "{out} = atomicMin({ptr}, {value});")
             }
-            Instruction::AtomicAnd { lhs, rhs, out } => {
+            Instruction::AtomicAnd { ptr, value, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicAnd({lhs}, {rhs});")
+                write!(f, "{out} = atomicAnd({ptr}, {value});")
             }
-            Instruction::AtomicOr { lhs, rhs, out } => {
+            Instruction::AtomicOr { ptr, value, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicOr({lhs}, {rhs});")
+                write!(f, "{out} = atomicOr({ptr}, {value});")
             }
-            Instruction::AtomicXor { lhs, rhs, out } => {
+            Instruction::AtomicXor { ptr, value, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicXor({lhs}, {rhs});")
+                write!(f, "{out} = atomicXor({ptr}, {value});")
             }
             Instruction::AtomicCompareExchangeWeak {
-                lhs,
+                ptr,
                 cmp,
                 value,
                 out,
@@ -1078,7 +1078,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 writeln!(
                     f,
                     // For compatibility with cuda, only return old_value
-                    "{out} = atomicCompareExchangeWeak({lhs}, {cmp}, {value}).old_value;"
+                    "{out} = atomicCompareExchangeWeak({ptr}, {cmp}, {value}).old_value;"
                 )
             }
             Instruction::Negate { input, out } => {

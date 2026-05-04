@@ -1183,38 +1183,38 @@ impl WgslCompiler {
         let out = out.unwrap();
         match atomic {
             cube::AtomicOp::Add(op) => wgsl::Instruction::AtomicAdd {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
+                ptr: self.compile_variable(op.ptr),
+                value: self.compile_variable(op.value),
                 out: self.compile_variable(out),
             },
             cube::AtomicOp::Sub(op) => wgsl::Instruction::AtomicSub {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
+                ptr: self.compile_variable(op.ptr),
+                value: self.compile_variable(op.value),
                 out: self.compile_variable(out),
             },
             cube::AtomicOp::Max(op) => wgsl::Instruction::AtomicMax {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
+                ptr: self.compile_variable(op.ptr),
+                value: self.compile_variable(op.value),
                 out: self.compile_variable(out),
             },
             cube::AtomicOp::Min(op) => wgsl::Instruction::AtomicMin {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
+                ptr: self.compile_variable(op.ptr),
+                value: self.compile_variable(op.value),
                 out: self.compile_variable(out),
             },
             cube::AtomicOp::And(op) => wgsl::Instruction::AtomicAnd {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
+                ptr: self.compile_variable(op.ptr),
+                value: self.compile_variable(op.value),
                 out: self.compile_variable(out),
             },
             cube::AtomicOp::Or(op) => wgsl::Instruction::AtomicOr {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
+                ptr: self.compile_variable(op.ptr),
+                value: self.compile_variable(op.value),
                 out: self.compile_variable(out),
             },
             cube::AtomicOp::Xor(op) => wgsl::Instruction::AtomicXor {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
+                ptr: self.compile_variable(op.ptr),
+                value: self.compile_variable(op.value),
                 out: self.compile_variable(out),
             },
             cube::AtomicOp::Load(op) => wgsl::Instruction::AtomicLoad {
@@ -1226,12 +1226,12 @@ impl WgslCompiler {
                 out: self.compile_variable(out),
             },
             cube::AtomicOp::Swap(op) => wgsl::Instruction::AtomicSwap {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
+                lhs: self.compile_variable(op.ptr),
+                rhs: self.compile_variable(op.value),
                 out: self.compile_variable(out),
             },
             cube::AtomicOp::CompareAndSwap(op) => wgsl::Instruction::AtomicCompareExchangeWeak {
-                lhs: self.compile_variable(op.input),
+                ptr: self.compile_variable(op.ptr),
                 cmp: self.compile_variable(op.cmp),
                 value: self.compile_variable(op.val),
                 out: self.compile_variable(out),

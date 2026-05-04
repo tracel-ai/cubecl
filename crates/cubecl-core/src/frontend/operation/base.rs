@@ -21,10 +21,8 @@ where
     F: Fn(BinaryOperator) -> Op,
     Op: Into<Operation>,
 {
-    let lhs = read_variable(scope, lhs);
-    let rhs = read_variable(scope, rhs);
-    let item_lhs = lhs.ty;
-    let item_rhs = rhs.ty;
+    let item_lhs = lhs.value_type();
+    let item_rhs = rhs.value_type();
 
     let vector_size = find_vectorization(item_lhs, item_rhs);
 
@@ -140,8 +138,7 @@ where
     F: Fn(UnaryOperator) -> Op,
     Op: Into<Operation>,
 {
-    let input = read_variable(scope, input);
-    let item = input.ty;
+    let item = input.value_type();
 
     let out = scope.create_local(item);
 

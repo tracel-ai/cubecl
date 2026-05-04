@@ -32,12 +32,26 @@ impl OpArgs {
         }
     }
 
+    fn generate_sanitize_ptr(&self) -> TokenStream {
+        let mut tokens = quote![];
+        for field in self.data.as_ref().take_struct().unwrap().fields {
+            if !field.allow_ptr.is_present() {
+                let ident = field.ident.as_ref().unwrap();
+                tokens.extend(
+                    quote![crate::OperationArgs::sanitize_args_ptr(&mut self.#ident, scope);],
+                );
+            }
+        }
+        tokens
+    }
+
     fn generate_args_impl(&self) -> TokenStream {
         let name = &self.ident;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
 
         let into = self.generate_into();
         let from = self.generate_from();
+        let sanitize_ptr = self.generate_sanitize_ptr();
 
         quote![impl #generics crate::OperationArgs for #name #generic_names #where_clause {
             fn from_args(args: &[Variable]) -> Option<Self> {
@@ -46,6 +60,10 @@ impl OpArgs {
 
             fn as_args(&self) -> Option<alloc::vec::Vec<crate::Variable>> {
                 Some({#into})
+            }
+
+            fn sanitize_args_ptr(&mut self, scope: &crate::Scope) {
+                #sanitize_ptr
             }
         }]
     }

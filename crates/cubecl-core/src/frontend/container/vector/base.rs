@@ -77,13 +77,11 @@ mod components {
         pub fn extract(self, index: usize) -> P {
             intrinsic!(|scope| {
                 if self.expand.vector_size() > 1 {
-                    let this = read_variable(scope, self.expand);
-                    let index = read_variable(scope, index.expand);
                     let out = scope.create_local(P::__expand_as_type(scope));
                     scope.register(Instruction::new(
                         Operator::ExtractComponent(BinaryOperator {
-                            lhs: this,
-                            rhs: index,
+                            lhs: self.expand,
+                            rhs: index.expand,
                         }),
                         out,
                     ));
@@ -98,14 +96,11 @@ mod components {
         pub fn insert(&mut self, index: usize, value: P) {
             intrinsic!(|scope| {
                 if self.expand.vector_size() > 1 {
-                    let vector = read_variable(scope, self.expand);
-                    let value = read_variable(scope, value.expand);
-                    let index = read_variable(scope, index.expand);
                     scope.register(Instruction::new(
                         Operator::InsertComponent(VectorInsertOperator {
-                            vector,
-                            index,
-                            value,
+                            vector: self.expand,
+                            index: index.expand,
+                            value: value.expand,
                         }),
                         self.expand,
                     ));
