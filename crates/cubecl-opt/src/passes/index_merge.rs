@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use cubecl_ir::{CopyMemoryOperator, Id, Instruction, Memory, Operation, Variable, VariableKind};
 
-use crate::{AtomicCounter, Function, GlobalState, analyses::pointer_source::PointerSource};
+use crate::{
+    AtomicCounter, Function, GlobalState, analyses::pointer_source::PointerSource, visit_noop,
+};
 
 use super::OptimizerPass;
 
@@ -49,14 +51,16 @@ impl OptimizerPass for CopyTransform {
             for id in copy_ids {
                 let (read_idx, in_ptr, in_source) = reads[*id];
                 let (write_idx, out_ptr, out_source) = writes[*id];
-                let is_overwritten = (read_idx..write_idx)
-                    .filter_map(|idx| ops.borrow().get(idx).cloned())
-                    .any(|inst| match inst.operation {
-                        Operation::Memory(Memory::Store(op)) => ptr_source
-                            .get(&op.ptr)
-                            .is_some_and(|var| var == in_source || var == out_source),
-                        _ => false,
+                let mut is_overwritten = false;
+                for mut inst in
+                    (read_idx..write_idx).filter_map(|idx| ops.borrow().get(idx).cloned())
+                {
+                    func.visit_instruction(state, &mut inst, visit_noop, |_, var| {
+                        if *var == in_source || *var == out_source {
+                            is_overwritten = true;
+                        }
                     });
+                }
                 if is_overwritten {
                     continue;
                 }

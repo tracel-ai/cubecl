@@ -58,12 +58,12 @@ serde_bytes = { version = "0.11.17", default-features = false, features = [
 ] } # alloc for no_std
 serde_json = { version = "1.0.119", default-features = false }
 toml = "1"
-variadics_please = "1"
+variadics_please = "2"
 
 # no_std compatibility
 dashmap = "6.1.0"
 foldhash = { version = "0.2", default-features = false }
-hashbrown = "0.16"
+hashbrown = "0.17"
 smallvec = { version = "1", features = [
     "union",
     "const_generics",

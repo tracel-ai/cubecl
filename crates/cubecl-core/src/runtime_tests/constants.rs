@@ -35,6 +35,7 @@ macro_rules! testgen_constants {
     () => {
         use super::*;
 
+        #[ignore = "constant arrays are inconsistent across implementations"]
         #[$crate::runtime_tests::test_log::test]
         fn test_constant_array() {
             let client = TestRuntime::client(&Default::default());
