@@ -79,9 +79,7 @@ impl Variable {
             VariableKind::GlobalBuffer(id) | VariableKind::TensorMap(id) => {
                 PointerClass::Global(id)
             }
-            VariableKind::SharedArray { id, .. } | VariableKind::Shared { id } => {
-                PointerClass::Shared(id)
-            }
+            VariableKind::SharedArray { .. } | VariableKind::Shared { .. } => PointerClass::Shared,
             VariableKind::GlobalScalar(_)
             | VariableKind::LocalArray { .. }
             | VariableKind::LocalMut { .. }

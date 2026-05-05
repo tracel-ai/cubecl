@@ -253,7 +253,7 @@ impl WgslCompiler {
             cubecl_ir::PointerClass::Global(id) => {
                 wgsl::PointerClass::Global(self.buffer_vis[id as usize])
             }
-            cubecl_ir::PointerClass::Shared(_) => wgsl::PointerClass::Shared,
+            cubecl_ir::PointerClass::Shared => wgsl::PointerClass::Shared,
             cubecl_ir::PointerClass::Local => wgsl::PointerClass::Local,
         }
     }

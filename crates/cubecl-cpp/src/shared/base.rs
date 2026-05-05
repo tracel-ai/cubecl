@@ -2008,7 +2008,7 @@ impl<D: Dialect> CppCompiler<D> {
                     gpu::PointerClass::Global(id) => {
                         PointerClass::Global(self.buffer_vis[id as usize])
                     }
-                    gpu::PointerClass::Shared(_) => PointerClass::Shared,
+                    gpu::PointerClass::Shared => PointerClass::Shared,
                     gpu::PointerClass::Local => PointerClass::Local,
                 };
                 Item::Pointer(item.intern(), class)

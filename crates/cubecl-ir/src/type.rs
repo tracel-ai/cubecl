@@ -437,7 +437,7 @@ impl From<SemanticType> for Type {
     }
 }
 
-/// Class of a pointer. For `Global` and `Shared`, the ID contains the underlying buffer ID.
+/// Class of a pointer. For `Global`, the ID contains the underlying buffer ID.
 /// The ID can be used to determine more detailed buffer properties, i.e. for Metal where readability
 /// is part of the pointer class.
 /// For ``CubeCL`` semantics, pointers classes to different buffer IDs should be treated as entirely
@@ -446,7 +446,7 @@ impl From<SemanticType> for Type {
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum PointerClass {
     Global(Id),
-    Shared(Id),
+    Shared,
     Local,
 }
 
@@ -744,7 +744,7 @@ impl Display for PointerClass {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             PointerClass::Global(id) => write!(f, "global<{id}>"),
-            PointerClass::Shared(id) => write!(f, "shared<{id}>"),
+            PointerClass::Shared => write!(f, "shared"),
             PointerClass::Local => f.write_str("local"),
         }
     }

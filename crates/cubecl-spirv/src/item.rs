@@ -542,7 +542,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 pub fn compile_pointer_class(class: PointerClass) -> StorageClass {
     match class {
         PointerClass::Global(_) => StorageClass::PhysicalStorageBuffer,
-        PointerClass::Shared(_) => StorageClass::Workgroup,
+        PointerClass::Shared => StorageClass::Workgroup,
         PointerClass::Local => StorageClass::Function,
     }
 }
