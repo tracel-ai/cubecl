@@ -26,8 +26,8 @@ pub mod sub {
         // Dirty hack to enable slice destructuring with trailing patterns on `Sequence`
         match (lhs.expand.as_const(), rhs.expand.as_const()) {
             (Some(ConstantValue::UInt(lhs_val)), Some(ConstantValue::UInt(rhs_val))) => {
-                let item_lhs = lhs.expand.ty;
-                let item_rhs = rhs.expand.ty;
+                let item_lhs = lhs.expand.value_type();
+                let item_rhs = rhs.expand.value_type();
 
                 let vector_size = find_vectorization(item_lhs, item_rhs);
 

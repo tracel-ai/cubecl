@@ -51,7 +51,8 @@ mod new {
         pub fn new(#[comptime] length: usize) -> Self {
             intrinsic!(|scope| {
                 let elem = T::__expand_as_type(scope);
-                scope.create_local_array(elem, length).into()
+                let ty = Type::array(elem, length);
+                scope.create_local_mut(ty).into()
             })
         }
     }
@@ -212,7 +213,7 @@ mod indexation {
         #[allow(unused_variables)]
         pub unsafe fn index_unchecked(&self, i: usize) -> &E {
             intrinsic!(|scope| {
-                let ty = self.expand.ty;
+                let ty = self.expand.value_type();
                 let class = self.expand.pointer_class();
                 let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
@@ -237,7 +238,7 @@ mod indexation {
         #[allow(unused_variables)]
         pub unsafe fn index_mut_unchecked(&mut self, i: usize) -> &mut E {
             intrinsic!(|scope| {
-                let ty = self.expand.ty;
+                let ty = self.expand.value_type();
                 let class = self.expand.pointer_class();
                 let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(

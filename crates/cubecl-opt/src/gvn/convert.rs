@@ -80,9 +80,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
             unroll_factor,
         } => Value::ConstArray(id, item, length, unroll_factor),
         VariableKind::LocalMut { .. }
-        | VariableKind::SharedArray { .. }
         | VariableKind::Shared { .. }
-        | VariableKind::LocalArray { .. }
         | VariableKind::Matrix { .. } => None?,
         VariableKind::Builtin(builtin) => Value::Builtin(builtin, item.storage_type()),
         VariableKind::Pipeline { .. } => panic!("Pipeline is not supported"),

@@ -11,42 +11,16 @@ pub struct KernelArg<D: Dialect> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum SharedMemory<D: Dialect> {
-    Array {
-        index: Id,
-        item: Item<D>,
-        length: usize,
-        align: usize,
-        offset: usize,
-    },
-    Value {
-        index: Id,
-        item: Item<D>,
-        align: usize,
-        offset: usize,
-    },
+pub struct SharedMemory<D: Dialect> {
+    pub index: Id,
+    pub item: Item<D>,
+    pub align: usize,
+    pub offset: usize,
 }
 
 impl<D: Dialect> SharedMemory<D> {
     pub fn size(&self) -> usize {
-        match self {
-            SharedMemory::Array { item, length, .. } => *length * item.size(),
-            SharedMemory::Value { item, .. } => item.size(),
-        }
-    }
-
-    pub fn align(&self) -> usize {
-        match self {
-            SharedMemory::Array { align, .. } => *align,
-            SharedMemory::Value { align, .. } => *align,
-        }
-    }
-
-    pub fn offset(&self) -> usize {
-        match self {
-            SharedMemory::Array { offset, .. } => *offset,
-            SharedMemory::Value { offset, .. } => *offset,
-        }
+        self.item.size()
     }
 }
 
@@ -58,32 +32,9 @@ pub struct ConstArray<D: Dialect> {
     pub values: Vec<Variable<D>>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct LocalArray<D: Dialect> {
-    pub index: Id,
-    pub item: Item<D>,
-    pub size: usize,
-}
-
-impl<D: Dialect> LocalArray<D> {
-    pub fn new(index: Id, item: Item<D>, size: usize) -> Self {
-        Self { index, item, size }
-    }
-}
-
 impl<D: Dialect> SharedMemory<D> {
-    pub fn new_array(index: Id, item: Item<D>, size: usize, align: usize) -> Self {
-        Self::Array {
-            index,
-            item,
-            length: size,
-            align,
-            offset: 0, // initialized later
-        }
-    }
-
-    pub fn new_value(index: Id, item: Item<D>, align: usize) -> Self {
-        Self::Value {
+    pub fn new(index: Id, item: Item<D>, align: usize) -> Self {
+        Self {
             index,
             item,
             align,
@@ -111,7 +62,7 @@ pub struct ComputeKernel<D: Dialect> {
 impl<D: Dialect> ComputeKernel<D> {
     pub fn shared_memory_size(&self) -> usize {
         let smems = self.body.shared_memories.iter();
-        let ends = smems.map(|it| it.offset() + it.size());
+        let ends = smems.map(|it| it.offset + it.size());
         ends.max().unwrap_or_default()
     }
 }

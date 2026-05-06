@@ -59,7 +59,7 @@ pub mod select {
         let vf = Ord::max(vf, then.vector_size());
         let vf = Ord::max(vf, or_else.vector_size());
 
-        let output = scope.create_local(then.ty.with_vector_size(vf));
+        let output = scope.create_local(then.value_type().with_vector_size(vf));
 
         let select = Operator::Select(Select {
             cond,

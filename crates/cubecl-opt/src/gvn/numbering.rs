@@ -5,7 +5,7 @@ use std::{
 
 use cubecl_ir::{
     self as ir, Arithmetic, Comparison, ComparisonOpCode, Memory, Metadata, OpCode, Operation,
-    OperationReflect, Variable, VariableKind,
+    OperationReflect, Type, Variable,
 };
 
 use crate::PhiInstruction;
@@ -209,19 +209,15 @@ impl ValueTable {
             Metadata::Length { var } => {
                 let item = out.ty;
                 let out = value_of_var(&out);
-                let var = match var.kind {
-                    VariableKind::GlobalBuffer { .. } | VariableKind::GlobalScalar { .. } => {
-                        self.lookup_or_add_var(var)?
-                    }
-                    VariableKind::ConstantArray { length, .. }
-                    | VariableKind::SharedArray { length, .. }
-                    | VariableKind::LocalArray { length, .. } => {
+                let var = match var.ty {
+                    Type::Array(_, length) => {
                         let constant = length.into();
                         let constant = Variable::constant(constant, item);
                         let num = self.lookup_or_add_var(&constant)?;
                         let expr = Expression::Copy(num, item);
                         return Ok((expr, out));
                     }
+                    Type::DynamicArray(_) => self.lookup_or_add_var(var)?,
                     _ => unreachable!("Length only available on array"),
                 };
                 let expr = Instruction::new(op, &[var], item);

@@ -220,6 +220,7 @@ cuda::device::memcpy_async_tx({destination} + {offset_out}, {source} + {offset_s
                 checked,
             } => {
                 let item = source.item();
+                let item = item.value_ty();
                 let size = format!("{source_length} * sizeof({item})");
                 match *checked {
                     false => write!(

@@ -160,7 +160,7 @@ mod indexation {
         #[allow(unused_variables)]
         pub unsafe fn read_unchecked(&self, i: usize) -> &E {
             intrinsic!(|scope| {
-                let ty = self.expand.ty;
+                let ty = self.expand.value_type();
                 let class = self.expand.pointer_class();
                 let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
@@ -185,7 +185,7 @@ mod indexation {
         #[allow(unused_variables)]
         pub unsafe fn index_assign_unchecked(&mut self, i: usize) -> &mut E {
             intrinsic!(|scope| {
-                let ty = self.expand.ty;
+                let ty = self.expand.value_type();
                 let class = self.expand.pointer_class();
                 let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(

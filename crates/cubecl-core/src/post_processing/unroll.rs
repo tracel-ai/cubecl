@@ -2,7 +2,7 @@ use alloc::{vec, vec::Vec};
 use cubecl_ir::{
     Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, IndexOperator, Instruction,
     MatrixLayout, Memory, Metadata, Operation, OperationReflect, Operator, Processor,
-    ScopeProcessing, Variable, VariableKind, VectorInsertOperator, VectorSize,
+    ScopeProcessing, Type, Variable, VariableKind, VectorInsertOperator, VectorSize,
 };
 use hashbrown::HashMap;
 
@@ -441,12 +441,22 @@ impl UnrollProcessor {
 }
 
 impl Processor for UnrollProcessor {
-    fn transform(&self, processing: ScopeProcessing) -> ScopeProcessing {
+    fn transform(&self, mut processing: ScopeProcessing) -> ScopeProcessing {
         let mut mappings = Mappings(Default::default());
         let allocator = processing.global_state.borrow().allocator.clone();
 
         let instructions =
             self.transform_instructions(&allocator, processing.instructions, &mut mappings);
+
+        for variable in &mut processing.variables {
+            if variable.ty.vector_size() > self.max_vector_size {
+                let unroll_factor = variable.ty.vector_size() / self.max_vector_size;
+                variable.ty = variable.ty.with_vector_size(self.max_vector_size);
+                if let Type::Array(_, length) = &mut variable.ty {
+                    *length *= unroll_factor;
+                }
+            }
+        }
 
         ScopeProcessing {
             variables: processing.variables,
@@ -480,7 +490,10 @@ fn create_unrolled(
             }
             VariableKind::Shared { .. } => {
                 let id = allocator.new_local_index();
-                let shared = VariableKind::Shared { id };
+                let shared = VariableKind::Shared {
+                    id,
+                    alignment: None,
+                };
                 Variable::new(shared, item)
             }
             VariableKind::LocalConst { .. } => allocator.create_local(item),
@@ -516,13 +529,12 @@ fn mul_index(alloc: &Allocator, idx: Variable, unroll_factor: usize) -> (Instruc
 fn unroll_array(mut var: Variable, max_vector_size: VectorSize, factor: usize) -> Variable {
     var.ty = var.ty.with_vector_size(max_vector_size);
 
-    match &mut var.kind {
-        VariableKind::LocalArray { unroll_factor, .. }
-        | VariableKind::ConstantArray { unroll_factor, .. }
-        | VariableKind::SharedArray { unroll_factor, .. } => {
-            *unroll_factor = factor;
-        }
-        _ => {}
+    if let VariableKind::ConstantArray { unroll_factor, .. } = &mut var.kind {
+        *unroll_factor = factor;
+    }
+
+    if let Type::Array(_, size) = &mut var.ty {
+        *size *= factor;
     }
 
     var

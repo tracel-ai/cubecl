@@ -59,6 +59,8 @@ fn apply(func: &mut crate::Function, state: &crate::GlobalState, changes: crate:
 
 fn is_local(var: Option<Variable>, params: &[Variable]) -> bool {
     var.is_some_and(|var| {
-        matches!(var.kind, VariableKind::LocalMut { .. }) && !params.contains(&var)
+        matches!(var.kind, VariableKind::LocalMut { .. })
+            && !var.is_array()
+            && !params.contains(&var)
     })
 }

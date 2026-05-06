@@ -40,9 +40,10 @@ impl<'a> Visitor<'a> {
                 self.variables.local.insert(variable.kind, value);
             }
             VariableKind::LocalMut { .. } => {
-                self.insert_mutable_memory(variable, value, 1);
-            }
-            VariableKind::LocalArray { length, .. } => {
+                let length = match variable.ty {
+                    ir::Type::Array(_, length) => length,
+                    _ => 1,
+                };
                 self.insert_mutable_memory(variable, value, length);
             }
             VariableKind::Shared { .. } => {
@@ -157,20 +158,18 @@ impl<'a> Visitor<'a> {
     pub fn get_memory(&mut self, variable: Variable) -> Value<'a, 'a> {
         match variable.kind {
             VariableKind::GlobalBuffer(id) => self.args_manager.buffers[id as usize],
-            VariableKind::SharedArray { id, .. } => *self
-                .args_manager
-                .shared_memory_values
-                .get(&id)
-                .expect("Variable should have been declared before"),
             VariableKind::Shared { id, .. } => *self
                 .args_manager
                 .shared_memory_values
                 .get(&id)
                 .expect("Variable should have been declared before"),
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
-                self.get_mutable_memory(variable, 1)
+                let length = match variable.ty {
+                    ir::Type::Array(_, length) => length,
+                    _ => 1,
+                };
+                self.get_mutable_memory(variable, length)
             }
-            VariableKind::LocalArray { length, .. } => self.get_mutable_memory(variable, length),
             VariableKind::ConstantArray {
                 id,
                 length,
@@ -329,7 +328,7 @@ impl<'a> Visitor<'a> {
                     false => value,
                 }
             }
-            VariableKind::Shared { id } => {
+            VariableKind::Shared { id, .. } => {
                 let memref = *self.args_manager.shared_memory_values.get(&id).unwrap();
                 let index = self
                     .block

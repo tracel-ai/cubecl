@@ -11,6 +11,8 @@ pub enum Item<D: Dialect> {
     NativeVector(Elem<D>, usize),
     Atomic(Intern<Item<D>>),
     Pointer(Intern<Item<D>>, PointerClass),
+    Array(Intern<Item<D>>, usize),
+    DynamicArray(Intern<Item<D>>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -44,6 +46,8 @@ impl<D: Dialect> Item<D> {
     pub fn value_ty(&self) -> &Item<D> {
         match self {
             Item::Pointer(inner, _) => inner.value_ty(),
+            Item::Array(inner, _) => inner.value_ty(),
+            Item::DynamicArray(inner) => inner.value_ty(),
             other => other,
         }
     }
@@ -51,7 +55,11 @@ impl<D: Dialect> Item<D> {
     pub fn elem(&self) -> &Elem<D> {
         match self {
             Item::Scalar(elem) | Item::NativeVector(elem, _) => elem,
-            Item::Vector(item, _) | Item::Atomic(item) | Item::Pointer(item, _) => item.elem(),
+            Item::Vector(item, _)
+            | Item::Atomic(item)
+            | Item::Pointer(item, _)
+            | Item::Array(item, _)
+            | Item::DynamicArray(item) => item.elem(),
         }
     }
 
@@ -64,6 +72,8 @@ impl<D: Dialect> Item<D> {
             }
             Item::Atomic(inner) => Item::Atomic(inner.with_elem(elem).intern()),
             Item::Pointer(inner, class) => Item::Pointer(inner.with_elem(elem).intern(), *class),
+            Item::Array(inner, size) => Item::Array(inner.with_elem(elem).intern(), *size),
+            Item::DynamicArray(inner) => Item::DynamicArray(inner.with_elem(elem).intern()),
         }
     }
 
@@ -71,7 +81,10 @@ impl<D: Dialect> Item<D> {
         match self {
             Item::Vector(_, vectorization) | Item::NativeVector(_, vectorization) => *vectorization,
             Item::Scalar(_) => 1,
-            Item::Atomic(inner) | Item::Pointer(inner, _) => inner.vectorization(),
+            Item::Atomic(inner)
+            | Item::Pointer(inner, _)
+            | Item::Array(inner, _)
+            | Item::DynamicArray(inner) => inner.vectorization(),
         }
     }
 
@@ -81,6 +94,8 @@ impl<D: Dialect> Item<D> {
             Item::Vector(inner, vectorization) => inner.size() * vectorization,
             Item::NativeVector(elem, vectorization) => elem.size() * vectorization,
             Item::Atomic(inner) => inner.size(),
+            Item::Array(inner, size) => inner.size() * *size,
+            Item::DynamicArray(inner) => inner.size(),
             Item::Pointer(..) => size_of::<u64>(),
         }
     }
@@ -89,7 +104,10 @@ impl<D: Dialect> Item<D> {
         match self {
             Item::Scalar(..) | Item::NativeVector(..) => true,
             Item::Vector(..) => false,
-            Item::Atomic(item) | Item::Pointer(item, ..) => item.is_native(),
+            Item::Atomic(item)
+            | Item::Pointer(item, ..)
+            | Item::Array(item, _)
+            | Item::DynamicArray(item) => item.is_native(),
         }
     }
 
@@ -127,6 +145,8 @@ impl<D: Dialect> Item<D> {
             Item::Pointer(inner, pointer_class) => {
                 Item::Pointer(inner.optimized().intern(), *pointer_class)
             }
+            Item::Array(inner, size) => Item::Array(inner.optimized().intern(), *size),
+            Item::DynamicArray(inner) => Item::DynamicArray(inner.optimized().intern()),
         }
     }
 
@@ -167,6 +187,8 @@ impl<D: Dialect> Item<D> {
             Item::Pointer(inner, pointer_class) => {
                 Item::Pointer(inner.de_optimized().intern(), *pointer_class)
             }
+            Item::Array(inner, size) => Item::Array(inner.de_optimized().intern(), *size),
+            Item::DynamicArray(inner) => Item::DynamicArray(inner.de_optimized().intern()),
         }
     }
 
@@ -186,6 +208,8 @@ impl<D: Dialect> Item<D> {
             Item::Scalar(..) | Item::Vector(..) | Item::NativeVector(..) => false,
             Item::Atomic(_) => true,
             Item::Pointer(inner, _) => inner.is_atomic(),
+            Item::Array(inner, _) => inner.is_atomic(),
+            Item::DynamicArray(inner) => inner.is_atomic(),
         }
     }
 
@@ -201,5 +225,9 @@ impl<D: Dialect> Item<D> {
                 PointerClass::Global(Visibility::Read | Visibility::ReadWrite)
             )
         ) && !self.is_atomic()
+    }
+
+    pub fn is_array(&self) -> bool {
+        matches!(self, Item::Array(..) | Item::DynamicArray(..))
     }
 }

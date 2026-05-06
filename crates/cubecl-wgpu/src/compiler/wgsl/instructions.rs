@@ -882,14 +882,8 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Length { var, out } => {
                 let out = out.fmt_left();
 
-                match var {
-                    Variable::ConstantArray(_, _, length) => {
-                        writeln!(f, "{out} = {length}u;")
-                    }
-                    Variable::LocalArray(_, _, length) => {
-                        writeln!(f, "{out} = {length}u;")
-                    }
-                    Variable::SharedArray(_, _, length) => {
+                match var.item() {
+                    Item::Array(_, length) => {
                         writeln!(f, "{out} = {length}u;")
                     }
                     _ => {

@@ -67,7 +67,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         offset: core::Variable,
         layout: Option<MatrixLayout>,
     ) {
-        let ptr_ty = self.compile_type(Type::pointer(value.ty, value.pointer_class()));
+        let ptr_ty = self.compile_type(Type::pointer(value.value_type(), value.pointer_class()));
         let mat = self.compile_variable(mat);
         let mat = self.matrix_var(&mat).1;
 
@@ -78,7 +78,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let align = value.item().size();
 
-        if let Item::Vector(_, vector_size) = value.item() {
+        if let Item::Vector(_, vector_size) = value.item().value_type() {
             let shift = stride_item.const_u32(self, vector_size.trailing_zeros());
             let stride_ty = stride_item.id(self);
             stride = self
@@ -190,7 +190,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         offset: core::Variable,
         layout: MatrixLayout,
     ) {
-        let ptr_ty = self.compile_type(Type::pointer(out.ty, out.pointer_class()));
+        let ptr_ty = self.compile_type(Type::pointer(out.value_type(), out.pointer_class()));
         let mat = self.compile_variable(mat);
         let mat = self.matrix_var(&mat).1;
         let item = self.item(&mat);
@@ -211,7 +211,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let align = out.item().size();
 
-        if let Item::Vector(_, vector_size) = out.item() {
+        if let Item::Vector(_, vector_size) = out.item().value_type() {
             let shift = stride_item.const_u32(self, vector_size.trailing_zeros());
             let stride_ty = stride_item.id(self);
             stride = self

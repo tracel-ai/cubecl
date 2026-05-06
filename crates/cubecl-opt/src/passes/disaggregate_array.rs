@@ -37,7 +37,7 @@ impl OptimizerPass for DisaggregateArray {
     fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
         let arrays = find_const_arrays(func);
 
-        for Array { id, length, item } in arrays {
+        for Array { id, length, ty } in arrays {
             // Initialize in entry because we don't know where the array is actually declared.
             // The constant value will be inlined later so it doesn't matter as long as the
             // value is visible everywhere.
@@ -45,7 +45,7 @@ impl OptimizerPass for DisaggregateArray {
             let old_insts = func[block].ops.take();
             let arr_id = id;
             let vars = (0..length)
-                .map(|_| state.allocator.create_local_mut(item))
+                .map(|_| state.allocator.create_local_mut(ty.value_type()))
                 .collect::<Vec<_>>();
             for var in &vars {
                 let local_id = local_variable_id(var).unwrap();
@@ -69,7 +69,7 @@ impl OptimizerPass for DisaggregateArray {
 struct Array {
     id: Id,
     length: usize,
-    item: Type,
+    ty: Type,
 }
 
 fn find_const_arrays(opt: &mut Function) -> Vec<Array> {
@@ -80,19 +80,15 @@ fn find_const_arrays(opt: &mut Function) -> Vec<Array> {
         let ops = opt[block].ops.clone();
         for op in ops.borrow().values() {
             if let Operation::Memory(Memory::Index(index)) = &op.operation
-                && let VariableKind::LocalArray {
-                    id,
-                    length,
-                    unroll_factor,
-                } = index.list.kind
+                && let VariableKind::LocalMut { id } = index.list.kind
+                && let Type::Array(ty, length) = index.list.ty
             {
-                let item = index.list.ty;
                 arrays.insert(
                     id,
                     Array {
                         id,
-                        length: length * unroll_factor,
-                        item,
+                        length,
+                        ty: *ty,
                     },
                 );
                 let is_const = index.index.as_const().is_some();
@@ -113,7 +109,7 @@ fn replace_const_arrays(func: &mut Function, arr_id: Id, vars: &[Variable]) {
         let ops = func[block].ops.clone();
         for op in ops.borrow_mut().values_mut() {
             if let Operation::Memory(Memory::Index(index)) = &mut op.operation.clone()
-                && let VariableKind::LocalArray { id, .. } = index.list.kind
+                && let VariableKind::LocalMut { id, .. } = index.list.kind
                 && id == arr_id
             {
                 let const_index = index.index.as_const().unwrap().as_i64() as usize;

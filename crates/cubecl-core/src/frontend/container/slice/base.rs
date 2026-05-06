@@ -103,7 +103,7 @@ impl<E: Scalar, N: Size> SliceExpand<Vector<E, N>> {
     fn with_vector_size_inner<N2: Size>(self, scope: &Scope) -> SliceExpand<Vector<E, N2>> {
         let vector_size = N2::__expand_value(scope);
         let (input, _) = self.__to_raw_parts();
-        let item = input.ty;
+        let item = input.value_type();
 
         let current = input.ty.vector_size();
         let mut out = *self.__expand_downcast_unchecked_method::<Vector<E, N2>>(scope);

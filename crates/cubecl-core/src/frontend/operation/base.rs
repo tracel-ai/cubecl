@@ -44,7 +44,7 @@ pub(crate) fn index_expand(
     vector_size: Option<VectorSize>,
     checked: bool,
 ) -> Variable {
-    let item_lhs = list.ty;
+    let item_lhs = list.value_type();
 
     let ty = if let Some(vector_size) = vector_size {
         item_lhs.with_vector_size(vector_size)
@@ -90,8 +90,8 @@ pub(crate) fn cmp_expand<F>(scope: &Scope, lhs: Variable, rhs: Variable, func: F
 where
     F: Fn(BinaryOperator) -> Comparison,
 {
-    let item_lhs = lhs.ty;
-    let item_rhs = rhs.ty;
+    let item_lhs = lhs.value_type();
+    let item_rhs = rhs.value_type();
 
     let vector_size = find_vectorization(item_lhs, item_rhs);
 
@@ -123,7 +123,7 @@ pub(crate) fn assign_op_expand<T: CubeType, Op>(
         panic!("Can't have a mutable operation on a const variable. Try to use `RuntimeCell`.");
     }
 
-    let tmp = scope.create_local(lhs.ty.value_type());
+    let tmp = scope.create_local(lhs.value_type());
     let op = func(BinaryOperator {
         lhs: lhs_value,
         rhs,

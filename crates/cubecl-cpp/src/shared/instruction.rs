@@ -283,10 +283,14 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Unreachable => D::compile_unreachable(f),
             Instruction::DeclareVariable { var } => match var {
                 Variable::WmmaFragment { .. } => D::compile_wmma_fragment_declaration(f, var),
-                _ => {
-                    let item = var.item();
-                    writeln!(f, "{item} {var};")
-                }
+                var => match var.item() {
+                    Item::Array(item, length) => {
+                        writeln!(f, "{item} {var}[{length}];")
+                    }
+                    item => {
+                        writeln!(f, "{item} {var};")
+                    }
+                },
             },
             Instruction::Add(it) => Add::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::SaturatingAdd(it) => SaturatingAdd::format(f, &it.lhs, &it.rhs, &it.out),

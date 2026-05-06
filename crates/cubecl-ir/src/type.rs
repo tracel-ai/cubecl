@@ -463,6 +463,10 @@ pub enum Type {
     Atomic(Intern<Type>),
     /// Pointer of `Type` into a `PointerClass`
     Pointer(Intern<Type>, PointerClass),
+    /// Statically sized array of `Type`s
+    Array(Intern<Type>, usize),
+    /// Dynamically sized array of `Type`s
+    DynamicArray(Intern<Type>),
 }
 
 /// `Intern` hashes the pointer, not the values, leading to unstable hashes across runs.
@@ -479,6 +483,11 @@ impl core::hash::Hash for Type {
                 intern.as_ref().hash(state);
                 pointer_class.hash(state);
             }
+            Type::Array(intern, size) => {
+                intern.as_ref().hash(state);
+                size.hash(state);
+            }
+            Type::DynamicArray(intern) => intern.as_ref().hash(state),
         }
     }
 }
@@ -523,6 +532,12 @@ impl Type {
             Type::Pointer(inner, class) => {
                 Type::Pointer(inner.with_vector_size(vector_size).intern(), class)
             }
+            Type::Array(inner, size) => {
+                Type::Array(inner.with_vector_size(vector_size).intern(), size)
+            }
+            Type::DynamicArray(inner) => {
+                Type::DynamicArray(inner.with_vector_size(vector_size).intern())
+            }
             this @ (Type::Scalar(_) | Type::Semantic(_)) => this,
         }
     }
@@ -531,11 +546,18 @@ impl Type {
         Self::Pointer(ty.into().intern(), class)
     }
 
+    pub fn array(ty: impl Into<Type>, size: usize) -> Self {
+        Self::Array(ty.into().intern(), size)
+    }
+
     pub fn vector_size(&self) -> VectorSize {
         match self {
             Type::Scalar(_) => 1,
             Type::Vector(inner, vector_size) => inner.vector_size() * *vector_size,
-            Type::Atomic(inner) | Type::Pointer(inner, _) => inner.vector_size(),
+            Type::Array(inner, _)
+            | Type::DynamicArray(inner)
+            | Type::Atomic(inner)
+            | Type::Pointer(inner, _) => inner.vector_size(),
             Type::Semantic(_) => 0,
         }
     }
@@ -545,6 +567,8 @@ impl Type {
             Type::Scalar(ty) => ty.size(),
             Type::Vector(ty, vector_size) => ty.size() * *vector_size,
             Type::Atomic(inner) => inner.size(),
+            Type::Array(inner, size) => inner.size() * *size,
+            Type::DynamicArray(inner) => inner.size(),
             // All platforms use at least conceptually 64-bit pointers
             Type::Pointer(..) => size_of::<u64>(),
             Type::Semantic(_) => 0,
@@ -556,6 +580,8 @@ impl Type {
             Type::Scalar(ty) => ty.size_bits(),
             Type::Vector(ty, vector_size) => ty.size_bits() * *vector_size,
             Type::Atomic(inner) => inner.size_bits(),
+            Type::Array(inner, _) => inner.size_bits(),
+            Type::DynamicArray(inner) => inner.size_bits(),
             // All platforms use at least conceptually 64-bit pointers
             Type::Pointer(..) => u64::BITS as usize,
             Type::Semantic(_) => 0,
@@ -565,7 +591,11 @@ impl Type {
     pub fn packing_factor(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.packing_factor(),
-            Type::Vector(ty, _) | Type::Atomic(ty) | Type::Pointer(ty, _) => ty.packing_factor(),
+            Type::Vector(ty, _)
+            | Type::Atomic(ty)
+            | Type::Pointer(ty, _)
+            | Type::Array(ty, _)
+            | Type::DynamicArray(ty) => ty.packing_factor(),
             Type::Semantic(_) => 1,
         }
     }
@@ -574,7 +604,10 @@ impl Type {
         match self {
             Type::Semantic(_) | Type::Scalar(_) => false,
             Type::Atomic(_) => true,
-            Type::Pointer(inner, _) | Type::Vector(inner, _) => inner.is_atomic(),
+            Type::Pointer(inner, _)
+            | Type::Vector(inner, _)
+            | Type::Array(inner, _)
+            | Type::DynamicArray(inner) => inner.is_atomic(),
         }
     }
 
@@ -586,9 +619,11 @@ impl Type {
         match self {
             Type::Scalar(ty) => ty.is_int(),
             Type::Semantic(_) => false,
-            Type::Atomic(inner) | Type::Pointer(inner, _) | Type::Vector(inner, _) => {
-                inner.is_int()
-            }
+            Type::Atomic(inner)
+            | Type::Pointer(inner, _)
+            | Type::Vector(inner, _)
+            | Type::Array(inner, _)
+            | Type::DynamicArray(inner) => inner.is_int(),
         }
     }
 
@@ -596,9 +631,11 @@ impl Type {
         match self {
             Type::Scalar(ty) => ty.is_signed_int(),
             Type::Semantic(_) => false,
-            Type::Atomic(inner) | Type::Pointer(inner, _) | Type::Vector(inner, _) => {
-                inner.is_signed_int()
-            }
+            Type::Atomic(inner)
+            | Type::Pointer(inner, _)
+            | Type::Vector(inner, _)
+            | Type::Array(inner, _)
+            | Type::DynamicArray(inner) => inner.is_signed_int(),
         }
     }
 
@@ -606,9 +643,11 @@ impl Type {
         match self {
             Type::Scalar(ty) => ty.is_unsigned_int(),
             Type::Semantic(_) => false,
-            Type::Atomic(inner) | Type::Pointer(inner, _) | Type::Vector(inner, _) => {
-                inner.is_unsigned_int()
-            }
+            Type::Atomic(inner)
+            | Type::Pointer(inner, _)
+            | Type::Vector(inner, _)
+            | Type::Array(inner, _)
+            | Type::DynamicArray(inner) => inner.is_unsigned_int(),
         }
     }
 
@@ -616,9 +655,11 @@ impl Type {
         match self {
             Type::Scalar(ty) => ty.is_float(),
             Type::Semantic(_) => false,
-            Type::Atomic(inner) | Type::Pointer(inner, _) | Type::Vector(inner, _) => {
-                inner.is_float()
-            }
+            Type::Atomic(inner)
+            | Type::Pointer(inner, _)
+            | Type::Vector(inner, _)
+            | Type::Array(inner, _)
+            | Type::DynamicArray(inner) => inner.is_float(),
         }
     }
 
@@ -626,9 +667,11 @@ impl Type {
         match self {
             Type::Scalar(ty) => ty.is_bool(),
             Type::Semantic(_) => false,
-            Type::Atomic(inner) | Type::Pointer(inner, _) | Type::Vector(inner, _) => {
-                inner.is_bool()
-            }
+            Type::Atomic(inner)
+            | Type::Pointer(inner, _)
+            | Type::Vector(inner, _)
+            | Type::Array(inner, _)
+            | Type::DynamicArray(inner) => inner.is_bool(),
         }
     }
 
@@ -636,9 +679,11 @@ impl Type {
         match self {
             Type::Scalar(ty) => *ty,
             Type::Semantic(_) => unimplemented!("Can't get storage for semantic type"),
-            Type::Atomic(inner) | Type::Pointer(inner, _) | Type::Vector(inner, _) => {
-                inner.storage_type()
-            }
+            Type::Atomic(inner)
+            | Type::Pointer(inner, _)
+            | Type::Vector(inner, _)
+            | Type::Array(inner, _)
+            | Type::DynamicArray(inner) => inner.storage_type(),
         }
     }
 
@@ -652,9 +697,13 @@ impl Type {
 
     pub fn value_type(&self) -> Type {
         match self {
-            Type::Pointer(inner, _) => **inner,
+            Type::Pointer(inner, _) | Type::Array(inner, _) | Type::DynamicArray(inner) => **inner,
             other => *other,
         }
+    }
+
+    pub fn is_array(&self) -> bool {
+        matches!(self, Type::Array(..) | Type::DynamicArray(..))
     }
 }
 
@@ -666,6 +715,8 @@ impl Display for Type {
             Type::Vector(ty, vector_size) => write!(f, "vector<{ty}, {vector_size}>"),
             Type::Atomic(ty) => write!(f, "atomic<{ty}>"),
             Type::Pointer(ty, pointer_class) => write!(f, "ptr<{ty}, {pointer_class}>"),
+            Type::Array(ty, size) => write!(f, "array<{ty}, {size}>"),
+            Type::DynamicArray(ty) => write!(f, "array<{ty}>"),
         }
     }
 }

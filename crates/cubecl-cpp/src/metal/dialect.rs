@@ -313,6 +313,12 @@ struct alignas({alignment}) {item} {{"
                 Self::compile_item(f, inner.as_ref())?;
                 f.write_str("*")
             }
+            Item::Array(inner, size) => {
+                write!(f, "{inner}[{size}]")
+            }
+            Item::DynamicArray(inner) => {
+                write!(f, "{inner}*")
+            }
         }
     }
 
@@ -328,14 +334,9 @@ struct alignas({alignment}) {item} {{"
         f: &mut std::fmt::Formatter<'_>,
         shared: &SharedMemory<Self>,
     ) -> std::fmt::Result {
-        match shared {
-            SharedMemory::Array {
-                index,
-                item,
-                length,
-                offset,
-                ..
-            } => {
+        let SharedMemory { index, offset, .. } = shared;
+        match shared.item {
+            Item::Array(item, length) => {
                 let size_bytes = length * item.size();
                 writeln!(f, "// Shared array size: {length}, {size_bytes} bytes")?;
                 writeln!(
@@ -343,12 +344,7 @@ struct alignas({alignment}) {item} {{"
                     "threadgroup {item}* shared_memory_{index} = reinterpret_cast<threadgroup {item}*>(&dynamic_shared_mem[{offset}]);"
                 )
             }
-            SharedMemory::Value {
-                index,
-                item,
-                offset,
-                ..
-            } => {
+            item => {
                 let size_bytes = item.size();
                 writeln!(f, "// Shared value size: {size_bytes} bytes")?;
                 writeln!(
@@ -443,7 +439,7 @@ void {kernel_name}("
             let size = body
                 .shared_memories
                 .iter()
-                .map(|it| it.offset() + it.size())
+                .map(|it| it.offset + it.size())
                 .max()
                 .unwrap();
 

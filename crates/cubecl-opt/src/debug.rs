@@ -427,27 +427,12 @@ impl Display for BasicBlock {
 
 impl Display for SmemAllocation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.smem {
-            crate::SharedMemory::Array {
-                id,
-                length,
-                ty,
-                align,
-            } => {
-                write!(
-                    f,
-                    "shared_array(id: {id}, offset: {}, length: {length}, align: {align}, ty: {ty})",
-                    self.offset,
-                )
-            }
-            crate::SharedMemory::Value { id, ty, align } => {
-                write!(
-                    f,
-                    "shared(id: {id}, offset: {}, align: {align}, ty: {ty})",
-                    self.offset,
-                )
-            }
-        }
+        let crate::SharedMemory { id, ty, align } = self.smem;
+        write!(
+            f,
+            "shared(id: {id}, offset: {}, align: {align}, ty: {ty})",
+            self.offset,
+        )
     }
 }
 

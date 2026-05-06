@@ -535,7 +535,7 @@ impl<D: Dialect> Variable<D> {
             Variable::Slice { .. }
             | Variable::SharedArray(_, _, _)
             | Variable::GlobalBuffer(_, _) => format!("{self}"),
-            _ if self.item().is_ptr() => format!("{self}"),
+            _ if self.item().is_ptr() | self.item().is_array() => format!("{self}"),
             _ => format!("&{self}"),
         }
     }

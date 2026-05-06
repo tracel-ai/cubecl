@@ -212,7 +212,8 @@ impl Barrier {
     #[allow(unused_variables)]
     pub fn shared(arrival_count: u32, is_elected: bool) -> Shared<Barrier> {
         intrinsic!(|scope| {
-            let variable = scope.create_shared(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Cube));
+            let variable =
+                scope.create_shared(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Cube), None);
             scope.register(BarrierOps::Init {
                 barrier: variable,
                 is_elected: is_elected.expand,
@@ -226,7 +227,8 @@ impl Barrier {
     /// but not initialized.
     pub fn shared_uninit() -> Shared<Barrier> {
         intrinsic!(|scope| {
-            let variable = scope.create_shared(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Cube));
+            let variable =
+                scope.create_shared(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Cube), None);
             scope.register(BarrierOps::Declare { barrier: variable });
             variable.into()
         })

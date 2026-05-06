@@ -333,31 +333,17 @@ impl Scope {
         self.state().allocator.new_local_index()
     }
 
-    /// Create a shared array variable of the given item type.
-    pub fn create_shared_array<I: Into<Type>>(
-        &self,
-        item: I,
-        shared_memory_size: usize,
-        alignment: Option<usize>,
-    ) -> Variable {
+    /// Create a shared variable of the given item type.
+    pub fn create_shared<I: Into<Type>>(&self, item: I, alignment: Option<usize>) -> Variable {
         let item = item.into();
         let index = self.new_local_index();
         Variable::new(
-            VariableKind::SharedArray {
+            VariableKind::Shared {
                 id: index,
-                length: shared_memory_size,
-                unroll_factor: 1,
                 alignment,
             },
             item,
         )
-    }
-
-    /// Create a shared variable of the given item type.
-    pub fn create_shared<I: Into<Type>>(&self, item: I) -> Variable {
-        let item = item.into();
-        let index = self.new_local_index();
-        Variable::new(VariableKind::Shared { id: index }, item)
     }
 
     /// Create a shared variable of the given item type.
@@ -378,19 +364,15 @@ impl Scope {
 
     /// Obtain the index-th buffer
     pub fn global(&self, id: Id, item: Type) -> Variable {
-        Variable::new(VariableKind::GlobalBuffer(id), item)
+        Variable::new(
+            VariableKind::GlobalBuffer(id),
+            Type::DynamicArray(item.intern()),
+        )
     }
 
     /// Obtain the index-th scalar
     pub fn scalar(&self, id: Id, storage: StorageType) -> Variable {
         Variable::new(VariableKind::GlobalScalar(id), Type::new(storage))
-    }
-
-    /// Create a local array of the given item type.
-    pub fn create_local_array<I: Into<Type>>(&self, item: I, array_size: usize) -> Variable {
-        self.state()
-            .allocator
-            .create_local_array(item.into(), array_size)
     }
 
     pub fn update_source(&self, source: CubeFnSource) {

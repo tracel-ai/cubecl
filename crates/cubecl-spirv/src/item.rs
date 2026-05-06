@@ -12,6 +12,8 @@ pub enum Item {
     // Vector of scalars. Must be 2, 3, or 4, unless long vectors extension is enabled
     Vector(Elem, u32),
     Pointer(StorageClass, Box<Item>),
+    Array(Box<Item>, u32),
+    DynamicArray(Box<Item>),
     CoopMatrix {
         ty: Elem,
         rows: u32,
@@ -46,6 +48,17 @@ impl Item {
             Item::Pointer(storage_class, item) => {
                 let item = item.id(b);
                 b.type_pointer(None, *storage_class, item)
+            }
+            Item::Array(item, size) => {
+                let item = item.id(b);
+                let id = b.id();
+                let size = b.const_u32(*size);
+                b.type_array_id(Some(id), item, size)
+            }
+            Item::DynamicArray(item) => {
+                let item = item.id(b);
+                let id = b.id();
+                b.type_runtime_array_id(Some(id), item)
             }
             Item::CoopMatrix {
                 ty,
@@ -94,11 +107,22 @@ impl Item {
         Item::Scalar(Elem::Int(32, false))
     }
 
+    pub fn value_type(&self) -> Item {
+        match self {
+            Item::Pointer(_, item) => item.value_type(),
+            Item::Array(item, _) => item.value_type(),
+            Item::DynamicArray(item) => item.value_type(),
+            other => other.clone(),
+        }
+    }
+
     pub fn size(&self) -> u32 {
         match self {
             Item::Scalar(elem) => elem.size(),
             Item::Vector(elem, factor) => elem.size() * *factor,
             Item::Pointer(_, item) => item.size(),
+            Item::Array(item, size) => item.size() * *size,
+            Item::DynamicArray(item) => item.size(),
             Item::CoopMatrix { ty, .. } => ty.size(),
             Item::TensorLayout { .. } => 1,
             Item::TensorView { .. } => 1,
@@ -110,6 +134,8 @@ impl Item {
             Item::Scalar(elem) => *elem,
             Item::Vector(elem, _) => *elem,
             Item::Pointer(_, item) => item.elem(),
+            Item::Array(item, _) => item.elem(),
+            Item::DynamicArray(item) => item.elem(),
             Item::CoopMatrix { ty, .. } => *ty,
             Item::TensorLayout { .. } => Elem::Void,
             Item::TensorView { .. } => Elem::Void,
@@ -138,6 +164,8 @@ impl Item {
             Item::Scalar(_) => scalar,
             Item::Vector(_, vec) => b.constant_composite(ty, (0..*vec).map(|_| scalar)),
             Item::Pointer(_, _) => unimplemented!("Can't create constant pointer"),
+            Item::Array(_, _) => unimplemented!("Can't create constant pointer"),
+            Item::DynamicArray(_) => unimplemented!("Can't create constant pointer"),
             Item::CoopMatrix { .. } => unimplemented!("Can't create constant cmma matrix"),
             Item::TensorLayout { .. } => unimplemented!("Can't create constant cmma matrix"),
             Item::TensorView { .. } => unimplemented!("Can't create constant cmma matrix"),
@@ -275,6 +303,10 @@ impl Item {
             }
         }
     }
+
+    pub fn is_array(&self) -> bool {
+        matches!(self, Item::Array(..))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -366,6 +398,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     permutation: permutation[..dims].to_vec(),
                 },
             },
+            core::Type::Array(inner, size) => {
+                let item = self.compile_type(*inner);
+                Item::Array(Box::new(item), size as u32)
+            }
+            core::Type::DynamicArray(inner) => {
+                let item = self.compile_type(*inner);
+                Item::DynamicArray(Box::new(item))
+            }
         }
     }
 
@@ -452,9 +492,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             core::VariableKind::TensorMap(_) => {
                 unimplemented!("Tensor maps not supported")
             }
-            core::VariableKind::LocalArray { .. } => {
-                todo!("Local arrays not yet supported for args")
-            }
             core::VariableKind::LocalMut { .. }
             | core::VariableKind::LocalConst { .. }
             | core::VariableKind::Versioned { .. }
@@ -464,10 +501,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             core::VariableKind::ConstantArray { .. } => {
                 todo!("Constant arrays not yet supported for args")
             }
-            core::VariableKind::SharedArray { id, .. } => {
-                self.state.base_lookups.shared_arrays[&id].ptr_ty_id
-            }
-            core::VariableKind::Shared { id } => self.state.base_lookups.shared[&id].ptr_ty_id,
+            core::VariableKind::Shared { id, .. } => self.state.base_lookups.shared[&id].ptr_ty_id,
             core::VariableKind::Matrix { mat, .. } => {
                 let mat = self.compile_matrix(&mat);
                 self.item(&mat).id(self)
@@ -553,6 +587,8 @@ impl std::fmt::Display for Item {
             Item::Scalar(elem) => write!(f, "{elem}"),
             Item::Vector(elem, factor) => write!(f, "vec{factor}<{elem}>"),
             Item::Pointer(class, item) => write!(f, "ptr<{class:?}, {item}>"),
+            Item::Array(item, size) => write!(f, "array<{item}, {size}>"),
+            Item::DynamicArray(item) => write!(f, "array<{item}>"),
             Item::CoopMatrix { ty, ident, .. } => write!(f, "matrix<{ty}, {ident:?}>"),
             Item::TensorLayout { dims, clamp_mode } => {
                 write!(f, "tensor_layout<{dims}, {clamp_mode:?}>")

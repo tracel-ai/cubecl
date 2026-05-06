@@ -66,9 +66,7 @@ impl Variable {
             | VariableKind::BarrierToken { .. } => false,
             VariableKind::GlobalBuffer(_)
             | VariableKind::TensorMap(_)
-            | VariableKind::LocalArray { .. }
             | VariableKind::LocalMut { .. }
-            | VariableKind::SharedArray { .. }
             | VariableKind::Shared { .. }
             | VariableKind::Matrix { .. } => true,
         }
@@ -79,9 +77,8 @@ impl Variable {
             VariableKind::GlobalBuffer(id) | VariableKind::TensorMap(id) => {
                 PointerClass::Global(id)
             }
-            VariableKind::SharedArray { .. } | VariableKind::Shared { .. } => PointerClass::Shared,
+            VariableKind::Shared { .. } => PointerClass::Shared,
             VariableKind::GlobalScalar(_)
-            | VariableKind::LocalArray { .. }
             | VariableKind::LocalMut { .. }
             | VariableKind::LocalConst { .. }
             | VariableKind::Versioned { .. }
@@ -107,11 +104,6 @@ pub enum VariableKind {
     GlobalBuffer(Id),
     GlobalScalar(Id),
     TensorMap(Id),
-    LocalArray {
-        id: Id,
-        length: usize,
-        unroll_factor: usize,
-    },
     LocalMut {
         id: Id,
     },
@@ -128,14 +120,9 @@ pub enum VariableKind {
         length: usize,
         unroll_factor: usize,
     },
-    SharedArray {
-        id: Id,
-        length: usize,
-        unroll_factor: usize,
-        alignment: Option<usize>,
-    },
     Shared {
         id: Id,
+        alignment: Option<usize>,
     },
     Matrix {
         id: Id,
@@ -201,10 +188,8 @@ impl Variable {
             VariableKind::GlobalBuffer { .. } => false,
             VariableKind::TensorMap(_) => false,
             VariableKind::LocalMut { .. } => false,
-            VariableKind::SharedArray { .. } => false,
             VariableKind::Shared { .. } => false,
             VariableKind::Matrix { .. } => false,
-            VariableKind::LocalArray { .. } => false,
             VariableKind::GlobalScalar { .. } => true,
             VariableKind::Versioned { .. } => true,
             VariableKind::LocalConst { .. } => true,
@@ -219,14 +204,7 @@ impl Variable {
     /// Is this an array type that yields items when indexed,
     /// or a scalar/vector that yields elems/slices when indexed?
     pub fn is_array(&self) -> bool {
-        matches!(
-            self.kind,
-            VariableKind::GlobalBuffer { .. }
-                | VariableKind::ConstantArray { .. }
-                | VariableKind::SharedArray { .. }
-                | VariableKind::LocalArray { .. }
-                | VariableKind::Matrix { .. }
-        )
+        self.ty.is_array()
     }
 
     /// Is this an array type that is contained in concrete memory,
@@ -234,9 +212,7 @@ impl Variable {
     pub fn is_memory(&self) -> bool {
         matches!(
             self.kind,
-            VariableKind::GlobalBuffer { .. }
-                | VariableKind::SharedArray { .. }
-                | VariableKind::Shared { .. }
+            VariableKind::GlobalBuffer { .. } | VariableKind::Shared { .. }
         )
     }
 
@@ -550,9 +526,7 @@ impl Variable {
             | VariableKind::Versioned { id, .. }
             | VariableKind::LocalConst { id, .. }
             | VariableKind::ConstantArray { id, .. }
-            | VariableKind::SharedArray { id, .. }
             | VariableKind::Shared { id, .. }
-            | VariableKind::LocalArray { id, .. }
             | VariableKind::Matrix { id, .. } => Some(id),
             _ => None,
         }
@@ -579,9 +553,7 @@ impl Display for Variable {
             }
             VariableKind::LocalConst { id } => write!(f, "binding({id})"),
             VariableKind::ConstantArray { id, .. } => write!(f, "const_array({id})"),
-            VariableKind::SharedArray { id, .. } => write!(f, "shared_array({id})"),
-            VariableKind::Shared { id } => write!(f, "shared({id})"),
-            VariableKind::LocalArray { id, .. } => write!(f, "array({id})"),
+            VariableKind::Shared { id, .. } => write!(f, "shared({id})"),
             VariableKind::Matrix { id, .. } => write!(f, "matrix({id})"),
             VariableKind::Builtin(builtin) => write!(f, "{builtin:?}"),
             VariableKind::Pipeline { id, .. } => write!(f, "pipeline({id})"),

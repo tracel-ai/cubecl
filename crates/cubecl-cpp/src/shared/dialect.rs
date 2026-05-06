@@ -87,27 +87,17 @@ pub trait DialectTypes<D: Dialect> {
         f: &mut std::fmt::Formatter<'_>,
         shared: &SharedMemory<D>,
     ) -> std::fmt::Result {
-        match shared {
-            SharedMemory::Array {
-                index,
-                item,
-                length,
-                offset,
-                ..
-            } => {
-                let size_bytes = *length * item.size();
+        let SharedMemory { index, offset, .. } = shared;
+        match shared.item {
+            Item::Array(item, length) => {
+                let size_bytes = length * item.size();
                 writeln!(f, "// Shared array size: {length}, {size_bytes} bytes")?;
                 writeln!(
                     f,
                     "{item} *shared_memory_{index} = reinterpret_cast<{item}*>(&dynamic_shared_mem[{offset}]);"
                 )
             }
-            SharedMemory::Value {
-                index,
-                item,
-                offset,
-                ..
-            } => {
+            item => {
                 let size_bytes = item.size() as u32;
                 writeln!(f, "// Shared value size: {size_bytes} bytes")?;
                 writeln!(

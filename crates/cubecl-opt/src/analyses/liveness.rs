@@ -134,42 +134,16 @@ pub mod shared {
     /// A shared memory instance, all the information contained in the `VariableKind`, but with
     /// a non-optional `align`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub enum SharedMemory {
-        Array {
-            id: Id,
-            length: usize,
-            ty: Type,
-            align: usize,
-        },
-        Value {
-            id: Id,
-            ty: Type,
-            align: usize,
-        },
+    pub struct SharedMemory {
+        pub id: Id,
+        pub ty: Type,
+        pub align: usize,
     }
 
     impl SharedMemory {
         /// The byte size of this shared memory
-        pub fn id(&self) -> u32 {
-            match self {
-                SharedMemory::Array { id, .. } => *id,
-                SharedMemory::Value { id, .. } => *id,
-            }
-        }
-
-        /// The byte size of this shared memory
         pub fn size(&self) -> usize {
-            match self {
-                SharedMemory::Array { length, ty, .. } => length * ty.size(),
-                SharedMemory::Value { ty, .. } => ty.size(),
-            }
-        }
-
-        pub fn align(&self) -> usize {
-            match self {
-                SharedMemory::Array { align, .. } => *align,
-                SharedMemory::Value { align, .. } => *align,
-            }
+            self.ty.size()
         }
     }
 
@@ -262,9 +236,9 @@ pub mod shared {
                 for live_smem in self.at_block(block).clone() {
                     if !self.allocations.contains_key(&live_smem) {
                         let smem = self.shared_memories[&live_smem];
-                        let offset = self.allocate_slice(block, smem.size(), smem.align());
+                        let offset = self.allocate_slice(block, smem.size(), smem.align);
                         self.allocations
-                            .insert(smem.id(), SmemAllocation { smem, offset });
+                            .insert(smem.id, SmemAllocation { smem, offset });
                     }
                 }
             }
@@ -381,19 +355,19 @@ pub mod shared {
             for op in ops.borrow_mut().values_mut() {
                 opt.visit_out(&mut op.out, |_, var| {
                     if let Some(smem) = shared_memory(var) {
-                        generated.insert(smem.id());
-                        self.shared_memories.insert(smem.id(), smem);
+                        generated.insert(smem.id);
+                        self.shared_memories.insert(smem.id, smem);
                     }
                 });
                 opt.visit_operation(state, &mut op.operation, &mut op.out, |_, var| {
                     if let Some(smem) = shared_memory(var) {
-                        generated.insert(smem.id());
-                        self.shared_memories.insert(smem.id(), smem);
+                        generated.insert(smem.id);
+                        self.shared_memories.insert(smem.id, smem);
                     }
                 });
 
                 if let Operation::Marker(Marker::Free(Variable {
-                    kind: VariableKind::SharedArray { id, .. } | VariableKind::Shared { id },
+                    kind: VariableKind::Shared { id, .. },
                     ..
                 })) = &op.operation
                 {
@@ -408,21 +382,10 @@ pub mod shared {
 
     fn shared_memory(var: &Variable) -> Option<SharedMemory> {
         match var.kind {
-            VariableKind::SharedArray {
-                id,
-                length,
-                unroll_factor,
-                alignment,
-            } => Some(SharedMemory::Array {
-                id,
-                length: length * unroll_factor,
-                ty: var.ty,
-                align: alignment.unwrap_or_else(|| var.ty.size()),
-            }),
-            VariableKind::Shared { id } => Some(SharedMemory::Value {
+            VariableKind::Shared { id, alignment } => Some(SharedMemory {
                 id,
                 ty: var.ty,
-                align: var.ty.size(),
+                align: alignment.unwrap_or_else(|| var.value_type().size()),
             }),
             _ => None,
         }

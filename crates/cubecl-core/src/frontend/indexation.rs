@@ -136,8 +136,8 @@ where
     };
 
     let ty = match vector_size {
-        Some(vector_size) => list.ty.with_vector_size(vector_size),
-        None => list.ty,
+        Some(vector_size) => list.value_type().with_vector_size(vector_size),
+        None => list.value_type(),
     };
     let class = list.pointer_class();
     let out = scope.create_local(Type::pointer(ty, class));

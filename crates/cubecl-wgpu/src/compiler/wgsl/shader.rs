@@ -10,33 +10,19 @@ pub struct KernelArg {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct SharedArray {
-    pub index: Id,
-    item: Item,
-    size: u32,
-    alignment: Option<u32>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SharedValue {
     pub index: Id,
     item: Item,
-}
-
-impl SharedArray {
-    pub fn new(index: Id, item: Item, size: u32, alignment: Option<u32>) -> Self {
-        Self {
-            index,
-            item,
-            size,
-            alignment,
-        }
-    }
+    alignment: Option<u32>,
 }
 
 impl SharedValue {
-    pub fn new(index: Id, item: Item) -> Self {
-        Self { index, item }
+    pub fn new(index: Id, item: Item, alignment: Option<u32>) -> Self {
+        Self {
+            index,
+            item,
+            alignment,
+        }
     }
 }
 
@@ -48,27 +34,12 @@ pub struct ConstantArray {
     pub values: Vec<Variable>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct LocalArray {
-    pub index: Id,
-    item: Item,
-    size: u32,
-}
-
-impl LocalArray {
-    pub fn new(index: Id, item: Item, size: u32) -> Self {
-        Self { index, item, size }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct ComputeShader {
     pub buffers: Vec<KernelArg>,
     pub scalars: Vec<(Elem, usize)>,
-    pub shared_arrays: Vec<SharedArray>,
     pub shared_values: Vec<SharedValue>,
     pub constant_arrays: Vec<ConstantArray>,
-    pub local_arrays: Vec<LocalArray>,
     pub info: Info,
     pub static_meta_len: usize,
     pub workgroup_size: CubeDim,
@@ -93,9 +64,9 @@ pub struct ComputeShader {
 
 impl ComputeShader {
     pub fn shared_memory_bytes(&self) -> usize {
-        self.shared_arrays
+        self.shared_values
             .iter()
-            .map(|it| it.size as usize * it.item.size())
+            .map(|it| it.item.size())
             .chain(self.shared_values.iter().map(|it| it.item.size()))
             .sum()
     }
@@ -145,20 +116,11 @@ var<{location}, {visibility}> info: info_st;
             )?;
         }
 
-        for array in self.shared_arrays.iter() {
-            let location = "workgroup";
-            write!(
-                f,
-                "var<{location}> shared_memory_{}: array<{}, {}>;\n\n",
-                array.index, array.item, array.size
-            )?;
-        }
-
         for value in self.shared_values.iter() {
             let location = "workgroup";
             write!(
                 f,
-                "var<{location}> shared_memory_{}: {};\n\n",
+                "var<{location}> shared_{}: {};\n\n",
                 value.index, value.item,
             )?;
         }
@@ -225,15 +187,6 @@ fn {}(
 
         // Open body
         f.write_str(") {\n")?;
-
-        // Local arrays
-        for array in self.local_arrays.iter() {
-            writeln!(
-                f,
-                "var a_{}: array<{}, {}>;\n",
-                array.index, array.item, array.size
-            )?;
-        }
 
         let addr_ty = self.address_type;
 

@@ -1,6 +1,6 @@
+use super::Item;
 use super::Subgroup;
 use super::{ConstantArray, shader::ComputeShader};
-use super::{Item, LocalArray, SharedArray};
 use crate::compiler::wgsl::{self, SharedValue};
 
 use cubecl_common::backtrace::BackTrace;
@@ -43,10 +43,8 @@ pub struct WgslCompiler {
     workgroup_id_no_axis: bool,
     workgroup_size_no_axis: bool,
     num_workgroup_no_axis: bool,
-    shared_arrays: Vec<SharedArray>,
     shared_values: Vec<SharedValue>,
     const_arrays: Vec<ConstantArray>,
-    local_arrays: Vec<LocalArray>,
     #[allow(dead_code)]
     compilation_options: WgpuCompilationOptions,
     strategy: ExecutionMode,
@@ -152,10 +150,8 @@ impl WgslCompiler {
                 .into_iter()
                 .map(|binding| (self.compile_storage_type(binding.ty), binding.count))
                 .collect(),
-            shared_arrays: self.shared_arrays.clone(),
             shared_values: self.shared_values.clone(),
             constant_arrays: self.const_arrays.clone(),
-            local_arrays: self.local_arrays.clone(),
             static_meta_len: self.info.metadata.static_len() as usize,
             info: self.info.clone(),
             workgroup_size: value.cube_dim,
@@ -196,6 +192,14 @@ impl WgslCompiler {
                 let inner = self.compile_type(*ty);
                 let class = self.compile_pointer_class(class);
                 wgsl::Item::Pointer(inner.intern(), class)
+            }
+            cube::Type::Array(ty, size) => {
+                let inner = self.compile_type(*ty);
+                wgsl::Item::Array(inner.intern(), size)
+            }
+            cube::Type::DynamicArray(ty) => {
+                let inner = self.compile_type(*ty);
+                wgsl::Item::DynamicArray(inner.intern())
             }
             cube::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
         }
@@ -285,48 +289,20 @@ impl WgslCompiler {
             cube::VariableKind::Constant(value) => {
                 wgsl::Variable::Constant(value, self.compile_type(item))
             }
-            cube::VariableKind::SharedArray {
-                id,
-                length,
-                unroll_factor,
-                alignment,
-            } => {
+            cube::VariableKind::Shared { id, alignment } => {
                 let item = self.compile_type(item);
-                if !self.shared_arrays.iter().any(|s| s.index == id) {
-                    self.shared_arrays.push(SharedArray::new(
+                if !self.shared_values.iter().any(|s| s.index == id) {
+                    self.shared_values.push(SharedValue::new(
                         id,
                         item,
-                        (length * unroll_factor) as u32,
                         alignment.map(|it| it as u32),
                     ));
                 }
-                wgsl::Variable::SharedArray(id, item, length as u32)
-            }
-            cube::VariableKind::Shared { id } => {
-                let item = self.compile_type(item);
-                if !self.shared_values.iter().any(|s| s.index == id) {
-                    self.shared_values.push(SharedValue::new(id, item));
-                }
-                wgsl::Variable::SharedValue(id, item)
+                wgsl::Variable::Shared(id, item)
             }
             cube::VariableKind::ConstantArray { id, length, .. } => {
                 let item = self.compile_type(item);
                 wgsl::Variable::ConstantArray(id, item, length as u32)
-            }
-            cube::VariableKind::LocalArray {
-                id,
-                length,
-                unroll_factor,
-            } => {
-                let item = self.compile_type(item);
-                if !self.local_arrays.iter().any(|s| s.index == id) {
-                    self.local_arrays.push(LocalArray::new(
-                        id,
-                        item,
-                        (length * unroll_factor) as u32,
-                    ));
-                }
-                wgsl::Variable::LocalArray(id, item, length as u32)
             }
             cube::VariableKind::Builtin(builtin) => match builtin {
                 cube::Builtin::AbsolutePos => {
@@ -466,10 +442,7 @@ impl WgslCompiler {
         let saturating = Box::new(SaturatingArithmeticProcessor::new(true));
         let processing = scope.process([&*unroll, &*checked_io, &*saturating]);
 
-        for mut var in processing.variables {
-            if var.ty.vector_size() > MAX_VECTOR_SIZE {
-                var.ty = var.ty.with_vector_size(MAX_VECTOR_SIZE);
-            }
+        for var in processing.variables {
             instructions.push(wgsl::Instruction::DeclareVariable {
                 var: self.compile_variable(var),
             });

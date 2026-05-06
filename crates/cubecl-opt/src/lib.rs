@@ -396,6 +396,11 @@ impl Function {
                 {
                     self.variables.remove(id);
                 }
+                if let Operation::Memory(Memory::Index(op)) = &op.operation
+                    && let VariableKind::LocalMut { id } = &op.list.kind
+                {
+                    self.variables.remove(id);
+                }
             }
         }
     }

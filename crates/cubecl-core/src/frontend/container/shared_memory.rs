@@ -6,7 +6,7 @@ use crate::{
     prelude::{Vectorized, VectorizedExpand},
     unexpanded,
 };
-use cubecl_ir::{Marker, VariableKind, VectorSize};
+use cubecl_ir::{Marker, VectorSize};
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{
@@ -65,9 +65,8 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     #[allow(unused_variables)]
     pub fn new(#[comptime] size: usize) -> Self {
         intrinsic!(|scope| {
-            scope
-                .create_shared_array(T::__expand_as_type(scope), size, None)
-                .into()
+            let ty = Type::array(T::__expand_as_type(scope), size);
+            scope.create_shared(ty, None).into()
         })
     }
 
@@ -85,7 +84,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 impl<T: CubePrimitive> Shared<T> {
     pub fn new() -> Self {
         intrinsic!(|scope| {
-            let var = scope.create_shared(T::__expand_as_type(scope));
+            let var = scope.create_shared(T::__expand_as_type(scope), None);
             NativeExpand::new(var)
         })
     }
@@ -115,7 +114,8 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     #[allow(unused_variables)]
     pub fn new_aligned(#[comptime] size: usize, #[comptime] alignment: usize) -> SharedMemory<T> {
         intrinsic!(|scope| {
-            let var = scope.create_shared_array(T::__expand_as_type(scope), size, Some(alignment));
+            let ty = Type::array(T::__expand_as_type(scope), size);
+            let var = scope.create_shared(ty, Some(alignment));
             NativeExpand::new(var)
         })
     }
@@ -131,7 +131,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 }
 
 fn len_static<T: CubePrimitive>(shared: &NativeExpand<SharedMemory<T>>) -> NativeExpand<usize> {
-    let VariableKind::SharedArray { length, .. } = shared.expand.kind else {
+    let Type::Array(_, length) = shared.expand.ty else {
         unreachable!("Kind of shared memory is always shared memory")
     };
     length.into()
@@ -157,7 +157,7 @@ mod indexation {
         #[allow(unused_variables)]
         pub unsafe fn index_unchecked(&self, i: usize) -> &E {
             intrinsic!(|scope| {
-                let ty = self.expand.ty;
+                let ty = self.expand.value_type();
                 let class = self.expand.pointer_class();
                 let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
@@ -182,7 +182,7 @@ mod indexation {
         #[allow(unused_variables)]
         pub unsafe fn index_assign_unchecked(&mut self, i: usize) -> &mut E {
             intrinsic!(|scope| {
-                let ty = self.expand.ty;
+                let ty = self.expand.value_type();
                 let class = self.expand.pointer_class();
                 let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(

@@ -62,18 +62,6 @@ impl Allocator {
         self.add_local_mut(ty)
     }
 
-    pub fn create_local_array(&self, ty: Type, array_size: usize) -> Variable {
-        let id = self.new_local_index();
-        Variable::new(
-            VariableKind::LocalArray {
-                id,
-                length: array_size,
-                unroll_factor: 1,
-            },
-            ty,
-        )
-    }
-
     /// Create a matrix variable
     pub fn create_matrix(&self, matrix: Matrix) -> Variable {
         let id = self.new_local_index();

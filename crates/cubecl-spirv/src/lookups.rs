@@ -5,7 +5,7 @@ use cubecl_core::{
     ir::{self, Builtin, Id, Type, VariableKind},
     prelude::{KernelDefinition, Visibility},
 };
-use cubecl_opt::{ConstArray, NodeIndex, SharedMemory};
+use cubecl_opt::{ConstArray, NodeIndex};
 use hashbrown::{HashMap, HashSet};
 use rspirv::{
     dr,
@@ -62,10 +62,8 @@ pub struct LookupTables {
     pub buffers: Vec<Buffer>,
 
     pub const_arrays: Vec<Array>,
-    pub shared_arrays: HashMap<Id, SharedArray>,
     pub shared: HashMap<Id, SharedVar>,
 
-    pub local_arrays: HashMap<Id, Array>,
     pub matrices: HashMap<Id, Matrix>,
     pub globals: HashMap<Builtin, Word>,
     pub loaded_builtins: HashMap<BuiltIn, Word>,
@@ -122,28 +120,12 @@ pub struct Array {
 }
 
 #[derive(Clone, Debug)]
-pub struct SharedArray {
-    pub id: Word,
-    pub ptr_ty_id: Word,
-    pub item: Item,
-    pub len: u32,
-    pub align: u32,
-    pub offset: u32,
-}
-
-#[derive(Clone, Debug)]
 pub struct SharedVar {
     pub id: Word,
     pub ptr_ty_id: Word,
     pub item: Item,
     pub offset: u32,
     pub align: u32,
-}
-
-impl SharedArray {
-    pub fn end(&self) -> u32 {
-        self.offset + self.len * self.item.size()
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -204,40 +186,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let smem_id = self.id();
             let smem_ptr_ty_id = self.id();
 
-            match alloc.smem {
-                SharedMemory::Array {
-                    id,
-                    length,
-                    ty,
-                    align,
-                } => {
-                    let item = self.compile_type(ty);
-                    self.state.base_lookups.shared_arrays.insert(
-                        id,
-                        SharedArray {
-                            id: smem_id,
-                            ptr_ty_id: smem_ptr_ty_id,
-                            item,
-                            len: length as u32,
-                            align: align as u32,
-                            offset: alloc.offset as u32,
-                        },
-                    );
-                }
-                SharedMemory::Value { id, ty, align } => {
-                    let item = self.compile_type(ty);
-                    self.state.base_lookups.shared.insert(
-                        id,
-                        SharedVar {
-                            id: smem_id,
-                            ptr_ty_id: smem_ptr_ty_id,
-                            item,
-                            offset: alloc.offset as u32,
-                            align: align as u32,
-                        },
-                    );
-                }
-            }
+            let item = self.compile_type(alloc.smem.ty);
+            self.state.base_lookups.shared.insert(
+                alloc.smem.id,
+                SharedVar {
+                    id: smem_id,
+                    ptr_ty_id: smem_ptr_ty_id,
+                    item,
+                    offset: alloc.offset as u32,
+                    align: alloc.smem.align as u32,
+                },
+            );
         }
 
         self.state.lookups = self.state.base_lookups.clone();
@@ -251,7 +210,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .map(|(i, arg)| (arg.ty, i as u32))
             .collect();
         self.state.lookups.buffers = self.state.base_lookups.buffers.clone();
-        self.state.lookups.shared_arrays = self.state.base_lookups.shared_arrays.clone();
         self.state.lookups.shared = self.state.base_lookups.shared.clone();
     }
 
@@ -421,9 +379,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             VariableKind::GlobalBuffer(id) | VariableKind::TensorMap(id) => {
                 self.state.buffers[id as usize].id = param_id;
             }
-            VariableKind::SharedArray { id, .. } => {
-                self.state.shared_arrays.get_mut(&id).unwrap().id = param_id;
-            }
             VariableKind::Shared { id, .. } => {
                 self.state.shared.get_mut(&id).unwrap().id = param_id;
             }
@@ -431,7 +386,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.state.globals.insert(builtin, param_id);
             }
             VariableKind::ConstantArray { .. }
-            | VariableKind::LocalArray { .. }
             | VariableKind::Pipeline { .. }
             | VariableKind::BarrierToken { .. } => {
                 panic!("{param} not allowed as a function param")

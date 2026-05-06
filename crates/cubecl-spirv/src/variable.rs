@@ -5,7 +5,6 @@ use std::mem::transmute;
 use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
-    lookups::Array,
 };
 use cubecl_core::ir::{self, ConstantValue, Id};
 use rspirv::{
@@ -40,10 +39,8 @@ pub enum Variable {
         const_len: Option<u32>,
         item: Item,
     },
-    SharedArray(Word, Item, u32),
     Shared(Word, Item),
     ConstantArray(Word, Item, u32),
-    LocalArray(Word, Item, u32),
     CoopMatrix(Id, Elem),
     Id(Word),
     Builtin(Word, Item),
@@ -62,7 +59,7 @@ impl Variable {
         }
         match self {
             Variable::GlobalBuffer(..) | Variable::GlobalScalar(..) => spirv::Scope::Device,
-            Variable::SharedArray(..) | Variable::Shared(..) => spirv::Scope::Workgroup,
+            Variable::Shared(..) => spirv::Scope::Workgroup,
             Variable::CoopMatrix(..) => spirv::Scope::Subgroup,
             Variable::Slice { ptr, .. } => ptr.scope(),
             Variable::Raw(..) => unimplemented!("Can't get scope of raw variable"),
@@ -206,10 +203,8 @@ impl Variable {
             } => b.get_binding(*id, var),
             Variable::Raw(id, _) => *id,
             Variable::Slice { ptr, .. } => ptr.id(b),
-            Variable::SharedArray(id, _, _) => *id,
             Variable::Shared(id, _) => *id,
             Variable::ConstantArray(id, _, _) => *id,
-            Variable::LocalArray(id, _, _) => *id,
             Variable::CoopMatrix(_, _) => unimplemented!("Can't get ID from matrix var"),
             Variable::Id(id) => *id,
             Variable::Builtin(id, ..) => *id,
@@ -225,10 +220,8 @@ impl Variable {
             Variable::Versioned { item, .. } => item.clone(),
             Variable::LocalBinding { item, .. } => item.clone(),
             Variable::Slice { item, .. } => item.clone(),
-            Variable::SharedArray(_, item, _) => item.clone(),
             Variable::Shared(_, item) => item.clone(),
             Variable::ConstantArray(_, item, _) => item.clone(),
-            Variable::LocalArray(_, item, _) => item.clone(),
             Variable::CoopMatrix(_, elem) => Item::Scalar(*elem),
             Variable::Builtin(_, item) => item.clone(),
             Variable::Raw(_, item) => item.clone(),
@@ -263,10 +256,8 @@ impl Variable {
             self,
             Variable::GlobalBuffer(_, _, _)
                 | Variable::Slice { .. }
-                | Variable::SharedArray(_, _, _)
                 | Variable::ConstantArray(_, _, _)
-                | Variable::LocalArray(_, _, _)
-        )
+        ) || self.item().is_array()
     }
 
     pub fn has_buffer_len(&self) -> bool {
@@ -332,45 +323,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = self.state.const_arrays[id as usize].id;
                 Variable::ConstantArray(id, item, length as u32)
             }
-            ir::VariableKind::SharedArray { id, length, .. } => {
-                let item = self.compile_type(item);
-                let id = self.state.shared_arrays[&id].id;
-                Variable::SharedArray(id, item, length as u32)
-            }
-            ir::VariableKind::Shared { id } => {
+            ir::VariableKind::Shared { id, .. } => {
                 let item = self.compile_type(item);
                 let id = self.state.shared[&id].id;
                 Variable::Shared(id, item)
-            }
-            ir::VariableKind::LocalArray {
-                id,
-                length,
-                unroll_factor,
-            } => {
-                let item = self.compile_type(item);
-                let id = if let Some(arr) = self.state.local_arrays.get(&id) {
-                    arr.id
-                } else {
-                    let item_id = item.id(self);
-                    let arr_ty = self.id();
-                    let len_id = self.const_u32(length as u32);
-
-                    self.type_array_id(Some(arr_ty), item_id, len_id);
-                    let ptr_ty = self.type_pointer(None, StorageClass::Function, arr_ty);
-
-                    let arr_id = self.declare_function_variable(ptr_ty, None);
-                    self.debug_var_name(arr_id, variable);
-                    let arr = Array {
-                        id: arr_id,
-                        item: item.clone(),
-                        len: (length * unroll_factor) as u32,
-                        var: variable,
-                        alignment: None,
-                    };
-                    self.state.local_arrays.insert(id, arr);
-                    arr_id
-                };
-                Variable::LocalArray(id, item, length as u32)
             }
             ir::VariableKind::Matrix { id, mat } => {
                 let elem = self.compile_type(ir::Type::new(mat.storage)).elem();
@@ -442,12 +398,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let zero = self.const_u32(0);
                 access_chain(self, *id, vec![zero, index_id])
             }
-            Variable::Shared(id, item)
-                if self.compilation_options.vulkan.supports_explicit_smem =>
-            {
-                let index = vec![self.const_u32(0)];
-                access_chain(self, *id, index)
-            }
             Variable::Slice { ptr, offset, .. } => {
                 let item = Item::Scalar(Elem::Int(32, false));
                 let int = item.id(self);
@@ -457,14 +407,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 };
                 self.index(ptr, &Variable::Raw(index, item), out)
             }
-            Variable::SharedArray(id, ..) => {
+            Variable::Shared(id, ..) if variable.item().is_array() => {
                 let mut index = vec![index_id];
                 if self.compilation_options.vulkan.supports_explicit_smem {
                     index.insert(0, self.const_u32(0));
                 }
                 access_chain(self, *id, index)
             }
-            Variable::ConstantArray(id, ..) | Variable::LocalArray(id, ..) => {
+            Variable::ConstantArray(id, ..) | Variable::Local { id, .. }
+                if variable.item().is_array() =>
+            {
                 access_chain(self, *id, vec![index_id])
             }
             var => unimplemented!("Can't index into {var:?}"),
@@ -482,9 +434,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::Constant(_, _, _) => panic!("Can't write to constant scalar"),
             Variable::GlobalBuffer(_, _, _)
             | Variable::Slice { .. }
-            | Variable::SharedArray(_, _, _)
-            | Variable::ConstantArray(_, _, _)
-            | Variable::LocalArray(_, _, _) => panic!("Can't write to unindexed array"),
+            | Variable::ConstantArray(_, _, _) => panic!("Can't write to unindexed array"),
             global => panic!("Can't write to builtin {global:?}"),
         }
     }

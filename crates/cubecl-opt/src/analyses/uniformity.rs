@@ -207,7 +207,6 @@ impl Uniformity {
     pub fn is_var_uniform(&self, var: Variable) -> bool {
         match var.kind {
             VariableKind::ConstantArray { .. }
-            | VariableKind::SharedArray { .. }
             | VariableKind::Shared { .. }
             | VariableKind::GlobalBuffer(_)
             | VariableKind::GlobalScalar(_)
@@ -246,8 +245,7 @@ impl Uniformity {
                 | Builtin::PlaneDim => true,
             },
             VariableKind::LocalMut { .. } => false,
-            VariableKind::LocalArray { .. }
-            | VariableKind::LocalConst { .. }
+            VariableKind::LocalConst { .. }
             | VariableKind::Versioned { .. }
             | VariableKind::Matrix { .. }
             | VariableKind::BarrierToken { .. }

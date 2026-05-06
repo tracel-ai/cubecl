@@ -1,6 +1,6 @@
 use cubecl_ir::{
     Arithmetic, Bitwise, Comparison, ConstantValue, Instruction, Metadata, Operation, Operator,
-    Type, Variable, VariableKind,
+    Type, Variable,
 };
 
 use crate::{AtomicCounter, Function, GlobalState};
@@ -117,15 +117,12 @@ impl OptimizerPass for ConstOperandSimplify {
                     },
 
                     // Constant length to const value
-                    Operation::Metadata(Metadata::Length { var }) => match var.kind {
-                        VariableKind::ConstantArray { length, .. }
-                        | VariableKind::SharedArray { length, .. }
-                        | VariableKind::LocalArray { length, .. } => {
+                    Operation::Metadata(Metadata::Length { var }) => {
+                        if let Type::Array(_, length) = var.ty {
                             op.operation = Operation::Copy(length.into());
                             changes.inc();
                         }
-                        _ => {}
-                    },
+                    }
                     _ => {}
                 }
             }

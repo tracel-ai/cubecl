@@ -28,10 +28,8 @@ pub enum Variable {
         id: Id,
         elem: Elem,
     },
-    SharedArray(Id, Item, u32),
-    SharedValue(Id, Item),
+    Shared(Id, Item),
     ConstantArray(Id, Item, u32),
-    LocalArray(Id, Item, u32),
     Id,
     LocalInvocationIndex,
     LocalInvocationIdX,
@@ -75,6 +73,8 @@ pub enum Item {
     Scalar(Elem),
     Atomic(Intern<Item>),
     Pointer(Intern<Item>, PointerClass),
+    Array(Intern<Item>, usize),
+    DynamicArray(Intern<Item>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
@@ -102,10 +102,8 @@ impl Variable {
             Variable::LocalInvocationIdY => true,
             Variable::LocalInvocationIdZ => true,
             Variable::GlobalBuffer(_, _) => false,
-            Variable::SharedArray(_, _, _) => false,
-            Variable::SharedValue(_, _) => false,
+            Variable::Shared(_, _) => false,
             Variable::ConstantArray(_, _, _) => false,
-            Variable::LocalArray(_, _, _) => false,
             Variable::LocalMut { .. } => false,
             Variable::LocalConst { .. } => false,
             Variable::Named { .. } => false,
@@ -144,19 +142,14 @@ impl Variable {
     }
 
     pub fn is_memory(&self) -> bool {
-        matches!(
-            self,
-            Self::GlobalBuffer(..) | Self::SharedArray(..) | Self::SharedValue(..)
-        )
+        matches!(self, Self::GlobalBuffer(..) | Self::Shared(..))
     }
 
     pub fn item(&self) -> Item {
         match self {
             Self::GlobalBuffer(_, e) => *e,
-            Self::SharedArray(_, e, _) => *e,
-            Self::SharedValue(_, e) => *e,
+            Self::Shared(_, e) => *e,
             Self::ConstantArray(_, e, _) => *e,
-            Self::LocalArray(_, e, _) => *e,
             Self::LocalMut { item, .. } => *item,
             Self::LocalConst { item, .. } => *item,
             Self::Named { item, .. } => *item,
@@ -261,6 +254,8 @@ impl Item {
             Item::Vector(elem, _) => elem,
             Item::Atomic(inner) => inner.elem(),
             Item::Pointer(inner, _) => inner.elem(),
+            Item::Array(inner, _) => inner.elem(),
+            Item::DynamicArray(inner) => inner.elem(),
         }
     }
 
@@ -269,6 +264,8 @@ impl Item {
             Item::Scalar(e) => e.size(),
             Item::Vector(elem, vector_size) => elem.size() * *vector_size,
             Item::Atomic(inner) => inner.size(),
+            Item::Array(inner, length) => inner.size() * *length,
+            Item::DynamicArray(inner) => inner.size(),
             Item::Pointer(..) => size_of::<u64>(),
         }
     }
@@ -277,7 +274,10 @@ impl Item {
         match self {
             Item::Scalar(_) => 1,
             Item::Vector(_, vector_size) => *vector_size,
-            Item::Atomic(inner) | Item::Pointer(inner, _) => inner.vectorization_factor(),
+            Item::Atomic(inner)
+            | Item::Pointer(inner, _)
+            | Item::Array(inner, _)
+            | Item::DynamicArray(inner) => inner.vectorization_factor(),
         }
     }
 
@@ -287,6 +287,8 @@ impl Item {
             Item::Vector(_, vector_size) => Item::Vector(elem, vector_size),
             Item::Atomic(inner) => Item::Atomic(inner.with_elem(elem).intern()),
             Item::Pointer(inner, class) => Item::Pointer(inner.with_elem(elem).intern(), class),
+            Item::Array(inner, size) => Item::Array(inner.with_elem(elem).intern(), size),
+            Item::DynamicArray(inner) => Item::DynamicArray(inner.with_elem(elem).intern()),
         }
     }
 
@@ -294,7 +296,9 @@ impl Item {
         match self {
             Item::Scalar(..) | Item::Vector(..) => false,
             Item::Atomic(..) => true,
-            Item::Pointer(inner, _) => inner.is_atomic(),
+            Item::Pointer(inner, _) | Item::Array(inner, _) | Item::DynamicArray(inner) => {
+                inner.is_atomic()
+            }
         }
     }
 
@@ -356,6 +360,12 @@ impl Display for Item {
                 PointerClass::Shared => write!(f, "ptr<workgroup, {inner}>"),
                 PointerClass::Local => write!(f, "ptr<function, {inner}>"),
             },
+            Item::Array(inner, size) => {
+                write!(f, "array<{inner}, {size}>")
+            }
+            Item::DynamicArray(inner) => {
+                write!(f, "array<{inner}>")
+            }
         }
     }
 }
@@ -393,13 +403,10 @@ impl Display for Variable {
                     _ => write!(f, "{item}({val})"),
                 }
             }
-            Variable::SharedArray(number, _, _) | Variable::SharedValue(number, _) => {
-                write!(f, "shared_memory_{number}")
+            Variable::Shared(number, _) => {
+                write!(f, "shared_{number}")
             }
             Variable::ConstantArray(number, _, _) => write!(f, "arrays_{number}"),
-            Variable::LocalArray(number, _, _) => {
-                write!(f, "a_{number}")
-            }
             Variable::Id => f.write_str("id"),
             Variable::LocalInvocationIndex => f.write_str("local_idx"),
             Variable::LocalInvocationIdX => f.write_str("local_invocation_id.x"),

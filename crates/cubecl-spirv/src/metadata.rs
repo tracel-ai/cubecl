@@ -1,5 +1,5 @@
-use cubecl_core::ir as core;
 use cubecl_core::ir::Metadata;
+use cubecl_core::ir::{self as core};
 use rspirv::spirv::{MemoryAccess, Word};
 
 use crate::{SpirvCompiler, SpirvTarget, item::Item, variable::Variable};
@@ -108,9 +108,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::Slice { offset, end, .. } => {
                 self.i_sub(ty_id, out_id, *end, *offset).unwrap()
             }
-            Variable::SharedArray(_, _, len)
-            | Variable::ConstantArray(_, _, len)
-            | Variable::LocalArray(_, _, len) => out_ty.const_u32(self, *len),
+            var if var.item().is_array() => {
+                let Item::Array(_, len) = var.item() else {
+                    unreachable!()
+                };
+                out_ty.const_u32(self, len)
+            }
             var => unimplemented!("Var {var:?} doesn't have length"),
         };
         if let Some(out) = out {

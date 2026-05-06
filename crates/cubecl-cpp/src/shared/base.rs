@@ -1,8 +1,8 @@
 use super::{
     BinaryInstruction, Body, Component, ComputeKernel, ConstArray, Dialect, Elem, FP4Kind, FP6Kind,
     FP8Kind, Fragment, FragmentIdent, FragmentLayout, IndexInstruction, Instruction, Item,
-    KernelArg, LocalArray, SharedMemory, UnaryInstruction, Variable, WarpInstruction,
-    WmmaInstruction, barrier::BarrierOps, pipeline::PipelineOps,
+    KernelArg, SharedMemory, UnaryInstruction, Variable, WarpInstruction, WmmaInstruction,
+    barrier::BarrierOps, pipeline::PipelineOps,
 };
 use crate::shared::{MmaShape, PointerClass};
 use cubecl_common::backtrace::BackTrace;
@@ -108,7 +108,6 @@ pub struct CppCompiler<D: Dialect> {
     extensions: Vec<D::Extension>,
     flags: Flags<D>,
     items: HashSet<Item<D>>,
-    local_arrays: Vec<LocalArray<D>>,
     info: cubecl_core::Info,
     pipelines: Vec<PipelineOps<D>>,
     source_loc: Option<SourceLoc>,
@@ -157,7 +156,6 @@ impl<D: Dialect> Default for CppCompiler<D> {
             extensions: Default::default(),
             flags: Flags::default(),
             items: Default::default(),
-            local_arrays: Default::default(),
             info: Default::default(),
             pipelines: Default::default(),
             source_loc: Default::default(),
@@ -267,25 +265,11 @@ impl<D: Dialect> CppCompiler<D> {
         let shared_memories = shared_allocs
             .allocations
             .values()
-            .map(|alloc| match alloc.smem {
-                cubecl_opt::SharedMemory::Array {
-                    id,
-                    length,
-                    ty,
-                    align,
-                } => SharedMemory::Array {
-                    index: id,
-                    item: self.compile_type(ty),
-                    length,
-                    align,
-                    offset: alloc.offset,
-                },
-                cubecl_opt::SharedMemory::Value { id, ty, align } => SharedMemory::Value {
-                    index: id,
-                    item: self.compile_type(ty),
-                    align,
-                    offset: alloc.offset,
-                },
+            .map(|alloc| SharedMemory {
+                index: alloc.smem.id,
+                item: self.compile_type(alloc.smem.ty),
+                align: alloc.smem.align,
+                offset: alloc.offset,
             })
             .collect();
 
@@ -295,7 +279,6 @@ impl<D: Dialect> CppCompiler<D> {
             pipelines: self.pipelines,
             barriers: self.barriers,
             const_arrays: self.const_arrays,
-            local_arrays: self.local_arrays,
             info_by_ptr: !self.compilation_options.supports_features.grid_constants,
             has_dynamic_meta: self.info.has_dynamic_meta,
             address_type: self.addr_type,
@@ -1766,11 +1749,7 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::Constant(value) => {
                 Variable::Constant(value, self.compile_type(item))
             }
-            gpu::VariableKind::SharedArray { id, length, .. } => {
-                let item = self.compile_type(item);
-                Variable::SharedArray(id, item, length)
-            }
-            gpu::VariableKind::Shared { id } => {
+            gpu::VariableKind::Shared { id, .. } => {
                 let item = self.compile_type(item);
                 Variable::Shared(id, item)
             }
@@ -1913,18 +1892,6 @@ impl<D: Dialect> CppCompiler<D> {
                     Variable::UnitPosPlane
                 }
             },
-            gpu::VariableKind::LocalArray {
-                id,
-                length,
-                unroll_factor,
-            } => {
-                let item = self.compile_type(item);
-                if !self.local_arrays.iter().any(|s| s.index == id) {
-                    self.local_arrays
-                        .push(LocalArray::new(id, item, length * unroll_factor));
-                }
-                Variable::LocalArray(id, item, length)
-            }
             gpu::VariableKind::Matrix { id, mat } => {
                 self.flags.inst_wmma = true;
                 Variable::WmmaFragment {
@@ -2012,6 +1979,14 @@ impl<D: Dialect> CppCompiler<D> {
                     gpu::PointerClass::Local => PointerClass::Local,
                 };
                 Item::Pointer(item.intern(), class)
+            }
+            gpu::Type::Array(ty, size) => {
+                let ty = self.compile_type(*ty);
+                Item::Array(ty.intern(), size)
+            }
+            gpu::Type::DynamicArray(ty) => {
+                let ty = self.compile_type(*ty);
+                Item::DynamicArray(ty.intern())
             }
             gpu::Type::Semantic(_) => Item::Scalar(Elem::Bool),
         };

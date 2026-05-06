@@ -332,6 +332,12 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 }
                 write!(f, "{inner}*")
             }
+            Item::Array(inner, size) => {
+                write!(f, "{inner}[{size}]")
+            }
+            Item::DynamicArray(inner) => {
+                write!(f, "{inner}*")
+            }
         }
     }
 
@@ -385,7 +391,7 @@ extern \"C\" __global__ void __launch_bounds__({})",
             let max_align = body
                 .shared_memories
                 .iter()
-                .map(|smem| smem.align())
+                .map(|smem| smem.align)
                 .max()
                 .unwrap();
             // The `__align__` instead of `alignas` is on purpose - the compiler is currently bugged

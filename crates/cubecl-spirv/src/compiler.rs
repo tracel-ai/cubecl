@@ -455,67 +455,22 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     fn declare_shared_memories_explicit(&mut self) -> u32 {
         let mut shared_size = 0;
 
-        let shared_arrays = self.state.shared_arrays.clone();
         let shared = self.state.shared.clone();
-        if shared_arrays.is_empty() && shared.is_empty() {
+        if shared.is_empty() {
             return shared_size;
         }
 
         self.capabilities
             .insert(Capability::WorkgroupMemoryExplicitLayoutKHR);
 
-        for (index, memory) in shared_arrays {
-            let ty_size = memory.item.size();
-            shared_size = shared_size.max(memory.offset + memory.len * ty_size);
-
-            // It's safe to assume that if 8-bit/16-bit types are supported, they're supported for
-            // explicit layout as well.
-            match ty_size {
-                1 => {
-                    self.capabilities
-                        .insert(Capability::WorkgroupMemoryExplicitLayout8BitAccessKHR);
-                }
-                2 => {
-                    self.capabilities
-                        .insert(Capability::WorkgroupMemoryExplicitLayout16BitAccessKHR);
-                }
-                _ => {}
-            }
-
-            let arr_id = self.id();
-            let item_id = memory.item.id(self);
-            let len_id = self.const_u32(memory.len);
-
-            self.type_array_id(Some(arr_id), item_id, len_id);
-            self.decorate(arr_id, Decoration::ArrayStride, [ty_size.into()]);
-
-            let block_id = self.id();
-
-            self.type_struct_id(Some(block_id), [arr_id]);
-
-            self.decorate(block_id, Decoration::Block, []);
-            self.member_decorate(
-                block_id,
-                0,
-                Decoration::Offset,
-                [Operand::LiteralBit32(memory.offset)],
-            );
-
-            let ptr_ty =
-                self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, block_id);
-
-            self.debug_shared(memory.id, index);
-            self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
-            self.decorate(memory.id, Decoration::Aliased, []);
-        }
-
         for (index, memory) in shared {
-            let ty_size = memory.item.size();
-            shared_size = shared_size.max(memory.offset + ty_size);
+            let memory_size = memory.item.size();
+            let value_size = memory.item.value_type().size();
+            shared_size = shared_size.max(memory.offset + memory_size);
 
             // It's safe to assume that if 8-bit/16-bit types are supported, they're supported for
             // explicit layout as well.
-            match ty_size {
+            match value_size {
                 1 => {
                     self.capabilities
                         .insert(Capability::WorkgroupMemoryExplicitLayout8BitAccessKHR);
@@ -529,6 +484,10 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
             let item_id = memory.item.id(self);
             let block_id = self.id();
+
+            if let Item::Array(_, _) = memory.item {
+                self.decorate(item_id, Decoration::ArrayStride, [value_size.into()]);
+            }
 
             self.type_struct_id(Some(block_id), [item_id]);
 
@@ -548,20 +507,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
     fn declare_shared_memories_implicit(&mut self) -> u32 {
         let mut shared_size = 0;
-        let shared_memories = self.state.shared_arrays.clone();
-        for (index, memory) in shared_memories {
-            shared_size += memory.len * memory.item.size();
 
-            let item_id = memory.item.id(self);
-            let arr_ty = self.id();
-            let len_id = self.const_u32(memory.len);
-
-            self.type_array_id(Some(arr_ty), item_id, len_id);
-            let ptr_ty = self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, arr_ty);
-
-            self.debug_shared(memory.id, index);
-            self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
-        }
         let shared = self.state.shared.clone();
         for (index, memory) in shared {
             shared_size += memory.item.size();

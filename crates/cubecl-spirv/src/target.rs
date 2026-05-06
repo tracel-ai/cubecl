@@ -64,7 +64,6 @@ impl SpirvTarget for GLCompute {
         let interface: Vec<u32> = builtins
             .into_iter()
             .chain(iter::once(b.state.params))
-            .chain(b.state.shared_arrays.values().map(|it| it.id))
             .chain(b.state.shared.values().map(|it| it.id))
             .collect();
 

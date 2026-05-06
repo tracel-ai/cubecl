@@ -1,6 +1,6 @@
 use super::passes::shared_memories::SharedMemories;
 use crate::{
-    compiler::{builtin::BuiltinArray, memref::LineMemRef, passes::shared_memories::SharedMemory},
+    compiler::{builtin::BuiltinArray, memref::LineMemRef},
     compute::schedule::BindingsResource,
 };
 use cubecl_core::CubeDim;
@@ -79,16 +79,8 @@ impl MlirData {
 
         let mut smem_handles = Vec::with_capacity(shared_memories.0.len());
         for shared_memory in shared_memories.0.iter() {
-            let handle = match shared_memory {
-                SharedMemory::Array { ty, length, .. } => {
-                    let length = (ty.size() * *length) as u64;
-                    memory_management_shared_memory.reserve(length).unwrap()
-                }
-                SharedMemory::Value { ty, .. } => {
-                    let length = ty.size() as u64;
-                    memory_management_shared_memory.reserve(length).unwrap()
-                }
-            };
+            let length = shared_memory.ty.size() as u64;
+            let handle = memory_management_shared_memory.reserve(length).unwrap();
 
             smem_handles.push(handle.clone());
 
