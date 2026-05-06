@@ -312,33 +312,6 @@ impl<T: CubePrimitive> DerefExpand for ArrayExpand<T> {
 
 impl<T: CubePrimitive> List<T> for Array<T> {}
 impl<T: CubePrimitive> ListExpand<T> for ArrayExpand<T> {
-    fn __expand_read_method(&self, scope: &Scope, idx: NativeExpand<usize>) -> &NativeExpand<T> {
-        expand_index_native(scope, self, idx, None, true)
-    }
-    fn __expand_read_unchecked_method(
-        &self,
-        scope: &Scope,
-        idx: NativeExpand<usize>,
-    ) -> &NativeExpand<T> {
-        expand_index_native(scope, self, idx, None, false)
-    }
-
-    fn __expand_write_method(
-        &mut self,
-        scope: &Scope,
-        idx: NativeExpand<usize>,
-    ) -> &mut NativeExpand<T> {
-        expand_index_mut_native(scope, self, idx, None, true)
-    }
-
-    fn __expand_write_unchecked_method(
-        &mut self,
-        scope: &Scope,
-        idx: NativeExpand<usize>,
-    ) -> &mut NativeExpand<T> {
-        expand_index_mut_native(scope, self, idx, None, false)
-    }
-
     fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
         Array::<T>::__expand_len(scope, self)
     }

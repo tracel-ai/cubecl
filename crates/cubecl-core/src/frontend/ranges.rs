@@ -287,28 +287,10 @@ macro_rules! impl_slice_ranges {
                 let (start, end) = index.into_slice_indices(scope, self);
                 self.__expand_slice_method(scope, start, end)
             }
-
-            fn __expand_index_unchecked_method(
-                &self,
-                scope: &Scope,
-                index: $range,
-            ) -> &Self::Output {
-                let (start, end) = index.into_slice_indices(scope, self);
-                self.__expand_slice_method(scope, start, end)
-            }
         }
 
         impl<E: CubePrimitive> IndexMutExpand<$range> for $ty<E> {
             fn __expand_index_mut_method(
-                &mut self,
-                scope: &Scope,
-                index: $range,
-            ) -> &mut <Self as IndexExpand<$range>>::Output {
-                let (start, end) = index.into_slice_indices(scope, self);
-                self.__expand_slice_mut_method(scope, start, end)
-            }
-
-            fn __expand_index_mut_unchecked_method(
                 &mut self,
                 scope: &Scope,
                 index: $range,

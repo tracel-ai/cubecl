@@ -2,7 +2,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use syn::{
     AngleBracketedGenericArguments, Ident, Lit, LitStr, Member, Pat, Path, PathArguments,
-    PathSegment, QSelf, Type,
+    PathSegment, QSelf, Token, Type,
 };
 
 use crate::{
@@ -40,6 +40,7 @@ pub enum Expression {
         left: Box<Expression>,
         right: Box<Expression>,
     },
+    Unsafe(Token![unsafe], Block),
     Block(Block),
     FunctionCall {
         func: Box<Expression>,

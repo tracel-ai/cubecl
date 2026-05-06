@@ -164,26 +164,10 @@ impl<T: CubeType> IndexExpand<NativeExpand<usize>> for SequenceExpand<T> {
     fn __expand_index_method(&self, scope: &Scope, index: NativeExpand<usize>) -> &Self::Output {
         self.__expand_index_method(scope, index)
     }
-
-    fn __expand_index_unchecked_method(
-        &self,
-        scope: &Scope,
-        index: NativeExpand<usize>,
-    ) -> &Self::Output {
-        self.__expand_index_method(scope, index)
-    }
 }
 
 impl<T: CubeType> IndexMutExpand<NativeExpand<usize>> for SequenceExpand<T> {
     fn __expand_index_mut_method(
-        &mut self,
-        scope: &Scope,
-        index: NativeExpand<usize>,
-    ) -> &mut T::ExpandType {
-        self.__expand_index_mut_method(scope, index)
-    }
-
-    fn __expand_index_mut_unchecked_method(
         &mut self,
         scope: &Scope,
         index: NativeExpand<usize>,

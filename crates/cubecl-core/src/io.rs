@@ -14,7 +14,7 @@ define_size!(SizeA);
 #[cube]
 pub fn read_masked<C: CubePrimitive>(mask: bool, list: &[C], index: usize, value: C) -> C {
     let index = index * usize::cast_from(mask);
-    let input = unsafe { *list.read_unchecked(index) };
+    let input = unsafe { *list.get_unchecked(index) };
 
     select(mask, input, value)
 }
@@ -24,7 +24,7 @@ pub fn read_masked<C: CubePrimitive>(mask: bool, list: &[C], index: usize, value
 pub fn read_checked<C: CubePrimitive>(list: &[C], index: usize) -> C {
     let fallback = comptime![C::Scalar::default()].runtime();
     let clamped = index.min(list.len() - 1);
-    let input = unsafe { *list.read_unchecked(clamped) };
+    let input = unsafe { *list.get_unchecked(clamped) };
 
     select(index == clamped, input, C::cast_from(fallback))
 }
@@ -33,7 +33,7 @@ pub fn read_checked<C: CubePrimitive>(list: &[C], index: usize) -> C {
 #[cube]
 pub fn write_checked<C: CubePrimitive>(list: &mut [C], index: usize, value: C) {
     if index < list.len() {
-        unsafe { *list.write_unchecked(index) = value };
+        unsafe { *list.get_unchecked_mut(index) = value };
     }
 }
 
@@ -47,7 +47,7 @@ pub fn checked_index<E: Scalar, N: Size>(
     let len = tensor.buffer_len() * unroll_factor;
     let index = index.min(len - 1);
 
-    unsafe { tensor.read_unchecked(index) }
+    unsafe { tensor.get_unchecked(index) }
 }
 
 /// Returns the value at `index` in tensor within bounds.
@@ -66,7 +66,7 @@ pub fn validate_index<E: Scalar, N: Size>(
 
     let index = index.min(len);
 
-    unsafe { tensor.read_unchecked(index) }
+    unsafe { tensor.get_unchecked(index) }
 }
 
 #[cube]

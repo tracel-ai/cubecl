@@ -367,7 +367,7 @@ impl Expression {
             Expr::Unsafe(unsafe_expr) => {
                 let (block, _) =
                     context.in_scope(|ctx| Block::from_block(unsafe_expr.block, ctx))?;
-                Expression::Block(block)
+                Expression::Unsafe(unsafe_expr.unsafe_token, block)
             }
             Expr::Infer(_) => Expression::Verbatim { tokens: quote![_] },
             Expr::Verbatim(verbatim) => Expression::Verbatim { tokens: verbatim },

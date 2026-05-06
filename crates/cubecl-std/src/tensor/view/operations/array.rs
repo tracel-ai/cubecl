@@ -15,7 +15,7 @@ macro_rules! impl_operations_1d {
                 scope: &Scope,
                 pos: NativeExpand<usize>,
             ) -> <T>::ExpandType {
-                <Self as ListExpand<T>>::__expand_read_method(&self, scope, pos)
+                self.__expand_index_method(scope, pos)
                     .__expand_deref_method(scope)
             }
 
@@ -48,8 +48,10 @@ macro_rules! impl_operations_1d {
                 scope: &Scope,
                 pos: NativeExpand<usize>,
             ) -> <T>::ExpandType {
-                <Self as ListExpand<T>>::__expand_read_unchecked_method(self, scope, pos)
-                    .__expand_deref_method(scope)
+                unsafe {
+                    self.__expand_get_unchecked_method(scope, pos)
+                        .__expand_deref_method(scope)
+                }
             }
 
             fn __expand_as_linear_slice_method(
@@ -99,7 +101,7 @@ macro_rules! impl_operations_1d {
                 value: <T>::ExpandType,
             ) {
                 let mut this = self.clone();
-                <Self as ListExpand<T>>::__expand_write_method(&mut this, scope, pos)
+                this.__expand_index_mut_method(scope, pos)
                     .__expand_assign_method(scope, value);
             }
 
@@ -113,7 +115,7 @@ macro_rules! impl_operations_1d {
                 let len = self.clone().__expand_buffer_len_method(scope);
                 let in_bounds = pos.__expand_lt_method(scope, &len);
                 if_expand(scope, in_bounds.into(), |scope| {
-                    <Self as ListExpand<T>>::__expand_write_method(&mut this, scope, pos)
+                    this.__expand_index_mut_method(scope, pos)
                         .__expand_assign_method(scope, value);
                 })
             }

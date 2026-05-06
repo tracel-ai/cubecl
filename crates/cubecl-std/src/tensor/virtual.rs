@@ -355,8 +355,10 @@ mod __tensor {
             scope: &Scope,
             index: NativeExpand<usize>,
         ) -> NativeExpand<Vector<E, N>> {
-            self.__expand_index_unchecked_method(scope, index)
-                .__expand_deref_method(scope)
+            unsafe {
+                self.__expand_get_unchecked_method(scope, index)
+                    .__expand_deref_method(scope)
+            }
         }
         fn __expand_read_window_method(
             &self,
@@ -374,8 +376,10 @@ mod __tensor {
             value: NativeExpand<Vector<E, N>>,
         ) {
             let mut this = *self;
-            this.__expand_index_assign_unchecked_method(scope, index)
-                .__expand_assign_method(scope, value);
+            unsafe {
+                this.__expand_get_unchecked_mut_method(scope, index)
+                    .__expand_assign_method(scope, value)
+            };
         }
 
         fn __expand_shape_method(

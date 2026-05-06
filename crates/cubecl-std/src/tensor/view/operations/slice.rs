@@ -7,7 +7,8 @@ impl<T: CubePrimitive> ViewOperations<T, Coords1d> for Box<[T]> {}
 impl<T: CubePrimitive> ViewOperations<T, Coords1d> for [T] {}
 impl<T: CubePrimitive> ViewOperationsExpand<T, Coords1d> for SliceExpand<T> {
     fn __expand_read_method(&self, scope: &Scope, pos: NativeExpand<usize>) -> <T>::ExpandType {
-        <Self as ListExpand<T>>::__expand_read_method(self, scope, pos).__expand_deref_method(scope)
+        self.__expand_index_method(scope, pos)
+            .__expand_deref_method(scope)
     }
 
     fn __expand_read_checked_method(
@@ -37,7 +38,7 @@ impl<T: CubePrimitive> ViewOperationsExpand<T, Coords1d> for SliceExpand<T> {
         scope: &Scope,
         pos: NativeExpand<usize>,
     ) -> <T>::ExpandType {
-        <Self as ListExpand<T>>::__expand_read_unchecked_method(self, scope, pos)
+        self.__expand_get_unchecked_method(scope, pos)
             .__expand_deref_method(scope)
     }
 
@@ -89,7 +90,7 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T> {
         value: <T>::ExpandType,
     ) {
         let mut this = *self;
-        <Self as ListExpand<T>>::__expand_write_method(&mut this, scope, pos)
+        this.__expand_index_mut_method(scope, pos)
             .__expand_assign_method(scope, value);
     }
 
@@ -103,7 +104,7 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T> {
         let len = <Self as ListExpand<T>>::__expand_len_method(self, scope);
         let in_bounds = pos.__expand_lt_method(scope, &len);
         if_expand(scope, in_bounds, |scope| {
-            <Self as ListExpand<T>>::__expand_write_method(&mut this, scope, pos)
+            this.__expand_index_mut_method(scope, pos)
                 .__expand_assign_method(scope, value)
         })
     }

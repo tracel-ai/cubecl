@@ -39,37 +39,12 @@ impl<E: CubePrimitive, T: ListExpand<E>> ListExpandMarker<E, T> {
 /// Type from which we can read values in cube functions.
 /// For a mutable version, see [`ListMut`].
 #[allow(clippy::len_without_is_empty)]
-#[cube(expand_base_traits = "SliceOperatorExpand<T>")]
-pub trait List<T: CubePrimitive>: SliceOperator<T> + Vectorized {
-    #[allow(unused)]
-    fn read(&self, index: usize) -> &T {
-        unexpanded!()
-    }
-
-    /// Read without any bounds checks
-    ///
-    /// # Safety
-    /// Accessing an out of bounds index is undefined behavior
-    #[allow(unused)]
-    unsafe fn read_unchecked(&self, index: usize) -> &T {
-        unexpanded!()
-    }
-
-    #[allow(unused)]
-    fn write(&mut self, index: usize) -> &mut T {
-        unexpanded!()
-    }
-
-    /// Write without any bounds checks
-    ///
-    /// # Safety
-    /// Accessing an out of bounds index is undefined behavior
-    #[allow(unused)]
-    unsafe fn write_unchecked(&mut self, index: usize) -> &mut T {
-        unexpanded!()
-    }
-
-    #[allow(unused)]
+#[cube(
+    expand_base_traits = "SliceOperatorExpand<T> + IndexExpand<NativeExpand<usize>> + IndexMutExpand<NativeExpand<usize>>"
+)]
+pub trait List<T: CubePrimitive>:
+    SliceOperator<T> + CubeIndex<usize> + CubeIndexMut<usize> + Vectorized
+{
     fn len(&self) -> usize {
         unexpanded!();
     }

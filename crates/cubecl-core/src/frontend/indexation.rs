@@ -14,23 +14,12 @@ pub trait CubeIndex<I: CubeType>:
         ExpandType: IndexExpand<I::ExpandType, Output = <Self::Output as CubeType>::ExpandType>,
     >
 {
-    fn index_unchecked(&self, index: I) -> &Self::Output {
-        self.index(index)
-    }
-
     fn __expand_index<'this>(
         scope: &Scope,
         this: &'this Self::ExpandType,
         index: I::ExpandType,
     ) -> &'this <Self::Output as CubeType>::ExpandType {
         this.__expand_index_method(scope, index)
-    }
-    fn __expand_index_unchecked<'this>(
-        scope: &Scope,
-        this: &'this Self::ExpandType,
-        index: I::ExpandType,
-    ) -> &'this <Self::Output as CubeType>::ExpandType {
-        this.__expand_index_unchecked_method(scope, index)
     }
 }
 
@@ -45,7 +34,6 @@ where
 pub trait IndexExpand<I> {
     type Output;
     fn __expand_index_method(&self, scope: &Scope, index: I) -> &Self::Output;
-    fn __expand_index_unchecked_method(&self, scope: &Scope, index: I) -> &Self::Output;
 }
 
 pub trait CubeIndexMut<I: CubeType>:
@@ -55,23 +43,12 @@ pub trait CubeIndexMut<I: CubeType>:
         ExpandType: IndexMutExpand<I::ExpandType, Output = <Self::Output as CubeType>::ExpandType>,
     >
 {
-    fn index_mut_unchecked(&mut self, index: I) -> &mut Self::Output {
-        self.index_mut(index)
-    }
-
     fn __expand_index_mut<'this>(
         scope: &Scope,
         this: &'this mut Self::ExpandType,
         index: I::ExpandType,
     ) -> &'this mut <Self::Output as CubeType>::ExpandType {
         this.__expand_index_mut_method(scope, index)
-    }
-    fn __expand_index_mut_unchecked<'this>(
-        scope: &Scope,
-        this: &'this mut Self::ExpandType,
-        index: I::ExpandType,
-    ) -> &'this mut <Self::Output as CubeType>::ExpandType {
-        this.__expand_index_mut_unchecked_method(scope, index)
     }
 }
 
@@ -81,14 +58,9 @@ pub trait IndexMutExpand<I>: IndexExpand<I> {
         scope: &Scope,
         index: I,
     ) -> &mut <Self as IndexExpand<I>>::Output;
-    fn __expand_index_mut_unchecked_method(
-        &mut self,
-        scope: &Scope,
-        index: I,
-    ) -> &mut <Self as IndexExpand<I>>::Output;
 }
 
-impl<I: CubeType, T: IndexMut<I> + CubeIndex<I>> CubeIndexMut<I> for T
+impl<I: CubeType, T: IndexMut<I> + CubeIndex<I> + ?Sized> CubeIndexMut<I> for T
 where
     T::Output: CubeType,
     T::ExpandType:

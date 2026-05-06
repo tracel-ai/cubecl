@@ -461,6 +461,10 @@ impl Expression {
             }
             Expression::Verbatim { tokens, .. } => tokens.clone(),
             Expression::Block(block) => block.to_tokens(context),
+            Expression::Unsafe(unsafe_token, block) => {
+                let block = block.to_tokens(context);
+                quote![#unsafe_token { #block }]
+            }
             Expression::RuntimeMatch {
                 expr,
                 arms,

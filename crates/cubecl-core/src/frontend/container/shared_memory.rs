@@ -137,70 +137,6 @@ fn len_static<T: CubePrimitive>(shared: &NativeExpand<SharedMemory<T>>) -> Nativ
     length.into()
 }
 
-/// Module that contains the implementation details of the index functions.
-mod indexation {
-    use cubecl_ir::{IndexOperator, Memory};
-
-    use crate::ir::Instruction;
-
-    use super::*;
-
-    type SharedMemoryExpand<E> = NativeExpand<SharedMemory<E>>;
-
-    #[cube]
-    impl<E: CubePrimitive> SharedMemory<E> {
-        /// Perform an unchecked index into the array
-        ///
-        /// # Safety
-        /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
-        /// always in bounds
-        #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&self, i: usize) -> &E {
-            intrinsic!(|scope| {
-                let ty = self.expand.value_type();
-                let class = self.expand.pointer_class();
-                let out = scope.create_local(Type::pointer(ty, class));
-                scope.register(Instruction::new(
-                    Memory::Index(IndexOperator {
-                        list: self.expand,
-                        index: i.expand,
-                        vector_size: 0,
-                        unroll_factor: 1,
-                        checked: false,
-                    }),
-                    out,
-                ));
-                scope.create_kernel_ref(out.into())
-            })
-        }
-
-        /// Perform an unchecked index assignment into the array
-        ///
-        /// # Safety
-        /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
-        /// always in bounds
-        #[allow(unused_variables)]
-        pub unsafe fn index_assign_unchecked(&mut self, i: usize) -> &mut E {
-            intrinsic!(|scope| {
-                let ty = self.expand.value_type();
-                let class = self.expand.pointer_class();
-                let out = scope.create_local(Type::pointer(ty, class));
-                scope.register(Instruction::new(
-                    Memory::Index(IndexOperator {
-                        list: self.expand,
-                        index: i.expand,
-                        vector_size: 0,
-                        unroll_factor: 1,
-                        checked: false,
-                    }),
-                    out,
-                ));
-                scope.create_kernel_ref(out.into())
-            })
-        }
-    }
-}
-
 impl<T: CubePrimitive> Deref for SharedMemory<T> {
     type Target = [T];
 
@@ -217,33 +153,6 @@ impl<T: CubePrimitive> DerefMut for SharedMemory<T> {
 
 impl<T: CubePrimitive> List<T> for SharedMemory<T> {}
 impl<T: CubePrimitive> ListExpand<T> for NativeExpand<SharedMemory<T>> {
-    fn __expand_read_method(&self, scope: &Scope, idx: NativeExpand<usize>) -> &NativeExpand<T> {
-        expand_index_native(scope, self, idx, None, true)
-    }
-    fn __expand_read_unchecked_method(
-        &self,
-        scope: &Scope,
-        idx: NativeExpand<usize>,
-    ) -> &NativeExpand<T> {
-        expand_index_native(scope, self, idx, None, false)
-    }
-
-    fn __expand_write_method(
-        &mut self,
-        scope: &Scope,
-        idx: NativeExpand<usize>,
-    ) -> &mut NativeExpand<T> {
-        expand_index_mut_native(scope, self, idx, None, true)
-    }
-
-    fn __expand_write_unchecked_method(
-        &mut self,
-        scope: &Scope,
-        idx: NativeExpand<usize>,
-    ) -> &mut NativeExpand<T> {
-        expand_index_mut_native(scope, self, idx, None, false)
-    }
-
     fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
         Self::__expand_len_method(self, scope)
     }

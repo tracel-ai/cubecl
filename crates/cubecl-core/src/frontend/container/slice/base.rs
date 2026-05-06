@@ -659,18 +659,50 @@ impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E> {
     }
 }
 
+impl<E: CubePrimitive> SliceExpand<E> {
+    pub fn __expand_get_unchecked_method(
+        &self,
+        scope: &Scope,
+        index: NativeExpand<usize>,
+    ) -> &NativeExpand<E> {
+        read_offset::expand::<E>(
+            scope,
+            &self.origin,
+            self.offset,
+            index,
+            self.vector_size,
+            false,
+        )
+    }
+
+    pub fn __expand_get_unchecked_mut_method(
+        &mut self,
+        scope: &Scope,
+        index: NativeExpand<usize>,
+    ) -> &mut NativeExpand<E> {
+        write_offset::expand::<E>(
+            scope,
+            &mut self.origin,
+            self.offset,
+            index,
+            self.vector_size,
+            false,
+        )
+    }
+}
+
 impl<E: CubePrimitive> IndexExpand<NativeExpand<usize>> for SliceExpand<E> {
     type Output = E::ExpandType;
 
     fn __expand_index_method(&self, scope: &Scope, index: NativeExpand<usize>) -> &Self::Output {
-        self.__expand_read_method(scope, index)
-    }
-    fn __expand_index_unchecked_method(
-        &self,
-        scope: &Scope,
-        index: NativeExpand<usize>,
-    ) -> &Self::Output {
-        self.__expand_read_unchecked_method(scope, index)
+        read_offset::expand::<E>(
+            scope,
+            &self.origin,
+            self.offset,
+            index,
+            self.vector_size,
+            true,
+        )
     }
 }
 
@@ -680,82 +712,21 @@ impl<E: CubePrimitive> IndexMutExpand<NativeExpand<usize>> for SliceExpand<E> {
         scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &mut Self::Output {
-        self.__expand_write_method(scope, index)
-    }
-
-    fn __expand_index_mut_unchecked_method(
-        &mut self,
-        scope: &Scope,
-        index: NativeExpand<usize>,
-    ) -> &mut Self::Output {
-        self.__expand_write_unchecked_method(scope, index)
+        write_offset::expand::<E>(
+            scope,
+            &mut self.origin,
+            self.offset,
+            index,
+            self.vector_size,
+            true,
+        )
     }
 }
 
 impl_slice_ranges!(SliceExpand);
 
-impl<E: CubePrimitive> List<E> for Box<[E]> {}
 impl<E: CubePrimitive> List<E> for [E] {}
 impl<E: CubePrimitive> ListExpand<E> for SliceExpand<E> {
-    fn __expand_read_method(
-        &self,
-        scope: &Scope,
-        index: NativeExpand<usize>,
-    ) -> &<E as CubeType>::ExpandType {
-        read_offset::expand::<E>(
-            scope,
-            &self.origin,
-            self.offset,
-            index,
-            self.vector_size,
-            true,
-        )
-    }
-    fn __expand_read_unchecked_method(
-        &self,
-        scope: &Scope,
-        index: NativeExpand<usize>,
-    ) -> &<E as CubeType>::ExpandType {
-        read_offset::expand::<E>(
-            scope,
-            &self.origin,
-            self.offset,
-            index,
-            self.vector_size,
-            false,
-        )
-    }
-
-    fn __expand_write_method(
-        &mut self,
-        scope: &Scope,
-        index: NativeExpand<usize>,
-    ) -> &mut NativeExpand<E> {
-        write_offset::expand::<E>(
-            scope,
-            &mut self.origin,
-            self.offset,
-            index,
-            self.vector_size,
-            true,
-        )
-    }
-
-    fn __expand_write_unchecked_method(
-        &mut self,
-        scope: &Scope,
-        index: NativeExpand<usize>,
-    ) -> &mut NativeExpand<E> {
-        write_offset::expand::<E>(
-            scope,
-            &mut self.origin,
-            self.offset,
-            index,
-            self.vector_size,
-            false,
-        )
-    }
-
     fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
         self.__expand_len_method(scope)
     }

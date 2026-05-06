@@ -147,15 +147,54 @@ pub mod index_mut {
                     scope: &Scope,
                     index: NativeExpand<usize>,
                 ) -> &mut E::ExpandType {
-                    self.__expand_write_method(scope, index)
+                    expand_index_mut_native(scope, self, index, None, true)
                 }
+            }
 
-                fn __expand_index_mut_unchecked_method(
+            impl<E: CubePrimitive> $type<E> {
+                /// Returns a mutable reference to an element or subslice, without doing
+                /// bounds checking.
+                ///
+                /// For a safe alternative see [`get_mut`].
+                ///
+                /// # Safety
+                ///
+                /// Calling this method with an out-of-bounds index is *[undefined behavior]*
+                /// even if the resulting reference is not used.
+                ///
+                /// You can think of this like `.get_mut(index).unwrap_unchecked()`.  It's
+                /// UB to call `.get_unchecked_mut(len)`, even if you immediately convert
+                /// to a pointer.  And it's UB to call `.get_unchecked_mut(..len + 1)`,
+                /// `.get_unchecked_mut(..=len)`, or similar.
+                ///
+                /// [`get_mut`]: slice::get_mut
+                /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
+                ///
+                /// # Examples
+                ///
+                /// ```
+                /// let x = &mut [1, 2, 4];
+                ///
+                /// unsafe {
+                ///     let elem = x.get_unchecked_mut(1);
+                ///     *elem = 13;
+                /// }
+                /// assert_eq!(x, &[1, 13, 4]);
+                /// ```
+                #[allow(unused)]
+                pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut E {
+                    unexpanded!()
+                }
+            }
+
+            impl<E: CubePrimitive> NativeExpand<$type<E>> {
+                #[doc(hidden)]
+                pub unsafe fn __expand_get_unchecked_mut_method(
                     &mut self,
                     scope: &Scope,
                     index: NativeExpand<usize>,
-                ) -> &mut E::ExpandType {
-                    self.__expand_write_unchecked_method(scope, index)
+                ) -> &mut NativeExpand<E> {
+                    expand_index_mut_native(scope, self, index, None, false)
                 }
             }
         };
@@ -239,14 +278,52 @@ pub mod index {
                     scope: &Scope,
                     index: NativeExpand<usize>,
                 ) -> &Self::Output {
-                    self.__expand_read_method(scope, index)
+                    expand_index_native(scope, self, index, None, true)
                 }
-                fn __expand_index_unchecked_method(
+            }
+
+            impl<E: CubePrimitive> $type<E> {
+                /// Returns a reference to an element or subslice, without doing bounds
+                /// checking.
+                ///
+                /// For a safe alternative see [`get`].
+                ///
+                /// # Safety
+                ///
+                /// Calling this method with an out-of-bounds index is *[undefined behavior]*
+                /// even if the resulting reference is not used.
+                ///
+                /// You can think of this like `.get(index).unwrap_unchecked()`.  It's UB
+                /// to call `.get_unchecked(len)`, even if you immediately convert to a
+                /// pointer.  And it's UB to call `.get_unchecked(..len + 1)`,
+                /// `.get_unchecked(..=len)`, or similar.
+                ///
+                /// [`get`]: slice::get
+                /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
+                ///
+                /// # Examples
+                ///
+                /// ```
+                /// let x = &[1, 2, 4];
+                ///
+                /// unsafe {
+                ///     assert_eq!(x.get_unchecked(1), &2);
+                /// }
+                /// ```
+                #[allow(unused)]
+                pub unsafe fn get_unchecked(&self, index: usize) -> &E {
+                    unexpanded!()
+                }
+            }
+
+            impl<E: CubePrimitive> NativeExpand<$type<E>> {
+                #[doc(hidden)]
+                pub unsafe fn __expand_get_unchecked_method(
                     &self,
                     scope: &Scope,
                     index: NativeExpand<usize>,
-                ) -> &Self::Output {
-                    self.__expand_read_unchecked_method(scope, index)
+                ) -> &NativeExpand<E> {
+                    expand_index_native(scope, self, index, None, false)
                 }
             }
         };
