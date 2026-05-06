@@ -1,5 +1,4 @@
-use alloc::{rc::Rc, vec::Vec};
-use core::cell::RefCell;
+use alloc::vec::Vec;
 
 use cubecl_runtime::runtime::Runtime;
 use cubecl_zspace::SmallVec;
@@ -85,9 +84,7 @@ impl<C: LaunchArg + CubeType + 'static> LaunchArg for Sequence<C> {
             .map(|value| C::expand(value, builder))
             .collect::<Vec<_>>();
 
-        SequenceExpand {
-            values: Rc::new(RefCell::new(values)),
-        }
+        SequenceExpand { values }
     }
 }
 

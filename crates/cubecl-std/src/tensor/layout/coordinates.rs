@@ -4,9 +4,7 @@ use variadics_please::all_tuples;
 
 /// A set of coordinates used in layouts. Contains some utilities for comptime inspection.
 #[cube]
-pub trait Coordinates:
-    CubeType<ExpandType: Clone + DerefExpand<Target = Self::ExpandType>> + Clone
-{
+pub trait Coordinates: CubeType<ExpandType: Clone> + Clone {
     /// Add two coordinates together and return the result.
     fn add(this: Self, other: Self) -> Self;
     /// Subtract two coordinates from each other and return the result.
@@ -107,7 +105,9 @@ impl_coordinates_primitive!(u8, u16, u32, u64, usize, i8, i16, i32, i64);
 all_tuples!(impl_coordinates_tuple, 2, 12, T, t, o);
 
 #[cube]
-impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
+impl<T: Coordinates<ExpandType: DerefExpand<Target = T::ExpandType>> + Copy> Coordinates
+    for Sequence<T>
+{
     fn add(this: Self, other: Self) -> Self {
         let rank = this.len();
         let mut out = Sequence::new();

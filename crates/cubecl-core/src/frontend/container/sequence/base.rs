@@ -3,11 +3,7 @@ use cubecl_ir::Scope;
 use serde::{Deserialize, Serialize};
 
 use crate::prelude::*;
-use alloc::rc::Rc;
-use core::{
-    cell::RefCell,
-    ops::{Deref, Index, IndexMut},
-};
+use core::ops::{Deref, Index, IndexMut};
 
 /// A sequence of [cube types](CubeType) that is inlined during compilation.
 ///
@@ -42,7 +38,7 @@ impl<T: CubeType> IntoMut for Sequence<T> {
 }
 impl<T: CubeType> CubeDebug for Sequence<T> {}
 
-impl<T: CubeType> DerefExpand for SequenceExpand<T> {
+impl<T: CubeType<ExpandType: Clone>> DerefExpand for SequenceExpand<T> {
     type Target = Self;
 
     fn __expand_deref_method(&self, _: &Scope) -> Self::Target {
@@ -50,10 +46,17 @@ impl<T: CubeType> DerefExpand for SequenceExpand<T> {
     }
 }
 
-impl<T: CubeType + Clone> Sequence<T> {
-    pub fn rev(&self) -> Self {
+impl<T: CubeType> Sequence<T> {
+    pub fn reverse(&mut self) {
+        self.values.reverse();
+    }
+
+    pub fn reversed(&self) -> Sequence<T>
+    where
+        T: Clone,
+    {
         Self {
-            values: self.values.iter().rev().cloned().collect(),
+            values: self.values.iter().cloned().rev().collect(),
         }
     }
 }
@@ -89,9 +92,7 @@ impl<T: CubeType> Sequence<T> {
 
     /// Expand function of [new](Self::new).
     pub fn __expand_new(_scope: &Scope) -> SequenceExpand<T> {
-        SequenceExpand {
-            values: Rc::new(RefCell::new(Vec::new())),
-        }
+        SequenceExpand { values: Vec::new() }
     }
 
     /// Insert an item at the given index.
@@ -195,7 +196,7 @@ impl<T: CubeType> IndexMutExpand<NativeExpand<usize>> for SequenceExpand<T> {
 pub struct SequenceExpand<T: CubeType> {
     // We clone the expand type during the compilation phase, but for register reuse, not for
     // copying data. To achieve the intended behavior, we have to share the same underlying values.
-    pub(super) values: Rc<RefCell<Vec<T::ExpandType>>>,
+    pub(super) values: Vec<T::ExpandType>,
 }
 
 impl<T: CubeType> Iterable for SequenceExpand<T> {
@@ -216,24 +217,24 @@ impl<T: CubeType> Iterable for SequenceExpand<T> {
     }
 
     fn const_len(&self) -> Option<usize> {
-        Some(self.values.borrow().len())
+        Some(self.values.len())
     }
 }
 
 impl<T: CubeType> IntoMut for SequenceExpand<T> {
     fn into_mut(self, scope: &Scope) -> Self {
-        let mut values = self.values.borrow_mut();
-        values.iter_mut().for_each(|v| {
-            *v = IntoMut::into_mut(v.clone_unchecked(), scope);
-        });
-        core::mem::drop(values);
-
-        self
+        Self {
+            values: self
+                .values
+                .into_iter()
+                .map(|v| IntoMut::into_mut(v, scope))
+                .collect(),
+        }
     }
 }
 impl<T: CubeType> CubeDebug for SequenceExpand<T> {}
 
-impl<T: CubeType> Clone for SequenceExpand<T> {
+impl<T: CubeType<ExpandType: Clone>> Clone for SequenceExpand<T> {
     fn clone(&self) -> Self {
         Self {
             values: self.values.clone(),
@@ -242,7 +243,9 @@ impl<T: CubeType> Clone for SequenceExpand<T> {
 }
 impl<T: CubeType> ExpandTypeClone for SequenceExpand<T> {
     fn clone_unchecked(&self) -> Self {
-        self.clone()
+        Self {
+            values: self.values.iter().map(|it| it.clone_unchecked()).collect(),
+        }
     }
 }
 
@@ -262,14 +265,14 @@ impl<T: CubeType> IntoIterator for SequenceExpand<T> {
     type IntoIter = <Vec<T::ExpandType> as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.values.take().into_iter()
+        self.values.into_iter()
     }
 }
 
 impl<T: CubeType<ExpandType: Clone>> SequenceExpand<T> {
     /// Provides an iterator without modifying the sequence
     pub fn iter_cloned(&self) -> impl Iterator<Item = T::ExpandType> {
-        self.values.borrow().clone().into_iter()
+        self.values.clone().into_iter()
     }
 }
 
@@ -280,21 +283,19 @@ impl<T: CubeType> CubeType for Sequence<T> {
 impl<T: CubeType> SequenceExpand<T> {
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
-        self.values.borrow().len()
+        self.values.len()
     }
     /// Expand method of [push](Sequence::push).
     pub fn __expand_push_method(&mut self, _scope: &Scope, value: T::ExpandType) {
-        self.values.borrow_mut().push(value);
+        self.values.push(value);
     }
 
     /// Expand method of [insert](Sequence::insert).
-    pub fn __expand_insert_method(&self, _scope: &Scope, index: usize, value: T::ExpandType) {
-        let mut values = self.values.borrow_mut();
-
-        if values.len() == index {
-            values.push(value);
+    pub fn __expand_insert_method(&mut self, _scope: &Scope, index: usize, value: T::ExpandType) {
+        if self.values.len() == index {
+            self.values.push(value);
         } else {
-            values[index] = value;
+            self.values[index] = value;
         }
     }
 
@@ -305,43 +306,40 @@ impl<T: CubeType> SequenceExpand<T> {
         index: NativeExpand<usize>,
     ) -> &T::ExpandType {
         let index = index.constant().expect("Index must be constant").as_usize();
-        let values = self.values.borrow();
-        let reference = &values[index];
-        // TODO: Double check this later
-        unsafe { core::mem::transmute(reference) }
+        &self.values[index]
     }
 
     /// Expand method of [`index_mut`](Sequence::index_mut).
-    #[allow(clippy::mut_from_ref)]
     pub fn __expand_index_mut_method(
         &mut self,
         _scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &mut T::ExpandType {
         let index = index.constant().expect("Index must be constant").as_usize();
-        let mut values = self.values.borrow_mut();
-        let reference = &mut values[index];
-        // TODO: Double check this later
-        unsafe { core::mem::transmute(reference) }
+        &mut self.values[index]
     }
 
     pub fn __expand_len_method(&self, _scope: &Scope) -> usize {
-        let values = self.values.borrow();
-        values.len()
+        self.values.len()
     }
 
-    pub fn __expand_rev_method(&self, _scope: &Scope) -> Self
+    pub fn __expand_reverse_method(&mut self, _scope: &Scope) {
+        self.values.reverse();
+    }
+
+    pub fn __expand_reversed_method(&self, _scope: &Scope) -> Self
     where
         T::ExpandType: Clone,
     {
-        let mut values = self.values.borrow().clone();
-        values.reverse();
         Self {
-            values: Rc::new(RefCell::new(values)),
+            values: self.values.iter().cloned().rev().collect(),
         }
     }
 
-    pub fn __expand_clone_method(&self, _scope: &Scope) -> Self {
+    pub fn __expand_clone_method(&self, _scope: &Scope) -> Self
+    where
+        T::ExpandType: Clone,
+    {
         self.clone()
     }
 }

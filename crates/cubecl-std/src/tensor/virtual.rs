@@ -263,7 +263,6 @@ impl<E: Numeric, N: Size> VirtualTensor<E, N, ReadWrite> {
 /// This trait is kind of unsafe, [`VirtualTensorOperations::write`] doesn't follow the mutability
 /// rules, but it won't lead to any undefined behavior.
 #[cube(expand_base_traits = "VectorizedExpand")]
-#[allow(clippy::mut_from_ref)]
 pub trait VirtualTensorOperations<E: Numeric, N: Size>: Vectorized {
     fn as_tensor_map(&self) -> ComptimeOption<TensorMap<E, Tiled>> {
         unexpanded!()
