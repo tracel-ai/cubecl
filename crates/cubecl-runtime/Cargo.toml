@@ -58,7 +58,7 @@ toml = { workspace = true, optional = true }
 web-time = { workspace = true }
 
 thiserror = { workspace = true }
-ahash = "0.8.12"
+ahash = { version = "0.8.12", default-features = false }
 md5 = { workspace = true }
 
 # Persistent cache deps - has to match the cfg(std_io) cfg.
