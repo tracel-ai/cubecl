@@ -53,7 +53,7 @@ expected: {:?}",
 
 // Needs lazy because const trait fns aren't stable
 static FAST_MATH: Lazy<EnumSet<FastMath>> =
-    Lazy::new(|| FastMath::all().difference(FastMath::NotNaN.into()));
+    Lazy::new(|| FastMath::all().difference(FastMath::NotNaN));
 
 macro_rules! test_binary_impl {
     (
