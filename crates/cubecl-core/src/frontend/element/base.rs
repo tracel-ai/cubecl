@@ -16,7 +16,7 @@ use variadics_please::{all_tuples, all_tuples_enumerated};
 /// Types used in a cube function must implement this trait
 ///
 /// Variables whose values will be known at runtime must
-/// have `ManagedVariable` as associated type
+/// have `Variable` as associated type
 /// Variables whose values will be known at compile time
 /// must have the primitive type as associated type
 ///
@@ -387,14 +387,14 @@ impl<T> ExpandTypeClone for NativeExpand<T> {
 impl<T> NativeExpand<T> {
     /// Casts a reference of this expand element to a different type.
     /// # Safety
-    /// There's no guarantee the new type is valid for the `ManagedVariable`
+    /// There's no guarantee the new type is valid for the `Variable`
     pub unsafe fn as_type_ref_unchecked<E>(&self) -> &NativeExpand<E> {
         unsafe { core::mem::transmute::<&NativeExpand<T>, &NativeExpand<E>>(self) }
     }
 
     /// Casts a mutable reference of this expand element to a different type.
     /// # Safety
-    /// There's no guarantee the new type is valid for the `ManagedVariable`
+    /// There's no guarantee the new type is valid for the `Variable`
     pub unsafe fn as_type_mut_unchecked<E>(&mut self) -> &mut NativeExpand<E> {
         unsafe { core::mem::transmute::<&mut NativeExpand<T>, &mut NativeExpand<E>>(self) }
     }
