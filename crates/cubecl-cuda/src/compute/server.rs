@@ -545,13 +545,11 @@ impl CudaServer {
     ) -> Self {
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
+        let stream_priority = config.streaming.priority;
 
         ctx.unsafe_set_current().unwrap();
 
-        let comm_stream = cudarc::driver::result::stream::create(
-            cudarc::driver::result::stream::StreamKind::NonBlocking,
-        )
-        .expect("Can create a new stream.");
+        let comm_stream = crate::compute::stream::create_cuda_stream(stream_priority);
 
         Self {
             ctx,
@@ -563,6 +561,7 @@ impl CudaServer {
                     mem_config,
                     mem_alignment,
                     utilities.logger.clone(),
+                    stream_priority,
                 ),
                 max_streams,
             ),
