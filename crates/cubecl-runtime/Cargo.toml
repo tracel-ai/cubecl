@@ -43,11 +43,11 @@ tracing = { workspace = true, features = ["attributes"], optional = true }
 async-channel = { workspace = true } # Assume std
 bytemuck = { workspace = true }
 cfg-if = { workspace = true }
-cubecl-common = { path = "../cubecl-common", version = "=0.10.0-pre.4", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "=0.10.0-pre.4", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "0.10.0", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "0.10.0", default-features = false, features = [
     "serde",
 ] }
-cubecl-zspace = { path = "../cubecl-zspace", version = "=0.10.0-pre.4", default-features = false }
+cubecl-zspace = { path = "../cubecl-zspace", version = "0.10.0", default-features = false }
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = ["eq"] }
 dirs = { workspace = true, optional = true }
@@ -63,7 +63,7 @@ md5 = { workspace = true }
 
 # Persistent cache deps - has to match the cfg(std_io) cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android"))'.dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.10.0-pre.4", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "0.10.0", default-features = false, features = [
     "cache",
     "serde",
     "hash",
