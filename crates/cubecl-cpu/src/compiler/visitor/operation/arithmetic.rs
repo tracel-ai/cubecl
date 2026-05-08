@@ -234,6 +234,15 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, result);
             }
+            Arithmetic::Exp2(exp) => {
+                let value = self.get_variable(exp.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_exp2(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
             Arithmetic::Floor(floor) => {
                 let value = self.get_variable(floor.input);
                 let result = self.append_operation_with_result(llvm_ods::intr_floor(
@@ -260,6 +269,15 @@ impl<'a> Visitor<'a> {
             Arithmetic::Log(log) => {
                 let value = self.get_variable(log.input);
                 let result = self.append_operation_with_result(llvm_ods::intr_log(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Log2(log) => {
+                let value = self.get_variable(log.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_log2(
                     self.context,
                     value,
                     self.location,
