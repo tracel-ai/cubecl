@@ -261,7 +261,7 @@ impl Optimizer {
                 self.visit_unop(unary_operator, visit_read);
             }
             AtomicOp::CompareAndSwap(op) => {
-                visit_read(self, &mut op.cmp);
+                visit_read(self, &mut op.input);
                 visit_read(self, &mut op.cmp);
                 visit_read(self, &mut op.val);
             }
