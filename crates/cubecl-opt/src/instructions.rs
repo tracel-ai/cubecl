@@ -1,7 +1,7 @@
 use cubecl_ir::{
-    Arithmetic, AtomicBinaryOperator, AtomicOp, BarrierOps, BinaryOperator, Bitwise, Comparison,
-    CoopMma, Instruction, Memory, Metadata, NonSemantic, Operation, Operator, Plane,
-    TensorIndexingOps, TmaOps, UnaryOperator, Variable,
+    Arithmetic, AtomicBinaryOperands, AtomicOp, BarrierOps, BinaryOperands, Bitwise, Comparison,
+    CoopMma, Instruction, Memory, Metadata, NonSemantic, Operation, OperationReflect, Operator,
+    Plane, TensorIndexingOps, TmaOps, UnaryOperands, Variable,
 };
 
 use crate::{ControlFlow, Function, GlobalState, analyses::pointer_source::PointerSource};
@@ -23,27 +23,27 @@ impl Function {
         &mut self,
         state: &GlobalState,
         inst: &mut Instruction,
-        visit_read: impl FnMut(&mut Self, &mut Variable),
+        mut visit_read: impl FnMut(&mut Self, &mut Variable),
         mut visit_write: impl FnMut(&mut Self, &mut Variable),
     ) {
         let pointer_source = self.analysis::<PointerSource>(state);
-        if let Operation::Memory(Memory::Store(op)) = &mut inst.operation
-            && let Some(source) = pointer_source.borrow_mut().get_mut(&op.ptr)
-        {
-            visit_write(self, source);
+        for ptr in inst.operation.write_pointers() {
+            if let Some(source) = pointer_source.borrow_mut().get_mut(&ptr) {
+                visit_write(self, source);
+            }
         }
-        if let Operation::Memory(Memory::CopyMemory(op)) = &mut inst.operation
-            && let Some(source) = pointer_source.borrow_mut().get_mut(&op.target)
-        {
-            visit_write(self, source);
-        }
+
+        // This is hacky, because semantics for insert are very awkward.
         if let Operation::Operator(Operator::InsertComponent(_)) = &mut inst.operation
             && let Some(source) = pointer_source.borrow_mut().get_mut(&inst.out())
         {
+            visit_read(self, inst.out.as_mut().unwrap());
             visit_write(self, source);
         }
+
         self.visit_out(&mut inst.out, visit_write);
-        self.visit_operation(state, &mut inst.operation, &mut inst.out, visit_read);
+
+        self.visit_operation(state, &mut inst.operation, visit_read);
     }
 
     /// Visit an operation with a set of read and write visitors. Each visitor will be called with
@@ -52,9 +52,15 @@ impl Function {
         &mut self,
         state: &GlobalState,
         op: &mut Operation,
-        out: &mut Option<Variable>,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
+        let pointer_source = self.analysis::<PointerSource>(state);
+        for ptr in op.read_pointers() {
+            if let Some(source) = pointer_source.borrow_mut().get_mut(&ptr) {
+                visit_read(self, source);
+            }
+        }
+
         match op {
             Operation::Copy(variable) => visit_read(self, variable),
             Operation::Memory(memory) => self.visit_memory(memory, state, visit_read),
@@ -62,7 +68,7 @@ impl Function {
             Operation::Comparison(comparison) => self.visit_compare(comparison, visit_read),
             Operation::Bitwise(bitwise) => self.visit_bitwise(bitwise, visit_read),
             Operation::Operator(operator) => self.visit_operator(operator, visit_read),
-            Operation::Atomic(atomic) => self.visit_atomic(atomic, out, state, visit_read),
+            Operation::Atomic(atomic) => self.visit_atomic(atomic, state, visit_read),
             Operation::Metadata(meta) => self.visit_meta(meta, visit_read),
             // Sync has no outputs
             Operation::Synchronization(_) => {}
@@ -76,6 +82,9 @@ impl Function {
                 self.visit_nonsemantic(non_semantic, visit_read)
             }
             Operation::Marker(_) => {}
+            Operation::ConstructAggregate(..) | Operation::ExtractAggregateField(..) => {
+                unreachable!("Should be disaggregated at this point")
+            }
         }
     }
 
@@ -287,7 +296,6 @@ impl Function {
     fn visit_atomic(
         &mut self,
         atomic: &mut AtomicOp,
-        out: &mut Option<Variable>,
         state: &GlobalState,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
@@ -302,12 +310,10 @@ impl Function {
             | AtomicOp::Swap(binary_operator) => {
                 self.visit_atomic_binop(binary_operator, state, visit_read);
             }
-            AtomicOp::Load(unary_operator) => {
-                self.visit_unop(unary_operator, visit_read);
-            }
-            AtomicOp::Store(unary_operator) => {
-                visit_read(self, out.as_mut().unwrap());
-                self.visit_unop(unary_operator, visit_read);
+            AtomicOp::Load(ptr) => visit_read(self, ptr),
+            AtomicOp::Store(store) => {
+                visit_read(self, &mut store.ptr);
+                visit_read(self, &mut store.value);
             }
             AtomicOp::CompareAndSwap(op) => {
                 visit_read(self, &mut op.cmp);
@@ -323,7 +329,7 @@ impl Function {
     ) {
         // Don't count buffer as a read, since it's actually the info buffer that's read.
         match metadata {
-            Metadata::Rank { .. } | Metadata::Length { .. } | Metadata::BufferLength { .. } => {}
+            Metadata::BufferLength { .. } => {}
             Metadata::Stride { dim, .. } => {
                 visit_read(self, dim);
             }
@@ -366,14 +372,12 @@ impl Function {
                 visit_read(self, value);
             }
             CoopMma::Load {
-                value,
+                ptr,
                 stride,
-                offset,
                 layout: _,
             } => {
-                visit_read(self, value);
+                visit_read(self, ptr);
                 visit_read(self, stride);
-                visit_read(self, offset);
             }
             CoopMma::LoadTensor {
                 buffer,
@@ -398,12 +402,12 @@ impl Function {
             CoopMma::Store {
                 mat,
                 stride,
-                offset,
+                destination,
                 layout: _,
             } => {
                 visit_read(self, mat);
                 visit_read(self, stride);
-                visit_read(self, offset);
+                visit_read(self, destination);
             }
             CoopMma::StoreTensor { mat, layout, view } => {
                 visit_read(self, mat);
@@ -423,14 +427,10 @@ impl Function {
                 visit_read(self, lane_id);
                 visit_read(self, i);
             }
-            CoopMma::LoadMatrix { buffer, offset, .. } => {
-                visit_read(self, buffer);
-                visit_read(self, offset);
+            CoopMma::LoadMatrix { ptr, .. } => {
+                visit_read(self, ptr);
             }
-            CoopMma::StoreMatrix {
-                offset, registers, ..
-            } => {
-                visit_read(self, offset);
+            CoopMma::StoreMatrix { registers, .. } => {
                 visit_read(self, registers);
             }
             CoopMma::ExecuteManual {
@@ -494,63 +494,53 @@ impl Function {
             BarrierOps::MemCopyAsync {
                 barrier,
                 source,
+                destination,
                 source_length,
-                offset_source,
-                offset_out,
             } => {
                 visit_read(self, barrier);
                 visit_read(self, source_length);
                 visit_read(self, source);
-                visit_read(self, offset_source);
-                visit_read(self, offset_out);
+                visit_read(self, destination);
             }
             BarrierOps::MemCopyAsyncCooperative {
                 barrier,
                 source,
+                destination,
                 source_length,
-                offset_source,
-                offset_out,
             } => {
                 visit_read(self, barrier);
                 visit_read(self, source_length);
                 visit_read(self, source);
-                visit_read(self, offset_source);
-                visit_read(self, offset_out);
+                visit_read(self, destination);
             }
             BarrierOps::CopyAsync {
                 source,
                 source_length,
-                offset_source,
-                offset_out,
                 ..
             } => {
                 visit_read(self, source_length);
                 visit_read(self, source);
-                visit_read(self, offset_source);
-                visit_read(self, offset_out);
             }
             BarrierOps::MemCopyAsyncTx {
                 barrier,
                 source,
+                destination,
                 source_length,
-                offset_source,
-                offset_out,
             } => {
                 visit_read(self, barrier);
                 visit_read(self, source_length);
                 visit_read(self, source);
-                visit_read(self, offset_source);
-                visit_read(self, offset_out);
+                visit_read(self, destination);
             }
             BarrierOps::TmaLoad {
                 barrier,
-                offset_out,
                 tensor_map,
+                destination,
                 indices,
             } => {
-                visit_read(self, offset_out);
                 visit_read(self, barrier);
                 visit_read(self, tensor_map);
+                visit_read(self, destination);
                 for index in indices {
                     visit_read(self, index);
                 }
@@ -558,13 +548,13 @@ impl Function {
             BarrierOps::TmaLoadIm2col {
                 barrier,
                 tensor_map,
+                destination,
                 indices,
-                offset_out,
                 offsets,
             } => {
-                visit_read(self, offset_out);
                 visit_read(self, barrier);
                 visit_read(self, tensor_map);
+                visit_read(self, destination);
                 for index in indices {
                     visit_read(self, index);
                 }
@@ -611,10 +601,8 @@ impl Function {
             TmaOps::TmaStore {
                 source,
                 coordinates,
-                offset_source,
             } => {
                 visit_read(self, source);
-                visit_read(self, offset_source);
                 for coord in coordinates {
                     visit_read(self, coord)
                 }
@@ -677,7 +665,7 @@ impl Function {
 
     fn visit_unop(
         &mut self,
-        unop: &mut UnaryOperator,
+        unop: &mut UnaryOperands,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         visit_read(self, &mut unop.input);
@@ -685,7 +673,7 @@ impl Function {
 
     fn visit_binop(
         &mut self,
-        binop: &mut BinaryOperator,
+        binop: &mut BinaryOperands,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         visit_read(self, &mut binop.lhs);
@@ -694,7 +682,7 @@ impl Function {
 
     fn visit_atomic_binop(
         &mut self,
-        binop: &mut AtomicBinaryOperator,
+        binop: &mut AtomicBinaryOperands,
         state: &GlobalState,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {

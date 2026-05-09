@@ -373,7 +373,7 @@ pub fn copy_gpu_ref<R: Runtime>(
         address_type,
         out_vec,
         input,
-        output.clone().into_array_arg(),
+        output.clone().into_buffer_arg(),
         out_layout,
         elems_per_unit,
         dtype,

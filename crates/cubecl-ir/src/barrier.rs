@@ -36,48 +36,54 @@ pub enum BarrierOps {
     /// Copy source to destination
     MemCopyAsync {
         barrier: Variable,
+        #[args(allow_ptr, ptr_read)]
         source: Variable,
+        #[args(allow_ptr, ptr_write)]
+        destination: Variable,
         source_length: Variable,
-        offset_source: Variable,
-        offset_out: Variable,
     },
     /// Copy source to destination, with cooperative behaviour
     MemCopyAsyncCooperative {
         barrier: Variable,
+        #[args(allow_ptr, ptr_read)]
         source: Variable,
+        #[args(allow_ptr, ptr_write)]
+        destination: Variable,
         source_length: Variable,
-        offset_source: Variable,
-        offset_out: Variable,
     },
     /// Copy source to destination, with transaction count
     MemCopyAsyncTx {
         barrier: Variable,
+        #[args(allow_ptr, ptr_read)]
         source: Variable,
+        #[args(allow_ptr, ptr_write)]
+        destination: Variable,
         source_length: Variable,
-        offset_source: Variable,
-        offset_out: Variable,
     },
     /// Copy source to destination
     CopyAsync {
+        #[args(allow_ptr, ptr_read)]
         source: Variable,
+        #[args(allow_ptr, ptr_write)]
+        destination: Variable,
         source_length: Variable,
-        offset_source: Variable,
-        offset_out: Variable,
         copy_length: u32,
         checked: bool,
     },
     TmaLoad {
         barrier: Variable,
         tensor_map: Variable,
+        #[args(allow_ptr, ptr_write)]
+        destination: Variable,
         indices: Vec<Variable>,
-        offset_out: Variable,
     },
     TmaLoadIm2col {
         barrier: Variable,
         tensor_map: Variable,
+        #[args(allow_ptr, ptr_write)]
+        destination: Variable,
         indices: Vec<Variable>,
         offsets: Vec<Variable>,
-        offset_out: Variable,
     },
     /// Arrives at the barrier (decrements barrier count)
     Arrive {
@@ -123,64 +129,42 @@ impl Display for BarrierOps {
                 arrival_count,
             } => write!(f, "{barrier}.init_barrier({arrival_count})"),
             BarrierOps::MemCopyAsync {
-                barrier,
-                source,
-                offset_source,
-                offset_out,
-                ..
+                barrier, source, ..
             } => {
-                write!(
-                    f,
-                    "out[{offset_out}] = mem_copy_async({barrier}, source: {source}[{offset_source}])",
-                )
+                write!(f, "mem_copy_async({barrier}, source: {source})",)
             }
             BarrierOps::MemCopyAsyncCooperative {
-                barrier,
-                source,
-                offset_source,
-                offset_out,
-                ..
+                barrier, source, ..
             } => {
-                write!(
-                    f,
-                    "out[{offset_out}] = mem_copy_async_cooperative({barrier}, source: {source}[{offset_source}])",
-                )
+                write!(f, "mem_copy_async_cooperative({barrier}, source: {source})",)
             }
             BarrierOps::MemCopyAsyncTx {
-                barrier,
-                source,
-                offset_source,
-                offset_out,
-                ..
+                barrier, source, ..
             } => {
-                write!(
-                    f,
-                    "out[{offset_out}] = mem_copy_async_tx({barrier}, source: {source}[{offset_source}])",
-                )
+                write!(f, "mem_copy_async_tx({barrier}, source: {source})",)
             }
             BarrierOps::CopyAsync {
                 source,
+                destination,
                 source_length,
-                offset_source,
-                offset_out,
                 copy_length,
                 checked,
             } => {
                 let source_slice = if *checked {
-                    format!("[{offset_source}..][..{source_length}]")
+                    format!("[..{source_length}]")
                 } else {
-                    format!("[{offset_source}]")
+                    String::new()
                 };
                 write!(
                     f,
-                    "out[{offset_out}] = copy_async(source: {source}{source_slice}, bytes: {copy_length})",
+                    "copy_async(source: {source}{source_slice}, destination: {destination}, bytes: {copy_length})",
                 )
             }
             BarrierOps::ArriveAndWait { barrier } => write!(f, "arrive_and_wait({barrier})"),
             BarrierOps::TmaLoad {
                 barrier,
                 tensor_map,
-                offset_out,
+                destination,
                 indices,
             } => {
                 let rank = indices.len();
@@ -190,15 +174,15 @@ impl Display for BarrierOps {
                 });
                 write!(
                     f,
-                    "out[{offset_out}] = tma_load::<{rank}>({barrier}, {tensor_map}, {indices})"
+                    "tma_load::<{rank}>(bar: {barrier}, from: {tensor_map}, to: {destination}, indices: {indices})"
                 )
             }
             BarrierOps::TmaLoadIm2col {
                 barrier,
                 tensor_map,
+                destination,
                 indices,
                 offsets,
-                offset_out,
             } => {
                 let rank = indices.len();
                 let indices = indices.iter().fold(String::new(), |mut s, it| {
@@ -211,7 +195,7 @@ impl Display for BarrierOps {
                 });
                 write!(
                     f,
-                    "out[{offset_out}] = tma_load_im2col::<{rank}>({barrier}, {tensor_map}, indices: ({indices}), offsets: ({offsets}))"
+                    "tma_load_im2col::<{rank}>(bar: {barrier}, from: {tensor_map}, to: {destination}, indices: ({indices}), offsets: ({offsets}))"
                 )
             }
             BarrierOps::Arrive { barrier } => write!(f, "arrive({barrier})"),

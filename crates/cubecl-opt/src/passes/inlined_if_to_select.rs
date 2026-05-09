@@ -1,5 +1,6 @@
-use std::mem::take;
+use core::mem::take;
 
+use alloc::vec::Vec;
 use cubecl_ir::{Instruction, Operator, Select};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 

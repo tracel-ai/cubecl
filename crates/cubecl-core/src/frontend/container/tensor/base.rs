@@ -1,51 +1,74 @@
 use crate::{
-    frontend::{CubePrimitive, CubeType, NativeExpand, SizedContainer},
     ir::{Metadata, Scope},
     prelude::*,
     unexpanded,
 };
-use core::{
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-};
+use alloc::boxed::Box;
+use core::ops::{Deref, DerefMut};
 use cubecl_ir::VectorSize;
-use cubecl_macros::{cube, intrinsic};
 
 use crate as cubecl;
 
 /// The tensor type is similar to the [array type](crate::prelude::Array), however it comes with more
 /// metadata such as [stride](Tensor::stride) and [shape](Tensor::shape).
-#[derive(new, Clone, Copy)]
-pub struct Tensor<T: CubeType> {
-    _val: PhantomData<T>,
+#[derive(CubeType)]
+pub struct Tensor<T: CubePrimitive> {
+    pub(super) meta: TensorMeta,
+    pub(super) buffer: [T],
 }
 
-type TensorExpand<T> = NativeExpand<Tensor<T>>;
+#[derive(CubeType, Clone)]
+#[expand(derive(Clone))]
+pub struct OwnedTensor<T: CubePrimitive> {
+    #[allow(unused)]
+    pub(super) meta: TensorMeta,
+    pub(super) buffer: Box<[T]>,
+}
+
+#[cube]
+impl<T: CubePrimitive> OwnedTensor<T> {
+    pub fn as_slice(&self) -> &[T] {
+        &self.buffer
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut self.buffer
+    }
+}
+
+#[cube]
+impl<T: CubePrimitive> Tensor<T> {
+    pub fn as_slice(&self) -> &[T] {
+        &self.buffer
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut self.buffer
+    }
+}
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
     use cubecl_ir::Variable;
 
     use super::*;
-    use crate::{
-        ir::{Arithmetic, BinaryOperator, Instruction},
-        prelude::Array,
-    };
+    use crate::ir::{Arithmetic, BinaryOperands, Instruction};
 
     #[cube]
-    impl<T: CubeType> Tensor<T> {
+    impl<T: CubePrimitive> Tensor<T> {
         /// Obtain the stride of input at dimension dim
         #[allow(unused_variables)]
         pub fn stride(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let dim: Variable = dim.into();
+                let list = self.__extract_list(scope);
                 let out = scope.create_local(usize::__expand_as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::Stride {
                         dim: dim,
-                        var: self.expand.clone().into(),
+                        var: list,
                     },
-                    out.clone().into(),
+                    out,
                 ));
                 out.into()
             })
@@ -56,13 +79,14 @@ mod metadata {
         pub fn shape(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let dim: Variable = dim.into();
+                let list = self.__extract_list(scope);
                 let out = scope.create_local(usize::__expand_as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::Shape {
                         dim: dim,
-                        var: self.expand.clone().into(),
+                        var: list,
                     },
-                    out.clone().into(),
+                    out,
                 ));
                 out.into()
             })
@@ -82,7 +106,7 @@ mod metadata {
                 // Compute `num_strides = index / stride`.
                 let num_strides = scope.create_local(usize::__expand_as_type(scope));
                 scope.register(Instruction::new(
-                    Arithmetic::Div(BinaryOperator {
+                    Arithmetic::Div(BinaryOperands {
                         lhs: index,
                         rhs: stride.expand.into(),
                     }),
@@ -92,7 +116,7 @@ mod metadata {
                 // Compute `coordinate = num_strides % shape `.
                 let coordinate = scope.create_local(usize::__expand_as_type(scope));
                 scope.register(Instruction::new(
-                    Arithmetic::Rem(BinaryOperator {
+                    Arithmetic::Rem(BinaryOperands {
                         lhs: num_strides,
                         rhs: shape.expand.into(),
                     }),
@@ -111,10 +135,7 @@ mod metadata {
         /// you should multiply the length by the vectorization factor.
         #[allow(clippy::len_without_is_empty)]
         pub fn len(&self) -> usize {
-            intrinsic!(|scope| {
-                let elem: NativeExpand<Array<u32>> = self.expand.clone().into();
-                elem.__expand_len_method(scope)
-            })
+            self.meta.len
         }
 
         /// The length of the buffer representing the tensor in terms of vectorized elements.
@@ -125,19 +146,12 @@ mod metadata {
         /// elements, you should multiply the length by the vectorization factor.
         #[allow(clippy::len_without_is_empty)]
         pub fn buffer_len(&self) -> usize {
-            intrinsic!(|scope| {
-                let elem: NativeExpand<Array<u32>> = self.expand.clone().into();
-                elem.__expand_buffer_len_method(scope)
-            })
+            intrinsic!(|scope| { self.__extract_length(scope) })
         }
 
         /// Returns the rank of the tensor.
         pub fn rank(&self) -> usize {
-            intrinsic!(|scope| {
-                let out = scope.create_local(usize::__expand_as_type(scope));
-                scope.register(Instruction::new(Metadata::Rank { var: self.expand }, out));
-                out.into()
-            })
+            self.meta.rank
         }
     }
 }
@@ -168,6 +182,18 @@ mod vector {
     }
 }
 
+impl<'a, E: CubePrimitive> From<&'a OwnedTensorExpand<E>> for &'a TensorExpand<E> {
+    fn from(value: &'a OwnedTensorExpand<E>) -> Self {
+        value.deref()
+    }
+}
+
+impl<'a, E: CubePrimitive> From<&'a mut OwnedTensorExpand<E>> for &'a mut TensorExpand<E> {
+    fn from(value: &'a mut OwnedTensorExpand<E>) -> Self {
+        value.deref_mut()
+    }
+}
+
 impl<T: CubePrimitive> SizedContainer<usize> for Tensor<T> {
     fn len(&self) -> usize {
         unexpanded!()
@@ -180,35 +206,11 @@ impl<T: CubePrimitive> SizedContainerExpand<usize> for TensorExpand<T> {
     }
 }
 
-impl<T: CubeType> Iterator for &Tensor<T> {
+impl<T: CubePrimitive> Iterator for &Tensor<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
         unexpanded!()
-    }
-}
-
-impl<T: CubeType> CubeType for Tensor<T> {
-    type ExpandType = NativeExpand<Tensor<T>>;
-}
-
-impl<C: CubeType> IntoMut for NativeExpand<Tensor<C>> {
-    fn into_mut(self, _scope: &Scope) -> Self {
-        self
-    }
-}
-
-impl<T: CubePrimitive> DerefExpand for TensorExpand<T> {
-    type Target = TensorExpand<T>;
-
-    fn __expand_deref_method(&self, _: &Scope) -> Self::Target {
-        *self
-    }
-}
-
-impl<T: CubeType> AsMutExpand for TensorExpand<T> {
-    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
-        self
     }
 }
 
@@ -228,15 +230,59 @@ impl<T: CubePrimitive> DerefMut for Tensor<T> {
     }
 }
 
-impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Tensor<T>> {
+impl<T: CubePrimitive> Deref for TensorExpand<T> {
+    type Target = SliceExpand<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.buffer
+    }
+}
+
+impl<T: CubePrimitive> DerefMut for TensorExpand<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.buffer
+    }
+}
+
+impl<T: CubePrimitive> Deref for OwnedTensor<T> {
+    type Target = Tensor<T>;
+
+    fn deref(&self) -> &Self::Target {
+        unexpanded!()
+    }
+}
+
+impl<T: CubePrimitive> DerefMut for OwnedTensor<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unexpanded!()
+    }
+}
+
+impl<T: CubePrimitive> Deref for OwnedTensorExpand<T> {
+    type Target = TensorExpand<T>;
+
+    fn deref(&self) -> &Self::Target {
+        // SAFETY: Expand type has compatible layout since the type of the buffer is just a marker
+        unsafe { core::mem::transmute(self) }
+    }
+}
+
+impl<T: CubePrimitive> DerefMut for OwnedTensorExpand<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: Expand type has compatible layout since the type of the buffer is just a marker
+        unsafe { core::mem::transmute(self) }
+    }
+}
+
+impl<T: CubePrimitive> ListExpand<T> for TensorExpand<T> {
     fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
         Self::__expand_len_method(self, scope)
     }
 }
 
 impl<T: CubePrimitive> Vectorized for Tensor<T> {}
-impl<T: CubePrimitive> VectorizedExpand for NativeExpand<Tensor<T>> {
+impl<T: CubePrimitive> VectorizedExpand for TensorExpand<T> {
     fn vector_size(&self) -> VectorSize {
-        self.expand.ty.vector_size()
+        self.buffer.expand.ty.vector_size()
     }
 }

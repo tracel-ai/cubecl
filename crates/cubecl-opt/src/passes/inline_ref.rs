@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use cubecl_ir::{Memory, Operation, Operator, Variable, VariableKind};
 
 use crate::{analyses::pointer_source::PointerSource, passes::OptimizerPass};

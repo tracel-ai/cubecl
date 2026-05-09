@@ -68,6 +68,8 @@ macro_rules! declare_uint {
                 val as $primitive
             }
         }
+
+        impl_scalar_launch!($primitive);
     };
 }
 
@@ -139,6 +141,8 @@ impl Int for usize {
     }
 }
 
+impl_scalar_launch!(usize);
+
 impl CubeType for isize {
     type ExpandType = NativeExpand<Self>;
 }
@@ -201,3 +205,5 @@ impl Int for isize {
         val as isize
     }
 }
+
+impl_scalar_launch!(isize);

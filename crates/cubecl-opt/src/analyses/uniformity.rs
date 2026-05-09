@@ -1,8 +1,9 @@
+use alloc::vec::Vec;
 use cubecl_ir::{
     Builtin, Operation, OperationReflect, Plane, Synchronization, Variable, VariableKind,
 };
+use hashbrown::{HashMap, HashSet};
 use petgraph::{graph::EdgeIndex, visit::EdgeRef};
-use std::collections::{HashMap, HashSet};
 
 use crate::{ControlFlow, Function, GlobalState, NodeIndex};
 
@@ -253,6 +254,7 @@ impl Uniformity {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)
             }
             VariableKind::TensorMap(_) => true,
+            VariableKind::Aggregate { .. } => unreachable!("Should be disaggregated at this point"),
         }
     }
 

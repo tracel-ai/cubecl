@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use crate::TypeHash;
 
-use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Variable};
+use crate::{BinaryOperands, OperationArgs, OperationReflect, UnaryOperands, Variable};
 
 /// Arithmetic operations
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -10,63 +10,63 @@ use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Vari
 #[operation(opcode_name = ArithmeticOpCode, pure)]
 pub enum Arithmetic {
     #[operation(commutative)]
-    Add(BinaryOperator),
+    Add(BinaryOperands),
     #[operation(commutative)]
-    SaturatingAdd(BinaryOperator),
+    SaturatingAdd(BinaryOperands),
     Fma(FmaOperator),
-    Sub(BinaryOperator),
-    SaturatingSub(BinaryOperator),
+    Sub(BinaryOperands),
+    SaturatingSub(BinaryOperands),
     #[operation(commutative)]
-    Mul(BinaryOperator),
-    Div(BinaryOperator),
-    Abs(UnaryOperator),
-    Exp(UnaryOperator),
-    Log(UnaryOperator),
-    Log1p(UnaryOperator),
-    Cos(UnaryOperator),
-    Sin(UnaryOperator),
-    Tan(UnaryOperator),
-    Tanh(UnaryOperator),
-    Sinh(UnaryOperator),
-    Cosh(UnaryOperator),
-    ArcCos(UnaryOperator),
-    ArcSin(UnaryOperator),
-    ArcTan(UnaryOperator),
-    ArcSinh(UnaryOperator),
-    ArcCosh(UnaryOperator),
-    ArcTanh(UnaryOperator),
-    Degrees(UnaryOperator),
-    Radians(UnaryOperator),
-    ArcTan2(BinaryOperator),
-    Powf(BinaryOperator),
-    Powi(BinaryOperator),
-    Hypot(BinaryOperator),
-    Rhypot(BinaryOperator),
-    Sqrt(UnaryOperator),
-    InverseSqrt(UnaryOperator),
-    Round(UnaryOperator),
-    Floor(UnaryOperator),
-    Ceil(UnaryOperator),
-    Trunc(UnaryOperator),
-    Erf(UnaryOperator),
-    Recip(UnaryOperator),
+    Mul(BinaryOperands),
+    Div(BinaryOperands),
+    Abs(UnaryOperands),
+    Exp(UnaryOperands),
+    Log(UnaryOperands),
+    Log1p(UnaryOperands),
+    Cos(UnaryOperands),
+    Sin(UnaryOperands),
+    Tan(UnaryOperands),
+    Tanh(UnaryOperands),
+    Sinh(UnaryOperands),
+    Cosh(UnaryOperands),
+    ArcCos(UnaryOperands),
+    ArcSin(UnaryOperands),
+    ArcTan(UnaryOperands),
+    ArcSinh(UnaryOperands),
+    ArcCosh(UnaryOperands),
+    ArcTanh(UnaryOperands),
+    Degrees(UnaryOperands),
+    Radians(UnaryOperands),
+    ArcTan2(BinaryOperands),
+    Powf(BinaryOperands),
+    Powi(BinaryOperands),
+    Hypot(BinaryOperands),
+    Rhypot(BinaryOperands),
+    Sqrt(UnaryOperands),
+    InverseSqrt(UnaryOperands),
+    Round(UnaryOperands),
+    Floor(UnaryOperands),
+    Ceil(UnaryOperands),
+    Trunc(UnaryOperands),
+    Erf(UnaryOperands),
+    Recip(UnaryOperands),
     Clamp(ClampOperator),
-    Neg(UnaryOperator),
+    Neg(UnaryOperands),
     #[operation(commutative)]
-    Max(BinaryOperator),
+    Max(BinaryOperands),
     #[operation(commutative)]
-    Min(BinaryOperator),
+    Min(BinaryOperands),
     /// Rust `Rem::rem`
-    Rem(BinaryOperator),
+    Rem(BinaryOperands),
     /// Pytorch %, or mod in SPIR-V
-    ModFloor(BinaryOperator),
-    Magnitude(UnaryOperator),
-    Normalize(UnaryOperator),
+    ModFloor(BinaryOperands),
+    Magnitude(UnaryOperands),
+    Normalize(UnaryOperands),
     #[operation(commutative)]
-    Dot(BinaryOperator),
+    Dot(BinaryOperands),
     #[operation(commutative)]
-    MulHi(BinaryOperator),
-    VectorSum(UnaryOperator),
+    MulHi(BinaryOperands),
+    VectorSum(UnaryOperands),
 }
 
 impl Display for Arithmetic {

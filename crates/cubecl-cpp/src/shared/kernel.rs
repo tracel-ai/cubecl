@@ -111,7 +111,26 @@ pub fn type_definitions<D: Dialect>(f: &mut std::fmt::Formatter<'_>) -> std::fmt
     writeln!(f, "typedef signed int int32;")?;
     writeln!(f, "typedef signed long long int int64;")?;
 
+    define_array_polyfill(f, "__device__")?;
+
     Ok(())
+}
+
+/// Define a minimal version of C++'s `std::array` so we can match Rust semantics on arrays.
+pub fn define_array_polyfill(
+    f: &mut core::fmt::Formatter<'_>,
+    function_class: &str,
+) -> core::fmt::Result {
+    writeln!(
+        f,
+        "
+template <typename T, size_t N>
+struct array {{
+    T data[N];
+    {function_class} T& operator[](size_t i) {{ return data[i]; }}
+    {function_class} const T& operator[](size_t i) const {{ return data[i]; }}
+}};"
+    )
 }
 
 pub fn type_vectorized_definitions<D: Dialect>(

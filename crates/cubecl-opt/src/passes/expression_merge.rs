@@ -1,6 +1,7 @@
-use std::{cell::RefCell, mem::take};
+use core::{cell::RefCell, mem::take};
 
-use cubecl_ir::{CoopMma, Instruction, Operation, Operator, UnaryOperator};
+use alloc::vec::Vec;
+use cubecl_ir::{CoopMma, Instruction, Operation, Operator, UnaryOperands};
 use stable_vec::StableVec;
 
 use crate::{AtomicCounter, Function, GlobalState, visit_noop};
@@ -51,8 +52,8 @@ fn search_loop(func: &mut Function, state: &GlobalState) -> bool {
             let op = func[node].ops.borrow()[idx].clone();
             match op.operation {
                 Operation::Copy(input)
-                | Operation::Operator(Operator::Cast(UnaryOperator { input }))
-                | Operation::Operator(Operator::Reinterpret(UnaryOperator { input }))
+                | Operation::Operator(Operator::Cast(UnaryOperands { input }))
+                | Operation::Operator(Operator::Reinterpret(UnaryOperands { input }))
                 | Operation::CoopMma(CoopMma::Cast { input })
                     if (input.is_immutable() || input.is_array() || input.ty.is_ptr())
                         && (op.out().is_immutable()
@@ -123,7 +124,7 @@ fn check_op(
     let mut op = ops.borrow()[idx].clone();
     let out = op.out?;
     let mut is_mut = false;
-    func.visit_operation(state, &mut op.operation, &mut Some(out), |_, var| {
+    func.visit_operation(state, &mut op.operation, |_, var| {
         if !var.is_immutable() {
             is_mut = true;
         }

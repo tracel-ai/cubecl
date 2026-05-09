@@ -77,6 +77,18 @@ impl<D: Dialect> Item<D> {
         }
     }
 
+    pub fn as_scalar(&self) -> Self {
+        match self {
+            Item::Scalar(_) => *self,
+            Item::NativeVector(elem, _) => Item::Scalar(*elem),
+            Item::Vector(inner, _) => inner.as_scalar(),
+            Item::Atomic(inner) => Item::Atomic(inner.as_scalar().intern()),
+            Item::Pointer(inner, class) => Item::Pointer(inner.as_scalar().intern(), *class),
+            Item::Array(inner, size) => Item::Array(inner.as_scalar().intern(), *size),
+            Item::DynamicArray(inner) => Item::DynamicArray(inner.as_scalar().intern()),
+        }
+    }
+
     pub fn vectorization(&self) -> usize {
         match self {
             Item::Vector(_, vectorization) | Item::NativeVector(_, vectorization) => *vectorization,

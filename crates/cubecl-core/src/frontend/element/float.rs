@@ -189,6 +189,8 @@ macro_rules! impl_float {
                 $new(val as f64)
             }
         }
+
+        impl_scalar_launch!($primitive);
     };
 }
 

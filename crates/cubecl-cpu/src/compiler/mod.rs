@@ -16,8 +16,8 @@ use cubecl_core::{
     Compiler,
     ir::{self, StorageType},
     post_processing::{
-        checked_io::CheckedIoProcessor, predicate::PredicateProcessor,
-        saturating::SaturatingArithmeticProcessor,
+        checked_io::CheckedIoVisitor, disaggregate::DisaggregateVisitor,
+        predicate::PredicateProcessor, saturating::SaturatingArithmeticProcessor,
     },
     prelude::KernelDefinition,
     server::ExecutionMode,
@@ -68,10 +68,11 @@ impl Compiler for MlirCompiler {
             .with_transformer(ErfTransform)
             .with_transformer(HypotTransform)
             .with_transformer(RhypotTransform)
-            .with_processor(CheckedIoProcessor::new(
+            .with_visitor(CheckedIoVisitor::new(
                 mode,
                 kernel.options.kernel_name.clone(),
             ))
+            .with_visitor(DisaggregateVisitor::default())
             .with_processor(SaturatingArithmeticProcessor::new(true))
             .with_processor(PredicateProcessor)
             .optimize(kernel.body.clone(), kernel.cube_dim);

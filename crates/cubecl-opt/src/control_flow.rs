@@ -1,10 +1,11 @@
 #![allow(unknown_lints, unnecessary_transmutes)]
 
-use std::mem::transmute;
+use core::mem::transmute;
 
 use crate::{BasicBlock, BlockUse, Function, GlobalState, NodeIndex};
+use alloc::{boxed::Box, vec::Vec};
 use cubecl_ir::{
-    Arithmetic, BinaryOperator, Branch, Comparison, ConstantValue, ElemType, If, IfElse,
+    Arithmetic, BinaryOperands, Branch, Comparison, ConstantValue, ElemType, If, IfElse,
     Instruction, Loop, Marker, Operation, RangeLoop, Switch, Type, Variable, VariableKind,
 };
 use petgraph::{Direction, graph::EdgeIndex, visit::EdgeRef};
@@ -341,7 +342,7 @@ impl Function {
             };
             let tmp = state.allocator.create_local(Type::scalar(ElemType::Bool));
             self[header].ops.borrow_mut().push(Instruction::new(
-                op(BinaryOperator {
+                op(BinaryOperands {
                     lhs: i,
                     rhs: range_loop.end,
                 }),
@@ -356,7 +357,7 @@ impl Function {
             };
         }
         self[current_block].ops.borrow_mut().push(Instruction::new(
-            Arithmetic::Add(BinaryOperator { lhs: i, rhs: step }),
+            Arithmetic::Add(BinaryOperands { lhs: i, rhs: step }),
             i,
         ));
     }

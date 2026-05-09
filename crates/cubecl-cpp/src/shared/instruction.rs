@@ -265,7 +265,6 @@ pub enum Instruction<D: Dialect> {
     Barrier(BarrierOps<D>),
     MemCopyAsyncTensorSharedToGlobal {
         smem_buffer: Variable<D>,
-        smem_offset: Variable<D>,
         tensor_map: Variable<D>,
         indices: Vec<Variable<D>>,
     },
@@ -283,14 +282,7 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Unreachable => D::compile_unreachable(f),
             Instruction::DeclareVariable { var } => match var {
                 Variable::WmmaFragment { .. } => D::compile_wmma_fragment_declaration(f, var),
-                var => match var.item() {
-                    Item::Array(item, length) => {
-                        writeln!(f, "{item} {var}[{length}];")
-                    }
-                    item => {
-                        writeln!(f, "{item} {var};")
-                    }
-                },
+                var => writeln!(f, "{} {var};", var.item()),
             },
             Instruction::Add(it) => Add::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::SaturatingAdd(it) => SaturatingAdd::format(f, &it.lhs, &it.rhs, &it.out),
@@ -723,7 +715,6 @@ if({pos} == 0) {{
             }
             Instruction::MemCopyAsyncTensorSharedToGlobal {
                 smem_buffer,
-                smem_offset,
                 tensor_map,
                 indices,
             } => {
@@ -735,7 +726,7 @@ if({pos} == 0) {{
                 });
                 writeln!(
                     f,
-                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices} {smem_ptr} + {smem_offset});"
+                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices} {smem_ptr});"
                 )
             }
             Instruction::SpecialCast(UnaryInstruction { input, out }) => {

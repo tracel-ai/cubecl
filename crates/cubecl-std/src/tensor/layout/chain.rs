@@ -47,7 +47,7 @@ pub use launch::*;
 mod launch {
     use core::marker::PhantomData;
 
-    use crate::tensor::launch::{BufferArg, ViewLayoutLaunchArg};
+    use crate::tensor::launch::{MemoryArg, ViewLayoutLaunchArg};
 
     use super::*;
 
@@ -141,7 +141,7 @@ mod launch {
         type RuntimeArg<R: Runtime> = ChainLaunch<L0, L1, R>;
         type CompilationArg = ChainCompilationArg<L0, L1>;
 
-        fn register<R: Runtime, B: BufferArg>(
+        fn register<R: Runtime, B: MemoryArg>(
             arg: Self::RuntimeArg<R>,
             buffer: &B,
             ty: Type,

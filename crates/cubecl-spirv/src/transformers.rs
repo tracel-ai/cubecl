@@ -2,7 +2,7 @@ use cubecl_core::{
     define_scalar, define_size,
     ir::{
         Arithmetic, Bitwise, ElemType, Instruction, IntKind, Operation, Operator, Scope, Type,
-        UIntKind, UnaryOperator, Variable,
+        UIntKind, UnaryOperands, Variable,
     },
     prelude::{assign, expand_erf, expand_hypot, expand_rhypot},
 };
@@ -99,9 +99,9 @@ impl IrTransformer for BitwiseTransform {
             Bitwise::CountOnes(op) if is_u16_u8(op.input) && !self.arbitrary_bitwise => {
                 let u32 = Type::new(UIntKind::U32.into()).with_vector_size(op.input.vector_size());
                 let tmp = scope.create_local(u32);
-                let cast = Instruction::new(Operator::Cast(UnaryOperator { input: op.input }), tmp);
+                let cast = Instruction::new(Operator::Cast(UnaryOperands { input: op.input }), tmp);
                 let op =
-                    Instruction::new(Bitwise::CountOnes(UnaryOperator { input: tmp }), inst.out());
+                    Instruction::new(Bitwise::CountOnes(UnaryOperands { input: tmp }), inst.out());
                 TransformAction::Replace(vec![cast, op])
             }
             Bitwise::ReverseBits(op)
@@ -155,9 +155,9 @@ impl IrTransformer for BitwiseTransform {
             Bitwise::FindFirstSet(op) if is_u16_u8(op.input) => {
                 let u32 = Type::new(UIntKind::U32.into()).with_vector_size(op.input.vector_size());
                 let tmp = scope.create_local(u32);
-                let cast = Instruction::new(Operator::Cast(UnaryOperator { input: op.input }), tmp);
+                let cast = Instruction::new(Operator::Cast(UnaryOperands { input: op.input }), tmp);
                 let op = Instruction::new(
-                    Bitwise::FindFirstSet(UnaryOperator { input: tmp }),
+                    Bitwise::FindFirstSet(UnaryOperands { input: tmp }),
                     inst.out(),
                 );
                 TransformAction::Replace(vec![cast, op])

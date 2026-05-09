@@ -407,9 +407,9 @@ pub fn test_simple_1_vectorized<R: Runtime>(client: ComputeClient<R>, cube_dimen
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
             4,
-            ArrayArg::from_raw_parts(lhs, 256 / 4),
-            ArrayArg::from_raw_parts(rhs, 256 / 4),
-            ArrayArg::from_raw_parts(out.clone(), 256 / 4),
+            BufferArg::from_raw_parts(lhs, 256 / 4),
+            BufferArg::from_raw_parts(rhs, 256 / 4),
+            BufferArg::from_raw_parts(out.clone(), 256 / 4),
         )
     };
 
@@ -460,9 +460,9 @@ pub fn test_simple_1_vectorized_offset<R: Runtime>(
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
             vector_size,
-            ArrayArg::from_raw_parts(lhs, lhs_len),
-            ArrayArg::from_raw_parts(rhs, rhs_len),
-            ArrayArg::from_raw_parts(out.clone(), out_len),
+            BufferArg::from_raw_parts(lhs, lhs_len),
+            BufferArg::from_raw_parts(rhs, rhs_len),
+            BufferArg::from_raw_parts(out.clone(), out_len),
             offset_lhs,
             offset_rhs,
             offset_out,
@@ -503,9 +503,9 @@ pub fn test_simple_1<R: Runtime>(client: ComputeClient<R>, cube_dimensions: Cube
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts(lhs, 256),
-            ArrayArg::from_raw_parts(rhs, 256),
-            ArrayArg::from_raw_parts(out.clone(), 256),
+            BufferArg::from_raw_parts(lhs, 256),
+            BufferArg::from_raw_parts(rhs, 256),
+            BufferArg::from_raw_parts(out.clone(), 256),
         )
     };
 
@@ -584,9 +584,9 @@ pub fn test_simple_cube<R: Runtime>(client: ComputeClient<R>, cube_dimensions: u
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(cube_dimensions),
-            ArrayArg::from_raw_parts(lhs, lhs_size),
-            ArrayArg::from_raw_parts(rhs, rhs_size),
-            ArrayArg::from_raw_parts(out.clone(), acc_size),
+            BufferArg::from_raw_parts(lhs, lhs_size),
+            BufferArg::from_raw_parts(rhs, rhs_size),
+            BufferArg::from_raw_parts(out.clone(), acc_size),
             (m, n, k),
         )
     };
@@ -644,9 +644,9 @@ pub fn test_simple_cube_tensor<R: Runtime>(client: ComputeClient<R>, cube_dimens
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(cube_dimensions),
-            ArrayArg::from_raw_parts(lhs, lhs_size),
-            ArrayArg::from_raw_parts(rhs, rhs_size),
-            ArrayArg::from_raw_parts(out.clone(), acc_size),
+            BufferArg::from_raw_parts(lhs, lhs_size),
+            BufferArg::from_raw_parts(rhs, rhs_size),
+            BufferArg::from_raw_parts(out.clone(), acc_size),
             size_k as u32,
             (m, n, k),
         )
@@ -751,8 +751,8 @@ pub fn test_cmma_cast_f16<R: Runtime>(client: ComputeClient<R>, cube_dimensions:
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts(input, 256),
-            ArrayArg::from_raw_parts(out.clone(), 256),
+            BufferArg::from_raw_parts(input, 256),
+            BufferArg::from_raw_parts(out.clone(), 256),
         )
     };
 
@@ -785,8 +785,8 @@ pub fn test_cmma_cast_bf16<R: Runtime>(client: ComputeClient<R>, cube_dimensions
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts(input, 256),
-            ArrayArg::from_raw_parts(out.clone(), 256),
+            BufferArg::from_raw_parts(input, 256),
+            BufferArg::from_raw_parts(out.clone(), 256),
         )
     };
 
@@ -822,9 +822,9 @@ pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R>, cube_dimensions: C
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts(lhs, 128),
-            ArrayArg::from_raw_parts(rhs, 128),
-            ArrayArg::from_raw_parts(out.clone(), 256),
+            BufferArg::from_raw_parts(lhs, 128),
+            BufferArg::from_raw_parts(rhs, 128),
+            BufferArg::from_raw_parts(out.clone(), 256),
         )
     };
 
@@ -932,9 +932,9 @@ pub fn test_cmma_strided<R: Runtime>(client: ComputeClient<R>, cube_dimensions: 
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts(lhs, m * k),
-            ArrayArg::from_raw_parts(rhs, k * n),
-            ArrayArg::from_raw_parts(out.clone(), m * n),
+            BufferArg::from_raw_parts(lhs, m * k),
+            BufferArg::from_raw_parts(rhs, k * n),
+            BufferArg::from_raw_parts(out.clone(), m * n),
             k as u32,
             n as u32,
         )
@@ -1176,8 +1176,8 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     let elem_size = AB::type_size();
     let width = comptime![16 / elem_size];
 
-    let mut stage_a = SharedMemory::new_aligned(size_m * size_k, 16usize);
-    let mut stage_b = SharedMemory::new_aligned(size_k * size_n, 16usize);
+    let mut stage_a = Shared::new_aligned_array(size_m * size_k, 16usize);
+    let mut stage_b = Shared::new_aligned_array(size_k * size_n, 16usize);
     bar.memcpy_async_cooperative(a.as_slice(), stage_a.as_mut_slice());
     bar.memcpy_async_cooperative(b.as_slice(), stage_b.as_mut_slice());
     bar.arrive_and_wait();

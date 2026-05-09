@@ -1,33 +1,28 @@
+use alloc::boxed::Box;
 use core::marker::PhantomData;
 
+use crate::{frontend::container::slice, prelude::*};
+use cubecl_ir::Id;
 use cubecl_runtime::runtime::Runtime;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    compute::{KernelBuilder, KernelLauncher},
-    ir::Id,
-    prelude::{CubePrimitive, LaunchArg, NativeExpand, TensorBinding},
-};
-
-use super::Array;
-
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
-pub struct ArrayCompilationArg {
+pub struct BufferCompilationArg {
     pub inplace: Option<Id>,
 }
 
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle).
-pub struct ArrayBinding<R: Runtime> {
+pub struct BufferBinding<R: Runtime> {
     pub handle: cubecl_runtime::server::Binding,
     pub(crate) length: [usize; 1],
     runtime: PhantomData<R>,
 }
 
-pub enum ArrayArg<R: Runtime> {
+pub enum BufferArg<R: Runtime> {
     /// The array is passed with an array handle.
     Handle {
         /// The array handle.
-        handle: ArrayBinding<R>,
+        handle: BufferBinding<R>,
     },
     /// The array is aliasing another input array.
     Alias {
@@ -38,7 +33,7 @@ pub enum ArrayArg<R: Runtime> {
     },
 }
 
-impl<R: Runtime> ArrayArg<R> {
+impl<R: Runtime> BufferArg<R> {
     /// Create a new array argument.
     ///
     /// # Safety
@@ -46,8 +41,8 @@ impl<R: Runtime> ArrayArg<R> {
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts(handle: cubecl_runtime::server::Handle, length: usize) -> Self {
         unsafe {
-            ArrayArg::Handle {
-                handle: ArrayBinding::from_raw_parts(handle, length),
+            BufferArg::Handle {
+                handle: BufferBinding::from_raw_parts(handle, length),
             }
         }
     }
@@ -61,28 +56,28 @@ impl<R: Runtime> ArrayArg<R> {
         length: usize,
     ) -> Self {
         unsafe {
-            ArrayArg::Handle {
-                handle: ArrayBinding::from_raw_parts_binding(binding, length),
+            BufferArg::Handle {
+                handle: BufferBinding::from_raw_parts_binding(binding, length),
             }
         }
     }
 
     pub fn size(&self) -> usize {
         match self {
-            ArrayArg::Handle { handle } => handle.length[0],
-            ArrayArg::Alias { length, .. } => length[0],
+            BufferArg::Handle { handle } => handle.length[0],
+            BufferArg::Alias { length, .. } => length[0],
         }
     }
 
     pub fn shape(&self) -> &[usize] {
         match self {
-            ArrayArg::Handle { handle } => &handle.length,
-            ArrayArg::Alias { length, .. } => length,
+            BufferArg::Handle { handle } => &handle.length,
+            BufferArg::Alias { length, .. } => length,
         }
     }
 }
 
-impl<R: Runtime> ArrayBinding<R> {
+impl<R: Runtime> BufferBinding<R> {
     /// Create a new array handle reference.
     ///
     /// # Safety
@@ -121,31 +116,49 @@ impl<R: Runtime> ArrayBinding<R> {
     }
 }
 
+impl<C: CubePrimitive> LaunchArg for Box<[C]> {
+    type RuntimeArg<R: Runtime> = BufferArg<R>;
+    type CompilationArg = BufferCompilationArg;
 
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
+        <[C]>::register(arg, launcher)
+    }
 
-impl<C: CubePrimitive> LaunchArg for Array<C> {
-    type RuntimeArg<R: Runtime> = ArrayArg<R>;
-    type CompilationArg = ArrayCompilationArg;
+    fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<Box<[C]>> {
+        <[C]>::expand(arg, builder).expand.into()
+    }
+}
+
+impl<C: CubePrimitive> LaunchArg for [C] {
+    type RuntimeArg<R: Runtime> = BufferArg<R>;
+    type CompilationArg = BufferCompilationArg;
 
     fn register<R: Runtime>(
         arg: Self::RuntimeArg<R>,
         launcher: &mut KernelLauncher<R>,
     ) -> Self::CompilationArg {
         let ty = launcher.with_scope(|scope| C::__expand_as_type(scope));
-        let compilation_arg = match &arg {
-            ArrayArg::Handle { .. } => ArrayCompilationArg { inplace: None },
-            ArrayArg::Alias { input_pos, .. } => ArrayCompilationArg {
-                inplace: Some(*input_pos as Id),
-            },
+        let inplace = match &arg {
+            BufferArg::Handle { .. } => None,
+            BufferArg::Alias { input_pos, .. } => Some(*input_pos as Id),
         };
-        launcher.register_array(arg, ty);
-        compilation_arg
+        launcher.register_buffer(arg, ty);
+
+        BufferCompilationArg { inplace }
     }
 
-    fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<Array<C>> {
-        match arg.inplace {
-            Some(id) => builder.inplace_output(id).into(),
-            None => builder.output_array(C::__expand_as_type(&builder.scope)).into(),
-        }
+    fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<[C]> {
+        let buffer = match arg.inplace {
+            Some(id) => builder.inplace(id),
+            None => builder.buffer(C::__expand_as_type(&builder.scope)),
+        };
+        let scope = &builder.scope;
+        let len = expand_buffer_length_native(scope, buffer);
+        let slice_var =
+            slice::from_raw_parts::<C>(scope, buffer, 0usize.into_expand(scope), len.into());
+        slice_var.expand.into()
     }
 }

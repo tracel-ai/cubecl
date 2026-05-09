@@ -170,6 +170,9 @@ impl<'a> Visitor<'a> {
             Operation::Synchronization(_) | Operation::NonSemantic(_) | Operation::Marker(_) => {
                 unreachable!("{operation} doesn't have an out");
             }
+            Operation::ConstructAggregate(..) | Operation::ExtractAggregateField(..) => {
+                unreachable!("Should be disaggregated at this point")
+            }
         }
     }
 }

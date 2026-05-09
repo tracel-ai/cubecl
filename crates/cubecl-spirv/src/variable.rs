@@ -343,6 +343,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 panic!("Barrier not supported.")
             }
             ir::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
+            ir::VariableKind::Aggregate { .. } => {
+                unreachable!("Should be disaggregated at this point")
+            }
         }
     }
 

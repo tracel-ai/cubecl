@@ -444,7 +444,7 @@ impl From<SemanticType> for Type {
 /// separate types.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum PointerClass {
+pub enum AddressSpace {
     Global(Id),
     Shared,
     Local,
@@ -462,11 +462,11 @@ pub enum Type {
     /// Atomically accessed version of `Type`
     Atomic(Intern<Type>),
     /// Pointer of `Type` into a `PointerClass`
-    Pointer(Intern<Type>, PointerClass),
+    Pointer(Intern<Type>, AddressSpace),
     /// Statically sized array of `Type`s
-    Array(Intern<Type>, usize),
+    Array(Intern<Type>, usize, AddressSpace),
     /// Dynamically sized array of `Type`s
-    DynamicArray(Intern<Type>),
+    DynamicArray(Intern<Type>, AddressSpace),
 }
 
 /// `Intern` hashes the pointer, not the values, leading to unstable hashes across runs.
@@ -479,15 +479,19 @@ impl core::hash::Hash for Type {
             Type::Vector(intern, _) => intern.as_ref().hash(state),
             Type::Semantic(semantic_type) => semantic_type.hash(state),
             Type::Atomic(intern) => intern.as_ref().hash(state),
-            Type::Pointer(intern, pointer_class) => {
+            Type::Pointer(intern, addr_space) => {
                 intern.as_ref().hash(state);
-                pointer_class.hash(state);
+                addr_space.hash(state);
             }
-            Type::Array(intern, size) => {
+            Type::Array(intern, size, addr_space) => {
                 intern.as_ref().hash(state);
+                addr_space.hash(state);
                 size.hash(state);
             }
-            Type::DynamicArray(intern) => intern.as_ref().hash(state),
+            Type::DynamicArray(intern, addr_space) => {
+                intern.as_ref().hash(state);
+                addr_space.hash(state);
+            }
         }
     }
 }
@@ -532,33 +536,46 @@ impl Type {
             Type::Pointer(inner, class) => {
                 Type::Pointer(inner.with_vector_size(vector_size).intern(), class)
             }
-            Type::Array(inner, size) => {
-                Type::Array(inner.with_vector_size(vector_size).intern(), size)
-            }
-            Type::DynamicArray(inner) => {
-                Type::DynamicArray(inner.with_vector_size(vector_size).intern())
+            Type::Array(inner, size, addr_space) => Type::Array(
+                inner.with_vector_size(vector_size).intern(),
+                size,
+                addr_space,
+            ),
+            Type::DynamicArray(inner, addr_space) => {
+                Type::DynamicArray(inner.with_vector_size(vector_size).intern(), addr_space)
             }
             this @ (Type::Scalar(_) | Type::Semantic(_)) => this,
         }
     }
 
-    pub fn pointer(ty: impl Into<Type>, class: PointerClass) -> Self {
+    pub fn pointer(ty: impl Into<Type>, class: AddressSpace) -> Self {
         Self::Pointer(ty.into().intern(), class)
     }
 
-    pub fn array(ty: impl Into<Type>, size: usize) -> Self {
-        Self::Array(ty.into().intern(), size)
+    pub fn array(ty: impl Into<Type>, size: usize, addr_space: AddressSpace) -> Self {
+        Self::Array(ty.into().intern(), size, addr_space)
     }
 
     pub fn vector_size(&self) -> VectorSize {
         match self {
             Type::Scalar(_) => 1,
             Type::Vector(inner, vector_size) => inner.vector_size() * *vector_size,
-            Type::Array(inner, _)
-            | Type::DynamicArray(inner)
+            Type::Array(inner, ..)
+            | Type::DynamicArray(inner, ..)
             | Type::Atomic(inner)
             | Type::Pointer(inner, _) => inner.vector_size(),
             Type::Semantic(_) => 0,
+        }
+    }
+
+    pub fn array_size(&self) -> usize {
+        match self {
+            Type::Array(_, size, _) => *size,
+            Type::Scalar(_) => 1,
+            Type::Vector(inner, _) | Type::Atomic(inner) | Type::Pointer(inner, _) => {
+                inner.array_size()
+            }
+            Type::Semantic(_) | Type::DynamicArray(..) => 0,
         }
     }
 
@@ -567,8 +584,8 @@ impl Type {
             Type::Scalar(ty) => ty.size(),
             Type::Vector(ty, vector_size) => ty.size() * *vector_size,
             Type::Atomic(inner) => inner.size(),
-            Type::Array(inner, size) => inner.size() * *size,
-            Type::DynamicArray(inner) => inner.size(),
+            Type::Array(inner, size, _) => inner.size() * *size,
+            Type::DynamicArray(inner, ..) => inner.size(),
             // All platforms use at least conceptually 64-bit pointers
             Type::Pointer(..) => size_of::<u64>(),
             Type::Semantic(_) => 0,
@@ -580,8 +597,8 @@ impl Type {
             Type::Scalar(ty) => ty.size_bits(),
             Type::Vector(ty, vector_size) => ty.size_bits() * *vector_size,
             Type::Atomic(inner) => inner.size_bits(),
-            Type::Array(inner, _) => inner.size_bits(),
-            Type::DynamicArray(inner) => inner.size_bits(),
+            Type::Array(inner, ..) => inner.size_bits(),
+            Type::DynamicArray(inner, ..) => inner.size_bits(),
             // All platforms use at least conceptually 64-bit pointers
             Type::Pointer(..) => u64::BITS as usize,
             Type::Semantic(_) => 0,
@@ -594,8 +611,8 @@ impl Type {
             Type::Vector(ty, _)
             | Type::Atomic(ty)
             | Type::Pointer(ty, _)
-            | Type::Array(ty, _)
-            | Type::DynamicArray(ty) => ty.packing_factor(),
+            | Type::Array(ty, ..)
+            | Type::DynamicArray(ty, ..) => ty.packing_factor(),
             Type::Semantic(_) => 1,
         }
     }
@@ -606,8 +623,8 @@ impl Type {
             Type::Atomic(_) => true,
             Type::Pointer(inner, _)
             | Type::Vector(inner, _)
-            | Type::Array(inner, _)
-            | Type::DynamicArray(inner) => inner.is_atomic(),
+            | Type::Array(inner, ..)
+            | Type::DynamicArray(inner, ..) => inner.is_atomic(),
         }
     }
 
@@ -622,8 +639,8 @@ impl Type {
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
-            | Type::Array(inner, _)
-            | Type::DynamicArray(inner) => inner.is_int(),
+            | Type::Array(inner, ..)
+            | Type::DynamicArray(inner, ..) => inner.is_int(),
         }
     }
 
@@ -634,8 +651,8 @@ impl Type {
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
-            | Type::Array(inner, _)
-            | Type::DynamicArray(inner) => inner.is_signed_int(),
+            | Type::Array(inner, ..)
+            | Type::DynamicArray(inner, ..) => inner.is_signed_int(),
         }
     }
 
@@ -646,8 +663,8 @@ impl Type {
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
-            | Type::Array(inner, _)
-            | Type::DynamicArray(inner) => inner.is_unsigned_int(),
+            | Type::Array(inner, ..)
+            | Type::DynamicArray(inner, ..) => inner.is_unsigned_int(),
         }
     }
 
@@ -658,8 +675,8 @@ impl Type {
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
-            | Type::Array(inner, _)
-            | Type::DynamicArray(inner) => inner.is_float(),
+            | Type::Array(inner, ..)
+            | Type::DynamicArray(inner, ..) => inner.is_float(),
         }
     }
 
@@ -670,8 +687,8 @@ impl Type {
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
-            | Type::Array(inner, _)
-            | Type::DynamicArray(inner) => inner.is_bool(),
+            | Type::Array(inner, ..)
+            | Type::DynamicArray(inner, ..) => inner.is_bool(),
         }
     }
 
@@ -682,8 +699,8 @@ impl Type {
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
-            | Type::Array(inner, _)
-            | Type::DynamicArray(inner) => inner.storage_type(),
+            | Type::Array(inner, ..)
+            | Type::DynamicArray(inner, ..) => inner.storage_type(),
         }
     }
 
@@ -697,13 +714,19 @@ impl Type {
 
     pub fn value_type(&self) -> Type {
         match self {
-            Type::Pointer(inner, _) | Type::Array(inner, _) | Type::DynamicArray(inner) => **inner,
+            Type::Pointer(inner, _) | Type::Array(inner, ..) | Type::DynamicArray(inner, ..) => {
+                **inner
+            }
             other => *other,
         }
     }
 
     pub fn is_array(&self) -> bool {
         matches!(self, Type::Array(..) | Type::DynamicArray(..))
+    }
+
+    pub fn is_value(&self) -> bool {
+        self.value_type() == *self
     }
 }
 
@@ -714,9 +737,9 @@ impl Display for Type {
             Type::Scalar(ty) => write!(f, "{ty}"),
             Type::Vector(ty, vector_size) => write!(f, "vector<{ty}, {vector_size}>"),
             Type::Atomic(ty) => write!(f, "atomic<{ty}>"),
-            Type::Pointer(ty, pointer_class) => write!(f, "ptr<{ty}, {pointer_class}>"),
-            Type::Array(ty, size) => write!(f, "array<{ty}, {size}>"),
-            Type::DynamicArray(ty) => write!(f, "array<{ty}>"),
+            Type::Pointer(ty, addr_space) => write!(f, "ptr<{ty}, {addr_space}>"),
+            Type::Array(ty, size, addr_space) => write!(f, "array<{ty}, {addr_space}, {size}>"),
+            Type::DynamicArray(ty, addr_space) => write!(f, "array<{ty}, {addr_space}>"),
         }
     }
 }
@@ -791,12 +814,12 @@ impl Display for OpaqueType {
     }
 }
 
-impl Display for PointerClass {
+impl Display for AddressSpace {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            PointerClass::Global(id) => write!(f, "global<{id}>"),
-            PointerClass::Shared => write!(f, "shared"),
-            PointerClass::Local => f.write_str("local"),
+            AddressSpace::Global(id) => write!(f, "global<{id}>"),
+            AddressSpace::Shared => write!(f, "shared"),
+            AddressSpace::Local => f.write_str("local"),
         }
     }
 }

@@ -4,7 +4,7 @@ use crate::{
     lookups::Matrix,
     variable::Variable,
 };
-use cubecl_core::ir::{self as core, CoopMma, ElemType, Id, MatrixLayout, MatrixScope, Type};
+use cubecl_core::ir::{self as core, CoopMma, ElemType, Id, MatrixLayout, MatrixScope};
 use rspirv::{
     dr::Operand,
     spirv::{
@@ -20,11 +20,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         match cmma {
             CoopMma::Fill { value } => self.compile_fill(out, value),
             CoopMma::Load {
-                value,
+                ptr,
                 stride,
                 layout,
-                offset,
-            } => self.compile_load(out, value, stride, offset, layout),
+            } => self.compile_load(out, ptr, stride, layout),
             CoopMma::LoadTensor {
                 buffer,
                 layout,
@@ -42,8 +41,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 mat,
                 stride,
                 layout,
-                offset,
-            } => self.compile_store(mat, out, stride, offset, layout),
+                destination,
+            } => self.compile_store(mat, stride, destination, layout),
             CoopMma::StoreTensor { mat, layout, view } => {
                 self.compile_store_tensor(mat, out, layout, view)
             }
@@ -62,23 +61,22 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     fn compile_load(
         &mut self,
         mat: core::Variable,
-        value: core::Variable,
+        ptr: core::Variable,
         stride: core::Variable,
-        offset: core::Variable,
         layout: Option<MatrixLayout>,
     ) {
-        let ptr_ty = self.compile_type(Type::pointer(value.value_type(), value.pointer_class()));
         let mat = self.compile_variable(mat);
         let mat = self.matrix_var(&mat).1;
 
-        let value = self.compile_variable(value);
+        let ptr = self.compile_variable(ptr);
         let stride = self.compile_variable(stride);
         let stride_item = stride.item();
         let mut stride = self.read(&stride);
 
-        let align = value.item().size();
+        let value_ty = ptr.item().value_type();
+        let align = value_ty.size();
 
-        if let Item::Vector(_, vector_size) = value.item().value_type() {
+        if let Item::Vector(_, vector_size) = value_ty {
             let shift = stride_item.const_u32(self, vector_size.trailing_zeros());
             let stride_ty = stride_item.id(self);
             stride = self
@@ -92,9 +90,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
 
-        let offset = self.compile_variable(offset);
-        let indexed_ptr = Variable::Raw(self.id(), ptr_ty);
-        let ptr = self.index(&value, &offset, &indexed_ptr);
+        let ptr = self.read(&ptr);
         let out_ty = self.item(&mat);
         let ty = out_ty.id(self);
 
@@ -185,12 +181,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     fn compile_store(
         &mut self,
         mat: core::Variable,
-        out: core::Variable,
         stride: core::Variable,
-        offset: core::Variable,
+        destination: core::Variable,
         layout: MatrixLayout,
     ) {
-        let ptr_ty = self.compile_type(Type::pointer(out.value_type(), out.pointer_class()));
         let mat = self.compile_variable(mat);
         let mat = self.matrix_var(&mat).1;
         let item = self.item(&mat);
@@ -198,20 +192,20 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let mat_obj = self.load(ty, None, mat.id, None, vec![]).unwrap();
         //assert_ne!(mat_obj, 0, "Can't store uninitialized matrix");
 
-        let out = self.compile_variable(out);
+        let ptr = self.compile_variable(destination);
         let stride = self.compile_variable(stride);
+        let value_ty = ptr.item().value_type();
+
         let stride_item = stride.item();
         let mut stride = self.read(&stride);
         let layout = compile_layout(layout).unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
-        let offset = self.compile_variable(offset);
 
-        let tmp = Variable::Raw(self.id(), ptr_ty);
-        let ptr = self.index(&out, &offset, &tmp);
+        let ptr = self.read(&ptr);
 
-        let align = out.item().size();
+        let align = value_ty.size();
 
-        if let Item::Vector(_, vector_size) = out.item().value_type() {
+        if let Item::Vector(_, vector_size) = value_ty {
             let shift = stride_item.const_u32(self, vector_size.trailing_zeros());
             let stride_ty = stride_item.id(self);
             stride = self

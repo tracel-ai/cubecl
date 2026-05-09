@@ -177,6 +177,7 @@ impl<T: CubeType> IndexMutExpand<NativeExpand<usize>> for SequenceExpand<T> {
 }
 
 /// Expand type of [Sequence].
+#[derive(Debug)]
 pub struct SequenceExpand<T: CubeType> {
     // We clone the expand type during the compilation phase, but for register reuse, not for
     // copying data. To achieve the intended behavior, we have to share the same underlying values.
@@ -347,7 +348,7 @@ macro_rules! __expand_seq {
     };
     ($scope: expr, $($value: expr,)*) => {{
         let mut seq = Sequence::__expand_new($scope);
-        $(seq.clone().__expand_push_method($scope, $value.into());)*
+        $(seq.__expand_push_method($scope, $value.into());)*
         seq
     }}
 }

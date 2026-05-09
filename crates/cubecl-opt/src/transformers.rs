@@ -1,6 +1,6 @@
-use cubecl_core::CubeDim;
+use alloc::{boxed::Box, rc::Rc, vec::Vec};
+use cubecl_core::{CubeDim, post_processing::visitor::InstructionVisitor};
 use cubecl_ir::{Instruction, Processor, Scope};
-use std::rc::Rc;
 
 use crate::Optimizer;
 
@@ -8,6 +8,7 @@ use crate::Optimizer;
 #[derive(Default)]
 pub struct OptimizerBuilder {
     transformers: Vec<Rc<dyn IrTransformer>>,
+    visitors: Vec<Box<dyn InstructionVisitor>>,
     processors: Vec<Box<dyn Processor>>,
 }
 
@@ -18,6 +19,11 @@ impl OptimizerBuilder {
         self
     }
 
+    pub fn with_visitor(mut self, visitor: impl InstructionVisitor + 'static) -> Self {
+        self.visitors.push(Box::new(visitor));
+        self
+    }
+
     pub fn with_processor(mut self, processor: impl Processor + 'static) -> Self {
         self.processors.push(Box::new(processor));
         self
@@ -25,7 +31,13 @@ impl OptimizerBuilder {
 
     /// Build and run optimizer on the scope
     pub fn optimize(self, expand: Scope, cube_dim: CubeDim) -> Optimizer {
-        Optimizer::new(expand, cube_dim, self.transformers, self.processors)
+        Optimizer::new(
+            expand,
+            cube_dim,
+            self.transformers,
+            self.visitors,
+            self.processors,
+        )
     }
 }
 

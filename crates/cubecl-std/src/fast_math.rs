@@ -21,7 +21,7 @@ pub enum FastDivmod<I: FastDivmodInt> {
     },
 }
 
-pub trait FastDivmodInt: Int + MulHi + ScalarArgSettings {
+pub trait FastDivmodInt: Int + MulHi + ScalarArgSettings + LaunchArg<CompilationArg = ()> {
     fn size<R: Runtime>(launcher: &KernelLauncher<R>) -> usize;
 }
 
@@ -110,7 +110,10 @@ mod launch {
         Fallback,
     }
 
-    impl<I: FastDivmodInt> LaunchArg for FastDivmod<I> {
+    impl<I: FastDivmodInt> LaunchArg for FastDivmod<I>
+    where
+        I: LaunchArg<CompilationArg = ()>,
+    {
         type RuntimeArg<R: Runtime> = I;
         type CompilationArg = FastDivmodCompilationArg;
 
@@ -140,13 +143,13 @@ mod launch {
                         }
                         _ => panic!("unsupported type size for FastDivmod"),
                     };
-                    <I as LaunchArg>::register(divisor, launcher);
-                    <I as LaunchArg>::register(multiplier, launcher);
-                    <u32 as LaunchArg>::register(shift_right, launcher);
+                    divisor.register(launcher);
+                    multiplier.register(launcher);
+                    shift_right.register(launcher);
                     FastDivmodCompilationArg::Fast
                 }
                 false => {
-                    <I as LaunchArg>::register(divisor, launcher);
+                    divisor.register(launcher);
                     FastDivmodCompilationArg::Fallback
                 }
             }

@@ -9,10 +9,12 @@ use core::{
 use derive_more::{Eq, PartialEq};
 use enumset::EnumSet;
 use hashbrown::{HashMap, HashSet};
+use itertools::Itertools;
 
 use crate::{
-    BarrierLevel, CubeFnSource, DeviceProperties, FastMath, Function, Matrix, OperationReflect,
-    Processor, SemanticType, SourceLoc, StorageType, TargetProperties, TypeHash,
+    AggregateExtractOperands, AggregateKind, BarrierLevel, CubeFnSource, DeviceProperties,
+    FastMath, Function, Matrix, Operation, OperationReflect, Processor, SemanticType, SourceLoc,
+    StorageType, TargetProperties, TypeHash,
 };
 
 use super::{
@@ -63,7 +65,7 @@ pub struct GlobalStateInner {
 }
 
 impl GlobalStateInner {
-    fn clone_deep(&self) -> Self {
+    pub fn clone_deep(&self) -> Self {
         Self {
             reference_arena: Bump::new(),
             allocator: self.allocator.clone_deep(),
@@ -202,6 +204,18 @@ impl Scope {
     /// Create a new immutable variable.
     pub fn create_local(&self, ty: Type) -> Variable {
         self.state().allocator.create_local(ty)
+    }
+
+    /// Create a new immutable variable.
+    pub fn create_aggregate(&self, ty: Type, kind: AggregateKind) -> Variable {
+        let id = self.state().allocator.new_local_index();
+        Variable::new(
+            VariableKind::Aggregate {
+                id,
+                aggregate_kind: kind,
+            },
+            ty,
+        )
     }
 
     /// Create a new function.
@@ -366,7 +380,7 @@ impl Scope {
     pub fn global(&self, id: Id, item: Type) -> Variable {
         Variable::new(
             VariableKind::GlobalBuffer(id),
-            Type::DynamicArray(item.intern()),
+            Type::DynamicArray(item.intern(), crate::AddressSpace::Global(id)),
         )
     }
 
@@ -413,11 +427,19 @@ impl Scope {
         }
     }
 
-    pub fn clone_deep(&self) -> Scope {
-        Scope {
-            global_state: Rc::new(RefCell::new(self.global_state.borrow().clone_deep())),
-            ..self.clone()
+    pub fn extract_field(&self, aggregate: Variable, ty: Type, field: usize) -> Variable {
+        if !matches!(aggregate.kind, VariableKind::Aggregate { .. }) {
+            panic!(
+                "Tried extracting field from non-aggregate {aggregate}.\nCurrent state:\n{}",
+                self.instructions.borrow().iter().join("\n")
+            )
         }
+        let out = self.create_local(ty);
+        self.register(Instruction::new(
+            Operation::ExtractAggregateField(AggregateExtractOperands { aggregate, field }),
+            out,
+        ));
+        out
     }
 }
 

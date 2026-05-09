@@ -1,12 +1,11 @@
-use std::{
-    collections::{HashSet, LinkedList},
-    mem::swap,
-};
+use core::mem::swap;
 
+use alloc::{collections::linked_list::LinkedList, vec::Vec};
 use cubecl_ir::{
-    self as ir, Arithmetic, Comparison, ComparisonOpCode, Memory, Metadata, OpCode, Operation,
-    OperationReflect, Type, Variable,
+    self as ir, Arithmetic, AtomicOp, Comparison, ComparisonOpCode, Memory, OpCode, Operation,
+    OperationReflect, Variable,
 };
+use hashbrown::HashSet;
 
 use crate::PhiInstruction;
 
@@ -121,8 +120,9 @@ impl ValueTable {
             Operation::Comparison(cmp) => self.create_expr_cmp(cmp, inst.out()),
             Operation::Bitwise(bitwise) => self.create_expr_simple_op(bitwise, inst.out()),
             Operation::Operator(operator) => self.create_expr_simple_op(operator, inst.out()),
-            Operation::Metadata(metadata) => self.create_expr_meta(metadata, inst.out()),
-            Operation::Plane(_) | Operation::Atomic(_) => Err(value_of_var(&inst.out())),
+            Operation::Metadata(metadata) => self.create_expr_simple_op(metadata, inst.out()),
+            Operation::Plane(_) => Err(value_of_var(&inst.out())),
+            Operation::Atomic(atomic) => self.create_expr_atomic(atomic, inst.out),
             Operation::Branch(_)
             | Operation::Synchronization(_)
             | Operation::CoopMma(_)
@@ -131,6 +131,9 @@ impl ValueTable {
             | Operation::Tma(_)
             | Operation::TensorIndexing(_)
             | Operation::Marker(_) => Err(None),
+            Operation::ConstructAggregate(..) | Operation::ExtractAggregateField(..) => {
+                unreachable!("Should be disaggregated at this point")
+            }
         }
     }
 
@@ -199,33 +202,15 @@ impl ValueTable {
         Ok((expr, val))
     }
 
-    fn create_expr_meta(
+    fn create_expr_atomic(
         &mut self,
-        meta: &Metadata,
-        out: Variable,
+        atomic: &AtomicOp,
+        out: Option<Variable>,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
-        let op = OpCode::Metadata(meta.op_code());
-        let (expr, val) = match meta {
-            Metadata::Length { var } => {
-                let item = out.ty;
-                let out = value_of_var(&out);
-                let var = match var.ty {
-                    Type::Array(_, length) => {
-                        let constant = length.into();
-                        let constant = Variable::constant(constant, item);
-                        let num = self.lookup_or_add_var(&constant)?;
-                        let expr = Expression::Copy(num, item);
-                        return Ok((expr, out));
-                    }
-                    Type::DynamicArray(_) => self.lookup_or_add_var(var)?,
-                    _ => unreachable!("Length only available on array"),
-                };
-                let expr = Instruction::new(op, &[var], item);
-                (expr.into(), out)
-            }
-            op => self.create_expr_simple_op(op, out)?,
-        };
-        Ok((expr, val))
+        match atomic {
+            AtomicOp::Store(..) => Err(None),
+            _ => Err(value_of_var(&out.unwrap())),
+        }
     }
 
     fn create_expr_simple_op<Code: Into<OpCode>>(

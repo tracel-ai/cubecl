@@ -1,9 +1,7 @@
-use std::{
-    collections::{HashMap, HashSet},
-    ops::Deref,
-};
+use core::ops::Deref;
 
 use crate::{Function, GlobalState, NodeIndex};
+use hashbrown::{HashMap, HashSet};
 use petgraph::algo::dominators;
 
 use super::Analysis;

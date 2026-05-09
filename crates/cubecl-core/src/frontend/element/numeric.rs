@@ -118,18 +118,23 @@ impl ScalarArgSettings for isize {
     }
 }
 
-impl<T: ScalarArgSettings> LaunchArg for T {
-    type RuntimeArg<R: Runtime> = T;
-    type CompilationArg = ();
+macro_rules! impl_scalar_launch {
+    ($ty: ty) => {
+        impl LaunchArg for $ty {
+            type RuntimeArg<R: Runtime> = $ty;
+            type CompilationArg = ();
 
-    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
-        arg.register(launcher);
-    }
+            fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+                arg.register(launcher);
+            }
 
-    fn expand(_: &(), builder: &mut KernelBuilder) -> NativeExpand<Self> {
-        T::expand_scalar(builder)
-    }
+            fn expand(_: &(), builder: &mut KernelBuilder) -> NativeExpand<Self> {
+                <$ty>::expand_scalar(builder)
+            }
+        }
+    };
 }
+pub(crate) use impl_scalar_launch;
 
 pub trait ZeroExpand: CubeType + Zero {
     fn __expand_zero(scope: &Scope) -> Self::ExpandType;

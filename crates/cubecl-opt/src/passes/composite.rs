@@ -1,9 +1,11 @@
-use std::{collections::HashMap, mem::take};
+use core::mem::take;
 
+use alloc::vec::Vec;
 use cubecl_ir::{
-    BinaryOperator, Id, Instruction, Operation, Operator, Type, Variable, VariableKind,
+    BinaryOperands, Id, Instruction, Operation, Operator, Type, Variable, VariableKind,
     VectorInitOperator, VectorInsertOperator,
 };
+use hashbrown::HashMap;
 use stable_vec::StableVec;
 
 use crate::{
@@ -43,7 +45,7 @@ impl OptimizerPass for CompositeMerge {
                 // Reset writes when read
                 {
                     let op = &mut ops.borrow_mut()[idx];
-                    func.visit_operation(state, &mut op.operation, &mut op.out, |_, var| {
+                    func.visit_operation(state, &mut op.operation, |_, var| {
                         if let Some(id) = local_variable_id(var) {
                             assigns.remove(&id);
                         }
@@ -126,7 +128,7 @@ impl OptimizerPass for RemoveIndexScalar {
         for block in blocks {
             let ops = func[block].ops.clone();
             for op in ops.borrow_mut().values_mut() {
-                if let Operation::Operator(Operator::ExtractComponent(BinaryOperator {
+                if let Operation::Operator(Operator::ExtractComponent(BinaryOperands {
                     lhs: vector,
                     rhs: index,
                     ..

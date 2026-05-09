@@ -14,4 +14,6 @@ pub struct OpArgs {
 pub struct OpArgsField {
     pub ident: Option<Ident>,
     pub allow_ptr: Flag,
+    pub ptr_read: Flag,
+    pub ptr_write: Flag,
 }

@@ -1,6 +1,6 @@
 use cubecl_ir::{
-    Arithmetic, BinaryOperator, Comparison, ElemType, IndexOperator, Instruction, Memory,
-    Operation, Scope, Type, UnaryOperator, Variable, VectorSize,
+    Arithmetic, BinaryOperands, Comparison, ElemType, IndexOperands, Instruction, Memory,
+    Operation, Scope, Type, UnaryOperands, Variable, VectorSize,
 };
 use cubecl_macros::cube;
 
@@ -18,7 +18,7 @@ pub(crate) fn read_variable(scope: &Scope, var: Variable) -> Variable {
 
 pub(crate) fn binary_expand<F, Op>(scope: &Scope, lhs: Variable, rhs: Variable, func: F) -> Variable
 where
-    F: Fn(BinaryOperator) -> Op,
+    F: Fn(BinaryOperands) -> Op,
     Op: Into<Operation>,
 {
     let item_lhs = lhs.value_type();
@@ -30,7 +30,7 @@ where
 
     let output = scope.create_local(item);
 
-    let op = func(BinaryOperator { lhs, rhs });
+    let op = func(BinaryOperands { lhs, rhs });
 
     scope.register(Instruction::new(op, output));
 
@@ -52,10 +52,10 @@ pub(crate) fn index_expand(
         item_lhs
     };
 
-    let class = list.pointer_class();
+    let class = list.address_space();
     let output = scope.create_local(Type::pointer(ty, class));
 
-    let op = Memory::Index(IndexOperator {
+    let op = Memory::Index(IndexOperands {
         list,
         index,
         vector_size: vector_size.unwrap_or(0),
@@ -76,10 +76,10 @@ pub(crate) fn binary_expand_fixed_output<F>(
     func: F,
 ) -> Variable
 where
-    F: Fn(BinaryOperator) -> Arithmetic,
+    F: Fn(BinaryOperands) -> Arithmetic,
 {
     let out = scope.create_local(out_item);
-    let op = func(BinaryOperator { lhs, rhs });
+    let op = func(BinaryOperands { lhs, rhs });
 
     scope.register(Instruction::new(op, out));
 
@@ -88,7 +88,7 @@ where
 
 pub(crate) fn cmp_expand<F>(scope: &Scope, lhs: Variable, rhs: Variable, func: F) -> Variable
 where
-    F: Fn(BinaryOperator) -> Comparison,
+    F: Fn(BinaryOperands) -> Comparison,
 {
     let item_lhs = lhs.value_type();
     let item_rhs = rhs.value_type();
@@ -99,7 +99,7 @@ where
 
     let out = scope.create_local(out_item);
 
-    let op = func(BinaryOperator { lhs, rhs });
+    let op = func(BinaryOperands { lhs, rhs });
 
     scope.register(Instruction::new(op, out));
 
@@ -110,7 +110,7 @@ pub(crate) fn assign_op_expand<T: CubeType, Op>(
     scope: &Scope,
     lhs: &mut NativeExpand<T>,
     rhs: NativeExpand<T>,
-    func: impl Fn(BinaryOperator) -> Op,
+    func: impl Fn(BinaryOperands) -> Op,
 ) where
     Op: Into<Operation>,
     NativeExpand<T>: DerefExpand<Target = NativeExpand<T>>,
@@ -124,7 +124,7 @@ pub(crate) fn assign_op_expand<T: CubeType, Op>(
     }
 
     let tmp = scope.create_local(lhs.value_type());
-    let op = func(BinaryOperator {
+    let op = func(BinaryOperands {
         lhs: lhs_value,
         rhs,
     });
@@ -135,14 +135,14 @@ pub(crate) fn assign_op_expand<T: CubeType, Op>(
 
 pub fn unary_expand<F, Op>(scope: &Scope, input: Variable, func: F) -> Variable
 where
-    F: Fn(UnaryOperator) -> Op,
+    F: Fn(UnaryOperands) -> Op,
     Op: Into<Operation>,
 {
     let item = input.value_type();
 
     let out = scope.create_local(item);
 
-    let op = func(UnaryOperator { input });
+    let op = func(UnaryOperands { input });
 
     scope.register(Instruction::new(op, out));
 
@@ -156,12 +156,12 @@ pub fn unary_expand_fixed_output<F, Op>(
     func: F,
 ) -> Variable
 where
-    F: Fn(UnaryOperator) -> Op,
+    F: Fn(UnaryOperands) -> Op,
     Op: Into<Operation>,
 {
     let output = scope.create_local(out_item);
 
-    let op = func(UnaryOperator { input });
+    let op = func(UnaryOperands { input });
 
     scope.register(Instruction::new(op, output));
 
@@ -197,7 +197,7 @@ pub(crate) fn find_vectorization(lhs: Type, rhs: Type) -> VectorSize {
 pub fn assign_binary_op_expand<
     A: CubeType,
     V: CubeType,
-    F: Fn(BinaryOperator) -> Op,
+    F: Fn(BinaryOperands) -> Op,
     Op: Into<Operation>,
 >(
     scope: &Scope,
@@ -212,7 +212,7 @@ pub fn assign_binary_op_expand<
     let rhs: Variable = rhs.into();
 
     scope.register(Instruction::new(
-        func(BinaryOperator {
+        func(BinaryOperands {
             lhs: lhs_value,
             rhs,
         }),

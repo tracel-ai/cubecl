@@ -2,6 +2,9 @@ use cubecl_core::{prelude::*, unexpanded};
 
 use crate::tensor::{View, ViewExpand, layout::*};
 
+type ArrayExpand<T> = NativeExpand<Array<T>>;
+type SharedMemoryExpand<T> = NativeExpand<SharedMemory<T>>;
+
 pub trait AsView<E: CubePrimitive>:
     CubeType<ExpandType: AsViewExpand<E, SourceCoords = Self::SourceCoords>>
 {
@@ -55,37 +58,48 @@ pub trait AsViewMutExpand<E: CubePrimitive>: AsViewExpand<E> {
 }
 
 macro_rules! impl_as_view {
-    ($ty: ident, $coords: ty) => {
+    ($ty: ident, $expand: ident, $coords: ty) => {
         impl<E: CubePrimitive> AsView<E> for $ty<E> {
             type SourceCoords = $coords;
         }
-        impl<E: CubePrimitive> AsViewExpand<E> for NativeExpand<$ty<E>> {
+        impl<E: CubePrimitive> AsViewExpand<E> for $expand<E> {
             type SourceCoords = $coords;
             fn __expand_view_method<C: Coordinates + 'static>(
                 &self,
                 scope: &Scope,
                 layout: VirtualLayoutExpand<C, $coords>,
             ) -> super::ViewExpand<E, C, ReadOnly> {
-                View::__expand_new::<$ty<E>, $coords>(scope, self.clone(), layout)
+                View::__expand_new::<Box<[E]>, $coords>(
+                    scope,
+                    unsafe { self.__expand_as_boxed_unchecked_method(scope) },
+                    layout,
+                )
             }
         }
 
         impl<E: CubePrimitive> AsViewMut<E> for $ty<E> {}
-        impl<E: CubePrimitive> AsViewMutExpand<E> for NativeExpand<$ty<E>> {
+        impl<E: CubePrimitive> AsViewMutExpand<E> for $expand<E> {
             fn __expand_view_mut_method<C: Coordinates + 'static>(
                 &mut self,
                 scope: &Scope,
                 layout: VirtualLayoutExpand<C, $coords>,
             ) -> super::ViewExpand<E, C, ReadWrite> {
-                View::__expand_new_mut::<$ty<E>, $coords>(scope, self.clone(), layout)
+                View::__expand_new_mut::<Box<[E]>, $coords>(
+                    scope,
+                    unsafe {
+                        self.__expand_as_mut_slice_method(scope)
+                            .__expand_as_boxed_unchecked_method(scope)
+                    },
+                    layout,
+                )
             }
         }
     };
 }
 
-impl_as_view!(Array, Coords1d);
-impl_as_view!(Tensor, Coords1d);
-impl_as_view!(SharedMemory, Coords1d);
+impl_as_view!(Array, ArrayExpand, Coords1d);
+impl_as_view!(Tensor, TensorExpand, Coords1d);
+impl_as_view!(SharedMemory, SharedMemoryExpand, Coords1d);
 
 impl<E: CubePrimitive> AsView<E> for [E] {
     type SourceCoords = Coords1d;
@@ -104,7 +118,11 @@ impl<E: CubePrimitive> AsViewExpand<E> for SliceExpand<E> {
         scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
     ) -> ViewExpand<E, C, ReadOnly> {
-        View::__expand_new::<Box<[E]>, Self::SourceCoords>(scope, *self, layout)
+        View::__expand_new::<Box<[E]>, Self::SourceCoords>(
+            scope,
+            unsafe { self.__expand_as_boxed_unchecked_method(scope) },
+            layout,
+        )
     }
 }
 
@@ -122,7 +140,11 @@ impl<E: CubePrimitive> AsViewMutExpand<E> for SliceExpand<E> {
         scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
     ) -> ViewExpand<E, C, ReadWrite> {
-        View::__expand_new_mut::<Box<[E]>, Coords1d>(scope, *self, layout)
+        View::__expand_new_mut::<Box<[E]>, Coords1d>(
+            scope,
+            unsafe { self.__expand_as_boxed_unchecked_method(scope) },
+            layout,
+        )
     }
 }
 

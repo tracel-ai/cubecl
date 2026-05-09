@@ -9,23 +9,13 @@ use cubecl_ir::{Scope, VectorSize};
 use crate::frontend::{CubePrimitive, NativeExpand};
 use crate::prelude::*;
 use crate::{self as cubecl};
-use crate::{
-    frontend::CubeType,
-    ir::{Metadata, Type},
-    unexpanded,
-};
+use crate::{frontend::CubeType, ir::Type, unexpanded};
 use cubecl_macros::{cube, intrinsic};
 
 /// A contiguous array of elements.
+#[derive(Clone, Copy)]
 pub struct Array<E> {
-    _val: PhantomData<E>,
-}
-
-impl<E> Copy for Array<E> {}
-impl<E> Clone for Array<E> {
-    fn clone(&self) -> Self {
-        *self
-    }
+    _buffer: [E; 1],
 }
 
 type ArrayExpand<E> = NativeExpand<Array<E>>;
@@ -38,21 +28,31 @@ impl<E> AsMutExpand for ArrayExpand<E> {
 
 /// Module that contains the implementation details of the new function.
 mod new {
-
+    use cubecl_ir::AddressSpace;
     use cubecl_macros::intrinsic;
 
     use super::*;
-    use crate::ir::Variable;
+    use crate::{frontend::container::slice, ir::Variable};
 
     #[cube]
     impl<T: CubePrimitive + Clone> Array<T> {
         /// Create a new array of the given length.
         #[allow(unused_variables)]
-        pub fn new(#[comptime] length: usize) -> Self {
+        pub fn new(#[comptime] length: usize) -> Array<T> {
             intrinsic!(|scope| {
+                // Allocate as a slice even though it's statically sized, so we can deref to it.
+                // Unlike Rust, we can't construct fat pointers ad-hoc without access to the scope,
+                // so it needs to be prepared in advance.
                 let elem = T::__expand_as_type(scope);
-                let ty = Type::array(elem, length);
-                scope.create_local_mut(ty).into()
+                let ty = Type::array(elem, length, AddressSpace::Local);
+                let buffer = scope.create_local_mut(ty);
+                let slice = slice::from_raw_parts::<T>(
+                    scope,
+                    buffer,
+                    0usize.into_expand(scope),
+                    length.into_expand(scope),
+                );
+                slice.expand.into()
             })
         }
     }
@@ -60,21 +60,24 @@ mod new {
     impl<T: CubePrimitive + Clone> Array<T> {
         /// Create an array from data.
         #[allow(unused_variables)]
-        pub fn from_data<C: CubePrimitive>(data: impl IntoIterator<Item = C>) -> Self {
-            intrinsic!(|scope| {
-                scope
-                    .create_const_array(Type::new(T::as_type(scope)), data.values)
-                    .into()
-            })
+        pub fn from_data<C: CubePrimitive>(data: impl IntoIterator<Item = C>) -> Array<T> {
+            unexpanded!()
         }
 
         /// Expand function of [`from_data`](Array::from_data).
         pub fn __expand_from_data<C: CubePrimitive>(
             scope: &Scope,
             data: ArrayData<C>,
-        ) -> <Self as CubeType>::ExpandType {
-            let var = scope.create_const_array(T::__expand_as_type(scope), data.values);
-            NativeExpand::new(var)
+        ) -> ArrayExpand<T> {
+            let len = data.values.len();
+            let buffer = scope.create_const_array(T::__expand_as_type(scope), data.values);
+            let slice = slice::from_raw_parts::<T>(
+                scope,
+                buffer,
+                0usize.into_expand(scope),
+                len.into_expand(scope),
+            );
+            slice.expand.into()
         }
     }
 
@@ -127,77 +130,18 @@ mod vector {
     }
 }
 
-/// Module that contains the implementation details of vectorization functions.
-mod vectorization {
-    use super::*;
-
-    #[cube]
-    impl<T: CubePrimitive + Clone> Array<T> {
-        #[allow(unused_variables)]
-        pub fn as_vectorized<N: Size>(&self) -> Vector<T::Scalar, N> {
-            let factor = N::value();
-            intrinsic!(|scope| {
-                let var = self.expand.clone();
-                let item = Type::new(var.storage_type()).with_vector_size(factor);
-
-                if factor == 1 {
-                    let mut new_var = scope.create_local(item).into();
-                    let element = self
-                        .__expand_index_method(scope, NativeExpand::from_lit(scope, 0))
-                        .__expand_deref_method(scope);
-                    assign::expand_no_check::<T>(scope, element, &mut new_var);
-                    new_var.expand.into()
-                } else {
-                    let mut new_var: NativeExpand<Vector<T::Scalar, N>> =
-                        scope.create_local_mut(item).into();
-                    for i in 0..factor {
-                        let idx = NativeExpand::from_lit(scope, i);
-                        let element = self
-                            .__expand_index_method(scope, idx)
-                            .__expand_deref_method(scope);
-
-                        new_var.__expand_insert_method(scope, idx, element.expand.into());
-                    }
-                    new_var
-                }
-            })
-        }
-    }
-}
-
-/// Module that contains the implementation details of the metadata functions.
-mod metadata {
-    use crate::{ir::Instruction, prelude::expand_length_native};
-
-    use super::*;
-
-    #[cube]
-    impl<E: CubeType> Array<E> {
-        /// Obtain the array length
-        #[allow(clippy::len_without_is_empty)]
-        pub fn len(&self) -> usize {
-            intrinsic!(|scope| { expand_length_native(scope, self.expand).into() })
-        }
-
-        /// Obtain the array buffer length
-        pub fn buffer_len(&self) -> usize {
-            intrinsic!(|scope| {
-                let out = scope.create_local(usize::__expand_as_type(scope));
-                scope.register(Instruction::new(
-                    Metadata::BufferLength {
-                        var: self.expand.clone().into(),
-                    },
-                    out.clone().into(),
-                ));
-                out.into()
-            })
-        }
+#[cube]
+impl<E: CubePrimitive> Array<E> {
+    /// Obtain the array length
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> comptime_type!(usize) {
+        intrinsic!(|_| self.expand.ty.array_size())
     }
 }
 
 /// Module that contains the implementation details of the index functions.
 mod indexation {
-    use cubecl_ir::{IndexOperator, Memory};
+    use cubecl_ir::{IndexOperands, Memory};
 
     use crate::ir::Instruction;
 
@@ -214,10 +158,10 @@ mod indexation {
         pub unsafe fn index_unchecked(&self, i: usize) -> &E {
             intrinsic!(|scope| {
                 let ty = self.expand.value_type();
-                let class = self.expand.pointer_class();
+                let class = self.expand.address_space();
                 let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
-                    Memory::Index(IndexOperator {
+                    Memory::Index(IndexOperands {
                         list: self.expand,
                         index: i.expand,
                         vector_size: 0,
@@ -239,10 +183,10 @@ mod indexation {
         pub unsafe fn index_mut_unchecked(&mut self, i: usize) -> &mut E {
             intrinsic!(|scope| {
                 let ty = self.expand.value_type();
-                let class = self.expand.pointer_class();
+                let class = self.expand.address_space();
                 let out = scope.create_local(Type::pointer(ty, class));
                 scope.register(Instruction::new(
-                    Memory::Index(IndexOperator {
+                    Memory::Index(IndexOperands {
                         list: self.expand,
                         index: i.expand,
                         vector_size: 0,
@@ -257,13 +201,29 @@ mod indexation {
     }
 }
 
+impl<C: CubePrimitive> Assign for ArrayExpand<C> {
+    fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
+        let value = value.__extract_list(scope);
+        let arr = self.__extract_list(scope);
+        assert_eq!(
+            value.ty.array_size(),
+            arr.ty.array_size(),
+            "Can't assign differently sized arrays"
+        );
+        assign::expand_element(scope, value, arr);
+    }
+
+    fn init_mut(&self, _: &Scope) -> Self {
+        *self
+    }
+}
+
 impl<C: CubeType> CubeType for Array<C> {
     type ExpandType = NativeExpand<Array<C>>;
 }
 
-impl<C: CubeType> IntoMut for NativeExpand<Array<C>> {
+impl<C: CubeType> IntoMut for ArrayExpand<C> {
     fn into_mut(self, _scope: &Scope) -> Self {
-        // The type can't be deeply cloned/copied.
         self
     }
 }
@@ -276,7 +236,7 @@ impl<T: CubePrimitive> SizedContainer<usize> for Array<T> {
 
 impl<T: CubePrimitive> SizedContainerExpand<usize> for ArrayExpand<T> {
     fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
-        self.__expand_len_method(scope)
+        self.__expand_len_method(scope).into_expand(scope)
     }
 }
 
@@ -302,18 +262,24 @@ impl<T: CubePrimitive> DerefMut for Array<T> {
     }
 }
 
-impl<T: CubePrimitive> DerefExpand for ArrayExpand<T> {
-    type Target = ArrayExpand<T>;
+impl<T: CubePrimitive> Deref for ArrayExpand<T> {
+    type Target = SliceExpand<T>;
 
-    fn __expand_deref_method(&self, _: &Scope) -> Self::Target {
-        *self
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.as_type_ref_unchecked() }
+    }
+}
+
+impl<T: CubePrimitive> DerefMut for ArrayExpand<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.as_type_mut_unchecked() }
     }
 }
 
 impl<T: CubePrimitive> List<T> for Array<T> {}
 impl<T: CubePrimitive> ListExpand<T> for ArrayExpand<T> {
     fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
-        Array::<T>::__expand_len(scope, self)
+        Array::<T>::__expand_len(scope, self).into_expand(scope)
     }
 }
 

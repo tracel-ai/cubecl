@@ -1,5 +1,5 @@
 use cubecl_core::ir::{
-    BinaryOperator, IndexOperator, Memory, Operator, StorageType, VectorInsertOperator,
+    BinaryOperands, IndexOperands, Memory, Operator, StorageType, VectorInsertOperator,
 };
 use tracel_llvm::mlir_rs::{
     dialect::{
@@ -157,7 +157,7 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    fn visit_extract(&mut self, op: &BinaryOperator, out: Variable) -> Value<'a, 'a> {
+    fn visit_extract(&mut self, op: &BinaryOperands, out: Variable) -> Value<'a, 'a> {
         let mut index = self.get_variable(op.rhs);
         let u32_int = IntegerType::new(self.context, 32).into();
         if index.r#type() != u32_int {
@@ -170,7 +170,7 @@ impl<'a> Visitor<'a> {
         self.append_operation_with_result(vector_extract)
     }
 
-    fn visit_index(&mut self, index: &IndexOperator) -> Value<'a, 'a> {
+    fn visit_index(&mut self, index: &IndexOperands) -> Value<'a, 'a> {
         assert!(index.vector_size == 0);
         let ty = index.list.ty;
         let index_value = self.get_index(index.index, ty, ty.is_vectorized());

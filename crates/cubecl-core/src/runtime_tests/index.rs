@@ -28,7 +28,7 @@ pub fn test_kernel_shuffle<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(2),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 4) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 4) },
     );
 
     let actual = client.read_one_unchecked(handle);

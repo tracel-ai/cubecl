@@ -374,7 +374,9 @@ pub trait DialectInstructions<D: Dialect> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
-        let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
+        let rhs = rhs.ensure_lvalue(f)?;
+
+        let optimized = Variable::optimized_args([*lhs, rhs, *out]);
         let [lhs, rhs, out_optimized] = optimized.args;
 
         let addr_space = D::address_space_for_variable(out);

@@ -30,6 +30,12 @@ pub enum Operation {
     #[operation(pure)]
     #[from(ignore)]
     Copy(#[args(allow_ptr)] Variable),
+    /// Construct an aggregate (i.e. fat pointer) that's later disaggregated into normal variables
+    /// supported by codegen. Not allowed to exist after the disaggregation pass.
+    ConstructAggregate(#[args(allow_ptr)] Vec<Variable>),
+    /// Extract a specific field from an aggregate (i.e. read the length from a slice ptr).
+    /// Not allowed to exist after the disaggregation pass.
+    ExtractAggregateField(AggregateExtractOperands),
     #[operation(nested)]
     Memory(Memory),
     #[operation(nested)]
@@ -95,10 +101,12 @@ impl Instruction {
         }
     }
 
+    #[track_caller]
     pub fn out(&self) -> Variable {
         self.out.unwrap()
     }
 
+    #[track_caller]
     pub fn ty(&self) -> Type {
         self.out().ty
     }
@@ -146,6 +154,13 @@ impl Display for Instruction {
 impl Display for Operation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Operation::Copy(variable) => write!(f, "{variable}"),
+            Operation::ConstructAggregate(variables) => {
+                write!(f, "aggregate({})", variables.iter().join(", "))
+            }
+            Operation::ExtractAggregateField(AggregateExtractOperands { aggregate, field }) => {
+                write!(f, "extract({aggregate}, {field})")
+            }
             Operation::Memory(memory) => write!(f, "{memory}"),
             Operation::Arithmetic(arithmetic) => write!(f, "{arithmetic}"),
             Operation::Comparison(comparison) => write!(f, "{comparison}"),
@@ -157,7 +172,6 @@ impl Display for Operation {
             Operation::Synchronization(synchronization) => write!(f, "{synchronization}"),
             Operation::Plane(plane) => write!(f, "{plane}"),
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
-            Operation::Copy(variable) => write!(f, "{variable}"),
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
             Operation::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Operation::Tma(tma_ops) => write!(f, "{tma_ops}"),
@@ -183,7 +197,7 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct IndexOperator {
+pub struct IndexOperands {
     pub list: Variable,
     pub index: Variable,
     pub vector_size: VectorSize, // 0 == same as list.
@@ -194,8 +208,8 @@ pub struct IndexOperator {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct StoreOperator {
-    #[args(allow_ptr)]
+pub struct StoreOperands {
+    #[args(allow_ptr, ptr_write)]
     pub ptr: Variable,
     pub value: Variable,
 }
@@ -203,7 +217,7 @@ pub struct StoreOperator {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct BinaryOperator {
+pub struct BinaryOperands {
     pub lhs: Variable,
     pub rhs: Variable,
 }
@@ -211,10 +225,19 @@ pub struct BinaryOperator {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct AtomicBinaryOperator {
-    #[args(allow_ptr)]
+pub struct AtomicBinaryOperands {
+    #[args(allow_ptr, ptr_read, ptr_write)]
     pub ptr: Variable,
     pub value: Variable,
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
+pub struct AggregateExtractOperands {
+    #[args(allow_ptr)]
+    pub aggregate: Variable,
+    pub field: usize,
 }
 
 /// Closure passed to an intrinsic
@@ -233,18 +256,8 @@ pub type Closure = Id;
 
 impl Display for Function {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let params = self
-            .explicit_params
-            .iter()
-            .map(|it| it.to_string())
-            .join(", ");
-        let instructions = self
-            .scope
-            .instructions
-            .borrow()
-            .iter()
-            .map(|it| it.to_string())
-            .join("\n");
+        let params = self.explicit_params.iter().join(", ");
+        let instructions = self.scope.instructions.borrow().iter().join("\n");
         write!(f, "|{params}| {{\n{instructions}\n}}")
     }
 }
@@ -252,7 +265,7 @@ impl Display for Function {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct UnaryOperator {
+pub struct UnaryOperands {
     pub input: Variable,
 }
 

@@ -41,7 +41,7 @@ impl<'a> Visitor<'a> {
             }
             VariableKind::LocalMut { .. } => {
                 let length = match variable.ty {
-                    ir::Type::Array(_, length) => length,
+                    ir::Type::Array(_, length, _) => length,
                     _ => 1,
                 };
                 self.insert_mutable_memory(variable, value, length);
@@ -165,7 +165,7 @@ impl<'a> Visitor<'a> {
                 .expect("Variable should have been declared before"),
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
                 let length = match variable.ty {
-                    ir::Type::Array(_, length) => length,
+                    ir::Type::Array(_, length, _) => length,
                     _ => 1,
                 };
                 self.get_mutable_memory(variable, length)

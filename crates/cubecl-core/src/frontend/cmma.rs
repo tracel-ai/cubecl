@@ -625,18 +625,16 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         #[comptime] transpose: bool,
     ) -> Array<Vector<E::Scalar, NO>> {
         intrinsic!(|scope| {
-            let slice_vector_size = row.vector_size;
-            let (buffer, offset) = row.__to_raw_parts();
+            let slice_vector_size = row.expand.vector_size();
+            let ptr = row.__expand_as_ptr_method(scope).expand;
             let out = Array::__expand_new(scope, num_matrices);
             scope.register(Instruction::new(
                 CoopMma::LoadMatrix {
-                    buffer,
-                    offset,
-                    vector_size: slice_vector_size,
+                    ptr,
                     factor: num_matrices,
                     transpose,
                 },
-                out.expand,
+                out.__extract_list(scope),
             ));
             out
         })
@@ -653,17 +651,16 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     ) {
         intrinsic!(|scope| {
             let vector_size = self.__expand_vector_size_method(scope, ident);
-            let slice_vector_size = row.vector_size;
-            let (buffer, offset) = row.__to_raw_parts();
+            let slice_vector_size = row.expand.vector_size();
+            let ptr = row.__expand_as_ptr_method(scope).expand;
+            let fragment = fragment.__extract_list(scope);
             scope.register(Instruction::new(
                 CoopMma::LoadMatrix {
-                    buffer,
-                    offset,
-                    vector_size: slice_vector_size,
+                    ptr,
                     factor: num_matrices,
                     transpose,
                 },
-                fragment.expand,
+                fragment,
             ));
         })
     }
@@ -689,17 +686,19 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     ) {
         intrinsic!(|scope| {
             let vector_size = self.__expand_vector_size_method(scope, ident);
-            let slice_vector_size = row.vector_size;
-            let (buffer, offset) = row.__to_raw_parts();
+
+            let registers = registers.__extract_list(scope);
+            let row_list = row.__extract_list(scope);
+            let destination = row.__expand_as_ptr_method(scope).expand;
+
             scope.register(Instruction::new(
                 CoopMma::StoreMatrix {
-                    offset,
-                    vector_size: slice_vector_size,
-                    registers: registers.expand,
+                    registers,
+                    destination,
                     factor: num_matrices,
                     transpose,
                 },
-                buffer,
+                row_list,
             ));
         })
     }
@@ -724,9 +723,9 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
 
             let registers_d = Array::__expand_new(scope, num_registers);
 
-            let registers_a = registers_a.expand;
-            let registers_b = registers_b.expand;
-            let registers_c = registers_c.expand;
+            let registers_a = registers_a.__extract_list(scope);
+            let registers_b = registers_b.__extract_list(scope);
+            let registers_c = registers_c.__extract_list(scope);
 
             // Only shape is actually used
             let matrix = cubecl_ir::Matrix {
@@ -746,7 +745,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                     registers_b,
                     registers_c,
                 },
-                registers_d.expand,
+                registers_d.__extract_list(scope),
             ));
 
             registers_d
@@ -769,9 +768,9 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 .__expand_vector_size_method(scope, MatrixIdent::Accumulator);
             let num_registers = acc_elems / acc_vector_size;
 
-            let registers_a = registers_a.expand;
-            let registers_b = registers_b.expand;
-            let registers_c = registers_c.expand;
+            let registers_a = registers_a.__extract_list(scope);
+            let registers_b = registers_b.__extract_list(scope);
+            let registers_c = registers_c.__extract_list(scope);
 
             // Only shape is actually used
             let matrix = cubecl_ir::Matrix {
@@ -818,9 +817,9 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
 
             let registers_d = Array::__expand_new(scope, num_registers);
 
-            let registers_a = registers_a.expand;
-            let registers_b = registers_b.expand;
-            let registers_c = registers_c.expand;
+            let registers_a = registers_a.__extract_list(scope);
+            let registers_b = registers_b.__extract_list(scope);
+            let registers_c = registers_c.__extract_list(scope);
 
             // Only shape is actually used
             let matrix = cubecl_ir::Matrix {
@@ -845,7 +844,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                         .scales_factor
                         .expect("Can't execute scaled on matrix with no scales"),
                 },
-                registers_d.expand,
+                registers_d.__extract_list(scope),
             ));
 
             registers_d
@@ -903,13 +902,12 @@ pub mod load {
             "Loading accumulator requires explicit layout. Use `load_with_layout` instead."
         );
 
-        let (value, offset) = value.__to_raw_parts();
+        let ptr = value.__expand_as_ptr_method(scope).expand;
 
         scope.register(Instruction::new(
             ir::CoopMma::Load {
-                value,
+                ptr,
                 stride,
-                offset,
                 layout: None,
             },
             mat.elem,
@@ -942,7 +940,7 @@ pub mod load_tensor {
             MatrixIdent::Accumulator,
             "Loading accumulator requires explicit layout. Use `load_with_layout` instead."
         );
-        let (buffer, _) = value.buffer.__to_raw_parts();
+        let buffer = value.buffer.__extract_list(scope);
 
         scope.register(Instruction::new(
             ir::CoopMma::LoadTensor {
@@ -984,13 +982,12 @@ pub mod load_with_layout {
         layout: MatrixLayout,
     ) {
         let stride: Variable = stride.into();
-        let (value, offset) = value.__to_raw_parts();
+        let ptr = value.__expand_as_ptr_method(scope).expand;
 
         scope.register(Instruction::new(
             ir::CoopMma::Load {
-                value,
+                ptr,
                 stride,
-                offset,
                 layout: Some(layout),
             },
             mat.elem,
@@ -1024,16 +1021,17 @@ pub mod store {
     ) {
         let stride: Variable = stride.into();
 
-        let (output, offset) = output.__to_raw_parts();
+        let output_list = output.__extract_list(scope);
+        let destination = output.__expand_as_ptr_method(scope).expand;
 
         scope.register(Instruction::new(
             ir::CoopMma::Store {
                 mat: mat.elem,
-                offset,
                 stride,
+                destination,
                 layout,
             },
-            output,
+            output_list,
         ));
     }
 }
@@ -1058,7 +1056,7 @@ pub mod store_tensor {
         output: &mut TensorViewExpand<O>,
         mat: &MatrixExpand<C, S>,
     ) {
-        let (buffer, _) = output.buffer.__to_raw_parts();
+        let buffer = output.buffer.__extract_list(scope);
         scope.register(Instruction::new(
             ir::CoopMma::StoreTensor {
                 mat: mat.elem,

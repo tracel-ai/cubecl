@@ -8,9 +8,8 @@ use crate::{
 };
 use alloc::collections::BTreeMap;
 use cubecl_ir::{DeviceProperties, Scope, StorageType, TargetProperties, Variable, VariableKind};
-use cubecl_runtime::{
-    config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel},
-    kernel::Visibility,
+use cubecl_runtime::config::{
+    CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel,
 };
 
 /// Prepare a kernel to create a [`KernelDefinition`].
@@ -37,87 +36,47 @@ impl KernelBuilder {
         self.buffers.len() as Id + self.tensor_maps.len() as Id
     }
 
-    /// Register an output array and return the [element](Variable) to be used for kernel expansion.
-    pub fn output_tensor(&mut self, item: Type) -> Variable {
+    /// Register a buffer and return the [element](Variable) to be used for kernel expansion.
+    pub fn buffer(&mut self, item: Type) -> Variable {
         let id = self.buffer_id();
         self.buffers.push(BufferInfo {
             id,
             item,
-            visibility: Visibility::ReadWrite,
-            has_extended_meta: true,
-        });
-        self.scope.global(id, item)
-    }
-
-    /// Register a tensor map and return the [element](Variable) to be used for kernel expansion.
-    pub fn input_tensor_map(&mut self, item: Type) -> Variable {
-        let id = self.buffer_id();
-        self.tensor_maps.push(BufferInfo {
-            id,
-            item,
-            visibility: Visibility::ReadWrite,
-            has_extended_meta: true,
-        });
-        Variable::new(VariableKind::TensorMap(id), item)
-    }
-
-    /// Register a tensor map and return the [element](Variable) to be used for kernel expansion.
-    pub fn output_tensor_map(&mut self, item: Type) -> Variable {
-        let id = self.buffer_id();
-        self.tensor_maps.push(BufferInfo {
-            id,
-            item,
-            visibility: Visibility::Read,
-            has_extended_meta: true,
-        });
-        Variable::new(VariableKind::TensorMap(id), item)
-    }
-
-    /// Register an input array and return the [element](Variable) to be used for kernel expansion.
-    pub fn input_tensor(&mut self, item: Type) -> Variable {
-        let id = self.buffer_id();
-        self.buffers.push(BufferInfo {
-            id,
-            item,
-            visibility: Visibility::Read,
-            has_extended_meta: true,
-        });
-        self.scope.global(id, item)
-    }
-
-    /// Register an output array and return the [element](Variable) to be used for kernel expansion.
-    pub fn output_array(&mut self, item: Type) -> Variable {
-        let id = self.buffer_id();
-        self.buffers.push(BufferInfo {
-            id,
-            item,
-            visibility: Visibility::ReadWrite,
             has_extended_meta: false,
         });
         self.scope.global(id, item)
     }
 
+    /// Register a tensor and return the [element](Variable) to be used for kernel expansion.
+    pub fn tensor(&mut self, item: Type) -> Variable {
+        let id = self.buffer_id();
+        self.buffers.push(BufferInfo {
+            id,
+            item,
+            has_extended_meta: true,
+        });
+        self.scope.global(id, item)
+    }
+
+    /// Register a tensor map and return the [element](Variable) to be used for kernel expansion.
+    pub fn tensor_map(&mut self, item: Type) -> Variable {
+        let id = self.buffer_id();
+        self.tensor_maps.push(BufferInfo {
+            id,
+            item,
+            has_extended_meta: true,
+        });
+        Variable::new(VariableKind::TensorMap(id), item)
+    }
+
     /// Register an output that uses the same resource as the input as the given position.
-    pub fn inplace_output(&mut self, position: Id) -> Variable {
+    pub fn inplace(&mut self, position: Id) -> Variable {
         let input = self
             .buffers
             .get_mut(position as usize)
             .expect("Position valid");
 
-        input.visibility = Visibility::ReadWrite;
         self.scope.global(position, input.item)
-    }
-
-    /// Register an input array and return the [element](Variable) to be used for kernel expansion.
-    pub fn input_array(&mut self, item: Type) -> Variable {
-        let id = self.buffer_id();
-        self.buffers.push(BufferInfo {
-            id,
-            item,
-            visibility: Visibility::Read,
-            has_extended_meta: false,
-        });
-        self.scope.global(id, item)
     }
 
     pub fn runtime_properties(&mut self, properties: TargetProperties) {

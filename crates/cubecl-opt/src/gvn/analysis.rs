@@ -1,10 +1,11 @@
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet, LinkedList, VecDeque},
-    ops::Deref,
-};
+use core::{cell::RefCell, ops::Deref};
 
 use crate::{ControlFlow, Function, GlobalState, NodeIndex, analyses::Analysis};
+use alloc::{
+    collections::{linked_list::LinkedList, vec_deque::VecDeque},
+    vec,
+};
+use hashbrown::{HashMap, HashSet};
 use smallvec::SmallVec;
 
 use crate::analyses::dominance::{Dominators, PostDominators};

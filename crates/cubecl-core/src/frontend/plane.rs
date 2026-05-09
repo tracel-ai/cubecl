@@ -3,7 +3,7 @@ use cubecl_ir::Variable;
 use super::{CubePrimitive, Vector};
 use crate::prelude::*;
 use crate::{
-    ir::{ElemType, Instruction, Plane, Scope, Type, UnaryOperator},
+    ir::{ElemType, Instruction, Plane, Scope, Type, UnaryOperands},
     unexpanded,
 };
 
@@ -53,7 +53,7 @@ pub mod plane_broadcast {
         let rhs = id.into();
 
         scope.register(Instruction::new(
-            Plane::Broadcast(crate::ir::BinaryOperator { lhs, rhs }),
+            Plane::Broadcast(crate::ir::BinaryOperands { lhs, rhs }),
             out,
         ));
 
@@ -89,7 +89,7 @@ pub mod plane_shuffle {
         let rhs = src_lane.expand;
 
         scope.register(Instruction::new(
-            Plane::Shuffle(crate::ir::BinaryOperator { lhs, rhs }),
+            Plane::Shuffle(crate::ir::BinaryOperands { lhs, rhs }),
             out,
         ));
 
@@ -128,7 +128,7 @@ pub mod plane_shuffle_xor {
         let rhs = mask.expand;
 
         scope.register(Instruction::new(
-            Plane::ShuffleXor(crate::ir::BinaryOperator { lhs, rhs }),
+            Plane::ShuffleXor(crate::ir::BinaryOperands { lhs, rhs }),
             out,
         ));
 
@@ -164,7 +164,7 @@ pub mod plane_shuffle_up {
         let rhs = delta.expand;
 
         scope.register(Instruction::new(
-            Plane::ShuffleUp(crate::ir::BinaryOperator { lhs, rhs }),
+            Plane::ShuffleUp(crate::ir::BinaryOperands { lhs, rhs }),
             out,
         ));
 
@@ -200,7 +200,7 @@ pub mod plane_shuffle_down {
         let rhs = delta.expand;
 
         scope.register(Instruction::new(
-            Plane::ShuffleDown(crate::ir::BinaryOperator { lhs, rhs }),
+            Plane::ShuffleDown(crate::ir::BinaryOperands { lhs, rhs }),
             out,
         ));
 
@@ -226,7 +226,7 @@ pub mod plane_sum {
         let out = output;
         let input = elem;
 
-        scope.register(Instruction::new(Plane::Sum(UnaryOperator { input }), out));
+        scope.register(Instruction::new(Plane::Sum(UnaryOperands { input }), out));
 
         output.into()
     }
@@ -255,7 +255,7 @@ pub mod plane_inclusive_sum {
         let input = elem;
 
         scope.register(Instruction::new(
-            Plane::InclusiveSum(UnaryOperator { input }),
+            Plane::InclusiveSum(UnaryOperands { input }),
             output,
         ));
 
@@ -288,7 +288,7 @@ pub mod plane_exclusive_sum {
         let input = elem;
 
         scope.register(Instruction::new(
-            Plane::ExclusiveSum(UnaryOperator { input }),
+            Plane::ExclusiveSum(UnaryOperands { input }),
             out,
         ));
 
@@ -313,7 +313,7 @@ pub mod plane_prod {
         let out = output;
         let input = elem;
 
-        scope.register(Instruction::new(Plane::Prod(UnaryOperator { input }), out));
+        scope.register(Instruction::new(Plane::Prod(UnaryOperands { input }), out));
 
         output.into()
     }
@@ -343,7 +343,7 @@ pub mod plane_inclusive_prod {
         let input = elem;
 
         scope.register(Instruction::new(
-            Plane::InclusiveProd(UnaryOperator { input }),
+            Plane::InclusiveProd(UnaryOperands { input }),
             out,
         ));
 
@@ -376,7 +376,7 @@ pub mod plane_exclusive_prod {
         let input = elem;
 
         scope.register(Instruction::new(
-            Plane::ExclusiveProd(UnaryOperator { input }),
+            Plane::ExclusiveProd(UnaryOperands { input }),
             out,
         ));
 
@@ -401,7 +401,7 @@ pub mod plane_max {
         let out = output;
         let input = elem;
 
-        scope.register(Instruction::new(Plane::Max(UnaryOperator { input }), out));
+        scope.register(Instruction::new(Plane::Max(UnaryOperands { input }), out));
 
         output.into()
     }
@@ -424,7 +424,7 @@ pub mod plane_min {
         let out = output;
         let input = elem;
 
-        scope.register(Instruction::new(Plane::Min(UnaryOperator { input }), out));
+        scope.register(Instruction::new(Plane::Min(UnaryOperands { input }), out));
 
         output.into()
     }
@@ -448,7 +448,7 @@ pub mod plane_all {
         let out = output;
         let input = elem;
 
-        scope.register(Instruction::new(Plane::All(UnaryOperator { input }), out));
+        scope.register(Instruction::new(Plane::All(UnaryOperands { input }), out));
 
         output.into()
     }
@@ -472,7 +472,7 @@ pub mod plane_any {
         let out = output;
         let input = elem;
 
-        scope.register(Instruction::new(Plane::Any(UnaryOperator { input }), out));
+        scope.register(Instruction::new(Plane::Any(UnaryOperands { input }), out));
 
         output.into()
     }
@@ -503,7 +503,7 @@ pub mod plane_ballot {
         let input = elem;
 
         scope.register(Instruction::new(
-            Plane::Ballot(UnaryOperator { input }),
+            Plane::Ballot(UnaryOperands { input }),
             out,
         ));
 

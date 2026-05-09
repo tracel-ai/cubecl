@@ -333,7 +333,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 write!(f, "{inner}*")
             }
             Item::Array(inner, size) => {
-                write!(f, "{inner}[{size}]")
+                write!(f, "array<{inner}, {size}>")
             }
             Item::DynamicArray(inner) => {
                 write!(f, "{inner}*")

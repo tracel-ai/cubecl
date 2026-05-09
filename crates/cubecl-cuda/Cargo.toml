@@ -23,7 +23,12 @@ default = [
     "cubecl-core/default",
 ]
 ptx-wmma = []
-std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
+std = [
+    "cubecl-runtime/std",
+    "cubecl-common/std",
+    "cubecl-core/std",
+    "cubecl-cpp/std",
+]
 
 tracing = [
     "dep:tracing",

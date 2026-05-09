@@ -1,10 +1,15 @@
 use alloc::{vec, vec::Vec};
 use cubecl_ir::{
-    Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, IndexOperator, Instruction,
-    MatrixLayout, Memory, Metadata, Operation, OperationReflect, Operator, Processor,
-    ScopeProcessing, Type, Variable, VariableKind, VectorInsertOperator, VectorSize,
+    Allocator, Arithmetic, BinaryOperands, CoopMma, GlobalState, IndexOperands, Instruction,
+    MatrixLayout, Memory, Metadata, Operation, OperationReflect, Operator, Scope, Type, Variable,
+    VariableKind, VectorInsertOperator, VectorSize,
 };
 use hashbrown::HashMap;
+
+use crate::post_processing::{
+    util::AtomicCounter,
+    visitor::{InstructionVisitor, visit_scope},
+};
 
 /// The action that should be performed on an instruction, returned by ``IrTransformer::maybe_transform``
 pub enum TransformAction {
@@ -14,11 +19,13 @@ pub enum TransformAction {
     Replace(Vec<Instruction>),
 }
 
-#[derive(new, Debug)]
-pub struct UnrollProcessor {
+#[derive(Debug)]
+pub struct UnrollVisitor {
     max_vector_size: VectorSize,
+    mappings: Mappings,
 }
 
+#[derive(Default, Debug)]
 struct Mappings(HashMap<Variable, Vec<Variable>>);
 
 impl Mappings {
@@ -36,13 +43,55 @@ impl Mappings {
     }
 }
 
-impl UnrollProcessor {
-    fn maybe_transform(
-        &self,
-        alloc: &Allocator,
-        inst: &Instruction,
-        mappings: &mut Mappings,
-    ) -> TransformAction {
+impl UnrollVisitor {
+    pub fn new(max_vector_size: VectorSize) -> Self {
+        Self {
+            max_vector_size,
+            mappings: Default::default(),
+        }
+    }
+
+    pub fn apply(&mut self, scope: &Scope) {
+        let changes = AtomicCounter::new(0);
+        self.visit_scope(scope, &changes);
+    }
+}
+
+impl InstructionVisitor for UnrollVisitor {
+    fn visit_instruction(
+        &mut self,
+        instruction: Instruction,
+        global_state: &GlobalState,
+        _changes: &AtomicCounter,
+    ) -> Vec<Instruction> {
+        match self.maybe_transform(&global_state.borrow().allocator, &instruction) {
+            TransformAction::Ignore => {
+                vec![instruction]
+            }
+            TransformAction::Replace(replacement) => replacement,
+        }
+    }
+
+    fn visit_scope(&mut self, scope: &Scope, changes: &AtomicCounter) {
+        visit_scope(self, scope, changes);
+
+        let state = scope.state();
+        let mut locals = state.allocator.local_mut_pool.borrow_mut();
+
+        for variable in locals.iter_mut() {
+            if variable.ty.vector_size() > self.max_vector_size {
+                let unroll_factor = variable.ty.vector_size() / self.max_vector_size;
+                variable.ty = variable.ty.with_vector_size(self.max_vector_size);
+                if let Type::Array(_, length, _) = &mut variable.ty {
+                    *length *= unroll_factor;
+                }
+            }
+        }
+    }
+}
+
+impl UnrollVisitor {
+    fn maybe_transform(&mut self, alloc: &Allocator, inst: &Instruction) -> TransformAction {
         if matches!(inst.operation, Operation::Marker(_)) {
             return TransformAction::Ignore;
         }
@@ -53,24 +102,22 @@ impl UnrollProcessor {
                 Operation::CoopMma(op) => match op {
                     // Stride is in scalar elems
                     CoopMma::Load {
-                        value,
+                        ptr,
                         stride,
-                        offset,
                         layout,
-                    } if value.vector_size() > self.max_vector_size => {
+                    } if ptr.vector_size() > self.max_vector_size => {
                         return TransformAction::Replace(self.transform_cmma_load(
                             alloc,
                             inst.out(),
-                            value,
+                            ptr,
                             stride,
-                            offset,
                             layout,
                         ));
                     }
                     CoopMma::Store {
                         mat,
                         stride,
-                        offset,
+                        destination,
                         layout,
                     } if inst.out().vector_size() > self.max_vector_size => {
                         return TransformAction::Replace(self.transform_cmma_store(
@@ -78,7 +125,7 @@ impl UnrollProcessor {
                             inst.out(),
                             mat,
                             stride,
-                            offset,
+                            destination,
                             layout,
                         ));
                     }
@@ -88,8 +135,10 @@ impl UnrollProcessor {
                 Operation::Branch(_) | Operation::NonSemantic(_) | Operation::Marker(_) => {
                     return TransformAction::Ignore;
                 }
-                _ => {
-                    panic!("Need special handling for unrolling non-reflectable operations")
+                other => {
+                    panic!(
+                        "Need special handling for unrolling non-reflectable operations.\nFound: {other}"
+                    )
                 }
             }
         }
@@ -104,38 +153,21 @@ impl UnrollProcessor {
             let unroll_factor = vector_size / self.max_vector_size;
 
             match &inst.operation {
-                Operation::Memory(Memory::Index(op)) => {
-                    TransformAction::Replace(self.transform_array_index(
-                        alloc,
-                        inst.out(),
-                        op,
-                        Memory::Index,
-                        unroll_factor,
-                        mappings,
-                    ))
-                }
-                Operation::Operator(Operator::ExtractComponent(op)) => {
-                    TransformAction::Replace(self.transform_composite_extract(
-                        alloc,
-                        inst.out(),
-                        op,
-                        unroll_factor,
-                        mappings,
-                    ))
-                }
+                Operation::Memory(Memory::Index(op)) => TransformAction::Replace(
+                    self.transform_array_index(alloc, inst.out(), op, Memory::Index, unroll_factor),
+                ),
+                Operation::Operator(Operator::ExtractComponent(op)) => TransformAction::Replace(
+                    self.transform_composite_extract(alloc, inst.out(), op, unroll_factor),
+                ),
                 Operation::Operator(Operator::InsertComponent(op)) => TransformAction::Replace(
-                    self.transform_composite_insert(alloc, inst.out(), op, unroll_factor, mappings),
+                    self.transform_composite_insert(alloc, inst.out(), op, unroll_factor),
                 ),
                 Operation::Metadata(op) => {
                     TransformAction::Replace(self.transform_metadata(inst.out(), op, args))
                 }
-                _ => TransformAction::Replace(self.transform_basic(
-                    alloc,
-                    inst,
-                    args,
-                    unroll_factor,
-                    mappings,
-                )),
+                _ => {
+                    TransformAction::Replace(self.transform_basic(alloc, inst, args, unroll_factor))
+                }
             }
         } else {
             TransformAction::Ignore
@@ -144,80 +176,85 @@ impl UnrollProcessor {
 
     /// Transform CMMA load offset and array
     fn transform_cmma_load(
-        &self,
+        &mut self,
         alloc: &Allocator,
         out: Variable,
-        value: &Variable,
+        ptr: &Variable,
         stride: &Variable,
-        offset: &Variable,
         layout: &Option<MatrixLayout>,
     ) -> Vec<Instruction> {
-        let vector_size = value.vector_size();
+        let vector_size = ptr.vector_size();
         let unroll_factor = vector_size / self.max_vector_size;
 
-        let value = unroll_array(*value, self.max_vector_size, unroll_factor);
-        let (mul, offset) = mul_index(alloc, *offset, unroll_factor);
+        let ptr = self
+            .mappings
+            .get(alloc, *ptr, unroll_factor, self.max_vector_size);
+        let out = unroll_array(out, self.max_vector_size, unroll_factor);
+
         let load = Instruction::new(
             Operation::CoopMma(CoopMma::Load {
-                value,
+                ptr: ptr[0],
                 stride: *stride,
-                offset,
                 layout: *layout,
             }),
             out,
         );
-        vec![mul, load]
+        vec![load]
     }
 
     /// Transform CMMA store offset and array
     fn transform_cmma_store(
-        &self,
+        &mut self,
         alloc: &Allocator,
         out: Variable,
         mat: &Variable,
         stride: &Variable,
-        offset: &Variable,
+        destination: &Variable,
         layout: &MatrixLayout,
     ) -> Vec<Instruction> {
-        let vector_size = out.vector_size();
+        let vector_size = destination.vector_size();
         let unroll_factor = vector_size / self.max_vector_size;
 
+        let destination =
+            self.mappings
+                .get(alloc, *destination, unroll_factor, self.max_vector_size);
         let out = unroll_array(out, self.max_vector_size, unroll_factor);
-        let (mul, offset) = mul_index(alloc, *offset, unroll_factor);
+
         let store = Instruction::new(
             Operation::CoopMma(CoopMma::Store {
                 mat: *mat,
                 stride: *stride,
-                offset,
+                destination: destination[0],
                 layout: *layout,
             }),
             out,
         );
-        vec![mul, store]
+        vec![store]
     }
 
     /// Transforms indexing into multiple index operations, each offset by 1 from the base. The base
     /// is also multiplied by the unroll factor to compensate for the lower actual vectorization.
     fn transform_array_index(
-        &self,
+        &mut self,
         alloc: &Allocator,
         out: Variable,
-        op: &IndexOperator,
-        operator: impl Fn(IndexOperator) -> Memory,
+        op: &IndexOperands,
+        operator: impl Fn(IndexOperands) -> Memory,
         unroll_factor: usize,
-        mappings: &mut Mappings,
     ) -> Vec<Instruction> {
         let (mul, start_idx) = mul_index(alloc, op.index, unroll_factor);
         let mut indices = (0..unroll_factor).map(|i| add_index(alloc, start_idx, i));
 
         let list = unroll_array(op.list, self.max_vector_size, unroll_factor);
 
-        let out = mappings.get(alloc, out, unroll_factor, self.max_vector_size);
+        let out = self
+            .mappings
+            .get(alloc, out, unroll_factor, self.max_vector_size);
         let mut instructions = vec![mul];
         instructions.extend((0..unroll_factor).flat_map(|i| {
             let (add, idx) = indices.next().unwrap();
             let index = Instruction::new(
-                operator(IndexOperator {
+                operator(IndexOperands {
                     list,
                     index: idx,
                     vector_size: 0,
@@ -237,12 +274,11 @@ impl UnrollProcessor {
     /// the index to be constant - it needs to be decomposed at compile time, otherwise it wouldn't
     /// work.
     fn transform_composite_extract(
-        &self,
+        &mut self,
         alloc: &Allocator,
         out: Variable,
-        op: &BinaryOperator,
+        op: &BinaryOperands,
         unroll_factor: usize,
-        mappings: &mut Mappings,
     ) -> Vec<Instruction> {
         let index = op
             .rhs
@@ -253,10 +289,12 @@ impl UnrollProcessor {
         let unroll_idx = index / self.max_vector_size;
         let sub_idx = index % self.max_vector_size;
 
-        let value = mappings.get(alloc, op.lhs, unroll_factor, self.max_vector_size);
+        let value = self
+            .mappings
+            .get(alloc, op.lhs, unroll_factor, self.max_vector_size);
 
         vec![Instruction::new(
-            Operator::ExtractComponent(BinaryOperator {
+            Operator::ExtractComponent(BinaryOperands {
                 lhs: value[unroll_idx],
                 rhs: sub_idx.into(),
             }),
@@ -269,12 +307,11 @@ impl UnrollProcessor {
     /// the index to be constant - it needs to be decomposed at compile time, otherwise it wouldn't
     /// work.
     fn transform_composite_insert(
-        &self,
+        &mut self,
         alloc: &Allocator,
         out: Variable,
         op: &VectorInsertOperator,
         unroll_factor: usize,
-        mappings: &mut Mappings,
     ) -> Vec<Instruction> {
         let index = op
             .index
@@ -285,8 +322,12 @@ impl UnrollProcessor {
         let unroll_idx = index / self.max_vector_size;
         let sub_idx = index % self.max_vector_size;
 
-        let vector = mappings.get(alloc, op.vector, unroll_factor, self.max_vector_size);
-        let out = mappings.get(alloc, out, unroll_factor, self.max_vector_size);
+        let vector = self
+            .mappings
+            .get(alloc, op.vector, unroll_factor, self.max_vector_size);
+        let out = self
+            .mappings
+            .get(alloc, out, unroll_factor, self.max_vector_size);
 
         vec![Instruction::new(
             Operator::InsertComponent(VectorInsertOperator {
@@ -323,22 +364,23 @@ impl UnrollProcessor {
     /// Transforms generic instructions, i.e. comparison, arithmetic. Unrolls each vectorized variable
     /// to `unroll_factor` replacements, and executes the operation `unroll_factor` times.
     fn transform_basic(
-        &self,
+        &mut self,
         alloc: &Allocator,
         inst: &Instruction,
         args: Vec<Variable>,
         unroll_factor: usize,
-        mappings: &mut Mappings,
     ) -> Vec<Instruction> {
         let op_code = inst.operation.op_code();
-        let out = inst
-            .out
-            .map(|out| mappings.get(alloc, out, unroll_factor, self.max_vector_size));
+        let out = inst.out.map(|out| {
+            self.mappings
+                .get(alloc, out, unroll_factor, self.max_vector_size)
+        });
         let args = args
             .into_iter()
             .map(|arg| {
                 if arg.vector_size() > 1 {
-                    mappings.get(alloc, arg, unroll_factor, self.max_vector_size)
+                    self.mappings
+                        .get(alloc, arg, unroll_factor, self.max_vector_size)
                 } else {
                     // Preserve scalars
                     vec![arg]
@@ -363,106 +405,6 @@ impl UnrollProcessor {
                 }
             })
             .collect()
-    }
-
-    fn transform_instructions(
-        &self,
-        allocator: &Allocator,
-        instructions: Vec<Instruction>,
-        mappings: &mut Mappings,
-    ) -> Vec<Instruction> {
-        let mut new_instructions = Vec::with_capacity(instructions.len());
-
-        for mut instruction in instructions {
-            if let Operation::Branch(branch) = &mut instruction.operation {
-                match branch {
-                    Branch::If(op) => {
-                        op.scope.register_all(self.transform_instructions(
-                            allocator,
-                            op.scope.take_instructions(),
-                            mappings,
-                        ));
-                    }
-                    Branch::IfElse(op) => {
-                        op.scope_if.register_all(self.transform_instructions(
-                            allocator,
-                            op.scope_if.take_instructions(),
-                            mappings,
-                        ));
-                        op.scope_else.register_all(self.transform_instructions(
-                            allocator,
-                            op.scope_else.take_instructions(),
-                            mappings,
-                        ));
-                    }
-                    Branch::Switch(op) => {
-                        for (_, case) in &mut op.cases {
-                            case.register_all(self.transform_instructions(
-                                allocator,
-                                case.take_instructions(),
-                                mappings,
-                            ));
-                        }
-                        op.scope_default.register_all(self.transform_instructions(
-                            allocator,
-                            op.scope_default.take_instructions(),
-                            mappings,
-                        ));
-                    }
-                    Branch::RangeLoop(op) => {
-                        op.scope.register_all(self.transform_instructions(
-                            allocator,
-                            op.scope.take_instructions(),
-                            mappings,
-                        ));
-                    }
-                    Branch::Loop(op) => {
-                        op.scope.register_all(self.transform_instructions(
-                            allocator,
-                            op.scope.take_instructions(),
-                            mappings,
-                        ));
-                    }
-                    _ => {}
-                }
-            }
-            match self.maybe_transform(allocator, &instruction, mappings) {
-                TransformAction::Ignore => {
-                    new_instructions.push(instruction);
-                }
-                TransformAction::Replace(replacement) => {
-                    new_instructions.extend(replacement);
-                }
-            }
-        }
-
-        new_instructions
-    }
-}
-
-impl Processor for UnrollProcessor {
-    fn transform(&self, mut processing: ScopeProcessing) -> ScopeProcessing {
-        let mut mappings = Mappings(Default::default());
-        let allocator = processing.global_state.borrow().allocator.clone();
-
-        let instructions =
-            self.transform_instructions(&allocator, processing.instructions, &mut mappings);
-
-        for variable in &mut processing.variables {
-            if variable.ty.vector_size() > self.max_vector_size {
-                let unroll_factor = variable.ty.vector_size() / self.max_vector_size;
-                variable.ty = variable.ty.with_vector_size(self.max_vector_size);
-                if let Type::Array(_, length) = &mut variable.ty {
-                    *length *= unroll_factor;
-                }
-            }
-        }
-
-        ScopeProcessing {
-            variables: processing.variables,
-            instructions,
-            global_state: processing.global_state,
-        }
     }
 }
 
@@ -505,7 +447,7 @@ fn create_unrolled(
 fn add_index(alloc: &Allocator, idx: Variable, i: usize) -> (Instruction, Variable) {
     let add_idx = alloc.create_local(idx.ty);
     let add = Instruction::new(
-        Arithmetic::Add(BinaryOperator {
+        Arithmetic::Add(BinaryOperands {
             lhs: idx,
             rhs: i.into(),
         }),
@@ -517,7 +459,7 @@ fn add_index(alloc: &Allocator, idx: Variable, i: usize) -> (Instruction, Variab
 fn mul_index(alloc: &Allocator, idx: Variable, unroll_factor: usize) -> (Instruction, Variable) {
     let mul_idx = alloc.create_local(idx.ty);
     let mul = Instruction::new(
-        Arithmetic::Mul(BinaryOperator {
+        Arithmetic::Mul(BinaryOperands {
             lhs: idx,
             rhs: unroll_factor.into(),
         }),
@@ -533,7 +475,7 @@ fn unroll_array(mut var: Variable, max_vector_size: VectorSize, factor: usize) -
         *unroll_factor = factor;
     }
 
-    if let Type::Array(_, size) = &mut var.ty {
+    if let Type::Array(_, size, _) = &mut var.ty {
         *size *= factor;
     }
 

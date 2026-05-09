@@ -20,7 +20,7 @@ pub fn test_simple_call<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -48,7 +48,7 @@ pub fn test_nested_call<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -75,7 +75,7 @@ pub fn test_debug_print<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one_unchecked(handle);

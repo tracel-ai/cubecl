@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-
+use alloc::vec::Vec;
 use cubecl_ir::{Builtin, ConstantValue, Id, OpCode, StorageType, Type};
+use hashbrown::HashMap;
 use petgraph::graph::NodeIndex;
 use smallvec::SmallVec;
 

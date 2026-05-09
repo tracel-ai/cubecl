@@ -1,4 +1,5 @@
 use crate::{GlobalState, NodeIndex};
+use alloc::vec::Vec;
 use petgraph::visit::{DfsPostOrder, Walker};
 
 use super::Analysis;

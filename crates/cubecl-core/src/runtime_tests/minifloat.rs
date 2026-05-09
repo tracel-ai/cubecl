@@ -72,8 +72,8 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             vector_size,
-            ArrayArg::from_raw_parts(handle1.clone(), num_out),
-            ArrayArg::from_raw_parts(handle2.clone(), 2 * num_out),
+            BufferArg::from_raw_parts(handle1.clone(), num_out),
+            BufferArg::from_raw_parts(handle2.clone(), 2 * num_out),
         )
     };
 
@@ -118,8 +118,8 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             vector_size,
-            ArrayArg::from_raw_parts(handle1.clone(), num_out),
-            ArrayArg::from_raw_parts(handle2.clone(), 2 * num_out),
+            BufferArg::from_raw_parts(handle1.clone(), num_out),
+            BufferArg::from_raw_parts(handle2.clone(), 2 * num_out),
         )
     };
 
@@ -165,8 +165,8 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
             CubeDim::new_1d(1),
             vector_size,
             vector_size / 2,
-            ArrayArg::from_raw_parts(handle1.clone(), num_out),
-            ArrayArg::from_raw_parts(handle2.clone(), 2 * num_out),
+            BufferArg::from_raw_parts(handle1.clone(), num_out),
+            BufferArg::from_raw_parts(handle2.clone(), 2 * num_out),
         )
     };
 
@@ -204,8 +204,8 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R>, vector_size: VectorSize)
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             vector_size,
-            ArrayArg::from_raw_parts(handle1.clone(), num_out),
-            ArrayArg::from_raw_parts(handle2.clone(), num_out),
+            BufferArg::from_raw_parts(handle1.clone(), num_out),
+            BufferArg::from_raw_parts(handle2.clone(), num_out),
         )
     };
 

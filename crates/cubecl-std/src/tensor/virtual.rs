@@ -347,9 +347,7 @@ mod __tensor {
     use super::*;
 
     impl<E: Numeric, N: Size> VirtualTensorOperations<E, N> for Tensor<Vector<E, N>> {}
-    impl<E: Numeric, N: Size> VirtualTensorOperationsExpand<E, N>
-        for NativeExpand<Tensor<Vector<E, N>>>
-    {
+    impl<E: Numeric, N: Size> VirtualTensorOperationsExpand<E, N> for TensorExpand<Vector<E, N>> {
         fn __expand_read_method(
             &self,
             scope: &Scope,
@@ -375,7 +373,7 @@ mod __tensor {
             index: NativeExpand<usize>,
             value: NativeExpand<Vector<E, N>>,
         ) {
-            let mut this = *self;
+            let mut this = self.clone_unchecked();
             unsafe {
                 this.__expand_get_unchecked_mut_method(scope, index)
                     .__expand_assign_method(scope, value)
@@ -387,7 +385,7 @@ mod __tensor {
             scope: &Scope,
             axis: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            self.clone().__expand_shape_method(scope, axis)
+            self.__expand_shape_method(scope, axis)
         }
 
         fn __expand_stride_method(
@@ -395,17 +393,17 @@ mod __tensor {
             scope: &Scope,
             axis: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            self.clone().__expand_stride_method(scope, axis)
+            self.__expand_stride_method(scope, axis)
         }
 
         fn __expand_rank_method(&self, scope: &Scope) -> NativeExpand<usize> {
-            self.clone().__expand_rank_method(scope)
+            self.__expand_rank_method(scope)
         }
         fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
-            self.clone().__expand_len_method(scope)
+            self.__expand_len_method(scope)
         }
         fn __expand_buffer_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
-            self.clone().__expand_buffer_len_method(scope)
+            self.__expand_buffer_len_method(scope)
         }
 
         fn __expand_as_tensor_map_method(

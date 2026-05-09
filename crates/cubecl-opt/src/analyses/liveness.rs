@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-
+use alloc::collections::vec_deque::VecDeque;
 use cubecl_ir::Id;
+use hashbrown::{HashMap, HashSet};
 use petgraph::graph::NodeIndex;
 
 use crate::{Function, GlobalState, analyses::post_order::PostOrder, local_variable_id};
@@ -113,7 +113,7 @@ fn calculate_block_sets(opt: &mut Function, state: &GlobalState, block: NodeInde
                 generated.remove(&id);
             }
         });
-        opt.visit_operation(state, &mut op.operation, &mut op.out, |_, var| {
+        opt.visit_operation(state, &mut op.operation, |_, var| {
             if let Some(id) = local_variable_id(var) {
                 generated.insert(id);
             }
@@ -125,6 +125,7 @@ fn calculate_block_sets(opt: &mut Function, state: &GlobalState, block: NodeInde
 
 /// Shared memory liveness analysis and allocation
 pub mod shared {
+    use alloc::vec::Vec;
     use cubecl_ir::{Marker, Operation, Type, Variable, VariableKind};
 
     use crate::Uniformity;
@@ -359,7 +360,7 @@ pub mod shared {
                         self.shared_memories.insert(smem.id, smem);
                     }
                 });
-                opt.visit_operation(state, &mut op.operation, &mut op.out, |_, var| {
+                opt.visit_operation(state, &mut op.operation, |_, var| {
                     if let Some(smem) = shared_memory(var) {
                         generated.insert(smem.id);
                         self.shared_memories.insert(smem.id, smem);
@@ -498,7 +499,7 @@ mod captures {
                 kill.insert(*var);
                 generated.remove(var);
             });
-            func.visit_operation(state, &mut op.operation, &mut op.out, |_, var| {
+            func.visit_operation(state, &mut op.operation, |_, var| {
                 generated.insert(*var);
             });
         }

@@ -1,9 +1,9 @@
-use core::fmt::Display;
+use core::{cell::Ref, fmt::Display};
 
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
-use crate::GlobalState;
+use crate::{GlobalState, GlobalStateInner};
 
 use super::{Instruction, Variable};
 
@@ -19,6 +19,12 @@ pub struct ScopeProcessing {
     pub instructions: Vec<Instruction>,
     /// The global state
     pub global_state: GlobalState,
+}
+
+impl ScopeProcessing {
+    pub fn state(&self) -> Ref<'_, GlobalStateInner> {
+        self.global_state.borrow()
+    }
 }
 
 impl Display for ScopeProcessing {

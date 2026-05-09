@@ -8,7 +8,7 @@ use crate::{
 use alloc::{boxed::Box, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
-use cubecl_ir::{Instruction, Memory, PointerClass, Type, VectorSize};
+use cubecl_ir::{AddressSpace, Instruction, Memory, Type, VectorSize};
 use cubecl_runtime::runtime::Runtime;
 use half::{bf16, f16};
 use variadics_please::{all_tuples, all_tuples_enumerated};
@@ -35,7 +35,32 @@ pub trait CubeType {
         + AsMutExpand;
 }
 
-impl<'a, T: IntoExpand<Expand = Self>> IntoExpand for &'a T {
+pub trait NativeCubeType: CubeType<ExpandType = NativeExpand<Self>> {}
+
+impl<'a, T: CubeType + ?Sized> CubeType for &'a T {
+    type ExpandType = &'a T::ExpandType;
+}
+
+impl<'a, T: CubeType + ?Sized> CubeType for &'a mut T {
+    type ExpandType = &'a mut T::ExpandType;
+}
+
+impl<T: CubeType + ?Sized> CubeType for *const T {
+    type ExpandType = *const T::ExpandType;
+}
+
+impl<T: CubeType + ?Sized> CubeType for *mut T {
+    type ExpandType = *mut T::ExpandType;
+}
+
+impl<T: CubeType<ExpandType = NativeExpand<T>> + ?Sized> NativeCubeType for T {}
+
+pub trait IntoExpand {
+    type Expand;
+    fn into_expand(self, scope: &Scope) -> Self::Expand;
+}
+
+impl<'a, T: IntoExpand<Expand = T> + ?Sized> IntoExpand for &'a T {
     type Expand = &'a T;
 
     fn into_expand(self, _: &Scope) -> Self::Expand {
@@ -43,7 +68,7 @@ impl<'a, T: IntoExpand<Expand = Self>> IntoExpand for &'a T {
     }
 }
 
-impl<'a, T: IntoExpand<Expand = Self>> IntoExpand for &'a mut T {
+impl<'a, T: IntoExpand<Expand = T> + ?Sized> IntoExpand for &'a mut T {
     type Expand = &'a mut T;
 
     fn into_expand(self, _: &Scope) -> Self::Expand {
@@ -51,9 +76,20 @@ impl<'a, T: IntoExpand<Expand = Self>> IntoExpand for &'a mut T {
     }
 }
 
-pub trait IntoExpand {
-    type Expand;
-    fn into_expand(self, scope: &Scope) -> Self::Expand;
+impl<T: IntoExpand<Expand = T> + ?Sized> IntoExpand for *const T {
+    type Expand = *const T;
+
+    fn into_expand(self, _: &Scope) -> Self::Expand {
+        self
+    }
+}
+
+impl<T: IntoExpand<Expand = T> + ?Sized> IntoExpand for *mut T {
+    type Expand = *mut T;
+
+    fn into_expand(self, _: &Scope) -> Self::Expand {
+        self
+    }
 }
 
 pub trait ExpandTypeClone {
@@ -65,17 +101,90 @@ pub trait ExpandTypeClone {
     fn clone_unchecked(&self) -> Self;
 }
 
+impl<T: ExpandTypeClone + ?Sized> ExpandTypeClone for &T {
+    fn clone_unchecked(&self) -> Self {
+        self
+    }
+}
+
+impl<T: ExpandTypeClone + ?Sized> ExpandTypeClone for &mut T {
+    #[allow(mutable_transmutes)]
+    fn clone_unchecked(&self) -> Self {
+        unsafe { core::mem::transmute(&**self) }
+    }
+}
+
+impl<T: ExpandTypeClone + ?Sized> ExpandTypeClone for *const T {
+    fn clone_unchecked(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: ExpandTypeClone + ?Sized> ExpandTypeClone for *mut T {
+    fn clone_unchecked(&self) -> Self {
+        *self
+    }
+}
+
 /// Expand version of [`AsRef`](core::convert::AsRef). Like [`AsRef<Self>`](core::convert::AsRef)
 /// it's implemented for all [`ExpandType`](CubeType::ExpandType)s. This is called when the Rust
 /// code uses `&x`.
-pub trait AsRefExpand<T = Self> {
+pub trait AsRefExpand<T: ?Sized = Self> {
     fn __expand_as_ref_method(&self, scope: &Scope) -> &T;
+}
+
+impl<T: AsRefExpand + ?Sized> AsRefExpand for &T {
+    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
+        self
+    }
+}
+
+impl<T: AsRefExpand + ?Sized> AsRefExpand for &mut T {
+    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
+        self
+    }
+}
+
+impl<T: AsRefExpand + ?Sized> AsRefExpand for *const T {
+    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
+        self
+    }
+}
+
+impl<T: AsRefExpand + ?Sized> AsRefExpand for *mut T {
+    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
+        self
+    }
 }
 
 /// Expand verison of [`AsMut`](core::convert::AsMut). The `Self` version must be implemented by
 /// all [`ExpandType`](CubeType::ExpandType)s, since `CubeCL` also uses it to implement `&mut x`.
-pub trait AsMutExpand<T = Self> {
+pub trait AsMutExpand<T: ?Sized = Self> {
     fn __expand_as_mut_method(&mut self, scope: &Scope) -> &mut T;
+}
+
+impl<T: AsMutExpand + ?Sized> AsMutExpand for &T {
+    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+        self
+    }
+}
+
+impl<T: AsMutExpand + ?Sized> AsMutExpand for &mut T {
+    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+        self
+    }
+}
+
+impl<T: AsMutExpand + ?Sized> AsMutExpand for *const T {
+    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+        self
+    }
+}
+
+impl<T: AsMutExpand + ?Sized> AsMutExpand for *mut T {
+    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+        self
+    }
 }
 
 /// `CubeCL` version of [`Deref`](core::ops::Deref). Unlike those traits, this trait produces owned
@@ -207,28 +316,64 @@ pub trait IntoMut: Sized {
     fn into_mut(self, scope: &Scope) -> Self;
 }
 
+impl<T: IntoMut> IntoMut for &T {
+    fn into_mut(self, _: &Scope) -> Self {
+        self
+    }
+}
+
+impl<T: IntoMut> IntoMut for &mut T {
+    fn into_mut(self, _: &Scope) -> Self {
+        self
+    }
+}
+
+impl<T: IntoMut> IntoMut for *const T {
+    fn into_mut(self, _: &Scope) -> Self {
+        self
+    }
+}
+
+impl<T: IntoMut> IntoMut for *mut T {
+    fn into_mut(self, _: &Scope) -> Self {
+        self
+    }
+}
+
 pub fn into_mut_assign<T: Assign>(value: T, scope: &Scope) -> T {
     let mut out = value.init_mut(scope);
     out.__expand_assign_method(scope, value);
     out
 }
 
-pub trait CubeDebug: Sized {
+pub trait CubeDebug {
     /// Set the debug name of this type's expansion. Should do nothing for types that don't appear
     /// at runtime
     #[allow(unused)]
     fn set_debug_name(&self, scope: &Scope, name: &'static str) {}
 }
 
-impl<T: CubeDebug> CubeDebug for &T {
+impl<T: CubeDebug + ?Sized> CubeDebug for &T {
     fn set_debug_name(&self, scope: &Scope, name: &'static str) {
         T::set_debug_name(self, scope, name);
     }
 }
 
-impl<T: CubeDebug> CubeDebug for &mut T {
+impl<T: CubeDebug + ?Sized> CubeDebug for &mut T {
     fn set_debug_name(&self, scope: &Scope, name: &'static str) {
         T::set_debug_name(self, scope, name);
+    }
+}
+
+impl<T: CubeDebug + ?Sized> CubeDebug for *const T {
+    fn set_debug_name(&self, scope: &Scope, name: &'static str) {
+        T::set_debug_name(unsafe { &**self }, scope, name);
+    }
+}
+
+impl<T: CubeDebug + ?Sized> CubeDebug for *mut T {
+    fn set_debug_name(&self, scope: &Scope, name: &'static str) {
+        T::set_debug_name(unsafe { &**self }, scope, name);
     }
 }
 
@@ -282,7 +427,7 @@ impl<T: Clone + PartialEq + Eq + core::hash::Hash + core::fmt::Debug + Send + Sy
 /// should expand the argument as an input while the mutable reference should expand the argument
 /// as an output.
 #[diagnostic::on_unimplemented(note = "Consider using `#[derive(CubeLaunch)]` on `{Self}`")]
-pub trait LaunchArg: CubeType + Send + Sync + 'static {
+pub trait LaunchArg: CubeType + 'static {
     /// The runtime argument for the kernel.
     type RuntimeArg<R: Runtime>: Send + Sync;
     /// Compilation argument.
@@ -299,6 +444,35 @@ pub trait LaunchArg: CubeType + Send + Sync + 'static {
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType;
 }
+
+macro_rules! impl_launch_arg_ref {
+    ($ty: ty) => {
+        impl<T: LaunchArg + 'static> LaunchArg for $ty {
+            type RuntimeArg<R: Runtime> = T::RuntimeArg<R>;
+            type CompilationArg = T::CompilationArg;
+
+            fn register<R: Runtime>(
+                arg: Self::RuntimeArg<R>,
+                launcher: &mut KernelLauncher<R>,
+            ) -> Self::CompilationArg {
+                T::register(arg, launcher)
+            }
+
+            fn expand(
+                arg: &Self::CompilationArg,
+                builder: &mut KernelBuilder,
+            ) -> <Self as CubeType>::ExpandType {
+                let value = T::expand(arg, builder);
+                builder.scope.create_kernel_ref(value)
+            }
+        }
+    };
+}
+
+impl_launch_arg_ref!(&'static T);
+impl_launch_arg_ref!(&'static mut T);
+impl_launch_arg_ref!(*const T);
+impl_launch_arg_ref!(*mut T);
 
 macro_rules! launch_tuple {
     ($(($T:ident, $t:ident)),*) => {
@@ -362,12 +536,12 @@ all_tuples!(deref_tuple, 2, 12, T, t);
 
 /// Expand type of a native GPU type, i.e. scalar primitives, arrays, shared memory.
 #[derive(new, Clone, Copy, Debug)]
-pub struct NativeExpand<T> {
+pub struct NativeExpand<T: ?Sized> {
     pub expand: Variable,
     pub(crate) _type: PhantomData<T>,
 }
 
-impl<T> IntoExpand for NativeExpand<T> {
+impl<T: ?Sized> IntoExpand for NativeExpand<T> {
     type Expand = Self;
 
     fn into_expand(self, _: &Scope) -> Self::Expand {
@@ -375,7 +549,7 @@ impl<T> IntoExpand for NativeExpand<T> {
     }
 }
 
-impl<T> ExpandTypeClone for NativeExpand<T> {
+impl<T: ?Sized> ExpandTypeClone for NativeExpand<T> {
     fn clone_unchecked(&self) -> Self {
         NativeExpand {
             expand: self.expand,
@@ -384,23 +558,23 @@ impl<T> ExpandTypeClone for NativeExpand<T> {
     }
 }
 
-impl<T> NativeExpand<T> {
+impl<T: ?Sized> NativeExpand<T> {
     /// Casts a reference of this expand element to a different type.
     /// # Safety
     /// There's no guarantee the new type is valid for the `Variable`
-    pub unsafe fn as_type_ref_unchecked<E>(&self) -> &NativeExpand<E> {
+    pub unsafe fn as_type_ref_unchecked<E: ?Sized>(&self) -> &NativeExpand<E> {
         unsafe { core::mem::transmute::<&NativeExpand<T>, &NativeExpand<E>>(self) }
     }
 
     /// Casts a mutable reference of this expand element to a different type.
     /// # Safety
     /// There's no guarantee the new type is valid for the `Variable`
-    pub unsafe fn as_type_mut_unchecked<E>(&mut self) -> &mut NativeExpand<E> {
+    pub unsafe fn as_type_mut_unchecked<E: ?Sized>(&mut self) -> &mut NativeExpand<E> {
         unsafe { core::mem::transmute::<&mut NativeExpand<T>, &mut NativeExpand<E>>(self) }
     }
 }
 
-impl<T> AsRefExpand for NativeExpand<T> {
+impl<T: ?Sized> AsRefExpand for NativeExpand<T> {
     fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
         self
     }
@@ -413,7 +587,7 @@ impl<T: CubePrimitive> AsMutExpand for NativeExpand<T> {
             self.expand.can_mutate(),
             "Can't create mutable reference to immutable variable"
         );
-        let ptr = scope.create_local(Type::pointer(self.expand.ty, PointerClass::Local));
+        let ptr = scope.create_local(Type::pointer(self.expand.ty, AddressSpace::Local));
         scope.register(Instruction::new(Memory::Reference(self.expand), ptr));
         scope.create_kernel_ref(ptr.into())
     }
@@ -427,7 +601,7 @@ impl<T: CubePrimitive> DerefExpand for NativeExpand<T> {
     }
 }
 
-impl<T> From<NativeExpand<T>> for Variable {
+impl<T: ?Sized> From<NativeExpand<T>> for Variable {
     fn from(value: NativeExpand<T>) -> Self {
         value.expand
     }
@@ -570,7 +744,7 @@ impl<T: NativeAssign> IntoMut for NativeExpand<T> {
     }
 }
 
-impl<T> CubeDebug for NativeExpand<T> {
+impl<T: ?Sized> CubeDebug for NativeExpand<T> {
     fn set_debug_name(&self, scope: &Scope, name: &'static str) {
         scope.update_variable_name(self.expand, name);
     }
@@ -583,7 +757,7 @@ impl<T> NativeExpand<T> {
     }
 
     // Expanded version of vectorization factor.
-    pub fn __expand_vector_size_method(self, _scope: &Scope) -> VectorSize {
+    pub fn __expand_vector_size_method(&self, _scope: &Scope) -> VectorSize {
         self.expand.ty.vector_size()
     }
 
@@ -592,7 +766,7 @@ impl<T> NativeExpand<T> {
     }
 }
 
-impl<T> From<Variable> for NativeExpand<T> {
+impl<T: ?Sized> From<Variable> for NativeExpand<T> {
     fn from(expand: Variable) -> Self {
         Self {
             expand,
@@ -622,7 +796,10 @@ impl<T: Scalar + Into<ConstantValue>> NativeExpand<T> {
 }
 
 pub(crate) fn init_mut_expand_element(scope: &Scope, element: &Variable) -> Variable {
-    scope.create_local_mut(element.value_type())
+    if element.ty.is_ptr() {
+        panic!("tried initializing mut for ptr {}", element.ty);
+    }
+    scope.create_local_mut(element.ty)
 }
 
 impl<T: IntoMut> IntoMut for Option<T> {

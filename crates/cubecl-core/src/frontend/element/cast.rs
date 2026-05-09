@@ -1,7 +1,7 @@
 use crate::unexpanded;
 use crate::{
     expand_assert,
-    ir::{Instruction, Operator, Scope, UnaryOperator},
+    ir::{Instruction, Operator, Scope, UnaryOperands},
 };
 use crate::{
     expand_error,
@@ -61,7 +61,7 @@ pub trait Reinterpret: CubePrimitive {
         expand_assert!(size_in == size_out, "Reinterpret type sizes must match");
         let new_var = scope.create_local(<Self as CubePrimitive>::__expand_as_type(scope));
         scope.register(Instruction::new(
-            Operator::Reinterpret(UnaryOperator {
+            Operator::Reinterpret(UnaryOperands {
                 input: value.expand,
             }),
             new_var,

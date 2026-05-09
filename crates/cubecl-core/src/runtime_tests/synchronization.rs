@@ -23,8 +23,8 @@ pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(8, 2),
-        unsafe { ArrayArg::from_raw_parts(test, 32) },
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 32) },
+        unsafe { BufferArg::from_raw_parts(test, 32) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 32) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -61,8 +61,8 @@ pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(2, 1, 1),
         CubeDim::new_2d(8, 2),
-        unsafe { ArrayArg::from_raw_parts(test, 32) },
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 32) },
+        unsafe { BufferArg::from_raw_parts(test, 32) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 32) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -101,7 +101,7 @@ pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 2),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 64) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -135,7 +135,7 @@ pub fn test_sync_cube_shared<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 2),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 64) },
     );
 
     let actual = client.read_one_unchecked(handle);

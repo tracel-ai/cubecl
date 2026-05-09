@@ -2,7 +2,7 @@ use core::{
     marker::PhantomData,
     ops::{Not, Rem},
 };
-use cubecl_ir::{Bitwise, ConstantValue, ElemType, Instruction, Type, UIntKind, UnaryOperator};
+use cubecl_ir::{Bitwise, ConstantValue, ElemType, Instruction, Type, UIntKind, UnaryOperands};
 use cubecl_macros::{cube, intrinsic};
 use num_traits::{NumCast, One, ToPrimitive, Zero};
 
@@ -297,7 +297,7 @@ impl<P: CountOnes + Scalar, N: Size> Vector<P, N> {
                 .with_vector_size(self.expand.ty.vector_size());
             let out = scope.create_local(out_item);
             scope.register(Instruction::new(
-                Bitwise::CountOnes(UnaryOperator { input: self.expand }),
+                Bitwise::CountOnes(UnaryOperands { input: self.expand }),
                 out,
             ));
             out.into()

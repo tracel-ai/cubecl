@@ -1,4 +1,5 @@
 use core::marker::PhantomData;
+use std::boxed::Box;
 
 use crate::{self as cubecl, IntoRuntime, as_bytes};
 use cubecl::prelude::*;
@@ -159,7 +160,7 @@ pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R>) {
         CubeCount::new_single(),
         CubeDim::new_single(),
         TestEnumArgs::<i32, R>::C(10),
-        unsafe { ArrayArg::from_raw_parts(array.clone(), 1) },
+        unsafe { BufferArg::from_raw_parts(array.clone(), 1) },
     );
     let bytes = client.read_one_unchecked(array);
     let actual = f32::from_bytes(&bytes);
@@ -176,7 +177,7 @@ pub fn test_runtime_variants_empty<R: Runtime>(client: ComputeClient<R>) {
             CubeCount::new_single(),
             CubeDim::new_single(),
             1,
-            ArrayArg::from_raw_parts(array.clone(), 1),
+            BufferArg::from_raw_parts(array.clone(), 1),
         )
     };
     let bytes = client.read_one_unchecked(array);
@@ -196,7 +197,7 @@ pub fn test_runtime_variants_value<R: Runtime>(client: ComputeClient<R>) {
             RuntimeEnumSingleValueLaunch::Runtime(RuntimeEnumSingleValueArgs::B(
                 BStructLaunch::new(5, 5),
             )),
-            ArrayArg::from_raw_parts(array.clone(), 1),
+            BufferArg::from_raw_parts(array.clone(), 1),
         )
     };
     let bytes = client.read_one_unchecked(array);
@@ -214,7 +215,7 @@ pub fn test_runtime_variants_empty_wildcard<R: Runtime>(client: ComputeClient<R>
             CubeCount::new_single(),
             CubeDim::new_single(),
             RuntimeEnumEmptyLaunch::Runtime(RuntimeEnumEmptyArgs::C),
-            ArrayArg::from_raw_parts(array.clone(), 1),
+            BufferArg::from_raw_parts(array.clone(), 1),
         )
     };
     let bytes = client.read_one_unchecked(array);
@@ -225,16 +226,16 @@ pub fn test_runtime_variants_empty_wildcard<R: Runtime>(client: ComputeClient<R>
 
 #[derive(CubeLaunch, CubeType)]
 pub enum ArrayFloatInt {
-    Float(Array<f32>),
-    Int(Array<i32>),
+    Float(Box<[f32]>),
+    Int(Box<[i32]>),
 }
 
 #[cube(launch)]
-fn kernel_array_float_int(array: ArrayFloatInt) {
+fn kernel_array_float_int(array: &mut ArrayFloatInt) {
     if UNIT_POS == 0 {
         match array {
-            ArrayFloatInt::Float(mut array) => array[0] = 10.0,
-            ArrayFloatInt::Int(mut array) => array[0] = 20,
+            ArrayFloatInt::Float(array) => array[0] = 10.0,
+            ArrayFloatInt::Int(array) => array[0] = 20,
         }
     }
 }
@@ -250,9 +251,9 @@ pub fn test_array_float_int<R: Runtime, T: Scalar + CubeElement>(
         CubeCount::new_single(),
         CubeDim::new_single(),
         if core::any::TypeId::of::<T>() == core::any::TypeId::of::<f32>() {
-            ArrayFloatIntArgs::Float(unsafe { ArrayArg::from_raw_parts(array.clone(), 1) })
+            ArrayFloatIntArgs::Float(unsafe { BufferArg::from_raw_parts(array.clone(), 1) })
         } else {
-            ArrayFloatIntArgs::Int(unsafe { ArrayArg::from_raw_parts(array.clone(), 1) })
+            ArrayFloatIntArgs::Int(unsafe { BufferArg::from_raw_parts(array.clone(), 1) })
         },
     );
 
@@ -268,7 +269,7 @@ pub enum SimpleEnum<T: LaunchArg> {
 }
 
 #[cube(launch)]
-fn kernel_tuple_enum(first: SimpleEnum<Array<u32>>, second: SimpleEnum<Array<u32>>) {
+fn kernel_tuple_enum(first: SimpleEnum<Box<[u32]>>, second: SimpleEnum<Box<[u32]>>) {
     if UNIT_POS == 0 {
         match (first, second) {
             (SimpleEnum::Variant(mut x), SimpleEnum::Variant(y)) => {
@@ -286,10 +287,10 @@ pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R>) {
         client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe {
-            ArrayArg::from_raw_parts(first.clone(), 1)
+        SimpleEnumArgs::<Box<[u32]>, R>::Variant(unsafe {
+            BufferArg::from_raw_parts(first.clone(), 1)
         }),
-        SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe { ArrayArg::from_raw_parts(second, 1) }),
+        SimpleEnumArgs::<Box<[u32]>, R>::Variant(unsafe { BufferArg::from_raw_parts(second, 1) }),
     );
 
     let bytes = client.read_one_unchecked(first);

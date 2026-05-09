@@ -4,7 +4,7 @@ use alloc::{format, vec::Vec};
 
 use crate::TypeHash;
 
-use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Variable};
+use crate::{BinaryOperands, OperationArgs, OperationReflect, UnaryOperands, Variable};
 
 /// Operators available on the GPU
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -14,19 +14,19 @@ pub enum Operator {
     #[operation(pure)]
     InitVector(VectorInitOperator),
     #[operation(pure)]
-    ExtractComponent(BinaryOperator),
+    ExtractComponent(BinaryOperands),
     #[operation(pure)]
     InsertComponent(VectorInsertOperator),
     #[operation(commutative, pure)]
-    And(BinaryOperator),
+    And(BinaryOperands),
     #[operation(commutative, pure)]
-    Or(BinaryOperator),
+    Or(BinaryOperands),
     #[operation(pure)]
-    Not(UnaryOperator),
+    Not(UnaryOperands),
     #[operation(pure)]
-    Cast(UnaryOperator),
+    Cast(UnaryOperands),
     #[operation(pure)]
-    Reinterpret(UnaryOperator),
+    Reinterpret(UnaryOperands),
     /// A select statement/ternary
     #[operation(pure)]
     Select(Select),
@@ -96,9 +96,9 @@ pub struct VectorInsertOperator {
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct CopyMemoryOperator {
-    #[args(allow_ptr)]
+    #[args(allow_ptr, ptr_read)]
     pub source: Variable,
-    #[args(allow_ptr)]
+    #[args(allow_ptr, ptr_write)]
     pub target: Variable,
     pub len: usize,
 }

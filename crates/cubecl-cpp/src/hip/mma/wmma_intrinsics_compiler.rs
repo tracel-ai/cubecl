@@ -373,14 +373,13 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
             }
             WmmaInstruction::Load {
                 frag,
-                value,
+                ptr,
                 layout,
-                offset,
                 stride,
             } => {
                 let extension = WmmaLoad::new(variable_to_frag(frag), *layout);
                 let name = extension.fn_name();
-                let value_ptr = frag_as_ptr(f, value, offset);
+                let value_ptr = frag_as_ptr(f, ptr);
                 writeln!(f, "{name}({frag}, {value_ptr}, {stride});")
             }
             WmmaInstruction::LdMatrix { .. } | WmmaInstruction::StMatrix { .. } => {
@@ -434,15 +433,14 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 *scales_factor,
             ),
             WmmaInstruction::Store {
-                output,
                 frag,
                 layout,
-                offset,
+                destination,
                 stride,
             } => {
                 let extension = WmmaStore::new(variable_to_frag(frag), *layout);
                 let name = extension.fn_name();
-                let output_ptr = frag_as_ptr(f, output, offset);
+                let output_ptr = frag_as_ptr(f, destination);
                 writeln!(f, "{name}({frag}, {output_ptr}, {stride});")
             }
             WmmaInstruction::Cast { input, output } => {

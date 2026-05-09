@@ -1,8 +1,8 @@
-use alloc::{format, string::String, vec, vec::Vec};
+use alloc::{format, string::String};
 use derive_new::new;
 
 use super::Variable;
-use crate::{Closure, OperationArgs, OperationCode, OperationReflect};
+use crate::{Closure, OperationReflect};
 use crate::{StorageType, TypeHash};
 use core::fmt::Display;
 
@@ -69,25 +69,25 @@ pub enum ClampMode {
 
 /// Cooperative Matrix-Multiply and Accumulate Instruction.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCode)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = CmmaOpCode)]
 #[allow(missing_docs)]
 pub enum CoopMma {
     /// Fill the matrix with the value.
-    Fill {
-        value: Variable,
-    },
+    Fill { value: Variable },
     /// Load the value into the matrix given the stride.
     Load {
-        value: Variable,
+        #[args(allow_ptr, ptr_read)]
+        ptr: Variable,
         stride: Variable,
-        offset: Variable,
+        #[args(skip)]
         layout: Option<MatrixLayout>,
     },
     /// Load the value into the matrix given the tensor layout.
     LoadTensor {
         buffer: Variable,
         layout: Variable,
+        #[args(skip)]
         view: Option<Variable>,
     },
     /// Executes D=A*B+C;
@@ -102,50 +102,53 @@ pub enum CoopMma {
     Store {
         mat: Variable,
         stride: Variable,
-        offset: Variable,
+        #[args(allow_ptr, ptr_write)]
+        destination: Variable,
+        #[args(skip)]
         layout: MatrixLayout,
     },
     /// Store the matrix in an output variable following the tensor layout.
     StoreTensor {
         mat: Variable,
         layout: Variable,
+        #[args(skip)]
         view: Option<Variable>,
     },
     /// Cast a fragment to another type.
-    Cast {
-        input: Variable,
-    },
+    Cast { input: Variable },
 
     /// Row index of nth element in the lane
     RowIndex {
         lane_id: Variable,
         i: Variable,
+        #[args(skip)]
         matrix: Matrix,
     },
     /// Column index of nth element in the lane
     ColIndex {
         lane_id: Variable,
         i: Variable,
+        #[args(skip)]
         matrix: Matrix,
     },
     /// Execute a CUDA `ldmatrix` instruction
     LoadMatrix {
-        buffer: Variable,
-        offset: Variable,
-        vector_size: Option<usize>,
+        #[args(allow_ptr, ptr_read)]
+        ptr: Variable,
         factor: usize,
         transpose: bool,
     },
     /// Execute a CUDA `stmatrix` instruction
     StoreMatrix {
-        offset: Variable,
-        vector_size: Option<usize>,
         registers: Variable,
         factor: usize,
         transpose: bool,
+        #[args(allow_ptr, ptr_write)]
+        destination: Variable,
     },
     /// Manual execute.
     ExecuteManual {
+        #[args(skip)]
         matrix: Matrix,
         registers_a: Variable,
         registers_b: Variable,
@@ -153,6 +156,7 @@ pub enum CoopMma {
     },
     /// Scaled manual execute.
     ExecuteScaled {
+        #[args(skip)]
         matrix: Matrix,
         registers_a: Variable,
         registers_b: Variable,
@@ -163,128 +167,9 @@ pub enum CoopMma {
     },
     ExecuteElementwise {
         matrix: Variable,
+        #[args(skip)]
         op: Closure,
     },
-}
-
-impl OperationReflect for CoopMma {
-    type OpCode = CmmaOpCode;
-
-    fn op_code(&self) -> Self::OpCode {
-        self.__match_opcode()
-    }
-
-    fn args(&self) -> Option<Vec<Variable>> {
-        match self {
-            CoopMma::Fill { value } => Some(vec![*value]),
-            CoopMma::Load { .. }
-            | CoopMma::LoadTensor { .. }
-            | CoopMma::Execute { .. }
-            | CoopMma::ExecuteManual { .. }
-            | CoopMma::ExecuteScaled { .. }
-            | CoopMma::ExecuteElementwise { .. }
-            | CoopMma::Store { .. }
-            | CoopMma::StoreTensor { .. }
-            | CoopMma::RowIndex { .. }
-            | CoopMma::ColIndex { .. }
-            | CoopMma::LoadMatrix { .. }
-            | CoopMma::StoreMatrix { .. } => None,
-            CoopMma::Cast { input } => Some(vec![*input]),
-        }
-    }
-
-    fn from_code_and_args(op_code: Self::OpCode, args: &[Variable]) -> Option<Self> {
-        match op_code {
-            CmmaOpCode::Fill => Some(CoopMma::Fill { value: args[0] }),
-            CmmaOpCode::Load
-            | CmmaOpCode::LoadTensor
-            | CmmaOpCode::Execute
-            | CmmaOpCode::ExecuteManual
-            | CmmaOpCode::ExecuteScaled
-            | CmmaOpCode::ExecuteElementwise
-            | CmmaOpCode::Store
-            | CmmaOpCode::StoreTensor
-            | CmmaOpCode::RowIndex
-            | CmmaOpCode::ColIndex
-            | CmmaOpCode::LoadMatrix
-            | CmmaOpCode::StoreMatrix => None,
-            CmmaOpCode::Cast => Some(CoopMma::Cast { input: args[0] }),
-        }
-    }
-
-    fn sanitize_args(&mut self, scope: &crate::Scope) {
-        match self {
-            CoopMma::Fill { value } => value.sanitize_args_ptr(scope),
-            CoopMma::Load { stride, offset, .. } => {
-                stride.sanitize_args_ptr(scope);
-                offset.sanitize_args_ptr(scope);
-            }
-            CoopMma::LoadTensor { .. } => {}
-            CoopMma::Execute {
-                mat_a,
-                mat_b,
-                mat_c,
-            } => {
-                mat_a.sanitize_args_ptr(scope);
-                mat_b.sanitize_args_ptr(scope);
-                mat_c.sanitize_args_ptr(scope);
-            }
-            CoopMma::Store {
-                mat,
-                stride,
-                offset,
-                ..
-            } => {
-                mat.sanitize_args_ptr(scope);
-                stride.sanitize_args_ptr(scope);
-                offset.sanitize_args_ptr(scope);
-            }
-            CoopMma::StoreTensor { mat, .. } => mat.sanitize_args_ptr(scope),
-            CoopMma::Cast { input } => input.sanitize_args_ptr(scope),
-            CoopMma::RowIndex { lane_id, i, .. } => {
-                lane_id.sanitize_args_ptr(scope);
-                i.sanitize_args_ptr(scope);
-            }
-            CoopMma::ColIndex { lane_id, i, .. } => {
-                lane_id.sanitize_args_ptr(scope);
-                i.sanitize_args_ptr(scope);
-            }
-            CoopMma::LoadMatrix { offset, .. } => {
-                offset.sanitize_args_ptr(scope);
-            }
-            CoopMma::StoreMatrix {
-                offset, registers, ..
-            } => {
-                registers.sanitize_args_ptr(scope);
-                offset.sanitize_args_ptr(scope);
-            }
-            CoopMma::ExecuteManual {
-                registers_a,
-                registers_b,
-                registers_c,
-                ..
-            } => {
-                registers_a.sanitize_args_ptr(scope);
-                registers_b.sanitize_args_ptr(scope);
-                registers_c.sanitize_args_ptr(scope);
-            }
-            CoopMma::ExecuteScaled {
-                registers_a,
-                registers_b,
-                registers_c,
-                scales_a,
-                scales_b,
-                ..
-            } => {
-                registers_a.sanitize_args_ptr(scope);
-                registers_b.sanitize_args_ptr(scope);
-                registers_c.sanitize_args_ptr(scope);
-                scales_a.sanitize_args_ptr(scope);
-                scales_b.sanitize_args_ptr(scope);
-            }
-            CoopMma::ExecuteElementwise { .. } => {}
-        }
-    }
 }
 
 impl Display for CoopMma {
@@ -292,18 +177,14 @@ impl Display for CoopMma {
         match self {
             CoopMma::Fill { value } => write!(f, "{value}"),
             CoopMma::Load {
-                value,
+                ptr,
                 stride,
-                offset,
                 layout,
             } => {
                 let layout = layout
                     .map(|it| format!(", layout: {it:?}"))
                     .unwrap_or(String::new());
-                write!(
-                    f,
-                    "matrix_load({value}, stride: {stride}{layout}, offset: {offset})"
-                )
+                write!(f, "matrix_load({ptr}, stride: {stride}{layout})")
             }
             CoopMma::LoadTensor {
                 buffer,
@@ -361,11 +242,11 @@ impl Display for CoopMma {
             CoopMma::Store {
                 mat,
                 stride,
-                offset,
+                destination,
                 layout,
             } => write!(
                 f,
-                "matrix_store({mat}, stride: {stride}, layout: {layout:?}, offset: {offset:?})"
+                "matrix_store({mat}, stride: {stride}, layout: {layout:?}, dest: {destination})"
             ),
             CoopMma::StoreTensor { mat, layout, .. } => {
                 write!(f, "matrix_store_tensor({mat}, layout: {layout})")
@@ -380,27 +261,21 @@ impl Display for CoopMma {
                 write!(f, "col_idx(lane_id: {lane_id}, i: {i}, matrix: {matrix:?})",)
             }
             CoopMma::LoadMatrix {
-                buffer,
-                offset,
+                ptr,
                 factor,
                 transpose,
-                ..
             } => {
-                write!(
-                    f,
-                    "ldmatrix_{factor}x(&{buffer}[{offset}], transpose: {transpose})"
-                )
+                write!(f, "ldmatrix_{factor}x({ptr}, transpose: {transpose})")
             }
             CoopMma::StoreMatrix {
-                offset,
                 registers,
                 factor,
                 transpose,
-                ..
+                destination,
             } => {
                 write!(
                     f,
-                    "stmatrix_{factor}x({registers}, offset: {offset}, transpose: {transpose})"
+                    "stmatrix_{factor}x({registers}, dest: {destination}, transpose: {transpose})"
                 )
             }
         }

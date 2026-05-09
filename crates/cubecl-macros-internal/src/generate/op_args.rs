@@ -45,6 +45,28 @@ impl OpArgs {
         tokens
     }
 
+    fn generate_read_ptrs(&self) -> TokenStream {
+        let mut tokens = quote![];
+        for field in self.data.as_ref().take_struct().unwrap().fields {
+            if field.ptr_read.is_present() {
+                let ident = field.ident.as_ref().unwrap();
+                tokens.extend(quote![self.#ident,]);
+            }
+        }
+        quote! {alloc::vec![#tokens]}
+    }
+
+    fn generate_write_ptrs(&self) -> TokenStream {
+        let mut tokens = quote![];
+        for field in self.data.as_ref().take_struct().unwrap().fields {
+            if field.ptr_write.is_present() {
+                let ident = field.ident.as_ref().unwrap();
+                tokens.extend(quote![self.#ident,]);
+            }
+        }
+        quote! {alloc::vec![#tokens]}
+    }
+
     fn generate_args_impl(&self) -> TokenStream {
         let name = &self.ident;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
@@ -52,6 +74,9 @@ impl OpArgs {
         let into = self.generate_into();
         let from = self.generate_from();
         let sanitize_ptr = self.generate_sanitize_ptr();
+
+        let read_ptrs = self.generate_read_ptrs();
+        let write_ptrs = self.generate_write_ptrs();
 
         quote![impl #generics crate::OperationArgs for #name #generic_names #where_clause {
             fn from_args(args: &[Variable]) -> Option<Self> {
@@ -64,6 +89,14 @@ impl OpArgs {
 
             fn sanitize_args_ptr(&mut self, scope: &crate::Scope) {
                 #sanitize_ptr
+            }
+
+            fn read_pointers(&self) -> alloc::vec::Vec<crate::Variable> {
+                #read_ptrs
+            }
+
+            fn write_pointers(&self) -> alloc::vec::Vec<crate::Variable> {
+                #write_ptrs
             }
         }]
     }

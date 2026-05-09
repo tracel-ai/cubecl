@@ -1,7 +1,7 @@
 use core::{cell::RefCell, ops::Deref};
-use std::collections::HashMap;
 
 use cubecl_ir::{Memory, Operation, Variable};
+use hashbrown::HashMap;
 
 use crate::{
     Function, GlobalState,

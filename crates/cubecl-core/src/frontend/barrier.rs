@@ -1,7 +1,6 @@
 //! This module exposes barrier for asynchronous data transfer
 
 use alloc::vec;
-use core::ops::{Deref, DerefMut};
 
 use crate as cubecl;
 use cubecl_ir::{Instruction, OpaqueType, Variable};
@@ -101,16 +100,17 @@ macro_rules! tensor_map_load {
                 ) {
                     let barrier = self.expand;
                     let source = source.expand;
-                    let (destination, destination_offset) = destination.__to_raw_parts();
+                    let dest_list = destination.__extract_list(scope);
+                    let destination = destination.__expand_as_ptr_method(scope).expand;
 
                     let mem_copy = BarrierOps::TmaLoad {
                         barrier,
                         tensor_map: source,
+                        destination,
                         indices: vec![$($arg.expand),*],
-                        offset_out: destination_offset
                     };
 
-                    scope.register(Instruction::new(mem_copy, destination));
+                    scope.register(Instruction::new(mem_copy, dest_list));
                 }
             }
         }
@@ -159,17 +159,18 @@ macro_rules! tensor_map_load_im2col {
                 ) {
                     let barrier = self.expand;
                     let source = source.expand;
-                    let (destination, destination_offset) = destination.__to_raw_parts();
+                    let dest_list = destination.__extract_list(scope);
+                    let destination = destination.__expand_as_ptr_method(scope).expand;
 
                     let mem_copy = BarrierOps::TmaLoadIm2col {
                         barrier,
                         tensor_map: source,
+                        destination,
                         indices: vec![$($arg.expand),*],
                         offsets: vec![$($offset.expand),*],
-                        offset_out: destination_offset,
                     };
 
-                    scope.register(Instruction::new(mem_copy, destination));
+                    scope.register(Instruction::new(mem_copy, dest_list));
                 }
             }
         }
@@ -273,19 +274,19 @@ impl Barrier {
     pub fn memcpy_async<C: CubePrimitive>(&self, source: &[C], destination: &mut [C]) {
         intrinsic!(|scope| {
             let barrier = self.expand;
-            let source_length = source.length.expand;
-            let (source, source_offset) = source.__to_raw_parts();
-            let (destination, destination_offset) = destination.__to_raw_parts();
+            let dest_list = destination.__extract_list(scope);
+            let source_length = source.__extract_length(scope).expand;
+            let source = source.__expand_as_ptr_method(scope).expand;
+            let destination = destination.__expand_as_ptr_method(scope).expand;
 
             let mem_copy = BarrierOps::MemCopyAsync {
                 barrier,
+                destination,
                 source,
                 source_length,
-                offset_source: source_offset,
-                offset_out: destination_offset,
             };
 
-            scope.register(Instruction::new(mem_copy, destination));
+            scope.register(Instruction::new(mem_copy, dest_list));
         })
     }
 
@@ -299,19 +300,19 @@ impl Barrier {
     pub fn memcpy_async_cooperative<C: CubePrimitive>(&self, source: &[C], destination: &mut [C]) {
         intrinsic!(|scope| {
             let barrier = self.expand;
-            let source_length = source.length.expand;
-            let (source, source_offset) = source.__to_raw_parts();
-            let (destination, destination_offset) = destination.__to_raw_parts();
+            let dest_list = destination.__extract_list(scope);
+            let source_length = source.__extract_length(scope).expand;
+            let source = source.__expand_as_ptr_method(scope).expand;
+            let destination = destination.__expand_as_ptr_method(scope).expand;
 
             let mem_copy = BarrierOps::MemCopyAsyncCooperative {
                 barrier,
                 source,
+                destination,
                 source_length,
-                offset_source: source_offset,
-                offset_out: destination_offset,
             };
 
-            scope.register(Instruction::new(mem_copy, destination));
+            scope.register(Instruction::new(mem_copy, dest_list));
         })
     }
 
@@ -326,19 +327,19 @@ impl Barrier {
     pub fn memcpy_async_tx<C: CubePrimitive>(&self, source: &[C], destination: &mut [C]) {
         intrinsic!(|scope| {
             let barrier = self.expand;
-            let source_length = source.length.expand;
-            let (source, source_offset) = source.__to_raw_parts();
-            let (destination, destination_offset) = destination.__to_raw_parts();
+            let dest_list = destination.__extract_list(scope);
+            let source_length = source.__extract_length(scope).expand;
+            let source = source.__expand_as_ptr_method(scope).expand;
+            let destination = destination.__expand_as_ptr_method(scope).expand;
 
             let mem_copy = BarrierOps::MemCopyAsyncTx {
                 barrier,
                 source,
+                destination,
                 source_length,
-                offset_source: source_offset,
-                offset_out: destination_offset,
             };
 
-            scope.register(Instruction::new(mem_copy, destination));
+            scope.register(Instruction::new(mem_copy, dest_list));
         })
     }
 }
@@ -451,20 +452,20 @@ pub mod copy_async {
         copy_length: u32,
     ) {
         let source_length = copy_length.into();
-        let (source, source_offset) = source.__to_raw_parts();
-        let (destination, destination_offset) = destination.__to_raw_parts();
+        let dest_list = destination.__extract_list(scope);
+        let source = source.__expand_as_ptr_method(scope).expand;
+        let destination = destination.__expand_as_ptr_method(scope).expand;
         let scalar_size = C::__expand_as_type(scope).storage_type().size();
 
         let mem_copy = BarrierOps::CopyAsync {
             source,
+            destination,
             source_length,
-            offset_source: source_offset,
-            offset_out: destination_offset,
             copy_length: copy_length * scalar_size as u32,
             checked: false,
         };
 
-        scope.register(Instruction::new(mem_copy, destination));
+        scope.register(Instruction::new(mem_copy, dest_list));
     }
 }
 
@@ -496,21 +497,23 @@ pub mod copy_async_checked {
         destination: &mut SliceExpand<C>,
         copy_length: u32,
     ) {
-        let source_length = source.length.expand;
-        let (source, source_offset) = source.__to_raw_parts();
-        let (destination, destination_offset) = destination.__to_raw_parts();
+        let dest_list = destination.__extract_list(scope);
+        let source_length = source.__extract_length(scope).expand;
+
+        // OOB pointer is allowed as long as length is 0
+        let source = unsafe { source.__expand_as_ptr_unchecked_method(scope).expand };
+        let destination = unsafe { destination.__expand_as_ptr_unchecked_method(scope).expand };
         let scalar_size = C::__expand_as_type(scope).storage_type().size();
 
         let mem_copy = BarrierOps::CopyAsync {
             source,
+            destination,
             source_length,
-            offset_source: source_offset,
-            offset_out: destination_offset,
             copy_length: copy_length * scalar_size as u32,
             checked: true,
         };
 
-        scope.register(Instruction::new(mem_copy, destination));
+        scope.register(Instruction::new(mem_copy, dest_list));
     }
 }
 
@@ -540,18 +543,5 @@ impl Barrier {
 impl From<SharedExpand<Barrier>> for BarrierExpand {
     fn from(value: SharedExpand<Barrier>) -> Self {
         value.expand.into()
-    }
-}
-
-impl Deref for SharedExpand<Barrier> {
-    type Target = BarrierExpand;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { self.as_type_ref_unchecked() }
-    }
-}
-impl DerefMut for SharedExpand<Barrier> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.as_type_mut_unchecked() }
     }
 }

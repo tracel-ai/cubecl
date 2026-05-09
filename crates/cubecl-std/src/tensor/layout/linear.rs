@@ -3,7 +3,7 @@ use cubecl_core::{self as cubecl, ir::UIntKind, zspace::Shape};
 
 use crate::tensor::{
     View, is_contiguous, is_contiguous_pitched,
-    launch::{BufferArg, ConcreteLayout, ConcreteLayoutLaunch, ViewArg, ViewLayoutLaunchArg},
+    launch::{ConcreteLayout, ConcreteLayoutLaunch, MemoryArg, ViewArg, ViewLayoutLaunchArg},
     layout::{
         Coords1d, Layout, LayoutExpand, VirtualLayoutOperationsExpand,
         permuted::{PermutedLayout, PermutedLayoutCompilationArg, PermutedLayoutLaunch},
@@ -51,7 +51,7 @@ impl ViewLayoutLaunchArg for LinearViewLayout {
     type RuntimeArg<R: Runtime> = LinearViewLayoutLaunch;
     type CompilationArg = LinearLayoutCompilationArg;
 
-    fn register<R: Runtime, B: BufferArg>(
+    fn register<R: Runtime, B: MemoryArg>(
         runtime_arg: Self::RuntimeArg<R>,
         buffer: &B,
         ty: Type,

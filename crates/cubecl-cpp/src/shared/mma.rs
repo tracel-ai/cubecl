@@ -1,6 +1,6 @@
 use crate::shared::Item;
 
-use super::{Component, Dialect, Elem, FmtLeft, Variable};
+use super::{Component, Dialect, Elem, Variable};
 use cubecl_core::ir::{
     DeviceProperties,
     features::{MmaConfig, ScaledMmaConfig},
@@ -104,8 +104,7 @@ pub enum WmmaInstruction<D: Dialect> {
     /// Load the value into the fragment given the stride.
     Load {
         frag: Variable<D>,
-        value: Variable<D>,
-        offset: Variable<D>,
+        ptr: Variable<D>,
         stride: Variable<D>,
         layout: Option<FragmentLayout<D>>,
     },
@@ -151,27 +150,22 @@ pub enum WmmaInstruction<D: Dialect> {
     },
     /// Store the fragment in an output variable following the stride and the layout.
     Store {
-        output: Variable<D>,
         frag: Variable<D>,
         stride: Variable<D>,
-        offset: Variable<D>,
+        destination: Variable<D>,
         layout: FragmentLayout<D>,
     },
     /// Load a part of a fragment into registers, either 1, 2, or 4 at once.
     LdMatrix {
         output: Variable<D>,
-        buffer: Variable<D>,
-        offset: Variable<D>,
-        vector_size: Option<usize>,
+        ptr: Variable<D>,
         factor: u32,
         transpose: bool,
     },
     /// Store a part of a fragment into smem, either 1, 2, or 4 at once.
     StMatrix {
         registers: Variable<D>,
-        buffer: Variable<D>,
-        offset: Variable<D>,
-        vector_size: Option<usize>,
+        ptr: Variable<D>,
         factor: u32,
         transpose: bool,
     },
@@ -290,30 +284,25 @@ pub mod wmma_api_base {
             }
             WmmaInstruction::Load {
                 frag,
-                value,
+                ptr,
                 stride,
-                offset,
                 layout: None,
             } => {
-                let item = value.item();
+                let item = *ptr.item().value_ty();
                 if item.vectorization() > 1 {
                     let elem = item.elem();
-                    let qualifier = value.const_qualifier();
+                    let qualifier = ptr.const_qualifier();
                     writeln!(
                         f,
-                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem}{qualifier}*>({value} + {offset}), {stride});"
+                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem}{qualifier}*>({ptr}), {stride});"
                     )
                 } else {
-                    writeln!(
-                        f,
-                        "{namespace}::load_matrix_sync({frag}, {value} + {offset}, {stride});"
-                    )
+                    writeln!(f, "{namespace}::load_matrix_sync({frag}, {ptr}, {stride});")
                 }
             }
             WmmaInstruction::Load {
                 frag,
-                value,
-                offset,
+                ptr,
                 stride,
                 layout: Some(layout),
             } => {
@@ -322,50 +311,32 @@ pub mod wmma_api_base {
                     FragmentLayout::RowMajor => format!("{namespace}::mem_row_major"),
                     FragmentLayout::_Dialect(_) => "".to_string(),
                 };
-                let item = value.item();
+                let item = *ptr.item().value_ty();
                 if item.vectorization() > 1 {
                     let elem = item.elem();
                     writeln!(
                         f,
-                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({value} + {offset}), {stride}, {layout});"
+                        "{namespace}::load_matrix_sync({frag}, reinterpret_cast<{elem} *>({ptr}), {stride}, {layout});"
                     )
                 } else {
                     writeln!(
                         f,
-                        "{namespace}::load_matrix_sync({frag}, {value} + {offset}, {stride}, {layout});"
+                        "{namespace}::load_matrix_sync({frag}, {ptr}, {stride}, {layout});"
                     )
                 }
             }
             WmmaInstruction::LdMatrix {
                 output,
-                buffer,
-                offset,
-                vector_size,
+                ptr,
                 factor,
                 transpose,
-            } => f.write_str(&ldmatrix_call(
-                output,
-                buffer,
-                offset,
-                vector_size,
-                factor,
-                transpose,
-            )),
+            } => f.write_str(&ldmatrix_call(output, ptr, factor, transpose)),
             WmmaInstruction::StMatrix {
                 registers,
-                buffer,
-                offset,
-                vector_size,
+                ptr,
                 factor,
                 transpose,
-            } => f.write_str(&stmatrix_call(
-                registers,
-                buffer,
-                offset,
-                vector_size,
-                factor,
-                transpose,
-            )),
+            } => f.write_str(&stmatrix_call(registers, ptr, factor, transpose)),
             WmmaInstruction::Execute {
                 frag_a,
                 frag_b,
@@ -377,10 +348,9 @@ pub mod wmma_api_base {
                 "{namespace}::mma_sync({frag_d}, {frag_a}, {frag_b}, {frag_c});"
             ),
             WmmaInstruction::Store {
-                output,
                 frag,
                 stride,
-                offset,
+                destination,
                 layout,
             } => {
                 let layout = match layout {
@@ -389,7 +359,7 @@ pub mod wmma_api_base {
                     FragmentLayout::_Dialect(_) => "".to_string(),
                 };
 
-                let item = output.item();
+                let item = *destination.item().value_ty();
                 let mut reinterpret_cast = item.vectorization() > 1;
                 let elem = match item.elem() {
                     Elem::BF16 => {
@@ -401,12 +371,12 @@ pub mod wmma_api_base {
                 if reinterpret_cast {
                     writeln!(
                         f,
-                        "{namespace}::store_matrix_sync(reinterpret_cast<{elem} *>({output} + {offset}), {frag}, {stride}, {layout});"
+                        "{namespace}::store_matrix_sync(reinterpret_cast<{elem} *>({destination}), {frag}, {stride}, {layout});"
                     )
                 } else {
                     writeln!(
                         f,
-                        "{namespace}::store_matrix_sync({output} + {offset}, {frag}, {stride}, {layout});"
+                        "{namespace}::store_matrix_sync({destination}, {frag}, {stride}, {layout});"
                     )
                 }
             }
@@ -465,24 +435,13 @@ for(int t=0; t<{input}.num_elements; t++) {{ {output}.x[t] = {ty}({input}.x[t]);
     }
 }
 
-pub fn frag_as_ptr<D: Dialect>(
-    f: &mut Formatter<'_>,
-    frag: &Variable<D>,
-    offset: &Variable<D>,
-) -> Variable<D> {
-    let item = frag.item();
-    let mut frag_ptr = Variable::tmp_ptr(item);
-    if frag.is_const() {
-        frag_ptr.to_const();
-    }
-    let frag_ptr_out = frag_ptr.fmt_left();
-    writeln!(f, "{frag_ptr_out} = {frag} + {offset};").unwrap();
-
+pub fn frag_as_ptr<D: Dialect>(f: &mut Formatter<'_>, ptr: &Variable<D>) -> Variable<D> {
+    let item = ptr.item();
     if item.vectorization() > 1 {
         let item_value = Item::Scalar(*item.elem());
-        frag_ptr.reinterpret_ptr(f, item_value)
+        ptr.reinterpret_ptr(f, item_value)
     } else {
-        frag_ptr
+        *ptr
     }
 }
 

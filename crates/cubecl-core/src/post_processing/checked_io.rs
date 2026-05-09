@@ -1,122 +1,105 @@
-use alloc::{string::String, vec::Vec};
-use cubecl_ir::{Memory, Operation, Processor, Scope};
+use alloc::{vec, vec::Vec};
+
+use alloc::string::String;
+use cubecl_ir::{GlobalState, Instruction, Memory, Operation, Scope};
 use cubecl_runtime::server::ExecutionMode;
 
-use crate::io::*;
+use crate::{
+    io::*,
+    post_processing::{util::AtomicCounter, visitor::InstructionVisitor},
+};
 
 #[derive(new, Debug)]
-pub struct CheckedIoProcessor {
+pub struct CheckedIoVisitor {
     mode: ExecutionMode,
     kernel_name: String,
 }
 
-impl Processor for CheckedIoProcessor {
-    fn transform(&self, processing: cubecl_ir::ScopeProcessing) -> cubecl_ir::ScopeProcessing {
+impl CheckedIoVisitor {
+    pub fn apply(&mut self, scope: &Scope) {
+        let changes = AtomicCounter::new(0);
+        self.visit_scope(scope, &changes);
+    }
+}
+
+impl InstructionVisitor for CheckedIoVisitor {
+    fn visit_instruction(
+        &mut self,
+        instruction: Instruction,
+        global_state: &GlobalState,
+        _changes: &AtomicCounter,
+    ) -> Vec<Instruction> {
         match self.mode {
-            ExecutionMode::Checked => self.transform_checked(processing),
-            ExecutionMode::Unchecked => processing,
-            ExecutionMode::Validate => self.transform_validate(processing),
+            ExecutionMode::Checked => self.transform_checked(instruction, global_state),
+            ExecutionMode::Validate => self.transform_validate(instruction, global_state),
+            ExecutionMode::Unchecked => vec![instruction],
         }
     }
 }
 
-impl CheckedIoProcessor {
+impl CheckedIoVisitor {
     fn transform_checked(
         &self,
-        mut processing: cubecl_ir::ScopeProcessing,
-    ) -> cubecl_ir::ScopeProcessing {
-        let mut instructions = Vec::new();
-        core::mem::swap(&mut processing.instructions, &mut instructions);
+        instruction: Instruction,
+        global_state: &GlobalState,
+    ) -> Vec<Instruction> {
+        if let Operation::Memory(memory) = &instruction.operation {
+            match memory {
+                Memory::Index(op) if op.checked => {
+                    let has_length = op.list.has_buffer_length();
 
-        for instruction in instructions {
-            if let Operation::Memory(memory) = &instruction.operation {
-                match memory {
-                    Memory::Index(op) if op.checked => {
-                        let has_length = op.list.has_length();
+                    if has_length {
+                        let list = op.list;
+                        let index = op.index;
+                        let scope = Scope::root(false).with_global_state(global_state.clone());
 
-                        if has_length {
-                            let list = op.list;
-                            let index = op.index;
-                            let scope = Scope::root(false)
-                                .with_global_state(processing.global_state.clone());
+                        expand_checked_index(
+                            &scope,
+                            list,
+                            index,
+                            instruction.out(),
+                            op.unroll_factor,
+                        );
 
-                            expand_checked_index(
-                                &scope,
-                                list,
-                                index,
-                                instruction.out(),
-                                op.unroll_factor,
-                            );
-
-                            let tmp_processing = scope.process([]);
-
-                            for inst in tmp_processing.instructions {
-                                processing.instructions.push(inst);
-                            }
-                            for var in tmp_processing.variables {
-                                processing.variables.push(var);
-                            }
-
-                            continue;
-                        }
+                        return scope.take_instructions();
                     }
-                    _ => {}
                 }
+                _ => {}
             }
-
-            // When we have nothing to do.
-            processing.instructions.push(instruction);
         }
-        processing
+        vec![instruction]
     }
 
     fn transform_validate(
         &self,
-        mut processing: cubecl_ir::ScopeProcessing,
-    ) -> cubecl_ir::ScopeProcessing {
-        let mut instructions = Vec::new();
-        core::mem::swap(&mut processing.instructions, &mut instructions);
+        instruction: Instruction,
+        global_state: &GlobalState,
+    ) -> Vec<Instruction> {
+        if let Operation::Memory(memory) = &instruction.operation {
+            match memory {
+                Memory::Index(op) if op.checked => {
+                    let has_length = op.list.has_buffer_length();
 
-        for instruction in instructions {
-            if let Operation::Memory(memory) = &instruction.operation {
-                match memory {
-                    Memory::Index(op) if op.checked => {
-                        let has_length = op.list.has_length();
+                    if has_length {
+                        let list = op.list;
+                        let index = op.index;
+                        let scope = Scope::root(false).with_global_state(global_state.clone());
 
-                        if has_length {
-                            let list = op.list;
-                            let index = op.index;
-                            let scope = Scope::root(false)
-                                .with_global_state(processing.global_state.clone());
+                        expand_validate_index(
+                            &scope,
+                            list,
+                            index,
+                            instruction.out(),
+                            op.unroll_factor,
+                            &self.kernel_name,
+                        );
 
-                            expand_validate_index(
-                                &scope,
-                                list,
-                                index,
-                                instruction.out(),
-                                op.unroll_factor,
-                                &self.kernel_name,
-                            );
-
-                            let tmp_processing = scope.process([]);
-
-                            for inst in tmp_processing.instructions {
-                                processing.instructions.push(inst);
-                            }
-                            for var in tmp_processing.variables {
-                                processing.variables.push(var);
-                            }
-
-                            continue;
-                        }
+                        return scope.take_instructions();
                     }
-                    _ => {}
                 }
+                _ => {}
             }
-
-            // When we have nothing to do.
-            processing.instructions.push(instruction);
         }
-        processing
+        vec![instruction]
     }
 }

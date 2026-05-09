@@ -1,11 +1,7 @@
-use std::{
-    collections::HashMap,
-    ops::{Add, Mul, Sub},
-};
-
 use cubecl_ir::{
     Arithmetic, Builtin, ConstantValue, ElemType, Id, Operation, Type, Variable, VariableKind,
 };
+use hashbrown::HashMap;
 
 use crate::{Function, GlobalState, VarId};
 
@@ -186,9 +182,9 @@ fn is_uint(ty: Type) -> bool {
 }
 
 mod range_ops {
-    use std::{
+    use core::{
         fmt::Display,
-        ops::{Div, Rem},
+        ops::{Add, Div, Mul, Rem, Sub},
     };
 
     use super::*;
@@ -261,7 +257,7 @@ mod range_ops {
     }
 
     impl Display for Range {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             match (self.lower_bound, self.upper_bound) {
                 (Some(lower), Some(upper)) => write!(f, "{lower}..={upper}"),
                 (None, Some(upper)) => write!(f, "..={upper}"),

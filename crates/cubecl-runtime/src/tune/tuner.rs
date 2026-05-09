@@ -47,7 +47,7 @@ impl core::fmt::Display for AutotuneOutcome {
 }
 
 /// Error from running autotune.
-#[derive(Debug, Clone, Display)]
+#[derive(Clone, Display)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneError {
     /// An unknown error happened.
@@ -83,6 +83,12 @@ pub enum AutotuneError {
 
     /// An error happened when launching a kernel.
     Launch(LaunchError),
+}
+
+impl core::fmt::Debug for AutotuneError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self}")
+    }
 }
 
 impl From<LaunchError> for AutotuneError {

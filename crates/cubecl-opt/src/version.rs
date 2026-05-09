@@ -1,9 +1,8 @@
-use std::{
-    collections::{HashMap, HashSet},
-    mem::take,
-};
+use core::mem::take;
 
+use alloc::vec::Vec;
 use cubecl_ir::{Id, Instruction, Type, Variable, VariableKind};
+use hashbrown::{HashMap, HashSet};
 use petgraph::visit::EdgeRef;
 
 use crate::{ControlFlow, EdgeIndex, Function, GlobalState, NodeIndex};
@@ -181,7 +180,7 @@ impl Function {
         op: &mut Instruction,
         state: &mut SsaState<'_>,
     ) {
-        self.visit_operation(global_state, &mut op.operation, &mut op.out, |opt, var| {
+        self.visit_operation(global_state, &mut op.operation, |opt, var| {
             opt.version_read(var, state)
         });
     }

@@ -23,27 +23,39 @@
 //! `value` to it in each relevant `block`.
 //!
 
+#![no_std]
 #![allow(unknown_lints, unnecessary_transmutes)]
 
-use ::core::cell::RefCell;
-use std::{
-    collections::{HashMap, VecDeque},
+extern crate alloc;
+
+#[cfg(any(feature = "std", test))]
+extern crate std;
+
+use core::{
+    cell::RefCell,
     ops::{Deref, DerefMut},
-    rc::Rc,
-    sync::atomic::{AtomicUsize, Ordering},
 };
 
+use alloc::{boxed::Box, collections::vec_deque::VecDeque, rc::Rc, vec, vec::Vec};
 use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::Writes};
-use cubecl_core::CubeDim;
+use cubecl_core::{
+    CubeDim,
+    post_processing::{
+        constant_prop::{ConstEval, ConstOperandSimplify},
+        disaggregate::DisaggregateVisitor,
+        visitor::InstructionVisitor,
+    },
+};
 use cubecl_ir::{
-    self as core, Allocator, Branch, Id, Memory, Operation, Operator, Processor, Scope, Type,
+    self as ir, Allocator, Branch, Id, Memory, Operation, Operator, Processor, Scope, Type,
     Variable, VariableKind,
 };
 use gvn::GvnPass;
+use hashbrown::HashMap;
 use passes::{
-    CompositeMerge, ConstEval, ConstOperandSimplify, EliminateConstBranches, EliminateDeadBlocks,
-    EliminateDeadPhi, EliminateUnusedVariables, EmptyBranchToSelect, InlineAssignments,
-    MergeBlocks, MergeSameExpressions, OptimizerPass, ReduceStrength, RemoveIndexScalar,
+    CompositeMerge, EliminateConstBranches, EliminateDeadBlocks, EliminateDeadPhi,
+    EliminateUnusedVariables, EmptyBranchToSelect, InlineAssignments, MergeBlocks,
+    MergeSameExpressions, OptimizerPass, ReduceStrength, RemoveIndexScalar,
 };
 use petgraph::{Direction, prelude::StableDiGraph, visit::EdgeRef};
 
@@ -58,6 +70,8 @@ mod phi_frontiers;
 mod transformers;
 mod version;
 
+pub(crate) use cubecl_core::post_processing::util::AtomicCounter;
+
 pub use analyses::uniformity::Uniformity;
 pub use block::*;
 pub use control_flow::*;
@@ -71,37 +85,12 @@ use crate::{
     passes::{CopyTransform, DisaggregateArray, InlineRef},
 };
 
-/// An atomic counter with a simplified interface.
-#[derive(Clone, Debug, Default)]
-pub struct AtomicCounter {
-    inner: Rc<AtomicUsize>,
-}
-
-impl AtomicCounter {
-    /// Creates a new counter with `val` as its initial value.
-    pub fn new(val: usize) -> Self {
-        Self {
-            inner: Rc::new(AtomicUsize::new(val)),
-        }
-    }
-
-    /// Increments the counter and returns the last count.
-    pub fn inc(&self) -> usize {
-        self.inner.fetch_add(1, Ordering::AcqRel)
-    }
-
-    /// Gets the value of the counter without incrementing it.
-    pub fn get(&self) -> usize {
-        self.inner.load(Ordering::Acquire)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct ConstArray {
     pub id: Id,
     pub length: usize,
     pub item: Type,
-    pub values: Vec<core::Variable>,
+    pub values: Vec<ir::Variable>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -163,6 +152,7 @@ pub struct GlobalState {
     pub(crate) cube_dim: CubeDim,
     pub(crate) transformers: Vec<Rc<dyn IrTransformer>>,
     pub(crate) processors: Rc<Vec<Box<dyn Processor>>>,
+    pub(crate) visitors: Rc<RefCell<Vec<Box<dyn InstructionVisitor>>>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -187,6 +177,7 @@ impl Default for GlobalState {
             cube_dim: CubeDim::new_1d(1),
             transformers: Default::default(),
             processors: Default::default(),
+            visitors: Default::default(),
         }
     }
 }
@@ -198,6 +189,7 @@ impl Optimizer {
         expand: Scope,
         cube_dim: CubeDim,
         transformers: Vec<Rc<dyn IrTransformer>>,
+        visitors: Vec<Box<dyn InstructionVisitor>>,
         processors: Vec<Box<dyn Processor>>,
     ) -> Self {
         let extra_funcs = expand.state().functions.clone();
@@ -208,6 +200,7 @@ impl Optimizer {
             cube_dim,
             transformers,
             processors: Rc::new(processors),
+            visitors: Rc::new(RefCell::new(visitors)),
             extra_functions: Default::default(),
         };
         for (id, func) in extra_funcs.into_iter() {
@@ -232,13 +225,15 @@ impl Optimizer {
     /// Parses the scope and runs several optimization and analysis loops.
     pub fn shared_only(expand: Scope, cube_dim: CubeDim) -> Self {
         let extra_funcs = expand.state().functions.clone();
+        let disaggregate: Box<dyn InstructionVisitor> = Box::new(DisaggregateVisitor::default());
         let mut global_state = GlobalState {
             allocator: expand.state().allocator.clone(),
             root_scope: expand.clone(),
             buffer_visibility: Default::default(),
             cube_dim,
             transformers: Vec::new(),
-            processors: Rc::new(Vec::new()),
+            processors: Rc::new(vec![]),
+            visitors: Rc::new(RefCell::new(vec![disaggregate])),
             extra_functions: Default::default(),
         };
         for (id, func) in extra_funcs.into_iter() {
@@ -285,14 +280,14 @@ impl GlobalState {
 }
 
 /// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.
-pub fn local_variable_id(variable: &core::Variable) -> Option<Id> {
+pub fn local_variable_id(variable: &ir::Variable) -> Option<Id> {
     match variable.kind {
-        core::VariableKind::LocalMut { id } if !variable.ty.is_atomic() => Some(id),
+        ir::VariableKind::LocalMut { id } if !variable.ty.is_atomic() => Some(id),
         _ => None,
     }
 }
 
-pub fn global_buffer_id(variable: &core::Variable) -> Option<Id> {
+pub fn global_buffer_id(variable: &ir::Variable) -> Option<Id> {
     match variable.kind {
         VariableKind::GlobalBuffer(id) | VariableKind::TensorMap(id) => Some(id),
         _ => None,
@@ -320,6 +315,9 @@ impl Function {
 
     /// Recursively parse a scope into the graph
     pub fn parse_scope(&mut self, state: &GlobalState, scope: Scope) -> bool {
+        for visitor in state.visitors.borrow_mut().iter_mut() {
+            visitor.visit_scope(&scope, &AtomicCounter::new(0));
+        }
         let processed = scope.process(state.processors.iter().map(|it| &**it));
 
         for var in processed.variables {
@@ -554,6 +552,7 @@ impl Function {
         self.split_free();
         self.analysis::<PointerSource>(state);
         self.analysis::<SharedLiveness>(state);
+        // std::println!("this: {self}");
         self.update_buffer_vis(state);
     }
 
@@ -632,8 +631,8 @@ pub fn visit_noop(_opt: &mut Function, _var: &mut Variable) {}
 
 #[cfg(test)]
 mod test {
+    use alloc::vec;
     use cubecl_core as cubecl;
-    use cubecl_core::cube;
     use cubecl_core::prelude::*;
     use cubecl_ir::{ElemType, Type, UIntKind, Variable, VariableKind};
 
@@ -641,7 +640,7 @@ mod test {
 
     #[allow(unused)]
     #[cube(launch)]
-    fn pre_kernel(x: u32, cond: u32, out: &mut Array<u32>) {
+    fn pre_kernel(x: u32, cond: u32, out: &mut [u32]) {
         let mut y = 0;
         let mut z = 0;
         if cond == 0 {
@@ -673,7 +672,7 @@ mod test {
         .into();
 
         pre_kernel::expand(&ctx, x, cond, &mut arr);
-        let opt = Optimizer::new(ctx, CubeDim::new_1d(1), vec![], vec![]);
-        println!("{opt}")
+        let opt = Optimizer::new(ctx, CubeDim::new_1d(1), vec![], vec![], vec![]);
+        std::println!("{opt}")
     }
 }

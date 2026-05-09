@@ -30,7 +30,7 @@ use super::{Matrix, Type, Variable, VariableKind};
 #[derive(Clone, Debug, Default, TypeHash)]
 pub struct Allocator {
     #[cfg_attr(feature = "serde", serde(skip))]
-    local_mut_pool: Rc<RefCell<Vec<Variable>>>,
+    pub local_mut_pool: Rc<RefCell<Vec<Variable>>>,
     next_id: Rc<AtomicU32>,
 }
 
@@ -90,6 +90,10 @@ impl Allocator {
 
     pub fn new_local_index(&self) -> u32 {
         self.next_id.fetch_add(1, Ordering::Release)
+    }
+
+    pub fn current_local_index(&self) -> u32 {
+        self.next_id.load(Ordering::SeqCst)
     }
 
     pub fn take_variables(&self) -> Vec<Variable> {

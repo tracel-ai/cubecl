@@ -35,6 +35,14 @@ pub trait OperationReflect: Sized {
     fn is_pure(&self) -> bool {
         false
     }
+
+    fn read_pointers(&self) -> Vec<Variable> {
+        Vec::new()
+    }
+
+    fn write_pointers(&self) -> Vec<Variable> {
+        Vec::new()
+    }
 }
 
 /// A type that represents an operation's arguments
@@ -55,6 +63,14 @@ pub trait OperationArgs: Sized {
     /// returns `None`
     fn as_args(&self) -> Option<Vec<Variable>> {
         None
+    }
+
+    fn read_pointers(&self) -> Vec<Variable> {
+        Vec::new()
+    }
+
+    fn write_pointers(&self) -> Vec<Variable> {
+        Vec::new()
     }
 }
 

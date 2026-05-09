@@ -183,7 +183,7 @@ where
                 cube_dim,
                 output.required_address_type(),
                 vector_size,
-                ArrayArg::from_raw_parts(output.handle.clone(), array_len),
+                BufferArg::from_raw_parts(output.handle.clone(), array_len),
                 dtype,
             )
         };

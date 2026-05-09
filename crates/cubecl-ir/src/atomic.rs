@@ -1,32 +1,32 @@
 use core::fmt::Display;
 
-use crate::{AtomicBinaryOperator, TypeHash};
+use crate::{AtomicBinaryOperands, StoreOperands, TypeHash};
 
-use crate::{OperationArgs, OperationReflect, UnaryOperator, Variable};
+use crate::{OperationArgs, OperationReflect, Variable};
 
 /// Operations that operate on atomics
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = AtomicOpCode)]
 pub enum AtomicOp {
-    Load(#[args(allow_ptr)] UnaryOperator),
-    Store(UnaryOperator),
-    Swap(AtomicBinaryOperator),
-    Add(AtomicBinaryOperator),
-    Sub(AtomicBinaryOperator),
-    Max(AtomicBinaryOperator),
-    Min(AtomicBinaryOperator),
-    And(AtomicBinaryOperator),
-    Or(AtomicBinaryOperator),
-    Xor(AtomicBinaryOperator),
+    Load(#[args(allow_ptr, ptr_read)] Variable),
+    Store(StoreOperands),
+    Swap(AtomicBinaryOperands),
+    Add(AtomicBinaryOperands),
+    Sub(AtomicBinaryOperands),
+    Max(AtomicBinaryOperands),
+    Min(AtomicBinaryOperands),
+    And(AtomicBinaryOperands),
+    Or(AtomicBinaryOperands),
+    Xor(AtomicBinaryOperands),
     CompareAndSwap(CompareAndSwapOperator),
 }
 
 impl Display for AtomicOp {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            AtomicOp::Load(op) => write!(f, "atomic_load({})", op.input),
-            AtomicOp::Store(op) => write!(f, "atomic_store({})", op.input),
+            AtomicOp::Load(var) => write!(f, "atomic_load({var})"),
+            AtomicOp::Store(op) => write!(f, "atomic_store({}, {})", op.ptr, op.value),
             AtomicOp::Swap(op) => {
                 write!(f, "atomic_swap({}, {})", op.ptr, op.value)
             }
@@ -48,7 +48,7 @@ impl Display for AtomicOp {
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct CompareAndSwapOperator {
-    #[args(allow_ptr)]
+    #[args(allow_ptr, ptr_read, ptr_write)]
     pub ptr: Variable,
     pub cmp: Variable,
     pub val: Variable,

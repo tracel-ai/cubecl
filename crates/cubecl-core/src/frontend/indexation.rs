@@ -1,11 +1,11 @@
 use core::ops::{Index, IndexMut};
 
 use cubecl_ir::{
-    IndexOperator, Instruction, Memory, Scope, Type, Variable, VariableKind, VectorSize,
+    IndexOperands, Instruction, Memory, Scope, Type, Variable, VariableKind, VectorSize,
 };
 
 use super::{CubeType, NativeExpand, index_expand};
-use crate::{frontend::ExpandTypeClone, prelude::CubePrimitive};
+use crate::prelude::CubePrimitive;
 
 /// Trait bound that can be used to guarantee the expand also implements `IndexExpand`
 pub trait CubeIndex<I: CubeType>:
@@ -68,9 +68,9 @@ where
 {
 }
 
-pub(crate) fn expand_index_native<'a, A: ExpandTypeClone + Into<Variable>, O>(
+pub(crate) fn expand_index_native<'a, O>(
     scope: &Scope,
-    array: &'a A,
+    list: Variable,
     index: NativeExpand<usize>,
     vector_size: Option<VectorSize>,
     checked: bool,
@@ -84,15 +84,14 @@ where
         VariableKind::Constant(value) => Variable::constant(value, usize::__expand_as_type(scope)),
         _ => index,
     };
-    let array: Variable = array.clone_unchecked().into();
-    let var = index_expand(scope, array, index, vector_size, checked);
+    let var = index_expand(scope, list, index, vector_size, checked);
 
     scope.create_kernel_ref(var.into())
 }
 
-pub(crate) fn expand_index_mut_native<'a, A: ExpandTypeClone + Into<Variable>, O>(
+pub(crate) fn expand_index_mut_native<'a, O>(
     scope: &Scope,
-    list: &'a mut A,
+    list: Variable,
     index: NativeExpand<usize>,
     vector_size: Option<VectorSize>,
     checked: bool,
@@ -100,7 +99,6 @@ pub(crate) fn expand_index_mut_native<'a, A: ExpandTypeClone + Into<Variable>, O
 where
     O: From<Variable> + 'static,
 {
-    let list: Variable = list.clone_unchecked().into();
     let index: Variable = index.expand;
     let index = match index.kind {
         VariableKind::Constant(value) => Variable::constant(value, usize::__expand_as_type(scope)),
@@ -111,12 +109,12 @@ where
         Some(vector_size) => list.value_type().with_vector_size(vector_size),
         None => list.value_type(),
     };
-    let class = list.pointer_class();
+    let class = list.address_space();
     let out = scope.create_local(Type::pointer(ty, class));
     let vector_size = vector_size.unwrap_or(0);
 
     scope.register(Instruction::new(
-        Memory::Index(IndexOperator {
+        Memory::Index(IndexOperands {
             list,
             index,
             vector_size,

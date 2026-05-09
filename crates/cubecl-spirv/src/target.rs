@@ -1,4 +1,4 @@
-use cubecl_core::prelude::{KernelArg, Visibility};
+use cubecl_core::prelude::KernelArg;
 use cubecl_opt::BufferVisibility;
 use rspirv::{
     dr::Operand,
@@ -352,7 +352,6 @@ impl GLCompute {
             struct_ty_id,
             struct_ptr_ty_id,
             storage_class,
-            visibility: binding.visibility,
         }
     }
 
@@ -454,7 +453,6 @@ impl GLCompute {
             struct_ty_id,
             struct_ptr_ty_id,
             storage_class,
-            visibility: Visibility::Read,
         }
     }
 }

@@ -15,7 +15,7 @@ use ahash::AHasher;
 use alloc::boxed::Box;
 #[cfg(feature = "profile-tracy")]
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::{
@@ -302,7 +302,7 @@ pub enum ServerError {
     Io(#[from] IoError),
 
     /// The server is an invalid state.
-    #[error("The server is in an invalid state\nCaused by:\n  {}", errors.iter().map(|it| it.to_string()).join("\n"))]
+    #[error("The server is in an invalid state\nCaused by:\n  {}", errors.iter().join("\n"))]
     ServerUnhealthy {
         /// The details of the generic error.
         errors: Vec<Self>,

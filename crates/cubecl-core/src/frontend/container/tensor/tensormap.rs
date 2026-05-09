@@ -168,7 +168,7 @@ impl<E: CubePrimitive, K: TensorMapKind> LaunchArg for TensorMap<E, K> {
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> NativeExpand<TensorMap<E, K>> {
-        let tensor = builder.output_tensor_map(E::__expand_as_type(&builder.scope));
+        let tensor = builder.tensor_map(E::__expand_as_type(&builder.scope));
         tensor.into()
     }
 }
@@ -260,14 +260,13 @@ macro_rules! tma_store {
                     dst: &mut NativeExpand<TensorMap<T, Tiled>>,
                     $($arg: NativeExpand<i32>),*
                 ) {
-                    let (source, source_offset) = src.__to_raw_parts();
+                    let source = src.__expand_as_ptr_method(scope).expand;
                     let dst = dst.expand;
                     let coordinates = vec![$($arg.expand),*];
                     scope.register(Instruction::new(
                         TmaOps::TmaStore {
                             source,
                             coordinates,
-                            offset_source: source_offset,
                         },
                         dst,
                     ))
@@ -288,14 +287,11 @@ mod metadata {
     use cubecl_ir::{Metadata, Variable, VariableKind};
 
     use super::*;
-    use crate::{
-        ir::{Arithmetic, BinaryOperator, Instruction},
-        prelude::Array,
-    };
+    use crate::ir::{Arithmetic, BinaryOperands, Instruction};
 
     impl<T: Scalar, K: TensorMapKind> TensorMap<T, K> {
         /// Get a reference to the underlying buffer for the tensor map.
-        pub fn buffer<N: Size>(&self) -> Tensor<Vector<T, N>> {
+        pub fn buffer<N: Size>(&self) -> &Tensor<Vector<T, N>> {
             unexpanded!()
         }
 
@@ -473,7 +469,7 @@ mod metadata {
             // Compute `num_strides = index / stride`.
             let num_strides = scope.create_local(usize::__expand_as_type(scope));
             scope.register(Instruction::new(
-                Arithmetic::Div(BinaryOperator {
+                Arithmetic::Div(BinaryOperands {
                     lhs: index,
                     rhs: stride.expand,
                 }),
@@ -483,7 +479,7 @@ mod metadata {
             // Compute `coordinate = num_strides % shape `.
             let coordinate = scope.create_local(usize::__expand_as_type(scope));
             scope.register(Instruction::new(
-                Arithmetic::Rem(BinaryOperator {
+                Arithmetic::Rem(BinaryOperands {
                     lhs: num_strides,
                     rhs: shape.expand,
                 }),
@@ -494,22 +490,18 @@ mod metadata {
         }
 
         // Expand method of [len](Tensor::len).
-        pub fn __expand_len_method(self, scope: &Scope) -> NativeExpand<usize> {
-            let elem: NativeExpand<Array<u32>> = self.expand.into();
-            elem.__expand_len_method(scope)
+        pub fn __expand_len_method(self, _scope: &Scope) -> NativeExpand<usize> {
+            todo!()
         }
 
         // Expand method of [buffer_len](Tensor::buffer_len).
         pub fn __expand_buffer_len_method(self, scope: &Scope) -> NativeExpand<usize> {
-            let elem: NativeExpand<Array<u32>> = self.expand.into();
-            elem.__expand_buffer_len_method(scope)
+            expand_buffer_length_native(scope, self.expand).into()
         }
 
         // Expand method of [rank](Tensor::rank).
-        pub fn __expand_rank_method(self, scope: &Scope) -> NativeExpand<usize> {
-            let out = scope.create_local(usize::__expand_as_type(scope));
-            scope.register(Instruction::new(Metadata::Rank { var: self.expand }, out));
-            out.into()
+        pub fn __expand_rank_method(self, _scope: &Scope) -> NativeExpand<usize> {
+            todo!()
         }
 
         /// Expand method of [`TensorMap::downcast`].

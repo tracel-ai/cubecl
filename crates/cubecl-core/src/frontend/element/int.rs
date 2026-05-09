@@ -105,6 +105,8 @@ macro_rules! impl_int {
                 val as $type
             }
         }
+
+        impl_scalar_launch!($type);
     };
 }
 

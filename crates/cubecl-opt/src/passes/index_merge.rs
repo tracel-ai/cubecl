@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
-
+use alloc::vec::Vec;
 use cubecl_ir::{CopyMemoryOperator, Id, Instruction, Memory, Operation, Variable, VariableKind};
+use hashbrown::{HashMap, HashSet};
 
 use crate::{
     AtomicCounter, Function, GlobalState, analyses::pointer_source::PointerSource, visit_noop,

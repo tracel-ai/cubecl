@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 
 use cubecl_core::{
     ir::{self, Builtin, Id, Type, VariableKind},
-    prelude::{KernelDefinition, Visibility},
+    prelude::KernelDefinition,
 };
 use cubecl_opt::{ConstArray, NodeIndex};
 use hashbrown::{HashMap, HashSet};
@@ -154,7 +154,6 @@ pub struct Buffer {
     pub struct_ty_id: Word,
     pub struct_ptr_ty_id: Word,
     pub storage_class: StorageClass,
-    pub visibility: Visibility,
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
@@ -409,6 +408,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             VariableKind::Matrix { id, mat } => {
                 let matrix = self.init_coop_matrix(mat, param, Some(param_id));
                 self.state.matrices.insert(id, matrix);
+            }
+            VariableKind::Aggregate { .. } => {
+                unreachable!("Should be disaggregated at this point")
             }
         }
     }

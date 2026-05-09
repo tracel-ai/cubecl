@@ -38,7 +38,7 @@ pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R>) {
                 CubeDim::new_2d(input_size as u32, shape.len() as u32),
                 vector_size,
                 TensorArg::from_raw_parts(input.clone(), stride.into(), shape.into()),
-                ArrayArg::from_raw_parts(output.clone(), output_size),
+                BufferArg::from_raw_parts(output.clone(), output_size),
             )
         };
 

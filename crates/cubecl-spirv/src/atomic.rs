@@ -10,46 +10,57 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         out: Option<Variable>,
         modes: InstructionModes,
     ) {
-        let out = out.unwrap();
-
-        if matches!(
-            out.elem_type(),
-            ElemType::Int(IntKind::I64) | ElemType::UInt(UIntKind::U64)
-        ) {
+        if let Some(out) = out
+            && matches!(
+                out.elem_type(),
+                ElemType::Int(IntKind::I64) | ElemType::UInt(UIntKind::U64)
+            )
+        {
             self.capabilities.insert(Capability::Int64Atomics);
         }
 
         match atomic {
-            AtomicOp::Load(op) => {
-                let input = self.compile_variable(op.input);
+            AtomicOp::Load(ptr) => {
+                let out = out.unwrap();
+
+                let ptr = self.compile_variable(ptr);
                 let out = self.compile_variable(out);
                 let out_ty = out.item();
 
-                let input_id = input.id(self);
+                let input_id = ptr.id(self);
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.scope(&input);
-                let semantics = self.semantics_r(&input);
+                let memory = self.scope(&ptr);
+                let semantics = self.semantics_r(&ptr);
 
                 self.atomic_load(ty, Some(out_id), input_id, memory, semantics)
                     .unwrap();
                 self.write(&out, out_id);
             }
             AtomicOp::Store(op) => {
-                let input = self.compile_variable(op.input);
-                let out = self.compile_variable(out);
+                if matches!(
+                    op.value.elem_type(),
+                    ElemType::Int(IntKind::I64) | ElemType::UInt(UIntKind::U64)
+                ) {
+                    self.capabilities.insert(Capability::Int64Atomics);
+                }
 
-                let input_id = self.read(&input);
-                let out_id = out.id(self);
+                let value = self.compile_variable(op.value);
+                let ptr = self.compile_variable(op.ptr);
 
-                let memory = self.scope(&out);
-                let semantics = self.semantics_w(&out);
+                let value_id = self.read(&value);
+                let ptr_id = ptr.id(self);
 
-                self.atomic_store(out_id, memory, semantics, input_id)
+                let memory = self.scope(&ptr);
+                let semantics = self.semantics_w(&ptr);
+
+                self.atomic_store(ptr_id, memory, semantics, value_id)
                     .unwrap();
             }
             AtomicOp::Swap(op) => {
+                let out = out.unwrap();
+
                 let ptr = self.compile_variable(op.ptr);
                 let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
@@ -68,6 +79,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             AtomicOp::CompareAndSwap(op) => {
+                let out = out.unwrap();
+
                 let atomic = self.compile_variable(op.ptr);
                 let cmp = self.compile_variable(op.cmp);
                 let val = self.compile_variable(op.val);
@@ -102,6 +115,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             AtomicOp::Add(op) => {
+                let out = out.unwrap();
+
                 let ptr = self.compile_variable(op.ptr);
                 let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
@@ -138,6 +153,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             AtomicOp::Sub(op) => {
+                let out = out.unwrap();
+
                 let ptr = self.compile_variable(op.ptr);
                 let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
@@ -181,6 +198,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             AtomicOp::Max(op) => {
+                let out = out.unwrap();
+
                 let ptr = self.compile_variable(op.ptr);
                 let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
@@ -219,6 +238,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             AtomicOp::Min(op) => {
+                let out = out.unwrap();
+
                 let ptr = self.compile_variable(op.ptr);
                 let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
@@ -257,6 +278,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             AtomicOp::And(op) => {
+                let out = out.unwrap();
+
                 let ptr = self.compile_variable(op.ptr);
                 let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
@@ -279,6 +302,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             AtomicOp::Or(op) => {
+                let out = out.unwrap();
+
                 let ptr = self.compile_variable(op.ptr);
                 let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
@@ -301,6 +326,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             AtomicOp::Xor(op) => {
+                let out = out.unwrap();
+
                 let ptr = self.compile_variable(op.ptr);
                 let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);

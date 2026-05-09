@@ -1,9 +1,7 @@
-use std::{
-    collections::{HashMap, HashSet},
-    ops::Deref,
-};
+use core::ops::Deref;
 
 use cubecl_ir::{Id, Memory, Operation, Operator};
+use hashbrown::{HashMap, HashSet};
 
 use crate::{
     Function, GlobalState, NodeIndex, analyses::pointer_source::PointerSource, local_variable_id,

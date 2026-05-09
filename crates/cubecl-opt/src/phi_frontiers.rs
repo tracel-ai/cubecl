@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use cubecl_ir::{Id, Type, Variable, VariableKind};
 use petgraph::graph::NodeIndex;
 

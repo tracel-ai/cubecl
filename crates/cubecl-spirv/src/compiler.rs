@@ -11,8 +11,8 @@ use cubecl_core::{
     Compiler, CubeDim, Info, Metadata, WgpuCompilationOptions,
     ir::{self as core, ElemType, Id, InstructionModes, StorageType, UIntKind, features::EnumSet},
     post_processing::{
-        checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
-        unroll::UnrollProcessor,
+        checked_io::CheckedIoVisitor, disaggregate::DisaggregateVisitor,
+        saturating::SaturatingArithmeticProcessor, unroll::UnrollVisitor,
     },
     prelude::{FastMath, KernelDefinition, Visibility},
     server::ExecutionMode,
@@ -209,11 +209,20 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             _ => None,
         };
 
+        let visibility = self.opt.global_state.buffer_visibility.borrow();
+        let bindings = visibility
+            .iter()
+            .map(|vis| match vis.writable {
+                true => Visibility::ReadWrite,
+                false => Visibility::Read,
+            })
+            .collect();
+
         Ok(SpirvKernel {
             assembled_module: module.assemble(),
             module: Some(Arc::new(module)),
             optimizer: Some(Arc::new(optimizer)),
-            bindings: bindings.iter().map(|it| it.visibility).collect(),
+            bindings,
             shared_size,
             immediate_size,
             info_visibility,
@@ -253,11 +262,12 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             ))
             .with_transformer(HypotTransform)
             .with_transformer(RhypotTransform)
-            .with_processor(CheckedIoProcessor::new(
+            .with_visitor(CheckedIoVisitor::new(
                 self.mode,
                 kernel.options.kernel_name.clone(),
             ))
-            .with_processor(UnrollProcessor::new(
+            .with_visitor(DisaggregateVisitor::default())
+            .with_visitor(UnrollVisitor::new(
                 self.compilation_options.vulkan.max_vector_size,
             ))
             .with_processor(SaturatingArithmeticProcessor::new(true))

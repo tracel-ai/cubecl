@@ -49,7 +49,7 @@ impl<D: Dialect> Display for PipelineOps<D> {
                 destination,
             } => {
                 let item = source.item();
-                let size = format!("sizeof({item})");
+                let size = format!("sizeof({})", item.value_ty());
                 write!(
                     f,
                     "

@@ -4,20 +4,20 @@ use super::{ConstantArray, shader::ComputeShader};
 use crate::compiler::wgsl::{self, SharedValue};
 
 use cubecl_common::backtrace::BackTrace;
-use cubecl_core::prelude::*;
+use cubecl_core::ir::{Processor, UIntKind};
 use cubecl_core::{
     Info,
-    post_processing::{checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor},
+    post_processing::{
+        checked_io::CheckedIoVisitor, optimize_scope, saturating::SaturatingArithmeticProcessor,
+        unroll::UnrollVisitor,
+    },
 };
 use cubecl_core::{
     Metadata, WgpuCompilationOptions,
     ir::{self as cube, Scope},
     prelude::expand_erf,
 };
-use cubecl_core::{
-    ir::{Processor, UIntKind},
-    post_processing::unroll::UnrollProcessor,
-};
+use cubecl_core::{post_processing::disaggregate::DisaggregateVisitor, prelude::*};
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::kernel;
 
@@ -120,7 +120,19 @@ impl WgslCompiler {
 
         let metadata = Metadata::new(num_meta as u32, num_ext);
         self.info = Info::new(&value.scalars, metadata, address_type);
-        self.buffer_vis = value.buffers.iter().map(|it| it.visibility).collect();
+
+        // TODO: Analyze usage
+        self.buffer_vis = value
+            .buffers
+            .iter()
+            .map(|_| Visibility::ReadWrite)
+            .collect();
+
+        CheckedIoVisitor::new(self.strategy, self.kernel_name.clone()).apply(&value.body);
+        DisaggregateVisitor::apply(&value.body);
+        UnrollVisitor::new(MAX_VECTOR_SIZE).apply(&value.body);
+
+        optimize_scope(&value.body);
 
         let address_type = self.compile_storage_type(address_type);
         let instructions = self.compile_scope(&value.body);
@@ -193,11 +205,11 @@ impl WgslCompiler {
                 let class = self.compile_pointer_class(class);
                 wgsl::Item::Pointer(inner.intern(), class)
             }
-            cube::Type::Array(ty, size) => {
+            cube::Type::Array(ty, size, _) => {
                 let inner = self.compile_type(*ty);
                 wgsl::Item::Array(inner.intern(), size)
             }
-            cube::Type::DynamicArray(ty) => {
+            cube::Type::DynamicArray(ty, _) => {
                 let inner = self.compile_type(*ty);
                 wgsl::Item::DynamicArray(inner.intern())
             }
@@ -252,13 +264,13 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_pointer_class(&self, class: cube::PointerClass) -> wgsl::PointerClass {
+    fn compile_pointer_class(&self, class: cube::AddressSpace) -> wgsl::PointerClass {
         match class {
-            cubecl_ir::PointerClass::Global(id) => {
+            cubecl_ir::AddressSpace::Global(id) => {
                 wgsl::PointerClass::Global(self.buffer_vis[id as usize])
             }
-            cubecl_ir::PointerClass::Shared => wgsl::PointerClass::Shared,
-            cubecl_ir::PointerClass::Local => wgsl::PointerClass::Local,
+            cubecl_ir::AddressSpace::Shared => wgsl::PointerClass::Shared,
+            cubecl_ir::AddressSpace::Local => wgsl::PointerClass::Local,
         }
     }
 
@@ -407,6 +419,9 @@ impl WgslCompiler {
                 panic!("Barrier not supported.")
             }
             cube::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
+            cube::VariableKind::Aggregate { .. } => {
+                unreachable!("Should be disaggregated at this point")
+            }
         }
     }
 
@@ -434,13 +449,8 @@ impl WgslCompiler {
             .collect::<Vec<_>>();
         self.const_arrays.extend(const_arrays);
 
-        let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(
-            self.strategy,
-            self.kernel_name.clone(),
-        ));
-        let unroll = Box::new(UnrollProcessor::new(MAX_VECTOR_SIZE));
-        let saturating = Box::new(SaturatingArithmeticProcessor::new(true));
-        let processing = scope.process([&*unroll, &*checked_io, &*saturating]);
+        let saturating: Box<dyn Processor> = Box::new(SaturatingArithmeticProcessor::new(true));
+        let processing = scope.process([&*saturating]);
 
         for var in processing.variables {
             instructions.push(wgsl::Instruction::DeclareVariable {
@@ -495,6 +505,10 @@ impl WgslCompiler {
             cube::Operation::Tma(_) => panic!("TMA isn't supported on wgpu."),
             cube::Operation::TensorIndexing(_) => panic!("TMA isn't supported on wgpu."),
             cube::Operation::Marker(_) => {}
+            cube::Operation::ConstructAggregate(..)
+            | cube::Operation::ExtractAggregateField(..) => {
+                unreachable!("Should be disaggregated at this point")
+            }
         }
     }
 
@@ -658,14 +672,6 @@ impl WgslCompiler {
     ) -> wgsl::Instruction {
         let out = out.unwrap();
         match metadata {
-            cube::Metadata::Rank { var } => {
-                let position = self.ext_meta_pos(&var);
-                let offset = self.info.metadata.rank_index(position);
-                wgsl::Instruction::Metadata {
-                    out: self.compile_variable(out),
-                    info_offset: self.compile_variable(offset.into()),
-                }
-            }
             cube::Metadata::Stride { dim, var } => {
                 let position = self.ext_meta_pos(&var);
                 let offset = self.info.metadata.stride_offset_index(position);
@@ -684,19 +690,6 @@ impl WgslCompiler {
                     out: self.compile_variable(out),
                 }
             }
-            cube::Metadata::Length { var } => match var.kind {
-                cube::VariableKind::GlobalBuffer(id) => {
-                    let offset = self.info.metadata.len_index(id);
-                    wgsl::Instruction::Metadata {
-                        out: self.compile_variable(out),
-                        info_offset: self.compile_variable(offset.into()),
-                    }
-                }
-                _ => wgsl::Instruction::Length {
-                    var: self.compile_variable(var),
-                    out: self.compile_variable(out),
-                },
-            },
             cube::Metadata::BufferLength { var } => match var.kind {
                 cube::VariableKind::GlobalBuffer(id) => {
                     let offset = self.info.metadata.buffer_len_index(id);
@@ -1153,61 +1146,60 @@ impl WgslCompiler {
         atomic: cube::AtomicOp,
         out: Option<cube::Variable>,
     ) -> wgsl::Instruction {
-        let out = out.unwrap();
         match atomic {
             cube::AtomicOp::Add(op) => wgsl::Instruction::AtomicAdd {
                 ptr: self.compile_variable(op.ptr),
                 value: self.compile_variable(op.value),
-                out: self.compile_variable(out),
+                out: self.compile_variable(out.unwrap()),
             },
             cube::AtomicOp::Sub(op) => wgsl::Instruction::AtomicSub {
                 ptr: self.compile_variable(op.ptr),
                 value: self.compile_variable(op.value),
-                out: self.compile_variable(out),
+                out: self.compile_variable(out.unwrap()),
             },
             cube::AtomicOp::Max(op) => wgsl::Instruction::AtomicMax {
                 ptr: self.compile_variable(op.ptr),
                 value: self.compile_variable(op.value),
-                out: self.compile_variable(out),
+                out: self.compile_variable(out.unwrap()),
             },
             cube::AtomicOp::Min(op) => wgsl::Instruction::AtomicMin {
                 ptr: self.compile_variable(op.ptr),
                 value: self.compile_variable(op.value),
-                out: self.compile_variable(out),
+                out: self.compile_variable(out.unwrap()),
             },
             cube::AtomicOp::And(op) => wgsl::Instruction::AtomicAnd {
                 ptr: self.compile_variable(op.ptr),
                 value: self.compile_variable(op.value),
-                out: self.compile_variable(out),
+                out: self.compile_variable(out.unwrap()),
             },
             cube::AtomicOp::Or(op) => wgsl::Instruction::AtomicOr {
                 ptr: self.compile_variable(op.ptr),
                 value: self.compile_variable(op.value),
-                out: self.compile_variable(out),
+                out: self.compile_variable(out.unwrap()),
             },
             cube::AtomicOp::Xor(op) => wgsl::Instruction::AtomicXor {
                 ptr: self.compile_variable(op.ptr),
                 value: self.compile_variable(op.value),
-                out: self.compile_variable(out),
+                out: self.compile_variable(out.unwrap()),
             },
-            cube::AtomicOp::Load(op) => wgsl::Instruction::AtomicLoad {
-                input: self.compile_variable(op.input),
-                out: self.compile_variable(out),
+            cube::AtomicOp::Load(ptr) => wgsl::Instruction::AtomicLoad {
+                input: self.compile_variable(ptr),
+                out: self.compile_variable(out.unwrap()),
             },
             cube::AtomicOp::Store(op) => wgsl::Instruction::AtomicStore {
-                input: self.compile_variable(op.input),
-                out: self.compile_variable(out),
+                input: self.compile_variable(op.value),
+                out: self.compile_variable(op.ptr),
             },
             cube::AtomicOp::Swap(op) => wgsl::Instruction::AtomicSwap {
                 lhs: self.compile_variable(op.ptr),
                 rhs: self.compile_variable(op.value),
-                out: self.compile_variable(out),
+                out: self.compile_variable(out.unwrap()),
             },
             cube::AtomicOp::CompareAndSwap(op) => wgsl::Instruction::AtomicCompareExchangeWeak {
                 ptr: self.compile_variable(op.ptr),
                 cmp: self.compile_variable(op.cmp),
                 value: self.compile_variable(op.val),
-                out: self.compile_variable(out),
+                out: self.compile_variable(out.unwrap()),
             },
         }
     }
@@ -1215,7 +1207,7 @@ impl WgslCompiler {
     fn compile_binding(&mut self, value: kernel::KernelArg) -> wgsl::KernelArg {
         wgsl::KernelArg {
             id: value.id,
-            visibility: value.visibility,
+            visibility: self.buffer_vis[value.id as usize],
             item: self.compile_type(value.ty),
         }
     }

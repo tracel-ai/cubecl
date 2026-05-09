@@ -37,8 +37,8 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             1,
-            ArrayArg::from_raw_parts(input, 5),
-            ArrayArg::from_raw_parts(output.clone(), 1),
+            BufferArg::from_raw_parts(input, 5),
+            BufferArg::from_raw_parts(output.clone(), 1),
         )
     };
 

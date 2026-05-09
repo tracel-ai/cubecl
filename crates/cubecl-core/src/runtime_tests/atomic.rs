@@ -48,7 +48,7 @@ pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
         vector_size,
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), vector_size) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), vector_size) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -90,7 +90,7 @@ pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         vector_size,
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), vector_size) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), vector_size) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -132,7 +132,7 @@ pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         vector_size,
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), vector_size) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), vector_size) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -142,7 +142,7 @@ pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(
 }
 
 #[cube(launch)]
-fn regression_issue_1218_kernel(x: Array<Atomic<u32>>) {
+fn regression_issue_1218_kernel(x: &[Atomic<u32>]) {
     x[0].store(0);
 }
 
@@ -156,7 +156,7 @@ pub fn test_regression_issue_1218<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 1) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
     );
 
     let actual = client.read_one_unchecked(handle);

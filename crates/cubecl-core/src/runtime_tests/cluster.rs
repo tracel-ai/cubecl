@@ -40,7 +40,7 @@ pub fn test_cluster_meta<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.empty((num_cubes as usize * 4 + 4) * size_of::<u32>());
 
     cluster_meta_kernel::launch(&client, cube_count, CubeDim::new_single(), unsafe {
-        ArrayArg::from_raw_parts(handle.clone(), num_cubes as usize * 8)
+        BufferArg::from_raw_parts(handle.clone(), num_cubes as usize * 4 + 4)
     });
 
     let actual = client.read_one_unchecked(handle);

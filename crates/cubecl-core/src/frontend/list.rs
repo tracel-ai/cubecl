@@ -20,7 +20,7 @@ pub trait Vectorized: CubeType<ExpandType: VectorizedExpand> {
     fn vector_size(&self) -> VectorSize {
         unexpanded!()
     }
-    fn __expand_vector_size(_scope: &Scope, this: Self::ExpandType) -> VectorSize {
+    fn __expand_vector_size(_scope: &Scope, this: &Self::ExpandType) -> VectorSize {
         this.vector_size()
     }
 }

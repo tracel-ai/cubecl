@@ -13,7 +13,7 @@ use std::println;
 fn tensormap_load<F: Float, N: Size>(input: &TensorMap<F, Tiled>, output: &mut [Vector<F, N>]) {
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
-    let mut stage = SharedMemory::<Vector<F, N>>::new_aligned(32usize * 16, 128usize);
+    let mut stage = Shared::<Vector<F, N>>::new_aligned_array(32usize * 16, 128usize);
 
     let type_size = F::type_size();
     let expected = select(UNIT_POS == 0, comptime![32 * 16 * type_size] as u32, 0);
@@ -29,7 +29,7 @@ fn tensormap_load<F: Float, N: Size>(input: &TensorMap<F, Tiled>, output: &mut [
 
 #[cube(launch)]
 fn tensormap_store<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut TensorMap<F, Tiled>) {
-    let mut shared = SharedMemory::<Vector<F, N>>::new_aligned(32usize * 16, 128usize);
+    let mut shared = Shared::<Vector<F, N>>::new_aligned_array(32usize * 16, 128usize);
 
     let in_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
     shared[in_pos as usize] = input[in_pos as usize];
@@ -60,7 +60,7 @@ fn tensormap_im2col_load<F: Float, N: Size>(
 
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
-    let mut stage = SharedMemory::<Vector<F, N>>::new_aligned(tile_k * tile_width, 128usize);
+    let mut stage = Shared::<Vector<F, N>>::new_aligned_array(tile_k * tile_width, 128usize);
 
     let type_size = F::type_size();
     let expected = select(
@@ -139,7 +139,7 @@ where
             input,
             F::as_type_native_unchecked(),
         ),
-        unsafe { ArrayArg::from_raw_parts(out.clone(), 32 * 16) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), 32 * 16) },
     );
 
     let actual = client.read_one_unchecked(out);
@@ -175,7 +175,7 @@ where
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 16),
         1,
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 32 * 16) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 32 * 16) },
         TensorMapArg::new(
             TiledArgs {
                 tile_size: shape![16, 32],

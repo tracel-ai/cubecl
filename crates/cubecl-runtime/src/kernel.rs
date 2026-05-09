@@ -61,9 +61,6 @@ pub struct KernelOptions {
 pub struct KernelArg {
     /// The kernel id.
     pub id: Id,
-    /// Whether the global argument can only be accessed for reading, or if it can also be accessed
-    /// for write.
-    pub visibility: Visibility,
     /// The type of the argument.
     pub ty: Type,
     /// Whether the argument has metadata.

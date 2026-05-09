@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-
+use alloc::{collections::vec_deque::VecDeque, vec, vec::Vec};
 use cubecl_ir::{self as ir, Operation};
+use hashbrown::{HashMap, HashSet};
 use petgraph::graph::NodeIndex;
 
 use crate::{

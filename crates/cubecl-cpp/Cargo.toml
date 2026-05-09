@@ -25,7 +25,12 @@ default = [
 ]
 hip = []
 metal = []
-std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
+std = [
+    "cubecl-runtime/std",
+    "cubecl-common/std",
+    "cubecl-core/std",
+    "cubecl-opt/std",
+]
 
 tracing = [
     "cubecl-runtime/tracing",

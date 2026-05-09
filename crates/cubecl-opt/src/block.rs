@@ -1,5 +1,6 @@
-use std::{cell::RefCell, rc::Rc};
+use core::cell::RefCell;
 
+use alloc::{rc::Rc, vec::Vec};
 use cubecl_ir::{Instruction, Variable};
 use stable_vec::StableVec;
 

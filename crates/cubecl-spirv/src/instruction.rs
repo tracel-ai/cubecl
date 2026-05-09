@@ -1,6 +1,6 @@
 use cubecl_core::ir::{
-    self as core, BinaryOperator, Comparison, Instruction, InstructionModes, Memory, Operation,
-    Operator, UnaryOperator,
+    self as core, BinaryOperands, Comparison, Instruction, InstructionModes, Memory, Operation,
+    Operator, UnaryOperands,
 };
 use rspirv::spirv::{Decoration, MemoryAccess, Word};
 
@@ -51,6 +51,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operation::Barrier(_) => panic!("Barrier not supported in SPIR-V"),
             Operation::Tma(_) => panic!("TMA not supported in SPIR-V"),
             Operation::Marker(_) => {}
+            Operation::ConstructAggregate(..) | Operation::ExtractAggregateField(..) => {
+                unreachable!("Should be disaggregated at this point")
+            }
         }
     }
 
@@ -369,7 +372,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_unary_op_cast(
         &mut self,
-        op: UnaryOperator,
+        op: UnaryOperands,
         out: core::Variable,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
@@ -390,7 +393,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_unary_op(
         &mut self,
-        op: UnaryOperator,
+        op: UnaryOperands,
         out: core::Variable,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
@@ -411,7 +414,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_unary_op_bool(
         &mut self,
-        op: UnaryOperator,
+        op: UnaryOperands,
         out: core::Variable,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
@@ -432,7 +435,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_binary_op(
         &mut self,
-        op: BinaryOperator,
+        op: BinaryOperands,
         out: core::Variable,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
@@ -455,7 +458,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_binary_op_no_cast(
         &mut self,
-        op: BinaryOperator,
+        op: BinaryOperands,
         out: core::Variable,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
@@ -478,7 +481,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_binary_op_bool(
         &mut self,
-        op: BinaryOperator,
+        op: BinaryOperands,
         out: core::Variable,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),

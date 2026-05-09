@@ -312,7 +312,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 ..
             } => {
                 let case_child = scope.child();
-                block(&case_child, runtime_value.clone_unchecked());
+                block(&case_child, (*runtime_value).clone_unchecked());
                 cases.push((value.into(), case_child));
             }
             Self::ComptimeVariant {
@@ -321,7 +321,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 matched,
             } => {
                 if value == *variant {
-                    block(scope, runtime_value.clone_unchecked());
+                    block(scope, (*runtime_value).clone_unchecked());
                     *matched = true;
                 }
             }
@@ -337,7 +337,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 ..
             } => {
                 let case_child = scope.child();
-                block(&case_child, runtime_value.clone_unchecked());
+                block(&case_child, (*runtime_value).clone_unchecked());
                 *default = Some(case_child);
             }
             Self::ComptimeVariant {
@@ -346,7 +346,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 ..
             } => {
                 if !*matched {
-                    block(scope, runtime_value.clone_unchecked());
+                    block(scope, (*runtime_value).clone_unchecked());
                     *matched = true;
                 }
             }
@@ -449,7 +449,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 ..
             } => {
                 let case_child = scope.child();
-                let ret_val = block(&case_child, runtime_value.clone_unchecked());
+                let ret_val = block(&case_child, (*runtime_value).clone_unchecked());
                 out.__expand_assign_method(&case_child, ret_val);
                 cases.push((value.into(), case_child));
             }
@@ -460,7 +460,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 matched,
             } => {
                 if value == *variant {
-                    *out = Some(block(scope, runtime_value.clone_unchecked()));
+                    *out = Some(block(scope, (*runtime_value).clone_unchecked()));
                     *matched = true;
                 }
             }
@@ -481,7 +481,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 ..
             } => {
                 let case_child = scope.child();
-                let ret_val = block(&case_child, runtime_value.clone_unchecked());
+                let ret_val = block(&case_child, (*runtime_value).clone_unchecked());
                 out.__expand_assign_method(&case_child, ret_val);
                 *default = Some(case_child);
             }
@@ -492,7 +492,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 ..
             } => {
                 if !*matched {
-                    *out = Some(block(scope, runtime_value.clone_unchecked()));
+                    *out = Some(block(scope, (*runtime_value).clone_unchecked()));
                     *matched = true;
                 }
             }

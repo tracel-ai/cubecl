@@ -1,13 +1,13 @@
 #![allow(unknown_lints, unnecessary_transmutes)]
 
-use std::{
+use core::{
     cell::RefCell,
-    collections::HashSet,
     mem::{replace, transmute},
-    rc::Rc,
 };
 
+use alloc::{rc::Rc, vec::Vec};
 use cubecl_ir::{ConstantValue, Instruction, Operation, OperationReflect, VariableKind};
+use hashbrown::HashSet;
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
 use crate::{

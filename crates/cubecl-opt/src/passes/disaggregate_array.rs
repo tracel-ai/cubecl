@@ -1,8 +1,9 @@
-use std::collections::HashMap;
-
+use alloc::vec::Vec;
 use cubecl_ir::{
-    Id, Instruction, Memory, Operation, Operator, Type, UnaryOperator, Variable, VariableKind,
+    AddressSpace, Id, Instruction, Memory, Operation, Operator, Type, UnaryOperands, Variable,
+    VariableKind,
 };
+use hashbrown::HashMap;
 
 use crate::{
     AtomicCounter, Function, GlobalState,
@@ -51,7 +52,7 @@ impl OptimizerPass for DisaggregateArray {
                 let local_id = local_variable_id(var).unwrap();
                 func.variables.insert(local_id, var.ty);
                 let init =
-                    Instruction::new(Operator::Cast(UnaryOperator { input: 0u32.into() }), *var);
+                    Instruction::new(Operator::Cast(UnaryOperands { input: 0u32.into() }), *var);
                 func[block].ops.borrow_mut().push(init);
             }
             func[block]
@@ -81,7 +82,7 @@ fn find_const_arrays(opt: &mut Function) -> Vec<Array> {
         for op in ops.borrow().values() {
             if let Operation::Memory(Memory::Index(index)) = &op.operation
                 && let VariableKind::LocalMut { id } = index.list.kind
-                && let Type::Array(ty, length) = index.list.ty
+                && let Type::Array(ty, length, AddressSpace::Local) = index.list.ty
             {
                 arrays.insert(
                     id,

@@ -94,9 +94,9 @@ macro_rules! test_binary_impl {
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
                         $input_vectorization,
                         $out_vectorization,
-                        ArrayArg::from_raw_parts(lhs_handle, lhs.len()),
-                        ArrayArg::from_raw_parts(rhs_handle, rhs.len()),
-                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                        BufferArg::from_raw_parts(lhs_handle, lhs.len()),
+                        BufferArg::from_raw_parts(rhs_handle, rhs.len()),
+                        BufferArg::from_raw_parts(output_handle.clone(), $expected.len()),
                     )
                 };
 
@@ -289,9 +289,9 @@ macro_rules! test_powi_impl {
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
                         $input_vectorization,
-                        ArrayArg::from_raw_parts(lhs_handle, lhs.len()),
-                        ArrayArg::from_raw_parts(rhs_handle, rhs.len()),
-                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                        BufferArg::from_raw_parts(lhs_handle, lhs.len()),
+                        BufferArg::from_raw_parts(rhs_handle, rhs.len()),
+                        BufferArg::from_raw_parts(output_handle.clone(), $expected.len()),
                     )
                 };
 
@@ -356,9 +356,9 @@ macro_rules! test_mulhi_impl {
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
                         $input_vectorization,
-                        ArrayArg::from_raw_parts(lhs_handle, lhs.len()),
-                        ArrayArg::from_raw_parts(rhs_handle, rhs.len()),
-                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                        BufferArg::from_raw_parts(lhs_handle, lhs.len()),
+                        BufferArg::from_raw_parts(rhs_handle, rhs.len()),
+                        BufferArg::from_raw_parts(output_handle.clone(), $expected.len()),
                     )
                 };
 

@@ -1,7 +1,7 @@
 use core::{marker::PhantomData, ops::Neg};
 
 use crate::frontend::{CubePrimitive, CubeType, NativeAssign, NativeExpand};
-use crate::ir::{BinaryOperator, Instruction, Scope, Type};
+use crate::ir::{BinaryOperands, Instruction, Scope, Type};
 use crate::{self as cubecl, prelude::*};
 use cubecl_ir::{Comparison, ConstantValue, Variable};
 use cubecl_macros::{cube, intrinsic};
@@ -79,7 +79,7 @@ mod components {
                 if self.expand.vector_size() > 1 {
                     let out = scope.create_local(P::__expand_as_type(scope));
                     scope.register(Instruction::new(
-                        Operator::ExtractComponent(BinaryOperator {
+                        Operator::ExtractComponent(BinaryOperands {
                             lhs: self.expand,
                             rhs: index.expand,
                         }),
@@ -87,7 +87,7 @@ mod components {
                     ));
                     out.into()
                 } else {
-                    self.expand.into()
+                    read_variable(scope, self.expand).into()
                 }
             })
         }
@@ -264,7 +264,7 @@ macro_rules! impl_vector_comparison {
                             let output = scope.create_local_mut(Vector::<bool, N>::__expand_as_type(scope));
 
                             scope.register(Instruction::new(
-                                Comparison::$operator(BinaryOperator { lhs, rhs }),
+                                Comparison::$operator(BinaryOperands { lhs, rhs }),
                                 output.clone().into(),
                             ));
 

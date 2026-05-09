@@ -11,14 +11,13 @@ use crate::{
 use crate::{ir, unexpanded};
 
 type ArrayExpand<E> = NativeExpand<Array<E>>;
-type TensorExpand<E> = NativeExpand<Tensor<E>>;
 
 pub mod cast {
     use ir::Instruction;
 
     use crate::prelude::NativeExpand;
 
-    use self::ir::UnaryOperator;
+    use self::ir::UnaryOperands;
 
     use super::*;
 
@@ -28,7 +27,7 @@ pub mod cast {
         output: NativeExpand<To>,
     ) {
         scope.register(Instruction::new(
-            Operator::Cast(UnaryOperator {
+            Operator::Cast(UnaryOperands {
                 input: input.expand,
             }),
             output.expand,
@@ -37,7 +36,7 @@ pub mod cast {
 }
 
 pub mod assign {
-    use cubecl_ir::{Memory, StoreOperator};
+    use cubecl_ir::{Memory, StoreOperands};
     use ir::{Instruction, Operation};
 
     use crate::prelude::NativeExpand;
@@ -81,7 +80,7 @@ pub mod assign {
             }
             (false, true) => {
                 // value -> ptr = store
-                scope.register(Instruction::no_out(Memory::Store(StoreOperator {
+                scope.register(Instruction::no_out(Memory::Store(StoreOperands {
                     ptr: output,
                     value: input,
                 })));
@@ -98,7 +97,7 @@ pub mod index_mut {
     use super::*;
 
     macro_rules! impl_index {
-        ($type:ident) => {
+        ($type:ident, $expand: ty) => {
             impl<E: CubePrimitive> IndexMut<usize> for $type<E> {
                 fn index_mut(&mut self, _idx: usize) -> &mut Self::Output {
                     unexpanded!()
@@ -141,68 +140,22 @@ pub mod index_mut {
                 }
             }
 
-            impl<E: CubePrimitive> IndexMutExpand<NativeExpand<usize>> for NativeExpand<$type<E>> {
+            impl<E: CubePrimitive> IndexMutExpand<NativeExpand<usize>> for $expand {
                 fn __expand_index_mut_method(
                     &mut self,
                     scope: &Scope,
                     index: NativeExpand<usize>,
                 ) -> &mut E::ExpandType {
-                    expand_index_mut_native(scope, self, index, None, true)
-                }
-            }
-
-            impl<E: CubePrimitive> $type<E> {
-                /// Returns a mutable reference to an element or subslice, without doing
-                /// bounds checking.
-                ///
-                /// For a safe alternative see [`get_mut`].
-                ///
-                /// # Safety
-                ///
-                /// Calling this method with an out-of-bounds index is *[undefined behavior]*
-                /// even if the resulting reference is not used.
-                ///
-                /// You can think of this like `.get_mut(index).unwrap_unchecked()`.  It's
-                /// UB to call `.get_unchecked_mut(len)`, even if you immediately convert
-                /// to a pointer.  And it's UB to call `.get_unchecked_mut(..len + 1)`,
-                /// `.get_unchecked_mut(..=len)`, or similar.
-                ///
-                /// [`get_mut`]: slice::get_mut
-                /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
-                ///
-                /// # Examples
-                ///
-                /// ```
-                /// let x = &mut [1, 2, 4];
-                ///
-                /// unsafe {
-                ///     let elem = x.get_unchecked_mut(1);
-                ///     *elem = 13;
-                /// }
-                /// assert_eq!(x, &[1, 13, 4]);
-                /// ```
-                #[allow(unused)]
-                pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut E {
-                    unexpanded!()
-                }
-            }
-
-            impl<E: CubePrimitive> NativeExpand<$type<E>> {
-                #[doc(hidden)]
-                pub unsafe fn __expand_get_unchecked_mut_method(
-                    &mut self,
-                    scope: &Scope,
-                    index: NativeExpand<usize>,
-                ) -> &mut NativeExpand<E> {
-                    expand_index_mut_native(scope, self, index, None, false)
+                    self.__expand_as_mut_slice_method(scope)
+                        .__expand_index_mut_method(scope, index)
                 }
             }
         };
     }
 
-    impl_index!(Array);
-    impl_index!(Tensor);
-    impl_index!(SharedMemory);
+    impl_index!(Array, NativeExpand<Array<E>>);
+    impl_index!(Tensor, TensorExpand<E>);
+    impl_index!(SharedMemory, NativeExpand<Shared<[E]>>);
 
     impl_slice_ranges!(ArrayExpand);
     impl_slice_ranges!(TensorExpand);
@@ -213,7 +166,7 @@ pub mod index {
     use super::*;
 
     macro_rules! impl_index {
-        ($type:ident) => {
+        ($type:ident, $expand: ident) => {
             impl<E: CubePrimitive> Index<usize> for $type<E> {
                 type Output = E;
 
@@ -270,7 +223,7 @@ pub mod index {
                 }
             }
 
-            impl<E: CubePrimitive> IndexExpand<NativeExpand<usize>> for NativeExpand<$type<E>> {
+            impl<E: CubePrimitive> IndexExpand<NativeExpand<usize>> for $expand<E> {
                 type Output = NativeExpand<E>;
 
                 fn __expand_index_method(
@@ -278,58 +231,14 @@ pub mod index {
                     scope: &Scope,
                     index: NativeExpand<usize>,
                 ) -> &Self::Output {
-                    expand_index_native(scope, self, index, None, true)
-                }
-            }
-
-            impl<E: CubePrimitive> $type<E> {
-                /// Returns a reference to an element or subslice, without doing bounds
-                /// checking.
-                ///
-                /// For a safe alternative see [`get`].
-                ///
-                /// # Safety
-                ///
-                /// Calling this method with an out-of-bounds index is *[undefined behavior]*
-                /// even if the resulting reference is not used.
-                ///
-                /// You can think of this like `.get(index).unwrap_unchecked()`.  It's UB
-                /// to call `.get_unchecked(len)`, even if you immediately convert to a
-                /// pointer.  And it's UB to call `.get_unchecked(..len + 1)`,
-                /// `.get_unchecked(..=len)`, or similar.
-                ///
-                /// [`get`]: slice::get
-                /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
-                ///
-                /// # Examples
-                ///
-                /// ```
-                /// let x = &[1, 2, 4];
-                ///
-                /// unsafe {
-                ///     assert_eq!(x.get_unchecked(1), &2);
-                /// }
-                /// ```
-                #[allow(unused)]
-                pub unsafe fn get_unchecked(&self, index: usize) -> &E {
-                    unexpanded!()
-                }
-            }
-
-            impl<E: CubePrimitive> NativeExpand<$type<E>> {
-                #[doc(hidden)]
-                pub unsafe fn __expand_get_unchecked_method(
-                    &self,
-                    scope: &Scope,
-                    index: NativeExpand<usize>,
-                ) -> &NativeExpand<E> {
-                    expand_index_native(scope, self, index, None, false)
+                    self.__expand_as_slice_method(scope)
+                        .__expand_index_method(scope, index)
                 }
             }
         };
     }
 
-    impl_index!(Array);
-    impl_index!(Tensor);
-    impl_index!(SharedMemory);
+    impl_index!(Array, ArrayExpand);
+    impl_index!(Tensor, TensorExpand);
+    impl_index!(SharedMemory, SharedMemoryExpand);
 }

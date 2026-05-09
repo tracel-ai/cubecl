@@ -3,9 +3,10 @@ use cubecl_core::{
     ir::{BarrierLevel, ConstantValue, Id},
     ue8m0,
 };
+use cubecl_runtime::kernel::Visibility;
 use std::fmt::{Display, Formatter};
 
-use crate::shared::{FP4Kind, FP8Kind};
+use crate::shared::{FP4Kind, FP8Kind, PointerClass};
 
 use super::{COUNTER_TMP_VAR, Dialect, Elem, Fragment, FragmentIdent, Item};
 
@@ -22,7 +23,7 @@ pub trait FmtLeft: Display {
     fn fmt_left(&self) -> String;
 }
 
-#[derive(new)]
+#[derive(new, Debug)]
 pub struct OptimizedArgs<const N: usize, D: Dialect> {
     pub args: [Variable<D>; N],
     pub optimization_factor: Option<usize>,
@@ -177,6 +178,9 @@ impl<D: Dialect> Component<D> for Variable<D> {
     fn is_const(&self) -> bool {
         if let Variable::Tmp { is_const, .. } = self {
             return *is_const;
+        }
+        if let Item::Pointer(_, PointerClass::Global(Visibility::Read)) = self.item() {
+            return true;
         }
 
         matches!(
@@ -535,8 +539,11 @@ impl<D: Dialect> Variable<D> {
             Variable::Slice { .. }
             | Variable::SharedArray(_, _, _)
             | Variable::GlobalBuffer(_, _) => format!("{self}"),
-            _ if self.item().is_ptr() | self.item().is_array() => format!("{self}"),
-            _ => format!("&{self}"),
+            other => match other.item() {
+                Item::Array(..) => format!("{other}.data"),
+                Item::DynamicArray(..) | Item::Pointer(..) => format!("{other}"),
+                _ => format!("&{other}"),
+            },
         }
     }
 
@@ -546,6 +553,19 @@ impl<D: Dialect> Variable<D> {
             self.to_string()
         } else {
             format!("{item}({self})")
+        }
+    }
+
+    /// Ensure a variable is a named lvalue, reassigning to a temporary if necessary.
+    /// This is required for reinterpreting constants.
+    pub fn ensure_lvalue(&self, f: &mut Formatter<'_>) -> Result<Variable<D>, core::fmt::Error> {
+        if matches!(self, Variable::Constant(..)) {
+            let mut tmp = Variable::tmp(self.item());
+            tmp.to_const();
+            writeln!(f, "{} = {self};", tmp.fmt_left())?;
+            Ok(tmp)
+        } else {
+            Ok(*self)
         }
     }
 }
@@ -578,8 +598,11 @@ impl<D: Dialect> FmtLeft for Variable<D> {
                     }
                     return format!("{item} *{self}");
                 }
-
-                format!("{item} {self}")
+                if *is_const {
+                    format!("const {item} {self}")
+                } else {
+                    format!("{item} {self}")
+                }
             }
             var => format!("{var}"),
         }

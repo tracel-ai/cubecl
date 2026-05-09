@@ -53,7 +53,7 @@ pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(client: Com
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one(handle).unwrap();
@@ -72,7 +72,7 @@ pub fn test_kernel_add_assign_array<R: Runtime, F: Float + CubeElement>(client: 
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
         vectorization,
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one(handle).unwrap();
@@ -91,7 +91,7 @@ pub fn test_kernel_add_assign_vector<R: Runtime, F: Float + CubeElement>(client:
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
         vectorization,
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one(handle).unwrap();
@@ -108,7 +108,7 @@ pub fn test_kernel_assign_ref<R: Runtime, F: Float + CubeElement>(client: Comput
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one(handle).unwrap();

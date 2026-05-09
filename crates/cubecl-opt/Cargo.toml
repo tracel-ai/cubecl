@@ -28,13 +28,13 @@ cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.1", default-feat
 cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.1", default-features = false }
 
 float-ord = "0.3"
+hashbrown = { workspace = true }
 log = "0.4"
 num = "0.4"
 petgraph = { version = "0.8" }
 smallvec = { workspace = true }
 stable-vec = { version = "0.4" }
 type-map = { version = "0.5" }
-
 
 [dev-dependencies]
 test-log = { workspace = true, features = ["trace"] }

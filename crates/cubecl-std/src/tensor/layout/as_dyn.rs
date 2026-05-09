@@ -3,14 +3,14 @@ use cubecl_core::{self as cubecl, unexpanded};
 use variadics_please::all_tuples;
 
 use crate::tensor::{
-    launch::{BufferArg, ViewLayoutLaunchArg},
+    launch::{MemoryArg, ViewLayoutLaunchArg},
     layout::*,
 };
 
 /// Coordinates that can be converted to a dynamic sequence of signed coordinates.
 /// Can be used to convert any set of coordinates to a comptime-sized sequence for use with TMA.
 #[cube]
-pub trait IntoDyn: Coordinates + LaunchArg {
+pub trait IntoDyn: Coordinates + LaunchArg + Send + Sync {
     fn into_dyn(self) -> Sequence<i32> {
         unexpanded!()
     }
@@ -63,7 +63,7 @@ impl<L: Layout<SourceCoordinates: IntoDyn> + ViewLayoutLaunchArg> ViewLayoutLaun
     type RuntimeArg<R: Runtime> = L::RuntimeArg<R>;
     type CompilationArg = L::CompilationArg;
 
-    fn register<R: Runtime, B: BufferArg>(
+    fn register<R: Runtime, B: MemoryArg>(
         arg: Self::RuntimeArg<R>,
         buffer: &B,
         ty: Type,
@@ -106,7 +106,7 @@ impl<L: Layout<SourceCoordinates = (P, O)> + ViewLayoutLaunchArg, P: IntoDyn, O:
     type RuntimeArg<R: Runtime> = L::RuntimeArg<R>;
     type CompilationArg = L::CompilationArg;
 
-    fn register<R: Runtime, B: BufferArg>(
+    fn register<R: Runtime, B: MemoryArg>(
         arg: Self::RuntimeArg<R>,
         buffer: &B,
         ty: Type,

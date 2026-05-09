@@ -482,13 +482,9 @@ impl Index {
         out: &Variable<D>,
         vector_size: u32,
     ) -> std::fmt::Result {
-        if vector_size > 0 {
-            let Item::Pointer(_, class) = out.item() else {
-                unreachable!()
-            };
-
+        if list.item().vectorization() != out.item().vectorization() {
             let item = Item::new(list.elem(), vector_size as usize);
-            let item_ptr = Item::Pointer(item.intern(), class);
+            let item_ptr = out.item();
             let tmp = Variable::tmp_declared(item);
 
             writeln!(
@@ -496,19 +492,19 @@ impl Index {
                 "{item_ptr} {tmp} = reinterpret_cast<{item_ptr}>({list});"
             )?;
 
-            return Index::format(f, &tmp, index, out, 0);
-        }
-
-        let item_out = out.item();
-        if matches!(item_out.elem(), Elem::Barrier(_)) {
-            let addr_space = D::address_space_for_variable(list);
-            writeln!(
-                f,
-                "{addr_space}{}& {out} = {list}[{index}];",
-                item_out.elem()
-            )
+            writeln!(f, "{item_ptr} {out} = &{tmp}[{index}];")
         } else {
-            writeln!(f, "{item_out} {out} = &{list}[{index}];")
+            let item_out = out.item();
+            if matches!(item_out.elem(), Elem::Barrier(_)) {
+                let addr_space = D::address_space_for_variable(list);
+                writeln!(
+                    f,
+                    "{addr_space}{}& {out} = {list}[{index}];",
+                    item_out.elem()
+                )
+            } else {
+                writeln!(f, "{item_out} {out} = &{list}[{index}];")
+            }
         }
     }
 }
@@ -559,6 +555,7 @@ impl<D: Dialect> ExtractComponent<D> {
                 let elem = out.elem();
                 let qualifier = out.const_qualifier();
                 let addr_space = D::address_space_for_variable(out);
+                let lhs = lhs.ensure_lvalue(f)?;
                 let out = out.fmt_left();
                 writeln!(
                     f,

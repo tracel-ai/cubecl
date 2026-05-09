@@ -1,4 +1,4 @@
-use cubecl_core::ir::{self as core, ClampMode, FloatKind, IntKind, PointerClass, UIntKind};
+use cubecl_core::ir::{self as core, AddressSpace, ClampMode, FloatKind, IntKind, UIntKind};
 use rspirv::spirv::{
     Capability, CooperativeMatrixUse, FPEncoding, Scope, StorageClass, TensorClampMode, Word,
 };
@@ -398,11 +398,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     permutation: permutation[..dims].to_vec(),
                 },
             },
-            core::Type::Array(inner, size) => {
+            core::Type::Array(inner, size, _) => {
                 let item = self.compile_type(*inner);
                 Item::Array(Box::new(item), size as u32)
             }
-            core::Type::DynamicArray(inner) => {
+            core::Type::DynamicArray(inner, _) => {
                 let item = self.compile_type(*inner);
                 Item::DynamicArray(Box::new(item))
             }
@@ -512,6 +512,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             core::VariableKind::BarrierToken { .. } => {
                 unimplemented!("Barrier tokens not supported")
             }
+            core::VariableKind::Aggregate { .. } => {
+                unreachable!("Should be disaggregated at this point")
+            }
         }
     }
 
@@ -573,11 +576,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 }
 
-pub fn compile_pointer_class(class: PointerClass) -> StorageClass {
+pub fn compile_pointer_class(class: AddressSpace) -> StorageClass {
     match class {
-        PointerClass::Global(_) => StorageClass::PhysicalStorageBuffer,
-        PointerClass::Shared => StorageClass::Workgroup,
-        PointerClass::Local => StorageClass::Function,
+        AddressSpace::Global(_) => StorageClass::PhysicalStorageBuffer,
+        AddressSpace::Shared => StorageClass::Workgroup,
+        AddressSpace::Local => StorageClass::Function,
     }
 }
 

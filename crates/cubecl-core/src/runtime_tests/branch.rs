@@ -82,7 +82,7 @@ pub fn test_switch_const<R: Runtime, F: Float + CubeElement>(client: ComputeClie
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
         1,
     );
 
@@ -100,7 +100,7 @@ pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: Compute
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts(handle.clone(), 2),
+            BufferArg::from_raw_parts(handle.clone(), 2),
             0,
         );
     }
@@ -118,7 +118,7 @@ pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(client: Com
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
         1,
     );
 
@@ -135,7 +135,7 @@ pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: ComputeCl
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
         5,
     );
 
@@ -152,7 +152,7 @@ pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: Compute
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
         2,
     );
 
@@ -171,7 +171,7 @@ pub fn test_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>,
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 1) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
         cond_u32,
     );
 
@@ -193,7 +193,7 @@ pub fn test_for_loop_with_break<R: Runtime, F: Float + CubeElement>(client: Comp
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 20) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 20) },
     );
 
     let actual = client.read_one_unchecked(handle);

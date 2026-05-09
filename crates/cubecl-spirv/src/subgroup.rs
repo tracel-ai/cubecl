@@ -1,4 +1,4 @@
-use cubecl_core::ir::{Plane, UnaryOperator, Variable};
+use cubecl_core::ir::{Plane, UnaryOperands, Variable};
 use rspirv::spirv::{Capability, GroupOperation, Scope, Word};
 
 use crate::{SpirvCompiler, SpirvTarget, item::Elem};
@@ -220,7 +220,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn plane_sum(
         &mut self,
-        op: UnaryOperator,
+        op: UnaryOperands,
         out: Variable,
         action: GroupOperation,
         uniform: bool,
@@ -242,7 +242,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn plane_prod(
         &mut self,
-        op: UnaryOperator,
+        op: UnaryOperands,
         out: Variable,
         action: GroupOperation,
         uniform: bool,

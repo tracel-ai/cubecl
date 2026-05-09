@@ -8,23 +8,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_meta(&mut self, meta: Metadata, out: Option<core::Variable>, uniform: bool) {
         let out = out.unwrap();
         match meta {
-            Metadata::Rank { var } => {
-                let var = self.compile_variable(var);
-                let out = self.compile_variable(out);
-                let pos = self.ext_pos(&var);
-
-                let out_id = self.write_id(&out);
-                self.mark_uniformity(out_id, uniform);
-
-                let offset = self.info.metadata.rank_index(pos);
-                self.load_const_metadata(offset, Some(out_id), out.item());
-                self.write(&out, out_id);
-            }
-            Metadata::Length { var } => {
-                let var = self.compile_variable(var);
-                let out = self.compile_variable(out);
-                self.length(&var, Some(&out), uniform);
-            }
             Metadata::BufferLength { var } => {
                 let var = self.compile_variable(var);
                 let out = self.compile_variable(out);
@@ -72,54 +55,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
         }
-    }
-
-    pub fn length(&mut self, var: &Variable, out: Option<&Variable>, uniform: bool) -> Word {
-        let (out_id, out_ty) = if let Some(out) = out {
-            let out_id = self.write_id(out);
-            self.mark_uniformity(out_id, uniform);
-            (Some(out_id), out.item())
-        } else {
-            (None, self.compile_type(self.addr_type.into()))
-        };
-        let ty_id = out_ty.id(self);
-
-        let id = match var {
-            Variable::GlobalBuffer(_, _, pos) => {
-                let offset = self.info.metadata.len_index(*pos);
-                let id = self.load_const_metadata(offset, out_id, out_ty);
-
-                if let Some(out_id) = out_id {
-                    self.debug_name(out_id, format!("len({pos})"));
-                }
-                id
-            }
-            Variable::Slice {
-                const_len: Some(len),
-                ..
-            } => {
-                let len = out_ty.const_u32(self, *len);
-                if out.is_some() {
-                    self.copy_object(ty_id, out_id, len).unwrap()
-                } else {
-                    len
-                }
-            }
-            Variable::Slice { offset, end, .. } => {
-                self.i_sub(ty_id, out_id, *end, *offset).unwrap()
-            }
-            var if var.item().is_array() => {
-                let Item::Array(_, len) = var.item() else {
-                    unreachable!()
-                };
-                out_ty.const_u32(self, len)
-            }
-            var => unimplemented!("Var {var:?} doesn't have length"),
-        };
-        if let Some(out) = out {
-            self.write(out, id);
-        }
-        id
     }
 
     pub fn buffer_length(&mut self, var: &Variable, out: Option<&Variable>, uniform: bool) -> Word {

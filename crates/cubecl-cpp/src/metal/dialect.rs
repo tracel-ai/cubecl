@@ -11,7 +11,7 @@ use crate::{
         DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
         DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout,
         Instruction, Item, KernelArg, ManualMma, SharedMemory, SupportedMmaCombinations, Variable,
-        WarpInstruction, WmmaInstruction, wmma_api_base,
+        WarpInstruction, WmmaInstruction, define_array_polyfill, wmma_api_base,
     },
 };
 use core::panic;
@@ -247,6 +247,8 @@ struct alignas({alignment}) {item} {{"
             }
         }
 
+        define_array_polyfill(f, "")?;
+
         shared::type_info_definition_sized(f, info, scalars, flags.address_type)?;
         Ok(())
     }
@@ -314,7 +316,7 @@ struct alignas({alignment}) {item} {{"
                 f.write_str("*")
             }
             Item::Array(inner, size) => {
-                write!(f, "{inner}[{size}]")
+                write!(f, "array<{inner}, {size}>")
             }
             Item::DynamicArray(inner) => {
                 write!(f, "{inner}*")
@@ -1110,9 +1112,8 @@ impl DialectWmmaCompiler<Self> for MslDialect {
             }
             WmmaInstruction::Load {
                 frag,
-                value,
+                ptr,
                 stride,
-                offset,
                 layout: _layout,
             } => {
                 let transpose = match frag {
@@ -1123,24 +1124,16 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                     },
                     _ => panic!("should be a fragment"),
                 };
-                if let Item::Vector(inner, _) = value.item() {
-                    match value {
-                        Variable::GlobalBuffer(..) => writeln!(
-                            f,
-                            "simdgroup_load({frag}, (device {inner}*)({value} + {offset}), {stride}, 0, {transpose});"
-                        ),
-                        Variable::SharedArray(..) => writeln!(
-                            f,
-                            "simdgroup_load({frag}, reinterpret_cast<threadgroup {inner} *>({value} + {offset}), {stride}, 0, {transpose});"
-                        ),
-                        _ => panic!(
-                            "Vectorized wmma load is only supported from global or shared memory."
-                        ),
-                    }
+                if let Item::Vector(..) = *ptr.item().value_ty() {
+                    let elem_ptr = ptr.item().as_scalar();
+                    writeln!(
+                        f,
+                        "simdgroup_load({frag}, ({elem_ptr})({ptr}), {stride}, 0, {transpose});"
+                    )
                 } else {
                     writeln!(
                         f,
-                        "simdgroup_load({frag}, {value} + {offset}, {stride}, 0, {transpose});"
+                        "simdgroup_load({frag}, {ptr}, {stride}, 0, {transpose});"
                     )
                 }
             }
@@ -1154,28 +1147,28 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 writeln!(f, "simdgroup_multiply_accumulate({d}, {a}, {b}, {c});")
             }
             WmmaInstruction::Store {
-                output,
                 frag,
                 stride,
-                offset,
+                destination,
                 layout: _layout,
             } => {
-                let item = output.item();
-                let mut reinterpret_cast = matches!(item, Item::Vector(..));
-                let elem = match item.elem() {
+                let item = destination.item();
+                let mut reinterpret_cast = item.vectorization() > 1;
+                let elem = match item.value_ty().elem() {
                     Elem::BF16 => {
                         reinterpret_cast = true;
                         Elem::F16
                     }
                     _ => *item.elem(),
                 };
+                let scalar_ptr = item.as_scalar().with_elem(elem);
                 if reinterpret_cast {
                     writeln!(
                         f,
-                        "simdgroup_store({frag}, reinterpret_cast<threadgroup {elem} *>({output} + {offset}), {stride});"
+                        "simdgroup_store({frag}, reinterpret_cast<{scalar_ptr}>({destination}), {stride});"
                     )
                 } else {
-                    writeln!(f, "simdgroup_store({frag}, {output} + {offset}, {stride});")
+                    writeln!(f, "simdgroup_store({frag}, {destination}, {stride});")
                 }?;
                 writeln!(f, "simdgroup_barrier(mem_flags::mem_none);")
             }

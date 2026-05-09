@@ -1,5 +1,4 @@
 mod composite;
-mod constant_prop;
 mod dead_code;
 mod disaggregate_array;
 mod expression_merge;
@@ -8,10 +7,11 @@ mod inline_ref;
 mod inlined_if_to_select;
 mod reduce_strength;
 
-use std::any::type_name;
+use core::any::type_name;
 
 pub use composite::*;
-pub use constant_prop::*;
+use cubecl_core::post_processing::visitor::InstructionVisitor;
+use cubecl_ir::{Instruction, Marker};
 pub use dead_code::*;
 pub use disaggregate_array::*;
 pub use expression_merge::*;
@@ -19,8 +19,9 @@ pub use index_merge::*;
 pub use inline_ref::*;
 pub use inlined_if_to_select::*;
 pub use reduce_strength::*;
+use stable_vec::StableVec;
 
-use crate::{AtomicCounter, Function, GlobalState};
+use crate::{AtomicCounter, Function, GlobalState, analyses::post_order::PostOrder};
 
 pub trait OptimizerPass {
     #[allow(unused)]
@@ -30,5 +31,76 @@ pub trait OptimizerPass {
     }
     fn name(&self) -> &'static str {
         type_name::<Self>()
+    }
+}
+
+impl<T: InstructionVisitor> OptimizerPass for T {
+    fn apply_pre_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        visit_function(self, func, state, &changes);
+    }
+
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        visit_function(self, func, state, &changes);
+    }
+}
+
+fn visit_function<T: InstructionVisitor>(
+    visitor: &mut T,
+    func: &mut Function,
+    state: &GlobalState,
+    changes: &AtomicCounter,
+) {
+    let blocks = func.analysis::<PostOrder>(state).reverse();
+
+    for block in blocks {
+        let instructions = core::mem::take(&mut *func[block].ops.borrow_mut());
+        let mut new_instructions = StableVec::with_capacity(instructions.capacity());
+
+        for (_, inst) in instructions {
+            new_instructions.extend(visitor.visit_instruction(
+                inst,
+                &state.root_scope.global_state,
+                changes,
+            ));
+        }
+
+        // Visit a fake instruction so reads can be tracked
+        match &*func[block].control_flow.borrow() {
+            crate::ControlFlow::IfElse { cond, .. } => {
+                visitor.visit_instruction(
+                    Instruction::no_out(Marker::DummyRead(*cond)),
+                    &state.root_scope.global_state,
+                    changes,
+                );
+            }
+            crate::ControlFlow::Switch { value, .. } => {
+                visitor.visit_instruction(
+                    Instruction::no_out(Marker::DummyRead(*value)),
+                    &state.root_scope.global_state,
+                    changes,
+                );
+            }
+            crate::ControlFlow::Loop { .. } => {}
+            crate::ControlFlow::LoopBreak { break_cond, .. } => {
+                visitor.visit_instruction(
+                    Instruction::no_out(Marker::DummyRead(*break_cond)),
+                    &state.root_scope.global_state,
+                    changes,
+                );
+            }
+            crate::ControlFlow::Return { value } => {
+                if let Some(value) = value {
+                    visitor.visit_instruction(
+                        Instruction::no_out(Marker::DummyRead(*value)),
+                        &state.root_scope.global_state,
+                        changes,
+                    );
+                }
+            }
+            crate::ControlFlow::Unreachable => {}
+            crate::ControlFlow::None => {}
+        };
+
+        *func[block].ops.borrow_mut() = new_instructions;
     }
 }

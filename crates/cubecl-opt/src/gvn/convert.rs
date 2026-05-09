@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-
 use cubecl_ir::{Operation, OperationReflect, Type, Variable, VariableKind};
+use hashbrown::HashMap;
 use smallvec::SmallVec;
 
 use super::{Expression, Local, Value};
@@ -88,6 +87,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
             panic!("Barrier is not supported")
         }
         VariableKind::TensorMap(_) => panic!("Tensor map is not supported"),
+        VariableKind::Aggregate { .. } => unreachable!("Should be disaggregated at this point"),
     };
     Some(val)
 }

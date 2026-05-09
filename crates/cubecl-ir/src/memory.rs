@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use crate::{CopyMemoryOperator, IndexOperator, StoreOperator, TypeHash, Variable};
+use crate::{CopyMemoryOperator, IndexOperands, StoreOperands, TypeHash, Variable};
 
 use crate::OperationReflect;
 
@@ -12,9 +12,9 @@ pub enum Memory {
     #[operation(pure)]
     Reference(Variable),
     #[operation(pure)]
-    Index(IndexOperator),
-    Load(#[args(allow_ptr)] Variable),
-    Store(StoreOperator),
+    Index(IndexOperands),
+    Load(#[args(allow_ptr, ptr_read)] Variable),
+    Store(StoreOperands),
     CopyMemory(CopyMemoryOperator),
 }
 

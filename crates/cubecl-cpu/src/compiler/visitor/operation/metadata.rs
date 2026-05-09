@@ -63,16 +63,6 @@ impl<'a> Visitor<'a> {
                 let offset = self.args_manager.metadata.buffer_len_index(position);
                 self.append_metadata(offset, out);
             }
-            Metadata::Length { var } => {
-                let position = self.args_manager.buffer_position(*var);
-                let offset = self.args_manager.metadata.len_index(position);
-                self.append_metadata(offset, out);
-            }
-            Metadata::Rank { var } => {
-                let position = self.args_manager.ext_meta_position(*var);
-                let offset = self.args_manager.metadata.rank_index(position);
-                self.append_metadata(offset, out);
-            }
             Metadata::Shape { dim, var } => {
                 let position = self.args_manager.ext_meta_position(*var);
                 let offset = self.args_manager.metadata.shape_offset_index(position);

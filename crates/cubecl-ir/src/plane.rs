@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use crate::OperationReflect;
 
-use super::{BinaryOperator, UnaryOperator};
+use super::{BinaryOperands, UnaryOperands};
 use crate::TypeHash;
 
 /// All plane operations.
@@ -15,22 +15,22 @@ use crate::TypeHash;
 #[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
 pub enum Plane {
     Elect,
-    All(UnaryOperator),
-    Any(UnaryOperator),
-    Ballot(UnaryOperator),
-    Broadcast(BinaryOperator),
-    Shuffle(BinaryOperator),
-    ShuffleXor(BinaryOperator),
-    ShuffleUp(BinaryOperator),
-    ShuffleDown(BinaryOperator),
-    Sum(UnaryOperator),
-    InclusiveSum(UnaryOperator),
-    ExclusiveSum(UnaryOperator),
-    Prod(UnaryOperator),
-    InclusiveProd(UnaryOperator),
-    ExclusiveProd(UnaryOperator),
-    Min(UnaryOperator),
-    Max(UnaryOperator),
+    All(UnaryOperands),
+    Any(UnaryOperands),
+    Ballot(UnaryOperands),
+    Broadcast(BinaryOperands),
+    Shuffle(BinaryOperands),
+    ShuffleXor(BinaryOperands),
+    ShuffleUp(BinaryOperands),
+    ShuffleDown(BinaryOperands),
+    Sum(UnaryOperands),
+    InclusiveSum(UnaryOperands),
+    ExclusiveSum(UnaryOperands),
+    Prod(UnaryOperands),
+    InclusiveProd(UnaryOperands),
+    ExclusiveProd(UnaryOperands),
+    Min(UnaryOperands),
+    Max(UnaryOperands),
 }
 
 impl Display for Plane {

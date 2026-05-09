@@ -74,8 +74,7 @@ for (uint i = 0; i < uint({reg_count}); ++i) {{
             }
             WmmaInstruction::Load {
                 frag: var,
-                value,
-                offset,
+                ptr,
                 stride,
                 layout,
             } => {
@@ -95,14 +94,14 @@ for (uint i = 0; i < uint({reg_count}); ++i) {{
                     panic!("unknown matrix layout for wmma load instruction");
                 };
                 // instruction qualifiers
-                let ty = get_type_qualifier(value);
+                let ty = get_type_qualifier(ptr);
                 let matrix = match frag.ident {
                     FragmentIdent::A => "a",
                     FragmentIdent::B => "b",
                     FragmentIdent::Accumulator => "c",
                     FragmentIdent::_Dialect(_) => unreachable!(),
                 };
-                let value_ty = value.item();
+                let value_ty = *ptr.item().value_ty();
                 let opcode = match frag.elem {
                     Elem::U8 | Elem::I8 | Elem::F16 | Elem::BF16 | Elem::F32 | Elem::TF32 => {
                         format!(
@@ -119,12 +118,12 @@ for (uint i = 0; i < uint({reg_count}); ++i) {{
                 let buffer_reg = format_reg_and_inc(&mut reg_count);
                 let (stride_reg, stride_constraint) =
                     get_variable_regs_decl_constraints(stride, false, &mut reg_count);
-                let tmp_ptr = Variable::tmp_ptr(value.item());
+                let tmp_ptr = Variable::tmp_ptr(value_ty);
                 let tmp_ptr_left = tmp_ptr.fmt_left();
                 write!(
                     f,
                     r#"// load
-{tmp_ptr_left} = ({value_ty}*){value} + {offset};
+{tmp_ptr_left} = ({value_ty}*){ptr};
 asm volatile(
     "{opcode} "
     "{{{regs_decl}}}, [{buffer_reg}], {stride_reg};\n"
@@ -136,34 +135,16 @@ asm volatile(
             }
             WmmaInstruction::LdMatrix {
                 output,
-                buffer,
-                offset,
-                vector_size,
+                ptr,
                 factor,
                 transpose,
-            } => f.write_str(&ldmatrix_call(
-                output,
-                buffer,
-                offset,
-                vector_size,
-                factor,
-                transpose,
-            )),
+            } => f.write_str(&ldmatrix_call(output, ptr, factor, transpose)),
             WmmaInstruction::StMatrix {
                 registers,
-                buffer,
-                offset,
-                vector_size,
+                ptr,
                 factor,
                 transpose,
-            } => f.write_str(&stmatrix_call(
-                registers,
-                buffer,
-                offset,
-                vector_size,
-                factor,
-                transpose,
-            )),
+            } => f.write_str(&stmatrix_call(registers, ptr, factor, transpose)),
             WmmaInstruction::Execute {
                 frag_a: var_a,
                 frag_b: var_b,
@@ -246,10 +227,9 @@ asm volatile(
                 *scales_factor,
             ),
             WmmaInstruction::Store {
-                output,
                 frag: var,
                 stride,
-                offset,
+                destination,
                 layout,
             } => {
                 let frag_acc = match var {
@@ -292,17 +272,14 @@ asm volatile(
                 // we start at 2 because of the buffer address calculation
                 let (regs_decl, in_constraints) =
                     get_variable_regs_decl_constraints(var, false, &mut reg_count);
-                let tmp_ptr = Variable::tmp_ptr(output.item());
-                let tmp_ptr_left = tmp_ptr.fmt_left();
                 write!(
                     f,
                     r#"// store
-{tmp_ptr_left} = {output} + {offset};
 asm volatile(
     "{opcode} "
     "[{buffer_reg}], {{{regs_decl}}}, {stride_reg};\n"
     :
-    : "l"({tmp_ptr}),
+    : "l"({destination}),
       {in_constraints}{stride_constraint}
 );
 "#
@@ -555,12 +532,12 @@ fn format_reg_and_inc(count: &mut u8) -> String {
     res
 }
 
-fn as_ty_idx(var: impl Display, idx: impl Display, ty: impl Display) -> String {
-    format!("reinterpret_cast<{ty}*>({var})[{idx}]")
+fn as_ty_idx<D: Dialect>(var: &Variable<D>, idx: impl Display, ty: impl Display) -> String {
+    format!("reinterpret_cast<{ty}*>({})[{idx}]", var.fmt_ptr())
 }
 
-fn as_const_ty_idx(var: impl Display, idx: impl Display, ty: impl Display) -> String {
-    format!("reinterpret_cast<const {ty}*>({var})[{idx}]")
+fn as_const_ty_idx<D: Dialect>(var: &Variable<D>, idx: impl Display, ty: impl Display) -> String {
+    format!("reinterpret_cast<const {ty}*>({})[{idx}]", var.fmt_ptr())
 }
 
 pub(super) fn compile_manual_mma<D: Dialect>(

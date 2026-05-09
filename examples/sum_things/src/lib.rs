@@ -105,8 +105,8 @@ fn launch_basic<R: Runtime>(client: &ComputeClient<R>, input: Handle, output: Ha
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(len as u32),
-            ArrayArg::from_raw_parts(input, len),
-            ArrayArg::from_raw_parts(output, len),
+            BufferArg::from_raw_parts(input, len),
+            BufferArg::from_raw_parts(output, len),
             Some(len),
         )
     }
@@ -123,8 +123,8 @@ fn launch_subgroup<R: Runtime>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(len as u32),
-            ArrayArg::from_raw_parts(input, len),
-            ArrayArg::from_raw_parts(output, len),
+            BufferArg::from_raw_parts(input, len),
+            BufferArg::from_raw_parts(output, len),
             client.features().plane.contains(Plane::Ops),
             Some(len),
         )
@@ -142,8 +142,8 @@ fn launch_trait<R: Runtime, K: SumKind>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(len as u32),
-            ArrayArg::from_raw_parts(input, len),
-            ArrayArg::from_raw_parts(output, len),
+            BufferArg::from_raw_parts(input, len),
+            BufferArg::from_raw_parts(output, len),
             Some(len),
         )
     }
@@ -160,8 +160,8 @@ fn launch_series<R: Runtime, S: CreateSeries>(
             client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(len as u32),
-            ArrayArg::from_raw_parts(input, len),
-            ArrayArg::from_raw_parts(output, len),
+            BufferArg::from_raw_parts(input, len),
+            BufferArg::from_raw_parts(output, len),
             Some(len),
         )
     }

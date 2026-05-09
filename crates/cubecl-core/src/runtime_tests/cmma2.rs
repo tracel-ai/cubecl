@@ -66,7 +66,7 @@ pub fn test_elemwise_cube<R: Runtime>(client: ComputeClient<R>, cube_dimensions:
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(cube_dimensions),
-            ArrayArg::from_raw_parts(out.clone(), acc_size),
+            BufferArg::from_raw_parts(out.clone(), acc_size),
             beta,
             (m, n, k),
         )

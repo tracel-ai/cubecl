@@ -1,5 +1,6 @@
-use std::{any::Any, cell::RefCell, rc::Rc};
+use core::{any::Any, cell::RefCell};
 
+use alloc::rc::Rc;
 use type_map::TypeMap;
 
 use crate::{Function, GlobalState};

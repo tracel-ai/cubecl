@@ -1,11 +1,11 @@
-use cubecl_ir::{AtomicBinaryOperator, AtomicOp, ConstantValue, Variable};
+use cubecl_ir::{AtomicBinaryOperands, AtomicOp, ConstantValue, StoreOperands, Variable};
 use cubecl_macros::intrinsic;
 
 use super::{NativeAssign, NativeExpand, Numeric};
 use crate::{
     self as cubecl,
     frontend::{CubePrimitive, CubeType},
-    ir::{CompareAndSwapOperator, Instruction, Scope, Type, UnaryOperator},
+    ir::{CompareAndSwapOperator, Instruction, Scope, Type},
     prelude::*,
 };
 
@@ -27,10 +27,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let pointer: Variable = self.clone().into();
             let new_var = scope.create_local(Inner::__expand_as_type(scope));
-            scope.register(Instruction::new(
-                AtomicOp::Load(UnaryOperator { input: pointer }),
-                new_var,
-            ));
+            scope.register(Instruction::new(AtomicOp::Load(pointer), new_var));
             new_var.into()
         })
     }
@@ -41,10 +38,10 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
             let value: Variable = value.into();
-            scope.register(Instruction::new(
-                AtomicOp::Store(UnaryOperator { input: value }),
+            scope.register(Instruction::no_out(AtomicOp::Store(StoreOperands {
                 ptr,
-            ));
+                value,
+            })));
         })
     }
 
@@ -56,7 +53,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
             let value: Variable = value.into();
             let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
-                AtomicOp::Swap(AtomicBinaryOperator { ptr, value }),
+                AtomicOp::Swap(AtomicBinaryOperands { ptr, value }),
                 new_var,
             ));
             new_var.into()
@@ -71,7 +68,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
             let value: Variable = value.into();
             let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
-                AtomicOp::Add(AtomicBinaryOperator { ptr, value }),
+                AtomicOp::Add(AtomicBinaryOperands { ptr, value }),
                 new_var,
             ));
             new_var.into()
@@ -86,7 +83,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
             let value: Variable = value.into();
             let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
-                AtomicOp::Sub(AtomicBinaryOperator { ptr, value }),
+                AtomicOp::Sub(AtomicBinaryOperands { ptr, value }),
                 new_var,
             ));
             new_var.into()
@@ -102,7 +99,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
             let value: Variable = value.into();
             let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
-                AtomicOp::Max(AtomicBinaryOperator { ptr, value }),
+                AtomicOp::Max(AtomicBinaryOperands { ptr, value }),
                 new_var,
             ));
             new_var.into()
@@ -118,7 +115,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
             let value: Variable = value.into();
             let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
-                AtomicOp::Min(AtomicBinaryOperator { ptr, value }),
+                AtomicOp::Min(AtomicBinaryOperands { ptr, value }),
                 new_var,
             ));
             new_var.into()
@@ -160,7 +157,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
             let value: Variable = value.into();
             let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
-                AtomicOp::And(AtomicBinaryOperator { ptr, value }),
+                AtomicOp::And(AtomicBinaryOperands { ptr, value }),
                 new_var,
             ));
             new_var.into()
@@ -175,7 +172,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
             let value: Variable = value.into();
             let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
-                AtomicOp::Or(AtomicBinaryOperator { ptr, value }),
+                AtomicOp::Or(AtomicBinaryOperands { ptr, value }),
                 new_var,
             ));
             new_var.into()
@@ -190,7 +187,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
             let value: Variable = value.into();
             let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
-                AtomicOp::Xor(AtomicBinaryOperator { ptr, value }),
+                AtomicOp::Xor(AtomicBinaryOperands { ptr, value }),
                 new_var,
             ));
             new_var.into()
