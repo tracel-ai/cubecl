@@ -217,10 +217,20 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
 
+        // Wrap each input slice as a (pageable) `Bytes`, then run `staging` so the
+        // server can swap each one to pinned host memory on backends that benefit
+        // (e.g. CUDA: `cuMemcpyHtoDAsync` from pinned memory hits the DMA fast path
+        // at 12-25 GB/s on `PCIe` 4.0 vs 5-6 GB/s from pageable memory).
+        //
+        // This keeps the public API unchanged while routing single-shot uploads
+        // through the same fast path that `create` / `create_tensor` already use.
+        let mut data: Vec<Bytes> = slices.into_iter().map(Bytes::from_bytes_vec).collect();
+        self.staging(data.iter_mut(), true);
+
         let descriptors = descriptors
             .into_iter()
             .zip(layouts.iter())
-            .zip(slices)
+            .zip(data)
             .map(|((desc, alloc), data)| {
                 (
                     CopyDescriptor::new(
@@ -229,7 +239,7 @@ impl<R: Runtime> ComputeClient<R> {
                         alloc.strides.clone(),
                         desc.elem_size,
                     ),
-                    Bytes::from_bytes_vec(data.to_vec()),
+                    data,
                 )
             })
             .collect::<Vec<_>>();
@@ -248,6 +258,11 @@ impl<R: Runtime> ComputeClient<R> {
         descriptors: Vec<MemoryLayoutDescriptor>,
         mut data: Vec<Bytes>,
     ) -> Result<Vec<MemoryLayout>, IoError> {
+        // After `staging`, each `Bytes` may have been swapped in-place to a pinned
+        // host buffer. Forward those `Bytes` to the server *as-is* — re-wrapping via
+        // `Bytes::from_bytes_vec(data.to_vec())` would allocate a fresh pageable
+        // `Vec<u8>`, demote the buffer back to `AllocationProperty::Native`, and
+        // re-trigger the slow CUDA pageable bounce on the subsequent HtoD copy.
         self.staging(data.iter_mut(), true);
 
         let stream_id = self.stream_id();
@@ -265,7 +280,7 @@ impl<R: Runtime> ComputeClient<R> {
                         layout.strides.clone(),
                         desc.elem_size,
                     ),
-                    Bytes::from_bytes_vec(data.to_vec()),
+                    data,
                 )
             })
             .collect::<Vec<_>>();
@@ -298,6 +313,85 @@ impl<R: Runtime> ComputeClient<R> {
         .unwrap()
         .remove(0)
         .memory
+    }
+
+    /// Reserves pinned (page-locked, on backends that support it) host buffers of
+    /// the requested sizes. The caller fills the returned [`Bytes`] (e.g. via
+    /// [`Bytes::copy_from_slice`] or by writing through `DerefMut`) and then hands
+    /// the buffers to [`Self::create`], [`Self::create_tensor`], or
+    /// [`Self::create_tensors`] to upload them to the device.
+    ///
+    /// On CUDA, pinned host memory enables direct DMA in `cuMemcpyHtoDAsync`,
+    /// reaching ~12-25 GB/s on `PCIe` 4.0 compared to ~5-6 GB/s from pageable
+    /// memory. On backends without an explicit pinned-memory concept this falls
+    /// back to a regular host allocation, so callers can use this API
+    /// unconditionally without regressing other backends.
+    ///
+    /// Note that pinned host memory is a limited system resource — allocate it
+    /// only for buffers that will actually be uploaded to the device, and drop
+    /// the [`Bytes`] handle as soon as the upload completes.
+    pub fn reserve_staging(&self, sizes: &[usize]) -> Vec<Bytes> {
+        if sizes.is_empty() {
+            return Vec::new();
+        }
+
+        let stream_id = self.stream_id();
+        let sizes_owned = sizes.to_vec();
+        let result = self
+            .device
+            .submit_blocking(move |server| server.staging(&sizes_owned, stream_id))
+            .unwrap();
+
+        match result {
+            Ok(stagings) => stagings,
+            // Backends may return errors if pinned memory is exhausted. Fall back
+            // to plain heap allocations so the caller always gets buffers of the
+            // requested sizes.
+            Err(_) => sizes
+                .iter()
+                .map(|&size| Bytes::from_bytes_vec(vec![0u8; size]))
+                .collect(),
+        }
+    }
+
+    /// Like [`Self::create_from_slice`], but copies the input directly into a
+    /// pinned host buffer (on backends that support it) before issuing the
+    /// device upload.
+    ///
+    /// The default [`Self::create_from_slice`] path performs two host-side
+    /// memcpys (caller `&[u8]` → pageable `Vec<u8>` → pinned [`Bytes`]) before
+    /// the device transfer. This variant skips the intermediate `Vec<u8>` and
+    /// copies straight into the pinned staging buffer, halving host-side
+    /// memory traffic for large uploads. The on-device handle is identical.
+    ///
+    /// On backends without a pinned-memory fast path this behaves the same as
+    /// [`Self::create_from_slice`].
+    pub fn create_from_slice_pinned(&self, slice: &[u8]) -> Handle {
+        let mut staging = self.reserve_staging(&[slice.len()]);
+        let mut bytes = staging.pop().expect("reserve_staging returned no buffers");
+        bytes.copy_from_slice(slice);
+        self.create(bytes)
+    }
+
+    /// Like [`Self::create_tensors_from_slices`], but copies inputs directly
+    /// into pinned host buffers before issuing the device upload. See
+    /// [`Self::create_from_slice_pinned`] for the host-side savings rationale.
+    pub fn create_tensors_from_slices_pinned(
+        &self,
+        descriptors: Vec<(MemoryLayoutDescriptor, &[u8])>,
+    ) -> Vec<MemoryLayout> {
+        let sizes: Vec<usize> = descriptors.iter().map(|(_, s)| s.len()).collect();
+        let stagings = self.reserve_staging(&sizes);
+
+        let mut bytes_vec = Vec::with_capacity(descriptors.len());
+        let mut descs = Vec::with_capacity(descriptors.len());
+        for ((desc, slice), mut staging) in descriptors.into_iter().zip(stagings) {
+            staging.copy_from_slice(slice);
+            bytes_vec.push(staging);
+            descs.push(desc);
+        }
+
+        self.do_create(descs, bytes_vec).unwrap()
     }
 
     /// todo: docs
