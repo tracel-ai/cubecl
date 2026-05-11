@@ -117,6 +117,14 @@ fn register_types(props: &mut DeviceProperties) {
         props.register_type_usage(ty, TypeUsage::all());
     }
 
+    // bf16 (bfloat) requires Apple Silicon (Apple7+ GPU family, i.e. M1 and later).
+    // Intel Macs (x86_64) do not support the bfloat type in MSL.
+    #[cfg(apple_silicon)]
+    register(
+        ElemType::Float(FloatKind::BF16).into(),
+        TypeUsage::all_scalar(),
+    );
+
     for ty in atomic_types {
         props.register_atomic_type_usage(
             Type::new(StorageType::Atomic(ty)),

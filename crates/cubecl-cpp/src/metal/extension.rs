@@ -150,15 +150,27 @@ pub fn format_safe_tanh<D: Dialect>(
     item: &Item<D>,
 ) -> core::fmt::Result {
     let elem = item.elem();
+    // bfloat has no native tanh(); cast through float
+    let is_bf16 = matches!(elem, Elem::BF16);
+    let (clamp_ret, tanh_expr) = if is_bf16 {
+        // bfloat has no native tanh(); cast through float.
+        // Literal 1.0 is float — must cast to bfloat for return type.
+        (
+            format!("return {elem}(1.0);"),
+            format!("return {elem}(tanh(float(x)));"),
+        )
+    } else {
+        ("return 1.0;".to_string(), "return tanh(x);".to_string())
+    };
     write!(
         f,
         "
 /// Metal has a weird numerical behaviour with tanh for inputs over 43.0
 inline {elem} safe_tanh_scalar({elem} x) {{
     if (x > 43.0) {{
-        return 1.0;
+        {clamp_ret}
     }} else {{
-        return tanh(x);
+        {tanh_expr}
     }}
 }}
 "
