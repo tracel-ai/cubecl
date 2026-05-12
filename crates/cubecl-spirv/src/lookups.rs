@@ -14,7 +14,7 @@ use rspirv::{
 };
 
 use crate::{
-    MAX_VECTORIZATION, SpirvCompiler, SpirvTarget,
+    SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     variable::{ConstVal, Variable},
 };
@@ -134,14 +134,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn init_state(&mut self, kernel: KernelDefinition) {
         let mut target = self.target.clone();
 
+        let max_vector_size = self.compilation_options.vulkan.max_vector_size;
         self.state.buffers = kernel
             .buffers
             .into_iter()
             .map(|mut binding| {
                 // This is safe when combined with the unroll transform that adjusts all indices.
                 // Must not be used alone
-                if binding.ty.vector_size() > MAX_VECTORIZATION {
-                    binding.ty = binding.ty.with_vector_size(MAX_VECTORIZATION);
+                if binding.ty.vector_size() > max_vector_size {
+                    binding.ty = binding.ty.with_vector_size(max_vector_size);
                 }
                 let var = ir::Variable::new(VariableKind::GlobalInputArray(binding.id), binding.ty);
                 let name = self.name_of_var(var);

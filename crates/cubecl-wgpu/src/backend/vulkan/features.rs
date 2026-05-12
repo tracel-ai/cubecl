@@ -33,12 +33,15 @@ pub struct ExtendedFeatures<'a> {
     /// Only used to enable the spec compliant rem/mod behavior
     pub maintenance_8: Option<PhysicalDeviceMaintenance8FeaturesKHR<'a>>,
     pub maintenance_9: Option<PhysicalDeviceMaintenance9FeaturesKHR<'a>>,
+    pub long_vector: Option<PhysicalDeviceShaderLongVectorFeaturesEXT<'a>>,
 
     // Nvidia
     pub nv_atomic_float_vector: Option<PhysicalDeviceShaderAtomicFloat16VectorFeaturesNV<'a>>,
 
+    // Properties
+    pub long_vector_properties: Option<PhysicalDeviceShaderLongVectorPropertiesEXT<'a>>,
+
     pub max_spirv_version: (u8, u8),
-    pub long_vector: Option<PhysicalDeviceShaderLongVectorFeaturesEXT<'a>>,
 
     pub extensions: Vec<&'static CStr>,
 }
@@ -80,6 +83,7 @@ impl<'a> ExtendedFeatures<'a> {
         let mut this = Self::default();
         this.fill_extensions(adapter, features);
         this.fill_features(ash, adapter);
+        this.fill_properties(ash, adapter);
         this
     }
 
@@ -132,6 +136,9 @@ impl<'a> ExtendedFeatures<'a> {
             KHR_MAINTENANCE9_NAME => maintenance_9,
             NV_SHADER_ATOMIC_FLOAT16_VECTOR_NAME => nv_atomic_float_vector,
             EXT_SHADER_LONG_VECTOR_NAME => long_vector,
+
+            // Properties
+            EXT_SHADER_LONG_VECTOR_NAME => long_vector_properties,
         );
     }
 
@@ -237,6 +244,31 @@ impl<'a> ExtendedFeatures<'a> {
         self.zero_pointers();
     }
 
+    fn fill_properties(&mut self, ash: &ash::Instance, adapter: &vulkan::Adapter) {
+        let mut properties = PhysicalDeviceProperties2::default();
+
+        fn push_opt<'a, 'b: 'a, T: Extends<PhysicalDeviceProperties2<'a>> + TaggedStructure<'b>>(
+            mut properties: PhysicalDeviceProperties2<'a>,
+            feat: &'a mut Option<T>,
+        ) -> PhysicalDeviceProperties2<'a> {
+            if let Some(feat) = feat {
+                properties = properties.push(feat);
+            }
+            properties
+        }
+
+        properties = push_opt(properties, &mut self.long_vector_properties);
+
+        unsafe {
+            // convert to ash version, they represent the same type so this is safe
+            let properties =
+                &mut *<*mut _>::cast::<ash::vk::PhysicalDeviceProperties2<'_>>(&mut properties);
+            ash.get_physical_device_properties2(adapter.raw_physical_device(), properties);
+        }
+
+        self.zero_pointers();
+    }
+
     /// Leaving these set seems to cause misaligned deref
     fn zero_pointers(&mut self) {
         zero_opt!(
@@ -265,6 +297,8 @@ impl<'a> ExtendedFeatures<'a> {
             maintenance_9,
             long_vector,
             nv_atomic_float_vector,
+            // Properties
+            long_vector_properties,
         );
     }
 

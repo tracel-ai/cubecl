@@ -36,8 +36,6 @@ use std::{
     sync::Arc,
 };
 
-pub const MAX_VECTORIZATION: usize = 4;
-
 pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub target: Target,
     pub(crate) builder: Builder,
@@ -246,7 +244,9 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                 self.mode,
                 kernel.options.kernel_name.clone(),
             ))
-            .with_processor(UnrollProcessor::new(MAX_VECTORIZATION))
+            .with_processor(UnrollProcessor::new(
+                self.compilation_options.vulkan.max_vector_size,
+            ))
             .with_processor(SaturatingArithmeticProcessor::new(true))
             .optimize(kernel.body.clone(), kernel.cube_dim);
 
