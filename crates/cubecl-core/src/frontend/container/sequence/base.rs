@@ -126,12 +126,12 @@ impl<T: CubeType> Sequence<T> {
 }
 
 impl<T: CubeType> AsRefExpand for SequenceExpand<T> {
-    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
+    fn __expand_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 }
 impl<T: CubeType> AsMutExpand for SequenceExpand<T> {
-    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+    fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }

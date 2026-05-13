@@ -330,13 +330,13 @@ mod __cube_type {
     impl<E: Numeric, N: Size, IO> CubeDebug for VirtualTensorExpand<E, N, IO> {}
 
     impl<E: Numeric, N: Size, IO: Clone> AsRefExpand for VirtualTensorExpand<E, N, IO> {
-        fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
+        fn __expand_ref_method(&self, _: &Scope) -> &Self {
             self
         }
     }
 
     impl<E: Numeric, N: Size, IO: Clone> AsMutExpand for VirtualTensorExpand<E, N, IO> {
-        fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+        fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
             self
         }
     }

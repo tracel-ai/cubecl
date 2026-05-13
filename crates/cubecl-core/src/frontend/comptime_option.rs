@@ -379,13 +379,6 @@ mod impls {
                 }
             }
 
-            pub fn unwrap_ref(&self) -> &T {
-                match self {
-                    Some(val) => val,
-                    None => panic!("called `Option::unwrap()` on a `None` value"),
-                }
-            }
-
             /// Returns the contained [`Some`] value or computes it from a closure.
             ///
             /// # Examples
@@ -425,16 +418,6 @@ mod impls {
             pub fn map<U, F>(self, f: F) -> Option<U>
             where
                 F: FnOnce(T) -> U,
-            {
-                match self {
-                    Some(x) => Some(f(x)),
-                    None => None,
-                }
-            }
-
-            pub fn map_ref<U, F>(&self, f: F) -> Option<U>
-            where
-                F: FnOnce(&T) -> U,
             {
                 match self {
                     Some(x) => Some(f(x)),
@@ -1078,14 +1061,6 @@ mod impls {
                 }
             }
 
-            #[allow(clippy::unnecessary_literal_unwrap)]
-            pub fn __expand_unwrap_ref_method(&self, _scope: &Scope) -> &T::ExpandType {
-                match self {
-                    Some(val) => val,
-                    None => core::option::Option::None.unwrap(),
-                }
-            }
-
             pub fn __expand_unwrap_or_else_method<F>(self, scope: &Scope, f: F) -> T::ExpandType
             where
                 F: FnOnce(&Scope) -> T::ExpandType,
@@ -1107,17 +1082,19 @@ mod impls {
                 }
             }
 
-            pub fn __expand_map_ref_method<U, F>(
-                &self,
-                scope: &Scope,
-                f: F,
-            ) -> ComptimeOptionExpand<U>
-            where
-                U: CubeType,
-                F: FnOnce(&Scope, &T::ExpandType) -> U::ExpandType,
-            {
+            pub fn __expand_as_ref_method(&self, _scope: &Scope) -> ComptimeOptionExpand<&T> {
                 match self {
-                    Some(x) => Some(f(scope, x)),
+                    Some(x) => Some(x),
+                    None => None,
+                }
+            }
+
+            pub fn __expand_as_mut_method(
+                &mut self,
+                _scope: &Scope,
+            ) -> ComptimeOptionExpand<&mut T> {
+                match self {
+                    Some(x) => Some(x),
                     None => None,
                 }
             }

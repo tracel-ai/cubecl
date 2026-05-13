@@ -45,7 +45,7 @@ impl<T: NativeCubeType + ?Sized> CubeType for Shared<T> {
 }
 
 impl<T: NativeCubeType + ?Sized> AsMutExpand for SharedExpand<T> {
-    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+    fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }

@@ -517,7 +517,7 @@ impl<E> DerefMut for NativeExpand<Box<[E]>> {
 macro_rules! impl_expand_traits {
     ($generic: ident, $ty: ty) => {
         impl<$generic: CubePrimitive> AsMutExpand for $ty {
-            fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+            fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
                 self
             }
         }

@@ -80,12 +80,12 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> IntoMut for ViewExpand<E, C, I
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeDebug for ViewExpand<E, C, IO> {}
 
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> AsRefExpand for ViewExpand<E, C, IO> {
-    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
+    fn __expand_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 }
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> AsMutExpand for ViewExpand<E, C, IO> {
-    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+    fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }

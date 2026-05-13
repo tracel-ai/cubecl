@@ -56,7 +56,7 @@ impl NativeAssign for BarrierToken {
 }
 
 impl AsMutExpand for NativeExpand<BarrierToken> {
-    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+    fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }

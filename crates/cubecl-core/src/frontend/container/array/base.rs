@@ -21,7 +21,7 @@ pub struct Array<E> {
 type ArrayExpand<E> = NativeExpand<Array<E>>;
 
 impl<E> AsMutExpand for ArrayExpand<E> {
-    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+    fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }

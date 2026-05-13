@@ -130,29 +130,32 @@ impl<T: ExpandTypeClone + ?Sized> ExpandTypeClone for *mut T {
 /// it's implemented for all [`ExpandType`](CubeType::ExpandType)s. This is called when the Rust
 /// code uses `&x`.
 pub trait AsRefExpand<T: ?Sized = Self> {
-    fn __expand_as_ref_method(&self, scope: &Scope) -> &T;
+    fn __expand_as_ref_method(&self, scope: &Scope) -> &T {
+        self.__expand_ref_method(scope)
+    }
+    fn __expand_ref_method(&self, scope: &Scope) -> &T;
 }
 
 impl<T: AsRefExpand + ?Sized> AsRefExpand for &T {
-    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
+    fn __expand_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 }
 
 impl<T: AsRefExpand + ?Sized> AsRefExpand for &mut T {
-    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
+    fn __expand_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 }
 
 impl<T: AsRefExpand + ?Sized> AsRefExpand for *const T {
-    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
+    fn __expand_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 }
 
 impl<T: AsRefExpand + ?Sized> AsRefExpand for *mut T {
-    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
+    fn __expand_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 }
@@ -160,29 +163,32 @@ impl<T: AsRefExpand + ?Sized> AsRefExpand for *mut T {
 /// Expand verison of [`AsMut`](core::convert::AsMut). The `Self` version must be implemented by
 /// all [`ExpandType`](CubeType::ExpandType)s, since `CubeCL` also uses it to implement `&mut x`.
 pub trait AsMutExpand<T: ?Sized = Self> {
-    fn __expand_as_mut_method(&mut self, scope: &Scope) -> &mut T;
+    fn __expand_as_mut_method(&mut self, scope: &Scope) -> &mut T {
+        self.__expand_ref_mut_method(scope)
+    }
+    fn __expand_ref_mut_method(&mut self, scope: &Scope) -> &mut T;
 }
 
 impl<T: AsMutExpand + ?Sized> AsMutExpand for &T {
-    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+    fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }
 
 impl<T: AsMutExpand + ?Sized> AsMutExpand for &mut T {
-    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+    fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }
 
 impl<T: AsMutExpand + ?Sized> AsMutExpand for *const T {
-    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+    fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }
 
 impl<T: AsMutExpand + ?Sized> AsMutExpand for *mut T {
-    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+    fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }
@@ -498,7 +504,7 @@ all_tuples!(launch_tuple, 2, 12, T, t);
 macro_rules! as_ref_tuple {
     ($(($T:ident, $t:ident)),*) => {
         impl<$($T: AsRefExpand),*> AsRefExpand for ($($T),*) {
-            fn __expand_as_ref_method(&self, _: &Scope) -> &($($T),*) {
+            fn __expand_ref_method(&self, _: &Scope) -> &($($T),*) {
                 self
             }
         }
@@ -510,7 +516,7 @@ all_tuples!(as_ref_tuple, 2, 12, T, t);
 macro_rules! as_mut_tuple {
     ($(($T:ident, $t:ident)),*) => {
         impl<$($T: AsMutExpand),*> AsMutExpand for ($($T),*) {
-            fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut ($($T),*) {
+            fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut ($($T),*) {
                 self
             }
         }
@@ -575,14 +581,14 @@ impl<T: ?Sized> NativeExpand<T> {
 }
 
 impl<T: ?Sized> AsRefExpand for NativeExpand<T> {
-    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
+    fn __expand_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 }
 
 #[diagnostic::do_not_recommend]
 impl<T: CubePrimitive> AsMutExpand for NativeExpand<T> {
-    fn __expand_as_mut_method(&mut self, scope: &Scope) -> &mut Self {
+    fn __expand_ref_mut_method(&mut self, scope: &Scope) -> &mut Self {
         assert!(
             self.expand.can_mutate(),
             "Can't create mutable reference to immutable variable"
@@ -834,12 +840,12 @@ impl<T: IntoMut> IntoMut for Vec<T> {
 impl<T: CubeDebug> CubeDebug for Vec<T> {}
 
 impl<T: AsRefExpand> AsRefExpand for Vec<T> {
-    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
+    fn __expand_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 }
 impl<T: AsMutExpand> AsMutExpand for Vec<T> {
-    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+    fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }
@@ -903,12 +909,12 @@ impl IntoMut for () {
 }
 
 impl AsRefExpand for () {
-    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
+    fn __expand_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 }
 impl AsMutExpand for () {
-    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+    fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }

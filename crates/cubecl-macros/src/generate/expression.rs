@@ -389,7 +389,7 @@ impl Expression {
                     quote![&#as_const]
                 } else {
                     let inner = inner.to_tokens(context);
-                    quote![#inner.__expand_as_ref_method(scope)]
+                    quote![#inner.__expand_ref_method(scope)]
                 }
             }
             Expression::MutReference { inner } => {
@@ -397,7 +397,7 @@ impl Expression {
                     quote![&mut #as_const]
                 } else {
                     let inner = inner.to_tokens(context);
-                    quote![#inner.__expand_as_mut_method(scope)]
+                    quote![#inner.__expand_ref_mut_method(scope)]
                 }
             }
             Expression::StructInit { path, fields } => {

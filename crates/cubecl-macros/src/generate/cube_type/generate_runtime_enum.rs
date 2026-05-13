@@ -148,12 +148,12 @@ impl CubeTypeEnum {
             impl #generics #debug for #name #generic_names #where_clause {}
             impl #generics #debug for #name_expand #generic_names #where_clause {}
             impl #generics #as_ref for #name_expand #generic_names #where_clause {
-                fn __expand_as_ref_method(&self, _: &#scope) -> &Self {
+                fn __expand_ref_method(&self, _: &#scope) -> &Self {
                     self
                 }
             }
             impl #generics #as_mut for #name_expand #generic_names #where_clause {
-                fn __expand_as_mut_method(&mut self, _: &#scope) -> &mut Self {
+                fn __expand_ref_mut_method(&mut self, _: &#scope) -> &mut Self {
                     self
                 }
             }

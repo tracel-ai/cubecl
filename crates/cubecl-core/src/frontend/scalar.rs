@@ -50,12 +50,12 @@ impl IntoMut for InputScalarExpand {
 impl CubeDebug for InputScalarExpand {}
 
 impl AsRefExpand for InputScalarExpand {
-    fn __expand_as_ref_method(&self, _: &Scope) -> &Self {
+    fn __expand_ref_method(&self, _: &Scope) -> &Self {
         self
     }
 }
 impl AsMutExpand for InputScalarExpand {
-    fn __expand_as_mut_method(&mut self, _: &Scope) -> &mut Self {
+    fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
         self
     }
 }
