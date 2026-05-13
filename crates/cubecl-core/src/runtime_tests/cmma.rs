@@ -715,9 +715,9 @@ pub fn test_simple_cube_expected(m: usize, n: usize, k: usize) -> Vec<f32> {
 //             &client,
 //             CubeCount::Static(1, 1, 1),
 //             cube_dimensions,
-//             ArrayArg::from_raw_parts::<f16>(&lhs, 64, 1),
-//             ArrayArg::from_raw_parts::<f16>(&rhs, 64, 1),
-//             ArrayArg::from_raw_parts::<f16>(&out, 64, 1),
+//             BufferArg::from_raw_parts::<f16>(&lhs, 64, 1),
+//             BufferArg::from_raw_parts::<f16>(&rhs, 64, 1),
+//             BufferArg::from_raw_parts::<f16>(&out, 64, 1),
 //         )
 //     };
 

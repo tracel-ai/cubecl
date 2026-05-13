@@ -93,8 +93,8 @@ pub fn kernel_enum_example(
 #             &client,
 #             CubeCount::Static(1, 1, 1),
 #             CubeDim::new_1d(3),
-#             ArrayArg::from_raw_parts::<f32>(&input, 3, 2),
-#             ArrayArg::from_raw_parts::<f32>(&output, 3, 2),
+#             BufferArg::from_raw_parts::<f32>(&input, 3, 2),
+#             BufferArg::from_raw_parts::<f32>(&output, 3, 2),
 #             FunctionArgs::AffineTransformation {
 #                 a: 1.0,
 #                 b: 2.0,
@@ -189,8 +189,8 @@ pub fn kernel_enum_example(
 #             &client,
 #             CubeCount::Static(1, 1, 1),
 #             CubeDim::new_1d(3),
-#             ArrayArg::from_raw_parts::<f32>(&input, 3, 2),
-#             ArrayArg::from_raw_parts::<f32>(&output, 3, 2),
+#             BufferArg::from_raw_parts::<f32>(&input, 3, 2),
+#             BufferArg::from_raw_parts::<f32>(&output, 3, 2),
 #             FunctionArgs::AffineTransformation {
 #                 a: 1.0,
 #                 b: 2.0,

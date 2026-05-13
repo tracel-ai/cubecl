@@ -84,8 +84,8 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(input.len() as u32 / vectorization),
             vectorization,
-            ArrayArg::from_raw_parts(&input_handle, input.len()),
-            ArrayArg::from_raw_parts(&output_handle, input.len()),
+            BufferArg::from_raw_parts(&input_handle, input.len()),
+            BufferArg::from_raw_parts(&output_handle, input.len()),
         )
     };
 

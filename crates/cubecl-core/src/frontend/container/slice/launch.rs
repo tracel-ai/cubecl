@@ -11,7 +11,7 @@ pub struct BufferCompilationArg {
     pub inplace: Option<Id>,
 }
 
-/// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle).
+/// Buffer representation with a reference to the [server handle](cubecl_runtime::server::Handle).
 pub struct BufferBinding<R: Runtime> {
     pub handle: cubecl_runtime::server::Binding,
     pub(crate) length: [usize; 1],
@@ -19,14 +19,14 @@ pub struct BufferBinding<R: Runtime> {
 }
 
 pub enum BufferArg<R: Runtime> {
-    /// The array is passed with an array handle.
+    /// The buffer is passed with a buffer handle.
     Handle {
-        /// The array handle.
+        /// The buffer handle.
         handle: BufferBinding<R>,
     },
-    /// The array is aliasing another input array.
+    /// The buffer is aliasing another input buffer.
     Alias {
-        /// The position of the input array.
+        /// The position of the input buffer.
         input_pos: usize,
         /// The length of the underlying handle
         length: [usize; 1],
@@ -34,7 +34,7 @@ pub enum BufferArg<R: Runtime> {
 }
 
 impl<R: Runtime> BufferArg<R> {
-    /// Create a new array argument.
+    /// Create a new buffer argument.
     ///
     /// # Safety
     ///
@@ -46,7 +46,7 @@ impl<R: Runtime> BufferArg<R> {
             }
         }
     }
-    /// Create a new array argument from a binding.
+    /// Create a new buffer argument from a binding.
     ///
     /// # Safety
     ///
@@ -78,7 +78,7 @@ impl<R: Runtime> BufferArg<R> {
 }
 
 impl<R: Runtime> BufferBinding<R> {
-    /// Create a new array handle reference.
+    /// Create a new buffer handle reference.
     ///
     /// # Safety
     ///
@@ -87,7 +87,7 @@ impl<R: Runtime> BufferBinding<R> {
         unsafe { Self::from_raw_parts_binding(handle.binding(), length) }
     }
 
-    /// Create a new array handle reference.
+    /// Create a new buffer handle reference.
     ///
     /// # Safety
     ///
@@ -103,7 +103,7 @@ impl<R: Runtime> BufferBinding<R> {
         }
     }
 
-    /// Return the handle as a tensor instead of an array.
+    /// Return the handle as a tensor instead of a buffer.
     pub fn into_tensor(self) -> TensorBinding<R> {
         let shape = self.length.into();
 

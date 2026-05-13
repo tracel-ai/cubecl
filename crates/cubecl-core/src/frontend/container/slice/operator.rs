@@ -123,11 +123,6 @@ const MEMCPY_UNROLL_LIMIT: usize = 8;
 
 impl<E: CubePrimitive> SliceExpand<E> {
     pub fn __expand_copy_from_slice_method(&mut self, scope: &Scope, source: &SliceExpand<E>) {
-        let dest = self.__expand_slice_mut_method(
-            scope,
-            NativeExpand::from_lit(scope, 0),
-            self.__expand_len_method(scope),
-        );
         let len = source.__expand_len_method(scope);
         let unroll = source
             .const_len()
@@ -140,7 +135,7 @@ impl<E: CubePrimitive> SliceExpand<E> {
                 copy::expand(
                     scope,
                     source.__expand_index_method(scope, idx),
-                    dest.__expand_index_mut_method(scope, idx),
+                    self.__expand_index_mut_method(scope, idx),
                 );
             },
         );

@@ -9,7 +9,7 @@ use cubecl_ir::VectorSize;
 
 use crate as cubecl;
 
-/// The tensor type is similar to the [array type](crate::prelude::Array), however it comes with more
+/// The tensor type is a wrapper around `[T]` that comes with more
 /// metadata such as [stride](Tensor::stride) and [shape](Tensor::shape).
 #[derive(CubeType)]
 pub struct Tensor<T: CubePrimitive> {

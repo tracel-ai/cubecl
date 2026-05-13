@@ -239,7 +239,7 @@ impl<R: Runtime> TensorBinding<R> {
             shape: self.shape.clone(),
         }
     }
-    /// Convert the handle into an [array argument](ArrayArg).
+    /// Convert the handle into a [buffer argument](BufferArg).
     pub fn into_buffer_arg(self) -> BufferArg<R> {
         unsafe { BufferArg::from_raw_parts_binding(self.handle, self.shape.iter().product()) }
     }

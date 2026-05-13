@@ -139,68 +139,6 @@ impl<E: CubePrimitive> Array<E> {
     }
 }
 
-/// Module that contains the implementation details of the index functions.
-mod indexation {
-    use cubecl_ir::{IndexOperands, Memory};
-
-    use crate::ir::Instruction;
-
-    use super::*;
-
-    #[cube]
-    impl<E: CubePrimitive> Array<E> {
-        /// Perform an unchecked index into the array
-        ///
-        /// # Safety
-        /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
-        /// always in bounds
-        #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&self, i: usize) -> &E {
-            intrinsic!(|scope| {
-                let ty = self.expand.value_type();
-                let class = self.expand.address_space();
-                let out = scope.create_local(Type::pointer(ty, class));
-                scope.register(Instruction::new(
-                    Memory::Index(IndexOperands {
-                        list: self.expand,
-                        index: i.expand,
-                        vector_size: 0,
-                        unroll_factor: 1,
-                        checked: false,
-                    }),
-                    out,
-                ));
-                scope.create_kernel_ref(out.into())
-            })
-        }
-
-        /// Perform an unchecked index assignment into the array
-        ///
-        /// # Safety
-        /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
-        /// always in bounds
-        #[allow(unused_variables)]
-        pub unsafe fn index_mut_unchecked(&mut self, i: usize) -> &mut E {
-            intrinsic!(|scope| {
-                let ty = self.expand.value_type();
-                let class = self.expand.address_space();
-                let out = scope.create_local(Type::pointer(ty, class));
-                scope.register(Instruction::new(
-                    Memory::Index(IndexOperands {
-                        list: self.expand,
-                        index: i.expand,
-                        vector_size: 0,
-                        unroll_factor: 1,
-                        checked: false,
-                    }),
-                    out,
-                ));
-                scope.create_kernel_ref(out.into())
-            })
-        }
-    }
-}
-
 impl<C: CubePrimitive> Assign for ArrayExpand<C> {
     fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
         let value = value.__extract_list(scope);
