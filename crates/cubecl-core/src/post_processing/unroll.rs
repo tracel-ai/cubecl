@@ -123,10 +123,9 @@ impl UnrollVisitor {
                         stride,
                         destination,
                         layout,
-                    } if inst.out().vector_size() > self.max_vector_size => {
+                    } if destination.vector_size() > self.max_vector_size => {
                         return TransformAction::Replace(self.transform_cmma_store(
                             alloc,
-                            inst.out(),
                             mat,
                             stride,
                             destination,
@@ -210,7 +209,6 @@ impl UnrollVisitor {
     fn transform_cmma_store(
         &mut self,
         alloc: &Allocator,
-        out: Variable,
         mat: &Variable,
         stride: &Variable,
         destination: &Variable,
@@ -222,17 +220,13 @@ impl UnrollVisitor {
         let destination =
             self.mappings
                 .get(alloc, *destination, unroll_factor, self.max_vector_size);
-        let out = unroll_array(out, self.max_vector_size, unroll_factor);
 
-        let store = Instruction::new(
-            Operation::CoopMma(CoopMma::Store {
-                mat: *mat,
-                stride: *stride,
-                destination: destination[0],
-                layout: *layout,
-            }),
-            out,
-        );
+        let store = Instruction::no_out(Operation::CoopMma(CoopMma::Store {
+            mat: *mat,
+            stride: *stride,
+            destination: destination[0],
+            layout: *layout,
+        }));
         vec![store]
     }
 

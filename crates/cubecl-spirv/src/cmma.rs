@@ -16,26 +16,26 @@ use rspirv::{
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_cmma(&mut self, cmma: CoopMma, out: Option<core::Variable>) {
         self.capabilities.insert(Capability::CooperativeMatrixKHR);
-        let out = out.unwrap();
+
         match cmma {
-            CoopMma::Fill { value } => self.compile_fill(out, value),
+            CoopMma::Fill { value } => self.compile_fill(out.unwrap(), value),
             CoopMma::Load {
                 ptr,
                 stride,
                 layout,
-            } => self.compile_load(out, ptr, stride, layout),
+            } => self.compile_load(out.unwrap(), ptr, stride, layout),
             CoopMma::LoadTensor {
                 buffer,
                 layout,
                 view,
-            } => self.compile_load_tensor(out, buffer, layout, view),
+            } => self.compile_load_tensor(out.unwrap(), buffer, layout, view),
             CoopMma::Execute {
                 mat_a,
                 mat_b,
                 mat_c,
-            } => self.compile_execute(mat_a, mat_b, mat_c, out),
+            } => self.compile_execute(mat_a, mat_b, mat_c, out.unwrap()),
             CoopMma::ExecuteElementwise { matrix, op } => {
-                self.compile_elementwise_op(matrix, op, out);
+                self.compile_elementwise_op(matrix, op, out.unwrap());
             }
             CoopMma::Store {
                 mat,
@@ -44,9 +44,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 destination,
             } => self.compile_store(mat, stride, destination, layout),
             CoopMma::StoreTensor { mat, layout, view } => {
-                self.compile_store_tensor(mat, out, layout, view)
+                self.compile_store_tensor(mat, out.unwrap(), layout, view)
             }
-            CoopMma::Cast { input } => self.compile_cast(input, out),
+            CoopMma::Cast { input } => self.compile_cast(input, out.unwrap()),
             CoopMma::RowIndex { .. }
             | CoopMma::ColIndex { .. }
             | CoopMma::LoadMatrix { .. }
