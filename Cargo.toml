@@ -127,17 +127,19 @@ embassy-futures = { version = "0.1.1" }                        # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
-sysinfo = "0.38.0"
-# tracel-llvm = { version = "20.1.4-6", features = ["mlir-helpers"] }
-# tracel-llvm-bundler = { version = "20.1.4-6" }
-### For development
-tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = [
+sysinfo = "0.39.1"
+tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "557fc77406a1b678ab64edbcf7c0070accd0af1f", features = [
     "mlir-helpers",
 ] }
-tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler" }
+tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm.git", rev = "557fc77406a1b678ab64edbcf7c0070accd0af1f" }
+### For development
+# tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = [
+#     "mlir-helpers",
+# ] }
+# tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler" }
 
 
-cudarc = { version = "0.19.0", features = [
+cudarc = { version = "0.19.6", features = [
     "std",
     "driver",
     "nvrtc",
@@ -165,5 +167,5 @@ renderdoc = "0.12"
 cfg_aliases = "0.2.1"
 
 
-# [profile.dev.build-override]
-# opt-level = 3
+[profile.dev.build-override]
+opt-level = 3
