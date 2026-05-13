@@ -28,8 +28,8 @@ pub mod copy_bulk {
         to: &mut SliceExpand<C>,
         length: usize,
     ) {
-        let source = from.__expand_as_ptr_method(scope).expand;
-        let target = to.__expand_as_ptr_mut_method(scope).expand;
+        let source = unsafe { *from.__expand_as_ptr_method(scope) }.expand;
+        let target = unsafe { *to.__expand_as_mut_ptr_method(scope) }.expand;
 
         scope.register(Instruction::no_out(Memory::CopyMemory(
             CopyMemoryOperator {

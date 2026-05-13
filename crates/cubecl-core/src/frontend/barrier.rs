@@ -100,7 +100,7 @@ macro_rules! tensor_map_load {
                 ) {
                     let barrier = self.expand;
                     let source = source.expand;
-                    let destination = destination.__expand_as_ptr_method(scope).expand;
+                    let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.expand;
 
                     let mem_copy = BarrierOps::TmaLoad {
                         barrier,
@@ -158,7 +158,7 @@ macro_rules! tensor_map_load_im2col {
                 ) {
                     let barrier = self.expand;
                     let source = source.expand;
-                    let destination = destination.__expand_as_ptr_method(scope).expand;
+                    let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.expand;
 
                     let mem_copy = BarrierOps::TmaLoadIm2col {
                         barrier,
@@ -273,8 +273,8 @@ impl Barrier {
         intrinsic!(|scope| {
             let barrier = self.expand;
             let source_length = source.__extract_length(scope).expand;
-            let source = source.__expand_as_ptr_method(scope).expand;
-            let destination = destination.__expand_as_ptr_method(scope).expand;
+            let source = unsafe { *source.__expand_as_ptr_method(scope) }.expand;
+            let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.expand;
 
             let mem_copy = BarrierOps::MemCopyAsync {
                 barrier,
@@ -298,8 +298,8 @@ impl Barrier {
         intrinsic!(|scope| {
             let barrier = self.expand;
             let source_length = source.__extract_length(scope).expand;
-            let source = source.__expand_as_ptr_method(scope).expand;
-            let destination = destination.__expand_as_ptr_method(scope).expand;
+            let source = unsafe { *source.__expand_as_ptr_method(scope) }.expand;
+            let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.expand;
 
             let mem_copy = BarrierOps::MemCopyAsyncCooperative {
                 barrier,
@@ -324,8 +324,8 @@ impl Barrier {
         intrinsic!(|scope| {
             let barrier = self.expand;
             let source_length = source.__extract_length(scope).expand;
-            let source = source.__expand_as_ptr_method(scope).expand;
-            let destination = destination.__expand_as_ptr_method(scope).expand;
+            let source = unsafe { *source.__expand_as_ptr_method(scope) }.expand;
+            let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.expand;
 
             let mem_copy = BarrierOps::MemCopyAsyncTx {
                 barrier,
@@ -447,8 +447,8 @@ pub mod copy_async {
         copy_length: u32,
     ) {
         let source_length = copy_length.into();
-        let source = source.__expand_as_ptr_method(scope).expand;
-        let destination = destination.__expand_as_ptr_method(scope).expand;
+        let source = unsafe { *source.__expand_as_ptr_method(scope) }.expand;
+        let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.expand;
         let scalar_size = C::__expand_as_type(scope).storage_type().size();
 
         let mem_copy = BarrierOps::CopyAsync {
@@ -494,8 +494,8 @@ pub mod copy_async_checked {
         let source_length = source.__extract_length(scope).expand;
 
         // OOB pointer is allowed as long as length is 0
-        let source = unsafe { source.__expand_as_ptr_unchecked_method(scope).expand };
-        let destination = unsafe { destination.__expand_as_ptr_unchecked_method(scope).expand };
+        let source = unsafe { (*source.__expand_as_ptr_unchecked_method(scope)).expand };
+        let destination = unsafe { (*destination.__expand_as_ptr_unchecked_method(scope)).expand };
         let scalar_size = C::__expand_as_type(scope).storage_type().size();
 
         let mem_copy = BarrierOps::CopyAsync {

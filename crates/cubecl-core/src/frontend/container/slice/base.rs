@@ -170,19 +170,11 @@ pub trait SliceExt<E: CubePrimitive> {
         unexpanded!()
     }
 
-    fn as_ptr(&self) -> &E {
-        unexpanded!()
-    }
-
-    fn as_ptr_mut(&mut self) -> &mut E {
-        unexpanded!()
-    }
-
     /// Convert the slice to a start pointer, without any bounds checks.
     ///
     /// # Safety
     /// See [`get_unchecked`]([E]::get_unchecked)
-    unsafe fn as_ptr_unchecked(&self) -> &E {
+    unsafe fn as_ptr_unchecked(&self) -> *const E {
         unexpanded!()
     }
 
@@ -190,7 +182,7 @@ pub trait SliceExt<E: CubePrimitive> {
     ///
     /// # Safety
     /// See [`get_unchecked_mut`]([E]::get_unchecked_mut)
-    unsafe fn as_ptr_unchecked_mut(&mut self) -> &mut E {
+    unsafe fn as_mut_ptr_unchecked(&mut self) -> *mut E {
         unexpanded!()
     }
 
@@ -233,27 +225,21 @@ pub trait SliceExt<E: CubePrimitive> {
         this: &'infer mut SliceExpand<E>,
     ) -> &'infer mut SliceExpand<T>;
 
-    fn __expand_as_ptr<'infer>(
-        scope: &Scope,
-        this: &'infer SliceExpand<E>,
-    ) -> &'infer NativeExpand<E>;
+    fn __expand_as_ptr(scope: &Scope, this: &SliceExpand<E>) -> *const NativeExpand<E>;
 
-    fn __expand_as_ptr_mut<'infer>(
-        scope: &Scope,
-        this: &'infer mut SliceExpand<E>,
-    ) -> &'infer mut NativeExpand<E>;
+    fn __expand_as_mut_ptr(scope: &Scope, this: &mut SliceExpand<E>) -> *mut NativeExpand<E>;
 
     #[doc(hidden)]
-    unsafe fn __expand_as_ptr_unchecked<'infer>(
+    unsafe fn __expand_as_ptr_unchecked(
         scope: &Scope,
-        this: &'infer SliceExpand<E>,
-    ) -> &'infer NativeExpand<E>;
+        this: &SliceExpand<E>,
+    ) -> *const NativeExpand<E>;
 
     #[doc(hidden)]
-    unsafe fn __expand_as_ptr_unchecked_mut<'infer>(
+    unsafe fn __expand_as_mut_ptr_unchecked(
         scope: &Scope,
-        this: &'infer mut SliceExpand<E>,
-    ) -> &'infer mut NativeExpand<E>;
+        this: &mut SliceExpand<E>,
+    ) -> *mut NativeExpand<E>;
 
     #[allow(clippy::mut_from_ref)]
     #[doc(hidden)]
@@ -312,32 +298,26 @@ impl<E: CubePrimitive> SliceExt<E> for [E] {
         this.__expand_downcast_mut_unchecked_method::<T>(scope)
     }
 
-    fn __expand_as_ptr<'infer>(
-        scope: &Scope,
-        this: &'infer SliceExpand<E>,
-    ) -> &'infer NativeExpand<E> {
+    fn __expand_as_ptr(scope: &Scope, this: &SliceExpand<E>) -> *const NativeExpand<E> {
         this.__expand_as_ptr_method(scope)
     }
 
-    fn __expand_as_ptr_mut<'infer>(
-        scope: &Scope,
-        this: &'infer mut SliceExpand<E>,
-    ) -> &'infer mut NativeExpand<E> {
-        this.__expand_as_ptr_mut_method(scope)
+    fn __expand_as_mut_ptr(scope: &Scope, this: &mut SliceExpand<E>) -> *mut NativeExpand<E> {
+        this.__expand_as_mut_ptr_method(scope)
     }
 
-    unsafe fn __expand_as_ptr_unchecked<'infer>(
+    unsafe fn __expand_as_ptr_unchecked(
         scope: &Scope,
-        this: &'infer SliceExpand<E>,
-    ) -> &'infer NativeExpand<E> {
+        this: &SliceExpand<E>,
+    ) -> *const NativeExpand<E> {
         unsafe { this.__expand_as_ptr_unchecked_method(scope) }
     }
 
-    unsafe fn __expand_as_ptr_unchecked_mut<'infer>(
+    unsafe fn __expand_as_mut_ptr_unchecked(
         scope: &Scope,
-        this: &'infer mut SliceExpand<E>,
-    ) -> &'infer mut NativeExpand<E> {
-        unsafe { this.__expand_as_ptr_unchecked_mut_method(scope) }
+        this: &mut SliceExpand<E>,
+    ) -> *mut NativeExpand<E> {
+        unsafe { this.__expand_as_mut_ptr_unchecked_method(scope) }
     }
 
     unsafe fn __expand_as_mut_unchecked<'infer>(
@@ -431,26 +411,26 @@ Expected types to be the same, got [{}, {}]",
         unsafe { self.as_type_mut_unchecked() }
     }
 
-    pub fn __expand_as_ptr_method(&self, scope: &Scope) -> &NativeExpand<E> {
+    pub fn __expand_as_ptr_method(&self, scope: &Scope) -> *const NativeExpand<E> {
         self.__expand_index_method(scope, NativeExpand::<usize>::from_lit(scope, 0))
     }
 
-    pub fn __expand_as_ptr_mut_method(&mut self, scope: &Scope) -> &mut NativeExpand<E> {
+    pub fn __expand_as_mut_ptr_method(&mut self, scope: &Scope) -> *mut NativeExpand<E> {
         self.__expand_index_mut_method(scope, NativeExpand::<usize>::from_lit(scope, 0))
     }
 
     #[doc(hidden)]
-    pub unsafe fn __expand_as_ptr_unchecked_method(&self, scope: &Scope) -> &NativeExpand<E> {
+    pub unsafe fn __expand_as_ptr_unchecked_method(&self, scope: &Scope) -> *const NativeExpand<E> {
         unsafe {
             self.__expand_get_unchecked_method(scope, NativeExpand::<usize>::from_lit(scope, 0))
         }
     }
 
     #[doc(hidden)]
-    pub unsafe fn __expand_as_ptr_unchecked_mut_method(
+    pub unsafe fn __expand_as_mut_ptr_unchecked_method(
         &mut self,
         scope: &Scope,
-    ) -> &mut NativeExpand<E> {
+    ) -> *mut NativeExpand<E> {
         unsafe {
             self.__expand_get_unchecked_mut_method(scope, NativeExpand::<usize>::from_lit(scope, 0))
         }

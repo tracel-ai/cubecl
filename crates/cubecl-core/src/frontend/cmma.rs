@@ -626,7 +626,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     ) -> Array<Vector<E::Scalar, NO>> {
         intrinsic!(|scope| {
             let slice_vector_size = row.expand.vector_size();
-            let ptr = row.__expand_as_ptr_method(scope).expand;
+            let ptr = unsafe { *row.__expand_as_ptr_method(scope) }.expand;
             let out = Array::__expand_new(scope, num_matrices);
             scope.register(Instruction::new(
                 CoopMma::LoadMatrix {
@@ -652,7 +652,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         intrinsic!(|scope| {
             let vector_size = self.__expand_vector_size_method(scope, ident);
             let slice_vector_size = row.expand.vector_size();
-            let ptr = row.__expand_as_ptr_method(scope).expand;
+            let ptr = unsafe { *row.__expand_as_ptr_method(scope) }.expand;
             let fragment = fragment.__extract_list(scope);
             scope.register(Instruction::new(
                 CoopMma::LoadMatrix {
@@ -688,7 +688,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let vector_size = self.__expand_vector_size_method(scope, ident);
 
             let registers = registers.__extract_list(scope);
-            let destination = row.__expand_as_ptr_method(scope).expand;
+            let destination = unsafe { *row.__expand_as_ptr_method(scope) }.expand;
 
             scope.register(Instruction::no_out(CoopMma::StoreMatrix {
                 registers,
@@ -898,7 +898,7 @@ pub mod load {
             "Loading accumulator requires explicit layout. Use `load_with_layout` instead."
         );
 
-        let ptr = value.__expand_as_ptr_method(scope).expand;
+        let ptr = unsafe { *value.__expand_as_ptr_method(scope) }.expand;
 
         scope.register(Instruction::new(
             ir::CoopMma::Load {
@@ -978,7 +978,7 @@ pub mod load_with_layout {
         layout: MatrixLayout,
     ) {
         let stride: Variable = stride.into();
-        let ptr = value.__expand_as_ptr_method(scope).expand;
+        let ptr = unsafe { *value.__expand_as_ptr_method(scope) }.expand;
 
         scope.register(Instruction::new(
             ir::CoopMma::Load {
@@ -1017,7 +1017,7 @@ pub mod store {
     ) {
         let stride: Variable = stride.into();
 
-        let destination = output.__expand_as_ptr_method(scope).expand;
+        let destination = unsafe { *output.__expand_as_ptr_method(scope) }.expand;
 
         scope.register(Instruction::no_out(ir::CoopMma::Store {
             mat: mat.elem,

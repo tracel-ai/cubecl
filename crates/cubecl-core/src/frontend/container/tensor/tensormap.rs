@@ -260,7 +260,7 @@ macro_rules! tma_store {
                     dst: &mut NativeExpand<TensorMap<T, Tiled>>,
                     $($arg: NativeExpand<i32>),*
                 ) {
-                    let source = src.__expand_as_ptr_method(scope).expand;
+                    let source = unsafe { *src.__expand_as_ptr_method(scope) }.expand;
                     let dst = dst.expand;
                     let coordinates = vec![$($arg.expand),*];
                     scope.register(Instruction::new(
