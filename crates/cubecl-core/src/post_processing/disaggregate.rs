@@ -6,6 +6,7 @@ use cubecl_ir::{
 use hashbrown::HashMap;
 
 use crate::post_processing::{
+    analysis_helper::GlobalAnalyses,
     util::AtomicCounter,
     visitor::{InstructionVisitor, Visitor},
 };
@@ -25,7 +26,9 @@ impl DisaggregateVisitor {
     pub fn apply(scope: &Scope) {
         let mut this = Self::default();
         let changes = AtomicCounter::new(0);
-        this.visit_scope(scope, &changes);
+        // We don't care about pointer sources or used variables at this point
+        let analyses = GlobalAnalyses::default();
+        this.visit_scope(scope, &analyses, &changes);
     }
 }
 
@@ -34,6 +37,7 @@ impl InstructionVisitor for DisaggregateVisitor {
         &mut self,
         mut instruction: Instruction,
         global_state: &GlobalState,
+        analyses: &GlobalAnalyses,
         _changes: &AtomicCounter,
     ) -> Vec<Instruction> {
         let mut visitor = Visitor(());
@@ -41,16 +45,16 @@ impl InstructionVisitor for DisaggregateVisitor {
         let allocator = &state.allocator;
 
         // This needs to run even for aggregates so extract -> construct will be properly replaced
-        visitor.visit_operation(&mut instruction.operation, |_, var| {
+        visitor.visit_operation(&mut instruction.operation, analyses, |_, var| {
             if let Some(replacement) = self.extracted.get(&var.kind).copied() {
                 *var = replacement;
             }
         });
-        if let Some(out) = &mut instruction.out
-            && let Some(replacement) = self.extracted.get(&out.kind).copied()
-        {
-            *out = replacement;
-        }
+        visitor.visit_out(&mut instruction.out, |_, var| {
+            if let Some(replacement) = self.extracted.get(&var.kind) {
+                *var = *replacement;
+            }
+        });
 
         let mut new_instructions = Vec::new();
 

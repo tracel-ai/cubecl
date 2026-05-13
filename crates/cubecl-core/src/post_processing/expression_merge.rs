@@ -3,6 +3,7 @@ use cubecl_ir::{CoopMma, GlobalState, Instruction, Operation, Operator, UnaryOpe
 use hashbrown::HashMap;
 
 use crate::post_processing::{
+    analysis_helper::GlobalAnalyses,
     util::AtomicCounter,
     visitor::{InstructionVisitor, Visitor},
 };
@@ -19,10 +20,11 @@ impl InstructionVisitor for InlineAssignments {
         &mut self,
         mut inst: Instruction,
         _global_state: &GlobalState,
+        analyses: &GlobalAnalyses,
         changes: &AtomicCounter,
     ) -> Vec<Instruction> {
         let mut visitor = Visitor(());
-        visitor.visit_operation(&mut inst.operation, |_, var| {
+        visitor.visit_operation(&mut inst.operation, analyses, |_, var| {
             if let Some(substitution) = self.substitutions.get(var) {
                 *var = *substitution;
                 changes.inc();

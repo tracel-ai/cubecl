@@ -176,7 +176,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let opt = self.opt.clone();
         let mut visibility = opt.global_state.buffer_visibility.borrow_mut();
         // Just in case not all buffers were accessed when tracking reads/writes
-        visibility.resize(kernel.buffers.len(), Default::default());
+        visibility.resize(kernel.num_global_buffers(), Default::default());
         self.state.base_lookups.buffers =
             target.generate_params(self, &kernel.buffers, &visibility);
 

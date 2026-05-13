@@ -132,7 +132,9 @@ impl WgslCompiler {
         DisaggregateVisitor::apply(&value.body);
         UnrollVisitor::new(MAX_VECTOR_SIZE).apply(&value.body);
 
-        optimize_scope(&value.body);
+        self.buffer_vis = optimize_scope(&value.body).into();
+        self.buffer_vis
+            .resize(value.num_global_buffers(), Visibility::Read);
 
         let address_type = self.compile_storage_type(address_type);
         let instructions = self.compile_scope(&value.body);

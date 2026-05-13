@@ -471,15 +471,10 @@ impl Display for Instruction {
                 writeln!(f, "var {var}: {item};")
             }
             Instruction::Add { lhs, rhs, out } => {
-                if out.is_atomic() {
-                    assert_eq!(lhs, out, "Can't use regular addition on atomic");
-                    writeln!(f, "atomicAdd({out}, {rhs});")
-                } else {
-                    let lhs = lhs.fmt_cast_to(out.item());
-                    let rhs = rhs.fmt_cast_to(out.item());
-                    let out = out.fmt_left();
-                    writeln!(f, "{out} = {lhs} + {rhs};")
-                }
+                let lhs = lhs.fmt_cast_to(out.item());
+                let rhs = rhs.fmt_cast_to(out.item());
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {lhs} + {rhs};")
             }
             Instruction::Slice {
                 input,
@@ -510,33 +505,20 @@ impl Display for Instruction {
                 writeln!(f, "{out} = fma({a}, {b}, {c});")
             }
             Instruction::Min { lhs, rhs, out } => {
-                if out.is_atomic() {
-                    assert_eq!(lhs, out, "Can't use regular min on atomic");
-                    writeln!(f, "atomicMin({out}, {rhs});")
-                } else {
-                    let lhs = lhs.fmt_cast_to(out.item());
-                    let rhs = rhs.fmt_cast_to(out.item());
-                    let out = out.fmt_left();
-                    writeln!(f, "{out} = min({lhs}, {rhs});")
-                }
+                let lhs = lhs.fmt_cast_to(out.item());
+                let rhs = rhs.fmt_cast_to(out.item());
+                let out = out.fmt_left();
+                writeln!(f, "{out} = min({lhs}, {rhs});")
             }
             Instruction::Max { lhs, rhs, out } => {
-                if out.is_atomic() {
-                    assert_eq!(lhs, out, "Can't use regular max on atomic");
-                    writeln!(f, "atomicMax({out}, {rhs});")
-                } else {
-                    let lhs = lhs.fmt_cast_to(out.item());
-                    let rhs = rhs.fmt_cast_to(out.item());
-                    let out = out.fmt_left();
-                    writeln!(f, "{out} = max({lhs}, {rhs});")
-                }
+                let lhs = lhs.fmt_cast_to(out.item());
+                let rhs = rhs.fmt_cast_to(out.item());
+                let out = out.fmt_left();
+                writeln!(f, "{out} = max({lhs}, {rhs});")
             }
             Instruction::And { lhs, rhs, out } => {
                 let vector_size = out.item().vectorization_factor();
-                if out.is_atomic() {
-                    assert_eq!(lhs, out, "Can't use regular and on atomic");
-                    writeln!(f, "atomicAnd({out}, {rhs});")
-                } else if vector_size > 1 {
+                if vector_size > 1 {
                     let item = out.item();
                     let out = out.fmt_left();
                     writeln!(f, "{out} = {item}(")?;
@@ -553,10 +535,7 @@ impl Display for Instruction {
             }
             Instruction::Or { lhs, rhs, out } => {
                 let vector_size = out.item().vectorization_factor();
-                if out.is_atomic() {
-                    assert_eq!(lhs, out, "Can't use regular or on atomic");
-                    writeln!(f, "atomicOr({out}, {rhs});")
-                } else if vector_size > 1 {
+                if vector_size > 1 {
                     let item = out.item();
                     let out = out.fmt_left();
                     writeln!(f, "{out} = {item}(")?;
@@ -606,15 +585,10 @@ impl Display for Instruction {
                 writeln!(f, "{out} = {lhs} - {rhs} * {floor};")
             }
             Instruction::Sub { lhs, rhs, out } => {
-                if out.is_atomic() {
-                    assert_eq!(lhs, out, "Can't use regular sub on atomic");
-                    writeln!(f, "atomicSub({out}, {rhs});")
-                } else {
-                    let lhs = lhs.fmt_cast_to(out.item());
-                    let rhs = rhs.fmt_cast_to(out.item());
-                    let out = out.fmt_left();
-                    writeln!(f, "{out} = {lhs} - {rhs};")
-                }
+                let lhs = lhs.fmt_cast_to(out.item());
+                let rhs = rhs.fmt_cast_to(out.item());
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {lhs} - {rhs};")
             }
             Instruction::Mul { lhs, rhs, out } => {
                 let lhs = lhs.fmt_cast_to(out.item());

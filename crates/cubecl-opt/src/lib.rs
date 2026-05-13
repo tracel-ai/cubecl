@@ -41,6 +41,7 @@ use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, write
 use cubecl_core::{
     CubeDim,
     post_processing::{
+        analysis_helper::GlobalAnalyses,
         constant_prop::{ConstEval, ConstOperandSimplify},
         disaggregate::DisaggregateVisitor,
         visitor::InstructionVisitor,
@@ -315,8 +316,11 @@ impl Function {
 
     /// Recursively parse a scope into the graph
     pub fn parse_scope(&mut self, state: &GlobalState, scope: Scope) -> bool {
+        let global_analyses = GlobalAnalyses::default();
+        global_analyses.recalculate_pointer_source(&scope);
+        global_analyses.recalculate_used_values(&scope);
         for visitor in state.visitors.borrow_mut().iter_mut() {
-            visitor.visit_scope(&scope, &AtomicCounter::new(0));
+            visitor.visit_scope(&scope, &global_analyses, &AtomicCounter::new(0));
         }
         let processed = scope.process(state.processors.iter().map(|it| &**it));
 

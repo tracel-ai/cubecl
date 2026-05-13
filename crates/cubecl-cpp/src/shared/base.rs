@@ -17,7 +17,7 @@ use cubecl_core::{
     prelude::{FastMath, KernelDefinition, Visibility},
     server::ExecutionMode,
 };
-use cubecl_opt::{BufferVisibility, Optimizer, SharedLiveness};
+use cubecl_opt::{Optimizer, SharedLiveness};
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use std::{collections::HashSet, fmt::Debug};
 
@@ -227,30 +227,15 @@ impl<D: Dialect> CppCompiler<D> {
 
         let mut opt = Optimizer::shared_only(value.body.clone(), value.cube_dim);
         let shared_allocs = opt.main.analysis::<SharedLiveness>(&opt.global_state);
-        let buffer_vis = opt.global_state.buffer_visibility.borrow();
-
-        self.buffer_vis = buffer_vis
-            .iter()
-            .map(|vis| match vis.writable {
-                false => Visibility::Read,
-                true => Visibility::ReadWrite,
-            })
-            .collect();
-
-        for buffer in &value.buffers {
-            if buffer.ty.is_atomic() {
-                self.buffer_vis[buffer.id as usize] = Visibility::ReadWrite;
-            }
-        }
 
         *value.body.state_mut() = scope_state;
 
         CheckedIoVisitor::new(self.strategy, self.kernel_name.clone()).apply(&value.body);
         DisaggregateVisitor::apply(&value.body);
 
-        post_processing::optimize_scope(&value.body);
-
-        // println!("scope: {}", value.body);
+        self.buffer_vis = post_processing::optimize_scope(&value.body).into();
+        self.buffer_vis
+            .resize(value.num_global_buffers(), Visibility::Read);
 
         let address_type = self.compile_type(address_type.into());
         let instructions = self.compile_scope(&value.body);
@@ -258,12 +243,12 @@ impl<D: Dialect> CppCompiler<D> {
         let tensor_maps = value
             .tensor_maps
             .into_iter()
-            .map(|b| self.compile_binding(b, &buffer_vis))
+            .map(|b| self.compile_binding(b))
             .collect();
         let buffers = value
             .buffers
             .into_iter()
-            .map(|b| self.compile_binding(b, &buffer_vis))
+            .map(|b| self.compile_binding(b))
             .collect();
         let scalars = value
             .scalars
@@ -854,11 +839,9 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_cmma(&mut self, cmma: gpu::CoopMma, out: Option<gpu::Variable>) -> Instruction<D> {
         self.flags.inst_wmma = true;
 
-        let out = self.compile_variable(out.unwrap());
-
         let inst = match cmma {
             gpu::CoopMma::Fill { value } => WmmaInstruction::Fill {
-                frag: out,
+                frag: self.compile_variable(out.unwrap()),
                 value: self.compile_variable(value),
             },
             gpu::CoopMma::Load {
@@ -866,7 +849,7 @@ impl<D: Dialect> CppCompiler<D> {
                 stride,
                 layout,
             } => WmmaInstruction::Load {
-                frag: out,
+                frag: self.compile_variable(out.unwrap()),
                 ptr: self.compile_variable(ptr),
                 stride: self.compile_variable(stride),
                 layout: layout.and_then(|l| self.compile_matrix_layout(l)),
@@ -879,7 +862,7 @@ impl<D: Dialect> CppCompiler<D> {
                 frag_a: self.compile_variable(mat_a),
                 frag_b: self.compile_variable(mat_b),
                 frag_c: self.compile_variable(mat_c),
-                frag_d: out,
+                frag_d: self.compile_variable(out.unwrap()),
                 warp_size: self.compilation_options.warp_size,
             },
             gpu::CoopMma::ExecuteManual {
@@ -892,7 +875,7 @@ impl<D: Dialect> CppCompiler<D> {
                 frag_a: self.compile_variable(registers_a),
                 frag_b: self.compile_variable(registers_b),
                 frag_c: self.compile_variable(registers_c),
-                frag_d: out,
+                frag_d: self.compile_variable(out.unwrap()),
             },
             gpu::CoopMma::ExecuteScaled {
                 matrix,
@@ -907,7 +890,7 @@ impl<D: Dialect> CppCompiler<D> {
                 frag_a: self.compile_variable(registers_a),
                 frag_b: self.compile_variable(registers_b),
                 frag_c: self.compile_variable(registers_c),
-                frag_d: out,
+                frag_d: self.compile_variable(out.unwrap()),
 
                 scales_a: self.compile_variable(scales_a),
                 scales_b: self.compile_variable(scales_b),
@@ -936,7 +919,7 @@ impl<D: Dialect> CppCompiler<D> {
                 factor,
                 transpose,
             } => WmmaInstruction::LdMatrix {
-                output: out,
+                output: self.compile_variable(out.unwrap()),
                 ptr: self.compile_variable(ptr),
                 factor: factor as u32,
                 transpose,
@@ -954,7 +937,7 @@ impl<D: Dialect> CppCompiler<D> {
             },
             gpu::CoopMma::Cast { input } => WmmaInstruction::Cast {
                 input: self.compile_variable(input),
-                output: out,
+                output: self.compile_variable(out.unwrap()),
             },
             gpu::CoopMma::RowIndex { .. } | gpu::CoopMma::ColIndex { .. } => {
                 panic!("Row/Col index should be handled by processors")
@@ -1909,18 +1892,11 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_binding(
-        &mut self,
-        binding: cubecl_runtime::kernel::KernelArg,
-        buffer_vis: &[BufferVisibility],
-    ) -> KernelArg<D> {
+    fn compile_binding(&mut self, binding: cubecl_runtime::kernel::KernelArg) -> KernelArg<D> {
         KernelArg {
             id: binding.id,
             item: self.compile_type(binding.ty),
-            vis: match buffer_vis[binding.id as usize].writable || binding.ty.is_atomic() {
-                false => Visibility::Read,
-                true => Visibility::ReadWrite,
-            },
+            vis: self.buffer_vis[binding.id as usize],
         }
     }
 

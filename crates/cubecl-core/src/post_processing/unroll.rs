@@ -7,6 +7,7 @@ use cubecl_ir::{
 use hashbrown::HashMap;
 
 use crate::post_processing::{
+    analysis_helper::GlobalAnalyses,
     util::AtomicCounter,
     visitor::{InstructionVisitor, visit_scope},
 };
@@ -53,7 +54,9 @@ impl UnrollVisitor {
 
     pub fn apply(&mut self, scope: &Scope) {
         let changes = AtomicCounter::new(0);
-        self.visit_scope(scope, &changes);
+        // We don't care about pointer sources or used variables at this point
+        let analyses = GlobalAnalyses::default();
+        self.visit_scope(scope, &analyses, &changes);
     }
 }
 
@@ -62,6 +65,7 @@ impl InstructionVisitor for UnrollVisitor {
         &mut self,
         instruction: Instruction,
         global_state: &GlobalState,
+        _analyses: &GlobalAnalyses,
         _changes: &AtomicCounter,
     ) -> Vec<Instruction> {
         match self.maybe_transform(&global_state.borrow().allocator, &instruction) {
@@ -72,8 +76,8 @@ impl InstructionVisitor for UnrollVisitor {
         }
     }
 
-    fn visit_scope(&mut self, scope: &Scope, changes: &AtomicCounter) {
-        visit_scope(self, scope, changes);
+    fn visit_scope(&mut self, scope: &Scope, analyses: &GlobalAnalyses, changes: &AtomicCounter) {
+        visit_scope(self, scope, analyses, changes);
 
         let state = scope.state();
         let mut locals = state.allocator.local_mut_pool.borrow_mut();

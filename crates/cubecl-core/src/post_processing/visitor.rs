@@ -5,11 +5,12 @@ use alloc::vec::Vec;
 use cubecl_ir::{
     Arithmetic, AtomicBinaryOperands, AtomicOp, BarrierOps, BinaryOperands, Bitwise, Branch,
     Comparison, CoopMma, GlobalState, Instruction, Marker, Memory, Metadata, NonSemantic,
-    Operation, Operator, Plane, Scope, TensorIndexingOps, TmaOps, UnaryOperands, Variable,
+    Operation, OperationReflect, Operator, Plane, Scope, TensorIndexingOps, TmaOps, UnaryOperands,
+    Variable,
 };
 use derive_more::{Deref, DerefMut};
 
-use crate::post_processing::util::AtomicCounter;
+use crate::post_processing::{analysis_helper::GlobalAnalyses, util::AtomicCounter};
 
 /// Visitor that operates on an instruction level. Useful for passes that only need to recursively
 /// traverse the scopes and don't care about control flow.
@@ -21,17 +22,19 @@ pub trait InstructionVisitor: Debug {
         &mut self,
         instruction: Instruction,
         global_state: &GlobalState,
+        analyses: &GlobalAnalyses,
         changes: &AtomicCounter,
     ) -> Vec<Instruction>;
 
-    fn visit_scope(&mut self, scope: &Scope, changes: &AtomicCounter) {
-        visit_scope(self, scope, changes);
+    fn visit_scope(&mut self, scope: &Scope, analyses: &GlobalAnalyses, changes: &AtomicCounter) {
+        visit_scope(self, scope, analyses, changes);
     }
 }
 
 pub fn visit_scope<T: InstructionVisitor + ?Sized>(
     visitor: &mut T,
     scope: &Scope,
+    analyses: &GlobalAnalyses,
     changes: &AtomicCounter,
 ) {
     let instructions = scope.take_instructions();
@@ -40,29 +43,34 @@ pub fn visit_scope<T: InstructionVisitor + ?Sized>(
         if let Operation::Branch(branch) = &inst.operation {
             match branch {
                 Branch::If(op) => {
-                    visitor.visit_scope(&op.scope, changes);
+                    visitor.visit_scope(&op.scope, analyses, changes);
                 }
                 Branch::IfElse(op) => {
-                    visitor.visit_scope(&op.scope_if, changes);
-                    visitor.visit_scope(&op.scope_else, changes);
+                    visitor.visit_scope(&op.scope_if, analyses, changes);
+                    visitor.visit_scope(&op.scope_else, analyses, changes);
                 }
                 Branch::Switch(op) => {
                     for (_, case) in &op.cases {
-                        visitor.visit_scope(case, changes);
+                        visitor.visit_scope(case, analyses, changes);
                     }
-                    visitor.visit_scope(&op.scope_default, changes);
+                    visitor.visit_scope(&op.scope_default, analyses, changes);
                 }
                 Branch::RangeLoop(op) => {
-                    visitor.visit_scope(&op.scope, changes);
+                    visitor.visit_scope(&op.scope, analyses, changes);
                 }
                 Branch::Loop(op) => {
-                    visitor.visit_scope(&op.scope, changes);
+                    visitor.visit_scope(&op.scope, analyses, changes);
                 }
                 _ => {}
             }
         }
 
-        new_instructions.extend(visitor.visit_instruction(inst, &scope.global_state, changes));
+        new_instructions.extend(visitor.visit_instruction(
+            inst,
+            &scope.global_state,
+            analyses,
+            changes,
+        ));
     }
 
     scope.register_all(new_instructions);
@@ -72,13 +80,48 @@ pub fn visit_scope<T: InstructionVisitor + ?Sized>(
 pub struct Visitor<T>(pub T);
 
 impl<T> Visitor<T> {
+    pub fn visit_instruction(
+        &mut self,
+        inst: &mut Instruction,
+        analyses: &GlobalAnalyses,
+        visit_read: impl FnMut(&mut T, &mut Variable),
+        mut visit_write: impl FnMut(&mut T, &mut Variable),
+    ) {
+        self.visit_operation(&mut inst.operation, analyses, visit_read);
+
+        for ptr in inst.operation.write_pointers() {
+            if let Some(source) = analyses.ptr_source().get_mut(&ptr.kind) {
+                visit_write(self, source);
+            }
+        }
+
+        self.visit_out(&mut inst.out, visit_write);
+    }
+
+    pub fn visit_out(
+        &mut self,
+        out: &mut Option<Variable>,
+        mut visit_write: impl FnMut(&mut T, &mut Variable),
+    ) {
+        if let Some(out) = out {
+            visit_write(self, out)
+        }
+    }
+
     /// Visit an operation with a set of read and write visitors. Each visitor will be called with
     /// each read or written to variable.
     pub fn visit_operation(
         &mut self,
         op: &mut Operation,
+        analyses: &GlobalAnalyses,
         mut visit_read: impl FnMut(&mut T, &mut Variable),
     ) {
+        for ptr in op.read_pointers() {
+            if let Some(source) = analyses.ptr_source().get_mut(&ptr.kind) {
+                visit_read(self, source);
+            }
+        }
+
         match op {
             Operation::Copy(variable) => visit_read(self, variable),
             Operation::Memory(memory) => self.visit_memory(memory, visit_read),

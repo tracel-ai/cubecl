@@ -100,7 +100,6 @@ macro_rules! tensor_map_load {
                 ) {
                     let barrier = self.expand;
                     let source = source.expand;
-                    let dest_list = destination.__extract_list(scope);
                     let destination = destination.__expand_as_ptr_method(scope).expand;
 
                     let mem_copy = BarrierOps::TmaLoad {
@@ -110,7 +109,7 @@ macro_rules! tensor_map_load {
                         indices: vec![$($arg.expand),*],
                     };
 
-                    scope.register(Instruction::new(mem_copy, dest_list));
+                    scope.register(Instruction::no_out(mem_copy));
                 }
             }
         }
@@ -159,7 +158,6 @@ macro_rules! tensor_map_load_im2col {
                 ) {
                     let barrier = self.expand;
                     let source = source.expand;
-                    let dest_list = destination.__extract_list(scope);
                     let destination = destination.__expand_as_ptr_method(scope).expand;
 
                     let mem_copy = BarrierOps::TmaLoadIm2col {
@@ -170,7 +168,7 @@ macro_rules! tensor_map_load_im2col {
                         offsets: vec![$($offset.expand),*],
                     };
 
-                    scope.register(Instruction::new(mem_copy, dest_list));
+                    scope.register(Instruction::no_out(mem_copy));
                 }
             }
         }
@@ -274,7 +272,6 @@ impl Barrier {
     pub fn memcpy_async<C: CubePrimitive>(&self, source: &[C], destination: &mut [C]) {
         intrinsic!(|scope| {
             let barrier = self.expand;
-            let dest_list = destination.__extract_list(scope);
             let source_length = source.__extract_length(scope).expand;
             let source = source.__expand_as_ptr_method(scope).expand;
             let destination = destination.__expand_as_ptr_method(scope).expand;
@@ -286,7 +283,7 @@ impl Barrier {
                 source_length,
             };
 
-            scope.register(Instruction::new(mem_copy, dest_list));
+            scope.register(Instruction::no_out(mem_copy));
         })
     }
 
@@ -300,7 +297,6 @@ impl Barrier {
     pub fn memcpy_async_cooperative<C: CubePrimitive>(&self, source: &[C], destination: &mut [C]) {
         intrinsic!(|scope| {
             let barrier = self.expand;
-            let dest_list = destination.__extract_list(scope);
             let source_length = source.__extract_length(scope).expand;
             let source = source.__expand_as_ptr_method(scope).expand;
             let destination = destination.__expand_as_ptr_method(scope).expand;
@@ -312,7 +308,7 @@ impl Barrier {
                 source_length,
             };
 
-            scope.register(Instruction::new(mem_copy, dest_list));
+            scope.register(Instruction::no_out(mem_copy));
         })
     }
 
@@ -327,7 +323,6 @@ impl Barrier {
     pub fn memcpy_async_tx<C: CubePrimitive>(&self, source: &[C], destination: &mut [C]) {
         intrinsic!(|scope| {
             let barrier = self.expand;
-            let dest_list = destination.__extract_list(scope);
             let source_length = source.__extract_length(scope).expand;
             let source = source.__expand_as_ptr_method(scope).expand;
             let destination = destination.__expand_as_ptr_method(scope).expand;
@@ -339,7 +334,7 @@ impl Barrier {
                 source_length,
             };
 
-            scope.register(Instruction::new(mem_copy, dest_list));
+            scope.register(Instruction::no_out(mem_copy));
         })
     }
 }
@@ -452,7 +447,6 @@ pub mod copy_async {
         copy_length: u32,
     ) {
         let source_length = copy_length.into();
-        let dest_list = destination.__extract_list(scope);
         let source = source.__expand_as_ptr_method(scope).expand;
         let destination = destination.__expand_as_ptr_method(scope).expand;
         let scalar_size = C::__expand_as_type(scope).storage_type().size();
@@ -465,7 +459,7 @@ pub mod copy_async {
             checked: false,
         };
 
-        scope.register(Instruction::new(mem_copy, dest_list));
+        scope.register(Instruction::no_out(mem_copy));
     }
 }
 
@@ -497,7 +491,6 @@ pub mod copy_async_checked {
         destination: &mut SliceExpand<C>,
         copy_length: u32,
     ) {
-        let dest_list = destination.__extract_list(scope);
         let source_length = source.__extract_length(scope).expand;
 
         // OOB pointer is allowed as long as length is 0
@@ -513,7 +506,7 @@ pub mod copy_async_checked {
             checked: true,
         };
 
-        scope.register(Instruction::new(mem_copy, dest_list));
+        scope.register(Instruction::no_out(mem_copy));
     }
 }
 

@@ -10,7 +10,7 @@ mod reduce_strength;
 use core::any::type_name;
 
 pub use composite::*;
-use cubecl_core::post_processing::visitor::InstructionVisitor;
+use cubecl_core::post_processing::{analysis_helper::GlobalAnalyses, visitor::InstructionVisitor};
 use cubecl_ir::{Instruction, Marker};
 pub use dead_code::*;
 pub use disaggregate_array::*;
@@ -50,6 +50,10 @@ fn visit_function<T: InstructionVisitor>(
     state: &GlobalState,
     changes: &AtomicCounter,
 ) {
+    let analyses = GlobalAnalyses::default();
+    analyses.recalculate_pointer_source(&state.root_scope);
+    analyses.recalculate_used_values(&state.root_scope);
+
     let blocks = func.analysis::<PostOrder>(state).reverse();
 
     for block in blocks {
@@ -60,6 +64,7 @@ fn visit_function<T: InstructionVisitor>(
             new_instructions.extend(visitor.visit_instruction(
                 inst,
                 &state.root_scope.global_state,
+                &analyses,
                 changes,
             ));
         }
@@ -70,6 +75,7 @@ fn visit_function<T: InstructionVisitor>(
                 visitor.visit_instruction(
                     Instruction::no_out(Marker::DummyRead(*cond)),
                     &state.root_scope.global_state,
+                    &analyses,
                     changes,
                 );
             }
@@ -77,6 +83,7 @@ fn visit_function<T: InstructionVisitor>(
                 visitor.visit_instruction(
                     Instruction::no_out(Marker::DummyRead(*value)),
                     &state.root_scope.global_state,
+                    &analyses,
                     changes,
                 );
             }
@@ -85,6 +92,7 @@ fn visit_function<T: InstructionVisitor>(
                 visitor.visit_instruction(
                     Instruction::no_out(Marker::DummyRead(*break_cond)),
                     &state.root_scope.global_state,
+                    &analyses,
                     changes,
                 );
             }
@@ -93,6 +101,7 @@ fn visit_function<T: InstructionVisitor>(
                     visitor.visit_instruction(
                         Instruction::no_out(Marker::DummyRead(*value)),
                         &state.root_scope.global_state,
+                        &analyses,
                         changes,
                     );
                 }

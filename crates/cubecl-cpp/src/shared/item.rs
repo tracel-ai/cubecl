@@ -215,16 +215,6 @@ impl<D: Dialect> Item<D> {
         }
     }
 
-    pub fn is_atomic(&self) -> bool {
-        match self {
-            Item::Scalar(..) | Item::Vector(..) | Item::NativeVector(..) => false,
-            Item::Atomic(_) => true,
-            Item::Pointer(inner, _) => inner.is_atomic(),
-            Item::Array(inner, _) => inner.is_atomic(),
-            Item::DynamicArray(inner) => inner.is_atomic(),
-        }
-    }
-
     pub fn is_ptr(&self) -> bool {
         matches!(self, Item::Pointer(..))
     }
@@ -236,7 +226,7 @@ impl<D: Dialect> Item<D> {
                 _,
                 PointerClass::Global(Visibility::Read | Visibility::ReadWrite)
             )
-        ) && !self.is_atomic()
+        )
     }
 
     pub fn is_array(&self) -> bool {

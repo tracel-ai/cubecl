@@ -133,9 +133,6 @@ impl Variable {
             index,
         }
     }
-    pub fn is_atomic(&self) -> bool {
-        self.item().is_atomic()
-    }
 
     pub fn is_ptr(&self) -> bool {
         self.item().is_ptr()
@@ -289,16 +286,6 @@ impl Item {
             Item::Pointer(inner, class) => Item::Pointer(inner.with_elem(elem).intern(), class),
             Item::Array(inner, size) => Item::Array(inner.with_elem(elem).intern(), size),
             Item::DynamicArray(inner) => Item::DynamicArray(inner.with_elem(elem).intern()),
-        }
-    }
-
-    pub fn is_atomic(&self) -> bool {
-        match self {
-            Item::Scalar(..) | Item::Vector(..) => false,
-            Item::Atomic(..) => true,
-            Item::Pointer(inner, _) | Item::Array(inner, _) | Item::DynamicArray(inner) => {
-                inner.is_atomic()
-            }
         }
     }
 

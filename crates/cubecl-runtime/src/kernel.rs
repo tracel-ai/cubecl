@@ -45,6 +45,13 @@ pub struct KernelDefinition {
     pub options: KernelOptions,
 }
 
+impl KernelDefinition {
+    /// Returns the total number of global buffers (including tensor maps)
+    pub fn num_global_buffers(&self) -> usize {
+        self.buffers.len() + self.tensor_maps.len()
+    }
+}
+
 #[derive(Default, Clone, Debug, Hash, PartialEq, Eq)]
 /// Options for a specific kernel compilation
 pub struct KernelOptions {

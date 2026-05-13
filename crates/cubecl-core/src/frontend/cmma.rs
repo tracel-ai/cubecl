@@ -688,18 +688,14 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let vector_size = self.__expand_vector_size_method(scope, ident);
 
             let registers = registers.__extract_list(scope);
-            let row_list = row.__extract_list(scope);
             let destination = row.__expand_as_ptr_method(scope).expand;
 
-            scope.register(Instruction::new(
-                CoopMma::StoreMatrix {
-                    registers,
-                    destination,
-                    factor: num_matrices,
-                    transpose,
-                },
-                row_list,
-            ));
+            scope.register(Instruction::no_out(CoopMma::StoreMatrix {
+                registers,
+                destination,
+                factor: num_matrices,
+                transpose,
+            }));
         })
     }
 
@@ -1021,18 +1017,14 @@ pub mod store {
     ) {
         let stride: Variable = stride.into();
 
-        let output_list = output.__extract_list(scope);
         let destination = output.__expand_as_ptr_method(scope).expand;
 
-        scope.register(Instruction::new(
-            ir::CoopMma::Store {
-                mat: mat.elem,
-                stride,
-                destination,
-                layout,
-            },
-            output_list,
-        ));
+        scope.register(Instruction::no_out(ir::CoopMma::Store {
+            mat: mat.elem,
+            stride,
+            destination,
+            layout,
+        }));
     }
 }
 

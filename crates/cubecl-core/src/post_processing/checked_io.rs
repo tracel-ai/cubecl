@@ -6,7 +6,9 @@ use cubecl_runtime::server::ExecutionMode;
 
 use crate::{
     io::*,
-    post_processing::{util::AtomicCounter, visitor::InstructionVisitor},
+    post_processing::{
+        analysis_helper::GlobalAnalyses, util::AtomicCounter, visitor::InstructionVisitor,
+    },
 };
 
 #[derive(new, Debug)]
@@ -18,7 +20,9 @@ pub struct CheckedIoVisitor {
 impl CheckedIoVisitor {
     pub fn apply(&mut self, scope: &Scope) {
         let changes = AtomicCounter::new(0);
-        self.visit_scope(scope, &changes);
+        // We don't care about pointer sources or used variables at this point
+        let analyses = GlobalAnalyses::default();
+        self.visit_scope(scope, &analyses, &changes);
     }
 }
 
@@ -27,6 +31,7 @@ impl InstructionVisitor for CheckedIoVisitor {
         &mut self,
         instruction: Instruction,
         global_state: &GlobalState,
+        _analyses: &GlobalAnalyses,
         _changes: &AtomicCounter,
     ) -> Vec<Instruction> {
         match self.mode {

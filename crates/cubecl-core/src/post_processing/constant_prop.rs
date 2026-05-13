@@ -4,7 +4,9 @@ use cubecl_ir::{
     Type, Variable,
 };
 
-use crate::post_processing::{util::AtomicCounter, visitor::InstructionVisitor};
+use crate::post_processing::{
+    analysis_helper::GlobalAnalyses, util::AtomicCounter, visitor::InstructionVisitor,
+};
 
 /// Simplifies certain expressions where one operand is constant.
 /// For example: `out = x * 1` to `out = x`
@@ -16,6 +18,7 @@ impl InstructionVisitor for ConstOperandSimplify {
         &mut self,
         mut inst: Instruction,
         _state: &GlobalState,
+        _analyses: &GlobalAnalyses,
         changes: &AtomicCounter,
     ) -> Vec<Instruction> {
         match &mut inst.operation {
@@ -132,6 +135,7 @@ impl InstructionVisitor for ConstEval {
         &mut self,
         mut inst: Instruction,
         _state: &GlobalState,
+        _analyses: &GlobalAnalyses,
         changes: &AtomicCounter,
     ) -> Vec<Instruction> {
         if let Some(const_eval) = try_const_eval(&mut inst) {

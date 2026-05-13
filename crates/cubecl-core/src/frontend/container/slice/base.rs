@@ -84,19 +84,19 @@ impl<E: Scalar, N: Size> SliceExpand<Vector<E, N>> {
 impl<E: Scalar, N: Size> SliceExpand<Vector<E, N>> {
     fn with_vector_size_inner<N2: Size>(&self, scope: &Scope) -> SliceExpand<Vector<E, N2>> {
         let vector_size = N2::__expand_value(scope);
-        let ptr = self.__extract_list(scope);
-        let item = ptr.value_type();
+        let list = self.__extract_list(scope);
+        let item = list.value_type();
 
         let length = self.__extract_length(scope);
         let offset = self.__extract_offset(scope);
 
-        let current = ptr.ty.vector_size();
+        let current = list.ty.vector_size();
 
         if vector_size == item.vector_size() {
             return self.expand.into();
         }
 
-        let mut new_ptr = ptr;
+        let mut new_ptr = list;
         new_ptr.ty = new_ptr.ty.with_vector_size(vector_size);
 
         if current < vector_size {
