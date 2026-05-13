@@ -1,5 +1,5 @@
+use alloc::boxed::Box;
 use core::ops::{Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
-use std::boxed::Box;
 
 use cubecl_ir::{Branch, RangeLoop, Variable};
 use num_traits::NumCast;

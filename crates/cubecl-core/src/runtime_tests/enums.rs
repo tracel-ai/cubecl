@@ -1,5 +1,5 @@
+use alloc::boxed::Box;
 use core::marker::PhantomData;
-use std::boxed::Box;
 
 use crate::{self as cubecl, IntoRuntime, as_bytes};
 use cubecl::prelude::*;
