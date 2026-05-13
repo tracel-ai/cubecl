@@ -8,7 +8,7 @@ use alloc::{boxed::Box, vec::Vec};
 use core::marker::PhantomData;
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
 use cubecl_ir::{ManagedVariable, VectorSize};
-use cubecl_runtime::runtime::Runtime;
+use cubecl_runtime::{runtime::Runtime, client::ComputeClient};
 use half::{bf16, f16};
 use variadics_please::{all_tuples, all_tuples_enumerated};
 
@@ -247,6 +247,23 @@ macro_rules! launch_tuple {
 }
 
 all_tuples!(launch_tuple, 2, 12, T, t);
+
+/// Defines how a struct (typically a Handle) can be transformed into an argument for
+/// launching new kernels.
+pub trait AsArgument<R: Runtime> {
+    type Argument: LaunchArg;
+    fn as_arg(&self) -> <Self::Argument as LaunchArg>::RuntimeArg<R>;
+}
+
+/// Defines how a struct can be transformed into a Handle struct, i.e. a new object that
+/// contains all handles of its fields. This trait glues basic Rust types (defined under
+/// `BasicType`) and their Handles (defined under `Handle`) together, allowing to
+/// automate the creationg of launch argument for new kernels.
+pub trait AsHandle<R: Runtime> {
+    type Handle: AsArgument<R>;
+    type BasicType: AsHandle<R>;
+    fn as_handle(&self, client: &ComputeClient<R>) -> Self::Handle;
+}
 
 /// Expand type of a native GPU type, i.e. scalar primitives, arrays, shared memory.
 #[derive(new)]

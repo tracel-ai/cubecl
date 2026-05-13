@@ -9,7 +9,7 @@ use crate::{
     unexpanded,
 };
 use crate::{
-    frontend::{CubePrimitive, CubeType},
+    frontend::{CubePrimitive, CubeType, AsArgument, AsHandle},
     prelude::InputScalar,
 };
 use crate::{
@@ -136,6 +136,21 @@ impl<T: ScalarArgSettings> LaunchArg for T {
 
     fn expand(_: &(), builder: &mut KernelBuilder) -> NativeExpand<Self> {
         T::expand_scalar(builder)
+    }
+}
+
+impl<R: Runtime, T: ScalarArgSettings> AsArgument<R> for T {
+    type Argument = T;
+    fn as_arg(&self) -> T {
+        *self
+    }
+}
+
+impl<R: Runtime, T: ScalarArgSettings> AsHandle<R> for T {
+    type Handle = T;
+    type BasicType = T;
+    fn as_handle(&self, _client: &cubecl_runtime::client::ComputeClient<R>) -> T {
+        *self
     }
 }
 

@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
-use quote::quote;
-use syn::{Ident, Type, Visibility, WhereClause};
+use quote::{format_ident, quote};
+use syn::{parse_quote, Ident, Type, Visibility, WhereClause};
 
 use crate::{
     generate::bounded_where_clause,
@@ -107,6 +107,78 @@ impl CubeTypeStruct {
                     Self {
                         _phantom_runtime: core::marker::PhantomData,
                         #(#fields),*
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn as_argument(&self) -> proc_macro2::TokenStream {
+        let as_arg_trait = prelude_type("AsArgument");
+        let name = &self.ident;
+        let name_launch = &self.name_launch;
+        let name_handle = format_ident!("{name}Handle");
+        let (_, generics_use, _) = self.generics.split_for_impl();
+        let mut expanded_generics = self.generics.clone();
+        let runtime = prelude_type("Runtime");
+        expanded_generics.params.push(parse_quote!(R: #runtime));
+        let (expanded_generics_impl, expanded_generics_use, expanded_where_clause) = expanded_generics.split_for_impl();
+        let field_names = self.fields.iter().map(TypeField::split).map(|(_, ident, _, _)| {
+            quote!(#ident)
+        });
+        let field_types = self.fields.iter().map(TypeField::split).map(|(_, _, ty, _)| {
+            quote!(#ty)
+        });
+        let field_names2 = field_names.clone();
+        let field_types2 = field_types.clone();
+        
+        quote! {
+            pub struct #name_handle #expanded_generics_impl #expanded_where_clause {
+                #( #field_names: <#field_types as cubecl::frontend::AsHandle<R>>::Handle, )*
+                _phantom_runtime: std::marker::PhantomData<R>,
+            }
+
+            impl #expanded_generics_impl #as_arg_trait<R> for #name_handle #expanded_generics_use #expanded_where_clause {
+                type Argument = #name #generics_use;
+                fn as_arg(&self) -> #name_launch #expanded_generics_use {
+                    #name_launch::#expanded_generics_use {
+                        #( #field_names2: <<#field_types2 as cubecl::frontend::AsHandle<R>>::Handle as cubecl::frontend::AsArgument<R>>::as_arg(&self.#field_names2), )*
+                        _phantom_runtime: std::marker::PhantomData,
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn as_handle(&self) -> proc_macro2::TokenStream {
+        let as_handle_trait = prelude_type("AsHandle");
+        let name = &self.ident;
+        let name_handle = format_ident!("{name}Handle");
+        let name_basic = format_ident!("{name}Basic");
+        let mut expanded_generics = self.generics.clone();
+        let runtime = prelude_type("Runtime");
+        expanded_generics.params.push(parse_quote!(R: #runtime));
+        let (expanded_generics_impl, expanded_generics_use, expanded_where_clause) = expanded_generics.split_for_impl();
+        
+        let field_names = self.fields.iter().map(TypeField::split).map(|(_, ident, _, _)| {
+            quote!(#ident)
+        });
+        let field_types = self.fields.iter().map(TypeField::split).map(|(_, _, ty, _)| {
+            quote!(#ty)
+        });
+        let field_names2 = field_names.clone();
+        quote! {
+            pub struct #name_basic #expanded_generics_impl #expanded_where_clause {
+                #( #field_names: <#field_types as cubecl::frontend::AsHandle<R>>::BasicType, )*
+            }
+
+            impl #expanded_generics_impl #as_handle_trait<R> for #name_basic #expanded_generics_use #expanded_where_clause {
+                type Handle = #name_handle #expanded_generics_use;
+                type BasicType = #name_basic #expanded_generics_use;
+                fn as_handle(&self, client: &cubecl_runtime::client::ComputeClient<R>) -> Self::Handle {
+                    Self::Handle {
+                        #( #field_names2: self.#field_names2.as_handle(client), )*
+                        _phantom_runtime: std::marker::PhantomData,
                     }
                 }
             }
