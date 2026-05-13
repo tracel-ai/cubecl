@@ -560,3 +560,50 @@ pub fn strip_ref(ty: Type) -> Type {
         ty => ty,
     }
 }
+
+pub fn anon_lifetime_to_static(mut ty: Type) -> Type {
+    fn map_ty(ty: &mut Type) {
+        match ty {
+            Type::Array(type_array) => map_ty(&mut type_array.elem),
+            Type::Group(type_group) => map_ty(&mut type_group.elem),
+            Type::Paren(type_paren) => map_ty(&mut type_paren.elem),
+            Type::Path(type_path) => map_path(&mut type_path.path),
+            Type::Ptr(type_ptr) => map_ty(&mut type_ptr.elem),
+            Type::Reference(reference)
+                if reference.lifetime.as_ref().is_none_or(|l| l.ident == "_") =>
+            {
+                reference.lifetime = Some(parse_quote!('static));
+            }
+            Type::Slice(type_slice) => map_ty(&mut type_slice.elem),
+            Type::Tuple(type_tuple) => {
+                for ty in type_tuple.elems.iter_mut() {
+                    map_ty(ty);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn map_path(path: &mut Path) {
+        for arg in path.segments.iter_mut().map(|it| &mut it.arguments) {
+            if let syn::PathArguments::AngleBracketed(args) = arg {
+                for arg in args.args.iter_mut() {
+                    map_arg(arg)
+                }
+            }
+        }
+    }
+
+    fn map_arg(arg: &mut GenericArgument) {
+        match arg {
+            GenericArgument::Lifetime(lifetime) if lifetime.ident == "_" => {
+                *lifetime = parse_quote!('static);
+            }
+            GenericArgument::Type(ty) => map_ty(ty),
+            _ => {}
+        }
+    }
+
+    map_ty(&mut ty);
+    ty
+}

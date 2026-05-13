@@ -7,7 +7,10 @@ use quote::{format_ident, quote, quote_spanned};
 use syn::{Ident, TypeParamBound, parse_quote};
 
 use crate::{
-    parse::kernel::{DefinedGeneric, KernelBody, KernelFn, Launch, map_type_normalized, strip_ref},
+    parse::kernel::{
+        DefinedGeneric, KernelBody, KernelFn, Launch, anon_lifetime_to_static, map_type_normalized,
+        strip_ref,
+    },
     paths::{frontend_type, prelude_type},
 };
 
@@ -123,6 +126,7 @@ impl Launch {
 
         self.runtime_params().for_each(|input| {
             let ty = strip_ref(input.ty.clone());
+            let ty = anon_lifetime_to_static(ty);
             let name = &input.name;
 
             tokens.push(quote! {
@@ -141,6 +145,7 @@ impl Launch {
 
         self.runtime_params().enumerate().for_each(|(i, input)| {
             let ty = strip_ref(input.ty.clone());
+            let ty = anon_lifetime_to_static(ty);
             let ident = &input.name;
             let var = Ident::new(format!("comp_arg_{i}").as_str(), ident.span());
 
@@ -165,6 +170,7 @@ impl Launch {
         let expand_fn = |ident, ty| {
             let ty = self.func.analysis.process_ty(&ty);
             let ty = strip_ref(ty);
+            let ty = anon_lifetime_to_static(ty);
 
             quote! {
                 let mut #ident = <#ty as #launch_arg>::expand(&self.#ident.dynamic_cast(), &mut builder);

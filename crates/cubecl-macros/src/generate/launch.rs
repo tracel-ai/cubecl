@@ -5,7 +5,7 @@ use syn::{GenericParam, Generics, Ident, parse_quote};
 
 use crate::{
     parse::{
-        kernel::{AddressType, GenericArg, Launch, strip_ref},
+        kernel::{AddressType, GenericArg, Launch, anon_lifetime_to_static, strip_ref},
         signature::KernelParam,
     },
     paths::{core_type, prelude_type},
@@ -255,6 +255,7 @@ impl Launch {
         let runtime_arg = core_type("RuntimeArg");
         for arg in args.iter_mut().filter(|it| !it.is_const) {
             let ty = strip_ref(arg.ty.clone());
+            let ty = anon_lifetime_to_static(ty);
             arg.normalized_ty = parse_quote![#runtime_arg<#ty, __R>];
             arg.mutability = None;
         }

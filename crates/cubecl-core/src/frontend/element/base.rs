@@ -447,7 +447,7 @@ pub trait LaunchArg: CubeType + 'static {
 
 macro_rules! impl_launch_arg_ref {
     ($ty: ty) => {
-        impl<T: LaunchArg + 'static> LaunchArg for $ty {
+        impl<T: LaunchArg + ?Sized + 'static> LaunchArg for $ty {
             type RuntimeArg<R: Runtime> = T::RuntimeArg<R>;
             type CompilationArg = T::CompilationArg;
 
