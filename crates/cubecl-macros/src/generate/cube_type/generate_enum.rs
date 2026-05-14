@@ -443,7 +443,7 @@ impl CubeTypeEnum {
         );
 
         quote! {
-            #vis enum #name #generics {
+            #vis enum #name #generics #where_clause {
                 #(
                     #variants
                 ),*

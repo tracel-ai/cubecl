@@ -264,15 +264,15 @@ pub fn test_array_float_int<R: Runtime, T: Scalar + CubeElement>(
 }
 
 #[derive(CubeLaunch, CubeType)]
-pub enum SimpleEnum<T: LaunchArg> {
+pub enum SimpleEnum<T: CubeType> {
     Variant(T),
 }
 
 #[cube(launch)]
-fn kernel_tuple_enum(first: SimpleEnum<Box<[u32]>>, second: SimpleEnum<Box<[u32]>>) {
+fn kernel_tuple_enum(first: SimpleEnum<&mut [u32]>, second: SimpleEnum<&[u32]>) {
     if UNIT_POS == 0 {
         match (first, second) {
-            (SimpleEnum::Variant(mut x), SimpleEnum::Variant(y)) => {
+            (SimpleEnum::Variant(x), SimpleEnum::Variant(y)) => {
                 x[0] = y[0];
             }
         }
@@ -287,10 +287,10 @@ pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R>) {
         client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        SimpleEnumArgs::<Box<[u32]>, R>::Variant(unsafe {
+        SimpleEnumArgs::<&mut [u32], R>::Variant(unsafe {
             BufferArg::from_raw_parts(first.clone(), 1)
         }),
-        SimpleEnumArgs::<Box<[u32]>, R>::Variant(unsafe { BufferArg::from_raw_parts(second, 1) }),
+        SimpleEnumArgs::<&[u32], R>::Variant(unsafe { BufferArg::from_raw_parts(second, 1) }),
     );
 
     let bytes = client.read_one_unchecked(first);

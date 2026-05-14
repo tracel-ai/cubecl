@@ -159,8 +159,9 @@ impl CubeTypeStruct {
         let name_debug = &self.ident;
         let fields = self.fields.iter().map(TypeField::compilation_arg_field);
         let generics = &self.generics;
-        let (type_generics_names, impl_generics, where_generics) = self.generics.split_for_impl();
+        let (type_generics_names, impl_generics, _) = self.generics.split_for_impl();
         let vis = &self.vis;
+        let where_clause = self.launch_arg_where();
 
         fn generate<'a, F: Fn(&Ident) -> TokenStream>(
             fields: impl Iterator<Item = &'a TypeField>,
@@ -183,11 +184,11 @@ impl CubeTypeStruct {
         );
 
         quote! {
-            #vis struct #name #generics {
+            #vis struct #name #generics #where_clause {
                 #(#fields),*
             }
 
-            impl #type_generics_names Clone for #name #impl_generics #where_generics {
+            impl #type_generics_names Clone for #name #impl_generics #where_clause {
                 fn clone(&self) -> Self {
                     Self {
                         #(#clone,)*
@@ -195,26 +196,26 @@ impl CubeTypeStruct {
                 }
             }
 
-            impl #type_generics_names core::hash::Hash for #name #impl_generics #where_generics {
+            impl #type_generics_names core::hash::Hash for #name #impl_generics #where_clause {
                 fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
                     #(#hash;)*
                 }
             }
 
-            impl #type_generics_names core::cmp::PartialEq for #name #impl_generics #where_generics {
+            impl #type_generics_names core::cmp::PartialEq for #name #impl_generics #where_clause {
                 fn eq(&self, other: &Self) -> bool {
                     #(#partial_eq &&)* true
                 }
             }
 
-            impl #type_generics_names core::fmt::Debug for #name #impl_generics #where_generics {
+            impl #type_generics_names core::fmt::Debug for #name #impl_generics #where_clause {
                 fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                     f.debug_struct(stringify!(#name_debug))
                     #(#debug)*
                     .finish()
                 }
             }
-            impl #type_generics_names core::cmp::Eq for #name #impl_generics #where_generics { }
+            impl #type_generics_names core::cmp::Eq for #name #impl_generics #where_clause { }
         }
     }
 

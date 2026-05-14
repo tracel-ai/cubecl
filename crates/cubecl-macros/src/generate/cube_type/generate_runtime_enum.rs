@@ -273,7 +273,7 @@ impl CubeTypeEnum {
         );
 
         quote! {
-            #vis enum #name #generics {
+            #vis enum #name #generics #where_clause {
                 Comptime {
                     discriminant: i32,
                     value: <#value_ty as #launch_arg>::CompilationArg
