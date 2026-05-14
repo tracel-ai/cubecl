@@ -447,6 +447,8 @@ pub trait DialectInstructions<D: Dialect> {
         match val.item() {
             // vec4 is automatically supported by the new 128-bit template version
             Item::Vector(inner, 2) if matches!(inner.elem(), Elem::F32) => {
+                let cmp = cmp.ensure_lvalue(f)?;
+                let val = val.ensure_lvalue(f)?;
                 let u64 = Item::Scalar(Elem::<D>::U64);
                 let out_tmp = Variable::tmp(u64);
                 writeln!(
@@ -460,6 +462,8 @@ pub trait DialectInstructions<D: Dialect> {
                 writeln!(f, "{out} = reinterpret_cast<{out_item}&>({out_tmp});")
             }
             Item::Vector(inner, 2) if matches!(inner.elem(), Elem::F16 | Elem::BF16) => {
+                let cmp = cmp.ensure_lvalue(f)?;
+                let val = val.ensure_lvalue(f)?;
                 let u32 = Item::Scalar(Elem::<D>::U32);
                 let out_tmp = Variable::tmp(u32);
                 writeln!(
@@ -556,6 +560,7 @@ pub trait DialectInstructions<D: Dialect> {
         match rhs.item() {
             // vec4 is automatically supported by the new 128-bit template version
             Item::Vector(inner, 2) if matches!(inner.elem(), Elem::F32) => {
+                let rhs = rhs.ensure_lvalue(f)?;
                 let u64 = Item::Scalar(Elem::<D>::U64);
                 let out_tmp = Variable::tmp(u64);
                 writeln!(
@@ -568,6 +573,7 @@ pub trait DialectInstructions<D: Dialect> {
                 writeln!(f, "{out} = reinterpret_cast<{out_item}&>({out_tmp});")
             }
             Item::Vector(inner, 2) if matches!(inner.elem(), Elem::F16 | Elem::BF16) => {
+                let rhs = rhs.ensure_lvalue(f)?;
                 let u32 = Item::Scalar(Elem::<D>::U32);
                 let out_tmp = Variable::tmp(u32);
                 writeln!(

@@ -62,6 +62,12 @@ impl Allocator {
         self.add_local_mut(ty)
     }
 
+    /// Create a new mutable local variable of type specified by `item`.
+    pub fn create_local_restricted(&self, ty: Type) -> Variable {
+        let id = self.new_local_index();
+        Variable::new(VariableKind::LocalMut { id }, ty)
+    }
+
     /// Create a matrix variable
     pub fn create_matrix(&self, matrix: Matrix) -> Variable {
         let id = self.new_local_index();

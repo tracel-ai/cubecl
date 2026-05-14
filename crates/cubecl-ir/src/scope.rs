@@ -198,7 +198,7 @@ impl Scope {
     /// Create a new restricted variable. The variable is
     /// Useful for _for loops_ and other algorithms that require the control over initialization.
     pub fn create_local_restricted(&self, ty: Type) -> Variable {
-        self.state().allocator.create_local_mut(ty)
+        self.state().allocator.create_local_restricted(ty)
     }
 
     /// Create a new immutable variable.

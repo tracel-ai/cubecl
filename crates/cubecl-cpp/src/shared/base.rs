@@ -896,7 +896,9 @@ impl<D: Dialect> CppCompiler<D> {
                 scales_b: self.compile_variable(scales_b),
                 scales_factor: scales_factor as u32,
             },
-            gpu::CoopMma::ExecuteElementwise { .. } => todo!(),
+            gpu::CoopMma::ExecuteElementwise { .. } => {
+                panic!("Elementwise only supported in Vulkan")
+            }
             gpu::CoopMma::Store {
                 mat,
                 stride,

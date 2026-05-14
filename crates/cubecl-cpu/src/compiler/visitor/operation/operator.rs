@@ -52,7 +52,6 @@ impl<'a> Visitor<'a> {
                 };
                 self.block.append_operation(operation);
             }
-            // memref.copy is missing from the dialect bindings, so use load/store for now
             Memory::CopyMemory(op) => {
                 assert_eq!(op.len, 1, "Bulk copy not supported on CPU");
                 let source = self.get_variable(op.source);

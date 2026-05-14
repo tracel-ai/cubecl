@@ -71,6 +71,7 @@ impl<'a> Module<'a> {
         pass_manager.add_pass(pass::conversion::create_math_to_libm());
         pass_manager.add_pass(pass::conversion::create_scf_to_control_flow());
 
+        // Run index/math/vector/arith lowering inside func scope before cf-to-llvm.
         let func_passes = pass_manager.nested_under("func.func");
         func_passes.add_pass(pass::memref::create_expand_strided_metadata_pass());
         func_passes.add_pass(pass::arith::create_arith_emulate_unsupported_floats());
@@ -84,7 +85,6 @@ impl<'a> Module<'a> {
         // into cf-to-llvm (which would fail verification).
         pass_manager.add_pass(pass::conversion::create_reconcile_unrealized_casts());
         // scf-to-cf can introduce index-typed block arguments (e.g. loop induction variables).
-        // Run index/math/vector/arith lowering inside func scope before cf-to-llvm.
         pass_manager.add_pass(pass::conversion::create_control_flow_to_llvm());
         pass_manager.add_pass(pass::conversion::create_func_to_llvm());
         pass_manager.add_pass(pass::transform::create_inliner());
