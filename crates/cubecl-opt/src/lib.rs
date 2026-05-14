@@ -556,7 +556,6 @@ impl Function {
         self.split_free();
         self.analysis::<PointerSource>(state);
         self.analysis::<SharedLiveness>(state);
-        // std::println!("this: {self}");
         self.update_buffer_vis(state);
     }
 

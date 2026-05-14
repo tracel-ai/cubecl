@@ -166,23 +166,6 @@ macro_rules! const_eval {
             None
         }
     }};
-    ($lhs:expr, $rhs:expr; $op:path) => {{
-        use ConstantScalarValue::*;
-
-        let lhs = $lhs.as_const();
-        let rhs = $rhs.as_const();
-        if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
-            let rhs = rhs.cast_to(lhs.storage_type());
-            Some(match (lhs, rhs) {
-                (Int(lhs, kind), Int(rhs, _)) => ConstantScalarValue::Int($op(lhs, rhs), kind),
-                (Float(lhs, kind), Float(rhs, _)) => ConstantScalarValue::Float($op(lhs, rhs), kind),
-                (UInt(lhs), UInt(rhs)) => ConstantScalarValue::UInt($op(lhs, rhs)),
-                _ => unreachable!(),
-            })
-        } else {
-            None
-        }
-    }};
 }
 
 macro_rules! const_eval_int {
@@ -195,8 +178,25 @@ macro_rules! const_eval_int {
         if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
             let rhs = rhs.cast_to(ty);
             Some(match (lhs, rhs) {
-                (Int(lhs), Int(rhs)) => ConstantValue::Int(lhs $op rhs),
-                (UInt(lhs), UInt(rhs)) => ConstantValue::UInt(lhs $op rhs),
+                (Int(lhs), Int(rhs)) => Int(lhs $op rhs),
+                (UInt(lhs), UInt(rhs)) => UInt(lhs $op rhs),
+                _ => unreachable!(),
+            })
+        } else {
+            None
+        }
+    }};
+    ($lhs:expr, $rhs:expr; $op:path) => {{
+        use ConstantValue::*;
+
+        let ty = $lhs.ty;
+        let lhs = $lhs.as_const();
+        let rhs = $rhs.as_const();
+        if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
+            let rhs = rhs.cast_to(ty);
+            Some(match (lhs, rhs) {
+                (Int(lhs), Int(rhs)) => Int($op(lhs, rhs)),
+                (UInt(lhs), UInt(rhs)) => UInt($op(lhs, rhs)),
                 _ => unreachable!(),
             })
         } else {
@@ -296,11 +296,14 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
             let rhs = op.rhs.as_const();
             if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
                 let rhs = rhs.cast_to(ty);
-                // Saturating ops only support 32-bit
-                // NOTE: Change this if that's ever not the case!
-                Some(match (lhs, rhs) {
-                    (Int(lhs), Int(rhs)) => Int((lhs as i32).saturating_add(rhs as i32) as i64),
-                    (UInt(lhs), UInt(rhs)) => UInt((lhs as u32).saturating_add(rhs as u32) as u64),
+                let width = ty.size();
+                Some(match (lhs, rhs, width) {
+                    (Int(lhs), Int(rhs), 4) => Int((lhs as i32).saturating_add(rhs as i32) as i64),
+                    (Int(lhs), Int(rhs), 8) => Int(lhs.saturating_add(rhs)),
+                    (UInt(lhs), UInt(rhs), 4) => {
+                        UInt((lhs as u32).saturating_add(rhs as u32) as u64)
+                    }
+                    (UInt(lhs), UInt(rhs), 8) => UInt(lhs.saturating_add(rhs)),
                     _ => unreachable!(),
                 })
             } else {
@@ -315,11 +318,14 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
             let rhs = op.rhs.as_const();
             if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
                 let rhs = rhs.cast_to(ty);
-                // Saturating ops only support 32-bit
-                // NOTE: Change this if that's ever not the case!
-                Some(match (lhs, rhs) {
-                    (Int(lhs), Int(rhs)) => Int((lhs as i32).saturating_sub(rhs as i32) as i64),
-                    (UInt(lhs), UInt(rhs)) => UInt((lhs as u32).saturating_sub(rhs as u32) as u64),
+                let width = ty.size();
+                Some(match (lhs, rhs, width) {
+                    (Int(lhs), Int(rhs), 4) => Int((lhs as i32).saturating_sub(rhs as i32) as i64),
+                    (Int(lhs), Int(rhs), 8) => Int(lhs.saturating_sub(rhs)),
+                    (UInt(lhs), UInt(rhs), 4) => {
+                        UInt((lhs as u32).saturating_sub(rhs as u32) as u64)
+                    }
+                    (UInt(lhs), UInt(rhs), 8) => UInt(lhs.saturating_sub(rhs)),
                     _ => unreachable!(),
                 })
             } else {
@@ -331,7 +337,7 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
         Arithmetic::Powi(op) => {
             const_eval_float!(op.lhs, op.rhs; num_traits::Float::powf)
         }
-        Arithmetic::ModFloor(op) => const_eval!(% op.lhs, op.rhs),
+        Arithmetic::ModFloor(op) => const_eval_int!(op.lhs, op.rhs; num_integer::mod_floor),
         Arithmetic::Rem(op) => const_eval!(% op.lhs, op.rhs),
         Arithmetic::MulHi(op) => {
             use ConstantValue::*;
@@ -410,20 +416,16 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
         Arithmetic::ArcTanh(op) => const_eval_float!(op.input; num_traits::Float::atanh),
         Arithmetic::Degrees(op) => const_eval_float!(op.input; num_traits::Float::to_degrees),
         Arithmetic::Radians(op) => const_eval_float!(op.input; num_traits::Float::to_radians),
-        Arithmetic::ArcTan2(op) => {
-            use ConstantValue::*;
-            let ty = op.lhs.ty;
-            if let (Some(lhs), Some(rhs)) = (op.lhs.as_const(), op.rhs.as_const()) {
-                let rhs = rhs.cast_to(ty);
-                Some(match (lhs, rhs) {
-                    (Float(lhs), Float(rhs)) => ConstantValue::Float(lhs.atan2(rhs)),
-                    _ => unreachable!(),
-                })
-            } else {
-                None
-            }
-        }
+        Arithmetic::ArcTan2(op) => const_eval_float!(op.lhs, op.rhs; num_traits::Float::atan2),
         Arithmetic::Sqrt(op) => const_eval_float!(op.input; num_traits::Float::sqrt),
+        Arithmetic::Hypot(op) => const_eval_float!(op.lhs, op.rhs; num_traits::Float::hypot),
+        Arithmetic::Rhypot(op) => {
+            let hypot = const_eval_float!(op.lhs, op.rhs; num_traits::Float::hypot)?;
+            let ConstantValue::Float(val) = hypot else {
+                unreachable!()
+            };
+            Some(ConstantValue::Float(1.0 / val))
+        }
         Arithmetic::InverseSqrt(op) => {
             let sqrt = const_eval_float!(op.input; num_traits::Float::sqrt)?;
             let ConstantValue::Float(val) = sqrt else {
@@ -480,8 +482,6 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
             })
         }
         Arithmetic::Erf(_)
-        | Arithmetic::Hypot(_)
-        | Arithmetic::Rhypot(_)
         | Arithmetic::Magnitude(_)
         | Arithmetic::Normalize(_)
         | Arithmetic::VectorSum(_) => None,

@@ -74,13 +74,6 @@ impl InstructionVisitor for DisaggregateVisitor {
                     }
                 }
                 self.substitutes.insert(instruction.out().kind, fields);
-                // std::println!(
-                //     "substitutes: {{{}}}",
-                //     substitutes
-                //         .iter()
-                //         .map(|(k, v)| format!("{k}: [{}]", v.iter().join(", ")))
-                //         .join(" | ")
-                // );
             }
             Operation::ExtractAggregateField(operands) => {
                 let substitutes = self.substitutes.get(&operands.aggregate.kind);
@@ -88,13 +81,6 @@ impl InstructionVisitor for DisaggregateVisitor {
                     substitutes.expect("Should have aggregate registered before any extraction");
                 let substitute = substitutes[operands.field];
                 self.extracted.insert(instruction.out().kind, substitute);
-                // std::println!(
-                //     "extracted: {{{}}}",
-                //     extracted
-                //         .iter()
-                //         .map(|(k, v)| format!("{k}: {v}"))
-                //         .join(" | ")
-                // );
             }
             // Fix validate prints
             Operation::NonSemantic(NonSemantic::Print { format_string, .. }) => {
