@@ -246,7 +246,7 @@ impl GenericAnalysis {
                 let marker_ty = format_ident!("_{ident}");
 
                 match name.as_str() {
-                    "Float" | "Int" | "Numeric" | "CubePrimitive" => {
+                    "Float" | "Int" | "Numeric" | "CubePrimitive" | "Complex" => {
                         if explicit_defines {
                             map.insert(
                                 ident.clone(),

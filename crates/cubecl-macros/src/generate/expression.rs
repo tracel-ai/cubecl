@@ -842,12 +842,7 @@ impl Block {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
         let inner: Vec<_> = self.inner.iter().map(|it| it.to_tokens(context)).collect();
         let ret = if let Some(ret) = self.ret.as_ref() {
-            let as_const = ret.as_const(context);
-            if let Some(as_const) = as_const {
-                quote![#as_const]
-            } else {
-                ret.to_tokens(context)
-            }
+            ret.to_tokens(context)
         } else {
             quote![()]
         };

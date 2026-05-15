@@ -2,7 +2,7 @@ use core::hash::{BuildHasher, Hash, Hasher};
 
 use crate::{
     AddressType, SemanticType, StorageType, Type, TypeHash, VectorSize,
-    features::{AtomicUsage, Features, TypeUsage},
+    features::{AtomicUsage, ComplexUsage, Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;
 use enumset::EnumSet;
@@ -104,6 +104,11 @@ impl DeviceProperties {
         self.features.type_usage(ty)
     }
 
+    /// Get the complex capability families for a type.
+    pub fn complex_usage(&self, ty: StorageType) -> EnumSet<ComplexUsage> {
+        self.features.complex_usage(ty)
+    }
+
     /// Get the usages for an atomic type
     pub fn atomic_type_usage(&self, ty: Type) -> EnumSet<AtomicUsage> {
         self.features.atomic_type_usage(ty)
@@ -117,6 +122,11 @@ impl DeviceProperties {
     /// Whether the address type is supported in any way
     pub fn supports_address(&self, ty: impl Into<AddressType>) -> bool {
         self.features.supports_address(ty)
+    }
+
+    /// Whether a complex storage type supports the requested capability family.
+    pub fn supports_complex_usage(&self, ty: impl Into<StorageType>, usage: ComplexUsage) -> bool {
+        self.features.supports_complex_usage(ty, usage)
     }
 
     /// Register an address type to the features
@@ -136,6 +146,15 @@ impl DeviceProperties {
         uses: impl Into<EnumSet<TypeUsage>>,
     ) {
         *self.features.types.storage.entry(ty.into()).or_default() |= uses.into();
+    }
+
+    /// Register a complex capability family for a storage type.
+    pub fn register_complex_usage(
+        &mut self,
+        ty: impl Into<StorageType>,
+        uses: impl Into<EnumSet<ComplexUsage>>,
+    ) {
+        *self.features.types.complex.entry(ty.into()).or_default() |= uses.into();
     }
 
     /// Register a semantic type to the features

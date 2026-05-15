@@ -534,6 +534,24 @@ impl ServerCommunication for CudaServer {
 }
 
 impl CudaServer {
+    /// Returns the raw `CUstream` handle for the given stream ID.
+    ///
+    /// This allows external FFI libraries (cuBLAS, cuSOLVER, cuTENSOR) to
+    /// execute on the same CUDA stream as `CubeCL` kernels, eliminating the
+    /// need for inter-stream event synchronization.
+    ///
+    /// # Safety
+    ///
+    /// The returned `CUstream` is owned by `CubeCL`'s runtime. The caller must
+    /// not destroy it or use it after the server is dropped.
+    pub fn raw_stream(
+        &mut self,
+        stream_id: StreamId,
+    ) -> Result<cudarc::driver::sys::CUstream, ServerError> {
+        let mut resolved = self.streams.resolve(stream_id, [].into_iter(), false)?;
+        Ok(resolved.current().sys)
+    }
+
     /// Create a new cuda server.
     pub(crate) fn new(
         ctx: CudaContext,

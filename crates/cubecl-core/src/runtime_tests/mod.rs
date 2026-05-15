@@ -10,6 +10,7 @@ pub mod branch;
 pub mod cluster;
 pub mod cmma;
 pub mod comparison;
+pub mod complex;
 pub mod const_match;
 pub mod constants;
 pub mod debug;

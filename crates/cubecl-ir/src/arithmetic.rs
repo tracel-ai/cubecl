@@ -23,6 +23,7 @@ pub enum Arithmetic {
     Exp(UnaryOperator),
     Log(UnaryOperator),
     Log1p(UnaryOperator),
+    Expm1(UnaryOperator),
     Cos(UnaryOperator),
     Sin(UnaryOperator),
     Tan(UnaryOperator),
@@ -64,6 +65,7 @@ pub enum Arithmetic {
     Dot(BinaryOperator),
     #[operation(commutative)]
     MulHi(BinaryOperator),
+    Conj(UnaryOperator),
     VectorSum(UnaryOperator),
 }
 
@@ -81,6 +83,7 @@ impl Display for Arithmetic {
             Arithmetic::Exp(op) => write!(f, "{}.exp()", op.input),
             Arithmetic::Log(op) => write!(f, "{}.log()", op.input),
             Arithmetic::Log1p(op) => write!(f, "{}.log_1p()", op.input),
+            Arithmetic::Expm1(op) => write!(f, "{}.exp_m1()", op.input),
             Arithmetic::Cos(op) => write!(f, "{}.cos()", op.input),
             Arithmetic::Sin(op) => write!(f, "{}.sin()", op.input),
             Arithmetic::Tan(op) => write!(f, "{}.tan()", op.input),
@@ -120,6 +123,7 @@ impl Display for Arithmetic {
             Arithmetic::Normalize(op) => write!(f, "{}.normalize()", op.input),
             Arithmetic::Dot(op) => write!(f, "{}.dot({})", op.lhs, op.rhs),
             Arithmetic::MulHi(op) => write!(f, "mul_hi({}, {})", op.lhs, op.rhs),
+            Arithmetic::Conj(op) => write!(f, "{}.conj()", op.input),
             Arithmetic::VectorSum(op) => write!(f, "{}.vector_sum()", op.input),
         }
     }

@@ -232,9 +232,12 @@ where
     }
 }
 
-impl<P: Scalar + Abs, N: Size> Abs for Vector<P, N> {}
+impl<P: Scalar + Abs, N: Size> Abs for Vector<P, N> {
+    type AbsElem = P::AbsElem;
+}
 impl<P: Scalar + Log, N: Size> Log for Vector<P, N> {}
 impl<P: Scalar + Log1p, N: Size> Log1p for Vector<P, N> {}
+impl<P: Scalar + Expm1, N: Size> Expm1 for Vector<P, N> {}
 impl<P: Scalar + Erf, N: Size> Erf for Vector<P, N> {}
 impl<P: Scalar + Exp, N: Size> Exp for Vector<P, N> {}
 impl<P: Scalar + Powf, N: Size> Powf for Vector<P, N> {}

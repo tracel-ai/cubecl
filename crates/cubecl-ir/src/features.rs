@@ -38,6 +38,8 @@ pub struct Types {
     pub address: BTreeSet<AddressType>,
     /// Types supported by this runtime, and which usages they support.
     pub storage: BTreeMap<StorageType, EnumSet<TypeUsage>>,
+    /// Complex-specific capability families supported by this runtime.
+    pub complex: BTreeMap<StorageType, EnumSet<ComplexUsage>>,
     /// Semantic constructs supported by this runtime.
     pub semantic: BTreeSet<SemanticType>,
     /// Supported vector types for atomic ops, only specific vectorizations for specific types are
@@ -76,6 +78,17 @@ pub enum TypeUsage {
     DotProduct,
     /// Whether this type can be stored in a buffer
     Buffer,
+}
+
+/// Complex capability families allowed for a complex storage type.
+#[derive(Debug, Hash, PartialOrd, Ord, EnumSetType)]
+pub enum ComplexUsage {
+    /// Core ML-centric complex functionality: arithmetic, negation, conjugation, real/imag.
+    Core,
+    /// Equality and inequality comparisons.
+    Compare,
+    /// Higher-level math functions such as exp/log/sin/cos/sqrt/tanh/powf and abs.
+    Math,
 }
 
 impl TypeUsage {
@@ -187,6 +200,15 @@ impl Features {
             .unwrap_or_else(EnumSet::empty)
     }
 
+    /// Get the complex capability families for a type.
+    pub fn complex_usage(&self, ty: StorageType) -> EnumSet<ComplexUsage> {
+        self.types
+            .complex
+            .get(&ty)
+            .cloned()
+            .unwrap_or_else(EnumSet::empty)
+    }
+
     /// Get the usages for an atomic type
     pub fn atomic_type_usage(&self, ty: Type) -> EnumSet<AtomicUsage> {
         self.types
@@ -209,5 +231,10 @@ impl Features {
     /// Whether the address type is supported in any way
     pub fn supports_address(&self, ty: impl Into<AddressType>) -> bool {
         self.types.address.contains(&ty.into())
+    }
+
+    /// Whether a complex storage type supports the requested capability family.
+    pub fn supports_complex_usage(&self, ty: impl Into<StorageType>, usage: ComplexUsage) -> bool {
+        self.complex_usage(ty.into()).contains(usage)
     }
 }

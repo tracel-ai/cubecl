@@ -41,6 +41,23 @@ expected: {:?}",
     }
 }
 
+fn ordered_f32_bits(value: f32) -> i32 {
+    let bits = value.to_bits() as i32;
+    if bits < 0 { i32::MIN - bits } else { bits }
+}
+
+fn assert_f32_ulp_le(actual: f32, expected: f32, max_ulp: u32) {
+    if actual == expected {
+        return;
+    }
+
+    let diff = ordered_f32_bits(actual).abs_diff(ordered_f32_bits(expected));
+    assert!(
+        diff <= max_ulp,
+        "Values differ by more than {max_ulp} ulp: actual={actual}, expected={expected}, ulp_diff={diff}"
+    );
+}
+
 macro_rules! test_unary_impl {
     (
         $test_name:ident,
@@ -787,6 +804,51 @@ test_unary_impl_fixed!(
     ]
 );
 
+pub fn test_expm1_f32<R: Runtime>(client: ComputeClient<R>) {
+    #[cube(launch_unchecked)]
+    fn test_function<In: Size, Out: Size>(
+        input: &Array<Vector<f32, In>>,
+        output: &mut Array<Vector<f32, Out>>,
+    ) {
+        if ABSOLUTE_POS < input.len() {
+            output[ABSOLUTE_POS] = Vector::cast_from(input[ABSOLUTE_POS].exp_m1());
+        }
+    }
+
+    let input = &[0.0f32, 1.0e-7, 10.0, -1.0e-7];
+    let expected = [
+        0.0f32.exp_m1(),
+        1.0e-7f32.exp_m1(),
+        10.0f32.exp_m1(),
+        (-1.0e-7f32).exp_m1(),
+    ];
+
+    for &(input_vectorization, out_vectorization) in &[(1usize, 1usize), (2, 2), (4, 4)] {
+        let output_handle = client.empty(input.len() * core::mem::size_of::<f32>());
+        let input_handle = client.create_from_slice(f32::as_bytes(input));
+
+        unsafe {
+            test_function::launch_unchecked::<R>(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d((input.len() / input_vectorization) as u32),
+                input_vectorization,
+                out_vectorization,
+                ArrayArg::from_raw_parts(input_handle, input.len()),
+                ArrayArg::from_raw_parts(output_handle.clone(), expected.len()),
+            )
+        };
+
+        let actual = client.read_one_unchecked(output_handle);
+        let actual = f32::from_bytes(&actual);
+
+        assert_eq!(actual[0], 0.0);
+        assert_f32_ulp_le(actual[1], expected[1], 2);
+        assert_f32_ulp_le(actual[2], expected[2], 2);
+        assert_f32_ulp_le(actual[3], expected[3], 2);
+    }
+}
+
 test_unary_impl_int_fixed!(test_count_ones, I, u32, Vector::count_ones, [
     {
         input_vectorization: 1,
@@ -934,6 +996,12 @@ macro_rules! testgen_unary {
             add_test!(test_trunc);
             add_test!(test_is_nan);
             add_test!(test_is_inf);
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_expm1_f32() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::unary::test_expm1_f32::<TestRuntime>(client);
+            }
         }
     };
 }

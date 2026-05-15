@@ -256,6 +256,11 @@ impl<'a> Visitor<'a> {
                             IntegerAttribute::new(integer_type, bool as i64).into();
                         (integer_type, integer_attribute)
                     }
+                    ConstantValue::Complex(_, _) => {
+                        unreachable!(
+                            "Complex constants are rejected by validation before reaching the CPU backend"
+                        )
+                    }
                 };
                 let value = self.append_operation_with_result(arith::constant(
                     self.context,

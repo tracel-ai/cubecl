@@ -549,7 +549,9 @@ impl_binary_func!(
     flex32,
     tf32,
     f32,
-    f64
+    f64,
+    num_complex::Complex<f32>,
+    num_complex::Complex<f64>
 );
 
 impl_binary_func!(

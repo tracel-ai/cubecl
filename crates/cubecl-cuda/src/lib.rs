@@ -9,6 +9,17 @@ mod runtime;
 pub use device::*;
 pub use runtime::*;
 
+/// Re-exports for FFI interop with external CUDA libraries.
+///
+/// These types allow extracting raw CUDA pointers and streams from `CubeCL`'s
+/// managed resources, enabling zero-copy interop with cuBLAS, cuSOLVER,
+/// cuTENSOR, and other CUDA FFI libraries.
+pub mod ffi_interop {
+    pub use crate::compute::server::CudaServer;
+    pub use crate::compute::storage::gpu::GpuResource;
+    pub use crate::compute::stream::Stream;
+}
+
 #[cfg(feature = "ptx-wmma")]
 pub(crate) type WmmaCompiler = cubecl_cpp::cuda::mma::PtxWmmaCompiler;
 
@@ -77,4 +88,8 @@ mod tests {
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, bf16, f32, u32]);
     cubecl_std::testgen_quantized_view!(f16);
+    cubecl_core::testgen_complex_core!();
+    cubecl_core::testgen_complex_compare!();
+    cubecl_core::testgen_complex_math!();
+    cubecl_core::testgen_complex_validation!();
 }

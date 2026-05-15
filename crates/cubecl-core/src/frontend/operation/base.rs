@@ -7,6 +7,7 @@ use cubecl_macros::cube;
 
 use crate::{
     self as cubecl,
+    frontend::{validate_complex_assign_operation, validate_complex_operation},
     prelude::{CubeIndex, CubeType, Int, NativeExpand, eq, rem},
 };
 
@@ -33,7 +34,8 @@ where
     let output = scope.create_local(item);
     let out = *output;
 
-    let op = func(BinaryOperator { lhs, rhs });
+    let op = func(BinaryOperator { lhs, rhs }).into();
+    validate_complex_operation(scope, &op);
 
     scope.register(Instruction::new(op, out));
 
@@ -130,7 +132,9 @@ where
     let op = func(BinaryOperator {
         lhs: lhs_var,
         rhs: rhs_var,
-    });
+    })
+    .into();
+    validate_complex_operation(scope, &op);
 
     scope.register(Instruction::new(op, out_var));
 
@@ -159,7 +163,8 @@ where
     let out = scope.create_local(out_item);
     let out_var = *out;
 
-    let op = func(BinaryOperator { lhs, rhs });
+    let op = func(BinaryOperator { lhs, rhs }).into();
+    validate_complex_operation(scope, &op);
 
     scope.register(Instruction::new(op, out_var));
 
@@ -182,7 +187,8 @@ where
     let lhs_var: Variable = *lhs;
     let rhs: Variable = *rhs;
 
-    let op = func(BinaryOperator { lhs: lhs_var, rhs });
+    let op = func(BinaryOperator { lhs: lhs_var, rhs }).into();
+    validate_complex_assign_operation(scope, &op);
 
     scope.register(Instruction::new(op, lhs_var));
 
@@ -200,7 +206,8 @@ where
     let out = scope.create_local(item);
     let out_var = *out;
 
-    let op = func(UnaryOperator { input });
+    let op = func(UnaryOperator { input }).into();
+    validate_complex_operation(scope, &op);
 
     scope.register(Instruction::new(op, out_var));
 
@@ -221,7 +228,8 @@ where
     let output = scope.create_local(out_item);
     let out = *output;
 
-    let op = func(UnaryOperator { input });
+    let op = func(UnaryOperator { input }).into();
+    validate_complex_operation(scope, &op);
 
     scope.register(Instruction::new(op, out));
 

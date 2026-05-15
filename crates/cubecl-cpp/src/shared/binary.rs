@@ -227,6 +227,7 @@ impl<D: Dialect> Binary<D> for Powf {
         let lhs = lhs.to_string();
         let rhs = rhs.to_string();
         match elem {
+            Elem::CF32 | Elem::CF64 => write!(f, "cubecl_powf({lhs}, {rhs})"),
             Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
                 let lhs = format!("float({lhs})");
                 let rhs = format!("float({rhs})");

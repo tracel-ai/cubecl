@@ -98,6 +98,9 @@ half = { version = "2.5", features = [
     "num-traits",
     "serde",
 ], default-features = false }
+num-complex = { version = "0.4", default-features = false, features = [
+    "bytemuck",
+] }
 num-traits = { version = "0.2.19", default-features = false, features = [
     "libm",
 ] } # libm is for no_std

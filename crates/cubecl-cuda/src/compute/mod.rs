@@ -6,7 +6,7 @@ pub(crate) mod storage;
 pub(crate) mod stream;
 pub(crate) mod sync;
 
-mod server;
+pub(crate) mod server;
 
 pub use server::*;
 
