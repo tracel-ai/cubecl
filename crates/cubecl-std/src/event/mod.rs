@@ -58,7 +58,7 @@ impl ComptimeEventBus {
     pub fn listener<L: EventListener>(&mut self, listener: L) {
         intrinsic!(|_| {
             let type_id = TypeId::of::<L::Event>();
-            let mut listeners = unsafe { self.listener_family.get().as_mut_unchecked() };
+            let mut listeners = unsafe { self.listener_family.get().as_mut().unwrap() };
 
             // The call dynamic function erases the [EventListener] type.
             //
@@ -96,7 +96,7 @@ impl ComptimeEventBus {
         intrinsic!(|scope| {
             let type_id = TypeId::of::<E>();
             let family = self.listener_family.clone();
-            let family = unsafe { family.get().as_mut_unchecked() };
+            let family = unsafe { family.get().as_mut().unwrap() };
             let listeners = match family.get_mut(&type_id) {
                 Some(val) => val,
                 None => return,
