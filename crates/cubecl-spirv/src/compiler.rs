@@ -54,7 +54,6 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub shared_liveness: Rc<SharedLiveness>,
     pub current_func: Option<Id>,
     pub current_block: Option<NodeIndex>,
-    pub visited: HashSet<(Id, NodeIndex)>,
 
     pub capabilities: HashSet<Capability>,
     pub state: CompilerState,
@@ -86,7 +85,6 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             capabilities: self.capabilities.clone(),
             state: self.state.clone(),
             debug_symbols: self.debug_symbols,
-            visited: self.visited.clone(),
             info: self.info.clone(),
             debug_info: self.debug_info.clone(),
             ext_meta_pos: self.ext_meta_pos.clone(),
@@ -121,7 +119,6 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             current_func: Default::default(),
             current_block: Default::default(),
             debug_symbols: debug_symbols_activated(),
-            visited: Default::default(),
             info: Default::default(),
             debug_info: Default::default(),
             ext_meta_pos: Default::default(),
@@ -290,8 +287,10 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             let def = self.declare_function(func);
             self.current_func = Some(*id);
 
-            let entry = func.root;
-            self.compile_block(entry);
+            let blocks = func.breadth_first_dominators();
+            for block in blocks {
+                self.compile_block(block);
+            }
             self.end_function_and_reset_lookups();
 
             self.state.extra_funcs.insert(*id, def);
@@ -310,14 +309,10 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let setup_block = self.setup(setup, debug_setup);
         self.setup_block = setup_block;
-        self.compile_block(entry);
 
-        let ret = self.opt.main.ret;
-        self.compile_block(ret);
-
-        if self.selected_block().is_some() {
-            let label = self.label(ret);
-            self.branch(label).unwrap();
+        let blocks = opt.main.breadth_first_dominators();
+        for block in blocks {
+            self.compile_block(block);
         }
 
         self.select_block(Some(setup_block)).unwrap();
@@ -386,11 +381,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 
     pub fn compile_block(&mut self, block: NodeIndex) {
-        let func_id = self.current_func.unwrap_or(0);
-        if self.visited.contains(&(func_id, block)) {
-            return;
-        }
-        self.visited.insert((func_id, block));
         self.current_block = Some(block);
 
         let label = self.label(block);

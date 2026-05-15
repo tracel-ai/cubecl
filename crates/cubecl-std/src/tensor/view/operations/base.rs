@@ -36,7 +36,7 @@ pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Vectorized {
         unexpanded!()
     }
 
-    ///.Execute a TMA load into shared memory, if the underlying storage supports it.
+    /// Execute a TMA load into shared memory, if the underlying storage supports it.
     /// Panics if it's unsupported.
     #[allow(unused)]
     fn tensor_map_load(&self, barrier: &Barrier, shared_memory: &mut [T], pos: C) {
@@ -55,7 +55,7 @@ pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Vectorized {
 }
 
 /// Type for which we can read and write values in cube functions.
-/// For an immutable version, see [List]."
+/// For an immutable version, see [List].
 #[cube(expand_base_traits = "ViewOperationsExpand<T, C>")]
 pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>: ViewOperations<T, C> {
     #[allow(unused)]
@@ -76,7 +76,7 @@ pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>: ViewOperations<T,
     }
 
     /// Execute a TMA store into global memory, if the underlying storage supports it.
-    /// Panics if it\'s unsupported.
+    /// Panics if it's unsupported.
     #[allow(unused)]
     fn tensor_map_store(&self, shared_memory: &[T], pos: C) {
         unexpanded!()

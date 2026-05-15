@@ -32,7 +32,6 @@ pub struct WgslCompiler {
     buffer_vis: Vec<Visibility>,
     local_invocation_index: bool,
     local_invocation_id: bool,
-    // TODO: possible cleanup, this bool seems to not be used
     global_invocation_id: bool,
     workgroup_id: bool,
     subgroup_size: bool,
@@ -120,13 +119,6 @@ impl WgslCompiler {
 
         let metadata = Metadata::new(num_meta as u32, num_ext);
         self.info = Info::new(&value.scalars, metadata, address_type);
-
-        // TODO: Analyze usage
-        self.buffer_vis = value
-            .buffers
-            .iter()
-            .map(|_| Visibility::ReadWrite)
-            .collect();
 
         CheckedIoVisitor::new(self.strategy, self.kernel_name.clone()).apply(&value.body);
         DisaggregateVisitor::apply(&value.body);

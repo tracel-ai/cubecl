@@ -128,7 +128,7 @@ embassy-futures = { version = "0.1.1" }                        # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
-sysinfo = "0.39.1"
+sysinfo = "0.38"
 tracel-llvm = { version = "22.1.4-3", features = ["mlir-helpers"] }
 tracel-llvm-bundler = { version = "22.1.4-3" }
 ### For development

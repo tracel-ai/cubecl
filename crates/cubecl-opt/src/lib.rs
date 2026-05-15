@@ -82,7 +82,7 @@ pub use version::PhiInstruction;
 
 pub use crate::analyses::liveness::shared::{SharedLiveness, SharedMemory};
 use crate::{
-    analyses::{liveness::Captures, pointer_source::PointerSource},
+    analyses::{dominance::Dominators, liveness::Captures, pointer_source::PointerSource},
     passes::{CopyTransform, DisaggregateArray, InlineRef},
 };
 
@@ -449,6 +449,16 @@ impl Function {
             .collect()
     }
 
+    /// Return the breadth-first list of nodes along the dominator tree.
+    /// This is useful for generating the blocks in a human-readable-ish order that follows the
+    /// Vulkan spec (dominators before dominated).
+    pub fn breadth_first_dominators(&self) -> Vec<NodeIndex> {
+        self.analysis_cache
+            .try_get::<Dominators>()
+            .expect("Dominators should be present")
+            .breadth_first_nodes()
+    }
+
     /// Reference to the [`BasicBlock`] with ID `block`
     #[track_caller]
     pub fn block(&self, block: NodeIndex) -> &BasicBlock {
@@ -546,6 +556,7 @@ impl Function {
             .collect();
 
         self.update_buffer_vis(state);
+        self.analysis::<Dominators>(state);
     }
 
     /// Run only the shared memory analysis

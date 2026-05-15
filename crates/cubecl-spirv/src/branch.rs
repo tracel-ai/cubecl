@@ -61,7 +61,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 );
                 let label = self.label(children[0]);
                 self.branch(label).unwrap();
-                self.compile_block(children[0]);
             }
         }
     }
@@ -85,11 +84,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
         self.branch_conditional(cond_id, then_label, else_label, None)
             .unwrap();
-        self.compile_block(then);
-        self.compile_block(or_else);
-        if let Some(it) = merge {
-            self.compile_block(it);
-        }
     }
 
     fn compile_switch(
@@ -118,13 +112,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
 
         self.switch(value_id, default_label, targets).unwrap();
-        self.compile_block(default);
-        for (_, block) in branches {
-            self.compile_block(block);
-        }
-        if let Some(it) = merge {
-            self.compile_block(it);
-        }
     }
 
     fn compile_loop(&mut self, body: NodeIndex, continue_target: NodeIndex, merge: NodeIndex) {
@@ -135,9 +122,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.loop_merge(merge_label, continue_label, LoopControl::NONE, vec![])
             .unwrap();
         self.branch(body_label).unwrap();
-        self.compile_block(body);
-        self.compile_block(continue_target);
-        self.compile_block(merge);
     }
 
     fn compile_loop_break(
@@ -157,8 +141,5 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .unwrap();
         self.branch_conditional(cond_id, body_label, merge_label, [])
             .unwrap();
-        self.compile_block(body);
-        self.compile_block(continue_target);
-        self.compile_block(merge);
     }
 }

@@ -125,7 +125,7 @@ You can also use enums with data in pattern matching:
 # }
 #
 #[cube(launch_unchecked)]
-pub fn kernel_enum_option(input: &[f32], output: &mut [f32], maybe: ComptimeOption<Array<f32>>) {
+pub fn kernel_enum_option(input: &[f32], output: &mut [f32], maybe: ComptimeOption<&[f32]>) {
     #[comptime]
     output[UNIT_POS] = match maybe {
         ComptimeOption::Some(val) => input[UNIT_POS] + val[UNIT_POS],

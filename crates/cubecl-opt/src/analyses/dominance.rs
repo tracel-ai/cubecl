@@ -1,3 +1,4 @@
+use alloc::{collections::VecDeque, vec::Vec};
 use core::ops::Deref;
 
 use crate::{Function, GlobalState, NodeIndex};
@@ -38,6 +39,19 @@ impl Analysis for PostDominators {
         let mut reversed = func.graph.clone();
         reversed.reverse();
         PostDominators(dominators::simple_fast(&reversed, func.ret))
+    }
+}
+
+impl Dominators {
+    pub fn breadth_first_nodes(&self) -> Vec<NodeIndex> {
+        let mut out = Vec::new();
+        let mut worklist = VecDeque::new();
+        worklist.push_back(self.root());
+        while let Some(node) = worklist.pop_front() {
+            out.push(node);
+            worklist.extend(self.immediately_dominated_by(node));
+        }
+        out
     }
 }
 
