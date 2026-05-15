@@ -160,7 +160,7 @@ impl<T: AsRefExpand + ?Sized> AsRefExpand for *mut T {
     }
 }
 
-/// Expand verison of [`AsMut`](core::convert::AsMut). The `Self` version must be implemented by
+/// Expand version of [`AsMut`](core::convert::AsMut). The `Self` version must be implemented by
 /// all [`ExpandType`](CubeType::ExpandType)s, since `CubeCL` also uses it to implement `&mut x`.
 pub trait AsMutExpand<T: ?Sized = Self> {
     fn __expand_as_mut_method(&mut self, scope: &Scope) -> &mut T {

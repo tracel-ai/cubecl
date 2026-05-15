@@ -19,7 +19,7 @@ pub enum AtomicOp {
     And(AtomicBinaryOperands),
     Or(AtomicBinaryOperands),
     Xor(AtomicBinaryOperands),
-    CompareAndSwap(CompareAndSwapOperator),
+    CompareAndSwap(CompareAndSwapOperands),
 }
 
 impl Display for AtomicOp {
@@ -47,7 +47,7 @@ impl Display for AtomicOp {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct CompareAndSwapOperator {
+pub struct CompareAndSwapOperands {
     #[args(allow_ptr, ptr_read, ptr_write)]
     pub ptr: Variable,
     pub cmp: Variable,

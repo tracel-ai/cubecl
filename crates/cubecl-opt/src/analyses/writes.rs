@@ -1,11 +1,9 @@
 use core::ops::Deref;
 
-use cubecl_ir::{Id, Memory, Operation, Operator};
+use cubecl_ir::Id;
 use hashbrown::{HashMap, HashSet};
 
-use crate::{
-    Function, GlobalState, NodeIndex, analyses::pointer_source::PointerSource, local_variable_id,
-};
+use crate::{Function, GlobalState, NodeIndex, local_variable_id};
 
 use super::Analysis;
 
@@ -24,28 +22,17 @@ impl Deref for Writes {
 }
 
 impl Writes {
-    pub fn new(opt: &mut Function, state: &GlobalState) -> Self {
-        let ptr_source = opt.analysis::<PointerSource>(state);
-        let nodes = opt.node_ids().into_iter().map(|it| (it, HashSet::new()));
+    pub fn new(func: &mut Function, state: &GlobalState) -> Self {
+        let nodes = func.node_ids().into_iter().map(|it| (it, HashSet::new()));
         let mut writes: HashMap<NodeIndex, HashSet<Id>> = nodes.collect();
-        for block in opt.node_ids() {
-            let ops = opt[block].ops.clone();
-            for inst in ops.borrow().values() {
-                if let Some(id) = inst.out.as_ref().and_then(local_variable_id) {
-                    writes.get_mut(&block).unwrap().insert(id);
-                }
-                if let Operation::Memory(Memory::Store(var)) = &inst.operation
-                    && let Some(source) = ptr_source.get(&var.ptr)
-                    && let Some(id) = local_variable_id(&source)
-                {
-                    writes.get_mut(&block).unwrap().insert(id);
-                }
-                if let Operation::Operator(Operator::InsertComponent(_)) = &inst.operation
-                    && let Some(source) = ptr_source.get(&inst.out())
-                    && let Some(id) = local_variable_id(&source)
-                {
-                    writes.get_mut(&block).unwrap().insert(id);
-                }
+        for block in func.node_ids() {
+            let ops = func[block].ops.clone();
+            for inst in ops.borrow_mut().values_mut() {
+                func.visit_instruction_write(state, inst, |_, var| {
+                    if let Some(id) = local_variable_id(var) {
+                        writes.get_mut(&block).unwrap().insert(id);
+                    }
+                });
             }
         }
         Writes { writes }
@@ -53,7 +40,7 @@ impl Writes {
 }
 
 impl Analysis for Writes {
-    fn init(opt: &mut crate::Function, state: &GlobalState) -> Self {
-        Writes::new(opt, state)
+    fn init(func: &mut crate::Function, state: &GlobalState) -> Self {
+        Writes::new(func, state)
     }
 }

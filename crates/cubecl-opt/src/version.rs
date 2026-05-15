@@ -180,8 +180,8 @@ impl Function {
         op: &mut Instruction,
         state: &mut SsaState<'_>,
     ) {
-        self.visit_operation(global_state, &mut op.operation, |opt, var| {
-            opt.version_read(var, state)
+        self.visit_operation(global_state, &mut op.operation, |func, var| {
+            func.version_read(var, state)
         });
     }
 

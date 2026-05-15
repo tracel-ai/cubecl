@@ -17,13 +17,11 @@ impl Function {
         }
     }
 
-    /// Visit an operation with a set of read and write visitors. Each visitor will be called with
-    /// each read or written to variable.
-    pub fn visit_instruction(
+    /// Visit an instruction with only a write visitor. Visits both `out` and any pointer writes.
+    pub fn visit_instruction_write(
         &mut self,
         state: &GlobalState,
         inst: &mut Instruction,
-        mut visit_read: impl FnMut(&mut Self, &mut Variable),
         mut visit_write: impl FnMut(&mut Self, &mut Variable),
     ) {
         let pointer_source = self.analysis::<PointerSource>(state);
@@ -37,13 +35,23 @@ impl Function {
         if let Operation::Operator(Operator::InsertComponent(_)) = &mut inst.operation
             && let Some(source) = pointer_source.borrow_mut().get_mut(&inst.out())
         {
-            visit_read(self, inst.out.as_mut().unwrap());
             visit_write(self, source);
         }
 
         self.visit_out(&mut inst.out, visit_write);
+    }
 
+    /// Visit an operation with a set of read and write visitors. Each visitor will be called with
+    /// each read or written to variable.
+    pub fn visit_instruction(
+        &mut self,
+        state: &GlobalState,
+        inst: &mut Instruction,
+        visit_read: impl FnMut(&mut Self, &mut Variable),
+        visit_write: impl FnMut(&mut Self, &mut Variable),
+    ) {
         self.visit_operation(state, &mut inst.operation, visit_read);
+        self.visit_instruction_write(state, inst, visit_write);
     }
 
     /// Visit an operation with a set of read and write visitors. Each visitor will be called with
@@ -63,12 +71,12 @@ impl Function {
 
         match op {
             Operation::Copy(variable) => visit_read(self, variable),
-            Operation::Memory(memory) => self.visit_memory(memory, state, visit_read),
+            Operation::Memory(memory) => self.visit_memory(memory, visit_read),
             Operation::Arithmetic(arithmetic) => self.visit_arithmetic(arithmetic, visit_read),
             Operation::Comparison(comparison) => self.visit_compare(comparison, visit_read),
             Operation::Bitwise(bitwise) => self.visit_bitwise(bitwise, visit_read),
             Operation::Operator(operator) => self.visit_operator(operator, visit_read),
-            Operation::Atomic(atomic) => self.visit_atomic(atomic, state, visit_read),
+            Operation::Atomic(atomic) => self.visit_atomic(atomic, visit_read),
             Operation::Metadata(meta) => self.visit_meta(meta, visit_read),
             // Sync has no outputs
             Operation::Synchronization(_) => {}
@@ -227,10 +235,8 @@ impl Function {
     pub fn visit_memory(
         &mut self,
         memory: &mut Memory,
-        state: &GlobalState,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
-        let pointer_source = self.analysis::<PointerSource>(state);
         match memory {
             Memory::Reference(variable) => visit_read(self, variable),
             Memory::Index(index_operator) => {
@@ -239,10 +245,6 @@ impl Function {
             }
             Memory::Load(variable) => {
                 visit_read(self, variable);
-
-                if let Some(source) = pointer_source.borrow_mut().get_mut(variable) {
-                    visit_read(self, source);
-                }
             }
             Memory::Store(op) => {
                 visit_read(self, &mut op.ptr);
@@ -251,10 +253,6 @@ impl Function {
             Memory::CopyMemory(op) => {
                 visit_read(self, &mut op.source);
                 visit_read(self, &mut op.target);
-
-                if let Some(source) = pointer_source.borrow_mut().get_mut(&op.source) {
-                    visit_read(self, source);
-                }
             }
         }
     }
@@ -296,7 +294,6 @@ impl Function {
     fn visit_atomic(
         &mut self,
         atomic: &mut AtomicOp,
-        state: &GlobalState,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match atomic {
@@ -308,7 +305,7 @@ impl Function {
             | AtomicOp::Or(binary_operator)
             | AtomicOp::Xor(binary_operator)
             | AtomicOp::Swap(binary_operator) => {
-                self.visit_atomic_binop(binary_operator, state, visit_read);
+                self.visit_atomic_binop(binary_operator, visit_read);
             }
             AtomicOp::Load(ptr) => visit_read(self, ptr),
             AtomicOp::Store(store) => {
@@ -683,14 +680,9 @@ impl Function {
     fn visit_atomic_binop(
         &mut self,
         binop: &mut AtomicBinaryOperands,
-        state: &GlobalState,
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
-        let ptr_source = self.analysis::<PointerSource>(state);
         visit_read(self, &mut binop.ptr);
         visit_read(self, &mut binop.value);
-        if let Some(source) = ptr_source.borrow_mut().get_mut(&binop.ptr) {
-            visit_read(self, source);
-        }
     }
 }

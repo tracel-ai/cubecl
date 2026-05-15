@@ -7,9 +7,9 @@ use super::Analysis;
 pub struct PostOrder(Vec<NodeIndex>);
 
 impl Analysis for PostOrder {
-    fn init(opt: &mut crate::Function, _: &GlobalState) -> Self {
-        let po = DfsPostOrder::new(&opt.graph, opt.root);
-        PostOrder(po.iter(&opt.graph).collect())
+    fn init(func: &mut crate::Function, _: &GlobalState) -> Self {
+        let po = DfsPostOrder::new(&func.graph, func.root);
+        PostOrder(po.iter(&func.graph).collect())
     }
 }
 

@@ -2,7 +2,7 @@ use alloc::{vec, vec::Vec};
 use cubecl_ir::{
     Allocator, Arithmetic, BinaryOperands, CoopMma, GlobalState, IndexOperands, Instruction,
     MatrixLayout, Memory, Metadata, Operation, OperationReflect, Operator, Scope, Type, Variable,
-    VariableKind, VectorInsertOperator, VectorSize,
+    VariableKind, VectorInsertOperands, VectorSize,
 };
 use hashbrown::HashMap;
 
@@ -308,7 +308,7 @@ impl UnrollVisitor {
         &mut self,
         alloc: &Allocator,
         out: Variable,
-        op: &VectorInsertOperator,
+        op: &VectorInsertOperands,
         unroll_factor: usize,
     ) -> Vec<Instruction> {
         let index = op
@@ -328,7 +328,7 @@ impl UnrollVisitor {
             .get(alloc, out, unroll_factor, self.max_vector_size);
 
         vec![Instruction::new(
-            Operator::InsertComponent(VectorInsertOperator {
+            Operator::InsertComponent(VectorInsertOperands {
                 vector: vector[unroll_idx],
                 index: sub_idx.into(),
                 value: op.value,

@@ -67,7 +67,7 @@ mod new {
 }
 
 mod components {
-    use cubecl_ir::{Operator, VectorInsertOperator};
+    use cubecl_ir::{Operator, VectorInsertOperands};
 
     use super::*;
 
@@ -97,7 +97,7 @@ mod components {
             intrinsic!(|scope| {
                 if self.expand.vector_size() > 1 {
                     scope.register(Instruction::new(
-                        Operator::InsertComponent(VectorInsertOperator {
+                        Operator::InsertComponent(VectorInsertOperands {
                             vector: self.expand,
                             index: index.expand,
                             value: value.expand,

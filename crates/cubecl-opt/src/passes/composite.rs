@@ -2,8 +2,8 @@ use core::mem::take;
 
 use alloc::vec::Vec;
 use cubecl_ir::{
-    BinaryOperands, Id, Instruction, Operation, Operator, Type, Variable, VariableKind,
-    VectorInitOperator, VectorInsertOperator,
+    BinaryOperands, Id, InitVectorOperands, Instruction, Operation, Operator, Type, Variable,
+    VariableKind, VectorInsertOperands,
 };
 use hashbrown::HashMap;
 use stable_vec::StableVec;
@@ -54,7 +54,7 @@ impl OptimizerPass for CompositeMerge {
 
                 let op = { ops.borrow()[idx].clone() };
                 if let (
-                    Operation::Operator(Operator::InsertComponent(VectorInsertOperator {
+                    Operation::Operator(Operator::InsertComponent(VectorInsertOperands {
                         index,
                         value,
                         ..
@@ -113,7 +113,7 @@ fn merge_assigns(
     let out = Variable::new(VariableKind::LocalMut { id }, item);
     ops.insert(
         last,
-        Instruction::new(Operator::InitVector(VectorInitOperator { inputs }), out),
+        Instruction::new(Operator::InitVector(InitVectorOperands { inputs }), out),
     );
 }
 

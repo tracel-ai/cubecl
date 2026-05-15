@@ -3,7 +3,7 @@ use cubecl_macros::intrinsic;
 use crate as cubecl;
 use crate::prelude::{CubePrimitive, Vector};
 use crate::{
-    ir::{Operator, Scope, Select},
+    ir::{Operator, Scope, SelectOperands},
     prelude::*,
 };
 
@@ -61,7 +61,7 @@ pub mod select {
 
         let output = scope.create_local(then.value_type().with_vector_size(vf));
 
-        let select = Operator::Select(Select {
+        let select = Operator::Select(SelectOperands {
             cond,
             then,
             or_else,

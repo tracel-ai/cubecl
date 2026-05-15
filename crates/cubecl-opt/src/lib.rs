@@ -136,8 +136,8 @@ type VarId = (Id, u16);
 /// An optimizer that applies various analyses and optimization passes to the IR.
 #[derive(Debug, Clone, Default)]
 pub struct Optimizer {
-    /// The overall program state
     pub main: Function,
+    /// The overall program state
     pub global_state: GlobalState,
 }
 

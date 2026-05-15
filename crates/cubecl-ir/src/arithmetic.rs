@@ -13,7 +13,7 @@ pub enum Arithmetic {
     Add(BinaryOperands),
     #[operation(commutative)]
     SaturatingAdd(BinaryOperands),
-    Fma(FmaOperator),
+    Fma(FmaOperands),
     Sub(BinaryOperands),
     SaturatingSub(BinaryOperands),
     #[operation(commutative)]
@@ -50,7 +50,7 @@ pub enum Arithmetic {
     Trunc(UnaryOperands),
     Erf(UnaryOperands),
     Recip(UnaryOperands),
-    Clamp(ClampOperator),
+    Clamp(ClampOperands),
     Neg(UnaryOperands),
     #[operation(commutative)]
     Max(BinaryOperands),
@@ -130,7 +130,7 @@ impl Display for Arithmetic {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct ClampOperator {
+pub struct ClampOperands {
     pub input: Variable,
     pub min_value: Variable,
     pub max_value: Variable,
@@ -139,23 +139,7 @@ pub struct ClampOperator {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct ReadGlobalOperator {
-    pub variable: Variable,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
-#[allow(missing_docs)]
-pub struct ReadGlobalWithLayoutOperator {
-    pub variable: Variable,
-    pub tensor_read_pos: usize,
-    pub tensor_layout_pos: usize,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
-#[allow(missing_docs)]
-pub struct FmaOperator {
+pub struct FmaOperands {
     pub a: Variable,
     pub b: Variable,
     pub c: Variable,

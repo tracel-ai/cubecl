@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use cubecl_ir::{CopyMemoryOperator, Id, Instruction, Memory, Operation, Variable, VariableKind};
+use cubecl_ir::{CopyMemoryOperands, Id, Instruction, Memory, Operation, Variable, VariableKind};
 use hashbrown::{HashMap, HashSet};
 
 use crate::{
@@ -66,7 +66,7 @@ impl OptimizerPass for CopyTransform {
                 }
 
                 ops.borrow_mut().remove(read_idx);
-                let copy = Memory::CopyMemory(CopyMemoryOperator {
+                let copy = Memory::CopyMemory(CopyMemoryOperands {
                     source: in_ptr,
                     target: out_ptr,
                     len: 1,
@@ -86,10 +86,10 @@ fn as_versioned(var: &Variable) -> Option<(Id, u16)> {
     }
 }
 
-fn is_reused(opt: &mut Function, state: &GlobalState, var: &Option<Variable>) -> bool {
+fn is_reused(func: &mut Function, state: &GlobalState, var: &Option<Variable>) -> bool {
     if let Some(var) = var.as_ref() {
         let count = AtomicCounter::new(0);
-        opt.visit_all(
+        func.visit_all(
             state,
             |_, other| {
                 if other == var {

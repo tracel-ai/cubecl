@@ -48,12 +48,8 @@ impl Statement {
                     let is_mut = mutability.is_some();
                     let is_const = init.as_ref().is_some_and(|init| init.is_const());
 
-                    let variable = context.push_variable(
-                        ident,
-                        ty,
-                        is_const && !is_mut,
-                        !is_ref && mutability.is_some(),
-                    );
+                    let variable =
+                        context.push_variable(ident, ty, is_const && !is_mut, !is_ref && is_mut);
                     Self::Local { variable, init }
                 }
             }

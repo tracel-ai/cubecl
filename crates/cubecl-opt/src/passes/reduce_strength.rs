@@ -25,9 +25,9 @@ use super::OptimizerPass;
 pub struct ReduceStrength;
 
 impl OptimizerPass for ReduceStrength {
-    fn apply_post_ssa(&mut self, opt: &mut Function, state: &GlobalState, changes: AtomicCounter) {
-        for block in opt.node_ids() {
-            let ops = take(&mut *opt.block(block).ops.borrow_mut());
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        for block in func.node_ids() {
+            let ops = take(&mut *func.block(block).ops.borrow_mut());
             let mut new_ops = Vec::with_capacity(ops.capacity());
             for (_, inst) in ops.into_iter() {
                 let op = match inst.operation.clone() {
@@ -136,7 +136,7 @@ impl OptimizerPass for ReduceStrength {
                     }
                 }
             }
-            opt.block(block).ops.borrow_mut().extend(new_ops);
+            func.block(block).ops.borrow_mut().extend(new_ops);
         }
     }
 }

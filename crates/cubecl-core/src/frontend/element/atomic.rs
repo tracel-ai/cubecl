@@ -5,7 +5,7 @@ use super::{NativeAssign, NativeExpand, Numeric};
 use crate::{
     self as cubecl,
     frontend::{CubePrimitive, CubeType},
-    ir::{CompareAndSwapOperator, Instruction, Scope, Type},
+    ir::{CompareAndSwapOperands, Instruction, Scope, Type},
     prelude::*,
 };
 
@@ -138,7 +138,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
             let value: Variable = value.into();
             let new_var = scope.create_local(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
-                AtomicOp::CompareAndSwap(CompareAndSwapOperator {
+                AtomicOp::CompareAndSwap(CompareAndSwapOperands {
                     ptr: pointer,
                     cmp: cmp,
                     val: value,

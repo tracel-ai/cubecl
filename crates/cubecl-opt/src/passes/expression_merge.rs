@@ -13,8 +13,8 @@ use super::OptimizerPass;
 pub struct InlineAssignments;
 
 impl OptimizerPass for InlineAssignments {
-    fn apply_post_ssa(&mut self, opt: &mut Function, state: &GlobalState, changes: AtomicCounter) {
-        while search_loop(opt, state) {
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        while search_loop(func, state) {
             changes.inc();
         }
     }

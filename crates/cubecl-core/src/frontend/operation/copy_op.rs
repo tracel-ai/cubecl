@@ -15,7 +15,7 @@ use crate::prelude::*;
 pub fn copy_bulk<C: CubePrimitive>(_from: &[C], _to: &mut [C], _length: usize) {}
 
 pub mod copy_bulk {
-    use cubecl_ir::{CopyMemoryOperator, Memory};
+    use cubecl_ir::{CopyMemoryOperands, Memory};
 
     use crate::ir::{Instruction, Scope};
 
@@ -32,7 +32,7 @@ pub mod copy_bulk {
         let target = unsafe { *to.__expand_as_mut_ptr_method(scope) }.expand;
 
         scope.register(Instruction::no_out(Memory::CopyMemory(
-            CopyMemoryOperator {
+            CopyMemoryOperands {
                 source,
                 target,
                 len: length,
@@ -56,7 +56,7 @@ pub mod copy_bulk {
 pub fn copy<C: CubePrimitive>(_from: &C, _to: &mut C) {}
 
 pub mod copy {
-    use cubecl_ir::{CopyMemoryOperator, Memory};
+    use cubecl_ir::{CopyMemoryOperands, Memory};
 
     use crate::ir::{Instruction, Scope};
 
@@ -72,7 +72,7 @@ pub mod copy {
         let target = to.expand;
 
         scope.register(Instruction::no_out(Memory::CopyMemory(
-            CopyMemoryOperator {
+            CopyMemoryOperands {
                 source,
                 target,
                 len: 1,

@@ -24,7 +24,7 @@ use crate::{
     gvn::{BlockSets, Expression, GlobalValues, Instruction, Local, Value, ValueTable},
 };
 
-const DEBUG_GVN: bool = false;
+const DEBUG_GVN: bool = option_env!("CUBECL_DEBUG_GVN").is_some();
 
 impl Display for Optimizer {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -54,7 +54,7 @@ impl Display for Optimizer {
 
 /// Debug display for the program state.
 impl Display for Function {
-    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let global_nums = self
             .analysis_cache
             .try_get::<GlobalValues>()
@@ -224,7 +224,7 @@ impl Display for Function {
 }
 
 impl Display for BlockSets {
-    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut exp_gen = self.exp_gen.iter().collect::<Vec<_>>();
         exp_gen.sort_by_key(|it| it.0);
         let exp_gen = exp_gen
@@ -271,7 +271,7 @@ impl Display for BlockSets {
 }
 
 impl Display for ValueTable {
-    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut values = self.value_numbers.iter().collect::<Vec<_>>();
         values.sort_by_key(|it| it.1);
         writeln!(f, "values: [")?;
@@ -290,7 +290,7 @@ impl Display for ValueTable {
 }
 
 impl Display for Value {
-    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Value::Constant(constant, _) => write!(f, "{constant}"),
             Value::Local(local) => write!(f, "{local}"),
@@ -303,7 +303,7 @@ impl Display for Value {
 }
 
 impl Display for Local {
-    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.version {
             0 => write!(f, "binding({})", self.id),
             v => write!(f, "local({}).v{v}", self.id),
@@ -312,7 +312,7 @@ impl Display for Local {
 }
 
 impl Display for Expression {
-    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Expression::Instruction(instruction) => write!(f, "{instruction}"),
             Expression::Copy(val, _) => write!(f, "copy({val})"),
@@ -332,13 +332,13 @@ impl Display for Expression {
 }
 
 impl Display for Instruction {
-    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{:?}: [{:?}]", self.op, self.args)
     }
 }
 
 impl Display for BasicBlock {
-    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         for phi in self.phi_nodes.borrow().iter() {
             write!(f, "    {} = phi ", phi.out)?;
             for entry in &phi.entries {

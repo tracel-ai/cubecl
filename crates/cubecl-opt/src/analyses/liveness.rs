@@ -92,14 +92,14 @@ fn block_sets<'a>(
     block_sets.or_insert_with(|| calculate_block_sets(func, global_state, block))
 }
 
-fn calculate_block_sets(opt: &mut Function, state: &GlobalState, block: NodeIndex) -> BlockSets {
+fn calculate_block_sets(func: &mut Function, state: &GlobalState, block: NodeIndex) -> BlockSets {
     let mut generated = HashSet::new();
     let mut kill = HashSet::new();
 
-    let ops = opt[block].ops.clone();
+    let ops = func[block].ops.clone();
 
-    let control_flow = opt[block].control_flow.clone();
-    opt.visit_control_flow(&mut control_flow.borrow_mut(), |_, var| {
+    let control_flow = func[block].control_flow.clone();
+    func.visit_control_flow(&mut control_flow.borrow_mut(), |_, var| {
         if let Some(id) = local_variable_id(var) {
             generated.insert(id);
         }
@@ -107,13 +107,13 @@ fn calculate_block_sets(opt: &mut Function, state: &GlobalState, block: NodeInde
     let mut ops = ops.borrow().clone();
     for op in ops.values_mut().rev() {
         // Reads must be tracked after writes
-        opt.visit_out(&mut op.out, |_, var| {
+        func.visit_out(&mut op.out, |_, var| {
             if let Some(id) = local_variable_id(var) {
                 kill.insert(id);
                 generated.remove(&id);
             }
         });
-        opt.visit_operation(state, &mut op.operation, |_, var| {
+        func.visit_operation(state, &mut op.operation, |_, var| {
             if let Some(id) = local_variable_id(var) {
                 generated.insert(id);
             }
@@ -286,37 +286,37 @@ pub mod shared {
 
         fn analyze_block(
             &mut self,
-            opt: &mut Function,
+            func: &mut Function,
             global_state: &GlobalState,
             block: NodeIndex,
             state: &mut State,
         ) {
-            let BlockSets { generated, kill } = self.block_sets(opt, global_state, block, state);
+            let BlockSets { generated, kill } = self.block_sets(func, global_state, block, state);
 
             let mut live_vars = generated.clone();
 
-            for predecessor in opt.predecessors(block) {
+            for predecessor in func.predecessors(block) {
                 let predecessor = &self.live_vars[&predecessor];
                 live_vars.extend(predecessor.difference(kill));
             }
 
             if live_vars != self.live_vars[&block] {
-                state.worklist.extend(opt.successors(block));
+                state.worklist.extend(func.successors(block));
                 self.live_vars.insert(block, live_vars);
             }
         }
 
         fn uniformize_block(
             &mut self,
-            opt: &mut Function,
+            func: &mut Function,
             global_state: &GlobalState,
             block: NodeIndex,
             state: &mut State,
         ) {
             let mut live_vars = self.live_vars[&block].clone();
-            let uniformity = opt.analysis::<Uniformity>(global_state);
+            let uniformity = func.analysis::<Uniformity>(global_state);
 
-            for successor in opt.successors(block) {
+            for successor in func.successors(block) {
                 if !uniformity.is_block_uniform(successor) {
                     let successor = &self.live_vars[&successor];
                     live_vars.extend(successor);
@@ -324,43 +324,43 @@ pub mod shared {
             }
 
             if live_vars != self.live_vars[&block] {
-                state.worklist.extend(opt.predecessors(block));
+                state.worklist.extend(func.predecessors(block));
                 self.live_vars.insert(block, live_vars);
             }
         }
 
         fn block_sets<'a>(
             &mut self,
-            opt: &mut Function,
+            func: &mut Function,
             global_state: &GlobalState,
             block: NodeIndex,
             state: &'a mut State,
         ) -> &'a BlockSets {
             let block_sets = state.block_sets.entry(block);
-            block_sets.or_insert_with(|| self.calculate_block_sets(opt, global_state, block))
+            block_sets.or_insert_with(|| self.calculate_block_sets(func, global_state, block))
         }
 
         /// Any use makes a shared memory live (`generated`), while `free` kills it (`kill`).
         /// Also collects all shared memories into a map.
         fn calculate_block_sets(
             &mut self,
-            opt: &mut Function,
+            func: &mut Function,
             state: &GlobalState,
             block: NodeIndex,
         ) -> BlockSets {
             let mut generated = HashSet::new();
             let mut kill = HashSet::new();
 
-            let ops = opt[block].ops.clone();
+            let ops = func[block].ops.clone();
 
             for op in ops.borrow_mut().values_mut() {
-                opt.visit_out(&mut op.out, |_, var| {
+                func.visit_out(&mut op.out, |_, var| {
                     if let Some(smem) = shared_memory(var) {
                         generated.insert(smem.id);
                         self.shared_memories.insert(smem.id, smem);
                     }
                 });
-                opt.visit_operation(state, &mut op.operation, |_, var| {
+                func.visit_operation(state, &mut op.operation, |_, var| {
                     if let Some(smem) = shared_memory(var) {
                         generated.insert(smem.id);
                         self.shared_memories.insert(smem.id, smem);
@@ -493,13 +493,13 @@ mod captures {
         func.visit_control_flow(&mut control_flow.borrow_mut(), |_, var| {
             generated.insert(*var);
         });
-        for op in ops.borrow_mut().values_mut().rev() {
+        for inst in ops.borrow_mut().values_mut().rev() {
             // Reads must be tracked after writes
-            func.visit_out(&mut op.out, |_, var| {
+            func.visit_instruction_write(state, inst, |_, var| {
                 kill.insert(*var);
                 generated.remove(var);
             });
-            func.visit_operation(state, &mut op.operation, |_, var| {
+            func.visit_operation(state, &mut inst.operation, |_, var| {
                 generated.insert(*var);
             });
         }

@@ -17,9 +17,9 @@ pub struct Uniformity {
 }
 
 impl Analysis for Uniformity {
-    fn init(opt: &mut Function, _: &GlobalState) -> Self {
+    fn init(func: &mut Function, _: &GlobalState) -> Self {
         let mut this = Self::default();
-        this.run(opt);
+        this.run(func);
         this
     }
 }
@@ -31,8 +31,8 @@ impl Uniformity {
         while self.analyze_block(func, root).is_none() {}
     }
 
-    fn analyze_block(&mut self, opt: &Function, block_id: NodeIndex) -> Option<()> {
-        let block = opt.block(block_id);
+    fn analyze_block(&mut self, func: &Function, block_id: NodeIndex) -> Option<()> {
+        let block = func.block(block_id);
         let mut block_uniform = self.block_uniformity[&block_id];
 
         for phi in block.phi_nodes.borrow().iter() {
@@ -162,7 +162,7 @@ impl Uniformity {
             }
             ControlFlow::Return { .. } | ControlFlow::Unreachable => {}
             ControlFlow::None => {
-                let successor = opt.successors(block_id)[0];
+                let successor = func.successors(block_id)[0];
                 self.block_uniformity
                     .entry(successor)
                     .and_modify(|it| {
@@ -172,10 +172,10 @@ impl Uniformity {
             }
         }
 
-        for edge in opt.edges(block_id) {
+        for edge in func.edges(block_id) {
             if !self.visited.contains(&edge.id()) {
                 self.visited.insert(edge.id());
-                self.analyze_block(opt, edge.target())?;
+                self.analyze_block(func, edge.target())?;
             }
         }
 

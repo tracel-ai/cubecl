@@ -73,12 +73,12 @@ struct Array {
     ty: Type,
 }
 
-fn find_const_arrays(opt: &mut Function) -> Vec<Array> {
+fn find_const_arrays(func: &mut Function) -> Vec<Array> {
     let mut track_consts = HashMap::new();
     let mut arrays = HashMap::new();
 
-    for block in opt.node_ids() {
-        let ops = opt[block].ops.clone();
+    for block in func.node_ids() {
+        let ops = func[block].ops.clone();
         for op in ops.borrow().values() {
             if let Operation::Memory(Memory::Index(index)) = &op.operation
                 && let VariableKind::LocalMut { id } = index.list.kind

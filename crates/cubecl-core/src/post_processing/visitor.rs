@@ -180,64 +180,64 @@ impl<T> Visitor<T> {
         mut visit_read: impl FnMut(&mut T, &mut Variable),
     ) {
         match op {
-            Arithmetic::Fma(fma_operator) => {
-                visit_read(self, &mut fma_operator.a);
-                visit_read(self, &mut fma_operator.b);
-                visit_read(self, &mut fma_operator.c);
+            Arithmetic::Fma(fma_operands) => {
+                visit_read(self, &mut fma_operands.a);
+                visit_read(self, &mut fma_operands.b);
+                visit_read(self, &mut fma_operands.c);
             }
-            Arithmetic::Add(binary_operator)
-            | Arithmetic::SaturatingAdd(binary_operator)
-            | Arithmetic::Sub(binary_operator)
-            | Arithmetic::SaturatingSub(binary_operator)
-            | Arithmetic::Mul(binary_operator)
-            | Arithmetic::Div(binary_operator)
-            | Arithmetic::Powf(binary_operator)
-            | Arithmetic::Powi(binary_operator)
-            | Arithmetic::Hypot(binary_operator)
-            | Arithmetic::Rhypot(binary_operator)
-            | Arithmetic::ModFloor(binary_operator)
-            | Arithmetic::Max(binary_operator)
-            | Arithmetic::Min(binary_operator)
-            | Arithmetic::Rem(binary_operator)
-            | Arithmetic::Dot(binary_operator)
-            | Arithmetic::MulHi(binary_operator)
-            | Arithmetic::ArcTan2(binary_operator) => self.visit_binop(binary_operator, visit_read),
+            Arithmetic::Add(binary_operands)
+            | Arithmetic::SaturatingAdd(binary_operands)
+            | Arithmetic::Sub(binary_operands)
+            | Arithmetic::SaturatingSub(binary_operands)
+            | Arithmetic::Mul(binary_operands)
+            | Arithmetic::Div(binary_operands)
+            | Arithmetic::Powf(binary_operands)
+            | Arithmetic::Powi(binary_operands)
+            | Arithmetic::Hypot(binary_operands)
+            | Arithmetic::Rhypot(binary_operands)
+            | Arithmetic::ModFloor(binary_operands)
+            | Arithmetic::Max(binary_operands)
+            | Arithmetic::Min(binary_operands)
+            | Arithmetic::Rem(binary_operands)
+            | Arithmetic::Dot(binary_operands)
+            | Arithmetic::MulHi(binary_operands)
+            | Arithmetic::ArcTan2(binary_operands) => self.visit_binop(binary_operands, visit_read),
 
-            Arithmetic::Abs(unary_operator)
-            | Arithmetic::Exp(unary_operator)
-            | Arithmetic::Log(unary_operator)
-            | Arithmetic::Log1p(unary_operator)
-            | Arithmetic::Cos(unary_operator)
-            | Arithmetic::Sin(unary_operator)
-            | Arithmetic::Tan(unary_operator)
-            | Arithmetic::Tanh(unary_operator)
-            | Arithmetic::Sinh(unary_operator)
-            | Arithmetic::Cosh(unary_operator)
-            | Arithmetic::ArcCos(unary_operator)
-            | Arithmetic::ArcSin(unary_operator)
-            | Arithmetic::ArcTan(unary_operator)
-            | Arithmetic::ArcSinh(unary_operator)
-            | Arithmetic::ArcCosh(unary_operator)
-            | Arithmetic::ArcTanh(unary_operator)
-            | Arithmetic::Degrees(unary_operator)
-            | Arithmetic::Radians(unary_operator)
-            | Arithmetic::Sqrt(unary_operator)
-            | Arithmetic::InverseSqrt(unary_operator)
-            | Arithmetic::Round(unary_operator)
-            | Arithmetic::Floor(unary_operator)
-            | Arithmetic::Ceil(unary_operator)
-            | Arithmetic::Trunc(unary_operator)
-            | Arithmetic::Erf(unary_operator)
-            | Arithmetic::Recip(unary_operator)
-            | Arithmetic::Neg(unary_operator)
-            | Arithmetic::Magnitude(unary_operator)
-            | Arithmetic::Normalize(unary_operator)
-            | Arithmetic::VectorSum(unary_operator) => self.visit_unop(unary_operator, visit_read),
+            Arithmetic::Abs(unary_operands)
+            | Arithmetic::Exp(unary_operands)
+            | Arithmetic::Log(unary_operands)
+            | Arithmetic::Log1p(unary_operands)
+            | Arithmetic::Cos(unary_operands)
+            | Arithmetic::Sin(unary_operands)
+            | Arithmetic::Tan(unary_operands)
+            | Arithmetic::Tanh(unary_operands)
+            | Arithmetic::Sinh(unary_operands)
+            | Arithmetic::Cosh(unary_operands)
+            | Arithmetic::ArcCos(unary_operands)
+            | Arithmetic::ArcSin(unary_operands)
+            | Arithmetic::ArcTan(unary_operands)
+            | Arithmetic::ArcSinh(unary_operands)
+            | Arithmetic::ArcCosh(unary_operands)
+            | Arithmetic::ArcTanh(unary_operands)
+            | Arithmetic::Degrees(unary_operands)
+            | Arithmetic::Radians(unary_operands)
+            | Arithmetic::Sqrt(unary_operands)
+            | Arithmetic::InverseSqrt(unary_operands)
+            | Arithmetic::Round(unary_operands)
+            | Arithmetic::Floor(unary_operands)
+            | Arithmetic::Ceil(unary_operands)
+            | Arithmetic::Trunc(unary_operands)
+            | Arithmetic::Erf(unary_operands)
+            | Arithmetic::Recip(unary_operands)
+            | Arithmetic::Neg(unary_operands)
+            | Arithmetic::Magnitude(unary_operands)
+            | Arithmetic::Normalize(unary_operands)
+            | Arithmetic::VectorSum(unary_operands) => self.visit_unop(unary_operands, visit_read),
 
-            Arithmetic::Clamp(clamp_operator) => {
-                visit_read(self, &mut clamp_operator.input);
-                visit_read(self, &mut clamp_operator.min_value);
-                visit_read(self, &mut clamp_operator.max_value);
+            Arithmetic::Clamp(clamp_operands) => {
+                visit_read(self, &mut clamp_operands.input);
+                visit_read(self, &mut clamp_operands.min_value);
+                visit_read(self, &mut clamp_operands.max_value);
             }
         }
     }
@@ -250,16 +250,16 @@ impl<T> Visitor<T> {
         visit_read: impl FnMut(&mut T, &mut Variable),
     ) {
         match op {
-            Comparison::Equal(binary_operator)
-            | Comparison::NotEqual(binary_operator)
-            | Comparison::LowerEqual(binary_operator)
-            | Comparison::Greater(binary_operator)
-            | Comparison::Lower(binary_operator)
-            | Comparison::GreaterEqual(binary_operator) => {
-                self.visit_binop(binary_operator, visit_read)
+            Comparison::Equal(binary_operands)
+            | Comparison::NotEqual(binary_operands)
+            | Comparison::LowerEqual(binary_operands)
+            | Comparison::Greater(binary_operands)
+            | Comparison::Lower(binary_operands)
+            | Comparison::GreaterEqual(binary_operands) => {
+                self.visit_binop(binary_operands, visit_read)
             }
-            Comparison::IsNan(unary_operator) | Comparison::IsInf(unary_operator) => {
-                self.visit_unop(unary_operator, visit_read)
+            Comparison::IsNan(unary_operands) | Comparison::IsInf(unary_operands) => {
+                self.visit_unop(unary_operands, visit_read)
             }
         }
     }
@@ -272,18 +272,18 @@ impl<T> Visitor<T> {
         visit_read: impl FnMut(&mut T, &mut Variable),
     ) {
         match op {
-            Bitwise::BitwiseAnd(binary_operator)
-            | Bitwise::BitwiseOr(binary_operator)
-            | Bitwise::BitwiseXor(binary_operator)
-            | Bitwise::ShiftLeft(binary_operator)
-            | Bitwise::ShiftRight(binary_operator) => self.visit_binop(binary_operator, visit_read),
+            Bitwise::BitwiseAnd(binary_operands)
+            | Bitwise::BitwiseOr(binary_operands)
+            | Bitwise::BitwiseXor(binary_operands)
+            | Bitwise::ShiftLeft(binary_operands)
+            | Bitwise::ShiftRight(binary_operands) => self.visit_binop(binary_operands, visit_read),
 
-            Bitwise::CountOnes(unary_operator)
-            | Bitwise::BitwiseNot(unary_operator)
-            | Bitwise::ReverseBits(unary_operator)
-            | Bitwise::LeadingZeros(unary_operator)
-            | Bitwise::TrailingZeros(unary_operator)
-            | Bitwise::FindFirstSet(unary_operator) => self.visit_unop(unary_operator, visit_read),
+            Bitwise::CountOnes(unary_operands)
+            | Bitwise::BitwiseNot(unary_operands)
+            | Bitwise::ReverseBits(unary_operands)
+            | Bitwise::LeadingZeros(unary_operands)
+            | Bitwise::TrailingZeros(unary_operands)
+            | Bitwise::FindFirstSet(unary_operands) => self.visit_unop(unary_operands, visit_read),
         }
     }
 
@@ -294,9 +294,9 @@ impl<T> Visitor<T> {
     ) {
         match memory {
             Memory::Reference(variable) => visit_read(self, variable),
-            Memory::Index(index_operator) => {
-                visit_read(self, &mut index_operator.list);
-                visit_read(self, &mut index_operator.index);
+            Memory::Index(index_operands) => {
+                visit_read(self, &mut index_operands.list);
+                visit_read(self, &mut index_operands.index);
             }
             Memory::Load(variable) => {
                 visit_read(self, variable);
@@ -320,28 +320,28 @@ impl<T> Visitor<T> {
         mut visit_read: impl FnMut(&mut T, &mut Variable),
     ) {
         match op {
-            Operator::And(binary_operator)
-            | Operator::Or(binary_operator)
-            | Operator::ExtractComponent(binary_operator) => {
-                self.visit_binop(binary_operator, visit_read)
+            Operator::And(binary_operands)
+            | Operator::Or(binary_operands)
+            | Operator::ExtractComponent(binary_operands) => {
+                self.visit_binop(binary_operands, visit_read)
             }
-            Operator::Not(unary_operator)
-            | Operator::Cast(unary_operator)
-            | Operator::Reinterpret(unary_operator) => self.visit_unop(unary_operator, visit_read),
+            Operator::Not(unary_operands)
+            | Operator::Cast(unary_operands)
+            | Operator::Reinterpret(unary_operands) => self.visit_unop(unary_operands, visit_read),
             Operator::InitVector(vector_init_operator) => {
                 for input in &mut vector_init_operator.inputs {
                     visit_read(self, input)
                 }
             }
-            Operator::InsertComponent(vector_insert_operator) => {
-                visit_read(self, &mut vector_insert_operator.vector);
-                visit_read(self, &mut vector_insert_operator.index);
-                visit_read(self, &mut vector_insert_operator.value);
+            Operator::InsertComponent(vector_insert_operands) => {
+                visit_read(self, &mut vector_insert_operands.vector);
+                visit_read(self, &mut vector_insert_operands.index);
+                visit_read(self, &mut vector_insert_operands.value);
             }
-            Operator::Select(select) => {
-                visit_read(self, &mut select.cond);
-                visit_read(self, &mut select.then);
-                visit_read(self, &mut select.or_else);
+            Operator::Select(select_operands) => {
+                visit_read(self, &mut select_operands.cond);
+                visit_read(self, &mut select_operands.then);
+                visit_read(self, &mut select_operands.or_else);
             }
         }
     }
@@ -352,15 +352,15 @@ impl<T> Visitor<T> {
         mut visit_read: impl FnMut(&mut T, &mut Variable),
     ) {
         match atomic {
-            AtomicOp::Add(binary_operator)
-            | AtomicOp::Sub(binary_operator)
-            | AtomicOp::Max(binary_operator)
-            | AtomicOp::Min(binary_operator)
-            | AtomicOp::And(binary_operator)
-            | AtomicOp::Or(binary_operator)
-            | AtomicOp::Xor(binary_operator)
-            | AtomicOp::Swap(binary_operator) => {
-                self.visit_atomic_binop(binary_operator, visit_read);
+            AtomicOp::Add(atomic_binary_operands)
+            | AtomicOp::Sub(atomic_binary_operands)
+            | AtomicOp::Max(atomic_binary_operands)
+            | AtomicOp::Min(atomic_binary_operands)
+            | AtomicOp::And(atomic_binary_operands)
+            | AtomicOp::Or(atomic_binary_operands)
+            | AtomicOp::Xor(atomic_binary_operands)
+            | AtomicOp::Swap(atomic_binary_operands) => {
+                self.visit_atomic_binop(atomic_binary_operands, visit_read);
             }
             AtomicOp::Load(ptr) => {
                 visit_read(self, ptr);
@@ -399,22 +399,22 @@ impl<T> Visitor<T> {
     fn visit_plane(&mut self, plane: &mut Plane, visit_read: impl FnMut(&mut T, &mut Variable)) {
         match plane {
             Plane::Elect => {}
-            Plane::Broadcast(binary_operator)
-            | Plane::Shuffle(binary_operator)
-            | Plane::ShuffleXor(binary_operator)
-            | Plane::ShuffleUp(binary_operator)
-            | Plane::ShuffleDown(binary_operator) => self.visit_binop(binary_operator, visit_read),
-            Plane::All(unary_operator)
-            | Plane::Any(unary_operator)
-            | Plane::Sum(unary_operator)
-            | Plane::InclusiveSum(unary_operator)
-            | Plane::ExclusiveSum(unary_operator)
-            | Plane::Prod(unary_operator)
-            | Plane::InclusiveProd(unary_operator)
-            | Plane::ExclusiveProd(unary_operator)
-            | Plane::Min(unary_operator)
-            | Plane::Max(unary_operator)
-            | Plane::Ballot(unary_operator) => self.visit_unop(unary_operator, visit_read),
+            Plane::Broadcast(binary_operands)
+            | Plane::Shuffle(binary_operands)
+            | Plane::ShuffleXor(binary_operands)
+            | Plane::ShuffleUp(binary_operands)
+            | Plane::ShuffleDown(binary_operands) => self.visit_binop(binary_operands, visit_read),
+            Plane::All(unary_operands)
+            | Plane::Any(unary_operands)
+            | Plane::Sum(unary_operands)
+            | Plane::InclusiveSum(unary_operands)
+            | Plane::ExclusiveSum(unary_operands)
+            | Plane::Prod(unary_operands)
+            | Plane::InclusiveProd(unary_operands)
+            | Plane::ExclusiveProd(unary_operands)
+            | Plane::Min(unary_operands)
+            | Plane::Max(unary_operands)
+            | Plane::Ballot(unary_operands) => self.visit_unop(unary_operands, visit_read),
         }
     }
 

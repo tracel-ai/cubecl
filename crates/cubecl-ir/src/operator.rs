@@ -12,11 +12,11 @@ use crate::{BinaryOperands, OperationArgs, OperationReflect, UnaryOperands, Vari
 #[operation(opcode_name = OperatorOpCode)]
 pub enum Operator {
     #[operation(pure)]
-    InitVector(VectorInitOperator),
+    InitVector(InitVectorOperands),
     #[operation(pure)]
     ExtractComponent(BinaryOperands),
     #[operation(pure)]
-    InsertComponent(VectorInsertOperator),
+    InsertComponent(VectorInsertOperands),
     #[operation(commutative, pure)]
     And(BinaryOperands),
     #[operation(commutative, pure)]
@@ -29,7 +29,7 @@ pub enum Operator {
     Reinterpret(UnaryOperands),
     /// A select statement/ternary
     #[operation(pure)]
-    Select(Select),
+    Select(SelectOperands),
 }
 
 impl Display for Operator {
@@ -62,7 +62,7 @@ impl Display for Operator {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct SliceOperator {
+pub struct SliceOperands {
     pub input: Variable,
     pub start: Variable,
     pub end: Variable,
@@ -71,7 +71,7 @@ pub struct SliceOperator {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct ReinterpretSliceOperator {
+pub struct ReinterpretSliceOperands {
     pub input: Variable,
     pub vector_size: u32,
 }
@@ -79,14 +79,14 @@ pub struct ReinterpretSliceOperator {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct VectorInitOperator {
+pub struct InitVectorOperands {
     pub inputs: Vec<Variable>,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct VectorInsertOperator {
+pub struct VectorInsertOperands {
     pub vector: Variable,
     pub index: Variable,
     pub value: Variable,
@@ -95,7 +95,7 @@ pub struct VectorInsertOperator {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct CopyMemoryOperator {
+pub struct CopyMemoryOperands {
     #[args(allow_ptr, ptr_read)]
     pub source: Variable,
     #[args(allow_ptr, ptr_write)]
@@ -106,7 +106,7 @@ pub struct CopyMemoryOperator {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct Select {
+pub struct SelectOperands {
     pub cond: Variable,
     pub then: Variable,
     pub or_else: Variable,

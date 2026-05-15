@@ -206,7 +206,7 @@ impl Scope {
         self.state().allocator.create_local(ty)
     }
 
-    /// Create a new immutable variable.
+    /// Create a new immutable variable of aggregate type.
     pub fn create_aggregate(&self, ty: Type, kind: AggregateKind) -> Variable {
         let id = self.state().allocator.new_local_index();
         Variable::new(
@@ -241,7 +241,7 @@ impl Scope {
     }
 
     /// Add a value to the global arena so we can create a kernel-wide reference to it.
-    /// The reference is `'static` for simplicity, but is only valid for the duration of the scope.
+    /// The reference is `'static` for simplicity, but is only valid for the duration of the root scope.
     /// Ensure the reference lifetime is shortened to the lifetime of the underlying variable being
     /// referenced.
     pub fn create_kernel_ref<T: 'static>(&self, var: T) -> &'static mut T {

@@ -451,14 +451,14 @@ impl Function {
     }
 }
 
-fn update_control_flow(opt: &mut Function, block: NodeIndex, from: NodeIndex, to: NodeIndex) {
+fn update_control_flow(func: &mut Function, block: NodeIndex, from: NodeIndex, to: NodeIndex) {
     let update = |id: &mut NodeIndex| {
         if *id == from {
             *id = to
         }
     };
 
-    match &mut *opt[block].control_flow.borrow_mut() {
+    match &mut *func[block].control_flow.borrow_mut() {
         ControlFlow::IfElse { then, or_else, .. } => {
             update(then);
             update(or_else);
@@ -495,8 +495,8 @@ fn update_control_flow(opt: &mut Function, block: NodeIndex, from: NodeIndex, to
     }
 }
 
-fn update_phi(opt: &mut Function, block: NodeIndex, from: NodeIndex, to: NodeIndex) {
-    for phi in opt[block].phi_nodes.borrow_mut().iter_mut() {
+fn update_phi(func: &mut Function, block: NodeIndex, from: NodeIndex, to: NodeIndex) {
+    for phi in func[block].phi_nodes.borrow_mut().iter_mut() {
         for entry in phi.entries.iter_mut() {
             if entry.block == from {
                 entry.block = to;

@@ -1,6 +1,6 @@
 use core::cmp::Ordering;
 
-use cubecl_ir::{Arithmetic, ClampOperator};
+use cubecl_ir::{Arithmetic, ClampOperands};
 
 use crate as cubecl;
 use crate::frontend::NativeExpand;
@@ -191,7 +191,7 @@ impl<T: Ord + CubePrimitive> OrdExpand for NativeExpand<T> {
     }
     fn __expand_clamp_method(self, scope: &Scope, min: Self, max: Self) -> Self {
         unary_expand(scope, self.into(), |op| {
-            Arithmetic::Clamp(ClampOperator {
+            Arithmetic::Clamp(ClampOperands {
                 input: op.input,
                 min_value: min.expand,
                 max_value: max.expand,

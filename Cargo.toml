@@ -129,8 +129,8 @@ futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
 sysinfo = "0.39.1"
-tracel-llvm = { version = "22.1.4-2", features = ["mlir-helpers"] }
-tracel-llvm-bundler = { version = "22.1.4-2" }
+tracel-llvm = { version = "22.1.4-3", features = ["mlir-helpers"] }
+tracel-llvm-bundler = { version = "22.1.4-3" }
 ### For development
 # tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = [
 #     "mlir-helpers",

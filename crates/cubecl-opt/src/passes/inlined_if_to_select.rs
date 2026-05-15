@@ -1,7 +1,7 @@
 use core::mem::take;
 
 use alloc::vec::Vec;
-use cubecl_ir::{Instruction, Operator, Select};
+use cubecl_ir::{Instruction, Operator, SelectOperands};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
 use crate::{AtomicCounter, ControlFlow, Function, GlobalState, passes::update_references};
@@ -48,7 +48,7 @@ impl OptimizerPass for EmptyBranchToSelect {
                                 let or_else =
                                     phi.entries.iter().find(|it| it.block == or_else).unwrap();
                                 Instruction::new(
-                                    Operator::Select(Select {
+                                    Operator::Select(SelectOperands {
                                         cond,
                                         then: then.value,
                                         or_else: or_else.value,

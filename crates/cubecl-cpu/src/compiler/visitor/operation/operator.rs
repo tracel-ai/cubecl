@@ -1,5 +1,5 @@
 use cubecl_core::ir::{
-    BinaryOperands, IndexOperands, Memory, Operator, StorageType, VectorInsertOperator,
+    BinaryOperands, IndexOperands, Memory, Operator, StorageType, VectorInsertOperands,
 };
 use tracel_llvm::mlir_rs::{
     dialect::{
@@ -199,7 +199,7 @@ impl<'a> Visitor<'a> {
         self.append_operation_with_result(view)
     }
 
-    fn visit_insert(&mut self, op: &VectorInsertOperator, out: Variable) {
+    fn visit_insert(&mut self, op: &VectorInsertOperands, out: Variable) {
         let mut index = self.get_variable(op.index);
         let index_ty = Type::index(self.context);
         if index.r#type() != index_ty {

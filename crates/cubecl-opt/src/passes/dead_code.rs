@@ -218,13 +218,13 @@ impl OptimizerPass for MergeBlocks {
     }
 }
 
-fn merge_blocks(opt: &mut Function, state: &GlobalState) -> bool {
-    for block_idx in opt.analysis::<PostOrder>(state).reverse() {
-        let successors = opt.successors(block_idx);
-        if successors.len() == 1 && can_merge(opt, block_idx, successors[0]) {
+fn merge_blocks(func: &mut Function, state: &GlobalState) -> bool {
+    for block_idx in func.analysis::<PostOrder>(state).reverse() {
+        let successors = func.successors(block_idx);
+        if successors.len() == 1 && can_merge(func, block_idx, successors[0]) {
             let mut new_block = BasicBlock::default();
-            let block = opt[block_idx].clone();
-            let successor = opt[successors[0]].clone();
+            let block = func[block_idx].clone();
+            let successor = func[successors[0]].clone();
             let b_phi = block.phi_nodes.borrow().clone();
             let s_phi = successor.phi_nodes.borrow().clone();
             let b_ops = block.ops.borrow().values().cloned().collect::<Vec<_>>();
@@ -238,22 +238,22 @@ fn merge_blocks(opt: &mut Function, state: &GlobalState) -> bool {
             new_block.block_use.extend(block.block_use);
             new_block.block_use.extend(successor.block_use);
 
-            if successors[0] == opt.ret {
-                opt.ret = block_idx;
+            if successors[0] == func.ret {
+                func.ret = block_idx;
             }
-            for incoming in opt.predecessors(successors[0]) {
+            for incoming in func.predecessors(successors[0]) {
                 if incoming != block_idx {
-                    opt.add_edge(incoming, block_idx, 0);
+                    func.add_edge(incoming, block_idx, 0);
                 }
             }
-            for outgoing in opt.successors(successors[0]) {
-                opt.add_edge(block_idx, outgoing, 0);
+            for outgoing in func.successors(successors[0]) {
+                func.add_edge(block_idx, outgoing, 0);
             }
-            *opt.node_weight_mut(block_idx).unwrap() = new_block;
-            opt.remove_node(successors[0]);
-            opt.invalidate_structure();
-            opt.invalidate_analysis::<Liveness>();
-            update_references(opt, successors[0], block_idx);
+            *func.node_weight_mut(block_idx).unwrap() = new_block;
+            func.remove_node(successors[0]);
+            func.invalidate_structure();
+            func.invalidate_analysis::<Liveness>();
+            update_references(func, successors[0], block_idx);
             return true;
         }
     }

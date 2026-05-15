@@ -10,7 +10,7 @@ use crate::{
     unexpanded,
 };
 use core::ops::*;
-use cubecl_ir::{ClampOperator, Operator};
+use cubecl_ir::{ClampOperands, Operator};
 use half::{bf16, f16};
 
 pub mod sub {
@@ -50,7 +50,7 @@ pub mod clamp {
         max: NativeExpand<C>,
     ) -> NativeExpand<C> {
         unary_expand(scope, input.into(), |op| {
-            Arithmetic::Clamp(ClampOperator {
+            Arithmetic::Clamp(ClampOperands {
                 input: op.input,
                 min_value: min.expand,
                 max_value: max.expand,

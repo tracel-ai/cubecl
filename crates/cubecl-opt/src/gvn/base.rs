@@ -12,8 +12,8 @@ use super::{GlobalValues, convert::value_of_var};
 pub struct GvnPass;
 
 impl OptimizerPass for GvnPass {
-    fn apply_post_ssa(&mut self, opt: &mut Function, state: &GlobalState, changes: AtomicCounter) {
-        self.run(opt, state, &changes);
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        self.run(func, state, &changes);
     }
 }
 
@@ -25,11 +25,11 @@ impl GvnPass {
     ///    redundant
     /// 4. Replace fully redundant expressions with simple assignments from the leader of that
     ///    expression to `out`
-    pub fn run(&mut self, opt: &mut Function, state: &GlobalState, changes: &AtomicCounter) {
-        let analysis = opt.analysis::<GlobalValues>(state);
+    pub fn run(&mut self, func: &mut Function, state: &GlobalState, changes: &AtomicCounter) {
+        let analysis = func.analysis::<GlobalValues>(state);
 
-        analysis.0.borrow_mut().insert(opt, state, changes);
-        analysis.0.borrow_mut().eliminate(opt, changes);
+        analysis.0.borrow_mut().insert(func, state, changes);
+        analysis.0.borrow_mut().eliminate(func, changes);
     }
 }
 
