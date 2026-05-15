@@ -1,7 +1,7 @@
 //! Metadata helpers to easily get offsets etc.
 //!
 //! Conceptually, metadata is represented like this:
-//! ```rust
+//! ```ignore
 //! struct Metadata<const NUM_BUFS: usize, const NUM_EXT: usize> {
 //!     base: BaseMeta<NUM_BUFS>,
 //!     extended: ExtendedMeta<NUM_EXT>,
