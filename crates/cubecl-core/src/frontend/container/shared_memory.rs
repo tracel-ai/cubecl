@@ -18,8 +18,6 @@ use crate::{
     prelude::*,
 };
 
-pub type SharedMemory<T> = Shared<[T]>;
-pub type SharedMemoryExpand<T> = NativeExpand<Shared<[T]>>;
 pub type SharedExpand<T> = NativeExpand<Shared<T>>;
 
 pub struct Shared<E: NativeCubeType + ?Sized> {
@@ -27,10 +25,9 @@ pub struct Shared<E: NativeCubeType + ?Sized> {
 }
 
 // Treat it as a shared smart pointer
-impl<E: NativeCubeType + ?Sized> Copy for Shared<E> {}
 impl<E: NativeCubeType + ?Sized> Clone for Shared<E> {
     fn clone(&self) -> Self {
-        *self
+        Self { _val: self._val }
     }
 }
 
@@ -51,9 +48,9 @@ impl<T: NativeCubeType + ?Sized> AsMutExpand for SharedExpand<T> {
 }
 
 #[cube]
-impl<T: CubePrimitive> SharedMemory<T> {
+impl<T: CubePrimitive> Shared<[T]> {
     #[allow(unused_variables)]
-    pub fn new(#[comptime] size: usize) -> SharedMemory<T> {
+    pub fn new(#[comptime] size: usize) -> Self {
         intrinsic!(|scope| {
             let ty = Type::array(T::__expand_as_type(scope), size, AddressSpace::Shared);
             let buffer = scope.create_shared(ty, None);
@@ -73,6 +70,23 @@ impl<T: CubePrimitive> SharedMemory<T> {
     }
 }
 
+impl<T: NativeCubeType + ?Sized> Shared<T> {
+    pub fn map<U: NativeCubeType + ?Sized>(self, _map: impl FnOnce(&T) -> &U) -> Shared<U> {
+        unexpanded!()
+    }
+}
+
+impl<T: NativeCubeType + ?Sized> SharedExpand<T> {
+    pub fn __expand_map_method<U: NativeCubeType + ?Sized>(
+        self,
+        scope: &Scope,
+        map: impl for<'a> FnOnce(&Scope, &'a NativeExpand<T>) -> &'a NativeExpand<U>,
+    ) -> SharedExpand<U> {
+        let out = map(scope, self.__expand_ref_method(scope));
+        out.expand.into()
+    }
+}
+
 #[cube]
 impl<T: CubePrimitive> Shared<T> {
     pub fn new() -> Self {
@@ -83,7 +97,7 @@ impl<T: CubePrimitive> Shared<T> {
     }
 
     #[allow(unused_variables)]
-    pub fn new_array(#[comptime] size: usize) -> SharedMemory<T> {
+    pub fn new_array(#[comptime] size: usize) -> Shared<[T]> {
         intrinsic!(|scope| {
             let ty = Type::array(T::__expand_as_type(scope), size, AddressSpace::Shared);
             let buffer = scope.create_shared(ty, None);
@@ -98,10 +112,7 @@ impl<T: CubePrimitive> Shared<T> {
     }
 
     #[allow(unused_variables)]
-    pub fn new_aligned_array(
-        #[comptime] size: usize,
-        #[comptime] alignment: usize,
-    ) -> SharedMemory<T> {
+    pub fn new_aligned_array(#[comptime] size: usize, #[comptime] alignment: usize) -> Shared<[T]> {
         intrinsic!(|scope| {
             let ty = Type::array(T::__expand_as_type(scope), size, AddressSpace::Shared);
             let buffer = scope.create_shared(ty, Some(alignment));
@@ -165,22 +176,22 @@ impl<T: NativeCubeType + ?Sized> Shared<T> {
     }
 }
 
-fn len_static<T: CubePrimitive>(shared: &NativeExpand<SharedMemory<T>>) -> NativeExpand<usize> {
+fn len_static<T: CubePrimitive>(shared: &NativeExpand<Shared<[T]>>) -> NativeExpand<usize> {
     let Type::Array(_, length, _) = shared.expand.ty else {
         unreachable!("Kind of shared memory is always shared memory")
     };
     length.into()
 }
 
-impl<T: CubePrimitive> List<T> for SharedMemory<T> {}
-impl<T: CubePrimitive> ListExpand<T> for NativeExpand<SharedMemory<T>> {
+impl<T: CubePrimitive> List<T> for Shared<[T]> {}
+impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Shared<[T]>> {
     fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
         Self::__expand_len_method(self, scope)
     }
 }
 
-impl<T: CubePrimitive> Vectorized for SharedMemory<T> {}
-impl<T: CubePrimitive> VectorizedExpand for NativeExpand<SharedMemory<T>> {
+impl<T: CubePrimitive> Vectorized for Shared<[T]> {}
+impl<T: CubePrimitive> VectorizedExpand for NativeExpand<Shared<[T]>> {
     fn vector_size(&self) -> VectorSize {
         self.expand.ty.vector_size()
     }
@@ -200,7 +211,7 @@ impl<T: NativeCubeType + ?Sized> DerefMut for Shared<T> {
 }
 
 impl<T: NativeCubeType + ?Sized> Deref for SharedExpand<T> {
-    type Target = T::ExpandType;
+    type Target = NativeExpand<T>;
 
     fn deref(&self) -> &Self::Target {
         unsafe { self.as_type_ref_unchecked() }
@@ -212,8 +223,20 @@ impl<T: NativeCubeType + ?Sized> DerefMut for SharedExpand<T> {
     }
 }
 
+impl<'a, T: NativeCubeType + ?Sized> From<&'a SharedExpand<T>> for &'a NativeExpand<T> {
+    fn from(value: &'a SharedExpand<T>) -> Self {
+        value
+    }
+}
+
+impl<'a, T: NativeCubeType + ?Sized> From<&'a mut SharedExpand<T>> for &'a mut NativeExpand<T> {
+    fn from(value: &'a mut SharedExpand<T>) -> Self {
+        value
+    }
+}
+
 impl<T: NativeCubeType + ?Sized> AsDerefExpand for SharedExpand<T> {
-    type Target = T::ExpandType;
+    type Target = NativeExpand<T>;
 
     fn __expand_as_deref_method(&self, _: &Scope) -> &Self::Target {
         unsafe { self.as_type_ref_unchecked::<T>() }
@@ -232,6 +255,6 @@ impl<T: CubePrimitive> Assign<NativeExpand<T>> for SharedExpand<T> {
     }
 
     fn init_mut(&self, _: &Scope) -> Self {
-        *self
+        self.clone()
     }
 }

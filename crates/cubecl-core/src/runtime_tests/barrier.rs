@@ -8,7 +8,7 @@ use num_traits::Zero;
 #[cube(launch)]
 pub fn async_copy_test<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut [Vector<F, N>]) {
     let barrier = Barrier::local();
-    let mut smem = SharedMemory::<Vector<F, N>>::new(1usize);
+    let mut smem = Shared::<Vector<F, N>>::new_array(1usize);
 
     let source = &input[2..3];
     let destination = &mut smem[..1];
@@ -50,7 +50,7 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
 
 #[cube(launch)]
 fn one_load<F: Float, N: Size>(lhs: &Tensor<Vector<F, N>>, output: &mut Tensor<Vector<F, N>>) {
-    let mut lhs_smem = SharedMemory::<Vector<F, N>>::new(4usize);
+    let mut lhs_smem = Shared::<Vector<F, N>>::new_array(4usize);
 
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_cube();
@@ -74,8 +74,8 @@ fn two_loads<F: Float, N: Size>(
     output: &mut Tensor<Vector<F, N>>,
     #[comptime] num_data: usize, // should be even
 ) {
-    let mut lhs_smem = SharedMemory::<Vector<F, N>>::new(num_data);
-    let mut rhs_smem = SharedMemory::<Vector<F, N>>::new(num_data);
+    let mut lhs_smem = Shared::<Vector<F, N>>::new_array(num_data);
+    let mut rhs_smem = Shared::<Vector<F, N>>::new_array(num_data);
 
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_cube();
@@ -102,8 +102,8 @@ fn two_independent_loads<F: Float, N: Size>(
     output: &mut Tensor<Vector<F, N>>,
     #[comptime] num_data: usize,
 ) {
-    let mut lhs_smem = SharedMemory::<Vector<F, N>>::new(num_data);
-    let mut rhs_smem = SharedMemory::<Vector<F, N>>::new(num_data);
+    let mut lhs_smem = Shared::<Vector<F, N>>::new_array(num_data);
+    let mut rhs_smem = Shared::<Vector<F, N>>::new_array(num_data);
 
     let barrier_0 = barrier::Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     let barrier_1 = barrier::Barrier::shared(CUBE_DIM, UNIT_POS == 0);

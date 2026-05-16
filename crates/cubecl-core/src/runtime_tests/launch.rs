@@ -51,8 +51,8 @@ pub fn kernel_with_max_shared(
     #[comptime] shared_size_1: usize,
     #[comptime] shared_size_2: usize,
 ) {
-    let mut shared_1 = SharedMemory::<u32>::new(shared_size_1);
-    let mut shared_2 = SharedMemory::<u32>::new(shared_size_2);
+    let mut shared_1 = Shared::<u32>::new_array(shared_size_1);
+    let mut shared_2 = Shared::<u32>::new_array(shared_size_2);
     if UNIT_POS < 8 {
         shared_1[shared_size_1 - UNIT_POS as usize - 1] = output[UNIT_POS as usize];
         shared_2[shared_size_2 - UNIT_POS as usize - 1] = output[8 - UNIT_POS as usize];
@@ -67,7 +67,7 @@ pub fn kernel_with_max_shared(
 
 #[cube(launch)]
 pub fn kernel_resource_errors(output: &mut [u32], #[comptime] shared_size: usize) {
-    let mut shared = SharedMemory::<u32>::new(shared_size);
+    let mut shared = Shared::<u32>::new_array(shared_size);
     // Add some dummy code to prevent smem from being optimized out
     shared[0] = 0;
     sync_cube();

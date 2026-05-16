@@ -279,8 +279,8 @@ pub(crate) trait IntoSliceIndices {
 }
 
 macro_rules! impl_slice_ranges {
-    ($ty: ident, $range: ty) => {
-        impl<E: CubePrimitive> IndexExpand<$range> for $ty<E> {
+    ($ty: ty, $range: ty) => {
+        impl<E: CubePrimitive> IndexExpand<$range> for $ty {
             type Output = SliceExpand<E>;
 
             fn __expand_index_method(&self, scope: &Scope, index: $range) -> &Self::Output {
@@ -289,7 +289,7 @@ macro_rules! impl_slice_ranges {
             }
         }
 
-        impl<E: CubePrimitive> IndexMutExpand<$range> for $ty<E> {
+        impl<E: CubePrimitive> IndexMutExpand<$range> for $ty {
             fn __expand_index_mut_method(
                 &mut self,
                 scope: &Scope,
@@ -300,7 +300,7 @@ macro_rules! impl_slice_ranges {
             }
         }
     };
-    ($ty: ident) => {
+    ($ty: ty) => {
         impl_slice_ranges!($ty, RangeExpand<usize>);
         impl_slice_ranges!($ty, RangeFromExpand<usize>);
         impl_slice_ranges!($ty, RangeFullExpand);
