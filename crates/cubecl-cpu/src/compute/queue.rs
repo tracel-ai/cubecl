@@ -1,9 +1,10 @@
+/// BIG TODO remove threading from that and just run the kernel instead of spawning another thread
 use crate::{
     compiler::mlir_engine::MlirEngine,
     compute::{
         notification::Notification,
-        runner::KernelRunner,
         schedule::{BindingsResource, ScheduleTask},
+        threadpool::Threadpool,
     },
 };
 use cubecl_common::bytes::Bytes;
@@ -51,7 +52,7 @@ impl CpuExecutionQueue {
 
         std::thread::spawn(move || {
             let mut server = CpuExecutionQueueServer {
-                runner: KernelRunner::new(logger),
+                runner: Threadpool::new(logger),
             };
 
             loop {
@@ -72,7 +73,7 @@ impl CpuExecutionQueue {
 }
 
 struct CpuExecutionQueueServer {
-    runner: KernelRunner,
+    runner: Threadpool,
 }
 
 impl CpuExecutionQueueServer {

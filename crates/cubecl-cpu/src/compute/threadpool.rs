@@ -27,7 +27,7 @@ use sysinfo::System;
 ///
 /// A single kernel runner is currently used for all kernels.
 /// To register work, you have to use the execution queue.
-pub struct KernelRunner {
+pub struct Threadpool {
     workers: Vec<Worker>,
     memory_management_shared_memory: MemoryManagement<BytesStorage>,
 }
@@ -54,13 +54,13 @@ impl Debug for CpuKernel {
     }
 }
 
-impl Debug for KernelRunner {
+impl Debug for Threadpool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", &self.workers)
     }
 }
 
-impl KernelRunner {
+impl Threadpool {
     pub fn new(logger: Arc<ServerLogger>) -> Self {
         let mut system = System::new();
         system.refresh_memory();
@@ -87,7 +87,7 @@ impl KernelRunner {
             .map(|core_id| Worker::new_with_affinity(core_id))
             .collect();
 
-        KernelRunner {
+        Self {
             workers,
             memory_management_shared_memory,
         }
