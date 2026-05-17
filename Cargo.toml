@@ -136,6 +136,8 @@ tracel-llvm-bundler = { version = "22.1.4-3" }
 #     "mlir-helpers",
 # ] }
 # tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler" }
+libc = "^0.2.186"
+winapi = { version = "^0.3.9", features = ["processthreadsapi", "winbase"] }
 
 
 cudarc = { version = "0.19.6", features = [
@@ -164,7 +166,6 @@ renderdoc = "0.12"
 
 # Build deps
 cfg_aliases = "0.2.1"
-
 
 [profile.dev.build-override]
 opt-level = 3

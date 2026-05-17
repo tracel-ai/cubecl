@@ -1,3 +1,4 @@
+pub mod affinity;
 pub mod compute_task;
 pub mod runner;
 pub mod server;

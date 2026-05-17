@@ -7,7 +7,7 @@ use super::{
 };
 use crate::{
     compiler::{MlirCompiler, mlir_data::MlirData, mlir_engine::MlirEngine},
-    compute::notification::Notifications,
+    compute::{affinity::get_active_cores, notification::Notifications},
 };
 use cubecl_core::{
     CubeDim, MemoryConfiguration, ir::MemoryDeviceProperties, prelude::CompiledKernel,
@@ -83,11 +83,8 @@ impl KernelRunner {
             MemoryManagementOptions::new("Shared Memory"),
         );
 
-        let available_parallelism = std::thread::available_parallelism()
-            .expect("Can't get available parallelism on this platform")
-            .get();
-        let workers = (0..available_parallelism)
-            .map(|_| Worker::default())
+        let workers = get_active_cores()
+            .map(|core_id| Worker::new_with_affinity(core_id))
             .collect();
 
         KernelRunner {
@@ -111,7 +108,7 @@ impl KernelRunner {
 
         if cube_dim_size > self.workers.len() as u32 {
             self.workers
-                .extend((0..cube_dim_size - self.workers.len() as u32).map(|_| Worker::default()));
+                .extend((0..cube_dim_size - self.workers.len() as u32).map(|_| Worker::new()));
         }
 
         let mlir_data = MlirData::new(

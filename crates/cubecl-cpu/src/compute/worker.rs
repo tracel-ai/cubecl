@@ -2,6 +2,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use super::compute_task::ComputeTask;
+use crate::compute::affinity::{CoreId, set_for_current};
 
 pub const MAX_STACK_SIZE: usize = 16 * 1024 * 1024;
 pub const DEFAULT_STACK_SIZE: usize = 64 * 1024 * 1024;
@@ -26,8 +27,20 @@ pub struct Worker {
     tx: mpsc::Sender<ComputeTask>,
 }
 
-impl Default for Worker {
-    fn default() -> Self {
+impl Worker {
+    pub fn new_with_affinity(core_id: CoreId) -> Self {
+        let (tx, rx) = mpsc::channel();
+        let inner_worker = InnerWorker { rx };
+        thread::Builder::new()
+            .stack_size(resolve_stack_size())
+            .spawn(move || {
+                set_for_current(core_id);
+                inner_worker.work()
+            })
+            .unwrap();
+        Self { tx }
+    }
+    pub fn new() -> Self {
         let (tx, rx) = mpsc::channel();
         let inner_worker = InnerWorker { rx };
         thread::Builder::new()
@@ -36,9 +49,6 @@ impl Default for Worker {
             .unwrap();
         Self { tx }
     }
-}
-
-impl Worker {
     pub fn send_task(&mut self, compute_task: ComputeTask) {
         self.tx.send(compute_task).unwrap();
     }
