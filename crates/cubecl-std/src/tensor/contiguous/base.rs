@@ -94,7 +94,7 @@ pub fn index_offset_contiguous_fastdivmod(
 
 #[cube(launch, address_type = "dynamic")]
 fn copy_kernel<T: Numeric, N: Size>(
-    input: &LinearView<Vector<T, N>>,
+    input: LinearView<'_, Vector<T, N>>,
     output: &mut [Vector<T, N>],
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: usize,
@@ -119,7 +119,7 @@ fn copy_kernel<T: Numeric, N: Size>(
 
 #[cube(launch, address_type = "dynamic")]
 fn copy_kernel_pack<T: Numeric, N: Size>(
-    input: &LinearView<T>,
+    input: LinearView<'_, T>,
     output: &mut [Vector<T, N>],
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: usize,

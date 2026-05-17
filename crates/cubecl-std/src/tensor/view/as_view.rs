@@ -1,6 +1,6 @@
 use cubecl_core::{prelude::*, unexpanded};
 
-use crate::tensor::{View, ViewExpand, layout::*};
+use crate::tensor::{View, ViewExpand, ViewMut, ViewMutExpand, layout::*};
 
 type ArrayExpand<T> = NativeExpand<Array<T>>;
 
@@ -13,15 +13,15 @@ pub trait AsView<E: CubePrimitive>:
     fn view<C: Coordinates + 'static>(
         &self,
         layout: impl Into<VirtualLayout<C, Self::SourceCoords>>,
-    ) -> View<E, C, ReadOnly> {
+    ) -> View<'_, E, C> {
         unexpanded!()
     }
 
-    fn __expand_view<C: Coordinates + 'static>(
+    fn __expand_view<'a, C: Coordinates + 'static>(
         scope: &Scope,
-        this: Self::ExpandType,
+        this: &'a Self::ExpandType,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
-    ) -> ViewExpand<E, C, ReadOnly> {
+    ) -> ViewExpand<'a, E, C> {
         this.__expand_view_method(scope, layout)
     }
 }
@@ -34,7 +34,7 @@ pub trait AsViewExpand<E: CubePrimitive> {
         &self,
         scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
-    ) -> ViewExpand<E, C, ReadOnly>;
+    ) -> ViewExpand<'_, E, C>;
 }
 
 pub trait AsViewMut<E: CubePrimitive>: AsView<E> {
@@ -42,7 +42,7 @@ pub trait AsViewMut<E: CubePrimitive>: AsView<E> {
     fn view_mut<C: Coordinates + 'static>(
         &mut self,
         layout: impl Into<VirtualLayout<C, Self::SourceCoords>>,
-    ) -> View<E, C, ReadWrite> {
+    ) -> ViewMut<'_, E, C> {
         unexpanded!()
     }
 }
@@ -53,7 +53,7 @@ pub trait AsViewMutExpand<E: CubePrimitive>: AsViewExpand<E> {
         &mut self,
         scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
-    ) -> ViewExpand<E, C, ReadWrite>;
+    ) -> ViewMutExpand<'_, E, C>;
 }
 
 macro_rules! impl_as_view {
@@ -67,10 +67,10 @@ macro_rules! impl_as_view {
                 &self,
                 scope: &Scope,
                 layout: VirtualLayoutExpand<C, $coords>,
-            ) -> super::ViewExpand<E, C, ReadOnly> {
-                View::__expand_new::<Box<[E]>, $coords>(
+            ) -> super::ViewExpand<'_, E, C> {
+                View::__expand_new::<&[E], $coords>(
                     scope,
-                    unsafe { self.__expand_as_boxed_unchecked_method(scope) },
+                    self.__expand_as_slice_method(scope),
                     layout,
                 )
             }
@@ -82,13 +82,10 @@ macro_rules! impl_as_view {
                 &mut self,
                 scope: &Scope,
                 layout: VirtualLayoutExpand<C, $coords>,
-            ) -> super::ViewExpand<E, C, ReadWrite> {
-                View::__expand_new_mut::<Box<[E]>, $coords>(
+            ) -> super::ViewMutExpand<'_, E, C> {
+                ViewMut::__expand_new::<&mut [E], $coords>(
                     scope,
-                    unsafe {
-                        self.__expand_as_mut_slice_method(scope)
-                            .__expand_as_boxed_unchecked_method(scope)
-                    },
+                    self.__expand_as_mut_slice_method(scope),
                     layout,
                 )
             }
@@ -105,8 +102,8 @@ impl<E: CubePrimitive> AsView<E> for [E] {
     fn view<C: Coordinates + 'static>(
         &self,
         layout: impl Into<VirtualLayout<C, Coords1d>>,
-    ) -> View<E, C, ReadOnly> {
-        View::new::<Box<[E]>, Coords1d>(unsafe { self.as_boxed_unchecked() }, layout)
+    ) -> View<'_, E, C> {
+        View::new::<&[E], Coords1d>(self, layout)
     }
 }
 
@@ -116,12 +113,8 @@ impl<E: CubePrimitive> AsViewExpand<E> for SliceExpand<E> {
         &self,
         scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
-    ) -> ViewExpand<E, C, ReadOnly> {
-        View::__expand_new::<Box<[E]>, Self::SourceCoords>(
-            scope,
-            unsafe { self.__expand_as_boxed_unchecked_method(scope) },
-            layout,
-        )
+    ) -> ViewExpand<'_, E, C> {
+        View::__expand_new::<&[E], Self::SourceCoords>(scope, self, layout)
     }
 }
 
@@ -129,8 +122,8 @@ impl<E: CubePrimitive> AsViewMut<E> for [E] {
     fn view_mut<C: Coordinates + 'static>(
         &mut self,
         layout: impl Into<VirtualLayout<C, Coords1d>>,
-    ) -> View<E, C, ReadWrite> {
-        View::new_mut::<Box<[E]>, Coords1d>(unsafe { self.as_boxed_unchecked() }, layout)
+    ) -> ViewMut<'_, E, C> {
+        ViewMut::new::<&mut [E], Coords1d>(self, layout)
     }
 }
 impl<E: CubePrimitive> AsViewMutExpand<E> for SliceExpand<E> {
@@ -138,12 +131,8 @@ impl<E: CubePrimitive> AsViewMutExpand<E> for SliceExpand<E> {
         &mut self,
         scope: &Scope,
         layout: VirtualLayoutExpand<C, Self::SourceCoords>,
-    ) -> ViewExpand<E, C, ReadWrite> {
-        View::__expand_new_mut::<Box<[E]>, Coords1d>(
-            scope,
-            unsafe { self.__expand_as_boxed_unchecked_method(scope) },
-            layout,
-        )
+    ) -> ViewMutExpand<'_, E, C> {
+        ViewMut::__expand_new::<&mut [E], Coords1d>(scope, self, layout)
     }
 }
 
@@ -158,7 +147,7 @@ macro_rules! as_view_tensor_map {
                     fn [<view_ $dim>]<C: Coordinates + 'static>(
                         &self,
                         layout: impl Into<VirtualLayout<C, [<Coords $dim>]>>,
-                    ) -> View<E, C, ReadOnly> {
+                    ) -> View<'_, E, C> {
                         unexpanded!()
                     }
 
@@ -166,7 +155,7 @@ macro_rules! as_view_tensor_map {
                         scope: &Scope,
                         this: Self::ExpandType,
                         layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
-                    ) -> ViewExpand<E, C, ReadOnly> {
+                    ) -> ViewExpand<'_, E, C> {
                         this.[<__expand_view_ $dim _method>](scope, layout)
                     }
                 )*
@@ -179,7 +168,7 @@ macro_rules! as_view_tensor_map {
                         self,
                         scope: &Scope,
                         layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
-                    ) -> ViewExpand<E, C, ReadOnly>;
+                    ) -> ViewExpand<'_, E, C>;
                 )*
             }
 
@@ -189,7 +178,7 @@ macro_rules! as_view_tensor_map {
                     fn [<view_mut_ $dim>]<C: Coordinates + 'static>(
                         &mut self,
                         layout: impl Into<VirtualLayout<C, [<Coords $dim>]>>,
-                    ) -> View<E, C, ReadWrite> {
+                    ) -> ViewMut<'_, E, C> {
                         unexpanded!()
                     }
                 )*
@@ -202,7 +191,7 @@ macro_rules! as_view_tensor_map {
                         self,
                         scope: &Scope,
                         layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
-                    ) -> ViewExpand<E, C, ReadWrite>;
+                    ) -> ViewMutExpand<'_, E, C>;
                 )*
             }
 
@@ -213,7 +202,7 @@ macro_rules! as_view_tensor_map {
                         self,
                         scope: &Scope,
                         layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
-                    ) -> super::ViewExpand<E, C, ReadOnly> {
+                    ) -> super::ViewExpand<'_, E, C> {
                         View::__expand_new::<TensorMap<E, Tiled>, [<Coords $dim>]>(scope, self, layout)
                     }
                 )*
@@ -226,8 +215,8 @@ macro_rules! as_view_tensor_map {
                         self,
                         scope: &Scope,
                         layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
-                    ) -> super::ViewExpand<E, C, ReadWrite> {
-                        View::__expand_new_mut::<TensorMap<E, Tiled>, [<Coords $dim>]>(scope, self, layout)
+                    ) -> super::ViewMutExpand<'_, E, C> {
+                        ViewMut::__expand_new::<TensorMap<E, Tiled>, [<Coords $dim>]>(scope, self, layout)
                     }
                 )*
             }

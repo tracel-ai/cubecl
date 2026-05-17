@@ -40,7 +40,7 @@ impl Layout for TestPerTensorScaleLayout {
 
 #[cube(launch_unchecked)]
 pub fn kernel_quantized_view<F: Float, N: Size>(
-    lhs: View<Vector<F, N>, Coords1d>,
+    lhs: View<'_, Vector<F, N>, Coords1d>,
     output: &mut [Vector<F, N>],
 ) {
     if (UNIT_POS as usize) < lhs.shape() {

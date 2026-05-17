@@ -100,7 +100,7 @@ impl<T: Numeric, N: Size> ViewOperationsMutExpand<Vector<T, N>, Coords1d>
         pos: NativeExpand<usize>,
         value: <Vector<T, N> as CubeType>::ExpandType,
     ) {
-        self.__expand_write_method(scope, pos, value)
+        self.state_write().__expand_write_method(scope, pos, value)
     }
 
     fn __expand_write_checked_method(
@@ -118,21 +118,11 @@ impl<T: Numeric, N: Size> ViewOperationsMutExpand<Vector<T, N>, Coords1d>
 
     fn __expand_as_linear_slice_mut_method(
         &self,
-        scope: &Scope,
-        pos: NativeExpand<usize>,
-        end: NativeExpand<usize>,
+        _scope: &Scope,
+        _pos: NativeExpand<usize>,
+        _end: NativeExpand<usize>,
     ) -> &mut SliceExpand<Vector<T, N>> {
-        // Convert to exclusive end
-        let end = end.__expand_add_method(scope, 1usize.into_expand(scope));
-        // Handling for shapes that are 0 in at least one dim, ensures the slice is not
-        // negative length.
-        let start = clamp_max::expand(scope, pos, end);
-        let mut this = self.clone();
-        let slice = <Self as SliceOperatorExpand<Vector<T, N>>>::__expand_slice_mut_method(
-            &mut this, scope, start, end,
-        );
-        // Arrays are internally references, so this is actually 'a
-        unsafe { core::mem::transmute(slice) }
+        todo!("VirtualTensor don't support slice mut yet");
     }
 
     fn __expand_tensor_map_store_method(

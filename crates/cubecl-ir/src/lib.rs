@@ -35,6 +35,8 @@ mod r#type;
 mod type_hash;
 mod variable;
 
+pub mod arena;
+
 pub use address::*;
 pub use allocator::*;
 pub use arithmetic::*;
