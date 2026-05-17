@@ -313,7 +313,7 @@ impl Function {
                 visit_read(self, &mut store.value);
             }
             AtomicOp::CompareAndSwap(op) => {
-                visit_read(self, &mut op.cmp);
+                visit_read(self, &mut op.input);
                 visit_read(self, &mut op.cmp);
                 visit_read(self, &mut op.val);
             }
