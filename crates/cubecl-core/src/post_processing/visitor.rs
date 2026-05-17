@@ -124,6 +124,7 @@ impl<T> Visitor<T> {
 
         match op {
             Operation::Copy(variable) => visit_read(self, variable),
+            Operation::WorkgroupUniformLoad(variable) => visit_read(self, variable),
             Operation::Memory(memory) => self.visit_memory(memory, visit_read),
             Operation::Arithmetic(arithmetic) => self.visit_arithmetic(arithmetic, visit_read),
             Operation::Comparison(comparison) => self.visit_compare(comparison, visit_read),

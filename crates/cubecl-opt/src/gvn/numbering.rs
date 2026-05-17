@@ -121,7 +121,11 @@ impl ValueTable {
             Operation::Bitwise(bitwise) => self.create_expr_simple_op(bitwise, inst.out()),
             Operation::Operator(operator) => self.create_expr_simple_op(operator, inst.out()),
             Operation::Metadata(metadata) => self.create_expr_simple_op(metadata, inst.out()),
-            Operation::Plane(_) => Err(value_of_var(&inst.out())),
+            // Not numberable: it has a barrier side-effect and a
+            // workgroup-uniformity contract, so it must never be deduplicated.
+            Operation::Plane(_) | Operation::WorkgroupUniformLoad(_) => {
+                Err(value_of_var(&inst.out()))
+            }
             Operation::Atomic(atomic) => self.create_expr_atomic(atomic, inst.out),
             Operation::Branch(_)
             | Operation::Synchronization(_)

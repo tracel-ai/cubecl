@@ -485,6 +485,12 @@ impl WgslCompiler {
             cube::Operation::Synchronization(val) => {
                 self.compile_synchronization(instructions, val)
             }
+            cube::Operation::WorkgroupUniformLoad(op) => {
+                instructions.push(wgsl::Instruction::WorkgroupUniformLoad {
+                    input: self.compile_variable(op),
+                    out: self.compile_variable(out.unwrap()),
+                });
+            }
             cube::Operation::Plane(op) => self.compile_subgroup(instructions, op, out),
             cube::Operation::CoopMma(_) => {
                 panic!("Cooperative matrix-multiply and accumulate isn't supported on wgpu.")

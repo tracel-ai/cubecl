@@ -57,6 +57,10 @@ pub enum Instruction {
     Unreachable,
     WorkgroupBarrier,
     StorageBarrier,
+    WorkgroupUniformLoad {
+        input: Variable,
+        out: Variable,
+    },
     // Index handles casting to correct local variable.
     Index {
         lhs: Variable,
@@ -853,6 +857,10 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Break => f.write_str("break;\n"),
             Instruction::WorkgroupBarrier => f.write_str("workgroupBarrier();\n"),
             Instruction::StorageBarrier => f.write_str("storageBarrier();\n"),
+            Instruction::WorkgroupUniformLoad { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = workgroupUniformLoad({input});")
+            }
             Instruction::Length { var, out } => {
                 let out = out.fmt_left();
 
