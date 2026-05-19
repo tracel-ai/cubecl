@@ -43,7 +43,7 @@ deny-validation-errors = ["wgpu-hal/validation_canary"]
 spirv-dump = ["std"]
 vulkan-validate = []
 
-renderdoc = ["std", "dep:renderdoc"]
+renderdoc = ["std"]
 tracing = [
     "dep:tracing",
     "cubecl-runtime/tracing",
@@ -54,7 +54,7 @@ tracing = [
 [dependencies]
 # Runtime Deps
 log = { workspace = true }
-renderdoc = { workspace = true, optional = true }
+renderdoc = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
 cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-features = false }
