@@ -45,11 +45,12 @@ impl MlirData {
         let BindingsResource { resources, info } = bindings;
 
         let builtin = BuiltinArray::new(cube_dim, cube_count);
-        let max_buffer_size = resources.len() + BuiltinArray::len();
+        let indirect_args_len = resources.len() + shared_memories.0.len() + 1;
+        let total_args_len = indirect_args_len + BuiltinArray::len();
 
-        let args_zero_indirection = Vec::with_capacity(max_buffer_size);
-        let args_first_indirection = Vec::with_capacity(max_buffer_size);
-        let mut args_second_indirection = Vec::with_capacity(max_buffer_size);
+        let args_zero_indirection = Vec::with_capacity(indirect_args_len);
+        let args_first_indirection = Vec::with_capacity(indirect_args_len);
+        let mut args_second_indirection = Vec::with_capacity(total_args_len);
         let info = info.data;
 
         let mut shared_mlir_data = SharedMlirData {
@@ -79,8 +80,10 @@ impl MlirData {
 
         let mut smem_handles = Vec::with_capacity(shared_memories.0.len());
         for shared_memory in shared_memories.0.iter() {
-            let length = shared_memory.ty.size() as u64;
-            let handle = memory_management_shared_memory.reserve(length).unwrap();
+            let length_bytes = shared_memory.ty.size() as u64 * shared_memory.length as u64;
+            let handle = memory_management_shared_memory
+                .reserve(length_bytes)
+                .unwrap();
 
             smem_handles.push(handle.clone());
 
@@ -95,7 +98,8 @@ impl MlirData {
         core::mem::drop(smem_handles);
 
         let ptr = shared_mlir_data.info.as_mut_ptr() as *mut u8;
-        let line_memref = LineMemRef::new(ptr, shared_mlir_data.info.len());
+        let info_len_bytes = shared_mlir_data.info.len() * core::mem::size_of::<u64>();
+        let line_memref = LineMemRef::new(ptr, info_len_bytes);
         push_undirected(line_memref);
 
         let shared_mlir_data = Arc::new(shared_mlir_data);
