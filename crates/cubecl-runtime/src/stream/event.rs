@@ -204,6 +204,11 @@ impl<B: EventStreamBackend> MultiStream<B> {
         self.gc.sender.send(gc).unwrap();
     }
 
+    /// Representative [`StreamId`] for every initialized stream.
+    pub fn stream_ids(&self) -> impl Iterator<Item = StreamId> + '_ {
+        self.streams.stream_ids()
+    }
+
     /// Resolves and returns a mutable reference to the stream for the given ID, performing any necessary
     /// alignment based on the provided bindings.
     ///

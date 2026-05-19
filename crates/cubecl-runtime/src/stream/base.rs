@@ -37,9 +37,21 @@ impl<F: StreamFactory> StreamPool<F> {
         }
     }
 
-    /// Read-only iterator over initialized streams (unlike [`Self::get_mut`], never creates one).
-    pub fn streams(&self) -> impl Iterator<Item = &F::Stream> {
-        self.streams.iter().flatten()
+    /// Representative [`StreamId`] for every initialized regular stream slot.
+    ///
+    /// Slots are addressed by `id.value % max_streams`, so `value == slot index`
+    /// resolves back to that exact slot without creating new streams. Special
+    /// streams are excluded: they aren't reachable by a [`StreamId`] and hold no
+    /// user allocations.
+    pub fn stream_ids(&self) -> impl Iterator<Item = StreamId> + '_ {
+        self.streams[..self.max_streams]
+            .iter()
+            .enumerate()
+            .filter_map(|(value, slot)| {
+                slot.as_ref().map(|_| StreamId {
+                    value: value as u64,
+                })
+            })
     }
 
     /// Retrieves a mutable reference to a stream for a given stream ID.

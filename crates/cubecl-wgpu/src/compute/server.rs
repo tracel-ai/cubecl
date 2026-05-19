@@ -472,18 +472,14 @@ impl ComputeServer for WgpuServer {
         stream.end_profile(token)
     }
 
+    fn stream_ids(&self) -> Vec<StreamId> {
+        self.scheduler.stream_ids().collect()
+    }
+
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         Ok(stream.mem_manage.memory_usage())
-    }
-
-    fn memory_usage_total(&mut self) -> Result<MemoryUsage, ServerError> {
-        Ok(self
-            .scheduler
-            .streams()
-            .map(|s| s.mem_manage.memory_usage())
-            .fold(MemoryUsage::default(), |acc, usage| acc.combine(usage)))
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {

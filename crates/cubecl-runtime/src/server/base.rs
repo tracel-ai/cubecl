@@ -406,16 +406,13 @@ where
     /// Flush all outstanding tasks in the server.
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
-    /// The current memory usage of the server.
+    /// Representative ids of every live stream, one per initialized stream.
+    fn stream_ids(&self) -> Vec<StreamId>;
+
+    /// The current memory usage of the given stream.
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError>;
 
-    /// Total memory usage across all streams. Default reports only the
-    /// calling stream; multi-stream backends override to aggregate.
-    fn memory_usage_total(&mut self) -> Result<MemoryUsage, ServerError> {
-        self.memory_usage(StreamId::current())
-    }
-
-    /// Ask the server to release memory that it can release.
+    /// Ask the given stream to release memory that it can release.
     fn memory_cleanup(&mut self, stream_id: StreamId);
 
     /// Enable collecting timestamps.

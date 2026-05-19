@@ -114,9 +114,9 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         &mut stream.stream
     }
 
-    /// Read-only iterator over initialized backend streams.
-    pub fn streams(&self) -> impl Iterator<Item = &B::Stream> {
-        self.pool.streams().map(|s| &s.stream)
+    /// Representative [`StreamId`] for every initialized stream.
+    pub fn stream_ids(&self) -> impl Iterator<Item = StreamId> + '_ {
+        self.pool.stream_ids()
     }
 
     /// Registers a task for execution on a specific stream, ensuring stream alignment.

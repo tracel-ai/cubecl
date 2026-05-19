@@ -832,19 +832,16 @@ impl<R: Runtime> ComputeClient<R> {
         Arc::get_mut(&mut self.utilities).map(|state| &mut state.properties)
     }
 
-    /// Get the current memory usage of this client.
+    /// Get the current memory usage of this client, summed across every stream.
     pub fn memory_usage(&self) -> Result<MemoryUsage, ServerError> {
-        let stream_id = self.stream_id();
         self.device
-            .submit_blocking(move |server| server.memory_usage(stream_id))
-            .unwrap()
-    }
-
-    /// Total memory usage across all streams, correct from any thread
-    /// (unlike [`Self::memory_usage`], which only sees the calling thread's stream).
-    pub fn memory_usage_total(&self) -> Result<MemoryUsage, ServerError> {
-        self.device
-            .submit_blocking(move |server| server.memory_usage_total())
+            .submit_blocking(move |server| {
+                let mut usage = MemoryUsage::default();
+                for stream_id in server.stream_ids() {
+                    usage = usage.combine(server.memory_usage(stream_id)?);
+                }
+                Ok(usage)
+            })
             .unwrap()
     }
 
@@ -884,9 +881,11 @@ impl<R: Runtime> ComputeClient<R> {
     /// Nb: Results will vary on what the memory allocator deems beneficial,
     /// so it's not guaranteed any memory is freed.
     pub fn memory_cleanup(&self) {
-        let stream_id = self.stream_id();
-        self.device
-            .submit(move |server| server.memory_cleanup(stream_id));
+        self.device.submit(move |server| {
+            for stream_id in server.stream_ids() {
+                server.memory_cleanup(stream_id);
+            }
+        });
     }
 
     /// Measure the execution time of some inner operations.
