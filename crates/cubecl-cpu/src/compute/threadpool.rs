@@ -64,14 +64,14 @@ impl Threadpool {
     pub fn new(logger: Arc<ServerLogger>) -> Self {
         let mut system = System::new();
         system.refresh_memory();
-        let max_shared_memory_size = system
+        let max_page_size = system
             .cgroup_limits()
             .map(|g| g.total_memory)
-            .unwrap_or(system.total_memory()) as usize;
+            .unwrap_or(system.total_memory());
 
         const ALIGNMENT: u64 = 4;
         let memory_properties = MemoryDeviceProperties {
-            max_page_size: max_shared_memory_size as u64,
+            max_page_size,
             alignment: ALIGNMENT,
         };
 

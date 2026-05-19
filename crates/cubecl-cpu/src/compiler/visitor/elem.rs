@@ -81,15 +81,10 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
         ElemType::Int(IntKind::I16),
         ElemType::Int(IntKind::I32),
         ElemType::Int(IntKind::I64),
-        // Elem::AtomicInt(IntKind::I32),
-        // Elem::AtomicInt(IntKind::I64),
-        // Elem::AtomicUInt(UIntKind::U32),
-        // Elem::AtomicUInt(UIntKind::U64),
         ElemType::Float(FloatKind::BF16),
         ElemType::Float(FloatKind::F16),
         ElemType::Float(FloatKind::F32),
         ElemType::Float(FloatKind::F64),
-        // Elem::Bool,
     ];
 
     for ty in supported_types {
