@@ -91,16 +91,21 @@ impl<'a> Visitor<'a> {
     }
 
     pub fn get_block_args(
-        &self,
+        &mut self,
         block_id: NodeIndex,
         destination: NodeIndex,
     ) -> Vec<Value<'a, 'a>> {
-        self.blocks_args
+        let current_block = self.block;
+        self.block = self.blocks[&block_id];
+        let args = self
+            .blocks_args
             .get(&(block_id, destination))
             .unwrap_or(&vec![])
             .iter()
             .map(|v| self.get_variable(*v))
-            .collect()
+            .collect();
+        self.block = current_block;
+        args
     }
 
     pub fn append_global_str(&mut self, str_to_append: &str) -> String {
