@@ -218,6 +218,10 @@ impl ComputeServer for DummyServer {
         Ok(())
     }
 
+    fn stream_ids(&self) -> Vec<StreamId> {
+        vec![StreamId::current()]
+    }
+
     fn memory_usage(&mut self, _stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
         Ok(self.memory_management.memory_usage())
     }

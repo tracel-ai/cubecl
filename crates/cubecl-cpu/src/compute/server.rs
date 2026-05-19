@@ -263,6 +263,10 @@ impl ComputeServer for CpuServer {
         }
     }
 
+    fn stream_ids(&self) -> Vec<StreamId> {
+        self.scheduler.stream_ids().collect()
+    }
+
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
         let stream = self.scheduler.stream(&stream_id);
         Ok(stream.memory_management.memory_usage())

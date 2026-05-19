@@ -472,6 +472,10 @@ impl ComputeServer for WgpuServer {
         stream.end_profile(token)
     }
 
+    fn stream_ids(&self) -> Vec<StreamId> {
+        self.scheduler.stream_ids().collect()
+    }
+
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);

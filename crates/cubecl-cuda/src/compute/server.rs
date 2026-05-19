@@ -231,6 +231,10 @@ impl ComputeServer for CudaServer {
         Ok(ManagedResource::new(memory, resource))
     }
 
+    fn stream_ids(&self) -> Vec<StreamId> {
+        self.streams.stream_ids().collect()
+    }
+
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
         let mut command = self.command_no_inputs(
             stream_id,

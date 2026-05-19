@@ -114,6 +114,11 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         &mut stream.stream
     }
 
+    /// Representative [`StreamId`] for every initialized stream.
+    pub fn stream_ids(&self) -> impl Iterator<Item = StreamId> + '_ {
+        self.pool.stream_ids()
+    }
+
     /// Registers a task for execution on a specific stream, ensuring stream alignment.
     pub fn register(&mut self, stream_id: StreamId, task: B::Task, args_streams: &[StreamId]) {
         // Align streams to ensure dependencies are handled correctly.
