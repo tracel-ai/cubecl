@@ -6,7 +6,8 @@ pub(super) mod operator;
 pub(super) mod synchronization;
 
 use cubecl_core::ir::{
-    BarrierLevel, BarrierOps, NonSemantic, OpaqueType, Operation, StorageType, Synchronization,
+    BarrierLevel, BarrierOps, Memory, NonSemantic, OpaqueType, Operation, StorageType,
+    Synchronization,
 };
 use tracel_llvm::mlir_rs::{
     dialect::{llvm, ods::llvm as llvm_ods},
@@ -157,6 +158,12 @@ impl<'a> Visitor<'a> {
             }
             Operation::Operator(operator) => {
                 self.visit_operator_with_out(operator, out);
+            }
+            Operation::WorkgroupUniformLoad(input) => {
+                if input.ty.is_atomic() {
+                    todo!("Atomic operations are not yet supported on CPU");
+                }
+                self.visit_memory(&Memory::Load(*input), Some(out));
             }
             Operation::CoopMma(_)
             | Operation::Plane(_)

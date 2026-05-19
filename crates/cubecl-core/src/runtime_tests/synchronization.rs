@@ -2,7 +2,7 @@ use alloc::{vec, vec::Vec};
 
 use crate::prelude::*;
 use crate::{self as cubecl};
-use cubecl_ir::features::Plane;
+use cubecl_ir::features::{AtomicUsage, Plane};
 
 #[cube(launch)]
 /// First 32 elements should be 1, while last 32 elements may or may not be 1
@@ -145,6 +145,100 @@ pub fn test_sync_cube_shared<R: Runtime>(client: ComputeClient<R>) {
     assert_eq!(&actual[0..64], expected);
 }
 
+#[cube(launch)]
+fn kernel_test_workgroup_uniform_load(out: &mut [u32]) {
+    let mut count = SharedMemory::<u32>::new(1usize);
+    if UNIT_POS == 0 {
+        count[0] = 3u32;
+    }
+    sync_cube();
+
+    let n = workgroup_uniform_load(&count[0]);
+    if n > 0 {
+        sync_cube();
+    }
+    out[UNIT_POS as usize] = n;
+}
+
+pub fn test_workgroup_uniform_load<R: Runtime>(client: ComputeClient<R>) {
+    let handle = client.empty(64 * core::mem::size_of::<u32>());
+
+    kernel_test_workgroup_uniform_load::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_2d(32, 2),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 64) },
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    assert_eq!(u32::from_bytes(&actual), &[3u32; 64]);
+}
+
+#[cube(launch)]
+fn kernel_test_workgroup_uniform_load_atomic(out: &mut [u32]) {
+    let count = SharedMemory::<Atomic<u32>>::new(1usize);
+    if UNIT_POS == 0 {
+        count[0].store(3u32);
+    }
+    sync_cube();
+
+    let n = workgroup_uniform_load_atomic(&count[0]);
+    if n > 0 {
+        sync_cube();
+    }
+    out[UNIT_POS as usize] = n;
+}
+
+pub fn test_workgroup_uniform_load_atomic<R: Runtime>(client: ComputeClient<R>) {
+    let ty = Type::atomic(u32::as_type_native_unchecked());
+    if !client
+        .properties()
+        .atomic_type_usage(ty)
+        .contains(AtomicUsage::LoadStore)
+    {
+        return;
+    }
+
+    let handle = client.empty(64 * core::mem::size_of::<u32>());
+
+    kernel_test_workgroup_uniform_load_atomic::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_2d(32, 2),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 64) },
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    assert_eq!(u32::from_bytes(&actual), &[3u32; 64]);
+}
+
+#[cube(launch)]
+fn kernel_test_workgroup_uniform_load_vec<N: Size>(out: &mut [Vector<f32, N>]) {
+    let mut smem = SharedMemory::<Vector<f32, N>>::new(1usize);
+    if UNIT_POS == 0 {
+        smem[0] = Vector::new(7.0f32);
+    }
+    sync_cube();
+
+    out[UNIT_POS as usize] = workgroup_uniform_load(&smem[0]);
+}
+
+pub fn test_workgroup_uniform_load_vec<R: Runtime>(client: ComputeClient<R>) {
+    let lanes = 4usize;
+    let output = client.create_from_slice(f32::as_bytes(&vec![0.0f32; 64 * lanes]));
+
+    kernel_test_workgroup_uniform_load_vec::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_2d(32, 2),
+        lanes,
+        unsafe { BufferArg::from_raw_parts(output.clone(), 64) },
+    );
+
+    let actual = client.read_one_unchecked(output);
+    assert!(f32::from_bytes(&actual).iter().all(|&x| x == 7.0f32));
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_sync_plane {
@@ -177,6 +271,30 @@ macro_rules! testgen_sync_plane {
             cubecl_core::runtime_tests::synchronization::test_sync_cube_shared::<TestRuntime>(
                 client,
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_workgroup_uniform_load() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::synchronization::test_workgroup_uniform_load::<TestRuntime>(
+                client,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_workgroup_uniform_load_atomic() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::synchronization::test_workgroup_uniform_load_atomic::<
+                TestRuntime,
+            >(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_workgroup_uniform_load_vec() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::synchronization::test_workgroup_uniform_load_vec::<
+                TestRuntime,
+            >(client);
         }
     };
 }

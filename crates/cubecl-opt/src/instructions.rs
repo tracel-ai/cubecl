@@ -80,6 +80,7 @@ impl Function {
             Operation::Metadata(meta) => self.visit_meta(meta, visit_read),
             // Sync has no outputs
             Operation::Synchronization(_) => {}
+            Operation::WorkgroupUniformLoad(variable) => visit_read(self, variable),
             Operation::Plane(plane) => self.visit_plane(plane, visit_read),
             Operation::CoopMma(coop_mma) => self.visit_cmma(state, coop_mma, visit_read),
             Operation::Branch(_) => unreachable!(),

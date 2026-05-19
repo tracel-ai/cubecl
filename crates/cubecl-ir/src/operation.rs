@@ -54,6 +54,15 @@ pub enum Operation {
     Branch(Branch),
     #[operation(nested)]
     Synchronization(Synchronization),
+    /// Barrier followed by a load whose result is workgroup-uniform.
+    ///
+    /// Mirrors WGSL's `workgroupUniformLoad`: the input is a reference into
+    /// workgroup-shared memory (`&list[i]`, produced by [`Memory::Index`]),
+    /// and both the non-atomic and atomic WGSL overloads map here. Other
+    /// backends lower this to a `sync_cube` followed by a regular (or atomic)
+    /// load — uniformity is implicit there.
+    #[from(ignore)]
+    WorkgroupUniformLoad(#[args(allow_ptr, ptr_read)] Variable),
     #[operation(nested)]
     Plane(Plane),
     #[operation(nested)]
@@ -170,6 +179,9 @@ impl Display for Operation {
             Operation::Metadata(metadata) => write!(f, "{metadata}"),
             Operation::Branch(branch) => write!(f, "{branch}"),
             Operation::Synchronization(synchronization) => write!(f, "{synchronization}"),
+            Operation::WorkgroupUniformLoad(var) => {
+                write!(f, "workgroup_uniform_load({var})")
+            }
             Operation::Plane(plane) => write!(f, "{plane}"),
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
