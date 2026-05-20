@@ -128,6 +128,7 @@ macro_rules! testgen_int {
 macro_rules! testgen_uint {
     () => {
         cubecl_core::testgen_const_match!();
+        cubecl_core::testgen_atomic_uint!();
         cubecl_core::testgen_saturating_uint!();
     };
 }
@@ -148,7 +149,6 @@ macro_rules! testgen_untyped {
 
         cubecl_core::testgen_constants!();
         cubecl_core::testgen_sync_plane!();
-        cubecl_core::testgen_atomic_untyped!();
         cubecl_core::testgen_tensor_indexing!();
         cubecl_core::testgen_debug!();
         cubecl_core::testgen_binary_untyped!();

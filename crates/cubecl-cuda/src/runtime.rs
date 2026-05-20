@@ -250,11 +250,11 @@ impl DeviceService for CudaServer {
                 .insert(ElemType::Float(FloatKind::BF16).into());
             device_props.register_atomic_type_usage(
                 Type::atomic(Type::scalar(ElemType::Float(FloatKind::F32)).with_vector_size(2)),
-                AtomicUsage::LoadStore | AtomicUsage::Add,
+                AtomicUsage::LoadStore | AtomicUsage::Add | AtomicUsage::Swap,
             );
             device_props.register_atomic_type_usage(
                 Type::atomic(Type::scalar(ElemType::Float(FloatKind::F32)).with_vector_size(4)),
-                AtomicUsage::LoadStore | AtomicUsage::Add,
+                AtomicUsage::LoadStore | AtomicUsage::Add | AtomicUsage::Swap,
             );
         }
 

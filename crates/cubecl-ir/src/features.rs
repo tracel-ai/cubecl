@@ -108,10 +108,16 @@ impl TypeUsage {
 pub enum AtomicUsage {
     /// Atomic loads and stores
     LoadStore,
+    /// Atomic exchange
+    Swap,
     /// Atomic add/sub
     Add,
     /// Atomic min/max
     MinMax,
+    /// Atomic bitwise and/or/xor
+    Bitwise,
+    /// Atomic compare-and-exchange
+    CompareExchange,
 }
 
 impl AtomicUsage {
