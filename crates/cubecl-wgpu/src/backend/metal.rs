@@ -118,10 +118,8 @@ fn register_types(props: &mut DeviceProperties) {
     }
 
     for ty in atomic_types {
-        props.register_atomic_type_usage(
-            Type::atomic(ty),
-            AtomicUsage::Add | AtomicUsage::LoadStore,
-        )
+        props
+            .register_atomic_type_usage(Type::atomic(ty), AtomicUsage::Add | AtomicUsage::LoadStore)
     }
 }
 
