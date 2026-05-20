@@ -1,16 +1,61 @@
 use cubecl_core::ir::{AtomicBinaryOperands, AtomicOp, Variable};
 use tracel_llvm::mlir_rs::{
-    dialect::{arith::AtomicRMWKind, memref},
-    ir::{Attribute, Operation, attribute::StringAttribute},
+    dialect::{
+        arith::{self, AtomicRMWKind},
+        llvm::{self, CmpXchgOptions, LoadStoreOptions, attributes::AtomicOrdering, r#type},
+        memref,
+    },
+    ir::{BlockLike, Value, attribute::IntegerAttribute, r#type::IntegerType},
 };
 
-use crate::compiler::visitor::{Visitor, operation, prelude::IntoType};
+use crate::compiler::visitor::{Visitor, prelude::IntoType};
 
 impl<'a> Visitor<'a> {
-    pub fn visit_atomic(&mut self, atomic: &AtomicOp, out: Variable) {
-        let operation = match atomic {
-            AtomicOp::Load(variable) => todo!(),
-            AtomicOp::Store(store_operands) => todo!(),
+    pub fn visit_atomic_without_out(&mut self, atomic: &AtomicOp) {
+        match atomic {
+            AtomicOp::Store(store_operands) => {
+                let raw_ptr = self.get_raw_ptr(store_operands.ptr);
+                let value = self.get_variable(store_operands.value);
+                let size = store_operands.value.ty.elem_type().size();
+                let integer_type = IntegerType::new(self.context, 64).into();
+                let size = IntegerAttribute::new(integer_type, size as i64);
+                let extra_options = LoadStoreOptions::new()
+                    .atomic(AtomicOrdering::Unordered)
+                    .align(Some(size));
+                self.block.append_operation(llvm::store(
+                    self.context,
+                    value,
+                    raw_ptr,
+                    self.location,
+                    extra_options,
+                ));
+            }
+            _ => unreachable!("Impossible to reach all other operation require an out"),
+        }
+    }
+    pub fn visit_atomic_with_out(&mut self, atomic: &AtomicOp, out: Variable) {
+        match atomic {
+            AtomicOp::Load(variable) => {
+                let raw_ptr = self.get_raw_ptr(*variable);
+                let size = out.ty.elem_type().size();
+                let integer_type = IntegerType::new(self.context, 64).into();
+                let size = IntegerAttribute::new(integer_type, size as i64);
+                let extra_options = LoadStoreOptions::new()
+                    .atomic(AtomicOrdering::Unordered)
+                    .align(Some(size));
+                let ty = out.ty.to_type(self.context);
+                let value = self.append_operation_with_result(llvm::load(
+                    self.context,
+                    raw_ptr,
+                    ty,
+                    self.location,
+                    extra_options,
+                ));
+                self.insert_variable(out, value);
+            }
+            AtomicOp::Store(_) => {
+                unreachable!("A store operand can't have an out")
+            }
             AtomicOp::Swap(op)
             | AtomicOp::Add(op)
             | AtomicOp::Sub(op)
@@ -18,17 +63,46 @@ impl<'a> Visitor<'a> {
             | AtomicOp::Min(op)
             | AtomicOp::And(op)
             | AtomicOp::Or(op)
-            | AtomicOp::Xor(op) => self.visit_atomic_binary_operands(atomic, op),
-            AtomicOp::CompareAndSwap(compare_and_swap_operands) => todo!(),
+            | AtomicOp::Xor(op) => self.visit_atomic_binary_operands(atomic, op, out),
+            AtomicOp::CompareAndSwap(compare_and_swap_operands) => {
+                let ptr = self.get_raw_ptr(compare_and_swap_operands.ptr);
+                let cmp = self.get_variable(compare_and_swap_operands.cmp);
+                let val = self.get_variable(compare_and_swap_operands.val);
+                let extra_options = CmpXchgOptions::new();
+                self.block.append_operation(llvm::cmpxchg(
+                    self.context,
+                    ptr,
+                    cmp,
+                    val,
+                    AtomicOrdering::Monotonic,
+                    AtomicOrdering::Monotonic,
+                    self.location,
+                    extra_options,
+                ));
+            }
         };
-        let value = self.append_operation_with_result(operation);
-        self.insert_variable(out, value);
+    }
+    fn get_raw_ptr(&mut self, variable: Variable) -> Value<'a, 'a> {
+        let value = self.get_memory(variable);
+        let value = self.append_operation_with_result(memref::extract_aligned_pointer_as_index(
+            value,
+            self.location,
+        ));
+        let integer_ty = IntegerType::new(self.context, 64);
+        let int = self.append_operation_with_result(arith::index_cast(
+            value,
+            integer_ty.into(),
+            self.location,
+        ));
+        let ptr_ty = r#type::pointer(self.context, 0);
+        self.append_operation_with_result(llvm::inttoptr(int, ptr_ty, self.location))
     }
     fn visit_atomic_binary_operands(
-        &self,
+        &mut self,
         atomic: &AtomicOp,
         atomic_binary_operands: &AtomicBinaryOperands,
-    ) -> Operation<'a> {
+        out: Variable,
+    ) {
         let ty = atomic_binary_operands.ptr.ty.elem_type();
         let value = if let AtomicOp::Sub(_) = atomic {
             self.get_neg_val(atomic_binary_operands.value)
@@ -52,9 +126,17 @@ impl<'a> Visitor<'a> {
             AtomicOp::Xor(_) => AtomicRMWKind::XOrI,
             _ => unreachable!(),
         };
-        let memref = self.get_variable(atomic_binary_operands.ptr);
+        let memref = self.get_memory(atomic_binary_operands.ptr);
         let zero = self.create_constant_index(0);
 
-        memref::atomic_rmw(self.context, kind, value, memref, &[zero], self.location).into()
+        let value = self.append_operation_with_result(memref::atomic_rmw(
+            self.context,
+            kind,
+            value,
+            memref,
+            &[zero],
+            self.location,
+        ));
+        self.insert_variable(out, value);
     }
 }

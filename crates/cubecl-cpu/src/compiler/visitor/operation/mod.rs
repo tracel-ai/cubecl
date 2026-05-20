@@ -115,6 +115,9 @@ impl<'a> Visitor<'a> {
                 self.visit_synchronization(synchronization);
             }
             Operation::Marker(_) => {}
+            Operation::Atomic(atomic) => {
+                self.visit_atomic_without_out(atomic);
+            }
             operation => {
                 todo!(
                     "This operation ({}) is not implemented without an out",
@@ -130,7 +133,7 @@ impl<'a> Visitor<'a> {
                 self.visit_memory(memory, Some(out));
             }
             Operation::Atomic(atomic) => {
-                self.visit_atomic(atomic, out);
+                self.visit_atomic_with_out(atomic, out);
             }
             Operation::Arithmetic(arithmetic) => {
                 self.visit_arithmetic(arithmetic, out);
