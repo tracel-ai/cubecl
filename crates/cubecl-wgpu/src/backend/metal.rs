@@ -87,7 +87,7 @@ fn register_features(
 }
 
 fn register_types(props: &mut DeviceProperties) {
-    use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType};
+    use cubecl_core::ir::{ElemType, FloatKind, IntKind};
 
     props.register_address_type(AddressType::U32);
     props.register_address_type(AddressType::U64);
@@ -118,10 +118,8 @@ fn register_types(props: &mut DeviceProperties) {
     }
 
     for ty in atomic_types {
-        props.register_atomic_type_usage(
-            Type::new(StorageType::Atomic(ty)),
-            AtomicUsage::Add | AtomicUsage::LoadStore,
-        )
+        props
+            .register_atomic_type_usage(Type::atomic(ty), AtomicUsage::Add | AtomicUsage::LoadStore)
     }
 }
 
