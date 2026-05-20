@@ -1,4 +1,5 @@
 pub(super) mod arithmetic;
+pub(super) mod atomic;
 pub(super) mod bitwise;
 pub(super) mod comparison;
 pub(super) mod metadata;
@@ -128,8 +129,8 @@ impl<'a> Visitor<'a> {
             Operation::Memory(memory) => {
                 self.visit_memory(memory, Some(out));
             }
-            Operation::Atomic(_atomic) => {
-                todo!("Atomic operation are not yet supported");
+            Operation::Atomic(atomic) => {
+                self.visit_atomic(atomic, out);
             }
             Operation::Arithmetic(arithmetic) => {
                 self.visit_arithmetic(arithmetic, out);

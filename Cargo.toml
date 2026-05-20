@@ -129,13 +129,13 @@ futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
 sysinfo = "0.38"
-tracel-llvm = { version = "22.1.4-3", features = ["mlir-helpers"] }
-tracel-llvm-bundler = { version = "22.1.4-3" }
+# tracel-llvm = { version = "22.1.5-3", features = ["mlir-helpers"] }
+# tracel-llvm-bundler = { version = "22.1.5-3" }
 ### For development
-# tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = [
-#     "mlir-helpers",
-# ] }
-# tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler" }
+tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = [
+    "mlir-helpers",
+] }
+tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler" }
 libc = "^0.2.186"
 winapi = { version = "^0.3.9", features = ["processthreadsapi", "winbase"] }
 

@@ -1,6 +1,6 @@
 use cubecl_core::ir::{
     AddressType, DeviceProperties, ElemType, FloatKind, IntKind, OpaqueType, StorageType, UIntKind,
-    features::TypeUsage,
+    features::{AtomicUsage, TypeUsage},
 };
 use tracel_llvm::mlir_rs::{
     dialect::index,
@@ -89,5 +89,22 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
 
     for ty in supported_types {
         props.register_type_usage(ty, TypeUsage::all());
+    }
+
+    let atomic_types = [
+        ElemType::Int(IntKind::I8),
+        ElemType::Int(IntKind::I16),
+        ElemType::Int(IntKind::I32),
+        ElemType::Int(IntKind::I64),
+        ElemType::UInt(UIntKind::U8),
+        ElemType::UInt(UIntKind::U16),
+        ElemType::UInt(UIntKind::U32),
+        ElemType::UInt(UIntKind::U64),
+        ElemType::Float(FloatKind::F32),
+        ElemType::Float(FloatKind::F64),
+    ];
+
+    for ty in atomic_types {
+        props.register_atomic_type_usage(cubecl_core::ir::Type::atomic(ty), AtomicUsage::all())
     }
 }
