@@ -18,6 +18,20 @@ impl OpArgs {
         }
     }
 
+    fn generate_into_mut(&self) -> TokenStream {
+        let mut tokens = quote![let mut args = alloc::vec::Vec::new();];
+        for field in self.data.as_ref().take_struct().unwrap().fields {
+            let ident = field.ident.as_ref().unwrap();
+            tokens.extend(
+                quote![args.extend(crate::FromArgList::as_arg_list_mut(&mut self.#ident));],
+            );
+        }
+        quote! {
+            #tokens
+            args
+        }
+    }
+
     fn generate_from(&self) -> TokenStream {
         let mut tokens = quote![];
         for field in self.data.as_ref().take_struct().unwrap().fields {
@@ -72,6 +86,7 @@ impl OpArgs {
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
 
         let into = self.generate_into();
+        let into_mut = self.generate_into_mut();
         let from = self.generate_from();
         let sanitize_ptr = self.generate_sanitize_ptr();
 
@@ -85,6 +100,10 @@ impl OpArgs {
 
             fn as_args(&self) -> Option<alloc::vec::Vec<crate::Variable>> {
                 Some({#into})
+            }
+
+            fn as_args_mut(&mut self) -> Option<alloc::vec::Vec<&mut crate::Variable>> {
+                Some({#into_mut})
             }
 
             fn sanitize_args_ptr(&mut self, scope: &crate::Scope) {

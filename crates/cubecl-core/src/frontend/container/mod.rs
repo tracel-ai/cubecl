@@ -5,7 +5,7 @@ mod iter;
 mod registry;
 mod sequence;
 mod shared_memory;
-mod slice;
+pub mod slice;
 mod tensor;
 mod vector;
 

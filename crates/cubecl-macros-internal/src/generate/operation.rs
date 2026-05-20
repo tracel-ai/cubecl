@@ -71,6 +71,44 @@ impl Operation {
         }
     }
 
+    fn generate_args_mut_impl(&self) -> TokenStream {
+        let variants = self.variants();
+        let match_variants = variants.iter().map(|variant| {
+            let ident = &variant.ident;
+            if variant.nested.is_present() {
+                quote![Self::#ident(child) => crate::OperationReflect::args_mut(child)]
+            } else if variant.fields.is_empty() {
+                quote![Self::#ident => Some(alloc::vec::Vec::new())]
+            } else if variant.fields.fields[0].ident.is_some() {
+                if variant.fields.fields.iter().any(|it| it.skip.is_present()) {
+                    quote![Self::#ident { .. } => None]
+                } else {
+                    let names = variant
+                        .fields
+                        .fields
+                        .iter()
+                        .map(|it| it.ident.clone().unwrap())
+                        .collect::<Vec<_>>();
+                    let body = quote![{
+                        let mut args = alloc::vec::Vec::new();
+                        #(args.extend(crate::FromArgList::as_arg_list_mut(#names));)*
+                        Some(args)
+                    }];
+                    quote![Self::#ident { #(#names),* } => #body]
+                }
+            } else if variant.fields.fields[0].skip.is_present() {
+                quote![Self::#ident(args) => None]
+            } else {
+                quote![Self::#ident(args) => crate::OperationArgs::as_args_mut(args)]
+            }
+        });
+        quote! {
+            match self {
+                #(#match_variants),*
+            }
+        }
+    }
+
     fn generate_from_args_impl(&self) -> TokenStream {
         let opcode = &self.opcode_name;
         let variants = self.variants();
@@ -247,6 +285,7 @@ impl Operation {
 
         let opcode_impl = self.generate_opcode_impl();
         let args_impl = self.generate_args_impl();
+        let args_mut_impl = self.generate_args_mut_impl();
         let from_args_impl = self.generate_from_args_impl();
         let commutative =
             self.generate_bool_property(|x| x.commutative, |x| x.commutative, "is_commutative");
@@ -264,6 +303,9 @@ impl Operation {
             }
             fn args(&self) -> Option<alloc::vec::Vec<crate::Variable>> {
                 #args_impl
+            }
+            fn args_mut(&mut self) -> Option<alloc::vec::Vec<&mut crate::Variable>> {
+                #args_mut_impl
             }
             fn from_code_and_args(op_code: Self::OpCode, args: &[crate::Variable]) -> Option<Self> {
                 #from_args_impl

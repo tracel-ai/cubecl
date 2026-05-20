@@ -25,6 +25,20 @@ pub struct OwnedTensor<T: CubePrimitive> {
     pub(super) buffer: Box<[T]>,
 }
 
+impl<T: CubePrimitive> TensorExpand<T> {
+    /// Expand only because `[T]` can't be passed to a function
+    pub fn __expand_from_parts(meta: TensorMetaExpand, buffer: NativeExpand<[T]>) -> Self {
+        Self { meta, buffer }
+    }
+}
+
+#[cube]
+impl<T: CubePrimitive> OwnedTensor<T> {
+    pub fn from_parts(meta: TensorMeta, buffer: Box<[T]>) -> Self {
+        OwnedTensor::<T> { meta, buffer }
+    }
+}
+
 #[cube]
 impl<T: CubePrimitive> OwnedTensor<T> {
     pub fn as_slice(&self) -> &[T] {
@@ -190,6 +204,18 @@ impl<'a, E: CubePrimitive> From<&'a OwnedTensorExpand<E>> for &'a TensorExpand<E
 
 impl<'a, E: CubePrimitive> From<&'a mut OwnedTensorExpand<E>> for &'a mut TensorExpand<E> {
     fn from(value: &'a mut OwnedTensorExpand<E>) -> Self {
+        value.deref_mut()
+    }
+}
+
+impl<'a, E: CubePrimitive> From<&'a TensorExpand<E>> for &'a SliceExpand<E> {
+    fn from(value: &'a TensorExpand<E>) -> Self {
+        value.deref()
+    }
+}
+
+impl<'a, E: CubePrimitive> From<&'a mut TensorExpand<E>> for &'a mut SliceExpand<E> {
+    fn from(value: &'a mut TensorExpand<E>) -> Self {
         value.deref_mut()
     }
 }
