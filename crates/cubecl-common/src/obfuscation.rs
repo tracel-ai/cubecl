@@ -537,7 +537,10 @@ mod tests {
 
     #[test]
     fn opaque_default_arm_round_trip_works() {
-        let value = Pod { a: 0xCAFEBABE, b: 3 };
+        let value = Pod {
+            a: 0xCAFEBABE,
+            b: 3,
+        };
         let wrapper = pod_default::Opaque::new(value.clone());
         assert_eq!(wrapper.as_ref(), &value);
         assert_eq!(wrapper.into_inner(), value);
