@@ -175,13 +175,19 @@ macro_rules! obfuscate {
                 );
             };
 
-            /// Aligned, opaque storage for one `$inner` value.
+            #[doc = concat!(
+                "Inline, opaque storage for one `",
+                stringify!($inner),
+                "` value. **Alignment:** ",
+                stringify!($align),
+                " bytes."
+            )]
             ///
-            /// `#[repr(C, align($align))]` raises the struct's alignment to
-            /// the caller-declared `$align`, which the const assertion
-            /// above guarantees matches `align_of::<$inner>()` (or the
-            /// pointer-alignment floor, whichever is larger). That makes
-            /// the `*const _ as *const $inner` cast in the methods sound
+            /// `#[repr(C, align(N))]` raises the struct's alignment to
+            /// the caller-declared literal, which the const assertion
+            /// above guarantees matches `max(align_of::<inner>(),
+            /// align_of::<*mut ()>())`. That makes the
+            /// `*const _ as *const $inner` cast in the methods sound
             /// without naming `$inner` in the struct definition.
             ///
             /// Slots are typed as pointer-sized `MaybeUninit<*mut ()>`
