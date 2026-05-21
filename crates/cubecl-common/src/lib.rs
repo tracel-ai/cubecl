@@ -15,6 +15,8 @@ extern crate derive_new;
 /// std environments.
 pub mod rand;
 
+mod obfuscation;
+
 /// A circular, allocation-free arena for reusable memory blocks.
 #[cfg(feature = "std")]
 pub mod arena;
