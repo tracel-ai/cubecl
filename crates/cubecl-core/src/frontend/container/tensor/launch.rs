@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 
 use cubecl_ir::{AddressType, Id};
 use cubecl_runtime::{runtime::Runtime, server::CopyDescriptor};
-use cubecl_zspace::{Shape, Strides};
+use cubecl_zspace::{Shape, Strides, metadata::Tiler};
 
 use crate::{
     self as cubecl,
@@ -34,15 +34,19 @@ pub enum TensorArg<R: Runtime> {
         input_pos: usize,
         strides: Strides,
         shape: Shape,
+        tiler: Option<Tiler>,
     },
 }
 
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle),
-/// the strides and the shape.
+/// the strides and the shape. Carries an optional [`Tiler`] when the tensor is
+/// the rank-expanded result of [`Metadata::to_tiled`](cubecl_zspace::metadata::Metadata::to_tiled),
+/// which lets layouts auto-derive the semantic view at launch time.
 pub struct TensorBinding<R: Runtime> {
     pub handle: cubecl_runtime::server::Binding,
     pub strides: Strides,
     pub shape: Shape,
+    pub tiler: Option<Tiler>,
     pub runtime: PhantomData<R>,
 }
 
@@ -52,6 +56,7 @@ impl<R: Runtime> Clone for TensorBinding<R> {
             handle: self.handle.clone(),
             strides: self.strides.clone(),
             shape: self.shape.clone(),
+            tiler: self.tiler.clone(),
             runtime: PhantomData,
         }
     }
@@ -168,6 +173,30 @@ impl<R: Runtime> TensorArg<R> {
         }
     }
 
+    /// Create a tensor argument carrying tiler metadata. Use this when the
+    /// tensor was rank-expanded via [`Metadata::to_tiled`].
+    ///
+    /// # Safety
+    ///
+    /// If you provide wrong strides, shape, or tiler, it might create undefined
+    /// behavior caused by out-of-bound reads and writes.
+    pub unsafe fn from_raw_parts_with_tiler(
+        handle: cubecl_runtime::server::Handle,
+        strides: Strides,
+        shape: Shape,
+        tiler: Option<Tiler>,
+    ) -> Self {
+        Self::Handle {
+            handle: TensorBinding {
+                handle: handle.binding(),
+                strides,
+                shape,
+                tiler,
+                runtime: PhantomData,
+            },
+        }
+    }
+
     /// Create an alias argument.
     pub fn into_alias(self, position: usize) -> Self {
         match self {
@@ -196,6 +225,16 @@ impl<R: Runtime> TensorArg<R> {
             TensorArg::Alias { strides, .. } => strides,
         }
     }
+
+    /// The optional tiler describing this tensor as the rank-expanded result
+    /// of [`Metadata::to_tiled`](cubecl_zspace::metadata::Metadata::to_tiled).
+    /// `None` for tensors whose layout is plain (un-tiled).
+    pub fn tiler(&self) -> Option<&Tiler> {
+        match self {
+            TensorArg::Handle { handle } => handle.tiler.as_ref(),
+            TensorArg::Alias { tiler, .. } => tiler.as_ref(),
+        }
+    }
 }
 
 impl<R: Runtime> TensorArg<R> {
@@ -221,7 +260,7 @@ impl<R: Runtime> TensorArg<R> {
 impl<R: Runtime> TensorBinding<R> {
     /// Convert the handle into a [tensor argument](TensorArg).
     pub fn into_tensor_arg(self) -> TensorArg<R> {
-        unsafe { TensorArg::from_raw_parts_binding(self.handle, self.strides, self.shape) }
+        TensorArg::Handle { handle: self }
     }
     /// Convert the handle into a [tensor argument](TensorArg).
     pub fn into_alias(self, index: usize) -> TensorArg<R> {
@@ -229,6 +268,7 @@ impl<R: Runtime> TensorBinding<R> {
             input_pos: index,
             strides: self.strides,
             shape: self.shape,
+            tiler: self.tiler,
         }
     }
     /// Convert the handle into a [tensor argument](TensorArg).
@@ -237,6 +277,7 @@ impl<R: Runtime> TensorBinding<R> {
             input_pos: index,
             strides: self.strides.clone(),
             shape: self.shape.clone(),
+            tiler: self.tiler.clone(),
         }
     }
     /// Convert the handle into a [buffer argument](BufferArg).
@@ -273,8 +314,15 @@ impl<R: Runtime> TensorBinding<R> {
             handle,
             strides,
             shape,
+            tiler: None,
             runtime: PhantomData,
         }
+    }
+
+    /// Attach (or clear) tiler metadata.
+    pub fn with_tiler(mut self, tiler: Option<Tiler>) -> Self {
+        self.tiler = tiler;
+        self
     }
 
     pub fn into_copy_descriptor(self, elem_size: usize) -> CopyDescriptor {
