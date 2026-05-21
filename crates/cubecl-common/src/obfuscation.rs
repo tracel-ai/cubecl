@@ -1,90 +1,53 @@
-//! Inline, type-erased storage for a single value.
-//!
-//! The [`obfuscate!`] macro generates a private module containing an
-//! `Opaque` wrapper whose own type definition does **not** mention the
-//! type it stores. Downstream crates that hand the wrapper around never
-//! have to resolve the inner type, which breaks the transitive
-//! monomorphization chain and can visibly cut compile times for
-//! deeply-generic types.
-//!
-//! # Quick start
-//!
-//! ```rust
-//! use cubecl_common::obfuscate;
-//!
-//! #[derive(Clone, Debug, PartialEq)]
-//! struct Tensor { shape: Vec<usize>, data: Vec<f32> }
-//!
-//! obfuscate!(
-//!     type: Tensor,
-//!     module: tensor,
-//!     derives: [Send, Sync, Debug, PartialEq, Clone],
-//! );
-//!
-//! # fn main() {
-//! let t = tensor::Opaque::new(Tensor { shape: vec![2, 2], data: vec![1.0; 4] });
-//! let copy = t.clone();
-//! assert_eq!(t, copy);
-//!
-//! // Recover the concrete type when you actually need its fields.
-//! let inner: Tensor = t.into_inner();
-//! assert_eq!(inner.shape, vec![2, 2]);
-//! # }
-//! ```
-//!
-//! The `type:` and the `obfuscate!` call must sit at module scope (or
-//! crate root); they cannot be nested inside a function body, since the
-//! generated module's `super` would not see locals.
-//!
-//! # When to reach for this
-//!
-//! - A type appears in many generic instantiations and shows up as a
-//!   compile-time bottleneck.
-//! - You can't use `Box<dyn Trait>`: you need the concrete type back, or
-//!   you want to avoid the heap.
-//! - The wrapper's API surface (`new` / `as_ref` / `as_mut` / `into_inner`)
-//!   is enough for the boundary you're crossing.
-//!
-//! # Storage and safety
-//!
-//! The wrapper holds the inner value inline — no allocation. Storage uses
-//! pointer-sized [`MaybeUninit<*mut ()>`](core::mem::MaybeUninit) slots
-//! rather than bytes, so any pointers owned by the inner value retain
-//! their provenance through the round trip. A naive `[u8; size_of::<T>()]`
-//! buffer would strip pointer provenance on read, breaking under Miri /
-//! Tree Borrows for any inner type that owns an `Arc`, `Box`, or similar.
-//!
-//! The wrapper carries `#[repr(C, align(64))]` (one cache line). The
-//! macro emits a `const` assertion that the inner type's alignment fits;
-//! a higher-aligned inner type is a compile error, not UB.
-//!
-//! # Derives
-//!
-//! The wrapper is `!Send + !Sync` and has no extra trait impls by
-//! default. Opt in via the `derives:` list:
-//!
-//! | Token | Kind | Behaviour |
-//! |---|---|---|
-//! | `Send`, `Sync` | `unsafe impl` | Caller asserts the inner type satisfies the marker. No bound check is emitted. |
-//! | `Debug`, `Display` | safe | Forwards the `Formatter` to the inner value — width/precision/alternate flags survive. |
-//! | `PartialEq` | safe | `self.as_ref() == other.as_ref()` |
-//! | `Eq` | safe marker | Pairs with `PartialEq`. |
-//! | `Hash` | safe | Hashes the inner value. |
-//! | `Clone` | safe | Deep clone via the inner's `Clone`. Storage is independent. |
-//! | `Default` | safe | Constructs from `<Inner as Default>::default()`. |
-//!
-//! Any other identifier in `derives: [...]` is a compile error at the
-//! call site. All non-marker impls require the inner type to implement
-//! the trait — the impl is concrete (not generic), so the bound is
-//! checked at expansion.
+//! Internal home of the [`obfuscate!`](crate::obfuscate) macro. The
+//! module itself is private — the macro is exported at the crate root,
+//! which is where its documentation lives.
 
 /// Generate a type-erased, inline wrapper for a single value.
 ///
-/// Expands into a private module containing an `Opaque` struct that stores
-/// one value of `type:` behind a fixed-shape representation that never
-/// names the inner type. See the [module-level
-/// docs](crate::obfuscation) for the rationale, the safety story, and
-/// the full list of supported derives.
+/// Expands into a private module containing an `Opaque` struct that
+/// stores one value of `type:` behind a fixed-shape representation that
+/// never names the inner type. Downstream crates that handle the wrapper
+/// never have to resolve the inner type, which breaks the transitive
+/// monomorphization chain and can visibly cut compile times for deeply
+/// generic types.
+///
+/// # Example
+///
+/// ```rust
+/// use cubecl_common::obfuscate;
+///
+/// #[derive(Clone, Debug, PartialEq)]
+/// struct Tensor { shape: Vec<usize>, data: Vec<f32> }
+///
+/// obfuscate!(
+///     type: Tensor,
+///     module: tensor,
+///     derives: [Send, Sync, Debug, PartialEq, Clone],
+/// );
+///
+/// # fn main() {
+/// let t = tensor::Opaque::new(Tensor { shape: vec![2, 2], data: vec![1.0; 4] });
+/// let copy = t.clone();
+/// assert_eq!(t, copy);
+///
+/// // Recover the concrete type when you actually need its fields.
+/// let inner: Tensor = t.into_inner();
+/// assert_eq!(inner.shape, vec![2, 2]);
+/// # }
+/// ```
+///
+/// The macro call must sit at module scope (or crate root); it cannot be
+/// nested inside a function body, since the generated module's `super`
+/// would not see locals.
+///
+/// # When to reach for this
+///
+/// - A type appears in many generic instantiations and shows up as a
+///   compile-time bottleneck.
+/// - You can't use `Box<dyn Trait>`: you need the concrete type back, or
+///   you want to avoid the heap.
+/// - The wrapper's API surface (`new` / `as_ref` / `as_mut` / `into_inner`)
+///   is enough for the boundary you're crossing.
 ///
 /// # Syntax
 ///
@@ -98,30 +61,6 @@
 ///
 /// The three keys are mandatory and must appear in that order. `derives:
 /// []` is allowed and produces an `Opaque` with no extra impls.
-///
-/// # Example
-///
-/// ```rust
-/// use cubecl_common::obfuscate;
-///
-/// #[derive(Clone, Debug, PartialEq)]
-/// struct Inner { data: Vec<u32> }
-///
-/// obfuscate!(
-///     type: Inner,
-///     module: my_inner,
-///     derives: [Send, Sync, Debug, PartialEq, Clone],
-/// );
-///
-/// # fn main() {
-/// let a = my_inner::Opaque::new(Inner { data: vec![1, 2, 3] });
-/// let b = a.clone();
-/// assert_eq!(a, b);
-///
-/// let recovered: Inner = a.into_inner();
-/// assert_eq!(recovered.data, vec![1, 2, 3]);
-/// # }
-/// ```
 ///
 /// # Generated API
 ///
@@ -142,12 +81,39 @@
 ///
 /// Any extra trait impls listed in `derives:` are emitted alongside.
 ///
-/// # Compile-time constraints
+/// # Derives
 ///
-/// - `align_of::<inner>() <= 64`. Higher alignments are a `const`
-///   assertion failure, not undefined behaviour at runtime.
-/// - The inner type must be in scope where the macro is invoked
-///   (`use super::*` runs inside the generated module).
+/// The wrapper is `!Send + !Sync` and has no extra trait impls by
+/// default. Opt in via the `derives:` list:
+///
+/// | Token | Kind | Behaviour |
+/// |---|---|---|
+/// | `Send`, `Sync` | `unsafe impl` | Caller asserts the inner type satisfies the marker. No bound check is emitted. |
+/// | `Debug`, `Display` | safe | Forwards the `Formatter` to the inner value — width/precision/alternate flags survive. |
+/// | `PartialEq` | safe | `self.as_ref() == other.as_ref()` |
+/// | `Eq` | safe marker | Pairs with `PartialEq`. |
+/// | `Hash` | safe | Hashes the inner value. |
+/// | `Clone` | safe | Deep clone via the inner's `Clone`. Storage is independent. |
+/// | `Default` | safe | Constructs from `<Inner as Default>::default()`. |
+///
+/// Any other identifier in `derives: [...]` is a compile error at the
+/// call site. All non-marker impls require the inner type to implement
+/// the trait — the impl is concrete (not generic), so the bound is
+/// checked at expansion.
+///
+/// # Storage and safety
+///
+/// The wrapper holds the inner value inline — no allocation. Storage
+/// uses pointer-sized [`MaybeUninit<*mut ()>`](core::mem::MaybeUninit)
+/// slots rather than bytes, so any pointers owned by the inner value
+/// retain their provenance through the round trip. A naive
+/// `[u8; size_of::<T>()]` buffer would strip pointer provenance on
+/// read, breaking under Miri / Tree Borrows for any inner type that
+/// owns an `Arc`, `Box`, or similar.
+///
+/// The wrapper carries `#[repr(C, align(64))]` (one cache line). The
+/// macro emits a `const` assertion that the inner type's alignment
+/// fits; a higher-aligned inner type is a compile error, not UB.
 ///
 /// # Why a macro?
 ///
@@ -214,7 +180,7 @@ macro_rules! obfuscate {
             // one impl. Unlisted traits are not implemented — `*mut ()`
             // makes `Opaque` `!Send + !Sync` by default.
             $(
-                $crate::obfuscation::obfuscate_impl!($trait);
+                $crate::obfuscate_impl!($trait);
             )*
 
             // The macro exposes a uniform API (`new`/`as_ref`/`as_mut`/
@@ -284,8 +250,6 @@ macro_rules! obfuscate {
     };
 }
 
-pub use obfuscate;
-
 /// Internal helper. Dispatches a single token from [`obfuscate!`]'s
 /// `derives: [...]` list to the corresponding impl on the surrounding
 /// module's `Opaque` type. Not part of the public API — call
@@ -353,8 +317,6 @@ macro_rules! obfuscate_impl {
         }
     };
 }
-
-pub use obfuscate_impl;
 
 #[cfg(test)]
 mod tests {
