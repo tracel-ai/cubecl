@@ -22,8 +22,8 @@
 /// obfuscate!(
 ///     type: Tensor,
 ///     module: tensor,
-///     align: 8,
 ///     derives: [Send, Sync, Debug, PartialEq, Clone],
+///     align: 8,
 /// );
 ///
 /// # fn main() {
@@ -56,22 +56,31 @@
 /// obfuscate!(
 ///     type:    <inner-type>,
 ///     module:  <module-name>,
-///     align:   <integer-literal>,
-///     derives: [<trait>, ...],
+///     derives: [<trait>, ...],      // optional
+///     align:   <integer-literal>,   // optional; default is 64
 /// );
 /// ```
 ///
-/// All four keys are mandatory and must appear in that order. `derives:
-/// []` is allowed and produces an `Opaque` with no extra impls.
+/// `type:` and `module:` are mandatory and must appear in that order.
+/// `derives:` and `align:` are both optional; if present, they must
+/// appear in the order shown above.
 ///
-/// `align:` must be the integer literal equal to
-/// `max(core::mem::align_of::<inner>(), core::mem::align_of::<*mut ()>())`
-/// — the inner type's alignment for soundness, clamped up to the
-/// pointer alignment because the storage slots are pointer-sized.
-/// Wrong values are a `const` assertion failure at the call site, with
-/// a message pointing at the right one. A literal is required because
-/// `#[repr(align(N))]` does not accept const expressions — the macro
-/// can't substitute `align_of::<inner>()` for you.
+/// `derives:` controls which opt-in trait impls are emitted on
+/// `Opaque`. Omit the key entirely (or pass `[]`) for none.
+///
+/// `align:` has two modes:
+///
+/// - **Omitted (default).** The wrapper is fixed at 64-byte alignment.
+///   The macro only verifies `align_of::<inner>() <= 64`; over-aligned
+///   small types are wasted bytes but it always works.
+/// - **Specified.** The wrapper has exactly that alignment, and the
+///   macro asserts the literal equals
+///   `max(core::mem::align_of::<inner>(), core::mem::align_of::<*mut ()>())`.
+///   Wrong values are a `const` assertion failure at the call site.
+///
+/// A literal is required because `#[repr(align(N))]` does not accept
+/// const expressions — the macro can't substitute `align_of::<inner>()`
+/// for you.
 ///
 /// # Generated API
 ///
@@ -122,10 +131,11 @@
 /// read, breaking under Miri / Tree Borrows for any inner type that
 /// owns an `Arc`, `Box`, or similar.
 ///
-/// The wrapper carries `#[repr(C, align(N))]` where `N` is the
-/// caller-declared `align:` literal. A `const` assertion verifies the
-/// literal matches `max(align_of::<inner>(), align_of::<*mut ()>())`,
-/// so wrong values are a compile error rather than runtime UB.
+/// The wrapper carries `#[repr(C, align(N))]`. `N` is either the
+/// caller-declared `align:` literal (asserted strictly against the
+/// required value) or `64` by default (asserted permissively against
+/// `align_of::<inner>() <= 64`). Wrong values are a compile error
+/// rather than runtime UB.
 ///
 /// # Why a macro?
 ///
@@ -137,11 +147,86 @@
 /// site.
 #[macro_export]
 macro_rules! obfuscate {
+    // ──────────────────────────────────────────────────────────────────
+    // Public arms. Each one normalises missing optional fields and
+    // delegates to the internal `@impl` arm below. `check:` is a
+    // sentinel that picks between the strict and relaxed assertion.
+    // ──────────────────────────────────────────────────────────────────
+
+    // Full: caller specifies both `derives:` and `align:`.
     (
         type: $inner:ty,
         module: $mod_name:ident,
-        align: $align:literal,
+        derives: [ $($trait:ident),* $(,)? ],
+        align: $align:literal $(,)?
+    ) => {
+        $crate::obfuscate!(
+            @impl
+            type: $inner,
+            module: $mod_name,
+            derives: [$($trait),*],
+            align: $align,
+            check: strict,
+        );
+    };
+
+    // `derives:` only — default 64-byte alignment with the relaxed check.
+    (
+        type: $inner:ty,
+        module: $mod_name:ident,
         derives: [ $($trait:ident),* $(,)? ] $(,)?
+    ) => {
+        $crate::obfuscate!(
+            @impl
+            type: $inner,
+            module: $mod_name,
+            derives: [$($trait),*],
+            align: 64,
+            check: relaxed,
+        );
+    };
+
+    // `align:` only — empty derives, exact alignment.
+    (
+        type: $inner:ty,
+        module: $mod_name:ident,
+        align: $align:literal $(,)?
+    ) => {
+        $crate::obfuscate!(
+            @impl
+            type: $inner,
+            module: $mod_name,
+            derives: [],
+            align: $align,
+            check: strict,
+        );
+    };
+
+    // Minimal — no derives, default 64-byte alignment.
+    (
+        type: $inner:ty,
+        module: $mod_name:ident $(,)?
+    ) => {
+        $crate::obfuscate!(
+            @impl
+            type: $inner,
+            module: $mod_name,
+            derives: [],
+            align: 64,
+            check: relaxed,
+        );
+    };
+
+    // ──────────────────────────────────────────────────────────────────
+    // Internal body arm. Single source of truth for the generated
+    // module's layout, methods, and trait impls.
+    // ──────────────────────────────────────────────────────────────────
+    (@impl
+        type: $inner:ty,
+        module: $mod_name:ident,
+        derives: [ $($trait:ident),* ],
+        align: $align:literal,
+        check: $check:ident $(,)?
     ) => {
         mod $mod_name {
             #[allow(unused_imports)]
@@ -150,30 +235,15 @@ macro_rules! obfuscate {
             const SIZE: usize = ::core::mem::size_of::<$inner>();
             const SLOT: usize = ::core::mem::size_of::<*mut ()>();
 
-            /// Number of pointer-sized slots needed to cover `$inner`. Round
-            /// up; the extra bytes past `SIZE` are never read as part of the
-            /// inner value.
+            /// Number of pointer-sized slots needed to cover `$inner`.
+            /// Round up; the extra bytes past `SIZE` are never read as
+            /// part of the inner value.
             const SLOTS: usize = SIZE.div_ceil(SLOT);
 
-            // Compile-time check that the caller's `align:` literal matches
-            // the wrapper's actual alignment requirement. The wrapper is
-            // aligned to `max(align_of::<$inner>(), align_of::<*mut ()>())`
-            // — the inner type's alignment for soundness, and the pointer
-            // alignment as a floor because the storage slots are
-            // pointer-sized.
-            const _: () = {
-                let inner = ::core::mem::align_of::<$inner>();
-                let slot = ::core::mem::align_of::<*mut ()>();
-                let needed = if inner > slot { inner } else { slot };
-                assert!(
-                    $align == needed,
-                    "obfuscate!: the `align:` literal does not match the required value. \
-                     Set it to `max(core::mem::align_of::<YourType>(), core::mem::align_of::<*mut ()>())` \
-                     (typically 8 on 64-bit targets, larger if your type has a higher alignment). \
-                     A literal is required because `#[repr(align(N))]` does not accept \
-                     const expressions like `align_of::<T>()` — the macro can't compute it for you.",
-                );
-            };
+            // Alignment assertion. Routed through a helper so the body
+            // doesn't branch on `$check` — declarative macros can't
+            // pattern-match an ident inside an expression position.
+            $crate::__obfuscate_check_align!($check, $inner, $align);
 
             #[doc = concat!(
                 "Inline, opaque storage for one `",
@@ -184,100 +254,156 @@ macro_rules! obfuscate {
             )]
             ///
             /// `#[repr(C, align(N))]` raises the struct's alignment to
-            /// the caller-declared literal, which the const assertion
-            /// above guarantees matches `max(align_of::<inner>(),
-            /// align_of::<*mut ()>())`. That makes the
-            /// `*const _ as *const $inner` cast in the methods sound
-            /// without naming `$inner` in the struct definition.
+            /// the literal above. The const assertion in the macro
+            /// expansion guarantees the literal is sufficient for
+            /// `$inner`'s alignment, so the `*const _ as *const $inner`
+            /// cast in the methods is sound without naming `$inner` in
+            /// the struct definition.
             ///
             /// Slots are typed as pointer-sized `MaybeUninit<*mut ()>`
-            /// rather than `u8`: the `*mut ()` payload type lets pointers
-            /// owned by the inner value retain their provenance through
-            /// `ptr::write` → `ptr::read`, while `MaybeUninit` allows the
-            /// slots to legally hold uninitialised padding bytes (which
-            /// arise for enum types whose variants don't fill the whole
-            /// discriminant). Neither wrapper names `$inner`, so the
-            /// type-erasure goal is preserved.
+            /// rather than `u8`: the `*mut ()` payload type lets
+            /// pointers owned by the inner value retain their
+            /// provenance through `ptr::write` → `ptr::read`, while
+            /// `MaybeUninit` allows the slots to legally hold
+            /// uninitialised padding bytes (which arise for enum types
+            /// whose variants don't fill the whole discriminant).
+            /// Neither wrapper names `$inner`, so the type-erasure
+            /// goal is preserved.
             #[repr(C, align($align))]
             pub(super) struct Opaque {
                 data: [::core::mem::MaybeUninit<*mut ()>; SLOTS],
             }
 
-            // Opt-in trait impls. Each token in the `derives: [...]` list is
-            // dispatched to the helper macro below, which emits exactly that
-            // one impl. Unlisted traits are not implemented — `*mut ()`
-            // makes `Opaque` `!Send + !Sync` by default.
-            $(
-                $crate::obfuscate_impl!($trait);
-            )*
+            // Impl blocks live in a sub-module to keep the layout
+            // declaration (above) visually separate from the
+            // implementation. `mod impls` is a descendant of
+            // `$mod_name`, so it can see the private `data` field; the
+            // `use super::super::*` brings the caller's scope (which
+            // is where `$inner` is defined) into reach.
+            mod impls {
+                #[allow(unused_imports)]
+                use super::super::*;
+                use super::{Opaque, SLOTS};
 
-            // The macro exposes a uniform API (`new`/`as_ref`/`as_mut`/
-            // `into_inner`) but not every use site needs every entry point.
-            // Silence the resulting `dead_code` warnings here rather than at
-            // every call site.
-            #[allow(dead_code)]
-            impl Opaque {
-                /// Wrap an `$inner` value in a fresh `Opaque`.
-                pub(super) fn new(inner: $inner) -> Self {
-                    let mut wrapper = Self {
-                        data: [::core::mem::MaybeUninit::uninit(); SLOTS],
-                    };
-                    // SAFETY: `data` is at offset 0 of `Self`, and `Self`
-                    // has alignment `$align` (the caller-declared literal,
-                    // verified by the const assert to match the inner
-                    // type's alignment requirement). The cast to
-                    // `*mut $inner` is therefore properly aligned. The
-                    // write covers exactly `SIZE` bytes, which is
-                    // `<= SLOTS * SLOT` bytes of valid, exclusive storage.
-                    unsafe {
-                        (wrapper.data.as_mut_ptr() as *mut $inner).write(inner);
+                // Trait impls listed via `derives:`. Each token is
+                // dispatched to the helper macro, which emits exactly
+                // that one impl. Unlisted traits are not implemented —
+                // `*mut ()` makes `Opaque` `!Send + !Sync` by default.
+                $(
+                    $crate::obfuscate_impl!($trait);
+                )*
+
+                // The macro exposes a uniform API
+                // (`new`/`as_ref`/`as_mut`/`into_inner`) but not every
+                // use site needs every entry point. Silence the
+                // resulting `dead_code` warnings here rather than at
+                // every call site.
+                #[allow(dead_code)]
+                impl Opaque {
+                    /// Wrap an `$inner` value in a fresh `Opaque`.
+                    pub(in super::super) fn new(inner: $inner) -> Self {
+                        let mut wrapper = Self {
+                            data: [::core::mem::MaybeUninit::uninit(); SLOTS],
+                        };
+                        // SAFETY: `data` is at offset 0 of `Self`, and
+                        // `Self`'s alignment is `$align`, which the
+                        // const assertion above verifies is sufficient
+                        // for `$inner`'s alignment. The cast to
+                        // `*mut $inner` is therefore properly aligned.
+                        // The write covers exactly `SIZE` bytes, which
+                        // is `<= SLOTS * SLOT` bytes of valid,
+                        // exclusive storage.
+                        unsafe {
+                            (wrapper.data.as_mut_ptr() as *mut $inner).write(inner);
+                        }
+                        wrapper
                     }
-                    wrapper
+
+                    /// Borrow the wrapped value.
+                    pub(in super::super) fn as_ref(&self) -> &$inner {
+                        // SAFETY: alignment is guaranteed by
+                        // `repr(align($align))` combined with the const
+                        // assertion that `$align` is at least as large
+                        // as `align_of::<$inner>()`. The bytes were
+                        // initialized in `new` and stay initialized
+                        // until `Drop`/`into_inner` consume them.
+                        unsafe { &*(self.data.as_ptr() as *const $inner) }
+                    }
+
+                    /// Mutably borrow the wrapped value.
+                    pub(in super::super) fn as_mut(&mut self) -> &mut $inner {
+                        // SAFETY: same as `as_ref`; `&mut self` gives
+                        // exclusive access.
+                        unsafe { &mut *(self.data.as_mut_ptr() as *mut $inner) }
+                    }
+
+                    /// Take ownership of the wrapped value, suppressing
+                    /// `Opaque`'s `Drop` so the inner value's
+                    /// destructor runs exactly once (when the returned
+                    /// owner is dropped).
+                    pub(in super::super) fn into_inner(self) -> $inner {
+                        // SAFETY: read the bytes through the
+                        // correctly-typed pointer, then forget `self`
+                        // to skip our `Drop` (which would otherwise
+                        // drop the value again).
+                        let inner: $inner =
+                            unsafe { ::core::ptr::read(self.data.as_ptr() as *const $inner) };
+                        ::core::mem::forget(self);
+                        inner
+                    }
                 }
 
-                /// Borrow the wrapped value.
-                pub(super) fn as_ref(&self) -> &$inner {
-                    // SAFETY: alignment is guaranteed by `repr(align($align))`
-                    // combined with the const assertion that matches
-                    // `$align` to the inner type's alignment requirement.
-                    // The bytes were initialized in `new` and stay
-                    // initialized until `Drop`/`into_inner` consume them.
-                    unsafe { &*(self.data.as_ptr() as *const $inner) }
-                }
-
-                /// Mutably borrow the wrapped value.
-                pub(super) fn as_mut(&mut self) -> &mut $inner {
-                    // SAFETY: same as `as_ref`; `&mut self` gives exclusive
-                    // access.
-                    unsafe { &mut *(self.data.as_mut_ptr() as *mut $inner) }
-                }
-
-                /// Take ownership of the wrapped value, suppressing `Opaque`'s
-                /// `Drop` so the inner value's destructor runs exactly once
-                /// (when the returned owner is dropped).
-                pub(super) fn into_inner(self) -> $inner {
-                    // SAFETY: read the bytes through the correctly-typed
-                    // pointer, then forget `self` to skip our `Drop` (which
-                    // would otherwise drop the value again).
-                    let inner: $inner =
-                        unsafe { ::core::ptr::read(self.data.as_ptr() as *const $inner) };
-                    ::core::mem::forget(self);
-                    inner
-                }
-            }
-
-            impl ::core::ops::Drop for Opaque {
-                fn drop(&mut self) {
-                    // SAFETY: see `as_ref`; running once per `Opaque` since
-                    // `into_inner` forgets `self` when it consumes the value.
-                    unsafe {
-                        ::core::ptr::drop_in_place(
-                            self.data.as_mut_ptr() as *mut $inner,
-                        );
+                impl ::core::ops::Drop for Opaque {
+                    fn drop(&mut self) {
+                        // SAFETY: see `as_ref`; running once per
+                        // `Opaque` since `into_inner` forgets `self`
+                        // when it consumes the value.
+                        unsafe {
+                            ::core::ptr::drop_in_place(
+                                self.data.as_mut_ptr() as *mut $inner,
+                            );
+                        }
                     }
                 }
             }
         }
+    };
+}
+
+/// Internal helper. Emits the compile-time alignment assertion for
+/// [`obfuscate!`]. Not part of the public API.
+///
+/// - `strict, T, N`: asserts `N == max(align_of::<T>(), align_of::<*mut ()>())`.
+///   Used when the caller passes an explicit `align:` literal.
+/// - `relaxed, T, N`: asserts `align_of::<T>() <= N`. Used with the
+///   64-byte default so any inner type under that cap works without
+///   the caller specifying an alignment.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __obfuscate_check_align {
+    (strict, $inner:ty, $align:literal) => {
+        const _: () = {
+            let inner = ::core::mem::align_of::<$inner>();
+            let slot = ::core::mem::align_of::<*mut ()>();
+            let needed = if inner > slot { inner } else { slot };
+            assert!(
+                $align == needed,
+                "obfuscate!: the `align:` literal does not match the required value. \
+                 Set it to `max(core::mem::align_of::<YourType>(), core::mem::align_of::<*mut ()>())` \
+                 (typically 8 on 64-bit targets, larger if your type has a higher alignment). \
+                 A literal is required because `#[repr(align(N))]` does not accept \
+                 const expressions like `align_of::<T>()` — the macro can't compute it for you.",
+            );
+        };
+    };
+    (relaxed, $inner:ty, $align:literal) => {
+        const _: () = assert!(
+            ::core::mem::align_of::<$inner>() <= $align,
+            "obfuscate!: inner type's alignment exceeds the default wrapper alignment (64 bytes). \
+             Pass an explicit `align: N` literal (a power of two equal to \
+             `max(core::mem::align_of::<YourType>(), core::mem::align_of::<*mut ()>())`) \
+             to override the default.",
+        );
     };
 }
 
@@ -367,11 +493,11 @@ mod tests {
         b: u32,
     }
 
+    // Align-only arm — no derives.
     obfuscate!(
         type: Pod,
         module: pod,
         align: 8,
-        derives: [],
     );
 
     #[test]
@@ -391,6 +517,30 @@ mod tests {
         wrapper.as_mut().a = 99;
         wrapper.as_mut().b = 1;
         assert_eq!(wrapper.as_ref(), &Pod { a: 99, b: 1 });
+    }
+
+    // ------------------------------------------------------------------
+    // Default-arm coverage: omitting `align:` should produce a wrapper
+    // with the 64-byte default and the permissive `<=` check.
+    // ------------------------------------------------------------------
+
+    obfuscate!(
+        type: Pod,
+        module: pod_default,
+        derives: [],
+    );
+
+    #[test]
+    fn opaque_default_arm_uses_64_byte_alignment() {
+        assert_eq!(core::mem::align_of::<pod_default::Opaque>(), 64);
+    }
+
+    #[test]
+    fn opaque_default_arm_round_trip_works() {
+        let value = Pod { a: 0xCAFEBABE, b: 3 };
+        let wrapper = pod_default::Opaque::new(value.clone());
+        assert_eq!(wrapper.as_ref(), &value);
+        assert_eq!(wrapper.into_inner(), value);
     }
 
     #[test]
@@ -418,11 +568,10 @@ mod tests {
         }
     }
 
+    // Minimal arm — no derives, no align (default 64).
     obfuscate!(
         type: DropCounter,
         module: counted,
-        align: 8,
-        derives: [],
     );
 
     #[test]
@@ -456,11 +605,11 @@ mod tests {
         data: [u64; 4],
     }
 
+    // Align-only arm with a higher alignment.
     obfuscate!(
         type: HighAlign,
         module: high_align,
         align: 32,
-        derives: [],
     );
 
     #[test]
@@ -488,11 +637,10 @@ mod tests {
         Nested(alloc::boxed::Box<Shape>),
     }
 
+    // Minimal arm.
     obfuscate!(
         type: Shape,
         module: shape,
-        align: 8,
-        derives: [],
     );
 
     #[test]
@@ -524,11 +672,12 @@ mod tests {
         }
     }
 
+    // Full arm — derives then align.
     obfuscate!(
         type: AllTraits,
         module: all_traits,
-        align: 8,
         derives: [Send, Sync, Debug, Display, PartialEq, Eq, Hash, Clone, Default],
+        align: 8,
     );
 
     fn assert_send<T: Send>() {}
@@ -673,11 +822,11 @@ mod tests {
     obfuscate!(
         type: Zst,
         module: zst,
+        derives: [Debug, PartialEq, Eq, Clone, Default],
         // Zst has alignment 1, but the slot type (`*mut ()`) has
         // pointer alignment, which becomes the floor. Declaring 8
         // honors `max(align_of::<Zst>(), align_of::<*mut ()>())`.
         align: 8,
-        derives: [Debug, PartialEq, Eq, Clone, Default],
     );
 
     #[test]
