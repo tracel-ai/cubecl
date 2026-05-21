@@ -342,14 +342,17 @@ macro_rules! obfuscate {
                     /// destructor runs exactly once (when the returned
                     /// owner is dropped).
                     pub(in super::super) fn into_inner(self) -> $inner {
+                        // Wrap in `ManuallyDrop` first so our `Drop` is
+                        // already suppressed before we read the value
+                        // out — panic-safe if the read ever unwinds,
+                        // and the more idiomatic alternative to
+                        // `mem::forget` after the read.
+                        let this = ::core::mem::ManuallyDrop::new(self);
                         // SAFETY: read the bytes through the
-                        // correctly-typed pointer, then forget `self`
-                        // to skip our `Drop` (which would otherwise
-                        // drop the value again).
-                        let inner: $inner =
-                            unsafe { ::core::ptr::read(self.data.as_ptr() as *const $inner) };
-                        ::core::mem::forget(self);
-                        inner
+                        // correctly-typed pointer. `this`'s `Drop` is
+                        // suppressed by `ManuallyDrop`, so the inner
+                        // value is not dropped twice.
+                        unsafe { ::core::ptr::read(this.data.as_ptr() as *const $inner) }
                     }
                 }
 
