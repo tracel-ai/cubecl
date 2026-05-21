@@ -311,7 +311,7 @@ struct alignas({alignment}) {item} {{"
                     shared::PointerClass::Shared => AddressSpace::ThreadGroup,
                     shared::PointerClass::Local => AddressSpace::Thread,
                 };
-                write!(f, "{constness}{address_space}")?;
+                write!(f, "{constness}{address_space} ")?;
                 Self::compile_item(f, inner.as_ref())?;
                 f.write_str("*")
             }
