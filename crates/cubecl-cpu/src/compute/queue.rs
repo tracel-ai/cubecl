@@ -2,7 +2,7 @@
 use crate::{
     compiler::mlir_engine::MlirEngine,
     compute::{
-        notification::Notification,
+        notification::{Notification, Notifications},
         schedule::{BindingsResource, ScheduleTask},
         threadpool::Threadpool,
     },
@@ -53,6 +53,7 @@ impl CpuExecutionQueue {
         std::thread::spawn(move || {
             let mut server = CpuExecutionQueueServer {
                 runner: Threadpool::new(logger),
+                pending_notifications: Vec::new(),
             };
 
             loop {
@@ -60,6 +61,7 @@ impl CpuExecutionQueue {
                     Ok(item) => match item {
                         QueueItem::Task(task) => server.execute_task(task),
                         QueueItem::Flush(notification) => {
+                            server.flush();
                             notification.send();
                         }
                     },
@@ -74,6 +76,7 @@ impl CpuExecutionQueue {
 
 struct CpuExecutionQueueServer {
     runner: Threadpool,
+    pending_notifications: Vec<Notifications>,
 }
 
 impl CpuExecutionQueueServer {
@@ -90,6 +93,12 @@ impl CpuExecutionQueueServer {
         }
     }
 
+    fn flush(&mut self) {
+        for notifications in self.pending_notifications.drain(..) {
+            notifications.wait();
+        }
+    }
+
     fn write(&mut self, data: Bytes, mut buffer: BytesResource) {
         buffer.write().copy_from_slice(&data);
     }
@@ -101,7 +110,9 @@ impl CpuExecutionQueueServer {
         cube_dim: CubeDim,
         cube_count: [u32; 3],
     ) {
-        self.runner
-            .execute_data(mlir_engine, bindings, cube_dim, cube_count)
+        let notifications = self
+            .runner
+            .execute_data(mlir_engine, bindings, cube_dim, cube_count);
+        self.pending_notifications.push(notifications);
     }
 }

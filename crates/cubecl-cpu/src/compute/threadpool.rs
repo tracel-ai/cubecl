@@ -87,7 +87,7 @@ impl Threadpool {
         resources: BindingsResource,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
-    ) {
+    ) -> Notifications {
         let cube_dim_size = cube_dim.num_elems();
 
         if cube_dim_size > self.workers.len() as u32 {
@@ -125,6 +125,6 @@ impl Threadpool {
             }
         }
 
-        notifications.wait();
+        notifications
     }
 }
