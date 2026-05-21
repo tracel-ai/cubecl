@@ -22,6 +22,7 @@
 /// obfuscate!(
 ///     type: Tensor,
 ///     module: tensor,
+///     align: 8,
 ///     derives: [Send, Sync, Debug, PartialEq, Clone],
 /// );
 ///
@@ -55,12 +56,22 @@
 /// obfuscate!(
 ///     type:    <inner-type>,
 ///     module:  <module-name>,
+///     align:   <integer-literal>,
 ///     derives: [<trait>, ...],
 /// );
 /// ```
 ///
-/// The three keys are mandatory and must appear in that order. `derives:
+/// All four keys are mandatory and must appear in that order. `derives:
 /// []` is allowed and produces an `Opaque` with no extra impls.
+///
+/// `align:` must be the integer literal equal to
+/// `max(core::mem::align_of::<inner>(), core::mem::align_of::<*mut ()>())`
+/// — the inner type's alignment for soundness, clamped up to the
+/// pointer alignment because the storage slots are pointer-sized.
+/// Wrong values are a `const` assertion failure at the call site, with
+/// a message pointing at the right one. A literal is required because
+/// `#[repr(align(N))]` does not accept const expressions — the macro
+/// can't substitute `align_of::<inner>()` for you.
 ///
 /// # Generated API
 ///
@@ -111,9 +122,10 @@
 /// read, breaking under Miri / Tree Borrows for any inner type that
 /// owns an `Arc`, `Box`, or similar.
 ///
-/// The wrapper carries `#[repr(C, align(64))]` (one cache line). The
-/// macro emits a `const` assertion that the inner type's alignment
-/// fits; a higher-aligned inner type is a compile error, not UB.
+/// The wrapper carries `#[repr(C, align(N))]` where `N` is the
+/// caller-declared `align:` literal. A `const` assertion verifies the
+/// literal matches `max(align_of::<inner>(), align_of::<*mut ()>())`,
+/// so wrong values are a compile error rather than runtime UB.
 ///
 /// # Why a macro?
 ///
@@ -128,6 +140,7 @@ macro_rules! obfuscate {
     (
         type: $inner:ty,
         module: $mod_name:ident,
+        align: $align:literal,
         derives: [ $($trait:ident),* $(,)? ] $(,)?
     ) => {
         mod $mod_name {
@@ -142,25 +155,34 @@ macro_rules! obfuscate {
             /// inner value.
             const SLOTS: usize = SIZE.div_ceil(SLOT);
 
-            /// The hard cap this module guarantees. Must match the literal in
-            /// `#[repr(align(...))]` below — keep them in sync if you change one.
-            const MAX_ALIGN: usize = 64;
-
-            // Compile-time check that `$inner` fits the wrapper's alignment.
-            // Without this the casts in `as_ref`/`as_mut`/`Drop` would be UB
-            // for inner types with alignment > MAX_ALIGN.
-            const _: () = assert!(
-                ::core::mem::align_of::<$inner>() <= MAX_ALIGN,
-                "obfuscate: inner type's alignment exceeds wrapper alignment (64). \
-                 Increase `MAX_ALIGN` and the matching `#[repr(align(...))]`.",
-            );
+            // Compile-time check that the caller's `align:` literal matches
+            // the wrapper's actual alignment requirement. The wrapper is
+            // aligned to `max(align_of::<$inner>(), align_of::<*mut ()>())`
+            // — the inner type's alignment for soundness, and the pointer
+            // alignment as a floor because the storage slots are
+            // pointer-sized.
+            const _: () = {
+                let inner = ::core::mem::align_of::<$inner>();
+                let slot = ::core::mem::align_of::<*mut ()>();
+                let needed = if inner > slot { inner } else { slot };
+                assert!(
+                    $align == needed,
+                    "obfuscate!: the `align:` literal does not match the required value. \
+                     Set it to `max(core::mem::align_of::<YourType>(), core::mem::align_of::<*mut ()>())` \
+                     (typically 8 on 64-bit targets, larger if your type has a higher alignment). \
+                     A literal is required because `#[repr(align(N))]` does not accept \
+                     const expressions like `align_of::<T>()` — the macro can't compute it for you.",
+                );
+            };
 
             /// Aligned, opaque storage for one `$inner` value.
             ///
-            /// `#[repr(C, align(64))]` guarantees the start of `data` is
-            /// 64-byte aligned, which dominates `align_of::<$inner>()` per
-            /// the static assertion above. That makes the
-            /// `*const _ as *const $inner` cast in the methods sound.
+            /// `#[repr(C, align($align))]` raises the struct's alignment to
+            /// the caller-declared `$align`, which the const assertion
+            /// above guarantees matches `align_of::<$inner>()` (or the
+            /// pointer-alignment floor, whichever is larger). That makes
+            /// the `*const _ as *const $inner` cast in the methods sound
+            /// without naming `$inner` in the struct definition.
             ///
             /// Slots are typed as pointer-sized `MaybeUninit<*mut ()>`
             /// rather than `u8`: the `*mut ()` payload type lets pointers
@@ -170,7 +192,7 @@ macro_rules! obfuscate {
             /// arise for enum types whose variants don't fill the whole
             /// discriminant). Neither wrapper names `$inner`, so the
             /// type-erasure goal is preserved.
-            #[repr(C, align(64))]
+            #[repr(C, align($align))]
             pub(super) struct Opaque {
                 data: [::core::mem::MaybeUninit<*mut ()>; SLOTS],
             }
@@ -194,11 +216,13 @@ macro_rules! obfuscate {
                     let mut wrapper = Self {
                         data: [::core::mem::MaybeUninit::uninit(); SLOTS],
                     };
-                    // SAFETY: `data` is at a 64-byte-aligned offset of `Self`
-                    // (which itself has 64-byte alignment from `repr(align)`),
-                    // so the cast to `*mut $inner` is properly aligned. The
-                    // write covers exactly `SIZE` bytes, which is `<= SLOTS *
-                    // SLOT` bytes of valid, exclusive storage.
+                    // SAFETY: `data` is at offset 0 of `Self`, and `Self`
+                    // has alignment `$align` (the caller-declared literal,
+                    // verified by the const assert to match the inner
+                    // type's alignment requirement). The cast to
+                    // `*mut $inner` is therefore properly aligned. The
+                    // write covers exactly `SIZE` bytes, which is
+                    // `<= SLOTS * SLOT` bytes of valid, exclusive storage.
                     unsafe {
                         (wrapper.data.as_mut_ptr() as *mut $inner).write(inner);
                     }
@@ -207,10 +231,11 @@ macro_rules! obfuscate {
 
                 /// Borrow the wrapped value.
                 pub(super) fn as_ref(&self) -> &$inner {
-                    // SAFETY: alignment is guaranteed by `repr(align(64))`
-                    // + the `MAX_ALIGN` assert. The bytes were initialized
-                    // in `new` and stay initialized until `Drop`/
-                    // `into_inner` consume them.
+                    // SAFETY: alignment is guaranteed by `repr(align($align))`
+                    // combined with the const assertion that matches
+                    // `$align` to the inner type's alignment requirement.
+                    // The bytes were initialized in `new` and stay
+                    // initialized until `Drop`/`into_inner` consume them.
                     unsafe { &*(self.data.as_ptr() as *const $inner) }
                 }
 
@@ -339,6 +364,7 @@ mod tests {
     obfuscate!(
         type: Pod,
         module: pod,
+        align: 8,
         derives: [],
     );
 
@@ -362,11 +388,16 @@ mod tests {
     }
 
     #[test]
-    fn opaque_alignment_is_64() {
-        // The whole point of the macro: the wrapper itself has cache-line
-        // alignment regardless of what's inside, so the inner pointer
-        // cast inside `as_ref`/`as_mut` is sound.
-        assert_eq!(core::mem::align_of::<pod::Opaque>(), 64);
+    fn opaque_alignment_matches_declared() {
+        // The wrapper's alignment is what the caller declared via
+        // `align:`, which the macro's const assert verifies matches
+        // `max(align_of::<inner>(), align_of::<*mut ()>())`.
+        assert_eq!(core::mem::align_of::<pod::Opaque>(), 8);
+        assert_eq!(core::mem::align_of::<high_align::Opaque>(), 32);
+        assert_eq!(
+            core::mem::align_of::<zst::Opaque>(),
+            core::mem::align_of::<*mut ()>()
+        );
     }
 
     // ------------------------------------------------------------------
@@ -384,6 +415,7 @@ mod tests {
     obfuscate!(
         type: DropCounter,
         module: counted,
+        align: 8,
         derives: [],
     );
 
@@ -421,6 +453,7 @@ mod tests {
     obfuscate!(
         type: HighAlign,
         module: high_align,
+        align: 32,
         derives: [],
     );
 
@@ -428,8 +461,9 @@ mod tests {
     fn high_alignment_inner_works() {
         let value = HighAlign { data: [1, 2, 3, 4] };
         let wrapper = high_align::Opaque::new(value.clone());
-        // The wrapped reference must itself be properly aligned for
-        // `HighAlign`, otherwise reading any of its fields is UB.
+        // The wrapper must be exactly the declared alignment; the
+        // wrapped reference inherits it.
+        assert_eq!(core::mem::align_of::<high_align::Opaque>(), 32);
         let r: &HighAlign = wrapper.as_ref();
         assert_eq!((r as *const HighAlign as usize) % 32, 0);
         assert_eq!(r, &value);
@@ -451,6 +485,7 @@ mod tests {
     obfuscate!(
         type: Shape,
         module: shape,
+        align: 8,
         derives: [],
     );
 
@@ -486,6 +521,7 @@ mod tests {
     obfuscate!(
         type: AllTraits,
         module: all_traits,
+        align: 8,
         derives: [Send, Sync, Debug, Display, PartialEq, Eq, Hash, Clone, Default],
     );
 
@@ -631,6 +667,10 @@ mod tests {
     obfuscate!(
         type: Zst,
         module: zst,
+        // Zst has alignment 1, but the slot type (`*mut ()`) has
+        // pointer alignment, which becomes the floor. Declaring 8
+        // honors `max(align_of::<Zst>(), align_of::<*mut ()>())`.
+        align: 8,
         derives: [Debug, PartialEq, Eq, Clone, Default],
     );
 
