@@ -13,6 +13,8 @@ use cubecl_ir::DeviceProperties;
 use cubecl_runtime::compiler::CompilationError;
 use derive_more::derive::From;
 
+#[cfg(feature = "spirv")]
+use crate::ParamsTransfer;
 use crate::{CompilerInfo, WgpuServer, WgslCompiler};
 
 use super::wgsl;
@@ -175,7 +177,16 @@ impl WgpuCompiler for AutoCompiler {
                 kernel.address_type(),
             ),
             #[cfg(feature = "spirv")]
-            AutoCompiler::SpirV(_) => crate::vulkan::compile(self, server, kernel, mode),
+            AutoCompiler::SpirV(_) => {
+                #[cfg(feature = "spirv-dump")]
+                let (name, id) = (kernel.name().to_string(), kernel.id());
+                let compiled = crate::vulkan::compile(self, server, kernel, mode)?;
+                #[cfg(feature = "spirv-dump")]
+                if let Some(spirv) = compiled.repr.as_ref().and_then(|r| r.as_spirv()) {
+                    crate::vulkan::dump_spirv(spirv, &name, id);
+                }
+                Ok(compiled)
+            }
             #[cfg(feature = "msl")]
             AutoCompiler::Msl(_) => kernel.compile(
                 self,
@@ -208,25 +219,14 @@ impl WgpuCompiler for AutoCompiler {
             #[cfg(feature = "spirv")]
             AutoRepresentation::SpirV(repr) => repr.shared_size,
         });
-        let max_smem = props.hardware.max_shared_memory_size;
-        if let Some(shared_bytes) = shared_bytes
-            && shared_bytes > max_smem
-        {
-            return Err(ResourceLimitError::SharedMemory {
-                requested: shared_bytes,
-                max: max_smem,
-                backtrace: BackTrace::capture(),
-            }
-            .into());
-        }
-
-        Ok(())
+        check_shared_memory(shared_bytes, props)
     }
-    fn into_auto(
+
+    fn to_auto(
         &self,
         repr: Option<Self::Representation>,
     ) -> (CompilerInfo, Option<AutoRepresentation>) {
-        let compiler_info = match repr {
+        let compiler_info = match &repr {
             #[cfg(feature = "spirv")]
             Some(AutoRepresentation::SpirV(repr)) => CompilerInfo::Vulkan {
                 params_transfer: match repr.immediate_size {
@@ -248,6 +248,7 @@ impl WgpuCompiler for WgslCompiler {
     fn init(_backend: wgpu::Backend, _options: &WgpuCompilationOptions) -> Self {
         Self::default()
     }
+
     fn wgpu_compile(
         &mut self,
         server: &mut WgpuServer<Self>,
@@ -265,15 +266,17 @@ impl WgpuCompiler for WgslCompiler {
     fn lang_tag(&self) -> &'static str {
         "wgsl"
     }
+
     fn validate_ir(
         &self,
         repr: &Option<Self::Representation>,
         props: &DeviceProperties,
     ) -> Result<(), LaunchError> {
-        todo!()
+        let shared_bytes = repr.as_ref().map(|repr| repr.shared_memory_bytes());
+        check_shared_memory(shared_bytes, props)
     }
 
-    fn into_auto(
+    fn to_auto(
         &self,
         repr: Option<Self::Representation>,
     ) -> (CompilerInfo, Option<AutoRepresentation>) {
@@ -282,28 +285,36 @@ impl WgpuCompiler for WgslCompiler {
 }
 
 #[cfg(feature = "msl")]
-impl WgpuCompiler for MslComputeKernel {
+impl WgpuCompiler for cubecl_cpp::MslCompiler {
     fn init(_backend: wgpu::Backend, _options: &WgpuCompilationOptions) -> Self {
         Self::default()
     }
+
     fn wgpu_compile(
         &mut self,
-        server: &mut WgpuServer<Self>,
+        _server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
         mode: ExecutionMode,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
-        kernel.compile(
-            self,
-            &server.compilation_options,
-            mode,
-            kernel.address_type(),
-        )
+        // The MSL compiler uses its own CompilationOptions, not WgpuCompilationOptions.
+        let compilation_options = cubecl_cpp::shared::CompilationOptions::default();
+        kernel.compile(self, &compilation_options, mode, kernel.address_type())
     }
 
     fn lang_tag(&self) -> &'static str {
         "msl"
     }
-    fn into_auto(
+
+    fn validate_ir(
+        &self,
+        repr: &Option<Self::Representation>,
+        props: &DeviceProperties,
+    ) -> Result<(), LaunchError> {
+        let shared_bytes = repr.as_ref().map(|repr| repr.shared_memory_size());
+        check_shared_memory(shared_bytes, props)
+    }
+
+    fn to_auto(
         &self,
         repr: Option<Self::Representation>,
     ) -> (CompilerInfo, Option<AutoRepresentation>) {
@@ -312,41 +323,74 @@ impl WgpuCompiler for MslComputeKernel {
 }
 
 #[cfg(feature = "spirv")]
-impl WgpuCompiler for cubecl_spirv::SpirvCompiler {
-    type Representation;
-
+impl<T: cubecl_spirv::SpirvTarget> WgpuCompiler for cubecl_spirv::SpirvCompiler<T> {
     fn init(_backend: wgpu::Backend, _options: &WgpuCompilationOptions) -> Self {
         Self::default()
     }
+
     fn wgpu_compile(
         &mut self,
         server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
         mode: ExecutionMode,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
-        crate::vulkan::compile(self, server, kernel, mode)
+        #[cfg(feature = "spirv-dump")]
+        let (name, id) = (kernel.name().to_string(), kernel.id());
+        let compiled = crate::vulkan::compile(self, server, kernel, mode)?;
+        #[cfg(feature = "spirv-dump")]
+        if let Some(spirv) = compiled.repr.as_ref() {
+            crate::vulkan::dump_spirv(spirv, &name, id);
+        }
+        Ok(compiled)
     }
 
     fn lang_tag(&self) -> &'static str {
         "spirv"
     }
-    fn into_auto(
+
+    fn validate_ir(
+        &self,
+        repr: &Option<Self::Representation>,
+        props: &DeviceProperties,
+    ) -> Result<(), LaunchError> {
+        let shared_bytes = repr.as_ref().map(|repr| repr.shared_size);
+        check_shared_memory(shared_bytes, props)
+    }
+
+    fn to_auto(
         &self,
         repr: Option<Self::Representation>,
     ) -> (CompilerInfo, Option<AutoRepresentation>) {
+        let params_transfer = match repr.as_ref().and_then(|r| r.immediate_size) {
+            Some(_) => ParamsTransfer::Immediate,
+            None => ParamsTransfer::Uniform,
+        };
         (
-            CompilerInfo::Vulkan {
-                params_transfer: match repr.immediate_size {
-                    Some(_) => ParamsTransfer::Immediate,
-                    None => ParamsTransfer::Uniform,
-                },
-            },
+            CompilerInfo::Vulkan { params_transfer },
             repr.map(|r| r.into()),
         )
     }
 }
 
-pub(crate) trait WgpuCompiler: Compiler {
+fn check_shared_memory(
+    shared_bytes: Option<usize>,
+    props: &DeviceProperties,
+) -> Result<(), LaunchError> {
+    let max_smem = props.hardware.max_shared_memory_size;
+    if let Some(shared_bytes) = shared_bytes
+        && shared_bytes > max_smem
+    {
+        return Err(ResourceLimitError::SharedMemory {
+            requested: shared_bytes,
+            max: max_smem,
+            backtrace: BackTrace::capture(),
+        }
+        .into());
+    }
+    Ok(())
+}
+
+pub trait WgpuCompiler: Compiler {
     fn init(backend: wgpu::Backend, options: &WgpuCompilationOptions) -> Self;
     fn validate_ir(
         &self,
@@ -360,7 +404,7 @@ pub(crate) trait WgpuCompiler: Compiler {
         mode: ExecutionMode,
     ) -> Result<CompiledKernel<Self>, CompilationError>;
     fn lang_tag(&self) -> &'static str;
-    fn into_auto(
+    fn to_auto(
         &self,
         repr: Option<Self::Representation>,
     ) -> (CompilerInfo, Option<AutoRepresentation>);

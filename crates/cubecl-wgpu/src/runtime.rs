@@ -29,9 +29,7 @@ pub struct WgpuRuntime<Compiler = AutoCompiler> {
 
 impl<C> Clone for WgpuRuntime<C> {
     fn clone(&self) -> Self {
-        Self {
-            _p: self._p.clone(),
-        }
+        Self { _p: self._p }
     }
 }
 

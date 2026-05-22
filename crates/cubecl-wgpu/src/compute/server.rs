@@ -196,8 +196,8 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         self.scheduler.logger.log_compilation(&compiled);
 
         compiler.validate_ir(&compiled.repr, &self.utilities.properties)?;
-        let (compiler_info, repr) = compiler.into_auto(compiled.repr);
-        let repr = repr.as_ref().map(|r| r.as_ref());
+        let (compiler_info, auto_repr) = compiler.to_auto(compiled.repr);
+        let repr = auto_repr.as_ref().map(|r| r.as_ref());
 
         // /!\ Do not delete the following commented code.
         // This is useful while working on the metal compiler.
@@ -236,7 +236,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
         #[cfg(feature = "spirv")]
         if let Some(Err(key)) = cached
-            && let Some(crate::AutoRepresentation::SpirV(kernel)) = compiled.repr
+            && let Some(crate::AutoRepresentation::SpirV(kernel)) = auto_repr
         {
             let cache = self.spirv_cache.as_mut().unwrap();
             let result = cache.insert(
