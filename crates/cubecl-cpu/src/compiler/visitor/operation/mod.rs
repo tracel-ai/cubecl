@@ -116,7 +116,7 @@ impl<'a> Visitor<'a> {
             }
             Operation::Marker(_) => {}
             Operation::Atomic(atomic) => {
-                self.visit_atomic_without_out(atomic);
+                self.visit_atomic(atomic, None);
             }
             operation => {
                 todo!(
@@ -133,7 +133,7 @@ impl<'a> Visitor<'a> {
                 self.visit_memory(memory, Some(out));
             }
             Operation::Atomic(atomic) => {
-                self.visit_atomic_with_out(atomic, out);
+                self.visit_atomic(atomic, Some(out));
             }
             Operation::Arithmetic(arithmetic) => {
                 self.visit_arithmetic(arithmetic, out);

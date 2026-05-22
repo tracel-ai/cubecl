@@ -11,8 +11,28 @@ use tracel_llvm::mlir_rs::{
 use crate::compiler::visitor::{Visitor, prelude::IntoType};
 
 impl<'a> Visitor<'a> {
-    pub fn visit_atomic_without_out(&mut self, atomic: &AtomicOp) {
+    pub fn visit_atomic(&mut self, atomic: &AtomicOp, out: Option<Variable>) {
         match atomic {
+            AtomicOp::Load(variable) => {
+                let raw_ptr = self.get_raw_ptr(*variable);
+                let size = variable.ty.elem_type().size();
+                let integer_type = IntegerType::new(self.context, 64).into();
+                let size = IntegerAttribute::new(integer_type, size as i64);
+                let extra_options = LoadStoreOptions::new()
+                    .atomic(AtomicOrdering::Unordered)
+                    .align(Some(size));
+                let ty = variable.ty.to_type(self.context);
+                let value = self.append_operation_with_result(llvm::load(
+                    self.context,
+                    raw_ptr,
+                    ty,
+                    self.location,
+                    extra_options,
+                ));
+                if let Some(out) = out {
+                    self.insert_variable(out, value);
+                }
+            }
             AtomicOp::Store(store_operands) => {
                 let raw_ptr = self.get_raw_ptr(store_operands.ptr);
                 let value = self.get_variable(store_operands.value);
@@ -30,32 +50,6 @@ impl<'a> Visitor<'a> {
                     extra_options,
                 ));
             }
-            _ => unreachable!("Impossible to reach all other operation require an out"),
-        }
-    }
-    pub fn visit_atomic_with_out(&mut self, atomic: &AtomicOp, out: Variable) {
-        match atomic {
-            AtomicOp::Load(variable) => {
-                let raw_ptr = self.get_raw_ptr(*variable);
-                let size = out.ty.elem_type().size();
-                let integer_type = IntegerType::new(self.context, 64).into();
-                let size = IntegerAttribute::new(integer_type, size as i64);
-                let extra_options = LoadStoreOptions::new()
-                    .atomic(AtomicOrdering::Unordered)
-                    .align(Some(size));
-                let ty = out.ty.to_type(self.context);
-                let value = self.append_operation_with_result(llvm::load(
-                    self.context,
-                    raw_ptr,
-                    ty,
-                    self.location,
-                    extra_options,
-                ));
-                self.insert_variable(out, value);
-            }
-            AtomicOp::Store(_) => {
-                unreachable!("A store operand can't have an out")
-            }
             AtomicOp::Swap(op)
             | AtomicOp::Add(op)
             | AtomicOp::Sub(op)
@@ -69,7 +63,7 @@ impl<'a> Visitor<'a> {
                 let cmp = self.get_variable(compare_and_swap_operands.cmp);
                 let val = self.get_variable(compare_and_swap_operands.val);
                 let extra_options = CmpXchgOptions::new();
-                self.block.append_operation(llvm::cmpxchg(
+                let value = self.append_operation_with_result(llvm::cmpxchg(
                     self.context,
                     ptr,
                     cmp,
@@ -79,6 +73,9 @@ impl<'a> Visitor<'a> {
                     self.location,
                     extra_options,
                 ));
+                if let Some(out) = out {
+                    self.insert_variable(out, value);
+                }
             }
         };
     }
@@ -101,7 +98,7 @@ impl<'a> Visitor<'a> {
         &mut self,
         atomic: &AtomicOp,
         atomic_binary_operands: &AtomicBinaryOperands,
-        out: Variable,
+        out: Option<Variable>,
     ) {
         let ty = atomic_binary_operands.ptr.ty.elem_type();
         let value = if let AtomicOp::Sub(_) = atomic {
@@ -137,6 +134,8 @@ impl<'a> Visitor<'a> {
             &[zero],
             self.location,
         ));
-        self.insert_variable(out, value);
+        if let Some(out) = out {
+            self.insert_variable(out, value);
+        }
     }
 }
