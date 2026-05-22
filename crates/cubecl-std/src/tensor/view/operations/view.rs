@@ -9,7 +9,7 @@ macro_rules! impl_base {
         impl<'a, T: CubePrimitive, C: Coordinates + 'a> Vectorized for $ty<'a, T, C> {}
         impl<'a, T: CubePrimitive, C: Coordinates + 'a> VectorizedExpand for $expand<'a, T, C> {
             fn vector_size(&self) -> VectorSize {
-                $expand::vector_size(self)
+                self.inner.vector_size()
             }
         }
 

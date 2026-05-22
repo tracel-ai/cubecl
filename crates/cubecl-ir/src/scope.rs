@@ -240,9 +240,9 @@ impl Scope {
     }
 
     /// Add a value to the global arena so we can create a kernel-wide reference to it.
-    /// The reference is `'static` for simplicity, but is only valid for the duration of the root scope.
-    /// Ensure the reference lifetime is shortened to the lifetime of the underlying variable being
-    /// referenced.
+    /// The reference is the same as the type for simplicity, but is only valid for the duration of
+    /// the root scope. Ensure the reference lifetime is shortened to the lifetime of the underlying
+    /// variable being referenced.
     pub fn create_kernel_ref<'a, T>(&self, var: T) -> &'a mut T
     where
         T: 'a,

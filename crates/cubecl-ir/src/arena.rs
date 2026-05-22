@@ -13,7 +13,8 @@ use cubecl_macros_internal::TypeHash;
 /// This shouldn't happen for normal types, but should be kept in mind regardless.
 /// Contrived Example:
 ///
-/// ```
+/// ```no_run
+/// # use cubecl_ir::arena::DropBump;
 /// struct Wrapper<'a>(&'a mut String);
 ///
 /// impl<'a> Drop for Wrapper<'a> {
@@ -24,7 +25,7 @@ use cubecl_macros_internal::TypeHash;
 ///
 /// let mut external = String::from("hello");
 ///
-/// let pool = DropBump::new();
+/// let mut pool = DropBump::new();
 /// let w = pool.alloc(Wrapper(&mut external));
 /// drop(external);
 /// pool.reset(); // Runs `drop_in_place::<Wrapper>`

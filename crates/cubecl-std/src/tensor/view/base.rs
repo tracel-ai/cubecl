@@ -177,65 +177,47 @@ macro_rules! impl_read {
             }
         }
 
+        #[cube]
         impl<'a, E: CubePrimitive, C: Coordinates> $ty<'a, E, C> {
             /// Calls [`Layout::shape`] on the view's layout
             pub fn shape(&self) -> C {
-                unexpanded!()
+                intrinsic!(|scope| self.inner.__expand_shape_method(scope))
             }
 
             /// Calls [`Layout::is_in_bounds`] on the view's layout
-            pub fn is_in_bounds(&self, _pos: C) -> bool {
-                unexpanded!()
-            }
-
-            pub fn __expand_shape(scope: &Scope, this: $expand<'a, E, C>) -> C::ExpandType {
-                this.__expand_shape_method(scope)
-            }
-
-            pub fn __expand_is_in_bounds(
-                scope: &Scope,
-                this: $expand<'a, E, C>,
-                pos: C::ExpandType,
-            ) -> NativeExpand<bool> {
-                this.__expand_is_in_bounds_method(scope, pos)
+            #[allow(unused_variables)]
+            pub fn is_in_bounds(&self, pos: C) -> bool {
+                intrinsic!(|scope| self.inner.__expand_is_in_bounds_method(scope, pos))
             }
         }
 
-        impl<'a, E: CubePrimitive, C: Coordinates> $expand<'a, E, C> {
-            pub fn __expand_shape_method(&self, scope: &Scope) -> C::ExpandType {
-                self.inner.__expand_shape_method(scope)
-            }
-
-            pub fn __expand_is_in_bounds_method(
-                &self,
-                scope: &Scope,
-                pos: C::ExpandType,
-            ) -> NativeExpand<bool> {
-                self.inner.__expand_is_in_bounds_method(scope, pos)
-            }
-        }
-
-        #[allow(unused_variables)]
+        #[cube]
         impl<'a, E: CubePrimitive, C: Coordinates> $ty<'a, E, C> {
             /// Read a value at `pos`. The layout handles translation into a concrete index.
+            #[allow(unused_variables)]
             pub fn read(&self, pos: C) -> E {
-                unexpanded!()
+                intrinsic!(|scope| self.inner.__expand_read_method(scope, pos))
             }
 
             /// Read a value at `pos`. The layout handles translation into a concrete index.
             /// Reading is done unchecked
+            #[allow(unused_variables)]
             pub fn read_unchecked(&self, pos: C) -> E {
-                unexpanded!()
+                intrinsic!(|scope| self.inner.__expand_read_unchecked_method(scope, pos))
             }
 
             /// Read a value at `pos` if it's in bounds. The layout handles translation into a concrete index.
+            #[allow(unused_variables)]
             pub fn read_checked(&self, pos: C) -> E {
-                unexpanded!()
+                intrinsic!(|scope| self.inner.__expand_read_checked_method(scope, pos))
             }
 
             /// Read a value at `pos` if it's in bounds, returning `mask_value` otherwise. The layout handles translation into a concrete index.
+            #[allow(unused_variables)]
             pub fn read_masked(&self, pos: C, mask_value: E) -> E {
-                unexpanded!()
+                intrinsic!(|scope| self
+                    .inner
+                    .__expand_read_masked_method(scope, pos, mask_value))
             }
 
             /// Interpret this view as a linear slice encompassing the entire view.
@@ -244,75 +226,26 @@ macro_rules! impl_read {
             ///
             /// No checking is done on whether the slice is contiguous in memory.
             pub fn as_linear_slice(&self) -> &'a [E] {
-                unexpanded!()
+                intrinsic!(|scope| {
+                    let shape = self.inner.__expand_shape_method(scope);
+                    let origin = C::__expand_from_int(scope, shape.clone_unchecked(), 0);
+                    // Inclusive end so clamping works correctly
+                    let one = C::__expand_from_int(scope, shape.clone_unchecked(), 1);
+                    let shape = C::__expand_max(scope, shape, one.clone_unchecked());
+                    let end = C::__expand_sub(scope, shape, one);
+                    let slice = self
+                        .inner
+                        .__expand_as_linear_slice_method(scope, origin, end);
+                    scope.create_kernel_ref(slice.expand.into())
+                })
             }
 
-            pub fn vector_size(&self) -> VectorSize {
-                unexpanded!()
+            pub fn vector_size(&self) -> comptime_type!(VectorSize) {
+                intrinsic!(|scope| self.inner.vector_size())
             }
         }
 
         impl<'a, E: CubePrimitive, C: Coordinates> $expand<'a, E, C> {
-            /// Expand method for [`View::read`]
-            pub fn __expand_read_method(
-                &self,
-                scope: &Scope,
-                pos: C::ExpandType,
-            ) -> NativeExpand<E> {
-                self.inner.__expand_read_method(scope, pos)
-            }
-
-            /// Expand method for [`View::read_unchecked`]
-            pub fn __expand_read_unchecked_method(
-                &self,
-                scope: &Scope,
-                pos: C::ExpandType,
-            ) -> NativeExpand<E> {
-                self.inner.__expand_read_unchecked_method(scope, pos)
-            }
-
-            /// Expand method for [`View::read_checked`]
-            pub fn __expand_read_checked_method(
-                &self,
-                scope: &Scope,
-                pos: C::ExpandType,
-            ) -> NativeExpand<E> {
-                self.inner.__expand_read_checked_method(scope, pos)
-            }
-
-            /// Expand method for [`View::read_masked`]
-            pub fn __expand_read_masked_method(
-                &self,
-                scope: &Scope,
-                pos: C::ExpandType,
-                mask_value: E::ExpandType,
-            ) -> NativeExpand<E> {
-                self.inner
-                    .__expand_read_masked_method(scope, pos, mask_value)
-            }
-
-            /// Expand method for [`View::vector_size`]
-            pub fn __expand_vector_size_method(&self, _scope: &Scope) -> VectorSize {
-                self.inner.vector_size()
-            }
-
-            pub fn vector_size(&self) -> VectorSize {
-                self.inner.vector_size()
-            }
-
-            pub fn __expand_as_linear_slice_method(&self, scope: &Scope) -> &'a SliceExpand<E> {
-                let shape = self.inner.__expand_shape_method(scope);
-                let origin = C::__expand_from_int(scope, shape.clone_unchecked(), 0);
-                // Inclusive end so clamping works correctly
-                let one = C::__expand_from_int(scope, shape.clone_unchecked(), 1);
-                let shape = C::__expand_max(scope, shape, one.clone_unchecked());
-                let end = C::__expand_sub(scope, shape, one);
-                let slice = self
-                    .inner
-                    .__expand_as_linear_slice_method(scope, origin, end);
-                scope.create_kernel_ref(slice.expand.into())
-            }
-
             pub(super) fn __expand_as_linear_slice_inner_method(
                 &self,
                 scope: &Scope,
@@ -323,12 +256,14 @@ macro_rules! impl_read {
             }
         }
 
+        #[cube]
         impl<'a, E: CubePrimitive, C: Coordinates + 'static> $ty<'a, E, C> {
             /// Create a slice starting from `pos`, with `size`.
             /// The layout handles translation into concrete indices.
             /// Size will be clamped to the current layout size.
-            pub fn slice(self, _pos: C, _size: C) -> $ty<'a, E, C> {
-                unexpanded!()
+            #[allow(unused_variables)]
+            pub fn slice(self, pos: C, size: C) -> $ty<'a, E, C> {
+                intrinsic!(|scope| self.slice(scope, pos, size, true))
             }
 
             /// Create a slice starting from `pos`, with `size`.
@@ -336,48 +271,13 @@ macro_rules! impl_read {
             /// Size and pos will be clamped to the current layout size.
             /// #Safety
             /// Access is always unchecked
-            pub fn slice_unchecked(self, _pos: C, _size: C) -> $ty<'a, E, C> {
-                unexpanded!()
-            }
-
-            pub fn __expand_slice(
-                scope: &Scope,
-                this: $expand<'a, E, C>,
-                pos: C::ExpandType,
-                size: C::ExpandType,
-            ) -> $expand<'a, E, C> {
-                this.__expand_slice_method(scope, pos, size)
-            }
-
-            pub fn __expand_slice_unchecked(
-                scope: &Scope,
-                this: $expand<'a, E, C>,
-                pos: C::ExpandType,
-                size: C::ExpandType,
-            ) -> $expand<'a, E, C> {
-                this.__expand_slice_unchecked_method(scope, pos, size)
+            #[allow(unused_variables)]
+            pub fn slice_unchecked(self, pos: C, size: C) -> $ty<'a, E, C> {
+                intrinsic!(|scope| self.slice(scope, pos, size, false))
             }
         }
 
         impl<'a, E: CubePrimitive, C: Coordinates + 'static> $expand<'a, E, C> {
-            pub fn __expand_slice_method(
-                self,
-                scope: &Scope,
-                pos: C::ExpandType,
-                size: C::ExpandType,
-            ) -> $expand<'a, E, C> {
-                self.slice(scope, pos, size, true)
-            }
-
-            pub fn __expand_slice_unchecked_method(
-                self,
-                scope: &Scope,
-                pos: C::ExpandType,
-                size: C::ExpandType,
-            ) -> $expand<'a, E, C> {
-                self.slice(scope, pos, size, false)
-            }
-
             fn slice(
                 self,
                 scope: &Scope,
@@ -394,24 +294,16 @@ macro_rules! impl_read {
             }
         }
 
-        impl<'a, E: CubePrimitive, C: Coordinates + 'static> $ty<'a, E, C> {
-            ///.Execute a TMA load into shared memory, if the underlying storage supports it.
+        #[cube]
+        impl<'a, E: CubePrimitive, C: Coordinates + 'a> $ty<'a, E, C> {
+            /// Execute a TMA load into shared memory, if the underlying storage supports it.
             /// Panics if it's unsupported.
-            pub fn tensor_map_load(&self, _barrier: &Barrier, _shared_memory: &mut [E], _pos: C) {
-                unexpanded!()
-            }
-        }
-
-        impl<'a, E: CubePrimitive, C: Coordinates> $expand<'a, E, C> {
-            pub fn __expand_tensor_map_load_method(
-                &self,
-                scope: &Scope,
-                barrier: &NativeExpand<Barrier>,
-                shared_memory: &mut SliceExpand<E>,
-                pos: C::ExpandType,
-            ) {
-                self.inner
-                    .__expand_tensor_map_load_method(scope, barrier, shared_memory, pos)
+            #[allow(unused_variables)]
+            pub fn tensor_map_load(&self, barrier: &Barrier, shared_memory: &mut [E], pos: C) {
+                intrinsic!(|scope| {
+                    self.inner
+                        .__expand_tensor_map_load_method(scope, barrier, shared_memory, pos)
+                })
             }
         }
     };
@@ -467,16 +359,18 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'a> ViewMutExpand<'a, E, C> {
     }
 }
 
-#[allow(unused_variables)]
+#[cube]
 impl<'a, E: CubePrimitive, C: Coordinates> ViewMut<'a, E, C> {
     /// Write a value to `pos`. The layout handles translation into a concrete index.
+    #[allow(unused_variables)]
     pub fn write(&mut self, pos: C, value: E) {
-        unexpanded!()
+        intrinsic!(|scope| self.inner.__expand_write_method(scope, pos, value));
     }
 
     /// Write a value to `pos` if it's in bounds. The layout handles translation into a concrete index.
+    #[allow(unused_variables)]
     pub fn write_checked(&mut self, pos: C, value: E) {
-        unexpanded!()
+        intrinsic!(|scope| self.inner.__expand_write_checked_method(scope, pos, value));
     }
 
     /// Interpret this view as a mutable linear slice encompassing the entire view.
@@ -484,45 +378,23 @@ impl<'a, E: CubePrimitive, C: Coordinates> ViewMut<'a, E, C> {
     /// # Safety
     ///
     /// No checking is done on whether the slice is contiguous in memory.
-    pub fn to_linear_slice_mut(&mut self) -> &'a mut [E] {
-        unexpanded!()
+    pub fn as_linear_slice_mut(&mut self) -> &'a mut [E] {
+        intrinsic!(|scope| {
+            let shape = self.inner.__expand_shape_method(scope);
+            let origin = C::__expand_from_int(scope, shape.clone_unchecked(), 0);
+            // Inclusive end so clamping works correctly
+            let one = C::__expand_from_int(scope, shape.clone_unchecked(), 1);
+            let shape = C::__expand_max(scope, shape, one.clone_unchecked());
+            let end = C::__expand_sub(scope, shape, one);
+            let slice = self
+                .inner
+                .__expand_as_linear_slice_mut_method(scope, origin, end);
+            scope.create_kernel_ref(slice.expand.into())
+        })
     }
 }
 
 impl<'a, E: CubePrimitive, C: Coordinates> ViewMutExpand<'a, E, C> {
-    /// Expand method for [`View::write`]
-    pub fn __expand_write_method(
-        &mut self,
-        scope: &Scope,
-        pos: C::ExpandType,
-        value: NativeExpand<E>,
-    ) {
-        self.inner.__expand_write_method(scope, pos, value)
-    }
-
-    /// Expand method for [`View::write_checked`]
-    pub fn __expand_write_checked_method(
-        &mut self,
-        scope: &Scope,
-        pos: C::ExpandType,
-        value: NativeExpand<E>,
-    ) {
-        self.inner.__expand_write_checked_method(scope, pos, value);
-    }
-
-    pub fn __expand_as_linear_slice_mut_method(&mut self, scope: &Scope) -> &'a mut SliceExpand<E> {
-        let shape = self.inner.__expand_shape_method(scope);
-        let origin = C::__expand_from_int(scope, shape.clone_unchecked(), 0);
-        // Inclusive end so clamping works correctly
-        let one = C::__expand_from_int(scope, shape.clone_unchecked(), 1);
-        let shape = C::__expand_max(scope, shape, one.clone_unchecked());
-        let end = C::__expand_sub(scope, shape, one);
-        let slice = self
-            .inner
-            .__expand_as_linear_slice_mut_method(scope, origin, end);
-        scope.create_kernel_ref(slice.expand.into())
-    }
-
     pub(super) fn __expand_to_linear_slice_mut_inner_method(
         &mut self,
         scope: &Scope,
@@ -534,12 +406,14 @@ impl<'a, E: CubePrimitive, C: Coordinates> ViewMutExpand<'a, E, C> {
     }
 }
 
+#[cube]
 impl<'a, E: CubePrimitive, C: Coordinates + 'static> ViewMut<'a, E, C> {
     /// Create a mutable slice starting from `pos`, with `size`.
     /// The layout handles translation into concrete indices.
     /// Size and pos will be clamped to the current layout size.
-    pub fn slice_mut(self, _pos: C, _size: C) -> ViewMut<'a, E, C> {
-        unexpanded!()
+    #[allow(unused_variables)]
+    pub fn slice_mut(self, pos: C, size: C) -> ViewMut<'a, E, C> {
+        intrinsic!(|scope| self.slice_mut(scope, pos, size, true))
     }
 
     /// Create a mutable slice starting from `pos`, with `size`.
@@ -548,48 +422,13 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static> ViewMut<'a, E, C> {
     ///
     /// # Safety
     /// Access is always unchecked.
-    pub fn slice_mut_unchecked(self, _pos: C, _size: C) -> ViewMut<'a, E, C> {
-        unexpanded!()
-    }
-
-    pub fn __expand_slice_mut(
-        scope: &Scope,
-        this: ViewMutExpand<'a, E, C>,
-        pos: C::ExpandType,
-        size: C::ExpandType,
-    ) -> ViewMutExpand<'a, E, C> {
-        this.__expand_slice_mut_method(scope, pos, size)
-    }
-
-    pub fn __expand_slice_mut_unchecked(
-        scope: &Scope,
-        this: ViewMutExpand<'a, E, C>,
-        pos: C::ExpandType,
-        size: C::ExpandType,
-    ) -> ViewMutExpand<'a, E, C> {
-        this.__expand_slice_mut_unchecked_method(scope, pos, size)
+    #[allow(unused_variables)]
+    pub fn slice_mut_unchecked(self, pos: C, size: C) -> ViewMut<'a, E, C> {
+        intrinsic!(|scope| self.slice_mut(scope, pos, size, false))
     }
 }
 
 impl<'a, E: CubePrimitive, C: Coordinates + 'static> ViewMutExpand<'a, E, C> {
-    pub fn __expand_slice_mut_method(
-        self,
-        scope: &Scope,
-        pos: C::ExpandType,
-        size: C::ExpandType,
-    ) -> ViewMutExpand<'a, E, C> {
-        self.slice_mut(scope, pos, size, true)
-    }
-
-    pub fn __expand_slice_mut_unchecked_method(
-        &self,
-        scope: &Scope,
-        pos: C::ExpandType,
-        size: C::ExpandType,
-    ) -> ViewMutExpand<'a, E, C> {
-        self.slice_mut(scope, pos, size, false)
-    }
-
     fn slice_mut(
         &self,
         scope: &Scope,
@@ -606,22 +445,15 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static> ViewMutExpand<'a, E, C> {
     }
 }
 
+#[cube]
 impl<'a, E: CubePrimitive, C: Coordinates> ViewMut<'a, E, C> {
-    ///.Execute a TMA store into global memory, if the underlying storage supports it.
+    /// Execute a TMA store into global memory, if the underlying storage supports it.
     /// Panics if it's unsupported.
-    pub fn tensor_map_store(&self, _shared_memory: &[E], _pos: C) {
-        unexpanded!()
-    }
-}
-
-impl<'a, E: CubePrimitive, C: Coordinates> ViewMutExpand<'a, E, C> {
-    pub fn __expand_tensor_map_store_method(
-        &mut self,
-        scope: &Scope,
-        shared_memory: &SliceExpand<E>,
-        pos: C::ExpandType,
-    ) {
-        self.inner
-            .__expand_tensor_map_store_method(scope, shared_memory, pos)
+    #[allow(unused_variables)]
+    pub fn tensor_map_store(&self, shared_memory: &[E], pos: C) {
+        intrinsic!(|scope| {
+            self.inner
+                .__expand_tensor_map_store_method(scope, shared_memory, pos)
+        })
     }
 }
