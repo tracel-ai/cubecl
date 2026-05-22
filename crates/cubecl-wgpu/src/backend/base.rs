@@ -1,6 +1,7 @@
 use super::wgsl;
 use crate::WgpuServer;
 use crate::{AutoRepresentationRef, CompilerInfo};
+use cubecl_core::Compiler;
 use cubecl_core::{
     CubeDim, ExecutionMode, WgpuCompilationOptions, hash::StableHash, server::KernelArguments,
 };
@@ -22,7 +23,7 @@ use super::metal;
 #[cfg(all(feature = "msl", target_os = "macos"))]
 use cubecl_cpp::metal as cpp_metal;
 
-impl WgpuServer {
+impl<C: Compiler> WgpuServer<C> {
     /// Loads a cached kernel if present and creates the pipeline for it.
     /// Returns `None` if the cache isn't enabled, `Some(Ok(pipeline))` if a cache entry was found,
     /// and `Some(Err(cache_key))` if the cache is enabled but doesn't contain this kernel.
