@@ -9,6 +9,7 @@ use crate::{
 pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> (Vec<Visibility>, usize) {
     // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
     // and since we can't be sure, we'll assume everything is read-write.
+    #[allow(unexpected_cfgs)]
     let buffers = repr.buffers.iter().map(|it| {
         if cfg!(exclusive_memory_only) {
             it.vis
