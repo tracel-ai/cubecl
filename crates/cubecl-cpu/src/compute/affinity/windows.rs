@@ -15,7 +15,7 @@ pub fn get_active_cores() -> impl Iterator<Item = CoreId> {
 }
 
 pub fn set_for_current(core_id: CoreId) {
-    let mask: u64 = 1 << core_id.id;
+    let mask: u64 = 1 << core_id.0;
     unsafe { SetThreadAffinityMask(GetCurrentThread(), mask as DWORD_PTR) };
 }
 

@@ -76,7 +76,8 @@ impl MlirData {
         let cube_dim_size = cube_dim.num_elems() as i32;
 
         let builtin = BuiltinArray::new(cube_dim, cube_count);
-        let max_buffer_size = resources.len() + shared_memories.0.len() + BuiltinArray::len() + 2;
+        let indirect_args_len = resources.len() + shared_memories.0.len() + 2;
+        let total_args_len = indirect_args_len + BuiltinArray::len();
 
         let args_zero_indirection = Vec::with_capacity(indirect_args_len);
         let args_first_indirection = Vec::with_capacity(indirect_args_len);
