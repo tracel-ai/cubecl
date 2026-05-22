@@ -15,9 +15,15 @@ use derive_more::derive::From;
 
 #[cfg(feature = "spirv")]
 use crate::ParamsTransfer;
-use crate::{CompilerInfo, WgpuServer, WgslCompiler};
+use crate::{CompilerInfo, WgpuServer};
 
 use super::wgsl;
+
+#[cfg(feature = "msl")]
+pub use cubecl_cpp::MslCompiler;
+#[cfg(feature = "spirv")]
+pub use cubecl_spirv::SpirvCompiler;
+pub use wgsl::WgslCompiler;
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
@@ -26,7 +32,7 @@ pub enum AutoCompiler {
     #[cfg(feature = "spirv")]
     SpirV(cubecl_spirv::SpirvCompiler),
     #[cfg(feature = "msl")]
-    Msl(cubecl_cpp::MslCompiler),
+    Msl(MslCompiler),
 }
 
 #[derive(From)]
@@ -285,7 +291,7 @@ impl WgpuCompiler for WgslCompiler {
 }
 
 #[cfg(feature = "msl")]
-impl WgpuCompiler for cubecl_cpp::MslCompiler {
+impl WgpuCompiler for MslCompiler {
     fn init(_backend: wgpu::Backend, _options: &WgpuCompilationOptions) -> Self {
         Self::default()
     }
