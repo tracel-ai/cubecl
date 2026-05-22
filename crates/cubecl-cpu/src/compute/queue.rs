@@ -100,6 +100,7 @@ impl CpuExecutionQueueServer {
     }
 
     fn write(&mut self, data: Bytes, mut buffer: BytesResource) {
+        self.flush();
         buffer.write().copy_from_slice(&data);
     }
 
