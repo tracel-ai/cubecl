@@ -27,6 +27,12 @@ pub struct Worker {
     tx: mpsc::Sender<ComputeTask>,
 }
 
+impl Default for Worker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Worker {
     pub fn new_with_affinity(core_id: CoreId) -> Self {
         let (tx, rx) = mpsc::channel();

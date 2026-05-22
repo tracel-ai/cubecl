@@ -10,9 +10,8 @@ pub fn get_active_cores() -> impl Iterator<Item = CoreId> {
     let affinity_mask = get_affinity_mask();
 
     (0..CPU_SETSIZE as usize)
-        .into_iter()
         .filter(move |i| unsafe { CPU_ISSET(*i, &affinity_mask) })
-        .map(|i| CoreId(i))
+        .map(CoreId)
 }
 
 pub fn set_for_current(core_id: CoreId) {

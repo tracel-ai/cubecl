@@ -1,10 +1,4 @@
-use super::{
-    compute_task::{
-        BARRIER_COUNTER, BARRIER_TARGET, CURRENT_CUBE_DIM, ComputeTask, STOPPED_COUNTER,
-    },
-    schedule::BindingsResource,
-    worker::Worker,
-};
+use super::{compute_task::ComputeTask, schedule::BindingsResource, worker::Worker};
 use crate::{
     compiler::{MlirCompiler, mlir_data::MlirData, mlir_engine::MlirEngine},
     compute::{affinity::get_active_cores, notification::Notifications},
@@ -17,10 +11,7 @@ use cubecl_runtime::{
     memory_management::{MemoryManagement, MemoryManagementOptions},
     storage::BytesStorage,
 };
-use std::{
-    fmt::Debug,
-    sync::{Arc, atomic::Ordering},
-};
+use std::{fmt::Debug, sync::Arc};
 use sysinfo::System;
 
 /// The kernel runner is responsible to manage shared memory as well as threads to execute kernels.
@@ -83,9 +74,7 @@ impl Threadpool {
             MemoryManagementOptions::new("Shared Memory"),
         );
 
-        let workers = get_active_cores()
-            .map(|core_id| Worker::new_with_affinity(core_id))
-            .collect();
+        let workers = get_active_cores().map(Worker::new_with_affinity).collect();
 
         Self {
             workers,
@@ -100,11 +89,6 @@ impl Threadpool {
         cube_count: [u32; 3],
     ) {
         let cube_dim_size = cube_dim.num_elems();
-
-        BARRIER_TARGET.store(cube_dim_size as i32, Ordering::Release);
-        CURRENT_CUBE_DIM.store(cube_dim_size as i32, Ordering::Release);
-        BARRIER_COUNTER.store(0, Ordering::Release);
-        STOPPED_COUNTER.store(0, Ordering::Release);
 
         if cube_dim_size > self.workers.len() as u32 {
             self.workers
