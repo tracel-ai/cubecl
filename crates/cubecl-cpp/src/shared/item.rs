@@ -224,7 +224,7 @@ impl<D: Dialect> Item<D> {
             self,
             Item::Pointer(
                 _,
-                PointerClass::Global(Visibility::Read | Visibility::ReadWrite)
+                PointerClass::Global(Visibility::Read | Visibility::Uniform)
             )
         )
     }
