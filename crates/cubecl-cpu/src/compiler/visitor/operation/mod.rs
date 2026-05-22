@@ -7,7 +7,7 @@ pub(super) mod operator;
 pub(super) mod synchronization;
 
 use cubecl_core::ir::{
-    BarrierLevel, BarrierOps, Memory, NonSemantic, OpaqueType, Operation, StorageType,
+    AtomicOp, BarrierLevel, BarrierOps, Memory, NonSemantic, OpaqueType, Operation, StorageType,
     Synchronization,
 };
 use tracel_llvm::mlir_rs::{
@@ -165,9 +165,10 @@ impl<'a> Visitor<'a> {
             }
             Operation::WorkgroupUniformLoad(input) => {
                 if input.ty.is_atomic() {
-                    todo!("Atomic operations are not yet supported on CPU");
+                    self.visit_atomic(&AtomicOp::Load(*input), Some(out));
+                } else {
+                    self.visit_memory(&Memory::Load(*input), Some(out));
                 }
-                self.visit_memory(&Memory::Load(*input), Some(out));
             }
             Operation::CoopMma(_)
             | Operation::Plane(_)
