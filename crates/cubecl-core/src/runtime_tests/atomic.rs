@@ -200,7 +200,11 @@ pub fn test_kernel_atomic_numeric_all_sizes<R: Runtime, F: Numeric + CubeElement
 }
 
 #[cube(launch)]
-pub fn kernel_atomic_int<I: Int>(atomics: &[Atomic<I>], #[comptime] op: IntAtomicOp) {
+pub fn kernel_atomic_int<I: Int>(
+    atomics: &[Atomic<I>],
+    output: &mut [I],
+    #[comptime] op: IntAtomicOp,
+) {
     if UNIT_POS == 0 {
         match op {
             IntAtomicOp::And => {
@@ -213,7 +217,7 @@ pub fn kernel_atomic_int<I: Int>(atomics: &[Atomic<I>], #[comptime] op: IntAtomi
                 atomics[0].fetch_xor(I::from_int(0b0110));
             }
             IntAtomicOp::CompareExchange => {
-                atomics[0].compare_exchange_weak(I::from_int(12), I::from_int(5));
+                output[0] = atomics[0].compare_exchange_weak(I::from_int(12), I::from_int(5));
             }
         }
     }
@@ -228,12 +232,14 @@ pub fn test_kernel_atomic_int<R: Runtime, I: Int + CubeElement>(
     }
 
     let handle = client.create_from_slice(I::as_bytes(&[I::from_int(int_atomic_initial_value())]));
+    let output_handle = client.create_from_slice(I::as_bytes(&[I::from_int(0)]));
 
     kernel_atomic_int::launch::<I, R>(
         &client,
         CubeCount::new_single(),
         CubeDim::new_1d(1),
         unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+        unsafe { BufferArg::from_raw_parts(output_handle.clone(), 1) },
         op,
     );
 
@@ -241,6 +247,13 @@ pub fn test_kernel_atomic_int<R: Runtime, I: Int + CubeElement>(
     let actual = I::from_bytes(&actual);
 
     assert_eq!(actual, &[int_expected::<I>(op)]);
+
+    if op == IntAtomicOp::CompareExchange {
+        let output = client.read_one_unchecked(output_handle);
+        let output = I::from_bytes(&output);
+
+        assert_eq!(output, &[I::from_int(int_atomic_initial_value())]);
+    }
 }
 
 #[macro_export]

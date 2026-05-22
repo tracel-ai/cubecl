@@ -5,7 +5,11 @@ use tracel_llvm::mlir_rs::{
         llvm::{self, CmpXchgOptions, LoadStoreOptions, attributes::AtomicOrdering, r#type},
         memref,
     },
-    ir::{BlockLike, Value, attribute::IntegerAttribute, r#type::IntegerType},
+    ir::{
+        BlockLike, Value,
+        attribute::{DenseI64ArrayAttribute, IntegerAttribute},
+        r#type::IntegerType,
+    },
 };
 
 use crate::compiler::visitor::{Visitor, prelude::IntoType};
@@ -74,6 +78,13 @@ impl<'a> Visitor<'a> {
                     extra_options,
                 ));
                 if let Some(out) = out {
+                    let value = self.append_operation_with_result(llvm::extract_value(
+                        self.context,
+                        value,
+                        DenseI64ArrayAttribute::new(self.context, &[0]),
+                        out.ty.to_type(self.context),
+                        self.location,
+                    ));
                     self.insert_variable(out, value);
                 }
             }
