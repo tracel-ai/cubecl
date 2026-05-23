@@ -100,7 +100,7 @@ impl WgpuServer {
                 ))
             },
             #[cfg(all(feature = "msl", target_os = "macos"))]
-            Some(AutoRepresentationRef::Msl(repr)) => unsafe {
+            Some(AutoRepresentationRef::Msl(_)) => unsafe {
                 Ok(self.device.create_shader_module_passthrough(
                     wgpu::ShaderModuleDescriptorPassthrough {
                         label: Some(entrypoint_name),
