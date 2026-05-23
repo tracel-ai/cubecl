@@ -19,8 +19,6 @@ use super::vulkan;
 
 #[cfg(all(feature = "msl", target_os = "macos"))]
 use super::metal;
-#[cfg(all(feature = "msl", target_os = "macos"))]
-use cubecl_cpp::metal as cpp_metal;
 
 impl WgpuServer {
     /// Loads a cached kernel if present and creates the pipeline for it.
@@ -193,7 +191,7 @@ impl WgpuServer {
         let bindings_info = match repr {
             Some(AutoRepresentationRef::Wgsl(repr)) => Some(wgsl::bindings(repr, bindings)),
             #[cfg(all(feature = "msl", target_os = "macos"))]
-            Some(AutoRepresentationRef::Msl(repr)) => Some(cpp_metal::bindings(repr, bindings)),
+            Some(AutoRepresentationRef::Msl(repr)) => Some(metal::bindings(repr, bindings)),
             #[cfg(feature = "spirv")]
             Some(AutoRepresentationRef::SpirV(repr)) => Some(vulkan::bindings(repr, bindings)),
             _ => None,

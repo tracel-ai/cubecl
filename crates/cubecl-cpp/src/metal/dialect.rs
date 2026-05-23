@@ -247,7 +247,7 @@ struct alignas({alignment}) {item} {{"
             }
         }
 
-        define_array_polyfill(f, "")?;
+        define_array_polyfill(f, "thread")?;
 
         shared::type_info_definition_sized(f, info, scalars, flags.address_type)?;
         Ok(())
