@@ -330,18 +330,18 @@ impl<T: CubeAnd + CubePrimitive> AndExpand for NativeExpand<T> {
     }
 }
 
-pub trait CubeOr: CubePrimitive + Into<Variable> + CubeType<ExpandType: AndExpand> + Sized {
+pub trait CubeOr: CubePrimitive + Into<Variable> + CubeType<ExpandType: OrExpand> + Sized {
     fn __expand_or_method(self, scope: &Scope, rhs: NativeExpand<Self>) -> NativeExpand<Self> {
         let this: Variable = self.into();
         let this: NativeExpand<Self> = this.into();
-        this.__expand_and_method(scope, rhs)
+        this.__expand_or_method(scope, rhs)
     }
     fn __expand_or(
         scope: &Scope,
         lhs: NativeExpand<Self>,
         rhs: NativeExpand<Self>,
     ) -> NativeExpand<Self> {
-        lhs.__expand_and_method(scope, rhs)
+        lhs.__expand_or_method(scope, rhs)
     }
 }
 pub trait OrExpand {
