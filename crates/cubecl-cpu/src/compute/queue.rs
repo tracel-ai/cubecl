@@ -1,4 +1,3 @@
-/// BIG TODO remove threading from that and just run the kernel instead of spawning another thread
 use crate::{
     compiler::mlir_engine::MlirEngine,
     compute::{
