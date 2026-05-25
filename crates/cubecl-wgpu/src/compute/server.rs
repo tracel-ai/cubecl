@@ -185,7 +185,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         validate_units(&self.utilities.properties, &kernel_id)?;
 
         let mut compiler = C::init(self.backend, &self.compilation_options);
-        let mut compiled = compiler.wgpu_compile(self, kernel, mode)?;
+        let mut compiled = compiler.compile_kernel(self, kernel, mode)?;
 
         if self.scheduler.logger.compilation_activated() {
             compiled.debug_info = Some(DebugInformation::new(
@@ -196,7 +196,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         self.scheduler.logger.log_compilation(&compiled);
 
         compiler.validate_ir(&compiled.repr, &self.utilities.properties)?;
-        let (compiler_info, auto_repr) = compiler.to_auto(compiled.repr);
+        let (compiler_info, auto_repr) = compiler.normalize_repr(compiled.repr);
         let repr = auto_repr.as_ref().map(|r| r.as_ref());
 
         // /!\ Do not delete the following commented code.

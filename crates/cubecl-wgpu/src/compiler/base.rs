@@ -25,38 +25,55 @@ pub use cubecl_cpp::MslCompiler;
 pub use cubecl_spirv::SpirvCompiler;
 pub use wgsl::WgslCompiler;
 
+/// Compiler that dispatches to the most appropriate shader language backend for the active
+/// `wgpu` backend.
+///
+/// The variant is selected at runtime by [`WgpuCompiler::init`] based on the `wgpu::Backend`
+/// in use and the enabled cargo features (`spirv`, `msl`).
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum AutoCompiler {
+    /// WGSL backend, available on every `wgpu` backend.
     Wgsl(WgslCompiler),
+    /// SPIR-V backend used on Vulkan when the device supports the required features.
     #[cfg(feature = "spirv")]
     SpirV(cubecl_spirv::SpirvCompiler),
+    /// Metal Shading Language backend used on the Metal backend.
     #[cfg(feature = "msl")]
     Msl(MslCompiler),
 }
 
+/// Owned compiled kernel representation matching the variants of [`AutoCompiler`].
 #[derive(From)]
 #[allow(clippy::large_enum_variant)]
 pub enum AutoRepresentation {
+    /// WGSL compute shader source.
     Wgsl(wgsl::ComputeShader),
+    /// Compiled SPIR-V kernel.
     #[cfg(feature = "spirv")]
     SpirV(cubecl_spirv::SpirvKernel),
+    /// Compiled Metal Shading Language kernel.
     #[cfg(feature = "msl")]
     Msl(MslComputeKernel),
 }
 
+/// Borrowed counterpart of [`AutoRepresentation`], useful when only read access is needed.
 #[derive(From, Clone, Copy)]
 #[allow(clippy::large_enum_variant)]
 pub enum AutoRepresentationRef<'a> {
+    /// Borrowed WGSL compute shader.
     Wgsl(&'a wgsl::ComputeShader),
+    /// Borrowed SPIR-V kernel.
     #[cfg(feature = "spirv")]
     SpirV(&'a cubecl_spirv::SpirvKernel),
+    /// Borrowed Metal Shading Language kernel.
     #[cfg(feature = "msl")]
     Msl(&'a MslComputeKernel),
 }
 
 #[cfg(feature = "spirv")]
 impl AutoRepresentation {
+    /// Returns the SPIR-V kernel if this representation is the SPIR-V variant.
     pub fn as_spirv(&self) -> Option<&cubecl_spirv::SpirvKernel> {
         match self {
             AutoRepresentation::SpirV(repr) => Some(repr),
@@ -67,6 +84,7 @@ impl AutoRepresentation {
 
 #[cfg(feature = "msl")]
 impl AutoRepresentation {
+    /// Returns the MSL kernel if this representation is the MSL variant.
     pub fn as_msl(&self) -> Option<&MslComputeKernel> {
         match self {
             AutoRepresentation::Msl(repr) => Some(repr),
@@ -76,6 +94,7 @@ impl AutoRepresentation {
 }
 
 impl AutoRepresentation {
+    /// Borrow this representation as an [`AutoRepresentationRef`].
     pub fn as_ref(&self) -> AutoRepresentationRef<'_> {
         match self {
             AutoRepresentation::Wgsl(compute_shader) => AutoRepresentationRef::Wgsl(compute_shader),
@@ -169,7 +188,7 @@ impl WgpuCompiler for AutoCompiler {
         }
     }
 
-    fn wgpu_compile(
+    fn compile_kernel(
         &mut self,
         server: &mut WgpuServer<AutoCompiler>,
         kernel: <WgpuServer<AutoCompiler> as ComputeServer>::Kernel,
@@ -228,7 +247,7 @@ impl WgpuCompiler for AutoCompiler {
         check_shared_memory(shared_bytes, props)
     }
 
-    fn to_auto(
+    fn normalize_repr(
         &self,
         repr: Option<Self::Representation>,
     ) -> (CompilerInfo, Option<AutoRepresentation>) {
@@ -255,7 +274,7 @@ impl WgpuCompiler for WgslCompiler {
         Self::default()
     }
 
-    fn wgpu_compile(
+    fn compile_kernel(
         &mut self,
         server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
@@ -282,7 +301,7 @@ impl WgpuCompiler for WgslCompiler {
         check_shared_memory(shared_bytes, props)
     }
 
-    fn to_auto(
+    fn normalize_repr(
         &self,
         repr: Option<Self::Representation>,
     ) -> (CompilerInfo, Option<AutoRepresentation>) {
@@ -296,7 +315,7 @@ impl WgpuCompiler for MslCompiler {
         Self::default()
     }
 
-    fn wgpu_compile(
+    fn compile_kernel(
         &mut self,
         _server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
@@ -320,7 +339,7 @@ impl WgpuCompiler for MslCompiler {
         check_shared_memory(shared_bytes, props)
     }
 
-    fn to_auto(
+    fn normalize_repr(
         &self,
         repr: Option<Self::Representation>,
     ) -> (CompilerInfo, Option<AutoRepresentation>) {
@@ -334,7 +353,7 @@ impl<T: cubecl_spirv::SpirvTarget> WgpuCompiler for cubecl_spirv::SpirvCompiler<
         Self::default()
     }
 
-    fn wgpu_compile(
+    fn compile_kernel(
         &mut self,
         server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
@@ -363,7 +382,7 @@ impl<T: cubecl_spirv::SpirvTarget> WgpuCompiler for cubecl_spirv::SpirvCompiler<
         check_shared_memory(shared_bytes, props)
     }
 
-    fn to_auto(
+    fn normalize_repr(
         &self,
         repr: Option<Self::Representation>,
     ) -> (CompilerInfo, Option<AutoRepresentation>) {
@@ -396,21 +415,55 @@ fn check_shared_memory(
     Ok(())
 }
 
+/// Extension trait implemented by every compiler usable with the `wgpu` runtime.
+///
+/// The base [`Compiler`] trait already exposes a `compile` method that turns a
+/// [`KernelDefinition`] into a backend representation. [`WgpuCompiler`] sits one level
+/// higher: it owns the wgpu-specific lifecycle around a [`CubeTask`](cubecl_runtime::compiler::CubeTask)
+/// kernel — initializing the compiler for a given `wgpu::Backend`, compiling a kernel using
+/// the server's [`WgpuCompilationOptions`], validating the resulting IR against the device,
+/// and projecting the typed representation into the runtime-erased [`AutoRepresentation`].
 pub trait WgpuCompiler: Compiler {
+    /// Build the compiler instance appropriate for the given `wgpu` backend.
+    ///
+    /// `options` is consulted to decide between alternative implementations (for example, to
+    /// opt into the SPIR-V compiler on Vulkan when the device advertises the required
+    /// features).
     fn init(backend: wgpu::Backend, options: &WgpuCompilationOptions) -> Self;
+
+    /// Validate that the compiled representation fits within the device's resource limits.
+    ///
+    /// Today this checks shared memory usage; additional checks may be added without
+    /// breaking the contract.
     fn validate_ir(
         &self,
         repr: &Option<Self::Representation>,
         props: &DeviceProperties,
     ) -> Result<(), LaunchError>;
-    fn wgpu_compile(
+
+    /// Compile a runtime kernel into a [`CompiledKernel`] ready for pipeline creation.
+    ///
+    /// Distinct from [`Compiler::compile`], which only translates a [`KernelDefinition`].
+    /// This entry point operates on a full server-level kernel and pulls compilation
+    /// options from `server`, so its signature cannot collide with the base trait method.
+    fn compile_kernel(
         &mut self,
         server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
         mode: ExecutionMode,
     ) -> Result<CompiledKernel<Self>, CompilationError>;
+
+    /// Short identifier of the shader language produced by this compiler (e.g. `"wgsl"`).
+    ///
+    /// Used for logging and debug-info tagging.
     fn lang_tag(&self) -> &'static str;
-    fn to_auto(
+
+    /// Normalize the backend-specific representation into the [`AutoRepresentation`] shared
+    /// by every wgpu compiler, and report the [`CompilerInfo`] derived from it.
+    ///
+    /// The [`CompilerInfo`] tells the server which parameter-passing strategy to use for
+    /// the resulting pipeline.
+    fn normalize_repr(
         &self,
         repr: Option<Self::Representation>,
     ) -> (CompilerInfo, Option<AutoRepresentation>);
