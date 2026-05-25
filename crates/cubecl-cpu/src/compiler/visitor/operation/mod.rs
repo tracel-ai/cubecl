@@ -1,4 +1,5 @@
 pub(super) mod arithmetic;
+pub(super) mod atomic;
 pub(super) mod bitwise;
 pub(super) mod comparison;
 pub(super) mod metadata;
@@ -6,7 +7,7 @@ pub(super) mod operator;
 pub(super) mod synchronization;
 
 use cubecl_core::ir::{
-    BarrierLevel, BarrierOps, Memory, NonSemantic, OpaqueType, Operation, StorageType,
+    AtomicOp, BarrierLevel, BarrierOps, Memory, NonSemantic, OpaqueType, Operation, StorageType,
     Synchronization,
 };
 use tracel_llvm::mlir_rs::{
@@ -114,6 +115,9 @@ impl<'a> Visitor<'a> {
                 self.visit_synchronization(synchronization);
             }
             Operation::Marker(_) => {}
+            Operation::Atomic(atomic) => {
+                self.visit_atomic(atomic, None);
+            }
             operation => {
                 todo!(
                     "This operation ({}) is not implemented without an out",
@@ -128,8 +132,8 @@ impl<'a> Visitor<'a> {
             Operation::Memory(memory) => {
                 self.visit_memory(memory, Some(out));
             }
-            Operation::Atomic(_atomic) => {
-                todo!("Atomic operation are not yet supported");
+            Operation::Atomic(atomic) => {
+                self.visit_atomic(atomic, Some(out));
             }
             Operation::Arithmetic(arithmetic) => {
                 self.visit_arithmetic(arithmetic, out);
@@ -161,9 +165,10 @@ impl<'a> Visitor<'a> {
             }
             Operation::WorkgroupUniformLoad(input) => {
                 if input.ty.is_atomic() {
-                    todo!("Atomic operations are not yet supported on CPU");
+                    self.visit_atomic(&AtomicOp::Load(*input), Some(out));
+                } else {
+                    self.visit_memory(&Memory::Load(*input), Some(out));
                 }
-                self.visit_memory(&Memory::Load(*input), Some(out));
             }
             Operation::CoopMma(_)
             | Operation::Plane(_)

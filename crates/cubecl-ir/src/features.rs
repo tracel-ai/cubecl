@@ -112,6 +112,10 @@ pub enum AtomicUsage {
     Add,
     /// Atomic min/max
     MinMax,
+    /// Atomic bitwise and/or/xor
+    Bitwise,
+    /// Atomic compare-and-exchange
+    CompareExchange,
 }
 
 impl AtomicUsage {
