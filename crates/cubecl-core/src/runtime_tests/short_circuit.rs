@@ -81,7 +81,9 @@ macro_rules! testgen_short_circuit {
         #[$crate::runtime_tests::test_log::test]
         fn test_short_circuit_and() {
             let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::short_circuit::test_short_circuit_and::<TestRuntime>(client);
+            cubecl_core::runtime_tests::short_circuit::test_short_circuit_and::<TestRuntime>(
+                client,
+            );
         }
     };
 }
