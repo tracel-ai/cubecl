@@ -201,6 +201,10 @@ pub trait DerefExpand {
     fn __expand_deref_method(&self, scope: &Scope) -> Self::Target;
 }
 
+pub fn __expand_deref<T: DerefExpand<Target = T>>(scope: &Scope, value: &T) -> T {
+    value.__expand_deref_method(scope)
+}
+
 pub trait AsDerefExpand {
     type Target;
     fn __expand_as_deref_method(&self, scope: &Scope) -> &Self::Target;
@@ -238,6 +242,10 @@ pub trait Assign<T = Self> {
     fn __expand_assign_method(&mut self, scope: &Scope, value: T);
     /// Create a new mutable variable of this type in `scope`.
     fn init_mut(&self, scope: &Scope) -> Self;
+}
+
+pub fn __expand_assign<T: Assign<T>>(scope: &Scope, target: &mut T, value: T) {
+    target.__expand_assign_method(scope, value);
 }
 
 impl<T: CubePrimitive> Assign for T {

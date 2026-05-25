@@ -188,7 +188,7 @@ pub fn test_kernel_atomic_numeric<R: Runtime, F: Numeric + CubeElement>(
     };
     let actual = F::from_bytes(&actual);
 
-    assert_all_eq(&actual, numeric_expected(op));
+    assert_all_eq(actual, numeric_expected(op));
 }
 
 pub fn test_kernel_atomic_numeric_all_sizes<R: Runtime, F: Numeric + CubeElement>(

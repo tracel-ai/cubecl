@@ -5,7 +5,7 @@ use cubecl::prelude::*;
 #[cube(launch)]
 fn shuffle_kernel(orders: &mut [u32]) {
     if UNIT_POS < 2 {
-        let mut order = Array::<u32>::new(2usize);
+        let mut order = Array::new(2usize);
         order[0] = 0;
         order[1] = 1;
 

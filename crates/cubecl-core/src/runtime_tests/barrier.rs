@@ -102,8 +102,8 @@ fn two_independent_loads<F: Float, N: Size>(
     output: &mut Tensor<Vector<F, N>>,
     #[comptime] num_data: usize,
 ) {
-    let mut lhs_smem: Shared<[Vector<F, N>]> = Shared::new_slice(num_data);
-    let mut rhs_smem: Shared<[Vector<F, N>]> = Shared::new_slice(num_data);
+    let mut lhs_smem = Shared::new_slice(num_data);
+    let mut rhs_smem = Shared::new_slice(num_data);
 
     let barrier_0 = barrier::Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     let barrier_1 = barrier::Barrier::shared(CUBE_DIM, UNIT_POS == 0);

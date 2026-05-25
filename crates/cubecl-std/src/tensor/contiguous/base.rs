@@ -102,7 +102,7 @@ fn copy_kernel<T: Numeric, N: Size>(
 ) {
     let offset_linear = ABSOLUTE_POS * elems_per_thread;
 
-    let mut registers = Array::<Vector<T, N>>::new(elems_per_thread);
+    let mut registers = Array::new(elems_per_thread);
 
     #[unroll]
     for i in 0..elems_per_thread {
@@ -131,7 +131,7 @@ fn copy_kernel_pack<T: Numeric, N: Size>(
     let offset_output = ABSOLUTE_POS * vectors_per_thread;
     let offset_input = offset_output * vector_size;
 
-    let mut registers = Array::<Vector<T, N>>::new(vectors_per_thread);
+    let mut registers = Array::new(vectors_per_thread);
 
     #[unroll]
     for i in 0..vectors_per_thread {
@@ -220,7 +220,7 @@ fn copy_kernel_packed<T: Int, N: Size>(
         terminate!()
     }
 
-    let mut registers = Array::<Vector<T, N>>::new(vectors_per_thread);
+    let mut registers = Array::new(vectors_per_thread);
 
     #[unroll]
     for i in 0..vectors_per_thread {

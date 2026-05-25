@@ -294,6 +294,22 @@ impl Expression {
     }
 }
 
+pub fn is_intrinsic(path: &Path) -> bool {
+    // Add both possible import paths
+    let intrinsic_paths = [
+        "::cubecl::prelude::vectorization_of",
+        "::cubecl::frontend::vectorization_of",
+    ];
+
+    let mut path = path.clone();
+    // Strip function generics
+    path.segments.last_mut().unwrap().arguments = PathArguments::None;
+    let func_path = path.to_token_stream().to_string();
+    intrinsic_paths
+        .iter()
+        .any(|path| path.ends_with(&func_path))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,20 +450,4 @@ mod tests {
             .is_always_pure()
         );
     }
-}
-
-pub fn is_intrinsic(path: &Path) -> bool {
-    // Add both possible import paths
-    let intrinsic_paths = [
-        "::cubecl::prelude::vectorization_of",
-        "::cubecl::frontend::vectorization_of",
-    ];
-
-    let mut path = path.clone();
-    // Strip function generics
-    path.segments.last_mut().unwrap().arguments = PathArguments::None;
-    let func_path = path.to_token_stream().to_string();
-    intrinsic_paths
-        .iter()
-        .any(|path| path.ends_with(&func_path))
 }

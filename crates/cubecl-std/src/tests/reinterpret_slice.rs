@@ -72,7 +72,7 @@ pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R>, vector_size: 
 
 #[cube(launch_unchecked)]
 fn kernel_read_shared_memory(output: &mut [f16]) {
-    let mut mem: Shared<[Vector<i8, Const<4>>]> = Shared::new_slice(1usize);
+    let mut mem = Shared::<[Vector<i8, Const<4>>]>::new_slice(1usize);
     if UNIT_POS == 0 {
         let mut vector = Vector::empty();
         vector.insert(0, 0_i8);
@@ -112,7 +112,7 @@ pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R>) {
 
 #[cube(launch_unchecked)]
 fn kernel_write_shared_memory<N: Size>(output: &mut [Vector<i8, N>], input: &[f16]) {
-    let mut mem: Shared<[Vector<i8, N>]> = Shared::new_slice(1usize);
+    let mut mem = Shared::new_slice(1usize);
     let mut list = ReinterpretSliceMut::<_, f16>::new(mem.as_mut_slice());
     let unit_pos = UNIT_POS as usize;
     list.write(unit_pos, input[unit_pos]);

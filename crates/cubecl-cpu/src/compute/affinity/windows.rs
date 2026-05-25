@@ -8,9 +8,8 @@ use super::CoreId;
 pub fn get_active_cores() -> impl Iterator<Item = CoreId> {
     let mask = get_affinity_mask();
 
-    (0..64 as u64)
-        .into_iter()
-        .filter(|&i| (mask & 1 << i) == 1 << i)
+    (0..64u64)
+        .filter(move |&i| (mask & 1 << i) == 1 << i)
         .map(|i| CoreId(i as usize))
 }
 
@@ -28,7 +27,7 @@ fn get_affinity_mask() -> u64 {
             GetCurrentProcess(),
             &mut process_mask as PDWORD_PTR,
             &mut system_mask as PDWORD_PTR,
-        )
+        );
     }
 
     process_mask as u64

@@ -38,7 +38,7 @@ mod new {
     impl<T: CubePrimitive + Clone> Array<T> {
         /// Create a new array of the given length.
         #[allow(unused_variables)]
-        pub fn new(#[comptime] length: usize) -> Array<T> {
+        pub fn new(#[comptime] length: usize) -> Self {
             intrinsic!(|scope| {
                 // Allocate as a slice even though it's statically sized, so we can deref to it.
                 // Unlike Rust, we can't construct fat pointers ad-hoc without access to the scope,
