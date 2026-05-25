@@ -256,9 +256,12 @@ impl Expression {
                 let condition = condition.to_tokens(context);
                 let then_block = then_block.to_tokens(context);
                 let else_branch = else_branch.to_tokens(context);
+                // Force the arms to runtime. The condition is runtime here (comptime
+                // ones match the `condition.is_const()` arm above), so a comptime arm
+                // (e.g. a literal) must not make the select happen at comptime.
                 quote! {{
-                    #path::branch::if_else_expr_expand(scope, #condition.into_expand(scope), |scope| #then_block)
-                        .or_else(scope, |scope| #else_branch)
+                    #path::branch::if_else_expr_expand(scope, #condition.into_expand(scope), |scope| (#then_block).into_expand(scope))
+                        .or_else(scope, |scope| (#else_branch).into_expand(scope))
                 }}
             }
             Expression::If {
