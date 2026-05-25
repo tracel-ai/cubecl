@@ -202,7 +202,7 @@ impl<'a> Visitor<'a> {
             ));
         }
         add_external_function_to_module(context, module);
-        add_sync_cube_function(context, module, location);
+        add_sync_cube_function(context, module).unwrap();
         module.body().append_operation(func::func(
             context,
             name,
