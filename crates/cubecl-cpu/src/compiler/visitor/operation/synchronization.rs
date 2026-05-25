@@ -47,159 +47,36 @@ pub fn add_sync_cube_function<'a>(
             let done = region.append_block(Block::new(&[]));
 
             let sync_cube_state: Value<'a, 'a> = entry.argument(0)?.into();
-            let zero_i32 = const_i32(context, entry, 0)?;
-            let one_i32 = const_i32(context, entry, 1)?;
-            let barrier_counter_index =
-                const_index(context, entry, SYNC_BARRIER_COUNTER_INDEX as i64)?;
-            let stopped_counter_index =
-                const_index(context, entry, SYNC_STOPPED_COUNTER_INDEX as i64)?;
-            let barrier_target_index =
-                const_index(context, entry, SYNC_BARRIER_TARGET_INDEX as i64)?;
-            let barrier_target_value =
-                atomic_load_i32(context, entry, sync_cube_state, barrier_target_index)?;
-            let skip_sync = entry.append_op_result(arith::cmpi(
+            let shared = SyncCubeShared {
                 context,
-                CmpiPredicate::Sle,
-                barrier_target_value,
-                one_i32,
+                sync_cube_state,
+                zero_i32: const_i32(context, entry, 0)?,
+                one_i32: const_i32(context, entry, 1)?,
+                barrier_counter_index: const_index(
+                    context,
+                    entry,
+                    SYNC_BARRIER_COUNTER_INDEX as i64,
+                )?,
+                stopped_counter_index: const_index(
+                    context,
+                    entry,
+                    SYNC_STOPPED_COUNTER_INDEX as i64,
+                )?,
+                barrier_target_value: atomic_load_i32(
+                    context,
+                    entry,
+                    sync_cube_state,
+                    const_index(context, entry, SYNC_BARRIER_TARGET_INDEX as i64)?,
+                )?,
                 location,
-            ))?;
-            entry.append_operation(cf::cond_br(
-                context,
-                skip_sync,
-                done.deref(),
-                wait_stopped.deref(),
-                &[],
-                &[],
-                location,
-            ));
+            };
 
-            let stopped_value = atomic_load_i32(
-                context,
-                wait_stopped,
-                sync_cube_state,
-                stopped_counter_index,
-            )?;
-            let stopped_is_busy = wait_stopped.append_op_result(arith::cmpi(
-                context,
-                CmpiPredicate::Ne,
-                stopped_value,
-                zero_i32,
-                location,
-            ))?;
-            wait_stopped.append_operation(cf::cond_br(
-                context,
-                stopped_is_busy,
-                wait_stopped.deref(),
-                arrive.deref(),
-                &[],
-                &[],
-                location,
-            ));
-
-            arrive.append_operation(llvm::fence(
-                context,
-                AtomicOrdering::Release,
-                None,
-                location,
-            ));
-            let arrived_prev = arrive.append_op_result(memref::atomic_rmw(
-                context,
-                AtomicRMWKind::AddI,
-                one_i32,
-                sync_cube_state,
-                &[barrier_counter_index],
-                location,
-            ))?;
-            let arrived = arrive.append_op_result(arith::addi(arrived_prev, one_i32, location))?;
-            let arrived_needs_wait = arrive.append_op_result(arith::cmpi(
-                context,
-                CmpiPredicate::Slt,
-                arrived,
-                barrier_target_value,
-                location,
-            ))?;
-            arrive.append_operation(cf::cond_br(
-                context,
-                arrived_needs_wait,
-                wait_arrived.deref(),
-                increment_stopped.deref(),
-                &[],
-                &[],
-                location,
-            ));
-
-            let barrier_counter_value = atomic_load_i32(
-                context,
-                wait_arrived,
-                sync_cube_state,
-                barrier_counter_index,
-            )?;
-            let wait_more = wait_arrived.append_op_result(arith::cmpi(
-                context,
-                CmpiPredicate::Slt,
-                barrier_counter_value,
-                barrier_target_value,
-                location,
-            ))?;
-            wait_arrived.append_operation(cf::cond_br(
-                context,
-                wait_more,
-                wait_arrived.deref(),
-                increment_stopped.deref(),
-                &[],
-                &[],
-                location,
-            ));
-
-            increment_stopped.append_operation(llvm::fence(
-                context,
-                AtomicOrdering::Acquire,
-                None,
-                location,
-            ));
-            let stopped_prev = increment_stopped.append_op_result(memref::atomic_rmw(
-                context,
-                AtomicRMWKind::AddI,
-                one_i32,
-                sync_cube_state,
-                &[stopped_counter_index],
-                location,
-            ))?;
-            let stopped =
-                increment_stopped.append_op_result(arith::addi(stopped_prev, one_i32, location))?;
-            let should_reset = increment_stopped.append_op_result(arith::cmpi(
-                context,
-                CmpiPredicate::Eq,
-                stopped,
-                barrier_target_value,
-                location,
-            ))?;
-            increment_stopped.append_operation(cf::cond_br(
-                context,
-                should_reset,
-                reset.deref(),
-                done.deref(),
-                &[],
-                &[],
-                location,
-            ));
-
-            atomic_store_i32(
-                context,
-                reset,
-                sync_cube_state,
-                barrier_counter_index,
-                zero_i32,
-            )?;
-            atomic_store_i32(
-                context,
-                reset,
-                sync_cube_state,
-                stopped_counter_index,
-                zero_i32,
-            )?;
-            reset.append_operation(cf::br(done.deref(), &[], location));
+            build_sync_cube_entry(entry, done, wait_stopped, &shared)?;
+            build_sync_cube_wait_stopped(wait_stopped, arrive, &shared)?;
+            build_sync_cube_arrive(arrive, wait_arrived, increment_stopped, &shared)?;
+            build_sync_cube_wait_arrived(wait_arrived, increment_stopped, &shared)?;
+            build_sync_cube_increment_stopped(increment_stopped, reset, done, &shared)?;
+            build_sync_cube_reset(reset, done, &shared)?;
 
             done.append_operation(func::r#return(&[], location));
             region
@@ -210,6 +87,210 @@ pub fn add_sync_cube_function<'a>(
         )],
         location,
     ));
+    Ok(())
+}
+
+struct SyncCubeShared<'a> {
+    context: &'a Context,
+    sync_cube_state: Value<'a, 'a>,
+    zero_i32: Value<'a, 'a>,
+    one_i32: Value<'a, 'a>,
+    barrier_counter_index: Value<'a, 'a>,
+    stopped_counter_index: Value<'a, 'a>,
+    barrier_target_value: Value<'a, 'a>,
+    location: Location<'a>,
+}
+
+fn build_sync_cube_entry<'a>(
+    entry: BlockRef<'a, 'a>,
+    done: BlockRef<'a, 'a>,
+    wait_stopped: BlockRef<'a, 'a>,
+    shared: &SyncCubeShared<'a>,
+) -> Result<(), Error> {
+    let skip_sync = entry.append_op_result(arith::cmpi(
+        shared.context,
+        CmpiPredicate::Sle,
+        shared.barrier_target_value,
+        shared.one_i32,
+        shared.location,
+    ))?;
+    entry.append_operation(cf::cond_br(
+        shared.context,
+        skip_sync,
+        done.deref(),
+        wait_stopped.deref(),
+        &[],
+        &[],
+        shared.location,
+    ));
+    Ok(())
+}
+
+fn build_sync_cube_wait_stopped<'a>(
+    wait_stopped: BlockRef<'a, 'a>,
+    arrive: BlockRef<'a, 'a>,
+    shared: &SyncCubeShared<'a>,
+) -> Result<(), Error> {
+    let stopped_value = atomic_load_i32(
+        shared.context,
+        wait_stopped,
+        shared.sync_cube_state,
+        shared.stopped_counter_index,
+    )?;
+    let stopped_is_busy = wait_stopped.append_op_result(arith::cmpi(
+        shared.context,
+        CmpiPredicate::Ne,
+        stopped_value,
+        shared.zero_i32,
+        shared.location,
+    ))?;
+    wait_stopped.append_operation(cf::cond_br(
+        shared.context,
+        stopped_is_busy,
+        wait_stopped.deref(),
+        arrive.deref(),
+        &[],
+        &[],
+        shared.location,
+    ));
+    Ok(())
+}
+
+fn build_sync_cube_arrive<'a>(
+    arrive: BlockRef<'a, 'a>,
+    wait_arrived: BlockRef<'a, 'a>,
+    increment_stopped: BlockRef<'a, 'a>,
+    shared: &SyncCubeShared<'a>,
+) -> Result<(), Error> {
+    arrive.append_operation(llvm::fence(
+        shared.context,
+        AtomicOrdering::Release,
+        None,
+        shared.location,
+    ));
+    let arrived_prev = arrive.append_op_result(memref::atomic_rmw(
+        shared.context,
+        AtomicRMWKind::AddI,
+        shared.one_i32,
+        shared.sync_cube_state,
+        &[shared.barrier_counter_index],
+        shared.location,
+    ))?;
+    let arrived =
+        arrive.append_op_result(arith::addi(arrived_prev, shared.one_i32, shared.location))?;
+    let arrived_needs_wait = arrive.append_op_result(arith::cmpi(
+        shared.context,
+        CmpiPredicate::Slt,
+        arrived,
+        shared.barrier_target_value,
+        shared.location,
+    ))?;
+    arrive.append_operation(cf::cond_br(
+        shared.context,
+        arrived_needs_wait,
+        wait_arrived.deref(),
+        increment_stopped.deref(),
+        &[],
+        &[],
+        shared.location,
+    ));
+    Ok(())
+}
+
+fn build_sync_cube_wait_arrived<'a>(
+    wait_arrived: BlockRef<'a, 'a>,
+    increment_stopped: BlockRef<'a, 'a>,
+    shared: &SyncCubeShared<'a>,
+) -> Result<(), Error> {
+    let barrier_counter_value = atomic_load_i32(
+        shared.context,
+        wait_arrived,
+        shared.sync_cube_state,
+        shared.barrier_counter_index,
+    )?;
+    let wait_more = wait_arrived.append_op_result(arith::cmpi(
+        shared.context,
+        CmpiPredicate::Slt,
+        barrier_counter_value,
+        shared.barrier_target_value,
+        shared.location,
+    ))?;
+    wait_arrived.append_operation(cf::cond_br(
+        shared.context,
+        wait_more,
+        wait_arrived.deref(),
+        increment_stopped.deref(),
+        &[],
+        &[],
+        shared.location,
+    ));
+    Ok(())
+}
+
+fn build_sync_cube_increment_stopped<'a>(
+    increment_stopped: BlockRef<'a, 'a>,
+    reset: BlockRef<'a, 'a>,
+    done: BlockRef<'a, 'a>,
+    shared: &SyncCubeShared<'a>,
+) -> Result<(), Error> {
+    increment_stopped.append_operation(llvm::fence(
+        shared.context,
+        AtomicOrdering::Acquire,
+        None,
+        shared.location,
+    ));
+    let stopped_prev = increment_stopped.append_op_result(memref::atomic_rmw(
+        shared.context,
+        AtomicRMWKind::AddI,
+        shared.one_i32,
+        shared.sync_cube_state,
+        &[shared.stopped_counter_index],
+        shared.location,
+    ))?;
+    let stopped = increment_stopped.append_op_result(arith::addi(
+        stopped_prev,
+        shared.one_i32,
+        shared.location,
+    ))?;
+    let should_reset = increment_stopped.append_op_result(arith::cmpi(
+        shared.context,
+        CmpiPredicate::Eq,
+        stopped,
+        shared.barrier_target_value,
+        shared.location,
+    ))?;
+    increment_stopped.append_operation(cf::cond_br(
+        shared.context,
+        should_reset,
+        reset.deref(),
+        done.deref(),
+        &[],
+        &[],
+        shared.location,
+    ));
+    Ok(())
+}
+
+fn build_sync_cube_reset<'a>(
+    reset: BlockRef<'a, 'a>,
+    done: BlockRef<'a, 'a>,
+    shared: &SyncCubeShared<'a>,
+) -> Result<(), Error> {
+    atomic_store_i32(
+        shared.context,
+        reset,
+        shared.sync_cube_state,
+        shared.barrier_counter_index,
+        shared.zero_i32,
+    )?;
+    atomic_store_i32(
+        shared.context,
+        reset,
+        shared.sync_cube_state,
+        shared.stopped_counter_index,
+        shared.zero_i32,
+    )?;
+    reset.append_operation(cf::br(done.deref(), &[], shared.location));
     Ok(())
 }
 
