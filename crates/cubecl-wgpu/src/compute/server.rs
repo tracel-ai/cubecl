@@ -1,9 +1,8 @@
+use std::marker::PhantomData;
+
 use super::storage::{WgpuResource, WgpuStorage};
-use crate::{AutoCompiler, AutoRepresentation};
-use crate::{
-    AutoRepresentationRef,
-    schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend},
-};
+use crate::WgpuCompiler;
+use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
 use cubecl_common::{
     backtrace::BackTrace,
@@ -19,7 +18,7 @@ use cubecl_core::{
     prelude::*,
     server::{
         CopyDescriptor, IoError, KernelArguments, LaunchError, ProfileError, ProfilingToken,
-        ResourceLimitError, ServerCommunication, ServerError, ServerUtilities,
+        ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Strides, strides},
 };
@@ -58,7 +57,7 @@ pub enum CompilerInfo {
 
 /// Wgpu compute server.
 #[derive(Debug)]
-pub struct WgpuServer {
+pub struct WgpuServer<C: WgpuCompiler> {
     pub(crate) device: wgpu::Device,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
@@ -70,13 +69,14 @@ pub struct WgpuServer {
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
+    _compiler: PhantomData<C>,
 }
 
-impl ServerCommunication for WgpuServer {
+impl<C: WgpuCompiler> ServerCommunication for WgpuServer<C> {
     const SERVER_COMM_ENABLED: bool = false;
 }
 
-impl WgpuServer {
+impl<C: WgpuCompiler> WgpuServer<C> {
     /// Create a new server.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -135,6 +135,7 @@ impl WgpuServer {
             },
             backend,
             utilities: Arc::new(utilities),
+            _compiler: PhantomData,
         }
     }
 
@@ -183,8 +184,8 @@ impl WgpuServer {
         validate_cube_dim(&self.utilities.properties, &kernel_id)?;
         validate_units(&self.utilities.properties, &kernel_id)?;
 
-        let mut compiler = compiler(self.backend, &self.compilation_options);
-        let mut compiled = compiler.compile(self, kernel, mode)?;
+        let mut compiler = C::init(self.backend, &self.compilation_options);
+        let mut compiled = compiler.compile_kernel(self, kernel, mode)?;
 
         if self.scheduler.logger.compilation_activated() {
             compiled.debug_info = Some(DebugInformation::new(
@@ -194,7 +195,9 @@ impl WgpuServer {
         }
         self.scheduler.logger.log_compilation(&compiled);
 
-        self.validate_shared(&compiled.repr)?;
+        compiler.validate_ir(&compiled.repr, &self.utilities.properties)?;
+        let (compiler_info, auto_repr) = compiler.normalize_repr(compiled.repr);
+        let repr = auto_repr.as_ref().map(|r| r.as_ref());
 
         // /!\ Do not delete the following commented code.
         // This is useful while working on the metal compiler.
@@ -219,20 +222,6 @@ impl WgpuServer {
         //         .expect("should launch the command");
         //     // std::process::exit(status.code().unwrap());
         // }
-        let repr = compiled.repr.as_ref().map(|it| it.as_ref());
-        let compiler_info = match &repr {
-            #[cfg(feature = "spirv")]
-            Some(AutoRepresentationRef::SpirV(repr)) => CompilerInfo::Vulkan {
-                params_transfer: match repr.immediate_size {
-                    Some(_) => ParamsTransfer::Immediate,
-                    None => ParamsTransfer::Uniform,
-                },
-            },
-            #[cfg(feature = "msl")]
-            Some(AutoRepresentationRef::Msl(_)) => CompilerInfo::Metal,
-            Some(AutoRepresentationRef::Wgsl(_)) => CompilerInfo::WGSL,
-            None => CompilerInfo::None,
-        };
 
         let module = self.create_module(
             &compiled.entrypoint_name,
@@ -247,7 +236,7 @@ impl WgpuServer {
 
         #[cfg(feature = "spirv")]
         if let Some(Err(key)) = cached
-            && let Some(crate::AutoRepresentation::SpirV(kernel)) = compiled.repr
+            && let Some(crate::AutoRepresentation::SpirV(kernel)) = auto_repr
         {
             let cache = self.spirv_cache.as_mut().unwrap();
             let result = cache.insert(
@@ -261,33 +250,10 @@ impl WgpuServer {
 
         Ok((pipeline, compiler_info))
     }
-
-    fn validate_shared(&self, repr: &Option<crate::AutoRepresentation>) -> Result<(), LaunchError> {
-        let shared_bytes = repr.as_ref().map(|repr| match repr {
-            AutoRepresentation::Wgsl(repr) => repr.shared_memory_bytes(),
-            #[cfg(feature = "msl")]
-            AutoRepresentation::Msl(repr) => repr.shared_memory_size(),
-            #[cfg(feature = "spirv")]
-            AutoRepresentation::SpirV(repr) => repr.shared_size,
-        });
-        let max_smem = self.utilities.properties.hardware.max_shared_memory_size;
-        if let Some(shared_bytes) = shared_bytes
-            && shared_bytes > max_smem
-        {
-            Err(ResourceLimitError::SharedMemory {
-                requested: shared_bytes,
-                max: max_smem,
-                backtrace: BackTrace::capture(),
-            }
-            .into())
-        } else {
-            Ok(())
-        }
-    }
 }
 
-impl ComputeServer for WgpuServer {
-    type Kernel = Box<dyn CubeTask<AutoCompiler>>;
+impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
+    type Kernel = Box<dyn CubeTask<C>>;
     type Storage = WgpuStorage;
     type MemoryLayoutPolicy = ContiguousMemoryLayoutPolicy;
     type Info = wgpu::Backend;
@@ -478,6 +444,14 @@ impl ComputeServer for WgpuServer {
         Ok(stream.mem_manage.memory_usage())
     }
 
+    fn memory_usage_total(&mut self) -> Result<MemoryUsage, ServerError> {
+        Ok(self
+            .scheduler
+            .streams()
+            .map(|s| s.mem_manage.memory_usage())
+            .fold(MemoryUsage::default(), |acc, usage| acc.combine(usage)))
+    }
+
     fn memory_cleanup(&mut self, stream_id: StreamId) {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
@@ -488,19 +462,6 @@ impl ComputeServer for WgpuServer {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.mem_manage.mode(mode);
-    }
-}
-
-fn compiler(backend: wgpu::Backend, options: &WgpuCompilationOptions) -> AutoCompiler {
-    let _ = options; // Unused without `spirv` feature
-    match backend {
-        #[cfg(feature = "spirv")]
-        wgpu::Backend::Vulkan if options.supports_vulkan_compiler => {
-            AutoCompiler::SpirV(Default::default())
-        }
-        #[cfg(feature = "msl")]
-        wgpu::Backend::Metal => AutoCompiler::Msl(Default::default()),
-        _ => AutoCompiler::Wgsl(Default::default()),
     }
 }
 
