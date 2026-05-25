@@ -23,6 +23,14 @@ use crate::compiler::{
     visitor::prelude::*,
 };
 
+/// Builds the private `sync_cube` MLIR function used by the CPU backend.
+///
+/// Conceptually this emits the MLIR equivalent of the following Rust algorithm:
+/// 1. Load `barrier_target`; return immediately when `barrier_target <= 1`.
+/// 2. Spin while `stopped_counter != 0` so a previous barrier reset can complete.
+/// 3. Release fence, increment `barrier_counter`, then wait until all participants arrived.
+/// 4. Acquire fence, increment `stopped_counter`.
+/// 5. Last participant resets both counters to zero.
 pub fn add_sync_cube_function<'a>(
     context: &'a Context,
     module: &tracel_llvm::mlir_rs::ir::Module<'a>,
@@ -101,6 +109,9 @@ struct SyncCubeShared<'a> {
     location: Location<'a>,
 }
 
+/// Entry block:
+/// - Compare `barrier_target <= 1`.
+/// - Branch to `done` when sync is unnecessary, otherwise enter `wait_stopped`.
 fn build_sync_cube_entry<'a>(
     entry: BlockRef<'a, 'a>,
     done: BlockRef<'a, 'a>,
@@ -126,6 +137,9 @@ fn build_sync_cube_entry<'a>(
     Ok(())
 }
 
+/// Wait block for prior reset completion:
+/// - Spin while `stopped_counter != 0`.
+/// - Continue to `arrive` once no thread is in the reset phase.
 fn build_sync_cube_wait_stopped<'a>(
     wait_stopped: BlockRef<'a, 'a>,
     arrive: BlockRef<'a, 'a>,
@@ -156,6 +170,11 @@ fn build_sync_cube_wait_stopped<'a>(
     Ok(())
 }
 
+/// Arrival block:
+/// - Emit release fence.
+/// - Atomically increment `barrier_counter`.
+/// - If this participant is not the last to arrive, branch to `wait_arrived`.
+/// - Otherwise continue to `increment_stopped`.
 fn build_sync_cube_arrive<'a>(
     arrive: BlockRef<'a, 'a>,
     wait_arrived: BlockRef<'a, 'a>,
@@ -197,6 +216,9 @@ fn build_sync_cube_arrive<'a>(
     Ok(())
 }
 
+/// Post-arrival wait block:
+/// - Spin while `barrier_counter < barrier_target`.
+/// - Once all participants have arrived, continue to `increment_stopped`.
 fn build_sync_cube_wait_arrived<'a>(
     wait_arrived: BlockRef<'a, 'a>,
     increment_stopped: BlockRef<'a, 'a>,
@@ -227,6 +249,10 @@ fn build_sync_cube_wait_arrived<'a>(
     Ok(())
 }
 
+/// Completion accounting block:
+/// - Emit acquire fence.
+/// - Atomically increment `stopped_counter`.
+/// - Last participant branches to `reset`, others branch to `done`.
 fn build_sync_cube_increment_stopped<'a>(
     increment_stopped: BlockRef<'a, 'a>,
     reset: BlockRef<'a, 'a>,
@@ -271,6 +297,10 @@ fn build_sync_cube_increment_stopped<'a>(
     Ok(())
 }
 
+/// Reset block executed by the last participant:
+/// - Store `0` to `barrier_counter`.
+/// - Store `0` to `stopped_counter`.
+/// - Branch to `done`.
 fn build_sync_cube_reset<'a>(
     reset: BlockRef<'a, 'a>,
     done: BlockRef<'a, 'a>,
