@@ -3,6 +3,72 @@ use alloc::{vec, vec::Vec};
 use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 
+// Regression: a value-form if/else with literal-constant arms must honor the runtime
+// condition (it used to select at comptime and always return the else value). One kernel
+// per type, plus a checker asserting the two conditions produce different output.
+macro_rules! lit_value_form {
+    ($kernel:ident, $check:ident, $ty:ty, $a:expr, $b:expr) => {
+        #[cube(launch)]
+        pub fn $kernel(output: &mut [$ty], cond: u32) {
+            if UNIT_POS == 0 {
+                let flag = cond != 0u32;
+                output[0] = if flag { $a } else { $b };
+            }
+        }
+
+        fn $check<R: Runtime>(client: &ComputeClient<R>) {
+            let run = |cond: u32| -> Vec<u8> {
+                let handle = client.empty(core::mem::size_of::<$ty>());
+                $kernel::launch::<R>(
+                    client,
+                    CubeCount::Static(1, 1, 1),
+                    CubeDim::new_1d(1),
+                    unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+                    cond,
+                );
+                client.read_one_unchecked(handle).to_vec()
+            };
+            assert_ne!(
+                run(1),
+                run(0),
+                "value-form if/else miscompiled for {}",
+                stringify!($ty)
+            );
+        }
+    };
+}
+
+lit_value_form!(kernel_lit_i8, check_i8, i8, 30i8, 50i8);
+lit_value_form!(kernel_lit_i16, check_i16, i16, 30i16, 50i16);
+lit_value_form!(kernel_lit_i32, check_i32, i32, 30i32, 50i32);
+lit_value_form!(kernel_lit_i64, check_i64, i64, 30i64, 50i64);
+lit_value_form!(kernel_lit_u8, check_u8, u8, 30u8, 50u8);
+lit_value_form!(kernel_lit_u16, check_u16, u16, 30u16, 50u16);
+lit_value_form!(kernel_lit_u32, check_u32, u32, 30u32, 50u32);
+lit_value_form!(kernel_lit_u64, check_u64, u64, 30u64, 50u64);
+lit_value_form!(kernel_lit_f32, check_f32, f32, 30.0f32, 50.0f32);
+lit_value_form!(kernel_lit_f64, check_f64, f64, 30.0f64, 50.0f64);
+
+pub fn test_value_form_literals<R: Runtime>(client: ComputeClient<R>) {
+    check_i8(&client);
+    check_i16(&client);
+    check_i32(&client);
+    check_i64(&client);
+    check_u8(&client);
+    check_u16(&client);
+    check_u32(&client);
+    check_u64(&client);
+    check_f32(&client);
+    check_f64(&client);
+}
+
+// Subset using only types every backend supports (wgpu rejects i8/i16/u8/u16/f64).
+pub fn test_value_form_literals_portable<R: Runtime>(client: ComputeClient<R>) {
+    check_f32(&client);
+    check_i32(&client);
+    check_u32(&client);
+}
+
 #[cube(launch_unchecked)]
 pub fn kernel_switch_simple<F: Float>(output: &mut [F], case: u32) {
     match case {
@@ -244,6 +310,14 @@ macro_rules! testgen_branch {
         }
 
         #[$crate::runtime_tests::test_log::test]
+        fn test_value_form_literals_portable() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::branch::test_value_form_literals_portable::<TestRuntime>(
+                client,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
         fn test_select_true() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::branch::test_select::<TestRuntime, FloatType>(client, true);
@@ -269,6 +343,24 @@ macro_rules! testgen_branch {
             cubecl_core::runtime_tests::branch::test_for_loop_with_break::<TestRuntime, FloatType>(
                 client,
             );
+        }
+    };
+}
+
+/// All-types literal value-form if/else test, for backends supporting every scalar type
+/// (CUDA, CPU). Kept out of `testgen_branch` since wgpu rejects i8/i16/u8/u16/f64.
+#[allow(missing_docs)]
+#[macro_export]
+macro_rules! testgen_value_form_literals {
+    () => {
+        mod value_form_literals {
+            use super::*;
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_value_form_literals() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::branch::test_value_form_literals::<TestRuntime>(client);
+            }
         }
     };
 }
