@@ -37,6 +37,11 @@ impl<F: StreamFactory> StreamPool<F> {
         }
     }
 
+    /// Read-only iterator over initialized streams (unlike [`Self::get_mut`], never creates one).
+    pub fn streams(&self) -> impl Iterator<Item = &F::Stream> {
+        self.streams.iter().flatten()
+    }
+
     /// Retrieves a mutable reference to a stream for a given stream ID.
     pub fn get_mut(&mut self, stream_id: &StreamId) -> &mut F::Stream {
         // Calculate the index for the stream ID.

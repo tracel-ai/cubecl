@@ -1,6 +1,6 @@
 use super::wgsl;
 use crate::WgpuServer;
-use crate::{AutoRepresentationRef, CompilerInfo};
+use crate::{AutoRepresentationRef, CompilerInfo, WgpuCompiler};
 use cubecl_core::{
     CubeDim, ExecutionMode, WgpuCompilationOptions, hash::StableHash, server::KernelArguments,
 };
@@ -20,7 +20,7 @@ use super::vulkan;
 #[cfg(all(feature = "msl", target_os = "macos"))]
 use super::metal;
 
-impl WgpuServer {
+impl<C: WgpuCompiler> WgpuServer<C> {
     /// Loads a cached kernel if present and creates the pipeline for it.
     /// Returns `None` if the cache isn't enabled, `Some(Ok(pipeline))` if a cache entry was found,
     /// and `Some(Err(cache_key))` if the cache is enabled but doesn't contain this kernel.
@@ -100,7 +100,7 @@ impl WgpuServer {
                 ))
             },
             #[cfg(all(feature = "msl", target_os = "macos"))]
-            Some(AutoRepresentationRef::Msl(repr)) => unsafe {
+            Some(AutoRepresentationRef::Msl(_)) => unsafe {
                 Ok(self.device.create_shader_module_passthrough(
                     wgpu::ShaderModuleDescriptorPassthrough {
                         label: Some(entrypoint_name),

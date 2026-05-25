@@ -11,7 +11,7 @@ use crate::{
         DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
         DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout,
         Instruction, Item, KernelArg, ManualMma, SharedMemory, SupportedMmaCombinations, Variable,
-        WarpInstruction, WmmaInstruction, define_array_polyfill, wmma_api_base,
+        WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
 use core::panic;
@@ -247,8 +247,6 @@ struct alignas({alignment}) {item} {{"
             }
         }
 
-        define_array_polyfill(f, "thread")?;
-
         shared::type_info_definition_sized(f, info, scalars, flags.address_type)?;
         Ok(())
     }
@@ -302,16 +300,12 @@ struct alignas({alignment}) {item} {{"
                 write!(f, "atomic_{inner}")
             }
             Item::Pointer(inner, class) => {
-                let constness = match item.is_const_ptr() {
-                    true => "const ".to_string(),
-                    false => String::new(),
-                };
                 let address_space = match class {
                     shared::PointerClass::Global(vis) => (*vis).into(),
                     shared::PointerClass::Shared => AddressSpace::ThreadGroup,
                     shared::PointerClass::Local => AddressSpace::Thread,
                 };
-                write!(f, "{constness}{address_space} ")?;
+                write!(f, "{address_space} ")?;
                 Self::compile_item(f, inner.as_ref())?;
                 f.write_str("*")
             }
