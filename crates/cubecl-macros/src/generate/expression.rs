@@ -22,13 +22,14 @@ impl Expression {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
         match self {
             // `||` and `&&` short-circuit via if/else over the left operand.
+            // Pure operands fall through to the eager binary path below.
             Expression::Binary {
                 left,
                 operator: op @ (Operator::Or | Operator::And),
                 right,
                 span,
                 ..
-            } => {
+            } if !left.is_always_pure() || !right.is_always_pure() => {
                 let path = frontend_path();
                 let native = frontend_type("NativeExpand");
                 let left = left.to_tokens(context);
