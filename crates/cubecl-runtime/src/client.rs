@@ -840,6 +840,14 @@ impl<R: Runtime> ComputeClient<R> {
             .unwrap()
     }
 
+    /// Total memory usage across all streams, correct from any thread
+    /// (unlike [`Self::memory_usage`], which only sees the calling thread's stream).
+    pub fn memory_usage_total(&self) -> Result<MemoryUsage, ServerError> {
+        self.device
+            .submit_blocking(move |server| server.memory_usage_total())
+            .unwrap()
+    }
+
     /// Get all devices of a specific type available to this runtime
     pub fn enumerate_devices(&self, type_id: u16) -> Vec<DeviceId> {
         R::enumerate_devices(type_id, self.info())
