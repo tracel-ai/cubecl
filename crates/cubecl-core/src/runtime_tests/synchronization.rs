@@ -147,7 +147,7 @@ pub fn test_sync_cube_shared<R: Runtime>(client: ComputeClient<R>) {
 
 #[cube(launch)]
 fn kernel_test_workgroup_uniform_load(out: &mut [u32]) {
-    let mut count = Shared::<u32>::new_array(1usize);
+    let mut count: Shared<[u32]> = Shared::new_slice(1usize);
     if UNIT_POS == 0 {
         count[0] = 3u32;
     }
@@ -176,7 +176,7 @@ pub fn test_workgroup_uniform_load<R: Runtime>(client: ComputeClient<R>) {
 
 #[cube(launch)]
 fn kernel_test_workgroup_uniform_load_atomic(out: &mut [u32]) {
-    let count = Shared::<Atomic<u32>>::new_array(1usize);
+    let count: Shared<[Atomic<u32>]> = Shared::new_slice(1usize);
     if UNIT_POS == 0 {
         count[0].store(3u32);
     }
@@ -214,7 +214,7 @@ pub fn test_workgroup_uniform_load_atomic<R: Runtime>(client: ComputeClient<R>) 
 
 #[cube(launch)]
 fn kernel_test_workgroup_uniform_load_vec<N: Size>(out: &mut [Vector<f32, N>]) {
-    let mut smem = Shared::<Vector<f32, N>>::new_array(1usize);
+    let mut smem: Shared<[Vector<f32, N>]> = Shared::new_slice(1usize);
     if UNIT_POS == 0 {
         smem[0] = Vector::new(7.0f32);
     }

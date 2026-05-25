@@ -49,16 +49,41 @@ impl<T: NativeCubeType + ?Sized> AsMutExpand for SharedExpand<T> {
 
 #[cube]
 impl<T: CubePrimitive> Shared<[T]> {
+    /// Create a new shared slice.
+    ///
+    /// # Safety
+    /// Shared memory is always uninitialized by default. Reading uninitialized shared values is
+    /// undefined behavior.
     #[allow(unused_variables)]
-    pub fn new(#[comptime] size: usize) -> Self {
+    pub fn new_slice(#[comptime] len: usize) -> Self {
         intrinsic!(|scope| {
-            let ty = Type::array(T::__expand_as_type(scope), size, AddressSpace::Shared);
+            let ty = Type::array(T::__expand_as_type(scope), len, AddressSpace::Shared);
             let buffer = scope.create_shared(ty, None);
             let slice = slice::from_raw_parts::<T>(
                 scope,
                 buffer,
                 0usize.into_expand(scope),
-                size.into_expand(scope),
+                len.into_expand(scope),
+            );
+            slice.expand.into()
+        })
+    }
+
+    /// Create a new shared slice with a specified minimum alignment.
+    ///
+    /// # Safety
+    /// Shared memory is always uninitialized by default. Reading uninitialized shared values is
+    /// undefined behavior.
+    #[allow(unused_variables)]
+    pub fn new_aligned_slice(#[comptime] len: usize, #[comptime] alignment: usize) -> Self {
+        intrinsic!(|scope| {
+            let ty = Type::array(T::__expand_as_type(scope), len, AddressSpace::Shared);
+            let buffer = scope.create_shared(ty, Some(alignment));
+            let slice = slice::from_raw_parts::<T>(
+                scope,
+                buffer,
+                0usize.into_expand(scope),
+                len.into_expand(scope),
             );
             slice.expand.into()
         })
@@ -89,40 +114,15 @@ impl<T: NativeCubeType + ?Sized> SharedExpand<T> {
 
 #[cube]
 impl<T: CubePrimitive> Shared<T> {
+    /// Create a new shared object.
+    ///
+    /// # Safety
+    /// Shared memory is always uninitialized by default. Reading uninitialized shared values is
+    /// undefined behavior.
     pub fn new() -> Self {
         intrinsic!(|scope| {
             let var = scope.create_shared(T::__expand_as_type(scope), None);
             NativeExpand::new(var)
-        })
-    }
-
-    #[allow(unused_variables)]
-    pub fn new_array(#[comptime] size: usize) -> Shared<[T]> {
-        intrinsic!(|scope| {
-            let ty = Type::array(T::__expand_as_type(scope), size, AddressSpace::Shared);
-            let buffer = scope.create_shared(ty, None);
-            let slice = slice::from_raw_parts::<T>(
-                scope,
-                buffer,
-                0usize.into_expand(scope),
-                size.into_expand(scope),
-            );
-            slice.expand.into()
-        })
-    }
-
-    #[allow(unused_variables)]
-    pub fn new_aligned_array(#[comptime] size: usize, #[comptime] alignment: usize) -> Shared<[T]> {
-        intrinsic!(|scope| {
-            let ty = Type::array(T::__expand_as_type(scope), size, AddressSpace::Shared);
-            let buffer = scope.create_shared(ty, Some(alignment));
-            let slice = slice::from_raw_parts::<T>(
-                scope,
-                buffer,
-                0usize.into_expand(scope),
-                size.into_expand(scope),
-            );
-            slice.expand.into()
         })
     }
 }
