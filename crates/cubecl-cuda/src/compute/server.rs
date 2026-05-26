@@ -41,12 +41,7 @@ use cudarc::driver::sys::{
     CUstream_st, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
     CUtensorMapL2promotion, CUtensorMapSwizzle, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
-use std::{
-    collections::HashMap,
-    ffi::c_void,
-    mem::MaybeUninit,
-    sync::Arc,
-};
+use std::{collections::HashMap, ffi::c_void, mem::MaybeUninit, sync::Arc};
 
 pub(crate) const MB: usize = 1024 * 1024;
 

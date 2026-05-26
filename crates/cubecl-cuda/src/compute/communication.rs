@@ -19,7 +19,7 @@ use cubecl_core::{
 const NCCL_UNIQUE_ID_BYTES: usize = mem::size_of::<cudarc::nccl::sys::ncclUniqueId>();
 
 /// Overall deadline for the rendezvous (connect + handshake + payload) on both sides.
-/// Matches PyTorch's TCPStore default and is generous enough for slow multi-host startup.
+/// Matches `PyTorch`'s `TCPStore` default and is generous enough for slow multi-host startup.
 const RENDEZVOUS_DEADLINE: Duration = Duration::from_secs(300);
 /// Per-stream read/write timeout — bounds how long a stalled peer can block the runner thread.
 const RENDEZVOUS_IO_TIMEOUT: Duration = Duration::from_secs(30);
@@ -74,7 +74,13 @@ pub(crate) fn rendezvous_distributed_unique_id(
                 ),
                 backtrace: BackTrace::capture(),
             })?;
-        publish_unique_id(listener, cluster.group_id, cluster.world_size, &id, deadline)?;
+        publish_unique_id(
+            listener,
+            cluster.group_id,
+            cluster.world_size,
+            &id,
+            deadline,
+        )?;
         Ok(id)
     } else {
         fetch_unique_id(cluster.rendezvous_addr, cluster.group_id, deadline)
@@ -167,9 +173,7 @@ fn fetch_unique_id(
         match TcpStream::connect_timeout(&addr, RENDEZVOUS_IO_TIMEOUT) {
             Ok(s) => break s,
             // Only retry while rank 0 hasn't bound yet. Any other error is propagated as-is.
-            Err(e)
-                if e.kind() == ErrorKind::ConnectionRefused && Instant::now() < deadline =>
-            {
+            Err(e) if e.kind() == ErrorKind::ConnectionRefused && Instant::now() < deadline => {
                 std::thread::sleep(RENDEZVOUS_POLL_INTERVAL);
             }
             Err(e) => {
