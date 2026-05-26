@@ -1252,4 +1252,106 @@ mod tests {
         let expected = [25, 32, 4];
         assert_eq!(actual, expected);
     }
+
+    fn dev(type_id: u16, index_id: u16) -> DeviceId {
+        DeviceId { type_id, index_id }
+    }
+
+    fn sample_cluster() -> ClusterInfo {
+        ClusterInfo {
+            local_devices: alloc::vec![dev(1, 0), dev(1, 1)],
+            global_rank_base: 0,
+            world_size: 4,
+            group_id: 7,
+            rendezvous_addr: core::net::SocketAddr::from(([127, 0, 0, 1], 4567)),
+        }
+    }
+
+    #[test_log::test]
+    fn local_communication_id_is_sort_invariant() {
+        let a = CommunicationId::local(&[dev(1, 0), dev(1, 1), dev(1, 2)]);
+        let b = CommunicationId::local(&[dev(1, 2), dev(1, 0), dev(1, 1)]);
+        assert_eq!(a, b);
+    }
+
+    #[test_log::test]
+    fn local_communication_id_differs_across_device_sets() {
+        let a = CommunicationId::local(&[dev(1, 0), dev(1, 1)]);
+        let b = CommunicationId::local(&[dev(1, 0), dev(1, 2)]);
+        assert_ne!(a, b);
+    }
+
+    #[test_log::test]
+    fn local_and_distributed_never_collide_even_with_same_devices() {
+        let cluster = ClusterInfo {
+            local_devices: alloc::vec![dev(1, 0), dev(1, 1)],
+            ..sample_cluster()
+        };
+        let local = CommunicationId::local(&cluster.local_devices);
+        let distributed = CommunicationId::distributed(&cluster);
+        // Even though the device list matches, the variant tag must keep these distinct so a
+        // single per-server HashMap can hold both communicator entries side by side.
+        assert_ne!(local, distributed);
+    }
+
+    #[test_log::test]
+    fn distributed_communication_id_changes_with_cluster_fields() {
+        let base = sample_cluster();
+
+        let differ_group = ClusterInfo {
+            group_id: 8,
+            ..base.clone()
+        };
+        let differ_rank = ClusterInfo {
+            global_rank_base: 2,
+            ..base.clone()
+        };
+        let differ_world = ClusterInfo {
+            world_size: 8,
+            ..base.clone()
+        };
+        let differ_addr = ClusterInfo {
+            rendezvous_addr: core::net::SocketAddr::from(([127, 0, 0, 1], 9999)),
+            ..base.clone()
+        };
+
+        let id_base = CommunicationId::distributed(&base);
+        assert_ne!(id_base, CommunicationId::distributed(&differ_group));
+        assert_ne!(id_base, CommunicationId::distributed(&differ_rank));
+        assert_ne!(id_base, CommunicationId::distributed(&differ_world));
+        assert_ne!(id_base, CommunicationId::distributed(&differ_addr));
+    }
+
+    #[test_log::test]
+    fn group_id_dispatches_to_the_matching_explicit_constructor() {
+        let devices = alloc::vec![dev(1, 0), dev(1, 1)];
+        let local_group = CommunicationGroup::Local(devices.clone());
+        assert_eq!(local_group.id(), CommunicationId::local(&devices));
+
+        let cluster = sample_cluster();
+        let dist_group = CommunicationGroup::Distributed(cluster.clone());
+        assert_eq!(dist_group.id(), CommunicationId::distributed(&cluster));
+    }
+
+    #[test_log::test]
+    fn vec_into_communication_group_defaults_to_local() {
+        let devices = alloc::vec![dev(1, 0), dev(1, 1)];
+        let group: CommunicationGroup = devices.clone().into();
+        assert!(matches!(group, CommunicationGroup::Local(ref d) if d == &devices));
+    }
+
+    #[test_log::test]
+    fn communication_group_local_devices_accessor() {
+        let devices = alloc::vec![dev(2, 0), dev(2, 1)];
+
+        let local = CommunicationGroup::Local(devices.clone());
+        assert_eq!(local.local_devices(), devices.as_slice());
+
+        let cluster = ClusterInfo {
+            local_devices: devices.clone(),
+            ..sample_cluster()
+        };
+        let dist = CommunicationGroup::Distributed(cluster);
+        assert_eq!(dist.local_devices(), devices.as_slice());
+    }
 }

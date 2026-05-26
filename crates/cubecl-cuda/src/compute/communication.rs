@@ -60,39 +60,44 @@ pub(crate) fn rendezvous_distributed_unique_id(
     cluster: &ClusterInfo,
     rank: i32,
 ) -> Result<cudarc::nccl::sys::ncclUniqueId, ServerError> {
+    let deadline = Instant::now() + RENDEZVOUS_DEADLINE;
     if rank == 0 {
         let id = cudarc::nccl::result::get_uniqueid().map_err(|e| ServerError::Generic {
             reason: format!("NCCL get_uniqueid failed: {e:?}"),
             backtrace: BackTrace::capture(),
         })?;
-        publish_unique_id(cluster, &id)?;
+        let listener =
+            TcpListener::bind(cluster.rendezvous_addr).map_err(|e| ServerError::Generic {
+                reason: format!(
+                    "Rendezvous: rank 0 failed to bind {}: {e}",
+                    cluster.rendezvous_addr
+                ),
+                backtrace: BackTrace::capture(),
+            })?;
+        publish_unique_id(listener, cluster.group_id, cluster.world_size, &id, deadline)?;
         Ok(id)
     } else {
-        fetch_unique_id(cluster)
+        fetch_unique_id(cluster.rendezvous_addr, cluster.group_id, deadline)
     }
 }
 
 fn publish_unique_id(
-    cluster: &ClusterInfo,
+    listener: TcpListener,
+    group_id: u64,
+    world_size: u32,
     id: &cudarc::nccl::sys::ncclUniqueId,
+    deadline: Instant,
 ) -> Result<(), ServerError> {
-    let listener = TcpListener::bind(cluster.rendezvous_addr).map_err(|e| ServerError::Generic {
-        reason: format!(
-            "Rendezvous: rank 0 failed to bind {}: {e}",
-            cluster.rendezvous_addr
-        ),
-        backtrace: BackTrace::capture(),
-    })?;
-    // Nonblocking so the accept loop can enforce an overall deadline. Each accepted stream is
-    // switched back to blocking + per-IO timeout below.
+    // Nonblocking so the accept loop can enforce the deadline. Each accepted stream is switched
+    // back to blocking + per-IO timeout inside `handshake_and_send`.
     listener
         .set_nonblocking(true)
         .map_err(|e| rendezvous_err(format!("set_nonblocking on listener failed: {e}")))?;
 
     let bytes = unique_id_as_bytes(id);
-    let expected_handshake = cluster.group_id.to_le_bytes();
-    let deadline = Instant::now() + RENDEZVOUS_DEADLINE;
-    let mut remaining = cluster.world_size.saturating_sub(1);
+    let expected_handshake = group_id.to_le_bytes();
+    let total_peers = world_size.saturating_sub(1);
+    let mut remaining = total_peers;
 
     while remaining > 0 {
         match listener.accept() {
@@ -108,8 +113,7 @@ fn publish_unique_id(
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                 if Instant::now() >= deadline {
                     return Err(rendezvous_err(format!(
-                        "rank 0 timed out waiting for peers ({remaining} of {} still missing)",
-                        cluster.world_size.saturating_sub(1)
+                        "rank 0 timed out waiting for peers ({remaining} of {total_peers} still missing)"
                     )));
                 }
                 std::thread::sleep(RENDEZVOUS_POLL_INTERVAL);
@@ -154,10 +158,13 @@ fn handshake_and_send(
     Ok(())
 }
 
-fn fetch_unique_id(cluster: &ClusterInfo) -> Result<cudarc::nccl::sys::ncclUniqueId, ServerError> {
-    let deadline = Instant::now() + RENDEZVOUS_DEADLINE;
+fn fetch_unique_id(
+    addr: core::net::SocketAddr,
+    group_id: u64,
+    deadline: Instant,
+) -> Result<cudarc::nccl::sys::ncclUniqueId, ServerError> {
     let mut stream = loop {
-        match TcpStream::connect_timeout(&cluster.rendezvous_addr, RENDEZVOUS_IO_TIMEOUT) {
+        match TcpStream::connect_timeout(&addr, RENDEZVOUS_IO_TIMEOUT) {
             Ok(s) => break s,
             // Only retry while rank 0 hasn't bound yet. Any other error is propagated as-is.
             Err(e)
@@ -167,8 +174,7 @@ fn fetch_unique_id(cluster: &ClusterInfo) -> Result<cudarc::nccl::sys::ncclUniqu
             }
             Err(e) => {
                 return Err(rendezvous_err(format!(
-                    "timed out connecting to {}: {e}",
-                    cluster.rendezvous_addr
+                    "timed out connecting to {addr}: {e}"
                 )));
             }
         }
@@ -181,7 +187,7 @@ fn fetch_unique_id(cluster: &ClusterInfo) -> Result<cudarc::nccl::sys::ncclUniqu
         .map_err(|e| rendezvous_err(format!("set_write_timeout: {e}")))?;
 
     stream
-        .write_all(&cluster.group_id.to_le_bytes())
+        .write_all(&group_id.to_le_bytes())
         .map_err(|e| rendezvous_err(format!("sending handshake: {e}")))?;
 
     let mut buf = [0u8; NCCL_UNIQUE_ID_BYTES];
@@ -310,5 +316,145 @@ pub(crate) fn get_nccl_dtype_count(
             ),
         },
         ElemType::Bool => panic!("NCCL doesn't support Bool format."),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+
+    fn make_test_id(seed: u8) -> cudarc::nccl::sys::ncclUniqueId {
+        unique_id_from_bytes(&[seed; NCCL_UNIQUE_ID_BYTES])
+    }
+
+    fn bytes_of(id: &cudarc::nccl::sys::ncclUniqueId) -> [u8; NCCL_UNIQUE_ID_BYTES] {
+        let mut out = [0u8; NCCL_UNIQUE_ID_BYTES];
+        out.copy_from_slice(unique_id_as_bytes(id));
+        out
+    }
+
+    fn bind_loopback() -> (TcpListener, core::net::SocketAddr) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        (listener, addr)
+    }
+
+    #[test]
+    fn unique_id_byte_roundtrip_preserves_all_128_bytes() {
+        let mut bytes = [0u8; NCCL_UNIQUE_ID_BYTES];
+        for (i, b) in bytes.iter_mut().enumerate() {
+            *b = (i as u8).wrapping_mul(7).wrapping_add(13);
+        }
+        let id = unique_id_from_bytes(&bytes);
+        assert_eq!(bytes_of(&id), bytes);
+    }
+
+    #[test]
+    fn rendezvous_single_fetcher_roundtrip() {
+        let (listener, addr) = bind_loopback();
+        let id = make_test_id(0xAB);
+        let id_bytes = bytes_of(&id);
+        let deadline = Instant::now() + Duration::from_secs(5);
+
+        let publisher = thread::spawn(move || publish_unique_id(listener, 7, 2, &id, deadline));
+
+        let fetched = fetch_unique_id(addr, 7, deadline).expect("fetch should succeed");
+        assert_eq!(bytes_of(&fetched), id_bytes);
+        publisher.join().unwrap().expect("publish should succeed");
+    }
+
+    #[test]
+    fn rendezvous_multiple_fetchers_all_receive_same_id() {
+        let (listener, addr) = bind_loopback();
+        let id = make_test_id(0xCD);
+        let id_bytes = bytes_of(&id);
+        let deadline = Instant::now() + Duration::from_secs(5);
+
+        let publisher = thread::spawn(move || publish_unique_id(listener, 99, 4, &id, deadline));
+
+        let fetchers: Vec<_> = (0..3)
+            .map(|_| thread::spawn(move || fetch_unique_id(addr, 99, deadline)))
+            .collect();
+
+        for handle in fetchers {
+            let fetched = handle.join().unwrap().expect("fetch should succeed");
+            assert_eq!(bytes_of(&fetched), id_bytes);
+        }
+        publisher.join().unwrap().expect("publish should succeed");
+    }
+
+    #[test]
+    fn publish_times_out_when_peers_never_connect() {
+        let (listener, _addr) = bind_loopback();
+        let id = make_test_id(0);
+        let deadline = Instant::now() + Duration::from_millis(300);
+
+        let result = publish_unique_id(listener, 1, 2, &id, deadline);
+        let err = result.expect_err("publish should time out");
+        match err {
+            ServerError::Generic { reason, .. } => assert!(
+                reason.contains("timed out waiting for peers"),
+                "unexpected error: {reason}"
+            ),
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fetch_times_out_when_no_publisher() {
+        // Probe an ephemeral port, then drop the listener so the port is unbound.
+        let (probe, addr) = bind_loopback();
+        drop(probe);
+
+        let deadline = Instant::now() + Duration::from_millis(300);
+        let result = fetch_unique_id(addr, 1, deadline);
+        let err = result.expect_err("fetch should time out");
+        match err {
+            ServerError::Generic { reason, .. } => assert!(
+                reason.contains("timed out connecting"),
+                "unexpected error: {reason}"
+            ),
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn handshake_mismatch_is_dropped_and_does_not_consume_a_slot() {
+        let (listener, addr) = bind_loopback();
+        let id = make_test_id(0x12);
+        let id_bytes = bytes_of(&id);
+        let deadline = Instant::now() + Duration::from_secs(5);
+
+        // world_size = 2 → publisher expects exactly 1 valid peer. The misrouted connection
+        // below must NOT count toward that 1, otherwise the good fetcher will hang.
+        let publisher = thread::spawn(move || publish_unique_id(listener, 100, 2, &id, deadline));
+
+        // Bad peer: connect, send wrong group_id, expect EOF on read because publisher dropped us.
+        let mut bad = TcpStream::connect(addr).expect("bad peer should connect");
+        bad.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        bad.write_all(&999u64.to_le_bytes()).unwrap();
+        let mut bad_buf = [0u8; NCCL_UNIQUE_ID_BYTES];
+        let bad_result = bad.read_exact(&mut bad_buf);
+        assert!(
+            bad_result.is_err(),
+            "bad peer must not receive the ncclUniqueId"
+        );
+
+        // Good peer: should still succeed because the bad one didn't consume the slot.
+        let good = fetch_unique_id(addr, 100, deadline).expect("good fetch should succeed");
+        assert_eq!(bytes_of(&good), id_bytes);
+
+        publisher.join().unwrap().expect("publish should succeed");
+    }
+
+    #[test]
+    fn world_size_one_publish_returns_immediately() {
+        // world_size = 1 means rank 0 is the only participant — no peers, no waiting.
+        let (listener, _addr) = bind_loopback();
+        let id = make_test_id(0xEE);
+        let deadline = Instant::now() + Duration::from_secs(5);
+
+        publish_unique_id(listener, 42, 1, &id, deadline).expect("publish should succeed");
     }
 }
