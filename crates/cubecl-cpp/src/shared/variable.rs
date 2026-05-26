@@ -592,13 +592,7 @@ impl<D: Dialect> FmtLeft for Variable<D> {
                 if *is_declared {
                     return format!("{self}");
                 }
-                if *is_ptr {
-                    if *is_const {
-                        return format!("const {item} *{self}");
-                    }
-                    return format!("{item} *{self}");
-                }
-                if *is_const {
+                if *is_const && !*is_ptr {
                     format!("const {item} {self}")
                 } else {
                     format!("{item} {self}")
