@@ -21,8 +21,8 @@ impl ToTokens for Assign {
         let name = &self.ident;
         let expand_name = format_ident!("{name}Expand");
         let (generics, generic_names, _) = self.generics.split_for_impl();
-        let where_clause = self.where_clause(prelude_type("Assign"));
-        let where_clause_init = self.where_clause(prelude_type("RuntimeAssign"));
+        let where_clause = self.where_clause(&assign);
+        let where_clause_init = self.where_clause(&runtime_assign);
 
         let init_mut_body = match &self.data {
             Data::Enum(_) if self.runtime_variants.is_present() => {
@@ -228,7 +228,7 @@ impl Assign {
         }
     }
 
-    fn where_clause(&self, trait_: Path) -> Option<WhereClause> {
+    fn where_clause(&self, trait_: &Path) -> Option<WhereClause> {
         let cube_type = prelude_type("CubeType");
 
         let fields: Vec<_> = match &self.data {

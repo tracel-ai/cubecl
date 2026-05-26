@@ -149,8 +149,7 @@ pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression
     .into_iter()
     .any(|target| mac.path.is_ident(&target))
     {
-        context.is_intrinsic = true;
-        Ok(Expression::RustMacro {
+        Ok(Expression::PanickingMacro {
             ident: mac.path.segments.last().unwrap().ident.clone(),
             tokens: mac.tokens,
         })
