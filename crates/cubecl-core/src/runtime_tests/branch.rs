@@ -69,8 +69,8 @@ pub fn test_value_form_literals_portable<R: Runtime>(client: ComputeClient<R>) {
     check_u32(&client);
 }
 
-// KNOWN BUG (red): `match` used as a value with literal arms has the same comptime-select
-// bug as if/else, on every type, and the if/else fix does not cover this codegen path.
+// Regression: `match` used as a value with literal arms had the same comptime-select
+// bug as if/else, and should act the same way now.
 // One kernel per type, with a single-pattern arm, an or-pattern arm, and a default; the
 // checker asserts each selector picks the right arm's value.
 macro_rules! lit_match_value {
