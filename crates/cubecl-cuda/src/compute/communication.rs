@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    io::{Read, Write},
+    io::{ErrorKind, Read, Write},
     mem::{self, MaybeUninit},
     net::{TcpListener, TcpStream},
     sync::OnceLock,
@@ -18,10 +18,13 @@ use cubecl_core::{
 /// The `ncclUniqueId` wire size — NCCL defines this as a 128-byte opaque blob.
 const NCCL_UNIQUE_ID_BYTES: usize = mem::size_of::<cudarc::nccl::sys::ncclUniqueId>();
 
-/// How long a non-rank-0 process waits for rank 0's listener to come up during rendezvous.
-const RENDEZVOUS_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
-/// Backoff between connect attempts while waiting for rank 0.
-const RENDEZVOUS_CONNECT_RETRY: Duration = Duration::from_millis(100);
+/// Overall deadline for the rendezvous (connect + handshake + payload) on both sides.
+/// Matches PyTorch's TCPStore default and is generous enough for slow multi-host startup.
+const RENDEZVOUS_DEADLINE: Duration = Duration::from_secs(300);
+/// Per-stream read/write timeout — bounds how long a stalled peer can block the runner thread.
+const RENDEZVOUS_IO_TIMEOUT: Duration = Duration::from_secs(30);
+/// Polling interval for the fetcher's connect retries and the publisher's accept loop.
+const RENDEZVOUS_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// In-process map from local [`CommunicationId`] to its [`ncclUniqueId`](cudarc::nccl::sys::ncclUniqueId).
 ///
@@ -80,54 +83,133 @@ fn publish_unique_id(
         ),
         backtrace: BackTrace::capture(),
     })?;
+    // Nonblocking so the accept loop can enforce an overall deadline. Each accepted stream is
+    // switched back to blocking + per-IO timeout below.
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| rendezvous_err(format!("set_nonblocking on listener failed: {e}")))?;
 
     let bytes = unique_id_as_bytes(id);
-    let peers = cluster.world_size.saturating_sub(1);
-    for _ in 0..peers {
-        let (mut stream, _peer) = listener.accept().map_err(|e| ServerError::Generic {
-            reason: format!("Rendezvous: rank 0 accept failed: {e}"),
-            backtrace: BackTrace::capture(),
-        })?;
-        stream
-            .write_all(bytes)
-            .map_err(|e| ServerError::Generic {
-                reason: format!("Rendezvous: rank 0 send failed: {e}"),
-                backtrace: BackTrace::capture(),
-            })?;
+    let expected_handshake = cluster.group_id.to_le_bytes();
+    let deadline = Instant::now() + RENDEZVOUS_DEADLINE;
+    let mut remaining = cluster.world_size.saturating_sub(1);
+
+    while remaining > 0 {
+        match listener.accept() {
+            Ok((stream, peer)) => {
+                if let Err(reason) = handshake_and_send(stream, &expected_handshake, bytes) {
+                    // Wrong group / IO error on this peer — drop it and keep accepting. A
+                    // misrouted connection must not consume a slot meant for a real peer.
+                    tracing_skip(&peer.to_string(), &reason);
+                    continue;
+                }
+                remaining -= 1;
+            }
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline {
+                    return Err(rendezvous_err(format!(
+                        "rank 0 timed out waiting for peers ({remaining} of {} still missing)",
+                        cluster.world_size.saturating_sub(1)
+                    )));
+                }
+                std::thread::sleep(RENDEZVOUS_POLL_INTERVAL);
+            }
+            Err(e) => {
+                return Err(rendezvous_err(format!("rank 0 accept failed: {e}")));
+            }
+        }
     }
     Ok(())
 }
 
+fn handshake_and_send(
+    mut stream: TcpStream,
+    expected_handshake: &[u8; 8],
+    payload: &[u8],
+) -> Result<(), String> {
+    stream
+        .set_nonblocking(false)
+        .map_err(|e| format!("set_nonblocking(false): {e}"))?;
+    stream
+        .set_read_timeout(Some(RENDEZVOUS_IO_TIMEOUT))
+        .map_err(|e| format!("set_read_timeout: {e}"))?;
+    stream
+        .set_write_timeout(Some(RENDEZVOUS_IO_TIMEOUT))
+        .map_err(|e| format!("set_write_timeout: {e}"))?;
+
+    let mut handshake = [0u8; 8];
+    stream
+        .read_exact(&mut handshake)
+        .map_err(|e| format!("reading handshake: {e}"))?;
+    if &handshake != expected_handshake {
+        return Err(format!(
+            "group_id mismatch (got {:#018x}, expected {:#018x})",
+            u64::from_le_bytes(handshake),
+            u64::from_le_bytes(*expected_handshake),
+        ));
+    }
+    stream
+        .write_all(payload)
+        .map_err(|e| format!("sending ncclUniqueId: {e}"))?;
+    Ok(())
+}
+
 fn fetch_unique_id(cluster: &ClusterInfo) -> Result<cudarc::nccl::sys::ncclUniqueId, ServerError> {
-    let deadline = Instant::now() + RENDEZVOUS_CONNECT_TIMEOUT;
+    let deadline = Instant::now() + RENDEZVOUS_DEADLINE;
     let mut stream = loop {
-        match TcpStream::connect(cluster.rendezvous_addr) {
+        match TcpStream::connect_timeout(&cluster.rendezvous_addr, RENDEZVOUS_IO_TIMEOUT) {
             Ok(s) => break s,
-            Err(e) if Instant::now() < deadline => {
-                // Rank 0 may not be listening yet; back off and retry.
-                let _ = e;
-                std::thread::sleep(RENDEZVOUS_CONNECT_RETRY);
+            // Only retry while rank 0 hasn't bound yet. Any other error is propagated as-is.
+            Err(e)
+                if e.kind() == ErrorKind::ConnectionRefused && Instant::now() < deadline =>
+            {
+                std::thread::sleep(RENDEZVOUS_POLL_INTERVAL);
             }
             Err(e) => {
-                return Err(ServerError::Generic {
-                    reason: format!(
-                        "Rendezvous: timed out connecting to {}: {e}",
-                        cluster.rendezvous_addr
-                    ),
-                    backtrace: BackTrace::capture(),
-                });
+                return Err(rendezvous_err(format!(
+                    "timed out connecting to {}: {e}",
+                    cluster.rendezvous_addr
+                )));
             }
         }
     };
+    stream
+        .set_read_timeout(Some(RENDEZVOUS_IO_TIMEOUT))
+        .map_err(|e| rendezvous_err(format!("set_read_timeout: {e}")))?;
+    stream
+        .set_write_timeout(Some(RENDEZVOUS_IO_TIMEOUT))
+        .map_err(|e| rendezvous_err(format!("set_write_timeout: {e}")))?;
+
+    stream
+        .write_all(&cluster.group_id.to_le_bytes())
+        .map_err(|e| rendezvous_err(format!("sending handshake: {e}")))?;
 
     let mut buf = [0u8; NCCL_UNIQUE_ID_BYTES];
     stream
         .read_exact(&mut buf)
-        .map_err(|e| ServerError::Generic {
-            reason: format!("Rendezvous: failed reading ncclUniqueId: {e}"),
-            backtrace: BackTrace::capture(),
-        })?;
+        .map_err(|e| rendezvous_err(format!("reading ncclUniqueId: {e}")))?;
     Ok(unique_id_from_bytes(&buf))
+}
+
+fn rendezvous_err(reason: impl Into<String>) -> ServerError {
+    ServerError::Generic {
+        reason: format!("Rendezvous: {}", reason.into()),
+        backtrace: BackTrace::capture(),
+    }
+}
+
+fn tracing_skip(peer: &str, reason: &str) {
+    #[cfg(feature = "tracing")]
+    tracing::warn!(
+        target: "cubecl_cuda::rendezvous",
+        peer = peer,
+        reason = reason,
+        "dropping rendezvous connection"
+    );
+    #[cfg(not(feature = "tracing"))]
+    {
+        let _ = (peer, reason);
+    }
 }
 
 fn unique_id_as_bytes(id: &cudarc::nccl::sys::ncclUniqueId) -> &[u8] {
