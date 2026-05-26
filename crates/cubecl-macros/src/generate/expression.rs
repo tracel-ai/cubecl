@@ -21,6 +21,39 @@ macro_rules! error {
 impl Expression {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
         match self {
+            // `||` and `&&` short-circuit via if/else over the left operand.
+            // Pure operands fall through to the eager binary path below.
+            Expression::Binary {
+                left,
+                operator: op @ (Operator::Or | Operator::And),
+                right,
+                span,
+                ..
+            } if !left.is_always_pure() || !right.is_always_pure() => {
+                let path = frontend_path();
+                let native = frontend_type("NativeExpand");
+                let left = left.to_tokens(context);
+                let right = right.to_tokens(context);
+                let (then_block, else_block) = match op {
+                    // `a || b`  =>  if a { true } else { b }
+                    Operator::Or => (
+                        quote![#native::from_lit(scope, true)],
+                        quote![#right.into_expand(scope)],
+                    ),
+                    // `a && b`  =>  if a { b } else { false }
+                    Operator::And => (
+                        quote![#right.into_expand(scope)],
+                        quote![#native::from_lit(scope, false)],
+                    ),
+                    _ => unreachable!(),
+                };
+                let body = quote! {
+                    #path::branch::if_else_expr_expand(scope, #left.into_expand(scope), |scope| #then_block)
+                        .or_else(scope, |scope| #else_block)
+                };
+                let expand = with_span(context, *span, body);
+                quote! {{#expand}}
+            }
             Expression::Binary {
                 left,
                 operator,
