@@ -168,10 +168,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let memory = self.scope(&ptr);
                 let semantics = self.semantics_rw(&ptr);
 
-                assert!(
-                    matches!(out_ty.elem(), Elem::Int(_, _)),
-                    "sub doesn't support float atomics"
-                );
                 match out_ty.elem() {
                     Elem::Int(_, _) => self
                         .atomic_i_sub(ty, Some(out_id), ptr_id, memory, semantics, value_id)
@@ -193,8 +189,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                     _ => unreachable!(),
                 };
-                self.atomic_i_sub(ty, Some(out_id), ptr_id, memory, semantics, value_id)
-                    .unwrap();
                 self.write(&out, out_id);
             }
             AtomicOp::Max(op) => {

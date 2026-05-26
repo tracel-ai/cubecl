@@ -3,7 +3,7 @@ use alloc::string::{String, ToString};
 /// Amount of memory in use by this allocator
 /// and statistics on how much memory is reserved and
 /// wasted in total.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MemoryUsage {
     /// The number of allocations currently active.
     ///

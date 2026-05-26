@@ -5,12 +5,42 @@ use crate::{
 };
 use cubecl_core::CubeDim;
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicI32, Ordering},
+};
+
+pub const SYNC_BARRIER_COUNTER_INDEX: usize = 0;
+pub const SYNC_STOPPED_COUNTER_INDEX: usize = 1;
+pub const SYNC_BARRIER_TARGET_INDEX: usize = 2;
+pub const SYNC_CURRENT_CUBE_DIM_INDEX: usize = 3;
+
+pub struct SyncCubeState {
+    pub atomics: [AtomicI32; Self::len()],
+}
+
+impl SyncCubeState {
+    pub const fn len() -> usize {
+        4
+    }
+
+    fn new(cube_dim_size: i32) -> Self {
+        Self {
+            atomics: [
+                AtomicI32::new(0),
+                AtomicI32::new(0),
+                AtomicI32::new(cube_dim_size),
+                AtomicI32::new(cube_dim_size),
+            ],
+        }
+    }
+}
 
 pub struct SharedMlirData {
     pub args_zero_indirection: Vec<LineMemRef>,
     pub info: Vec<u64>,
     pub args_first_indirection: Vec<*mut ()>,
+    pub sync_cube_state: Box<SyncCubeState>,
 }
 
 unsafe impl Send for SharedMlirData {}
@@ -43,9 +73,10 @@ impl MlirData {
         cube_count: [u32; 3],
     ) -> Self {
         let BindingsResource { resources, info } = bindings;
+        let cube_dim_size = cube_dim.num_elems() as i32;
 
         let builtin = BuiltinArray::new(cube_dim, cube_count);
-        let indirect_args_len = resources.len() + shared_memories.0.len() + 1;
+        let indirect_args_len = resources.len() + shared_memories.0.len() + 2;
         let total_args_len = indirect_args_len + BuiltinArray::len();
 
         let args_zero_indirection = Vec::with_capacity(indirect_args_len);
@@ -57,6 +88,7 @@ impl MlirData {
             args_zero_indirection,
             args_first_indirection,
             info,
+            sync_cube_state: Box::new(SyncCubeState::new(cube_dim_size)),
         };
 
         let mut push_undirected = |line_memref: LineMemRef| {
@@ -102,6 +134,9 @@ impl MlirData {
         let line_memref = LineMemRef::new(ptr, info_len_bytes);
         push_undirected(line_memref);
 
+        let sync_cube_state = shared_mlir_data.sync_cube_state.atomics.as_mut_ptr() as *mut u8;
+        push_undirected(LineMemRef::new(sync_cube_state, SyncCubeState::len()));
+
         let shared_mlir_data = Arc::new(shared_mlir_data);
 
         Self {
@@ -116,5 +151,10 @@ impl MlirData {
             self.args_second_indirection
                 .push(arg as *mut u32 as *mut ());
         }
+    }
+
+    pub fn complete_unit(&self) {
+        self.shared_mlir_data.sync_cube_state.atomics[SYNC_CURRENT_CUBE_DIM_INDEX]
+            .fetch_sub(1, Ordering::AcqRel);
     }
 }

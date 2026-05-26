@@ -371,7 +371,7 @@ impl<T> Visitor<T> {
                 visit_read(self, &mut store.value);
             }
             AtomicOp::CompareAndSwap(op) => {
-                visit_read(self, &mut op.cmp);
+                visit_read(self, &mut op.ptr);
                 visit_read(self, &mut op.cmp);
                 visit_read(self, &mut op.val);
             }

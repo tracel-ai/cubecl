@@ -5,11 +5,23 @@ use crate::{self as cubecl};
 use cubecl::prelude::*;
 use cubecl_ir::features::AtomicUsage;
 
-#[cube(launch)]
-pub fn kernel_atomic_add<I: Numeric, N: Size>(output: &mut [Atomic<Vector<I, N>>]) {
-    if UNIT_POS == 0 {
-        output[0].fetch_add(Vector::from_int(5));
-    }
+#[derive(CubeType, Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum NumericAtomicOp {
+    Load,
+    Store,
+    Swap,
+    Add,
+    Sub,
+    Min,
+    Max,
+}
+
+#[derive(CubeType, Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum IntAtomicOp {
+    And,
+    Or,
+    Xor,
+    CompareExchange,
 }
 
 fn supports_feature<R: Runtime, F: Numeric>(
@@ -21,193 +33,386 @@ fn supports_feature<R: Runtime, F: Numeric>(
     client.properties().atomic_type_usage(ty).contains(feat)
 }
 
-pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(
-    client: ComputeClient<R>,
+fn require_feature<R: Runtime, F: Numeric>(
+    client: &ComputeClient<R>,
+    feat: AtomicUsage,
     vector_size: usize,
-) {
-    if !supports_feature::<R, F>(&client, AtomicUsage::Add, vector_size) {
-        println!(
-            "{} Add not supported - skipped",
-            Atomic::<F>::as_type_native_unchecked().with_vector_size(vector_size)
-        );
-        return;
+    operation: &str,
+) -> bool {
+    let ty = Atomic::<F>::as_type_native_unchecked().with_vector_size(vector_size);
+
+    if supports_feature::<R, F>(client, feat, vector_size) {
+        println!("{ty} {operation} supported - running");
+        true
     } else {
-        println!(
-            "{} Add supported - running",
-            Atomic::<F>::as_type_native_unchecked().with_vector_size(vector_size)
-        );
+        println!("{ty} {operation} not supported - skipped");
+        false
     }
+}
 
-    let data = (0..vector_size)
-        .map(|_| F::from_int(12))
-        .collect::<Vec<_>>();
-    let handle = client.create_from_slice(F::as_bytes(&data));
+fn filled_data<F: Numeric>(vector_size: usize, value: i64) -> Vec<F> {
+    (0..vector_size)
+        .map(|_| F::from_int(value))
+        .collect::<Vec<_>>()
+}
 
-    kernel_atomic_add::launch::<F, R>(
-        &client,
-        CubeCount::Static(1, 1, 1),
-        CubeDim::new(&client, 1),
-        vector_size,
-        unsafe { BufferArg::from_raw_parts(handle.clone(), vector_size) },
-    );
+fn int_atomic_initial_value() -> i64 {
+    0b1010
+}
 
-    let actual = client.read_one_unchecked(handle);
-    let actual = F::from_bytes(&actual);
+fn assert_all_eq<F: Numeric + CubeElement>(actual: &[F], expected: i64) {
+    assert!(actual.iter().all(|actual| actual == &F::from_int(expected)));
+}
 
-    assert!(actual.iter().all(|actual| actual == &F::from_int(17)));
+fn numeric_op_name(op: NumericAtomicOp) -> &'static str {
+    match op {
+        NumericAtomicOp::Load => "Load",
+        NumericAtomicOp::Store => "Store",
+        NumericAtomicOp::Swap => "Swap",
+        NumericAtomicOp::Add => "Add",
+        NumericAtomicOp::Sub => "Sub",
+        NumericAtomicOp::Min => "Min",
+        NumericAtomicOp::Max => "Max",
+    }
+}
+
+fn numeric_op_feature(op: NumericAtomicOp) -> AtomicUsage {
+    match op {
+        NumericAtomicOp::Load | NumericAtomicOp::Store | NumericAtomicOp::Swap => {
+            AtomicUsage::LoadStore
+        }
+        NumericAtomicOp::Add | NumericAtomicOp::Sub => AtomicUsage::Add,
+        NumericAtomicOp::Min | NumericAtomicOp::Max => AtomicUsage::MinMax,
+    }
+}
+
+fn numeric_expected(op: NumericAtomicOp) -> i64 {
+    match op {
+        NumericAtomicOp::Load => 12,
+        NumericAtomicOp::Store => 5,
+        NumericAtomicOp::Swap => 5,
+        NumericAtomicOp::Add => 17,
+        NumericAtomicOp::Sub => 7,
+        NumericAtomicOp::Min => 5,
+        NumericAtomicOp::Max => 12,
+    }
+}
+
+fn int_op_name(op: IntAtomicOp) -> &'static str {
+    match op {
+        IntAtomicOp::And => "And",
+        IntAtomicOp::Or => "Or",
+        IntAtomicOp::Xor => "Xor",
+        IntAtomicOp::CompareExchange => "CompareExchange",
+    }
+}
+
+fn int_op_feature(op: IntAtomicOp) -> AtomicUsage {
+    match op {
+        IntAtomicOp::And | IntAtomicOp::Or | IntAtomicOp::Xor => AtomicUsage::Bitwise,
+        IntAtomicOp::CompareExchange => AtomicUsage::CompareExchange,
+    }
+}
+
+fn int_expected<I: Int>(op: IntAtomicOp) -> I {
+    match op {
+        IntAtomicOp::And => I::from_int(0b0010),
+        IntAtomicOp::Or => I::from_int(0b1110),
+        IntAtomicOp::Xor => I::from_int(0b1100),
+        IntAtomicOp::CompareExchange => I::from_int(int_atomic_initial_value()),
+    }
 }
 
 #[cube(launch)]
-pub fn kernel_atomic_min<I: Numeric, N: Size>(output: &mut [Atomic<Vector<I, N>>]) {
+pub fn kernel_atomic_numeric<I: Numeric, N: Size>(
+    input: &[Vector<I, N>],
+    atomics: &[Atomic<Vector<I, N>>],
+    output: &mut [Vector<I, N>],
+    #[comptime] op: NumericAtomicOp,
+) {
     if UNIT_POS == 0 {
-        output[0].fetch_min(Vector::from_int(5));
+        match op {
+            NumericAtomicOp::Load => output[0] = atomics[0].load(),
+            NumericAtomicOp::Store => atomics[0].store(input[0]),
+            NumericAtomicOp::Swap => {
+                atomics[0].swap(Vector::from_int(5));
+            }
+            NumericAtomicOp::Add => {
+                atomics[0].fetch_add(Vector::from_int(5));
+            }
+            NumericAtomicOp::Sub => {
+                atomics[0].fetch_sub(Vector::from_int(5));
+            }
+            NumericAtomicOp::Min => {
+                atomics[0].fetch_min(Vector::from_int(5));
+            }
+            NumericAtomicOp::Max => {
+                atomics[0].fetch_max(Vector::from_int(5));
+            }
+        }
     }
 }
 
-pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(
+pub fn test_kernel_atomic_numeric<R: Runtime, F: Numeric + CubeElement>(
     client: ComputeClient<R>,
     vector_size: usize,
+    op: NumericAtomicOp,
 ) {
-    if !supports_feature::<R, F>(&client, AtomicUsage::MinMax, vector_size) {
-        println!(
-            "{} Min not supported - skipped",
-            Atomic::<F>::as_type_native_unchecked().with_vector_size(vector_size)
-        );
-        return;
-    } else {
-        println!(
-            "{} Min supported - running",
-            Atomic::<F>::as_type_native_unchecked().with_vector_size(vector_size)
-        );
-    }
-    let data = (0..vector_size)
-        .map(|_| F::from_int(12))
-        .collect::<Vec<_>>();
-    let handle = client.create_from_slice(F::as_bytes(&data));
-
-    kernel_atomic_min::launch::<F, R>(
+    if !require_feature::<R, F>(
         &client,
-        CubeCount::Static(1, 1, 1),
+        numeric_op_feature(op),
+        vector_size,
+        numeric_op_name(op),
+    ) {
+        return;
+    }
+
+    let input_handle = client.create_from_slice(F::as_bytes(&filled_data::<F>(vector_size, 5)));
+    let atomic_handle = client.create_from_slice(F::as_bytes(&filled_data::<F>(vector_size, 12)));
+    let output_handle = client.create_from_slice(F::as_bytes(&filled_data::<F>(vector_size, 0)));
+
+    kernel_atomic_numeric::launch::<F, R>(
+        &client,
+        CubeCount::new_single(),
         CubeDim::new_1d(1),
         vector_size,
-        unsafe { BufferArg::from_raw_parts(handle.clone(), vector_size) },
+        unsafe { BufferArg::from_raw_parts(input_handle, 1) },
+        unsafe { BufferArg::from_raw_parts(atomic_handle.clone(), vector_size) },
+        unsafe { BufferArg::from_raw_parts(output_handle.clone(), 1) },
+        op,
     );
 
-    let actual = client.read_one_unchecked(handle);
+    let actual = match op {
+        NumericAtomicOp::Load => client.read_one_unchecked(output_handle),
+        _ => client.read_one_unchecked(atomic_handle),
+    };
     let actual = F::from_bytes(&actual);
 
-    assert!(actual.iter().all(|actual| actual == &F::from_int(5)));
+    assert_all_eq(&actual, numeric_expected(op));
 }
 
-#[cube(launch)]
-pub fn kernel_atomic_max<I: Numeric, N: Size>(output: &mut [Atomic<Vector<I, N>>]) {
-    if UNIT_POS == 0 {
-        output[0].fetch_max(Vector::from_int(5));
-    }
-}
-
-pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(
+pub fn test_kernel_atomic_numeric_all_sizes<R: Runtime, F: Numeric + CubeElement>(
     client: ComputeClient<R>,
-    vector_size: usize,
+    op: NumericAtomicOp,
 ) {
-    if !supports_feature::<R, F>(&client, AtomicUsage::MinMax, vector_size) {
-        println!(
-            "{} Max not supported - skipped",
-            Atomic::<F>::as_type_native_unchecked().with_vector_size(vector_size)
-        );
-        return;
-    } else {
-        println!(
-            "{} Max supported - running",
-            Atomic::<F>::as_type_native_unchecked().with_vector_size(vector_size)
-        );
+    for vector_size in [1, 2, 4] {
+        test_kernel_atomic_numeric::<R, F>(client.clone(), vector_size, op);
     }
-    let data = (0..vector_size)
-        .map(|_| F::from_int(12))
-        .collect::<Vec<_>>();
-    let handle = client.create_from_slice(F::as_bytes(&data));
-
-    kernel_atomic_max::launch::<F, R>(
-        &client,
-        CubeCount::Static(1, 1, 1),
-        CubeDim::new_1d(1),
-        vector_size,
-        unsafe { BufferArg::from_raw_parts(handle.clone(), vector_size) },
-    );
-
-    let actual = client.read_one_unchecked(handle);
-    let actual = F::from_bytes(&actual);
-
-    assert!(actual.iter().all(|actual| actual == &F::from_int(12)));
 }
 
 #[cube(launch)]
-fn regression_issue_1218_kernel(x: &[Atomic<u32>]) {
-    x[0].store(0);
+pub fn kernel_atomic_int<I: Int>(
+    atomics: &[Atomic<I>],
+    output: &mut [I],
+    #[comptime] op: IntAtomicOp,
+) {
+    if UNIT_POS == 0 {
+        match op {
+            IntAtomicOp::And => {
+                atomics[0].fetch_and(I::from_int(0b0110));
+            }
+            IntAtomicOp::Or => {
+                atomics[0].fetch_or(I::from_int(0b0110));
+            }
+            IntAtomicOp::Xor => {
+                atomics[0].fetch_xor(I::from_int(0b0110));
+            }
+            IntAtomicOp::CompareExchange => {
+                output[0] = atomics[0].compare_exchange_weak(I::from_int(12), I::from_int(5));
+            }
+        }
+    }
 }
 
-pub fn test_regression_issue_1218<R: Runtime>(client: ComputeClient<R>) {
-    if !supports_feature::<R, u32>(&client, AtomicUsage::LoadStore, 1) {
+pub fn test_kernel_atomic_int<R: Runtime, I: Int + CubeElement>(
+    client: ComputeClient<R>,
+    op: IntAtomicOp,
+) {
+    if !require_feature::<R, I>(&client, int_op_feature(op), 1, int_op_name(op)) {
         return;
     }
-    let handle = client.create_from_slice(u32::as_bytes(&[10]));
 
-    regression_issue_1218_kernel::launch::<R>(
+    let handle = client.create_from_slice(I::as_bytes(&[I::from_int(int_atomic_initial_value())]));
+    let output_handle = client.create_from_slice(I::as_bytes(&[I::from_int(0)]));
+
+    kernel_atomic_int::launch::<I, R>(
         &client,
-        CubeCount::Static(1, 1, 1),
+        CubeCount::new_single(),
         CubeDim::new_1d(1),
         unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+        unsafe { BufferArg::from_raw_parts(output_handle.clone(), 1) },
+        op,
     );
 
     let actual = client.read_one_unchecked(handle);
-    let actual = u32::from_bytes(&actual);
+    let actual = I::from_bytes(&actual);
 
-    assert_eq!(actual, &[0]);
+    assert_eq!(actual, &[int_expected::<I>(op)]);
+
+    if op == IntAtomicOp::CompareExchange {
+        let output = client.read_one_unchecked(output_handle);
+        let output = I::from_bytes(&output);
+
+        assert_eq!(output, &[I::from_int(int_atomic_initial_value())]);
+    }
 }
 
-#[allow(missing_docs)]
-#[macro_export]
-macro_rules! testgen_atomic_untyped {
-    () => {
-        use super::*;
-
-        #[$crate::runtime_tests::test_log::test]
-        fn test_regression_issue_1218() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::atomic::test_regression_issue_1218::<TestRuntime>(client);
-        }
-    };
-}
-
-#[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_atomic_int {
     () => {
         use super::*;
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_atomic_add_int() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::atomic::test_kernel_atomic_add::<TestRuntime, IntType>(
-                client, 1,
-            );
+        macro_rules! test_numeric_op {
+            ($name:ident, $op:expr) => {
+                #[$crate::runtime_tests::test_log::test]
+                fn $name() {
+                    let client = TestRuntime::client(&Default::default());
+                    cubecl_core::runtime_tests::atomic::test_kernel_atomic_numeric::<
+                        TestRuntime,
+                        IntType,
+                    >(client, 1, $op);
+                }
+            };
         }
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_atomic_min_int() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::atomic::test_kernel_atomic_min::<TestRuntime, IntType>(
-                client, 1,
-            );
+        macro_rules! test_int_op {
+            ($name:ident, $op:expr) => {
+                #[$crate::runtime_tests::test_log::test]
+                fn $name() {
+                    let client = TestRuntime::client(&Default::default());
+                    cubecl_core::runtime_tests::atomic::test_kernel_atomic_int::<
+                        TestRuntime,
+                        IntType,
+                    >(client, $op);
+                }
+            };
         }
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_atomic_max_int() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::atomic::test_kernel_atomic_max::<TestRuntime, IntType>(
-                client, 1,
-            );
+        test_numeric_op!(
+            test_atomic_load_int,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Load
+        );
+        test_numeric_op!(
+            test_atomic_store_int,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Store
+        );
+        test_numeric_op!(
+            test_atomic_swap_int,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Swap
+        );
+        test_numeric_op!(
+            test_atomic_add_int,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Add
+        );
+        test_numeric_op!(
+            test_atomic_sub_int,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Sub
+        );
+        test_numeric_op!(
+            test_atomic_min_int,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Min
+        );
+        test_numeric_op!(
+            test_atomic_max_int,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Max
+        );
+
+        test_int_op!(
+            test_atomic_and_int,
+            cubecl_core::runtime_tests::atomic::IntAtomicOp::And
+        );
+        test_int_op!(
+            test_atomic_or_int,
+            cubecl_core::runtime_tests::atomic::IntAtomicOp::Or
+        );
+        test_int_op!(
+            test_atomic_xor_int,
+            cubecl_core::runtime_tests::atomic::IntAtomicOp::Xor
+        );
+        test_int_op!(
+            test_atomic_compare_exchange_int,
+            cubecl_core::runtime_tests::atomic::IntAtomicOp::CompareExchange
+        );
+    };
+}
+
+#[allow(missing_docs)]
+#[macro_export]
+macro_rules! testgen_atomic_uint {
+    () => {
+        use super::*;
+
+        macro_rules! test_numeric_op {
+            ($name:ident, $op:expr) => {
+                #[$crate::runtime_tests::test_log::test]
+                fn $name() {
+                    let client = TestRuntime::client(&Default::default());
+                    cubecl_core::runtime_tests::atomic::test_kernel_atomic_numeric::<
+                        TestRuntime,
+                        UintType,
+                    >(client, 1, $op);
+                }
+            };
         }
+
+        macro_rules! test_int_op {
+            ($name:ident, $op:expr) => {
+                #[$crate::runtime_tests::test_log::test]
+                fn $name() {
+                    let client = TestRuntime::client(&Default::default());
+                    cubecl_core::runtime_tests::atomic::test_kernel_atomic_int::<
+                        TestRuntime,
+                        UintType,
+                    >(client, $op);
+                }
+            };
+        }
+
+        test_numeric_op!(
+            test_atomic_load_uint,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Load
+        );
+        test_numeric_op!(
+            test_atomic_store_uint,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Store
+        );
+        test_numeric_op!(
+            test_atomic_swap_uint,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Swap
+        );
+        test_numeric_op!(
+            test_atomic_add_uint,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Add
+        );
+        test_numeric_op!(
+            test_atomic_sub_uint,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Sub
+        );
+        test_numeric_op!(
+            test_atomic_min_uint,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Min
+        );
+        test_numeric_op!(
+            test_atomic_max_uint,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Max
+        );
+
+        test_int_op!(
+            test_atomic_and_uint,
+            cubecl_core::runtime_tests::atomic::IntAtomicOp::And
+        );
+        test_int_op!(
+            test_atomic_or_uint,
+            cubecl_core::runtime_tests::atomic::IntAtomicOp::Or
+        );
+        test_int_op!(
+            test_atomic_xor_uint,
+            cubecl_core::runtime_tests::atomic::IntAtomicOp::Xor
+        );
+        test_int_op!(
+            test_atomic_compare_exchange_uint,
+            cubecl_core::runtime_tests::atomic::IntAtomicOp::CompareExchange
+        );
     };
 }
 
@@ -217,80 +422,56 @@ macro_rules! testgen_atomic_float {
     () => {
         use super::*;
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_atomic_add_float() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::atomic::test_kernel_atomic_add::<TestRuntime, FloatType>(
-                client, 1,
-            );
+        macro_rules! test_numeric_op {
+            ($name:ident, $op:expr) => {
+                #[$crate::runtime_tests::test_log::test]
+                fn $name() {
+                    let client = TestRuntime::client(&Default::default());
+                    cubecl_core::runtime_tests::atomic::test_kernel_atomic_numeric_all_sizes::<
+                        TestRuntime,
+                        FloatType,
+                    >(client, $op);
+                }
+            };
         }
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_atomic_add_float_vec2() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::atomic::test_kernel_atomic_add::<TestRuntime, FloatType>(
-                client, 2,
-            );
-        }
+        test_numeric_op!(
+            test_atomic_load_float,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Load
+        );
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_atomic_add_float_vec4() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::atomic::test_kernel_atomic_add::<TestRuntime, FloatType>(
-                client, 4,
-            );
-        }
+        test_numeric_op!(
+            test_atomic_store_float,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Store
+        );
 
-        /// Not available on CUDA and I have no access to a GPU that supports it in SPIR-V, but
-        /// here for future proofing. Requires support for `VK_EXT_shader_atomic_float2`.
-        #[$crate::runtime_tests::test_log::test]
-        fn test_atomic_min_float() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::atomic::test_kernel_atomic_min::<TestRuntime, FloatType>(
-                client, 1,
-            );
-        }
+        test_numeric_op!(
+            test_atomic_swap_float,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Swap
+        );
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_atomic_min_float_vec2() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::atomic::test_kernel_atomic_min::<TestRuntime, FloatType>(
-                client, 2,
-            );
-        }
+        test_numeric_op!(
+            test_atomic_add_float,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Add
+        );
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_atomic_min_float_vec4() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::atomic::test_kernel_atomic_min::<TestRuntime, FloatType>(
-                client, 4,
-            );
-        }
+        test_numeric_op!(
+            test_atomic_sub_float,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Sub
+        );
 
         /// Not available on CUDA and I have no access to a GPU that supports it in SPIR-V, but
         /// here for future proofing. Requires support for `VK_EXT_shader_atomic_float2`.
-        #[$crate::runtime_tests::test_log::test]
-        fn test_atomic_max_float() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::atomic::test_kernel_atomic_max::<TestRuntime, FloatType>(
-                client, 1,
-            );
-        }
+        test_numeric_op!(
+            test_atomic_min_float,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Min
+        );
 
-        #[$crate::runtime_tests::test_log::test]
-        fn test_atomic_max_float_vec2() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::atomic::test_kernel_atomic_max::<TestRuntime, FloatType>(
-                client, 2,
-            );
-        }
-
-        #[$crate::runtime_tests::test_log::test]
-        fn test_atomic_max_float_vec4() {
-            let client = TestRuntime::client(&Default::default());
-            cubecl_core::runtime_tests::atomic::test_kernel_atomic_max::<TestRuntime, FloatType>(
-                client, 4,
-            );
-        }
+        /// Not available on CUDA and I have no access to a GPU that supports it in SPIR-V, but
+        /// here for future proofing. Requires support for `VK_EXT_shader_atomic_float2`.
+        test_numeric_op!(
+            test_atomic_max_float,
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Max
+        );
     };
 }

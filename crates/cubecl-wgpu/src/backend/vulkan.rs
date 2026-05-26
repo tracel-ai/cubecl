@@ -34,7 +34,7 @@ use wgpu::{
     },
 };
 
-use crate::{AutoCompiler, WgpuServer};
+use crate::{WgpuCompiler, WgpuServer};
 
 mod features;
 
@@ -736,13 +736,16 @@ fn convert_type(vk_ty: ComponentTypeKHR) -> Option<ElemType> {
     Some(ty)
 }
 
-/// Check robustness, compile, and optionally dump SPIR-V
-pub(crate) fn compile(
-    dyn_comp: &mut AutoCompiler,
-    server: &mut WgpuServer,
-    kernel: <WgpuServer as ComputeServer>::Kernel,
+/// Check robustness and compile.
+pub(crate) fn compile<C>(
+    dyn_comp: &mut C,
+    server: &mut WgpuServer<C>,
+    kernel: <WgpuServer<C> as ComputeServer>::Kernel,
     mode: ExecutionMode,
-) -> Result<CompiledKernel<AutoCompiler>, CompilationError> {
+) -> Result<CompiledKernel<C>, CompilationError>
+where
+    C: WgpuCompiler<CompilationOptions = WgpuCompilationOptions>,
+{
     log::debug!("Compiling {}", kernel.name());
     let compiled = kernel.compile(
         dyn_comp,
@@ -750,25 +753,17 @@ pub(crate) fn compile(
         mode,
         kernel.address_type(),
     )?;
-    #[cfg(feature = "spirv-dump")]
-    dump_spirv(&compiled, kernel.name(), kernel.id());
     Ok(compiled)
 }
 
 #[cfg(feature = "spirv-dump")]
-fn dump_spirv(
-    compiled: &CompiledKernel<AutoCompiler>,
-    name: &str,
-    id: cubecl_runtime::id::KernelId,
-) {
+pub(crate) fn dump_spirv(repr: &SpirvKernel, name: &str, id: cubecl_runtime::id::KernelId) {
     use std::{
         fs,
         hash::{DefaultHasher, Hash, Hasher},
     };
 
-    if let Ok(dir) = std::env::var("CUBECL_DEBUG_SPIRV")
-        && let Some(repr) = compiled.repr.as_ref().and_then(|repr| repr.as_spirv())
-    {
+    if let Ok(dir) = std::env::var("CUBECL_DEBUG_SPIRV") {
         std::fs::create_dir_all(&dir).unwrap();
         let name = name
             .split("<")

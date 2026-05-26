@@ -37,6 +37,8 @@ use tracel_llvm::mlir_rs::{
 use prelude::*;
 use variables::Variables;
 
+use crate::compiler::visitor::operation::synchronization::add_sync_cube_function;
+
 use super::{
     external_function::add_external_function_to_module, passes::shared_memories::SharedMemories,
 };
@@ -200,6 +202,7 @@ impl<'a> Visitor<'a> {
             ));
         }
         add_external_function_to_module(context, module);
+        add_sync_cube_function(context, module).unwrap();
         module.body().append_operation(func::func(
             context,
             name,

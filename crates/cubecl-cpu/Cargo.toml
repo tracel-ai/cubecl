@@ -61,6 +61,12 @@ serde = { workspace = true }
 sysinfo = { workspace = true }
 tracel-llvm = { workspace = true }
 
+[target.'cfg(any(target_os = "android", target_os = "linux", target_os = "macos", target_os = "freebsd"))'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { workspace = true }
+
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.1", features = [
     "export_tests",

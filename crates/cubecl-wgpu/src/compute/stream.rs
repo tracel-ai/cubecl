@@ -5,14 +5,14 @@ use crate::{
     schedule::{Addresses, ScheduleTask},
 };
 use core::iter;
-#[cfg(feature = "renderdoc")]
+#[cfg(renderdoc)]
 use core::{cell::LazyCell, ptr::null};
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
 };
-#[cfg(feature = "renderdoc")]
+#[cfg(renderdoc)]
 use cubecl_core::stub::Mutex;
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
@@ -25,12 +25,12 @@ use cubecl_runtime::{
     logging::ServerLogger, memory_management::ManagedMemoryHandle,
     timestamp_profiler::TimestampProfiler,
 };
-#[cfg(feature = "renderdoc")]
+#[cfg(renderdoc)]
 use renderdoc::{RenderDoc, V100};
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 use wgpu::ComputePipeline;
 
-#[cfg(feature = "renderdoc")]
+#[cfg(renderdoc)]
 thread_local! {
     static RENDERDOC: LazyCell<Option<Mutex<RenderDoc<V100>>>> = LazyCell::new(|| RenderDoc::new().ok().map(Mutex::new));
 }
@@ -86,7 +86,7 @@ impl WgpuStream {
             Timings::System(TimestampProfiler::default())
         };
 
-        #[cfg(feature = "renderdoc")]
+        #[cfg(renderdoc)]
         RENDERDOC.with(|renderdoc| {
             if let Some(renderdoc) = &**renderdoc {
                 let mut renderdoc = renderdoc.lock().unwrap();
@@ -524,7 +524,7 @@ impl WgpuStream {
         self.mem_manage.memory_cleanup(false);
         self.mem_manage.release_uniforms();
 
-        #[cfg(feature = "renderdoc")]
+        #[cfg(renderdoc)]
         RENDERDOC.with(|renderdoc| {
             if let Some(renderdoc) = &**renderdoc {
                 let mut renderdoc = renderdoc.lock().unwrap();
