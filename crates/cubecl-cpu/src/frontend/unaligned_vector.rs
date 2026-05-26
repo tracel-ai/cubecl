@@ -44,12 +44,11 @@ pub trait UnalignedVector<E: Scalar, N: Size>: CubeType {
 }
 
 type ArrayExpand<T> = NativeExpand<Array<T>>;
-type SharedMemoryExpand<T> = NativeExpand<SharedMemory<T>>;
 
 macro_rules! impl_unaligned_vector {
-    ($type:ident) => {
+    ($type: ty) => {
         #[cube]
-        impl<E: Scalar, N: Size> UnalignedVector<E, N> for $type<E> {
+        impl<E: Scalar, N: Size> UnalignedVector<E, N> for $type {
             fn unaligned_vector_read(&self, index: usize) -> Vector<E, N> {
                 unaligned_vector_read::<E, N>(self.as_slice(), index)
             }
@@ -61,9 +60,9 @@ macro_rules! impl_unaligned_vector {
     };
 }
 
-impl_unaligned_vector!(Array);
-impl_unaligned_vector!(Tensor);
-impl_unaligned_vector!(SharedMemory);
+impl_unaligned_vector!(Array<E>);
+impl_unaligned_vector!(Tensor<E>);
+impl_unaligned_vector!(Shared<[E]>);
 
 // TODO: Maybe impl unaligned IO on slices?
 // The last dimension will have to be contiguous for this to make sense,

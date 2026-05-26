@@ -664,7 +664,7 @@ impl<E: CubePrimitive> IndexMutExpand<NativeExpand<usize>> for SliceExpand<E> {
     }
 }
 
-impl_slice_ranges!(SliceExpand);
+impl_slice_ranges!(SliceExpand<E>);
 
 impl<E: CubePrimitive> List<E> for [E] {}
 impl<E: CubePrimitive> ListExpand<E> for SliceExpand<E> {

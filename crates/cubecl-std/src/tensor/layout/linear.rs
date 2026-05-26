@@ -2,7 +2,7 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, ir::UIntKind, zspace::Shape};
 
 use crate::tensor::{
-    View, is_contiguous, is_contiguous_pitched,
+    View, ViewMut, is_contiguous, is_contiguous_pitched,
     launch::{ConcreteLayout, ConcreteLayoutLaunch, MemoryArg, ViewArg, ViewLayoutLaunchArg},
     layout::{
         Coords1d, Layout, LayoutExpand, VirtualLayoutOperationsExpand,
@@ -164,7 +164,8 @@ pub type LinearLayoutLaunch<R> = ConcreteLayoutLaunch<LinearViewLayout, R>;
 
 /// [`View`] with a linear layout inferred from the shape/strides at launch.
 /// Useful for elementwise kernels.
-pub type LinearView<E, IO = ReadOnly> = View<E, Coords1d, IO>;
+pub type LinearView<'a, E> = View<'a, E, Coords1d>;
+pub type LinearViewMut<'a, E> = ViewMut<'a, E, Coords1d>;
 /// Launch type for [`LinearView`].
 pub type LinearViewLaunch<R> = ViewArg<Coords1d, R>;
 

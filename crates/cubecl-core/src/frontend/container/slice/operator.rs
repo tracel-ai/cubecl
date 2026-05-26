@@ -18,7 +18,6 @@ pub(crate) fn is_tf32<C: CubePrimitive, T: CubePrimitive>(scope: &Scope) -> bool
 }
 
 type ArrayExpand<E> = NativeExpand<Array<E>>;
-type SharedMemoryExpand<E> = NativeExpand<SharedMemory<E>>;
 
 impl<E: CubePrimitive, T: Deref<Target = SliceExpand<E>> + DerefMut> SliceOperatorExpand<E> for T {
     fn __expand_slice_method(
@@ -41,7 +40,7 @@ impl<E: CubePrimitive, T: Deref<Target = SliceExpand<E>> + DerefMut> SliceOperat
     }
 }
 
-impl<E: CubePrimitive> SliceOperator<E> for SharedMemory<E> {}
+impl<E: CubePrimitive> SliceOperator<E> for Shared<[E]> {}
 impl<E: CubePrimitive> SliceOperator<E> for Tensor<E> {}
 impl<E: CubePrimitive> SliceOperator<E> for Array<E> {}
 
@@ -57,7 +56,7 @@ impl<E: CubePrimitive> Array<E> {
 }
 
 #[cube]
-impl<E: CubePrimitive> SharedMemory<E> {
+impl<E: CubePrimitive> Shared<[E]> {
     pub fn as_slice(&self) -> &[E] {
         intrinsic!(|_| self.deref())
     }

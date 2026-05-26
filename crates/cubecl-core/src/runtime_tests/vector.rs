@@ -164,7 +164,7 @@ pub fn test_vector_conditional<R: Runtime, F: Float + CubeElement>(client: Compu
 
 #[cube(launch_unchecked)]
 pub fn kernel_shared_memory<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
-    let mut smem1 = SharedMemory::<Vector<F, N>>::new(8usize);
+    let mut smem1 = Shared::new_slice(8usize);
     smem1[0] = Vector::new(F::new(42f32));
     output[0] = smem1[0];
 }

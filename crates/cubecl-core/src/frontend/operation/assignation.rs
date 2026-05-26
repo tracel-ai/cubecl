@@ -5,7 +5,7 @@ use core::ops::{
 use cubecl_ir::{Operator, Scope, Variable};
 
 use crate::{
-    frontend::{Array, SharedMemory, Tensor},
+    frontend::{Array, Tensor},
     prelude::*,
 };
 use crate::{ir, unexpanded};
@@ -97,44 +97,44 @@ pub mod index_mut {
     use super::*;
 
     macro_rules! impl_index {
-        ($type:ident, $expand: ty) => {
-            impl<E: CubePrimitive> IndexMut<usize> for $type<E> {
+        ($type: ty, $expand: ty) => {
+            impl<E: CubePrimitive> IndexMut<usize> for $type {
                 fn index_mut(&mut self, _idx: usize) -> &mut Self::Output {
                     unexpanded!()
                 }
             }
 
-            impl<E: CubePrimitive> IndexMut<Range<usize>> for $type<E> {
+            impl<E: CubePrimitive> IndexMut<Range<usize>> for $type {
                 fn index_mut(&mut self, _idx: Range<usize>) -> &mut Self::Output {
                     unexpanded!()
                 }
             }
 
-            impl<E: CubePrimitive> IndexMut<RangeFrom<usize>> for $type<E> {
+            impl<E: CubePrimitive> IndexMut<RangeFrom<usize>> for $type {
                 fn index_mut(&mut self, _idx: RangeFrom<usize>) -> &mut Self::Output {
                     unexpanded!()
                 }
             }
 
-            impl<E: CubePrimitive> IndexMut<RangeFull> for $type<E> {
+            impl<E: CubePrimitive> IndexMut<RangeFull> for $type {
                 fn index_mut(&mut self, _idx: RangeFull) -> &mut Self::Output {
                     unexpanded!()
                 }
             }
 
-            impl<E: CubePrimitive> IndexMut<RangeInclusive<usize>> for $type<E> {
+            impl<E: CubePrimitive> IndexMut<RangeInclusive<usize>> for $type {
                 fn index_mut(&mut self, _idx: RangeInclusive<usize>) -> &mut Self::Output {
                     unexpanded!()
                 }
             }
 
-            impl<E: CubePrimitive> IndexMut<RangeTo<usize>> for $type<E> {
+            impl<E: CubePrimitive> IndexMut<RangeTo<usize>> for $type {
                 fn index_mut(&mut self, _idx: RangeTo<usize>) -> &mut Self::Output {
                     unexpanded!()
                 }
             }
 
-            impl<E: CubePrimitive> IndexMut<RangeToInclusive<usize>> for $type<E> {
+            impl<E: CubePrimitive> IndexMut<RangeToInclusive<usize>> for $type {
                 fn index_mut(&mut self, _idx: RangeToInclusive<usize>) -> &mut Self::Output {
                     unexpanded!()
                 }
@@ -153,21 +153,21 @@ pub mod index_mut {
         };
     }
 
-    impl_index!(Array, NativeExpand<Array<E>>);
-    impl_index!(Tensor, TensorExpand<E>);
-    impl_index!(SharedMemory, NativeExpand<Shared<[E]>>);
+    impl_index!(Array<E>, NativeExpand<Array<E>>);
+    impl_index!(Tensor<E>, TensorExpand<E>);
+    impl_index!(Shared<[E]>, NativeExpand<Shared<[E]>>);
 
-    impl_slice_ranges!(ArrayExpand);
-    impl_slice_ranges!(TensorExpand);
-    impl_slice_ranges!(SharedMemoryExpand);
+    impl_slice_ranges!(ArrayExpand<E>);
+    impl_slice_ranges!(TensorExpand<E>);
+    impl_slice_ranges!(NativeExpand<Shared<[E]>>);
 }
 
 pub mod index {
     use super::*;
 
     macro_rules! impl_index {
-        ($type:ident, $expand: ident) => {
-            impl<E: CubePrimitive> Index<usize> for $type<E> {
+        ($type: ty, $expand: ty) => {
+            impl<E: CubePrimitive> Index<usize> for $type {
                 type Output = E;
 
                 fn index(&self, _idx: usize) -> &Self::Output {
@@ -175,7 +175,7 @@ pub mod index {
                 }
             }
 
-            impl<E: CubePrimitive> Index<Range<usize>> for $type<E> {
+            impl<E: CubePrimitive> Index<Range<usize>> for $type {
                 type Output = [E];
 
                 fn index(&self, _idx: Range<usize>) -> &Self::Output {
@@ -183,7 +183,7 @@ pub mod index {
                 }
             }
 
-            impl<E: CubePrimitive> Index<RangeFrom<usize>> for $type<E> {
+            impl<E: CubePrimitive> Index<RangeFrom<usize>> for $type {
                 type Output = [E];
 
                 fn index(&self, _idx: RangeFrom<usize>) -> &Self::Output {
@@ -191,7 +191,7 @@ pub mod index {
                 }
             }
 
-            impl<E: CubePrimitive> Index<RangeFull> for $type<E> {
+            impl<E: CubePrimitive> Index<RangeFull> for $type {
                 type Output = [E];
 
                 fn index(&self, _idx: RangeFull) -> &Self::Output {
@@ -199,7 +199,7 @@ pub mod index {
                 }
             }
 
-            impl<E: CubePrimitive> Index<RangeInclusive<usize>> for $type<E> {
+            impl<E: CubePrimitive> Index<RangeInclusive<usize>> for $type {
                 type Output = [E];
 
                 fn index(&self, _idx: RangeInclusive<usize>) -> &Self::Output {
@@ -207,7 +207,7 @@ pub mod index {
                 }
             }
 
-            impl<E: CubePrimitive> Index<RangeTo<usize>> for $type<E> {
+            impl<E: CubePrimitive> Index<RangeTo<usize>> for $type {
                 type Output = [E];
 
                 fn index(&self, _idx: RangeTo<usize>) -> &Self::Output {
@@ -215,7 +215,7 @@ pub mod index {
                 }
             }
 
-            impl<E: CubePrimitive> Index<RangeToInclusive<usize>> for $type<E> {
+            impl<E: CubePrimitive> Index<RangeToInclusive<usize>> for $type {
                 type Output = [E];
 
                 fn index(&self, _idx: RangeToInclusive<usize>) -> &Self::Output {
@@ -223,7 +223,7 @@ pub mod index {
                 }
             }
 
-            impl<E: CubePrimitive> IndexExpand<NativeExpand<usize>> for $expand<E> {
+            impl<E: CubePrimitive> IndexExpand<NativeExpand<usize>> for $expand {
                 type Output = NativeExpand<E>;
 
                 fn __expand_index_method(
@@ -238,7 +238,7 @@ pub mod index {
         };
     }
 
-    impl_index!(Array, ArrayExpand);
-    impl_index!(Tensor, TensorExpand);
-    impl_index!(SharedMemory, SharedMemoryExpand);
+    impl_index!(Array<E>, NativeExpand<Array<E>>);
+    impl_index!(Tensor<E>, TensorExpand<E>);
+    impl_index!(Shared<[E]>, NativeExpand<Shared<[E]>>);
 }

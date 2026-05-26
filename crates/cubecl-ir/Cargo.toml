@@ -35,7 +35,7 @@ cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "=0.11.
 
 bumpalo = { workspace = true }
 derive-new = { workspace = true }
-derive_more = { workspace = true, features = ["from"] }
+derive_more = { workspace = true, features = ["from", "eq"] }
 enumset = { workspace = true }
 float-ord = { workspace = true }
 fnv = { workspace = true }

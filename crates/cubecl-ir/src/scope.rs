@@ -1,6 +1,5 @@
 use alloc::collections::BTreeMap;
 use alloc::{borrow::Cow, rc::Rc, string::String, string::ToString, vec::Vec};
-use bumpalo::Bump;
 use core::{
     any::TypeId,
     cell::{Ref, RefCell, RefMut},
@@ -14,7 +13,7 @@ use itertools::Itertools;
 use crate::{
     AggregateExtractOperands, AggregateKind, BarrierLevel, CubeFnSource, DeviceProperties,
     FastMath, Function, Matrix, Operation, OperationReflect, Processor, SemanticType, SourceLoc,
-    StorageType, TargetProperties, TypeHash,
+    StorageType, TargetProperties, TypeHash, arena::DropBump,
 };
 
 use super::{
@@ -53,7 +52,7 @@ pub type GlobalState = Rc<RefCell<GlobalStateInner>>;
 pub struct GlobalStateInner {
     #[partial_eq(skip)]
     #[eq(skip)]
-    pub reference_arena: Bump,
+    pub reference_arena: DropBump,
     pub allocator: Allocator,
 
     pub functions: BTreeMap<Id, Function>,
@@ -67,7 +66,7 @@ pub struct GlobalStateInner {
 impl GlobalStateInner {
     pub fn clone_deep(&self) -> Self {
         Self {
-            reference_arena: Bump::new(),
+            reference_arena: DropBump::new(),
             allocator: self.allocator.clone_deep(),
             functions: self.functions.clone(),
             typemap: self.typemap.clone(),
@@ -241,11 +240,14 @@ impl Scope {
     }
 
     /// Add a value to the global arena so we can create a kernel-wide reference to it.
-    /// The reference is `'static` for simplicity, but is only valid for the duration of the root scope.
-    /// Ensure the reference lifetime is shortened to the lifetime of the underlying variable being
-    /// referenced.
-    pub fn create_kernel_ref<T: 'static>(&self, var: T) -> &'static mut T {
-        let state = self.global_state.borrow();
+    /// The reference is the same as the type for simplicity, but is only valid for the duration of
+    /// the root scope. Ensure the reference lifetime is shortened to the lifetime of the underlying
+    /// variable being referenced.
+    pub fn create_kernel_ref<'a, T>(&self, var: T) -> &'a mut T
+    where
+        T: 'a,
+    {
+        let mut state = self.state_mut();
         let reference = state.reference_arena.alloc(var);
         unsafe { core::mem::transmute(reference) }
     }

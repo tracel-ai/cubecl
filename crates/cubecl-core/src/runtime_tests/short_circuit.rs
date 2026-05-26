@@ -8,7 +8,7 @@ use cubecl_runtime::server::Handle;
 #[cube]
 fn mark_side_channel(side_channel: &mut Array<u32>) -> bool {
     side_channel[0] = 1u32;
-    false.into()
+    false.runtime()
 }
 
 #[cube(launch)]
@@ -116,10 +116,10 @@ pub fn test_pure_or<R: Runtime>(client: ComputeClient<R>) {
             b,
         );
     };
-    assert_eq!(run_pure(&client, &launch, 0, 0), 0, "0 || 0");
-    assert_eq!(run_pure(&client, &launch, 0, 7), 1, "0 || 7");
-    assert_eq!(run_pure(&client, &launch, 5, 0), 1, "5 || 0");
-    assert_eq!(run_pure(&client, &launch, 5, 7), 1, "5 || 7");
+    assert_eq!(run_pure(&client, launch, 0, 0), 0, "0 || 0");
+    assert_eq!(run_pure(&client, launch, 0, 7), 1, "0 || 7");
+    assert_eq!(run_pure(&client, launch, 5, 0), 1, "5 || 0");
+    assert_eq!(run_pure(&client, launch, 5, 7), 1, "5 || 7");
 }
 
 pub fn test_pure_and<R: Runtime>(client: ComputeClient<R>) {
@@ -133,10 +133,10 @@ pub fn test_pure_and<R: Runtime>(client: ComputeClient<R>) {
             b,
         );
     };
-    assert_eq!(run_pure(&client, &launch, 0, 0), 0, "0 && 0");
-    assert_eq!(run_pure(&client, &launch, 0, 7), 0, "0 && 7");
-    assert_eq!(run_pure(&client, &launch, 5, 0), 0, "5 && 0");
-    assert_eq!(run_pure(&client, &launch, 5, 7), 1, "5 && 7");
+    assert_eq!(run_pure(&client, launch, 0, 0), 0, "0 && 0");
+    assert_eq!(run_pure(&client, launch, 0, 7), 0, "0 && 7");
+    assert_eq!(run_pure(&client, launch, 5, 0), 0, "5 && 0");
+    assert_eq!(run_pure(&client, launch, 5, 7), 1, "5 && 7");
 }
 
 #[allow(missing_docs)]

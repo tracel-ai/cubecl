@@ -485,7 +485,7 @@ pub trait DialectInstructions<D: Dialect> {
         input: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
-        let zero = Variable::Constant(ConstantValue::UInt(0), input.item());
+        let zero = Variable::Constant(ConstantValue::UInt(0), *input.item().value_ty());
         Self::compile_atomic_add(f, input, &zero, out)
     }
 
@@ -534,18 +534,9 @@ pub trait DialectInstructions<D: Dialect> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
-        let addr_space = D::address_space_for_variable(out);
-        let out = out.fmt_left();
-        match rhs.elem() {
-            Elem::U32 | Elem::I32 => writeln!(f, "{out} = atomicSub({lhs}, {rhs});"),
-            Elem::U64 => writeln!(f, "{out} = atomicAdd({lhs}, -{rhs});"),
-            Elem::I64 => writeln!(
-                f,
-                "{out} = atomicAdd(reinterpret_cast<{addr_space}{uint}*>({lhs}), {uint}(-{rhs}));",
-                uint = Elem::<D>::U64
-            ),
-            _ => writeln!(f, "{out} = atomicAdd({lhs}, -{rhs});"),
-        }
+        let neg_rhs = Variable::tmp(rhs.item());
+        writeln!(f, "{} = -{rhs};", neg_rhs.fmt_left())?;
+        Self::compile_atomic_add(f, lhs, &neg_rhs, out)
     }
 
     fn compile_atomic_swap(
