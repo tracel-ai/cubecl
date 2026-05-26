@@ -1,25 +1,37 @@
 use std::{collections::HashMap, sync::OnceLock};
 
 use cubecl_core::{
-    device::DeviceId,
     ir::ElemType,
-    server::{CommunicationId, ReduceOperation},
+    server::{CommunicationGroup, CommunicationId, ReduceOperation},
     stub::Mutex,
 };
 
 /// Global state map from [`CommunicationId`] to boxed [`cudarc::nccl::sys::ncclUniqueId`].
+///
+/// Only populated for [`CommunicationGroup::Local`]; the in-process shared map is what makes
+/// the local case work without an external rendezvous. Distributed groups must obtain their
+/// unique id through a rendezvous service instead.
 static UNIQUE_IDS_MAP: OnceLock<Mutex<HashMap<CommunicationId, cudarc::nccl::sys::ncclUniqueId>>> =
     OnceLock::new();
 
-pub(crate) fn get_nccl_comm_id(device_ids: Vec<DeviceId>) -> cudarc::nccl::sys::ncclUniqueId {
-    let mut unique_ids_map = UNIQUE_IDS_MAP.get_or_init(Default::default).lock().unwrap();
-    let comm_id = CommunicationId::from(device_ids);
-    match unique_ids_map.get_mut(&comm_id) {
-        Some(id) => *id,
-        None => {
-            let id = cudarc::nccl::result::get_uniqueid().unwrap();
-            unique_ids_map.insert(comm_id, id);
-            id
+pub(crate) fn get_nccl_comm_id(group: &CommunicationGroup) -> cudarc::nccl::sys::ncclUniqueId {
+    match group {
+        CommunicationGroup::Local(_) => {
+            let mut unique_ids_map = UNIQUE_IDS_MAP.get_or_init(Default::default).lock().unwrap();
+            let comm_id = CommunicationId::from(group);
+            match unique_ids_map.get_mut(&comm_id) {
+                Some(id) => *id,
+                None => {
+                    let id = cudarc::nccl::result::get_uniqueid().unwrap();
+                    unique_ids_map.insert(comm_id, id);
+                    id
+                }
+            }
+        }
+        CommunicationGroup::Distributed(_) => {
+            unimplemented!(
+                "Distributed CommunicationGroup requires a rendezvous-provided unique id"
+            );
         }
     }
 }

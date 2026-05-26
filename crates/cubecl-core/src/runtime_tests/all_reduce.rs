@@ -1,6 +1,7 @@
 use crate::{Runtime, prelude::*};
 use alloc::vec::Vec;
 use cubecl_common::device::Device;
+use cubecl_runtime::server::CommunicationGroup;
 
 pub fn test_all_reduce_sync_collective<R: Runtime>() {
     let type_id = 0;
@@ -40,7 +41,7 @@ pub fn test_all_reduce_sync_collective<R: Runtime>() {
                 handle.clone(),
                 handle.clone(),
                 cubecl_ir::ElemType::Float(cubecl_ir::FloatKind::F32),
-                device_ids.clone(),
+                CommunicationGroup::Local(device_ids.clone()),
                 cubecl_runtime::server::ReduceOperation::Sum,
             );
         }

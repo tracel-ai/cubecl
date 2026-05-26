@@ -19,9 +19,9 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Binding, CommunicationId, CopyDescriptor, Handle, KernelArguments, LaunchError,
-        ProfileError, ProfilingToken, ReduceOperation, ServerCommunication, ServerError,
-        ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
+        Binding, CommunicationGroup, CommunicationId, CopyDescriptor, Handle, KernelArguments,
+        LaunchError, ProfileError, ProfilingToken, ReduceOperation, ServerCommunication,
+        ServerError, ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
     },
 };
 use cubecl_runtime::{
@@ -274,17 +274,30 @@ impl ComputeServer for CudaServer {
 impl ServerCommunication for CudaServer {
     const SERVER_COMM_ENABLED: bool = true;
 
-    fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
-        let id = CommunicationId::from(device_ids.clone());
+    fn comm_init(&mut self, group: CommunicationGroup) -> Result<(), ServerError> {
+        let id = CommunicationId::from(&group);
         if let Entry::Vacant(e) = self.communicators.entry(id.clone()) {
+            let (count, rank, nccl_comm_id) = match &group {
+                CommunicationGroup::Local(device_ids) => {
+                    let mut device_ids = device_ids.clone();
+                    device_ids.sort();
+                    let rank = device_ids
+                        .iter()
+                        .position(|id| id.index_id == self.device_id.index_id)
+                        .expect("Device's peer id should be in the list of device ids.")
+                        as i32;
+                    let count = device_ids.len() as i32;
+                    let nccl_comm_id = get_nccl_comm_id(&group);
+                    (count, rank, nccl_comm_id)
+                }
+                CommunicationGroup::Distributed(_) => {
+                    unimplemented!(
+                        "Distributed CommunicationGroup is not yet wired through the CUDA backend"
+                    );
+                }
+            };
+
             let mut comm = MaybeUninit::uninit();
-            let mut device_ids = device_ids.clone();
-            device_ids.sort();
-            let rank = device_ids
-                .iter()
-                .position(|id| id.index_id == self.device_id.index_id)
-                .expect("Device's peer id should be in the list of device ids.");
-            let nccl_comm_id = get_nccl_comm_id(device_ids.clone());
 
             // SAFETY: `comm` is a valid `MaybeUninit`. `nccl_comm_id` is a unique communicator ID
             // shared across all participating ranks. `rank` is this device's position in the
@@ -292,9 +305,9 @@ impl ServerCommunication for CudaServer {
             unsafe {
                 cudarc::nccl::result::comm_init_rank(
                     comm.as_mut_ptr(),
-                    device_ids.len() as i32,
+                    count,
                     nccl_comm_id,
-                    rank as i32,
+                    rank,
                 )
                 .map_err(|e| ServerError::Generic {
                     reason: format!("NCCL comm_init_rank failed: {e:?}"),
@@ -317,7 +330,7 @@ impl ServerCommunication for CudaServer {
         dtype: ElemType,
         stream_id: StreamId,
         op: ReduceOperation,
-        device_ids: Vec<DeviceId>,
+        group: CommunicationGroup,
     ) -> Result<(), ServerError> {
         // We create a command on the server to retrieve the correct resource of the source and the destination
         // from the memory pools.
@@ -359,7 +372,7 @@ impl ServerCommunication for CudaServer {
         // Get the communicator.
         let comm = self
             .communicators
-            .get(&CommunicationId::from(device_ids))
+            .get(&CommunicationId::from(&group))
             .expect("Communicator for this ID should be initialized");
 
         // Perform the `cudarc::nccl::result::all_reduce` operation.

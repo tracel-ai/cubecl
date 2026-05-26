@@ -432,23 +432,92 @@ where
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
 }
 
-/// An ID unique to any unordered combination of devices.
+/// An ID unique to a [`CommunicationGroup`].
+///
+/// Used as the key into per-server communicator caches. Two groups with identical local devices
+/// but different cluster contexts must hash to distinct ids, so this hashes the full enum
+/// (including the variant tag), not just the device list.
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct CommunicationId {
     /// The ID as a `String`.
     pub id: u64,
 }
 
-impl From<Vec<DeviceId>> for CommunicationId {
-    fn from(mut value: Vec<DeviceId>) -> Self {
-        // Make sure that device ids are sorted so that any combination of the same devices uses the same communicator.
-        value.sort();
+impl From<&CommunicationGroup> for CommunicationId {
+    fn from(group: &CommunicationGroup) -> Self {
         let mut hasher = AHasher::default();
-        value.hash(&mut hasher);
+        match group {
+            CommunicationGroup::Local(devices) => {
+                let mut devices = devices.clone();
+                devices.sort();
+                0u8.hash(&mut hasher);
+                devices.hash(&mut hasher);
+            }
+            CommunicationGroup::Distributed(cluster) => {
+                1u8.hash(&mut hasher);
+                cluster.hash(&mut hasher);
+            }
+        }
         CommunicationId {
             id: hasher.finish(),
         }
     }
+}
+
+impl From<Vec<DeviceId>> for CommunicationId {
+    fn from(value: Vec<DeviceId>) -> Self {
+        CommunicationId::from(&CommunicationGroup::Local(value))
+    }
+}
+
+/// Describes a group of devices that participate in collective communication.
+///
+/// The [`Local`](CommunicationGroup::Local) variant covers the in-process case where every
+/// participating device is owned by `CudaServer`s living in this process. The
+/// [`Distributed`](CommunicationGroup::Distributed) variant carries the extra information needed
+/// to coordinate ranks across hosts (global rank, world size, rendezvous handle).
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub enum CommunicationGroup {
+    /// All participants live in this process. Rank is derived from the position of the local
+    /// device in the sorted list.
+    Local(Vec<DeviceId>),
+    /// Participants span multiple processes / hosts. Cluster info provides the globally-assigned
+    /// rank and the rendezvous information used to bootstrap the communicator.
+    Distributed(ClusterInfo),
+}
+
+impl CommunicationGroup {
+    /// Returns the devices participating from this process.
+    pub fn local_devices(&self) -> &[DeviceId] {
+        match self {
+            Self::Local(devices) => devices,
+            Self::Distributed(cluster) => &cluster.local_devices,
+        }
+    }
+}
+
+impl From<Vec<DeviceId>> for CommunicationGroup {
+    fn from(devices: Vec<DeviceId>) -> Self {
+        Self::Local(devices)
+    }
+}
+
+/// Information needed to participate in a distributed (multi-host) communication group.
+///
+/// `global_rank` and `world_size` are assigned externally — typically by a rendezvous service
+/// (TCP, MPI, etcd, env-broadcast) — and must agree across every participating process.
+/// `group_id` is a caller-supplied stable identifier used both to deduplicate communicator
+/// initialization and as the lookup key in the rendezvous transport.
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub struct ClusterInfo {
+    /// Devices participating from this process.
+    pub local_devices: Vec<DeviceId>,
+    /// This process's rank within the group (0..world_size).
+    pub global_rank: u32,
+    /// Total number of ranks in the group.
+    pub world_size: u32,
+    /// Stable identifier shared by every participant in the group.
+    pub group_id: u64,
 }
 
 /// Different reduce operations.
@@ -479,17 +548,18 @@ pub trait ServerCommunication {
         todo!() // For backends other than cuda.
     }
 
-    /// Initialize the communication between the devices in `device_ids`.
+    /// Initialize the communication for the given [`CommunicationGroup`].
     ///
     /// # Arguments
     ///
-    /// * `device_ids` - The IDs of the devices that need communication.
+    /// * `group` - Describes the participating devices (and, for distributed groups, the cluster
+    ///   coordination info).
     ///
     /// # Returns
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
     #[allow(unused_variables)]
-    fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
+    fn comm_init(&mut self, group: CommunicationGroup) -> Result<(), ServerError> {
         unimplemented!()
     }
 
@@ -503,7 +573,7 @@ pub trait ServerCommunication {
     /// * `dtype` - The element type of the data being reduced
     /// * `stream_id` - The data's stream id.
     /// * `op` - The reduce's aggregation operation e.g. mean, sum, etc.
-    /// * `device_ids` - The list of device ids from which to `all_reduce`.
+    /// * `group` - The communication group across which the reduction is performed.
     ///
     /// # Returns
     ///
@@ -516,7 +586,7 @@ pub trait ServerCommunication {
         dtype: ElemType,
         stream_id: StreamId,
         op: ReduceOperation,
-        device_ids: Vec<DeviceId>,
+        group: CommunicationGroup,
     ) -> Result<(), ServerError> {
         unimplemented!()
     }
