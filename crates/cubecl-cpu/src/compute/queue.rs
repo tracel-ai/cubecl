@@ -7,8 +7,9 @@ use crate::{
     },
 };
 use cubecl_common::bytes::Bytes;
-use cubecl_core::CubeDim;
+use cubecl_core::{CubeDim, stream_id::StreamId};
 use cubecl_runtime::{logging::ServerLogger, storage::BytesResource};
+use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, mpsc::SyncSender};
 
 static INSTANCE: OnceLock<CpuExecutionQueue> = OnceLock::new();
@@ -52,7 +53,7 @@ impl CpuExecutionQueue {
         std::thread::spawn(move || {
             let mut server = CpuExecutionQueueServer {
                 runner: Threadpool::new(logger),
-                pending_notifications: Vec::new(),
+                pending_notifications: HashMap::new(),
             };
 
             loop {
@@ -75,36 +76,55 @@ impl CpuExecutionQueue {
 
 struct CpuExecutionQueueServer {
     runner: Threadpool,
-    pending_notifications: Vec<Notifications>,
+    pending_notifications: HashMap<StreamId, Vec<Notifications>>,
 }
 
 impl CpuExecutionQueueServer {
     fn execute_task(&mut self, task: ScheduleTask) {
         match task {
-            ScheduleTask::Write { data, buffer } => self.write(data, buffer),
+            ScheduleTask::Write {
+                stream_id,
+                data,
+                buffer,
+            } => {
+                self.flush_stream(stream_id);
+                self.write(data, buffer)
+            }
             ScheduleTask::Execute {
+                stream_id,
                 mlir_engine,
                 bindings,
                 cube_dim,
                 cube_count,
                 ..
-            } => self.kernel(mlir_engine, bindings, cube_dim, cube_count),
+            } => {
+                self.flush_stream(stream_id);
+                self.kernel(stream_id, mlir_engine, bindings, cube_dim, cube_count)
+            }
         }
     }
 
     fn flush(&mut self) {
-        for notifications in self.pending_notifications.drain(..) {
+        for notifications in self.pending_notifications.drain().flat_map(|(_, v)| v) {
             notifications.wait();
         }
     }
 
+    fn flush_stream(&mut self, stream_id: StreamId) {
+        if let Some(notifications) = self.pending_notifications.remove(&stream_id) {
+            for notifications in notifications {
+                notifications.wait();
+            }
+        }
+    }
+
     fn write(&mut self, data: Bytes, mut buffer: BytesResource) {
-        self.flush();
         buffer.write().copy_from_slice(&data);
     }
 
     fn kernel(
         &mut self,
+        stream_id: StreamId,
         mlir_engine: MlirEngine,
         bindings: BindingsResource,
         cube_dim: CubeDim,
@@ -113,6 +133,9 @@ impl CpuExecutionQueueServer {
         let notifications = self
             .runner
             .execute_data(mlir_engine, bindings, cube_dim, cube_count);
-        self.pending_notifications.push(notifications);
+        self.pending_notifications
+            .entry(stream_id)
+            .or_default()
+            .push(notifications);
     }
 }
