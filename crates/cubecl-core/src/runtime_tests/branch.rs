@@ -464,7 +464,9 @@ macro_rules! testgen_value_form_literals {
             #[$crate::runtime_tests::test_log::test]
             fn test_match_value_literals() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_core::runtime_tests::branch::test_match_value_literals::<TestRuntime>(client);
+                cubecl_core::runtime_tests::branch::test_match_value_literals::<TestRuntime>(
+                    client,
+                );
             }
         }
     };

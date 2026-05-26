@@ -48,7 +48,6 @@ impl ComptimeEventBus {
         })
     }
 
-    #[allow(unused_variables)]
     /// Registers a new callback to be called when its event is launched.
     ///
     /// # Notes
@@ -90,7 +89,6 @@ impl ComptimeEventBus {
         })
     }
 
-    #[allow(unused_variables)]
     /// Registers a new event to be processed by [registered listeners](EventListener).
     pub fn event<E: CubeType + 'static>(&mut self, event: E) {
         intrinsic!(|scope| {

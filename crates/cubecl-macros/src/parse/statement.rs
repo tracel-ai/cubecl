@@ -149,6 +149,7 @@ pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression
     .into_iter()
     .any(|target| mac.path.is_ident(&target))
     {
+        context.is_intrinsic = true;
         Ok(Expression::RustMacro {
             ident: mac.path.segments.last().unwrap().ident.clone(),
             tokens: mac.tokens,
@@ -171,6 +172,7 @@ pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression
     } else if mac.path.is_ident("terminate") {
         Ok(Expression::Terminate)
     } else if mac.path.is_ident("intrinsic") {
+        context.is_intrinsic = true;
         let closure: syn::ExprClosure = mac.parse_body()?;
         let arg = &closure.inputs[0];
         let block = *closure.body;

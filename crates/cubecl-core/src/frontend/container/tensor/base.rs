@@ -71,7 +71,6 @@ mod metadata {
     #[cube]
     impl<T: CubePrimitive> Tensor<T> {
         /// Obtain the stride of input at dimension dim
-        #[allow(unused_variables)]
         pub fn stride(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let dim: Variable = dim.into();
@@ -89,7 +88,6 @@ mod metadata {
         }
 
         /// Obtain the shape of input at dimension dim
-        #[allow(unused_variables)]
         pub fn shape(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let dim: Variable = dim.into();
@@ -110,7 +108,6 @@ mod metadata {
         ///
         /// A coordinate is a list of indices corresponding to the multi-dimensional position of an element in the tensor.
         /// The `dim` element in a coordinate is the position along the `dim` dimension of the tensor.
-        #[allow(unused_variables)]
         pub fn coordinate(&self, index: usize, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let index: Variable = index.into();

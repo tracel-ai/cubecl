@@ -22,15 +22,15 @@ impl Layout for TestPerTensorScaleLayout {
     type SourceCoordinates = Coords1d;
 
     fn to_source_pos(&self, _pos: Self::Coordinates) -> Self::SourceCoordinates {
-        0usize.runtime()
+        0
     }
 
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool) {
-        (self.to_source_pos(pos), true.runtime())
+        (self.to_source_pos(pos), true)
     }
 
     fn is_in_bounds(&self, _pos: Self::Coordinates) -> bool {
-        true.runtime()
+        true
     }
 
     fn shape(&self) -> Self::Coordinates {

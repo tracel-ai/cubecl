@@ -306,12 +306,9 @@ impl Expression {
                 let condition = into_expand(condition.to_tokens(context));
                 let then_block = then_block.to_tokens(context);
                 let else_branch = else_branch.to_tokens(context);
-                // Force the arms to runtime. The condition is runtime here (comptime
-                // ones match the `condition.is_const()` arm above), so a comptime arm
-                // (e.g. a literal) must not make the select happen at comptime.
                 quote! {{
-                    #path::branch::if_else_expr_expand(scope, #condition, |scope| (#then_block).into_expand(scope))
-                        .or_else(scope, |scope| (#else_branch).into_expand(scope))
+                    #path::branch::if_else_expr_expand(scope, #condition, |scope| (#then_block))
+                        .or_else(scope, |scope| (#else_branch))
                 }}
             }
             Expression::If {
@@ -834,6 +831,23 @@ impl Block {
         } else {
             quote![()]
         };
+
+        quote! {
+            {
+                #(#inner)*
+                #ret
+            }
+        }
+    }
+
+    pub fn to_tokens_runtime_return(&self, context: &mut Context) -> TokenStream {
+        let inner: Vec<_> = self.inner.iter().map(|it| it.to_tokens(context)).collect();
+        let ret = if let Some(ret) = self.ret.as_ref() {
+            ret.to_tokens(context)
+        } else {
+            quote![()]
+        };
+        let ret = into_expand(ret);
 
         quote! {
             {

@@ -8,7 +8,7 @@ use cubecl_runtime::server::Handle;
 #[cube]
 fn mark_side_channel(side_channel: &mut Array<u32>) -> bool {
     side_channel[0] = 1u32;
-    false.runtime()
+    false
 }
 
 #[cube(launch)]

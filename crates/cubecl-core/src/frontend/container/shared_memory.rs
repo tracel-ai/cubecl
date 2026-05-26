@@ -54,7 +54,6 @@ impl<T: CubePrimitive> Shared<[T]> {
     /// # Safety
     /// Shared memory is always uninitialized by default. Reading uninitialized shared values is
     /// undefined behavior.
-    #[allow(unused_variables)]
     pub fn new_slice(#[comptime] len: usize) -> Self {
         intrinsic!(|scope| {
             let ty = Type::array(T::__expand_as_type(scope), len, AddressSpace::Shared);
@@ -253,8 +252,10 @@ impl<T: CubePrimitive> Assign<NativeExpand<T>> for SharedExpand<T> {
         self.__expand_deref_method(scope)
             .__expand_assign_method(scope, value);
     }
+}
 
-    fn init_mut(&self, _: &Scope) -> Self {
-        self.clone()
+impl<T: CubePrimitive> RuntimeAssign<NativeExpand<T>> for SharedExpand<T> {
+    fn init_mut(&self, scope: &Scope) -> Self::Expand {
+        Shared::<T>::__expand_new(scope)
     }
 }

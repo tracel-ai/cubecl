@@ -156,7 +156,6 @@ mod fill {
         /// vector[0] = 1;
         /// vector[1] = 2;
         /// ```
-        #[allow(unused_variables)]
         pub fn fill(self, value: P) -> Self {
             intrinsic!(|scope| {
                 let output = scope.create_local(Vector::<P, N>::__expand_as_type(scope));
@@ -252,7 +251,6 @@ macro_rules! impl_vector_comparison {
                         $comment,
                         " the second vector."
                     )]
-                    #[allow(unused_variables)]
                     pub fn $name(&self, other: &Self) -> Vector<bool, N> {
                         intrinsic!(|scope| {
                             let this = self.__expand_deref_method(scope);
@@ -295,7 +293,6 @@ mod bool_and {
     #[cube]
     impl<N: Size> Vector<bool, N> {
         /// Return a new vector with the element-wise and of the vectors
-        #[allow(unused_variables)]
         pub fn vec_and(self, other: Self) -> Vector<bool, N> {
             intrinsic!(
                 |scope| binary_expand(scope, self.expand, other.expand, Operator::And).into()
@@ -314,7 +311,6 @@ mod bool_or {
     #[cube]
     impl<N: Size> Vector<bool, N> {
         /// Return a new vector with the element-wise and of the vectors
-        #[allow(unused_variables)]
         pub fn or(self, other: Self) -> Vector<bool, N> {
             intrinsic!(|scope| binary_expand(scope, self.expand, other.expand, Operator::Or).into())
         }
