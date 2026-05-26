@@ -1,5 +1,5 @@
 use crate::{compiler::mlir_engine::MlirEngine, compute::stream::CpuStream};
-use cubecl_common::bytes::Bytes;
+use cubecl_common::{bytes::Bytes, stream_id::StreamId};
 use cubecl_core::{
     CubeDim, ExecutionMode, MemoryConfiguration, ir::MemoryDeviceProperties,
     server::MetadataBindingInfo,
@@ -14,9 +14,14 @@ use std::sync::Arc;
 /// Defines tasks that can be scheduled on a cpu stream.
 pub enum ScheduleTask {
     /// Represents a task to write data to a buffer.
-    Write { data: Bytes, buffer: BytesResource },
+    Write {
+        stream_id: StreamId,
+        data: Bytes,
+        buffer: BytesResource,
+    },
     /// Represents a task to execute a kernel.
     Execute {
+        stream_id: StreamId,
         mlir_engine: MlirEngine,
         bindings: BindingsResource,
         kind: ExecutionMode,
@@ -28,12 +33,18 @@ pub enum ScheduleTask {
 impl core::fmt::Debug for ScheduleTask {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Write { data, buffer } => f
+            Self::Write {
+                stream_id,
+                data,
+                buffer,
+            } => f
                 .debug_struct("Write")
+                .field("stream_id", stream_id)
                 .field("data", data)
                 .field("buffer", buffer)
                 .finish(),
             Self::Execute {
+                stream_id,
                 mlir_engine: _,
                 bindings: _,
                 kind,
@@ -41,6 +52,7 @@ impl core::fmt::Debug for ScheduleTask {
                 cube_count,
             } => f
                 .debug_struct("Execute")
+                .field("stream_id", stream_id)
                 .field("kind", kind)
                 .field("cube_dim", cube_dim)
                 .field("cube_count", cube_count)
