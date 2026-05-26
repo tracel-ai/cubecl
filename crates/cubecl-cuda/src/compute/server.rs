@@ -3,7 +3,10 @@ use crate::{
     CudaCompiler,
     compute::{
         command::Command,
-        communication::{get_nccl_comm_id_local, get_nccl_dtype_count, to_nccl_op},
+        communication::{
+            get_nccl_comm_id_local, get_nccl_dtype_count, rendezvous_distributed_unique_id,
+            to_nccl_op,
+        },
         context::CudaContext,
         stream::CudaStreamBackend,
         sync::Fence,
@@ -297,14 +300,15 @@ impl ServerCommunication for CudaServer {
                 if self.communicators.contains_key(&id) {
                     return Ok(());
                 }
-                // TODO: Perform the rendezvous inline here:
-                //   - if cluster.global_rank == 0, generate via `nccl::result::get_uniqueid()`
-                //     and publish to the rendezvous endpoint keyed by cluster.group_id.
-                //   - otherwise, fetch the published id from the rendezvous endpoint.
-                // The wire format is the 128-byte `ncclUniqueId` opaque blob. Once obtained,
-                // return `(id, cluster.world_size as i32, cluster.global_rank as i32, nccl_comm_id)`.
-                let _ = cluster;
-                unimplemented!("Distributed comm_init: rendezvous not yet implemented")
+                let position = cluster
+                    .local_devices
+                    .iter()
+                    .position(|id| id.index_id == self.device_id.index_id)
+                    .expect("Local device should appear in cluster.local_devices");
+                let rank = cluster.global_rank_base as i32 + position as i32;
+                let count = cluster.world_size as i32;
+                let nccl_comm_id = rendezvous_distributed_unique_id(cluster, rank)?;
+                (id, count, rank, nccl_comm_id)
             }
         };
 

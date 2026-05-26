@@ -512,20 +512,29 @@ impl From<Vec<DeviceId>> for CommunicationGroup {
 
 /// Information needed to participate in a distributed (multi-host) communication group.
 ///
-/// `global_rank` and `world_size` are assigned externally — typically by a rendezvous service
-/// (TCP, MPI, etcd, env-broadcast) — and must agree across every participating process.
-/// `group_id` is a caller-supplied stable identifier used both to deduplicate communicator
-/// initialization and as the lookup key in the rendezvous transport.
+/// Designed to be group-level (not per-rank) so every local device's `comm_init` call hashes
+/// to the same [`CommunicationId`]. Each local device derives its own global rank as
+/// `global_rank_base + position_in(local_devices)` — mirroring the rank-from-position
+/// derivation used by [`CommunicationGroup::Local`].
+///
+/// `world_size`, `global_rank_base`, and `rendezvous_addr` are assigned externally (typically
+/// by an orchestrator like torchrun or MPI) and must agree across every participating process.
+/// `group_id` is a caller-supplied stable identifier used to deduplicate communicator
+/// initialization.
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct ClusterInfo {
-    /// Devices participating from this process.
+    /// Devices participating from this process. Order determines local rank assignment.
     pub local_devices: Vec<DeviceId>,
-    /// This process's rank within the group (0..world_size).
-    pub global_rank: u32,
-    /// Total number of ranks in the group.
+    /// Global rank of `local_devices[0]`. Subsequent local devices get
+    /// `global_rank_base + 1`, `global_rank_base + 2`, etc.
+    pub global_rank_base: u32,
+    /// Total number of ranks in the group, across all processes.
     pub world_size: u32,
     /// Stable identifier shared by every participant in the group.
     pub group_id: u64,
+    /// Address of the rendezvous master (the rank-0 process). Rank 0 binds and listens on this
+    /// address; every other rank connects to it to fetch the `ncclUniqueId`.
+    pub rendezvous_addr: core::net::SocketAddr,
 }
 
 /// Different reduce operations.
