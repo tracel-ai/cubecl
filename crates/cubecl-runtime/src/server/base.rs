@@ -434,39 +434,36 @@ where
 
 /// An ID unique to a [`CommunicationGroup`].
 ///
-/// Used as the key into per-server communicator caches. Two groups with identical local devices
-/// but different cluster contexts must hash to distinct ids, so this hashes the full enum
-/// (including the variant tag), not just the device list.
+/// Used as the key into per-server communicator caches. Built via one of the variant-specific
+/// constructors ([`CommunicationId::local`] or [`CommunicationId::distributed`]) so two groups
+/// with identical local devices but different cluster contexts cannot collide.
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct CommunicationId {
     /// The ID as a `String`.
     pub id: u64,
 }
 
-impl From<&CommunicationGroup> for CommunicationId {
-    fn from(group: &CommunicationGroup) -> Self {
+impl CommunicationId {
+    /// Build an id for an in-process [`CommunicationGroup::Local`] group.
+    pub fn local(devices: &[DeviceId]) -> Self {
+        let mut devices = devices.to_vec();
+        devices.sort();
         let mut hasher = AHasher::default();
-        match group {
-            CommunicationGroup::Local(devices) => {
-                let mut devices = devices.clone();
-                devices.sort();
-                0u8.hash(&mut hasher);
-                devices.hash(&mut hasher);
-            }
-            CommunicationGroup::Distributed(cluster) => {
-                1u8.hash(&mut hasher);
-                cluster.hash(&mut hasher);
-            }
-        }
-        CommunicationId {
+        0u8.hash(&mut hasher);
+        devices.hash(&mut hasher);
+        Self {
             id: hasher.finish(),
         }
     }
-}
 
-impl From<Vec<DeviceId>> for CommunicationId {
-    fn from(value: Vec<DeviceId>) -> Self {
-        CommunicationId::from(&CommunicationGroup::Local(value))
+    /// Build an id for a [`CommunicationGroup::Distributed`] group.
+    pub fn distributed(cluster: &ClusterInfo) -> Self {
+        let mut hasher = AHasher::default();
+        1u8.hash(&mut hasher);
+        cluster.hash(&mut hasher);
+        Self {
+            id: hasher.finish(),
+        }
     }
 }
 
@@ -492,6 +489,17 @@ impl CommunicationGroup {
         match self {
             Self::Local(devices) => devices,
             Self::Distributed(cluster) => &cluster.local_devices,
+        }
+    }
+
+    /// Convenience accessor for the variant-appropriate [`CommunicationId`].
+    ///
+    /// Call sites that already match on the variant (e.g. `comm_init`) should construct the id
+    /// via [`CommunicationId::local`] / [`CommunicationId::distributed`] directly instead.
+    pub fn id(&self) -> CommunicationId {
+        match self {
+            Self::Local(devices) => CommunicationId::local(devices),
+            Self::Distributed(cluster) => CommunicationId::distributed(cluster),
         }
     }
 }

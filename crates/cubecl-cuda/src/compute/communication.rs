@@ -1,37 +1,30 @@
 use std::{collections::HashMap, sync::OnceLock};
 
 use cubecl_core::{
+    device::DeviceId,
     ir::ElemType,
-    server::{CommunicationGroup, CommunicationId, ReduceOperation},
+    server::{CommunicationId, ReduceOperation},
     stub::Mutex,
 };
 
-/// Global state map from [`CommunicationId`] to boxed [`cudarc::nccl::sys::ncclUniqueId`].
+/// In-process map from local [`CommunicationId`] to its [`ncclUniqueId`](cudarc::nccl::sys::ncclUniqueId).
 ///
-/// Only populated for [`CommunicationGroup::Local`]; the in-process shared map is what makes
-/// the local case work without an external rendezvous. Distributed groups must obtain their
-/// unique id through a rendezvous service instead.
+/// The first server in a group generates the id and stores it here; subsequent servers fetch
+/// the same value. This shared-memory rendezvous is what makes the local case work without an
+/// external coordinator — distributed groups perform their own rendezvous inside `comm_init`.
 static UNIQUE_IDS_MAP: OnceLock<Mutex<HashMap<CommunicationId, cudarc::nccl::sys::ncclUniqueId>>> =
     OnceLock::new();
 
-pub(crate) fn get_nccl_comm_id(group: &CommunicationGroup) -> cudarc::nccl::sys::ncclUniqueId {
-    match group {
-        CommunicationGroup::Local(_) => {
-            let mut unique_ids_map = UNIQUE_IDS_MAP.get_or_init(Default::default).lock().unwrap();
-            let comm_id = CommunicationId::from(group);
-            match unique_ids_map.get_mut(&comm_id) {
-                Some(id) => *id,
-                None => {
-                    let id = cudarc::nccl::result::get_uniqueid().unwrap();
-                    unique_ids_map.insert(comm_id, id);
-                    id
-                }
-            }
-        }
-        CommunicationGroup::Distributed(_) => {
-            unimplemented!(
-                "Distributed CommunicationGroup requires a rendezvous-provided unique id"
-            );
+/// Fetch (or generate) the `ncclUniqueId` for a local communication group.
+pub(crate) fn get_nccl_comm_id_local(devices: &[DeviceId]) -> cudarc::nccl::sys::ncclUniqueId {
+    let mut unique_ids_map = UNIQUE_IDS_MAP.get_or_init(Default::default).lock().unwrap();
+    let comm_id = CommunicationId::local(devices);
+    match unique_ids_map.get_mut(&comm_id) {
+        Some(id) => *id,
+        None => {
+            let id = cudarc::nccl::result::get_uniqueid().unwrap();
+            unique_ids_map.insert(comm_id, id);
+            id
         }
     }
 }

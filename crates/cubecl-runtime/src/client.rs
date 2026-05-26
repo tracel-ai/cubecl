@@ -5,10 +5,10 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        CommunicationGroup, CommunicationId, ComputeServer, CopyDescriptor, CubeCount,
-        ExecutionMode, Handle, IoError, KernelArguments, MemoryLayout, MemoryLayoutDescriptor,
-        MemoryLayoutPolicy, MemoryLayoutStrategy, ProfileError, ReduceOperation,
-        ServerCommunication, ServerError, ServerUtilities,
+        CommunicationGroup, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle,
+        IoError, KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
+        MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
+        ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
 };
@@ -567,7 +567,7 @@ impl<R: Runtime> ComputeClient<R> {
         tracing::instrument(level = "trace", skip(self, group))
     )]
     pub fn ensure_init_collective(&mut self, group: CommunicationGroup) {
-        let comm_id = CommunicationId::from(&group);
+        let comm_id = group.id();
         let is_comms_init = self
             .utilities
             .initialized_comms
