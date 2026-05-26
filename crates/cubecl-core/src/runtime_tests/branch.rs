@@ -409,7 +409,6 @@ macro_rules! testgen_branch {
         }
 
         #[$crate::runtime_tests::test_log::test]
-        #[ignore = "known bug: match/switch value-form with literal arms selects at comptime (if/else fix does not cover this path)"]
         fn test_match_value_literals_portable() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::branch::test_match_value_literals_portable::<TestRuntime>(
@@ -463,7 +462,6 @@ macro_rules! testgen_value_form_literals {
             }
 
             #[$crate::runtime_tests::test_log::test]
-            #[ignore = "known bug: match/switch value-form with literal arms selects at comptime (if/else fix does not cover this path)"]
             fn test_match_value_literals() {
                 let client = TestRuntime::client(&Default::default());
                 cubecl_core::runtime_tests::branch::test_match_value_literals::<TestRuntime>(client);
