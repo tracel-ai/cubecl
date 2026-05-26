@@ -26,6 +26,7 @@ pub mod plane;
 pub mod properties;
 pub mod saturating;
 pub mod sequence;
+pub mod short_circuit;
 pub mod slice;
 pub mod stream;
 pub mod synchronization;
@@ -159,6 +160,8 @@ macro_rules! testgen_untyped {
 
         cubecl_core::testgen_to_client!();
         cubecl_core::testgen_all_reduce!();
+
+        cubecl_core::testgen_short_circuit!();
     };
 }
 
