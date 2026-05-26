@@ -8,7 +8,7 @@ use super::CoreId;
 pub fn get_active_cores() -> impl Iterator<Item = CoreId> {
     let mask = get_affinity_mask();
 
-    (0..64u64)
+    (0..64_u64)
         .filter(move |&i| (mask & 1 << i) == 1 << i)
         .map(|i| CoreId(i as usize))
 }

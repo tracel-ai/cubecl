@@ -79,13 +79,13 @@ impl<T: CubeType> Sequence<T> {
     }
 
     /// Get the variable at the given position in the sequence.
-    #[allow(unused_variables, clippy::should_implement_trait)]
+    #[allow(clippy::should_implement_trait)]
     pub fn index(&self, index: usize) -> &T {
         self.values.get(index).unwrap()
     }
 
     /// Get the variable at the given position in the sequence.
-    #[allow(unused_variables, clippy::should_implement_trait)]
+    #[allow(clippy::should_implement_trait)]
     pub fn index_mut(&mut self, index: usize) -> &mut T {
         self.values.get_mut(index).unwrap()
     }
@@ -96,7 +96,7 @@ impl<T: CubeType> Sequence<T> {
     }
 
     /// Insert an item at the given index.
-    #[allow(unused_variables, clippy::should_implement_trait)]
+    #[allow(clippy::should_implement_trait)]
     pub fn insert(&mut self, index: usize, value: T) {
         *self.index_mut(index) = value;
     }

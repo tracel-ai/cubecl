@@ -307,8 +307,8 @@ impl Expression {
                 let then_block = then_block.to_tokens(context);
                 let else_branch = else_branch.to_tokens(context);
                 quote! {{
-                    #path::branch::if_else_expr_expand(scope, #condition, |scope| #then_block)
-                        .or_else(scope, |scope| #else_branch)
+                    #path::branch::if_else_expr_expand(scope, #condition, |scope| (#then_block))
+                        .or_else(scope, |scope| (#else_branch))
                 }}
             }
             Expression::If {
@@ -694,7 +694,7 @@ impl Expression {
                 let frontend_path = frontend_path();
                 quote![#frontend_path::cube_comment::expand(scope, #content)]
             }
-            Expression::RustMacro { ident, tokens } => {
+            Expression::PanickingMacro { ident, tokens } => {
                 quote![#ident!(#tokens)]
             }
             Expression::Terminate => {
@@ -827,6 +827,26 @@ impl Block {
                 quote![#as_const]
             } else {
                 ret.to_tokens(context)
+            }
+        } else {
+            quote![()]
+        };
+
+        quote! {
+            {
+                #(#inner)*
+                #ret
+            }
+        }
+    }
+
+    pub fn to_tokens_runtime_return(&self, context: &mut Context) -> TokenStream {
+        let inner: Vec<_> = self.inner.iter().map(|it| it.to_tokens(context)).collect();
+        let ret = if let Some(ret) = self.ret.as_ref() {
+            if let Expression::PanickingMacro { .. } = &**ret {
+                ret.to_tokens(context)
+            } else {
+                into_expand(ret.to_tokens(context))
             }
         } else {
             quote![()]

@@ -37,7 +37,6 @@ mod new {
     #[cube]
     impl<T: CubePrimitive + Clone> Array<T> {
         /// Create a new array of the given length.
-        #[allow(unused_variables)]
         pub fn new(#[comptime] length: usize) -> Self {
             intrinsic!(|scope| {
                 // Allocate as a slice even though it's statically sized, so we can deref to it.
@@ -150,9 +149,11 @@ impl<C: CubePrimitive> Assign for ArrayExpand<C> {
         );
         assign::expand_element(scope, value, arr);
     }
+}
 
-    fn init_mut(&self, _: &Scope) -> Self {
-        *self
+impl<C: CubePrimitive> RuntimeAssign for ArrayExpand<C> {
+    fn init_mut(&self, scope: &Scope) -> Self::Expand {
+        Array::__expand_new(scope, self.expand.ty.array_size())
     }
 }
 

@@ -173,7 +173,7 @@ pub enum Expression {
     Comment {
         content: LitStr,
     },
-    RustMacro {
+    PanickingMacro {
         ident: Ident,
         tokens: TokenStream,
     },

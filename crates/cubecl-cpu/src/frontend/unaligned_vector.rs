@@ -70,7 +70,6 @@ impl_unaligned_vector!(Shared<[E]>);
 // and still needs the loaded elements to be contiguous
 
 #[cube]
-#[allow(unused_variables)]
 fn unaligned_vector_read<E: Scalar, N: Size>(this: &[E], index: usize) -> Vector<E, N> {
     intrinsic!(|scope| {
         let list: Variable = this.__extract_list(scope);
@@ -95,7 +94,6 @@ fn unaligned_vector_read<E: Scalar, N: Size>(this: &[E], index: usize) -> Vector
 }
 
 #[cube]
-#[allow(unused_variables)]
 fn unaligned_vector_write<E: Scalar, N: Size>(this: &mut [E], index: usize, value: Vector<E, N>) {
     intrinsic!(|scope| {
         let list: Variable = this.__extract_list(scope);

@@ -178,7 +178,7 @@ mod impls {
             scope: &Scope,
             f: impl FnOnce(&Scope, T::ExpandType) -> NativeExpand<bool>,
         ) -> NativeExpand<bool> {
-            match_expand_expr(scope, self, discriminant("None"), |_, _| false.into())
+            match_expand_expr(scope, self, discriminant("None"), |_, _| false)
                 .case(scope, discriminant("Some"), |scope, value| f(scope, value))
                 .finish(scope)
         }
@@ -188,14 +188,14 @@ mod impls {
             scope: &Scope,
             f: impl FnOnce(&Scope, T::ExpandType) -> NativeExpand<bool>,
         ) -> NativeExpand<bool> {
-            match_expand_expr(scope, self, discriminant("None"), |_, _| true.into())
+            match_expand_expr(scope, self, discriminant("None"), |_, _| true)
                 .case(scope, discriminant("Some"), |scope, value| f(scope, value))
                 .finish(scope)
         }
 
         pub fn __expand_expect_method(self, scope: &Scope, msg: &str) -> T::ExpandType
         where
-            T::ExpandType: Assign,
+            T::ExpandType: RuntimeAssign,
         {
             // Replace with `trap` eventually to ensure execution doesn't continue to the next kernel
             match_expand_expr(scope, self, discriminant("Some"), |_, value| value)
@@ -210,7 +210,7 @@ mod impls {
         pub fn __expand_unwrap_or_else_method<F>(self, scope: &Scope, f: F) -> T::ExpandType
         where
             F: FnOnce(&Scope) -> T::ExpandType,
-            T::ExpandType: Assign,
+            T::ExpandType: RuntimeAssign,
         {
             match_expand_expr(scope, self, discriminant("Some"), |_, value| value)
                 .case(scope, discriminant("None"), |scope, _| f(scope))
@@ -221,7 +221,7 @@ mod impls {
         where
             F: FnOnce(&Scope, T::ExpandType) -> U::ExpandType,
             U: CubeType + IntoRuntime + Default,
-            OptionExpand<U>: Assign,
+            OptionExpand<U>: RuntimeAssign<Expand = OptionExpand<U>>,
         {
             match_expand_expr(scope, self, discriminant("Some"), |scope, value| {
                 let value = f(scope, value);
@@ -257,7 +257,7 @@ mod impls {
         where
             F: FnOnce(&Scope, T::ExpandType) -> U::ExpandType,
             U: CubeType + Default + IntoRuntime,
-            U::ExpandType: Assign,
+            U::ExpandType: RuntimeAssign,
         {
             match_expand_expr(scope, self, discriminant("Some"), f)
                 .case(scope, discriminant("None"), |_, _| default)
@@ -274,7 +274,7 @@ mod impls {
             D: FnOnce(&Scope) -> U::ExpandType,
             F: FnOnce(&Scope, T::ExpandType) -> U::ExpandType,
             U: CubeType + Default + IntoRuntime,
-            U::ExpandType: Assign,
+            U::ExpandType: RuntimeAssign,
         {
             match_expand_expr(scope, self, discriminant("Some"), f)
                 .case(scope, discriminant("None"), |scope, _| default(scope))
@@ -285,7 +285,7 @@ mod impls {
         where
             U: CubeType + IntoRuntime + Default,
             F: FnOnce(&Scope, T::ExpandType) -> U::ExpandType,
-            U::ExpandType: Assign,
+            U::ExpandType: RuntimeAssign,
         {
             match_expand_expr(scope, self, discriminant("Some"), f)
                 .case(scope, discriminant("None"), |scope, _| {
@@ -298,7 +298,7 @@ mod impls {
         where
             T: Deref<Target: CubeType + Default + IntoRuntime>,
             T::ExpandType: DerefExpand<Target = <T::Target as CubeType>::ExpandType>,
-            <T::Target as CubeType>::ExpandType: Assign,
+            <T::Target as CubeType>::ExpandType: RuntimeAssign,
         {
             self.__expand_map_method(scope, |scope, value| value.__expand_deref_method(scope))
         }
@@ -307,7 +307,7 @@ mod impls {
         where
             T: DerefMut<Target: CubeType + Default + IntoRuntime>,
             T::ExpandType: DerefExpand<Target = <T::Target as CubeType>::ExpandType>,
-            <T::Target as CubeType>::ExpandType: Assign,
+            <T::Target as CubeType>::ExpandType: RuntimeAssign,
         {
             self.__expand_map_method(scope, |scope, value| value.__expand_deref_method(scope))
         }
@@ -316,7 +316,7 @@ mod impls {
         where
             F: FnOnce(&Scope, T::ExpandType) -> OptionExpand<U>,
             U: CubeType + IntoRuntime + Default,
-            U::ExpandType: Assign,
+            U::ExpandType: RuntimeAssign,
         {
             match_expand_expr(scope, self, discriminant("Some"), f)
                 .case(scope, discriminant("None"), |scope, _| {
@@ -329,7 +329,7 @@ mod impls {
         where
             P: FnOnce(&Scope, &T::ExpandType) -> NativeExpand<bool>,
             T: Default + IntoRuntime,
-            Self: Assign,
+            Self: RuntimeAssign + IntoExpand<Expand = Self>,
         {
             match_expand_expr(scope, self, discriminant("Some"), |scope, value| {
                 let cond = predicate(scope, &value);
@@ -345,7 +345,7 @@ mod impls {
         pub fn __expand_or_else_method<F>(self, scope: &Scope, f: F) -> OptionExpand<T>
         where
             F: FnOnce(&Scope) -> OptionExpand<T>,
-            OptionExpand<T>: Assign,
+            OptionExpand<T>: RuntimeAssign + IntoExpand<Expand = OptionExpand<T>>,
         {
             let is_some = self.__expand_is_some_method(scope);
             if_else_expr_expand(scope, is_some, |_| self).or_else(scope, |scope| f(scope))
@@ -361,7 +361,7 @@ mod impls {
             F: FnOnce(&Scope, T::ExpandType, U::ExpandType) -> R::ExpandType,
             U: CubeType,
             R: CubeType + IntoRuntime + Default,
-            OptionExpand<R>: Assign,
+            OptionExpand<R>: RuntimeAssign + IntoExpand<Expand = OptionExpand<R>>,
         {
             match_expand_expr(scope, self, discriminant("Some"), |scope, value| {
                 match_expand_expr(scope, other, discriminant("Some"), |scope, other| {
@@ -391,7 +391,7 @@ mod impls {
             F: FnOnce(&Scope, T::ExpandType, U::ExpandType) -> R::ExpandType,
             U: CubeType + IntoRuntime + Default,
             R: CubeType + IntoRuntime + Default,
-            OptionExpand<R>: Assign,
+            OptionExpand<R>: RuntimeAssign + IntoExpand<Expand = OptionExpand<R>>,
         {
             match_expand_expr(scope, self, discriminant("Some"), {
                 let other = other.clone_unchecked();
@@ -424,7 +424,7 @@ mod impls {
         #[allow(clippy::missing_safety_doc)]
         pub unsafe fn __expand_unwrap_unchecked_method(self, scope: &Scope) -> T::ExpandType
         where
-            T::ExpandType: Assign,
+            T::ExpandType: RuntimeAssign,
         {
             match_expand_expr(scope, self, discriminant("Some"), |_, value| value).finish(scope)
         }
@@ -487,7 +487,7 @@ mod impls {
         /// ```
         pub fn unwrap(self) -> T
         where
-            T::ExpandType: Assign,
+            T::ExpandType: RuntimeAssign,
         {
             self.expect("called `Option::unwrap()` on a `None` value")
         }
@@ -508,7 +508,7 @@ mod impls {
         /// ```
         pub fn unwrap_or(self, default: T) -> T
         where
-            T::ExpandType: Assign,
+            T::ExpandType: RuntimeAssign,
         {
             match self {
                 Some(x) => x,
@@ -538,7 +538,7 @@ mod impls {
         pub fn unwrap_or_default(self) -> T
         where
             T: Default + IntoRuntime,
-            T::ExpandType: Assign,
+            T::ExpandType: RuntimeAssign,
         {
             match self {
                 Some(x) => x,
@@ -584,7 +584,7 @@ mod impls {
         pub fn and<U>(self, optb: Option<U>) -> Option<U>
         where
             U: CubeType + IntoRuntime + Default,
-            U::ExpandType: Assign,
+            U::ExpandType: RuntimeAssign,
         {
             match self {
                 Option::Some(_) => optb,
@@ -621,7 +621,7 @@ mod impls {
         /// ```
         pub fn or(self, optb: Option<T>) -> Option<T>
         where
-            T::ExpandType: Assign,
+            T::ExpandType: RuntimeAssign,
         {
             if self.is_some() { self } else { optb }
         }
@@ -650,7 +650,7 @@ mod impls {
         pub fn xor(self, optb: Option<T>) -> Option<T>
         where
             T: Default + IntoRuntime,
-            T::ExpandType: Assign,
+            T::ExpandType: RuntimeAssign,
         {
             let this_is_none = self.is_none();
 
@@ -689,7 +689,7 @@ mod impls {
             U: CubeType,
             (T, U): Default + CubeType + IntoRuntime,
             (T::ExpandType, U::ExpandType): Into<<(T, U) as CubeType>::ExpandType>,
-            OptionExpand<(T, U)>: Assign,
+            OptionExpand<(T, U)>: RuntimeAssign + IntoExpand<Expand = OptionExpand<(T, U)>>,
         {
             match self {
                 Some(a) => match other {
@@ -703,8 +703,8 @@ mod impls {
 
     #[cube(expand_only)]
     impl<
-        T: CubeType<ExpandType: Assign + Clone> + IntoRuntime + Default,
-        U: CubeType<ExpandType: Assign + Clone> + IntoRuntime + Default,
+        T: CubeType<ExpandType: RuntimeAssign> + IntoRuntime + Default,
+        U: CubeType<ExpandType: RuntimeAssign> + IntoRuntime + Default,
     > Option<(T, U)>
     {
         /// Unzips an option containing a tuple of two options.

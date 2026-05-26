@@ -17,7 +17,7 @@ pub fn kernel_const_match_simple<F: Float, U: Int + hash::Hash + Eq + Debug>(
 ) {
     match op {
         Operation::IndexAssign(index, value) => {
-            output[index.runtime()] = F::cast_from(value.runtime());
+            output[index] = F::cast_from(value.runtime());
         }
     };
 }

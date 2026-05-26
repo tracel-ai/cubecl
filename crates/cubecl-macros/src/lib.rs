@@ -70,8 +70,14 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
             RemoveHelpers.visit_item_mut(&mut item);
             ReplaceDefines.visit_item_mut(&mut item);
 
+            let extra_allow = match kernel.func.context.is_intrinsic {
+                true => quote![#[allow(unused_variables)]],
+                false => quote![],
+            };
+
             return Ok(TokenStream::from(quote! {
-                #[allow(dead_code, clippy::too_many_arguments, clippy::needless_lifetimes)]
+                #[allow(dead_code, clippy::too_many_arguments)]
+                #extra_allow
                 #item
                 #kernel
             }));

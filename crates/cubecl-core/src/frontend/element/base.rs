@@ -240,8 +240,11 @@ pub trait CubeEnum: Sized {
 pub trait Assign<T = Self> {
     /// Assign `value` to `self` in `scope`.
     fn __expand_assign_method(&mut self, scope: &Scope, value: T);
+}
+
+pub trait RuntimeAssign<T = <Self as IntoExpand>::Expand>: IntoExpand<Expand: Assign<T>> {
     /// Create a new mutable variable of this type in `scope`.
-    fn init_mut(&self, scope: &Scope) -> Self;
+    fn init_mut(&self, scope: &Scope) -> Self::Expand;
 }
 
 pub fn __expand_assign<T: Assign<T>>(scope: &Scope, target: &mut T, value: T) {
@@ -252,8 +255,11 @@ impl<T: CubePrimitive> Assign for T {
     fn __expand_assign_method(&mut self, _scope: &Scope, value: Self) {
         *self = value;
     }
-    fn init_mut(&self, _scope: &Scope) -> Self {
-        *self
+}
+
+impl<T: CubePrimitive + IntoExpand<Expand = NativeExpand<T>>> RuntimeAssign for T {
+    fn init_mut(&self, scope: &Scope) -> NativeExpand<T> {
+        init_mut_expand_element(scope, T::__expand_as_type(scope)).into()
     }
 }
 
@@ -261,7 +267,10 @@ impl<T: NativeAssign> Assign for NativeExpand<T> {
     fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
         assign::expand(scope, value, self);
     }
-    fn init_mut(&self, scope: &Scope) -> Self {
+}
+
+impl<T: NativeAssign> RuntimeAssign for NativeExpand<T> {
+    fn init_mut(&self, scope: &Scope) -> Self::Expand {
         T::elem_init_mut(scope, self.expand).into()
     }
 }
@@ -274,9 +283,6 @@ impl<T: Assign> Assign for Option<T> {
             _ => panic!("Can't assign mismatched enum variants"),
         }
     }
-    fn init_mut(&self, scope: &Scope) -> Self {
-        self.as_ref().map(|value| value.init_mut(scope))
-    }
 }
 
 impl<T: Assign> Assign for Vec<T> {
@@ -288,9 +294,6 @@ impl<T: Assign> Assign for Vec<T> {
         for (this, other) in self.iter_mut().zip(value) {
             this.__expand_assign_method(scope, other);
         }
-    }
-    fn init_mut(&self, scope: &Scope) -> Self {
-        self.iter().map(|it| it.init_mut(scope)).collect()
     }
 }
 
@@ -354,9 +357,9 @@ impl<T: IntoMut> IntoMut for *mut T {
     }
 }
 
-pub fn into_mut_assign<T: Assign>(value: T, scope: &Scope) -> T {
+pub fn into_mut_assign<T: RuntimeAssign>(value: T, scope: &Scope) -> T::Expand {
     let mut out = value.init_mut(scope);
-    out.__expand_assign_method(scope, value);
+    out.__expand_assign_method(scope, value.into_expand(scope));
     out
 }
 
@@ -728,8 +731,11 @@ macro_rules! tuple_assign {
                     $P.__expand_assign_method(scope, value.$n);
                 )*
             }
+        }
+
+        impl<$($P: RuntimeAssign),*> RuntimeAssign for ($($P,)*) {
             #[allow(non_snake_case, unused, clippy::unused_unit)]
-            fn init_mut(&self, scope: &Scope) -> Self {
+            fn init_mut(&self, scope: &Scope) -> Self::Expand {
                 let ($($P,)*) = self;
                 ($(
                     $P.init_mut(scope),
@@ -748,7 +754,7 @@ all_tuples_enumerated!(tuple_assign, 2, 12, P);
 /// Trait for native types that can be assigned. For non-native composites, use the normal [`Assign`].
 pub trait NativeAssign: CubeType {
     fn elem_init_mut(scope: &Scope, elem: Variable) -> Variable {
-        init_mut_expand_element(scope, &elem)
+        init_mut_expand_element(scope, elem.ty)
     }
 }
 
@@ -809,11 +815,11 @@ impl<T: Scalar + Into<ConstantValue>> NativeExpand<T> {
     }
 }
 
-pub(crate) fn init_mut_expand_element(scope: &Scope, element: &Variable) -> Variable {
-    if element.ty.is_ptr() {
-        panic!("tried initializing mut for ptr {}", element.ty);
+pub(crate) fn init_mut_expand_element(scope: &Scope, ty: Type) -> Variable {
+    if ty.is_ptr() {
+        panic!("tried initializing mut for ptr {}", ty);
     }
-    scope.create_local_mut(element.ty)
+    scope.create_local_mut(ty)
 }
 
 impl<T: IntoMut> IntoMut for Option<T> {
@@ -885,7 +891,10 @@ impl LaunchArg for () {
 
 impl Assign for () {
     fn __expand_assign_method(&mut self, _: &Scope, _: Self) {}
-    fn init_mut(&self, _: &Scope) -> Self {}
+}
+
+impl RuntimeAssign for () {
+    fn init_mut(&self, _: &Scope) {}
 }
 
 impl IntoRuntime for () {
