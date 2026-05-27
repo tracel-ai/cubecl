@@ -112,13 +112,12 @@ CubeCL uses Rust's proc macro system in a slightly unusual way. The `#[cube]` ma
 Instead, it rewrites the function into a new Rust function that is semantically similar to the original, but whose job is to build the IR when called.
 
 ```
-  #[cube] fn  ──▶  expanded Rust  ──▶  IR (parametric in Vector,
-                    (builds IR)        Plane, CubeDim, CubeCount)
-                                                  │
-              ┌────────┬─────────┬─────────┬──────┴───┬─────────┬──────────┐
-              ▼        ▼         ▼         ▼          ▼         ▼          ▼
-            WGSL     CUDA     SPIR-V     HIP        Metal    Rust SIMD
-           (wgpu)   (NVIDIA)  (Vulkan)   (AMD)     (Apple)    (CPU)
+  #[cube] fn  ──▶  expanded Rust  ──▶  CubeCL IR  ─┐
+                                                   │ 
+            ┌──────────┬─────────┬─────────┬───────┴──┬─────────┐
+            ▼          ▼         ▼         ▼          ▼         ▼
+           WGSL       CUDA      SPIR-V    HIP       Metal     MLIR 
+          (WebGpu)   (NVIDIA)   (Vulkan)  (AMD)    (Apple)    (CPU)
 ```
 
 A few useful properties fall out of this design.
