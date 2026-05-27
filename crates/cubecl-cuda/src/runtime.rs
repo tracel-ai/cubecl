@@ -184,7 +184,7 @@ impl DeviceService for CudaServer {
         if arch_version >= 70 {
             device_props.register_atomic_type_usage(
                 Type::atomic(ElemType::Float(FloatKind::F16)),
-                AtomicUsage::Add | AtomicUsage::LoadStore,
+                AtomicUsage::Add,
             );
             device_props.register_atomic_type_usage(
                 Type::atomic(Type::scalar(ElemType::Float(FloatKind::F16)).with_vector_size(2)),
@@ -248,14 +248,17 @@ impl DeviceService for CudaServer {
                 .matmul
                 .stmatrix
                 .insert(ElemType::Float(FloatKind::BF16).into());
-            device_props.register_atomic_type_usage(
-                Type::atomic(Type::scalar(ElemType::Float(FloatKind::F32)).with_vector_size(2)),
-                AtomicUsage::LoadStore | AtomicUsage::Add,
-            );
-            device_props.register_atomic_type_usage(
-                Type::atomic(Type::scalar(ElemType::Float(FloatKind::F32)).with_vector_size(4)),
-                AtomicUsage::LoadStore | AtomicUsage::Add,
-            );
+
+            if CUDA_VERSION > 12080 {
+                device_props.register_atomic_type_usage(
+                    Type::atomic(Type::scalar(ElemType::Float(FloatKind::F32)).with_vector_size(2)),
+                    AtomicUsage::LoadStore | AtomicUsage::Add,
+                );
+                device_props.register_atomic_type_usage(
+                    Type::atomic(Type::scalar(ElemType::Float(FloatKind::F32)).with_vector_size(4)),
+                    AtomicUsage::LoadStore | AtomicUsage::Add,
+                );
+            }
         }
 
         if arch_version >= 100 {
