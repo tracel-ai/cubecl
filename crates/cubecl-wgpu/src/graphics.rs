@@ -1,3 +1,4 @@
+pub use wgpu::Backend;
 /// The basic trait to specify which graphics API to use as Backend.
 ///
 /// Options are:
@@ -8,7 +9,7 @@
 ///   - [WebGpu](WebGpu)
 pub trait GraphicsApi: Send + Sync + core::fmt::Debug + Default + Clone + 'static {
     /// The wgpu backend.
-    fn backend() -> wgpu::Backend;
+    fn backend() -> Backend;
 }
 
 /// Vulkan graphics API.
