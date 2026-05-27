@@ -220,6 +220,10 @@ impl ComputeServer for HipServer {
         Ok(command.memory_usage())
     }
 
+    fn stream_ids(&self) -> Vec<StreamId> {
+        self.streams.stream_ids().collect()
+    }
+
     fn memory_cleanup(&mut self, stream_id: StreamId) {
         let mut command = match self.command_no_inputs(
             stream_id,

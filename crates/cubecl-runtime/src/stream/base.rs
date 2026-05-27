@@ -42,6 +42,19 @@ impl<F: StreamFactory> StreamPool<F> {
         self.streams.iter().flatten()
     }
 
+    /// Synthetic [`StreamId`]s, one per initialized regular pool slot.
+    ///
+    /// Each id round-trips through [`Self::get_mut`] to the same slot it
+    /// came from (slot `i` is reachable via `StreamId { value: i }` since
+    /// indexing is `value % max_streams`), so it's safe to feed these
+    /// ids back into per-stream APIs.
+    pub fn stream_ids(&self) -> impl Iterator<Item = StreamId> + '_ {
+        self.streams[..self.max_streams]
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| s.as_ref().map(|_| StreamId { value: i as u64 }))
+    }
+
     /// Retrieves a mutable reference to a stream for a given stream ID.
     pub fn get_mut(&mut self, stream_id: &StreamId) -> &mut F::Stream {
         // Calculate the index for the stream ID.

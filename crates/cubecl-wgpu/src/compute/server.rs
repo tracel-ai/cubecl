@@ -444,12 +444,8 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         Ok(stream.mem_manage.memory_usage())
     }
 
-    fn memory_usage_total(&mut self) -> Result<MemoryUsage, ServerError> {
-        Ok(self
-            .scheduler
-            .streams()
-            .map(|s| s.mem_manage.memory_usage())
-            .fold(MemoryUsage::default(), |acc, usage| acc.combine(usage)))
+    fn stream_ids(&self) -> Vec<StreamId> {
+        self.scheduler.stream_ids().collect()
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {

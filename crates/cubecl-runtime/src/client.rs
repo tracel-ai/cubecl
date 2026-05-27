@@ -839,19 +839,21 @@ impl<R: Runtime> ComputeClient<R> {
         Arc::get_mut(&mut self.utilities).map(|state| &mut state.properties)
     }
 
-    /// Get the current memory usage of this client.
+    /// Total memory usage across all streams on this client's device.
+    ///
+    /// The closure iterates the server's `stream_ids()` and folds each
+    /// per-stream `memory_usage(id)` with `MemoryUsage::combine`, so the
+    /// result is correct regardless of which thread queries it.
     pub fn memory_usage(&self) -> Result<MemoryUsage, ServerError> {
-        let stream_id = self.stream_id();
         self.device
-            .submit_blocking(move |server| server.memory_usage(stream_id))
-            .unwrap()
-    }
-
-    /// Total memory usage across all streams, correct from any thread
-    /// (unlike [`Self::memory_usage`], which only sees the calling thread's stream).
-    pub fn memory_usage_total(&self) -> Result<MemoryUsage, ServerError> {
-        self.device
-            .submit_blocking(move |server| server.memory_usage_total())
+            .submit_blocking(move |server| {
+                server
+                    .stream_ids()
+                    .into_iter()
+                    .try_fold(MemoryUsage::default(), |acc, id| {
+                        Ok(acc.combine(server.memory_usage(id)?))
+                    })
+            })
             .unwrap()
     }
 
@@ -891,9 +893,11 @@ impl<R: Runtime> ComputeClient<R> {
     /// Nb: Results will vary on what the memory allocator deems beneficial,
     /// so it's not guaranteed any memory is freed.
     pub fn memory_cleanup(&self) {
-        let stream_id = self.stream_id();
-        self.device
-            .submit(move |server| server.memory_cleanup(stream_id));
+        self.device.submit(move |server| {
+            for id in server.stream_ids() {
+                server.memory_cleanup(id);
+            }
+        });
     }
 
     /// Measure the execution time of some inner operations.
