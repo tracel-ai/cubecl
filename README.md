@@ -210,7 +210,7 @@ That is how CubeCL was born.
 
 ## Compared to other projects
 
-CubeCL is a low-level GPU programming language similar to CUDA, and it aims to reach peak performance on every backend it supports.
+CubeCL is a low-level GPU/CPU programming language similar to CUDA, and it aims to reach peak performance on every backend it supports.
 The tradeoff compared to tile DSLs is not performance but kernel complexity, because the programmer has to handle device properties explicitly and specialize the kernel for them.
 CubeCL relies on Rust's type system to manage that complexity, which is already good at expressing abstractions, rather than shipping a separate language frontend.
 A tile abstraction that should make HPC AI kernels easier to write is being worked on in [cubek](https://github.com/tracel-ai/cubek).
