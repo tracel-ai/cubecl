@@ -211,6 +211,31 @@ Writing kernels directly in that IR was not easy though, so we created a Rust fr
 Navigating the differences between CUDA and WebGPU while trying to leverage both platforms forced us to come up with general concepts that worked everywhere.
 That is how CubeCL was born.
 
+## Compared to other projects
+
+CubeCL is a low-level GPU programming language similar to CUDA, and it aims to reach peak performance on every backend it supports.
+The tradeoff compared to tile DSLs is not performance but kernel complexity, because the programmer has to handle device properties explicitly and specialize the kernel for them.
+CubeCL addresses this by building tile-style and other higher-level abstractions inside Rust's type system, rather than shipping them as a separate language frontend.
+
+Kernels are compiled just-in-time, not ahead-of-time.
+Only the variants you actually launch are generated, so you do not end up with a precompiled library that has to cover every combination of shape, hardware target, and instruction set, which can easily run into gigabytes for AoT projects like cuda-oxide and hand-written CUDA.
+A compilation cache stores the results between runs, and you can ship a warm cache with your binary when you know the deployment target, so the cold-start cost is paid once at build time.
+Tile DSLs like Triton and TileLang use a similar JIT model.
+
+CubeCL is also a runtime, not only a language.
+The per-platform runtimes handle compilation, dispatch, autotune caching, and memory, and they are not bound to the `#[cube]` frontend.
+A kernel produced by a separate DSL like cuTile lowers to PTX, and the CubeCL CUDA runtime executes PTX through `cudarc`, so external kernels can plug directly into the runtime without going through the CubeCL IR.
+
+| Project                                              | Language | Model       | Targets                              | Notes                             |
+| ---------------------------------------------------- | -------- | ----------- | ------------------------------------ | --------------------------------- |
+| **CubeCL**                                           | Rust     | Cube / SIMT | NVIDIA, AMD, Apple, Vulkan, Web, CPU | low-level, also a runtime         |
+| [cuda-oxide](https://github.com/NVlabs/cuda-oxide)   | Rust     | SIMT        | NVIDIA                               | rustc codegen backend to PTX      |
+| [cuTile Rust](https://github.com/NVlabs/cutile-rs)   | Rust     | Tile        | NVIDIA                               | tile DSL via NVIDIA Tile IR       |
+| [Triton](https://github.com/openai/triton)           | Python   | Tile        | NVIDIA, AMD                          | mature, large kernel ecosystem    |
+| [TileLang](https://github.com/tile-ai/tilelang)      | Python   | Tile (TVM)  | NVIDIA, AMD                          | peak-performance AI kernels       |
+| CUDA C++                                             | C++      | SIMT        | NVIDIA                               | similar low-level paradigm        |
+| WGSL / WebGPU                                        | WGSL     | SIMT        | Cross-platform                       | used as a CubeCL backend via wgpu |
+
 ## Community
 
 We are a small team also building [Burn](https://burn.dev), so questions, ideas, and contributions are all very welcome.
