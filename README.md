@@ -24,23 +24,20 @@
 
 ## TL;DR
 
-When you want optimal performance from a GPU, you usually end up writing different kernels for different hardware, often in different languages like CUDA on NVIDIA, HIP on AMD, Metal on Apple, and WGSL on the web.
-The result is several codebases that all need to be kept in sync, even though most of the logic is the same.
-
-CubeCL aims to fix this by letting you write a single Rust function that runs on every major GPU and on CPU SIMD, while still using the best instructions each platform offers.
-It is a Rust language extension, a Just-in-Time compiler, and a set of runtimes that all work together to make this possible.
+CubeCL is a Rust language extension, a Just-in-Time compiler, and a set of runtimes for writing high-performance compute kernels.
+A single `#[cube]` Rust function compiles on demand to CUDA, HIP, Metal, SPIR-V, WGSL, or CPU SIMD, while still using the best instructions each platform offers.
+The programming model is low-level by design, so that a single kernel can reach peak performance on every backend it targets.
 
 ## Motivation
 
-There are a few reasons why this approach is worthwhile, even when portability is not a primary concern.
+A `#[cube]` function is written in regular Rust, not in a separate shader language.
+That means it is type-checked, borrow-checked, composable, and testable, and you do not have to context-switch into another language or build shader sources by string concatenation at runtime.
 
-A single `#[cube]` function compiles to CUDA, HIP, Metal, SPIR-V, WGSL, or CPU SIMD, so you do not need to maintain parallel kernel codebases that slowly drift out of sync.
-Performance is not sacrificed for portability either, because comptime specializes kernels at compile time, autotune searches the configuration space at first run, and tensor core paths are taken automatically on hardware that supports them.
+Performance is not given up in exchange.
+Comptime specializes kernels at compile time, autotune searches the configuration space at first run, and tensor core paths are taken automatically on hardware that supports them.
 
-Kernels are also written in actual Rust rather than a separate shader language.
-That means they are type-checked, borrow-checked, composable, and testable, and you do not have to context-switch into another language or build shader sources by string concatenation at runtime.
-This is also part of why CubeCL is a reasonable foundation for scientific computing in Rust.
-It sits between low-level wrappers like `wgpu` and `cudarc` and high-level frameworks like [Burn](https://burn.dev), so that kernel libraries can be built once and reused across the ecosystem.
+The same properties make CubeCL a reasonable foundation for scientific computing in Rust.
+It sits between low-level wrappers like `wgpu` and `cudarc` and high-level frameworks like [Burn](https://burn.dev), so that kernel libraries can be written once and reused across the ecosystem.
 
 ## How it works
 
@@ -218,7 +215,7 @@ The tradeoff compared to tile DSLs is not performance but kernel complexity, bec
 CubeCL addresses this by building tile-style and other higher-level abstractions inside Rust's type system, rather than shipping them as a separate language frontend.
 
 Kernels are compiled just-in-time, not ahead-of-time.
-Only the variants you actually launch are generated, so you do not end up with a precompiled library that has to cover every combination of shape, hardware target, and instruction set, which can easily run into gigabytes for AoT projects like cuda-oxide and hand-written CUDA.
+Only the variants you actually launch are generated, so you do not end up with a precompiled library that has to cover every combination of shape, hardware target, and instruction set, which can easily run into gigabytes for AoT projects like hand-written CUDA.
 A compilation cache stores the results between runs, and you can ship a warm cache with your binary when you know the deployment target, so the cold-start cost is paid once at build time.
 Tile DSLs like Triton and TileLang use a similar JIT model.
 
