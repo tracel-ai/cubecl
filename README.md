@@ -212,7 +212,8 @@ That is how CubeCL was born.
 
 CubeCL is a low-level GPU programming language similar to CUDA, and it aims to reach peak performance on every backend it supports.
 The tradeoff compared to tile DSLs is not performance but kernel complexity, because the programmer has to handle device properties explicitly and specialize the kernel for them.
-CubeCL addresses this by building tile-style and other higher-level abstractions inside Rust's type system, rather than shipping them as a separate language frontend.
+CubeCL relies on Rust's type system to manage that complexity, which is already good at expressing abstractions, rather than shipping a separate language frontend.
+A tile abstraction that should make HPC AI kernels easier to write is being worked on in [cubek](https://github.com/tracel-ai/cubek).
 
 Kernels are compiled just-in-time, not ahead-of-time.
 Only the variants you actually launch are generated, so you do not end up with a precompiled library that has to cover every combination of shape, hardware target, and instruction set, which can easily run into gigabytes for AoT projects like hand-written CUDA.
