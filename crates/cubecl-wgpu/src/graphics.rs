@@ -37,47 +37,47 @@ pub struct WebGpu;
 pub struct AutoGraphicsApi;
 
 impl GraphicsApi for Vulkan {
-    fn backend() -> wgpu::Backend {
-        wgpu::Backend::Vulkan
+    fn backend() -> Backend {
+        Backend::Vulkan
     }
 }
 
 impl GraphicsApi for Metal {
-    fn backend() -> wgpu::Backend {
-        wgpu::Backend::Metal
+    fn backend() -> Backend {
+        Backend::Metal
     }
 }
 
 impl GraphicsApi for OpenGl {
-    fn backend() -> wgpu::Backend {
-        wgpu::Backend::Gl
+    fn backend() -> Backend {
+        Backend::Gl
     }
 }
 
 impl GraphicsApi for Dx12 {
-    fn backend() -> wgpu::Backend {
-        wgpu::Backend::Dx12
+    fn backend() -> Backend {
+        Backend::Dx12
     }
 }
 
 impl GraphicsApi for WebGpu {
-    fn backend() -> wgpu::Backend {
-        wgpu::Backend::BrowserWebGpu
+    fn backend() -> Backend {
+        Backend::BrowserWebGpu
     }
 }
 
 impl GraphicsApi for AutoGraphicsApi {
-    fn backend() -> wgpu::Backend {
+    fn backend() -> Backend {
         // Allow overriding AutoGraphicsApi backend with ENV var in std test environments
         #[cfg(feature = "std")]
         #[cfg(test)]
         if let Ok(backend_str) = std::env::var("AUTO_GRAPHICS_BACKEND") {
             match backend_str.to_lowercase().as_str() {
-                "metal" => return wgpu::Backend::Metal,
-                "vulkan" => return wgpu::Backend::Vulkan,
-                "dx12" => return wgpu::Backend::Dx12,
-                "opengl" => return wgpu::Backend::Gl,
-                "webgpu" => return wgpu::Backend::BrowserWebGpu,
+                "metal" => return Backend::Metal,
+                "vulkan" => return Backend::Vulkan,
+                "dx12" => return Backend::Dx12,
+                "opengl" => return Backend::Gl,
+                "webgpu" => return Backend::BrowserWebGpu,
                 _ => {
                     eprintln!(
                         "Invalid graphics backend specified in GRAPHICS_BACKEND environment \
@@ -91,11 +91,11 @@ impl GraphicsApi for AutoGraphicsApi {
         // In a no_std environment or if the environment variable is not set
         cfg_if::cfg_if! {
             if #[cfg(target_family = "wasm")] {
-                wgpu::Backend::BrowserWebGpu
+                Backend::BrowserWebGpu
             } else if #[cfg(target_os = "macos")] {
-                 wgpu::Backend::Metal
+                 Backend::Metal
             } else {
-                wgpu::Backend::Vulkan
+                Backend::Vulkan
             }
         }
     }
