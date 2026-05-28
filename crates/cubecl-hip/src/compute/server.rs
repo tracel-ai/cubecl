@@ -375,6 +375,11 @@ impl HipServer {
             }
         };
 
+        // A dynamic count can resolve to zero, which the driver rejects.
+        if count.0 == 0 || count.1 == 0 || count.2 == 0 {
+            return Ok(());
+        }
+
         let KernelArguments {
             buffers,
             info,

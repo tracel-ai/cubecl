@@ -696,6 +696,13 @@ impl<R: Runtime> ComputeClient<R> {
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
+        // No work, and some drivers reject a zero grid dim.
+        if let CubeCount::Static(x, y, z) = &count
+            && (*x == 0 || *y == 0 || *z == 0)
+        {
+            return;
+        }
+
         let level = self.utilities.logger.profile_level();
 
         match level {
