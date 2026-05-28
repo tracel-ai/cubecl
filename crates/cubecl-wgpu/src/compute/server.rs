@@ -98,6 +98,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             memory_properties,
             memory_config,
             timing_method,
+            backend,
             tasks_max,
             utilities.logger.clone(),
             compilation_options.supports_vulkan_compiler,
