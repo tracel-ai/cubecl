@@ -7,9 +7,12 @@ use crate::tensor::{
     layout::{Coords1d, CoordsDyn, Layout, LayoutExpand},
 };
 
-/// Tiling as a composable layout: splits each tiled axis `c -> (c / T, c % T)`,
-/// expanding logical rank R to physical rank R + n. Tile sizes `T` come from the
-/// physical shape's tile dims.
+/// Tiling as a composable layout: splits each tiled axis into `levels + 1`
+/// factors — one grid plus `levels` nested tile sizes — via a mixed-radix
+/// decomposition, expanding logical rank R to physical rank `R + levels * n`. The
+/// factors are read from the physical shape, laid out `[pre, grid…, level1…, …,
+/// levelL…, post]` (coarsest grid first, finest tile last). `levels == 1` is a
+/// single split `c -> (c / T, c % T)`.
 #[derive(CubeType, Clone)]
 pub struct TiledLayout {
     physical_shape: CoordsDyn,
@@ -17,6 +20,8 @@ pub struct TiledLayout {
     start_axis: usize,
     #[cube(comptime)]
     num_tiled: usize,
+    #[cube(comptime)]
+    levels: usize,
 }
 
 #[cube]
@@ -25,11 +30,13 @@ impl TiledLayout {
         physical_shape: CoordsDyn,
         #[comptime] start_axis: usize,
         #[comptime] num_tiled: usize,
+        #[comptime] levels: usize,
     ) -> TiledLayout {
         TiledLayout {
             physical_shape,
             start_axis,
             num_tiled,
+            levels,
         }
     }
 }
@@ -39,10 +46,14 @@ impl Layout for TiledLayout {
     type Coordinates = CoordsDyn;
     type SourceCoordinates = CoordsDyn;
 
-    /// Logical coords to physical tile coords, laid out `[pre, grid, tile, post]`.
+    /// Logical coords to physical tile coords, laid out
+    /// `[pre, grid…, level1…, …, levelL…, post]`. Each tiled axis is decomposed
+    /// mixed-radix: the finest level (last block) is the least significant digit.
     fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
         #[comptime]
         let n = self.num_tiled;
+        #[comptime]
+        let levels = self.levels;
         #[comptime]
         let physical_rank = self.physical_shape.len();
 
@@ -52,17 +63,28 @@ impl Layout for TiledLayout {
             physical.push(pos[i]);
         }
         #[unroll]
-        for i in 0..n {
-            let tile = self.physical_shape[comptime!(self.start_axis + n + i)];
-            physical.push(pos[comptime!(self.start_axis + i)] / tile);
+        for k in 0..comptime!(levels + 1) {
+            #[unroll]
+            for i in 0..n {
+                // Strip the finer blocks, then take this block's digit. The grid
+                // (k == 0) keeps the full quotient — it has no enclosing tile.
+                let mut divisor = 1u32;
+                #[unroll]
+                for finer in 0..comptime!(levels + 1) {
+                    if comptime!(finer > k) {
+                        divisor *= self.physical_shape[comptime!(self.start_axis + finer * n + i)];
+                    }
+                }
+                let digit = pos[comptime!(self.start_axis + i)] / divisor;
+                if comptime!(k == 0) {
+                    physical.push(digit);
+                } else {
+                    physical.push(digit % self.physical_shape[comptime!(self.start_axis + k * n + i)]);
+                }
+            }
         }
         #[unroll]
-        for i in 0..n {
-            let tile = self.physical_shape[comptime!(self.start_axis + n + i)];
-            physical.push(pos[comptime!(self.start_axis + i)] % tile);
-        }
-        #[unroll]
-        for i in 0..comptime!(physical_rank - (self.start_axis + 2 * n)) {
+        for i in 0..comptime!(physical_rank - (self.start_axis + (levels + 1) * n)) {
             physical.push(pos[comptime!(self.start_axis + n + i)]);
         }
         physical
@@ -73,10 +95,13 @@ impl Layout for TiledLayout {
         (self.to_source_pos(pos), in_bounds)
     }
 
-    /// Logical shape: each tiled axis collapses its (grid, tile) pair to grid * tile.
+    /// Logical shape: each tiled axis collapses its `levels + 1` factors back to
+    /// their product.
     fn shape(&self) -> Self::Coordinates {
         #[comptime]
         let n = self.num_tiled;
+        #[comptime]
+        let levels = self.levels;
         #[comptime]
         let physical_rank = self.physical_shape.len();
 
@@ -87,13 +112,16 @@ impl Layout for TiledLayout {
         }
         #[unroll]
         for i in 0..n {
-            let grid = self.physical_shape[comptime!(self.start_axis + i)];
-            let tile = self.physical_shape[comptime!(self.start_axis + n + i)];
-            semantic.push(grid * tile);
+            let mut extent = 1u32;
+            #[unroll]
+            for k in 0..comptime!(levels + 1) {
+                extent *= self.physical_shape[comptime!(self.start_axis + k * n + i)];
+            }
+            semantic.push(extent);
         }
         #[unroll]
-        for i in 0..comptime!(physical_rank - (self.start_axis + 2 * n)) {
-            semantic.push(self.physical_shape[comptime!(self.start_axis + 2 * n + i)]);
+        for i in 0..comptime!(physical_rank - (self.start_axis + (levels + 1) * n)) {
+            semantic.push(self.physical_shape[comptime!(self.start_axis + (levels + 1) * n + i)]);
         }
         semantic
     }
@@ -120,6 +148,8 @@ pub struct TiledViewLayout {
     start_axis: usize,
     #[cube(comptime)]
     num_tiled: usize,
+    #[cube(comptime)]
+    levels: usize,
 }
 
 #[cube]
@@ -129,7 +159,12 @@ impl Layout for TiledViewLayout {
 
     /// Logical coords to buffer offset: split to physical coords, then strides.
     fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
-        let split = TiledLayout::new(self.physical_shape.clone(), self.start_axis, self.num_tiled);
+        let split = TiledLayout::new(
+            self.physical_shape.clone(),
+            self.start_axis,
+            self.num_tiled,
+            self.levels,
+        );
         let physical = split.to_source_pos(pos);
 
         let mut offset = 0u32;
@@ -146,7 +181,12 @@ impl Layout for TiledViewLayout {
     }
 
     fn shape(&self) -> Self::Coordinates {
-        let split = TiledLayout::new(self.physical_shape.clone(), self.start_axis, self.num_tiled);
+        let split = TiledLayout::new(
+            self.physical_shape.clone(),
+            self.start_axis,
+            self.num_tiled,
+            self.levels,
+        );
         split.shape()
     }
 
@@ -161,12 +201,14 @@ impl Layout for TiledViewLayout {
     }
 }
 
-/// Tiling spec for [`tiled_view`]: where the tiled axes start and how many there
-/// are. The tile sizes are read from the buffer's trailing dims.
+/// Tiling spec for [`tiled_view`]: where the tiled axes start, how many there are,
+/// and how many nested tile levels each carries (`levels == 1` is a single split).
+/// The per-level sizes are read from the buffer's `[grid…, level1…, …]` dims.
 #[derive(Clone, Debug)]
 pub struct TileSpec {
     pub start_axis: u8,
     pub num_tiled: usize,
+    pub levels: usize,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
@@ -175,6 +217,7 @@ pub struct TiledViewLayoutCompilationArg {
     physical_strides: <CoordsDyn as LaunchArg>::CompilationArg,
     start_axis: u8,
     num_tiled: usize,
+    levels: usize,
 }
 
 impl ViewLayoutLaunchArg for TiledViewLayout {
@@ -200,6 +243,7 @@ impl ViewLayoutLaunchArg for TiledViewLayout {
             physical_strides: <CoordsDyn as LaunchArg>::register(strides_arg, launcher),
             start_axis: spec.start_axis,
             num_tiled: spec.num_tiled,
+            levels: spec.levels,
         }
     }
 
@@ -213,6 +257,7 @@ impl ViewLayoutLaunchArg for TiledViewLayout {
             physical_strides: <CoordsDyn as LaunchArg>::expand(&arg.physical_strides, builder),
             start_axis: arg.start_axis as usize,
             num_tiled: arg.num_tiled,
+            levels: arg.levels,
         }
     }
 }
