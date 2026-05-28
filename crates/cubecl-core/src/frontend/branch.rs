@@ -1,6 +1,7 @@
 use alloc::{boxed::Box, vec::Vec};
 
 use crate::{
+    frontend::RuntimeAssign,
     ir::Switch,
     prelude::{CubeEnum, ExpandTypeClone},
 };
@@ -138,7 +139,11 @@ pub enum IfElseExprExpand<C: Assign> {
 }
 
 impl<C: Assign> IfElseExprExpand<C> {
-    pub fn or_else(self, scope: &Scope, else_block: impl FnOnce(&Scope) -> C) -> C {
+    pub fn or_else<R: RuntimeAssign<Expand = C>>(
+        self,
+        scope: &Scope,
+        else_block: impl FnOnce(&Scope) -> R,
+    ) -> C {
         match self {
             Self::Runtime {
                 runtime_cond,
@@ -147,7 +152,7 @@ impl<C: Assign> IfElseExprExpand<C> {
             } => {
                 let else_child = scope.child();
                 let ret = else_block(&else_child);
-                out.__expand_assign_method(&else_child, ret);
+                out.__expand_assign_method(&else_child, ret.into_expand(scope));
 
                 scope.register(Branch::IfElse(Box::new(IfElse {
                     cond: runtime_cond.expand,
@@ -156,29 +161,29 @@ impl<C: Assign> IfElseExprExpand<C> {
                 })));
                 out
             }
-            Self::ComptimeElse => else_block(scope),
+            Self::ComptimeElse => else_block(scope).into_expand(scope),
             Self::ComptimeThen(ret) => ret,
         }
     }
 }
 
-pub fn if_else_expr_expand<C: Assign>(
+pub fn if_else_expr_expand<C: RuntimeAssign>(
     scope: &Scope,
     condition: NativeExpand<bool>,
     then_block: impl FnOnce(&Scope) -> C,
-) -> IfElseExprExpand<C> {
+) -> IfElseExprExpand<C::Expand> {
     let comptime_cond = condition.expand.as_const().map(|it| it.as_bool());
     match comptime_cond {
         Some(true) => {
             let ret = then_block(scope);
-            IfElseExprExpand::ComptimeThen(ret)
+            IfElseExprExpand::ComptimeThen(ret.into_expand(scope))
         }
         Some(false) => IfElseExprExpand::ComptimeElse,
         None => {
             let then_child = scope.child();
             let ret = then_block(&then_child);
             let mut out = ret.init_mut(scope);
-            out.__expand_assign_method(&then_child, ret);
+            out.__expand_assign_method(&then_child, ret.into_expand(scope));
 
             IfElseExprExpand::Runtime {
                 runtime_cond: condition,
@@ -241,11 +246,17 @@ pub struct SwitchExpandExpr<I: Int, C: Assign> {
 }
 
 impl<I: Int, C: Assign> SwitchExpandExpr<I, C> {
-    pub fn case(mut self, scope: &Scope, value: impl Int, block: impl FnOnce(&Scope) -> C) -> Self {
+    pub fn case<T: RuntimeAssign<Expand = C>>(
+        mut self,
+        scope: &Scope,
+        value: impl Int,
+        block: impl FnOnce(&Scope) -> T,
+    ) -> Self {
         let value = I::from(value).unwrap();
         let case_child = scope.child();
         let ret = block(&case_child);
-        self.out.__expand_assign_method(&case_child, ret);
+        self.out
+            .__expand_assign_method(&case_child, ret.into_expand(scope));
         self.cases.push((value.into(), case_child));
         self
     }
@@ -265,15 +276,15 @@ impl<I: Int, C: Assign> SwitchExpandExpr<I, C> {
     }
 }
 
-pub fn switch_expand_expr<I: Int, C: Assign>(
+pub fn switch_expand_expr<I: Int, C: RuntimeAssign>(
     scope: &Scope,
     value: NativeExpand<I>,
     default_block: impl FnOnce(&Scope) -> C,
-) -> SwitchExpandExpr<I, C> {
+) -> SwitchExpandExpr<I, C::Expand> {
     let default_child = scope.child();
     let default = default_block(&default_child);
     let mut out = default.init_mut(scope);
-    out.__expand_assign_method(&default_child, default);
+    out.__expand_assign_method(&default_child, default.into_expand(scope));
 
     SwitchExpandExpr {
         value,
@@ -435,11 +446,11 @@ pub enum MatchExpandExpr<T: CubeEnum, C: Assign> {
 }
 
 impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
-    pub fn case(
+    pub fn case<R: RuntimeAssign<Expand = C>>(
         mut self,
         scope: &Scope,
         value: i32,
-        block: impl FnOnce(&Scope, T::RuntimeValue) -> C,
+        block: impl FnOnce(&Scope, T::RuntimeValue) -> R,
     ) -> Self {
         match &mut self {
             Self::RuntimeVariant {
@@ -450,7 +461,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
             } => {
                 let case_child = scope.child();
                 let ret_val = block(&case_child, (*runtime_value).clone_unchecked());
-                out.__expand_assign_method(&case_child, ret_val);
+                out.__expand_assign_method(&case_child, ret_val.into_expand(scope));
                 cases.push((value.into(), case_child));
             }
             Self::ComptimeVariant {
@@ -460,7 +471,8 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 matched,
             } => {
                 if value == *variant {
-                    *out = Some(block(scope, (*runtime_value).clone_unchecked()));
+                    *out =
+                        Some(block(scope, (*runtime_value).clone_unchecked()).into_expand(scope));
                     *matched = true;
                 }
             }
@@ -468,10 +480,10 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
         self
     }
 
-    pub fn default(
+    pub fn default<R: RuntimeAssign<Expand = C>>(
         mut self,
         scope: &Scope,
-        block: impl FnOnce(&Scope, T::RuntimeValue) -> C,
+        block: impl FnOnce(&Scope, T::RuntimeValue) -> R,
     ) -> Self {
         match &mut self {
             Self::RuntimeVariant {
@@ -482,7 +494,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
             } => {
                 let case_child = scope.child();
                 let ret_val = block(&case_child, (*runtime_value).clone_unchecked());
-                out.__expand_assign_method(&case_child, ret_val);
+                out.__expand_assign_method(&case_child, ret_val.into_expand(scope));
                 *default = Some(case_child);
             }
             Self::ComptimeVariant {
@@ -492,7 +504,8 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 ..
             } => {
                 if !*matched {
-                    *out = Some(block(scope, (*runtime_value).clone_unchecked()));
+                    *out =
+                        Some(block(scope, (*runtime_value).clone_unchecked()).into_expand(scope));
                     *matched = true;
                 }
             }
@@ -529,12 +542,12 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
     }
 }
 
-pub fn match_expand_expr<T: CubeEnum, C: Assign>(
+pub fn match_expand_expr<T: CubeEnum, C: RuntimeAssign>(
     scope: &Scope,
     value: T,
     discriminant0: i32,
     arm0: impl FnOnce(&Scope, T::RuntimeValue) -> C,
-) -> MatchExpandExpr<T, C> {
+) -> MatchExpandExpr<T, C::Expand> {
     let discriminant = value.discriminant();
     match discriminant.constant() {
         Some(const_variant) if const_variant.as_i32() == discriminant0 => {
@@ -542,7 +555,7 @@ pub fn match_expand_expr<T: CubeEnum, C: Assign>(
             let out = arm0(scope, runtime_value.clone_unchecked());
             MatchExpandExpr::ComptimeVariant {
                 variant: const_variant.as_i32(),
-                out: Some(out),
+                out: Some(out.into_expand(scope)),
                 runtime_value,
                 matched: true,
             }
@@ -559,7 +572,7 @@ pub fn match_expand_expr<T: CubeEnum, C: Assign>(
             let ret_val = arm0(&case_child, runtime_value.clone_unchecked());
 
             let mut out = ret_val.init_mut(scope);
-            out.__expand_assign_method(&case_child, ret_val);
+            out.__expand_assign_method(&case_child, ret_val.into_expand(scope));
 
             MatchExpandExpr::RuntimeVariant {
                 variant: discriminant,

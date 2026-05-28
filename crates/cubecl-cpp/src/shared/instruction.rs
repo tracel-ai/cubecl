@@ -632,10 +632,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 D::compile_atomic_xor(f, lhs, rhs, out)
             }
             Instruction::Rem(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
-            Instruction::Neg(UnaryInstruction { input, out }) => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = -{input};")
-            }
+            Instruction::Neg(UnaryInstruction { input, out }) => Neg::format(f, input, out),
             Instruction::Normalize(inst) => {
                 Normalize::<D, InverseSqrt>::format(f, &inst.input, &inst.out)
             }

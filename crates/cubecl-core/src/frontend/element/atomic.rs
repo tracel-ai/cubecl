@@ -22,7 +22,6 @@ type AtomicExpand<Inner> = NativeExpand<Atomic<Inner>>;
 #[cube]
 impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     /// Load the value of the atomic.
-    #[allow(unused_variables)]
     pub fn load(&self) -> Inner {
         intrinsic!(|scope| {
             let pointer: Variable = self.clone().into();
@@ -33,7 +32,6 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     }
 
     /// Store the value of the atomic.
-    #[allow(unused_variables)]
     pub fn store(&self, value: Inner) {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
@@ -46,7 +44,6 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     }
 
     /// Atomically stores the value into the atomic and returns the old value.
-    #[allow(unused_variables)]
     pub fn swap(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
@@ -61,7 +58,6 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     }
 
     /// Atomically add a number to the atomic variable. Returns the old value.
-    #[allow(unused_variables)]
     pub fn fetch_add(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
@@ -76,7 +72,6 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     }
 
     /// Atomically subtracts a number from the atomic variable. Returns the old value.
-    #[allow(unused_variables)]
     pub fn fetch_sub(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
@@ -92,7 +87,6 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
 
     /// Atomically sets the value of the atomic variable to `max(current_value, value)`. Returns
     /// the old value.
-    #[allow(unused_variables)]
     pub fn fetch_max(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
@@ -108,7 +102,6 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
 
     /// Atomically sets the value of the atomic variable to `min(current_value, value)`. Returns the
     /// old value.
-    #[allow(unused_variables)]
     pub fn fetch_min(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
@@ -130,7 +123,6 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
     ///
     /// ### Tip
     /// Compare the returned value to `cmp` to determine whether the store was successful.
-    #[allow(unused_variables)]
     pub fn compare_exchange_weak(&self, cmp: Inner, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let pointer: Variable = self.clone().into();
@@ -150,7 +142,6 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
     }
 
     /// Executes an atomic bitwise and operation on the atomic variable. Returns the old value.
-    #[allow(unused_variables)]
     pub fn fetch_and(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
@@ -165,7 +156,6 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
     }
 
     /// Executes an atomic bitwise or operation on the atomic variable. Returns the old value.
-    #[allow(unused_variables)]
     pub fn fetch_or(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();
@@ -180,7 +170,6 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
     }
 
     /// Executes an atomic bitwise xor operation on the atomic variable. Returns the old value.
-    #[allow(unused_variables)]
     pub fn fetch_xor(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
             let ptr: Variable = self.clone().into();

@@ -7,9 +7,12 @@ use quote::{format_ident, quote, quote_spanned};
 use syn::{Ident, TypeParamBound, parse_quote};
 
 use crate::{
-    parse::kernel::{
-        DefinedGeneric, KernelBody, KernelFn, Launch, anon_lifetime_to_static, map_type_normalized,
-        strip_ref,
+    parse::{
+        kernel::{
+            DefinedGeneric, KernelBody, KernelFn, Launch, anon_lifetime_to_static,
+            map_type_normalized, strip_ref,
+        },
+        signature::KernelReturns,
     },
     paths::{frontend_type, prelude_type},
 };
@@ -19,8 +22,14 @@ impl KernelFn {
         let attrs = &self.attrs;
         let vis = &self.vis;
         let sig = &self.sig;
+
         let body = match &self.body {
-            KernelBody::Block(block) => &block.to_tokens(&mut self.context),
+            KernelBody::Block(block) => match matches!(sig.returns, KernelReturns::ExpandType(_))
+                && !self.context.is_intrinsic
+            {
+                true => &block.to_tokens_runtime_return(&mut self.context),
+                false => &block.to_tokens(&mut self.context),
+            },
             KernelBody::Verbatim(tokens) => tokens,
         };
         let name = &self.full_name;

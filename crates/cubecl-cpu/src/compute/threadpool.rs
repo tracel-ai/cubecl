@@ -1,13 +1,7 @@
-use super::{
-    compute_task::{
-        BARRIER_COUNTER, BARRIER_TARGET, CURRENT_CUBE_DIM, ComputeTask, STOPPED_COUNTER,
-    },
-    schedule::BindingsResource,
-    worker::Worker,
-};
+use super::{compute_task::ComputeTask, schedule::BindingsResource, worker::Worker};
 use crate::{
     compiler::{MlirCompiler, mlir_data::MlirData, mlir_engine::MlirEngine},
-    compute::notification::Notifications,
+    compute::{affinity::get_active_cores, notification::Notifications},
 };
 use cubecl_core::{
     CubeDim, MemoryConfiguration, ir::MemoryDeviceProperties, prelude::CompiledKernel,
@@ -17,17 +11,14 @@ use cubecl_runtime::{
     memory_management::{MemoryManagement, MemoryManagementOptions},
     storage::BytesStorage,
 };
-use std::{
-    fmt::Debug,
-    sync::{Arc, atomic::Ordering},
-};
+use std::{fmt::Debug, sync::Arc};
 use sysinfo::System;
 
 /// The kernel runner is responsible to manage shared memory as well as threads to execute kernels.
 ///
 /// A single kernel runner is currently used for all kernels.
 /// To register work, you have to use the execution queue.
-pub struct KernelRunner {
+pub struct Threadpool {
     workers: Vec<Worker>,
     memory_management_shared_memory: MemoryManagement<BytesStorage>,
 }
@@ -54,24 +45,24 @@ impl Debug for CpuKernel {
     }
 }
 
-impl Debug for KernelRunner {
+impl Debug for Threadpool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", &self.workers)
     }
 }
 
-impl KernelRunner {
+impl Threadpool {
     pub fn new(logger: Arc<ServerLogger>) -> Self {
         let mut system = System::new();
         system.refresh_memory();
-        let max_shared_memory_size = system
+        let max_page_size = system
             .cgroup_limits()
             .map(|g| g.total_memory)
-            .unwrap_or(system.total_memory()) as usize;
+            .unwrap_or(system.total_memory());
 
         const ALIGNMENT: u64 = 4;
         let memory_properties = MemoryDeviceProperties {
-            max_page_size: max_shared_memory_size as u64,
+            max_page_size,
             alignment: ALIGNMENT,
         };
 
@@ -83,14 +74,9 @@ impl KernelRunner {
             MemoryManagementOptions::new("Shared Memory"),
         );
 
-        let available_parallelism = std::thread::available_parallelism()
-            .expect("Can't get available parallelism on this platform")
-            .get();
-        let workers = (0..available_parallelism)
-            .map(|_| Worker::default())
-            .collect();
+        let workers = get_active_cores().map(Worker::new_with_affinity).collect();
 
-        KernelRunner {
+        Self {
             workers,
             memory_management_shared_memory,
         }
@@ -101,17 +87,12 @@ impl KernelRunner {
         resources: BindingsResource,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
-    ) {
+    ) -> Notifications {
         let cube_dim_size = cube_dim.num_elems();
-
-        BARRIER_TARGET.store(cube_dim_size as i32, Ordering::Release);
-        CURRENT_CUBE_DIM.store(cube_dim_size as i32, Ordering::Release);
-        BARRIER_COUNTER.store(0, Ordering::Release);
-        STOPPED_COUNTER.store(0, Ordering::Release);
 
         if cube_dim_size > self.workers.len() as u32 {
             self.workers
-                .extend((0..cube_dim_size - self.workers.len() as u32).map(|_| Worker::default()));
+                .extend((0..cube_dim_size - self.workers.len() as u32).map(|_| Worker::new()));
         }
 
         let mlir_data = MlirData::new(
@@ -144,6 +125,6 @@ impl KernelRunner {
             }
         }
 
-        notifications.wait();
+        notifications
     }
 }

@@ -1,19 +1,9 @@
 use crate::{self as cubecl};
 use cubecl::prelude::*;
-use cubecl_macros::derive_expand;
 
-#[derive(Default, Clone, Copy)]
-pub enum ComptimeOption<T> {
-    #[default]
-    None,
-    Some(T),
-}
-
-// Separate implementation so we don't need `CubeType` for `ComptimeOption` itself.
-// This is important because `&T where T: CubeType` does not necessarily implement
-// `CubeType`, but we need to support it in `as_ref`/`as_mut`.
-#[derive_expand(CubeType)]
+#[derive(Default, Clone, Copy, CubeType)]
 pub enum ComptimeOption<T: CubeType> {
+    #[default]
     None,
     Some(T),
 }
@@ -179,7 +169,7 @@ mod impls {
         use super::*;
         use ComptimeOption::{None, Some};
 
-        impl<T> ComptimeOption<T> {
+        impl<T: CubeType> ComptimeOption<T> {
             /// Returns `true` if the option is a [`Some`] value.
             ///
             /// # Examples
@@ -418,6 +408,7 @@ mod impls {
             pub fn map<U, F>(self, f: F) -> Option<U>
             where
                 F: FnOnce(T) -> U,
+                U: CubeType,
             {
                 match self {
                     Some(x) => Some(f(x)),
@@ -566,10 +557,10 @@ mod impls {
             /// let x: Option<String> = None;
             /// assert_eq!(x.as_deref(), None);
             /// ```
-            pub fn as_deref<'a>(&'a self) -> Option<&'a T::Target>
+            pub fn as_deref(&self) -> Option<&T::Target>
             where
                 T: Deref,
-                &'a T: CubeType,
+                T::Target: CubeType,
             {
                 self.as_ref().map(Deref::deref)
             }
@@ -588,10 +579,10 @@ mod impls {
             ///     x
             /// }), Some("HEY".to_owned().as_mut_str()));
             /// ```
-            pub fn as_deref_mut<'a>(&'a mut self) -> Option<&'a mut T::Target>
+            pub fn as_deref_mut(&mut self) -> Option<&mut T::Target>
             where
                 T: DerefMut,
-                &'a mut T: CubeType,
+                T::Target: CubeType,
             {
                 self.as_mut().map(DerefMut::deref_mut)
             }
@@ -756,8 +747,9 @@ mod impls {
             pub fn reduce<U, R, F>(self, other: Option<U>, f: F) -> Option<R>
             where
                 T: Into<R>,
-                U: Into<R>,
+                U: CubeType + Into<R>,
                 F: FnOnce(T, U) -> R,
+                R: CubeType,
             {
                 match (self, other) {
                     (Some(a), Some(b)) => Some(f(a, b)),
@@ -768,7 +760,7 @@ mod impls {
             }
         }
 
-        impl<T> ComptimeOption<T> {
+        impl<T: CubeType> ComptimeOption<T> {
             /////////////////////////////////////////////////////////////////////////
             // Querying the contained values
             /////////////////////////////////////////////////////////////////////////
@@ -1386,7 +1378,7 @@ mod impls {
         }
     }
 
-    impl<T, U> ComptimeOption<(T, U)> {
+    impl<T: CubeType, U: CubeType> ComptimeOption<(T, U)> {
         /// Unzips an option containing a tuple of two options.
         ///
         /// If `self` is `Some((a, b))` this method returns `(Some(a), Some(b))`.

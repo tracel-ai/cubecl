@@ -1,28 +1,8 @@
-use cubecl_core::{prelude::Visibility, server::KernelArguments};
-
 use crate::{
     Dialect,
     metal::AddressSpace,
-    shared::{Component, KernelArg, MslComputeKernel, Variable},
+    shared::{Component, KernelArg, Variable},
 };
-
-pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> (Vec<Visibility>, usize) {
-    // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
-    // and since we can't be sure, we'll assume everything is read-write.
-    let buffers = repr.buffers.iter().map(|it| {
-        if cfg!(exclusive_memory_only) {
-            it.vis
-        } else {
-            Visibility::ReadWrite
-        }
-    });
-    let uniform = args.info.dynamic_metadata_offset >= args.info.data.len();
-    let info_vis = (!args.info.data.is_empty()).then_some(match uniform {
-        true => Visibility::Uniform,
-        false => Visibility::Read,
-    });
-    (buffers.chain(info_vis).collect(), 0)
-}
 
 pub fn format_global_binding_arg<D: Dialect>(
     name: &str,

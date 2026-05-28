@@ -4,7 +4,7 @@ use darling::{
 };
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
-use syn::{DeriveInput, Index, WhereClause};
+use syn::{DeriveInput, Index, Path, WhereClause};
 
 use crate::{
     generate::bounded_where_clause,
@@ -15,12 +15,14 @@ use crate::{
 impl ToTokens for Assign {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let assign = prelude_type("Assign");
+        let runtime_assign = prelude_type("RuntimeAssign");
         let scope = prelude_type("Scope");
 
         let name = &self.ident;
         let expand_name = format_ident!("{name}Expand");
         let (generics, generic_names, _) = self.generics.split_for_impl();
-        let where_clause = self.where_clause();
+        let where_clause = self.where_clause(&assign);
+        let where_clause_init = self.where_clause(&runtime_assign);
 
         let init_mut_body = match &self.data {
             Data::Enum(_) if self.runtime_variants.is_present() => {
@@ -42,7 +44,9 @@ impl ToTokens for Assign {
                     use #assign as _;
                     #assign_body
                 }
+            }
 
+            impl #generics #runtime_assign for #expand_name #generic_names #where_clause_init {
                 fn init_mut(&self, scope: &#scope) -> Self {
                     use #assign as _;
                     #init_mut_body
@@ -224,9 +228,8 @@ impl Assign {
         }
     }
 
-    fn where_clause(&self) -> Option<WhereClause> {
+    fn where_clause(&self, trait_: &Path) -> Option<WhereClause> {
         let cube_type = prelude_type("CubeType");
-        let assign = prelude_type("Assign");
 
         let fields: Vec<_> = match &self.data {
             Data::Enum(variants) => variants
@@ -244,7 +247,7 @@ impl Assign {
         bounded_where_clause(
             &self.generics,
             fields,
-            |param| quote!(<#param as #cube_type>::ExpandType: #assign),
+            |param| quote!(<#param as #cube_type>::ExpandType: #trait_),
         )
     }
 }

@@ -3,10 +3,8 @@ use core::fmt::Debug;
 use alloc::vec::Vec;
 
 use cubecl_ir::{
-    Arithmetic, AtomicBinaryOperands, AtomicOp, BarrierOps, BinaryOperands, Bitwise, Branch,
-    Comparison, CoopMma, GlobalState, Instruction, Marker, Memory, Metadata, NonSemantic,
-    Operation, OperationReflect, Operator, Plane, Scope, TensorIndexingOps, TmaOps, UnaryOperands,
-    Variable,
+    Branch, CoopMma, GlobalState, Instruction, Marker, NonSemantic, Operation, OperationReflect,
+    Scope, TensorIndexingOps, TmaOps, Variable,
 };
 use derive_more::{Deref, DerefMut};
 
@@ -123,34 +121,23 @@ impl<T> Visitor<T> {
         }
 
         match op {
-            Operation::Copy(variable) => visit_read(self, variable),
-            Operation::WorkgroupUniformLoad(variable) => visit_read(self, variable),
-            Operation::Memory(memory) => self.visit_memory(memory, visit_read),
-            Operation::Arithmetic(arithmetic) => self.visit_arithmetic(arithmetic, visit_read),
-            Operation::Comparison(comparison) => self.visit_compare(comparison, visit_read),
-            Operation::Bitwise(bitwise) => self.visit_bitwise(bitwise, visit_read),
-            Operation::Operator(operator) => self.visit_operator(operator, visit_read),
-            Operation::Atomic(atomic) => self.visit_atomic(atomic, visit_read),
-            Operation::Metadata(meta) => self.visit_meta(meta, visit_read),
-            // Sync has no outputs
-            Operation::Synchronization(_) => {}
-            Operation::Plane(plane) => self.visit_plane(plane, visit_read),
+            Operation::Marker(Marker::Free(_)) => {}
             Operation::CoopMma(coop_mma) => self.visit_cmma(coop_mma, visit_read),
             Operation::Branch(branch) => self.visit_branch(branch, visit_read),
-            Operation::Barrier(barrier_ops) => self.visit_barrier(barrier_ops, visit_read),
             Operation::Tma(tma_ops) => self.visit_tma(tma_ops, visit_read),
             Operation::TensorIndexing(tensor_ops) => self.visit_tensor_ops(tensor_ops, visit_read),
             Operation::NonSemantic(non_semantic) => {
                 self.visit_nonsemantic(non_semantic, visit_read)
             }
-            Operation::Marker(Marker::Free(_)) => {}
-            Operation::Marker(Marker::DummyRead(variable)) => visit_read(self, variable),
-            Operation::ConstructAggregate(variables) => {
-                for variable in variables {
-                    visit_read(self, variable);
+            op => {
+                if let Some(args) = op.args_mut() {
+                    for arg in args {
+                        visit_read(self, arg);
+                    }
+                } else {
+                    panic!("Found op {op:?} which doesn't reflect. Needs special handling.");
                 }
             }
-            Operation::ExtractAggregateField(op) => visit_read(self, &mut op.aggregate),
         }
     }
 
@@ -170,252 +157,6 @@ impl<T> Visitor<T> {
                 visit_read(self, &mut range_loop.end);
             }
             Branch::Loop(_) | Branch::Return | Branch::Break | Branch::Unreachable => {}
-        }
-    }
-
-    /// Visit an operator with a set of read and write visitors. Each visitor will be called with
-    /// each read or written to variable.
-    pub fn visit_arithmetic(
-        &mut self,
-        op: &mut Arithmetic,
-        mut visit_read: impl FnMut(&mut T, &mut Variable),
-    ) {
-        match op {
-            Arithmetic::Fma(fma_operands) => {
-                visit_read(self, &mut fma_operands.a);
-                visit_read(self, &mut fma_operands.b);
-                visit_read(self, &mut fma_operands.c);
-            }
-            Arithmetic::Add(binary_operands)
-            | Arithmetic::SaturatingAdd(binary_operands)
-            | Arithmetic::Sub(binary_operands)
-            | Arithmetic::SaturatingSub(binary_operands)
-            | Arithmetic::Mul(binary_operands)
-            | Arithmetic::Div(binary_operands)
-            | Arithmetic::Powf(binary_operands)
-            | Arithmetic::Powi(binary_operands)
-            | Arithmetic::Hypot(binary_operands)
-            | Arithmetic::Rhypot(binary_operands)
-            | Arithmetic::ModFloor(binary_operands)
-            | Arithmetic::Max(binary_operands)
-            | Arithmetic::Min(binary_operands)
-            | Arithmetic::Rem(binary_operands)
-            | Arithmetic::Dot(binary_operands)
-            | Arithmetic::MulHi(binary_operands)
-            | Arithmetic::ArcTan2(binary_operands) => self.visit_binop(binary_operands, visit_read),
-
-            Arithmetic::Abs(unary_operands)
-            | Arithmetic::Exp(unary_operands)
-            | Arithmetic::Log(unary_operands)
-            | Arithmetic::Log1p(unary_operands)
-            | Arithmetic::Cos(unary_operands)
-            | Arithmetic::Sin(unary_operands)
-            | Arithmetic::Tan(unary_operands)
-            | Arithmetic::Tanh(unary_operands)
-            | Arithmetic::Sinh(unary_operands)
-            | Arithmetic::Cosh(unary_operands)
-            | Arithmetic::ArcCos(unary_operands)
-            | Arithmetic::ArcSin(unary_operands)
-            | Arithmetic::ArcTan(unary_operands)
-            | Arithmetic::ArcSinh(unary_operands)
-            | Arithmetic::ArcCosh(unary_operands)
-            | Arithmetic::ArcTanh(unary_operands)
-            | Arithmetic::Degrees(unary_operands)
-            | Arithmetic::Radians(unary_operands)
-            | Arithmetic::Sqrt(unary_operands)
-            | Arithmetic::InverseSqrt(unary_operands)
-            | Arithmetic::Round(unary_operands)
-            | Arithmetic::Floor(unary_operands)
-            | Arithmetic::Ceil(unary_operands)
-            | Arithmetic::Trunc(unary_operands)
-            | Arithmetic::Erf(unary_operands)
-            | Arithmetic::Recip(unary_operands)
-            | Arithmetic::Neg(unary_operands)
-            | Arithmetic::Magnitude(unary_operands)
-            | Arithmetic::Normalize(unary_operands)
-            | Arithmetic::VectorSum(unary_operands) => self.visit_unop(unary_operands, visit_read),
-
-            Arithmetic::Clamp(clamp_operands) => {
-                visit_read(self, &mut clamp_operands.input);
-                visit_read(self, &mut clamp_operands.min_value);
-                visit_read(self, &mut clamp_operands.max_value);
-            }
-        }
-    }
-
-    /// Visit an operator with a set of read and write visitors. Each visitor will be called with
-    /// each read or written to variable.
-    pub fn visit_compare(
-        &mut self,
-        op: &mut Comparison,
-        visit_read: impl FnMut(&mut T, &mut Variable),
-    ) {
-        match op {
-            Comparison::Equal(binary_operands)
-            | Comparison::NotEqual(binary_operands)
-            | Comparison::LowerEqual(binary_operands)
-            | Comparison::Greater(binary_operands)
-            | Comparison::Lower(binary_operands)
-            | Comparison::GreaterEqual(binary_operands) => {
-                self.visit_binop(binary_operands, visit_read)
-            }
-            Comparison::IsNan(unary_operands) | Comparison::IsInf(unary_operands) => {
-                self.visit_unop(unary_operands, visit_read)
-            }
-        }
-    }
-
-    /// Visit an operator with a set of read and write visitors. Each visitor will be called with
-    /// each read or written to variable.
-    pub fn visit_bitwise(
-        &mut self,
-        op: &mut Bitwise,
-        visit_read: impl FnMut(&mut T, &mut Variable),
-    ) {
-        match op {
-            Bitwise::BitwiseAnd(binary_operands)
-            | Bitwise::BitwiseOr(binary_operands)
-            | Bitwise::BitwiseXor(binary_operands)
-            | Bitwise::ShiftLeft(binary_operands)
-            | Bitwise::ShiftRight(binary_operands) => self.visit_binop(binary_operands, visit_read),
-
-            Bitwise::CountOnes(unary_operands)
-            | Bitwise::BitwiseNot(unary_operands)
-            | Bitwise::ReverseBits(unary_operands)
-            | Bitwise::LeadingZeros(unary_operands)
-            | Bitwise::TrailingZeros(unary_operands)
-            | Bitwise::FindFirstSet(unary_operands) => self.visit_unop(unary_operands, visit_read),
-        }
-    }
-
-    pub fn visit_memory(
-        &mut self,
-        memory: &mut Memory,
-        mut visit_read: impl FnMut(&mut T, &mut Variable),
-    ) {
-        match memory {
-            Memory::Reference(variable) => visit_read(self, variable),
-            Memory::Index(index_operands) => {
-                visit_read(self, &mut index_operands.list);
-                visit_read(self, &mut index_operands.index);
-            }
-            Memory::Load(variable) => {
-                visit_read(self, variable);
-            }
-            Memory::Store(op) => {
-                visit_read(self, &mut op.ptr);
-                visit_read(self, &mut op.value);
-            }
-            Memory::CopyMemory(op) => {
-                visit_read(self, &mut op.source);
-                visit_read(self, &mut op.target);
-            }
-        }
-    }
-
-    /// Visit an operator with a set of read and write visitors. Each visitor will be called with
-    /// each read or written to variable.
-    pub fn visit_operator(
-        &mut self,
-        op: &mut Operator,
-        mut visit_read: impl FnMut(&mut T, &mut Variable),
-    ) {
-        match op {
-            Operator::And(binary_operands)
-            | Operator::Or(binary_operands)
-            | Operator::ExtractComponent(binary_operands) => {
-                self.visit_binop(binary_operands, visit_read)
-            }
-            Operator::Not(unary_operands)
-            | Operator::Cast(unary_operands)
-            | Operator::Reinterpret(unary_operands) => self.visit_unop(unary_operands, visit_read),
-            Operator::InitVector(vector_init_operator) => {
-                for input in &mut vector_init_operator.inputs {
-                    visit_read(self, input)
-                }
-            }
-            Operator::InsertComponent(vector_insert_operands) => {
-                visit_read(self, &mut vector_insert_operands.vector);
-                visit_read(self, &mut vector_insert_operands.index);
-                visit_read(self, &mut vector_insert_operands.value);
-            }
-            Operator::Select(select_operands) => {
-                visit_read(self, &mut select_operands.cond);
-                visit_read(self, &mut select_operands.then);
-                visit_read(self, &mut select_operands.or_else);
-            }
-        }
-    }
-
-    fn visit_atomic(
-        &mut self,
-        atomic: &mut AtomicOp,
-        mut visit_read: impl FnMut(&mut T, &mut Variable),
-    ) {
-        match atomic {
-            AtomicOp::Add(atomic_binary_operands)
-            | AtomicOp::Sub(atomic_binary_operands)
-            | AtomicOp::Max(atomic_binary_operands)
-            | AtomicOp::Min(atomic_binary_operands)
-            | AtomicOp::And(atomic_binary_operands)
-            | AtomicOp::Or(atomic_binary_operands)
-            | AtomicOp::Xor(atomic_binary_operands)
-            | AtomicOp::Swap(atomic_binary_operands) => {
-                self.visit_atomic_binop(atomic_binary_operands, visit_read);
-            }
-            AtomicOp::Load(ptr) => {
-                visit_read(self, ptr);
-            }
-            AtomicOp::Store(store) => {
-                visit_read(self, &mut store.ptr);
-                visit_read(self, &mut store.value);
-            }
-            AtomicOp::CompareAndSwap(op) => {
-                visit_read(self, &mut op.cmp);
-                visit_read(self, &mut op.cmp);
-                visit_read(self, &mut op.val);
-            }
-        }
-    }
-    fn visit_meta(
-        &mut self,
-        metadata: &mut Metadata,
-        mut visit_read: impl FnMut(&mut T, &mut Variable),
-    ) {
-        match metadata {
-            Metadata::BufferLength { var } => {
-                visit_read(self, var);
-            }
-            Metadata::Stride { dim, var } => {
-                visit_read(self, dim);
-                visit_read(self, var);
-            }
-            Metadata::Shape { dim, var } => {
-                visit_read(self, dim);
-                visit_read(self, var);
-            }
-        }
-    }
-
-    fn visit_plane(&mut self, plane: &mut Plane, visit_read: impl FnMut(&mut T, &mut Variable)) {
-        match plane {
-            Plane::Elect => {}
-            Plane::Broadcast(binary_operands)
-            | Plane::Shuffle(binary_operands)
-            | Plane::ShuffleXor(binary_operands)
-            | Plane::ShuffleUp(binary_operands)
-            | Plane::ShuffleDown(binary_operands) => self.visit_binop(binary_operands, visit_read),
-            Plane::All(unary_operands)
-            | Plane::Any(unary_operands)
-            | Plane::Sum(unary_operands)
-            | Plane::InclusiveSum(unary_operands)
-            | Plane::ExclusiveSum(unary_operands)
-            | Plane::Prod(unary_operands)
-            | Plane::InclusiveProd(unary_operands)
-            | Plane::ExclusiveProd(unary_operands)
-            | Plane::Min(unary_operands)
-            | Plane::Max(unary_operands)
-            | Plane::Ballot(unary_operands) => self.visit_unop(unary_operands, visit_read),
         }
     }
 
@@ -525,133 +266,6 @@ impl<T> Visitor<T> {
         }
     }
 
-    fn visit_barrier(
-        &mut self,
-        barrier_ops: &mut BarrierOps,
-        mut visit_read: impl FnMut(&mut T, &mut Variable),
-    ) {
-        match barrier_ops {
-            BarrierOps::Declare { barrier } => visit_read(self, barrier),
-            BarrierOps::Init {
-                barrier,
-                is_elected,
-                arrival_count,
-                ..
-            } => {
-                visit_read(self, barrier);
-                visit_read(self, is_elected);
-                visit_read(self, arrival_count);
-            }
-            BarrierOps::InitManual {
-                barrier,
-                arrival_count,
-            } => {
-                visit_read(self, barrier);
-                visit_read(self, arrival_count);
-            }
-            BarrierOps::MemCopyAsync {
-                barrier,
-                source,
-                destination,
-                source_length,
-            } => {
-                visit_read(self, barrier);
-                visit_read(self, source_length);
-                visit_read(self, source);
-                visit_read(self, destination);
-            }
-            BarrierOps::MemCopyAsyncCooperative {
-                barrier,
-                source,
-                destination,
-                source_length,
-            } => {
-                visit_read(self, barrier);
-                visit_read(self, source_length);
-                visit_read(self, source);
-                visit_read(self, destination);
-            }
-            BarrierOps::CopyAsync {
-                source,
-                source_length,
-                destination,
-                ..
-            } => {
-                visit_read(self, source_length);
-                visit_read(self, source);
-                visit_read(self, destination);
-            }
-            BarrierOps::MemCopyAsyncTx {
-                barrier,
-                source,
-                destination,
-                source_length,
-            } => {
-                visit_read(self, barrier);
-                visit_read(self, source_length);
-                visit_read(self, source);
-                visit_read(self, destination);
-            }
-            BarrierOps::TmaLoad {
-                barrier,
-                tensor_map,
-                destination,
-                indices,
-            } => {
-                visit_read(self, barrier);
-                visit_read(self, tensor_map);
-                visit_read(self, destination);
-                for index in indices {
-                    visit_read(self, index);
-                }
-            }
-            BarrierOps::TmaLoadIm2col {
-                barrier,
-                tensor_map,
-                destination,
-                indices,
-                offsets,
-            } => {
-                visit_read(self, barrier);
-                visit_read(self, tensor_map);
-                visit_read(self, destination);
-                for index in indices {
-                    visit_read(self, index);
-                }
-                for offset in offsets {
-                    visit_read(self, offset);
-                }
-            }
-            BarrierOps::ArriveAndWait { barrier } => visit_read(self, barrier),
-            BarrierOps::Arrive { barrier } => visit_read(self, barrier),
-            BarrierOps::ArriveTx {
-                barrier,
-                arrive_count_update,
-                transaction_count_update,
-            } => {
-                visit_read(self, barrier);
-                visit_read(self, arrive_count_update);
-                visit_read(self, transaction_count_update);
-            }
-            BarrierOps::CommitCopyAsync { barrier } => visit_read(self, barrier),
-            BarrierOps::ExpectTx {
-                barrier,
-                transaction_count_update,
-            } => {
-                visit_read(self, barrier);
-                visit_read(self, transaction_count_update);
-            }
-            BarrierOps::Wait { barrier, token } => {
-                visit_read(self, barrier);
-                visit_read(self, token);
-            }
-            BarrierOps::WaitParity { barrier, phase } => {
-                visit_read(self, barrier);
-                visit_read(self, phase);
-            }
-        }
-    }
-
     fn visit_tma(
         &mut self,
         tma_ops: &mut TmaOps,
@@ -721,31 +335,5 @@ impl<T> Visitor<T> {
                 }
             }
         }
-    }
-
-    fn visit_unop(
-        &mut self,
-        unop: &mut UnaryOperands,
-        mut visit_read: impl FnMut(&mut T, &mut Variable),
-    ) {
-        visit_read(self, &mut unop.input);
-    }
-
-    fn visit_binop(
-        &mut self,
-        binop: &mut BinaryOperands,
-        mut visit_read: impl FnMut(&mut T, &mut Variable),
-    ) {
-        visit_read(self, &mut binop.lhs);
-        visit_read(self, &mut binop.rhs);
-    }
-
-    fn visit_atomic_binop(
-        &mut self,
-        binop: &mut AtomicBinaryOperands,
-        mut visit_read: impl FnMut(&mut T, &mut Variable),
-    ) {
-        visit_read(self, &mut binop.ptr);
-        visit_read(self, &mut binop.value);
     }
 }

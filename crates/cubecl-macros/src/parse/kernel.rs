@@ -361,7 +361,7 @@ impl KernelFn {
         let analysis =
             GenericAnalysis::from_generics(&sig.generics, args.explicit_define.is_present());
 
-        let mut context = Context::new(sig.returns.ty(), debug_symbols);
+        let mut context = Context::new(sig.returns.ty(), debug_symbols, false);
         context.extend(sig.parameters.clone());
 
         Desugar.visit_block_mut(&mut block);

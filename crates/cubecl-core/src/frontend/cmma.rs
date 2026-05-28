@@ -232,7 +232,6 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
-    #[allow(unused_variables)]
     pub unsafe fn uninitialized(
         #[comptime] ident: MatrixIdent,
         #[comptime] m: usize,
@@ -265,7 +264,6 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
-    #[allow(unused_variables)]
     pub fn from_value(
         #[comptime] ident: MatrixIdent,
         #[comptime] m: usize,
@@ -295,7 +293,6 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
-    #[allow(unused_variables)]
     pub fn from_slice(
         #[comptime] ident: MatrixIdent,
         #[comptime] m: usize,
@@ -328,7 +325,6 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
     /// Not all shapes are supported, and the permitted shapes depend on the element type.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
-    #[allow(unused_variables)]
     pub fn from_tensor(
         #[comptime] ident: MatrixIdent,
         #[comptime] m: usize,
@@ -359,7 +355,6 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     /// Use [`Self::vector_layout`] to check the correct data layout for each element.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
-    #[allow(unused_variables)]
     pub fn new(#[comptime] m: usize, #[comptime] n: usize, #[comptime] k: usize) -> Self {
         intrinsic!(|scope| {
             let a_type = A::__expand_as_type(scope).storage_type();
@@ -397,7 +392,6 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     /// Use [`Self::vector_layout`] to check the correct data layout for each element.
     ///
     /// Refer to [nvidia documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#element-types-and-matrix-sizes).
-    #[allow(unused_variables)]
     pub fn new_scaled<S: CubePrimitive>(
         #[comptime] m: usize,
         #[comptime] n: usize,
@@ -487,7 +481,6 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
 
     /// Number of elements in each vector passed to the execute function. Represents the maximum
     /// number of contiguous elements held by the thread.
-    #[allow(unused_variables)]
     pub fn vector_size(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(VectorSize) {
         intrinsic!(|scope| {
             let storage = match ident {
@@ -520,7 +513,6 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     /// # Note
     /// "Lane" here refers to the unit relative to a plane, to distinguish it from a unit relative
     /// to a cube.
-    #[allow(unused_variables)]
     pub fn position_of_nth(
         &self,
         lane_id: u32,
@@ -616,7 +608,6 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     /// # Constraints:
     /// Address must be aligned to 16 bytes
     /// Address must be in shared memory
-    #[allow(unused_variables)]
     pub fn load_matrix<E: CubePrimitive, NO: Size>(
         &self,
         row: &[E],
@@ -640,7 +631,6 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         })
     }
 
-    #[allow(unused_variables)]
     pub fn load_matrix_inplace<E: Scalar, N: Size>(
         &self,
         row: &[E],
@@ -675,7 +665,6 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     /// # Constraints:
     /// Address must be aligned to 16 bytes
     /// Address must be in shared memory
-    #[allow(unused_variables)]
     pub fn store_matrix<E: CubePrimitive, N: Size>(
         &self,
         row: &mut [E],
@@ -884,7 +873,6 @@ pub mod load {
     use super::*;
 
     /// Expand method of [`load()`].
-    #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
         scope: &Scope,
         mat: &mut MatrixExpand<C, S>,
@@ -925,7 +913,6 @@ pub mod load_tensor {
     use super::*;
 
     /// Expand method of [`load()`].
-    #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, V: CubePrimitive, S: MatrixScope>(
         scope: &Scope,
         mat: &mut MatrixExpand<C, S>,
@@ -969,7 +956,6 @@ pub mod load_with_layout {
     use super::*;
 
     /// Expand method of [`load_with_layout()`].
-    #[allow(unused_variables)]
     pub fn expand<C: CubeType, V: CubePrimitive, S: MatrixScope>(
         scope: &Scope,
         mat: &mut MatrixExpand<C, S>,
@@ -1007,7 +993,6 @@ pub mod store {
     use super::*;
 
     /// Expand method of [`store()`].
-    #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
         scope: &Scope,
         output: &mut SliceExpand<O>,
@@ -1042,7 +1027,6 @@ pub mod store_tensor {
     use super::*;
 
     /// Expand method of [`store()`].
-    #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
         scope: &Scope,
         output: &mut TensorViewExpand<O>,
@@ -1122,7 +1106,6 @@ pub mod cast {
     use super::*;
 
     /// Expand method of [`cast()`].
-    #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
         scope: &Scope,
         input: &MatrixExpand<C, S>,
@@ -1182,7 +1165,6 @@ pub mod cast_with_ident {
     use super::*;
 
     /// Expand method of [`cast()`].
-    #[allow(unused_variables)]
     pub fn expand<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
         scope: &Scope,
         input: MatrixExpand<C, S>,

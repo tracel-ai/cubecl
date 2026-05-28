@@ -53,10 +53,11 @@ pub struct Context {
     level: usize,
     mut_scope_idx: usize,
     pub debug_symbols: bool,
+    pub is_intrinsic: bool,
 }
 
 impl Context {
-    pub fn new(return_type: Type, debug_symbols: bool) -> Self {
+    pub fn new(return_type: Type, debug_symbols: bool, is_intrinsic: bool) -> Self {
         let mut root_scope = ManagedScope::default();
         root_scope.extend(KEYWORDS.iter().map(|it| {
             let name = format_ident!("{it}");
@@ -77,6 +78,7 @@ impl Context {
             level: 0,
             mut_scope_idx: 0,
             debug_symbols,
+            is_intrinsic,
         }
     }
 

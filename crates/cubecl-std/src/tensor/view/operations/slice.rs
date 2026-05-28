@@ -157,8 +157,8 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T> {
         pos: NativeExpand<usize>,
         value: <T>::ExpandType,
     ) {
-        let mut this = self.clone_unchecked();
-        this.__expand_index_mut_method(scope, pos)
+        self.__expand_as_mut_unchecked_method(scope)
+            .__expand_index_mut_method(scope, pos)
             .__expand_assign_method(scope, value);
     }
 
@@ -168,11 +168,11 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T> {
         pos: NativeExpand<usize>,
         value: <T>::ExpandType,
     ) {
-        let mut this = self.clone_unchecked();
         let len = <Self as ListExpand<T>>::__expand_len_method(self, scope);
         let in_bounds = pos.__expand_lt_method(scope, &len);
         if_expand(scope, in_bounds, |scope| {
-            this.__expand_index_mut_method(scope, pos)
+            self.__expand_as_mut_unchecked_method(scope)
+                .__expand_index_mut_method(scope, pos)
                 .__expand_assign_method(scope, value)
         })
     }
@@ -188,12 +188,12 @@ impl<T: CubePrimitive> ViewOperationsMutExpand<T, Coords1d> for SliceExpand<T> {
         // Handling for shapes that are 0 in at least one dim, ensures the slice is not
         // negative length.
         let start = clamp_max::expand(scope, pos, end);
-        let mut this = self.clone_unchecked();
-        let slice = <Self as SliceOperatorExpand<T>>::__expand_slice_mut_method(
-            &mut this, scope, start, end,
-        );
-        // Slices are internally references, so this is actually 'a
-        unsafe { core::mem::transmute(slice) }
+        <Self as SliceOperatorExpand<T>>::__expand_slice_mut_method(
+            self.__expand_as_mut_unchecked_method(scope),
+            scope,
+            start,
+            end,
+        )
     }
 
     fn __expand_tensor_map_store_method(

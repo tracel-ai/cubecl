@@ -1,11 +1,13 @@
 use cubecl_core::{
     WgpuCompilationOptions,
     ir::{AddressType, UIntKind},
+    prelude::Visibility,
+    server::KernelArguments,
 };
 use cubecl_cpp::{
     DialectWmmaCompiler,
     metal::{MslDialect, arch::MetalArchitecture},
-    shared::register_wmma_features,
+    shared::{MslComputeKernel, register_wmma_features},
 };
 use cubecl_ir::{
     DeviceProperties, Type,
@@ -15,6 +17,24 @@ use wgpu::{
     DeviceDescriptor, Features, Limits,
     hal::{self, Adapter, metal},
 };
+
+pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> (Vec<Visibility>, usize) {
+    let buffers = repr.buffers.iter().map(|it| {
+        // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
+        // and since we can't be sure, we'll assume everything is read-write.
+        if cfg!(exclusive_memory_only) {
+            it.vis
+        } else {
+            Visibility::ReadWrite
+        }
+    });
+    let uniform = args.info.dynamic_metadata_offset >= args.info.data.len();
+    let info_vis = (!args.info.data.is_empty()).then_some(match uniform {
+        true => Visibility::Uniform,
+        false => Visibility::Read,
+    });
+    (buffers.chain(info_vis).collect(), 0)
+}
 
 pub async fn request_metal_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
     let limits = adapter.limits();

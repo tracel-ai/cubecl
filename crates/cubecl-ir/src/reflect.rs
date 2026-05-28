@@ -17,6 +17,9 @@ pub trait OperationReflect: Sized {
     fn args(&self) -> Option<Vec<Variable>> {
         None
     }
+    fn args_mut(&mut self) -> Option<Vec<&mut Variable>> {
+        None
+    }
     /// Create typed operation from an opcode and a list of arguments. Returns `None` if not all
     /// arguments are [`Variable`].
     #[allow(unused)]
@@ -65,6 +68,12 @@ pub trait OperationArgs: Sized {
         None
     }
 
+    /// Turns this type into a flat list of arguments. If not all arguments are [`Variable`],
+    /// returns `None`
+    fn as_args_mut(&mut self) -> Option<Vec<&mut Variable>> {
+        None
+    }
+
     fn read_pointers(&self) -> Vec<Variable> {
         Vec::new()
     }
@@ -86,11 +95,21 @@ impl OperationArgs for Variable {
     fn as_args(&self) -> Option<Vec<Variable>> {
         Some(vec![*self])
     }
+
+    fn as_args_mut(&mut self) -> Option<Vec<&mut Variable>> {
+        Some(vec![self])
+    }
 }
 
 impl<T: OperationArgs> OperationArgs for Vec<T> {
     fn sanitize_args_ptr(&mut self, scope: &Scope) {
         self.iter_mut().for_each(|it| it.sanitize_args_ptr(scope));
+    }
+
+    fn as_args_mut(&mut self) -> Option<Vec<&mut Variable>> {
+        let inner = self.iter_mut().map(|it| it.as_args_mut());
+        let inner = inner.collect::<Option<Vec<_>>>()?;
+        Some(inner.into_iter().flatten().collect())
     }
 }
 
@@ -99,6 +118,10 @@ impl<T: OperationArgs> OperationArgs for Option<T> {
         if let Some(it) = self.as_mut() {
             it.sanitize_args_ptr(scope)
         }
+    }
+
+    fn as_args_mut(&mut self) -> Option<Vec<&mut Variable>> {
+        self.as_mut().and_then(|inner| inner.as_args_mut())
     }
 }
 
@@ -119,6 +142,7 @@ pub trait FromArgList: Sized {
     fn from_arg_list(args: &mut VecDeque<Variable>) -> Self;
     /// Turns this type into a list of [`Variable`]s.
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable>;
+    fn as_arg_list_mut(&mut self) -> impl IntoIterator<Item = &mut Variable>;
 }
 
 impl FromArgList for Variable {
@@ -129,6 +153,10 @@ impl FromArgList for Variable {
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
         [*self]
     }
+
+    fn as_arg_list_mut(&mut self) -> impl IntoIterator<Item = &mut Variable> {
+        [self]
+    }
 }
 
 impl FromArgList for Vec<Variable> {
@@ -138,6 +166,10 @@ impl FromArgList for Vec<Variable> {
 
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
         self.iter().cloned()
+    }
+
+    fn as_arg_list_mut(&mut self) -> impl IntoIterator<Item = &mut Variable> {
+        self.iter_mut()
     }
 }
 
@@ -153,6 +185,10 @@ impl FromArgList for bool {
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
         [(*self).into()]
     }
+
+    fn as_arg_list_mut(&mut self) -> impl IntoIterator<Item = &mut Variable> {
+        []
+    }
 }
 
 impl FromArgList for u32 {
@@ -167,6 +203,10 @@ impl FromArgList for u32 {
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
         [(*self).into()]
     }
+
+    fn as_arg_list_mut(&mut self) -> impl IntoIterator<Item = &mut Variable> {
+        []
+    }
 }
 
 impl FromArgList for usize {
@@ -180,6 +220,10 @@ impl FromArgList for usize {
 
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
         [(*self).into()]
+    }
+
+    fn as_arg_list_mut(&mut self) -> impl IntoIterator<Item = &mut Variable> {
+        []
     }
 }
 

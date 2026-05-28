@@ -4,7 +4,6 @@ use cubecl::prelude::*;
 use cubecl_macros::intrinsic;
 
 #[cube]
-#[allow(unused_variables)]
 /// Push a validation error that will make the kernel compilation to fail.
 ///
 /// # Notes
