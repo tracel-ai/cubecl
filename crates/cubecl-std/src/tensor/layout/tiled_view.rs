@@ -218,5 +218,5 @@ impl ViewLayoutLaunchArg for TiledViewLayout {
 }
 
 /// View type alias for a tiled buffer seen through its logical coordinates.
-pub type TiledView<E, IO = cubecl_core::prelude::ReadOnly> = View<E, CoordsDyn, IO>;
+pub type TiledView<'a, E> = View<'a, E, CoordsDyn>;
 pub type TiledViewLaunch<R> = ViewArg<CoordsDyn, R>;
