@@ -111,7 +111,6 @@ impl<R: Runtime> BufferBinding<R> {
             handle: self.handle,
             strides: [1].into(),
             shape,
-            tiler: None,
             runtime: PhantomData,
         }
     }

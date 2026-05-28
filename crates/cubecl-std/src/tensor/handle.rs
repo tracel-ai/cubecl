@@ -104,10 +104,8 @@ where
     }
 
     pub fn binding(self) -> TensorBinding<R> {
-        let tiler = self.metadata.tiler.clone();
         unsafe {
             TensorBinding::from_raw_parts(self.handle, self.metadata.strides, self.metadata.shape)
-                .with_tiler(tiler)
         }
     }
 

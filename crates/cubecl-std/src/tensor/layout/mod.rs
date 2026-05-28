@@ -16,5 +16,4 @@ pub mod plain;
 pub mod simple;
 pub mod slice;
 pub mod strided;
-pub mod tiled;
-pub mod tiled_tensor;
+pub mod tiled_view;

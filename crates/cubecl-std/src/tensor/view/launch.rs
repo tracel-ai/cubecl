@@ -18,7 +18,7 @@ mod layout {
         prelude::*,
         zspace::{
             Shape, Strides,
-            metadata::{Metadata, Tiler},
+            metadata::Metadata,
         },
     };
 
@@ -31,11 +31,6 @@ mod layout {
         fn len(&self) -> usize;
         fn shape(&self) -> &[usize];
         fn strides(&self) -> &[usize];
-        /// Tiler metadata describing this buffer as the rank-expanded result
-        /// of [`Metadata::to_tiled`]. Default `None` — only tensor-y args carry one.
-        fn tiler(&self) -> Option<&Tiler> {
-            None
-        }
     }
 
     impl<R: Runtime> MemoryArg for TensorArg<R> {
@@ -49,10 +44,6 @@ mod layout {
 
         fn strides(&self) -> &[usize] {
             self.strides()
-        }
-
-        fn tiler(&self) -> Option<&Tiler> {
-            self.tiler()
         }
     }
     impl<R: Runtime> MemoryArg for BufferArg<R> {
@@ -80,10 +71,6 @@ mod layout {
         fn strides(&self) -> &[usize] {
             self.tensor.strides()
         }
-
-        fn tiler(&self) -> Option<&Tiler> {
-            self.tensor.tiler()
-        }
     }
 
     impl MemoryArg for Metadata {
@@ -97,10 +84,6 @@ mod layout {
 
         fn strides(&self) -> &[usize] {
             &self.strides
-        }
-
-        fn tiler(&self) -> Option<&Tiler> {
-            self.tiler.as_ref()
         }
     }
 
@@ -327,7 +310,6 @@ mod layout {
                 meta: Metadata {
                     shape: handle.shape.clone(),
                     strides: handle.strides.clone(),
-                    tiler: handle.tiler.clone(),
                 },
                 ty,
                 value,
@@ -344,7 +326,6 @@ mod layout {
                 meta: Metadata {
                     shape,
                     strides,
-                    tiler: None,
                 },
                 ty,
                 value,
