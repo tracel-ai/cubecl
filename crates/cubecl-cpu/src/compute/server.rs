@@ -272,6 +272,10 @@ impl ComputeServer for CpuServer {
         Ok(stream.memory_management.memory_usage())
     }
 
+    fn stream_ids(&self) -> Vec<StreamId> {
+        self.scheduler.stream_ids().collect()
+    }
+
     fn memory_cleanup(&mut self, stream_id: StreamId) {
         let stream = self.scheduler.stream(&stream_id);
         stream.memory_management.cleanup(true)

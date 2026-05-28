@@ -199,6 +199,11 @@ impl<B: EventStreamBackend> MultiStream<B> {
         }
     }
 
+    /// Synthetic [`StreamId`]s, one per initialized stream (see [`StreamPool::stream_ids`]).
+    pub fn stream_ids(&self) -> impl Iterator<Item = StreamId> + '_ {
+        self.streams.stream_ids()
+    }
+
     /// Enqueue a task to be cleaned.
     pub fn gc(&mut self, gc: GcTask<B>) {
         self.gc.sender.send(gc).unwrap();

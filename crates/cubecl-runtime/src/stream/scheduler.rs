@@ -119,6 +119,11 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         self.pool.streams().map(|s| &s.stream)
     }
 
+    /// Synthetic [`StreamId`]s, one per initialized stream (see [`StreamPool::stream_ids`]).
+    pub fn stream_ids(&self) -> impl Iterator<Item = StreamId> + '_ {
+        self.pool.stream_ids()
+    }
+
     /// Registers a task for execution on a specific stream, ensuring stream alignment.
     pub fn register(&mut self, stream_id: StreamId, task: B::Task, args_streams: &[StreamId]) {
         // Align streams to ensure dependencies are handled correctly.
