@@ -1,9 +1,4 @@
 use alloc::{vec, vec::Vec};
-use cubecl_zspace::{
-    Shape, SmallVec, Strides,
-    metadata::{Metadata, Tiler},
-    striding::row_major_contiguous_strides,
-};
 
 use crate as cubecl;
 
@@ -279,46 +274,6 @@ pub fn test_buffer_len_offset<R: Runtime>(client: ComputeClient<R>, addr_type: A
     assert_eq!(actual[0], 64);
 }
 
-pub fn test_to_tiled_should_return_physical_layout() {
-    let shape = Shape::new([5, 10, 22, 12, 7]);
-
-    let strides = row_major_contiguous_strides(shape.clone());
-    let metadata = Metadata::new(shape, strides);
-
-    let tile_size = [2, 2, 4];
-    let tiled_metadata = metadata.to_tiled(1, &tile_size);
-
-    let expected_metadata = Metadata {
-        shape: Shape::new([5, 5, 11, 3, 2, 2, 4, 7]),
-        strides: Strides::new(&[18480, 3696, 336, 112, 56, 28, 7, 1]),
-        tiler: Some(Tiler {
-            start_axis: 1,
-            tile_size: SmallVec::from_slice(&tile_size),
-        }),
-    };
-
-    assert_eq!(
-        tiled_metadata, expected_metadata,
-        "expected metadata should be equal to tiled_metadata"
-    );
-}
-
-pub fn test_roundtrip_tiled() {
-    let shape = Shape::new([5, 10, 22, 12, 7]);
-
-    let strides = row_major_contiguous_strides(shape.clone());
-    let metadata = Metadata::new(shape.clone(), strides);
-
-    let tile_size = [2, 2, 4];
-    let tiled_metadata = metadata.to_tiled(1, &tile_size);
-
-    let semantic_shape = tiled_metadata.semantic_shape();
-    assert_eq!(
-        shape, semantic_shape,
-        "semantic_shape should be equal to shape"
-    );
-}
-
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_metadata {
@@ -410,16 +365,6 @@ macro_rules! testgen_metadata {
                     client,
                     AddressType::U64,
                 );
-            }
-
-            #[$crate::runtime_tests::test_log::test]
-            fn test_to_tiled_layout() {
-                cubecl_core::runtime_tests::metadata::test_to_tiled_should_return_physical_layout();
-            }
-
-            #[$crate::runtime_tests::test_log::test]
-            fn test_to_tiled_roundtrip() {
-                cubecl_core::runtime_tests::metadata::test_roundtrip_tiled();
             }
         }
     };

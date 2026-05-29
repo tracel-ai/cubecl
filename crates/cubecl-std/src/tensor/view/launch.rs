@@ -306,7 +306,6 @@ mod layout {
                 meta: Metadata {
                     shape: handle.shape.clone(),
                     strides: handle.strides.clone(),
-                    tiler: None,
                 },
                 ty,
                 value,
@@ -320,11 +319,7 @@ mod layout {
             value: L::RuntimeArg<R>,
         ) -> Self {
             Self {
-                meta: Metadata {
-                    shape,
-                    strides,
-                    tiler: None,
-                },
+                meta: Metadata { shape, strides },
                 ty,
                 value,
             }
