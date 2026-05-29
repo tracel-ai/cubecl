@@ -366,11 +366,19 @@ impl ServerCommunication for CudaServer {
             .get(&CommunicationId::from(device_ids))
             .expect("Communicator for this ID should be initialized");
 
+        println!("cuda server dtype: {dtype}");
+        println!("cuda server size: {}", resource_src.size);
+        // println!("cuda server dst dtype: {}", resource_dst);
+        println!("cuda server dst size: {}", resource_dst.size);
+
         // Perform the `cudarc::nccl::result::all_reduce` operation.
         let (nccl_dtype, count) = get_nccl_dtype_count(dtype, resource_src.size);
         // SAFETY: `resource_src.ptr` and `resource_dst.ptr` are valid device pointers.
         // `comm` is a valid NCCL communicator initialized via `comm_init_rank`.
         // `self.comm_stream` is a valid CUDA stream dedicated to collective operations.
+
+        println!("cuda server nccl_dtype: {:?}", nccl_dtype);
+        println!("cuda server nccl_count: {}", count);
 
         unsafe {
             cudarc::nccl::result::all_reduce(
