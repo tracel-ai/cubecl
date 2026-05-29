@@ -96,6 +96,7 @@ impl ComputeServer for CudaServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
+        println!("cuda server read");
         match self.command(
             stream_id,
             descriptors.iter().map(|d| &d.handle),

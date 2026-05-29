@@ -1,3 +1,5 @@
+use std::println;
+
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
@@ -100,6 +102,7 @@ impl<R: Runtime> ComputeClient<R> {
 
     fn do_read(&self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         let stream_id = self.stream_id();
+        println!("do_read");
         self.device
             .submit_blocking(move |server| server.read(descriptors, stream_id))
             .unwrap()
@@ -178,6 +181,7 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         descriptor: CopyDescriptor,
     ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
+        println!("read one cubecl: {descriptor:?}");
         let fut = self.read_tensor_async(vec![descriptor]);
 
         async { Ok(fut.await?.remove(0)) }

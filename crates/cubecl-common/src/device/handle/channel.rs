@@ -12,6 +12,7 @@ use std::{
     cell::RefCell,
     marker::PhantomData,
     panic::{AssertUnwindSafe, catch_unwind},
+    println,
 };
 
 use custom_channel::DeviceClient;
@@ -75,8 +76,10 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for ChannelDeviceHandle<S> 
         &self,
         task: T,
     ) -> Result<R, CallError> {
+        println!("in submit blocking");
         let state = self.state.service.clone();
         let current = StreamId::current();
+        println!("current: {current}");
         self.run_scoped(move || {
             state.act_on(|s| {
                 let s = s
@@ -159,6 +162,9 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
                 // `Option::take` flips `*slot` to `None`, keeping drop
                 // correct if the shim ran, panicked, or was never enqueued.
                 let f = unsafe { (*(ptr.0 as *mut Option<W>)).take().unwrap_unchecked() };
+
+                println!("shim calling fn");
+
                 f()
             }
         }
@@ -168,7 +174,25 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         let mut slot = Some(move || sender.send(task()).unwrap());
         // Send the erased shim to the device thread.
         self.send::<_, SEND_FLUSH>(create_shim(&mut slot))?;
-        recv.recv().map_err(|_| CallError)
+
+        println!("sent");
+
+        // let mut result = None;
+        // loop {
+        //     let tmp = recv.try_recv();
+        //     match tmp {
+        //         Ok(res) => {
+        //             result = Some(res);
+        //             break;
+        //         }
+        //         Err(oneshot::TryRecvError::Empty) => continue,
+        //         Err(err) => panic!("ERROROOROOROOR"),
+        //     }
+        // }
+        let result = recv.recv().map_err(|_| CallError);
+        println!("received");
+        // Ok(result.unwrap())
+        result
     }
 
     /// Dispatches a task to the runner.
@@ -185,12 +209,16 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
                 return Err(CallError);
             }
         } else {
+            println!("enqueue");
             self.state.client.enqueue(task)?;
 
             // We use const boolean to avoid branching in a hot loop.
             if FLUSH {
+                println!("flush");
                 self.state.client.flush();
             }
+
+            println!("finished");
         };
 
         Ok(())
@@ -580,7 +608,7 @@ mod custom_channel {
         sync::atomic::{AtomicPtr, AtomicU32, Ordering},
         time::Duration,
     };
-    use std::{sync::Arc, vec::Vec};
+    use std::{println, sync::Arc, vec::Vec};
 
     /// Maximum number of [`Task`] that can be queued.
     pub const CHANNEL_MAX_TASK: usize = 32;
@@ -656,14 +684,19 @@ mod custom_channel {
         pub fn enqueue<F: FnOnce() + Send + 'static>(&self, func: F) -> Result<(), CallError> {
             let mut idle_count: u32 = 0;
             loop {
+                println!("enqueue fetch_add");
                 let index = self.state.available_index.fetch_add(1, Ordering::Acquire) as usize;
+                println!("enqueue fetch_add end");
                 if index >= CHANNEL_MAX_TASK {
                     // The queue is full; back off until the server flushes/swaps buffers.
                     if idle_count < SPIN_BUDGET_CLIENT {
+                        println!("enqueue spin_loop");
                         spin_loop();
                     } else if idle_count < SPIN_BUDGET_CLIENT + YIELD_BUDGET_CLIENT {
+                        println!("enqueue yield");
                         std::thread::yield_now();
                     } else {
+                        println!("enqueue sleep");
                         std::thread::sleep(SLEEP_STEP_CLIENT);
                     }
                     idle_count = idle_count.saturating_add(1);
@@ -671,7 +704,13 @@ mod custom_channel {
                 }
 
                 self.state.init_task_at(index, func);
+                println!("enqueue fetch_add2");
                 self.state.enqueued_count.fetch_add(1, Ordering::SeqCst);
+                println!(
+                    "enqueued count: {}",
+                    self.state.enqueued_count.load(Ordering::SeqCst)
+                );
+                println!("enqueue fetch_add2 end");
                 return Ok(());
             }
         }
@@ -682,6 +721,9 @@ mod custom_channel {
                 self.state
                     .available_index
                     .fetch_add(CHANNEL_MAX_TASK as u32, Ordering::Acquire) as usize;
+
+            println!("index_start: {index_start}");
+            println!("max_tasks: {CHANNEL_MAX_TASK}");
 
             // The queue is already flushed.
             if index_start >= CHANNEL_MAX_TASK {
@@ -703,6 +745,10 @@ mod custom_channel {
             self.state
                 .enqueued_count
                 .fetch_add(actual_added as u32, Ordering::SeqCst);
+            println!(
+                "enqueued count: {}",
+                self.state.enqueued_count.load(Ordering::SeqCst)
+            );
         }
     }
 
@@ -793,7 +839,12 @@ mod custom_channel {
                     idle_count = 0;
                 }
 
+                println!("loop load");
                 let queue_size = self.state.enqueued_count.load(Ordering::Acquire) as usize;
+                println!("loop load end");
+
+                println!("queue_size: {queue_size}");
+                println!("idle_count: {idle_count}");
 
                 if queue_size >= CHANNEL_MAX_TASK {
                     self.fetch();
@@ -802,17 +853,25 @@ mod custom_channel {
                 }
 
                 if idle_count < SPIN_BUDGET_SERVER {
+                    println!("loop spinloop");
                     spin_loop();
                 } else if idle_count < SPIN_BUDGET_SERVER + YIELD_BUDGET_SERVER {
+                    println!("loop yield");
                     std::thread::yield_now();
                 } else {
+                    println!("loop sleep");
                     std::thread::sleep(SLEEP_STEP_SERVER);
                 }
+                println!("idle add");
+
                 idle_count = idle_count.saturating_add(1);
+                println!("idle add end");
             }
         }
 
         fn execute_tasks(&mut self) {
+            println!("execute tasks");
+
             let server_buf = 1 - self.client_buf;
             for task in &mut self.buffers[server_buf].tasks {
                 task.run();
@@ -823,6 +882,7 @@ mod custom_channel {
         /// Swaps the client and server buffers, allowing the client to start
         /// filling the next buffer while the server processes the current one.
         fn fetch(&mut self) {
+            println!("server fetch");
             self.client_buf = 1 - self.client_buf;
 
             self.state.queue_ptr.store(
