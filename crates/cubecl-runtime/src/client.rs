@@ -1,3 +1,5 @@
+use std::println;
+
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
@@ -458,6 +460,8 @@ impl<R: Runtime> ComputeClient<R> {
     ) -> Result<Vec<MemoryLayout>, IoError> {
         let stream_id = self.stream_id();
         let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
+
+        println!("do_empty base size: {}", handle_base.size());
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
