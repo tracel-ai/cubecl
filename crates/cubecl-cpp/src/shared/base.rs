@@ -1585,7 +1585,9 @@ impl<D: Dialect> CppCompiler<D> {
             }),
             // Needs special conversion semantics
             gpu::Operator::Cast(op)
-                if (is_fp4_fp6_fp8(op.input.elem_type()) || is_fp4_fp6_fp8(out.elem_type()))
+                if (is_fp4_fp6_fp8(op.input.elem_type())
+                    || is_fp4_fp6_fp8(out.elem_type())
+                    || is_f16_bf16_cross(op.input.elem_type(), out.elem_type()))
                 // Trivial broadcast shouldn't use special cast logic
                     && op.input.elem_type() != out.elem_type() =>
             {
@@ -2078,6 +2080,19 @@ fn is_fp4_fp6_fp8(elem: gpu::ElemType) -> bool {
         ),
         _ => false,
     }
+}
+
+/// CUDA has no direct `__nv_bfloat16(__half)` / `__nv_bfloat162(__half2)` constructor,
+/// so F16 ↔ BF16 casts must route through `special_cast` (which round-trips via F32).
+/// A naive `Instruction::Assign` would emit an invalid constructor call.
+fn is_f16_bf16_cross(a: gpu::ElemType, b: gpu::ElemType) -> bool {
+    let is_half_or_bhalf = |e: gpu::ElemType| {
+        matches!(
+            e,
+            gpu::ElemType::Float(FloatKind::F16) | gpu::ElemType::Float(FloatKind::BF16)
+        )
+    };
+    is_half_or_bhalf(a) && is_half_or_bhalf(b) && a != b
 }
 
 fn const_u32<D: Dialect>(value: u32) -> Variable<D> {

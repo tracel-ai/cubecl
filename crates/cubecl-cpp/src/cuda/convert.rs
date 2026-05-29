@@ -127,6 +127,10 @@ pub(crate) fn special_cast<D: Dialect>(
         return cast_to_fp8(f, current_in, *out);
     }
 
+    if matches!(current_in.elem(), Elem::F16) && matches!(out.elem(), Elem::BF16) {
+        return cast_half_to_bfloat(f, current_in, *out);
+    }
+
     if current_in.item() != out.item() {
         let assign = Instruction::Assign(UnaryInstruction {
             input: current_in,
@@ -136,6 +140,30 @@ pub(crate) fn special_cast<D: Dialect>(
     }
 
     Ok(())
+}
+
+/// Convert f16 to bf16. CUDA has no direct constructor between them, so we
+/// round-trip through f32 using the native CUDA intrinsics.
+fn cast_half_to_bfloat<D: Dialect>(
+    f: &mut fmt::Formatter,
+    input: Variable<D>,
+    out: Variable<D>,
+) -> fmt::Result {
+    let in_opt = input.optimized();
+    let out_opt = out.optimized().item();
+
+    handle_unroll(f, out, |f, i| {
+        let input = in_opt.index(i);
+        match out_opt.elem() {
+            Elem::BF16x2 => {
+                write!(f, "__float22bfloat162_rn(__half22float2({input}))")
+            }
+            Elem::BF16 => {
+                write!(f, "__float2bfloat16_rn(__half2float({input}))")
+            }
+            _ => unreachable!("cast_half_to_bfloat: out type must be bf16/bf16x2"),
+        }
+    })
 }
 
 /// Convert any float to fp4/fp6, with round to nearest
