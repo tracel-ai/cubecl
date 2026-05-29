@@ -14,6 +14,8 @@ use cubecl_runtime::{
 use std::{fmt::Debug, sync::Arc};
 use sysinfo::System;
 
+pub mod tests;
+
 /// The kernel runner is responsible to manage shared memory as well as threads to execute kernels.
 ///
 /// A single kernel runner is currently used for all kernels.
@@ -89,11 +91,6 @@ impl Threadpool {
         cube_count: [u32; 3],
     ) -> Notifications {
         let cube_dim_size = cube_dim.num_elems();
-
-        if cube_dim_size > self.workers.len() as u32 {
-            self.workers
-                .extend((0..cube_dim_size - self.workers.len() as u32).map(|_| Worker::new()));
-        }
 
         let mlir_data = MlirData::new(
             resources,
