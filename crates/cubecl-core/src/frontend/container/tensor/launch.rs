@@ -196,7 +196,6 @@ impl<R: Runtime> TensorArg<R> {
             TensorArg::Alias { strides, .. } => strides,
         }
     }
-
 }
 
 impl<R: Runtime> TensorArg<R> {

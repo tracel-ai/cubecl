@@ -15,10 +15,7 @@ mod layout {
         format::DebugRaw,
         hash::{StableHash, StableHasher},
         prelude::*,
-        zspace::{
-            Shape, Strides,
-            metadata::Metadata,
-        },
+        zspace::{Shape, Strides, metadata::Metadata},
     };
 
     use crate::tensor::layout::LayoutExpand;
@@ -322,10 +319,7 @@ mod layout {
             value: L::RuntimeArg<R>,
         ) -> Self {
             Self {
-                meta: Metadata {
-                    shape,
-                    strides,
-                },
+                meta: Metadata { shape, strides },
                 ty,
                 value,
             }

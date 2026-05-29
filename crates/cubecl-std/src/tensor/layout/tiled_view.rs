@@ -79,7 +79,8 @@ impl Layout for TiledLayout {
                 if comptime!(k == 0) {
                     physical.push(digit);
                 } else {
-                    physical.push(digit % self.physical_shape[comptime!(self.start_axis + k * n + i)]);
+                    physical
+                        .push(digit % self.physical_shape[comptime!(self.start_axis + k * n + i)]);
                 }
             }
         }

@@ -93,5 +93,4 @@ impl Metadata {
         self.shape.push(shape);
         self.strides.push(stride);
     }
-
 }
