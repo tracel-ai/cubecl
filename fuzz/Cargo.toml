@@ -1,0 +1,23 @@
+[package]
+name = "cubecl-fuzz-targets"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+proc-macro2 = "1"
+cubecl-macros-core = { path = "../crates/cubecl-macros-core" }
+
+[[bin]]
+name = "cube_macro"
+path = "fuzz_targets/cube_macro.rs"
+test = false
+doc = false
+bench = false
+
+# Detached from the parent workspace so libfuzzer's nightly/sanitizer profile stays isolated.
+[workspace]
