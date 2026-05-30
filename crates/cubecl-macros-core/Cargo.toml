@@ -1,0 +1,40 @@
+[package]
+authors = [
+    "nathanielsimard <nathaniel.simard.42@gmail.com>",
+    "louisfd <louisfd94@gmail.com",
+]
+categories = ["science"]
+description = "Expansion logic for the CubeCL proc-macros (cubecl-macros is the proc-macro shim over this)."
+edition.workspace = true
+keywords = []
+license.workspace = true
+name = "cubecl-macros-core"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-macros-core"
+version.workspace = true
+
+
+[lints]
+workspace = true
+
+
+[features]
+debug_symbols = []
+default = []
+std = []
+
+tracing = ["cubecl-common/tracing"]
+
+
+[dependencies]
+darling = { workspace = true }
+derive-new = { workspace = true }
+derive_more = { workspace = true }
+ident_case = { workspace = true }
+inflections = "1"
+prettyplease = "0.2"
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true }
+
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-features = false }
