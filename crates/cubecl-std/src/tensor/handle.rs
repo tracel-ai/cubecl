@@ -90,6 +90,8 @@ where
         let shape = shape.into();
         let strides = Self::contiguous_strides(&shape);
 
+        println!("strides: {strides:?}");
+
         Self {
             handle,
             metadata: Box::new(Metadata::new(shape, strides)),

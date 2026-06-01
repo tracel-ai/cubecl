@@ -228,7 +228,7 @@ pub fn optimal_align(shape: usize, elem_size: usize, buffer_align: usize) -> usi
     } else {
         (shape * elem_size)
             .next_power_of_two()
-            .clamp(16, buffer_align)
+            .clamp(16, buffer_align) // Why?
     }
 }
 

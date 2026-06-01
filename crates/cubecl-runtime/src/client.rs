@@ -102,9 +102,13 @@ impl<R: Runtime> ComputeClient<R> {
 
     fn do_read(&self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         let stream_id = self.stream_id();
-        self.device
+        println!("submitted do_read");
+        let res = self
+            .device
             .submit_blocking(move |server| server.read(descriptors, stream_id))
-            .unwrap()
+            .unwrap();
+        println!("submitted do_read");
+        res
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -461,7 +465,13 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
 
+        println!(
+            "do_empty layouts size: {}",
+            layouts[0].memory.size_in_used()
+        );
+
         println!("do_empty base size: {}", handle_base.size());
+        println!("do_empty base size: {}", handle_base.size_in_used());
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {

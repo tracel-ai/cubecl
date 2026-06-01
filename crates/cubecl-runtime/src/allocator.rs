@@ -1,3 +1,5 @@
+use std::println;
+
 use crate::{
     memory_management::optimal_align,
     server::{
@@ -24,26 +26,38 @@ impl MemoryLayoutPolicy for PitchedMemoryLayoutPolicy {
         stream_id: StreamId,
         descriptors: &[MemoryLayoutDescriptor],
     ) -> (Handle, Vec<MemoryLayout>) {
+        println!("=============================================");
+        println!("In pitched");
         let mut total_size = 0u64;
 
         let (sizes, strides): (Vec<_>, Vec<_>) = descriptors
             .iter()
             .map(|descriptor| {
+                println!("descriptor: {descriptor:?}");
                 let last_dim = descriptor.shape.last().copied().unwrap_or(1);
+                println!("last_dim: {last_dim}");
                 let pitch_align = match descriptor.strategy {
                     MemoryLayoutStrategy::Contiguous => 1,
                     MemoryLayoutStrategy::Optimized => {
                         optimal_align(last_dim, descriptor.elem_size, self.mem_alignment)
                     }
                 };
+                println!("pitch_align: {pitch_align}");
 
                 let rank = descriptor.shape.len();
                 let width = *descriptor.shape.last().unwrap_or(&1);
+                println!("rank: {rank}");
+                println!("width: {width}");
                 let height: usize = descriptor.shape.iter().rev().skip(1).product();
+                println!("height1: {height}");
                 let height = Ord::max(height, 1);
+                println!("height2: {height}");
 
                 let width_bytes = width * descriptor.elem_size;
+                println!("width_bytes: {width_bytes}");
                 let pitch = width_bytes.next_multiple_of(pitch_align);
+                println!("height: {height}");
+                println!("pitch: {pitch}");
                 let size = height * pitch;
 
                 let mut strides = strides![1; rank];
@@ -67,6 +81,7 @@ impl MemoryLayoutPolicy for PitchedMemoryLayoutPolicy {
             .zip(strides)
             .map(|(handle, strides)| MemoryLayout::new(handle, strides))
             .collect();
+        println!("=============================================");
         (base_handle, layouts)
     }
 }
@@ -91,6 +106,7 @@ impl MemoryLayoutPolicy for ContiguousMemoryLayoutPolicy {
         stream_id: StreamId,
         descriptors: &[MemoryLayoutDescriptor],
     ) -> (Handle, Vec<MemoryLayout>) {
+        println!("In contiguous");
         let mut total_size = 0u64;
         let (sizes, strides): (Vec<_>, Vec<_>) = descriptors
             .iter()
@@ -134,6 +150,9 @@ pub fn offset_handles(
     let mut out = Vec::new();
 
     for size in sizes_bytes {
+        println!("offset_handles totaal_size: {total_size}");
+        println!("offset_handles offset: {offset}");
+        println!("offset_handles size: {size}");
         let handle = base_handle
             .clone()
             .offset_start(offset as u64)
