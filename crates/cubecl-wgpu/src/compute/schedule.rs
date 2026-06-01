@@ -1,4 +1,7 @@
-use crate::{CompilerInfo, ParamsTransfer, WgpuResource, stream::WgpuStream};
+use crate::{
+    CompilerInfo, ParamsTransfer, WgpuResource, stream::WgpuStream,
+    timings::TimestampQuerySetBudget,
+};
 use alloc::sync::Arc;
 use cubecl_common::{bytes::Bytes, profile::TimingMethod};
 use cubecl_core::{
@@ -73,6 +76,8 @@ pub struct WgpuStreamFactory {
     memory_properties: MemoryDeviceProperties,
     memory_config: MemoryConfiguration,
     timing_method: TimingMethod,
+    /// Per-device budget of live timestamp query sets, shared by every stream it creates.
+    timing_budget: Arc<TimestampQuerySetBudget>,
     tasks_max: usize,
     logger: Arc<ServerLogger>,
     count: u64,
@@ -91,6 +96,7 @@ impl StreamFactory for WgpuStreamFactory {
             self.memory_properties.clone(),
             self.memory_config.clone(),
             self.timing_method,
+            self.timing_budget.clone(),
             self.tasks_max,
             self.logger.clone(),
             self.use_vulkan_compiler,
@@ -107,10 +113,17 @@ impl ScheduledWgpuBackend {
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         timing_method: TimingMethod,
+        backend: wgpu::Backend,
         tasks_max: usize,
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
     ) -> Self {
+        // One budget per device. Only Metal caps counter sample buffers; others go unbounded.
+        let timing_budget = Arc::new(match backend {
+            wgpu::Backend::Metal => TimestampQuerySetBudget::metal(),
+            _ => TimestampQuerySetBudget::unbounded(),
+        });
+
         Self {
             factory: WgpuStreamFactory {
                 device,
@@ -118,6 +131,7 @@ impl ScheduledWgpuBackend {
                 memory_properties,
                 memory_config,
                 timing_method,
+                timing_budget,
                 tasks_max,
                 logger,
                 count: 0,

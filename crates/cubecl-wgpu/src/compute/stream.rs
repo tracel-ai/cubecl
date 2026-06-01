@@ -1,4 +1,8 @@
-use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
+use super::{
+    mem_manager::WgpuMemManager,
+    poll::WgpuPoll,
+    timings::{QueryProfiler, TimestampQuerySetBudget},
+};
 use crate::{
     WgpuResource,
     controller::WgpuAllocController,
@@ -37,7 +41,9 @@ thread_local! {
 
 #[derive(Debug)]
 enum Timings {
-    Device(QueryProfiler),
+    // Boxed: `QueryProfiler` is much larger than `TimestampProfiler`
+    // (clippy::large_enum_variant).
+    Device(Box<QueryProfiler>),
     System(TimestampProfiler),
 }
 
@@ -69,12 +75,16 @@ impl WgpuStream {
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         timing_method: TimingMethod,
+        timing_budget: Arc<TimestampQuerySetBudget>,
         tasks_max: usize,
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
     ) -> Self {
-        let timings = if timing_method == TimingMethod::Device {
-            Timings::Device(QueryProfiler::new(&queue, &device))
+        // Device timing needs a counter sample buffer per query set, capped per device on
+        // Metal. Reserve a budget slot up front (lock-free); if none is free, fall back to
+        // the system timer so we never exceed the hardware limit.
+        let timings = if timing_method == TimingMethod::Device && timing_budget.try_acquire() {
+            Timings::Device(Box::new(QueryProfiler::new(&queue, &device, timing_budget)))
         } else {
             if cfg!(target_family = "wasm") {
                 // On WASM, there's not much we can do here anymore. This should be very rare however,
