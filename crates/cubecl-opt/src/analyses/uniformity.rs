@@ -213,8 +213,7 @@ impl Uniformity {
     /// Whether a variable is plane uniform
     pub fn is_var_uniform(&self, var: Variable) -> bool {
         match var.kind {
-            VariableKind::ConstantArray { .. }
-            | VariableKind::Shared { .. }
+            VariableKind::Shared { .. }
             | VariableKind::GlobalBuffer(_)
             | VariableKind::Constant(_) => true,
             VariableKind::LocalMut { .. } => false,

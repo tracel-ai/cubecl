@@ -1,6 +1,6 @@
 use crate::shared::Item;
 
-use super::{Dialect, Instruction, Variable, barrier::BarrierOps, pipeline::PipelineOps};
+use super::{Dialect, Instruction, barrier::BarrierOps, pipeline::PipelineOps};
 use std::fmt::Display;
 
 /// A body is composed of a list of [instructions](Instruction).
@@ -10,7 +10,6 @@ pub struct Body<D: Dialect> {
     pub shared_memories: Vec<super::SharedMemory<D>>,
     pub pipelines: Vec<PipelineOps<D>>,
     pub barriers: Vec<BarrierOps<D>>,
-    pub const_arrays: Vec<super::ConstArray<D>>,
     pub info_by_ptr: bool,
     pub has_dynamic_meta: bool,
     pub address_type: Item<D>,
@@ -29,22 +28,6 @@ impl<D: Dialect> Display for Body<D> {
         }
         for barrier in self.barriers.iter() {
             writeln!(f, "{barrier}")?;
-        }
-
-        for const_array in self.const_arrays.iter() {
-            f.write_fmt(format_args!(
-                "const {} arrays_{}[{}] = {{",
-                const_array.item, const_array.index, const_array.size
-            ))?;
-            let item = const_array.item;
-            for value in const_array.values.iter().copied() {
-                let value = match value {
-                    Variable::Constant(value, _) => Variable::Constant(value, item),
-                    _ => unreachable!("Value is always constant"),
-                };
-                f.write_fmt(format_args!("{value},"))?;
-            }
-            f.write_str("};\n")?;
         }
 
         D::compile_wmma_local_variables(f)?;

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use cubecl_core::ir::{self, Builtin, ConstantValue, FloatKind, VariableKind};
-use cubecl_opt::Function;
 use tracel_llvm::mlir_rs::{
     dialect::{
         index, memref,
@@ -18,18 +17,11 @@ use super::prelude::*;
 #[derive(Default, Debug)]
 pub struct Variables<'a> {
     pub local: HashMap<VariableKind, Value<'a, 'a>>,
-    pub global_constant: HashMap<u32, ir::Type>,
 }
 
 impl<'a> Variables<'a> {
-    pub fn new(opt: &Function) -> Self {
-        let mut variables = Self::default();
-        for const_array in opt.const_arrays() {
-            variables
-                .global_constant
-                .insert(const_array.id, const_array.item);
-        }
-        variables
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -169,27 +161,6 @@ impl<'a> Visitor<'a> {
                     _ => 1,
                 };
                 self.get_mutable_memory(variable, length)
-            }
-            VariableKind::ConstantArray {
-                id,
-                length,
-                unroll_factor,
-            } => {
-                let name = id.to_string();
-                let r#type = self
-                    .variables
-                    .global_constant
-                    .get(&id)
-                    .unwrap()
-                    .to_type(self.context);
-                let r#type =
-                    MemRefType::new(r#type, &[(length * unroll_factor) as i64], None, None);
-                self.append_operation_with_result(memref::get_global(
-                    self.context,
-                    &name,
-                    r#type,
-                    self.location,
-                ))
             }
             _ => todo!(
                 "This variable isn't backed by memory or implemented: {}",

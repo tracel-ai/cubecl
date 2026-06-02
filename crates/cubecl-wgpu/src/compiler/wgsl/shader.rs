@@ -1,4 +1,4 @@
-use super::{Body, Elem, Extension, Item, Variable};
+use super::{Body, Elem, Extension, Item};
 use cubecl_core::{CubeDim, Info, ir::Id, prelude::Visibility};
 use std::fmt::Display;
 
@@ -26,20 +26,11 @@ impl SharedValue {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct ConstantArray {
-    pub index: Id,
-    pub item: Item,
-    pub size: u32,
-    pub values: Vec<Variable>,
-}
-
 #[derive(Debug, Clone)]
 pub struct ComputeShader {
     pub buffers: Vec<KernelArg>,
     pub scalars: Vec<(Elem, usize)>,
     pub shared_values: Vec<SharedValue>,
-    pub constant_arrays: Vec<ConstantArray>,
     pub info: Info,
     pub static_meta_len: usize,
     pub workgroup_size: CubeDim,
@@ -119,19 +110,6 @@ var<{location}, {visibility}> info: info_st;
                 "var<{location}> shared_{}: {};\n\n",
                 value.index, value.item,
             )?;
-        }
-
-        for array in self.constant_arrays.iter() {
-            write!(
-                f,
-                "const arrays_{}: array<{}, {}> = array(",
-                array.index, array.item, array.size
-            )?;
-            for value in array.values.iter() {
-                let value = value.fmt_cast_to(array.item);
-                write!(f, "{value},")?;
-            }
-            f.write_str(");\n\n")?;
         }
 
         write!(

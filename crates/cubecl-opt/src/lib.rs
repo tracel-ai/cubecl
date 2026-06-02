@@ -86,21 +86,12 @@ use crate::{
     passes::{CopyTransform, DisaggregateArray, InlineRef},
 };
 
-#[derive(Debug, Clone)]
-pub struct ConstArray {
-    pub id: Id,
-    pub length: usize,
-    pub item: Type,
-    pub values: Vec<ir::Variable>,
-}
-
 #[derive(Default, Debug, Clone)]
 pub struct Function {
     /// Explicit parameters passed to the function, i.e. the inputs to a closure
     pub explicit_params: Vec<Variable>,
     /// Implicit parameters passed to the function, i.e. kernel args, closure captures
     pub implicit_params: Vec<Variable>,
-    pub const_arrays: Vec<ConstArray>,
     pub variables: HashMap<Id, Type>,
     pub graph: StableDiGraph<BasicBlock, u32>,
     pub root: NodeIndex,
@@ -328,23 +319,6 @@ impl Function {
             if let VariableKind::LocalMut { id } = var.kind {
                 self.variables.insert(id, var.ty);
             }
-        }
-
-        for (var, values) in scope.const_arrays.borrow().clone() {
-            let VariableKind::ConstantArray {
-                id,
-                length,
-                unroll_factor,
-            } = var.kind
-            else {
-                unreachable!()
-            };
-            self.const_arrays.push(ConstArray {
-                id,
-                length: length * unroll_factor,
-                item: var.ty,
-                values,
-            });
         }
 
         let is_break = processed.instructions.contains(&Branch::Break.into());
@@ -626,10 +600,6 @@ impl Function {
         } else {
             self.ret
         }
-    }
-
-    pub fn const_arrays(&self) -> Vec<ConstArray> {
-        self.const_arrays.clone()
     }
 
     pub fn all_params(&self) -> impl Iterator<Item = Variable> {

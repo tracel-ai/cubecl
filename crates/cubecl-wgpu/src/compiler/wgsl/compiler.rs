@@ -1,6 +1,6 @@
 use super::Item;
 use super::Subgroup;
-use super::{ConstantArray, shader::ComputeShader};
+use super::shader::ComputeShader;
 use crate::compiler::wgsl::{self, SharedValue};
 
 use cubecl_common::backtrace::BackTrace;
@@ -43,7 +43,6 @@ pub struct WgslCompiler {
     workgroup_size_no_axis: bool,
     num_workgroup_no_axis: bool,
     shared_values: Vec<SharedValue>,
-    const_arrays: Vec<ConstantArray>,
     #[allow(dead_code)]
     compilation_options: WgpuCompilationOptions,
     strategy: ExecutionMode,
@@ -157,7 +156,6 @@ impl WgslCompiler {
                 .map(|binding| (self.compile_storage_type(binding.ty), binding.count))
                 .collect(),
             shared_values: self.shared_values.clone(),
-            constant_arrays: self.const_arrays.clone(),
             static_meta_len: self.info.metadata.static_len() as usize,
             info: self.info.clone(),
             workgroup_size: value.cube_dim,
@@ -303,10 +301,6 @@ impl WgslCompiler {
                 }
                 wgsl::Variable::Shared(id, item)
             }
-            cube::VariableKind::ConstantArray { id, length, .. } => {
-                let item = self.compile_type(item);
-                wgsl::Variable::ConstantArray(id, item, length as u32)
-            }
             cube::VariableKind::Matrix { .. } => {
                 panic!("Cooperative matrix-multiply and accumulate not supported.")
             }
@@ -330,22 +324,6 @@ impl WgslCompiler {
 
     fn compile_scope(&mut self, scope: &cube::Scope) -> Vec<wgsl::Instruction> {
         let mut instructions = Vec::new();
-
-        let const_arrays = scope
-            .const_arrays
-            .borrow_mut()
-            .drain(..)
-            .map(|(var, values)| ConstantArray {
-                index: var.index().unwrap(),
-                item: self.compile_type(var.ty),
-                size: values.len() as u32,
-                values: values
-                    .into_iter()
-                    .map(|val| self.compile_variable(val))
-                    .collect(),
-            })
-            .collect::<Vec<_>>();
-        self.const_arrays.extend(const_arrays);
 
         let saturating: Box<dyn Processor> = Box::new(SaturatingArithmeticProcessor::new(true));
         let processing = scope.process([&*saturating]);

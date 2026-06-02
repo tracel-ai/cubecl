@@ -39,7 +39,6 @@ pub enum Variable {
         item: Item,
     },
     Shared(Word, Item),
-    ConstantArray(Word, Item, u32),
     CoopMatrix(Id, Elem),
     Id(Word),
 }
@@ -201,7 +200,6 @@ impl Variable {
             Variable::Raw(id, _) => *id,
             Variable::Slice { ptr, .. } => ptr.id(b),
             Variable::Shared(id, _) => *id,
-            Variable::ConstantArray(id, _, _) => *id,
             Variable::CoopMatrix(_, _) => unimplemented!("Can't get ID from matrix var"),
             Variable::Id(id) => *id,
         }
@@ -216,7 +214,6 @@ impl Variable {
             Variable::LocalBinding { item, .. } => item.clone(),
             Variable::Slice { item, .. } => item.clone(),
             Variable::Shared(_, item) => item.clone(),
-            Variable::ConstantArray(_, item, _) => item.clone(),
             Variable::CoopMatrix(_, elem) => Item::Scalar(*elem),
             Variable::Raw(_, item) => item.clone(),
             Variable::Id(_) => unimplemented!("Can't get item of raw ID"),
@@ -248,9 +245,7 @@ impl Variable {
     pub fn has_len(&self) -> bool {
         matches!(
             self,
-            Variable::GlobalBuffer(_, _, _)
-                | Variable::Slice { .. }
-                | Variable::ConstantArray(_, _, _)
+            Variable::GlobalBuffer(_, _, _) | Variable::Slice { .. }
         ) || self.item().is_array()
     }
 
@@ -306,11 +301,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             ir::VariableKind::LocalConst { id } => {
                 let item = self.compile_type(item);
                 Variable::LocalBinding { id, item, variable }
-            }
-            ir::VariableKind::ConstantArray { id, length, .. } => {
-                let item = self.compile_type(item);
-                let id = self.state.const_arrays[id as usize].id;
-                Variable::ConstantArray(id, item, length as u32)
             }
             ir::VariableKind::Shared { id, .. } => {
                 let item = self.compile_type(item);
@@ -406,9 +396,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
                 access_chain(self, *id, index)
             }
-            Variable::ConstantArray(id, ..) | Variable::Local { id, .. }
-                if variable.item().is_array() =>
-            {
+            Variable::Local { id, .. } if variable.item().is_array() => {
                 access_chain(self, *id, vec![index_id])
             }
             var => unimplemented!("Can't index into {var:?}"),
@@ -423,9 +411,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::Shared(..) => self.id(),
             Variable::Raw(id, _) => *id,
             Variable::Constant(_, _, _) => panic!("Can't write to constant scalar"),
-            Variable::GlobalBuffer(_, _, _)
-            | Variable::Slice { .. }
-            | Variable::ConstantArray(_, _, _) => panic!("Can't write to unindexed array"),
+            Variable::GlobalBuffer(_, _, _) | Variable::Slice { .. } => {
+                panic!("Can't write to unindexed array")
+            }
             global => panic!("Can't write to builtin {global:?}"),
         }
     }

@@ -1,7 +1,7 @@
 use super::{
-    BinaryInstruction, Body, Component, ComputeKernel, ConstArray, Dialect, Elem, FP4Kind, FP6Kind,
-    FP8Kind, Fragment, FragmentIdent, FragmentLayout, IndexInstruction, Instruction, Item,
-    KernelArg, SharedMemory, UnaryInstruction, Variable, WarpInstruction, WmmaInstruction,
+    BinaryInstruction, Body, Component, ComputeKernel, Dialect, Elem, FP4Kind, FP6Kind, FP8Kind,
+    Fragment, FragmentIdent, FragmentLayout, IndexInstruction, Instruction, Item, KernelArg,
+    SharedMemory, UnaryInstruction, Variable, WarpInstruction, WmmaInstruction,
     barrier::BarrierOps, pipeline::PipelineOps,
 };
 use crate::shared::{Builtin, MmaShape, PointerClass};
@@ -102,7 +102,6 @@ pub struct CppCompiler<D: Dialect> {
     buffer_vis: Vec<Visibility>,
     barriers: Vec<BarrierOps<D>>,
     compilation_options: CompilationOptions,
-    const_arrays: Vec<ConstArray<D>>,
     ext_meta_positions: Vec<u32>,
     cluster_dim: CubeDim,
     extensions: Vec<D::Extension>,
@@ -150,7 +149,6 @@ impl<D: Dialect> Default for CppCompiler<D> {
             buffer_vis: Default::default(),
             barriers: Default::default(),
             compilation_options: Default::default(),
-            const_arrays: Default::default(),
             ext_meta_positions: Default::default(),
             cluster_dim: CubeDim::new_single(),
             extensions: Default::default(),
@@ -272,7 +270,6 @@ impl<D: Dialect> CppCompiler<D> {
             shared_memories,
             pipelines: self.pipelines,
             barriers: self.barriers,
-            const_arrays: self.const_arrays,
             info_by_ptr: !self.compilation_options.supports_features.grid_constants,
             has_dynamic_meta: self.info.has_dynamic_meta,
             address_type: self.addr_type,
@@ -355,22 +352,6 @@ impl<D: Dialect> CppCompiler<D> {
 
     fn compile_scope(&mut self, scope: &gpu::Scope) -> Vec<Instruction<D>> {
         let mut instructions = Vec::new();
-
-        let const_arrays = scope
-            .const_arrays
-            .borrow_mut()
-            .drain(..)
-            .map(|(var, values)| ConstArray {
-                index: var.index().unwrap(),
-                item: self.compile_type(var.ty),
-                size: values.len() as u32,
-                values: values
-                    .into_iter()
-                    .map(|val| self.compile_variable(val))
-                    .collect(),
-            })
-            .collect::<Vec<_>>();
-        self.const_arrays.extend(const_arrays);
 
         let dialect_processors = D::processors();
         let mut processors: Vec<&dyn Processor> = vec![];
@@ -1864,14 +1845,6 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::Shared { id, .. } => {
                 let item = self.compile_type(item);
                 Variable::Shared(id, item)
-            }
-            gpu::VariableKind::ConstantArray {
-                id,
-                length,
-                unroll_factor,
-            } => {
-                let item = self.compile_type(item);
-                Variable::ConstantArray(id, item, length * unroll_factor)
             }
             gpu::VariableKind::Matrix { id, mat } => {
                 self.flags.inst_wmma = true;

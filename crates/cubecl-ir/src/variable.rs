@@ -54,7 +54,6 @@ impl Variable {
             VariableKind::LocalConst { .. }
             | VariableKind::Versioned { .. }
             | VariableKind::Constant(..)
-            | VariableKind::ConstantArray { .. }
             | VariableKind::Pipeline { .. }
             | VariableKind::BarrierToken { .. }
             | VariableKind::Aggregate { .. } => false,
@@ -79,7 +78,6 @@ impl Variable {
                 VariableKind::LocalMut { .. }
                 | VariableKind::LocalConst { .. }
                 | VariableKind::Versioned { .. }
-                | VariableKind::ConstantArray { .. }
                 | VariableKind::Matrix { .. }
                 | VariableKind::Pipeline { .. }
                 | VariableKind::BarrierToken { .. } => AddressSpace::Local,
@@ -114,11 +112,6 @@ pub enum VariableKind {
         version: u16,
     },
     Constant(ConstantValue),
-    ConstantArray {
-        id: Id,
-        length: usize,
-        unroll_factor: usize,
-    },
     Shared {
         id: Id,
         alignment: Option<usize>,
@@ -226,7 +219,6 @@ impl Variable {
             VariableKind::Versioned { .. } => true,
             VariableKind::LocalConst { .. } => true,
             VariableKind::Constant(_) => true,
-            VariableKind::ConstantArray { .. } => true,
             VariableKind::Pipeline { .. } => false,
             VariableKind::BarrierToken { .. } => false,
             VariableKind::Aggregate { .. } => false,
@@ -556,7 +548,6 @@ impl Variable {
             | VariableKind::LocalMut { id, .. }
             | VariableKind::Versioned { id, .. }
             | VariableKind::LocalConst { id, .. }
-            | VariableKind::ConstantArray { id, .. }
             | VariableKind::Shared { id, .. }
             | VariableKind::Matrix { id, .. } => Some(id),
             _ => None,
@@ -591,7 +582,6 @@ impl Display for VariableKind {
                 write!(f, "local({id}).v{version}")
             }
             VariableKind::LocalConst { id } => write!(f, "binding({id})"),
-            VariableKind::ConstantArray { id, .. } => write!(f, "const_array({id})"),
             VariableKind::Shared { id, .. } => write!(f, "shared({id})"),
             VariableKind::Matrix { id, .. } => write!(f, "matrix({id})"),
             VariableKind::Pipeline { id, .. } => write!(f, "pipeline({id})"),

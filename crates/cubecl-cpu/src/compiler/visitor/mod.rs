@@ -23,14 +23,13 @@ use tracel_llvm::mlir_rs::{
             self,
             attributes::{Linkage, linkage},
         },
-        memref,
         ods::llvm as llvm_ods,
         scf,
     },
     ir::{
         Attribute, Block, BlockRef, Identifier, Location, Module, Operation, Region, RegionRef,
-        attribute::{DenseElementsAttribute, StringAttribute, TypeAttribute},
-        r#type::{IntegerType, MemRefType, RankedTensorType},
+        attribute::{StringAttribute, TypeAttribute},
+        r#type::IntegerType,
     },
 };
 
@@ -70,12 +69,11 @@ impl<'a> Visitor<'a> {
         context: &'a Context,
         location: Location<'a>,
         args_manager: ArgsManager<'a>,
-        func: &Function,
     ) -> Self {
         let blocks = HashMap::new();
         let blocks_args = HashMap::new();
         let str_counter = 0;
-        let variables = Variables::new(func);
+        let variables = Variables::new();
         Self {
             first_block: None,
             block: current_block,
@@ -173,34 +171,7 @@ impl<'a> Visitor<'a> {
         let args = ArgsManagerBuilder::new(kernel, context, location, shared_memories, addr_type);
 
         let func_type = TypeAttribute::new(args.get_fn_type(context).into());
-        for const_array in func.const_arrays() {
-            let global = const_array.id;
-            let name = global.to_string();
-            let r#type = const_array.item.to_type(context);
-            let memref = MemRefType::new(r#type, &[const_array.length as i64], None, None);
-            let values: Vec<Attribute<'a>> = const_array
-                .values
-                .iter()
-                .filter_map(|var| Visitor::into_attribute(context, *var, const_array.item))
-                .collect();
-            module.body().append_operation(memref::global(
-                context,
-                &name,
-                None,
-                memref,
-                Some(
-                    DenseElementsAttribute::new(
-                        RankedTensorType::new(&[const_array.length as u64], r#type, None).into(),
-                        &values,
-                    )
-                    .unwrap()
-                    .into(),
-                ),
-                true,
-                None,
-                location,
-            ));
-        }
+
         add_external_function_to_module(context, module);
         add_sync_cube_function(context, module).unwrap();
         module.body().append_operation(func::func(
@@ -393,7 +364,6 @@ impl<'a> Visitor<'a> {
                                     context,
                                     location,
                                     args,
-                                    func,
                                 );
                                 visitor.visit_basic_block(basic_block_id, func);
 

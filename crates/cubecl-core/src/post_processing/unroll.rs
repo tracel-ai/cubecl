@@ -472,10 +472,6 @@ fn mul_index(alloc: &Allocator, idx: Variable, unroll_factor: usize) -> (Instruc
 fn unroll_array(mut var: Variable, max_vector_size: VectorSize, factor: usize) -> Variable {
     var.ty = var.ty.with_vector_size(max_vector_size);
 
-    if let VariableKind::ConstantArray { unroll_factor, .. } = &mut var.kind {
-        *unroll_factor = factor;
-    }
-
     if let Type::Array(_, size, _) = &mut var.ty {
         *size *= factor;
     }

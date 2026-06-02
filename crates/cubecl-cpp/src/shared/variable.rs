@@ -32,7 +32,6 @@ pub struct OptimizedArgs<const N: usize, D: Dialect> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Variable<D: Dialect> {
     GlobalBuffer(Id, Item<D>),
-    ConstantArray(Id, Item<D>, usize),
     Constant(ConstantValue, Item<D>),
     TensorMap(Id),
     LocalMut {
@@ -43,17 +42,11 @@ pub enum Variable<D: Dialect> {
         id: Id,
         item: Item<D>,
     },
-    Named {
-        name: &'static str,
-        item: Item<D>,
-    },
     Slice {
         id: Id,
         item: Item<D>,
     },
-    SharedArray(Id, Item<D>, usize),
     Shared(Id, Item<D>),
-    LocalArray(Id, Item<D>, usize),
     WmmaFragment {
         id: Id,
         frag: Fragment<D>,
@@ -172,13 +165,9 @@ impl<D: Dialect> Component<D> for Variable<D> {
     fn item(&self) -> Item<D> {
         match self {
             Variable::GlobalBuffer(_, e) => *e,
-            Variable::LocalArray(_, e, _) => *e,
-            Variable::SharedArray(_, e, _) => *e,
             Variable::Shared(_, e) => *e,
-            Variable::ConstantArray(_, e, _) => *e,
             Variable::LocalMut { item, .. } => *item,
             Variable::LocalConst { item, .. } => *item,
-            Variable::Named { item, .. } => *item,
             Variable::Slice { item, .. } => *item,
             Variable::Constant(_, e) => *e,
             Variable::WmmaFragment { frag, .. } => Item::Scalar(frag.elem),
@@ -234,7 +223,6 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::TensorMap(id) => write!(f, "tensor_map_{id}"),
             Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
             Variable::LocalConst { id, .. } => write!(f, "l_{id}"),
-            Variable::Named { name, .. } => write!(f, "{name}"),
             Variable::Slice { id, .. } => {
                 write!(f, "slice_{id}")
             }
@@ -249,13 +237,8 @@ impl<D: Dialect> Display for Variable<D> {
                     .collect::<Vec<_>>();
                 write!(f, "{item} {{ {} }}", values.join(","))
             }
-            Variable::SharedArray(number, _, _) | Variable::Shared(number, _) => {
+            Variable::Shared(number, _) => {
                 write!(f, "shared_memory_{number}")
-            }
-
-            Variable::ConstantArray(number, _, _) => write!(f, "arrays_{number}"),
-            Variable::LocalArray(id, _, _) => {
-                write!(f, "l_arr_{id}")
             }
             Variable::WmmaFragment { id: index, frag } => {
                 let name = match frag.ident {
@@ -445,22 +428,6 @@ impl<D: Dialect> Variable<D> {
                 is_ptr: *is_ptr,
                 is_const: *is_const,
             },
-            Variable::SharedArray(id, item, size) => {
-                let before = item.vectorization();
-                let item = item.optimized();
-                let after = item.vectorization();
-                let scaling = before / after;
-
-                Variable::SharedArray(*id, item, size / scaling)
-            }
-            Variable::LocalArray(id, item, size) => {
-                let before = item.vectorization();
-                let item = item.optimized();
-                let after = item.vectorization();
-                let scaling = before / after;
-
-                Variable::LocalArray(*id, item.optimized(), size / scaling)
-            }
             _ => *self,
         }
     }
@@ -480,13 +447,10 @@ impl<D: Dialect> Variable<D> {
     pub fn id(&self) -> Option<Id> {
         match self {
             Variable::GlobalBuffer(id, ..) => Some(*id),
-            Variable::ConstantArray(id, ..) => Some(*id),
             Variable::LocalMut { id, .. } => Some(*id),
             Variable::LocalConst { id, .. } => Some(*id),
             Variable::Slice { id, .. } => Some(*id),
             Variable::Shared(id, ..) => Some(*id),
-            Variable::SharedArray(id, ..) => Some(*id),
-            Variable::LocalArray(id, ..) => Some(*id),
             Variable::WmmaFragment { id, .. } => Some(*id),
             Variable::Pipeline { id, .. } => Some(*id),
             Variable::Barrier { id, .. } => Some(*id),
@@ -499,9 +463,7 @@ impl<D: Dialect> Variable<D> {
     /// just leave them as is to avoid accidental double pointers
     pub fn fmt_ptr(&self) -> String {
         match self {
-            Variable::Slice { .. }
-            | Variable::SharedArray(_, _, _)
-            | Variable::GlobalBuffer(_, _) => format!("{self}"),
+            Variable::Slice { .. } | Variable::GlobalBuffer(_, _) => format!("{self}"),
             other => match other.item() {
                 Item::Array(..) => format!("{other}.data"),
                 Item::DynamicArray(..) | Item::Pointer(..) => format!("{other}"),

@@ -332,10 +332,7 @@ fn reduce_with_loop<
     acc_item: Item<D>,
     instruction: I,
 ) -> core::fmt::Result {
-    let acc = Variable::Named {
-        name: "acc",
-        item: acc_item,
-    };
+    let acc = Variable::tmp(acc_item);
     let vectorization = acc_item.vectorization();
 
     writeln!(f, "auto plane_{out} = [&]() -> {} {{", out.item())?;

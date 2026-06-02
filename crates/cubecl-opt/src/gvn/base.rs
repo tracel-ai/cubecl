@@ -79,7 +79,6 @@ pub enum Value {
     Constant(ConstantValue, Type),
     Local(Local),
     Global(Id, Type),
-    ConstArray(Id, Type, usize, usize),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
@@ -127,7 +126,6 @@ impl Value {
             Value::Constant(_, ty) => *ty,
             Value::Local(local) => local.item,
             Value::Global(_, item) => *item,
-            Value::ConstArray(_, item, _, _) => *item,
         }
     }
 }

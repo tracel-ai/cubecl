@@ -343,11 +343,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     fn setup(&mut self, label: Word, debug_setup: impl Fn(&mut Self)) -> usize {
         self.begin_block(Some(label)).unwrap();
 
-        let opt = self.opt.clone();
-        for const_arr in opt.main.const_arrays() {
-            self.register_const_array(const_arr);
-        }
-
         Target::load_params(self);
 
         debug_setup(self);

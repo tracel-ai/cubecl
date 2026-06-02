@@ -46,14 +46,6 @@ impl Value {
                 *item,
             ),
             Value::Global(id, item) => Variable::new(VariableKind::GlobalBuffer(*id), *item),
-            Value::ConstArray(id, item, len, unroll_factor) => Variable::new(
-                VariableKind::ConstantArray {
-                    id: *id,
-                    length: *len,
-                    unroll_factor: *unroll_factor,
-                },
-                *item,
-            ),
         }
     }
 }
@@ -69,11 +61,6 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
             item,
         }),
         VariableKind::Constant(val) => Value::Constant(val, item),
-        VariableKind::ConstantArray {
-            id,
-            length,
-            unroll_factor,
-        } => Value::ConstArray(id, item, length, unroll_factor),
         VariableKind::LocalMut { .. }
         | VariableKind::Shared { .. }
         | VariableKind::Matrix { .. } => None?,

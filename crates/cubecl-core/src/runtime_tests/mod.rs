@@ -12,7 +12,6 @@ pub mod cmma;
 pub mod cmma2;
 pub mod comparison;
 pub mod const_match;
-pub mod constants;
 pub mod debug;
 pub mod different_rank;
 pub mod enums;
@@ -148,7 +147,6 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_topology!();
         cubecl_core::testgen_properties!();
 
-        cubecl_core::testgen_constants!();
         cubecl_core::testgen_sync_plane!();
         cubecl_core::testgen_tensor_indexing!();
         cubecl_core::testgen_debug!();

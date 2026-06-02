@@ -39,7 +39,6 @@ pub struct Scope {
     pub instructions: RefCell<Vec<Instruction>>,
     pub return_value: Option<Variable>,
     pub locals: RefCell<Vec<Variable>>,
-    pub const_arrays: RefCell<Vec<(Variable, Vec<Variable>)>>,
     pub debug: DebugInfo,
 
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -107,7 +106,6 @@ impl core::hash::Hash for Scope {
         self.depth.hash(ra_expand_state);
         self.instructions.borrow().hash(ra_expand_state);
         self.locals.borrow().hash(ra_expand_state);
-        self.const_arrays.borrow().hash(ra_expand_state);
     }
 }
 
@@ -147,7 +145,6 @@ impl Scope {
             instructions: Default::default(),
             return_value: None,
             locals: Default::default(),
-            const_arrays: Default::default(),
             debug: DebugInfo {
                 enabled: debug_enabled,
                 sources: Default::default(),
@@ -290,7 +287,6 @@ impl Scope {
             instructions: Default::default(),
             return_value: None,
             locals: Default::default(),
-            const_arrays: Default::default(),
             debug: self.debug.clone(),
             global_state: self.global_state.clone(),
         }
@@ -360,22 +356,6 @@ impl Scope {
             },
             item,
         )
-    }
-
-    /// Create a shared variable of the given item type.
-    pub fn create_const_array<I: Into<Type>>(&self, item: I, data: Vec<Variable>) -> Variable {
-        let item = item.into();
-        let index = self.new_local_index();
-        let const_array = Variable::new(
-            VariableKind::ConstantArray {
-                id: index,
-                length: data.len(),
-                unroll_factor: 1,
-            },
-            item,
-        );
-        self.const_arrays.borrow_mut().push((const_array, data));
-        const_array
     }
 
     /// Obtain the index-th buffer

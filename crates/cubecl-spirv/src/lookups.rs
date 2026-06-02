@@ -5,7 +5,7 @@ use cubecl_core::{
     ir::{self, Builtin, Id, VariableKind},
     prelude::KernelDefinition,
 };
-use cubecl_opt::{ConstArray, NodeIndex};
+use cubecl_opt::NodeIndex;
 use hashbrown::{HashMap, HashSet};
 use rspirv::{
     dr,
@@ -61,7 +61,6 @@ impl DerefMut for CompilerState {
 pub struct LookupTables {
     pub buffers: Vec<Buffer>,
 
-    pub const_arrays: Vec<Array>,
     pub shared: HashMap<Id, SharedVar>,
 
     pub matrices: HashMap<Id, Matrix>,
@@ -107,15 +106,6 @@ impl From<&Slice> for Variable {
             item: value.item.clone(),
         }
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct Array {
-    pub id: Word,
-    pub item: Item,
-    pub len: u32,
-    pub var: ir::Variable,
-    pub alignment: Option<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -380,9 +370,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             VariableKind::Shared { id, .. } => {
                 self.state.shared.get_mut(&id).unwrap().id = param_id;
             }
-            VariableKind::ConstantArray { .. }
-            | VariableKind::Pipeline { .. }
-            | VariableKind::BarrierToken { .. } => {
+            VariableKind::Pipeline { .. } | VariableKind::BarrierToken { .. } => {
                 panic!("{param} not allowed as a function param")
             }
             VariableKind::Constant(value) => {
@@ -433,46 +421,5 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             )
             .unwrap()
         })
-    }
-
-    pub fn register_const_array(&mut self, arr: ConstArray) {
-        let var = ir::Variable::new(
-            VariableKind::ConstantArray {
-                id: arr.id,
-                length: arr.length,
-                unroll_factor: 1,
-            },
-            arr.item,
-        );
-
-        let item = self.compile_type(arr.item);
-        let item_id = item.id(self);
-        let array_ty = self.id();
-        let len_id = self.const_u32(arr.length as u32);
-
-        self.type_array_id(Some(array_ty), item_id, len_id);
-        let pointer_ty = self.type_pointer(None, StorageClass::Function, array_ty);
-
-        let values = arr
-            .values
-            .into_iter()
-            .map(|it| self.compile_variable(it))
-            .collect::<Vec<_>>()
-            .into_iter()
-            .map(|it| self.read_as(&it, &item))
-            .collect::<Vec<_>>();
-        let constant = self.constant_composite(array_ty, values);
-        let id = self.variable(pointer_ty, None, StorageClass::Function, Some(constant));
-        self.debug_var_name(id, var);
-        self.state.const_arrays.insert(
-            arr.id as usize,
-            Array {
-                id,
-                item,
-                len: arr.length as u32,
-                var,
-                alignment: None,
-            },
-        );
     }
 }

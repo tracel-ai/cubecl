@@ -496,9 +496,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             | core::VariableKind::LocalConst { .. }
             | core::VariableKind::Versioned { .. }
             | core::VariableKind::Constant(..) => self.compile_type(var.ty).id(self),
-            core::VariableKind::ConstantArray { .. } => {
-                todo!("Constant arrays not yet supported for args")
-            }
             core::VariableKind::Shared { id, .. } => self.state.base_lookups.shared[&id].ptr_ty_id,
             core::VariableKind::Matrix { mat, .. } => {
                 let mat = self.compile_matrix(&mat);

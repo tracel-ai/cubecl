@@ -9,26 +9,9 @@ use std::fmt::Display;
 pub enum Variable {
     GlobalBuffer(Id, Item),
     Constant(ConstantValue, Item),
-    LocalMut {
-        id: Id,
-        item: Item,
-    },
-    LocalConst {
-        id: Id,
-        item: Item,
-    },
-    Named {
-        name: String,
-        item: Item,
-        is_array: bool,
-    },
-    // TODO: Potential cleanup, seems that variable is not used at all
-    LocalScalar {
-        id: Id,
-        elem: Elem,
-    },
+    LocalMut { id: Id, item: Item },
+    LocalConst { id: Id, item: Item },
     Shared(Id, Item),
-    ConstantArray(Id, Item, u32),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -113,12 +96,9 @@ impl Variable {
         match self {
             Self::GlobalBuffer(_, e) => *e,
             Self::Shared(_, e) => *e,
-            Self::ConstantArray(_, e, _) => *e,
             Self::LocalMut { item, .. } => *item,
             Self::LocalConst { item, .. } => *item,
-            Self::Named { item, .. } => *item,
             Self::Constant(_, item) => *item,
-            Self::LocalScalar { elem, .. } => Item::Scalar(*elem),
         }
     }
     pub fn elem(&self) -> Elem {
@@ -306,10 +286,8 @@ impl Display for Variable {
             Variable::GlobalBuffer(number, _) => {
                 write!(f, "buffer_{number}_global")
             }
-            Variable::LocalScalar { id: index, .. } => write!(f, "s_{index}"),
             Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
             Variable::LocalConst { id, .. } => write!(f, "l_{id}"),
-            Variable::Named { name, .. } => f.write_str(name),
             Variable::Constant(val, item) => {
                 match (val, item.elem()) {
                     // naga can't seem to parse literals > i64::MAX or i64::MIN atm.
@@ -333,7 +311,6 @@ impl Display for Variable {
             Variable::Shared(number, _) => {
                 write!(f, "shared_{number}")
             }
-            Variable::ConstantArray(number, _, _) => write!(f, "arrays_{number}"),
         }
     }
 }

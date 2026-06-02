@@ -1,6 +1,6 @@
 use crate::shared::Builtin;
 
-use super::{Body, Dialect, Elem, Flags, INFO_NAME, Item, Variable};
+use super::{Body, Dialect, Elem, Flags, INFO_NAME, Item};
 use cubecl_core::{CubeDim, ir::Id, prelude::Visibility};
 
 use std::{collections::HashSet, fmt::Display};
@@ -24,14 +24,6 @@ impl<D: Dialect> SharedMemory<D> {
     pub fn size(&self) -> usize {
         self.item.size()
     }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct ConstArray<D: Dialect> {
-    pub index: Id,
-    pub item: Item<D>,
-    pub size: u32,
-    pub values: Vec<Variable<D>>,
 }
 
 impl<D: Dialect> SharedMemory<D> {
