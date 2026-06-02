@@ -12,17 +12,18 @@ pub fn bindings(
     repr: &<WgslCompiler as Compiler>::Representation,
     args: &KernelArguments,
 ) -> (Vec<Visibility>, usize) {
+    let force_read_write = !cfg!(exclusive_memory_only)
+        && repr
+            .buffers
+            .iter()
+            .any(|buffer| buffer.visibility == Visibility::ReadWrite);
+
     let mut bindings = repr
         .buffers
         .iter()
-        .map(|it| {
-            // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
-            // and since we can't be sure, we'll assume everything is read-write.
-            if cfg!(exclusive_memory_only) {
-                it.visibility
-            } else {
-                Visibility::ReadWrite
-            }
+        .map(|it| match (force_read_write, it.visibility) {
+            (false, Visibility::Read) => Visibility::Read,
+            _ => Visibility::ReadWrite,
         })
         .collect::<Vec<_>>();
     if !args.info.data.is_empty() {

@@ -229,12 +229,18 @@ impl ComputeShader {
         bindings: &[KernelArg],
         num_entry: usize,
     ) -> core::fmt::Result {
+        let force_read_write = !cfg!(exclusive_memory_only)
+            && bindings
+                .iter()
+                .any(|binding| binding.visibility == Visibility::ReadWrite);
+
         for (i, binding) in bindings.iter().enumerate() {
             Self::format_binding(
                 f,
                 format!("{prefix}_{i}_global").as_str(),
                 binding,
                 num_entry + i,
+                force_read_write,
             )?;
         }
 
@@ -246,13 +252,13 @@ impl ComputeShader {
         name: &str,
         binding: &KernelArg,
         num_entry: usize,
+        force_read_write: bool,
     ) -> core::fmt::Result {
         let ty = format!("array<{}>", binding.item);
 
         let location = "storage";
-        let visibility = match binding.visibility {
-            #[cfg(exclusive_memory_only)]
-            Visibility::Read => "read",
+        let visibility = match (force_read_write, binding.visibility) {
+            (false, Visibility::Read) => "read",
             _ => "read_write",
         };
 
