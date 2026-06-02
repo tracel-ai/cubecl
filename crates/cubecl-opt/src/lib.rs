@@ -122,8 +122,6 @@ impl DerefMut for Function {
     }
 }
 
-type VarId = (Id, u16);
-
 /// An optimizer that applies various analyses and optimization passes to the IR.
 #[derive(Debug, Clone, Default)]
 pub struct Optimizer {
@@ -487,6 +485,7 @@ impl Function {
         self.parse_graph(state, scope);
         self.split_critical_edges();
         self.transform_ssa_and_merge_composites(state);
+        std::println!("opt: {self}");
         self.analysis::<PointerSource>(state);
         self.apply_post_ssa_passes(state);
 

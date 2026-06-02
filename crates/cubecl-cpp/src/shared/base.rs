@@ -1828,10 +1828,6 @@ impl<D: Dialect> CppCompiler<D> {
                 id,
                 item: self.compile_type(item),
             },
-            gpu::VariableKind::Versioned { id, .. } => Variable::LocalMut {
-                id,
-                item: self.compile_type(item),
-            },
             gpu::VariableKind::LocalConst { id } => Variable::LocalConst {
                 id,
                 item: self.compile_type(item),

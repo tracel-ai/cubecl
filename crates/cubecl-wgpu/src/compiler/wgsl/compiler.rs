@@ -278,12 +278,10 @@ impl WgslCompiler {
             cube::VariableKind::GlobalBuffer(id) => {
                 wgsl::Variable::GlobalBuffer(id, self.compile_type(item))
             }
-            cube::VariableKind::LocalMut { id } | cube::VariableKind::Versioned { id, .. } => {
-                wgsl::Variable::LocalMut {
-                    id,
-                    item: self.compile_type(item),
-                }
-            }
+            cube::VariableKind::LocalMut { id } => wgsl::Variable::LocalMut {
+                id,
+                item: self.compile_type(item),
+            },
             cube::VariableKind::LocalConst { id } => wgsl::Variable::LocalConst {
                 id,
                 item: self.compile_type(item),

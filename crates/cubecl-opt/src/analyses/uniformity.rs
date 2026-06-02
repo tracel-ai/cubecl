@@ -217,9 +217,7 @@ impl Uniformity {
             | VariableKind::GlobalBuffer(_)
             | VariableKind::Constant(_) => true,
             VariableKind::LocalMut { .. } => false,
-            VariableKind::LocalConst { .. }
-            | VariableKind::Versioned { .. }
-            | VariableKind::BarrierToken { .. } => {
+            VariableKind::LocalConst { .. } | VariableKind::BarrierToken { .. } => {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)
             }
             VariableKind::TensorMap(_) => true,

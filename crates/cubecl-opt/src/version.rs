@@ -10,10 +10,9 @@ use crate::{ControlFlow, EdgeIndex, Function, GlobalState, NodeIndex};
 /// The state required by the SSA transform
 #[derive(Debug)]
 pub struct SsaState<'a> {
-    versions: HashMap<Id, u16>,
+    versions: HashMap<Id, Id>,
     visited_blocks: &'a mut HashSet<NodeIndex>,
     visited_edges: &'a mut HashSet<EdgeIndex>,
-    max_versions: &'a mut HashMap<Id, u16>,
 }
 
 /// An entry in the phi instruction. Contains the variable ID that should be used when coming from
@@ -69,12 +68,10 @@ impl Function {
         let versions: HashMap<_, _> = self.variables.keys().map(|key| (*key, 0)).collect();
         let mut visited_blocks = HashSet::new();
         let mut visited_edges = HashSet::new();
-        let mut max_versions = versions.clone();
         let initial_state = SsaState {
             versions,
             visited_blocks: &mut visited_blocks,
             visited_edges: &mut visited_edges,
-            max_versions: &mut max_versions,
         };
         self.version_block(global_state, self.root, initial_state);
     }
@@ -99,7 +96,6 @@ impl Function {
                 versions: state.versions.clone(),
                 visited_blocks: state.visited_blocks,
                 visited_edges: state.visited_edges,
-                max_versions: state.max_versions,
             };
 
             if !edge_visited {
@@ -120,11 +116,11 @@ impl Function {
                 .iter_mut()
                 .find(|it| it.block == source)
                 .unwrap();
-            if let Some((id, item, _)) = as_versioned(entry.value)
+            if let Some((id, item)) = as_local(entry.value)
                 && self.variables.contains_key(&id)
             {
-                let version = state.versions[&id];
-                entry.value = Variable::new(VariableKind::Versioned { id, version }, item);
+                let id = state.versions[&id];
+                entry.value = Variable::new(VariableKind::LocalConst { id }, item);
             }
         }
     }
@@ -137,27 +133,20 @@ impl Function {
         state: &mut SsaState<'_>,
     ) {
         for phi in self[block].phi_nodes.borrow_mut().iter_mut() {
-            if let Some((id, item, _)) = as_versioned(phi.out)
+            if let Some((id, item)) = as_local(phi.out)
                 && self.variables.contains_key(&id)
             {
                 let version = state.versions.get_mut(&id).unwrap();
-                let max_version = state.max_versions.get_mut(&id).unwrap();
-                *max_version += 1;
-                *version = *max_version;
-                phi.out = Variable::new(
-                    VariableKind::Versioned {
-                        id,
-                        version: *version,
-                    },
-                    item,
-                );
+                let out = global_state.root_scope.create_local(item);
+                *version = out.index().unwrap();
+                phi.out = out;
             }
         }
 
         let mut ops = take(&mut *self[block].ops.borrow_mut());
         for operation in ops.values_mut() {
             self.version_reads(global_state, operation, state);
-            self.version_writes(operation, state);
+            self.version_writes(operation, state, global_state);
         }
         *self[block].ops.borrow_mut() = ops;
         match &mut *self[block].control_flow.borrow_mut() {
@@ -185,49 +174,36 @@ impl Function {
         });
     }
 
-    fn version_writes(&mut self, op: &mut Instruction, state: &mut SsaState<'_>) {
-        self.visit_out(&mut op.out, |_, var| match var.kind {
-            VariableKind::LocalMut { id } | VariableKind::Versioned { id, .. } => {
-                if let Some(version) = state.versions.get_mut(&id) {
-                    let max_version = state.max_versions.get_mut(&id).unwrap();
-                    *max_version += 1;
-                    *version = *max_version;
-                    *var = Variable::new(
-                        VariableKind::Versioned {
-                            id,
-                            version: *version,
-                        },
-                        var.ty,
-                    )
-                }
+    fn version_writes(
+        &mut self,
+        op: &mut Instruction,
+        state: &mut SsaState<'_>,
+        global_state: &GlobalState,
+    ) {
+        self.visit_out(&mut op.out, |_, var| {
+            if let VariableKind::LocalMut { id } = var.kind
+                && let Some(version) = state.versions.get_mut(&id)
+            {
+                let new_var = global_state.root_scope.create_local(var.ty);
+                *version = new_var.index().unwrap();
+                *var = new_var;
             }
-            _ => {}
         });
     }
 
     fn version_read(&self, var: &mut Variable, state: &mut SsaState<'_>) {
-        match var.kind {
-            VariableKind::LocalMut { id } | VariableKind::Versioned { id, .. } => {
-                if self.variables.contains_key(&id)
-                    && let Some(version) = state.versions.get(&id)
-                {
-                    *var = Variable::new(
-                        VariableKind::Versioned {
-                            id,
-                            version: *version,
-                        },
-                        var.ty,
-                    )
-                }
-            }
-            _ => {}
+        if let VariableKind::LocalMut { id } = var.kind
+            && self.variables.contains_key(&id)
+            && let Some(id) = state.versions.get(&id)
+        {
+            *var = Variable::new(VariableKind::LocalConst { id: *id }, var.ty)
         }
     }
 }
 
-fn as_versioned(var: Variable) -> Option<(Id, Type, u16)> {
+fn as_local(var: Variable) -> Option<(Id, Type)> {
     match var.kind {
-        VariableKind::Versioned { id, version } => Some((id, var.ty, version)),
+        VariableKind::LocalConst { id } => Some((id, var.ty)),
         _ => None,
     }
 }

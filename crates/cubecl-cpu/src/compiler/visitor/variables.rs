@@ -28,7 +28,7 @@ impl<'a> Variables<'a> {
 impl<'a> Visitor<'a> {
     pub fn insert_variable(&mut self, variable: Variable, value: Value<'a, 'a>) {
         match variable.kind {
-            VariableKind::LocalConst { .. } | VariableKind::Versioned { .. } => {
+            VariableKind::LocalConst { .. } => {
                 self.variables.local.insert(variable.kind, value);
             }
             VariableKind::LocalMut { .. } => {
@@ -231,11 +231,6 @@ impl<'a> Visitor<'a> {
                     false => value,
                 }
             }
-            VariableKind::Versioned { .. } => *self
-                .variables
-                .local
-                .get(&variable.kind)
-                .expect("Variable should have been declared before"),
             VariableKind::LocalMut { .. } => {
                 let memref = *self
                     .variables

@@ -39,9 +39,7 @@ impl Variable {
         // in WGSL, SPIR-V and LLVM.
         matches!(
             self.kind,
-            VariableKind::Constant(..)
-                | VariableKind::LocalConst { .. }
-                | VariableKind::Versioned { .. }
+            VariableKind::Constant(..) | VariableKind::LocalConst { .. }
         )
     }
 
@@ -52,7 +50,6 @@ impl Variable {
     pub fn can_mutate(&self) -> bool {
         match self.kind {
             VariableKind::LocalConst { .. }
-            | VariableKind::Versioned { .. }
             | VariableKind::Constant(..)
             | VariableKind::BarrierToken { .. }
             | VariableKind::Aggregate { .. } => false,
@@ -75,7 +72,6 @@ impl Variable {
                 VariableKind::Shared { .. } => AddressSpace::Shared,
                 VariableKind::LocalMut { .. }
                 | VariableKind::LocalConst { .. }
-                | VariableKind::Versioned { .. }
                 | VariableKind::BarrierToken { .. } => AddressSpace::Local,
                 VariableKind::Aggregate { .. } => {
                     unimplemented!("Can't create reference to compiler internal aggregate")
@@ -102,10 +98,6 @@ pub enum VariableKind {
     },
     LocalConst {
         id: Id,
-    },
-    Versioned {
-        id: Id,
-        version: u16,
     },
     Constant(ConstantValue),
     Shared {
@@ -203,7 +195,6 @@ impl Variable {
             VariableKind::TensorMap(_) => false,
             VariableKind::LocalMut { .. } => false,
             VariableKind::Shared { .. } => false,
-            VariableKind::Versioned { .. } => true,
             VariableKind::LocalConst { .. } => true,
             VariableKind::Constant(_) => true,
             VariableKind::BarrierToken { .. } => false,
@@ -532,7 +523,6 @@ impl Variable {
             VariableKind::GlobalBuffer(id)
             | VariableKind::TensorMap(id)
             | VariableKind::LocalMut { id, .. }
-            | VariableKind::Versioned { id, .. }
             | VariableKind::LocalConst { id, .. }
             | VariableKind::Shared { id, .. } => Some(id),
             _ => None,
@@ -562,11 +552,8 @@ impl Display for VariableKind {
             VariableKind::GlobalBuffer(id) => write!(f, "global({id})"),
             VariableKind::TensorMap(id) => write!(f, "tensor_map({id})"),
             VariableKind::Constant(constant) => write!(f, "{constant}"),
-            VariableKind::LocalMut { id } => write!(f, "local({id})"),
-            VariableKind::Versioned { id, version } => {
-                write!(f, "local({id}).v{version}")
-            }
-            VariableKind::LocalConst { id } => write!(f, "binding({id})"),
+            VariableKind::LocalMut { id } => write!(f, "local_mut({id})"),
+            VariableKind::LocalConst { id } => write!(f, "local({id})"),
             VariableKind::Shared { id, .. } => write!(f, "shared({id})"),
             VariableKind::BarrierToken { id, .. } => write!(f, "barrier_token({id})"),
             VariableKind::Aggregate { id, aggregate_kind } => write!(f, "{aggregate_kind}({id})"),

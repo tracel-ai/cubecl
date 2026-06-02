@@ -71,7 +71,6 @@ pub struct LookupTables {
     pub constants: HashMap<(ConstVal, Item), Word>,
     pub bindings: HashMap<Id, Word>,
     pub variables: HashMap<Id, Word>,
-    pub versioned: HashMap<(Id, u16), Word>,
     pub labels: HashMap<NodeIndex, Word>,
     pub end_labels: HashMap<NodeIndex, Word>,
 
@@ -325,20 +324,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.state.bindings.insert(id, word);
     }
 
-    pub fn get_versioned(&mut self, id: (Id, u16), var: &ir::Variable) -> Word {
-        if let Some(existing) = self.state.versioned.get(&id) {
-            *existing
-        } else {
-            let word = self.id();
-            self.state.versioned.insert(id, word);
-            let mut debug_var = *var;
-            debug_var.kind = VariableKind::LocalMut { id: id.0 };
-            let name = self.name_of_var(debug_var);
-            self.debug_name(word, format!("{name}.v{}", id.1));
-            word
-        }
-    }
-
     pub fn label(&mut self, block: NodeIndex) -> Word {
         if let Some(existing) = self.state.labels.get(&block) {
             *existing
@@ -379,9 +364,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             VariableKind::LocalMut { id } => self.init_local_from_param(id, &item, param, param_id),
             VariableKind::LocalConst { id } => {
                 self.state.bindings.insert(id, param_id);
-            }
-            VariableKind::Versioned { id, version } => {
-                self.state.versioned.insert((id, version), param_id);
             }
             VariableKind::Aggregate { .. } => {
                 unreachable!("Should be disaggregated at this point")

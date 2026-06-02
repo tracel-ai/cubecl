@@ -76,7 +76,7 @@ impl Allocator {
     }
 
     pub fn new_local_index(&self) -> u32 {
-        self.next_id.fetch_add(1, Ordering::Release)
+        self.next_id.fetch_add(1, Ordering::Release) + 1
     }
 
     pub fn current_local_index(&self) -> u32 {

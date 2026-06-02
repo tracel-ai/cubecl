@@ -45,7 +45,7 @@ impl Function {
 
     /// Insert a phi node for variable `id` at `block`
     pub fn insert_phi(&mut self, block: NodeIndex, id: Id, item: Type) {
-        let var = Variable::new(VariableKind::Versioned { id, version: 0 }, item);
+        let var = Variable::new(VariableKind::LocalConst { id }, item);
         let entries = self.predecessors(block).into_iter().map(|pred| PhiEntry {
             block: pred,
             value: var,

@@ -33,18 +33,9 @@ impl Value {
     pub(crate) fn as_var(&self) -> Variable {
         match self {
             Value::Constant(val, ty) => Variable::constant(*val, *ty),
-            Value::Local(Local {
-                id,
-                version: 0,
-                item,
-            }) => Variable::new(VariableKind::LocalConst { id: *id }, *item),
-            Value::Local(Local { id, version, item }) => Variable::new(
-                VariableKind::Versioned {
-                    id: *id,
-                    version: *version,
-                },
-                *item,
-            ),
+            Value::Local(Local { id, item }) => {
+                Variable::new(VariableKind::LocalConst { id: *id }, *item)
+            }
             Value::Global(id, item) => Variable::new(VariableKind::GlobalBuffer(*id), *item),
         }
     }
@@ -54,12 +45,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
     let item = var.ty;
     let val = match var.kind {
         VariableKind::GlobalBuffer(id) => Value::Global(id, item),
-        VariableKind::Versioned { id, version } => Value::Local(Local { id, version, item }),
-        VariableKind::LocalConst { id } => Value::Local(Local {
-            id,
-            version: 0,
-            item,
-        }),
+        VariableKind::LocalConst { id } => Value::Local(Local { id, item }),
         VariableKind::Constant(val) => Value::Constant(val, item),
         VariableKind::LocalMut { .. } | VariableKind::Shared { .. } => None?,
         VariableKind::BarrierToken { .. } => {

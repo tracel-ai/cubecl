@@ -1,9 +1,11 @@
 use alloc::vec::Vec;
-use cubecl_ir::{CopyMemoryOperands, Id, Instruction, Memory, Operation, Variable, VariableKind};
+use cubecl_ir::{CopyMemoryOperands, Instruction, Memory, Operation, Variable};
 use hashbrown::{HashMap, HashSet};
 
 use crate::{
-    AtomicCounter, Function, GlobalState, analyses::pointer_source::PointerSource, visit_noop,
+    AtomicCounter, Function, GlobalState,
+    analyses::{integer_range::var_id, pointer_source::PointerSource},
+    visit_noop,
 };
 
 use super::OptimizerPass;
@@ -30,7 +32,7 @@ impl OptimizerPass for CopyTransform {
                             && !is_reused(func, state, &inst.out) =>
                     {
                         let source = ptr_source.get(ptr).unwrap();
-                        if let Some(id) = as_versioned(&inst.out()) {
+                        if let Some(id) = var_id(&inst.out()) {
                             reads.insert(id, (idx, *ptr, source));
                         }
                     }
@@ -38,7 +40,7 @@ impl OptimizerPass for CopyTransform {
                         if ptr_source.get(&op.ptr).is_some_and(|it| it.is_memory()) =>
                     {
                         let source = ptr_source.get(&op.ptr).unwrap();
-                        if let Some(id) = as_versioned(&op.value) {
+                        if let Some(id) = var_id(&op.value) {
                             writes.insert(id, (idx, op.ptr, source));
                         }
                     }
@@ -75,14 +77,6 @@ impl OptimizerPass for CopyTransform {
                 changes.inc();
             }
         }
-    }
-}
-
-fn as_versioned(var: &Variable) -> Option<(Id, u16)> {
-    match var.kind {
-        VariableKind::LocalConst { id } => Some((id, 0)),
-        VariableKind::Versioned { id, version } => Some((id, version)),
-        _ => None,
     }
 }
 

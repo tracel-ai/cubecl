@@ -20,11 +20,6 @@ pub enum Variable {
         id: Word,
         item: Item,
     },
-    Versioned {
-        id: (Id, u16),
-        item: Item,
-        variable: ir::Variable,
-    },
     LocalBinding {
         id: Id,
         item: Item,
@@ -195,9 +190,6 @@ impl Variable {
             Variable::GlobalBuffer(id, _, _) => *id,
             Variable::Constant(id, _, _) => *id,
             Variable::Local { id, .. } => *id,
-            Variable::Versioned {
-                id, variable: var, ..
-            } => b.get_versioned(*id, var),
             Variable::LocalBinding {
                 id, variable: var, ..
             } => b.get_binding(*id, var),
@@ -213,7 +205,6 @@ impl Variable {
             Variable::GlobalBuffer(_, item, _) => item.clone(),
             Variable::Constant(_, _, item) => item.clone(),
             Variable::Local { item, .. } => item.clone(),
-            Variable::Versioned { item, .. } => item.clone(),
             Variable::LocalBinding { item, .. } => item.clone(),
             Variable::Slice { item, .. } => item.clone(),
             Variable::Shared(_, item) => item.clone(),
@@ -229,10 +220,6 @@ impl Variable {
                 ..
             } => Item::Scalar(*elem),
             Variable::Local {
-                item: Item::Vector(elem, _),
-                ..
-            } => Item::Scalar(*elem),
-            Variable::Versioned {
                 item: Item::Vector(elem, _),
                 ..
             } => Item::Scalar(*elem),
@@ -294,11 +281,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let item = self.compile_type(item);
                 let var = self.get_local(id, &item, variable);
                 Variable::Local { id: var, item }
-            }
-            ir::VariableKind::Versioned { id, version } => {
-                let item = self.compile_type(item);
-                let id = (id, version);
-                Variable::Versioned { id, item, variable }
             }
             ir::VariableKind::LocalConst { id } => {
                 let item = self.compile_type(item);
@@ -397,7 +379,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn write_id(&mut self, variable: &Variable) -> Word {
         match variable {
             Variable::LocalBinding { id, variable, .. } => self.get_binding(*id, variable),
-            Variable::Versioned { id, variable, .. } => self.get_versioned(*id, variable),
             Variable::Local { .. } => self.id(),
             Variable::Shared(..) => self.id(),
             Variable::Raw(id, _) => *id,
@@ -429,9 +410,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Variable::LocalBinding { id, .. } => {
                 self.state.bindings.insert(*id, value);
-            }
-            Variable::Versioned { id, .. } => {
-                self.state.versioned.insert(*id, value);
             }
             Variable::Slice { ptr, .. } => self.write(ptr, value),
             _ => {}

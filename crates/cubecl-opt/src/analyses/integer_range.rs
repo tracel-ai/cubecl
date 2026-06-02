@@ -4,7 +4,7 @@ use cubecl_ir::{
 };
 use hashbrown::HashMap;
 
-use crate::{Function, GlobalState, VarId};
+use crate::{Function, GlobalState};
 
 use super::Analysis;
 
@@ -22,7 +22,7 @@ pub struct Range {
 #[derive(Debug, Default)]
 #[allow(unused)]
 pub struct Ranges {
-    int_ranges: HashMap<VarId, Range>,
+    int_ranges: HashMap<Id, Range>,
 }
 
 impl Range {
@@ -145,27 +145,14 @@ impl Ranges {
     /// can be determined, or the type is not an integer.
     pub fn range_of(&self, var: &Variable) -> Range {
         match var.kind {
-            VariableKind::Versioned { id, version } if is_uint(var.ty) => self
-                .int_ranges
-                .get(&(id, version))
-                .copied()
-                .unwrap_or(Range {
-                    lower_bound: Some(0),
-                    upper_bound: None,
-                }),
-            VariableKind::Versioned { id, version } => self
-                .int_ranges
-                .get(&(id, version))
-                .copied()
-                .unwrap_or_default(),
             VariableKind::LocalConst { id } if is_uint(var.ty) => {
-                self.int_ranges.get(&(id, 0)).copied().unwrap_or(Range {
+                self.int_ranges.get(&id).copied().unwrap_or(Range {
                     lower_bound: Some(0),
                     upper_bound: None,
                 })
             }
             VariableKind::LocalConst { id } => {
-                self.int_ranges.get(&(id, 0)).copied().unwrap_or_default()
+                self.int_ranges.get(&id).copied().unwrap_or_default()
             }
             VariableKind::Constant(ConstantValue::UInt(val)) => Range::constant(val),
             _ => Default::default(),
@@ -173,10 +160,9 @@ impl Ranges {
     }
 }
 
-pub(crate) fn var_id(var: &Variable) -> Option<(Id, u16)> {
+pub(crate) fn var_id(var: &Variable) -> Option<Id> {
     match var.kind {
-        VariableKind::Versioned { id, version } => Some((id, version)),
-        VariableKind::LocalConst { id } => Some((id, 0)),
+        VariableKind::LocalConst { id } => Some(id),
         _ => None,
     }
 }

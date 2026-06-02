@@ -334,7 +334,6 @@ impl Function {
         self.current_block = Some(next);
 
         // For loop constructs
-        self.insert_phi(header, i_id, range_loop.start.ty);
         {
             let op = match range_loop.inclusive {
                 true => Comparison::LowerEqual,

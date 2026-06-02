@@ -70,7 +70,6 @@ impl Default for ValueTable {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
 pub struct Local {
     pub id: Id,
-    pub version: u16,
     pub item: Type,
 }
 

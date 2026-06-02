@@ -428,9 +428,7 @@ fn create_unrolled(
     let item = var.ty.with_vector_size(max_vector_size);
     (0..unroll_factor)
         .map(|_| match var.kind {
-            VariableKind::LocalMut { .. } | VariableKind::Versioned { .. } => {
-                allocator.create_local_mut(item)
-            }
+            VariableKind::LocalMut { .. } => allocator.create_local_mut(item),
             VariableKind::Shared { .. } => {
                 let id = allocator.new_local_index();
                 let shared = VariableKind::Shared {

@@ -514,7 +514,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             core::VariableKind::LocalMut { .. }
             | core::VariableKind::LocalConst { .. }
-            | core::VariableKind::Versioned { .. }
             | core::VariableKind::Constant(..) => self.compile_type(var.ty).id(self),
             core::VariableKind::Shared { id, .. } => self.state.base_lookups.shared[&id].ptr_ty_id,
             core::VariableKind::BarrierToken { .. } => {

@@ -301,10 +301,7 @@ impl Display for Value {
 
 impl Display for Local {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.version {
-            0 => write!(f, "binding({})", self.id),
-            v => write!(f, "local({}).v{v}", self.id),
-        }
+        write!(f, "local({})", self.id)
     }
 }
 
