@@ -591,7 +591,7 @@ mod custom_channel {
         sync::atomic::{AtomicPtr, AtomicU32, Ordering},
         time::Duration,
     };
-    use std::{sync::Arc, vec::Vec};
+    use std::{println, sync::Arc, vec::Vec};
 
     /// Maximum number of [`Task`] that can be queued.
     pub const CHANNEL_MAX_TASK: usize = 32;
@@ -825,8 +825,11 @@ mod custom_channel {
         }
 
         fn execute_tasks(&mut self) {
+            println!("[{:?}] server execute", std::thread::current().id());
+
             let server_buf = 1 - self.client_buf;
             for task in &mut self.buffers[server_buf].tasks {
+                println!("[{:?}] task", std::thread::current().id());
                 task.run();
             }
             self.ready_to_execute = false;
