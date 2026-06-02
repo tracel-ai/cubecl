@@ -53,7 +53,6 @@ impl<T: CubeType> cubecl::prelude::CubeDebug for RuntimeCellExpand<T> {}
 #[cube]
 impl<T: CubePrimitive> RuntimeCell<T> {
     /// Create a new runtime cell with the given initial value.
-    #[allow(unused_variables)]
     pub fn new(init: T) -> Self {
         intrinsic!(|scope| {
             let value = init_expand(scope, init.expand, true, Operation::Copy);
@@ -64,7 +63,6 @@ impl<T: CubePrimitive> RuntimeCell<T> {
     }
 
     /// Store a new value in the cell.
-    #[allow(unused_variables)]
     pub fn store(&self, value: T) {
         intrinsic!(|scope| {
             let mut this = self.value.clone();
@@ -89,13 +87,11 @@ impl<T: CubePrimitive> RuntimeCell<T> {
 #[cube]
 impl<S: Scalar, N: Size> RuntimeCell<Vector<S, N>> {
     /// Extract the value in the cell at the given index.
-    #[allow(unused_variables)]
     pub fn extract(&mut self, index: usize) -> S {
         intrinsic!(|scope| { self.value.__expand_extract_method(scope, index) })
     }
 
     /// Store a new value in the cell at the given index.
-    #[allow(unused_variables)]
     pub fn insert(&mut self, index: usize, value: S) {
         intrinsic!(|scope| { self.value.__expand_insert_method(scope, index, value) })
     }

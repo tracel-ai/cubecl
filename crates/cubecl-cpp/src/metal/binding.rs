@@ -1,20 +1,8 @@
-use cubecl_core::{prelude::Visibility, server::KernelArguments};
-
 use crate::{
     Dialect,
     metal::AddressSpace,
-    shared::{Component, KernelArg, MslComputeKernel, Variable},
+    shared::{Component, KernelArg, Variable},
 };
-
-pub fn bindings(repr: &MslComputeKernel, args: &KernelArguments) -> (Vec<Visibility>, usize) {
-    let buffers = repr.buffers.iter().map(|it| it.vis);
-    let uniform = args.info.dynamic_metadata_offset >= args.info.data.len();
-    let info_vis = (!args.info.data.is_empty()).then_some(match uniform {
-        true => Visibility::Uniform,
-        false => Visibility::Read,
-    });
-    (buffers.chain(info_vis).collect(), 0)
-}
 
 pub fn format_global_binding_arg<D: Dialect>(
     name: &str,

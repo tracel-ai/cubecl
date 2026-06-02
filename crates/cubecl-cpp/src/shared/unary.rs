@@ -179,6 +179,18 @@ function!(FastTanh, "__tanhf", false);
 function!(Erf, "erf", false);
 function!(Abs, "abs", false);
 
+pub struct Neg;
+
+impl<D: Dialect> Unary<D> for Neg {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _out_elem: Elem<D>,
+    ) -> std::fmt::Result {
+        writeln!(f, "-{}", input)
+    }
+}
+
 pub struct Log1p;
 
 impl<D: Dialect> Unary<D> for Log1p {

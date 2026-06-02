@@ -43,7 +43,7 @@ deny-validation-errors = ["wgpu-hal/validation_canary"]
 spirv-dump = ["std"]
 vulkan-validate = []
 
-renderdoc = ["std"]
+renderdoc = ["std", "dep:renderdoc"]
 tracing = [
     "dep:tracing",
     "cubecl-runtime/tracing",
@@ -54,7 +54,6 @@ tracing = [
 [dependencies]
 # Runtime Deps
 log = { workspace = true }
-renderdoc = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
 cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-features = false }
@@ -95,6 +94,7 @@ wasm-bindgen-futures = { workspace = true }
 
 ## wgpu dependency for platforms other than macOS
 [target.'cfg(not(target_os = "macos"))'.dependencies]
+renderdoc = { workspace = true, optional = true }
 wgpu = { workspace = true, features = ["fragile-send-sync-non-atomic-wasm"] }
 
 ## Uncomment if targeting metal through msl feature

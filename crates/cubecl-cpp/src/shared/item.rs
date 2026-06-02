@@ -219,16 +219,6 @@ impl<D: Dialect> Item<D> {
         matches!(self, Item::Pointer(..))
     }
 
-    pub fn is_const_ptr(&self) -> bool {
-        matches!(
-            self,
-            Item::Pointer(
-                _,
-                PointerClass::Global(Visibility::Read | Visibility::ReadWrite)
-            )
-        )
-    }
-
     pub fn is_array(&self) -> bool {
         matches!(self, Item::Array(..) | Item::DynamicArray(..))
     }

@@ -30,6 +30,7 @@ use half::{bf16, f16};
 #[expect(dead_code, reason = "only used in expand")]
 #[derive(CubeType, CubeLaunch, Clone)]
 pub struct QuantizedView<
+    'a,
     Q: Scalar,
     NQ: Size,
     S: Scalar,
@@ -37,8 +38,8 @@ pub struct QuantizedView<
     NF: Size,
     C: Coordinates + 'static,
 > {
-    values: View<Vector<Q, NQ>, C>,
-    scales: View<S, C>,
+    values: View<'a, Vector<Q, NQ>, C>,
+    scales: View<'a, S, C>,
     #[cube(comptime)]
     scheme: QuantScheme,
     #[cube(comptime)]
@@ -46,15 +47,15 @@ pub struct QuantizedView<
 }
 
 #[cube]
-impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
-    QuantizedView<Q, NQ, S, F, NF, C>
+impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
+    QuantizedView<'a, Q, NQ, S, F, NF, C>
 {
     pub fn new(
-        values: View<Vector<Q, NQ>, C>,
-        scales: View<S, C>,
+        values: View<'a, Vector<Q, NQ>, C>,
+        scales: View<'a, S, C>,
         #[comptime] scheme: QuantScheme,
     ) -> Self {
-        QuantizedView::<Q, NQ, S, F, NF, C> {
+        QuantizedView::<'a, Q, NQ, S, F, NF, C> {
             values,
             scales,
             scheme,
@@ -63,30 +64,30 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
     }
 }
 
-impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
-    QuantizedView<Q, NQ, S, F, NF, C>
+impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
+    QuantizedView<'a, Q, NQ, S, F, NF, C>
 {
-    pub fn view(self) -> View<Vector<F, NF>, C> {
+    pub fn view(self) -> View<'a, Vector<F, NF>, C> {
         unexpanded!()
     }
 
     pub fn __expand_view(
         scope: &Scope,
-        this: QuantizedViewExpand<Q, NQ, S, F, NF, C>,
-    ) -> ViewExpand<Vector<F, NF>, C, ReadOnly> {
+        this: QuantizedViewExpand<'a, Q, NQ, S, F, NF, C>,
+    ) -> ViewExpand<'a, Vector<F, NF>, C> {
         this.__expand_view_method(scope)
     }
 }
 
-impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
-    QuantizedViewExpand<Q, NQ, S, F, NF, C>
+impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
+    QuantizedViewExpand<'a, Q, NQ, S, F, NF, C>
 {
     pub fn new(
-        values: ViewExpand<Vector<Q, NQ>, C>,
-        scales: ViewExpand<S, C>,
+        values: ViewExpand<'a, Vector<Q, NQ>, C>,
+        scales: ViewExpand<'a, S, C>,
         scheme: QuantScheme,
     ) -> Self {
-        QuantizedViewExpand::<Q, NQ, S, F, NF, C> {
+        QuantizedViewExpand::<'a, Q, NQ, S, F, NF, C> {
             values,
             scales,
             scheme,
@@ -94,30 +95,30 @@ impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'sta
         }
     }
 
-    pub fn __expand_view_method(self, _scope: &Scope) -> ViewExpand<Vector<F, NF>, C, ReadOnly> {
-        ViewExpand::new(self)
+    pub fn __expand_view_method(self, scope: &Scope) -> ViewExpand<'a, Vector<F, NF>, C> {
+        ViewExpand::new(scope, self)
     }
 }
 
-impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static> Vectorized
-    for QuantizedView<Q, NQ, S, F, NF, C>
+impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static> Vectorized
+    for QuantizedView<'a, Q, NQ, S, F, NF, C>
 {
 }
-impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
-    VectorizedExpand for QuantizedViewExpand<Q, NQ, S, F, NF, C>
+impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
+    VectorizedExpand for QuantizedViewExpand<'a, Q, NQ, S, F, NF, C>
 {
     fn vector_size(&self) -> VectorSize {
         self.values.vector_size() * self.scheme.num_quants()
     }
 }
 
-impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
-    ViewOperations<Vector<F, NF>, C> for QuantizedView<Q, NQ, S, F, NF, C>
+impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
+    ViewOperations<Vector<F, NF>, C> for QuantizedView<'a, Q, NQ, S, F, NF, C>
 {
 }
 
-impl<Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
-    ViewOperationsExpand<Vector<F, NF>, C> for QuantizedViewExpand<Q, NQ, S, F, NF, C>
+impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
+    ViewOperationsExpand<Vector<F, NF>, C> for QuantizedViewExpand<'a, Q, NQ, S, F, NF, C>
 {
     fn __expand_read_method(
         &self,
@@ -227,7 +228,7 @@ struct ExpandDynamic<'a, E: Numeric, N: Size, C: Coordinates + 'static> {
 impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
     for ExpandDynamic<'a, E, N, C>
 {
-    type Output = ViewExpand<Vector<E, N>, C>;
+    type Output = ViewExpand<'static, Vector<E, N>, C>;
 
     fn execute<Q: Scalar, S: Scalar>(self) -> Self::Output {
         define_size!(NQ);
@@ -239,7 +240,7 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
         let values = View::<Vector<Q, NQ>, C>::expand(self.values, self.builder);
         let scales = View::<S, C>::expand(self.scales, self.builder);
         let view = QuantizedViewExpand::new(values, scales, self.scheme);
-        ViewExpand::new(view)
+        ViewExpand::new(&self.builder.scope, view)
     }
 }
 
@@ -309,12 +310,12 @@ pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) ->
 
 /// Dynamically expand based on the quantization scheme. Ugly, but the only way to fully hide the
 /// quantization from the kernel using the view.
-pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static, IO: SliceVisibility>(
+pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
     values: &ViewCompilationArg<C>,
     scales: &ViewCompilationArg<C>,
     scheme: QuantScheme,
     builder: &mut KernelBuilder,
-) -> ViewExpand<E, C, IO> {
+) -> ViewExpand<'static, E, C> {
     use core::mem::transmute as t;
 
     // To specify tighter trait bounds
@@ -323,7 +324,7 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static, IO: Sli
         scales: &ViewCompilationArg<C>,
         scheme: QuantScheme,
         builder: &mut KernelBuilder,
-    ) -> ViewExpand<Vector<F, NF>, C> {
+    ) -> ViewExpand<'static, Vector<F, NF>, C> {
         let func = ExpandDynamic {
             values,
             scales,

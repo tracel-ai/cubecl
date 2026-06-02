@@ -171,6 +171,14 @@ impl CubeTraitImplItem {
             CubeTraitImplItem::Fn(_) | CubeTraitImplItem::Method(_) => None,
         }
     }
+
+    fn is_intrinsic(&self) -> bool {
+        match self {
+            CubeTraitImplItem::Fn(kernel_fn) => kernel_fn.context.is_intrinsic,
+            CubeTraitImplItem::Method(kernel_fn) => kernel_fn.context.is_intrinsic,
+            CubeTraitImplItem::Other(_) => false,
+        }
+    }
 }
 
 impl CubeTrait {
@@ -226,9 +234,18 @@ impl CubeTraitImpl {
     pub fn from_item_impl(mut item_impl: ItemImpl, args: &KernelArgs) -> syn::Result<Self> {
         let items = item_impl
             .items
-            .iter()
-            .cloned()
-            .map(|item| CubeTraitImplItem::from_impl_item(&item_impl.self_ty, item, args))
+            .iter_mut()
+            .map(|item| {
+                let impl_item =
+                    CubeTraitImplItem::from_impl_item(&item_impl.self_ty, item.clone(), args)?;
+                if impl_item.is_intrinsic() {
+                    *item = parse_quote! {
+                        #[allow(unused_variables)]
+                        #item
+                    }
+                }
+                Ok::<CubeTraitImplItem, syn::Error>(impl_item)
+            })
             .collect::<Result<_, _>>()?;
 
         RemoveHelpers.visit_item_impl_mut(&mut item_impl);

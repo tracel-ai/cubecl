@@ -221,7 +221,7 @@ impl<R: Runtime> TensorArg<R> {
 impl<R: Runtime> TensorBinding<R> {
     /// Convert the handle into a [tensor argument](TensorArg).
     pub fn into_tensor_arg(self) -> TensorArg<R> {
-        unsafe { TensorArg::from_raw_parts_binding(self.handle, self.strides, self.shape) }
+        TensorArg::Handle { handle: self }
     }
     /// Convert the handle into a [tensor argument](TensorArg).
     pub fn into_alias(self, index: usize) -> TensorArg<R> {

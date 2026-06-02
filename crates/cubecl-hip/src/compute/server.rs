@@ -220,6 +220,10 @@ impl ComputeServer for HipServer {
         Ok(command.memory_usage())
     }
 
+    fn stream_ids(&self) -> Vec<StreamId> {
+        self.streams.stream_ids().collect()
+    }
+
     fn memory_cleanup(&mut self, stream_id: StreamId) {
         let mut command = match self.command_no_inputs(
             stream_id,
@@ -374,6 +378,11 @@ impl HipServer {
                 (data[0], data[1], data[2])
             }
         };
+
+        // A dynamic count can resolve to zero, which the driver rejects.
+        if count.0 == 0 || count.1 == 0 || count.2 == 0 {
+            return Ok(());
+        }
 
         let KernelArguments {
             buffers,

@@ -184,3 +184,12 @@ impl<T: TypeHash + ?Sized> TypeHash for &mut T {
         T::write_hash(hasher);
     }
 }
+
+impl<T: TypeHash + ?Sized, U: TypeHash + ?Sized> TypeHash for fn(T) -> U {
+    fn write_hash(hasher: &mut impl Hasher) {
+        hasher.write(b"fn(");
+        T::write_hash(hasher);
+        hasher.write(b") -> ");
+        U::write_hash(hasher);
+    }
+}

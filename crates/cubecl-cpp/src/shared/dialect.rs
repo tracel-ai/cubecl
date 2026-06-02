@@ -1,11 +1,12 @@
 use std::{collections::HashSet, fmt::Debug};
 use std::{fmt::Display, hash::Hash};
 
-use cubecl_core::ir::{ConstantValue, Processor};
+use cubecl_core::ir::Processor;
 
 use crate::shared::{
     FmtLeft, IndexedVariable, MmaShape, SupportedMmaCombinations, SupportedScaledMmaCombinations,
     reduce_comparison, reduce_exclusive, reduce_inclusive, reduce_operator, reduce_quantifier,
+    unary::{Neg, Unary},
 };
 
 use super::{
@@ -485,8 +486,42 @@ pub trait DialectInstructions<D: Dialect> {
         input: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
-        let zero = Variable::Constant(ConstantValue::UInt(0), input.item());
-        Self::compile_atomic_add(f, input, &zero, out)
+        let out_item = out.item();
+        let out = out.fmt_left();
+
+        let Item::Pointer(_, class) = input.item() else {
+            unreachable!()
+        };
+
+        let unsigned_ty = match out_item.size() {
+            1 => Item::Scalar(Elem::<D>::U8),
+            2 => Item::Scalar(Elem::<D>::U16),
+            4 => Item::Scalar(Elem::<D>::U32),
+            8 => Item::Scalar(Elem::<D>::U64),
+            // Hacky, but it's CUDA only for now. We should really migrate to a more modern API in
+            // general
+            16 => {
+                let out_tmp = Variable::tmp(out_item);
+                writeln!(f, "{};", out_tmp.fmt_left())?;
+                writeln!(
+                    f,
+                    "__nv_atomic_load({input}, &{out_tmp}, __NV_ATOMIC_RELAXED);"
+                )?;
+                return writeln!(f, "{out} = {out_tmp};");
+            }
+            _ => unreachable!(),
+        };
+        let unsigned_ptr_ty = Item::Pointer(unsigned_ty.intern(), class);
+
+        let ptr_tmp = Variable::tmp(unsigned_ptr_ty);
+        let out_tmp = Variable::tmp(unsigned_ty);
+        writeln!(
+            f,
+            "volatile {} = reinterpret_cast<volatile {unsigned_ptr_ty}>({input});",
+            ptr_tmp.fmt_left()
+        )?;
+        writeln!(f, "{} = *{ptr_tmp};", out_tmp.fmt_left())?;
+        writeln!(f, "{out} = reinterpret_cast<const {out_item}&>({out_tmp});")
     }
 
     fn compile_atomic_max(
@@ -534,18 +569,9 @@ pub trait DialectInstructions<D: Dialect> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
-        let addr_space = D::address_space_for_variable(out);
-        let out = out.fmt_left();
-        match rhs.elem() {
-            Elem::U32 | Elem::I32 => writeln!(f, "{out} = atomicSub({lhs}, {rhs});"),
-            Elem::U64 => writeln!(f, "{out} = atomicAdd({lhs}, -{rhs});"),
-            Elem::I64 => writeln!(
-                f,
-                "{out} = atomicAdd(reinterpret_cast<{addr_space}{uint}*>({lhs}), {uint}(-{rhs}));",
-                uint = Elem::<D>::U64
-            ),
-            _ => writeln!(f, "{out} = atomicAdd({lhs}, -{rhs});"),
-        }
+        let tmp = Variable::tmp(rhs.item());
+        Neg::format(f, rhs, &tmp)?;
+        Self::compile_atomic_add(f, lhs, &tmp, out)
     }
 
     fn compile_atomic_swap(
@@ -554,39 +580,34 @@ pub trait DialectInstructions<D: Dialect> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
-        let addr_space = D::address_space_for_variable(out);
         let out_item = out.item();
         let out = out.fmt_left();
-        match rhs.item() {
-            // vec4 is automatically supported by the new 128-bit template version
-            Item::Vector(inner, 2) if matches!(inner.elem(), Elem::F32) => {
-                let rhs = rhs.ensure_lvalue(f)?;
-                let u64 = Item::Scalar(Elem::<D>::U64);
-                let out_tmp = Variable::tmp(u64);
-                writeln!(
-                    f,
-                    "{} = atomicExch(
-                reinterpret_cast<{addr_space}{u64}*>({lhs}),
-                reinterpret_cast<{u64}&>({rhs}));",
-                    out_tmp.fmt_left()
-                )?;
-                writeln!(f, "{out} = reinterpret_cast<{out_item}&>({out_tmp});")
-            }
-            Item::Vector(inner, 2) if matches!(inner.elem(), Elem::F16 | Elem::BF16) => {
-                let rhs = rhs.ensure_lvalue(f)?;
-                let u32 = Item::Scalar(Elem::<D>::U32);
-                let out_tmp = Variable::tmp(u32);
-                writeln!(
-                    f,
-                    "{} = atomicExch(
-                reinterpret_cast<{addr_space}{u32}*>({lhs}),
-                reinterpret_cast<{u32}&>({rhs}));",
-                    out_tmp.fmt_left()
-                )?;
-                writeln!(f, "{out} = reinterpret_cast<{out_item}&>({out_tmp});")
-            }
-            _ => writeln!(f, "{out} = atomicExch({lhs}, {rhs});"),
-        }
+
+        let unsigned_elem = match rhs.item().size() {
+            1 => Elem::<D>::U8,
+            2 => Elem::<D>::U16,
+            4 => Elem::<D>::U32,
+            8 => Elem::<D>::U64,
+            // 128-bit wide uses a generic template that accepts arbitrary types
+            _ => return writeln!(f, "{out} = atomicExch({lhs}, {rhs});"),
+        };
+
+        let rhs = rhs.ensure_lvalue(f)?;
+        let Item::Pointer(_, class) = lhs.item() else {
+            unreachable!()
+        };
+        let unsigned_ty = Item::Scalar(unsigned_elem);
+        let unsigned_ptr_ty = Item::Pointer(unsigned_ty.intern(), class);
+
+        let out_tmp = Variable::tmp(unsigned_ty);
+        writeln!(
+            f,
+            "{} = atomicExch(
+                    reinterpret_cast<{unsigned_ptr_ty}>({lhs}),
+                    reinterpret_cast<const {unsigned_ty}&>({rhs}));",
+            out_tmp.fmt_left()
+        )?;
+        writeln!(f, "{out} = reinterpret_cast<const {out_item}&>({out_tmp});")
     }
 
     fn compile_atomic_xor(

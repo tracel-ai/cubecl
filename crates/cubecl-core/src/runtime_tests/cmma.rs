@@ -1176,8 +1176,8 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     let elem_size = AB::type_size();
     let width = comptime![16 / elem_size];
 
-    let mut stage_a = Shared::new_aligned_array(size_m * size_k, 16usize);
-    let mut stage_b = Shared::new_aligned_array(size_k * size_n, 16usize);
+    let mut stage_a = Shared::new_aligned_slice(size_m * size_k, 16usize);
+    let mut stage_b = Shared::new_aligned_slice(size_k * size_n, 16usize);
     bar.memcpy_async_cooperative(a.as_slice(), stage_a.as_mut_slice());
     bar.memcpy_async_cooperative(b.as_slice(), stage_b.as_mut_slice());
     bar.arrive_and_wait();

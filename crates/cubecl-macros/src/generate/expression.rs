@@ -18,9 +18,41 @@ macro_rules! error {
     };
 }
 
+fn into_expand(tokens: TokenStream) -> TokenStream {
+    let into_expand = prelude_type("IntoExpand");
+    quote![#into_expand::into_expand(#tokens, scope)]
+}
+
 impl Expression {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
         match self {
+            // `||` and `&&` short-circuit via if/else over the left operand.
+            // Pure operands fall through to the eager binary path below.
+            Expression::Binary {
+                left,
+                operator: op @ (Operator::Or | Operator::And),
+                right,
+                span,
+                ..
+            } if !left.is_always_pure() || !right.is_always_pure() => {
+                let path = frontend_path();
+                let native = frontend_type("NativeExpand");
+                let left = into_expand(left.to_tokens(context));
+                let right = into_expand(right.to_tokens(context));
+                let (then_block, else_block) = match op {
+                    // `a || b`  =>  if a { true } else { b }
+                    Operator::Or => (quote![#native::from_lit(scope, true)], right),
+                    // `a && b`  =>  if a { b } else { false }
+                    Operator::And => (right, quote![#native::from_lit(scope, false)]),
+                    _ => unreachable!(),
+                };
+                let body = quote! {
+                    #path::branch::if_else_expr_expand(scope, #left, |scope| #then_block)
+                        .or_else(scope, |scope| #else_block)
+                };
+                let expand = with_span(context, *span, body);
+                quote! {{#expand}}
+            }
             Expression::Binary {
                 left,
                 operator,
@@ -29,11 +61,11 @@ impl Expression {
                 ..
             } => {
                 let op = format_ident!("__expand_{}_method", operator.op_name());
-                let left = left.to_tokens(context);
-                let right = right.to_tokens(context);
+                let left = into_expand(left.to_tokens(context));
+                let right = into_expand(right.to_tokens(context));
                 let rhs = match operator.is_cmp() {
-                    true => quote![&#right.into_expand(scope)],
-                    false => quote![#right.into_expand(scope)],
+                    true => quote![&#right],
+                    false => quote![#right],
                 };
                 let expand = with_span(
                     context,
@@ -49,10 +81,18 @@ impl Expression {
                 operator: Operator::Deref,
                 ..
             } => {
-                let input = input.to_tokens(context);
-                quote! {{
-                    #input.__expand_deref_method(scope)
-                }}
+                if matches!(**input, Expression::Index { .. }) {
+                    let deref = prelude_type("__expand_deref");
+                    let input = input.to_tokens(context);
+                    quote! {{
+                        #deref(scope, #input)
+                    }}
+                } else {
+                    let input = input.to_tokens(context);
+                    quote! {{
+                        #input.__expand_deref_method(scope)
+                    }}
+                }
             }
             Expression::Unary {
                 input,
@@ -93,30 +133,40 @@ impl Expression {
                 quote![#expand_elem::from_lit(scope, #value)]
             }
             Expression::Assignment { left, right, .. } => {
-                let right = right.to_tokens(context);
-                let left = left.to_tokens(context);
-                quote! {{
-                    let _value = #right.into_expand(scope);
-                    #left.__expand_assign_method(scope, _value)
-                }}
+                let right = into_expand(right.to_tokens(context));
+
+                if matches!(**left, Expression::IndexMut { .. }) {
+                    let assign = prelude_type("__expand_assign");
+                    let left = left.to_tokens(context);
+                    quote! {{
+                        let _value = #right;
+                        #assign(scope, #left, _value)
+                    }}
+                } else {
+                    let left = left.to_tokens(context);
+                    quote! {{
+                        let _value = #right;
+                        #left.__expand_assign_method(scope, _value)
+                    }}
+                }
             }
             Expression::Index { expr, index, span } => {
                 let expr = expr.to_tokens(context);
-                let index = index.to_tokens(context);
+                let index = into_expand(index.to_tokens(context));
                 let expand = with_span(
                     context,
                     *span,
-                    quote![#expr.__expand_index_method(scope, #index.into_expand(scope))],
+                    quote![#expr.__expand_index_method(scope, #index)],
                 );
                 quote! {{#expand}}
             }
             Expression::IndexMut { expr, index, span } => {
                 let expr = expr.to_tokens(context);
-                let index = index.to_tokens(context);
+                let index = into_expand(index.to_tokens(context));
                 let expand = with_span(
                     context,
                     *span,
-                    quote![#expr.__expand_index_mut_method(scope,  #index.into_expand(scope))],
+                    quote![#expr.__expand_index_mut_method(scope, #index)],
                 );
                 quote! {{#expand}}
             }
@@ -200,10 +250,10 @@ impl Expression {
             ),
             Expression::Cast { from, to } => {
                 let cast = prelude_type("Cast");
-                let from = from.to_tokens(context);
+                let from = into_expand(from.to_tokens(context));
                 let to = quote_spanned![to.span()=> <#to as #cast>];
                 quote! {{
-                    #to::__expand_cast_from(scope, #from.into_expand(scope))
+                    #to::__expand_cast_from(scope, #from)
                 }}
             }
             Expression::ForLoop {
@@ -253,12 +303,12 @@ impl Expression {
                 else_branch: Some(else_branch),
             } if then_block.ret.is_some() && else_branch.needs_terminator() => {
                 let path = frontend_path();
-                let condition = condition.to_tokens(context);
+                let condition = into_expand(condition.to_tokens(context));
                 let then_block = then_block.to_tokens(context);
                 let else_branch = else_branch.to_tokens(context);
                 quote! {{
-                    #path::branch::if_else_expr_expand(scope, #condition.into_expand(scope), |scope| #then_block)
-                        .or_else(scope, |scope| #else_branch)
+                    #path::branch::if_else_expr_expand(scope, #condition, |scope| (#then_block))
+                        .or_else(scope, |scope| (#else_branch))
                 }}
             }
             Expression::If {
@@ -267,11 +317,11 @@ impl Expression {
                 else_branch: Some(else_branch),
             } => {
                 let path = frontend_path();
-                let condition = condition.to_tokens(context);
+                let condition = into_expand(condition.to_tokens(context));
                 let then_block = then_block.to_tokens(context);
                 let else_branch = else_branch.to_tokens(context);
                 quote! {{
-                    #path::branch::if_else_expand(scope, #condition.into_expand(scope), |scope| #then_block)
+                    #path::branch::if_else_expand(scope, #condition, |scope| #then_block)
                         .or_else(scope, |scope| #else_branch);
                 }}
             }
@@ -281,10 +331,10 @@ impl Expression {
                 ..
             } => {
                 let path = frontend_path();
-                let condition = condition.to_tokens(context);
+                let condition = into_expand(condition.to_tokens(context));
                 let then_block = then_block.to_tokens(context);
                 quote! {{
-                    #path::branch::if_expand(scope, #condition.into_expand(scope), |scope| #then_block);
+                    #path::branch::if_expand(scope, #condition, |scope| #then_block);
                 }}
             }
             Expression::Switch {
@@ -297,7 +347,7 @@ impl Expression {
                     true => quote![switch_expand_expr],
                     false => quote![switch_expand],
                 };
-                let value = value.to_tokens(context);
+                let value = into_expand(value.to_tokens(context));
                 let default = default.to_tokens(context);
                 let blocks = cases
                     .iter()
@@ -310,7 +360,7 @@ impl Expression {
                     })
                     .collect::<Vec<_>>();
                 quote! {{
-                    #branch::#switch(scope, #value.into_expand(scope), |scope| #default)
+                    #branch::#switch(scope, #value, |scope| #default)
                         #(#blocks)*
                         .finish(scope)
                 }}
@@ -644,7 +694,7 @@ impl Expression {
                 let frontend_path = frontend_path();
                 quote![#frontend_path::cube_comment::expand(scope, #content)]
             }
-            Expression::RustMacro { ident, tokens } => {
+            Expression::PanickingMacro { ident, tokens } => {
                 quote![#ident!(#tokens)]
             }
             Expression::Terminate => {
@@ -777,6 +827,26 @@ impl Block {
                 quote![#as_const]
             } else {
                 ret.to_tokens(context)
+            }
+        } else {
+            quote![()]
+        };
+
+        quote! {
+            {
+                #(#inner)*
+                #ret
+            }
+        }
+    }
+
+    pub fn to_tokens_runtime_return(&self, context: &mut Context) -> TokenStream {
+        let inner: Vec<_> = self.inner.iter().map(|it| it.to_tokens(context)).collect();
+        let ret = if let Some(ret) = self.ret.as_ref() {
+            if let Expression::PanickingMacro { .. } = &**ret {
+                ret.to_tokens(context)
+            } else {
+                into_expand(ret.to_tokens(context))
             }
         } else {
             quote![()]

@@ -1,10 +1,9 @@
 use cubecl_core::prelude::*;
-use std::{marker::PhantomData, ops::Deref, sync::Arc};
+use std::{marker::PhantomData, ops::Deref};
 
 use crate::tensor::{
     View, ViewExpand, VirtualViewMutExpand,
     layout::{Coordinates, Coords1d, Layout, VirtualLayoutExpand},
-    view::ViewType,
 };
 
 mod layout {
@@ -307,7 +306,6 @@ mod layout {
                 meta: Metadata {
                     shape: handle.shape.clone(),
                     strides: handle.strides.clone(),
-                    tiler: None,
                 },
                 ty,
                 value,
@@ -321,11 +319,7 @@ mod layout {
             value: L::RuntimeArg<R>,
         ) -> Self {
             Self {
-                meta: Metadata {
-                    shape,
-                    strides,
-                    tiler: None,
-                },
+                meta: Metadata { shape, strides },
                 ty,
                 value,
             }
@@ -405,7 +399,7 @@ mod dynamic {
             view::{RegisterDynamic, run_with_quant_type},
         },
         tensor::{
-            VirtualViewExpand,
+            ViewMut, ViewMutExpand, VirtualViewExpand,
             launch::layout::{ViewLayoutLaunchArg, VirtualViewLayoutLaunch},
             layout::as_dyn::{IntoDyn, IntoDyn2Layout, IntoDynLayout},
         },
@@ -612,7 +606,7 @@ mod dynamic {
         }
     }
 
-    impl<E: CubePrimitive, C: Coordinates + 'static, IO: SliceVisibility> LaunchArg for View<E, C, IO> {
+    impl<E: CubePrimitive, C: Coordinates + 'static> LaunchArg for View<'static, E, C> {
         type RuntimeArg<R: Runtime> = ViewArg<C, R>;
         type CompilationArg = ViewCompilationArg<C>;
 
@@ -665,10 +659,7 @@ mod dynamic {
                     let buffer = <Box<[E]> as LaunchArg>::expand(buffer, builder);
                     let view =
                         VirtualViewMutExpand::<E, C, Coords1d, Box<[E]>>::new(buffer, layout);
-                    ViewExpand::<E, C, IO> {
-                        inner: ViewType::ReadWrite(Arc::new(view)),
-                        _io: PhantomData,
-                    }
+                    ViewExpand::new(&builder.scope, view)
                 }
                 ViewCompilationArg::TensorMapTiled { buffer, layout } => {
                     let layout = layout.expand(ty, builder);
@@ -677,10 +668,7 @@ mod dynamic {
                         VirtualViewMutExpand::<E, C, Sequence<i32>, TensorMap<E, Tiled>>::new(
                             buffer, layout,
                         );
-                    ViewExpand::<E, C, IO> {
-                        inner: ViewType::ReadWrite(Arc::new(view)),
-                        _io: PhantomData,
-                    }
+                    ViewExpand::new(&builder.scope, view)
                 }
                 ViewCompilationArg::TensorMapIm2col { buffer, layout } => {
                     let layout = layout.expand(ty, builder);
@@ -691,16 +679,56 @@ mod dynamic {
                         (Sequence<i32>, Sequence<i32>),
                         TensorMap<E, Im2col>,
                     >::new(buffer, layout);
-                    ViewExpand::<E, C, IO> {
-                        inner: ViewType::Read(Arc::new(view)),
-                        _io: PhantomData,
-                    }
+                    ViewExpand::new(&builder.scope, view)
                 }
                 ViewCompilationArg::Quantized {
                     values,
                     scales,
                     scheme,
                 } => quant::view::expand_dynamic(values, scales, *scheme, builder),
+            }
+        }
+    }
+
+    impl<E: CubePrimitive, C: Coordinates + 'static> LaunchArg for ViewMut<'static, E, C> {
+        type RuntimeArg<R: Runtime> = ViewArg<C, R>;
+        type CompilationArg = ViewCompilationArg<C>;
+
+        fn register<R: Runtime>(
+            arg: Self::RuntimeArg<R>,
+            launcher: &mut KernelLauncher<R>,
+        ) -> Self::CompilationArg {
+            <View<'static, E, C> as LaunchArg>::register(arg, launcher)
+        }
+
+        fn expand(
+            arg: &Self::CompilationArg,
+            builder: &mut KernelBuilder,
+        ) -> <Self as CubeType>::ExpandType {
+            let ty = E::__expand_as_type(&builder.scope);
+            match arg {
+                ViewCompilationArg::Array { buffer, layout } => {
+                    let layout = layout.expand(ty, builder);
+                    let buffer = <Box<[E]> as LaunchArg>::expand(buffer, builder);
+                    let view =
+                        VirtualViewMutExpand::<E, C, Coords1d, Box<[E]>>::new(buffer, layout);
+                    ViewMutExpand::new(&builder.scope, view)
+                }
+                ViewCompilationArg::TensorMapTiled { buffer, layout } => {
+                    let layout = layout.expand(ty, builder);
+                    let buffer = <TensorMap<E, Tiled> as LaunchArg>::expand(buffer, builder);
+                    let view =
+                        VirtualViewMutExpand::<E, C, Sequence<i32>, TensorMap<E, Tiled>>::new(
+                            buffer, layout,
+                        );
+                    ViewMutExpand::new(&builder.scope, view)
+                }
+                ViewCompilationArg::TensorMapIm2col { .. } => {
+                    unimplemented!("im2col not supported for writing")
+                }
+                ViewCompilationArg::Quantized { .. } => {
+                    unimplemented!("quantized views not supported for writing")
+                }
             }
         }
     }

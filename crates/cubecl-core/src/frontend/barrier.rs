@@ -208,7 +208,6 @@ impl Barrier {
     ///
     /// If all units in the cube arrive on the barrier, use `CUBE_DIM` as the arrival count. For
     /// other purposes, only a subset may need to arrive.
-    #[allow(unused_variables)]
     pub fn shared(arrival_count: u32, is_elected: bool) -> Shared<Barrier> {
         intrinsic!(|scope| {
             let variable =
@@ -245,7 +244,6 @@ impl Barrier {
     /// ensure only one unit performs the initialization, and synchronize the cube afterwards. There
     /// may also be additional synchronization requirements for bulk copy operations, like
     /// [`sync_async_proxy_shared()`].
-    #[allow(unused_variables)]
     pub fn init_manual(&self, arrival_count: u32) {
         intrinsic!(|scope| {
             let barrier = self.expand;
@@ -268,7 +266,6 @@ impl Barrier {
     ///
     /// This will try to copy the whole source slice, so
     /// make sure source length <= destination length
-    #[allow(unused_variables)]
     pub fn memcpy_async<C: CubePrimitive>(&self, source: &[C], destination: &mut [C]) {
         intrinsic!(|scope| {
             let barrier = self.expand;
@@ -293,7 +290,6 @@ impl Barrier {
     ///
     /// This will try to copy the whole source slice, so
     /// make sure source length <= destination length
-    #[allow(unused_variables)]
     pub fn memcpy_async_cooperative<C: CubePrimitive>(&self, source: &[C], destination: &mut [C]) {
         intrinsic!(|scope| {
             let barrier = self.expand;
@@ -319,7 +315,6 @@ impl Barrier {
     ///
     /// This will try to copy the whole source slice, so
     /// make sure source length <= destination length
-    #[allow(unused_variables)]
     pub fn memcpy_async_tx<C: CubePrimitive>(&self, source: &[C], destination: &mut [C]) {
         intrinsic!(|scope| {
             let barrier = self.expand;
@@ -357,7 +352,6 @@ impl Barrier {
     }
 
     /// Arrive at the barrier, decrementing arrival count. Additionally increments expected count.
-    #[allow(unused_variables)]
     pub fn arrive_and_expect_tx(&self, arrival_count: u32, transaction_count: u32) -> BarrierToken {
         intrinsic!(|scope| {
             let barrier = self.expand;
@@ -380,7 +374,6 @@ impl Barrier {
     }
 
     /// Increments the expected count of the barrier.
-    #[allow(unused_variables)]
     pub fn expect_tx(&self, expected_count: u32) {
         intrinsic!(|scope| {
             let barrier = self.expand;
@@ -401,7 +394,6 @@ impl Barrier {
     }
 
     /// Wait at the barrier until all arrivals are done
-    #[allow(unused_variables)]
     pub fn wait(&self, token: BarrierToken) {
         intrinsic!(|scope| {
             let barrier = self.expand;
@@ -412,7 +404,6 @@ impl Barrier {
 
     /// Wait at the barrier until the `phase` is completed. Doesn't require a token, but needs phase
     /// to be managed manually.
-    #[allow(unused_variables)]
     pub fn wait_parity(&self, phase: u32) {
         intrinsic!(|scope| {
             let barrier = self.expand;

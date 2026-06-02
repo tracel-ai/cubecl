@@ -1,22 +1,11 @@
-use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
 
-use crate::{
-    MetadataError, shape::Shape, strides::Strides, striding::row_major_contiguous_strides,
-};
+use crate::{MetadataError, shape::Shape, strides::Strides};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 pub struct Metadata {
     pub shape: Shape,
     pub strides: Strides,
-    pub tiler: Option<Tiler>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
-pub struct Tiler {
-    pub start_axis: u8,
-    pub tile_size: SmallVec<[u16; 3]>,
 }
 
 impl Metadata {
@@ -29,11 +18,7 @@ impl Metadata {
             "Rank of shape and strides must be the same"
         );
 
-        Self {
-            shape,
-            strides,
-            tiler: None,
-        }
+        Self { shape, strides }
     }
 
     pub fn shape(&self) -> &Shape {
@@ -107,111 +92,5 @@ impl Metadata {
     pub fn push(&mut self, shape: usize, stride: usize) {
         self.shape.push(shape);
         self.strides.push(stride);
-    }
-
-    /// Transforms a logical layout into a tiled physical layout.
-    ///
-    /// This performs rank expansion, splitting each dimension in the tiling range into
-    /// a grid component and a tile component: $D \rightarrow [D/T, T]$.
-    ///
-    /// The resulting physical shape is organized as:
-    /// `[Pre-axes, Grid-axes, Tile-axes, Post-axes]`
-    ///
-    /// # Example
-    /// ```rust
-    /// use cubecl_zspace::metadata::Metadata;
-    /// use cubecl_zspace::Shape;
-    ///
-    /// let shape = [4, 4];
-    /// let strides = [4, 1];
-    /// let metadata = Metadata::new(shape, strides);
-    ///
-    /// let tiled = metadata.to_tiled(0, &[2, 2]);
-    ///
-    /// assert_eq!(tiled.shape, Shape::new([2, 2, 2, 2]));
-    /// ```
-    pub fn to_tiled(&self, start_axis: u8, tile: &[u16]) -> Self {
-        let start_axis = start_axis as usize;
-        let mut new_metadata = Metadata::new(Shape::new([]), Strides::new(&[]));
-        for i in 0..start_axis {
-            let dim = self.shape[i];
-            new_metadata.push(dim, 0);
-        }
-
-        let mut i = 0;
-        #[allow(clippy::explicit_counter_loop)]
-        for j in start_axis..start_axis + tile.len() {
-            assert!(
-                self.shape[j].is_multiple_of(tile[i] as usize),
-                "self.shape[{j}] must be divisible by tile[{i}]"
-            );
-            let dim = self.shape[j] / tile[i] as usize;
-            new_metadata.push(dim, 0);
-            i += 1;
-        }
-        i = 0;
-        for _ in start_axis + tile.len()..start_axis + 2 * tile.len() {
-            let dim = tile[i] as usize;
-            new_metadata.push(dim, 0);
-            i += 1;
-        }
-        for i in start_axis + tile.len()..self.shape.len() {
-            let dim = self.shape[i];
-            new_metadata.push(dim, 0);
-        }
-        new_metadata.strides = row_major_contiguous_strides(&new_metadata.shape);
-        new_metadata.tiler = Some(Tiler {
-            start_axis: start_axis as u8,
-            tile_size: SmallVec::from_slice(tile),
-        });
-
-        new_metadata
-    }
-
-    /// Reconstructs the original logical shape from a tiled physical layout.
-    ///
-    /// This reverses the tiling process by collapsing the grid and tile pairs
-    /// back into their original dimensions: $[D/T, T] \rightarrow [D]$.
-    ///
-    /// # Example
-    /// ```rust
-    /// use cubecl_zspace::metadata::Metadata;
-    ///
-    /// let shape = [8, 8];
-    /// let strides = [8, 1];
-    /// let metadata = Metadata::new(shape, strides);
-    ///
-    /// let tiled_metadata = metadata.to_tiled(0, &[2, 2]);
-    ///
-    /// let original_shape = tiled_metadata.semantic_shape();
-    ///
-    /// assert_eq!(original_shape.as_slice(), &[8, 8]);
-    /// ```
-    pub fn semantic_shape(&self) -> Shape {
-        if self.tiler.is_none() {
-            return self.shape.clone();
-        }
-        let tiler = self.tiler.clone().unwrap();
-
-        let start = tiler.start_axis as usize;
-        let num_tiles = tiler.tile_size.len();
-
-        let mut semantic_dims = Vec::with_capacity(self.rank() - num_tiles);
-
-        for i in 0..start {
-            semantic_dims.push(self.shape[i]);
-        }
-
-        for i in 0..num_tiles {
-            let grid_size = self.shape[start + i];
-            let tile_size = self.shape[start + num_tiles + i];
-            semantic_dims.push(grid_size * tile_size);
-        }
-
-        for i in (start + 2 * num_tiles)..self.rank() {
-            semantic_dims.push(self.shape[i]);
-        }
-
-        Shape::from_iter(semantic_dims.iter())
     }
 }

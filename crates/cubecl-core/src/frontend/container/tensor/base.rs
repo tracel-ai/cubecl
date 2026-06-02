@@ -25,6 +25,20 @@ pub struct OwnedTensor<T: CubePrimitive> {
     pub(super) buffer: Box<[T]>,
 }
 
+impl<T: CubePrimitive> TensorExpand<T> {
+    /// Expand only because `[T]` can't be passed to a function
+    pub fn __expand_from_parts(meta: TensorMetaExpand, buffer: NativeExpand<[T]>) -> Self {
+        Self { meta, buffer }
+    }
+}
+
+#[cube]
+impl<T: CubePrimitive> OwnedTensor<T> {
+    pub fn from_parts(meta: TensorMeta, buffer: Box<[T]>) -> Self {
+        OwnedTensor::<T> { meta, buffer }
+    }
+}
+
 #[cube]
 impl<T: CubePrimitive> OwnedTensor<T> {
     pub fn as_slice(&self) -> &[T] {
@@ -57,7 +71,6 @@ mod metadata {
     #[cube]
     impl<T: CubePrimitive> Tensor<T> {
         /// Obtain the stride of input at dimension dim
-        #[allow(unused_variables)]
         pub fn stride(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let dim: Variable = dim.into();
@@ -75,7 +88,6 @@ mod metadata {
         }
 
         /// Obtain the shape of input at dimension dim
-        #[allow(unused_variables)]
         pub fn shape(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let dim: Variable = dim.into();
@@ -96,7 +108,6 @@ mod metadata {
         ///
         /// A coordinate is a list of indices corresponding to the multi-dimensional position of an element in the tensor.
         /// The `dim` element in a coordinate is the position along the `dim` dimension of the tensor.
-        #[allow(unused_variables)]
         pub fn coordinate(&self, index: usize, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let index: Variable = index.into();
@@ -190,6 +201,18 @@ impl<'a, E: CubePrimitive> From<&'a OwnedTensorExpand<E>> for &'a TensorExpand<E
 
 impl<'a, E: CubePrimitive> From<&'a mut OwnedTensorExpand<E>> for &'a mut TensorExpand<E> {
     fn from(value: &'a mut OwnedTensorExpand<E>) -> Self {
+        value.deref_mut()
+    }
+}
+
+impl<'a, E: CubePrimitive> From<&'a TensorExpand<E>> for &'a SliceExpand<E> {
+    fn from(value: &'a TensorExpand<E>) -> Self {
+        value.deref()
+    }
+}
+
+impl<'a, E: CubePrimitive> From<&'a mut TensorExpand<E>> for &'a mut SliceExpand<E> {
+    fn from(value: &'a mut TensorExpand<E>) -> Self {
         value.deref_mut()
     }
 }

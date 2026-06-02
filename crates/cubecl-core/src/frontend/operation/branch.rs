@@ -20,7 +20,6 @@ pub fn select<C: CubePrimitive>(condition: bool, then: C, or_else: C) -> C {
 
 /// Same as [`select()`] but with vectors instead.
 #[cube]
-#[allow(unused_variables)]
 pub fn select_many<C: Scalar, N: Size>(
     condition: Vector<bool, N>,
     then: Vector<C, N>,

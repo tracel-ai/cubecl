@@ -1,18 +1,22 @@
-use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
+use super::{
+    mem_manager::WgpuMemManager,
+    poll::WgpuPoll,
+    timings::{QueryProfiler, TimestampQuerySetBudget},
+};
 use crate::{
     WgpuResource,
     controller::WgpuAllocController,
     schedule::{Addresses, ScheduleTask},
 };
 use core::iter;
-#[cfg(feature = "renderdoc")]
+#[cfg(renderdoc)]
 use core::{cell::LazyCell, ptr::null};
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
 };
-#[cfg(feature = "renderdoc")]
+#[cfg(renderdoc)]
 use cubecl_core::stub::Mutex;
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
@@ -25,19 +29,21 @@ use cubecl_runtime::{
     logging::ServerLogger, memory_management::ManagedMemoryHandle,
     timestamp_profiler::TimestampProfiler,
 };
-#[cfg(feature = "renderdoc")]
+#[cfg(renderdoc)]
 use renderdoc::{RenderDoc, V100};
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 use wgpu::ComputePipeline;
 
-#[cfg(feature = "renderdoc")]
+#[cfg(renderdoc)]
 thread_local! {
     static RENDERDOC: LazyCell<Option<Mutex<RenderDoc<V100>>>> = LazyCell::new(|| RenderDoc::new().ok().map(Mutex::new));
 }
 
 #[derive(Debug)]
 enum Timings {
-    Device(QueryProfiler),
+    // Boxed: `QueryProfiler` is much larger than `TimestampProfiler`
+    // (clippy::large_enum_variant).
+    Device(Box<QueryProfiler>),
     System(TimestampProfiler),
 }
 
@@ -69,12 +75,16 @@ impl WgpuStream {
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         timing_method: TimingMethod,
+        timing_budget: Arc<TimestampQuerySetBudget>,
         tasks_max: usize,
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
     ) -> Self {
-        let timings = if timing_method == TimingMethod::Device {
-            Timings::Device(QueryProfiler::new(&queue, &device))
+        // Device timing needs a counter sample buffer per query set, capped per device on
+        // Metal. Reserve a budget slot up front (lock-free); if none is free, fall back to
+        // the system timer so we never exceed the hardware limit.
+        let timings = if timing_method == TimingMethod::Device && timing_budget.try_acquire() {
+            Timings::Device(Box::new(QueryProfiler::new(&queue, &device, timing_budget)))
         } else {
             if cfg!(target_family = "wasm") {
                 // On WASM, there's not much we can do here anymore. This should be very rare however,
@@ -86,7 +96,7 @@ impl WgpuStream {
             Timings::System(TimestampProfiler::default())
         };
 
-        #[cfg(feature = "renderdoc")]
+        #[cfg(renderdoc)]
         RENDERDOC.with(|renderdoc| {
             if let Some(renderdoc) = &**renderdoc {
                 let mut renderdoc = renderdoc.lock().unwrap();
@@ -524,7 +534,7 @@ impl WgpuStream {
         self.mem_manage.memory_cleanup(false);
         self.mem_manage.release_uniforms();
 
-        #[cfg(feature = "renderdoc")]
+        #[cfg(renderdoc)]
         RENDERDOC.with(|renderdoc| {
             if let Some(renderdoc) = &**renderdoc {
                 let mut renderdoc = renderdoc.lock().unwrap();

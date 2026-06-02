@@ -1,7 +1,7 @@
 use quote::{ToTokens, format_ident, quote};
 use syn::{
     FnArg, GenericArgument, Generics, Ident, ImplItem, ItemImpl, PathArguments, Token, Type,
-    TypePath, spanned::Spanned, visit_mut::VisitMut,
+    TypePath, parse_quote, spanned::Spanned, visit_mut::VisitMut,
 };
 
 use crate::{
@@ -145,6 +145,7 @@ impl CubeImplItem {
             context: Context::new(
                 func.context.return_type.clone(),
                 cfg_debug || func.args.debug_symbols.is_present(),
+                func.context.is_intrinsic,
             ),
             args: func.args.clone(),
             analysis: func.analysis.clone(),
@@ -207,9 +208,19 @@ impl CubeImplItem {
             context: Context::new(
                 func.context.return_type.clone(),
                 cfg_debug || func.args.debug_symbols.is_present(),
+                func.context.is_intrinsic,
             ),
             args: func.args.clone(),
             analysis: func.analysis.clone(),
+        }
+    }
+
+    fn is_intrinsic(&self) -> bool {
+        match self {
+            CubeImplItem::Fn(kernel_fn) => kernel_fn.context.is_intrinsic,
+            CubeImplItem::MethodExpand(kernel_fn) => kernel_fn.context.is_intrinsic,
+            CubeImplItem::FnExpand(kernel_fn) => kernel_fn.context.is_intrinsic,
+            CubeImplItem::Other => false,
         }
     }
 }
@@ -220,9 +231,18 @@ impl CubeImpl {
 
         let items = item_impl
             .items
-            .iter()
-            .cloned()
-            .map(|item| CubeImplItem::from_impl_item(&struct_name, item, args))
+            .iter_mut()
+            .map(|item| {
+                let expands = CubeImplItem::from_impl_item(&struct_name, item.clone(), args)?;
+                let is_intrinsic = expands.iter().any(|it| it.is_intrinsic());
+                if is_intrinsic {
+                    *item = parse_quote! {
+                        #[allow(unused_variables)]
+                        #item
+                    }
+                }
+                Ok(expands)
+            })
             .flat_map(|items| {
                 let result: Vec<syn::Result<CubeImplItem>> = match items {
                     Ok(items) => items.into_iter().map(Ok).collect(),

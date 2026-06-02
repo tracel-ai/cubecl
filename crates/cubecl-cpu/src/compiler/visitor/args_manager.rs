@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use cubecl_core::{
     Info, Metadata,
-    ir::{Builtin, ElemType, StorageType, UIntKind},
+    ir::{Builtin, ElemType, IntKind, StorageType, UIntKind},
     prelude::{KernelDefinition, ScalarKernelArg},
 };
 use tracel_llvm::mlir_rs::{
@@ -21,6 +21,7 @@ use crate::compiler::{
 use super::prelude::*;
 
 const NB_BUILTIN: usize = 31;
+const NB_SYNC_CUBE_ARGS: usize = 1;
 
 pub(super) struct ArgsManagerBuilder<'a, 'b> {
     scalars: Vec<ScalarKernelArg>,
@@ -44,6 +45,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
     ) -> Self {
         let total_arg_len = kernel.buffers.len()
             + kernel.scalars.len()
+            + NB_SYNC_CUBE_ARGS
             + NB_PASSED_BUILTIN
             + shared_memories.0.len();
 
@@ -105,6 +107,16 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         args.function_types.push(memref);
         args.block_inputs.push((memref, location));
 
+        let sync_memref = MemRefType::new(
+            ElemType::Int(IntKind::I32).to_type(context),
+            &[4],
+            None,
+            None,
+        )
+        .into();
+        args.function_types.push(sync_memref);
+        args.block_inputs.push((sync_memref, location));
+
         let integer_type: Type<'_> = IntegerType::new(context, 32).into();
         for _ in 0..9 {
             args.function_types.push(integer_type);
@@ -135,6 +147,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
             ext_meta_positions: self.ext_meta_positions.clone(),
             addr_type: self.addr_type,
             addr_size: self.addr_size,
+            sync_cube_state: None,
         };
 
         let block = Block::new(&self.block_inputs);
@@ -227,6 +240,9 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
                 Some(block.append_operation(view).result(0).unwrap().into());
         }
 
+        args.sync_cube_state = Some(block.argument(total_len).unwrap().into());
+        total_len += 1;
+
         for (i, builtin) in BuiltinArray::builtin_order().into_iter().enumerate() {
             let i = i + total_len;
             args.set(builtin, block.argument(i).unwrap().into());
@@ -248,6 +264,7 @@ pub(super) struct ArgsManager<'a> {
     pub builtin: [Option<Value<'a, 'a>>; NB_BUILTIN],
     pub addr_type: Type<'a>,
     pub addr_size: usize,
+    pub sync_cube_state: Option<Value<'a, 'a>>,
 }
 
 const NB_PASSED_BUILTIN: usize = 9;

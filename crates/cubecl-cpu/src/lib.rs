@@ -29,7 +29,7 @@ mod tests {
 
     #[cube(launch)]
     fn sync_cube_magic(out: &mut [u32]) {
-        let mut mem = SharedMemory::<u32>::new(1usize);
+        let mut mem = Shared::new_slice(1usize);
         if UNIT_POS == 0 {
             mem[0] = 0xDEADBEEFu32;
         }
@@ -39,7 +39,7 @@ mod tests {
 
     #[cube(launch)]
     fn sync_cube_two_phase(out: &mut [u32]) {
-        let mut mem = SharedMemory::<u32>::new(4usize);
+        let mut mem = Shared::new_slice(4usize);
         let idx = UNIT_POS as usize;
         mem[idx] = (idx as u32) + 1;
         sync_cube();
@@ -58,7 +58,7 @@ mod tests {
 
     #[cube(launch)]
     fn sync_cube_all_reduce(out: &mut [u32]) {
-        let mut mem = SharedMemory::<u32>::new(8usize);
+        let mut mem = Shared::new_slice(8usize);
         let idx = UNIT_POS as usize;
         mem[idx] = idx as u32;
         sync_cube();

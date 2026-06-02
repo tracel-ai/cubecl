@@ -406,8 +406,17 @@ where
     /// Flush all outstanding tasks in the server.
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
-    /// The current memory usage of the server.
+    /// Memory usage of the given stream.
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError>;
+
+    /// Stream ids the client should iterate to aggregate across the device.
+    ///
+    /// Default is just the calling stream, which is correct for
+    /// non-multi-stream backends; multi-stream backends override to
+    /// return one id per initialized stream pool slot.
+    fn stream_ids(&self) -> Vec<StreamId> {
+        Vec::from([StreamId::current()])
+    }
 
     /// Ask the server to release memory that it can release.
     fn memory_cleanup(&mut self, stream_id: StreamId);

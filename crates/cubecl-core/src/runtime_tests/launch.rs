@@ -51,8 +51,8 @@ pub fn kernel_with_max_shared(
     #[comptime] shared_size_1: usize,
     #[comptime] shared_size_2: usize,
 ) {
-    let mut shared_1 = SharedMemory::<u32>::new(shared_size_1);
-    let mut shared_2 = SharedMemory::<u32>::new(shared_size_2);
+    let mut shared_1 = Shared::new_slice(shared_size_1);
+    let mut shared_2 = Shared::new_slice(shared_size_2);
     if UNIT_POS < 8 {
         shared_1[shared_size_1 - UNIT_POS as usize - 1] = output[UNIT_POS as usize];
         shared_2[shared_size_2 - UNIT_POS as usize - 1] = output[8 - UNIT_POS as usize];
@@ -67,7 +67,7 @@ pub fn kernel_with_max_shared(
 
 #[cube(launch)]
 pub fn kernel_resource_errors(output: &mut [u32], #[comptime] shared_size: usize) {
-    let mut shared = SharedMemory::<u32>::new(shared_size);
+    let mut shared = Shared::new_slice(shared_size);
     // Add some dummy code to prevent smem from being optimized out
     shared[0] = 0;
     sync_cube();
@@ -136,6 +136,43 @@ pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R>) {
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(actual[0], 5.0);
+}
+
+pub fn test_kernel_zero_cube_count<R: Runtime>(client: ComputeClient<R>) {
+    // A zero-element fill resolves to `Static(0, 0, 0)`. Launching it is a no-op.
+    let handle = client.create_from_slice(f32::as_bytes(&[7.0, 8.0]));
+
+    kernel_without_generics::launch(
+        &client,
+        CubeCount::Static(0, 0, 0),
+        CubeDim::new_1d(1),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    let actual = f32::from_bytes(&actual);
+
+    assert_eq!(actual, &[7.0, 8.0]);
+}
+
+pub fn test_kernel_dynamic_zero_cube_count<R: Runtime>(client: ComputeClient<R>) {
+    // The (0, 0, 0) count lives in a buffer, so the client guard can't see it.
+    // Scoped to CUDA/HIP because wgpu can't bind a storage buffer for indirect
+    // dispatch.
+    let handle = client.create_from_slice(f32::as_bytes(&[7.0, 8.0]));
+    let count = client.create_from_slice(u32::as_bytes(&[0, 0, 0]));
+
+    kernel_without_generics::launch(
+        &client,
+        CubeCount::Dynamic(count.binding()),
+        CubeDim::new_1d(1),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    let actual = f32::from_bytes(&actual);
+
+    assert_eq!(actual, &[7.0, 8.0]);
 }
 
 pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R>) {
@@ -331,6 +368,12 @@ macro_rules! testgen_launch {
         }
 
         #[$crate::runtime_tests::test_log::test]
+        fn test_launch_zero_cube_count() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_kernel_zero_cube_count::<TestRuntime>(client);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
         fn test_launch_with_comptime_tag() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::launch::test_kernel_with_comptime_tag::<TestRuntime>(
@@ -343,6 +386,25 @@ macro_rules! testgen_launch {
         fn test_launch_with_max_shared() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::launch::test_kernel_max_shared::<TestRuntime>(client);
+        }
+    };
+}
+
+/// Launch tests for backends that resolve a dynamic cube count to host (CUDA, HIP).
+#[allow(missing_docs)]
+#[macro_export]
+macro_rules! testgen_launch_dynamic_count {
+    () => {
+        mod launch_dynamic_count {
+            use super::*;
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_launch_dynamic_zero_cube_count() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::launch::test_kernel_dynamic_zero_cube_count::<
+                    TestRuntime,
+                >(client);
+            }
         }
     };
 }

@@ -173,7 +173,7 @@ pub enum Expression {
     Comment {
         content: LitStr,
     },
-    RustMacro {
+    PanickingMacro {
         ident: Ident,
         tokens: TokenStream,
     },
@@ -210,6 +210,25 @@ impl Expression {
             Expression::CompilerIntrinsic { .. } => true,
             Expression::Match { arms, .. } => arms.iter().all(|it| it.expr.is_const()),
             Expression::AssertConstant { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// Whether evaluating this expression has no observable effect. Used to skip
+    /// short-circuit codegen for `||`/`&&`. Conservative: anything not known to
+    /// be pure (function calls, indexing, ...) returns false.
+    pub fn is_always_pure(&self) -> bool {
+        match self {
+            Expression::Literal { .. } => true,
+            Expression::Path { .. } => true,
+            Expression::Variable(_) => true,
+            Expression::Keyword { .. } => true,
+            Expression::Binary { left, right, .. } => {
+                left.is_always_pure() && right.is_always_pure()
+            }
+            Expression::Unary { input, .. } => input.is_always_pure(),
+            Expression::Cast { from, .. } => from.is_always_pure(),
+            Expression::FieldAccess { base, .. } => base.is_always_pure(),
             _ => false,
         }
     }
@@ -289,4 +308,146 @@ pub fn is_intrinsic(path: &Path) -> bool {
     intrinsic_paths
         .iter()
         .any(|path| path.ends_with(&func_path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proc_macro2::Span;
+    use syn::parse_quote;
+
+    // Pure leaves.
+    fn lit() -> Expression {
+        Expression::Literal {
+            value: parse_quote!(1),
+        }
+    }
+    fn path() -> Expression {
+        Expression::Path {
+            path: parse_quote!(foo),
+            qself: None,
+        }
+    }
+    fn keyword() -> Expression {
+        Expression::Keyword {
+            name: parse_quote!(ABSOLUTE_POS),
+        }
+    }
+
+    // Impure leaves.
+    fn call() -> Expression {
+        Expression::FunctionCall {
+            func: Box::new(path()),
+            args: vec![],
+            associated_type: None,
+            span: Span::call_site(),
+        }
+    }
+    fn index(inner: Expression) -> Expression {
+        Expression::Index {
+            expr: Box::new(inner),
+            index: Box::new(lit()),
+            span: Span::call_site(),
+        }
+    }
+    fn method(receiver: Expression) -> Expression {
+        Expression::MethodCall {
+            receiver: Box::new(receiver),
+            method: parse_quote!(foo),
+            generics: None,
+            args: vec![],
+            span: Span::call_site(),
+        }
+    }
+
+    // Recursive nodes.
+    fn binary(left: Expression, right: Expression) -> Expression {
+        Expression::Binary {
+            left: Box::new(left),
+            operator: Operator::And,
+            right: Box::new(right),
+            span: Span::call_site(),
+        }
+    }
+    fn unary(input: Expression) -> Expression {
+        Expression::Unary {
+            input: Box::new(input),
+            operator: Operator::Not,
+            span: Span::call_site(),
+        }
+    }
+    fn cast(from: Expression) -> Expression {
+        Expression::Cast {
+            from: Box::new(from),
+            to: parse_quote!(u32),
+        }
+    }
+    fn field(base: Expression) -> Expression {
+        Expression::FieldAccess {
+            base: Box::new(base),
+            field: parse_quote!(x),
+        }
+    }
+
+    #[test]
+    fn pure_leaves_are_pure() {
+        assert!(lit().is_always_pure());
+        assert!(path().is_always_pure());
+        assert!(keyword().is_always_pure());
+    }
+
+    #[test]
+    fn effectful_leaves_are_impure() {
+        assert!(!call().is_always_pure());
+        assert!(!index(path()).is_always_pure());
+        assert!(!method(path()).is_always_pure());
+    }
+
+    #[test]
+    fn unary_cast_field_follow_their_operand() {
+        assert!(unary(lit()).is_always_pure());
+        assert!(!unary(call()).is_always_pure());
+
+        assert!(cast(path()).is_always_pure());
+        assert!(!cast(index(path())).is_always_pure());
+
+        assert!(field(path()).is_always_pure());
+        assert!(!field(call()).is_always_pure());
+    }
+
+    #[test]
+    fn binary_is_pure_only_when_both_operands_are() {
+        assert!(binary(lit(), path()).is_always_pure());
+        assert!(!binary(lit(), call()).is_always_pure());
+        assert!(!binary(call(), lit()).is_always_pure());
+        assert!(!binary(call(), index(path())).is_always_pure());
+    }
+
+    #[test]
+    fn impurity_propagates_through_nesting() {
+        // A deep tree of only pure nodes stays pure.
+        let pure = binary(binary(path(), lit()), unary(cast(field(path()))));
+        assert!(pure.is_always_pure());
+
+        // The same shape with one call buried in a leaf is impure.
+        let impure = binary(binary(path(), lit()), unary(cast(field(call()))));
+        assert!(!impure.is_always_pure());
+    }
+
+    #[test]
+    fn unhandled_variants_are_conservatively_impure() {
+        // Variants not enumerated are impure even with pure children.
+        assert!(
+            !Expression::Reference {
+                inner: Box::new(lit())
+            }
+            .is_always_pure()
+        );
+        assert!(
+            !Expression::Tuple {
+                elements: vec![lit(), path()]
+            }
+            .is_always_pure()
+        );
+    }
 }

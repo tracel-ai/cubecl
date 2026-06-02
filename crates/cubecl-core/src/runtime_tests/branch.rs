@@ -3,6 +3,163 @@ use alloc::{vec, vec::Vec};
 use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 
+// Regression: a value-form if/else with literal-constant arms must honor the runtime
+// condition (it used to select at comptime and always return the else value). One kernel
+// per type, plus a checker asserting the two conditions produce different output.
+macro_rules! lit_value_form {
+    ($kernel:ident, $check:ident, $ty:ty, $a:expr, $b:expr) => {
+        #[cube(launch)]
+        pub fn $kernel(output: &mut [$ty], cond: u32) {
+            if UNIT_POS == 0 {
+                let flag = cond != 0u32;
+                output[0] = if flag { $a } else { $b };
+            }
+        }
+
+        fn $check<R: Runtime>(client: &ComputeClient<R>) {
+            let run = |cond: u32| -> Vec<u8> {
+                let handle = client.empty(core::mem::size_of::<$ty>());
+                $kernel::launch::<R>(
+                    client,
+                    CubeCount::Static(1, 1, 1),
+                    CubeDim::new_1d(1),
+                    unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+                    cond,
+                );
+                client.read_one_unchecked(handle).to_vec()
+            };
+            assert_ne!(
+                run(1),
+                run(0),
+                "value-form if/else miscompiled for {}",
+                stringify!($ty)
+            );
+        }
+    };
+}
+
+lit_value_form!(kernel_lit_i8, check_i8, i8, 30i8, 50i8);
+lit_value_form!(kernel_lit_i16, check_i16, i16, 30i16, 50i16);
+lit_value_form!(kernel_lit_i32, check_i32, i32, 30i32, 50i32);
+lit_value_form!(kernel_lit_i64, check_i64, i64, 30i64, 50i64);
+lit_value_form!(kernel_lit_u8, check_u8, u8, 30u8, 50u8);
+lit_value_form!(kernel_lit_u16, check_u16, u16, 30u16, 50u16);
+lit_value_form!(kernel_lit_u32, check_u32, u32, 30u32, 50u32);
+lit_value_form!(kernel_lit_u64, check_u64, u64, 30u64, 50u64);
+lit_value_form!(kernel_lit_f32, check_f32, f32, 30.0f32, 50.0f32);
+lit_value_form!(kernel_lit_f64, check_f64, f64, 30.0f64, 50.0f64);
+
+pub fn test_value_form_literals<R: Runtime>(client: ComputeClient<R>) {
+    check_i8(&client);
+    check_i16(&client);
+    check_i32(&client);
+    check_i64(&client);
+    check_u8(&client);
+    check_u16(&client);
+    check_u32(&client);
+    check_u64(&client);
+    check_f32(&client);
+    check_f64(&client);
+}
+
+// Subset using only types every backend supports (wgpu rejects i8/i16/u8/u16/f64).
+pub fn test_value_form_literals_portable<R: Runtime>(client: ComputeClient<R>) {
+    check_f32(&client);
+    check_i32(&client);
+    check_u32(&client);
+}
+
+// Regression: `match` used as a value with literal arms had the same comptime-select
+// bug as if/else, and should act the same way now.
+// One kernel per type, with a single-pattern arm, an or-pattern arm, and a default; the
+// checker asserts each selector picks the right arm's value.
+macro_rules! lit_match_value {
+    ($kernel:ident, $check:ident, $ty:ty, $a:expr, $b:expr, $c:expr) => {
+        #[cube(launch)]
+        pub fn $kernel(output: &mut [$ty], sel: u32) {
+            if UNIT_POS == 0 {
+                output[0] = match sel {
+                    0 => $a,
+                    1 | 2 => $b,
+                    _ => $c,
+                };
+            }
+        }
+
+        fn $check<R: Runtime>(client: &ComputeClient<R>) {
+            let run = |sel: u32| -> Vec<u8> {
+                let handle = client.empty(core::mem::size_of::<$ty>());
+                $kernel::launch::<R>(
+                    client,
+                    CubeCount::Static(1, 1, 1),
+                    CubeDim::new_1d(1),
+                    unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+                    sel,
+                );
+                client.read_one_unchecked(handle).to_vec()
+            };
+            let ty = stringify!($ty);
+            assert_eq!(run(0), <$ty>::as_bytes(&[$a]).to_vec(), "{ty}: arm 0");
+            assert_eq!(
+                run(1),
+                <$ty>::as_bytes(&[$b]).to_vec(),
+                "{ty}: or-arm sel=1"
+            );
+            assert_eq!(
+                run(2),
+                <$ty>::as_bytes(&[$b]).to_vec(),
+                "{ty}: or-arm sel=2"
+            );
+            assert_eq!(run(3), <$ty>::as_bytes(&[$c]).to_vec(), "{ty}: default");
+        }
+    };
+}
+
+lit_match_value!(kernel_match_i8, match_check_i8, i8, 10i8, 20i8, 30i8);
+lit_match_value!(kernel_match_i16, match_check_i16, i16, 10i16, 20i16, 30i16);
+lit_match_value!(kernel_match_i32, match_check_i32, i32, 10i32, 20i32, 30i32);
+lit_match_value!(kernel_match_i64, match_check_i64, i64, 10i64, 20i64, 30i64);
+lit_match_value!(kernel_match_u8, match_check_u8, u8, 10u8, 20u8, 30u8);
+lit_match_value!(kernel_match_u16, match_check_u16, u16, 10u16, 20u16, 30u16);
+lit_match_value!(kernel_match_u32, match_check_u32, u32, 10u32, 20u32, 30u32);
+lit_match_value!(kernel_match_u64, match_check_u64, u64, 10u64, 20u64, 30u64);
+lit_match_value!(
+    kernel_match_f32,
+    match_check_f32,
+    f32,
+    10.0f32,
+    20.0f32,
+    30.0f32
+);
+lit_match_value!(
+    kernel_match_f64,
+    match_check_f64,
+    f64,
+    10.0f64,
+    20.0f64,
+    30.0f64
+);
+
+pub fn test_match_value_literals<R: Runtime>(client: ComputeClient<R>) {
+    match_check_i8(&client);
+    match_check_i16(&client);
+    match_check_i32(&client);
+    match_check_i64(&client);
+    match_check_u8(&client);
+    match_check_u16(&client);
+    match_check_u32(&client);
+    match_check_u64(&client);
+    match_check_f32(&client);
+    match_check_f64(&client);
+}
+
+// Subset using only types every backend supports (wgpu rejects i8/i16/u8/u16/f64).
+pub fn test_match_value_literals_portable<R: Runtime>(client: ComputeClient<R>) {
+    match_check_f32(&client);
+    match_check_i32(&client);
+    match_check_u32(&client);
+}
+
 #[cube(launch_unchecked)]
 pub fn kernel_switch_simple<F: Float>(output: &mut [F], case: u32) {
     match case {
@@ -244,6 +401,22 @@ macro_rules! testgen_branch {
         }
 
         #[$crate::runtime_tests::test_log::test]
+        fn test_value_form_literals_portable() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::branch::test_value_form_literals_portable::<TestRuntime>(
+                client,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_match_value_literals_portable() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::branch::test_match_value_literals_portable::<TestRuntime>(
+                client,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
         fn test_select_true() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::branch::test_select::<TestRuntime, FloatType>(client, true);
@@ -269,6 +442,32 @@ macro_rules! testgen_branch {
             cubecl_core::runtime_tests::branch::test_for_loop_with_break::<TestRuntime, FloatType>(
                 client,
             );
+        }
+    };
+}
+
+/// All-types literal value-form if/else test, for backends supporting every scalar type
+/// (CUDA, CPU). Kept out of `testgen_branch` since wgpu rejects i8/i16/u8/u16/f64.
+#[allow(missing_docs)]
+#[macro_export]
+macro_rules! testgen_value_form_literals {
+    () => {
+        mod value_form_literals {
+            use super::*;
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_value_form_literals() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::branch::test_value_form_literals::<TestRuntime>(client);
+            }
+
+            #[$crate::runtime_tests::test_log::test]
+            fn test_match_value_literals() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_core::runtime_tests::branch::test_match_value_literals::<TestRuntime>(
+                    client,
+                );
+            }
         }
     };
 }
