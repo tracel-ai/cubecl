@@ -469,12 +469,14 @@ impl<R: Runtime> ComputeClient<R> {
         );
 
         println!("do_empty base size: {}", handle_base.size());
-        println!("do_empty base size: {}", handle_base.size_in_used());
+        println!("do_empty size in used: {}", handle_base.size_in_used());
 
         let (size, memory) = (handle_base.size(), handle_base.memory);
         self.device.submit(move |server| {
             server.initialize_memory(memory, size, stream_id);
         });
+
+        println!("submitted do_empty");
 
         Ok(layouts)
     }
