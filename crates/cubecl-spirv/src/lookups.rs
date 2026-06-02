@@ -63,7 +63,6 @@ pub struct LookupTables {
 
     pub shared: HashMap<Id, SharedVar>,
 
-    pub matrices: HashMap<Id, Matrix>,
     pub globals: HashMap<Builtin, Word>,
     pub loaded_builtins: HashMap<BuiltIn, Word>,
 
@@ -370,7 +369,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             VariableKind::Shared { id, .. } => {
                 self.state.shared.get_mut(&id).unwrap().id = param_id;
             }
-            VariableKind::Pipeline { .. } | VariableKind::BarrierToken { .. } => {
+            VariableKind::BarrierToken { .. } => {
                 panic!("{param} not allowed as a function param")
             }
             VariableKind::Constant(value) => {
@@ -383,10 +382,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             VariableKind::Versioned { id, version } => {
                 self.state.versioned.insert((id, version), param_id);
-            }
-            VariableKind::Matrix { id, mat } => {
-                let matrix = self.init_coop_matrix(mat, param, Some(param_id));
-                self.state.matrices.insert(id, matrix);
             }
             VariableKind::Aggregate { .. } => {
                 unreachable!("Should be disaggregated at this point")

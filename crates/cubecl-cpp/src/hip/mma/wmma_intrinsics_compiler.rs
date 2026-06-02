@@ -4,46 +4,46 @@ use crate::{
     Dialect,
     hip::{HipDialect, arch::AMDArchitecture},
     shared::{
-        Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
-        FragmentIdent, FragmentLayout, Item, ManualMma, MmaShape, SupportedMmaCombinations,
+        Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, FragmentIdent,
+        FragmentLayout, FragmentType, Item, ManualMma, MmaShape, SupportedMmaCombinations,
         Variable, WmmaInstruction, frag_as_ptr, frag_ident_str, frag_layout_str, variable_to_frag,
         wmma_api_base,
     },
 };
-use cubecl_core::ir::{self as gpu, Matrix, MatrixIdent, features::MmaConfig};
+use cubecl_core::ir::{self as gpu, MatrixIdent, MatrixType, features::MmaConfig};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct WmmaIntrinsicCompiler {}
 
 #[derive(new, Debug, Clone, PartialEq)]
 pub struct WmmaFill<D: Dialect> {
-    frag: Fragment<D>,
+    frag: FragmentType<D>,
 }
 
 #[derive(new, Debug, Clone, PartialEq)]
 pub struct WmmaLoad<D: Dialect> {
-    frag: Fragment<D>,
+    frag: FragmentType<D>,
     layout: Option<FragmentLayout<D>>,
 }
 
 #[derive(new, Debug, Clone, PartialEq)]
 pub struct WmmaStore<D: Dialect> {
-    frag: Fragment<D>,
+    frag: FragmentType<D>,
     layout: FragmentLayout<D>,
 }
 
 #[derive(new, Debug, Clone, PartialEq)]
 pub struct WmmaExecute<D: Dialect> {
-    frag_a: Fragment<D>,
-    frag_b: Fragment<D>,
-    frag_c: Fragment<D>,
-    frag_d: Fragment<D>,
+    frag_a: FragmentType<D>,
+    frag_b: FragmentType<D>,
+    frag_c: FragmentType<D>,
+    frag_d: FragmentType<D>,
 }
 
 #[derive(new, Debug, Clone, PartialEq)]
 pub struct WmmaCast<D: Dialect> {
-    frag_input: Fragment<D>,
-    frag_output: Fragment<D>,
+    frag_input: FragmentType<D>,
+    frag_output: FragmentType<D>,
 }
 
 impl<D: Dialect> WmmaFill<D> {
@@ -223,7 +223,7 @@ __device__ void {name}({frag}& frag, {elem}* output_ptr, uint stride) {{
 
 impl<D: Dialect> WmmaExecute<D> {
     pub fn from_manual(shape: MmaShape<D>, ab_elem: Elem<D>, cd_elem: Elem<D>) -> Self {
-        let frag_a = Fragment {
+        let frag_a = FragmentType {
             ident: FragmentIdent::A,
             m: shape.m,
             n: shape.n,
@@ -231,12 +231,12 @@ impl<D: Dialect> WmmaExecute<D> {
             elem: ab_elem,
             layout: Some(FragmentLayout::ColMajor),
         };
-        let frag_b = Fragment {
+        let frag_b = FragmentType {
             ident: FragmentIdent::B,
             layout: Some(FragmentLayout::RowMajor),
             ..frag_a
         };
-        let frag_cd = Fragment {
+        let frag_cd = FragmentType {
             ident: FragmentIdent::Accumulator,
             elem: cd_elem,
             ..frag_b
@@ -340,7 +340,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
 
     fn compile_wmma_fragment(
         f: &mut std::fmt::Formatter<'_>,
-        fragment: &Fragment<HipDialect<Self>>,
+        fragment: &FragmentType<HipDialect<Self>>,
     ) -> std::fmt::Result {
         match fragment.ident {
             FragmentIdent::A | FragmentIdent::B => match fragment.elem {
@@ -364,8 +364,8 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
     ) -> std::fmt::Result {
         match instruction {
             WmmaInstruction::Fill { frag, value } => {
-                let extension = WmmaFill::new(match frag {
-                    Variable::WmmaFragment { frag, .. } => *frag,
+                let extension = WmmaFill::new(match frag.item() {
+                    Item::Fragment(frag) => frag,
                     _ => panic!(),
                 });
                 let name = extension.fn_name();
@@ -513,7 +513,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
 
 fn get_output_accumulator_index_step<D: Dialect>(
     input_elem: &Elem<D>,
-    output: &Fragment<D>,
+    output: &FragmentType<D>,
 ) -> u32 {
     // Each VGPR is 32 bit wide and there is 8 VGPR per lane, an accumulator can then be either:
     // - a vector of 8 float
@@ -651,7 +651,7 @@ pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMma
     result
 }
 
-pub fn contiguous_elements_rdna3(ident: MatrixIdent, matrix: Matrix) -> usize {
+pub fn contiguous_elements_rdna3(ident: MatrixIdent, matrix: MatrixType) -> usize {
     // Don't exceed swizzle atom and load width
     let max_vector_size = 16 / matrix.storage.size();
     match ident {

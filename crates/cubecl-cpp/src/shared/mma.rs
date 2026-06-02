@@ -49,7 +49,7 @@ pub fn register_scaled_mma_features(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
 pub enum FragmentIdent<D: Dialect> {
     A,
     B,
@@ -57,15 +57,15 @@ pub enum FragmentIdent<D: Dialect> {
     _Dialect(PhantomData<D>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
 pub enum FragmentLayout<D: Dialect> {
     ColMajor,
     RowMajor,
     _Dialect(PhantomData<D>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
-pub struct Fragment<D: Dialect> {
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
+pub struct FragmentType<D: Dialect> {
     pub ident: FragmentIdent<D>,
     pub m: u32,
     pub n: u32,
@@ -188,7 +188,7 @@ impl<D: Dialect> Display for FragmentIdent<D> {
     }
 }
 
-impl<D: Dialect> Display for Fragment<D> {
+impl<D: Dialect> Display for FragmentType<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         D::compile_wmma_fragment(f, self)
     }
@@ -212,8 +212,8 @@ pub mod wmma_api_base {
         f: &mut std::fmt::Formatter<'_>,
         var: &Variable<D>,
     ) -> std::fmt::Result {
-        match var {
-            Variable::WmmaFragment { frag, .. } => writeln!(f, "{frag} {var};"),
+        match var.item() {
+            Item::Fragment(frag) => writeln!(f, "{frag} {var};"),
             _ => panic!("variable must be a fragment"),
         }
     }
@@ -246,7 +246,7 @@ pub mod wmma_api_base {
     pub fn compile_fragment<D: Dialect>(
         f: &mut std::fmt::Formatter<'_>,
         namespace: &str,
-        fragment: &Fragment<D>,
+        fragment: &FragmentType<D>,
     ) -> std::fmt::Result {
         let elem = match fragment.elem {
             Elem::TF32 => format!("{namespace}::precision::tf32"),
@@ -381,8 +381,8 @@ pub mod wmma_api_base {
                 }
             }
             WmmaInstruction::Cast { input, output } => {
-                let ty = match output {
-                    Variable::WmmaFragment { frag, .. } => frag.elem,
+                let ty = match output.item() {
+                    Item::Fragment(frag) => frag.elem,
                     _ => panic!("Should be a fragment"),
                 };
                 match ty {
@@ -465,9 +465,9 @@ pub fn frag_layout_str<D: Dialect>(frag: &Option<FragmentLayout<D>>) -> &str {
     }
 }
 
-pub fn variable_to_frag<D: Dialect>(frag: &Variable<D>) -> Fragment<D> {
-    match frag {
-        Variable::WmmaFragment { frag, .. } => *frag,
+pub fn variable_to_frag<D: Dialect>(frag: &Variable<D>) -> FragmentType<D> {
+    match frag.item() {
+        Item::Fragment(frag) => frag,
         _ => panic!(),
     }
 }

@@ -10,7 +10,6 @@ mod instruction;
 mod item;
 mod kernel;
 mod mma;
-mod pipeline;
 mod variable;
 mod warp;
 

@@ -1,6 +1,6 @@
 use crate::shared::Item;
 
-use super::{Dialect, Instruction, barrier::BarrierOps, pipeline::PipelineOps};
+use super::{Dialect, Instruction, barrier::BarrierOps};
 use std::fmt::Display;
 
 /// A body is composed of a list of [instructions](Instruction).
@@ -8,7 +8,6 @@ use std::fmt::Display;
 pub struct Body<D: Dialect> {
     pub instructions: Vec<Instruction<D>>,
     pub shared_memories: Vec<super::SharedMemory<D>>,
-    pub pipelines: Vec<PipelineOps<D>>,
     pub barriers: Vec<BarrierOps<D>>,
     pub info_by_ptr: bool,
     pub has_dynamic_meta: bool,
@@ -23,9 +22,6 @@ impl<D: Dialect> Display for Body<D> {
             D::compile_shared_memory_declaration(f, shared)?;
         }
 
-        for pipeline in self.pipelines.iter() {
-            writeln!(f, "{pipeline}")?;
-        }
         for barrier in self.barriers.iter() {
             writeln!(f, "{barrier}")?;
         }

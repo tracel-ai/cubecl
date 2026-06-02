@@ -4,7 +4,7 @@ use crate::shared::{Builtin, FmtLeft};
 
 use super::{
     Component, Dialect, Elem, Item, Variable, WarpInstruction, WmmaInstruction,
-    barrier::BarrierOps, binary::*, pipeline::PipelineOps, unary::*,
+    barrier::BarrierOps, binary::*, unary::*,
 };
 use std::{
     borrow::Cow,
@@ -272,7 +272,6 @@ pub enum Instruction<D: Dialect> {
     Comment {
         content: String,
     },
-    Pipeline(PipelineOps<D>),
     Barrier(BarrierOps<D>),
     MemCopyAsyncTensorSharedToGlobal {
         smem_buffer: Variable<D>,
@@ -291,9 +290,9 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Return => f.write_str("return;"),
             Instruction::Break => f.write_str("break;"),
             Instruction::Unreachable => D::compile_unreachable(f),
-            Instruction::DeclareVariable { var } => match var {
-                Variable::WmmaFragment { .. } => D::compile_wmma_fragment_declaration(f, var),
-                var => writeln!(f, "{} {var};", var.item()),
+            Instruction::DeclareVariable { var } => match var.item() {
+                Item::Fragment(_) => D::compile_wmma_fragment_declaration(f, var),
+                item => writeln!(f, "{item} {var};"),
             },
             Instruction::Add(it) => Add::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::SaturatingAdd(it) => SaturatingAdd::format(f, &it.lhs, &it.rhs, &it.out),
@@ -683,7 +682,6 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     writeln!(f, "// {content}")
                 }
             }
-            Instruction::Pipeline(pipeline_ops) => write!(f, "{pipeline_ops}"),
             Instruction::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Instruction::Line { file, line } => writeln!(f, "#line {line} \"{file}\""),
             Instruction::ProxyAsyncToSharedFence => {

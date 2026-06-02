@@ -1,6 +1,7 @@
 use cubecl_core::ir::{self as core, AddressSpace, ClampMode, FloatKind, IntKind, UIntKind};
 use rspirv::spirv::{
-    Capability, CooperativeMatrixUse, FPEncoding, Scope, StorageClass, TensorClampMode, Word,
+    Capability, CooperativeMatrixLayout, CooperativeMatrixUse, FPEncoding, Scope, StorageClass,
+    TensorClampMode, Word,
 };
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +20,7 @@ pub enum Item {
         rows: u32,
         columns: u32,
         ident: CooperativeMatrixUse,
+        layout: Option<CooperativeMatrixLayout>,
         scope: Scope,
     },
     TensorLayout {
@@ -66,6 +68,7 @@ impl Item {
                 columns,
                 ident,
                 scope,
+                ..
             } => {
                 let ty = ty.id(b);
                 let scope = b.const_u32(*scope as u32);
@@ -376,16 +379,22 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             core::Type::Vector(inner, size) => {
                 Item::Vector(self.compile_storage_type(inner.storage_type()), size as u32)
             }
-            core::Type::Atomic(inner) => self.compile_type(*inner),
+            core::Type::Atomic(inner) => {
+                if let core::Type::Vector(ty, _) = inner.value_type()
+                    && ty.is_float()
+                    && ty.size() == 2
+                {
+                    self.capabilities.insert(Capability::AtomicFloat16VectorNV);
+                }
+                self.compile_type(*inner)
+            }
             core::Type::Pointer(inner, class) => {
                 let storage_class = compile_pointer_class(class);
                 let item = self.compile_type(*inner);
                 Item::Pointer(storage_class, Box::new(item))
             }
             core::Type::Semantic(semantic) => match semantic {
-                core::SemanticType::BarrierToken
-                | core::SemanticType::Pipeline
-                | core::SemanticType::TensorMap => {
+                core::SemanticType::BarrierToken | core::SemanticType::TensorMap => {
                     unimplemented!("Unsupported semantic type")
                 }
                 core::SemanticType::TensorLayout(dims, clamp_mode) => Item::TensorLayout {
@@ -405,6 +414,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             core::Type::DynamicArray(inner, _) => {
                 let item = self.compile_type(*inner);
                 Item::DynamicArray(Box::new(item))
+            }
+            core::Type::Matrix(ty) => {
+                let mat = self.compile_matrix(&ty);
+                Item::CoopMatrix {
+                    ty: mat.elem,
+                    rows: self.matrix_rows(&mat),
+                    columns: self.matrix_columns(&mat),
+                    ident: mat.ident,
+                    layout: mat.layout,
+                    scope: mat.scope,
+                }
             }
         }
     }
@@ -497,13 +517,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             | core::VariableKind::Versioned { .. }
             | core::VariableKind::Constant(..) => self.compile_type(var.ty).id(self),
             core::VariableKind::Shared { id, .. } => self.state.base_lookups.shared[&id].ptr_ty_id,
-            core::VariableKind::Matrix { mat, .. } => {
-                let mat = self.compile_matrix(&mat);
-                self.item(&mat).id(self)
-            }
-            core::VariableKind::Pipeline { .. } => {
-                unimplemented!("Pipelines not supported")
-            }
             core::VariableKind::BarrierToken { .. } => {
                 unimplemented!("Barrier tokens not supported")
             }

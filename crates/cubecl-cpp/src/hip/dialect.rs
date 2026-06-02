@@ -319,6 +319,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
             Item::DynamicArray(inner) => {
                 write!(f, "{inner}*")
             }
+            Item::Fragment(fragment_type) => write!(f, "{fragment_type}"),
         }
     }
 
@@ -618,7 +619,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
 
     fn compile_wmma_fragment(
         f: &mut std::fmt::Formatter<'_>,
-        fragment: &crate::shared::Fragment<Self>,
+        fragment: &crate::shared::FragmentType<Self>,
     ) -> std::fmt::Result {
         M::compile_wmma_fragment(f, fragment)
     }

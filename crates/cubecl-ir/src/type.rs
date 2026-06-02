@@ -1,5 +1,5 @@
 use super::{ConstantValue, Variable, VariableKind};
-use crate::{BarrierLevel, ClampMode, Id, TypeHash};
+use crate::{BarrierLevel, ClampMode, Id, MatrixType, TypeHash};
 use core::fmt::Display;
 use cubecl_common::{
     e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32,
@@ -78,7 +78,6 @@ pub enum OpaqueType {
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SemanticType {
     BarrierToken,
-    Pipeline,
     TensorMap,
     TensorLayout(usize, ClampMode),
     TensorView(usize, bool, [u32; 5]),
@@ -467,6 +466,8 @@ pub enum Type {
     Array(Intern<Type>, usize, AddressSpace),
     /// Dynamically sized array of `Type`s
     DynamicArray(Intern<Type>, AddressSpace),
+    /// Cooperative Matrix
+    Matrix(MatrixType),
 }
 
 /// `Intern` hashes the pointer, not the values, leading to unstable hashes across runs.
@@ -491,6 +492,9 @@ impl core::hash::Hash for Type {
             Type::DynamicArray(intern, addr_space) => {
                 intern.as_ref().hash(state);
                 addr_space.hash(state);
+            }
+            Type::Matrix(matrix_type) => {
+                matrix_type.hash(state);
             }
         }
     }
@@ -544,7 +548,7 @@ impl Type {
             Type::DynamicArray(inner, addr_space) => {
                 Type::DynamicArray(inner.with_vector_size(vector_size).intern(), addr_space)
             }
-            this @ (Type::Scalar(_) | Type::Semantic(_)) => this,
+            this @ (Type::Scalar(_) | Type::Semantic(_) | Type::Matrix(_)) => this,
         }
     }
 
@@ -565,6 +569,7 @@ impl Type {
             | Type::Atomic(inner)
             | Type::Pointer(inner, _) => inner.vector_size(),
             Type::Semantic(_) => 0,
+            Type::Matrix(_) => 1,
         }
     }
 
@@ -576,6 +581,7 @@ impl Type {
                 inner.array_size()
             }
             Type::Semantic(_) | Type::DynamicArray(..) => 0,
+            Type::Matrix(_) => 1,
         }
     }
 
@@ -589,6 +595,7 @@ impl Type {
             // All platforms use at least conceptually 64-bit pointers
             Type::Pointer(..) => size_of::<u64>(),
             Type::Semantic(_) => 0,
+            Type::Matrix(_) => panic!("Can't get size of opaque type `Matrix`"),
         }
     }
 
@@ -602,6 +609,7 @@ impl Type {
             // All platforms use at least conceptually 64-bit pointers
             Type::Pointer(..) => u64::BITS as usize,
             Type::Semantic(_) => 0,
+            Type::Matrix(_) => panic!("Can't get size of opaque type `Matrix`"),
         }
     }
 
@@ -614,12 +622,13 @@ impl Type {
             | Type::Array(ty, ..)
             | Type::DynamicArray(ty, ..) => ty.packing_factor(),
             Type::Semantic(_) => 1,
+            Type::Matrix(mat) => mat.storage.packing_factor(),
         }
     }
 
     pub fn is_atomic(&self) -> bool {
         match self {
-            Type::Semantic(_) | Type::Scalar(_) => false,
+            Type::Semantic(_) | Type::Scalar(_) | Type::Matrix(_) => false,
             Type::Atomic(_) => true,
             Type::Pointer(inner, _)
             | Type::Vector(inner, _)
@@ -641,6 +650,7 @@ impl Type {
             | Type::Vector(inner, _)
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_int(),
+            Type::Matrix(matrix_type) => matrix_type.storage.is_int(),
         }
     }
 
@@ -653,6 +663,7 @@ impl Type {
             | Type::Vector(inner, _)
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_signed_int(),
+            Type::Matrix(matrix_type) => matrix_type.storage.is_signed_int(),
         }
     }
 
@@ -665,6 +676,7 @@ impl Type {
             | Type::Vector(inner, _)
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_unsigned_int(),
+            Type::Matrix(matrix_type) => matrix_type.storage.is_unsigned_int(),
         }
     }
 
@@ -677,6 +689,7 @@ impl Type {
             | Type::Vector(inner, _)
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_float(),
+            Type::Matrix(matrix_type) => matrix_type.storage.is_float(),
         }
     }
 
@@ -689,6 +702,7 @@ impl Type {
             | Type::Vector(inner, _)
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_bool(),
+            Type::Matrix(matrix_type) => matrix_type.storage.is_bool(),
         }
     }
 
@@ -701,6 +715,7 @@ impl Type {
             | Type::Vector(inner, _)
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.storage_type(),
+            Type::Matrix(matrix_type) => matrix_type.storage,
         }
     }
 
@@ -740,6 +755,11 @@ impl Display for Type {
             Type::Pointer(ty, addr_space) => write!(f, "ptr<{ty}, {addr_space}>"),
             Type::Array(ty, size, addr_space) => write!(f, "array<{ty}, {addr_space}, {size}>"),
             Type::DynamicArray(ty, addr_space) => write!(f, "array<{ty}, {addr_space}>"),
+            Type::Matrix(mat) => write!(
+                f,
+                "matrix<{}, m{}xn{}xk{}x{}, {}, {}>",
+                mat.ident, mat.m, mat.n, mat.k, mat.storage, mat.layout, mat.storage
+            ),
         }
     }
 }
@@ -792,7 +812,6 @@ impl Display for SemanticType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             SemanticType::BarrierToken => f.write_str("barrier_token"),
-            SemanticType::Pipeline => f.write_str("pipeline"),
             SemanticType::TensorMap => f.write_str("tensor_map"),
             SemanticType::TensorLayout(dims, _) => write!(f, "tensor_layout<{dims}>"),
             SemanticType::TensorView(dims, has_dims, permutation) => {

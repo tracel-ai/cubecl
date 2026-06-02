@@ -4,9 +4,7 @@ use core::cell::RefCell;
 use cubecl_macros_internal::TypeHash;
 use portable_atomic::{AtomicU32, Ordering};
 
-use crate::SemanticType;
-
-use super::{Matrix, Type, Variable, VariableKind};
+use super::{Type, Variable, VariableKind};
 
 /// An allocator for local variables of a kernel.
 ///
@@ -66,23 +64,6 @@ impl Allocator {
     pub fn create_local_restricted(&self, ty: Type) -> Variable {
         let id = self.new_local_index();
         Variable::new(VariableKind::LocalMut { id }, ty)
-    }
-
-    /// Create a matrix variable
-    pub fn create_matrix(&self, matrix: Matrix) -> Variable {
-        let id = self.new_local_index();
-        Variable::new(
-            VariableKind::Matrix { id, mat: matrix },
-            Type::new(matrix.storage),
-        )
-    }
-
-    pub fn create_pipeline(&self, num_stages: u8) -> Variable {
-        let id = self.new_local_index();
-        Variable::new(
-            VariableKind::Pipeline { id, num_stages },
-            SemanticType::Pipeline.into(),
-        )
     }
 
     /// Add a new variable to the pool with type specified by `item` for the given `scope`.

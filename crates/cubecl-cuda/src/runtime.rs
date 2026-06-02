@@ -190,7 +190,6 @@ impl DeviceService for CudaServer {
                 Type::atomic(Type::scalar(ElemType::Float(FloatKind::F16)).with_vector_size(2)),
                 AtomicUsage::Add | AtomicUsage::LoadStore,
             );
-            device_props.register_semantic_type(SemanticType::Pipeline);
             device_props
                 .register_type_usage(OpaqueType::Barrier(BarrierLevel::Unit), TypeUsage::Buffer);
             device_props

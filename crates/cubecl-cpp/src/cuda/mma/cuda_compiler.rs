@@ -9,7 +9,7 @@ use crate::{
         },
     },
     shared::{
-        Architecture, DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout,
+        Architecture, DialectWmmaCompiler, Flags, FragmentType, FragmentIdent, FragmentLayout,
         ManualMma, SupportedMmaCombinations, SupportedScaledMmaCombinations, Variable,
         WmmaInstruction, wmma_api_base,
     },
@@ -51,7 +51,7 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
 
     fn compile_wmma_fragment(
         f: &mut std::fmt::Formatter<'_>,
-        fragment: &Fragment<CudaDialect<Self>>,
+        fragment: &FragmentType<CudaDialect<Self>>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_fragment(f, WMMA_NAMESPACE, fragment)
     }

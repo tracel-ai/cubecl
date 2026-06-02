@@ -1,8 +1,8 @@
 use super::{
     BinaryInstruction, Body, Component, ComputeKernel, Dialect, Elem, FP4Kind, FP6Kind, FP8Kind,
-    Fragment, FragmentIdent, FragmentLayout, IndexInstruction, Instruction, Item, KernelArg,
+    FragmentIdent, FragmentLayout, FragmentType, IndexInstruction, Instruction, Item, KernelArg,
     SharedMemory, UnaryInstruction, Variable, WarpInstruction, WmmaInstruction,
-    barrier::BarrierOps, pipeline::PipelineOps,
+    barrier::BarrierOps,
 };
 use crate::shared::{Builtin, MmaShape, PointerClass};
 use cubecl_common::backtrace::BackTrace;
@@ -108,7 +108,6 @@ pub struct CppCompiler<D: Dialect> {
     flags: Flags<D>,
     items: HashSet<Item<D>>,
     info: cubecl_core::Info,
-    pipelines: Vec<PipelineOps<D>>,
     source_loc: Option<SourceLoc>,
     strategy: ExecutionMode,
     addr_type: Item<D>,
@@ -155,7 +154,6 @@ impl<D: Dialect> Default for CppCompiler<D> {
             flags: Flags::default(),
             items: Default::default(),
             info: Default::default(),
-            pipelines: Default::default(),
             source_loc: Default::default(),
             strategy: Default::default(),
             addr_type: Item::Scalar(Elem::U32),
@@ -268,7 +266,6 @@ impl<D: Dialect> CppCompiler<D> {
         let body = Body {
             instructions,
             shared_memories,
-            pipelines: self.pipelines,
             barriers: self.barriers,
             info_by_ptr: !self.compilation_options.supports_features.grid_constants,
             has_dynamic_meta: self.info.has_dynamic_meta,
@@ -1846,24 +1843,6 @@ impl<D: Dialect> CppCompiler<D> {
                 let item = self.compile_type(item);
                 Variable::Shared(id, item)
             }
-            gpu::VariableKind::Matrix { id, mat } => {
-                self.flags.inst_wmma = true;
-                Variable::WmmaFragment {
-                    id,
-                    frag: self.compile_matrix(mat),
-                }
-            }
-            gpu::VariableKind::Pipeline { id, num_stages } => {
-                self.flags.op_pipeline = true;
-                let pipeline = Variable::Pipeline { id };
-                if !self.pipelines.iter().any(|s| s.pipeline_id() == id) {
-                    self.pipelines.push(PipelineOps::Init {
-                        pipeline,
-                        num_stages,
-                    });
-                }
-                pipeline
-            }
             gpu::VariableKind::BarrierToken { id, level } => {
                 self.flags.op_barrier = true;
                 Variable::BarrierToken { id, level }
@@ -1875,8 +1854,8 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_matrix(&mut self, matrix: gpu::Matrix) -> Fragment<D> {
-        Fragment {
+    fn compile_matrix(&mut self, matrix: gpu::MatrixType) -> FragmentType<D> {
+        FragmentType {
             ident: self.compile_matrix_ident(matrix.ident),
             m: matrix.m as u32,
             n: matrix.n as u32,
@@ -1938,6 +1917,10 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Type::DynamicArray(ty, _) => {
                 let ty = self.compile_type(*ty);
                 Item::DynamicArray(ty.intern())
+            }
+            gpu::Type::Matrix(ty) => {
+                let ty = self.compile_matrix(ty);
+                Item::Fragment(ty)
             }
             gpu::Type::Semantic(_) => Item::Scalar(Elem::Bool),
         };

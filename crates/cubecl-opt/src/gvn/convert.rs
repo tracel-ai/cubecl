@@ -61,10 +61,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
             item,
         }),
         VariableKind::Constant(val) => Value::Constant(val, item),
-        VariableKind::LocalMut { .. }
-        | VariableKind::Shared { .. }
-        | VariableKind::Matrix { .. } => None?,
-        VariableKind::Pipeline { .. } => panic!("Pipeline is not supported"),
+        VariableKind::LocalMut { .. } | VariableKind::Shared { .. } => None?,
         VariableKind::BarrierToken { .. } => {
             panic!("Barrier is not supported")
         }

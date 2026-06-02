@@ -206,6 +206,7 @@ impl WgslCompiler {
                 wgsl::Item::DynamicArray(inner.intern())
             }
             cube::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
+            cube::Type::Matrix(_) => unimplemented!("Matrices not yet supported in WGSL"),
         }
     }
 
@@ -300,12 +301,6 @@ impl WgslCompiler {
                     ));
                 }
                 wgsl::Variable::Shared(id, item)
-            }
-            cube::VariableKind::Matrix { .. } => {
-                panic!("Cooperative matrix-multiply and accumulate not supported.")
-            }
-            cube::VariableKind::Pipeline { .. } => {
-                panic!("Pipeline not supported.")
             }
             cube::VariableKind::BarrierToken { .. } => {
                 panic!("Barrier not supported.")

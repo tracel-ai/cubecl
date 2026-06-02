@@ -11,7 +11,7 @@ use crate::shared::{
 };
 
 use super::{
-    Architecture, Body, Component, CubeIndexFlags, Elem, Flags, Fragment, FragmentIdent,
+    Architecture, Body, Component, CubeIndexFlags, Elem, Flags, FragmentType, FragmentIdent,
     FragmentLayout, Instruction, Item, KernelArg, SharedMemory, Variable, WarpInstruction,
     WmmaInstruction,
 };
@@ -965,7 +965,7 @@ pub trait DialectWmmaCompiler<D: Dialect>:
     #[allow(unused_variables)]
     fn compile_wmma_fragment(
         f: &mut std::fmt::Formatter<'_>,
-        fragment: &Fragment<D>,
+        fragment: &FragmentType<D>,
     ) -> std::fmt::Result {
         Ok(())
     }

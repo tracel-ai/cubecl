@@ -7,13 +7,13 @@ use crate::{
         ptx::{comma_separated, ldmatrix_call, stmatrix_call},
     },
     shared::{
-        Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
-        FragmentIdent, FragmentLayout, ManualMma, SupportedMmaCombinations,
+        Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, FragmentIdent,
+        FragmentLayout, FragmentType, Item, ManualMma, SupportedMmaCombinations,
         SupportedScaledMmaCombinations, Variable, WmmaInstruction,
     },
 };
 use cubecl_core::ir::{
-    self as gpu, ConstantValue, Matrix, MatrixIdent,
+    self as gpu, ConstantValue, MatrixIdent, MatrixType,
     features::{MmaConfig, ScaledMmaConfig},
 };
 use itertools::Itertools;
@@ -38,8 +38,8 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for PtxWmmaCompiler {
         f: &mut std::fmt::Formatter<'_>,
         var: &Variable<CudaDialect<Self>>,
     ) -> std::fmt::Result {
-        let frag = match var {
-            Variable::WmmaFragment { frag, .. } => *frag,
+        let frag = match var.item() {
+            Item::Fragment(frag) => frag,
             _ => panic!("load instruction expects a WmmaFragment"),
         };
         let reg_count = get_fragment_register_total_count(&frag);
@@ -58,9 +58,9 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for PtxWmmaCompiler {
     ) -> std::fmt::Result {
         match instruction {
             WmmaInstruction::Fill { frag: var, value } => {
-                let frag = match var {
-                    Variable::WmmaFragment { frag, .. } => *frag,
-                    _ => panic!("variable should be WmmaFragment"),
+                let frag = match var.item() {
+                    Item::Fragment(frag) => frag,
+                    _ => panic!("load instruction expects a WmmaFragment"),
                 };
                 let reg_count = get_fragment_register_total_count(&frag);
                 write!(
@@ -78,8 +78,8 @@ for (uint i = 0; i < uint({reg_count}); ++i) {{
                 stride,
                 layout,
             } => {
-                let frag = match var {
-                    Variable::WmmaFragment { frag, .. } => *frag,
+                let frag = match var.item() {
+                    Item::Fragment(frag) => frag,
                     _ => panic!("load instruction expects a WmmaFragment"),
                 };
                 // Important note: the current frontend has been designed around
@@ -152,8 +152,8 @@ asm volatile(
                 frag_d: var_d,
                 ..
             } => {
-                let frag_a = match var_a {
-                    Variable::WmmaFragment { frag, .. } => *frag,
+                let frag_a = match var_a.item() {
+                    Item::Fragment(frag) => frag,
                     _ => panic!("variable should be WmmaFragment"),
                 };
                 let layout_a = get_fragment_layout_qualifier(var_a);
@@ -232,8 +232,8 @@ asm volatile(
                 destination,
                 layout,
             } => {
-                let frag_acc = match var {
-                    Variable::WmmaFragment { frag, .. } => *frag,
+                let frag_acc = match var.item() {
+                    Item::Fragment(frag) => frag,
                     _ => panic!("variable should be WmmaFragment"),
                 };
                 // instruction qualifiers
@@ -286,8 +286,8 @@ asm volatile(
                 )
             }
             WmmaInstruction::Cast { input, output } => {
-                let frag = match input {
-                    Variable::WmmaFragment { frag, .. } => *frag,
+                let frag = match input.item() {
+                    Item::Fragment(frag) => frag,
                     _ => panic!("variable should be WmmaFragment"),
                 };
                 let reg_count = get_fragment_register_total_count(&frag);
@@ -419,8 +419,8 @@ for (int i = 0; i < {reg_count}; ++i) {{
     }
 }
 
-fn get_fragment_register_total_count(frag: &Fragment<CudaDialect<PtxWmmaCompiler>>) -> u32 {
-    let Fragment {
+fn get_fragment_register_total_count(frag: &FragmentType<CudaDialect<PtxWmmaCompiler>>) -> u32 {
+    let FragmentType {
         ident,
         m,
         n,
@@ -471,8 +471,8 @@ fn get_type_qualifier(var: &Variable<CudaDialect<PtxWmmaCompiler>>) -> String {
 }
 
 fn get_fragment_layout_qualifier(var: &Variable<CudaDialect<PtxWmmaCompiler>>) -> String {
-    let frag = match var {
-        Variable::WmmaFragment { frag, .. } => *frag,
+    let frag = match var.item() {
+        Item::Fragment(frag) => frag,
         _ => panic!("variable should be WmmaFragment"),
     };
     match frag.layout {
@@ -496,8 +496,8 @@ fn get_variable_regs_decl_constraints(
     reg_count: &mut u8,
 ) -> (String, String) {
     match var {
-        Variable::WmmaFragment { frag, .. } => {
-            let reg_total_count = get_fragment_register_total_count(frag);
+        _ if let Item::Fragment(frag) = var.item() => {
+            let reg_total_count = get_fragment_register_total_count(&frag);
             let reg_decl = (0..reg_total_count)
                 .map(|_| format_reg_and_inc(reg_count))
                 .collect::<Vec<_>>()
@@ -782,7 +782,7 @@ pub(super) fn supported_scaled_mma_combinations(
     result
 }
 
-pub fn contiguous_elements_cuda(ident: MatrixIdent, matrix: Matrix) -> usize {
+pub fn contiguous_elements_cuda(ident: MatrixIdent, matrix: MatrixType) -> usize {
     match ident {
         MatrixIdent::A | MatrixIdent::B => 32 / matrix.storage.size_bits(),
         MatrixIdent::Accumulator => 2,

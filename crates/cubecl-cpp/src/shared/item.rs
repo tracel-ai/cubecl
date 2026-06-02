@@ -2,6 +2,8 @@ use std::fmt::Display;
 
 use cubecl_core::{ir::Intern, prelude::Visibility};
 
+use crate::shared::FragmentType;
+
 use super::{Dialect, Elem};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -13,6 +15,7 @@ pub enum Item<D: Dialect> {
     Pointer(Intern<Item<D>>, PointerClass),
     Array(Intern<Item<D>>, usize),
     DynamicArray(Intern<Item<D>>),
+    Fragment(FragmentType<D>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -60,6 +63,7 @@ impl<D: Dialect> Item<D> {
             | Item::Pointer(item, _)
             | Item::Array(item, _)
             | Item::DynamicArray(item) => item.elem(),
+            Item::Fragment(frag) => &frag.elem,
         }
     }
 
@@ -74,6 +78,11 @@ impl<D: Dialect> Item<D> {
             Item::Pointer(inner, class) => Item::Pointer(inner.with_elem(elem).intern(), *class),
             Item::Array(inner, size) => Item::Array(inner.with_elem(elem).intern(), *size),
             Item::DynamicArray(inner) => Item::DynamicArray(inner.with_elem(elem).intern()),
+            Item::Fragment(fragment_type) => {
+                let mut frag_ty = *fragment_type;
+                frag_ty.elem = elem;
+                Item::Fragment(frag_ty)
+            }
         }
     }
 
@@ -86,6 +95,7 @@ impl<D: Dialect> Item<D> {
             Item::Pointer(inner, class) => Item::Pointer(inner.as_scalar().intern(), *class),
             Item::Array(inner, size) => Item::Array(inner.as_scalar().intern(), *size),
             Item::DynamicArray(inner) => Item::DynamicArray(inner.as_scalar().intern()),
+            Item::Fragment(fragment_type) => Item::Fragment(*fragment_type),
         }
     }
 
@@ -97,6 +107,7 @@ impl<D: Dialect> Item<D> {
             | Item::Pointer(inner, _)
             | Item::Array(inner, _)
             | Item::DynamicArray(inner) => inner.vectorization(),
+            Item::Fragment(_) => 1,
         }
     }
 
@@ -109,17 +120,7 @@ impl<D: Dialect> Item<D> {
             Item::Array(inner, size) => inner.size() * *size,
             Item::DynamicArray(inner) => inner.size(),
             Item::Pointer(..) => size_of::<u64>(),
-        }
-    }
-
-    pub fn is_native(&self) -> bool {
-        match self {
-            Item::Scalar(..) | Item::NativeVector(..) => true,
-            Item::Vector(..) => false,
-            Item::Atomic(item)
-            | Item::Pointer(item, ..)
-            | Item::Array(item, _)
-            | Item::DynamicArray(item) => item.is_native(),
+            Item::Fragment(_) => panic!("Can't read size of fragment"),
         }
     }
 
@@ -159,6 +160,7 @@ impl<D: Dialect> Item<D> {
             }
             Item::Array(inner, size) => Item::Array(inner.optimized().intern(), *size),
             Item::DynamicArray(inner) => Item::DynamicArray(inner.optimized().intern()),
+            Item::Fragment(fragment_type) => Item::Fragment(*fragment_type),
         }
     }
 
@@ -201,6 +203,7 @@ impl<D: Dialect> Item<D> {
             }
             Item::Array(inner, size) => Item::Array(inner.de_optimized().intern(), *size),
             Item::DynamicArray(inner) => Item::DynamicArray(inner.de_optimized().intern()),
+            Item::Fragment(fragment_type) => Item::Fragment(*fragment_type),
         }
     }
 

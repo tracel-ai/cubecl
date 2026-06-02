@@ -8,7 +8,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::shared::{FP4Kind, FP8Kind, PointerClass};
 
-use super::{COUNTER_TMP_VAR, Dialect, Elem, Fragment, FragmentIdent, Item};
+use super::{COUNTER_TMP_VAR, Dialect, Elem, Item};
 
 pub trait Component<D: Dialect>: Display + FmtLeft {
     fn item(&self) -> Item<D>;
@@ -47,13 +47,6 @@ pub enum Variable<D: Dialect> {
         item: Item<D>,
     },
     Shared(Id, Item<D>),
-    WmmaFragment {
-        id: Id,
-        frag: Fragment<D>,
-    },
-    Pipeline {
-        id: Id,
-    },
     Barrier {
         id: Id,
         level: BarrierLevel,
@@ -170,11 +163,8 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::LocalConst { item, .. } => *item,
             Variable::Slice { item, .. } => *item,
             Variable::Constant(_, e) => *e,
-            Variable::WmmaFragment { frag, .. } => Item::Scalar(frag.elem),
             Variable::Tmp { item, .. } => *item,
-            Variable::Pipeline { .. }
-            | Variable::Barrier { .. }
-            | Variable::BarrierToken { .. } => Item::Scalar(Elem::Bool),
+            Variable::Barrier { .. } | Variable::BarrierToken { .. } => Item::Scalar(Elem::Bool),
             Variable::TensorMap(_) => unreachable!(),
         }
     }
@@ -240,17 +230,7 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::Shared(number, _) => {
                 write!(f, "shared_memory_{number}")
             }
-            Variable::WmmaFragment { id: index, frag } => {
-                let name = match frag.ident {
-                    FragmentIdent::A => "a",
-                    FragmentIdent::B => "b",
-                    FragmentIdent::Accumulator => "acc",
-                    FragmentIdent::_Dialect(_) => "",
-                };
-                write!(f, "frag_{name}_{index}")
-            }
             Variable::Tmp { id, .. } => write!(f, "_tmp_{id}"),
-            Variable::Pipeline { id, .. } => write!(f, "pipeline_{id}"),
             Variable::Barrier { id, .. } => write!(f, "barrier_{id}"),
             Variable::BarrierToken { id, .. } => write!(f, "barrier_{id}_token"),
         }
@@ -451,8 +431,6 @@ impl<D: Dialect> Variable<D> {
             Variable::LocalConst { id, .. } => Some(*id),
             Variable::Slice { id, .. } => Some(*id),
             Variable::Shared(id, ..) => Some(*id),
-            Variable::WmmaFragment { id, .. } => Some(*id),
-            Variable::Pipeline { id, .. } => Some(*id),
             Variable::Barrier { id, .. } => Some(*id),
             Variable::Tmp { id, .. } => Some(*id),
             _ => None,

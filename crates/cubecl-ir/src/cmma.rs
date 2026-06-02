@@ -1,4 +1,5 @@
 use alloc::{format, string::String};
+use derive_more::Display;
 use derive_new::new;
 
 use super::Variable;
@@ -7,16 +8,20 @@ use crate::{StorageType, TypeHash};
 use core::fmt::Display;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord, Display)]
 #[allow(missing_docs)]
 pub enum MatrixIdent {
+    #[display("IdentA")]
     A,
+    #[display("IdentB")]
     B,
+    #[display("IdentAcc")]
     Accumulator,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord, Display)]
+#[display(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum MatrixLayout {
     ColMajor,
@@ -25,7 +30,8 @@ pub enum MatrixLayout {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord, Display)]
+#[display(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum MatrixScope {
     Plane,
@@ -35,7 +41,7 @@ pub enum MatrixScope {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(new, Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(missing_docs)]
-pub struct Matrix {
+pub struct MatrixType {
     pub ident: MatrixIdent,
     pub m: usize,
     pub n: usize,
@@ -45,7 +51,7 @@ pub struct Matrix {
     pub scope: MatrixScope,
 }
 
-impl Matrix {
+impl MatrixType {
     /// Number of elements in terms of the physical storage type, accounting for packed elements
     pub fn num_elems(&self) -> usize {
         let elems = match self.ident {
@@ -122,14 +128,14 @@ pub enum CoopMma {
         lane_id: Variable,
         i: Variable,
         #[args(skip)]
-        matrix: Matrix,
+        matrix: MatrixType,
     },
     /// Column index of nth element in the lane
     ColIndex {
         lane_id: Variable,
         i: Variable,
         #[args(skip)]
-        matrix: Matrix,
+        matrix: MatrixType,
     },
     /// Execute a CUDA `ldmatrix` instruction
     LoadMatrix {
@@ -149,7 +155,7 @@ pub enum CoopMma {
     /// Manual execute.
     ExecuteManual {
         #[args(skip)]
-        matrix: Matrix,
+        matrix: MatrixType,
         registers_a: Variable,
         registers_b: Variable,
         registers_c: Variable,
@@ -157,7 +163,7 @@ pub enum CoopMma {
     /// Scaled manual execute.
     ExecuteScaled {
         #[args(skip)]
-        matrix: Matrix,
+        matrix: MatrixType,
         registers_a: Variable,
         registers_b: Variable,
         registers_c: Variable,
@@ -175,7 +181,7 @@ pub enum CoopMma {
 impl Display for CoopMma {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            CoopMma::Fill { value } => write!(f, "{value}"),
+            CoopMma::Fill { value } => write!(f, "fill({value})"),
             CoopMma::Load {
                 ptr,
                 stride,

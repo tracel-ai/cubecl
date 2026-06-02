@@ -241,7 +241,15 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
     ) -> Self {
         intrinsic!(|scope| {
             let elem = C::__expand_as_type(scope).storage_type();
-            let elem = scope.create_matrix(ir::Matrix::new(ident, m, n, k, elem, layout, S::SCOPE));
+            let elem = scope.create_local_mut(Type::Matrix(ir::MatrixType::new(
+                ident,
+                m,
+                n,
+                k,
+                elem,
+                layout,
+                S::SCOPE,
+            )));
             MatrixExpand {
                 elem,
                 ident,
@@ -488,7 +496,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 MatrixIdent::B => self.b_type,
                 MatrixIdent::Accumulator => self.cd_type,
             };
-            let matrix = cubecl_ir::Matrix {
+            let matrix = cubecl_ir::MatrixType {
                 ident,
                 m: self.m,
                 n: self.n,
@@ -533,7 +541,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 MatrixIdent::B => scope.state().target_properties.mma.register_layout_b,
                 MatrixIdent::Accumulator => scope.state().target_properties.mma.register_layout_acc,
             };
-            let matrix = cubecl_ir::Matrix {
+            let matrix = cubecl_ir::MatrixType {
                 ident,
                 m: self.m,
                 n: self.n,
@@ -713,7 +721,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let registers_c = registers_c.__extract_list(scope);
 
             // Only shape is actually used
-            let matrix = cubecl_ir::Matrix {
+            let matrix = cubecl_ir::MatrixType {
                 ident: MatrixIdent::A,
                 m: self.m,
                 n: self.n,
@@ -758,7 +766,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let registers_c = registers_c.__extract_list(scope);
 
             // Only shape is actually used
-            let matrix = cubecl_ir::Matrix {
+            let matrix = cubecl_ir::MatrixType {
                 ident: MatrixIdent::A,
                 m: self.m,
                 n: self.n,
@@ -807,7 +815,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let registers_c = registers_c.__extract_list(scope);
 
             // Only shape is actually used
-            let matrix = cubecl_ir::Matrix {
+            let matrix = cubecl_ir::MatrixType {
                 ident: MatrixIdent::A,
                 m: self.m,
                 n: self.n,
@@ -1121,13 +1129,13 @@ pub mod cast {
             };
         }
         let input = input.elem;
-        let input_mat = match input.kind {
-            ir::VariableKind::Matrix { mat, .. } => mat,
+        let input_mat = match input.ty {
+            ir::Type::Matrix(mat) => mat,
             _ => unreachable!(),
         };
 
         let elem = O::__expand_as_type(scope).storage_type();
-        let elem = scope.create_matrix(ir::Matrix::new(
+        let elem = scope.create_local_mut(Type::Matrix(ir::MatrixType::new(
             ident,
             input_mat.m,
             input_mat.n,
@@ -1135,7 +1143,7 @@ pub mod cast {
             elem,
             MatrixLayout::Undefined,
             input_mat.scope,
-        ));
+        )));
 
         let output = MatrixExpand {
             ident,
@@ -1179,13 +1187,13 @@ pub mod cast_with_ident {
             };
         }
         let input = input.elem;
-        let input_mat = match input.kind {
-            ir::VariableKind::Matrix { mat, .. } => mat,
+        let input_mat = match input.ty {
+            ir::Type::Matrix(mat) => mat,
             _ => unreachable!(),
         };
 
         let elem = O::__expand_as_type(scope).storage_type();
-        let elem = scope.create_matrix(ir::Matrix::new(
+        let elem = scope.create_local_mut(Type::Matrix(ir::MatrixType::new(
             ident,
             input_mat.m,
             input_mat.n,
@@ -1193,7 +1201,7 @@ pub mod cast_with_ident {
             elem,
             MatrixLayout::Undefined,
             input_mat.scope,
-        ));
+        )));
 
         let output = MatrixExpand {
             ident,

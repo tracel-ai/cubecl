@@ -9,8 +9,8 @@ use crate::{
     shared::{
         self, Builtin, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
         DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
-        DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
-        FragmentIdent, FragmentLayout, Instruction, Item, KernelArg, ManualMma, SharedMemory,
+        DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, FragmentIdent,
+        FragmentLayout, FragmentType, Instruction, Item, KernelArg, ManualMma, SharedMemory,
         SupportedMmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
@@ -315,6 +315,7 @@ struct alignas({alignment}) {item} {{"
             Item::DynamicArray(inner) => {
                 write!(f, "{inner}*")
             }
+            Item::Fragment(fragment_type) => write!(f, "{fragment_type}"),
         }
     }
 
@@ -1073,7 +1074,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
 
     fn compile_wmma_fragment(
         f: &mut std::fmt::Formatter<'_>,
-        fragment: &Fragment<Self>,
+        fragment: &FragmentType<Self>,
     ) -> std::fmt::Result {
         let ty = fragment.elem;
         // currently as of Metal 3.2 only fragments of 8x8x8 are supported
@@ -1092,8 +1093,8 @@ impl DialectWmmaCompiler<Self> for MslDialect {
     ) -> std::fmt::Result {
         match instruction {
             WmmaInstruction::Fill { frag, value } => {
-                match frag {
-                    Variable::WmmaFragment { .. } => {
+                match frag.item() {
+                    Item::Fragment { .. } => {
                         let ty = frag.elem();
                         // Only 8x8x8 fragemts are supported. Check is done at fragment compilation time.
                         writeln!(
@@ -1110,8 +1111,8 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 stride,
                 layout: _layout,
             } => {
-                let transpose = match frag {
-                    Variable::WmmaFragment { frag: inner, .. } => match inner.layout {
+                let transpose = match frag.item() {
+                    Item::Fragment(inner) => match inner.layout {
                         Some(FragmentLayout::RowMajor) => false,
                         Some(FragmentLayout::ColMajor) => true,
                         _ => false,
@@ -1168,8 +1169,8 @@ impl DialectWmmaCompiler<Self> for MslDialect {
             }
             WmmaInstruction::Cast { input, output } => {
                 writeln!(f, "simdgroup_barrier(mem_flags::mem_none);")?;
-                let ty = match output {
-                    Variable::WmmaFragment { frag, .. } => frag.elem,
+                let ty = match output.item() {
+                    Item::Fragment(frag) => frag.elem,
                     _ => panic!("should be a fragment"),
                 };
                 match ty {

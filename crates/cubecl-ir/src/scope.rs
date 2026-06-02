@@ -12,7 +12,7 @@ use itertools::Itertools;
 
 use crate::{
     AggregateExtractOperands, AggregateKind, BarrierLevel, CubeFnSource, DeviceProperties,
-    FastMath, Function, Matrix, Operation, OperationReflect, Processor, SemanticType, SourceLoc,
+    FastMath, Function, Operation, OperationReflect, Processor, SemanticType, SourceLoc,
     StorageType, TargetProperties, TypeHash, arena::DropBump,
 };
 
@@ -160,22 +160,6 @@ impl Scope {
     pub fn with_global_state(mut self, global_state: GlobalState) -> Self {
         self.global_state = global_state;
         self
-    }
-
-    /// Create a new matrix element.
-    pub fn create_matrix(&self, matrix: Matrix) -> Variable {
-        let matrix = self.state().allocator.create_matrix(matrix);
-        self.add_matrix(matrix);
-        matrix
-    }
-
-    pub fn add_matrix(&self, variable: Variable) {
-        self.locals.borrow_mut().push(variable);
-    }
-
-    /// Create a new pipeline element.
-    pub fn create_pipeline(&self, num_stages: u8) -> Variable {
-        self.state().allocator.create_pipeline(num_stages)
     }
 
     /// Create a new barrier element.

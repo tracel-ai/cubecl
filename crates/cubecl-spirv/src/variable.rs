@@ -39,25 +39,29 @@ pub enum Variable {
         item: Item,
     },
     Shared(Word, Item),
-    CoopMatrix(Id, Elem),
     Id(Word),
 }
 
 impl Variable {
     pub fn scope(&self) -> spirv::Scope {
-        if let Item::Pointer(class, _) = self.item() {
-            return match class {
-                StorageClass::StorageBuffer
-                | StorageClass::PhysicalStorageBuffer
-                | StorageClass::Uniform => spirv::Scope::Device,
-                StorageClass::Workgroup => spirv::Scope::Workgroup,
-                _ => spirv::Scope::Invocation,
-            };
+        match self.item() {
+            Item::Pointer(class, _) => {
+                return match class {
+                    StorageClass::StorageBuffer
+                    | StorageClass::PhysicalStorageBuffer
+                    | StorageClass::Uniform => spirv::Scope::Device,
+                    StorageClass::Workgroup => spirv::Scope::Workgroup,
+                    _ => spirv::Scope::Invocation,
+                };
+            }
+            Item::CoopMatrix { scope, .. } => {
+                return scope;
+            }
+            _ => {}
         }
         match self {
             Variable::GlobalBuffer(..) => spirv::Scope::Device,
             Variable::Shared(..) => spirv::Scope::Workgroup,
-            Variable::CoopMatrix(..) => spirv::Scope::Subgroup,
             Variable::Slice { ptr, .. } => ptr.scope(),
             Variable::Raw(..) => unimplemented!("Can't get scope of raw variable"),
             Variable::Id(_) => unimplemented!("Can't get scope of raw id"),
@@ -200,7 +204,6 @@ impl Variable {
             Variable::Raw(id, _) => *id,
             Variable::Slice { ptr, .. } => ptr.id(b),
             Variable::Shared(id, _) => *id,
-            Variable::CoopMatrix(_, _) => unimplemented!("Can't get ID from matrix var"),
             Variable::Id(id) => *id,
         }
     }
@@ -214,7 +217,6 @@ impl Variable {
             Variable::LocalBinding { item, .. } => item.clone(),
             Variable::Slice { item, .. } => item.clone(),
             Variable::Shared(_, item) => item.clone(),
-            Variable::CoopMatrix(_, elem) => Item::Scalar(*elem),
             Variable::Raw(_, item) => item.clone(),
             Variable::Id(_) => unimplemented!("Can't get item of raw ID"),
         }
@@ -307,17 +309,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = self.state.shared[&id].id;
                 Variable::Shared(id, item)
             }
-            ir::VariableKind::Matrix { id, mat } => {
-                let elem = self.compile_type(ir::Type::new(mat.storage)).elem();
-                if self.state.matrices.contains_key(&id) {
-                    Variable::CoopMatrix(id, elem)
-                } else {
-                    let matrix = self.init_coop_matrix(mat, variable, None);
-                    self.state.matrices.insert(id, matrix);
-                    Variable::CoopMatrix(id, elem)
-                }
-            }
-            ir::VariableKind::Pipeline { .. } => panic!("Pipeline not supported."),
             ir::VariableKind::BarrierToken { .. } => {
                 panic!("Barrier not supported.")
             }
@@ -438,6 +429,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Variable::LocalBinding { id, .. } => {
                 self.state.bindings.insert(*id, value);
+            }
+            Variable::Versioned { id, .. } => {
+                self.state.versioned.insert(*id, value);
             }
             Variable::Slice { ptr, .. } => self.write(ptr, value),
             _ => {}

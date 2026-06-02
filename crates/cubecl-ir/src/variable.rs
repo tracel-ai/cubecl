@@ -2,7 +2,7 @@ use core::{fmt::Display, hash::Hash};
 
 use crate::{AddressSpace, BarrierLevel, FloatKind, IntKind, StorageType, TypeHash};
 
-use super::{ElemType, Matrix, Type, UIntKind};
+use super::{ElemType, Type, UIntKind};
 use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
 use derive_more::{Display, From};
 use float_ord::FloatOrd;
@@ -54,14 +54,12 @@ impl Variable {
             VariableKind::LocalConst { .. }
             | VariableKind::Versioned { .. }
             | VariableKind::Constant(..)
-            | VariableKind::Pipeline { .. }
             | VariableKind::BarrierToken { .. }
             | VariableKind::Aggregate { .. } => false,
             VariableKind::GlobalBuffer(_)
             | VariableKind::TensorMap(_)
             | VariableKind::LocalMut { .. }
-            | VariableKind::Shared { .. }
-            | VariableKind::Matrix { .. } => true,
+            | VariableKind::Shared { .. } => true,
         }
     }
 
@@ -78,8 +76,6 @@ impl Variable {
                 VariableKind::LocalMut { .. }
                 | VariableKind::LocalConst { .. }
                 | VariableKind::Versioned { .. }
-                | VariableKind::Matrix { .. }
-                | VariableKind::Pipeline { .. }
                 | VariableKind::BarrierToken { .. } => AddressSpace::Local,
                 VariableKind::Aggregate { .. } => {
                     unimplemented!("Can't create reference to compiler internal aggregate")
@@ -115,14 +111,6 @@ pub enum VariableKind {
     Shared {
         id: Id,
         alignment: Option<usize>,
-    },
-    Matrix {
-        id: Id,
-        mat: Matrix,
-    },
-    Pipeline {
-        id: Id,
-        num_stages: u8,
     },
     BarrierToken {
         id: Id,
@@ -215,11 +203,9 @@ impl Variable {
             VariableKind::TensorMap(_) => false,
             VariableKind::LocalMut { .. } => false,
             VariableKind::Shared { .. } => false,
-            VariableKind::Matrix { .. } => false,
             VariableKind::Versioned { .. } => true,
             VariableKind::LocalConst { .. } => true,
             VariableKind::Constant(_) => true,
-            VariableKind::Pipeline { .. } => false,
             VariableKind::BarrierToken { .. } => false,
             VariableKind::Aggregate { .. } => false,
         }
@@ -548,8 +534,7 @@ impl Variable {
             | VariableKind::LocalMut { id, .. }
             | VariableKind::Versioned { id, .. }
             | VariableKind::LocalConst { id, .. }
-            | VariableKind::Shared { id, .. }
-            | VariableKind::Matrix { id, .. } => Some(id),
+            | VariableKind::Shared { id, .. } => Some(id),
             _ => None,
         }
     }
@@ -583,8 +568,6 @@ impl Display for VariableKind {
             }
             VariableKind::LocalConst { id } => write!(f, "binding({id})"),
             VariableKind::Shared { id, .. } => write!(f, "shared({id})"),
-            VariableKind::Matrix { id, .. } => write!(f, "matrix({id})"),
-            VariableKind::Pipeline { id, .. } => write!(f, "pipeline({id})"),
             VariableKind::BarrierToken { id, .. } => write!(f, "barrier_token({id})"),
             VariableKind::Aggregate { id, aggregate_kind } => write!(f, "{aggregate_kind}({id})"),
         }

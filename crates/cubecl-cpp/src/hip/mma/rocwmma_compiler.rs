@@ -5,7 +5,7 @@ use crate::{
         mma::{compile_manual_mma, supported_mma_combinations},
     },
     shared::{
-        DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout, ManualMma,
+        DialectWmmaCompiler, Flags, FragmentType, FragmentIdent, FragmentLayout, ManualMma,
         SupportedMmaCombinations, Variable, WmmaInstruction, wmma_api_base,
     },
 };
@@ -67,7 +67,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
 
     fn compile_wmma_fragment(
         f: &mut std::fmt::Formatter<'_>,
-        fragment: &Fragment<HipDialect<Self>>,
+        fragment: &FragmentType<HipDialect<Self>>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_fragment(f, ROCWMMA_NAMESPACE, fragment)
     }
