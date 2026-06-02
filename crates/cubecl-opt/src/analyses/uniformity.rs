@@ -95,6 +95,9 @@ impl Uniformity {
                 Operation::Operator(Operator::ReadBuiltin(builtin)) => {
                     self.mark_uniformity(out, is_builtin_uniform(builtin) && block_uniform)?;
                 }
+                Operation::Operator(Operator::ReadScalar(_)) => {
+                    self.mark_uniformity(out, block_uniform);
+                }
                 op => {
                     let is_uniform =
                         op.is_pure() && self.is_all_uniform(op.args()) && block_uniform;
@@ -213,7 +216,6 @@ impl Uniformity {
             VariableKind::ConstantArray { .. }
             | VariableKind::Shared { .. }
             | VariableKind::GlobalBuffer(_)
-            | VariableKind::GlobalScalar(_)
             | VariableKind::Constant(_) => true,
             VariableKind::LocalMut { .. } => false,
             VariableKind::LocalConst { .. }

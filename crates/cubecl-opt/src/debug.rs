@@ -295,7 +295,6 @@ impl Display for Value {
             Value::Constant(constant, _) => write!(f, "{constant}"),
             Value::Local(local) => write!(f, "{local}"),
             Value::Global(id, _) => write!(f, "global({id})"),
-            Value::Scalar(id, elem) => write!(f, "scalar({elem}, {id})"),
             Value::ConstArray(id, _, _, _) => write!(f, "const_array({id})"),
         }
     }

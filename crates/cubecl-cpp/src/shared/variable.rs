@@ -32,10 +32,6 @@ pub struct OptimizedArgs<const N: usize, D: Dialect> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Variable<D: Dialect> {
     GlobalBuffer(Id, Item<D>),
-    GlobalScalar {
-        id: Id,
-        elem: Elem<D>,
-    },
     ConstantArray(Id, Item<D>, usize),
     Constant(ConstantValue, Item<D>),
     TensorMap(Id),
@@ -185,7 +181,6 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::Named { item, .. } => *item,
             Variable::Slice { item, .. } => *item,
             Variable::Constant(_, e) => *e,
-            Variable::GlobalScalar { elem, .. } => Item::Scalar(*elem),
             Variable::WmmaFragment { frag, .. } => Item::Scalar(frag.elem),
             Variable::Tmp { item, .. } => *item,
             Variable::Pipeline { .. }
@@ -243,7 +238,6 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::Slice { id, .. } => {
                 write!(f, "slice_{id}")
             }
-            Variable::GlobalScalar { id, elem } => write!(f, "info.scalars_{elem}[{id}]"),
             Variable::Constant(number, item) if item.vectorization() <= 1 => {
                 let value = format_const(number, item);
                 write!(f, "{item}({value})")
@@ -486,7 +480,6 @@ impl<D: Dialect> Variable<D> {
     pub fn id(&self) -> Option<Id> {
         match self {
             Variable::GlobalBuffer(id, ..) => Some(*id),
-            Variable::GlobalScalar { id, .. } => Some(*id),
             Variable::ConstantArray(id, ..) => Some(*id),
             Variable::LocalMut { id, .. } => Some(*id),
             Variable::LocalConst { id, .. } => Some(*id),

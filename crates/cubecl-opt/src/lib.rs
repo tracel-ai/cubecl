@@ -669,16 +669,9 @@ mod test {
     #[ignore = "no good way to assert opt is applied"]
     fn test_pre() {
         let ctx = Scope::root(false);
-        let x = Variable::new(
-            VariableKind::GlobalScalar(0),
-            Type::scalar(ElemType::UInt(UIntKind::U32)),
-        )
-        .into();
-        let cond = Variable::new(
-            VariableKind::GlobalScalar(1),
-            Type::scalar(ElemType::UInt(UIntKind::U32)),
-        )
-        .into();
+        let u32 = Type::scalar(ElemType::UInt(UIntKind::U32));
+        let x = ctx.create_local(u32).into();
+        let cond = ctx.create_local(u32).into();
         let mut arr = Variable::new(
             VariableKind::GlobalBuffer(0),
             Type::scalar(ElemType::UInt(UIntKind::U32)),

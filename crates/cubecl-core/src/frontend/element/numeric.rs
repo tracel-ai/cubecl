@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantValue, Variable};
+use cubecl_ir::{ConstantValue, Instruction, Operator, Variable};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::{NumCast, One, Zero};
 
@@ -92,9 +92,11 @@ pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
     /// Register the information to the [`KernelLauncher`].
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
     fn expand_scalar(builder: &mut KernelBuilder) -> NativeExpand<Self> {
-        builder
-            .scalar(Self::__expand_as_type(&builder.scope).storage_type())
-            .into()
+        let ty = Self::__expand_as_type(&builder.scope);
+        let out = builder.create_local(ty);
+        let id = builder.scalar(ty.storage_type());
+        builder.register(Instruction::new(Operator::ReadScalar(id), out));
+        out.into()
     }
 }
 

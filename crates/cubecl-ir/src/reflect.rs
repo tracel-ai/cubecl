@@ -127,12 +127,42 @@ impl<T: OperationArgs> OperationArgs for Option<T> {
 
 impl OperationArgs for usize {
     fn sanitize_args_ptr(&mut self, _: &Scope) {}
+
+    fn from_args(args: &[Variable]) -> Option<Self> {
+        Some(args[0].as_const().unwrap().as_usize())
+    }
+    fn as_args(&self) -> Option<Vec<Variable>> {
+        Some(vec![(*self).into()])
+    }
+    fn as_args_mut(&mut self) -> Option<Vec<&mut Variable>> {
+        Some(vec![])
+    }
 }
 impl OperationArgs for u32 {
     fn sanitize_args_ptr(&mut self, _: &Scope) {}
+
+    fn from_args(args: &[Variable]) -> Option<Self> {
+        Some(args[0].as_const().unwrap().as_u32())
+    }
+    fn as_args(&self) -> Option<Vec<Variable>> {
+        Some(vec![(*self).into()])
+    }
+    fn as_args_mut(&mut self) -> Option<Vec<&mut Variable>> {
+        Some(vec![])
+    }
 }
 impl OperationArgs for bool {
     fn sanitize_args_ptr(&mut self, _: &Scope) {}
+
+    fn from_args(args: &[Variable]) -> Option<Self> {
+        Some(args[0].as_const().unwrap().as_bool())
+    }
+    fn as_args(&self) -> Option<Vec<Variable>> {
+        Some(vec![(*self).into()])
+    }
+    fn as_args_mut(&mut self) -> Option<Vec<&mut Variable>> {
+        Some(vec![])
+    }
 }
 
 /// Types that can be destructured into and created from a list of [`Variable`]s.

@@ -51,8 +51,7 @@ impl Variable {
 
     pub fn can_mutate(&self) -> bool {
         match self.kind {
-            VariableKind::GlobalScalar(_)
-            | VariableKind::LocalConst { .. }
+            VariableKind::LocalConst { .. }
             | VariableKind::Versioned { .. }
             | VariableKind::Constant(..)
             | VariableKind::ConstantArray { .. }
@@ -77,8 +76,7 @@ impl Variable {
                     AddressSpace::Global(id)
                 }
                 VariableKind::Shared { .. } => AddressSpace::Shared,
-                VariableKind::GlobalScalar(_)
-                | VariableKind::LocalMut { .. }
+                VariableKind::LocalMut { .. }
                 | VariableKind::LocalConst { .. }
                 | VariableKind::Versioned { .. }
                 | VariableKind::ConstantArray { .. }
@@ -104,7 +102,6 @@ pub type Id = u32;
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash)]
 pub enum VariableKind {
     GlobalBuffer(Id),
-    GlobalScalar(Id),
     TensorMap(Id),
     LocalMut {
         id: Id,
@@ -226,7 +223,6 @@ impl Variable {
             VariableKind::LocalMut { .. } => false,
             VariableKind::Shared { .. } => false,
             VariableKind::Matrix { .. } => false,
-            VariableKind::GlobalScalar { .. } => true,
             VariableKind::Versioned { .. } => true,
             VariableKind::LocalConst { .. } => true,
             VariableKind::Constant(_) => true,
@@ -557,7 +553,6 @@ impl Variable {
         match self.kind {
             VariableKind::GlobalBuffer(id)
             | VariableKind::TensorMap(id)
-            | VariableKind::GlobalScalar(id)
             | VariableKind::LocalMut { id, .. }
             | VariableKind::Versioned { id, .. }
             | VariableKind::LocalConst { id, .. }
@@ -579,7 +574,6 @@ impl Variable {
 impl Display for Variable {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.kind {
-            VariableKind::GlobalScalar(id) => write!(f, "scalar<{}>({id})", self.ty),
             VariableKind::Constant(constant) => write!(f, "{}({constant})", self.ty),
             other => write!(f, "{other}"),
         }
@@ -590,7 +584,6 @@ impl Display for VariableKind {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             VariableKind::GlobalBuffer(id) => write!(f, "global({id})"),
-            VariableKind::GlobalScalar(id) => write!(f, "scalar({id})"),
             VariableKind::TensorMap(id) => write!(f, "tensor_map({id})"),
             VariableKind::Constant(constant) => write!(f, "{constant}"),
             VariableKind::LocalMut { id } => write!(f, "local({id})"),

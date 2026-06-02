@@ -1,3 +1,5 @@
+use cubecl_core::ir::Id;
+
 use crate::shared::{Builtin, FmtLeft};
 
 use super::{
@@ -78,6 +80,10 @@ pub enum Instruction<D: Dialect> {
     Assign(UnaryInstruction<D>),
     ReadBuiltin {
         builtin: Builtin<D>,
+        out: Variable<D>,
+    },
+    ReadScalar {
+        id: Id,
         out: Variable<D>,
     },
     Store(UnaryInstruction<D>),
@@ -747,6 +753,10 @@ if({pos} == 0) {{
             }
             Instruction::ReadBuiltin { builtin, out } => {
                 writeln!(f, "{} = {builtin};", out.fmt_left())
+            }
+            Instruction::ReadScalar { id, out } => {
+                let elem = *out.item().elem();
+                writeln!(f, "{} = info.scalars_{elem}[{id}];", out.fmt_left())
             }
         }
     }

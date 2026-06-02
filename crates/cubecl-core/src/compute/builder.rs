@@ -1,5 +1,6 @@
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicI8, Ordering};
+use derive_more::Deref;
 
 use crate::{
     BufferInfo, KernelExpansion, KernelIntegrator, KernelSettings, ScalarInfo,
@@ -13,8 +14,10 @@ use cubecl_runtime::config::{
 };
 
 /// Prepare a kernel to create a [`KernelDefinition`].
+#[derive(Deref)]
 pub struct KernelBuilder {
     /// Cube [scope](Scope).
+    #[deref]
     pub scope: Scope,
     buffers: Vec<BufferInfo>,
     scalars: BTreeMap<StorageType, usize>,
@@ -25,11 +28,11 @@ static DEBUG: AtomicI8 = AtomicI8::new(-1);
 
 impl KernelBuilder {
     /// Register a scalar and return the [element](Variable) to be used for kernel expansion.
-    pub fn scalar(&mut self, storage: StorageType) -> Variable {
-        let id = self.scalars.entry(storage).or_default();
-        let expand = self.scope.scalar(*id as Id, storage);
-        *id += 1;
-        expand
+    pub fn scalar(&mut self, storage: StorageType) -> Id {
+        let current_id = self.scalars.entry(storage).or_default();
+        let id = *current_id;
+        *current_id += 1;
+        id as Id
     }
 
     fn buffer_id(&self) -> Id {

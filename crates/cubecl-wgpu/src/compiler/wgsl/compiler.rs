@@ -279,9 +279,6 @@ impl WgslCompiler {
             cube::VariableKind::GlobalBuffer(id) => {
                 wgsl::Variable::GlobalBuffer(id, self.compile_type(item))
             }
-            cube::VariableKind::GlobalScalar(id) => {
-                wgsl::Variable::GlobalScalar(id, self.compile_storage_type(item.storage_type()))
-            }
             cube::VariableKind::LocalMut { id } | cube::VariableKind::Versioned { id, .. } => {
                 wgsl::Variable::LocalMut {
                     id,
@@ -1158,6 +1155,10 @@ impl WgslCompiler {
                 };
                 instructions.push(wgsl::Instruction::ReadBuiltin { builtin, out });
             }
+            cube::Operator::ReadScalar(id) => instructions.push(wgsl::Instruction::ReadScalar {
+                id,
+                out: self.compile_variable(out),
+            }),
         }
     }
 

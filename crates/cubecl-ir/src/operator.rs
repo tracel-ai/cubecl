@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use alloc::{format, vec::Vec};
 
-use crate::{Builtin, TypeHash};
+use crate::{Builtin, Id, TypeHash};
 
 use crate::{BinaryOperands, OperationArgs, OperationReflect, UnaryOperands, Variable};
 
@@ -30,7 +30,10 @@ pub enum Operator {
     /// A select statement/ternary
     #[operation(pure)]
     Select(SelectOperands),
+    #[operation(pure)]
     ReadBuiltin(Builtin),
+    #[operation(pure)]
+    ReadScalar(Id),
 }
 
 impl Display for Operator {
@@ -57,6 +60,7 @@ impl Display for Operator {
             Operator::Cast(op) => write!(f, "cast({})", op.input),
             Operator::Reinterpret(op) => write!(f, "reinterpret({})", op.input),
             Operator::ReadBuiltin(builtin) => write!(f, "read_builtin({builtin:?})"),
+            Operator::ReadScalar(id) => write!(f, "read_scalar({id})"),
         }
     }
 }

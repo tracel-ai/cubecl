@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use cubecl_ir::{Builtin, ConstantValue, Id, OpCode, StorageType, Type};
+use cubecl_ir::{Builtin, ConstantValue, Id, OpCode, Type};
 use hashbrown::HashMap;
 use petgraph::graph::NodeIndex;
 use smallvec::SmallVec;
@@ -79,7 +79,6 @@ pub enum Value {
     Constant(ConstantValue, Type),
     Local(Local),
     Global(Id, Type),
-    Scalar(Id, StorageType),
     ConstArray(Id, Type, usize, usize),
 }
 
@@ -128,7 +127,6 @@ impl Value {
             Value::Constant(_, ty) => *ty,
             Value::Local(local) => local.item,
             Value::Global(_, item) => *item,
-            Value::Scalar(_, elem) => Type::new(*elem),
             Value::ConstArray(_, item, _, _) => *item,
         }
     }

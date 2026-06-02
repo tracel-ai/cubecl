@@ -1781,6 +1781,10 @@ impl<D: Dialect> CppCompiler<D> {
                 };
                 instructions.push(Instruction::ReadBuiltin { builtin, out })
             }
+            gpu::Operator::ReadScalar(id) => instructions.push(Instruction::ReadScalar {
+                id,
+                out: self.compile_variable(out),
+            }),
         };
     }
 
@@ -1838,10 +1842,6 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::GlobalBuffer(id) => {
                 Variable::GlobalBuffer(id, self.compile_type(item))
             }
-            gpu::VariableKind::GlobalScalar(id) => Variable::GlobalScalar {
-                id,
-                elem: self.compile_storage_type(item.storage_type()),
-            },
             gpu::VariableKind::TensorMap(id) => {
                 self.flags.inst_tma = true;
                 Variable::TensorMap(id)

@@ -1,4 +1,4 @@
-use cubecl_ir::{Operation, OperationReflect, Operator, Type, Variable, VariableKind};
+use cubecl_ir::{Operation, OperationReflect, Operator, Variable, VariableKind};
 use hashbrown::HashMap;
 use smallvec::SmallVec;
 
@@ -46,9 +46,6 @@ impl Value {
                 *item,
             ),
             Value::Global(id, item) => Variable::new(VariableKind::GlobalBuffer(*id), *item),
-            Value::Scalar(id, elem) => {
-                Variable::new(VariableKind::GlobalScalar(*id), Type::new(*elem))
-            }
             Value::ConstArray(id, item, len, unroll_factor) => Variable::new(
                 VariableKind::ConstantArray {
                     id: *id,
@@ -65,7 +62,6 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
     let item = var.ty;
     let val = match var.kind {
         VariableKind::GlobalBuffer(id) => Value::Global(id, item),
-        VariableKind::GlobalScalar(id) => Value::Scalar(id, item.storage_type()),
         VariableKind::Versioned { id, version } => Value::Local(Local { id, version, item }),
         VariableKind::LocalConst { id } => Value::Local(Local {
             id,

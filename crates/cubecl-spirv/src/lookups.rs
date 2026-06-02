@@ -2,7 +2,7 @@ use core::ops::{Deref, DerefMut};
 use std::collections::VecDeque;
 
 use cubecl_core::{
-    ir::{self, Builtin, Id, Type, VariableKind},
+    ir::{self, Builtin, Id, VariableKind},
     prelude::KernelDefinition,
 };
 use cubecl_opt::{ConstArray, NodeIndex};
@@ -70,7 +70,6 @@ pub struct LookupTables {
 
     pub used_builtins: HashMap<BuiltIn, (Word, Item)>,
 
-    pub scalars: HashMap<(Id, ir::StorageType), Word>,
     pub constants: HashMap<(ConstVal, Item), Word>,
     pub bindings: HashMap<Id, Word>,
     pub variables: HashMap<Id, Word>,
@@ -390,11 +389,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let const_val = (value, item.clone()).into();
                 self.state.constants.insert((const_val, item), param_id);
             }
-            VariableKind::GlobalScalar(id) => {
-                self.state
-                    .scalars
-                    .insert((id, param.storage_type()), param_id);
-            }
             VariableKind::LocalMut { id } => self.init_local_from_param(id, &item, param, param_id),
             VariableKind::LocalConst { id } => {
                 self.state.bindings.insert(id, param_id);
@@ -417,42 +411,28 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.state.lookups = self.state.base_lookups.clone();
     }
 
-    pub fn global_scalar(&mut self, id: Id, ty: ir::StorageType) -> Variable {
-        if let Some(existing) = self.state.scalars.get(&(id, ty)).copied() {
-            let item = self.compile_type(ir::Type::new(ty));
-            Variable::GlobalScalar(existing, item.elem())
-        } else {
-            let ir_var = ir::Variable::new(VariableKind::GlobalScalar(id), Type::new(ty));
-            let current_block = self.selected_block();
-            let setup = self.setup_block;
-            self.select_block(Some(setup)).unwrap();
-            let field_id = self.const_u32(self.state.scalar_bindings[&ty]);
-            let offset = self.const_u32(id);
-            let item = self.compile_type(ir::Type::new(ty));
+    pub fn global_scalar(&mut self, id: Id, ty: ir::StorageType) -> Word {
+        self.insert_in_setup(|b| {
+            let field_id = b.const_u32(b.state.scalar_bindings[&ty]);
+            let offset = b.const_u32(id);
+            let item = b.compile_type(ir::Type::new(ty));
             let align = item.size();
-            let elem = item.elem();
-            let ty_id = item.id(self);
-            let storage_class = T::info_storage_class(self);
-            let ptr_ty = Item::Pointer(storage_class, Box::new(item)).id(self);
-            let info = self.state.info.unwrap().id;
-            let access = self
+            let ty_id = item.id(b);
+            let storage_class = T::info_storage_class(b);
+            let ptr_ty = Item::Pointer(storage_class, Box::new(item)).id(b);
+            let info = b.state.info.unwrap().id;
+            let access = b
                 .in_bounds_access_chain(ptr_ty, None, info, [field_id, offset])
                 .unwrap();
-            let read_id = self
-                .load(
-                    ty_id,
-                    None,
-                    access,
-                    Some(MemoryAccess::ALIGNED),
-                    [align.into()],
-                )
-                .unwrap();
-            let var = Variable::GlobalScalar(read_id, elem);
-            self.debug_var_name(read_id, ir_var);
-            self.select_block(current_block).unwrap();
-            self.state.scalars.insert((id, ty), read_id);
-            var
-        }
+            b.load(
+                ty_id,
+                None,
+                access,
+                Some(MemoryAccess::ALIGNED),
+                [align.into()],
+            )
+            .unwrap()
+        })
     }
 
     pub fn register_const_array(&mut self, arr: ConstArray) {

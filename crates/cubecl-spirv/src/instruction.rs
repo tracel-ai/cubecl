@@ -380,6 +380,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let value = self.compile_builtin(builtin, &out.item());
                 self.write(&out, value);
             }
+            Operator::ReadScalar(id) => {
+                let value = self.global_scalar(id, out.storage_type());
+                let out = self.compile_variable(out);
+                self.write(&out, value);
+            }
         }
     }
 

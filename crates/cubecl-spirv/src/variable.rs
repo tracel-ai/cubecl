@@ -15,7 +15,6 @@ use rspirv::{
 #[derive(Debug, Clone, PartialEq)]
 pub enum Variable {
     GlobalBuffer(Word, Item, u32),
-    GlobalScalar(Word, Elem),
     Constant(Word, ConstVal, Item),
     Local {
         id: Word,
@@ -57,7 +56,7 @@ impl Variable {
             };
         }
         match self {
-            Variable::GlobalBuffer(..) | Variable::GlobalScalar(..) => spirv::Scope::Device,
+            Variable::GlobalBuffer(..) => spirv::Scope::Device,
             Variable::Shared(..) => spirv::Scope::Workgroup,
             Variable::CoopMatrix(..) => spirv::Scope::Subgroup,
             Variable::Slice { ptr, .. } => ptr.scope(),
@@ -191,7 +190,6 @@ impl Variable {
     pub fn id<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>) -> Word {
         match self {
             Variable::GlobalBuffer(id, _, _) => *id,
-            Variable::GlobalScalar(id, _) => *id,
             Variable::Constant(id, _, _) => *id,
             Variable::Local { id, .. } => *id,
             Variable::Versioned {
@@ -212,7 +210,6 @@ impl Variable {
     pub fn item(&self) -> Item {
         match self {
             Variable::GlobalBuffer(_, item, _) => item.clone(),
-            Variable::GlobalScalar(_, elem) => Item::Scalar(*elem),
             Variable::Constant(_, _, item) => item.clone(),
             Variable::Local { item, .. } => item.clone(),
             Variable::Versioned { item, .. } => item.clone(),
@@ -296,7 +293,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let buffer = self.state.buffers[pos as usize];
                 Variable::GlobalBuffer(buffer.id, self.compile_type(item), pos)
             }
-            ir::VariableKind::GlobalScalar(id) => self.global_scalar(id, item.storage_type()),
             ir::VariableKind::LocalMut { id } => {
                 let item = self.compile_type(item);
                 let var = self.get_local(id, &item, variable);
@@ -425,7 +421,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::Versioned { id, variable, .. } => self.get_versioned(*id, variable),
             Variable::Local { .. } => self.id(),
             Variable::Shared(..) => self.id(),
-            Variable::GlobalScalar(id, _) => *id,
             Variable::Raw(id, _) => *id,
             Variable::Constant(_, _, _) => panic!("Can't write to constant scalar"),
             Variable::GlobalBuffer(_, _, _)

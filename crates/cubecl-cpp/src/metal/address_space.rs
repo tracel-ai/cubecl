@@ -79,13 +79,6 @@ impl<D: Dialect> From<&Variable<D>> for AddressSpace {
         }
         match value {
             Variable::GlobalBuffer(..) => AddressSpace::Device,
-            Variable::GlobalScalar { .. } => {
-                if value.is_const() {
-                    AddressSpace::ConstDevice
-                } else {
-                    AddressSpace::Device
-                }
-            }
             Variable::SharedArray(..) => AddressSpace::ThreadGroup,
             _ => AddressSpace::Thread,
         }

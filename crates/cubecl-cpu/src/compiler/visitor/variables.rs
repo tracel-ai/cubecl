@@ -291,42 +291,6 @@ impl<'a> Visitor<'a> {
                     self.append_operation_with_result(memref::load(memref, &[zero], self.location))
                 }
             }
-            VariableKind::GlobalScalar(id) => {
-                let memref = *self
-                    .args_manager
-                    .scalars_memref
-                    .get(&variable.storage_type())
-                    .unwrap();
-                let index = self
-                    .block
-                    .const_int_from_type(
-                        self.context,
-                        self.location,
-                        id as i64,
-                        Type::index(self.context),
-                    )
-                    .unwrap();
-                let value = self.append_operation_with_result(memref::load(
-                    memref,
-                    &[index],
-                    self.location,
-                ));
-                match variable.ty.is_vectorized() {
-                    true => {
-                        let vector = Type::vector(
-                            &[variable.vector_size() as u64],
-                            variable.storage_type().to_type(self.context),
-                        );
-                        self.append_operation_with_result(vector::broadcast(
-                            self.context,
-                            vector,
-                            value,
-                            self.location,
-                        ))
-                    }
-                    false => value,
-                }
-            }
             VariableKind::Shared { id, .. } => {
                 let memref = *self.args_manager.shared_memory_values.get(&id).unwrap();
                 let index = self

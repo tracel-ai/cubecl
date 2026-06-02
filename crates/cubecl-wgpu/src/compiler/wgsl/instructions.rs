@@ -1,3 +1,5 @@
+use cubecl_ir::Id;
+
 use crate::compiler::wgsl::Builtin;
 
 use super::{
@@ -88,6 +90,10 @@ pub enum Instruction {
     },
     ReadBuiltin {
         builtin: Builtin,
+        out: Variable,
+    },
+    ReadScalar {
+        id: Id,
         out: Variable,
     },
     ModFloor {
@@ -1137,6 +1143,10 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Unreachable => writeln!(f, "return;"),
             Instruction::ReadBuiltin { builtin, out } => {
                 writeln!(f, "{} = {builtin};", out.fmt_left())
+            }
+            Instruction::ReadScalar { id, out } => {
+                let elem = out.elem();
+                writeln!(f, "{} = info.scalars_{elem}[{id}];", out.fmt_left())
             }
         }
     }

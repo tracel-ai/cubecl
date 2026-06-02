@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use cubecl::prelude::*;
 use cubecl_common::{e4m3, e5m2, ue8m0};
-use cubecl_ir::Variable;
+use cubecl_ir::{Instruction, Operator, Variable};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -154,7 +154,9 @@ impl LaunchArg for InputScalar {
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
-        let expand = builder.scalar(arg.ty);
+        let expand = builder.create_local(arg.ty.into());
+        let id = builder.scalar(arg.ty);
+        builder.register(Instruction::new(Operator::ReadScalar(id), expand));
         InputScalarExpand { expand }
     }
 }

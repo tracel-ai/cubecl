@@ -157,6 +157,43 @@ impl<'a> Visitor<'a> {
                 let value = self.get_builtin(*builtin);
                 self.insert_variable(out, value);
             }
+            Operator::ReadScalar(id) => {
+                let memref = *self
+                    .args_manager
+                    .scalars_memref
+                    .get(&out.storage_type())
+                    .unwrap();
+                let index = self
+                    .block
+                    .const_int_from_type(
+                        self.context,
+                        self.location,
+                        *id as i64,
+                        Type::index(self.context),
+                    )
+                    .unwrap();
+                let value = self.append_operation_with_result(memref::load(
+                    memref,
+                    &[index],
+                    self.location,
+                ));
+                let value = match out.ty.is_vectorized() {
+                    true => {
+                        let vector = Type::vector(
+                            &[out.vector_size() as u64],
+                            out.storage_type().to_type(self.context),
+                        );
+                        self.append_operation_with_result(vector::broadcast(
+                            self.context,
+                            vector,
+                            value,
+                            self.location,
+                        ))
+                    }
+                    false => value,
+                };
+                self.insert_variable(out, value);
+            }
         }
     }
 

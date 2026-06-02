@@ -8,7 +8,6 @@ use std::fmt::Display;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Variable {
     GlobalBuffer(Id, Item),
-    GlobalScalar(Id, Elem),
     Constant(ConstantValue, Item),
     LocalMut {
         id: Id,
@@ -119,7 +118,6 @@ impl Variable {
             Self::LocalConst { item, .. } => *item,
             Self::Named { item, .. } => *item,
             Self::Constant(_, item) => *item,
-            Self::GlobalScalar(_, e) => Item::Scalar(*e),
             Self::LocalScalar { elem, .. } => Item::Scalar(*elem),
         }
     }
@@ -312,9 +310,6 @@ impl Display for Variable {
             Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
             Variable::LocalConst { id, .. } => write!(f, "l_{id}"),
             Variable::Named { name, .. } => f.write_str(name),
-            Variable::GlobalScalar(number, elem) => {
-                write!(f, "info.scalars_{elem}[{number}]")
-            }
             Variable::Constant(val, item) => {
                 match (val, item.elem()) {
                     // naga can't seem to parse literals > i64::MAX or i64::MIN atm.
@@ -380,7 +375,6 @@ impl Display for IndexedVariable {
         let index = self.index;
 
         match &self.var {
-            Variable::GlobalScalar(_, _) => write!(f, "{var}"),
             var if matches!(item, Item::Scalar(_)) => write!(f, "{var}"),
             var => write!(f, "{var}[{index}]"),
         }
@@ -406,7 +400,6 @@ impl IndexedVariable {
     pub fn fmt_left(&self) -> String {
         let item = self.var.item();
         match &self.var {
-            Variable::GlobalScalar(_, _) => self.var.fmt_left(),
             var if matches!(item, Item::Scalar(_)) => var.fmt_left(),
             _ => format!("{self}"),
         }

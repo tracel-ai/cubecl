@@ -386,11 +386,6 @@ impl Scope {
         )
     }
 
-    /// Obtain the index-th scalar
-    pub fn scalar(&self, id: Id, storage: StorageType) -> Variable {
-        Variable::new(VariableKind::GlobalScalar(id), Type::new(storage))
-    }
-
     pub fn update_source(&self, source: CubeFnSource) {
         if self.debug.enabled {
             self.debug.sources.borrow_mut().insert(source.clone());

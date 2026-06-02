@@ -571,6 +571,7 @@ fn try_const_eval_operator(op: &mut Operator, out_ty: Option<Type>) -> Option<Co
         | Operator::ExtractComponent(_)
         | Operator::Reinterpret(_)
         | Operator::Select(_)
-        | Operator::ReadBuiltin(_) => None,
+        | Operator::ReadBuiltin(_)
+        | Operator::ReadScalar(_) => None,
     }
 }
