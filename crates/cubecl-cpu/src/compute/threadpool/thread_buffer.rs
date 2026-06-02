@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::compute::threadpool::global_stream_fifo::GlobalStreamFifo;
+use crate::compute::threadpool::global_buffer::GlobalBuffer;
 
 use super::thread_stream_fifo::ThreadStreamFifo;
 
@@ -10,7 +10,7 @@ pub trait GetId {
 
 pub struct ThreadBuffer<T: GetId, const NB_STREAM: usize, const CAPACITY: usize> {
     fifos: [ThreadStreamFifo<T, CAPACITY>; NB_STREAM],
-    global: Arc<spin::Mutex<GlobalStreamFifo<T>>>,
+    global: Arc<spin::Mutex<GlobalBuffer<T>>>,
     threads_buffer: Arc<[spin::Mutex<ThreadBuffer<T, NB_STREAM, CAPACITY>>]>,
     front: usize,
     len: usize,
@@ -18,6 +18,25 @@ pub struct ThreadBuffer<T: GetId, const NB_STREAM: usize, const CAPACITY: usize>
 }
 
 impl<T: GetId, const NB_STREAM: usize, const CAPACITY: usize> ThreadBuffer<T, NB_STREAM, CAPACITY> {
+    /// Construct a ThreadBuffer with an empty reference to all thread_buffer
+    pub fn new(index: usize, global: Arc<spin::Mutex<GlobalBuffer<T>>>) -> Self {
+        Self {
+            fifos: std::array::from_fn(|_| ThreadStreamFifo::new()),
+            global,
+            threads_buffer: Arc::new([]),
+            front: 0,
+            len: 0,
+            index,
+        }
+    }
+
+    pub fn set_global_queue(
+        &mut self,
+        threads_buffer: Arc<[spin::Mutex<ThreadBuffer<T, NB_STREAM, CAPACITY>>]>,
+    ) {
+        self.threads_buffer = threads_buffer;
+    }
+
     /// Push to the local queue if there's still place
     fn try_push_local(&mut self, elem: T) -> Option<T> {
         for i in self.front..(self.front + self.len) {

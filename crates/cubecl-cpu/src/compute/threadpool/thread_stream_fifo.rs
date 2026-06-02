@@ -8,6 +8,15 @@ pub struct ThreadStreamFifo<T: GetId, const CAPACITY: usize> {
 }
 
 impl<T: GetId, const CAPACITY: usize> ThreadStreamFifo<T, CAPACITY> {
+    pub fn new() -> Self {
+        Self {
+            buffer: std::array::from_fn(|_| None),
+            front: 0,
+            len: 0,
+            id: 0,
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
@@ -40,7 +49,7 @@ impl<T: GetId, const CAPACITY: usize> ThreadStreamFifo<T, CAPACITY> {
         }
         debug_assert!(self.is_same_id(&elem));
         debug_assert!(self.len < CAPACITY);
-        self.buffer[self.len % CAPACITY] = Some(elem);
+        self.buffer[(self.front + self.len) % CAPACITY] = Some(elem);
         self.len += 1;
     }
 

@@ -5,6 +5,10 @@ pub struct GlobalBuffer<T: GetId> {
 }
 
 impl<T: GetId> GlobalBuffer<T> {
+    pub fn new() -> Self {
+        Self { fifos: Vec::new() }
+    }
+
     pub fn push(&mut self, elem: T) {
         for fifo in self.fifos.iter_mut() {
             if fifo.is_same_id(&elem) {

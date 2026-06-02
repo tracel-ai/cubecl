@@ -20,6 +20,9 @@ pub mod thread_buffer;
 pub mod thread_stream_fifo;
 pub mod worker;
 
+#[cfg(test)]
+mod tests;
+
 /// The kernel runner is responsible to manage shared memory as well as threads to execute kernels.
 ///
 /// A single kernel runner is currently used for all kernels.
