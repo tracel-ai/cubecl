@@ -168,16 +168,10 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         // Create a slot on the stack that will hold our pointer.
         let mut slot = Some(move || sender.send(task()).unwrap());
 
-        println!("run_scoped send");
-
         // Send the erased shim to the device thread.
         self.send::<_, SEND_FLUSH>(create_shim(&mut slot))?;
 
-        println!("run_scoped recv");
-
         let res = recv.recv().map_err(|_| CallError);
-
-        println!("run_scoped recved");
 
         res
     }
@@ -591,7 +585,7 @@ mod custom_channel {
         sync::atomic::{AtomicPtr, AtomicU32, Ordering},
         time::Duration,
     };
-    use std::{println, sync::Arc, vec::Vec};
+    use std::{sync::Arc, vec::Vec};
 
     /// Maximum number of [`Task`] that can be queued.
     pub const CHANNEL_MAX_TASK: usize = 32;
@@ -684,7 +678,6 @@ mod custom_channel {
                 self.state.init_task_at(index, func);
                 self.state.enqueued_count.fetch_add(1, Ordering::SeqCst);
 
-                println!("task enqueued");
                 return Ok(());
             }
         }
@@ -802,7 +795,6 @@ mod custom_channel {
             let mut idle_count: u32 = 0;
             loop {
                 if self.ready_to_execute {
-                    println!("Main loop execute");
                     self.execute_tasks();
                     idle_count = 0;
                 }
@@ -837,7 +829,6 @@ mod custom_channel {
         /// Swaps the client and server buffers, allowing the client to start
         /// filling the next buffer while the server processes the current one.
         fn fetch(&mut self) {
-            println!("channeel fetch");
             self.client_buf = 1 - self.client_buf;
 
             self.state.queue_ptr.store(

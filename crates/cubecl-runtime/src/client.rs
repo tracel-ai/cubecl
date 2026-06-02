@@ -102,12 +102,10 @@ impl<R: Runtime> ComputeClient<R> {
 
     fn do_read(&self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         let stream_id = self.stream_id();
-        println!("submitted do_read");
         let res = self
             .device
             .submit_blocking(move |server| server.read(descriptors, stream_id))
             .unwrap();
-        println!("submitted do_read");
         res
     }
 
