@@ -1,4 +1,4 @@
-use crate::shared::FmtLeft;
+use crate::shared::{Builtin, FmtLeft};
 
 use super::{
     Component, Dialect, Elem, Item, Variable, WarpInstruction, WmmaInstruction,
@@ -76,6 +76,10 @@ pub enum Instruction<D: Dialect> {
     HiMul(BinaryInstruction<D>),
     Index(IndexInstruction<D>),
     Assign(UnaryInstruction<D>),
+    ReadBuiltin {
+        builtin: Builtin<D>,
+        out: Variable<D>,
+    },
     Store(UnaryInstruction<D>),
     Reference(UnaryInstruction<D>),
     Load(UnaryInstruction<D>),
@@ -700,7 +704,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 tensor_map,
                 out,
             } => {
-                let pos = Variable::<D>::UnitPos;
+                let pos = Builtin::<D>::UnitPos;
                 writeln!(f, "__shared__ alignas(128) CUtensorMap {out};")?;
                 writeln!(
                     f,
@@ -740,6 +744,9 @@ if({pos} == 0) {{
                 }
                 #[cfg(feature = "cuda")]
                 crate::cuda::convert::special_cast::<D>(f, input, out)
+            }
+            Instruction::ReadBuiltin { builtin, out } => {
+                writeln!(f, "{} = {builtin};", out.fmt_left())
             }
         }
     }

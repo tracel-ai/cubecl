@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 use cubecl_ir::{
-    Builtin, Operation, OperationReflect, Plane, Synchronization, Variable, VariableKind,
+    Builtin, Operation, OperationReflect, Operator, Plane, Synchronization, Variable, VariableKind,
 };
 use hashbrown::{HashMap, HashSet};
 use petgraph::{graph::EdgeIndex, visit::EdgeRef};
@@ -92,6 +92,9 @@ impl Uniformity {
                         // TODO: not sure
                     }
                 },
+                Operation::Operator(Operator::ReadBuiltin(builtin)) => {
+                    self.mark_uniformity(out, is_builtin_uniform(builtin) && block_uniform)?;
+                }
                 op => {
                     let is_uniform =
                         op.is_pure() && self.is_all_uniform(op.args()) && block_uniform;
@@ -212,39 +215,6 @@ impl Uniformity {
             | VariableKind::GlobalBuffer(_)
             | VariableKind::GlobalScalar(_)
             | VariableKind::Constant(_) => true,
-            VariableKind::Builtin(builtin) => match builtin {
-                Builtin::UnitPosPlane
-                | Builtin::PlanePos
-                | Builtin::AbsolutePos
-                | Builtin::AbsolutePosX
-                | Builtin::AbsolutePosY
-                | Builtin::AbsolutePosZ
-                | Builtin::UnitPos
-                | Builtin::UnitPosX
-                | Builtin::UnitPosY
-                | Builtin::UnitPosZ => false,
-                Builtin::CubePos
-                | Builtin::CubePosX
-                | Builtin::CubePosY
-                | Builtin::CubePosZ
-                | Builtin::CubePosCluster
-                | Builtin::CubePosClusterX
-                | Builtin::CubePosClusterY
-                | Builtin::CubePosClusterZ
-                | Builtin::CubeDim
-                | Builtin::CubeDimX
-                | Builtin::CubeDimY
-                | Builtin::CubeDimZ
-                | Builtin::CubeClusterDim
-                | Builtin::CubeClusterDimX
-                | Builtin::CubeClusterDimY
-                | Builtin::CubeClusterDimZ
-                | Builtin::CubeCount
-                | Builtin::CubeCountX
-                | Builtin::CubeCountY
-                | Builtin::CubeCountZ
-                | Builtin::PlaneDim => true,
-            },
             VariableKind::LocalMut { .. } => false,
             VariableKind::LocalConst { .. }
             | VariableKind::Versioned { .. }
@@ -260,5 +230,41 @@ impl Uniformity {
 
     pub fn is_block_uniform(&self, block: NodeIndex) -> bool {
         self.block_uniformity.get(&block).copied().unwrap_or(true)
+    }
+}
+
+fn is_builtin_uniform(builtin: &Builtin) -> bool {
+    match builtin {
+        Builtin::UnitPosPlane
+        | Builtin::PlanePos
+        | Builtin::AbsolutePos
+        | Builtin::AbsolutePosX
+        | Builtin::AbsolutePosY
+        | Builtin::AbsolutePosZ
+        | Builtin::UnitPos
+        | Builtin::UnitPosX
+        | Builtin::UnitPosY
+        | Builtin::UnitPosZ => false,
+        Builtin::CubePos
+        | Builtin::CubePosX
+        | Builtin::CubePosY
+        | Builtin::CubePosZ
+        | Builtin::CubePosCluster
+        | Builtin::CubePosClusterX
+        | Builtin::CubePosClusterY
+        | Builtin::CubePosClusterZ
+        | Builtin::CubeDim
+        | Builtin::CubeDimX
+        | Builtin::CubeDimY
+        | Builtin::CubeDimZ
+        | Builtin::CubeClusterDim
+        | Builtin::CubeClusterDimX
+        | Builtin::CubeClusterDimY
+        | Builtin::CubeClusterDimZ
+        | Builtin::CubeCount
+        | Builtin::CubeCountX
+        | Builtin::CubeCountY
+        | Builtin::CubeCountZ
+        | Builtin::PlaneDim => true,
     }
 }

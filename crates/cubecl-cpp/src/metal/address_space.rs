@@ -78,28 +78,6 @@ impl<D: Dialect> From<&Variable<D>> for AddressSpace {
             };
         }
         match value {
-            Variable::AbsolutePosBaseName
-            | Variable::AbsolutePosX
-            | Variable::AbsolutePosY
-            | Variable::AbsolutePosZ
-            | Variable::UnitPosBaseName
-            | Variable::UnitPosX
-            | Variable::UnitPosY
-            | Variable::UnitPosZ
-            | Variable::CubePosBaseName
-            | Variable::CubePosX
-            | Variable::CubePosY
-            | Variable::CubePosZ
-            | Variable::CubeDimBaseName
-            | Variable::CubeDimX
-            | Variable::CubeDimY
-            | Variable::CubeDimZ
-            | Variable::CubeCountBaseName
-            | Variable::CubeCountX
-            | Variable::CubeCountY
-            | Variable::CubeCountZ
-            | Variable::PlaneDim
-            | Variable::UnitPosPlane => AddressSpace::None,
             Variable::GlobalBuffer(..) => AddressSpace::Device,
             Variable::GlobalScalar { .. } => {
                 if value.is_const() {

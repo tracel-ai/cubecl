@@ -153,6 +153,10 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, value);
             }
+            Operator::ReadBuiltin(builtin) => {
+                let value = self.get_builtin(*builtin);
+                self.insert_variable(out, value);
+            }
         }
     }
 

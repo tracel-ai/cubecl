@@ -375,6 +375,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&output, write_id);
             }
             Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out, uniform),
+            Operator::ReadBuiltin(builtin) => {
+                let out = self.compile_variable(out);
+                let value = self.compile_builtin(builtin, &out.item());
+                self.write(&out, value);
+            }
         }
     }
 

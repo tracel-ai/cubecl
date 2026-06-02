@@ -20,10 +20,6 @@ impl Variable {
         Self { kind, ty }
     }
 
-    pub fn builtin(builtin: Builtin, ty: StorageType) -> Self {
-        Self::new(VariableKind::Builtin(builtin), Type::new(ty))
-    }
-
     pub fn constant(value: ConstantValue, ty: impl Into<Type>) -> Self {
         let ty = ty.into();
         let value = value.cast_to(ty);
@@ -44,7 +40,6 @@ impl Variable {
         matches!(
             self.kind,
             VariableKind::Constant(..)
-                | VariableKind::Builtin(..)
                 | VariableKind::LocalConst { .. }
                 | VariableKind::Versioned { .. }
         )
@@ -61,7 +56,6 @@ impl Variable {
             | VariableKind::Versioned { .. }
             | VariableKind::Constant(..)
             | VariableKind::ConstantArray { .. }
-            | VariableKind::Builtin(..)
             | VariableKind::Pipeline { .. }
             | VariableKind::BarrierToken { .. }
             | VariableKind::Aggregate { .. } => false,
@@ -89,7 +83,6 @@ impl Variable {
                 | VariableKind::Versioned { .. }
                 | VariableKind::ConstantArray { .. }
                 | VariableKind::Matrix { .. }
-                | VariableKind::Builtin(..)
                 | VariableKind::Pipeline { .. }
                 | VariableKind::BarrierToken { .. } => AddressSpace::Local,
                 VariableKind::Aggregate { .. } => {
@@ -137,7 +130,6 @@ pub enum VariableKind {
         id: Id,
         mat: Matrix,
     },
-    Builtin(Builtin),
     Pipeline {
         id: Id,
         num_stages: u8,
@@ -185,7 +177,7 @@ impl SliceMetadata {
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, PartialOrd, Ord)]
-#[repr(u8)]
+#[repr(u32)]
 pub enum Builtin {
     UnitPos,
     UnitPosX,
@@ -239,7 +231,6 @@ impl Variable {
             VariableKind::LocalConst { .. } => true,
             VariableKind::Constant(_) => true,
             VariableKind::ConstantArray { .. } => true,
-            VariableKind::Builtin(_) => true,
             VariableKind::Pipeline { .. } => false,
             VariableKind::BarrierToken { .. } => false,
             VariableKind::Aggregate { .. } => false,
@@ -610,7 +601,6 @@ impl Display for VariableKind {
             VariableKind::ConstantArray { id, .. } => write!(f, "const_array({id})"),
             VariableKind::Shared { id, .. } => write!(f, "shared({id})"),
             VariableKind::Matrix { id, .. } => write!(f, "matrix({id})"),
-            VariableKind::Builtin(builtin) => write!(f, "{builtin:?}"),
             VariableKind::Pipeline { id, .. } => write!(f, "pipeline({id})"),
             VariableKind::BarrierToken { id, .. } => write!(f, "barrier_token({id})"),
             VariableKind::Aggregate { id, aggregate_kind } => write!(f, "{aggregate_kind}({id})"),

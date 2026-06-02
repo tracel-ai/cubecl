@@ -297,7 +297,6 @@ impl Display for Value {
             Value::Global(id, _) => write!(f, "global({id})"),
             Value::Scalar(id, elem) => write!(f, "scalar({elem}, {id})"),
             Value::ConstArray(id, _, _, _) => write!(f, "const_array({id})"),
-            Value::Builtin(builtin, _) => write!(f, "{builtin:?}"),
         }
     }
 }
@@ -327,6 +326,7 @@ impl Display for Expression {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
+            Expression::Builtin(builtin, _) => write!(f, "builtin({builtin:?})"),
         }
     }
 }

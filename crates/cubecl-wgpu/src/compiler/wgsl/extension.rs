@@ -150,7 +150,7 @@ pub fn call_safe_tanh(
 }
 
 fn should_use_scalar_powf(rhs: &Variable) -> bool {
-    rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1
+    rhs.item().vectorization_factor() == 1
 }
 
 pub fn call_is_nan(

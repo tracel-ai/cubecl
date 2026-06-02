@@ -81,7 +81,6 @@ pub enum Value {
     Global(Id, Type),
     Scalar(Id, StorageType),
     ConstArray(Id, Type, usize, usize),
-    Builtin(Builtin, StorageType),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
@@ -91,6 +90,7 @@ pub enum Expression {
     Value(Value),
     Volatile(Value),
     Phi(Vec<(Value, NodeIndex)>),
+    Builtin(Builtin, Type),
 }
 
 impl Expression {
@@ -98,7 +98,10 @@ impl Expression {
         match self {
             Expression::Instruction(instruction) => instruction.args.clone(),
             Expression::Copy(val, _) => SmallVec::from_slice(&[*val]),
-            Expression::Phi(_) | Expression::Volatile(_) | Expression::Value(_) => SmallVec::new(),
+            Expression::Phi(_)
+            | Expression::Volatile(_)
+            | Expression::Value(_)
+            | Expression::Builtin(..) => SmallVec::new(),
         }
     }
 
@@ -114,6 +117,7 @@ impl Expression {
             Expression::Value(value) => value.item(),
             Expression::Volatile(value) => value.item(),
             Expression::Phi(entries) => entries[0].0.item(),
+            Expression::Builtin(_, ty) => *ty,
         }
     }
 }
@@ -126,7 +130,6 @@ impl Value {
             Value::Global(_, item) => *item,
             Value::Scalar(_, elem) => Type::new(*elem),
             Value::ConstArray(_, item, _, _) => *item,
-            Value::Builtin(_, ty) => Type::new(*ty),
         }
     }
 }

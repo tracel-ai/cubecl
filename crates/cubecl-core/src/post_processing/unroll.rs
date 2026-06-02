@@ -138,6 +138,9 @@ impl UnrollVisitor {
                 Operation::Branch(_) | Operation::NonSemantic(_) | Operation::Marker(_) => {
                     return TransformAction::Ignore;
                 }
+                Operation::Operator(Operator::ReadBuiltin(_)) => {
+                    return TransformAction::Ignore;
+                }
                 other => {
                     panic!(
                         "Need special handling for unrolling non-reflectable operations.\nFound: {other}"

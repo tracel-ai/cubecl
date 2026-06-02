@@ -3,7 +3,7 @@ use core::mem::swap;
 use alloc::{collections::linked_list::LinkedList, vec::Vec};
 use cubecl_ir::{
     self as ir, Arithmetic, AtomicOp, Comparison, ComparisonOpCode, Memory, OpCode, Operation,
-    OperationReflect, Variable,
+    OperationReflect, Operator, Variable,
 };
 use hashbrown::HashSet;
 
@@ -112,6 +112,11 @@ impl ValueTable {
                 let out = value_of_var(&inst.out());
                 let num = self.lookup_or_add_var(variable)?;
                 Ok((Expression::Copy(num, item), out))
+            }
+            Operation::Operator(Operator::ReadBuiltin(builtin)) => {
+                let item = inst.ty();
+                let out = value_of_var(&inst.out());
+                Ok((Expression::Builtin(*builtin, item), out))
             }
             Operation::Memory(memory) => self.create_expr_memory(memory, inst.out),
             Operation::Arithmetic(arithmetic) => {

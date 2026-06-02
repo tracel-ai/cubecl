@@ -30,6 +30,10 @@ pub enum Variable {
     },
     Shared(Id, Item),
     ConstantArray(Id, Item, u32),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Builtin {
     Id,
     LocalInvocationIndex,
     LocalInvocationIdX,
@@ -91,42 +95,6 @@ pub struct IndexedVariable {
 }
 
 impl Variable {
-    pub fn is_always_scalar(&self) -> bool {
-        match self {
-            Variable::GlobalScalar(_, _) => true,
-            Variable::Constant(_, _) => true,
-            Variable::LocalScalar { .. } => true,
-            Variable::Id => true,
-            Variable::LocalInvocationIndex => true,
-            Variable::LocalInvocationIdX => true,
-            Variable::LocalInvocationIdY => true,
-            Variable::LocalInvocationIdZ => true,
-            Variable::GlobalBuffer(_, _) => false,
-            Variable::Shared(_, _) => false,
-            Variable::ConstantArray(_, _, _) => false,
-            Variable::LocalMut { .. } => false,
-            Variable::LocalConst { .. } => false,
-            Variable::Named { .. } => false,
-            Variable::WorkgroupIdX => true,
-            Variable::WorkgroupIdY => true,
-            Variable::WorkgroupIdZ => true,
-            Variable::GlobalInvocationIdX => true,
-            Variable::GlobalInvocationIdY => true,
-            Variable::GlobalInvocationIdZ => true,
-            Variable::WorkgroupSizeX => true,
-            Variable::WorkgroupSizeY => true,
-            Variable::WorkgroupSizeZ => true,
-            Variable::NumWorkgroupsX => true,
-            Variable::NumWorkgroupsY => true,
-            Variable::NumWorkgroupsZ => true,
-            Variable::WorkgroupId => true,
-            Variable::WorkgroupSize => true,
-            Variable::NumWorkgroups => true,
-            Variable::SubgroupSize => true,
-            Variable::SubgroupId => true,
-            Variable::SubgroupInvocationId => true,
-        }
-    }
     pub fn index(&self, index: usize) -> IndexedVariable {
         IndexedVariable {
             var: self.clone(),
@@ -152,30 +120,7 @@ impl Variable {
             Self::Named { item, .. } => *item,
             Self::Constant(_, item) => *item,
             Self::GlobalScalar(_, e) => Item::Scalar(*e),
-            Self::Id => Item::Scalar(Elem::U32),
-            Self::LocalInvocationIndex => Item::Scalar(Elem::U32),
-            Self::LocalInvocationIdX => Item::Scalar(Elem::U32),
-            Self::LocalInvocationIdY => Item::Scalar(Elem::U32),
-            Self::LocalInvocationIdZ => Item::Scalar(Elem::U32),
             Self::LocalScalar { elem, .. } => Item::Scalar(*elem),
-            Self::WorkgroupId => Item::Scalar(Elem::U32),
-            Self::WorkgroupIdX => Item::Scalar(Elem::U32),
-            Self::WorkgroupIdY => Item::Scalar(Elem::U32),
-            Self::WorkgroupIdZ => Item::Scalar(Elem::U32),
-            Self::GlobalInvocationIdX => Item::Scalar(Elem::U32),
-            Self::GlobalInvocationIdY => Item::Scalar(Elem::U32),
-            Self::GlobalInvocationIdZ => Item::Scalar(Elem::U32),
-            Self::WorkgroupSize => Item::Scalar(Elem::U32),
-            Self::WorkgroupSizeX => Item::Scalar(Elem::U32),
-            Self::WorkgroupSizeY => Item::Scalar(Elem::U32),
-            Self::WorkgroupSizeZ => Item::Scalar(Elem::U32),
-            Self::NumWorkgroups => Item::Scalar(Elem::U32),
-            Self::NumWorkgroupsX => Item::Scalar(Elem::U32),
-            Self::NumWorkgroupsY => Item::Scalar(Elem::U32),
-            Self::NumWorkgroupsZ => Item::Scalar(Elem::U32),
-            Self::SubgroupSize => Item::Scalar(Elem::U32),
-            Self::SubgroupId => Item::Scalar(Elem::U32),
-            Self::SubgroupInvocationId => Item::Scalar(Elem::U32),
         }
     }
     pub fn elem(&self) -> Elem {
@@ -394,29 +339,36 @@ impl Display for Variable {
                 write!(f, "shared_{number}")
             }
             Variable::ConstantArray(number, _, _) => write!(f, "arrays_{number}"),
-            Variable::Id => f.write_str("id"),
-            Variable::LocalInvocationIndex => f.write_str("local_idx"),
-            Variable::LocalInvocationIdX => f.write_str("local_invocation_id.x"),
-            Variable::LocalInvocationIdY => f.write_str("local_invocation_id.y"),
-            Variable::LocalInvocationIdZ => f.write_str("local_invocation_id.z"),
-            Variable::WorkgroupId => f.write_str("workgroup_id_no_axis"),
-            Variable::WorkgroupIdX => f.write_str("workgroup_id.x"),
-            Variable::WorkgroupIdY => f.write_str("workgroup_id.y"),
-            Variable::WorkgroupIdZ => f.write_str("workgroup_id.z"),
-            Variable::GlobalInvocationIdX => f.write_str("global_id.x"),
-            Variable::GlobalInvocationIdY => f.write_str("global_id.y"),
-            Variable::GlobalInvocationIdZ => f.write_str("global_id.z"),
-            Variable::WorkgroupSizeX => f.write_str("WORKGROUP_SIZE_X"),
-            Variable::WorkgroupSizeY => f.write_str("WORKGROUP_SIZE_Y"),
-            Variable::WorkgroupSizeZ => f.write_str("WORKGROUP_SIZE_Z"),
-            Variable::NumWorkgroupsX => f.write_str("num_workgroups.x"),
-            Variable::NumWorkgroupsY => f.write_str("num_workgroups.y"),
-            Variable::NumWorkgroupsZ => f.write_str("num_workgroups.z"),
-            Variable::WorkgroupSize => f.write_str("workgroup_size_no_axis"),
-            Variable::NumWorkgroups => f.write_str("num_workgroups_no_axis"),
-            Variable::SubgroupSize => f.write_str("subgroup_size"),
-            Variable::SubgroupId => f.write_str("subgroup_id"),
-            Variable::SubgroupInvocationId => f.write_str("subgroup_invocation_id"),
+        }
+    }
+}
+
+impl Display for Builtin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Builtin::Id => f.write_str("id"),
+            Builtin::LocalInvocationIndex => f.write_str("local_idx"),
+            Builtin::LocalInvocationIdX => f.write_str("local_invocation_id.x"),
+            Builtin::LocalInvocationIdY => f.write_str("local_invocation_id.y"),
+            Builtin::LocalInvocationIdZ => f.write_str("local_invocation_id.z"),
+            Builtin::WorkgroupId => f.write_str("workgroup_id_no_axis"),
+            Builtin::WorkgroupIdX => f.write_str("workgroup_id.x"),
+            Builtin::WorkgroupIdY => f.write_str("workgroup_id.y"),
+            Builtin::WorkgroupIdZ => f.write_str("workgroup_id.z"),
+            Builtin::GlobalInvocationIdX => f.write_str("global_id.x"),
+            Builtin::GlobalInvocationIdY => f.write_str("global_id.y"),
+            Builtin::GlobalInvocationIdZ => f.write_str("global_id.z"),
+            Builtin::WorkgroupSizeX => f.write_str("WORKGROUP_SIZE_X"),
+            Builtin::WorkgroupSizeY => f.write_str("WORKGROUP_SIZE_Y"),
+            Builtin::WorkgroupSizeZ => f.write_str("WORKGROUP_SIZE_Z"),
+            Builtin::NumWorkgroupsX => f.write_str("num_workgroups.x"),
+            Builtin::NumWorkgroupsY => f.write_str("num_workgroups.y"),
+            Builtin::NumWorkgroupsZ => f.write_str("num_workgroups.z"),
+            Builtin::WorkgroupSize => f.write_str("workgroup_size_no_axis"),
+            Builtin::NumWorkgroups => f.write_str("num_workgroups_no_axis"),
+            Builtin::SubgroupSize => f.write_str("subgroup_size"),
+            Builtin::SubgroupId => f.write_str("subgroup_id"),
+            Builtin::SubgroupInvocationId => f.write_str("subgroup_invocation_id"),
         }
     }
 }

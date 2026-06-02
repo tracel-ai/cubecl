@@ -381,9 +381,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             VariableKind::Shared { id, .. } => {
                 self.state.shared.get_mut(&id).unwrap().id = param_id;
             }
-            VariableKind::Builtin(builtin) => {
-                self.state.globals.insert(builtin, param_id);
-            }
             VariableKind::ConstantArray { .. }
             | VariableKind::Pipeline { .. }
             | VariableKind::BarrierToken { .. } => {

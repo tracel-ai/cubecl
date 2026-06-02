@@ -1,7 +1,7 @@
 use crate::{
     Dialect,
     metal::AddressSpace,
-    shared::{Component, KernelArg, Variable},
+    shared::{Builtin, KernelArg},
 };
 
 pub fn format_global_binding_arg<D: Dialect>(
@@ -32,12 +32,12 @@ pub fn format_global_binding_arg<D: Dialect>(
 
 pub fn format_metal_builtin_binding_arg<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
-    variable: &Variable<D>,
+    builtin: &Builtin<D>,
     comma: bool,
 ) -> core::fmt::Result {
-    let ty = variable.item();
-    let attribute = variable.attribute();
+    let ty = builtin.item();
+    let attribute = builtin.attribute();
     let comma = if comma { "," } else { "" };
-    write!(f, "{comma}\n    {ty} {variable} {attribute}",)?;
+    write!(f, "{comma}\n    {ty} {builtin} {attribute}",)?;
     Ok(())
 }

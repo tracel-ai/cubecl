@@ -43,7 +43,6 @@ pub enum Variable {
     ConstantArray(Word, Item, u32),
     CoopMatrix(Id, Elem),
     Id(Word),
-    Builtin(Word, Item),
 }
 
 impl Variable {
@@ -207,7 +206,6 @@ impl Variable {
             Variable::ConstantArray(id, _, _) => *id,
             Variable::CoopMatrix(_, _) => unimplemented!("Can't get ID from matrix var"),
             Variable::Id(id) => *id,
-            Variable::Builtin(id, ..) => *id,
         }
     }
 
@@ -223,7 +221,6 @@ impl Variable {
             Variable::Shared(_, item) => item.clone(),
             Variable::ConstantArray(_, item, _) => item.clone(),
             Variable::CoopMatrix(_, elem) => Item::Scalar(*elem),
-            Variable::Builtin(_, item) => item.clone(),
             Variable::Raw(_, item) => item.clone(),
             Variable::Id(_) => unimplemented!("Can't get item of raw ID"),
         }
@@ -313,10 +310,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             ir::VariableKind::LocalConst { id } => {
                 let item = self.compile_type(item);
                 Variable::LocalBinding { id, item, variable }
-            }
-            ir::VariableKind::Builtin(builtin) => {
-                let item = self.compile_type(item);
-                self.compile_builtin(builtin, item)
             }
             ir::VariableKind::ConstantArray { id, length, .. } => {
                 let item = self.compile_type(item);
@@ -460,7 +453,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::Local { id, .. } | Variable::Shared(id, _) => {
                 self.store(*id, value, None, []).unwrap()
             }
-
+            Variable::LocalBinding { id, .. } => {
+                self.state.bindings.insert(*id, value);
+            }
             Variable::Slice { ptr, .. } => self.write(ptr, value),
             _ => {}
         }

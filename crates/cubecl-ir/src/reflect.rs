@@ -3,7 +3,7 @@ use alloc::collections::VecDeque;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::{Instruction, Memory, Scope, Type, Variable};
+use crate::{Builtin, Instruction, Memory, Scope, Type, Variable};
 
 /// An operation that can be reflected on
 pub trait OperationReflect: Sized {
@@ -207,6 +207,10 @@ impl FromArgList for u32 {
     fn as_arg_list_mut(&mut self) -> impl IntoIterator<Item = &mut Variable> {
         []
     }
+}
+
+impl OperationArgs for Builtin {
+    fn sanitize_args_ptr(&mut self, _: &crate::Scope) {}
 }
 
 impl FromArgList for usize {

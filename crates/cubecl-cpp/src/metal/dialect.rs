@@ -7,11 +7,11 @@ use super::{
 use crate::{
     Dialect,
     shared::{
-        self, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins, DialectIncludes,
-        DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
-        DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout,
-        Instruction, Item, KernelArg, ManualMma, SharedMemory, SupportedMmaCombinations, Variable,
-        WarpInstruction, WmmaInstruction, wmma_api_base,
+        self, Builtin, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
+        DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
+        DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
+        FragmentIdent, FragmentLayout, Instruction, Item, KernelArg, ManualMma, SharedMemory,
+        SupportedMmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
 use core::panic;
@@ -396,28 +396,28 @@ void {kernel_name}("
         let builtins = vec![
             (
                 flags.indexes.absolute_pos_tuple,
-                Variable::<Self>::AbsolutePosBaseName,
+                Builtin::<Self>::AbsolutePosBaseName,
             ),
             (
                 flags.indexes.cube_dim_tuple,
-                Variable::<Self>::CubeDimBaseName,
+                Builtin::<Self>::CubeDimBaseName,
             ),
             (
                 flags.indexes.cube_count_tuple,
-                Variable::<Self>::CubeCountBaseName,
+                Builtin::<Self>::CubeCountBaseName,
             ),
-            (flags.indexes.unit_pos, Variable::<Self>::UnitPos),
+            (flags.indexes.unit_pos, Builtin::<Self>::UnitPos),
             (
                 flags.indexes.unit_pos_tuple,
-                Variable::<Self>::UnitPosBaseName,
+                Builtin::<Self>::UnitPosBaseName,
             ),
             (
                 flags.indexes.cube_pos_tuple,
-                Variable::<Self>::CubePosBaseName,
+                Builtin::<Self>::CubePosBaseName,
             ),
-            (flags.indexes.unit_pos_plane, Variable::<Self>::UnitPosPlane),
-            (flags.indexes.plane_dim, Variable::<Self>::PlaneDim),
-            (flags.indexes.plane_pos, Variable::<Self>::PlanePos),
+            (flags.indexes.unit_pos_plane, Builtin::<Self>::UnitPosPlane),
+            (flags.indexes.plane_dim, Builtin::<Self>::PlaneDim),
+            (flags.indexes.plane_pos, Builtin::<Self>::PlanePos),
         ];
         let comma = buffer_idx > 0;
         builtins

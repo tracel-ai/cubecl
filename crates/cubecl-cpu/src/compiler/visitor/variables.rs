@@ -205,7 +205,6 @@ impl<'a> Visitor<'a> {
                 .local
                 .get(&variable.kind)
                 .expect("Variable should have been declared before"),
-            VariableKind::Builtin(builtin) => self.get_builtin(builtin),
             VariableKind::Constant(constant_scalar_value) => {
                 let (const_type, attribute) = match constant_scalar_value {
                     ConstantValue::Int(value) => {

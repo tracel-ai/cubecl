@@ -1,4 +1,4 @@
-use cubecl_ir::{Operation, OperationReflect, Type, Variable, VariableKind};
+use cubecl_ir::{Operation, OperationReflect, Operator, Type, Variable, VariableKind};
 use hashbrown::HashMap;
 use smallvec::SmallVec;
 
@@ -23,6 +23,7 @@ impl Expression {
 
                 <Operation as OperationReflect>::from_code_and_args(instruction.op, &args).unwrap()
             }
+            Expression::Builtin(builtin, _) => Operation::Operator(Operator::ReadBuiltin(*builtin)),
             Expression::Phi(_) => unreachable!("Phi can't be made into operation"),
         }
     }
@@ -56,7 +57,6 @@ impl Value {
                 },
                 *item,
             ),
-            Value::Builtin(builtin, ty) => Variable::builtin(*builtin, *ty),
         }
     }
 }
@@ -81,7 +81,6 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
         VariableKind::LocalMut { .. }
         | VariableKind::Shared { .. }
         | VariableKind::Matrix { .. } => None?,
-        VariableKind::Builtin(builtin) => Value::Builtin(builtin, item.storage_type()),
         VariableKind::Pipeline { .. } => panic!("Pipeline is not supported"),
         VariableKind::BarrierToken { .. } => {
             panic!("Barrier is not supported")

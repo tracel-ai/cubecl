@@ -570,6 +570,7 @@ fn try_const_eval_operator(op: &mut Operator, out_ty: Option<Type>) -> Option<Co
         | Operator::InsertComponent(_)
         | Operator::ExtractComponent(_)
         | Operator::Reinterpret(_)
-        | Operator::Select(_) => None,
+        | Operator::Select(_)
+        | Operator::ReadBuiltin(_) => None,
     }
 }

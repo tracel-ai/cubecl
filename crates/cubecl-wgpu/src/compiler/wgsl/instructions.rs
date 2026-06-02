@@ -1,3 +1,5 @@
+use crate::compiler::wgsl::Builtin;
+
 use super::{
     Elem, Subgroup,
     base::{Item, Variable},
@@ -82,6 +84,10 @@ pub enum Instruction {
     },
     Store {
         input: Variable,
+        out: Variable,
+    },
+    ReadBuiltin {
+        builtin: Builtin,
         out: Variable,
     },
     ModFloor {
@@ -1129,6 +1135,9 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             // WGSL as usual has no lower level intrinsics
             Instruction::Unreachable => writeln!(f, "return;"),
+            Instruction::ReadBuiltin { builtin, out } => {
+                writeln!(f, "{} = {builtin};", out.fmt_left())
+            }
         }
     }
 }

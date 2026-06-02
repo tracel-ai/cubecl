@@ -76,7 +76,6 @@ impl GvnState {
                         | Value::Global(_, _)
                         | Value::Scalar(_, _)
                         | Value::ConstArray(_, _, _, _)
-                        | Value::Builtin(..)
                 )
             })
             .map(|(k, v)| (*v, *k))

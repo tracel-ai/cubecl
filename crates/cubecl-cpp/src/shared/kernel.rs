@@ -1,4 +1,6 @@
-use super::{Body, Component, Dialect, Elem, Flags, INFO_NAME, Item, Variable};
+use crate::shared::Builtin;
+
+use super::{Body, Dialect, Elem, Flags, INFO_NAME, Item, Variable};
 use cubecl_core::{CubeDim, ir::Id, prelude::Visibility};
 
 use std::{collections::HashSet, fmt::Display};
@@ -271,15 +273,15 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     }
 
     if settings.indexes.absolute_pos {
-        let variable = Variable::<D>::AbsolutePos(*settings.address_type.elem());
+        let variable = Builtin::<D>::AbsolutePos(*settings.address_type.elem());
         let ty = variable.item();
-        let absolute_pos_x = Variable::<D>::AbsolutePosX.fmt_cast_to(ty);
-        let absolute_pos_y = Variable::<D>::AbsolutePosY.fmt_cast_to(ty);
-        let absolute_pos_z = Variable::<D>::AbsolutePosZ.fmt_cast_to(ty);
-        let cube_count_x = Variable::<D>::CubeCountX.fmt_cast_to(ty);
-        let cube_count_y = Variable::<D>::CubeCountY.fmt_cast_to(ty);
-        let cube_dim_x = Variable::<D>::CubeDimX.fmt_cast_to(ty);
-        let cube_dim_y = Variable::<D>::CubeDimY.fmt_cast_to(ty);
+        let absolute_pos_x = Builtin::<D>::AbsolutePosX.fmt_cast_to(ty);
+        let absolute_pos_y = Builtin::<D>::AbsolutePosY.fmt_cast_to(ty);
+        let absolute_pos_z = Builtin::<D>::AbsolutePosZ.fmt_cast_to(ty);
+        let cube_count_x = Builtin::<D>::CubeCountX.fmt_cast_to(ty);
+        let cube_count_y = Builtin::<D>::CubeCountY.fmt_cast_to(ty);
+        let cube_dim_x = Builtin::<D>::CubeDimX.fmt_cast_to(ty);
+        let cube_dim_y = Builtin::<D>::CubeDimY.fmt_cast_to(ty);
         writeln!(
             f,
             "{ty} {variable} = (
@@ -290,11 +292,11 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     }
 
     if settings.indexes.cube_dim {
-        let variable = Variable::<D>::CubeDim;
+        let variable = Builtin::<D>::CubeDim;
         let ty = variable.item();
-        let cube_dim_x = Variable::<D>::CubeDimX;
-        let cube_dim_y = Variable::<D>::CubeDimY;
-        let cube_dim_z = Variable::<D>::CubeDimZ;
+        let cube_dim_x = Builtin::<D>::CubeDimX;
+        let cube_dim_y = Builtin::<D>::CubeDimY;
+        let cube_dim_z = Builtin::<D>::CubeDimZ;
         writeln!(
             f,
             "{ty} {variable} = {cube_dim_x} * {cube_dim_y} * {cube_dim_z};"
@@ -302,11 +304,11 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     }
 
     if settings.indexes.cube_count {
-        let variable = Variable::<D>::CubeCount(*settings.address_type.elem());
+        let variable = Builtin::<D>::CubeCount(*settings.address_type.elem());
         let ty = variable.item();
-        let cube_count_x = Variable::<D>::CubeCountX.fmt_cast_to(ty);
-        let cube_count_y = Variable::<D>::CubeCountY.fmt_cast_to(ty);
-        let cube_count_z = Variable::<D>::CubeCountZ.fmt_cast_to(ty);
+        let cube_count_x = Builtin::<D>::CubeCountX.fmt_cast_to(ty);
+        let cube_count_y = Builtin::<D>::CubeCountY.fmt_cast_to(ty);
+        let cube_count_z = Builtin::<D>::CubeCountZ.fmt_cast_to(ty);
         writeln!(
             f,
             "{ty} {variable} = {cube_count_x} * {cube_count_y} * {cube_count_z};"
@@ -314,13 +316,13 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     }
 
     if settings.indexes.cube_pos {
-        let variable = Variable::<D>::CubePos(*settings.address_type.elem());
+        let variable = Builtin::<D>::CubePos(*settings.address_type.elem());
         let ty = variable.item();
-        let cube_pos_x = Variable::<D>::CubePosX.fmt_cast_to(ty);
-        let cube_pos_y = Variable::<D>::CubePosY.fmt_cast_to(ty);
-        let cube_pos_z = Variable::<D>::CubePosZ.fmt_cast_to(ty);
-        let cube_count_x = Variable::<D>::CubeCountX.fmt_cast_to(ty);
-        let cube_count_y = Variable::<D>::CubeCountY.fmt_cast_to(ty);
+        let cube_pos_x = Builtin::<D>::CubePosX.fmt_cast_to(ty);
+        let cube_pos_y = Builtin::<D>::CubePosY.fmt_cast_to(ty);
+        let cube_pos_z = Builtin::<D>::CubePosZ.fmt_cast_to(ty);
+        let cube_count_x = Builtin::<D>::CubeCountX.fmt_cast_to(ty);
+        let cube_count_y = Builtin::<D>::CubeCountY.fmt_cast_to(ty);
         writeln!(
             f,
             "{ty} {variable} = ({cube_pos_z} * {cube_count_y} * {cube_count_x}) + ({cube_pos_y} * {cube_count_x}) + {cube_pos_x};"
@@ -328,12 +330,12 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     }
 
     if settings.indexes.plane_dim_checked {
-        let plane_dim = Variable::<D>::PlaneDim;
-        let variable = Variable::<D>::PlaneDimChecked;
+        let plane_dim = Builtin::<D>::PlaneDim;
+        let variable = Builtin::<D>::PlaneDimChecked;
         let ty = variable.item();
-        let cube_dim_x = Variable::<D>::CubeDimX;
-        let cube_dim_y = Variable::<D>::CubeDimY;
-        let cube_dim_z = Variable::<D>::CubeDimZ;
+        let cube_dim_x = Builtin::<D>::CubeDimX;
+        let cube_dim_y = Builtin::<D>::CubeDimY;
+        let cube_dim_z = Builtin::<D>::CubeDimZ;
         writeln!(
             f,
             "{ty} {variable} = min({plane_dim}, {cube_dim_x} * {cube_dim_y} * {cube_dim_z});"

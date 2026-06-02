@@ -31,39 +31,6 @@ pub struct OptimizedArgs<const N: usize, D: Dialect> {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Variable<D: Dialect> {
-    AbsolutePos(Elem<D>),
-    AbsolutePosBaseName, // base name for XYZ
-    AbsolutePosX,
-    AbsolutePosY,
-    AbsolutePosZ,
-    UnitPos,
-    UnitPosBaseName, // base name for XYZ
-    UnitPosX,
-    UnitPosY,
-    UnitPosZ,
-    CubePos(Elem<D>),
-    CubePosBaseName, // base name for XYZ
-    CubePosX,
-    CubePosY,
-    CubePosZ,
-    CubeDim,
-    CubeDimBaseName, // base name for XYZ
-    CubeDimX,
-    CubeDimY,
-    CubeDimZ,
-    CubeCount(Elem<D>),
-    CubeCountBaseName, // base name for XYZ
-    CubeCountX,
-    CubeCountY,
-    CubeCountZ,
-    PlaneDim,
-    PlaneDimChecked,
-    PlanePos,
-    UnitPosPlane,
-    ClusterRank,
-    ClusterIndexX,
-    ClusterIndexY,
-    ClusterIndexZ,
     GlobalBuffer(Id, Item<D>),
     GlobalScalar {
         id: Id,
@@ -115,6 +82,92 @@ pub enum Variable<D: Dialect> {
     },
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Builtin<D: Dialect> {
+    AbsolutePos(Elem<D>),
+    AbsolutePosBaseName, // base name for XYZ
+    AbsolutePosX,
+    AbsolutePosY,
+    AbsolutePosZ,
+    UnitPos,
+    UnitPosBaseName, // base name for XYZ
+    UnitPosX,
+    UnitPosY,
+    UnitPosZ,
+    CubePos(Elem<D>),
+    CubePosBaseName, // base name for XYZ
+    CubePosX,
+    CubePosY,
+    CubePosZ,
+    CubeDim,
+    CubeDimBaseName, // base name for XYZ
+    CubeDimX,
+    CubeDimY,
+    CubeDimZ,
+    CubeCount(Elem<D>),
+    CubeCountBaseName, // base name for XYZ
+    CubeCountX,
+    CubeCountY,
+    CubeCountZ,
+    PlaneDim,
+    PlaneDimChecked,
+    PlanePos,
+    UnitPosPlane,
+    ClusterRank,
+    ClusterIndexX,
+    ClusterIndexY,
+    ClusterIndexZ,
+}
+
+impl<D: Dialect> Builtin<D> {
+    /// Format an item with a specific type, casting if necessary
+    pub fn fmt_cast_to(&self, item: Item<D>) -> String {
+        if self.item() == item {
+            self.to_string()
+        } else {
+            format!("{item}({self})")
+        }
+    }
+
+    pub fn item(&self) -> Item<D> {
+        match self {
+            Builtin::AbsolutePos(elem) => Item::Scalar(*elem),
+            Builtin::AbsolutePosBaseName => Item::NativeVector(Elem::U32, 3),
+            Builtin::AbsolutePosX => Item::Scalar(Elem::U32),
+            Builtin::AbsolutePosY => Item::Scalar(Elem::U32),
+            Builtin::AbsolutePosZ => Item::Scalar(Elem::U32),
+            Builtin::CubeCount(elem) => Item::Scalar(*elem),
+            Builtin::CubeCountBaseName => Item::NativeVector(Elem::U32, 3),
+            Builtin::CubeCountX => Item::Scalar(Elem::U32),
+            Builtin::CubeCountY => Item::Scalar(Elem::U32),
+            Builtin::CubeCountZ => Item::Scalar(Elem::U32),
+            Builtin::CubeDimBaseName => Item::NativeVector(Elem::U32, 3),
+            Builtin::CubeDim => Item::Scalar(Elem::U32),
+            Builtin::CubeDimX => Item::Scalar(Elem::U32),
+            Builtin::CubeDimY => Item::Scalar(Elem::U32),
+            Builtin::CubeDimZ => Item::Scalar(Elem::U32),
+            Builtin::CubePos(elem) => Item::Scalar(*elem),
+            Builtin::CubePosBaseName => Item::NativeVector(Elem::U32, 3),
+            Builtin::CubePosX => Item::Scalar(Elem::U32),
+            Builtin::CubePosY => Item::Scalar(Elem::U32),
+            Builtin::CubePosZ => Item::Scalar(Elem::U32),
+            Builtin::UnitPos => Item::Scalar(Elem::U32),
+            Builtin::UnitPosBaseName => Item::NativeVector(Elem::U32, 3),
+            Builtin::UnitPosX => Item::Scalar(Elem::U32),
+            Builtin::UnitPosY => Item::Scalar(Elem::U32),
+            Builtin::UnitPosZ => Item::Scalar(Elem::U32),
+            Builtin::PlaneDim => Item::Scalar(Elem::U32),
+            Builtin::PlaneDimChecked => Item::Scalar(Elem::U32),
+            Builtin::PlanePos => Item::Scalar(Elem::U32),
+            Builtin::UnitPosPlane => Item::Scalar(Elem::U32),
+            Builtin::ClusterRank => Item::Scalar(Elem::U32),
+            Builtin::ClusterIndexX => Item::Scalar(Elem::U32),
+            Builtin::ClusterIndexY => Item::Scalar(Elem::U32),
+            Builtin::ClusterIndexZ => Item::Scalar(Elem::U32),
+        }
+    }
+}
+
 impl<D: Dialect> Component<D> for Variable<D> {
     fn index(&self, index: usize) -> IndexedVariable<D> {
         self.index(index)
@@ -122,39 +175,6 @@ impl<D: Dialect> Component<D> for Variable<D> {
 
     fn item(&self) -> Item<D> {
         match self {
-            Variable::AbsolutePos(elem) => Item::Scalar(*elem),
-            Variable::AbsolutePosBaseName => Item::NativeVector(Elem::U32, 3),
-            Variable::AbsolutePosX => Item::Scalar(Elem::U32),
-            Variable::AbsolutePosY => Item::Scalar(Elem::U32),
-            Variable::AbsolutePosZ => Item::Scalar(Elem::U32),
-            Variable::CubeCount(elem) => Item::Scalar(*elem),
-            Variable::CubeCountBaseName => Item::NativeVector(Elem::U32, 3),
-            Variable::CubeCountX => Item::Scalar(Elem::U32),
-            Variable::CubeCountY => Item::Scalar(Elem::U32),
-            Variable::CubeCountZ => Item::Scalar(Elem::U32),
-            Variable::CubeDimBaseName => Item::NativeVector(Elem::U32, 3),
-            Variable::CubeDim => Item::Scalar(Elem::U32),
-            Variable::CubeDimX => Item::Scalar(Elem::U32),
-            Variable::CubeDimY => Item::Scalar(Elem::U32),
-            Variable::CubeDimZ => Item::Scalar(Elem::U32),
-            Variable::CubePos(elem) => Item::Scalar(*elem),
-            Variable::CubePosBaseName => Item::NativeVector(Elem::U32, 3),
-            Variable::CubePosX => Item::Scalar(Elem::U32),
-            Variable::CubePosY => Item::Scalar(Elem::U32),
-            Variable::CubePosZ => Item::Scalar(Elem::U32),
-            Variable::UnitPos => Item::Scalar(Elem::U32),
-            Variable::UnitPosBaseName => Item::NativeVector(Elem::U32, 3),
-            Variable::UnitPosX => Item::Scalar(Elem::U32),
-            Variable::UnitPosY => Item::Scalar(Elem::U32),
-            Variable::UnitPosZ => Item::Scalar(Elem::U32),
-            Variable::PlaneDim => Item::Scalar(Elem::U32),
-            Variable::PlaneDimChecked => Item::Scalar(Elem::U32),
-            Variable::PlanePos => Item::Scalar(Elem::U32),
-            Variable::UnitPosPlane => Item::Scalar(Elem::U32),
-            Variable::ClusterRank => Item::Scalar(Elem::U32),
-            Variable::ClusterIndexX => Item::Scalar(Elem::U32),
-            Variable::ClusterIndexY => Item::Scalar(Elem::U32),
-            Variable::ClusterIndexZ => Item::Scalar(Elem::U32),
             Variable::GlobalBuffer(_, e) => *e,
             Variable::LocalArray(_, e, _) => *e,
             Variable::SharedArray(_, e, _) => *e,
@@ -239,40 +259,6 @@ impl<D: Dialect> Display for Variable<D> {
                 write!(f, "shared_memory_{number}")
             }
 
-            Variable::AbsolutePos(_) => D::compile_absolute_pos(f),
-            Variable::AbsolutePosBaseName => D::compile_absolute_pos_base_name(f),
-            Variable::AbsolutePosX => D::compile_absolute_pos_x(f),
-            Variable::AbsolutePosY => D::compile_absolute_pos_y(f),
-            Variable::AbsolutePosZ => D::compile_absolute_pos_z(f),
-            Variable::CubeCount(_) => D::compile_cube_count(f),
-            Variable::CubeCountBaseName => D::compile_cube_count_base_name(f),
-            Variable::CubeCountX => D::compile_cube_count_x(f),
-            Variable::CubeCountY => D::compile_cube_count_y(f),
-            Variable::CubeCountZ => D::compile_cube_count_z(f),
-            Variable::CubeDim => D::compile_cube_dim(f),
-            Variable::CubeDimBaseName => D::compile_cube_dim_base_name(f),
-            Variable::CubeDimX => D::compile_cube_dim_x(f),
-            Variable::CubeDimY => D::compile_cube_dim_y(f),
-            Variable::CubeDimZ => D::compile_cube_dim_z(f),
-            Variable::CubePos(_) => D::compile_cube_pos(f),
-            Variable::CubePosBaseName => D::compile_cube_pos_base_name(f),
-            Variable::CubePosX => D::compile_cube_pos_x(f),
-            Variable::CubePosY => D::compile_cube_pos_y(f),
-            Variable::CubePosZ => D::compile_cube_pos_z(f),
-            Variable::UnitPos => D::compile_unit_pos(f),
-            Variable::UnitPosBaseName => D::compile_unit_pos_base_name(f),
-            Variable::UnitPosX => D::compile_unit_pos_x(f),
-            Variable::UnitPosY => D::compile_unit_pos_y(f),
-            Variable::UnitPosZ => D::compile_unit_pos_z(f),
-            Variable::PlaneDim => D::compile_plane_dim(f),
-            Variable::PlaneDimChecked => D::compile_plane_dim_checked(f),
-            Variable::PlanePos => D::compile_plane_pos(f),
-            Variable::UnitPosPlane => D::compile_unit_pos_plane(f),
-            Variable::ClusterRank => D::compile_cluster_pos(f),
-            Variable::ClusterIndexX => D::compile_cluster_pos_x(f),
-            Variable::ClusterIndexY => D::compile_cluster_pos_y(f),
-            Variable::ClusterIndexZ => D::compile_cluster_pos_z(f),
-
             Variable::ConstantArray(number, _, _) => write!(f, "arrays_{number}"),
             Variable::LocalArray(id, _, _) => {
                 write!(f, "l_arr_{id}")
@@ -290,6 +276,46 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::Pipeline { id, .. } => write!(f, "pipeline_{id}"),
             Variable::Barrier { id, .. } => write!(f, "barrier_{id}"),
             Variable::BarrierToken { id, .. } => write!(f, "barrier_{id}_token"),
+        }
+    }
+}
+
+impl<D: Dialect> Display for Builtin<D> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Builtin::AbsolutePos(_) => D::compile_absolute_pos(f),
+            Builtin::AbsolutePosBaseName => D::compile_absolute_pos_base_name(f),
+            Builtin::AbsolutePosX => D::compile_absolute_pos_x(f),
+            Builtin::AbsolutePosY => D::compile_absolute_pos_y(f),
+            Builtin::AbsolutePosZ => D::compile_absolute_pos_z(f),
+            Builtin::CubeCount(_) => D::compile_cube_count(f),
+            Builtin::CubeCountBaseName => D::compile_cube_count_base_name(f),
+            Builtin::CubeCountX => D::compile_cube_count_x(f),
+            Builtin::CubeCountY => D::compile_cube_count_y(f),
+            Builtin::CubeCountZ => D::compile_cube_count_z(f),
+            Builtin::CubeDim => D::compile_cube_dim(f),
+            Builtin::CubeDimBaseName => D::compile_cube_dim_base_name(f),
+            Builtin::CubeDimX => D::compile_cube_dim_x(f),
+            Builtin::CubeDimY => D::compile_cube_dim_y(f),
+            Builtin::CubeDimZ => D::compile_cube_dim_z(f),
+            Builtin::CubePos(_) => D::compile_cube_pos(f),
+            Builtin::CubePosBaseName => D::compile_cube_pos_base_name(f),
+            Builtin::CubePosX => D::compile_cube_pos_x(f),
+            Builtin::CubePosY => D::compile_cube_pos_y(f),
+            Builtin::CubePosZ => D::compile_cube_pos_z(f),
+            Builtin::UnitPos => D::compile_unit_pos(f),
+            Builtin::UnitPosBaseName => D::compile_unit_pos_base_name(f),
+            Builtin::UnitPosX => D::compile_unit_pos_x(f),
+            Builtin::UnitPosY => D::compile_unit_pos_y(f),
+            Builtin::UnitPosZ => D::compile_unit_pos_z(f),
+            Builtin::PlaneDim => D::compile_plane_dim(f),
+            Builtin::PlaneDimChecked => D::compile_plane_dim_checked(f),
+            Builtin::PlanePos => D::compile_plane_pos(f),
+            Builtin::UnitPosPlane => D::compile_unit_pos_plane(f),
+            Builtin::ClusterRank => D::compile_cluster_pos(f),
+            Builtin::ClusterIndexX => D::compile_cluster_pos_x(f),
+            Builtin::ClusterIndexY => D::compile_cluster_pos_y(f),
+            Builtin::ClusterIndexZ => D::compile_cluster_pos_z(f),
         }
     }
 }
@@ -442,62 +468,6 @@ impl<D: Dialect> Variable<D> {
                 Variable::LocalArray(*id, item.optimized(), size / scaling)
             }
             _ => *self,
-        }
-    }
-
-    pub fn is_always_scalar(&self) -> bool {
-        match self {
-            Variable::AbsolutePos(_) => true,
-            Variable::AbsolutePosBaseName => false,
-            Variable::AbsolutePosX => true,
-            Variable::AbsolutePosY => true,
-            Variable::AbsolutePosZ => true,
-            Variable::CubeCount(_) => true,
-            Variable::CubeCountBaseName => false,
-            Variable::CubeCountX => true,
-            Variable::CubeCountY => true,
-            Variable::CubeCountZ => true,
-            Variable::CubeDim => true,
-            Variable::CubeDimBaseName => false,
-            Variable::CubeDimX => true,
-            Variable::CubeDimY => true,
-            Variable::CubeDimZ => true,
-            Variable::CubePos(_) => true,
-            Variable::CubePosBaseName => true,
-            Variable::CubePosX => true,
-            Variable::CubePosY => true,
-            Variable::CubePosZ => true,
-            Variable::UnitPos => true,
-            Variable::UnitPosBaseName => true,
-            Variable::UnitPosPlane => true,
-            Variable::UnitPosX => true,
-            Variable::UnitPosY => true,
-            Variable::UnitPosZ => true,
-            Variable::PlaneDim => true,
-            Variable::PlaneDimChecked => true,
-            Variable::PlanePos => true,
-            Variable::ClusterRank => true,
-            Variable::ClusterIndexX => true,
-            Variable::ClusterIndexY => true,
-            Variable::ClusterIndexZ => true,
-
-            Variable::Barrier { .. } => false,
-            Variable::BarrierToken { .. } => false,
-            Variable::ConstantArray(_, _, _) => false,
-            Variable::Constant(_, _) => true,
-            Variable::GlobalBuffer(_, _) => false,
-            Variable::GlobalScalar { .. } => true,
-            Variable::LocalArray(_, _, _) => false,
-            Variable::LocalConst { .. } => false,
-            Variable::LocalMut { .. } => false,
-            Variable::Named { .. } => false,
-            Variable::Pipeline { .. } => false,
-            Variable::SharedArray(_, _, _) => false,
-            Variable::Shared(_, _) => false,
-            Variable::Slice { .. } => false,
-            Variable::Tmp { .. } => false,
-            Variable::WmmaFragment { .. } => false,
-            Variable::TensorMap { .. } => false,
         }
     }
 

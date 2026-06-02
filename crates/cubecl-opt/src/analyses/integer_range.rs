@@ -1,5 +1,6 @@
 use cubecl_ir::{
-    Arithmetic, Builtin, ConstantValue, ElemType, Id, Operation, Type, Variable, VariableKind,
+    Arithmetic, Builtin, ConstantValue, ElemType, Id, Operation, Operator, Type, Variable,
+    VariableKind,
 };
 use hashbrown::HashMap;
 
@@ -54,64 +55,81 @@ impl Ranges {
         for block in func.node_ids() {
             let ops = func[block].ops.clone();
             for inst in ops.borrow().values() {
-                let op = match &inst.operation {
-                    Operation::Arithmetic(op) => op,
-                    _ => continue,
-                };
-                match op {
-                    Arithmetic::Add(binop) if is_uint(inst.ty()) => {
-                        if let Some(out_id) = var_id(&inst.out()) {
-                            let lhs_range = self.range_of(state, &binop.lhs);
-                            let rhs_range = self.range_of(state, &binop.rhs);
-                            let out_range = lhs_range + rhs_range;
-                            if Some(&out_range) != self.int_ranges.get(&out_id) {
-                                self.int_ranges.insert(out_id, out_range);
-                                return true;
+                match &inst.operation {
+                    Operation::Arithmetic(op) => match op {
+                        Arithmetic::Add(binop) if is_uint(inst.ty()) => {
+                            if let Some(out_id) = var_id(&inst.out()) {
+                                let lhs_range = self.range_of(&binop.lhs);
+                                let rhs_range = self.range_of(&binop.rhs);
+                                let out_range = lhs_range + rhs_range;
+                                if Some(&out_range) != self.int_ranges.get(&out_id) {
+                                    self.int_ranges.insert(out_id, out_range);
+                                    return true;
+                                }
                             }
                         }
-                    }
-                    Arithmetic::Sub(binop) if is_uint(inst.ty()) => {
-                        if let Some(out_id) = var_id(&inst.out()) {
-                            let lhs_range = self.range_of(state, &binop.lhs);
-                            let rhs_range = self.range_of(state, &binop.rhs);
-                            let out_range = lhs_range - rhs_range;
-                            if Some(&out_range) != self.int_ranges.get(&out_id) {
-                                self.int_ranges.insert(out_id, out_range);
-                                return true;
+                        Arithmetic::Sub(binop) if is_uint(inst.ty()) => {
+                            if let Some(out_id) = var_id(&inst.out()) {
+                                let lhs_range = self.range_of(&binop.lhs);
+                                let rhs_range = self.range_of(&binop.rhs);
+                                let out_range = lhs_range - rhs_range;
+                                if Some(&out_range) != self.int_ranges.get(&out_id) {
+                                    self.int_ranges.insert(out_id, out_range);
+                                    return true;
+                                }
                             }
                         }
-                    }
-                    Arithmetic::Mul(binop) if is_uint(inst.ty()) => {
-                        if let Some(out_id) = var_id(&inst.out()) {
-                            let lhs_range = self.range_of(state, &binop.lhs);
-                            let rhs_range = self.range_of(state, &binop.rhs);
-                            let out_range = lhs_range * rhs_range;
-                            if Some(&out_range) != self.int_ranges.get(&out_id) {
-                                self.int_ranges.insert(out_id, out_range);
-                                return true;
+                        Arithmetic::Mul(binop) if is_uint(inst.ty()) => {
+                            if let Some(out_id) = var_id(&inst.out()) {
+                                let lhs_range = self.range_of(&binop.lhs);
+                                let rhs_range = self.range_of(&binop.rhs);
+                                let out_range = lhs_range * rhs_range;
+                                if Some(&out_range) != self.int_ranges.get(&out_id) {
+                                    self.int_ranges.insert(out_id, out_range);
+                                    return true;
+                                }
                             }
                         }
-                    }
-                    Arithmetic::Div(binop) if is_uint(inst.ty()) => {
-                        if let Some(out_id) = var_id(&inst.out()) {
-                            let lhs_range = self.range_of(state, &binop.lhs);
-                            let rhs_range = self.range_of(state, &binop.rhs);
-                            let out_range = lhs_range / rhs_range;
-                            if Some(&out_range) != self.int_ranges.get(&out_id) {
-                                self.int_ranges.insert(out_id, out_range);
-                                return true;
+                        Arithmetic::Div(binop) if is_uint(inst.ty()) => {
+                            if let Some(out_id) = var_id(&inst.out()) {
+                                let lhs_range = self.range_of(&binop.lhs);
+                                let rhs_range = self.range_of(&binop.rhs);
+                                let out_range = lhs_range / rhs_range;
+                                if Some(&out_range) != self.int_ranges.get(&out_id) {
+                                    self.int_ranges.insert(out_id, out_range);
+                                    return true;
+                                }
                             }
                         }
-                    }
-                    Arithmetic::ModFloor(binop) if is_uint(inst.ty()) => {
-                        if let Some(out_id) = var_id(&inst.out()) {
-                            let lhs_range = self.range_of(state, &binop.lhs);
-                            let rhs_range = self.range_of(state, &binop.rhs);
-                            let out_range = lhs_range % rhs_range;
-                            if Some(&out_range) != self.int_ranges.get(&out_id) {
-                                self.int_ranges.insert(out_id, out_range);
-                                return true;
+                        Arithmetic::ModFloor(binop) if is_uint(inst.ty()) => {
+                            if let Some(out_id) = var_id(&inst.out()) {
+                                let lhs_range = self.range_of(&binop.lhs);
+                                let rhs_range = self.range_of(&binop.rhs);
+                                let out_range = lhs_range % rhs_range;
+                                if Some(&out_range) != self.int_ranges.get(&out_id) {
+                                    self.int_ranges.insert(out_id, out_range);
+                                    return true;
+                                }
                             }
+                        }
+                        _ => {}
+                    },
+                    Operation::Operator(Operator::ReadBuiltin(builtin)) => {
+                        if let Some(out_id) = var_id(&inst.out()) {
+                            let cube_dim = state.cube_dim;
+                            let range = match builtin {
+                                Builtin::UnitPos => Range::uint(cube_dim.num_elems() as u64 - 1),
+                                Builtin::UnitPosX => Range::uint(cube_dim.x as u64 - 1),
+                                Builtin::UnitPosY => Range::uint(cube_dim.y as u64 - 1),
+                                Builtin::UnitPosZ => Range::uint(cube_dim.z as u64 - 1),
+                                Builtin::CubeCount => Range::constant(cube_dim.num_elems() as u64),
+                                Builtin::CubeCountX => Range::constant(cube_dim.x as u64),
+                                Builtin::CubeCountY => Range::constant(cube_dim.y as u64),
+                                Builtin::CubeCountZ => Range::constant(cube_dim.z as u64),
+                                _ => Default::default(),
+                            };
+                            self.int_ranges.insert(out_id, range);
+                            return true;
                         }
                     }
                     _ => {}
@@ -125,7 +143,7 @@ impl Ranges {
 impl Ranges {
     /// The possible range of values of any variable, if applicable. Returns unbounded range if no range
     /// can be determined, or the type is not an integer.
-    pub fn range_of(&self, state: &GlobalState, var: &Variable) -> Range {
+    pub fn range_of(&self, var: &Variable) -> Range {
         match var.kind {
             VariableKind::Versioned { id, version } if is_uint(var.ty) => self
                 .int_ranges
@@ -150,20 +168,6 @@ impl Ranges {
                 self.int_ranges.get(&(id, 0)).copied().unwrap_or_default()
             }
             VariableKind::Constant(ConstantValue::UInt(val)) => Range::constant(val),
-            VariableKind::Builtin(builtin) => {
-                let cube_dim = state.cube_dim;
-                match builtin {
-                    Builtin::UnitPos => Range::uint(cube_dim.num_elems() as u64 - 1),
-                    Builtin::UnitPosX => Range::uint(cube_dim.x as u64 - 1),
-                    Builtin::UnitPosY => Range::uint(cube_dim.y as u64 - 1),
-                    Builtin::UnitPosZ => Range::uint(cube_dim.z as u64 - 1),
-                    Builtin::CubeCount => Range::constant(cube_dim.num_elems() as u64),
-                    Builtin::CubeCountX => Range::constant(cube_dim.x as u64),
-                    Builtin::CubeCountY => Range::constant(cube_dim.y as u64),
-                    Builtin::CubeCountZ => Range::constant(cube_dim.z as u64),
-                    _ => Default::default(),
-                }
-            }
             _ => Default::default(),
         }
     }

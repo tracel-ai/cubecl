@@ -496,8 +496,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             | core::VariableKind::LocalConst { .. }
             | core::VariableKind::Versioned { .. }
             | core::VariableKind::Constant(..)
-            | core::VariableKind::GlobalScalar(_)
-            | core::VariableKind::Builtin(..) => self.compile_type(var.ty).id(self),
+            | core::VariableKind::GlobalScalar(_) => self.compile_type(var.ty).id(self),
             core::VariableKind::ConstantArray { .. } => {
                 todo!("Constant arrays not yet supported for args")
             }

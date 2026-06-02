@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 
 use cubecl_ir::{
     Branch, CoopMma, GlobalState, Instruction, Marker, NonSemantic, Operation, OperationReflect,
-    Scope, TensorIndexingOps, TmaOps, Variable,
+    Operator, Scope, TensorIndexingOps, TmaOps, Variable,
 };
 use derive_more::{Deref, DerefMut};
 
@@ -129,6 +129,7 @@ impl<T> Visitor<T> {
             Operation::NonSemantic(non_semantic) => {
                 self.visit_nonsemantic(non_semantic, visit_read)
             }
+            Operation::Operator(Operator::ReadBuiltin(_)) => {}
             op => {
                 if let Some(args) = op.args_mut() {
                     for arg in args {

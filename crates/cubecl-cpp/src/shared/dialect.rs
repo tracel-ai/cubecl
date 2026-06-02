@@ -4,8 +4,9 @@ use std::{fmt::Display, hash::Hash};
 use cubecl_core::ir::Processor;
 
 use crate::shared::{
-    FmtLeft, IndexedVariable, MmaShape, SupportedMmaCombinations, SupportedScaledMmaCombinations,
-    reduce_comparison, reduce_exclusive, reduce_inclusive, reduce_operator, reduce_quantifier,
+    Builtin, FmtLeft, IndexedVariable, MmaShape, SupportedMmaCombinations,
+    SupportedScaledMmaCombinations, reduce_comparison, reduce_exclusive, reduce_inclusive,
+    reduce_operator, reduce_quantifier,
     unary::{Neg, Unary},
 };
 
@@ -180,17 +181,17 @@ pub trait DialectCubeBuiltins<D: Dialect> {
     }
 
     fn compile_absolute_pos_tuple_computation(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let variable = Variable::<D>::AbsolutePosBaseName;
+        let variable = Builtin::<D>::AbsolutePosBaseName;
         let ty = variable.item();
-        let cube_pos_x = Variable::<D>::CubePosX;
-        let cube_pos_y = Variable::<D>::CubePosY;
-        let cube_pos_z = Variable::<D>::CubePosZ;
-        let cube_dim_x = Variable::<D>::CubeDimX;
-        let cube_dim_y = Variable::<D>::CubeDimY;
-        let cube_dim_z = Variable::<D>::CubeDimZ;
-        let unit_pos_x = Variable::<D>::UnitPosX;
-        let unit_pos_y = Variable::<D>::UnitPosY;
-        let unit_pos_z = Variable::<D>::UnitPosZ;
+        let cube_pos_x = Builtin::<D>::CubePosX;
+        let cube_pos_y = Builtin::<D>::CubePosY;
+        let cube_pos_z = Builtin::<D>::CubePosZ;
+        let cube_dim_x = Builtin::<D>::CubeDimX;
+        let cube_dim_y = Builtin::<D>::CubeDimY;
+        let cube_dim_z = Builtin::<D>::CubeDimZ;
+        let unit_pos_x = Builtin::<D>::UnitPosX;
+        let unit_pos_y = Builtin::<D>::UnitPosY;
+        let unit_pos_z = Builtin::<D>::UnitPosZ;
         writeln!(
             f,
             "{ty} {variable} = make_{ty}(
@@ -294,13 +295,13 @@ pub trait DialectCubeBuiltins<D: Dialect> {
     }
 
     fn compile_unit_pos_computation(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let variable = Variable::<D>::UnitPos;
+        let variable = Builtin::<D>::UnitPos;
         let ty = variable.item();
-        let cube_dim_x = Variable::<D>::CubeDimX;
-        let cube_dim_y = Variable::<D>::CubeDimY;
-        let unit_pos_x = Variable::<D>::UnitPosX;
-        let unit_pos_y = Variable::<D>::UnitPosY;
-        let unit_pos_z = Variable::<D>::UnitPosZ;
+        let cube_dim_x = Builtin::<D>::CubeDimX;
+        let cube_dim_y = Builtin::<D>::CubeDimY;
+        let unit_pos_x = Builtin::<D>::UnitPosX;
+        let unit_pos_y = Builtin::<D>::UnitPosY;
+        let unit_pos_z = Builtin::<D>::UnitPosZ;
         writeln!(
             f,
             "{ty} {variable} = {unit_pos_x} + {unit_pos_y} * {cube_dim_x} + {unit_pos_z} * ({cube_dim_x} * {cube_dim_y});"
@@ -339,15 +340,15 @@ pub trait DialectCubeBuiltins<D: Dialect> {
     }
 
     fn compile_plane_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let unit_pos_x = Variable::<D>::UnitPosX;
-        let plane_dim = Variable::<D>::PlaneDim;
+        let unit_pos_x = Builtin::<D>::UnitPosX;
+        let plane_dim = Builtin::<D>::PlaneDim;
         write!(f, "{unit_pos_x} / {plane_dim}")
     }
 
     fn compile_unit_pos_plane(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let absolute_pos = Variable::<D>::AbsolutePos(Elem::U32);
-        let plane_dim = Variable::<D>::PlaneDim;
-        let ty = plane_dim.item();
+        let absolute_pos = Builtin::<D>::AbsolutePos(Elem::U32);
+        let plane_dim = Builtin::<D>::PlaneDim;
+        let ty = Item::<D>::Scalar(Elem::U32);
         write!(f, "{ty}({absolute_pos}) % {plane_dim}")
     }
 

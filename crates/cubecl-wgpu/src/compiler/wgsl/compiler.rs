@@ -310,99 +310,6 @@ impl WgslCompiler {
                 let item = self.compile_type(item);
                 wgsl::Variable::ConstantArray(id, item, length as u32)
             }
-            cube::VariableKind::Builtin(builtin) => match builtin {
-                cube::Builtin::AbsolutePos => {
-                    self.id = true;
-                    wgsl::Variable::Id
-                }
-                cube::Builtin::UnitPos => {
-                    self.local_invocation_index = true;
-                    wgsl::Variable::LocalInvocationIndex
-                }
-                cube::Builtin::UnitPosX => {
-                    self.local_invocation_id = true;
-                    wgsl::Variable::LocalInvocationIdX
-                }
-                cube::Builtin::UnitPosY => {
-                    self.local_invocation_id = true;
-                    wgsl::Variable::LocalInvocationIdY
-                }
-                cube::Builtin::UnitPosZ => {
-                    self.local_invocation_id = true;
-                    wgsl::Variable::LocalInvocationIdZ
-                }
-                cube::Builtin::CubePosX => {
-                    self.workgroup_id = true;
-                    wgsl::Variable::WorkgroupIdX
-                }
-                cube::Builtin::CubePosY => {
-                    self.workgroup_id = true;
-                    wgsl::Variable::WorkgroupIdY
-                }
-                cube::Builtin::CubePosZ => {
-                    self.workgroup_id = true;
-                    wgsl::Variable::WorkgroupIdZ
-                }
-                cube::Builtin::CubePosCluster
-                | cube::Builtin::CubePosClusterX
-                | cube::Builtin::CubePosClusterY
-                | cube::Builtin::CubePosClusterZ => self.constant_var(1),
-                cube::Builtin::AbsolutePosX => {
-                    self.global_invocation_id = true;
-                    wgsl::Variable::GlobalInvocationIdX
-                }
-                cube::Builtin::AbsolutePosY => {
-                    self.global_invocation_id = true;
-                    wgsl::Variable::GlobalInvocationIdY
-                }
-                cube::Builtin::AbsolutePosZ => {
-                    self.global_invocation_id = true;
-                    wgsl::Variable::GlobalInvocationIdZ
-                }
-                cube::Builtin::CubeDimX => wgsl::Variable::WorkgroupSizeX,
-                cube::Builtin::CubeDimY => wgsl::Variable::WorkgroupSizeY,
-                cube::Builtin::CubeDimZ => wgsl::Variable::WorkgroupSizeZ,
-                cube::Builtin::CubeClusterDim
-                | cube::Builtin::CubeClusterDimX
-                | cube::Builtin::CubeClusterDimY
-                | cube::Builtin::CubeClusterDimZ => self.constant_var(1),
-                cube::Builtin::CubeCountX => {
-                    self.num_workgroups = true;
-                    wgsl::Variable::NumWorkgroupsX
-                }
-                cube::Builtin::CubeCountY => {
-                    self.num_workgroups = true;
-                    wgsl::Variable::NumWorkgroupsY
-                }
-                cube::Builtin::CubeCountZ => {
-                    self.num_workgroups = true;
-                    wgsl::Variable::NumWorkgroupsZ
-                }
-                cube::Builtin::CubePos => {
-                    self.workgroup_id_no_axis = true;
-                    wgsl::Variable::WorkgroupId
-                }
-                cube::Builtin::CubeDim => {
-                    self.workgroup_size_no_axis = true;
-                    wgsl::Variable::WorkgroupSize
-                }
-                cube::Builtin::CubeCount => {
-                    self.num_workgroup_no_axis = true;
-                    wgsl::Variable::NumWorkgroups
-                }
-                cube::Builtin::PlaneDim => {
-                    self.subgroup_size = true;
-                    wgsl::Variable::SubgroupSize
-                }
-                cube::Builtin::PlanePos => {
-                    self.subgroup_id = true;
-                    wgsl::Variable::SubgroupId
-                }
-                cube::Builtin::UnitPosPlane => {
-                    self.subgroup_invocation_id = true;
-                    wgsl::Variable::SubgroupInvocationId
-                }
-            },
             cube::VariableKind::Matrix { .. } => {
                 panic!("Cooperative matrix-multiply and accumulate not supported.")
             }
@@ -1142,6 +1049,115 @@ impl WgslCompiler {
                 or_else: self.compile_variable(op.or_else),
                 out: self.compile_variable(out),
             }),
+            cube::Operator::ReadBuiltin(builtin) => {
+                let out = self.compile_variable(out);
+                let constant = {
+                    let out = out.clone();
+                    |value| {
+                        instructions.push(wgsl::Instruction::Assign { input: value, out });
+                    }
+                };
+                let builtin = match builtin {
+                    cube::Builtin::AbsolutePos => {
+                        self.id = true;
+                        wgsl::Builtin::Id
+                    }
+                    cube::Builtin::UnitPos => {
+                        self.local_invocation_index = true;
+                        wgsl::Builtin::LocalInvocationIndex
+                    }
+                    cube::Builtin::UnitPosX => {
+                        self.local_invocation_id = true;
+                        wgsl::Builtin::LocalInvocationIdX
+                    }
+                    cube::Builtin::UnitPosY => {
+                        self.local_invocation_id = true;
+                        wgsl::Builtin::LocalInvocationIdY
+                    }
+                    cube::Builtin::UnitPosZ => {
+                        self.local_invocation_id = true;
+                        wgsl::Builtin::LocalInvocationIdZ
+                    }
+                    cube::Builtin::CubePosX => {
+                        self.workgroup_id = true;
+                        wgsl::Builtin::WorkgroupIdX
+                    }
+                    cube::Builtin::CubePosY => {
+                        self.workgroup_id = true;
+                        wgsl::Builtin::WorkgroupIdY
+                    }
+                    cube::Builtin::CubePosZ => {
+                        self.workgroup_id = true;
+                        wgsl::Builtin::WorkgroupIdZ
+                    }
+                    cube::Builtin::CubePosCluster
+                    | cube::Builtin::CubePosClusterX
+                    | cube::Builtin::CubePosClusterY
+                    | cube::Builtin::CubePosClusterZ => {
+                        constant(self.constant_var(1));
+                        return;
+                    }
+                    cube::Builtin::AbsolutePosX => {
+                        self.global_invocation_id = true;
+                        wgsl::Builtin::GlobalInvocationIdX
+                    }
+                    cube::Builtin::AbsolutePosY => {
+                        self.global_invocation_id = true;
+                        wgsl::Builtin::GlobalInvocationIdY
+                    }
+                    cube::Builtin::AbsolutePosZ => {
+                        self.global_invocation_id = true;
+                        wgsl::Builtin::GlobalInvocationIdZ
+                    }
+                    cube::Builtin::CubeDimX => wgsl::Builtin::WorkgroupSizeX,
+                    cube::Builtin::CubeDimY => wgsl::Builtin::WorkgroupSizeY,
+                    cube::Builtin::CubeDimZ => wgsl::Builtin::WorkgroupSizeZ,
+                    cube::Builtin::CubeClusterDim
+                    | cube::Builtin::CubeClusterDimX
+                    | cube::Builtin::CubeClusterDimY
+                    | cube::Builtin::CubeClusterDimZ => {
+                        constant(self.constant_var(1));
+                        return;
+                    }
+                    cube::Builtin::CubeCountX => {
+                        self.num_workgroups = true;
+                        wgsl::Builtin::NumWorkgroupsX
+                    }
+                    cube::Builtin::CubeCountY => {
+                        self.num_workgroups = true;
+                        wgsl::Builtin::NumWorkgroupsY
+                    }
+                    cube::Builtin::CubeCountZ => {
+                        self.num_workgroups = true;
+                        wgsl::Builtin::NumWorkgroupsZ
+                    }
+                    cube::Builtin::CubePos => {
+                        self.workgroup_id_no_axis = true;
+                        wgsl::Builtin::WorkgroupId
+                    }
+                    cube::Builtin::CubeDim => {
+                        self.workgroup_size_no_axis = true;
+                        wgsl::Builtin::WorkgroupSize
+                    }
+                    cube::Builtin::CubeCount => {
+                        self.num_workgroup_no_axis = true;
+                        wgsl::Builtin::NumWorkgroups
+                    }
+                    cube::Builtin::PlaneDim => {
+                        self.subgroup_size = true;
+                        wgsl::Builtin::SubgroupSize
+                    }
+                    cube::Builtin::PlanePos => {
+                        self.subgroup_id = true;
+                        wgsl::Builtin::SubgroupId
+                    }
+                    cube::Builtin::UnitPosPlane => {
+                        self.subgroup_invocation_id = true;
+                        wgsl::Builtin::SubgroupInvocationId
+                    }
+                };
+                instructions.push(wgsl::Instruction::ReadBuiltin { builtin, out });
+            }
         }
     }
 

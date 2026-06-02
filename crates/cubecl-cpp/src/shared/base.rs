@@ -4,7 +4,7 @@ use super::{
     KernelArg, SharedMemory, UnaryInstruction, Variable, WarpInstruction, WmmaInstruction,
     barrier::BarrierOps, pipeline::PipelineOps,
 };
-use crate::shared::{MmaShape, PointerClass};
+use crate::shared::{Builtin, MmaShape, PointerClass};
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
     CubeDim,
@@ -1631,6 +1631,156 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Reinterpret(op) => {
                 instructions.push(Instruction::Bitcast(self.compile_unary(op, out)))
             }
+            gpu::Operator::ReadBuiltin(builtin) => {
+                let out = self.compile_variable(out);
+                let mut assign = |var| {
+                    instructions.push(Instruction::Assign(UnaryInstruction { input: var, out }));
+                };
+                let builtin = match builtin {
+                    gpu::Builtin::AbsolutePos => {
+                        self.flags.indexes.absolute_pos = true;
+                        Builtin::AbsolutePos(*self.addr_type.elem())
+                    }
+                    gpu::Builtin::CubePosCluster
+                        if self.compilation_options.supports_features.clusters =>
+                    {
+                        self.flags.indexes.cluster_pos = true;
+                        Builtin::ClusterRank
+                    }
+                    gpu::Builtin::CubePosClusterX
+                        if self.compilation_options.supports_features.clusters =>
+                    {
+                        self.flags.indexes.cluster_pos = true;
+                        Builtin::ClusterIndexX
+                    }
+                    gpu::Builtin::CubePosClusterY
+                        if self.compilation_options.supports_features.clusters =>
+                    {
+                        self.flags.indexes.cluster_pos = true;
+                        Builtin::ClusterIndexY
+                    }
+                    gpu::Builtin::CubePosClusterZ
+                        if self.compilation_options.supports_features.clusters =>
+                    {
+                        self.flags.indexes.cluster_pos = true;
+                        Builtin::ClusterIndexZ
+                    }
+                    // Fallback if clusters aren't supported, ID is always 0 since clusters are always
+                    // (1, 1, 1) if unsupported
+                    gpu::Builtin::CubePosCluster
+                    | gpu::Builtin::CubePosClusterX
+                    | gpu::Builtin::CubePosClusterY
+                    | gpu::Builtin::CubePosClusterZ => {
+                        assign(const_u32(0));
+                        return;
+                    }
+                    gpu::Builtin::AbsolutePosX => {
+                        self.flags.indexes.absolute_pos_tuple = true;
+                        Builtin::AbsolutePosX
+                    }
+                    gpu::Builtin::AbsolutePosY => {
+                        self.flags.indexes.absolute_pos_tuple = true;
+                        Builtin::AbsolutePosY
+                    }
+                    gpu::Builtin::AbsolutePosZ => {
+                        self.flags.indexes.absolute_pos_tuple = true;
+                        Builtin::AbsolutePosZ
+                    }
+                    gpu::Builtin::CubeDim => {
+                        self.flags.indexes.cube_dim = true;
+                        Builtin::CubeDim
+                    }
+                    gpu::Builtin::CubeDimX => {
+                        self.flags.indexes.cube_dim_tuple = true;
+                        Builtin::CubeDimX
+                    }
+                    gpu::Builtin::CubeDimY => {
+                        self.flags.indexes.cube_dim_tuple = true;
+                        Builtin::CubeDimY
+                    }
+                    gpu::Builtin::CubeDimZ => {
+                        self.flags.indexes.cube_dim_tuple = true;
+                        Builtin::CubeDimZ
+                    }
+                    gpu::Builtin::CubeClusterDim => {
+                        assign(const_u32(self.cluster_dim.num_elems()));
+                        return;
+                    }
+                    gpu::Builtin::CubeClusterDimX => {
+                        assign(const_u32(self.cluster_dim.x));
+                        return;
+                    }
+                    gpu::Builtin::CubeClusterDimY => {
+                        assign(const_u32(self.cluster_dim.y));
+                        return;
+                    }
+                    gpu::Builtin::CubeClusterDimZ => {
+                        assign(const_u32(self.cluster_dim.z));
+                        return;
+                    }
+                    gpu::Builtin::CubePos => {
+                        self.flags.indexes.cube_pos = true;
+                        Builtin::CubePos(*self.addr_type.elem())
+                    }
+                    gpu::Builtin::CubePosX => {
+                        self.flags.indexes.cube_pos_tuple = true;
+                        Builtin::CubePosX
+                    }
+                    gpu::Builtin::CubePosY => {
+                        self.flags.indexes.cube_pos_tuple = true;
+                        Builtin::CubePosY
+                    }
+                    gpu::Builtin::CubePosZ => {
+                        self.flags.indexes.cube_pos_tuple = true;
+                        Builtin::CubePosZ
+                    }
+                    gpu::Builtin::CubeCount => {
+                        self.flags.indexes.cube_count = true;
+                        Builtin::CubeCount(*self.addr_type.elem())
+                    }
+                    gpu::Builtin::CubeCountX => {
+                        self.flags.indexes.cube_count_tuple = true;
+                        Builtin::CubeCountX
+                    }
+                    gpu::Builtin::CubeCountY => {
+                        self.flags.indexes.cube_count_tuple = true;
+                        Builtin::CubeCountY
+                    }
+                    gpu::Builtin::CubeCountZ => {
+                        self.flags.indexes.cube_count_tuple = true;
+                        Builtin::CubeCountZ
+                    }
+                    gpu::Builtin::UnitPos => {
+                        self.flags.indexes.unit_pos = true;
+                        Builtin::UnitPos
+                    }
+                    gpu::Builtin::UnitPosX => {
+                        self.flags.indexes.unit_pos_tuple = true;
+                        Builtin::UnitPosX
+                    }
+                    gpu::Builtin::UnitPosY => {
+                        self.flags.indexes.unit_pos_tuple = true;
+                        Builtin::UnitPosY
+                    }
+                    gpu::Builtin::UnitPosZ => {
+                        self.flags.indexes.unit_pos_tuple = true;
+                        Builtin::UnitPosZ
+                    }
+                    gpu::Builtin::PlaneDim => {
+                        self.flags.indexes.plane_dim = true;
+                        Builtin::PlaneDim
+                    }
+                    gpu::Builtin::PlanePos => {
+                        self.flags.indexes.plane_pos = true;
+                        Builtin::PlanePos
+                    }
+                    gpu::Builtin::UnitPosPlane => {
+                        self.flags.indexes.unit_pos_plane = true;
+                        Builtin::UnitPosPlane
+                    }
+                };
+                instructions.push(Instruction::ReadBuiltin { builtin, out })
+            }
         };
     }
 
@@ -1723,137 +1873,6 @@ impl<D: Dialect> CppCompiler<D> {
                 let item = self.compile_type(item);
                 Variable::ConstantArray(id, item, length * unroll_factor)
             }
-            gpu::VariableKind::Builtin(builtin) => match builtin {
-                gpu::Builtin::AbsolutePos => {
-                    self.flags.indexes.absolute_pos = true;
-                    let item = self.compile_type(item);
-                    Variable::AbsolutePos(*item.elem())
-                }
-                gpu::Builtin::CubePosCluster
-                    if self.compilation_options.supports_features.clusters =>
-                {
-                    self.flags.indexes.cluster_pos = true;
-                    Variable::ClusterRank
-                }
-                gpu::Builtin::CubePosClusterX
-                    if self.compilation_options.supports_features.clusters =>
-                {
-                    self.flags.indexes.cluster_pos = true;
-                    Variable::ClusterIndexX
-                }
-                gpu::Builtin::CubePosClusterY
-                    if self.compilation_options.supports_features.clusters =>
-                {
-                    self.flags.indexes.cluster_pos = true;
-                    Variable::ClusterIndexY
-                }
-                gpu::Builtin::CubePosClusterZ
-                    if self.compilation_options.supports_features.clusters =>
-                {
-                    self.flags.indexes.cluster_pos = true;
-                    Variable::ClusterIndexZ
-                }
-                // Fallback if clusters aren't supported, ID is always 0 since clusters are always
-                // (1, 1, 1) if unsupported
-                gpu::Builtin::CubePosCluster
-                | gpu::Builtin::CubePosClusterX
-                | gpu::Builtin::CubePosClusterY
-                | gpu::Builtin::CubePosClusterZ => const_u32(0),
-                gpu::Builtin::AbsolutePosX => {
-                    self.flags.indexes.absolute_pos_tuple = true;
-                    Variable::AbsolutePosX
-                }
-                gpu::Builtin::AbsolutePosY => {
-                    self.flags.indexes.absolute_pos_tuple = true;
-                    Variable::AbsolutePosY
-                }
-                gpu::Builtin::AbsolutePosZ => {
-                    self.flags.indexes.absolute_pos_tuple = true;
-                    Variable::AbsolutePosZ
-                }
-                gpu::Builtin::CubeDim => {
-                    self.flags.indexes.cube_dim = true;
-                    Variable::CubeDim
-                }
-                gpu::Builtin::CubeDimX => {
-                    self.flags.indexes.cube_dim_tuple = true;
-                    Variable::CubeDimX
-                }
-                gpu::Builtin::CubeDimY => {
-                    self.flags.indexes.cube_dim_tuple = true;
-                    Variable::CubeDimY
-                }
-                gpu::Builtin::CubeDimZ => {
-                    self.flags.indexes.cube_dim_tuple = true;
-                    Variable::CubeDimZ
-                }
-                gpu::Builtin::CubeClusterDim => const_u32(self.cluster_dim.num_elems()),
-                gpu::Builtin::CubeClusterDimX => const_u32(self.cluster_dim.x),
-                gpu::Builtin::CubeClusterDimY => const_u32(self.cluster_dim.y),
-                gpu::Builtin::CubeClusterDimZ => const_u32(self.cluster_dim.z),
-                gpu::Builtin::CubePos => {
-                    self.flags.indexes.cube_pos = true;
-                    let item = self.compile_type(item);
-                    Variable::CubePos(*item.elem())
-                }
-                gpu::Builtin::CubePosX => {
-                    self.flags.indexes.cube_pos_tuple = true;
-                    Variable::CubePosX
-                }
-                gpu::Builtin::CubePosY => {
-                    self.flags.indexes.cube_pos_tuple = true;
-                    Variable::CubePosY
-                }
-                gpu::Builtin::CubePosZ => {
-                    self.flags.indexes.cube_pos_tuple = true;
-                    Variable::CubePosZ
-                }
-                gpu::Builtin::CubeCount => {
-                    self.flags.indexes.cube_count = true;
-                    let item = self.compile_type(item);
-                    Variable::CubeCount(*item.elem())
-                }
-                gpu::Builtin::CubeCountX => {
-                    self.flags.indexes.cube_count_tuple = true;
-                    Variable::CubeCountX
-                }
-                gpu::Builtin::CubeCountY => {
-                    self.flags.indexes.cube_count_tuple = true;
-                    Variable::CubeCountY
-                }
-                gpu::Builtin::CubeCountZ => {
-                    self.flags.indexes.cube_count_tuple = true;
-                    Variable::CubeCountZ
-                }
-                gpu::Builtin::UnitPos => {
-                    self.flags.indexes.unit_pos = true;
-                    Variable::UnitPos
-                }
-                gpu::Builtin::UnitPosX => {
-                    self.flags.indexes.unit_pos_tuple = true;
-                    Variable::UnitPosX
-                }
-                gpu::Builtin::UnitPosY => {
-                    self.flags.indexes.unit_pos_tuple = true;
-                    Variable::UnitPosY
-                }
-                gpu::Builtin::UnitPosZ => {
-                    self.flags.indexes.unit_pos_tuple = true;
-                    Variable::UnitPosZ
-                }
-                gpu::Builtin::PlaneDim => {
-                    self.flags.indexes.plane_dim = true;
-                    Variable::PlaneDim
-                }
-                gpu::Builtin::PlanePos => {
-                    self.flags.indexes.plane_pos = true;
-                    Variable::PlanePos
-                }
-                gpu::Builtin::UnitPosPlane => {
-                    self.flags.indexes.unit_pos_plane = true;
-                    Variable::UnitPosPlane
-                }
-            },
             gpu::VariableKind::Matrix { id, mat } => {
                 self.flags.inst_wmma = true;
                 Variable::WmmaFragment {

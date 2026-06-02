@@ -1,19 +1,19 @@
-use crate::{Dialect, shared::Variable};
+use crate::{Dialect, shared::Builtin};
 
 use super::BuiltInAttribute;
 
-impl<D: Dialect> Variable<D> {
+impl<D: Dialect> Builtin<D> {
     pub fn attribute(&self) -> BuiltInAttribute {
         match self {
-            Variable::AbsolutePosBaseName => BuiltInAttribute::ThreadPositionInGrid,
-            Variable::CubeCountBaseName => BuiltInAttribute::ThreadgroupsPerGrid,
-            Variable::CubeDimBaseName => BuiltInAttribute::ThreadsPerThreadgroup,
-            Variable::CubePosBaseName => BuiltInAttribute::ThreadgroupPositionInGrid,
-            Variable::PlaneDim => BuiltInAttribute::ThreadsPerSIMDgroup,
-            Variable::PlanePos => BuiltInAttribute::SIMDgroupIndexInThreadgroup,
-            Variable::UnitPosBaseName => BuiltInAttribute::ThreadPositionInThreadgroup,
-            Variable::UnitPos => BuiltInAttribute::ThreadIndexInThreadgroup,
-            Variable::UnitPosPlane => BuiltInAttribute::ThreadIndexInSIMDgroup,
+            Builtin::AbsolutePosBaseName => BuiltInAttribute::ThreadPositionInGrid,
+            Builtin::CubeCountBaseName => BuiltInAttribute::ThreadgroupsPerGrid,
+            Builtin::CubeDimBaseName => BuiltInAttribute::ThreadsPerThreadgroup,
+            Builtin::CubePosBaseName => BuiltInAttribute::ThreadgroupPositionInGrid,
+            Builtin::PlaneDim => BuiltInAttribute::ThreadsPerSIMDgroup,
+            Builtin::PlanePos => BuiltInAttribute::SIMDgroupIndexInThreadgroup,
+            Builtin::UnitPosBaseName => BuiltInAttribute::ThreadPositionInThreadgroup,
+            Builtin::UnitPos => BuiltInAttribute::ThreadIndexInThreadgroup,
+            Builtin::UnitPosPlane => BuiltInAttribute::ThreadIndexInSIMDgroup,
             _ => BuiltInAttribute::None,
         }
     }

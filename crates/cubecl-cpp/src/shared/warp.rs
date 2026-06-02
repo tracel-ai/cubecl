@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::shared::{Component, FmtLeft};
+use crate::shared::{Builtin, Component, FmtLeft};
 
 use super::{Dialect, IndexedVariable, Item, Variable};
 
@@ -253,7 +253,7 @@ pub(crate) fn reduce_inclusive<D: Dialect>(
         let acc_indexed = maybe_index(acc, index);
         let tmp = Variable::tmp(Item::Scalar(*acc_item.elem()));
         let tmp_left = tmp.fmt_left();
-        let lane_id = Variable::<D>::UnitPosPlane;
+        let lane_id = Builtin::<D>::UnitPosPlane;
         write!(
             f,
             "
@@ -292,7 +292,7 @@ pub(crate) fn reduce_exclusive<D: Dialect>(
         D::compile_warp_shuffle_up(f, &inclusive_indexed.to_string(), "1")?;
     }
     writeln!(f, "}};")?;
-    let lane_id = Variable::<D>::UnitPosPlane;
+    let lane_id = Builtin::<D>::UnitPosPlane;
 
     write!(
         f,
