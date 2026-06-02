@@ -832,6 +832,8 @@ mod custom_channel {
                 println!("[{:?}] task", std::thread::current().id());
                 task.run();
             }
+            println!("[{:?}] done all tasks", std::thread::current().id());
+
             self.ready_to_execute = false;
         }
 

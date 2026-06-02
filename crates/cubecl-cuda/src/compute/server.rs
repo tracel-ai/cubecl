@@ -398,10 +398,20 @@ impl ServerCommunication for CudaServer {
             })?;
         }
 
+        println!(
+            "[{:?}] cuda server all_reduce DONE",
+            std::thread::current().id()
+        );
+
         Ok(())
     }
 
     fn sync_collective(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        println!(
+            "[{:?}] cuda server sync_collective",
+            std::thread::current().id()
+        );
+
         let mut command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -414,6 +424,11 @@ impl ServerCommunication for CudaServer {
         drop(command);
 
         Fence::new(self.comm_stream).wait_async(stream);
+
+        println!(
+            "[{:?}] cuda server sync_collective DONE",
+            std::thread::current().id()
+        );
 
         Ok(())
     }
