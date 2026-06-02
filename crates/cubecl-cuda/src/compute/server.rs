@@ -96,7 +96,10 @@ impl ComputeServer for CudaServer {
         descriptors: Vec<CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
-        println!("IN CUDA READ LETS GOOO!");
+        println!(
+            "[{:?}] IN CUDA READ LETS GOOO!",
+            std::thread::current().id()
+        );
         match self.command(
             stream_id,
             descriptors.iter().map(|d| &d.handle),
@@ -105,12 +108,20 @@ impl ComputeServer for CudaServer {
                 flush: true,
             },
         ) {
-            Ok(mut command) => Box::pin(command.read_async(descriptors)),
-            Err(err) => Box::pin(async move { Err(err) }),
+            Ok(mut command) => {
+                println!("[{:?}] IN CUDA READ DONE!", std::thread::current().id());
+                Box::pin(command.read_async(descriptors))
+            }
+            Err(err) => {
+                println!("[{:?}] IN CUDA READ DONE!", std::thread::current().id());
+                Box::pin(async move { Err(err) })
+            }
         }
     }
 
     fn initialize_memory(&mut self, memory: ManagedMemoryHandle, size: u64, stream_id: StreamId) {
+        println!("[{:?}] init mem start", std::thread::current().id());
+
         let mut command = match self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -124,9 +135,13 @@ impl ComputeServer for CudaServer {
 
         let reserved = command.reserve(size).unwrap();
         command.bind(reserved, memory);
+
+        println!("[{:?}] init mem done", std::thread::current().id());
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor, Bytes)>, stream_id: StreamId) {
+        println!("[{:?}] write start", std::thread::current().id());
+
         let mut command = match self.command(
             stream_id,
             descriptors.iter().map(|desc| &desc.0.handle),
@@ -145,6 +160,8 @@ impl ComputeServer for CudaServer {
                 return;
             }
         }
+
+        println!("[{:?}] write done", std::thread::current().id());
     }
 
     unsafe fn launch(
@@ -155,6 +172,7 @@ impl ComputeServer for CudaServer {
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
+        println!("[{:?}] launch start", std::thread::current().id());
         if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id) {
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
                 Ok(stream) => stream,
@@ -162,9 +180,11 @@ impl ComputeServer for CudaServer {
             };
             stream.current().errors.push(err);
         }
+        println!("[{:?}] launch done", std::thread::current().id());
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        println!("[{:?}] flush start", std::thread::current().id());
         let mut command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -177,10 +197,13 @@ impl ComputeServer for CudaServer {
         current.drop_queue.flush(|| Fence::new(current.sys));
         current.memory_management_gpu.storage().flush();
 
+        println!("[{:?}] flush done", std::thread::current().id());
+
         Ok(())
     }
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
+        println!("[{:?}] synbc start", std::thread::current().id());
         let command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
@@ -190,7 +213,11 @@ impl ComputeServer for CudaServer {
         );
 
         match command {
-            Ok(mut command) => command.sync(),
+            Ok(mut command) => {
+                let res = command.sync();
+                println!("[{:?}] synbc done", std::thread::current().id());
+                res
+            }
             Err(err) => Box::pin(async { Err(err) }),
         }
     }
@@ -218,6 +245,7 @@ impl ComputeServer for CudaServer {
         binding: Binding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<GpuResource>, ServerError> {
+        println!("[{:?}] get_resource strat", std::thread::current().id());
         let mut command = self.command(
             stream_id,
             [&binding].into_iter(),
@@ -228,6 +256,8 @@ impl ComputeServer for CudaServer {
         )?;
         let memory = binding.memory.clone();
         let resource = command.resource(binding)?;
+
+        println!("[{:?}] get_resource done", std::thread::current().id());
 
         Ok(ManagedResource::new(memory, resource))
     }
@@ -280,6 +310,7 @@ impl ServerCommunication for CudaServer {
     const SERVER_COMM_ENABLED: bool = true;
 
     fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
+        println!("[{:?}] comm_init start", std::thread::current().id());
         let id = CommunicationId::from(device_ids.clone());
         if let Entry::Vacant(e) = self.communicators.entry(id.clone()) {
             let mut comm = MaybeUninit::uninit();
@@ -311,6 +342,8 @@ impl ServerCommunication for CudaServer {
             let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
             initialized_comms.insert(id);
         }
+
+        println!("[{:?}] comm_init done", std::thread::current().id());
 
         Ok(())
     }
@@ -441,6 +474,8 @@ impl ServerCommunication for CudaServer {
         stream_id: StreamId,
         device_id_dst: DeviceId,
     ) -> Result<(), ServerError> {
+        println!("[{:?}] send start", std::thread::current().id());
+
         let binding = desc.handle.clone();
 
         // We create a command on the source server to retrieve the correct resource from the
@@ -497,6 +532,7 @@ impl ServerCommunication for CudaServer {
             })?;
         }
 
+        println!("[{:?}] send done", std::thread::current().id());
         Ok(())
     }
 
@@ -508,6 +544,7 @@ impl ServerCommunication for CudaServer {
         stream_id: StreamId,
         device_id_src: DeviceId,
     ) -> Result<(), ServerError> {
+        println!("[{:?}] send start", std::thread::current().id());
         // We create a new command on the destination server to reserve the necessary GPU memory.
         let mut command_dst = self.command_no_inputs(
             stream_id,
@@ -558,6 +595,7 @@ impl ServerCommunication for CudaServer {
             })?;
         }
 
+        println!("[{:?}] send done", std::thread::current().id());
         Ok(())
     }
 }
