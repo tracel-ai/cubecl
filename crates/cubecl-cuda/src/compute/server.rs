@@ -367,6 +367,7 @@ impl ServerCommunication for CudaServer {
             .get(&CommunicationId::from(device_ids))
             .expect("Communicator for this ID should be initialized");
 
+        println!("[{:?}] cuda server all_reduce", std::thread::current().id());
         println!("cuda server dtype: {dtype}");
         println!("cuda server size: {}", resource_src.size);
         // println!("cuda server dst dtype: {}", resource_dst);

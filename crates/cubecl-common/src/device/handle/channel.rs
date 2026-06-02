@@ -168,10 +168,16 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         // Create a slot on the stack that will hold our pointer.
         let mut slot = Some(move || sender.send(task()).unwrap());
 
+        println!("[{:?}] run_scoped send", std::thread::current().id());
+
         // Send the erased shim to the device thread.
         self.send::<_, SEND_FLUSH>(create_shim(&mut slot))?;
 
+        println!("[{:?}] run_scoped recv", std::thread::current().id());
+
         let res = recv.recv().map_err(|_| CallError);
+
+        println!("[{:?}] run_scoped recved", std::thread::current().id());
 
         res
     }
