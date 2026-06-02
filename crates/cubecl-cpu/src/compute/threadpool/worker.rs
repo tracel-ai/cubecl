@@ -1,8 +1,10 @@
 use std::sync::mpsc;
 use std::thread;
 
-use super::compute_task::ComputeTask;
-use crate::compute::affinity::{CoreId, set_for_current};
+use crate::compute::{
+    affinity::{CoreId, set_for_current},
+    compute_task::ComputeTask,
+};
 
 pub const MAX_STACK_SIZE: usize = 16 * 1024 * 1024;
 pub const DEFAULT_STACK_SIZE: usize = 64 * 1024 * 1024;

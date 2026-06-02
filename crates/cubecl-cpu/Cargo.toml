@@ -61,6 +61,7 @@ serde = { workspace = true }
 sysinfo = { workspace = true }
 tracel-llvm = { workspace = true }
 smallvec = { workspace = true }
+spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 
 [target.'cfg(any(target_os = "android", target_os = "linux", target_os = "macos", target_os = "freebsd"))'.dependencies]
 libc = { workspace = true }

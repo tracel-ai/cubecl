@@ -1,4 +1,4 @@
-use super::{compute_task::ComputeTask, schedule::BindingsResource, worker::Worker};
+use super::{compute_task::ComputeTask, schedule::BindingsResource, threadpool::worker::Worker};
 use crate::{
     compiler::{MlirCompiler, mlir_data::MlirData, mlir_engine::MlirEngine},
     compute::{affinity::get_active_cores, notification::Notifications},
@@ -14,7 +14,11 @@ use cubecl_runtime::{
 use std::{fmt::Debug, sync::Arc};
 use sysinfo::System;
 
-pub mod tests;
+pub mod global_buffer;
+pub mod global_stream_fifo;
+pub mod thread_buffer;
+pub mod thread_stream_fifo;
+pub mod worker;
 
 /// The kernel runner is responsible to manage shared memory as well as threads to execute kernels.
 ///
