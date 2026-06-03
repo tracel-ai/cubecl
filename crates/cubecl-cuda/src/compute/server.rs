@@ -415,6 +415,8 @@ impl ServerCommunication for CudaServer {
 
         println!("cuda server nccl_dtype: {:?}", nccl_dtype);
         println!("cuda server nccl_count: {}", count);
+        println!("cuda server comm: {comm:?}");
+        println!("cuda server comm_stream: {:?}", self.comm_stream);
 
         unsafe {
             cudarc::nccl::result::all_reduce(

@@ -463,6 +463,7 @@ impl<'a> Command<'a> {
         const_info: Option<*mut c_void>,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
+        println!("[{:?}] in cmd kernel", std::thread::current().id());
         if !self.ctx.module_names.contains_key(&kernel_id) {
             self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
         }

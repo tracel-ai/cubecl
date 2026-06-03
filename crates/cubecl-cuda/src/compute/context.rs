@@ -292,6 +292,9 @@ impl CudaContext {
 
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
+
+        println!("[{:?}] in ctx execute task", std::thread::current().id());
+
         // SAFETY: `kernel.func` is a valid function handle from a loaded module.
         // `stream.sys` is a valid CUDA stream. `bindings` contains valid device pointers
         // for all kernel arguments. The dispatch and cube dimensions are validated by
