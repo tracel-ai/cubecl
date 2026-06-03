@@ -39,6 +39,7 @@ use cudarc::driver::sys::{
     CUtensorMapL2promotion, CUtensorMapSwizzle, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
 use std::{
+    any::type_name_of_val,
     collections::{HashMap, hash_map::Entry},
     ffi::c_void,
     mem::MaybeUninit,
@@ -704,6 +705,7 @@ impl CudaServer {
         stream_id: StreamId,
     ) -> Result<(), ServerError> {
         let mut kernel_id = kernel.id();
+        println!("{}", type_name_of_val(&kernel));
         let logger = self.streams.logger.clone();
         kernel_id.mode(mode);
         let grid_constants = self
