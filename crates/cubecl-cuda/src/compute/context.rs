@@ -227,7 +227,7 @@ impl CudaContext {
                 })?;
             };
 
-            println!("[{:?}] compile kernel compile", std::thread::current().id());
+            println!("[{:?}] compile get_ptx", std::thread::current().id());
 
             cudarc::nvrtc::result::get_ptx(program).map_err(|err| CompilationError::Generic {
                 reason: format!("{err}"),
@@ -262,6 +262,9 @@ impl CudaContext {
             cube_dim,
             repr.shared_memory_size(),
         )?;
+
+        println!("[{:?}] compile load_ptx done", std::thread::current().id());
+
         Ok(())
     }
 
@@ -277,12 +280,15 @@ impl CudaContext {
         // SAFETY: `ptx` is a valid null-terminated PTX binary from NVRTC. `func_name` is a
         // null-terminated `CString` matching the kernel entry point in the compiled module.
         let func = unsafe {
+            println!("[{:?}] load_ptx load_data", std::thread::current().id());
+
             let module = cudarc::driver::result::module::load_data(ptx.as_ptr() as *const _)
                 .map_err(|err| CompilationError::Generic {
                     reason: format!("Unable to load the PTX: {err}"),
                     backtrace: BackTrace::capture(),
                 })?;
 
+            println!("[{:?}] load_ptx get_function", std::thread::current().id());
             cudarc::driver::result::module::get_function(module, func_name).map_err(|err| {
                 CompilationError::Generic {
                     reason: format!("Unable to fetch the function from the module: {err:?}"),
@@ -290,6 +296,8 @@ impl CudaContext {
                 }
             })?
         };
+
+        println!("[{:?}] load_ptx insert", std::thread::current().id());
 
         self.module_names.insert(
             kernel_id.clone(),
