@@ -123,8 +123,12 @@ impl CudaContext {
 
         log::trace!("Compiling kernel");
 
+        println!("[{:?}] compile validate", std::thread::current().id());
+
         validate_cube_dim(&self.properties, kernel_id)?;
         validate_units(&self.properties, kernel_id)?;
+
+        println!("[{:?}] compile compile", std::thread::current().id());
 
         let mut kernel_compiled = kernel.compile(
             &mut Default::default(),
@@ -132,6 +136,8 @@ impl CudaContext {
             mode,
             kernel.address_type(),
         )?;
+
+        println!("[{:?}] compile validate 2", std::thread::current().id());
 
         self.validate_shared(&kernel_compiled.repr)?;
 
@@ -150,6 +156,8 @@ impl CudaContext {
             format!("--gpu-architecture=sm_{}", self.arch)
         };
 
+        println!("[{:?}] compile cccl", std::thread::current().id());
+
         let include_path = include_path();
         let include_option = format!("--include-path={}", include_path.to_str().unwrap());
         let cccl_include_path = cccl_include_path();
@@ -161,6 +169,8 @@ impl CudaContext {
 
         logger.log_compilation(&kernel_compiled);
 
+        println!("[{:?}] compile ptx", std::thread::current().id());
+
         // SAFETY: Calling NVRTC FFI to create, compile, and extract PTX from a program.
         // The `CString` source is null-terminated and outlives the program. On compilation
         // failure, the error log is retrieved and reported before returning.
@@ -168,6 +178,9 @@ impl CudaContext {
             // I'd like to set the name to the kernel name, but keep getting UTF-8 errors so let's
             // leave it `None` for now
             let source = CString::from_str(&kernel_compiled.source).unwrap();
+
+            println!("[{:?}] compile create program", std::thread::current().id());
+
             let program =
                 cudarc::nvrtc::result::create_program(source.as_c_str(), None).map_err(|err| {
                     CompilationError::Generic {
@@ -175,6 +188,12 @@ impl CudaContext {
                         backtrace: BackTrace::capture(),
                     }
                 })?;
+
+            println!(
+                "[{:?}] compile compile program",
+                std::thread::current().id()
+            );
+
             if cudarc::nvrtc::result::compile_program(program, &options).is_err() {
                 let log_raw = cudarc::nvrtc::result::get_program_log(program).map_err(|err| {
                     CompilationError::Generic {
@@ -191,6 +210,9 @@ impl CudaContext {
                         message += format!("\n    {line}").as_str();
                     }
                 }
+
+                println!("[{:?}] compile kernel compile", std::thread::current().id());
+
                 let source = kernel
                     .compile(
                         &mut Default::default(),
@@ -204,6 +226,9 @@ impl CudaContext {
                     backtrace: BackTrace::capture(),
                 })?;
             };
+
+            println!("[{:?}] compile kernel compile", std::thread::current().id());
+
             cudarc::nvrtc::result::get_ptx(program).map_err(|err| CompilationError::Generic {
                 reason: format!("{err}"),
                 backtrace: BackTrace::capture(),
@@ -211,6 +236,8 @@ impl CudaContext {
         };
 
         let repr = kernel_compiled.repr.unwrap();
+
+        println!("[{:?}] compile cache", std::thread::current().id());
 
         if let Some(cache) = &mut self.ptx_cache {
             let result = cache.insert(
@@ -225,6 +252,8 @@ impl CudaContext {
                 log::warn!("Unable to save the ptx {err:?}");
             }
         }
+
+        println!("[{:?}] compile load_ptx", std::thread::current().id());
 
         self.load_ptx(
             ptx,
