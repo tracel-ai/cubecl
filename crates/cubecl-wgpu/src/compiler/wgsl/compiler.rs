@@ -207,6 +207,9 @@ impl WgslCompiler {
             }
             cube::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
             cube::Type::Matrix(_) => unimplemented!("Matrices not yet supported in WGSL"),
+            cube::Type::Aggregate(_) => {
+                unreachable!("Should be disaggregated at this point")
+            }
         }
     }
 
@@ -304,9 +307,6 @@ impl WgslCompiler {
                 panic!("Barrier not supported.")
             }
             cube::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
-            cube::VariableKind::Aggregate { .. } => {
-                unreachable!("Should be disaggregated at this point")
-            }
         }
     }
 

@@ -6,7 +6,7 @@ use cubecl_common::{
     quant::scheme::{QuantParam, QuantValue},
     tf32, ue8m0,
 };
-use derive_more::From;
+use derive_more::{Display, From};
 use half::{bf16, f16};
 
 pub use internment::Intern;
@@ -468,6 +468,7 @@ pub enum Type {
     DynamicArray(Intern<Type>, AddressSpace),
     /// Cooperative Matrix
     Matrix(MatrixType),
+    Aggregate(AggregateKind),
 }
 
 /// `Intern` hashes the pointer, not the values, leading to unstable hashes across runs.
@@ -495,6 +496,9 @@ impl core::hash::Hash for Type {
             }
             Type::Matrix(matrix_type) => {
                 matrix_type.hash(state);
+            }
+            Type::Aggregate(aggregate_kind) => {
+                aggregate_kind.hash(state);
             }
         }
     }
@@ -548,6 +552,12 @@ impl Type {
             Type::DynamicArray(inner, addr_space) => {
                 Type::DynamicArray(inner.with_vector_size(vector_size).intern(), addr_space)
             }
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, meta }) => {
+                Type::Aggregate(AggregateKind::Ptr {
+                    inner_ty: inner_ty.with_vector_size(vector_size).intern(),
+                    meta,
+                })
+            }
             this @ (Type::Scalar(_) | Type::Semantic(_) | Type::Matrix(_)) => this,
         }
     }
@@ -570,6 +580,7 @@ impl Type {
             | Type::Pointer(inner, _) => inner.vector_size(),
             Type::Semantic(_) => 0,
             Type::Matrix(_) => 1,
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.vector_size(),
         }
     }
 
@@ -582,6 +593,7 @@ impl Type {
             }
             Type::Semantic(_) | Type::DynamicArray(..) => 0,
             Type::Matrix(_) => 1,
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.array_size(),
         }
     }
 
@@ -596,6 +608,7 @@ impl Type {
             Type::Pointer(..) => size_of::<u64>(),
             Type::Semantic(_) => 0,
             Type::Matrix(_) => panic!("Can't get size of opaque type `Matrix`"),
+            Type::Aggregate(..) => panic!("Can't get size of opaque type `Aggregate`"),
         }
     }
 
@@ -610,6 +623,7 @@ impl Type {
             Type::Pointer(..) => u64::BITS as usize,
             Type::Semantic(_) => 0,
             Type::Matrix(_) => panic!("Can't get size of opaque type `Matrix`"),
+            Type::Aggregate(..) => panic!("Can't get size of opaque type `Aggregate`"),
         }
     }
 
@@ -623,6 +637,7 @@ impl Type {
             | Type::DynamicArray(ty, ..) => ty.packing_factor(),
             Type::Semantic(_) => 1,
             Type::Matrix(mat) => mat.storage.packing_factor(),
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.packing_factor(),
         }
     }
 
@@ -634,6 +649,7 @@ impl Type {
             | Type::Vector(inner, _)
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_atomic(),
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.is_atomic(),
         }
     }
 
@@ -651,6 +667,7 @@ impl Type {
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_int(),
             Type::Matrix(matrix_type) => matrix_type.storage.is_int(),
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.is_int(),
         }
     }
 
@@ -664,6 +681,7 @@ impl Type {
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_signed_int(),
             Type::Matrix(matrix_type) => matrix_type.storage.is_signed_int(),
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.is_signed_int(),
         }
     }
 
@@ -677,6 +695,7 @@ impl Type {
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_unsigned_int(),
             Type::Matrix(matrix_type) => matrix_type.storage.is_unsigned_int(),
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.is_unsigned_int(),
         }
     }
 
@@ -690,6 +709,7 @@ impl Type {
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_float(),
             Type::Matrix(matrix_type) => matrix_type.storage.is_float(),
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.is_float(),
         }
     }
 
@@ -703,6 +723,7 @@ impl Type {
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_bool(),
             Type::Matrix(matrix_type) => matrix_type.storage.is_bool(),
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.is_bool(),
         }
     }
 
@@ -716,6 +737,7 @@ impl Type {
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.storage_type(),
             Type::Matrix(matrix_type) => matrix_type.storage,
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.storage_type(),
         }
     }
 
@@ -732,7 +754,12 @@ impl Type {
             Type::Pointer(inner, _) | Type::Array(inner, ..) | Type::DynamicArray(inner, ..) => {
                 **inner
             }
-            other => *other,
+            this @ (Type::Scalar(..)
+            | Type::Vector(..)
+            | Type::Semantic(..)
+            | Type::Atomic(..)
+            | Type::Matrix(..)) => *this,
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.value_type(),
         }
     }
 
@@ -760,6 +787,7 @@ impl Display for Type {
                 "matrix<{}, m{}xn{}xk{}x{}, {}, {}>",
                 mat.ident, mat.m, mat.n, mat.k, mat.storage, mat.layout, mat.storage
             ),
+            Type::Aggregate(aggregate_kind) => write!(f, "{aggregate_kind}"),
         }
     }
 }
@@ -841,6 +869,49 @@ impl Display for AddressSpace {
             AddressSpace::Local => f.write_str("local"),
         }
     }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, PartialOrd, Ord, Display)]
+pub enum AggregateKind {
+    #[display("ptr<{meta}, {inner_ty}>")]
+    Ptr {
+        inner_ty: Intern<Type>,
+        meta: MetadataKind,
+    },
+}
+
+impl AggregateKind {
+    pub fn ptr(inner_ty: Type, meta: MetadataKind) -> Self {
+        AggregateKind::Ptr {
+            inner_ty: inner_ty.intern(),
+            meta,
+        }
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, PartialOrd, Ord, Display)]
+pub enum MetadataKind {
+    /// Slice metadata (offset and length)
+    #[display("slice")]
+    Slice,
+    /// Bounds check (in bounds)
+    #[display("bounds_checked")]
+    BoundsCheck,
+}
+
+pub struct BoundsCheckMetadata;
+impl BoundsCheckMetadata {
+    pub const POINTER: usize = 0;
+    pub const IS_IN_BOUNDS: usize = 1;
+}
+
+pub struct SliceMetadata;
+impl SliceMetadata {
+    pub const LIST: usize = 0;
+    pub const OFFSET: usize = 1;
+    pub const LENGTH: usize = 2;
 }
 
 impl From<e2m1x2> for Variable {

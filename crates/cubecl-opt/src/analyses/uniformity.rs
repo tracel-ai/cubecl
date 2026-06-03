@@ -221,7 +221,6 @@ impl Uniformity {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)
             }
             VariableKind::TensorMap(_) => true,
-            VariableKind::Aggregate { .. } => unreachable!("Should be disaggregated at this point"),
         }
     }
 

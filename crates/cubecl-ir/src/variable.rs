@@ -4,7 +4,7 @@ use crate::{AddressSpace, BarrierLevel, FloatKind, IntKind, StorageType, TypeHas
 
 use super::{ElemType, Type, UIntKind};
 use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
-use derive_more::{Display, From};
+use derive_more::From;
 use float_ord::FloatOrd;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -51,8 +51,7 @@ impl Variable {
         match self.kind {
             VariableKind::LocalConst { .. }
             | VariableKind::Constant(..)
-            | VariableKind::BarrierToken { .. }
-            | VariableKind::Aggregate { .. } => false,
+            | VariableKind::BarrierToken { .. } => false,
             VariableKind::GlobalBuffer(_)
             | VariableKind::TensorMap(_)
             | VariableKind::LocalMut { .. }
@@ -73,9 +72,6 @@ impl Variable {
                 VariableKind::LocalMut { .. }
                 | VariableKind::LocalConst { .. }
                 | VariableKind::BarrierToken { .. } => AddressSpace::Local,
-                VariableKind::Aggregate { .. } => {
-                    unimplemented!("Can't create reference to compiler internal aggregate")
-                }
                 VariableKind::Constant(..) => unimplemented!("Can't create reference to constant"),
             },
         }
@@ -93,56 +89,11 @@ pub type Id = u32;
 pub enum VariableKind {
     GlobalBuffer(Id),
     TensorMap(Id),
-    LocalMut {
-        id: Id,
-    },
-    LocalConst {
-        id: Id,
-    },
+    LocalMut { id: Id },
+    LocalConst { id: Id },
     Constant(ConstantValue),
-    Shared {
-        id: Id,
-        alignment: Option<usize>,
-    },
-    BarrierToken {
-        id: Id,
-        level: BarrierLevel,
-    },
-    Aggregate {
-        id: Id,
-        aggregate_kind: AggregateKind,
-    },
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, PartialOrd, Ord, Display)]
-pub enum AggregateKind {
-    #[display("ptr<{_0}>")]
-    Ptr(MetadataKind),
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, PartialOrd, Ord, Display)]
-pub enum MetadataKind {
-    /// Slice metadata (offset and length)
-    #[display("slice")]
-    Slice,
-    /// Bounds check (in bounds)
-    #[display("bounds_checked")]
-    BoundsCheck,
-}
-
-pub struct BoundsCheckMetadata;
-impl BoundsCheckMetadata {
-    pub const POINTER: usize = 0;
-    pub const IS_IN_BOUNDS: usize = 1;
-}
-
-pub struct SliceMetadata;
-impl SliceMetadata {
-    pub const LIST: usize = 0;
-    pub const OFFSET: usize = 1;
-    pub const LENGTH: usize = 2;
+    Shared { id: Id, alignment: Option<usize> },
+    BarrierToken { id: Id, level: BarrierLevel },
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -198,7 +149,6 @@ impl Variable {
             VariableKind::LocalConst { .. } => true,
             VariableKind::Constant(_) => true,
             VariableKind::BarrierToken { .. } => false,
-            VariableKind::Aggregate { .. } => false,
         }
     }
 
@@ -556,7 +506,6 @@ impl Display for VariableKind {
             VariableKind::LocalConst { id } => write!(f, "local({id})"),
             VariableKind::Shared { id, .. } => write!(f, "shared({id})"),
             VariableKind::BarrierToken { id, .. } => write!(f, "barrier_token({id})"),
-            VariableKind::Aggregate { id, aggregate_kind } => write!(f, "{aggregate_kind}({id})"),
         }
     }
 }

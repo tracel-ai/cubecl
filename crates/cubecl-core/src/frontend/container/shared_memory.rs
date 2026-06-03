@@ -8,7 +8,7 @@ use crate::{
 };
 use cubecl_ir::{
     AddressSpace, AggregateKind, BoundsCheckMetadata, Marker, MetadataKind, SliceMetadata,
-    VariableKind, VectorSize,
+    VectorSize,
 };
 use cubecl_macros::{cube, intrinsic};
 
@@ -157,12 +157,16 @@ impl<T: NativeCubeType + ?Sized> Shared<T> {
     /// *Must not* have any dangling references to this shared memory
     pub unsafe fn free(&self) {
         intrinsic!(|scope| {
-            let var = match self.expand.kind {
-                VariableKind::Aggregate { aggregate_kind, .. } => match aggregate_kind {
-                    AggregateKind::Ptr(MetadataKind::Slice) => {
-                        scope.extract_field(self.expand, self.expand.ty, SliceMetadata::LIST)
-                    }
-                    AggregateKind::Ptr(MetadataKind::BoundsCheck) => scope.extract_field(
+            let var = match self.expand.ty {
+                Type::Aggregate(aggregate_kind) => match aggregate_kind {
+                    AggregateKind::Ptr {
+                        meta: MetadataKind::Slice,
+                        ..
+                    } => scope.extract_field(self.expand, self.expand.ty, SliceMetadata::LIST),
+                    AggregateKind::Ptr {
+                        meta: MetadataKind::BoundsCheck,
+                        ..
+                    } => scope.extract_field(
                         self.expand,
                         self.expand.ty,
                         BoundsCheckMetadata::POINTER,

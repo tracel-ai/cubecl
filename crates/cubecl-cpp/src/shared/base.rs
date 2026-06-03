@@ -1843,10 +1843,6 @@ impl<D: Dialect> CppCompiler<D> {
                 self.flags.op_barrier = true;
                 Variable::BarrierToken { id, level }
             }
-            gpu::VariableKind::Aggregate { .. } => {
-                println!("{value}");
-                unreachable!("Should be disaggregated at this point")
-            }
         }
     }
 
@@ -1919,6 +1915,9 @@ impl<D: Dialect> CppCompiler<D> {
                 Item::Fragment(ty)
             }
             gpu::Type::Semantic(_) => Item::Scalar(Elem::Bool),
+            gpu::Type::Aggregate(_) => {
+                unreachable!("Should be disaggregated at this point")
+            }
         };
         if *item.elem() != super::Elem::TF32 {
             self.items.insert(item);

@@ -11,9 +11,9 @@ use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
 
 use crate::{
-    AggregateExtractOperands, AggregateKind, BarrierLevel, CubeFnSource, DeviceProperties,
-    FastMath, Function, Operation, OperationReflect, Processor, SemanticType, SourceLoc,
-    StorageType, TargetProperties, TypeHash, arena::DropBump,
+    AggregateExtractOperands, BarrierLevel, CubeFnSource, DeviceProperties, FastMath, Function,
+    Operation, OperationReflect, Processor, SemanticType, SourceLoc, StorageType, TargetProperties,
+    TypeHash, arena::DropBump,
 };
 
 use super::{
@@ -184,18 +184,6 @@ impl Scope {
     /// Create a new immutable variable.
     pub fn create_local(&self, ty: Type) -> Variable {
         self.state().allocator.create_local(ty)
-    }
-
-    /// Create a new immutable variable of aggregate type.
-    pub fn create_aggregate(&self, ty: Type, kind: AggregateKind) -> Variable {
-        let id = self.state().allocator.new_local_index();
-        Variable::new(
-            VariableKind::Aggregate {
-                id,
-                aggregate_kind: kind,
-            },
-            ty,
-        )
     }
 
     /// Create a new function.
@@ -389,7 +377,7 @@ impl Scope {
     }
 
     pub fn extract_field(&self, aggregate: Variable, ty: Type, field: usize) -> Variable {
-        if !matches!(aggregate.kind, VariableKind::Aggregate { .. }) {
+        if !matches!(aggregate.ty, Type::Aggregate(..)) {
             panic!(
                 "Tried extracting field from non-aggregate {aggregate}.\nCurrent state:\n{}",
                 self.instructions.borrow().iter().join("\n")

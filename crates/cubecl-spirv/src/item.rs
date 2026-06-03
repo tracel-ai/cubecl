@@ -426,6 +426,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     scope: mat.scope,
                 }
             }
+            core::Type::Aggregate(_) => {
+                unreachable!("Should be disaggregated at this point")
+            }
         }
     }
 
@@ -518,9 +521,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             core::VariableKind::Shared { id, .. } => self.state.base_lookups.shared[&id].ptr_ty_id,
             core::VariableKind::BarrierToken { .. } => {
                 unimplemented!("Barrier tokens not supported")
-            }
-            core::VariableKind::Aggregate { .. } => {
-                unreachable!("Should be disaggregated at this point")
             }
         }
     }

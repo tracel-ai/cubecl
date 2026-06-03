@@ -365,9 +365,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             VariableKind::LocalConst { id } => {
                 self.state.bindings.insert(id, param_id);
             }
-            VariableKind::Aggregate { .. } => {
-                unreachable!("Should be disaggregated at this point")
-            }
         }
     }
 

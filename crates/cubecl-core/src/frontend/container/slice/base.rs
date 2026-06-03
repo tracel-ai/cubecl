@@ -25,7 +25,10 @@ impl SliceVisibility for ReadWrite {}
 
 impl<E: CubePrimitive> SliceExpand<E> {
     pub fn __extract_list(&self, scope: &Scope) -> Variable {
-        scope.extract_field(self.expand, self.expand.ty, SliceMetadata::LIST)
+        let Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) = self.expand.ty else {
+            unreachable!("Should be slice aggregate")
+        };
+        scope.extract_field(self.expand, *inner_ty, SliceMetadata::LIST)
     }
 
     pub fn __extract_offset(&self, scope: &Scope) -> NativeExpand<usize> {
@@ -452,7 +455,8 @@ pub fn from_raw_parts<E: CubePrimitive>(
     offset: NativeExpand<usize>,
     length: NativeExpand<usize>,
 ) -> SliceExpand<E> {
-    let out = scope.create_aggregate(list.ty, AggregateKind::Ptr(MetadataKind::Slice));
+    let ty = Type::Aggregate(AggregateKind::ptr(list.ty, MetadataKind::Slice));
+    let out = scope.create_local(ty);
     scope.register(Instruction::new(
         Operation::ConstructAggregate(vec![list, offset.expand, length.expand]),
         out,
