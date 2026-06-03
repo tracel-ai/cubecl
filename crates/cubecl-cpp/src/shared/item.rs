@@ -1,6 +1,9 @@
 use std::fmt::Display;
 
-use cubecl_core::{ir::Intern, prelude::Visibility};
+use cubecl_core::{
+    ir::{BarrierLevel, Intern},
+    prelude::Visibility,
+};
 
 use crate::shared::FragmentType;
 
@@ -16,6 +19,8 @@ pub enum Item<D: Dialect> {
     Array(Intern<Item<D>>, usize),
     DynamicArray(Intern<Item<D>>),
     Fragment(FragmentType<D>),
+    BarrierToken(BarrierLevel),
+    TensorMap,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -64,6 +69,8 @@ impl<D: Dialect> Item<D> {
             | Item::Array(item, _)
             | Item::DynamicArray(item) => item.elem(),
             Item::Fragment(frag) => &frag.elem,
+            Item::BarrierToken(..) => &Elem::Bool,
+            Item::TensorMap => &Elem::Bool,
         }
     }
 
@@ -83,6 +90,8 @@ impl<D: Dialect> Item<D> {
                 frag_ty.elem = elem;
                 Item::Fragment(frag_ty)
             }
+            Item::BarrierToken(..) => panic!("Can't set elem of barrier token"),
+            Item::TensorMap => panic!("Can't set elem of tensor map"),
         }
     }
 
@@ -96,6 +105,8 @@ impl<D: Dialect> Item<D> {
             Item::Array(inner, size) => Item::Array(inner.as_scalar().intern(), *size),
             Item::DynamicArray(inner) => Item::DynamicArray(inner.as_scalar().intern()),
             Item::Fragment(fragment_type) => Item::Fragment(*fragment_type),
+            Item::BarrierToken(..) => panic!("Can't get elem of barrier token"),
+            Item::TensorMap => panic!("Can't get elem of tensor map"),
         }
     }
 
@@ -108,6 +119,8 @@ impl<D: Dialect> Item<D> {
             | Item::Array(inner, _)
             | Item::DynamicArray(inner) => inner.vectorization(),
             Item::Fragment(_) => 1,
+            Item::BarrierToken(..) => 1,
+            Item::TensorMap => 1,
         }
     }
 
@@ -121,6 +134,8 @@ impl<D: Dialect> Item<D> {
             Item::DynamicArray(inner) => inner.size(),
             Item::Pointer(..) => size_of::<u64>(),
             Item::Fragment(_) => panic!("Can't read size of fragment"),
+            Item::BarrierToken(..) => panic!("Can't read size of barrier token"),
+            Item::TensorMap => panic!("Can't read size of tensor map"),
         }
     }
 
@@ -161,6 +176,8 @@ impl<D: Dialect> Item<D> {
             Item::Array(inner, size) => Item::Array(inner.optimized().intern(), *size),
             Item::DynamicArray(inner) => Item::DynamicArray(inner.optimized().intern()),
             Item::Fragment(fragment_type) => Item::Fragment(*fragment_type),
+            Item::BarrierToken(barrier_level) => Item::BarrierToken(*barrier_level),
+            Item::TensorMap => Item::TensorMap,
         }
     }
 
@@ -204,6 +221,8 @@ impl<D: Dialect> Item<D> {
             Item::Array(inner, size) => Item::Array(inner.de_optimized().intern(), *size),
             Item::DynamicArray(inner) => Item::DynamicArray(inner.de_optimized().intern()),
             Item::Fragment(fragment_type) => Item::Fragment(*fragment_type),
+            Item::BarrierToken(barrier_level) => Item::BarrierToken(*barrier_level),
+            Item::TensorMap => Item::TensorMap,
         }
     }
 

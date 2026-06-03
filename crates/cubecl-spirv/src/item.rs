@@ -394,7 +394,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 Item::Pointer(storage_class, Box::new(item))
             }
             core::Type::Semantic(semantic) => match semantic {
-                core::SemanticType::BarrierToken | core::SemanticType::TensorMap => {
+                core::SemanticType::BarrierToken(..) | core::SemanticType::TensorMap => {
                     unimplemented!("Unsupported semantic type")
                 }
                 core::SemanticType::TensorLayout(dims, clamp_mode) => Item::TensorLayout {
@@ -519,9 +519,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             | core::VariableKind::LocalConst { .. }
             | core::VariableKind::Constant(..) => self.compile_type(var.ty).id(self),
             core::VariableKind::Shared { id, .. } => self.state.base_lookups.shared[&id].ptr_ty_id,
-            core::VariableKind::BarrierToken { .. } => {
-                unimplemented!("Barrier tokens not supported")
-            }
         }
     }
 

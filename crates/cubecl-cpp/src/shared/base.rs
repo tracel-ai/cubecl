@@ -1839,10 +1839,6 @@ impl<D: Dialect> CppCompiler<D> {
                 let item = self.compile_type(item);
                 Variable::Shared(id, item)
             }
-            gpu::VariableKind::BarrierToken { id, level } => {
-                self.flags.op_barrier = true;
-                Variable::BarrierToken { id, level }
-            }
         }
     }
 
@@ -1914,7 +1910,7 @@ impl<D: Dialect> CppCompiler<D> {
                 let ty = self.compile_matrix(ty);
                 Item::Fragment(ty)
             }
-            gpu::Type::Semantic(_) => Item::Scalar(Elem::Bool),
+            gpu::Type::Semantic(ty) => self.compile_semantic_type(ty),
             gpu::Type::Aggregate(_) => {
                 unreachable!("Should be disaggregated at this point")
             }
@@ -2034,6 +2030,19 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::UIntKind::U64 => Elem::U64,
             },
             gpu::ElemType::Bool => Elem::Bool,
+        }
+    }
+
+    fn compile_semantic_type(&mut self, value: gpu::SemanticType) -> Item<D> {
+        match value {
+            gpu::SemanticType::BarrierToken(barrier_level) => {
+                self.flags.op_barrier = true;
+                Item::BarrierToken(barrier_level)
+            }
+            gpu::SemanticType::TensorMap => Item::TensorMap,
+            gpu::SemanticType::TensorLayout(..) | gpu::SemanticType::TensorView(..) => {
+                panic!("Tensor addressing is only supported on Vulkan")
+            }
         }
     }
 }

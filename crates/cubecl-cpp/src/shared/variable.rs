@@ -1,6 +1,6 @@
 use cubecl_core::{
     e2m1, e2m1x2, e4m3, e5m2,
-    ir::{BarrierLevel, ConstantValue, Id},
+    ir::{ConstantValue, Id},
     ue8m0,
 };
 use cubecl_runtime::kernel::Visibility;
@@ -47,14 +47,6 @@ pub enum Variable<D: Dialect> {
         item: Item<D>,
     },
     Shared(Id, Item<D>),
-    Barrier {
-        id: Id,
-        level: BarrierLevel,
-    },
-    BarrierToken {
-        id: Id,
-        level: BarrierLevel,
-    },
     Tmp {
         id: Id,
         item: Item<D>,
@@ -164,7 +156,6 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::Slice { item, .. } => *item,
             Variable::Constant(_, e) => *e,
             Variable::Tmp { item, .. } => *item,
-            Variable::Barrier { .. } | Variable::BarrierToken { .. } => Item::Scalar(Elem::Bool),
             Variable::TensorMap(_) => unreachable!(),
         }
     }
@@ -231,8 +222,6 @@ impl<D: Dialect> Display for Variable<D> {
                 write!(f, "shared_memory_{number}")
             }
             Variable::Tmp { id, .. } => write!(f, "_tmp_{id}"),
-            Variable::Barrier { id, .. } => write!(f, "barrier_{id}"),
-            Variable::BarrierToken { id, .. } => write!(f, "barrier_{id}_token"),
         }
     }
 }
@@ -431,7 +420,6 @@ impl<D: Dialect> Variable<D> {
             Variable::LocalConst { id, .. } => Some(*id),
             Variable::Slice { id, .. } => Some(*id),
             Variable::Shared(id, ..) => Some(*id),
-            Variable::Barrier { id, .. } => Some(*id),
             Variable::Tmp { id, .. } => Some(*id),
             _ => None,
         }
@@ -479,6 +467,12 @@ impl<D: Dialect> FmtLeft for Variable<D> {
             Self::LocalConst { item, .. } => match item {
                 // Pointer constness is determined by the type, not variable kind
                 Item::Pointer(..) => {
+                    format!("{item} {self}")
+                }
+                // C++ has weird semantics so this needs to be mutable for use with `std::move`.
+                // `std::move` preserves constness for the moved value, and the API requires
+                // a non-const `BarrierToken&&`.
+                Item::BarrierToken(..) => {
                     format!("{item} {self}")
                 }
                 _ => {

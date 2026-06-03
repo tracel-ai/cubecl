@@ -1,6 +1,6 @@
 use core::{fmt::Display, hash::Hash};
 
-use crate::{AddressSpace, BarrierLevel, FloatKind, IntKind, StorageType, TypeHash};
+use crate::{AddressSpace, FloatKind, IntKind, StorageType, TypeHash};
 
 use super::{ElemType, Type, UIntKind};
 use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
@@ -49,9 +49,7 @@ impl Variable {
 
     pub fn can_mutate(&self) -> bool {
         match self.kind {
-            VariableKind::LocalConst { .. }
-            | VariableKind::Constant(..)
-            | VariableKind::BarrierToken { .. } => false,
+            VariableKind::LocalConst { .. } | VariableKind::Constant(..) => false,
             VariableKind::GlobalBuffer(_)
             | VariableKind::TensorMap(_)
             | VariableKind::LocalMut { .. }
@@ -69,9 +67,9 @@ impl Variable {
                     AddressSpace::Global(id)
                 }
                 VariableKind::Shared { .. } => AddressSpace::Shared,
-                VariableKind::LocalMut { .. }
-                | VariableKind::LocalConst { .. }
-                | VariableKind::BarrierToken { .. } => AddressSpace::Local,
+                VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
+                    AddressSpace::Local
+                }
                 VariableKind::Constant(..) => unimplemented!("Can't create reference to constant"),
             },
         }
@@ -93,7 +91,6 @@ pub enum VariableKind {
     LocalConst { id: Id },
     Constant(ConstantValue),
     Shared { id: Id, alignment: Option<usize> },
-    BarrierToken { id: Id, level: BarrierLevel },
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -148,7 +145,6 @@ impl Variable {
             VariableKind::Shared { .. } => false,
             VariableKind::LocalConst { .. } => true,
             VariableKind::Constant(_) => true,
-            VariableKind::BarrierToken { .. } => false,
         }
     }
 
@@ -505,7 +501,6 @@ impl Display for VariableKind {
             VariableKind::LocalMut { id } => write!(f, "local_mut({id})"),
             VariableKind::LocalConst { id } => write!(f, "local({id})"),
             VariableKind::Shared { id, .. } => write!(f, "shared({id})"),
-            VariableKind::BarrierToken { id, .. } => write!(f, "barrier_token({id})"),
         }
     }
 }

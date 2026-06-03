@@ -303,9 +303,6 @@ impl WgslCompiler {
                 }
                 wgsl::Variable::Shared(id, item)
             }
-            cube::VariableKind::BarrierToken { .. } => {
-                panic!("Barrier not supported.")
-            }
             cube::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
         }
     }

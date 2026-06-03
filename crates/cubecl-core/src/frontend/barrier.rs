@@ -3,7 +3,7 @@
 use alloc::vec;
 
 use crate as cubecl;
-use cubecl_ir::{Instruction, OpaqueType, Variable};
+use cubecl_ir::{Instruction, OpaqueType, SemanticType, Variable};
 use cubecl_macros::intrinsic;
 use paste::paste;
 
@@ -345,7 +345,7 @@ impl Barrier {
             let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type() else {
                 unreachable!()
             };
-            let token = scope.create_barrier_token(barrier.index().unwrap(), level);
+            let token = scope.create_local(Type::Semantic(SemanticType::BarrierToken(level)));
             scope.register(Instruction::new(BarrierOps::Arrive { barrier }, token));
             token.into()
         })
@@ -358,7 +358,7 @@ impl Barrier {
             let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type() else {
                 unreachable!()
             };
-            let token = scope.create_barrier_token(barrier.index().unwrap(), level);
+            let token = scope.create_local(Type::Semantic(SemanticType::BarrierToken(level)));
             let arrival_count: Variable = arrival_count.into();
             let transaction_count: Variable = transaction_count.into();
             scope.register(Instruction::new(
@@ -515,7 +515,7 @@ impl Barrier {
             let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type() else {
                 unreachable!()
             };
-            let token = scope.create_barrier_token(barrier.index().unwrap(), level);
+            let token = scope.create_local(Type::Semantic(SemanticType::BarrierToken(level)));
             scope.register(Instruction::new(
                 BarrierOps::CommitCopyAsync { barrier },
                 token,

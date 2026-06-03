@@ -48,9 +48,6 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
         VariableKind::LocalConst { id } => Value::Local(Local { id, item }),
         VariableKind::Constant(val) => Value::Constant(val, item),
         VariableKind::LocalMut { .. } | VariableKind::Shared { .. } => None?,
-        VariableKind::BarrierToken { .. } => {
-            panic!("Barrier is not supported")
-        }
         VariableKind::TensorMap(_) => panic!("Tensor map is not supported"),
     };
     Some(val)

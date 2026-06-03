@@ -3,7 +3,9 @@ use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
 use cubecl_core::{
-    ir::Processor, post_processing::saturating::SaturatingArithmeticProcessor, prelude::Visibility,
+    ir::{BarrierLevel, Processor},
+    post_processing::saturating::SaturatingArithmeticProcessor,
+    prelude::Visibility,
 };
 
 use crate::shared::{DialectWarpReduceCompiler, PointerClass};
@@ -320,6 +322,13 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
                 write!(f, "{inner}*")
             }
             Item::Fragment(fragment_type) => write!(f, "{fragment_type}"),
+            Item::BarrierToken(BarrierLevel::Cube) => {
+                write!(f, "cuda::barrier<cuda::thread_scope_block>::arrival_token")
+            }
+            Item::BarrierToken(BarrierLevel::Unit) => {
+                write!(f, "cuda::barrier<cuda::thread_scope_thread>::arrival_token")
+            }
+            Item::TensorMap => panic!("TensorMap not supported on HIP"),
         }
     }
 

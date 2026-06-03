@@ -316,6 +316,8 @@ struct alignas({alignment}) {item} {{"
                 write!(f, "{inner}*")
             }
             Item::Fragment(fragment_type) => write!(f, "{fragment_type}"),
+            Item::BarrierToken(_) => panic!("Barrier tokens not supported on Metal"),
+            Item::TensorMap => panic!("TensorMap not supported on Metal"),
         }
     }
 

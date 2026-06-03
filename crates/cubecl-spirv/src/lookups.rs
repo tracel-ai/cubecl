@@ -354,9 +354,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             VariableKind::Shared { id, .. } => {
                 self.state.shared.get_mut(&id).unwrap().id = param_id;
             }
-            VariableKind::BarrierToken { .. } => {
-                panic!("{param} not allowed as a function param")
-            }
             VariableKind::Constant(value) => {
                 let const_val = (value, item.clone()).into();
                 self.state.constants.insert((const_val, item), param_id);

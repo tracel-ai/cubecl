@@ -11,9 +11,9 @@ use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
 
 use crate::{
-    AggregateExtractOperands, BarrierLevel, CubeFnSource, DeviceProperties, FastMath, Function,
-    Operation, OperationReflect, Processor, SemanticType, SourceLoc, StorageType, TargetProperties,
-    TypeHash, arena::DropBump,
+    AggregateExtractOperands, CubeFnSource, DeviceProperties, FastMath, Function, Operation,
+    OperationReflect, Processor, SourceLoc, StorageType, TargetProperties, TypeHash,
+    arena::DropBump,
 };
 
 use super::{
@@ -160,14 +160,6 @@ impl Scope {
     pub fn with_global_state(mut self, global_state: GlobalState) -> Self {
         self.global_state = global_state;
         self
-    }
-
-    /// Create a new barrier element.
-    pub fn create_barrier_token(&self, id: Id, level: BarrierLevel) -> Variable {
-        Variable::new(
-            VariableKind::BarrierToken { id, level },
-            Type::semantic(SemanticType::BarrierToken),
-        )
     }
 
     /// Create a mutable variable of the given item type.

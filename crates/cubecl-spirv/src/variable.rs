@@ -291,9 +291,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = self.state.shared[&id].id;
                 Variable::Shared(id, item)
             }
-            ir::VariableKind::BarrierToken { .. } => {
-                panic!("Barrier not supported.")
-            }
             ir::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
         }
     }

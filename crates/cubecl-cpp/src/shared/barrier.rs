@@ -2,6 +2,8 @@ use std::fmt::{Display, Write};
 
 use cubecl_core::ir::BarrierLevel;
 
+use crate::shared::FmtLeft;
+
 use super::{Component, Dialect, Variable};
 
 #[derive(Debug, Clone)]
@@ -109,50 +111,38 @@ impl<D: Dialect> BarrierOps<D> {
 impl<D: Dialect> Display for BarrierOps<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BarrierOps::Declare { barrier, level } => {
-                match level {
-                    // Note: Arrival token exists for cuda::thread_scope_thread, but is not public.
-                    // So skip creating the token for unit barriers.
-                    BarrierLevel::Unit => Ok(()),
-                    BarrierLevel::Cube => write!(
-                        f,
-                        "
+            BarrierOps::Declare { barrier, level } => match level {
+                BarrierLevel::Unit => Ok(()),
+                BarrierLevel::Cube => write!(
+                    f,
+                    "
 cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thread_block();
-cuda::barrier<cuda::thread_scope_block>::arrival_token barrier_{}_token;
 ",
-                        barrier.id().unwrap()
-                    ),
-                }
-            }
+                ),
+            },
             BarrierOps::Init {
                 barrier,
                 is_elected,
                 arrival_count,
                 level,
-            } => {
-                match level {
-                    // Note: Arrival token exists for cuda::thread_scope_thread, but is not public.
-                    // So skip creating the token for unit barriers.
-                    BarrierLevel::Unit => write!(
-                        f,
-                        "
+            } => match level {
+                BarrierLevel::Unit => write!(
+                    f,
+                    "
 init(&{barrier}, {arrival_count});
                 "
-                    ),
-                    BarrierLevel::Cube => write!(
-                        f,
-                        "
+                ),
+                BarrierLevel::Cube => write!(
+                    f,
+                    "
 cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thread_block();
-cuda::barrier<cuda::thread_scope_block>::arrival_token barrier_{}_token;
 if ({is_elected}) {{
    init(&{barrier}, {arrival_count});
 }}
 __syncthreads();
 ",
-                        barrier.id().unwrap()
-                    ),
-                }
-            }
+                ),
+            },
             BarrierOps::InitManual {
                 barrier,
                 arrival_count,
@@ -262,7 +252,7 @@ __cp_async_shared_global<{copy_size}>({source}, {destination}, {size});
                 )
             }
             BarrierOps::Arrive { barrier, token, .. } => {
-                writeln!(f, "{token} = {barrier}.arrive();")
+                writeln!(f, "{} = {barrier}.arrive();", token.fmt_left())
             }
             BarrierOps::ArriveTx {
                 barrier,
@@ -272,7 +262,8 @@ __cp_async_shared_global<{copy_size}>({source}, {destination}, {size});
             } => {
                 writeln!(
                     f,
-                    "{token} = cuda::device::barrier_arrive_tx({barrier}, {arrive_count_update}, {transaction_count_update});"
+                    "{} = cuda::device::barrier_arrive_tx({barrier}, {arrive_count_update}, {transaction_count_update});",
+                    token.fmt_left()
                 )
             }
             BarrierOps::ArriveCopyAsync { barrier } => {

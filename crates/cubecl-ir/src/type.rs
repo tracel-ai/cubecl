@@ -77,7 +77,7 @@ pub enum OpaqueType {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SemanticType {
-    BarrierToken,
+    BarrierToken(BarrierLevel),
     TensorMap,
     TensorLayout(usize, ClampMode),
     TensorView(usize, bool, [u32; 5]),
@@ -839,7 +839,7 @@ impl Display for ElemType {
 impl Display for SemanticType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SemanticType::BarrierToken => f.write_str("barrier_token"),
+            SemanticType::BarrierToken(level) => write!(f, "barrier_token<{level}>"),
             SemanticType::TensorMap => f.write_str("tensor_map"),
             SemanticType::TensorLayout(dims, _) => write!(f, "tensor_layout<{dims}>"),
             SemanticType::TensorView(dims, has_dims, permutation) => {

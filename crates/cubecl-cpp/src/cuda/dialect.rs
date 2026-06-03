@@ -339,6 +339,13 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 write!(f, "{inner}*")
             }
             Item::Fragment(fragment_type) => write!(f, "{fragment_type}"),
+            Item::BarrierToken(BarrierLevel::Cube) => {
+                write!(f, "cuda::barrier<cuda::thread_scope_block>::arrival_token")
+            }
+            Item::BarrierToken(BarrierLevel::Unit) => {
+                write!(f, "cuda::barrier<cuda::thread_scope_thread>::arrival_token")
+            }
+            Item::TensorMap => f.write_str("CUtensorMap"),
         }
     }
 
