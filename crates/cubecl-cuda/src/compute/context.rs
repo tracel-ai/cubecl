@@ -283,9 +283,12 @@ impl CudaContext {
             println!("[{:?}] load_ptx load_data", std::thread::current().id());
 
             let module = cudarc::driver::result::module::load_data(ptx.as_ptr() as *const _)
-                .map_err(|err| CompilationError::Generic {
-                    reason: format!("Unable to load the PTX: {err}"),
-                    backtrace: BackTrace::capture(),
+                .map_err(|err| {
+                    println!("ERROR!");
+                    CompilationError::Generic {
+                        reason: format!("Unable to load the PTX: {err}"),
+                        backtrace: BackTrace::capture(),
+                    }
                 })?;
 
             println!("[{:?}] load_ptx get_function", std::thread::current().id());
