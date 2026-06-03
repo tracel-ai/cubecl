@@ -395,6 +395,8 @@ impl ServerCommunication for CudaServer {
         // Wait for data to be ready on compute stream.
         Fence::new(stream).wait_async(self.comm_stream);
 
+        println!("cuda server device ids: {:?}", device_ids);
+
         // Get the communicator.
         let comm = self
             .communicators
