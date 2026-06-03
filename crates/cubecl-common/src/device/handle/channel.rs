@@ -164,11 +164,24 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         }
 
         let (sender, recv) = oneshot::channel();
-        // Create a slot on the stack that will hold our pointer.
-        let mut slot = Some(move || sender.send(task()).unwrap());
+        // Run `task` under `catch_unwind` inside the slot so a panic on the
+        // runner thread is captured and threaded back here through the channel,
+        // instead of being logged and dropped by `Task`/`send`'s catch_unwind.
+        let mut slot = Some(move || {
+            // `sender.send` only fails if the receiver hung up, which cannot
+            // happen here: `run_scoped` blocks on `recv.recv()` below until this
+            // runs. Ignore the result so a stray failure can't panic the runner.
+            let _ = sender.send(catch_unwind(AssertUnwindSafe(task)));
+        });
         // Send the erased shim to the device thread.
         self.send::<_, SEND_FLUSH>(create_shim(&mut slot))?;
-        recv.recv().map_err(|_| CallError)
+        match recv.recv() {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(payload)) => Err(CallError::from_panic(payload)),
+            // The sender was dropped without sending: the shim never ran (e.g.
+            // the runner thread died), so no panic payload is available.
+            Err(_) => Err(CallError::disconnected()),
+        }
     }
 
     /// Dispatches a task to the runner.
@@ -180,9 +193,10 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         task: T,
     ) -> Result<(), CallError> {
         if is_device_runner_thread(self.state.client.runner_id()) {
-            if let Err(err) = catch_unwind(AssertUnwindSafe(task)) {
-                log::warn!("Task failed: {err:?}");
-                return Err(CallError);
+            // Reentrant fast path: run inline. Capture the panic payload so it
+            // surfaces in the returned `CallError` instead of being dropped.
+            if let Err(payload) = catch_unwind(AssertUnwindSafe(task)) {
+                return Err(CallError::from_panic(payload));
             }
         } else {
             self.state.client.enqueue(task)?;
@@ -463,8 +477,8 @@ mod task {
                 self.fn_ptr = |task| {
                     // SAFETY: Paired with the ptr::write to data above.
                     let f = unsafe { std::ptr::read(task.data.as_mut_ptr() as *mut F) };
-                    if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
-                        log::warn!("Task failed: {err:?}");
+                    if let Err(payload) = catch_unwind(AssertUnwindSafe(f)) {
+                        log::warn!("{:?}", CallError::from_panic(payload));
                     }
                 };
             } else if fits_arena {
@@ -477,8 +491,8 @@ mod task {
                     let f = unsafe {
                         std::ptr::read(task.data_large_ptr.load(Ordering::Relaxed) as *mut F)
                     };
-                    if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
-                        log::warn!("Task failed: {err:?}");
+                    if let Err(payload) = catch_unwind(AssertUnwindSafe(f)) {
+                        log::warn!("{:?}", CallError::from_panic(payload));
                     }
                 };
             } else {
@@ -555,7 +569,9 @@ mod normal_channel {
 
         /// Atomically reserves a slot in the buffer and writes the task.
         pub fn enqueue<F: FnOnce() + Send + 'static>(&self, func: F) -> Result<(), CallError> {
-            self.state.send(Box::new(func)).map_err(|_| CallError)
+            self.state
+                .send(Box::new(func))
+                .map_err(|_| CallError::disconnected())
         }
 
         /// Forces a flush by filling the remaining buffer with no-op tasks.
@@ -1159,7 +1175,12 @@ mod tests {
             panic!("boom");
         });
 
-        assert!(result.is_err(), "panicking task must return Err");
+        let err = result.expect_err("panicking task must return Err");
+        assert_eq!(
+            err.message(),
+            Some("boom"),
+            "the panic message must be preserved in the CallError"
+        );
         assert_eq!(
             drop_count.load(Ordering::SeqCst),
             1,
@@ -1194,7 +1215,12 @@ mod tests {
             panic!("boom");
         });
 
-        assert!(result.is_err());
+        let err = result.expect_err("panicking task must return Err");
+        assert_eq!(
+            err.message(),
+            Some("boom"),
+            "the panic message must be preserved in the CallError"
+        );
         assert_eq!(drop_count.load(Ordering::SeqCst), 1);
         let ok = handle.exclusive(|| 7).unwrap();
         assert_eq!(ok, 7);
