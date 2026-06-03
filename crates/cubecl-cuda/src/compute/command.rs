@@ -470,6 +470,7 @@ impl<'a> Command<'a> {
 
         let stream = self.streams.current();
 
+        println!("[{:?}] cmd exec", std::thread::current().id());
         let result = self.ctx.execute_task(
             stream,
             kernel_id,

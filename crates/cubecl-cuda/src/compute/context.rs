@@ -283,6 +283,7 @@ impl CudaContext {
         resources: &[GpuResource],
         const_info: Option<*mut c_void>,
     ) -> Result<(), LaunchError> {
+        println!("[{:?}] in ctx execute task", std::thread::current().id());
         let mut bindings = tensor_maps
             .iter()
             .map(|map| map as *const _ as *mut c_void)
@@ -293,7 +294,7 @@ impl CudaContext {
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
 
-        println!("[{:?}] in ctx execute task", std::thread::current().id());
+        println!("[{:?}] ctx launch_kernel", std::thread::current().id());
 
         // SAFETY: `kernel.func` is a valid function handle from a loaded module.
         // `stream.sys` is a valid CUDA stream. `bindings` contains valid device pointers
