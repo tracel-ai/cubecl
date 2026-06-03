@@ -465,8 +465,11 @@ impl<'a> Command<'a> {
     ) -> Result<(), LaunchError> {
         println!("[{:?}] in cmd kernel", std::thread::current().id());
         if !self.ctx.module_names.contains_key(&kernel_id) {
+            println!("[{:?}] compile kernel", std::thread::current().id());
             self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
         }
+
+        println!("[{:?}] streams.current", std::thread::current().id());
 
         let stream = self.streams.current();
 
