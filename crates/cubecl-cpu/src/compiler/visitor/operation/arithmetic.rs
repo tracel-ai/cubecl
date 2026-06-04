@@ -1,7 +1,7 @@
 use cubecl_core::ir::{self, Arithmetic};
 use tracel_llvm::mlir_rs::{
     dialect::{
-        arith::{self},
+        arith::{self, CmpfPredicate},
         llvm,
         ods::{llvm as llvm_ods, math as math_ods, vector},
     },
@@ -274,6 +274,53 @@ impl<'a> Visitor<'a> {
                 let result = self.append_operation_with_result(llvm_ods::intr_log(
                     self.context,
                     plus_one,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Expm1(expm1) => {
+                let value = self.get_variable(expm1.input);
+                let one = self.create_float_constant_from_item(expm1.input.ty, 1.0);
+                let half = self.create_float_constant_from_item(expm1.input.ty, 0.5);
+                let sixth = self.create_float_constant_from_item(expm1.input.ty, 1.0 / 6.0);
+                let threshold = self.create_float_constant_from_item(expm1.input.ty, 1.0e-5);
+                let abs = self.get_absolute_val(expm1.input.ty, value);
+                let is_small = self.append_operation_with_result(arith::cmpf(
+                    self.context,
+                    CmpfPredicate::Olt,
+                    abs,
+                    threshold,
+                    self.location,
+                ));
+                let squared =
+                    self.append_operation_with_result(arith::mulf(value, value, self.location));
+                let cubed =
+                    self.append_operation_with_result(arith::mulf(squared, value, self.location));
+                let half_squared =
+                    self.append_operation_with_result(arith::mulf(squared, half, self.location));
+                let sixth_cubed =
+                    self.append_operation_with_result(arith::mulf(cubed, sixth, self.location));
+                let linear_plus_quad = self.append_operation_with_result(arith::addf(
+                    value,
+                    half_squared,
+                    self.location,
+                ));
+                let taylor = self.append_operation_with_result(arith::addf(
+                    linear_plus_quad,
+                    sixth_cubed,
+                    self.location,
+                ));
+                let exp = self.append_operation_with_result(llvm_ods::intr_exp(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                let native =
+                    self.append_operation_with_result(arith::subf(exp, one, self.location));
+                let result = self.append_operation_with_result(arith::select(
+                    is_small,
+                    taylor,
+                    native,
                     self.location,
                 ));
                 self.insert_variable(out, result);

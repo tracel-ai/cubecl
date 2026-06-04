@@ -318,6 +318,7 @@ impl<Marker: 'static> ModFloor for DynamicScalar<Marker> {}
 impl<Marker: 'static> Abs for DynamicScalar<Marker> {}
 impl<Marker: 'static> Log for DynamicScalar<Marker> {}
 impl<Marker: 'static> Log1p for DynamicScalar<Marker> {}
+impl<Marker: 'static> Expm1 for DynamicScalar<Marker> {}
 impl<Marker: 'static> Cos for DynamicScalar<Marker> {}
 impl<Marker: 'static> Sin for DynamicScalar<Marker> {}
 impl<Marker: 'static> Tan for DynamicScalar<Marker> {}

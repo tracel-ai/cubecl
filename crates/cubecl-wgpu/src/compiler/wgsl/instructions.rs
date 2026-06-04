@@ -120,6 +120,10 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    Expm1 {
+        input: Variable,
+        out: Variable,
+    },
     Cos {
         input: Variable,
         out: Variable,
@@ -644,6 +648,7 @@ impl Display for Instruction {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = log({input} + 1.0);")
             }
+            Instruction::Expm1 { input, out } => expm1(f, input, out),
             Instruction::Cos { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = cos({input});")
@@ -1126,6 +1131,25 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Unreachable => writeln!(f, "return;"),
         }
     }
+}
+
+fn expm1(f: &mut std::fmt::Formatter<'_>, input: &Variable, out: &Variable) -> std::fmt::Result {
+    let item = out.item();
+    let scalar = Item::Scalar(*item.elem());
+    let input = input.fmt_cast_to(item);
+    let one = scalar.fmt_cast_to(item, "1.0".to_string());
+    let half = scalar.fmt_cast_to(item, "0.5".to_string());
+    let sixth = scalar.fmt_cast_to(item, "(1.0 / 6.0)".to_string());
+    let threshold = scalar.fmt_cast_to(item, "1.0e-5".to_string());
+    let squared = format!("({input} * {input})");
+    let cubed = format!("({squared} * {input})");
+    let taylor = format!("({input} + {squared} * {half} + {cubed} * {sixth})");
+    let native = format!("(exp({input}) - {one})");
+    let out = out.fmt_left();
+    writeln!(
+        f,
+        "{out} = select({native}, {taylor}, abs({input}) < {threshold});"
+    )
 }
 
 fn comparison(
