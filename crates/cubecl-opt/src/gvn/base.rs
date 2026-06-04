@@ -77,7 +77,6 @@ pub struct Local {
 pub enum Value {
     Constant(ConstantValue, Type),
     Local(Local),
-    Global(Id, Type),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
@@ -124,7 +123,6 @@ impl Value {
         match self {
             Value::Constant(_, ty) => *ty,
             Value::Local(local) => local.item,
-            Value::Global(_, item) => *item,
         }
     }
 }

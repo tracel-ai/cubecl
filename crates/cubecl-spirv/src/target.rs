@@ -199,7 +199,14 @@ impl SpirvTarget for GLCompute {
 
         let buffers = bindings
             .iter()
-            .map(|binding| self.generate_storage_buffer(b, binding))
+            .map(|binding| {
+                let buffer = self.generate_storage_buffer(b, binding);
+                b.state
+                    .base_lookups
+                    .variables
+                    .insert(binding.value.index().unwrap(), buffer.id);
+                buffer
+            })
             .collect::<Vec<_>>();
         let info = b.info.has_info().then(|| self.generate_info_binding(b));
 
@@ -320,8 +327,7 @@ impl GLCompute {
         b: &mut SpirvCompiler<Self>,
         binding: &KernelArg,
     ) -> Buffer {
-        let item = b.compile_type(binding.ty);
-        let item_id = item.id(b);
+        let item = b.compile_type(binding.value.ty);
         match item.elem().size() {
             1 => {
                 b.capabilities.insert(Capability::StorageBuffer8BitAccess);
@@ -332,14 +338,13 @@ impl GLCompute {
             _ => {}
         }
 
-        let ty_size = item.size();
+        let value_size = item.value_type().size();
 
-        let arr_ty_id = b.id();
+        let arr_ty_id = item.id(b);
         let struct_ty_id = b.id();
         let storage_class = StorageClass::PhysicalStorageBuffer;
 
-        b.type_runtime_array_id(Some(arr_ty_id), item_id);
-        b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
+        b.decorate(arr_ty_id, Decoration::ArrayStride, [value_size.into()]);
 
         b.type_struct_id(Some(struct_ty_id), [arr_ty_id]);
         b.decorate(struct_ty_id, Decoration::Block, []);

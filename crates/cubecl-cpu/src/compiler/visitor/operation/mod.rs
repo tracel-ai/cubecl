@@ -7,8 +7,8 @@ pub(super) mod operator;
 pub(super) mod synchronization;
 
 use cubecl_core::ir::{
-    AtomicOp, BarrierLevel, BarrierOps, Memory, NonSemantic, OpaqueType, Operation, StorageType,
-    Synchronization,
+    AtomicOp, BarrierLevel, BarrierOps, Memory, NonSemantic, OpaqueType, Operation,
+    Synchronization, Type,
 };
 use tracel_llvm::mlir_rs::{
     dialect::{llvm, ods::llvm as llvm_ods},
@@ -76,12 +76,10 @@ impl<'a> Visitor<'a> {
                     | BarrierOps::WaitParity { barrier, .. }
                     | BarrierOps::ArriveAndWait { barrier }
                     | BarrierOps::TmaLoad { barrier, .. }
-                    | BarrierOps::TmaLoadIm2col { barrier, .. } => {
-                        match barrier.ty.storage_type() {
-                            StorageType::Opaque(OpaqueType::Barrier(level)) => Some(level),
-                            _ => None,
-                        }
-                    }
+                    | BarrierOps::TmaLoadIm2col { barrier, .. } => match barrier.ty {
+                        Type::Opaque(OpaqueType::Barrier(level)) => Some(level),
+                        _ => None,
+                    },
                     BarrierOps::CopyAsync { .. } => None,
                 };
 

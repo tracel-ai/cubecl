@@ -495,7 +495,7 @@ impl Index {
             writeln!(f, "{item_ptr} {out} = &{tmp}[{index}];")
         } else {
             let item_out = out.item();
-            if matches!(item_out.elem(), Elem::Barrier(_)) {
+            if matches!(item_out, Item::Barrier(_)) {
                 let addr_space = D::address_space_for_variable(list);
                 writeln!(
                     f,

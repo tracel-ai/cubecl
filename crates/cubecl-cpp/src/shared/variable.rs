@@ -29,11 +29,9 @@ pub struct OptimizedArgs<const N: usize, D: Dialect> {
     pub optimization_factor: Option<usize>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Variable<D: Dialect> {
-    GlobalBuffer(Id, Item<D>),
     Constant(ConstantValue, Item<D>),
-    TensorMap(Id),
     LocalMut {
         id: Id,
         item: Item<D>,
@@ -149,14 +147,12 @@ impl<D: Dialect> Component<D> for Variable<D> {
 
     fn item(&self) -> Item<D> {
         match self {
-            Variable::GlobalBuffer(_, e) => *e,
             Variable::Shared(_, e) => *e,
             Variable::LocalMut { item, .. } => *item,
             Variable::LocalConst { item, .. } => *item,
             Variable::Slice { item, .. } => *item,
             Variable::Constant(_, e) => *e,
             Variable::Tmp { item, .. } => *item,
-            Variable::TensorMap(_) => unreachable!(),
         }
     }
 
@@ -168,10 +164,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             return true;
         }
 
-        matches!(
-            self,
-            Variable::LocalConst { .. } | Variable::GlobalBuffer { .. }
-        )
+        matches!(self, Variable::LocalConst { .. })
     }
 }
 
@@ -200,8 +193,6 @@ pub(crate) fn format_const<D: Dialect>(number: &ConstantValue, item: &Item<D>) -
 impl<D: Dialect> Display for Variable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::GlobalBuffer(id, _) => write!(f, "buffer_{id}"),
-            Variable::TensorMap(id) => write!(f, "tensor_map_{id}"),
             Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
             Variable::LocalConst { id, .. } => write!(f, "l_{id}"),
             Variable::Slice { id, .. } => {
@@ -371,7 +362,6 @@ impl<D: Dialect> Variable<D> {
 
     pub fn optimized(&self) -> Self {
         match self {
-            Variable::GlobalBuffer(id, item) => Variable::GlobalBuffer(*id, item.optimized()),
             Variable::LocalMut { id, item } => Variable::LocalMut {
                 id: *id,
                 item: item.optimized(),
@@ -415,7 +405,6 @@ impl<D: Dialect> Variable<D> {
 
     pub fn id(&self) -> Option<Id> {
         match self {
-            Variable::GlobalBuffer(id, ..) => Some(*id),
             Variable::LocalMut { id, .. } => Some(*id),
             Variable::LocalConst { id, .. } => Some(*id),
             Variable::Slice { id, .. } => Some(*id),
@@ -429,7 +418,7 @@ impl<D: Dialect> Variable<D> {
     /// just leave them as is to avoid accidental double pointers
     pub fn fmt_ptr(&self) -> String {
         match self {
-            Variable::Slice { .. } | Variable::GlobalBuffer(_, _) => format!("{self}"),
+            Variable::Slice { .. } => format!("{self}"),
             other => match other.item() {
                 Item::Array(..) => format!("{other}.data"),
                 Item::DynamicArray(..) | Item::Pointer(..) => format!("{other}"),

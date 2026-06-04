@@ -72,13 +72,13 @@ pub enum ElemType {
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum OpaqueType {
     Barrier(BarrierLevel),
+    BarrierToken(BarrierLevel),
+    TensorMap,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SemanticType {
-    BarrierToken(BarrierLevel),
-    TensorMap,
     TensorLayout(usize, ClampMode),
     TensorView(usize, bool, [u32; 5]),
 }
@@ -91,9 +91,6 @@ pub enum StorageType {
     Scalar(ElemType),
     /// Packed values of type `ElemType`
     Packed(ElemType, usize),
-    /// Opaque types that can be stored but not interacted with normally. Currently only barrier,
-    /// but may be used for arrival tokens and tensor map descriptors, for example.
-    Opaque(OpaqueType),
 }
 
 impl core::fmt::Debug for StorageType {
@@ -109,7 +106,6 @@ impl core::fmt::Debug for StorageType {
                     StorageType::Packed(f0, f1) => {
                         f.debug_tuple("Packed").field(&f0).field(&f1).finish()
                     }
-                    StorageType::Opaque(f0) => f.debug_tuple("Opaque").field(&f0).finish(),
                 }
             }
         }
@@ -331,14 +327,14 @@ impl OpaqueType {
     pub const fn size(&self) -> usize {
         match self {
             OpaqueType::Barrier(_) => 8,
+            OpaqueType::BarrierToken(_) => 8,
+            OpaqueType::TensorMap => 128,
         }
     }
 
     /// Get the size in bits.
     pub const fn size_bits(&self) -> usize {
-        match self {
-            OpaqueType::Barrier(_) => 64,
-        }
+        self.size() * 8
     }
 }
 
@@ -346,7 +342,6 @@ impl StorageType {
     pub fn elem_type(&self) -> ElemType {
         match self {
             StorageType::Scalar(ty) | StorageType::Packed(ty, _) => *ty,
-            StorageType::Opaque(_) => unimplemented!("Can't get elem type for opaque type"),
         }
     }
 
@@ -365,7 +360,6 @@ impl StorageType {
         match self {
             StorageType::Packed(ty, factor) => ty.size_bits() * *factor,
             StorageType::Scalar(ty) => ty.size_bits(),
-            StorageType::Opaque(ty) => ty.size_bits(),
         }
     }
 
@@ -397,7 +391,6 @@ impl StorageType {
                 // For packed types, we can conservatively scale epsilon by the number of packed elements
                 ty.epsilon() * (*factor as f64)
             }
-            StorageType::Opaque(_) => panic!("Opaque type does not have an epsilon"),
         }
     }
 
@@ -418,9 +411,9 @@ macro_rules! storage_from_elem {
 
 storage_from_elem!(FloatKind, IntKind, UIntKind, ElemType);
 
-impl From<OpaqueType> for StorageType {
+impl From<OpaqueType> for Type {
     fn from(val: OpaqueType) -> Self {
-        StorageType::Opaque(val)
+        Type::Opaque(val)
     }
 }
 
@@ -454,6 +447,9 @@ pub enum AddressSpace {
 pub enum Type {
     /// Scalar type containing a single storage element
     Scalar(StorageType),
+    /// Opaque types that can be stored but not interacted with normally. i.e. barrier,
+    /// arrival tokens and tensor map descriptor.
+    Opaque(OpaqueType),
     /// Vector wrapping `n` storage elements
     Vector(Intern<Type>, VectorSize),
     /// No defined physical representation, purely semantic. i.e. barrier, pipeline
@@ -478,6 +474,7 @@ impl core::hash::Hash for Type {
         core::mem::discriminant(self).hash(state);
         match self {
             Type::Scalar(storage_type) => storage_type.hash(state),
+            Type::Opaque(opaque) => opaque.hash(state),
             Type::Vector(intern, _) => intern.as_ref().hash(state),
             Type::Semantic(semantic_type) => semantic_type.hash(state),
             Type::Atomic(intern) => intern.as_ref().hash(state),
@@ -538,6 +535,7 @@ impl Type {
             Type::Scalar(inner) if vector_size > 1 => {
                 Type::Vector(Type::new(inner).intern(), vector_size)
             }
+            Type::Opaque(opaque) => Type::Opaque(opaque),
             Type::Vector(inner, _) if vector_size <= 1 => *inner,
             Type::Vector(inner, _) => Type::Vector(inner, vector_size),
             Type::Atomic(inner) => Type::Atomic(inner.with_vector_size(vector_size).intern()),
@@ -573,6 +571,7 @@ impl Type {
     pub fn vector_size(&self) -> VectorSize {
         match self {
             Type::Scalar(_) => 1,
+            Type::Opaque(_) => 1,
             Type::Vector(inner, vector_size) => inner.vector_size() * *vector_size,
             Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..)
@@ -588,6 +587,7 @@ impl Type {
         match self {
             Type::Array(_, size, _) => *size,
             Type::Scalar(_) => 1,
+            Type::Opaque(_) => 1,
             Type::Vector(inner, _) | Type::Atomic(inner) | Type::Pointer(inner, _) => {
                 inner.array_size()
             }
@@ -600,6 +600,7 @@ impl Type {
     pub fn size(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.size(),
+            Type::Opaque(opaque) => opaque.size(),
             Type::Vector(ty, vector_size) => ty.size() * *vector_size,
             Type::Atomic(inner) => inner.size(),
             Type::Array(inner, size, _) => inner.size() * *size,
@@ -615,6 +616,7 @@ impl Type {
     pub fn size_bits(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.size_bits(),
+            Type::Opaque(opaque) => opaque.size_bits(),
             Type::Vector(ty, vector_size) => ty.size_bits() * *vector_size,
             Type::Atomic(inner) => inner.size_bits(),
             Type::Array(inner, ..) => inner.size_bits(),
@@ -630,6 +632,7 @@ impl Type {
     pub fn packing_factor(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.packing_factor(),
+            Type::Opaque(_) => 1,
             Type::Vector(ty, _)
             | Type::Atomic(ty)
             | Type::Pointer(ty, _)
@@ -643,7 +646,7 @@ impl Type {
 
     pub fn is_atomic(&self) -> bool {
         match self {
-            Type::Semantic(_) | Type::Scalar(_) | Type::Matrix(_) => false,
+            Type::Semantic(_) | Type::Scalar(_) | Type::Matrix(_) | Type::Opaque(_) => false,
             Type::Atomic(_) => true,
             Type::Pointer(inner, _)
             | Type::Vector(inner, _)
@@ -660,7 +663,7 @@ impl Type {
     pub fn is_int(&self) -> bool {
         match self {
             Type::Scalar(ty) => ty.is_int(),
-            Type::Semantic(_) => false,
+            Type::Semantic(_) | Type::Opaque(_) => false,
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
@@ -674,7 +677,7 @@ impl Type {
     pub fn is_signed_int(&self) -> bool {
         match self {
             Type::Scalar(ty) => ty.is_signed_int(),
-            Type::Semantic(_) => false,
+            Type::Semantic(_) | Type::Opaque(_) => false,
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
@@ -688,7 +691,7 @@ impl Type {
     pub fn is_unsigned_int(&self) -> bool {
         match self {
             Type::Scalar(ty) => ty.is_unsigned_int(),
-            Type::Semantic(_) => false,
+            Type::Semantic(_) | Type::Opaque(_) => false,
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
@@ -702,7 +705,7 @@ impl Type {
     pub fn is_float(&self) -> bool {
         match self {
             Type::Scalar(ty) => ty.is_float(),
-            Type::Semantic(_) => false,
+            Type::Semantic(_) | Type::Opaque(_) => false,
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
@@ -716,7 +719,7 @@ impl Type {
     pub fn is_bool(&self) -> bool {
         match self {
             Type::Scalar(ty) => ty.is_bool(),
-            Type::Semantic(_) => false,
+            Type::Semantic(_) | Type::Opaque(_) => false,
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
@@ -730,7 +733,9 @@ impl Type {
     pub fn storage_type(&self) -> StorageType {
         match self {
             Type::Scalar(ty) => *ty,
-            Type::Semantic(_) => unimplemented!("Can't get storage for semantic type"),
+            Type::Semantic(_) | Type::Opaque(_) => {
+                unimplemented!("Can't get storage for semantic type")
+            }
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
@@ -758,7 +763,8 @@ impl Type {
             | Type::Vector(..)
             | Type::Semantic(..)
             | Type::Atomic(..)
-            | Type::Matrix(..)) => *this,
+            | Type::Matrix(..)
+            | Type::Opaque(_)) => *this,
             Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.value_type(),
         }
     }
@@ -776,6 +782,7 @@ impl Display for Type {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Type::Semantic(ty) => write!(f, "{ty}"),
+            Type::Opaque(ty) => write!(f, "{ty}"),
             Type::Scalar(ty) => write!(f, "{ty}"),
             Type::Vector(ty, vector_size) => write!(f, "vector<{ty}, {vector_size}>"),
             Type::Atomic(ty) => write!(f, "atomic<{ty}>"),
@@ -797,7 +804,6 @@ impl Display for StorageType {
         match self {
             StorageType::Scalar(ty) => write!(f, "{ty}"),
             StorageType::Packed(ty, factor) => write!(f, "packed<{ty}, {factor}>"),
-            StorageType::Opaque(ty) => write!(f, "{ty}"),
         }
     }
 }
@@ -839,8 +845,6 @@ impl Display for ElemType {
 impl Display for SemanticType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SemanticType::BarrierToken(level) => write!(f, "barrier_token<{level}>"),
-            SemanticType::TensorMap => f.write_str("tensor_map"),
             SemanticType::TensorLayout(dims, _) => write!(f, "tensor_layout<{dims}>"),
             SemanticType::TensorView(dims, has_dims, permutation) => {
                 write!(
@@ -857,6 +861,8 @@ impl Display for OpaqueType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             OpaqueType::Barrier(level) => write!(f, "barrier<{level}>"),
+            OpaqueType::BarrierToken(level) => write!(f, "barrier_token<{level}>"),
+            OpaqueType::TensorMap => f.write_str("tensor_map"),
         }
     }
 }

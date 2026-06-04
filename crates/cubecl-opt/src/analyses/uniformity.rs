@@ -213,14 +213,11 @@ impl Uniformity {
     /// Whether a variable is plane uniform
     pub fn is_var_uniform(&self, var: Variable) -> bool {
         match var.kind {
-            VariableKind::Shared { .. }
-            | VariableKind::GlobalBuffer(_)
-            | VariableKind::Constant(_) => true,
+            VariableKind::Shared { .. } | VariableKind::Constant(_) => true,
             VariableKind::LocalMut { .. } => false,
             VariableKind::LocalConst { .. } => {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)
             }
-            VariableKind::TensorMap(_) => true,
         }
     }
 

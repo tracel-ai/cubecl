@@ -280,7 +280,7 @@ struct alignas({alignment}) {item} {{"
             shared::Elem::U32 => f.write_str("uint"),
             shared::Elem::U64 => f.write_str("ulong"),
             shared::Elem::Bool => f.write_str("bool"),
-            shared::Elem::Barrier(_) => unimplemented!("metal doesn't support barrier object"),
+            shared::Elem::None => f.write_str("<none>"),
             shared::Elem::_Dialect(_) => Ok(()),
         }
     }
@@ -316,8 +316,10 @@ struct alignas({alignment}) {item} {{"
                 write!(f, "{inner}*")
             }
             Item::Fragment(fragment_type) => write!(f, "{fragment_type}"),
-            Item::BarrierToken(_) => panic!("Barrier tokens not supported on Metal"),
-            Item::TensorMap => panic!("TensorMap not supported on Metal"),
+            Item::Barrier(_) | Item::BarrierToken(_) => {
+                unimplemented!("metal doesn't support barrier object")
+            }
+            Item::TensorMap => unimplemented!("TensorMap not supported on Metal"),
         }
     }
 
@@ -377,8 +379,8 @@ void {kernel_name}("
             tensor_maps.is_empty(),
             "Tensor maps aren't supported for metal"
         );
-        for (i, b) in buffers.iter().enumerate() {
-            format_global_binding_arg("buffer", b, Some(&i.to_string()), &mut buffer_idx, f)?;
+        for b in buffers.iter() {
+            format_global_binding_arg(b, &mut buffer_idx, f)?;
         }
 
         if flags.has_info {

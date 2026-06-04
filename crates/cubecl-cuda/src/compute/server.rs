@@ -702,10 +702,8 @@ impl CudaServer {
         };
 
         let mut resources = bindings
-            .tensor_maps
-            .iter()
-            .map(|it| it.binding.clone())
-            .chain(bindings.buffers)
+            .buffers
+            .into_iter()
             .map(|binding| command.resource(binding).expect("Resource to exist."))
             .collect::<Vec<_>>();
 

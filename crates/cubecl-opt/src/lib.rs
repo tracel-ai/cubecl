@@ -48,8 +48,8 @@ use cubecl_core::{
     },
 };
 use cubecl_ir::{
-    self as ir, Allocator, Branch, Id, Memory, Operation, Operator, Processor, Scope, Type,
-    Variable, VariableKind,
+    self as ir, AddressSpace, Allocator, Branch, Id, Memory, Operation, Operator, Processor, Scope,
+    Type, Variable, VariableKind,
 };
 use gvn::GvnPass;
 use hashbrown::HashMap;
@@ -278,8 +278,8 @@ pub fn local_variable_id(variable: &ir::Variable) -> Option<Id> {
 }
 
 pub fn global_buffer_id(variable: &ir::Variable) -> Option<Id> {
-    match variable.kind {
-        VariableKind::GlobalBuffer(id) | VariableKind::TensorMap(id) => Some(id),
+    match variable.address_space() {
+        AddressSpace::Global(id) => Some(id),
         _ => None,
     }
 }
@@ -616,7 +616,7 @@ mod test {
     use alloc::vec;
     use cubecl_core as cubecl;
     use cubecl_core::prelude::*;
-    use cubecl_ir::{ElemType, Type, UIntKind, Variable, VariableKind};
+    use cubecl_ir::{ElemType, Type, UIntKind};
 
     use crate::Optimizer;
 
@@ -640,11 +640,7 @@ mod test {
         let u32 = Type::scalar(ElemType::UInt(UIntKind::U32));
         let x = ctx.create_local(u32).into();
         let cond = ctx.create_local(u32).into();
-        let mut arr = Variable::new(
-            VariableKind::GlobalBuffer(0),
-            Type::scalar(ElemType::UInt(UIntKind::U32)),
-        )
-        .into();
+        let mut arr = ctx.global(0, u32).into();
 
         pre_kernel::expand(&ctx, x, cond, &mut arr);
         let opt = Optimizer::new(ctx, CubeDim::new_1d(1), vec![], vec![], vec![]);

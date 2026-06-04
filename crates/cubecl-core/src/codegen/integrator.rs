@@ -1,5 +1,5 @@
 use alloc::{string::ToString, vec::Vec};
-use cubecl_ir::{Id, Scope, StorageType, Type};
+use cubecl_ir::{Id, Scope, StorageType, Variable};
 use cubecl_runtime::{
     kernel::{KernelArg, KernelDefinition, KernelOptions, ScalarKernelArg},
     server::CubeDim,
@@ -79,7 +79,7 @@ impl KernelSettings {
 #[derive(Clone, Debug)]
 pub struct BufferInfo {
     pub id: Id,
-    pub item: Type,
+    pub value: Variable,
     /// Whether this input has extended metadata (rank, shape, strides)
     pub has_extended_meta: bool,
 }
@@ -125,7 +125,7 @@ impl KernelIntegrator {
         for buffer in self.expansion.buffers.drain(..) {
             self.buffer_bindings.push(KernelArg {
                 id: buffer.id,
-                ty: buffer.item,
+                value: buffer.value,
                 has_extended_meta: buffer.has_extended_meta,
             });
         }
@@ -144,7 +144,7 @@ impl KernelIntegrator {
         for buffer in self.expansion.tensor_maps.drain(..) {
             self.tensor_maps.push(KernelArg {
                 id: buffer.id,
-                ty: buffer.item,
+                value: buffer.value,
                 has_extended_meta: buffer.has_extended_meta,
             });
         }

@@ -36,7 +36,6 @@ impl Value {
             Value::Local(Local { id, item }) => {
                 Variable::new(VariableKind::LocalConst { id: *id }, *item)
             }
-            Value::Global(id, item) => Variable::new(VariableKind::GlobalBuffer(*id), *item),
         }
     }
 }
@@ -44,11 +43,9 @@ impl Value {
 pub fn value_of_var(var: &Variable) -> Option<Value> {
     let item = var.ty;
     let val = match var.kind {
-        VariableKind::GlobalBuffer(id) => Value::Global(id, item),
         VariableKind::LocalConst { id } => Value::Local(Local { id, item }),
         VariableKind::Constant(val) => Value::Constant(val, item),
         VariableKind::LocalMut { .. } | VariableKind::Shared { .. } => None?,
-        VariableKind::TensorMap(_) => panic!("Tensor map is not supported"),
     };
     Some(val)
 }

@@ -304,12 +304,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 shared::Elem::U32 => f.write_str("uint32"),
                 shared::Elem::U64 => f.write_str("uint64"),
                 shared::Elem::Bool => f.write_str("bool"),
-                shared::Elem::Barrier(BarrierLevel::Unit) => {
-                    f.write_str("cuda::barrier<cuda::thread_scope_thread>")
-                }
-                shared::Elem::Barrier(BarrierLevel::Cube) => {
-                    f.write_str("cuda::barrier<cuda::thread_scope_block>")
-                }
+                shared::Elem::None => f.write_str("<none>"),
                 shared::Elem::_Dialect(_) => Ok(()),
             }
         }
@@ -346,6 +341,12 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 write!(f, "cuda::barrier<cuda::thread_scope_thread>::arrival_token")
             }
             Item::TensorMap => f.write_str("CUtensorMap"),
+            Item::Barrier(BarrierLevel::Unit) => {
+                f.write_str("cuda::barrier<cuda::thread_scope_thread>")
+            }
+            Item::Barrier(BarrierLevel::Cube) => {
+                f.write_str("cuda::barrier<cuda::thread_scope_block>")
+            }
         }
     }
 

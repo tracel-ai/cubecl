@@ -66,8 +66,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .map(|it| it.item())
             .unwrap_or_else(|| self.compile_type(self.addr_type.into()));
 
-        let position = match var {
-            Variable::GlobalBuffer(_, _, pos) => *pos,
+        let position = match var.item() {
+            Item::DynamicArray(_, pos) => pos,
             _ => panic!("Only Input and Output have a buffer length, got: {var:?}"),
         };
         let offset = self.info.metadata.buffer_len_index(position);
@@ -125,8 +125,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     fn ext_pos(&self, var: &Variable) -> u32 {
-        let pos = match var {
-            Variable::GlobalBuffer(_, _, pos) => *pos,
+        let pos = match var.item() {
+            Item::DynamicArray(_, pos) => pos,
             _ => panic!("Only global buffers have rank"),
         };
         self.ext_meta_pos[pos as usize]

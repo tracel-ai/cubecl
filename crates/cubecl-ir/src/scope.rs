@@ -11,14 +11,12 @@ use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
 
 use crate::{
-    AggregateExtractOperands, CubeFnSource, DeviceProperties, FastMath, Function, Operation,
-    OperationReflect, Processor, SourceLoc, StorageType, TargetProperties, TypeHash,
-    arena::DropBump,
+    AggregateExtractOperands, CubeFnSource, DeviceProperties, FastMath, Function, OpaqueType,
+    Operation, OperationReflect, Processor, SourceLoc, StorageType, TargetProperties, TypeHash,
+    VariableKind, arena::DropBump,
 };
 
-use super::{
-    Allocator, Id, Instruction, Type, Variable, VariableKind, processing::ScopeProcessing,
-};
+use super::{Allocator, Id, Instruction, Type, Variable, processing::ScopeProcessing};
 
 pub type TypeMap = HashMap<TypeId, StorageType>;
 pub type SizeMap = HashMap<TypeId, usize>;
@@ -163,8 +161,8 @@ impl Scope {
     }
 
     /// Create a mutable variable of the given item type.
-    pub fn create_local_mut<I: Into<Type>>(&self, item: I) -> Variable {
-        self.state().allocator.create_local_mut(item.into())
+    pub fn create_local_mut<I: Into<Type>>(&self, ty: I) -> Variable {
+        self.state().allocator.create_local_mut(ty.into())
     }
 
     /// Create a new restricted variable. The variable is
@@ -323,11 +321,15 @@ impl Scope {
     }
 
     /// Obtain the index-th buffer
-    pub fn global(&self, id: Id, item: Type) -> Variable {
-        Variable::new(
-            VariableKind::GlobalBuffer(id),
-            Type::DynamicArray(item.intern(), crate::AddressSpace::Global(id)),
-        )
+    pub fn global(&self, id: Id, value_ty: Type) -> Variable {
+        let ty = Type::DynamicArray(value_ty.intern(), crate::AddressSpace::Global(id));
+        self.create_local_restricted(ty)
+    }
+
+    /// Obtain the index-th tensor map
+    pub fn tensor_map(&self) -> Variable {
+        let ty = Type::Opaque(OpaqueType::TensorMap);
+        self.create_local_restricted(ty)
     }
 
     pub fn update_source(&self, source: CubeFnSource) {

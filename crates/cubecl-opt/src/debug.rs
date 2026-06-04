@@ -294,7 +294,6 @@ impl Display for Value {
         match self {
             Value::Constant(constant, _) => write!(f, "{constant}"),
             Value::Local(local) => write!(f, "{local}"),
-            Value::Global(id, _) => write!(f, "global({id})"),
         }
     }
 }

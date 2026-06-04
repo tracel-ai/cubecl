@@ -14,7 +14,6 @@ use rspirv::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Variable {
-    GlobalBuffer(Word, Item, u32),
     Constant(Word, ConstVal, Item),
     Local {
         id: Word,
@@ -55,7 +54,6 @@ impl Variable {
             _ => {}
         }
         match self {
-            Variable::GlobalBuffer(..) => spirv::Scope::Device,
             Variable::Shared(..) => spirv::Scope::Workgroup,
             Variable::Slice { ptr, .. } => ptr.scope(),
             Variable::Raw(..) => unimplemented!("Can't get scope of raw variable"),
@@ -187,7 +185,6 @@ impl From<f32> for ConstVal {
 impl Variable {
     pub fn id<T: SpirvTarget>(&self, b: &mut SpirvCompiler<T>) -> Word {
         match self {
-            Variable::GlobalBuffer(id, _, _) => *id,
             Variable::Constant(id, _, _) => *id,
             Variable::Local { id, .. } => *id,
             Variable::LocalBinding {
@@ -202,7 +199,6 @@ impl Variable {
 
     pub fn item(&self) -> Item {
         match self {
-            Variable::GlobalBuffer(_, item, _) => item.clone(),
             Variable::Constant(_, _, item) => item.clone(),
             Variable::Local { item, .. } => item.clone(),
             Variable::LocalBinding { item, .. } => item.clone(),
@@ -232,14 +228,11 @@ impl Variable {
     }
 
     pub fn has_len(&self) -> bool {
-        matches!(
-            self,
-            Variable::GlobalBuffer(_, _, _) | Variable::Slice { .. }
-        ) || self.item().is_array()
+        matches!(self, Variable::Slice { .. }) || self.item().is_array()
     }
 
     pub fn has_buffer_len(&self) -> bool {
-        matches!(self, Variable::GlobalBuffer(_, _, _))
+        matches!(self.item(), Item::DynamicArray(..))
     }
 
     pub fn as_const(&self) -> Option<ConstVal> {
@@ -273,10 +266,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Variable::Constant(id, const_val, item)
                 }
             }
-            ir::VariableKind::GlobalBuffer(pos) => {
-                let buffer = self.state.buffers[pos as usize];
-                Variable::GlobalBuffer(buffer.id, self.compile_type(item), pos)
-            }
             ir::VariableKind::LocalMut { id } => {
                 let item = self.compile_type(item);
                 let var = self.get_local(id, &item, variable);
@@ -291,7 +280,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = self.state.shared[&id].id;
                 Variable::Shared(id, item)
             }
-            ir::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
         }
     }
 
@@ -343,7 +331,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Builder::in_bounds_access_chain(this, ptr_ty, Some(write_id), id, indices).unwrap()
         };
         match variable {
-            Variable::GlobalBuffer(id, ..) => {
+            Variable::Local {
+                id,
+                item: Item::DynamicArray(..),
+            } => {
                 let zero = self.const_u32(0);
                 access_chain(self, *id, vec![zero, index_id])
             }
@@ -377,7 +368,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::Shared(..) => self.id(),
             Variable::Raw(id, _) => *id,
             Variable::Constant(_, _, _) => panic!("Can't write to constant scalar"),
-            Variable::GlobalBuffer(_, _, _) | Variable::Slice { .. } => {
+            Variable::Slice { .. } => {
                 panic!("Can't write to unindexed array")
             }
             global => panic!("Can't write to builtin {global:?}"),

@@ -78,7 +78,6 @@ impl<D: Dialect> From<&Variable<D>> for AddressSpace {
             };
         }
         match value {
-            Variable::GlobalBuffer(..) => AddressSpace::Device,
             Variable::Shared(..) => AddressSpace::ThreadGroup,
             _ => AddressSpace::Thread,
         }

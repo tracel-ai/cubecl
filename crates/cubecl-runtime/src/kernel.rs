@@ -10,7 +10,7 @@ use core::{
 };
 
 use cubecl_common::format::format_str;
-use cubecl_ir::{Id, Scope, StorageType, Type};
+use cubecl_ir::{Id, Scope, StorageType, Variable};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -69,7 +69,7 @@ pub struct KernelArg {
     /// The kernel id.
     pub id: Id,
     /// The type of the argument.
-    pub ty: Type,
+    pub value: Variable,
     /// Whether the argument has metadata.
     pub has_extended_meta: bool,
 }

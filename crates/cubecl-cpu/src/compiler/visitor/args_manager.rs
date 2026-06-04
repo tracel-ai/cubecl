@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use cubecl_core::{
     Info, Metadata,
-    ir::{Builtin, ElemType, IntKind, StorageType, UIntKind},
+    ir::{AddressSpace, Builtin, ElemType, IntKind, StorageType, UIntKind},
     prelude::{KernelDefinition, ScalarKernelArg},
 };
 use tracel_llvm::mlir_rs::{
@@ -28,7 +28,7 @@ pub(super) struct ArgsManagerBuilder<'a, 'b> {
     buffers_len: usize,
     function_types: Vec<Type<'a>>,
     info: Info,
-    ext_meta_positions: Vec<u32>,
+    ext_meta_positions: HashMap<Variable, u32>,
     block_inputs: Vec<(Type<'a>, Location<'a>)>,
     shared_memories: &'b SharedMemories,
     addr_type: Type<'a>,
@@ -50,18 +50,18 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
             + shared_memories.0.len();
 
         let mut num_ext = 0;
-        let mut ext_meta_positions = vec![];
+        let mut ext_meta_positions = HashMap::new();
 
         let mut all_meta: Vec<_> = kernel
             .buffers
             .iter()
-            .map(|buf| (buf.id, buf.has_extended_meta))
+            .map(|buf| (buf.id, buf.value, buf.has_extended_meta))
             .collect();
 
-        all_meta.sort_by_key(|(id, _)| *id);
+        all_meta.sort_by_key(|(id, _, _)| *id);
 
-        for (_, has_extended_meta) in &all_meta {
-            ext_meta_positions.push(num_ext);
+        for (_, value, has_extended_meta) in &all_meta {
+            ext_meta_positions.insert(*value, num_ext);
             if *has_extended_meta {
                 num_ext += 1;
             }
@@ -86,7 +86,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         };
 
         for binding in kernel.buffers.iter() {
-            let inner_type = binding.ty.storage_type().to_type(context);
+            let inner_type = binding.value.ty.storage_type().to_type(context);
             let memref = MemRefType::new(inner_type, &[i64::MIN], None, None).into();
             args.function_types.push(memref);
             args.block_inputs.push((memref, location));
@@ -258,7 +258,7 @@ pub(super) struct ArgsManager<'a> {
     pub scalars_memref: HashMap<StorageType, Value<'a, 'a>>,
     pub static_metadata_memref: Option<Value<'a, 'a>>,
     pub dynamic_metadata_memref: Option<Value<'a, 'a>>,
-    pub ext_meta_positions: Vec<u32>,
+    pub ext_meta_positions: HashMap<Variable, u32>,
     pub metadata: Metadata,
     pub shared_memory_values: HashMap<u32, Value<'a, 'a>>,
     pub builtin: [Option<Value<'a, 'a>>; NB_BUILTIN],
@@ -270,13 +270,15 @@ pub(super) struct ArgsManager<'a> {
 const NB_PASSED_BUILTIN: usize = 9;
 
 impl<'a> ArgsManager<'a> {
-    pub fn buffer_position(&self, var: Variable) -> u32 {
-        var.index().expect("Variable should have index")
+    pub fn buffer_position(&self, var: &Variable) -> u32 {
+        let AddressSpace::Global(pos) = var.address_space() else {
+            unreachable!("should be global")
+        };
+        pos
     }
 
-    pub fn ext_meta_position(&self, var: Variable) -> u32 {
-        let id = var.index().expect("Variable should have index");
-        self.ext_meta_positions[id as usize]
+    pub fn ext_meta_position(&self, var: &Variable) -> u32 {
+        self.ext_meta_positions[var]
     }
 
     pub fn compute_derived_args_builtin(

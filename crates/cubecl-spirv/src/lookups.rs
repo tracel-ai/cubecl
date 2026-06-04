@@ -155,8 +155,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         for binding in &mut kernel.buffers {
             // This is safe when combined with the unroll transform that adjusts all indices.
             // Must not be used alone
-            if binding.ty.vector_size() > max_vector_size {
-                binding.ty = binding.ty.with_vector_size(max_vector_size);
+            if binding.value.ty.vector_size() > max_vector_size {
+                binding.value.ty = binding.value.ty.with_vector_size(max_vector_size);
             }
         }
 
@@ -195,8 +195,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .enumerate()
             .map(|(i, arg)| (arg.ty, i as u32))
             .collect();
-        self.state.lookups.buffers = self.state.base_lookups.buffers.clone();
-        self.state.lookups.shared = self.state.base_lookups.shared.clone();
+        self.state.lookups = self.state.base_lookups.clone();
     }
 
     fn dedup_const(&mut self, inst: &dr::Instruction) -> Option<Word> {
@@ -348,9 +347,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn init_function_param(&mut self, param: ir::Variable, param_id: Word) {
         let item = self.compile_type(param.ty);
         match param.kind {
-            VariableKind::GlobalBuffer(id) | VariableKind::TensorMap(id) => {
-                self.state.buffers[id as usize].id = param_id;
-            }
             VariableKind::Shared { id, .. } => {
                 self.state.shared.get_mut(&id).unwrap().id = param_id;
             }

@@ -19,7 +19,10 @@ use cubecl_core::{
 };
 use cubecl_opt::{Optimizer, SharedLiveness};
 use cubecl_runtime::compiler::{CompilationError, Compiler};
-use std::{collections::HashSet, fmt::Debug};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+};
 
 pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(0);
@@ -102,7 +105,7 @@ pub struct CppCompiler<D: Dialect> {
     buffer_vis: Vec<Visibility>,
     barriers: Vec<BarrierOps<D>>,
     compilation_options: CompilationOptions,
-    ext_meta_positions: Vec<u32>,
+    ext_meta_positions: HashMap<gpu::Variable, u32>,
     cluster_dim: CubeDim,
     extensions: Vec<D::Extension>,
     flags: Flags<D>,
@@ -325,13 +328,13 @@ impl<D: Dialect> CppCompiler<D> {
             .buffers
             .iter()
             .chain(value.tensor_maps.iter())
-            .map(|buf| (buf.id, buf.has_extended_meta))
+            .map(|buf| (buf.id, buf.value, buf.has_extended_meta))
             .collect();
 
-        all_meta.sort_by_key(|(id, _)| *id);
+        all_meta.sort_by_key(|(id, _, _)| *id);
 
-        for (_, has_extended_meta) in &all_meta {
-            self.ext_meta_positions.push(num_ext);
+        for (_, value, has_extended_meta) in &all_meta {
+            self.ext_meta_positions.insert(*value, num_ext);
             if *has_extended_meta {
                 num_ext += 1;
             }
@@ -342,9 +345,8 @@ impl<D: Dialect> CppCompiler<D> {
         cubecl_core::Metadata::new(num_meta as u32, num_ext)
     }
 
-    pub(crate) fn ext_meta_position(&self, var: gpu::Variable) -> u32 {
-        let id = var.index().expect("Variable should have index");
-        self.ext_meta_positions[id as usize]
+    pub(crate) fn ext_meta_position(&self, var: &gpu::Variable) -> u32 {
+        self.ext_meta_positions[var]
     }
 
     fn compile_scope(&mut self, scope: &gpu::Scope) -> Vec<Instruction<D>> {
@@ -566,8 +568,7 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operation::TensorIndexing(_) => panic!("Tensor indexing only supported in Vulkan"),
             gpu::Operation::Barrier(barrier_ops) => match barrier_ops {
                 gpu::BarrierOps::Declare { barrier } => {
-                    let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type()
-                    else {
+                    let Type::Opaque(OpaqueType::Barrier(level)) = barrier.ty else {
                         unreachable!()
                     };
                     let barrier = self.compile_variable(barrier);
@@ -581,8 +582,7 @@ impl<D: Dialect> CppCompiler<D> {
                     is_elected,
                     arrival_count,
                 } => {
-                    let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type()
-                    else {
+                    let Type::Opaque(OpaqueType::Barrier(level)) = barrier.ty else {
                         unreachable!()
                     };
                     let barrier = self.compile_variable(barrier);
@@ -762,8 +762,7 @@ impl<D: Dialect> CppCompiler<D> {
                     }),
                 ),
                 gpu::BarrierOps::ArriveAndWait { barrier } => {
-                    let StorageType::Opaque(OpaqueType::Barrier(level)) = barrier.ty.storage_type()
-                    else {
+                    let Type::Opaque(OpaqueType::Barrier(level)) = barrier.ty else {
                         unreachable!()
                     };
                     instructions.push(Instruction::Barrier(
@@ -953,7 +952,7 @@ impl<D: Dialect> CppCompiler<D> {
         let out = out.unwrap();
         match metadata {
             gpu::Metadata::Stride { dim, var } => {
-                let position = self.ext_meta_position(var);
+                let position = self.ext_meta_position(&var);
                 let offset = self.info.metadata.stride_offset_index(position);
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
@@ -962,7 +961,7 @@ impl<D: Dialect> CppCompiler<D> {
                 }
             }
             gpu::Metadata::Shape { dim, var } => {
-                let position = self.ext_meta_position(var);
+                let position = self.ext_meta_position(&var);
                 let offset = self.info.metadata.shape_offset_index(position);
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
@@ -1817,13 +1816,6 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_variable(&mut self, value: gpu::Variable) -> Variable<D> {
         let item = value.ty;
         match value.kind {
-            gpu::VariableKind::GlobalBuffer(id) => {
-                Variable::GlobalBuffer(id, self.compile_type(item))
-            }
-            gpu::VariableKind::TensorMap(id) => {
-                self.flags.inst_tma = true;
-                Variable::TensorMap(id)
-            }
             gpu::VariableKind::LocalMut { id } => Variable::LocalMut {
                 id,
                 item: self.compile_type(item),
@@ -1872,7 +1864,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_binding(&mut self, binding: cubecl_runtime::kernel::KernelArg) -> KernelArg<D> {
         KernelArg {
             id: binding.id,
-            item: self.compile_type(binding.ty),
+            value: self.compile_variable(binding.value),
             vis: self.buffer_vis[binding.id as usize],
         }
     }
@@ -1911,6 +1903,7 @@ impl<D: Dialect> CppCompiler<D> {
                 Item::Fragment(ty)
             }
             gpu::Type::Semantic(ty) => self.compile_semantic_type(ty),
+            gpu::Type::Opaque(ty) => self.compile_opaque_type(ty),
             gpu::Type::Aggregate(_) => {
                 unreachable!("Should be disaggregated at this point")
             }
@@ -1968,12 +1961,6 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::StorageType::Packed(other, factor) => {
                 unimplemented!("Unsupported storage type: packed<{other}, {factor}>")
             }
-            gpu::StorageType::Opaque(ty) => match ty {
-                gpu::OpaqueType::Barrier(level) => {
-                    self.flags.op_barrier = true;
-                    Elem::Barrier(level)
-                }
-            },
         }
     }
 
@@ -2035,14 +2022,23 @@ impl<D: Dialect> CppCompiler<D> {
 
     fn compile_semantic_type(&mut self, value: gpu::SemanticType) -> Item<D> {
         match value {
-            gpu::SemanticType::BarrierToken(barrier_level) => {
-                self.flags.op_barrier = true;
-                Item::BarrierToken(barrier_level)
-            }
-            gpu::SemanticType::TensorMap => Item::TensorMap,
             gpu::SemanticType::TensorLayout(..) | gpu::SemanticType::TensorView(..) => {
                 panic!("Tensor addressing is only supported on Vulkan")
             }
+        }
+    }
+
+    fn compile_opaque_type(&mut self, value: gpu::OpaqueType) -> Item<D> {
+        match value {
+            gpu::OpaqueType::Barrier(barrier_level) => {
+                self.flags.op_barrier = true;
+                Item::Barrier(barrier_level)
+            }
+            gpu::OpaqueType::BarrierToken(barrier_level) => {
+                self.flags.op_barrier = true;
+                Item::BarrierToken(barrier_level)
+            }
+            gpu::OpaqueType::TensorMap => Item::TensorMap,
         }
     }
 }

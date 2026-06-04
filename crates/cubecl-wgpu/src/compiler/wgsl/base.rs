@@ -5,9 +5,8 @@ use cubecl_core::{
 use cubecl_ir::Intern;
 use std::fmt::Display;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Variable {
-    GlobalBuffer(Id, Item),
     Constant(ConstantValue, Item),
     LocalMut { id: Id, item: Item },
     LocalConst { id: Id, item: Item },
@@ -89,12 +88,11 @@ impl Variable {
     }
 
     pub fn is_memory(&self) -> bool {
-        matches!(self, Self::GlobalBuffer(..) | Self::Shared(..))
+        matches!(self, Self::Shared(..))
     }
 
     pub fn item(&self) -> Item {
         match self {
-            Self::GlobalBuffer(_, e) => *e,
             Self::Shared(_, e) => *e,
             Self::LocalMut { item, .. } => *item,
             Self::LocalConst { item, .. } => *item,
@@ -283,9 +281,6 @@ impl Display for Item {
 impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::GlobalBuffer(number, _) => {
-                write!(f, "buffer_{number}_global")
-            }
             Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
             Variable::LocalConst { id, .. } => write!(f, "l_{id}"),
             Variable::Constant(val, item) => {

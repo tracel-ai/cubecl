@@ -1,7 +1,7 @@
 use core::hash::{BuildHasher, Hash, Hasher};
 
 use crate::{
-    AddressType, SemanticType, StorageType, Type, TypeHash, VectorSize,
+    AddressType, OpaqueType, SemanticType, StorageType, Type, TypeHash, VectorSize,
     features::{AtomicUsage, Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;
@@ -143,6 +143,11 @@ impl DeviceProperties {
     /// Register a semantic type to the features
     pub fn register_semantic_type(&mut self, ty: SemanticType) {
         self.features.types.semantic.insert(ty);
+    }
+
+    /// Register an opaque type to the features
+    pub fn register_opaque_type(&mut self, ty: OpaqueType) {
+        self.features.types.opaque.insert(ty);
     }
 
     /// Create a stable hash of all device properties relevant to kernel compilation. Can be used

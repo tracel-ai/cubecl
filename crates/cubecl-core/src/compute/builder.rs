@@ -8,7 +8,7 @@ use crate::{
     prelude::KernelDefinition,
 };
 use alloc::collections::BTreeMap;
-use cubecl_ir::{DeviceProperties, Scope, StorageType, TargetProperties, Variable, VariableKind};
+use cubecl_ir::{DeviceProperties, Scope, StorageType, TargetProperties, Variable};
 use cubecl_runtime::config::{
     CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel,
 };
@@ -40,46 +40,45 @@ impl KernelBuilder {
     }
 
     /// Register a buffer and return the [element](Variable) to be used for kernel expansion.
-    pub fn buffer(&mut self, item: Type) -> Variable {
+    pub fn buffer(&mut self, value_ty: Type) -> Variable {
         let id = self.buffer_id();
+        let value = self.scope.global(id, value_ty);
         self.buffers.push(BufferInfo {
             id,
-            item,
+            value,
             has_extended_meta: false,
         });
-        self.scope.global(id, item)
+        value
     }
 
     /// Register a tensor and return the [element](Variable) to be used for kernel expansion.
-    pub fn tensor(&mut self, item: Type) -> Variable {
+    pub fn tensor(&mut self, value_ty: Type) -> Variable {
         let id = self.buffer_id();
+        let value = self.scope.global(id, value_ty);
         self.buffers.push(BufferInfo {
             id,
-            item,
+            value,
             has_extended_meta: true,
         });
-        self.scope.global(id, item)
+        value
     }
 
     /// Register a tensor map and return the [element](Variable) to be used for kernel expansion.
-    pub fn tensor_map(&mut self, item: Type) -> Variable {
+    pub fn tensor_map(&mut self) -> Variable {
         let id = self.buffer_id();
+        let value = self.scope.tensor_map();
         self.tensor_maps.push(BufferInfo {
             id,
-            item,
+            value,
             has_extended_meta: true,
         });
-        Variable::new(VariableKind::TensorMap(id), item)
+        value
     }
 
     /// Register an output that uses the same resource as the input as the given position.
     pub fn inplace(&mut self, position: Id) -> Variable {
-        let input = self
-            .buffers
-            .get_mut(position as usize)
-            .expect("Position valid");
-
-        self.scope.global(position, input.item)
+        let input = self.buffers.get_mut(position as usize);
+        input.expect("Position valid").value
     }
 
     pub fn runtime_properties(&mut self, properties: TargetProperties) {

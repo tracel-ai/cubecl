@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_core::ir::{self, Builtin, ConstantValue, FloatKind, VariableKind};
+use cubecl_core::ir::{self, AddressSpace, Builtin, ConstantValue, FloatKind, VariableKind};
 use tracel_llvm::mlir_rs::{
     dialect::{
         index, memref,
@@ -149,12 +149,16 @@ impl<'a> Visitor<'a> {
 
     pub fn get_memory(&mut self, variable: Variable) -> Value<'a, 'a> {
         match variable.kind {
-            VariableKind::GlobalBuffer(id) => self.args_manager.buffers[id as usize],
             VariableKind::Shared { id, .. } => *self
                 .args_manager
                 .shared_memory_values
                 .get(&id)
                 .expect("Variable should have been declared before"),
+            VariableKind::LocalMut { .. }
+                if let AddressSpace::Global(id) = variable.address_space() =>
+            {
+                self.args_manager.buffers[id as usize]
+            }
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
                 let length = match variable.ty {
                     ir::Type::Array(_, length, _) => length,
@@ -284,7 +288,6 @@ impl<'a> Visitor<'a> {
                     false => value,
                 }
             }
-            _ => todo!("{:?} is not yet implemented", variable.kind),
         }
     }
 

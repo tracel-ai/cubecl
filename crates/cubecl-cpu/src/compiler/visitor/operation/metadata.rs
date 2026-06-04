@@ -59,17 +59,17 @@ impl<'a> Visitor<'a> {
     pub fn visit_metadata(&mut self, metadata: &Metadata, out: Variable) {
         match metadata {
             Metadata::BufferLength { var } => {
-                let position = self.args_manager.buffer_position(*var);
+                let position = self.args_manager.buffer_position(var);
                 let offset = self.args_manager.metadata.buffer_len_index(position);
                 self.append_metadata(offset, out);
             }
             Metadata::Shape { dim, var } => {
-                let position = self.args_manager.ext_meta_position(*var);
+                let position = self.args_manager.ext_meta_position(var);
                 let offset = self.args_manager.metadata.shape_offset_index(position);
                 self.append_extended_metadata(offset, *dim, out);
             }
             Metadata::Stride { dim, var } => {
-                let position = self.args_manager.ext_meta_position(*var);
+                let position = self.args_manager.ext_meta_position(var);
                 let offset = self.args_manager.metadata.stride_offset_index(position);
                 self.append_extended_metadata(offset, *dim, out);
             }

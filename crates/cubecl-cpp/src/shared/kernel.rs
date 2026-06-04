@@ -1,4 +1,4 @@
-use crate::shared::Builtin;
+use crate::shared::{Builtin, Component, Variable};
 
 use super::{Body, Dialect, Elem, Flags, INFO_NAME, Item};
 use cubecl_core::{CubeDim, ir::Id, prelude::Visibility};
@@ -8,7 +8,7 @@ use std::{collections::HashSet, fmt::Display};
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct KernelArg<D: Dialect> {
     pub id: Id,
-    pub item: Item<D>,
+    pub value: Variable<D>,
     pub vis: Visibility,
 }
 
@@ -131,7 +131,7 @@ pub fn type_vectorized_definitions<D: Dialect>(
     f: &mut std::fmt::Formatter<'_>,
     items: &HashSet<Item<D>>,
 ) -> std::fmt::Result {
-    for item in items.iter() {
+    for item in items.iter().filter(|it| it.vectorization() > 1) {
         let elem = item.elem();
         let size = item.vectorization();
         let alignment = elem.size() * size;
@@ -196,23 +196,22 @@ pub fn compile_bindings<D: Dialect>(
 
     args.extend(tensor_maps.iter().map(|binding| {
         format!(
-            "const __grid_constant__ CUtensorMap tensor_map_{}",
-            binding.id
+            "const __grid_constant__ {} {}",
+            binding.value.item(),
+            binding.value
         )
     }));
-    args.extend(
-        tensor_maps
-            .iter()
-            .chain(buffers.iter())
-            .map(|binding| match binding.vis {
-                Visibility::Read | Visibility::Uniform => {
-                    format!("const {}* __restrict__ buffer_{}", binding.item, binding.id)
-                }
-                _ => {
-                    format!("{}* __restrict__ buffer_{}", binding.item, binding.id)
-                }
-            }),
-    );
+    args.extend(buffers.iter().map(|binding| {
+        let ty = binding.value.item();
+        match binding.vis {
+            Visibility::Read | Visibility::Uniform => {
+                format!("const {ty} __restrict__ {}", binding.value)
+            }
+            _ => {
+                format!("{ty} __restrict__ {}", binding.value)
+            }
+        }
+    }));
 
     write!(f, "{}", args.join(", "))?;
     if trailing_comma {

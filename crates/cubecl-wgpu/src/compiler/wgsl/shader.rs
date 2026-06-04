@@ -1,3 +1,5 @@
+use crate::compiler::wgsl::Variable;
+
 use super::{Body, Elem, Extension, Item};
 use cubecl_core::{CubeDim, Info, ir::Id, prelude::Visibility};
 use std::fmt::Display;
@@ -6,7 +8,7 @@ use std::fmt::Display;
 pub struct KernelArg {
     pub id: Id,
     pub visibility: Visibility,
-    pub item: Item,
+    pub value: Variable,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -72,7 +74,7 @@ impl Display for ComputeShader {
             f.write_str("enable f16;")?;
         }
 
-        Self::format_bindings(f, "buffer", &self.buffers, 0)?;
+        Self::format_bindings(f, &self.buffers, 0)?;
 
         let offset = self.buffers.len();
 
@@ -199,17 +201,11 @@ fn {}(
 impl ComputeShader {
     fn format_bindings(
         f: &mut core::fmt::Formatter<'_>,
-        prefix: &str,
         bindings: &[KernelArg],
         num_entry: usize,
     ) -> core::fmt::Result {
         for (i, binding) in bindings.iter().enumerate() {
-            Self::format_binding(
-                f,
-                format!("{prefix}_{i}_global").as_str(),
-                binding,
-                num_entry + i,
-            )?;
+            Self::format_binding(f, &binding.value, binding, num_entry + i)?;
         }
 
         Ok(())
@@ -217,11 +213,11 @@ impl ComputeShader {
 
     fn format_binding(
         f: &mut core::fmt::Formatter<'_>,
-        name: &str,
+        name: &impl Display,
         binding: &KernelArg,
         num_entry: usize,
     ) -> core::fmt::Result {
-        let ty = format!("array<{}>", binding.item);
+        let ty = binding.value.item();
 
         let location = "storage";
         let visibility = match binding.visibility {

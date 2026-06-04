@@ -3,9 +3,7 @@ use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
 use cubecl_core::{
-    ir::{BarrierLevel, Processor},
-    post_processing::saturating::SaturatingArithmeticProcessor,
-    prelude::Visibility,
+    ir::Processor, post_processing::saturating::SaturatingArithmeticProcessor, prelude::Visibility,
 };
 
 use crate::shared::{DialectWarpReduceCompiler, PointerClass};
@@ -292,7 +290,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
                 shared::Elem::U32 => f.write_str("uint32"),
                 shared::Elem::U64 => f.write_str("uint64"),
                 shared::Elem::Bool => f.write_str("bool"),
-                shared::Elem::Barrier(_) => panic!("Barrier object not supported in HIP"),
+                shared::Elem::None => f.write_str("<none>"),
                 shared::Elem::_Dialect(_) => Ok(()),
             }
         }
@@ -322,11 +320,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
                 write!(f, "{inner}*")
             }
             Item::Fragment(fragment_type) => write!(f, "{fragment_type}"),
-            Item::BarrierToken(BarrierLevel::Cube) => {
-                write!(f, "cuda::barrier<cuda::thread_scope_block>::arrival_token")
-            }
-            Item::BarrierToken(BarrierLevel::Unit) => {
-                write!(f, "cuda::barrier<cuda::thread_scope_thread>::arrival_token")
+            Item::Barrier(_) | Item::BarrierToken(_) => {
+                panic!("Barrier object not supported in HIP")
             }
             Item::TensorMap => panic!("TensorMap not supported on HIP"),
         }

@@ -69,7 +69,7 @@ impl GvnState {
 
         let global_leaders = self.values.value_numbers.iter();
         let global_leaders = global_leaders
-            .filter(|(k, _)| matches!(k, Value::Constant(_, _) | Value::Global(_, _)))
+            .filter(|(k, _)| matches!(k, Value::Constant(_, _)))
             .map(|(k, v)| (*v, *k))
             .collect::<HashMap<_, _>>();
         for set in self.block_sets.values_mut() {

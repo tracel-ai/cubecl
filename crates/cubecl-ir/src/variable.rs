@@ -50,10 +50,7 @@ impl Variable {
     pub fn can_mutate(&self) -> bool {
         match self.kind {
             VariableKind::LocalConst { .. } | VariableKind::Constant(..) => false,
-            VariableKind::GlobalBuffer(_)
-            | VariableKind::TensorMap(_)
-            | VariableKind::LocalMut { .. }
-            | VariableKind::Shared { .. } => true,
+            VariableKind::LocalMut { .. } | VariableKind::Shared { .. } => true,
         }
     }
 
@@ -63,14 +60,10 @@ impl Variable {
             Type::DynamicArray(_, addr_space) => addr_space,
             Type::Pointer(_, addr_space) => addr_space,
             _ => match self.kind {
-                VariableKind::GlobalBuffer(id) | VariableKind::TensorMap(id) => {
-                    AddressSpace::Global(id)
-                }
                 VariableKind::Shared { .. } => AddressSpace::Shared,
-                VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
-                    AddressSpace::Local
-                }
-                VariableKind::Constant(..) => unimplemented!("Can't create reference to constant"),
+                VariableKind::LocalMut { .. }
+                | VariableKind::LocalConst { .. }
+                | VariableKind::Constant(..) => AddressSpace::Local,
             },
         }
     }
@@ -85,8 +78,6 @@ pub type Id = u32;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash)]
 pub enum VariableKind {
-    GlobalBuffer(Id),
-    TensorMap(Id),
     LocalMut { id: Id },
     LocalConst { id: Id },
     Constant(ConstantValue),
@@ -139,8 +130,6 @@ impl Variable {
             return false;
         }
         match self.kind {
-            VariableKind::GlobalBuffer { .. } => false,
-            VariableKind::TensorMap(_) => false,
             VariableKind::LocalMut { .. } => false,
             VariableKind::Shared { .. } => false,
             VariableKind::LocalConst { .. } => true,
@@ -162,8 +151,8 @@ impl Variable {
     /// or a local array/scalar/vector?
     pub fn is_memory(&self) -> bool {
         matches!(
-            self.kind,
-            VariableKind::GlobalBuffer { .. } | VariableKind::Shared { .. }
+            self.address_space(),
+            AddressSpace::Global(_) | AddressSpace::Shared
         )
     }
 
@@ -443,7 +432,6 @@ impl ConstantValue {
                 e2m1::from_f64(self.as_f64()).to_f64().into()
             }
             StorageType::Packed(..) => unimplemented!("Unsupported packed type"),
-            StorageType::Opaque(_) => unimplemented!("Opaque constants aren't supported"),
         }
     }
 }
@@ -466,9 +454,7 @@ impl Variable {
 
     pub fn index(&self) -> Option<Id> {
         match self.kind {
-            VariableKind::GlobalBuffer(id)
-            | VariableKind::TensorMap(id)
-            | VariableKind::LocalMut { id, .. }
+            VariableKind::LocalMut { id, .. }
             | VariableKind::LocalConst { id, .. }
             | VariableKind::Shared { id, .. } => Some(id),
             _ => None,
@@ -495,8 +481,6 @@ impl Display for Variable {
 impl Display for VariableKind {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            VariableKind::GlobalBuffer(id) => write!(f, "global({id})"),
-            VariableKind::TensorMap(id) => write!(f, "tensor_map({id})"),
             VariableKind::Constant(constant) => write!(f, "{constant}"),
             VariableKind::LocalMut { id } => write!(f, "local_mut({id})"),
             VariableKind::LocalConst { id } => write!(f, "local({id})"),

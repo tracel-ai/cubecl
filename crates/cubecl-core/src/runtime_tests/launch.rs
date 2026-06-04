@@ -46,6 +46,13 @@ pub fn kernel_dynamic_addressing(output: &mut [f32]) {
 }
 
 #[cube(launch)]
+pub fn kernel_inplace(input: &[f32], output: &mut [f32]) {
+    if UNIT_POS == 0 {
+        output[0] = input[0] + 5.0;
+    }
+}
+
+#[cube(launch)]
 pub fn kernel_with_max_shared(
     output: &mut [u32],
     #[comptime] shared_size_1: usize,
@@ -130,6 +137,23 @@ pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R>) {
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    let actual = f32::from_bytes(&actual);
+
+    assert_eq!(actual[0], 5.0);
+}
+
+pub fn test_kernel_inplace<R: Runtime>(client: ComputeClient<R>) {
+    let handle = client.create_from_slice(f32::as_bytes(&[0.0, 1.0]));
+
+    kernel_inplace::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
+        BufferArg::alias(0, 2),
     );
 
     let actual = client.read_one_unchecked(handle);

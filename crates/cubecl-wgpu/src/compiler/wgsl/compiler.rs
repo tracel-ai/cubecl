@@ -20,6 +20,7 @@ use cubecl_core::{
 use cubecl_core::{post_processing::disaggregate::DisaggregateVisitor, prelude::*};
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::kernel;
+use hashbrown::HashMap;
 
 pub const MAX_VECTOR_SIZE: usize = 4;
 
@@ -28,7 +29,7 @@ pub const MAX_VECTOR_SIZE: usize = 4;
 pub struct WgslCompiler {
     kernel_name: String,
     info: Info,
-    ext_meta_pos: Vec<u32>,
+    ext_meta_pos: HashMap<cube::Variable, u32>,
     buffer_vis: Vec<Visibility>,
     local_invocation_index: bool,
     local_invocation_id: bool,
@@ -106,11 +107,11 @@ impl WgslCompiler {
 
         let num_meta = value.buffers.len();
 
-        self.ext_meta_pos = Vec::new();
+        self.ext_meta_pos = HashMap::new();
         let mut num_ext = 0;
 
         for binding in value.buffers.iter() {
-            self.ext_meta_pos.push(num_ext);
+            self.ext_meta_pos.insert(binding.value, num_ext);
             if binding.has_extended_meta {
                 num_ext += 1;
             }
@@ -144,8 +145,8 @@ impl WgslCompiler {
                 .map(|mut it| {
                     // This is safe when combined with the unroll transform that adjusts all indices.
                     // Must not be used alone
-                    if it.ty.vector_size() > MAX_VECTOR_SIZE {
-                        it.ty = it.ty.with_vector_size(MAX_VECTOR_SIZE);
+                    if it.value.ty.vector_size() > MAX_VECTOR_SIZE {
+                        it.value.ty = it.value.ty.with_vector_size(MAX_VECTOR_SIZE);
                     }
                     self.compile_binding(it)
                 })
@@ -205,6 +206,7 @@ impl WgslCompiler {
                 let inner = self.compile_type(*ty);
                 wgsl::Item::DynamicArray(inner.intern())
             }
+            cube::Type::Opaque(_) => unimplemented!("Can't compile opaque type"),
             cube::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
             cube::Type::Matrix(_) => unimplemented!("Matrices not yet supported in WGSL"),
             cube::Type::Aggregate(_) => {
@@ -219,11 +221,6 @@ impl WgslCompiler {
             cube::StorageType::Packed(_, _) => {
                 unimplemented!("Packed types not yet supported in WGSL")
             }
-            cube::StorageType::Opaque(ty) => match ty {
-                cube::OpaqueType::Barrier(_) => {
-                    unimplemented!("Barrier objects not supported in WGSL")
-                }
-            },
         }
     }
 
@@ -271,16 +268,12 @@ impl WgslCompiler {
     }
 
     fn ext_meta_pos(&self, var: &cube::Variable) -> u32 {
-        let pos = var.index().expect("Variable should have index");
-        self.ext_meta_pos[pos as usize]
+        self.ext_meta_pos[var]
     }
 
     pub(crate) fn compile_variable(&mut self, value: cube::Variable) -> wgsl::Variable {
         let item = value.ty;
         match value.kind {
-            cube::VariableKind::GlobalBuffer(id) => {
-                wgsl::Variable::GlobalBuffer(id, self.compile_type(item))
-            }
             cube::VariableKind::LocalMut { id } => wgsl::Variable::LocalMut {
                 id,
                 item: self.compile_type(item),
@@ -303,7 +296,6 @@ impl WgslCompiler {
                 }
                 wgsl::Variable::Shared(id, item)
             }
-            cube::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
         }
     }
 
@@ -562,8 +554,8 @@ impl WgslCompiler {
                     out: self.compile_variable(out),
                 }
             }
-            cube::Metadata::BufferLength { var } => match var.kind {
-                cube::VariableKind::GlobalBuffer(id) => {
+            cube::Metadata::BufferLength { var } => match var.address_space() {
+                cube::AddressSpace::Global(id) => {
                     let offset = self.info.metadata.buffer_len_index(id);
                     wgsl::Instruction::Metadata {
                         out: self.compile_variable(out),
@@ -1193,11 +1185,11 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_binding(&mut self, value: kernel::KernelArg) -> wgsl::KernelArg {
+    fn compile_binding(&mut self, arg: kernel::KernelArg) -> wgsl::KernelArg {
         wgsl::KernelArg {
-            id: value.id,
-            visibility: self.buffer_vis[value.id as usize],
-            item: self.compile_type(value.ty),
+            id: arg.id,
+            visibility: self.buffer_vis[arg.id as usize],
+            value: self.compile_variable(arg.value),
         }
     }
 }

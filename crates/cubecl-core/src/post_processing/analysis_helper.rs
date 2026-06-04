@@ -3,7 +3,9 @@ use core::cell::{RefCell, RefMut};
 use cubecl_runtime::kernel::Visibility;
 use derive_more::{Deref, DerefMut};
 
-use cubecl_ir::{GlobalState, Id, Instruction, Memory, Operation, Scope, Variable, VariableKind};
+use cubecl_ir::{
+    AddressSpace, GlobalState, Id, Instruction, Memory, Operation, Scope, Variable, VariableKind,
+};
 use hashbrown::{HashMap, HashSet};
 
 use crate::post_processing::{
@@ -164,8 +166,8 @@ impl BufferVisibility {
 }
 
 fn global_buffer_id(variable: &Variable) -> Option<Id> {
-    match variable.kind {
-        VariableKind::GlobalBuffer(id) | VariableKind::TensorMap(id) => Some(id),
+    match variable.address_space() {
+        AddressSpace::Global(id) => Some(id),
         _ => None,
     }
 }
