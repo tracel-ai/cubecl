@@ -14,10 +14,8 @@ use cubecl_runtime::{
 use std::{fmt::Debug, sync::Arc};
 use sysinfo::System;
 
-pub mod global_buffer;
-pub mod global_stream_fifo;
+pub mod circular_buffer;
 pub mod thread_buffer;
-pub mod thread_stream_fifo;
 pub mod worker;
 
 #[cfg(test)]
