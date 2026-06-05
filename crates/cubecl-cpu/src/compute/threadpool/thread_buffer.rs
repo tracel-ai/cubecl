@@ -48,7 +48,7 @@ impl<T: GetId> ThreadBuffer<T> {
             None => VecDeque::new(),
         };
         fifo.push_back(elem);
-        self.streams.push(fifo);
+        self.streams.push_back(fifo);
         self.streams_id.entry(id).insert_entry(self.streams.back());
     }
 
@@ -59,5 +59,52 @@ impl<T: GetId> ThreadBuffer<T> {
             }
             None => self.push_new(elem),
         }
+    }
+
+    fn pop_local(&mut self) -> Option<T> {
+        if self.streams.is_empty() {
+            return None;
+        }
+        let front = self.streams.front();
+        let fifos = &mut self.streams[front];
+        let elem = fifos.pop_back().unwrap();
+        if fifos.is_empty() {
+            let stream = self.streams.pop_front().unwrap();
+            self.empty_streams.push(stream);
+            self.streams_id.remove(&elem.get_id());
+        }
+        Some(elem)
+    }
+
+    fn steal(&mut self) -> Option<T> {
+        for i in 0..self.threads_buffer.len() {
+            if self.thread_id == i {
+                continue;
+            }
+            let mut thread = self.threads_buffer[i].lock();
+            if thread.streams.len() <= 1 {
+                continue;
+            }
+            let mut last_stream = thread.streams.pop_back().unwrap();
+            drop(thread);
+            let elem = last_stream.pop_front().unwrap();
+            if last_stream.is_empty() {
+                self.empty_streams.push(last_stream);
+            } else {
+                self.streams.push_back(last_stream);
+            }
+            return Some(elem);
+        }
+        None
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        if let Some(elem) = self.pop_local() {
+            return Some(elem);
+        }
+        if let Some(elem) = self.steal() {
+            return Some(elem);
+        }
+        None
     }
 }
