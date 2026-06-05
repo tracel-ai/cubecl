@@ -42,15 +42,21 @@ impl<T: GetId> ThreadBuffer<T> {
         self.threads_buffer = threads_buffer;
     }
 
+    /// This function assume that the fifo is not empty
+    fn push_fifo(&mut self, fifo: VecDeque<T>) {
+        let id = fifo.front().unwrap().get_id();
+        let back = self.streams.back();
+        self.streams.push_back(fifo);
+        self.streams_id.entry(id).insert_entry(back);
+    }
+
     fn push_new(&mut self, elem: T) {
-        let id = elem.get_id();
         let mut fifo = match self.empty_streams.pop() {
             Some(fifo) => fifo,
             None => VecDeque::new(),
         };
         fifo.push_back(elem);
-        self.streams.push_back(fifo);
-        self.streams_id.entry(id).insert_entry(self.streams.back());
+        self.push_fifo(fifo);
     }
 
     /// Add new task to the local thread
@@ -69,7 +75,7 @@ impl<T: GetId> ThreadBuffer<T> {
         }
         let front = self.streams.front();
         let fifos = &mut self.streams[front];
-        let elem = fifos.pop_back().unwrap();
+        let elem = fifos.pop_front().unwrap();
         if fifos.is_empty() {
             let stream = self.streams.pop_front().unwrap();
             self.empty_streams.push(stream);
@@ -88,12 +94,15 @@ impl<T: GetId> ThreadBuffer<T> {
                 continue;
             }
             let mut last_stream = thread.streams.pop_back().unwrap();
+            let stream_id = last_stream.front().unwrap().get_id();
+
+            thread.streams_id.remove(&stream_id);
             drop(thread);
             let elem = last_stream.pop_front().unwrap();
             if last_stream.is_empty() {
                 self.empty_streams.push(last_stream);
             } else {
-                self.streams.push_back(last_stream);
+                self.push_fifo(last_stream);
             }
             return Some(elem);
         }
