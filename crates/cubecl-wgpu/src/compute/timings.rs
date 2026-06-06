@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU32, Ordering},
+};
 
 use cubecl_common::profile::{Duration, Instant, ProfileDuration, ProfileTicks};
 use cubecl_core::{
@@ -10,6 +13,134 @@ use wgpu::{QUERY_SIZE, QuerySet, QuerySetDescriptor, QueryType};
 
 type QuerySetId = u64;
 
+/// Metal caps live `MTLCounterSampleBuffer`s at 32 per device; leave a little headroom.
+const DEFAULT_MAX_METAL_TIMING_QUERY_SETS: u32 = 28;
+
+/// Bounds the live timestamp [`QuerySet`]s on a single device.
+///
+/// Each timestamp query set is backed by a Metal `MTLCounterSampleBuffer`, capped at 32 live
+/// per device; exceeding it fails the allocation, poisons profiling, and panics. Shared (via
+/// [`Arc`]) by every [`QueryProfiler`] on the device so the total stays under the limit no
+/// matter how many streams profile at once. Lock-free. Non-Metal backends use an
+/// [unbounded](Self::unbounded) budget and are unaffected.
+#[derive(Debug)]
+pub struct TimestampQuerySetBudget {
+    live: AtomicU32,
+    max: u32,
+}
+
+impl TimestampQuerySetBudget {
+    /// Metal budget, overridable via `CUBECL_MAX_METAL_TIMING_QUERY_SETS`.
+    pub fn metal() -> Self {
+        let max = std::env::var("CUBECL_MAX_METAL_TIMING_QUERY_SETS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_MAX_METAL_TIMING_QUERY_SETS);
+        Self {
+            live: AtomicU32::new(0),
+            max,
+        }
+    }
+
+    /// Unbounded budget, for backends with no counter-sample-buffer limit.
+    pub fn unbounded() -> Self {
+        Self {
+            live: AtomicU32::new(0),
+            max: u32::MAX,
+        }
+    }
+
+    /// Reserve one slot, lock-free. Returns `false` if already at `max`.
+    pub(crate) fn try_acquire(&self) -> bool {
+        let mut live = self.live.load(Ordering::Relaxed);
+        loop {
+            if live >= self.max {
+                return false;
+            }
+            match self.live.compare_exchange_weak(
+                live,
+                live + 1,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return true,
+                Err(actual) => live = actual,
+            }
+        }
+    }
+
+    /// Return `n` previously-acquired slots to the budget.
+    fn release(&self, n: u32) {
+        if n > 0 {
+            self.live.fetch_sub(n, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Per-profiler allocation of timestamp query sets, backed by a shared device budget.
+///
+/// Allocates a fresh query set (one more live counter sample buffer) per profile while it can
+/// reserve a slot from the device [`budget`](TimestampQuerySetBudget); once the budget is
+/// exhausted it reuses its own sets round-robin instead of allocating past the hardware limit.
+/// Reuse is safe because all of a device's streams submit to a single ordered queue, so a
+/// set's timestamp-write and resolve always execute atomically and in submission order — the
+/// only cost is that a profile spanning more compute passes than this allocator has sets may
+/// under-measure, which autotune tolerates. Releases every slot it holds on drop.
+#[derive(Debug)]
+struct QuerySetAllocator {
+    /// Shared device budget of live timestamp query sets.
+    budget: Arc<TimestampQuerySetBudget>,
+    /// Budget slots currently held (released on drop). Starts at 1 — the caller reserves one
+    /// slot before constructing the allocator.
+    held: u32,
+    /// Every distinct query set allocated so far; reused round-robin once the budget is
+    /// exhausted.
+    created: Vec<QuerySet>,
+    /// Round-robin cursor into `created` for reuse.
+    reuse_idx: usize,
+}
+
+impl QuerySetAllocator {
+    /// Creates an allocator owning the one budget slot the caller reserved beforehand.
+    fn new(budget: Arc<TimestampQuerySetBudget>) -> Self {
+        Self {
+            budget,
+            held: 1,
+            created: Vec::new(),
+            reuse_idx: 0,
+        }
+    }
+
+    /// Returns a query set for a new profile: a freshly allocated one while budget slots are
+    /// available, otherwise an existing set reused round-robin.
+    fn acquire(&mut self, device: &wgpu::Device) -> QuerySet {
+        if (self.created.len() as u32) < self.held || self.budget.try_acquire() {
+            // Hold a reserved slot we haven't materialised yet, or just acquired one.
+            if self.created.len() as u32 >= self.held {
+                self.held += 1;
+            }
+            let query_set = device.create_query_set(&QuerySetDescriptor {
+                label: Some("CubeCL profile queries"),
+                ty: QueryType::Timestamp,
+                count: 2,
+            });
+            self.created.push(query_set.clone());
+            query_set
+        } else {
+            let query_set = self.created[self.reuse_idx % self.created.len()].clone();
+            self.reuse_idx = self.reuse_idx.wrapping_add(1);
+            query_set
+        }
+    }
+}
+
+impl Drop for QuerySetAllocator {
+    fn drop(&mut self) {
+        // Return every reserved slot to the device budget.
+        self.budget.release(self.held);
+    }
+}
+
 #[derive(Debug)]
 /// Struct encapsulating how timings are captured on wgpu.
 pub struct QueryProfiler {
@@ -17,6 +148,8 @@ pub struct QueryProfiler {
     init_tokens: Vec<ProfilingToken>,
     query_set_pool: Vec<QuerySet>,
     query_sets: HashMap<QuerySetId, QuerySetItem>,
+    /// Allocates this profiler's timestamp query sets within the shared device budget.
+    allocator: QuerySetAllocator,
     current: Option<u64>,
     counter_token: u64,
     counter_query_set: u64,
@@ -124,7 +257,14 @@ fn get_cur_timestamp(queue: &wgpu::Queue, device: &wgpu::Device) -> u64 {
 }
 
 impl QueryProfiler {
-    pub fn new(queue: &wgpu::Queue, #[allow(unused)] device: &wgpu::Device) -> Self {
+    /// Creates a profiler drawing query sets from a shared device `budget`. The caller must
+    /// have reserved one slot (via [`TimestampQuerySetBudget::try_acquire`]) beforehand; the
+    /// profiler owns that slot and releases all it holds on drop.
+    pub fn new(
+        queue: &wgpu::Queue,
+        #[allow(unused)] device: &wgpu::Device,
+        budget: Arc<TimestampQuerySetBudget>,
+    ) -> Self {
         #[cfg(feature = "profile-tracy")]
         let sync_timestamps = get_cur_timestamp(queue, device);
 
@@ -142,6 +282,7 @@ impl QueryProfiler {
             counter_token: 0,
             query_sets: HashMap::new(),
             query_set_pool: Vec::new(),
+            allocator: QuerySetAllocator::new(budget),
             current: None,
             timestamps: HashMap::new(),
             init_tokens: Vec::new(),
@@ -299,14 +440,11 @@ impl QueryProfiler {
         device: &wgpu::Device,
     ) -> &mut QuerySetItem {
         let (query_set_id, num_ref) = query_set_info;
-        let query_set = if let Some(pool) = self.query_set_pool.pop() {
-            pool
-        } else {
-            device.create_query_set(&QuerySetDescriptor {
-                label: Some("CubeCL profile queries"),
-                ty: QueryType::Timestamp,
-                count: 2,
-            })
+        let query_set = match self.query_set_pool.pop() {
+            // Recycle a set we already own and are done with.
+            Some(pool) => pool,
+            // Otherwise allocate a new set or reuse one within the device budget.
+            None => self.allocator.acquire(device),
         };
 
         let slot = QuerySetItem { query_set, num_ref };
