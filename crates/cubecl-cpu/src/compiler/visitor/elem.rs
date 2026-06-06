@@ -4,7 +4,7 @@ use cubecl_core::ir::{
 };
 use tracel_llvm::mlir_rs::{
     dialect::index,
-    ir::{ValueLike, r#type::IntegerType},
+    ir::{Value, ValueLike, r#type::IntegerType},
 };
 
 use super::prelude::*;

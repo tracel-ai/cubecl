@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use cubecl_core::{
     Info, Metadata,
-    ir::{AddressSpace, Builtin, ElemType, IntKind, StorageType, UIntKind},
+    ir::{self as cube, AddressSpace, Builtin, ElemType, IntKind, StorageType, UIntKind},
     prelude::{KernelDefinition, ScalarKernelArg},
 };
 use tracel_llvm::mlir_rs::{
     dialect::{arith, memref},
     ir::{
-        Block, BlockRef, Location, Region,
+        Block, BlockRef, Location, Region, Value,
         r#type::{FunctionType, IntegerType, MemRefType},
     },
 };
@@ -28,7 +28,7 @@ pub(super) struct ArgsManagerBuilder<'a, 'b> {
     buffers_len: usize,
     function_types: Vec<Type<'a>>,
     info: Info,
-    ext_meta_positions: HashMap<Variable, u32>,
+    ext_meta_positions: HashMap<cube::Value, u32>,
     block_inputs: Vec<(Type<'a>, Location<'a>)>,
     shared_memories: &'b SharedMemories,
     addr_type: Type<'a>,
@@ -86,7 +86,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         };
 
         for binding in kernel.buffers.iter() {
-            let inner_type = binding.value.ty.storage_type().to_type(context);
+            let inner_type = binding.value.ty.scalar_value_type().to_type(context);
             let memref = MemRefType::new(inner_type, &[i64::MIN], None, None).into();
             args.function_types.push(memref);
             args.block_inputs.push((memref, location));
@@ -258,7 +258,7 @@ pub(super) struct ArgsManager<'a> {
     pub scalars_memref: HashMap<StorageType, Value<'a, 'a>>,
     pub static_metadata_memref: Option<Value<'a, 'a>>,
     pub dynamic_metadata_memref: Option<Value<'a, 'a>>,
-    pub ext_meta_positions: HashMap<Variable, u32>,
+    pub ext_meta_positions: HashMap<cube::Value, u32>,
     pub metadata: Metadata,
     pub shared_memory_values: HashMap<u32, Value<'a, 'a>>,
     pub builtin: [Option<Value<'a, 'a>>; NB_BUILTIN],
@@ -270,15 +270,15 @@ pub(super) struct ArgsManager<'a> {
 const NB_PASSED_BUILTIN: usize = 9;
 
 impl<'a> ArgsManager<'a> {
-    pub fn buffer_position(&self, var: &Variable) -> u32 {
-        let AddressSpace::Global(pos) = var.address_space() else {
+    pub fn buffer_position(&self, val: &cube::Value) -> u32 {
+        let AddressSpace::Global(pos) = val.address_space() else {
             unreachable!("should be global")
         };
         pos
     }
 
-    pub fn ext_meta_position(&self, var: &Variable) -> u32 {
-        self.ext_meta_positions[var]
+    pub fn ext_meta_position(&self, val: &cube::Value) -> u32 {
+        self.ext_meta_positions[val]
     }
 
     pub fn compute_derived_args_builtin(

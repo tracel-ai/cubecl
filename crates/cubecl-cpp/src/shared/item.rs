@@ -249,6 +249,17 @@ impl<D: Dialect> Item<D> {
     }
 
     pub fn is_array(&self) -> bool {
+        matches!(self, Item::Array(..))
+    }
+
+    pub fn is_array_like(&self) -> bool {
         matches!(self, Item::Array(..) | Item::DynamicArray(..))
+    }
+
+    pub fn unwrap_ptr(&self) -> Item<D> {
+        match self {
+            Item::Pointer(inner, _) => **inner,
+            other => *other,
+        }
     }
 }

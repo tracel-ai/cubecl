@@ -306,8 +306,10 @@ struct alignas({alignment}) {item} {{"
                     shared::PointerClass::Local => AddressSpace::Thread,
                 };
                 write!(f, "{address_space} ")?;
-                Self::compile_item(f, inner.as_ref())?;
-                f.write_str("*")
+                match inner.as_ref() {
+                    Item::DynamicArray(inner) => write!(f, "{inner}*"),
+                    other => write!(f, "{other}*"),
+                }
             }
             Item::Array(inner, size) => {
                 write!(f, "array<{inner}, {size}>")
@@ -335,25 +337,14 @@ struct alignas({alignment}) {item} {{"
         f: &mut std::fmt::Formatter<'_>,
         shared: &SharedMemory<Self>,
     ) -> std::fmt::Result {
-        let SharedMemory { index, offset, .. } = shared;
-        match shared.item {
-            Item::Array(item, length) => {
-                let size_bytes = length * item.size();
-                writeln!(f, "// Shared array size: {length}, {size_bytes} bytes")?;
-                writeln!(
-                    f,
-                    "threadgroup {item}* shared_memory_{index} = reinterpret_cast<threadgroup {item}*>(&dynamic_shared_mem[{offset}]);"
-                )
-            }
-            item => {
-                let size_bytes = item.size();
-                writeln!(f, "// Shared value size: {size_bytes} bytes")?;
-                writeln!(
-                    f,
-                    "threadgroup {item}& shared_memory_{index} = reinterpret_cast<threadgroup {item}&>(dynamic_shared_mem[{offset}]);"
-                )
-            }
-        }
+        let SharedMemory { ptr, offset, .. } = shared;
+        let ptr_ty = ptr.item();
+        let size_bytes = shared.size();
+        writeln!(f, "// Shared value size: {size_bytes} bytes")?;
+        writeln!(
+            f,
+            "{ptr_ty} {ptr} = reinterpret_cast<{ptr_ty}>(&dynamic_shared_mem[{offset}]);"
+        )
     }
 }
 
@@ -1056,8 +1047,9 @@ impl DialectWmmaCompiler<Self> for MslDialect {
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
         var: &crate::shared::Variable<MslDialect>,
+        ty: &crate::shared::Item<MslDialect>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_declaration(f, var)
+        wmma_api_base::compile_fragment_declaration(f, var, ty)
     }
 
     fn compile_wwma_fragment_ident(
@@ -1097,7 +1089,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
     ) -> std::fmt::Result {
         match instruction {
             WmmaInstruction::Fill { frag, value } => {
-                match frag.item() {
+                match *frag.item().value_ty() {
                     Item::Fragment { .. } => {
                         let ty = frag.elem();
                         // Only 8x8x8 fragemts are supported. Check is done at fragment compilation time.
@@ -1115,7 +1107,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 stride,
                 layout: _layout,
             } => {
-                let transpose = match frag.item() {
+                let transpose = match *frag.item().value_ty() {
                     Item::Fragment(inner) => match inner.layout {
                         Some(FragmentLayout::RowMajor) => false,
                         Some(FragmentLayout::ColMajor) => true,
@@ -1173,7 +1165,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
             }
             WmmaInstruction::Cast { input, output } => {
                 writeln!(f, "simdgroup_barrier(mem_flags::mem_none);")?;
-                let ty = match output.item() {
+                let ty = match *output.item().value_ty() {
                     Item::Fragment(frag) => frag.elem,
                     _ => panic!("should be a fragment"),
                 };

@@ -18,6 +18,7 @@ use cubecl_core::{
     prelude::expand_erf,
 };
 use cubecl_core::{post_processing::disaggregate::DisaggregateVisitor, prelude::*};
+use cubecl_ir::AddressSpace;
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::kernel;
 use hashbrown::HashMap;
@@ -29,7 +30,7 @@ pub const MAX_VECTOR_SIZE: usize = 4;
 pub struct WgslCompiler {
     kernel_name: String,
     info: Info,
-    ext_meta_pos: HashMap<cube::Variable, u32>,
+    ext_meta_pos: HashMap<cube::Value, u32>,
     buffer_vis: Vec<Visibility>,
     local_invocation_index: bool,
     local_invocation_id: bool,
@@ -198,11 +199,11 @@ impl WgslCompiler {
                 let class = self.compile_pointer_class(class);
                 wgsl::Item::Pointer(inner.intern(), class)
             }
-            cube::Type::Array(ty, size, _) => {
+            cube::Type::Array(ty, size) => {
                 let inner = self.compile_type(*ty);
                 wgsl::Item::Array(inner.intern(), size)
             }
-            cube::Type::DynamicArray(ty, _) => {
+            cube::Type::DynamicArray(ty) => {
                 let inner = self.compile_type(*ty);
                 wgsl::Item::DynamicArray(inner.intern())
             }
@@ -267,40 +268,25 @@ impl WgslCompiler {
         }
     }
 
-    fn ext_meta_pos(&self, var: &cube::Variable) -> u32 {
+    fn ext_meta_pos(&self, var: &cube::Value) -> u32 {
         self.ext_meta_pos[var]
     }
 
-    pub(crate) fn compile_variable(&mut self, value: cube::Variable) -> wgsl::Variable {
+    pub(crate) fn compile_variable(&mut self, value: cube::Value) -> wgsl::Variable {
         let item = value.ty;
         match value.kind {
-            cube::VariableKind::LocalMut { id } => wgsl::Variable::LocalMut {
+            cube::ValueKind::Value { id } => wgsl::Variable::Value {
                 id,
                 item: self.compile_type(item),
             },
-            cube::VariableKind::LocalConst { id } => wgsl::Variable::LocalConst {
-                id,
-                item: self.compile_type(item),
-            },
-            cube::VariableKind::Constant(value) => {
+            cube::ValueKind::Constant(value) => {
                 wgsl::Variable::Constant(value, self.compile_type(item))
-            }
-            cube::VariableKind::Shared { id, alignment } => {
-                let item = self.compile_type(item);
-                if !self.shared_values.iter().any(|s| s.index == id) {
-                    self.shared_values.push(SharedValue::new(
-                        id,
-                        item,
-                        alignment.map(|it| it as u32),
-                    ));
-                }
-                wgsl::Variable::Shared(id, item)
             }
         }
     }
 
     fn constant_var(&mut self, value: u32) -> wgsl::Variable {
-        let var = cube::Variable::constant(value.into(), UIntKind::U32);
+        let var = cube::Value::constant(value.into(), UIntKind::U32);
         self.compile_variable(var)
     }
 
@@ -309,12 +295,6 @@ impl WgslCompiler {
 
         let saturating: Box<dyn Processor> = Box::new(SaturatingArithmeticProcessor::new(true));
         let processing = scope.process([&*saturating]);
-
-        for var in processing.variables {
-            instructions.push(wgsl::Instruction::DeclareVariable {
-                var: self.compile_variable(var),
-            });
-        }
 
         processing
             .instructions
@@ -328,7 +308,7 @@ impl WgslCompiler {
         &mut self,
         instructions: &mut Vec<wgsl::Instruction>,
         operation: cube::Operation,
-        out: Option<cube::Variable>,
+        out: Option<cube::Value>,
         scope: &cube::Scope,
     ) {
         match operation {
@@ -336,6 +316,27 @@ impl WgslCompiler {
                 input: self.compile_variable(variable),
                 out: self.compile_variable(out.unwrap()),
             }),
+            cube::Operation::DeclareVariable {
+                value_ty,
+                addr_space: AddressSpace::Local,
+                ..
+            } => instructions.push(wgsl::Instruction::DeclareVariable {
+                var: self.compile_variable(out.unwrap()),
+                value_ty: self.compile_type(value_ty),
+            }),
+            cube::Operation::DeclareVariable {
+                value_ty,
+                addr_space: AddressSpace::Shared,
+                alignment,
+            } => {
+                let ty = self.compile_type(value_ty);
+                let value = self.compile_variable(out.unwrap());
+                self.shared_values
+                    .push(SharedValue::new(ty, value, alignment as u32));
+            }
+            cube::Operation::DeclareVariable { addr_space, .. } => {
+                unimplemented!("Unsupported declare address space {addr_space}")
+            }
             cube::Operation::Memory(memory) => self.compile_memory(memory, out, instructions),
             cube::Operation::Arithmetic(op) => {
                 self.compile_arithmetic(op, out, instructions, scope)
@@ -380,7 +381,7 @@ impl WgslCompiler {
         &mut self,
         instructions: &mut Vec<wgsl::Instruction>,
         subgroup: cube::Plane,
-        out: Option<cube::Variable>,
+        out: Option<cube::Value>,
     ) {
         self.subgroup_instructions_used = true;
 
@@ -532,11 +533,11 @@ impl WgslCompiler {
     fn compile_metadata(
         &mut self,
         metadata: cube::Metadata,
-        out: Option<cube::Variable>,
+        out: Option<cube::Value>,
     ) -> wgsl::Instruction {
         let out = out.unwrap();
         match metadata {
-            cube::Metadata::Stride { dim, var } => {
+            cube::Metadata::Stride { dim, list: var } => {
                 let position = self.ext_meta_pos(&var);
                 let offset = self.info.metadata.stride_offset_index(position);
                 wgsl::Instruction::ExtendedMeta {
@@ -545,7 +546,7 @@ impl WgslCompiler {
                     out: self.compile_variable(out),
                 }
             }
-            cube::Metadata::Shape { dim, var } => {
+            cube::Metadata::Shape { dim, list: var } => {
                 let position = self.ext_meta_pos(&var);
                 let offset = self.info.metadata.shape_offset_index(position);
                 wgsl::Instruction::ExtendedMeta {
@@ -554,7 +555,7 @@ impl WgslCompiler {
                     out: self.compile_variable(out),
                 }
             }
-            cube::Metadata::BufferLength { var } => match var.address_space() {
+            cube::Metadata::BufferLength { list: var } => match var.address_space() {
                 cube::AddressSpace::Global(id) => {
                     let offset = self.info.metadata.buffer_len_index(id);
                     wgsl::Instruction::Metadata {
@@ -573,7 +574,7 @@ impl WgslCompiler {
     fn compile_memory(
         &mut self,
         value: cube::Memory,
-        out: Option<cube::Variable>,
+        out: Option<cube::Value>,
         instructions: &mut Vec<wgsl::Instruction>,
     ) {
         match value {
@@ -584,10 +585,6 @@ impl WgslCompiler {
                     out: self.compile_variable(out.unwrap()),
                 });
             }
-            cube::Memory::Reference(variable) => instructions.push(wgsl::Instruction::Reference {
-                input: self.compile_variable(variable),
-                out: self.compile_variable(out.unwrap()),
-            }),
             cube::Memory::Load(variable) => instructions.push(wgsl::Instruction::Load {
                 input: self.compile_variable(variable),
                 out: self.compile_variable(out.unwrap()),
@@ -607,7 +604,7 @@ impl WgslCompiler {
     fn compile_arithmetic(
         &mut self,
         value: cube::Arithmetic,
-        out: Option<cube::Variable>,
+        out: Option<cube::Value>,
         instructions: &mut Vec<wgsl::Instruction>,
         scope: &Scope,
     ) {
@@ -841,7 +838,7 @@ impl WgslCompiler {
     fn compile_cmp(
         &mut self,
         value: cube::Comparison,
-        out: Option<cube::Variable>,
+        out: Option<cube::Value>,
         instructions: &mut Vec<wgsl::Instruction>,
     ) {
         let out = out.unwrap();
@@ -892,7 +889,7 @@ impl WgslCompiler {
     fn compile_bitwise(
         &mut self,
         value: cube::Bitwise,
-        out: Option<cube::Variable>,
+        out: Option<cube::Value>,
         instructions: &mut Vec<wgsl::Instruction>,
     ) {
         let out = out.unwrap();
@@ -954,7 +951,7 @@ impl WgslCompiler {
     fn compile_operator(
         &mut self,
         value: cube::Operator,
-        out: Option<cube::Variable>,
+        out: Option<cube::Value>,
         instructions: &mut Vec<wgsl::Instruction>,
     ) {
         let out = out.unwrap();
@@ -996,9 +993,10 @@ impl WgslCompiler {
                 out: self.compile_variable(out),
             }),
             cube::Operator::InsertComponent(op) => instructions.push(wgsl::Instruction::Insert {
-                vector: self.compile_variable(out),
+                vector: self.compile_variable(op.vector),
                 index: self.compile_variable(op.index),
                 value: self.compile_variable(op.value),
+                out: self.compile_variable(out),
             }),
             cube::Operator::Select(op) => instructions.push(wgsl::Instruction::Select {
                 cond: self.compile_variable(op.cond),
@@ -1125,7 +1123,7 @@ impl WgslCompiler {
     fn compile_atomic(
         &mut self,
         atomic: cube::AtomicOp,
-        out: Option<cube::Variable>,
+        out: Option<cube::Value>,
     ) -> wgsl::Instruction {
         match atomic {
             cube::AtomicOp::Add(op) => wgsl::Instruction::AtomicAdd {

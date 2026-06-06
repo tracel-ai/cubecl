@@ -8,7 +8,7 @@ use crate::{
     prelude::KernelDefinition,
 };
 use alloc::collections::BTreeMap;
-use cubecl_ir::{DeviceProperties, Scope, StorageType, TargetProperties, Variable};
+use cubecl_ir::{DeviceProperties, Scope, StorageType, TargetProperties, Value};
 use cubecl_runtime::config::{
     CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel,
 };
@@ -27,7 +27,7 @@ pub struct KernelBuilder {
 static DEBUG: AtomicI8 = AtomicI8::new(-1);
 
 impl KernelBuilder {
-    /// Register a scalar and return the [element](Variable) to be used for kernel expansion.
+    /// Register a scalar and return the [element](Value) to be used for kernel expansion.
     pub fn scalar(&mut self, storage: StorageType) -> Id {
         let current_id = self.scalars.entry(storage).or_default();
         let id = *current_id;
@@ -39,8 +39,8 @@ impl KernelBuilder {
         self.buffers.len() as Id + self.tensor_maps.len() as Id
     }
 
-    /// Register a buffer and return the [element](Variable) to be used for kernel expansion.
-    pub fn buffer(&mut self, value_ty: Type) -> Variable {
+    /// Register a buffer and return the [element](Value) to be used for kernel expansion.
+    pub fn buffer(&mut self, value_ty: Type) -> Value {
         let id = self.buffer_id();
         let value = self.scope.global(id, value_ty);
         self.buffers.push(BufferInfo {
@@ -51,8 +51,8 @@ impl KernelBuilder {
         value
     }
 
-    /// Register a tensor and return the [element](Variable) to be used for kernel expansion.
-    pub fn tensor(&mut self, value_ty: Type) -> Variable {
+    /// Register a tensor and return the [element](Value) to be used for kernel expansion.
+    pub fn tensor(&mut self, value_ty: Type) -> Value {
         let id = self.buffer_id();
         let value = self.scope.global(id, value_ty);
         self.buffers.push(BufferInfo {
@@ -63,10 +63,10 @@ impl KernelBuilder {
         value
     }
 
-    /// Register a tensor map and return the [element](Variable) to be used for kernel expansion.
-    pub fn tensor_map(&mut self) -> Variable {
+    /// Register a tensor map and return the [element](Value) to be used for kernel expansion.
+    pub fn tensor_map(&mut self) -> Value {
         let id = self.buffer_id();
-        let value = self.scope.tensor_map();
+        let value = self.scope.tensor_map(id);
         self.tensor_maps.push(BufferInfo {
             id,
             value,
@@ -76,7 +76,7 @@ impl KernelBuilder {
     }
 
     /// Register an output that uses the same resource as the input as the given position.
-    pub fn inplace(&mut self, position: Id) -> Variable {
+    pub fn inplace(&mut self, position: Id) -> Value {
         let input = self.buffers.get_mut(position as usize);
         input.expect("Position valid").value
     }

@@ -27,7 +27,6 @@ pub struct BinaryInstruction<D: Dialect> {
 pub struct IndexInstruction<D: Dialect> {
     pub list: Variable<D>,
     pub index: Variable<D>,
-    pub vector_size: u32,
     pub out: Variable<D>,
 }
 
@@ -58,6 +57,7 @@ pub enum Instruction<D: Dialect> {
     },
     DeclareVariable {
         var: Variable<D>,
+        value_ty: Item<D>,
     },
     Add(BinaryInstruction<D>),
     SaturatingAdd(BinaryInstruction<D>),
@@ -87,7 +87,6 @@ pub enum Instruction<D: Dialect> {
         out: Variable<D>,
     },
     Store(UnaryInstruction<D>),
-    Reference(UnaryInstruction<D>),
     Load(UnaryInstruction<D>),
     SpecialCast(UnaryInstruction<D>),
     RangeLoop {
@@ -102,7 +101,12 @@ pub enum Instruction<D: Dialect> {
         inputs: Vec<Variable<D>>,
         out: Variable<D>,
     },
-    InsertComponent(BinaryInstruction<D>),
+    InsertComponent {
+        vector: Variable<D>,
+        index: Variable<D>,
+        value: Variable<D>,
+        out: Variable<D>,
+    },
     ExtractComponent(BinaryInstruction<D>),
     Loop {
         instructions: Vec<Self>,
@@ -290,10 +294,17 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Return => f.write_str("return;"),
             Instruction::Break => f.write_str("break;"),
             Instruction::Unreachable => D::compile_unreachable(f),
-            Instruction::DeclareVariable { var } => match var.item() {
-                Item::Fragment(_) => D::compile_wmma_fragment_declaration(f, var),
-                item => writeln!(f, "{item} {var};"),
-            },
+            Instruction::DeclareVariable { var, value_ty } => {
+                match value_ty {
+                    Item::Fragment(_) => {
+                        D::compile_wmma_fragment_declaration(f, var, value_ty)?;
+                    }
+                    item => {
+                        writeln!(f, "{item} {var}_store;")?;
+                    }
+                };
+                writeln!(f, "{} {var} = &{var}_store;", var.item())
+            }
             Instruction::Add(it) => Add::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::SaturatingAdd(it) => SaturatingAdd::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Slice {
@@ -350,9 +361,7 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::FindFirstSet(it) => FindFirstSet::format(f, &it.input, &it.out),
             Instruction::ShiftLeft(it) => ShiftLeft::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Index(it) => {
-                Index::format(f, &it.list, &it.index, &it.out, it.vector_size)
-            }
+            Instruction::Index(it) => Index::format(f, &it.list, &it.index, &it.out),
             Instruction::Copy { source, dest, len } => {
                 for i in 0..*len {
                     writeln!(f, "*({dest} + {i}) = *({source} + {i});")?;
@@ -362,11 +371,6 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Assign(it) => Assign::format(f, &it.input, &it.out),
             Instruction::Store(it) => {
                 writeln!(f, "*{} = {};", it.out, it.input)
-            }
-            Instruction::Reference(it) => {
-                let out_ty = it.out.item();
-                let out = it.out;
-                writeln!(f, "{out_ty} {out} = {};", it.input.fmt_ptr())
             }
             Instruction::Load(it) => {
                 let out = it.out.fmt_left();
@@ -381,15 +385,13 @@ impl<D: Dialect> Display for Instruction<D> {
                 instructions,
             } => {
                 let increment = step
-                    .map(|step| format!("{i} += {step}"))
-                    .unwrap_or_else(|| format!("++{i}"));
+                    .map(|step| format!("*{i} += {step}"))
+                    .unwrap_or_else(|| format!("++*{i}"));
                 let cmp = if *inclusive { "<=" } else { "<" };
-                let i_ty = i.item();
-
                 write!(
                     f,
                     "
-for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
+for (*{i} = {start}; *{i} {cmp} {end}; {increment}) {{
 "
                 )?;
                 for instruction in instructions {
@@ -665,9 +667,12 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {item}{{{}}};", inputs.join(","))
             }
-            Instruction::InsertComponent(inst) => {
-                InsertComponent::format(f, &inst.lhs, &inst.rhs, &inst.out)
-            }
+            Instruction::InsertComponent {
+                vector,
+                index,
+                value,
+                out,
+            } => InsertComponent::format(f, vector, index, value, out),
             Instruction::ExtractComponent(inst) => {
                 ExtractComponent::format(f, &inst.lhs, &inst.rhs, &inst.out)
             }

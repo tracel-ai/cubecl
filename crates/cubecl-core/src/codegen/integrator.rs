@@ -1,5 +1,5 @@
 use alloc::{string::ToString, vec::Vec};
-use cubecl_ir::{Id, Scope, StorageType, Variable};
+use cubecl_ir::{Id, Scope, StorageType, Value};
 use cubecl_runtime::{
     kernel::{KernelArg, KernelDefinition, KernelOptions, ScalarKernelArg},
     server::CubeDim,
@@ -79,7 +79,7 @@ impl KernelSettings {
 #[derive(Clone, Debug)]
 pub struct BufferInfo {
     pub id: Id,
-    pub value: Variable,
+    pub value: Value,
     /// Whether this input has extended metadata (rank, shape, strides)
     pub has_extended_meta: bool,
 }

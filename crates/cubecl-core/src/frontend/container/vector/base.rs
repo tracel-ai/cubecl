@@ -3,7 +3,7 @@ use core::{marker::PhantomData, ops::Neg};
 use crate::frontend::{CubePrimitive, CubeType, NativeAssign, NativeExpand};
 use crate::ir::{BinaryOperands, Instruction, Scope, Type};
 use crate::{self as cubecl, prelude::*};
-use cubecl_ir::{Comparison, ConstantValue, Variable};
+use cubecl_ir::{Comparison, ConstantValue, Value};
 use cubecl_macros::{cube, intrinsic};
 
 /// A contiguous list of elements that supports auto-vectorized operations.
@@ -77,7 +77,7 @@ mod components {
         pub fn extract(self, index: usize) -> P {
             intrinsic!(|scope| {
                 if self.expand.vector_size() > 1 {
-                    let out = scope.create_local(P::__expand_as_type(scope));
+                    let out = scope.create_value(P::__expand_as_type(scope));
                     scope.register(Instruction::new(
                         Operator::ExtractComponent(BinaryOperands {
                             lhs: self.expand,
@@ -87,7 +87,7 @@ mod components {
                     ));
                     out.into()
                 } else {
-                    read_variable(scope, self.expand).into()
+                    read_value(scope, self.expand).into()
                 }
             })
         }
@@ -96,14 +96,16 @@ mod components {
         pub fn insert(&mut self, index: usize, value: P) {
             intrinsic!(|scope| {
                 if self.expand.vector_size() > 1 {
+                    let new_value = scope.create_value(self.expand.ty.unwrap_ptr());
                     scope.register(Instruction::new(
                         Operator::InsertComponent(VectorInsertOperands {
                             vector: self.expand,
                             index: index.expand,
                             value: value.expand,
                         }),
-                        self.expand,
+                        new_value,
                     ));
+                    assign::expand_element(scope, new_value, self.expand);
                 } else {
                     assign::expand_element(scope, value.expand, self.expand);
                 }
@@ -140,8 +142,6 @@ mod numeric {
 
 /// Module that contains the implementation details of the fill function.
 mod fill {
-    use crate::prelude::cast;
-
     use super::*;
 
     #[cube]
@@ -157,13 +157,7 @@ mod fill {
         /// vector[1] = 2;
         /// ```
         pub fn fill(self, value: P) -> Self {
-            intrinsic!(|scope| {
-                let output = scope.create_local(Vector::<P, N>::__expand_as_type(scope));
-
-                cast::expand::<P, Vector<P, N>>(scope, value, output.clone().into());
-
-                output.into()
-            })
+            intrinsic!(|scope| { Vector::<P, N>::__expand_cast_from(scope, value) })
         }
     }
 }
@@ -259,7 +253,7 @@ macro_rules! impl_vector_comparison {
                             let lhs = this.expand;
                             let rhs = other.expand.into();
 
-                            let output = scope.create_local_mut(Vector::<bool, N>::__expand_as_type(scope));
+                            let output = scope.create_value(Vector::<bool, N>::__expand_as_type(scope));
 
                             scope.register(Instruction::new(
                                 Comparison::$operator(BinaryOperands { lhs, rhs }),
@@ -324,7 +318,7 @@ impl<P: Scalar, N: Size> CubeType for Vector<P, N> {
 impl<P: Scalar, N: Size> CubeDebug for Vector<P, N> {}
 
 impl<P: Scalar, N: Size> NativeAssign for Vector<P, N> {
-    fn elem_init_mut(scope: &Scope, elem: Variable) -> Variable {
+    fn elem_init_mut(scope: &Scope, elem: Value) -> Value {
         P::elem_init_mut(scope, elem)
     }
 }

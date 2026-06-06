@@ -14,26 +14,15 @@ pub struct KernelArg<D: Dialect> {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SharedMemory<D: Dialect> {
-    pub index: Id,
-    pub item: Item<D>,
+    pub ptr: Variable<D>,
+    pub value_ty: Item<D>,
     pub align: usize,
     pub offset: usize,
 }
 
 impl<D: Dialect> SharedMemory<D> {
     pub fn size(&self) -> usize {
-        self.item.size()
-    }
-}
-
-impl<D: Dialect> SharedMemory<D> {
-    pub fn new(index: Id, item: Item<D>, align: usize) -> Self {
-        Self {
-            index,
-            item,
-            align,
-            offset: 0, // initialized later
-        }
+        self.value_ty.size()
     }
 }
 
@@ -330,6 +319,14 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
         writeln!(
             f,
             "{ty} {variable} = min({plane_dim}, {cube_dim_x} * {cube_dim_y} * {cube_dim_z});"
+        )?;
+    }
+
+    if settings.thread_block {
+        f.write_str(
+            "
+cooperative_groups::thread_block thread_block = cooperative_groups::this_thread_block();
+",
         )?;
     }
 

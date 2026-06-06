@@ -5,13 +5,13 @@ pub(super) mod instruction;
 pub(super) mod item;
 pub(super) mod operation;
 pub(super) mod prelude;
-pub(super) mod variables;
+pub(super) mod values;
 
 use std::collections::HashMap;
 
 use args_manager::{ArgsManager, ArgsManagerBuilder};
 use cubecl_core::{
-    ir::{Builtin, StorageType},
+    ir::{self as cube, Builtin, StorageType},
     prelude::KernelDefinition,
 };
 use cubecl_opt::{Function, NodeIndex};
@@ -28,13 +28,14 @@ use tracel_llvm::mlir_rs::{
     },
     ir::{
         Attribute, Block, BlockRef, Identifier, Location, Module, Operation, Region, RegionRef,
+        Value,
         attribute::{StringAttribute, TypeAttribute},
         r#type::IntegerType,
     },
 };
 
 use prelude::*;
-use variables::Variables;
+use values::Values;
 
 use crate::compiler::visitor::operation::synchronization::add_sync_cube_function;
 
@@ -48,14 +49,14 @@ pub struct Visitor<'a> {
     pub last_block: BlockRef<'a, 'a>,
     pub module: &'a Module<'a>,
     pub blocks: HashMap<NodeIndex, BlockRef<'a, 'a>>,
-    pub blocks_args: HashMap<(NodeIndex, NodeIndex), Vec<Variable>>,
+    pub blocks_args: HashMap<(NodeIndex, NodeIndex), Vec<cube::Value>>,
     pub current_region: RegionRef<'a, 'a>,
     pub context: &'a Context,
     pub location: Location<'a>,
 
     pub str_counter: usize,
 
-    pub(self) variables: Variables<'a>,
+    pub(self) values: Values<'a>,
     pub(self) args_manager: ArgsManager<'a>,
 }
 
@@ -73,7 +74,7 @@ impl<'a> Visitor<'a> {
         let blocks = HashMap::new();
         let blocks_args = HashMap::new();
         let str_counter = 0;
-        let variables = Variables::new();
+        let values = Values::new();
         Self {
             first_block: None,
             block: current_block,
@@ -86,7 +87,7 @@ impl<'a> Visitor<'a> {
             location,
             str_counter,
             args_manager,
-            variables,
+            values,
         }
     }
 

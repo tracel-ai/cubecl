@@ -1,6 +1,6 @@
 use cubecl_ir::{
-    Arithmetic, Builtin, ConstantValue, ElemType, Id, Operation, Operator, Type, Variable,
-    VariableKind,
+    Arithmetic, Builtin, ConstantValue, ElemType, Id, Operation, Operator, Type, Value,
+    ValueKind,
 };
 use hashbrown::HashMap;
 
@@ -143,26 +143,24 @@ impl Ranges {
 impl Ranges {
     /// The possible range of values of any variable, if applicable. Returns unbounded range if no range
     /// can be determined, or the type is not an integer.
-    pub fn range_of(&self, var: &Variable) -> Range {
+    pub fn range_of(&self, var: &Value) -> Range {
         match var.kind {
-            VariableKind::LocalConst { id } if is_uint(var.ty) => {
+            ValueKind::Value { id } if is_uint(var.ty) => {
                 self.int_ranges.get(&id).copied().unwrap_or(Range {
                     lower_bound: Some(0),
                     upper_bound: None,
                 })
             }
-            VariableKind::LocalConst { id } => {
-                self.int_ranges.get(&id).copied().unwrap_or_default()
-            }
-            VariableKind::Constant(ConstantValue::UInt(val)) => Range::constant(val),
+            ValueKind::Value { id } => self.int_ranges.get(&id).copied().unwrap_or_default(),
+            ValueKind::Constant(ConstantValue::UInt(val)) => Range::constant(val),
             _ => Default::default(),
         }
     }
 }
 
-pub(crate) fn var_id(var: &Variable) -> Option<Id> {
+pub(crate) fn var_id(var: &Value) -> Option<Id> {
     match var.kind {
-        VariableKind::LocalConst { id } => Some(id),
+        ValueKind::Value { id } => Some(id),
         _ => None,
     }
 }

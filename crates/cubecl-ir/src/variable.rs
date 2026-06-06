@@ -8,22 +8,28 @@ use derive_more::From;
 use float_ord::FloatOrd;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, TypeHash, Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(missing_docs)]
-pub struct Variable {
-    pub kind: VariableKind,
+pub struct Value {
+    pub kind: ValueKind,
     pub ty: Type,
 }
 
-impl Variable {
-    pub fn new(kind: VariableKind, ty: Type) -> Self {
-        Self { kind, ty }
+impl Value {
+    pub fn new(id: Id, ty: Type) -> Self {
+        Self {
+            kind: ValueKind::Value { id },
+            ty,
+        }
     }
 
     pub fn constant(value: ConstantValue, ty: impl Into<Type>) -> Self {
         let ty = ty.into();
         let value = value.cast_to(ty);
-        Self::new(VariableKind::Constant(value), ty)
+        Self {
+            kind: ValueKind::Constant(value),
+            ty,
+        }
     }
 
     pub fn elem_type(&self) -> ElemType {
@@ -37,10 +43,7 @@ impl Variable {
     pub fn is_rvalue(&self) -> bool {
         // Constant variables are just aliases to values in the IR, so are actually rvalues at least
         // in WGSL, SPIR-V and LLVM.
-        matches!(
-            self.kind,
-            VariableKind::Constant(..) | VariableKind::LocalConst { .. }
-        )
+        matches!(self.kind, ValueKind::Constant(..) | ValueKind::Value { .. })
     }
 
     pub fn has_location(&self) -> bool {
@@ -49,21 +52,15 @@ impl Variable {
 
     pub fn can_mutate(&self) -> bool {
         match self.kind {
-            VariableKind::LocalConst { .. } | VariableKind::Constant(..) => false,
-            VariableKind::LocalMut { .. } | VariableKind::Shared { .. } => true,
+            ValueKind::Value { .. } | ValueKind::Constant(..) => false,
         }
     }
 
     pub fn address_space(&self) -> AddressSpace {
         match self.ty {
-            Type::Array(_, _, addr_space) => addr_space,
-            Type::DynamicArray(_, addr_space) => addr_space,
             Type::Pointer(_, addr_space) => addr_space,
             _ => match self.kind {
-                VariableKind::Shared { .. } => AddressSpace::Shared,
-                VariableKind::LocalMut { .. }
-                | VariableKind::LocalConst { .. }
-                | VariableKind::Constant(..) => AddressSpace::Local,
+                ValueKind::Value { .. } | ValueKind::Constant(..) => AddressSpace::Local,
             },
         }
     }
@@ -76,12 +73,10 @@ impl Variable {
 pub type Id = u32;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash)]
-pub enum VariableKind {
-    LocalMut { id: Id },
-    LocalConst { id: Id },
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ValueKind {
+    Value { id: Id },
     Constant(ConstantValue),
-    Shared { id: Id, alignment: Option<usize> },
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -121,7 +116,7 @@ pub enum Builtin {
     AbsolutePosZ,
 }
 
-impl Variable {
+impl Value {
     /// Whether a variable is always immutable. Used for optimizations to determine whether it's
     /// safe to inline/merge
     pub fn is_immutable(&self) -> bool {
@@ -130,10 +125,8 @@ impl Variable {
             return false;
         }
         match self.kind {
-            VariableKind::LocalMut { .. } => false,
-            VariableKind::Shared { .. } => false,
-            VariableKind::LocalConst { .. } => true,
-            VariableKind::Constant(_) => true,
+            ValueKind::Value { .. } => true,
+            ValueKind::Constant(_) => true,
         }
     }
 
@@ -163,9 +156,9 @@ impl Variable {
     /// Determines if the value is a constant with the specified value (converted if necessary)
     pub fn is_constant(&self, value: i64) -> bool {
         match self.kind {
-            VariableKind::Constant(ConstantValue::Int(val)) => val == value,
-            VariableKind::Constant(ConstantValue::UInt(val)) => val as i64 == value,
-            VariableKind::Constant(ConstantValue::Float(val)) => val == value as f64,
+            ValueKind::Constant(ConstantValue::Int(val)) => val == value,
+            ValueKind::Constant(ConstantValue::UInt(val)) => val as i64 == value,
+            ValueKind::Constant(ConstantValue::Float(val)) => val == value as f64,
             _ => false,
         }
     }
@@ -173,7 +166,7 @@ impl Variable {
     /// Determines if the value is a boolean constant with the `true` value
     pub fn is_true(&self) -> bool {
         match self.kind {
-            VariableKind::Constant(ConstantValue::Bool(val)) => val,
+            ValueKind::Constant(ConstantValue::Bool(val)) => val,
             _ => false,
         }
     }
@@ -181,7 +174,7 @@ impl Variable {
     /// Determines if the value is a boolean constant with the `false` value
     pub fn is_false(&self) -> bool {
         match self.kind {
-            VariableKind::Constant(ConstantValue::Bool(val)) => !val,
+            ValueKind::Constant(ConstantValue::Bool(val)) => !val,
             _ => false,
         }
     }
@@ -447,51 +440,47 @@ impl Display for ConstantValue {
     }
 }
 
-impl Variable {
+impl Value {
     pub fn vector_size(&self) -> usize {
         self.ty.vector_size()
     }
 
-    pub fn index(&self) -> Option<Id> {
+    pub fn id(&self) -> Id {
         match self.kind {
-            VariableKind::LocalMut { id, .. }
-            | VariableKind::LocalConst { id, .. }
-            | VariableKind::Shared { id, .. } => Some(id),
-            _ => None,
+            ValueKind::Value { id, .. } => id,
+            _ => panic!(),
         }
     }
 
     pub fn as_const(&self) -> Option<ConstantValue> {
         match self.kind {
-            VariableKind::Constant(constant) => Some(constant),
+            ValueKind::Constant(constant) => Some(constant),
             _ => None,
         }
     }
 }
 
-impl Display for Variable {
+impl Display for Value {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.kind {
-            VariableKind::Constant(constant) => write!(f, "{}({constant})", self.ty),
+            ValueKind::Constant(constant) => write!(f, "{}({constant})", self.ty),
             other => write!(f, "{other}"),
         }
     }
 }
 
-impl Display for VariableKind {
+impl Display for ValueKind {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            VariableKind::Constant(constant) => write!(f, "{constant}"),
-            VariableKind::LocalMut { id } => write!(f, "local_mut({id})"),
-            VariableKind::LocalConst { id } => write!(f, "local({id})"),
-            VariableKind::Shared { id, .. } => write!(f, "shared({id})"),
+            ValueKind::Constant(constant) => write!(f, "{constant}"),
+            ValueKind::Value { id } => write!(f, "%{id}"),
         }
     }
 }
 
 // Useful with the cube_inline macro.
-impl From<&Variable> for Variable {
-    fn from(value: &Variable) -> Self {
+impl From<&Value> for Value {
+    fn from(value: &Value) -> Self {
         *value
     }
 }

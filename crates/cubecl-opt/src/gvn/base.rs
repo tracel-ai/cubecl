@@ -1,12 +1,12 @@
 use alloc::vec::Vec;
-use cubecl_ir::{Builtin, ConstantValue, Id, OpCode, Type};
+use cubecl_ir::{Builtin, OpCode, Type, Value};
 use hashbrown::HashMap;
 use petgraph::graph::NodeIndex;
 use smallvec::SmallVec;
 
 use crate::{AtomicCounter, Function, GlobalState, PhiInstruction, passes::OptimizerPass};
 
-use super::{GlobalValues, convert::value_of_var};
+use super::GlobalValues;
 
 #[derive(Debug, Clone, Default)]
 pub struct GvnPass;
@@ -43,14 +43,14 @@ pub struct ValueTable {
     pub(crate) next_value_num: u32,
 }
 impl ValueTable {
-    pub(crate) fn insert_phi(&mut self, phi: &PhiInstruction, val: u32) {
+    pub(crate) fn insert_phi(&mut self, func: &Function, phi: &PhiInstruction, val: u32) {
         let expr = Expression::Phi(
             phi.entries
                 .iter()
-                .map(|it| (value_of_var(&it.value).unwrap(), it.block))
+                .map(|it| (func.value_of_var(&it.value).unwrap(), it.block))
                 .collect(),
         );
-        let out = value_of_var(&phi.out).unwrap();
+        let out = func.value_of_var(&phi.out).unwrap();
         self.expression_numbers.insert(expr, val);
         self.value_numbers.insert(out, val);
     }
@@ -65,18 +65,6 @@ impl Default for ValueTable {
             next_value_num: 1,
         }
     }
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
-pub struct Local {
-    pub id: Id,
-    pub item: Type,
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
-pub enum Value {
-    Constant(ConstantValue, Type),
-    Local(Local),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
@@ -110,19 +98,10 @@ impl Expression {
         match self {
             Expression::Instruction(instruction) => instruction.item,
             Expression::Copy(_, item) => *item,
-            Expression::Value(value) => value.item(),
-            Expression::Volatile(value) => value.item(),
-            Expression::Phi(entries) => entries[0].0.item(),
+            Expression::Value(value) => value.ty,
+            Expression::Volatile(value) => value.ty,
+            Expression::Phi(entries) => entries[0].0.ty,
             Expression::Builtin(_, ty) => *ty,
-        }
-    }
-}
-
-impl Value {
-    pub fn item(&self) -> Type {
-        match self {
-            Value::Constant(_, ty) => *ty,
-            Value::Local(local) => local.item,
         }
     }
 }

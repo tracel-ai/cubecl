@@ -2,7 +2,7 @@ use cubecl_core::{
     define_scalar, define_size,
     ir::{
         Arithmetic, Bitwise, ElemType, Instruction, IntKind, Operation, Operator, Scope, Type,
-        UIntKind, UnaryOperands, Variable,
+        UIntKind, UnaryOperands, Value,
     },
     prelude::{assign, expand_erf, expand_hypot, expand_rhypot},
 };
@@ -98,7 +98,7 @@ impl IrTransformer for BitwiseTransform {
             }
             Bitwise::CountOnes(op) if is_u16_u8(op.input) && !self.arbitrary_bitwise => {
                 let u32 = Type::new(UIntKind::U32.into()).with_vector_size(op.input.vector_size());
-                let tmp = scope.create_local(u32);
+                let tmp = scope.create_value(u32);
                 let cast = Instruction::new(Operator::Cast(UnaryOperands { input: op.input }), tmp);
                 let op =
                     Instruction::new(Bitwise::CountOnes(UnaryOperands { input: tmp }), inst.out());
@@ -154,7 +154,7 @@ impl IrTransformer for BitwiseTransform {
             }
             Bitwise::FindFirstSet(op) if is_u16_u8(op.input) => {
                 let u32 = Type::new(UIntKind::U32.into()).with_vector_size(op.input.vector_size());
-                let tmp = scope.create_local(u32);
+                let tmp = scope.create_value(u32);
                 let cast = Instruction::new(Operator::Cast(UnaryOperands { input: op.input }), tmp);
                 let op = Instruction::new(
                     Bitwise::FindFirstSet(UnaryOperands { input: tmp }),
@@ -183,14 +183,14 @@ impl IrTransformer for BitwiseTransform {
     }
 }
 
-fn is_u64(var: Variable) -> bool {
+fn is_u64(var: Value) -> bool {
     matches!(
         var.ty.elem_type(),
         ElemType::Int(IntKind::I64) | ElemType::UInt(UIntKind::U64)
     )
 }
 
-fn is_u16_u8(var: Variable) -> bool {
+fn is_u16_u8(var: Value) -> bool {
     matches!(
         var.ty.elem_type(),
         ElemType::Int(IntKind::I16)

@@ -1,15 +1,19 @@
-use cubecl_core::ir::{Bitwise, ElemType, IntKind, UIntKind};
+use cubecl_core::ir::{self as cube, Bitwise, ElemType, IntKind, UIntKind};
 use tracel_llvm::mlir_rs::{
     dialect::arith::{self, CmpiPredicate},
     dialect::llvm,
-    ir::r#type::IntegerType,
+    ir::{Value, r#type::IntegerType},
 };
 
 use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
     /// Convert a bit-counting result to u32 output type.
-    fn convert_bit_count_to_u32(&mut self, value: Value<'a, 'a>, input: Variable) -> Value<'a, 'a> {
+    fn convert_bit_count_to_u32(
+        &mut self,
+        value: Value<'a, 'a>,
+        input: cube::Value,
+    ) -> Value<'a, 'a> {
         match input.elem_type() {
             ElemType::Int(IntKind::I8)
             | ElemType::UInt(UIntKind::U8)
@@ -43,8 +47,8 @@ impl<'a> Visitor<'a> {
     fn count_zeros_with_clamp(
         &mut self,
         value: Value<'a, 'a>,
-        input: Variable,
-        out: Variable,
+        input: cube::Value,
+        out: cube::Value,
     ) -> Value<'a, 'a> {
         match input.elem_type() {
             ElemType::Int(IntKind::I8)
@@ -75,7 +79,7 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    pub fn visit_bitwise(&mut self, bitwise: &Bitwise, out: Variable) {
+    pub fn visit_bitwise(&mut self, bitwise: &Bitwise, out: cube::Value) {
         let value = match bitwise {
             Bitwise::BitwiseAnd(bin_op) => {
                 let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
@@ -95,7 +99,7 @@ impl<'a> Visitor<'a> {
             }
             Bitwise::ShiftRight(bin_op) => {
                 let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
-                let operation = if bin_op.lhs.storage_type().is_signed_int() {
+                let operation = if bin_op.lhs.ty.is_signed_int() {
                     arith::shrsi(lhs, rhs, self.location)
                 } else {
                     arith::shrui(lhs, rhs, self.location)

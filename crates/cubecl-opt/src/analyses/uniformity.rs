@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 use cubecl_ir::{
-    Builtin, Operation, OperationReflect, Operator, Plane, Synchronization, Variable, VariableKind,
+    Builtin, Operation, OperationReflect, Operator, Plane, Synchronization, Value, ValueKind,
 };
 use hashbrown::{HashMap, HashSet};
 use petgraph::{graph::EdgeIndex, visit::EdgeRef};
@@ -12,7 +12,7 @@ use super::Analysis;
 #[derive(Default, Clone)]
 pub struct Uniformity {
     block_uniformity: HashMap<NodeIndex, bool>,
-    variable_uniformity: HashMap<Variable, bool>,
+    variable_uniformity: HashMap<Value, bool>,
     visited: HashSet<EdgeIndex>,
 }
 
@@ -188,7 +188,7 @@ impl Uniformity {
         Some(())
     }
 
-    fn mark_uniformity(&mut self, var: Variable, value: bool) -> Option<()> {
+    fn mark_uniformity(&mut self, var: Value, value: bool) -> Option<()> {
         if let Some(val) = self.variable_uniformity.get_mut(&var) {
             // If the value was already set before and has been invalidated, we need to revisit
             // all edges. This only happens for loopback edges, where an uninitialized variable
@@ -205,17 +205,16 @@ impl Uniformity {
         Some(())
     }
 
-    fn is_all_uniform(&self, args: Option<Vec<Variable>>) -> bool {
+    fn is_all_uniform(&self, args: Option<Vec<Value>>) -> bool {
         args.map(|it| it.iter().all(|it| self.is_var_uniform(*it)))
             .unwrap_or(false)
     }
 
     /// Whether a variable is plane uniform
-    pub fn is_var_uniform(&self, var: Variable) -> bool {
+    pub fn is_var_uniform(&self, var: Value) -> bool {
         match var.kind {
-            VariableKind::Shared { .. } | VariableKind::Constant(_) => true,
-            VariableKind::LocalMut { .. } => false,
-            VariableKind::LocalConst { .. } => {
+            ValueKind::Constant(_) => true,
+            ValueKind::Value { .. } => {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)
             }
         }

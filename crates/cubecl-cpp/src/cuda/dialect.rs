@@ -58,10 +58,6 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
             Self::compile_wmma_includes(f, flags)?;
         }
 
-        if flags.op_pipeline {
-            f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
-            f.write_str("#include <cuda/pipeline>\n")?;
-        }
         if flags.op_barrier || flags.inst_tma || flags.indexes.cluster_pos {
             f.write_str("#include <cooperative_groups.h>\n")?;
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
@@ -325,7 +321,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 if let PointerClass::Global(Visibility::Read | Visibility::Uniform) = class {
                     f.write_str("const ")?;
                 }
-                write!(f, "{inner}*")
+                match inner.as_ref() {
+                    Item::DynamicArray(inner) => write!(f, "{inner}*"),
+                    other => write!(f, "{other}*"),
+                }
             }
             Item::Array(inner, size) => {
                 write!(f, "array<{inner}, {size}>")
@@ -702,8 +701,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
         var: &Variable<Self>,
+        value_ty: &Item<Self>,
     ) -> std::fmt::Result {
-        M::compile_wmma_fragment_declaration(f, var)
+        M::compile_wmma_fragment_declaration(f, var, value_ty)
     }
 
     fn compile_wwma_fragment_ident(

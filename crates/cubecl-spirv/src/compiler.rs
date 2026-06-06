@@ -276,7 +276,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         self.init_debug();
         self.init_base_state(&mut kernel);
-        let shared_size = self.declare_shared_memories();
 
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
 
@@ -309,6 +308,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let setup_block = self.setup(setup, debug_setup);
         self.setup_block = setup_block;
+
+        let shared_size = self.declare_shared_memories();
 
         let blocks = opt.main.breadth_first_dominators();
         for block in blocks {
@@ -396,7 +397,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.select_block(Some(block_id)).unwrap();
         let phi = { self.current_func().block(block).phi_nodes.borrow().clone() };
         for phi in phi {
-            let out = self.compile_variable(phi.out);
+            let out = self.compile_value(phi.out);
             let ty = out.item().id(self);
             let out_id = self.write_id(&out);
             let entries: Vec<_> = phi
@@ -404,7 +405,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                 .into_iter()
                 .map(|it| {
                     let label = self.end_label(it.block);
-                    let value = self.compile_variable(it.value);
+                    let value = self.compile_value(it.value);
                     let value = self.read(&value);
                     (value, label)
                 })
@@ -489,12 +490,24 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             self.decorate(block_id, Decoration::Block, []);
             self.member_decorate(block_id, 0, Decoration::Offset, [memory.offset.into()]);
 
+            let block_ptr_ty = self.type_pointer(None, StorageClass::Workgroup, block_id);
             let ptr_ty =
-                self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, block_id);
+                self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, item_id);
 
             self.debug_shared(memory.id, index);
-            self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
-            self.decorate(memory.id, Decoration::Aliased, []);
+            self.variable(
+                block_ptr_ty,
+                Some(memory.var_id),
+                StorageClass::Workgroup,
+                None,
+            );
+            self.decorate(memory.var_id, Decoration::Aliased, []);
+
+            self.insert_in_setup(|b| {
+                let zero = b.const_u32(0);
+                b.in_bounds_access_chain(ptr_ty, Some(memory.id), memory.var_id, [zero])
+                    .unwrap()
+            });
         }
 
         shared_size

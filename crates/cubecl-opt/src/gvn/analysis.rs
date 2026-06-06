@@ -5,12 +5,13 @@ use alloc::{
     collections::{linked_list::LinkedList, vec_deque::VecDeque},
     vec,
 };
+use cubecl_ir::{Value, ValueKind};
 use hashbrown::{HashMap, HashSet};
 use smallvec::SmallVec;
 
 use crate::analyses::dominance::{Dominators, PostDominators};
 
-use super::{Expression, Value, ValueTable, convert::value_of_var};
+use super::{Expression, ValueTable};
 
 const MAX_SET_PASSES: usize = 10;
 
@@ -69,7 +70,7 @@ impl GvnState {
 
         let global_leaders = self.values.value_numbers.iter();
         let global_leaders = global_leaders
-            .filter(|(k, _)| matches!(k, Value::Constant(_, _)))
+            .filter(|(k, _)| matches!(k.kind, ValueKind::Constant(_)))
             .map(|(k, v)| (*v, *k))
             .collect::<HashMap<_, _>>();
         for set in self.block_sets.values_mut() {
@@ -134,7 +135,7 @@ impl GvnState {
 
         // Number phi outputs and add the out var as a leader for that value
         for phi in func[block].phi_nodes.borrow().iter() {
-            let (num, val) = self.values.lookup_or_add_phi(phi);
+            let (num, val) = self.values.lookup_or_add_phi(func, phi);
             leaders.entry(num).or_insert(val);
             phi_gen.entry(num).or_insert(val);
         }
@@ -143,7 +144,7 @@ impl GvnState {
             // Try inserting operation
             match self
                 .values
-                .maybe_insert_op(op, &mut exp_gen, &mut added_exprs)
+                .maybe_insert_op(func, op, &mut exp_gen, &mut added_exprs)
             {
                 Ok((num, Some(val), _)) => {
                     // New value, add out var as leader
@@ -291,9 +292,9 @@ pub fn phi_translate(
 
     // Translate each phi's output variable value to the input variable value
     for phi in func.block(child).phi_nodes.borrow().iter() {
-        let (num, _) = values.lookup_or_add_phi(phi);
+        let (num, _) = values.lookup_or_add_phi(func, phi);
         let here = phi.entries.iter().find(|it| it.block == parent).unwrap();
-        let num_here = values.lookup_or_add_var(&here.value).unwrap();
+        let num_here = values.lookup_or_add_var(func, &here.value).unwrap();
         translated.insert(num, num_here);
     }
 
@@ -303,11 +304,11 @@ pub fn phi_translate(
             let nodes = func.block(child).phi_nodes.borrow();
             let phi = nodes
                 .iter()
-                .find(|it| &value_of_var(&it.out).unwrap() == value);
+                .find(|it| &func.value_of_var(&it.out).unwrap() == value);
 
             if let Some(phi) = phi {
                 let value_here = phi.entries.iter().find(|it| it.block == parent).unwrap();
-                let value_here = value_of_var(&value_here.value).unwrap();
+                let value_here = func.value_of_var(&value_here.value).unwrap();
                 let num_here = values.lookup_or_add_expr(Expression::Value(value_here), None);
                 result.push_back((num_here, Expression::Value(value_here)));
                 translated.insert(*val, num_here);

@@ -6,7 +6,7 @@ use crate::{BasicBlock, BlockUse, Function, GlobalState, NodeIndex};
 use alloc::{boxed::Box, vec::Vec};
 use cubecl_ir::{
     Arithmetic, BinaryOperands, Branch, Comparison, ConstantValue, ElemType, If, IfElse,
-    Instruction, Loop, Marker, Operation, RangeLoop, Switch, Type, Variable, VariableKind,
+    Instruction, Loop, Marker, Memory, Operation, RangeLoop, StoreOperands, Switch, Type, Value,
 };
 use petgraph::{Direction, graph::EdgeIndex, visit::EdgeRef};
 use stable_vec::StableVec;
@@ -16,14 +16,14 @@ use stable_vec::StableVec;
 pub enum ControlFlow {
     /// An if or if-else branch that should be structured if applicable.
     IfElse {
-        cond: Variable,
+        cond: Value,
         then: NodeIndex,
         or_else: NodeIndex,
         merge: Option<NodeIndex>,
     },
     /// A switch branch that paths based on `value`
     Switch {
-        value: Variable,
+        value: Value,
         default: NodeIndex,
         branches: Vec<(u32, NodeIndex)>,
         merge: Option<NodeIndex>,
@@ -39,14 +39,14 @@ pub enum ControlFlow {
     /// `merge` is the block that gets executed as soon as the loop terminates. The header contains
     /// the break condition.
     LoopBreak {
-        break_cond: Variable,
+        break_cond: Value,
         body: NodeIndex,
         continue_target: NodeIndex,
         merge: NodeIndex,
     },
     /// A return statement. This should only occur once in the program and all other returns should
     /// instead branch to this single return block.
-    Return { value: Option<Variable> },
+    Return { value: Option<Value> },
     /// Unreachable control flow
     Unreachable,
     /// No special control flow. The block must have exactly one edge that should be followed.
@@ -288,15 +288,27 @@ impl Function {
     fn parse_for_loop(&mut self, state: &GlobalState, range_loop: RangeLoop) {
         let step = range_loop.step.unwrap_or(1.into());
 
-        let i_id = match range_loop.i.kind {
-            VariableKind::LocalMut { id, .. } => id,
-            _ => unreachable!(),
-        };
         let i = range_loop.i;
-        self.variables.insert(i_id, i.ty);
 
-        let assign = Instruction::new(Operation::Copy(range_loop.start), i);
-        self.current_block_mut().ops.borrow_mut().push(assign);
+        let load_i = |f: &Self, block: NodeIndex| {
+            let tmp_i = state.allocator.create_value(i.ty.unwrap_ptr());
+            f[block]
+                .ops
+                .borrow_mut()
+                .push(Instruction::new(Memory::Load(i), tmp_i));
+            tmp_i
+        };
+        let store_i = |f: &Self, block: NodeIndex, value: Value| {
+            f[block]
+                .ops
+                .borrow_mut()
+                .push(Instruction::no_out(Memory::Store(StoreOperands {
+                    ptr: i,
+                    value,
+                })));
+        };
+
+        store_i(self, self.current_block.unwrap(), range_loop.start);
 
         let current_block = self.current_block.unwrap();
         let header = self.add_node(BasicBlock::default());
@@ -339,10 +351,11 @@ impl Function {
                 true => Comparison::LowerEqual,
                 false => Comparison::Lower,
             };
-            let tmp = state.allocator.create_local(Type::scalar(ElemType::Bool));
+            let tmp = state.allocator.create_value(Type::scalar(ElemType::Bool));
+            let val_i = load_i(self, header);
             self[header].ops.borrow_mut().push(Instruction::new(
                 op(BinaryOperands {
-                    lhs: i,
+                    lhs: val_i,
                     rhs: range_loop.end,
                 }),
                 tmp,
@@ -355,10 +368,16 @@ impl Function {
                 merge: next,
             };
         }
+        let tmp_i = state.allocator.create_value(i.ty.unwrap_ptr());
+        let val_i = load_i(self, current_block);
         self[current_block].ops.borrow_mut().push(Instruction::new(
-            Arithmetic::Add(BinaryOperands { lhs: i, rhs: step }),
-            i,
+            Arithmetic::Add(BinaryOperands {
+                lhs: val_i,
+                rhs: step,
+            }),
+            tmp_i,
         ));
+        store_i(self, current_block, tmp_i);
     }
 
     pub(crate) fn split_critical_edges(&mut self) {

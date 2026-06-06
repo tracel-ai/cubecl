@@ -3,13 +3,13 @@ use core::mem::swap;
 use alloc::{collections::linked_list::LinkedList, vec::Vec};
 use cubecl_ir::{
     self as ir, Arithmetic, AtomicOp, Comparison, ComparisonOpCode, Memory, OpCode, Operation,
-    OperationReflect, Operator, Variable,
+    OperationReflect, Operator, Value,
 };
 use hashbrown::HashSet;
 
-use crate::PhiInstruction;
+use crate::{Function, PhiInstruction};
 
-use super::{Expression, Instruction, Value, ValueTable, convert::value_of_var};
+use super::{Expression, Instruction, ValueTable};
 
 impl ValueTable {
     /// Look up or insert operation if it's numberable. Returns the number, optional out value and
@@ -17,11 +17,12 @@ impl ValueTable {
     /// don't number any expressions that depend on it.
     pub fn maybe_insert_op(
         &mut self,
+        func: &Function,
         op: &ir::Instruction,
         exp_gen: &mut LinkedList<(u32, Expression)>,
         added_exps: &mut HashSet<u32>,
     ) -> Result<(u32, Option<Value>, Expression), Option<Value>> {
-        let expr = self.create_expr(op);
+        let expr = self.create_expr(func, op);
         if let Err(Some(val)) = expr {
             let num = self.lookup_or_add_value(val);
             exp_gen.push_back((num, Expression::Volatile(val)));
@@ -35,8 +36,8 @@ impl ValueTable {
         Ok((num, val, expr))
     }
 
-    pub fn lookup_op(&mut self, op: &ir::Instruction) -> Option<u32> {
-        let (expr, _) = self.create_expr(op).ok()?;
+    pub fn lookup_op(&mut self, func: &Function, op: &ir::Instruction) -> Option<u32> {
+        let (expr, _) = self.create_expr(func, op).ok()?;
         self.expression_numbers.get(&expr).copied()
     }
 
@@ -55,14 +56,14 @@ impl ValueTable {
         }
     }
 
-    pub fn lookup_or_add_phi(&mut self, phi: &PhiInstruction) -> (u32, Value) {
+    pub fn lookup_or_add_phi(&mut self, func: &Function, phi: &PhiInstruction) -> (u32, Value) {
         let expr = Expression::Phi(
             phi.entries
                 .iter()
-                .map(|it| (value_of_var(&it.value).unwrap(), it.block))
+                .map(|it| (func.value_of_var(&it.value).unwrap(), it.block))
                 .collect(),
         );
-        let out = value_of_var(&phi.out).unwrap();
+        let out = func.value_of_var(&phi.out).unwrap();
         let num = self.lookup_or_add_expr(expr, Some(out));
         (num, out)
     }
@@ -87,8 +88,12 @@ impl ValueTable {
         }
     }
 
-    pub fn lookup_or_add_var(&mut self, value: &Variable) -> Result<u32, Option<Value>> {
-        let value = value_of_var(value).ok_or(None)?;
+    pub fn lookup_or_add_var(
+        &mut self,
+        func: &Function,
+        value: &Value,
+    ) -> Result<u32, Option<Value>> {
+        let value = func.value_of_var(value).ok_or(None)?;
         if let Some(existing) = self.value_numbers.get(&value) {
             Ok(*existing)
         } else {
@@ -104,34 +109,36 @@ impl ValueTable {
     /// don't number any expressions that depend on it.
     fn create_expr(
         &mut self,
+        func: &Function,
         inst: &ir::Instruction,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         match &inst.operation {
             Operation::Copy(variable) => {
                 let item = inst.ty();
-                let out = value_of_var(&inst.out());
-                let num = self.lookup_or_add_var(variable)?;
+                let out = func.value_of_var(&inst.out());
+                let num = self.lookup_or_add_var(func, variable)?;
                 Ok((Expression::Copy(num, item), out))
             }
+            Operation::DeclareVariable { .. } => Err(None),
             Operation::Operator(Operator::ReadBuiltin(builtin)) => {
                 let item = inst.ty();
-                let out = value_of_var(&inst.out());
+                let out = inst.out;
                 Ok((Expression::Builtin(*builtin, item), out))
             }
-            Operation::Memory(memory) => self.create_expr_memory(memory, inst.out),
+            Operation::Memory(memory) => self.create_expr_memory(func, memory, inst.out),
             Operation::Arithmetic(arithmetic) => {
-                self.create_expr_arithmetic(arithmetic, inst.out())
+                self.create_expr_arithmetic(func, arithmetic, inst.out())
             }
-            Operation::Comparison(cmp) => self.create_expr_cmp(cmp, inst.out()),
-            Operation::Bitwise(bitwise) => self.create_expr_simple_op(bitwise, inst.out()),
-            Operation::Operator(operator) => self.create_expr_simple_op(operator, inst.out()),
-            Operation::Metadata(metadata) => self.create_expr_simple_op(metadata, inst.out()),
+            Operation::Comparison(cmp) => self.create_expr_cmp(func, cmp, inst.out()),
+            Operation::Bitwise(bitwise) => self.create_expr_simple_op(func, bitwise, inst.out()),
+            Operation::Operator(operator) => self.create_expr_simple_op(func, operator, inst.out()),
+            Operation::Metadata(metadata) => self.create_expr_simple_op(func, metadata, inst.out()),
             // Not numberable: it has a barrier side-effect and a
             // workgroup-uniformity contract, so it must never be deduplicated.
             Operation::Plane(_) | Operation::WorkgroupUniformLoad(_) => {
-                Err(value_of_var(&inst.out()))
+                Err(func.value_of_var(&inst.out()))
             }
-            Operation::Atomic(atomic) => self.create_expr_atomic(atomic, inst.out),
+            Operation::Atomic(atomic) => self.create_expr_atomic(func, atomic, inst.out),
             Operation::Branch(_)
             | Operation::Synchronization(_)
             | Operation::CoopMma(_)
@@ -148,16 +155,17 @@ impl ValueTable {
 
     fn create_expr_arithmetic(
         &mut self,
+        func: &Function,
         operator: &Arithmetic,
-        out: Variable,
+        out: Value,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         let (expr, val) = match operator {
             Arithmetic::Fma(op) => {
                 let item = out.ty;
-                let mut a = self.lookup_or_add_var(&op.a)?;
-                let mut b = self.lookup_or_add_var(&op.b)?;
-                let c = self.lookup_or_add_var(&op.c)?;
-                let out = value_of_var(&out);
+                let mut a = self.lookup_or_add_var(func, &op.a)?;
+                let mut b = self.lookup_or_add_var(func, &op.b)?;
+                let c = self.lookup_or_add_var(func, &op.c)?;
+                let out = func.value_of_var(&out);
                 let op = OpCode::Arithmetic(operator.op_code());
                 if a > b {
                     swap(&mut a, &mut b);
@@ -166,15 +174,16 @@ impl ValueTable {
                 (expr.into(), out)
             }
 
-            op => self.create_expr_simple_op(op, out)?,
+            op => self.create_expr_simple_op(func, op, out)?,
         };
         Ok((expr, val))
     }
 
     fn create_expr_cmp(
         &mut self,
+        func: &Function,
         cmp: &Comparison,
-        out: Variable,
+        out: Value,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         match cmp {
             // Compare ops
@@ -183,9 +192,9 @@ impl ValueTable {
             | Comparison::LowerEqual(op)
             | Comparison::GreaterEqual(op) => {
                 let item = out.ty;
-                let mut lhs = self.lookup_or_add_var(&op.lhs)?;
-                let mut rhs = self.lookup_or_add_var(&op.rhs)?;
-                let out = value_of_var(&out);
+                let mut lhs = self.lookup_or_add_var(func, &op.lhs)?;
+                let mut rhs = self.lookup_or_add_var(func, &op.rhs)?;
+                let out = func.value_of_var(&out);
                 let mut op = cmp.op_code();
                 if lhs > rhs {
                     swap(&mut lhs, &mut rhs);
@@ -194,38 +203,41 @@ impl ValueTable {
                 let expr = Instruction::new(op, &[lhs, rhs], item);
                 Ok((expr.into(), out))
             }
-            op => self.create_expr_simple_op(op, out),
+            op => self.create_expr_simple_op(func, op, out),
         }
     }
 
     fn create_expr_memory(
         &mut self,
+        func: &Function,
         memory: &Memory,
-        out: Option<Variable>,
+        out: Option<Value>,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         let (expr, val) = match memory {
-            Memory::Load(_) => Err(value_of_var(&out.unwrap()))?,
+            Memory::Load(_) => Err(func.value_of_var(&out.unwrap()))?,
             Memory::Store(..) | Memory::CopyMemory(..) => Err(None)?,
-            op => self.create_expr_simple_op(op, out.unwrap())?,
+            op => self.create_expr_simple_op(func, op, out.unwrap())?,
         };
         Ok((expr, val))
     }
 
     fn create_expr_atomic(
         &mut self,
+        func: &Function,
         atomic: &AtomicOp,
-        out: Option<Variable>,
+        out: Option<Value>,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         match atomic {
             AtomicOp::Store(..) => Err(None),
-            _ => Err(value_of_var(&out.unwrap())),
+            _ => Err(func.value_of_var(&out.unwrap())),
         }
     }
 
     fn create_expr_simple_op<Code: Into<OpCode>>(
         &mut self,
+        func: &Function,
         op: &impl OperationReflect<OpCode = Code>,
-        out: Variable,
+        out: Value,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         let item = out.ty;
         let id = op.op_code().into();
@@ -233,9 +245,9 @@ impl ValueTable {
         if let Some(args) = args {
             let mut args = args
                 .iter()
-                .map(|it| self.lookup_or_add_var(it))
+                .map(|it| self.lookup_or_add_var(func, it))
                 .collect::<Result<Vec<_>, _>>()?;
-            let out = value_of_var(&out);
+            let out = func.value_of_var(&out);
             let expr = if op.is_commutative() {
                 args.sort();
                 Instruction::commutative(id, &args, item)

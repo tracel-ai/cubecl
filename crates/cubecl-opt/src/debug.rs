@@ -21,7 +21,7 @@ use crate::{
         },
         uniformity::Uniformity,
     },
-    gvn::{BlockSets, Expression, GlobalValues, Instruction, Local, Value, ValueTable},
+    gvn::{BlockSets, Expression, GlobalValues, Instruction, ValueTable},
 };
 
 const DEBUG_GVN: bool = option_env!("CUBECL_DEBUG_GVN").is_some();
@@ -106,7 +106,7 @@ impl Display for Function {
                 writeln!(f, "    Uses: {:?}", bb.block_use)?;
             }
             let live_vars = liveness.at_block(node).iter();
-            let live_vars = live_vars.map(|it| format!("local({it})"));
+            let live_vars = live_vars.map(|it| format!("%{it}"));
             let live_vars = live_vars.collect::<Vec<_>>();
             writeln!(f, "    Live variables: [{}]\n", live_vars.join(", "))?;
             let live_shared = shared_liveness.at_block(node).iter();
@@ -289,21 +289,6 @@ impl Display for ValueTable {
     }
 }
 
-impl Display for Value {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Value::Constant(constant, _) => write!(f, "{constant}"),
-            Value::Local(local) => write!(f, "{local}"),
-        }
-    }
-}
-
-impl Display for Local {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "local({})", self.id)
-    }
-}
-
 impl Display for Expression {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -427,11 +412,15 @@ impl Display for BasicBlock {
 
 impl Display for SmemAllocation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let crate::SharedMemory { id, ty, align } = self.smem;
+        let crate::MemoryBlock {
+            value_ty,
+            alignment,
+            ..
+        } = self.smem;
         write!(
             f,
-            "shared(id: {id}, offset: {}, align: {align}, ty: {ty})",
-            self.offset,
+            "shared(id: {}, offset: {}, align: {alignment}, ty: {value_ty})",
+            self.id, self.offset,
         )
     }
 }

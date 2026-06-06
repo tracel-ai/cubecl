@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use cubecl::prelude::*;
 use cubecl_common::{e4m3, e5m2, ue8m0};
-use cubecl_ir::{Instruction, Operator, Variable};
+use cubecl_ir::{Instruction, Operator, Value};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -20,7 +20,7 @@ pub struct InputScalar {
 
 #[derive(Clone)]
 pub struct InputScalarExpand {
-    pub expand: Variable,
+    pub expand: Value,
 }
 
 impl CubeType for InputScalar {
@@ -121,12 +121,7 @@ impl InputScalar {
     pub fn get<C: Scalar>(&self) -> C {
         intrinsic!(|scope| {
             let dtype = C::__expand_as_type(scope);
-            if self.expand.ty == dtype {
-                return self.expand.clone().into();
-            }
-            let new_var = scope.create_local(dtype);
-            cast::expand::<C, C>(scope, self.expand.clone().into(), new_var.clone().into());
-            new_var.into()
+            cast_expand_elem(scope, self.expand, dtype).into()
         })
     }
 }
@@ -154,7 +149,7 @@ impl LaunchArg for InputScalar {
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
-        let expand = builder.create_local(arg.ty.into());
+        let expand = builder.create_value(arg.ty.into());
         let id = builder.scalar(arg.ty);
         builder.register(Instruction::new(Operator::ReadScalar(id), expand));
         InputScalarExpand { expand }

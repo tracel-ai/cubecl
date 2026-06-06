@@ -10,7 +10,7 @@ use cubecl_core::{
     CubeDim,
     ir::{
         self as gpu, AddressSpace, DeviceProperties, ElemType, FloatKind, InstructionModes,
-        OpaqueType, Operation, Processor, SourceLoc, StorageType, Type,
+        OpaqueType, Operation, Processor, SourceLoc, StorageType, Type, Value,
         features::{AtomicUsage, EnumSet, TypeUsage},
     },
     post_processing::{self, checked_io::CheckedIoVisitor, disaggregate::DisaggregateVisitor},
@@ -83,7 +83,7 @@ pub struct Flags<D: Dialect> {
     pub elem_tf32: bool,
     pub indexes: CubeIndexFlags,
     pub op_barrier: bool,
-    pub op_pipeline: bool,
+    pub thread_block: bool,
     pub inst_tma: bool,
     pub inst_tma_im2col: bool,
     pub inst_wmma: bool,
@@ -105,7 +105,7 @@ pub struct CppCompiler<D: Dialect> {
     buffer_vis: Vec<Visibility>,
     barriers: Vec<BarrierOps<D>>,
     compilation_options: CompilationOptions,
-    ext_meta_positions: HashMap<gpu::Variable, u32>,
+    ext_meta_positions: HashMap<gpu::Value, u32>,
     cluster_dim: CubeDim,
     extensions: Vec<D::Extension>,
     flags: Flags<D>,
@@ -127,7 +127,7 @@ impl<D: Dialect> Default for Flags<D> {
             elem_tf32: Default::default(),
             indexes: Default::default(),
             op_barrier: Default::default(),
-            op_pipeline: Default::default(),
+            thread_block: Default::default(),
             inst_tma: Default::default(),
             inst_tma_im2col: Default::default(),
             inst_wmma: Default::default(),
@@ -259,9 +259,9 @@ impl<D: Dialect> CppCompiler<D> {
             .allocations
             .values()
             .map(|alloc| SharedMemory {
-                index: alloc.smem.id,
-                item: self.compile_type(alloc.smem.ty),
-                align: alloc.smem.align,
+                ptr: self.compile_variable(Value::new(alloc.id, alloc.smem.root_ptr.ty)),
+                value_ty: self.compile_type(alloc.smem.value_ty),
+                align: alloc.smem.alignment,
                 offset: alloc.offset,
             })
             .collect();
@@ -279,7 +279,7 @@ impl<D: Dialect> CppCompiler<D> {
         let flags = Flags {
             indexes: D::builtin_rules(&self.flags.indexes),
             inst_wmma: self.flags.inst_wmma,
-            op_pipeline: self.flags.op_pipeline,
+            thread_block: self.flags.thread_block,
             op_barrier: self.flags.op_barrier,
             elem_fp4: self.flags.elem_fp4,
             elem_fp6: self.flags.elem_fp6,
@@ -345,7 +345,7 @@ impl<D: Dialect> CppCompiler<D> {
         cubecl_core::Metadata::new(num_meta as u32, num_ext)
     }
 
-    pub(crate) fn ext_meta_position(&self, var: &gpu::Variable) -> u32 {
+    pub(crate) fn ext_meta_position(&self, var: &gpu::Value) -> u32 {
         self.ext_meta_positions[var]
     }
 
@@ -357,12 +357,6 @@ impl<D: Dialect> CppCompiler<D> {
         processors.extend(dialect_processors.iter().map(|it| &**it));
 
         let processing = scope.process(processors);
-
-        for var in processing.variables {
-            instructions.push(Instruction::DeclareVariable {
-                var: self.compile_variable(var),
-            });
-        }
 
         processing
             .instructions
@@ -386,6 +380,23 @@ impl<D: Dialect> CppCompiler<D> {
                     input: self.compile_variable(variable),
                     out: self.compile_variable(out.unwrap()),
                 }));
+            }
+            gpu::Operation::DeclareVariable {
+                addr_space: AddressSpace::Local,
+                value_ty,
+                ..
+            } => instructions.push(Instruction::DeclareVariable {
+                var: self.compile_variable(out.unwrap()),
+                value_ty: self.compile_type(value_ty),
+            }),
+            gpu::Operation::DeclareVariable {
+                addr_space: AddressSpace::Shared,
+                ..
+            } => {
+                // Optimizer handles parsing and allocating these
+            }
+            gpu::Operation::DeclareVariable { addr_space, .. } => {
+                unimplemented!("Unsupported declaration address space {addr_space}")
             }
             gpu::Operation::Arithmetic(op) => {
                 self.compile_arithmetic(op, out, instruction.modes, instructions)
@@ -629,6 +640,7 @@ impl<D: Dialect> CppCompiler<D> {
                     destination,
                     source_length,
                 } => {
+                    self.flags.thread_block = true;
                     instructions.push(Instruction::Barrier(
                         super::barrier::BarrierOps::MemCopyAsync {
                             barrier: self.compile_variable(barrier),
@@ -826,7 +838,7 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_cmma(&mut self, cmma: gpu::CoopMma, out: Option<gpu::Variable>) -> Instruction<D> {
+    fn compile_cmma(&mut self, cmma: gpu::CoopMma, out: Option<gpu::Value>) -> Instruction<D> {
         self.flags.inst_wmma = true;
 
         let inst = match cmma {
@@ -947,11 +959,11 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_metadata(
         &mut self,
         metadata: gpu::Metadata,
-        out: Option<gpu::Variable>,
+        out: Option<gpu::Value>,
     ) -> Instruction<D> {
         let out = out.unwrap();
         match metadata {
-            gpu::Metadata::Stride { dim, var } => {
+            gpu::Metadata::Stride { dim, list: var } => {
                 let position = self.ext_meta_position(&var);
                 let offset = self.info.metadata.stride_offset_index(position);
                 Instruction::ExtendedMetadata {
@@ -960,7 +972,7 @@ impl<D: Dialect> CppCompiler<D> {
                     out: self.compile_variable(out),
                 }
             }
-            gpu::Metadata::Shape { dim, var } => {
+            gpu::Metadata::Shape { dim, list: var } => {
                 let position = self.ext_meta_position(&var);
                 let offset = self.info.metadata.shape_offset_index(position);
                 Instruction::ExtendedMetadata {
@@ -969,22 +981,16 @@ impl<D: Dialect> CppCompiler<D> {
                     out: self.compile_variable(out),
                 }
             }
-            gpu::Metadata::BufferLength { var } => {
-                let input = self.compile_variable(var);
+            gpu::Metadata::BufferLength { list } => {
                 let out = self.compile_variable(out);
 
-                match input {
-                    Variable::Slice { .. } => Instruction::SliceLength { input, out },
-                    _ => {
-                        let AddressSpace::Global(id) = var.address_space() else {
-                            unreachable!("Variable should have id")
-                        };
-                        let offset = self.info.metadata.buffer_len_index(id);
-                        Instruction::Metadata {
-                            info_offset: self.compile_variable(offset.into()),
-                            out,
-                        }
-                    }
+                let AddressSpace::Global(id) = list.address_space() else {
+                    unreachable!("Variable should have id")
+                };
+                let offset = self.info.metadata.buffer_len_index(id);
+                Instruction::Metadata {
+                    info_offset: self.compile_variable(offset.into()),
+                    out,
                 }
             }
         }
@@ -1030,7 +1036,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_atomic(
         &mut self,
         value: gpu::AtomicOp,
-        out: Option<gpu::Variable>,
+        out: Option<gpu::Value>,
         instructions: &mut Vec<Instruction<D>>,
     ) {
         match value {
@@ -1082,7 +1088,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_arithmetic(
         &mut self,
         value: gpu::Arithmetic,
-        out: Option<gpu::Variable>,
+        out: Option<gpu::Value>,
         modes: InstructionModes,
         instructions: &mut Vec<Instruction<D>>,
     ) {
@@ -1412,7 +1418,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_comparison(
         &mut self,
         value: gpu::Comparison,
-        out: Option<gpu::Variable>,
+        out: Option<gpu::Value>,
         instructions: &mut Vec<Instruction<D>>,
     ) {
         let out = out.unwrap();
@@ -1447,7 +1453,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_bitwise(
         &mut self,
         value: gpu::Bitwise,
-        out: Option<gpu::Variable>,
+        out: Option<gpu::Value>,
         instructions: &mut Vec<Instruction<D>>,
     ) {
         let out = out.unwrap();
@@ -1493,16 +1499,10 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_memory(
         &mut self,
         value: gpu::Memory,
-        out: Option<gpu::Variable>,
+        out: Option<gpu::Value>,
         instructions: &mut Vec<Instruction<D>>,
     ) {
         match value {
-            gpu::Memory::Reference(variable) => {
-                instructions.push(Instruction::Reference(UnaryInstruction {
-                    input: self.compile_variable(variable),
-                    out: self.compile_variable(out.unwrap()),
-                }))
-            }
             gpu::Memory::Index(op) => {
                 instructions.push(Instruction::Index(self.compile_index(op, out.unwrap())))
             }
@@ -1525,7 +1525,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_operator(
         &mut self,
         value: gpu::Operator,
-        out: Option<gpu::Variable>,
+        out: Option<gpu::Value>,
         instructions: &mut Vec<Instruction<D>>,
     ) {
         let out = out.unwrap();
@@ -1547,13 +1547,12 @@ impl<D: Dialect> CppCompiler<D> {
                     .collect(),
                 out: self.compile_variable(out),
             }),
-            gpu::Operator::InsertComponent(op) => {
-                instructions.push(Instruction::InsertComponent(BinaryInstruction {
-                    lhs: self.compile_variable(op.index),
-                    rhs: self.compile_variable(op.value),
-                    out: self.compile_variable(out),
-                }))
-            }
+            gpu::Operator::InsertComponent(op) => instructions.push(Instruction::InsertComponent {
+                vector: self.compile_variable(op.vector),
+                index: self.compile_variable(op.index),
+                value: self.compile_variable(op.value),
+                out: self.compile_variable(out),
+            }),
             gpu::Operator::ExtractComponent(op) => {
                 instructions.push(Instruction::ExtractComponent(self.compile_binary(op, out)))
             }
@@ -1768,7 +1767,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_binary(
         &mut self,
         value: gpu::BinaryOperands,
-        out: gpu::Variable,
+        out: gpu::Value,
     ) -> BinaryInstruction<D> {
         BinaryInstruction {
             lhs: self.compile_variable(value.lhs),
@@ -1780,7 +1779,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_atomic_binary(
         &mut self,
         value: gpu::AtomicBinaryOperands,
-        out: gpu::Variable,
+        out: gpu::Value,
     ) -> BinaryInstruction<D> {
         BinaryInstruction {
             lhs: self.compile_variable(value.ptr),
@@ -1789,48 +1788,29 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_index(
-        &mut self,
-        value: gpu::IndexOperands,
-        out: gpu::Variable,
-    ) -> IndexInstruction<D> {
+    fn compile_index(&mut self, value: gpu::IndexOperands, out: gpu::Value) -> IndexInstruction<D> {
         IndexInstruction {
             list: self.compile_variable(value.list),
             index: self.compile_variable(value.index),
-            vector_size: value.vector_size as u32,
             out: self.compile_variable(out),
         }
     }
 
-    fn compile_unary(
-        &mut self,
-        value: gpu::UnaryOperands,
-        out: gpu::Variable,
-    ) -> UnaryInstruction<D> {
+    fn compile_unary(&mut self, value: gpu::UnaryOperands, out: gpu::Value) -> UnaryInstruction<D> {
         UnaryInstruction {
             input: self.compile_variable(value.input),
             out: self.compile_variable(out),
         }
     }
 
-    fn compile_variable(&mut self, value: gpu::Variable) -> Variable<D> {
+    fn compile_variable(&mut self, value: gpu::Value) -> Variable<D> {
         let item = value.ty;
         match value.kind {
-            gpu::VariableKind::LocalMut { id } => Variable::LocalMut {
+            gpu::ValueKind::Value { id } => Variable::Value {
                 id,
                 item: self.compile_type(item),
             },
-            gpu::VariableKind::LocalConst { id } => Variable::LocalConst {
-                id,
-                item: self.compile_type(item),
-            },
-            gpu::VariableKind::Constant(value) => {
-                Variable::Constant(value, self.compile_type(item))
-            }
-            gpu::VariableKind::Shared { id, .. } => {
-                let item = self.compile_type(item);
-                Variable::Shared(id, item)
-            }
+            gpu::ValueKind::Constant(value) => Variable::Constant(value, self.compile_type(item)),
         }
     }
 
@@ -1890,11 +1870,11 @@ impl<D: Dialect> CppCompiler<D> {
                 };
                 Item::Pointer(item.intern(), class)
             }
-            gpu::Type::Array(ty, size, _) => {
+            gpu::Type::Array(ty, size) => {
                 let ty = self.compile_type(*ty);
                 Item::Array(ty.intern(), size)
             }
-            gpu::Type::DynamicArray(ty, _) => {
+            gpu::Type::DynamicArray(ty) => {
                 let ty = self.compile_type(*ty);
                 Item::DynamicArray(ty.intern())
             }

@@ -1,21 +1,21 @@
 use core::{cell::RefCell, ops::Deref};
 
-use cubecl_ir::{Memory, Operation, Variable};
+use cubecl_ir::{Id, Memory, Operation, Value, ValueKind};
 use hashbrown::HashMap;
 
 use crate::{
-    Function, GlobalState,
+    Function, GlobalState, MemoryBlock,
     analyses::{Analysis, post_order::PostOrder},
 };
 
 #[derive(Debug)]
 pub struct PointerSource {
     /// The source variable of each pointer, propagated through copies
-    pointer_sources: RefCell<HashMap<Variable, Variable>>,
+    pointer_sources: RefCell<HashMap<Id, MemoryBlock>>,
 }
 
 impl Deref for PointerSource {
-    type Target = RefCell<HashMap<Variable, Variable>>;
+    type Target = RefCell<HashMap<Id, MemoryBlock>>;
 
     fn deref(&self) -> &Self::Target {
         &self.pointer_sources
@@ -26,6 +26,11 @@ impl PointerSource {
     pub fn new(func: &mut Function, state: &GlobalState) -> Self {
         let blocks = func.analysis::<PostOrder>(state).reverse();
         let mut pointer_sources = HashMap::new();
+
+        for (id, mem) in func.memories.iter() {
+            pointer_sources.insert(*id, *mem);
+        }
+
         for block in blocks {
             let insts = func[block].ops.borrow().clone();
             let insts = insts.values();
@@ -34,15 +39,18 @@ impl PointerSource {
                     unreachable!();
                 };
                 match &inst.operation {
-                    Operation::Copy(variable) => {
-                        let source = pointer_sources[variable];
-                        pointer_sources.insert(out, source);
-                    }
-                    Operation::Memory(Memory::Reference(variable)) => {
-                        pointer_sources.insert(out, *variable);
+                    Operation::Copy(Value {
+                        kind: ValueKind::Value { id },
+                        ..
+                    }) => {
+                        if let Some(source) = pointer_sources.get(id) {
+                            pointer_sources.insert(out.id(), *source);
+                        }
                     }
                     Operation::Memory(Memory::Index(op)) => {
-                        pointer_sources.insert(out, op.list);
+                        if let Some(mem) = pointer_sources.get(&op.list.id()) {
+                            pointer_sources.insert(out.id(), *mem);
+                        }
                     }
                     _ => {}
                 }
@@ -53,8 +61,12 @@ impl PointerSource {
         }
     }
 
-    pub fn get(&self, var: &Variable) -> Option<Variable> {
-        self.borrow().get(var).copied()
+    pub fn get(&self, val: &Value) -> Option<MemoryBlock> {
+        if let ValueKind::Value { id } = &val.kind {
+            self.borrow().get(id).copied()
+        } else {
+            None
+        }
     }
 }
 

@@ -6,7 +6,7 @@ use cubecl_core::{
 use cubecl_runtime::kernel::Visibility;
 use std::fmt::{Display, Formatter};
 
-use crate::shared::{FP4Kind, FP8Kind, PointerClass};
+use crate::shared::{FP4Kind, FP8Kind, PointerClass, binary::fmt_index};
 
 use super::{COUNTER_TMP_VAR, Dialect, Elem, Item};
 
@@ -32,19 +32,10 @@ pub struct OptimizedArgs<const N: usize, D: Dialect> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Variable<D: Dialect> {
     Constant(ConstantValue, Item<D>),
-    LocalMut {
+    Value {
         id: Id,
         item: Item<D>,
     },
-    LocalConst {
-        id: Id,
-        item: Item<D>,
-    },
-    Slice {
-        id: Id,
-        item: Item<D>,
-    },
-    Shared(Id, Item<D>),
     Tmp {
         id: Id,
         item: Item<D>,
@@ -147,10 +138,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
 
     fn item(&self) -> Item<D> {
         match self {
-            Variable::Shared(_, e) => *e,
-            Variable::LocalMut { item, .. } => *item,
-            Variable::LocalConst { item, .. } => *item,
-            Variable::Slice { item, .. } => *item,
+            Variable::Value { item, .. } => *item,
             Variable::Constant(_, e) => *e,
             Variable::Tmp { item, .. } => *item,
         }
@@ -164,7 +152,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             return true;
         }
 
-        matches!(self, Variable::LocalConst { .. })
+        matches!(self, Variable::Value { .. })
     }
 }
 
@@ -193,11 +181,7 @@ pub(crate) fn format_const<D: Dialect>(number: &ConstantValue, item: &Item<D>) -
 impl<D: Dialect> Display for Variable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
-            Variable::LocalConst { id, .. } => write!(f, "l_{id}"),
-            Variable::Slice { id, .. } => {
-                write!(f, "slice_{id}")
-            }
+            Variable::Value { id, .. } => write!(f, "l_{id}"),
             Variable::Constant(number, item) if item.vectorization() <= 1 => {
                 let value = format_const(number, item);
                 write!(f, "{item}({value})")
@@ -208,9 +192,6 @@ impl<D: Dialect> Display for Variable<D> {
                     .map(|_| format!("{}({number})", item.elem()))
                     .collect::<Vec<_>>();
                 write!(f, "{item} {{ {} }}", values.join(","))
-            }
-            Variable::Shared(number, _) => {
-                write!(f, "shared_memory_{number}")
             }
             Variable::Tmp { id, .. } => write!(f, "_tmp_{id}"),
         }
@@ -362,15 +343,7 @@ impl<D: Dialect> Variable<D> {
 
     pub fn optimized(&self) -> Self {
         match self {
-            Variable::LocalMut { id, item } => Variable::LocalMut {
-                id: *id,
-                item: item.optimized(),
-            },
-            Variable::LocalConst { id, item } => Variable::LocalConst {
-                id: *id,
-                item: item.optimized(),
-            },
-            Variable::Slice { id, item } => Variable::Slice {
+            Variable::Value { id, item } => Variable::Value {
                 id: *id,
                 item: item.optimized(),
             },
@@ -405,10 +378,7 @@ impl<D: Dialect> Variable<D> {
 
     pub fn id(&self) -> Option<Id> {
         match self {
-            Variable::LocalMut { id, .. } => Some(*id),
-            Variable::LocalConst { id, .. } => Some(*id),
-            Variable::Slice { id, .. } => Some(*id),
-            Variable::Shared(id, ..) => Some(*id),
+            Variable::Value { id, .. } => Some(*id),
             Variable::Tmp { id, .. } => Some(*id),
             _ => None,
         }
@@ -417,13 +387,21 @@ impl<D: Dialect> Variable<D> {
     /// Format variable for a pointer argument. Slices and buffers are already pointers, so we
     /// just leave them as is to avoid accidental double pointers
     pub fn fmt_ptr(&self) -> String {
-        match self {
-            Variable::Slice { .. } => format!("{self}"),
-            other => match other.item() {
-                Item::Array(..) => format!("{other}.data"),
-                Item::DynamicArray(..) | Item::Pointer(..) => format!("{other}"),
-                _ => format!("&{other}"),
-            },
+        match self.item() {
+            Item::Pointer(inner, _) if inner.is_array() => {
+                format!("{self}->data")
+            }
+            Item::Array(..) => format!("{self}.data"),
+            Item::DynamicArray(..) | Item::Pointer(..) => format!("{self}"),
+            _ => format!("&{self}"),
+        }
+    }
+
+    /// Format variable for a reference argument. Dereferences pointers while keeping locals as is.
+    pub fn fmt_ref(&self) -> String {
+        match self.item() {
+            Item::DynamicArray(..) | Item::Pointer(..) => format!("*{self}"),
+            _ => format!("{self}"),
         }
     }
 
@@ -440,9 +418,12 @@ impl<D: Dialect> Variable<D> {
     /// This is required for reinterpreting constants.
     pub fn ensure_lvalue(&self, f: &mut Formatter<'_>) -> Result<Variable<D>, core::fmt::Error> {
         if matches!(self, Variable::Constant(..)) {
-            let mut tmp = Variable::tmp(self.item());
-            tmp.to_const();
+            let tmp = Variable::tmp(self.item());
             writeln!(f, "{} = {self};", tmp.fmt_left())?;
+            Ok(tmp)
+        } else if matches!(self.item(), Item::Pointer(..)) {
+            let tmp = Variable::tmp(*self.item().value_ty());
+            writeln!(f, "{}& {tmp} = *{self};", tmp.item())?;
             Ok(tmp)
         } else {
             Ok(*self)
@@ -453,10 +434,14 @@ impl<D: Dialect> Variable<D> {
 impl<D: Dialect> FmtLeft for Variable<D> {
     fn fmt_left(&self) -> String {
         match self {
-            Self::LocalConst { item, .. } => match item {
+            Self::Value { item, .. } => match item {
                 // Pointer constness is determined by the type, not variable kind
                 Item::Pointer(..) => {
                     format!("{item} {self}")
+                }
+                // Barrier is a memory object so can only exist behind a reference
+                Item::Barrier(..) => {
+                    format!("{item}& {self}")
                 }
                 // C++ has weird semantics so this needs to be mutable for use with `std::move`.
                 // `std::move` preserves constness for the moved value, and the API requires
@@ -519,13 +504,17 @@ impl<D: Dialect> Display for IndexedVariable<D> {
             return write!(f, "{}({value})", item.elem());
         }
 
+        if var.item().unwrap_ptr().is_array_like() {
+            return write!(f, "{}", fmt_index(var, &self.index, &var.item()));
+        }
+
         let item = var.item();
         let addr_space = D::address_space_for_variable(&self.var);
         let ty = match var {
             _ if item.is_ptr() => {
                 format!("{item}")
             }
-            Variable::LocalConst { item, .. } => format!("{addr_space}{item} const&"),
+            Variable::Value { item, .. } => format!("{addr_space}{item} const&"),
             _ => format!("{addr_space}{item}&"),
         };
         let accessor = match var.item().is_ptr() {
@@ -554,7 +543,7 @@ impl<D: Dialect> Display for IndexedVariable<D> {
 impl<D: Dialect> FmtLeft for IndexedVariable<D> {
     fn fmt_left(&self) -> String {
         let var = &self.var;
-        let ref_ = matches!(var, Variable::LocalConst { .. })
+        let ref_ = matches!(var, Variable::Value { .. })
             .then_some("const&")
             .unwrap_or("&");
 
@@ -573,7 +562,7 @@ impl<D: Dialect> FmtLeft for IndexedVariable<D> {
             format!("{var}")
         };
         match var {
-            Variable::LocalConst { item, .. } => format!("const {item} {name}"),
+            Variable::Value { item, .. } => format!("const {item} {name}"),
             Variable::Tmp { item, is_ptr, .. } => {
                 if *is_ptr {
                     format!("{item} *{name}")

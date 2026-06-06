@@ -3,7 +3,7 @@
 use alloc::vec;
 
 use crate as cubecl;
-use cubecl_ir::{Instruction, OpaqueType, Variable};
+use cubecl_ir::{Instruction, OpaqueType, Value};
 use cubecl_macros::intrinsic;
 use paste::paste;
 
@@ -40,7 +40,7 @@ impl CubePrimitive for Barrier {
 }
 
 impl NativeAssign for Barrier {
-    fn elem_init_mut(_scope: &Scope, elem: Variable) -> Variable {
+    fn elem_init_mut(_scope: &Scope, elem: Value) -> Value {
         elem
     }
 }
@@ -50,7 +50,7 @@ impl CubeType for BarrierToken {
 }
 
 impl NativeAssign for BarrierToken {
-    fn elem_init_mut(_scope: &Scope, elem: Variable) -> Variable {
+    fn elem_init_mut(_scope: &Scope, elem: Value) -> Value {
         elem
     }
 }
@@ -191,14 +191,13 @@ impl Barrier {
     /// arrival count of `1`.
     pub fn local() -> Self {
         intrinsic!(|scope| {
-            let variable =
-                scope.create_local_mut(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Unit));
+            let value = scope.create_local_mut(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Unit));
             scope.register(BarrierOps::Init {
-                barrier: variable,
+                barrier: value,
                 is_elected: true.into(),
                 arrival_count: 1.into(),
             });
-            variable.into()
+            value.into()
         })
     }
 
@@ -210,14 +209,14 @@ impl Barrier {
     /// other purposes, only a subset may need to arrive.
     pub fn shared(arrival_count: u32, is_elected: bool) -> Shared<Barrier> {
         intrinsic!(|scope| {
-            let variable =
+            let value =
                 scope.create_shared(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Cube), None);
             scope.register(BarrierOps::Init {
-                barrier: variable,
+                barrier: value,
                 is_elected: is_elected.expand,
                 arrival_count: arrival_count.expand,
             });
-            variable.into()
+            value.into()
         })
     }
 
@@ -225,10 +224,10 @@ impl Barrier {
     /// but not initialized.
     pub fn shared_uninit() -> Shared<Barrier> {
         intrinsic!(|scope| {
-            let variable =
+            let value =
                 scope.create_shared(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Cube), None);
-            scope.register(BarrierOps::Declare { barrier: variable });
-            variable.into()
+            scope.register(BarrierOps::Declare { barrier: value });
+            value.into()
         })
     }
 
@@ -342,10 +341,10 @@ impl Barrier {
     pub fn arrive(&self) -> BarrierToken {
         intrinsic!(|scope| {
             let barrier = self.expand;
-            let Type::Opaque(OpaqueType::Barrier(level)) = barrier.ty else {
+            let Type::Opaque(OpaqueType::Barrier(level)) = barrier.ty.unwrap_ptr() else {
                 unreachable!()
             };
-            let token = scope.create_local(Type::Opaque(OpaqueType::BarrierToken(level)));
+            let token = scope.create_value(Type::Opaque(OpaqueType::BarrierToken(level)));
             scope.register(Instruction::new(BarrierOps::Arrive { barrier }, token));
             token.into()
         })
@@ -355,12 +354,12 @@ impl Barrier {
     pub fn arrive_and_expect_tx(&self, arrival_count: u32, transaction_count: u32) -> BarrierToken {
         intrinsic!(|scope| {
             let barrier = self.expand;
-            let Type::Opaque(OpaqueType::Barrier(level)) = barrier.ty else {
+            let Type::Opaque(OpaqueType::Barrier(level)) = barrier.ty.unwrap_ptr() else {
                 unreachable!()
             };
-            let token = scope.create_local(Type::Opaque(OpaqueType::BarrierToken(level)));
-            let arrival_count: Variable = arrival_count.into();
-            let transaction_count: Variable = transaction_count.into();
+            let token = scope.create_value(Type::Opaque(OpaqueType::BarrierToken(level)));
+            let arrival_count: Value = arrival_count.into();
+            let transaction_count: Value = transaction_count.into();
             scope.register(Instruction::new(
                 BarrierOps::ArriveTx {
                     barrier,
@@ -377,7 +376,7 @@ impl Barrier {
     pub fn expect_tx(&self, expected_count: u32) {
         intrinsic!(|scope| {
             let barrier = self.expand;
-            let transaction_count: Variable = expected_count.into();
+            let transaction_count: Value = expected_count.into();
             scope.register(BarrierOps::ExpectTx {
                 barrier,
                 transaction_count_update: transaction_count,
@@ -512,10 +511,10 @@ impl Barrier {
     pub fn commit_copy_async(&self) {
         intrinsic!(|scope| {
             let barrier = self.expand;
-            let Type::Opaque(OpaqueType::Barrier(level)) = barrier.ty else {
+            let Type::Opaque(OpaqueType::Barrier(level)) = barrier.ty.unwrap_ptr() else {
                 unreachable!()
             };
-            let token = scope.create_local(Type::Opaque(OpaqueType::BarrierToken(level)));
+            let token = scope.create_value(Type::Opaque(OpaqueType::BarrierToken(level)));
             scope.register(Instruction::new(
                 BarrierOps::CommitCopyAsync { barrier },
                 token,

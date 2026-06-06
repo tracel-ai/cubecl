@@ -1,6 +1,6 @@
 use cubecl_core::ir::{IndexOperands, Instruction, Memory};
 use cubecl_core::{self as cubecl, prelude::*};
-use cubecl_core::{intrinsic, ir::Variable};
+use cubecl_core::{intrinsic, ir::Value};
 
 /// An extension trait for expanding the cubecl frontend with the ability to
 /// request unaligned vector reads and writes
@@ -72,17 +72,16 @@ impl_unaligned_vector!(Shared<[E]>);
 #[cube]
 fn unaligned_vector_read<E: Scalar, N: Size>(this: &[E], index: usize) -> Vector<E, N> {
     intrinsic!(|scope| {
-        let list: Variable = this.__extract_list(scope);
+        let list: Value = this.__extract_list(scope);
         if !matches!(list.ty, cubecl::ir::Type::Scalar(_)) {
             todo!("Unaligned reads are only allowed on scalar arrays for now");
         }
         let vector_size = N::__expand_value(scope);
-        let out = scope.create_local(Type::pointer(list.ty, list.address_space()));
+        let out = scope.create_value(Type::pointer(list.ty, list.address_space()));
         scope.register(Instruction::new(
             Memory::Index(IndexOperands {
                 list: list,
                 index: index.expand,
-                vector_size: 0,
                 unroll_factor: 1,
                 checked: false,
             }),
@@ -96,17 +95,16 @@ fn unaligned_vector_read<E: Scalar, N: Size>(this: &[E], index: usize) -> Vector
 #[cube]
 fn unaligned_vector_write<E: Scalar, N: Size>(this: &mut [E], index: usize, value: Vector<E, N>) {
     intrinsic!(|scope| {
-        let list: Variable = this.__extract_list(scope);
+        let list: Value = this.__extract_list(scope);
         if !matches!(list.ty, cubecl::ir::Type::Scalar(_)) {
             todo!("Unaligned reads are only allowed on scalar arrays for now");
         }
         let vector_size = N::__expand_value(scope);
-        let out = scope.create_local(Type::pointer(list.ty, list.address_space()));
+        let out = scope.create_value(Type::pointer(list.ty, list.address_space()));
         scope.register(Instruction::new(
             Memory::Index(IndexOperands {
                 list,
                 index: index.expand,
-                vector_size: 0,
                 unroll_factor: 1,
                 checked: false,
             }),

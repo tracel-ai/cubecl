@@ -6,7 +6,7 @@ use crate::TypeHash;
 
 use crate::{OperationCode, OperationReflect, fmt_vararg};
 
-use super::Variable;
+use super::Value;
 
 /// Operations that don't change the semantics of the kernel. In other words, operations that do not
 /// perform any computation, if they run at all. i.e. `println`, comments and debug symbols.
@@ -26,7 +26,7 @@ pub enum NonSemantic {
     /// to follow C++ convention.
     Print {
         format_string: String,
-        args: Vec<Variable>,
+        args: Vec<Value>,
     },
     /// Insert a comment into the compiled source
     Comment { content: String },

@@ -111,15 +111,7 @@ impl<D: Dialect> BarrierOps<D> {
 impl<D: Dialect> Display for BarrierOps<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BarrierOps::Declare { barrier, level } => match level {
-                BarrierLevel::Unit => Ok(()),
-                BarrierLevel::Cube => write!(
-                    f,
-                    "
-cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thread_block();
-",
-                ),
-            },
+            BarrierOps::Declare { .. } => Ok(()),
             BarrierOps::Init {
                 barrier,
                 is_elected,
@@ -135,7 +127,6 @@ init(&{barrier}, {arrival_count});
                 BarrierLevel::Cube => write!(
                     f,
                     "
-cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thread_block();
 if ({is_elected}) {{
    init(&{barrier}, {arrival_count});
 }}
@@ -154,7 +145,6 @@ __syncthreads();
                 source,
                 destination,
                 source_length,
-
                 cooperative,
             } => {
                 let item = source.item();
@@ -169,7 +159,7 @@ cuda::memcpy_async({destination}, {source}, {source_length} * {size}, {barrier})
                     true => write!(
                         f,
                         "
-cuda::memcpy_async(block_{barrier}, {destination}, {source}, {source_length} * {size}, {barrier});
+cuda::memcpy_async(thread_block, {destination}, {source}, {source_length} * {size}, {barrier});
                         "
                     ),
                 }

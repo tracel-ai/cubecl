@@ -211,9 +211,10 @@ pub mod wmma_api_base {
     pub fn compile_fragment_declaration<D: Dialect>(
         f: &mut std::fmt::Formatter<'_>,
         var: &Variable<D>,
+        ty: &Item<D>,
     ) -> std::fmt::Result {
-        match var.item() {
-            Item::Fragment(frag) => writeln!(f, "{frag} {var};"),
+        match ty {
+            Item::Fragment(frag) => writeln!(f, "{frag} {var}_store;"),
             _ => panic!("variable must be a fragment"),
         }
     }
@@ -280,6 +281,7 @@ pub mod wmma_api_base {
     ) -> std::fmt::Result {
         match instruction {
             WmmaInstruction::Fill { frag, value } => {
+                let frag = frag.fmt_ref();
                 writeln!(f, "{namespace}::fill_fragment({frag}, {value});")
             }
             WmmaInstruction::Load {
@@ -289,6 +291,7 @@ pub mod wmma_api_base {
                 layout: None,
             } => {
                 let item = *ptr.item().value_ty();
+                let frag = frag.fmt_ref();
                 if item.vectorization() > 1 {
                     let elem = item.elem();
                     let qualifier = ptr.const_qualifier();
@@ -306,6 +309,7 @@ pub mod wmma_api_base {
                 stride,
                 layout: Some(layout),
             } => {
+                let frag = frag.fmt_ref();
                 let layout = match layout {
                     FragmentLayout::ColMajor => format!("{namespace}::mem_col_major"),
                     FragmentLayout::RowMajor => format!("{namespace}::mem_row_major"),
@@ -343,16 +347,23 @@ pub mod wmma_api_base {
                 frag_c,
                 frag_d,
                 ..
-            } => writeln!(
-                f,
-                "{namespace}::mma_sync({frag_d}, {frag_a}, {frag_b}, {frag_c});"
-            ),
+            } => {
+                let frag_a = frag_a.fmt_ref();
+                let frag_b = frag_b.fmt_ref();
+                let frag_c = frag_c.fmt_ref();
+                let frag_d = frag_d.fmt_ref();
+                writeln!(
+                    f,
+                    "{namespace}::mma_sync({frag_d}, {frag_a}, {frag_b}, {frag_c});"
+                )
+            }
             WmmaInstruction::Store {
                 frag,
                 stride,
                 destination,
                 layout,
             } => {
+                let frag = frag.fmt_ref();
                 let layout = match layout {
                     FragmentLayout::ColMajor => format!("{namespace}::mem_col_major"),
                     FragmentLayout::RowMajor => format!("{namespace}::mem_row_major"),
@@ -381,7 +392,9 @@ pub mod wmma_api_base {
                 }
             }
             WmmaInstruction::Cast { input, output } => {
-                let ty = match output.item() {
+                let input = input.ensure_lvalue(f)?;
+                let output = output.ensure_lvalue(f)?;
+                let ty = match *output.item().value_ty() {
                     Item::Fragment(frag) => frag.elem,
                     _ => panic!("Should be a fragment"),
                 };

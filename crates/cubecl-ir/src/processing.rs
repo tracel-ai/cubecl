@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use crate::{GlobalState, GlobalStateInner};
 
-use super::{Instruction, Variable};
+use super::Instruction;
 
 pub trait Processor: core::fmt::Debug {
     fn transform(&self, processing: ScopeProcessing) -> ScopeProcessing;
@@ -13,8 +13,6 @@ pub trait Processor: core::fmt::Debug {
 
 /// Information necessary when compiling a scope.
 pub struct ScopeProcessing {
-    /// The variable declarations.
-    pub variables: Vec<Variable>,
     /// The operations.
     pub instructions: Vec<Instruction>,
     /// The global state

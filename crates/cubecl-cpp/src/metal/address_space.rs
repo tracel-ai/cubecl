@@ -77,9 +77,6 @@ impl<D: Dialect> From<&Variable<D>> for AddressSpace {
                 PointerClass::Local => AddressSpace::Thread,
             };
         }
-        match value {
-            Variable::Shared(..) => AddressSpace::ThreadGroup,
-            _ => AddressSpace::Thread,
-        }
+        AddressSpace::Thread
     }
 }

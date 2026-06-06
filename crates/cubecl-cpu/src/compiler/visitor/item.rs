@@ -13,12 +13,16 @@ use super::prelude::*;
 
 impl IntoType for ir::Type {
     fn to_type<'a>(self, context: &'a Context) -> Type<'a> {
-        let inner_type = self.storage_type().to_type(context);
+        let inner_type = match self {
+            ir::Type::Opaque(ir::OpaqueType::Barrier(..)) => IntegerType::new(context, 32).into(),
+            other => other.storage_type().to_type(context),
+        };
         match self.vector_size() {
             size if size > 1 => Type::vector(&[size as u64], inner_type),
             _ => inner_type,
         }
     }
+
     fn is_vectorized(&self) -> bool {
         self.vector_size() > 1
     }

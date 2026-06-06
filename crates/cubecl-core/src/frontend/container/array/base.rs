@@ -24,7 +24,6 @@ impl<E> AsMutExpand for ArrayExpand<E> {
 
 /// Module that contains the implementation details of the new function.
 mod new {
-    use cubecl_ir::AddressSpace;
     use cubecl_macros::intrinsic;
 
     use super::*;
@@ -39,7 +38,7 @@ mod new {
                 // Unlike Rust, we can't construct fat pointers ad-hoc without access to the scope,
                 // so it needs to be prepared in advance.
                 let elem = T::__expand_as_type(scope);
-                let ty = Type::array(elem, length, AddressSpace::Local);
+                let ty = Type::array(elem, length);
                 let buffer = scope.create_local_mut(ty);
                 let slice = slice::from_raw_parts::<T>(
                     scope,

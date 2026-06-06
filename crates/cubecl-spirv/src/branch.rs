@@ -35,7 +35,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             } => self.compile_loop_break(break_cond, body, continue_target, merge),
             ControlFlow::Return { value } => {
                 if let Some(value) = value {
-                    let value = self.compile_variable(value);
+                    let value = self.compile_value(value);
                     let value_id = self.read(&value);
                     self.ret_value(value_id).unwrap();
                 } else {
@@ -67,12 +67,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn compile_if_else(
         &mut self,
-        cond: core::Variable,
+        cond: core::Value,
         then: NodeIndex,
         or_else: NodeIndex,
         merge: Option<NodeIndex>,
     ) {
-        let cond = self.compile_variable(cond);
+        let cond = self.compile_value(cond);
         let then_label = self.label(then);
         let else_label = self.label(or_else);
         let cond_id = self.read(&cond);
@@ -88,12 +88,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn compile_switch(
         &mut self,
-        value: core::Variable,
+        value: core::Value,
         default: NodeIndex,
         branches: Vec<(u32, NodeIndex)>,
         merge: Option<NodeIndex>,
     ) {
-        let value = self.compile_variable(value);
+        let value = self.compile_value(value);
         let value_id = self.read(&value);
 
         let default_label = self.label(default);
@@ -126,12 +126,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn compile_loop_break(
         &mut self,
-        break_cond: core::Variable,
+        break_cond: core::Value,
         body: NodeIndex,
         continue_target: NodeIndex,
         merge: NodeIndex,
     ) {
-        let break_cond = self.compile_variable(break_cond);
+        let break_cond = self.compile_value(break_cond);
         let cond_id = self.read(&break_cond);
         let body_label = self.label(body);
         let continue_label = self.label(continue_target);

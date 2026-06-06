@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantValue, Instruction, Operator, Variable};
+use cubecl_ir::{ConstantValue, Instruction, Operator, Value};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::{NumCast, One, Zero};
 
@@ -39,14 +39,14 @@ pub trait Numeric:
 
     fn __expand_min_value(scope: &Scope) -> <Self as CubeType>::ExpandType {
         let elem = Self::__expand_as_type(scope).elem_type();
-        let var = elem.min_variable();
-        var.into()
+        let val = elem.min_variable();
+        val.into()
     }
 
     fn __expand_max_value(scope: &Scope) -> <Self as CubeType>::ExpandType {
         let elem = Self::__expand_as_type(scope).elem_type();
-        let var = elem.max_variable();
-        var.into()
+        let val = elem.max_variable();
+        val.into()
     }
 
     /// Create a new constant numeric.
@@ -80,9 +80,9 @@ pub trait Numeric:
 
     fn __expand_from_int(scope: &Scope, val: NativeExpand<i64>) -> <Self as CubeType>::ExpandType {
         let elem = Self::__expand_as_type(scope).elem_type();
-        let var: Variable = elem.constant(val.constant().unwrap());
+        let val: Value = elem.constant(val.constant().unwrap());
 
-        var.into()
+        val.into()
     }
 }
 
@@ -93,7 +93,7 @@ pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
     fn expand_scalar(builder: &mut KernelBuilder) -> NativeExpand<Self> {
         let ty = Self::__expand_as_type(&builder.scope);
-        let out = builder.create_local(ty);
+        let out = builder.create_value(ty);
         let id = builder.scalar(ty.storage_type());
         builder.register(Instruction::new(Operator::ReadScalar(id), out));
         out.into()

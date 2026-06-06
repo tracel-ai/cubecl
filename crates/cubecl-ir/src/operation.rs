@@ -1,9 +1,9 @@
 use core::fmt::Display;
 
-use super::{Branch, CoopMma, NonSemantic, Plane, Synchronization, Type, Variable};
+use super::{Branch, CoopMma, NonSemantic, Plane, Synchronization, Type, Value};
 use crate::{
-    Arithmetic, AtomicOp, Bitwise, Id, InstructionModes, Memory, Metadata, OperationArgs,
-    OperationReflect, Operator, Scope, TensorIndexingOps, TmaOps, VectorSize,
+    AddressSpace, Arithmetic, AtomicOp, Bitwise, Id, InstructionModes, Memory, Metadata,
+    OperationArgs, OperationReflect, Operator, Scope, TensorIndexingOps, TmaOps,
     comparison::Comparison, marker::Marker,
 };
 use crate::{BarrierOps, SourceLoc, TypeHash};
@@ -29,13 +29,21 @@ use itertools::Itertools;
 pub enum Operation {
     #[operation(pure)]
     #[from(ignore)]
-    Copy(#[args(allow_ptr)] Variable),
+    Copy(#[args(allow_ptr)] Value),
     /// Construct an aggregate (i.e. fat pointer) that's later disaggregated into normal variables
     /// supported by codegen. Not allowed to exist after the disaggregation pass.
-    ConstructAggregate(#[args(allow_ptr)] Vec<Variable>),
+    ConstructAggregate(#[args(allow_ptr)] Vec<Value>),
     /// Extract a specific field from an aggregate (i.e. read the length from a slice ptr).
     /// Not allowed to exist after the disaggregation pass.
     ExtractAggregateField(AggregateExtractOperands),
+    DeclareVariable {
+        #[args(skip)]
+        value_ty: Type,
+        #[args(skip)]
+        addr_space: AddressSpace,
+        #[args(skip)]
+        alignment: usize,
+    },
     #[operation(nested)]
     Memory(Memory),
     #[operation(nested)]
@@ -62,7 +70,7 @@ pub enum Operation {
     /// backends lower this to a `sync_cube` followed by a regular (or atomic)
     /// load — uniformity is implicit there.
     #[from(ignore)]
-    WorkgroupUniformLoad(#[args(allow_ptr, ptr_read)] Variable),
+    WorkgroupUniformLoad(#[args(allow_ptr, ptr_read)] Value),
     #[operation(nested)]
     Plane(Plane),
     #[operation(nested)]
@@ -85,14 +93,14 @@ pub enum Operation {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, TypeHash)]
 pub struct Instruction {
-    pub out: Option<Variable>,
+    pub out: Option<Value>,
     pub source_loc: Option<SourceLoc>,
     pub modes: InstructionModes,
     pub operation: Operation,
 }
 
 impl Instruction {
-    pub fn new(operation: impl Into<Operation>, out: Variable) -> Self {
+    pub fn new(operation: impl Into<Operation>, out: Value) -> Self {
         Instruction {
             out: Some(out),
             operation: operation.into(),
@@ -111,7 +119,7 @@ impl Instruction {
     }
 
     #[track_caller]
-    pub fn out(&self) -> Variable {
+    pub fn out(&self) -> Value {
         self.out.unwrap()
     }
 
@@ -141,11 +149,11 @@ impl Display for Instruction {
             _ => {
                 if let Some(out) = self.out {
                     let mut vars_str = String::new();
-                    for (i, var) in self.operation.args().unwrap_or_default().iter().enumerate() {
+                    for (i, val) in self.operation.args().unwrap_or_default().iter().enumerate() {
                         if i != 0 {
                             vars_str.push_str(", ");
                         }
-                        vars_str.push_str(&var.ty.to_string());
+                        vars_str.push_str(&val.ty.to_string());
                     }
                     write!(
                         f,
@@ -170,6 +178,16 @@ impl Display for Operation {
             Operation::ExtractAggregateField(AggregateExtractOperands { aggregate, field }) => {
                 write!(f, "extract({aggregate}, {field})")
             }
+            Operation::DeclareVariable {
+                value_ty,
+                addr_space,
+                alignment,
+            } => {
+                write!(
+                    f,
+                    "declare_var<{value_ty}>({addr_space}, align: {alignment})"
+                )
+            }
             Operation::Memory(memory) => write!(f, "{memory}"),
             Operation::Arithmetic(arithmetic) => write!(f, "{arithmetic}"),
             Operation::Comparison(comparison) => write!(f, "{comparison}"),
@@ -179,8 +197,8 @@ impl Display for Operation {
             Operation::Metadata(metadata) => write!(f, "{metadata}"),
             Operation::Branch(branch) => write!(f, "{branch}"),
             Operation::Synchronization(synchronization) => write!(f, "{synchronization}"),
-            Operation::WorkgroupUniformLoad(var) => {
-                write!(f, "workgroup_uniform_load({var})")
+            Operation::WorkgroupUniformLoad(val) => {
+                write!(f, "workgroup_uniform_load({val})")
             }
             Operation::Plane(plane) => write!(f, "{plane}"),
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
@@ -210,10 +228,10 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct IndexOperands {
-    pub list: Variable,
-    pub index: Variable,
-    pub vector_size: VectorSize, // 0 == same as list.
-    pub unroll_factor: usize,    // Adjustment factor for bounds check
+    #[args(allow_ptr)]
+    pub list: Value,
+    pub index: Value,
+    pub unroll_factor: usize, // Adjustment factor for bounds check
     pub checked: bool,
 }
 
@@ -222,16 +240,16 @@ pub struct IndexOperands {
 #[allow(missing_docs)]
 pub struct StoreOperands {
     #[args(allow_ptr, ptr_write)]
-    pub ptr: Variable,
-    pub value: Variable,
+    pub ptr: Value,
+    pub value: Value,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct BinaryOperands {
-    pub lhs: Variable,
-    pub rhs: Variable,
+    pub lhs: Value,
+    pub rhs: Value,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -239,8 +257,8 @@ pub struct BinaryOperands {
 #[allow(missing_docs)]
 pub struct AtomicBinaryOperands {
     #[args(allow_ptr, ptr_read, ptr_write)]
-    pub ptr: Variable,
-    pub value: Variable,
+    pub ptr: Value,
+    pub value: Value,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -248,7 +266,7 @@ pub struct AtomicBinaryOperands {
 #[allow(missing_docs)]
 pub struct AggregateExtractOperands {
     #[args(allow_ptr)]
-    pub aggregate: Variable,
+    pub aggregate: Value,
     pub field: usize,
 }
 
@@ -257,7 +275,7 @@ pub struct AggregateExtractOperands {
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 pub struct Function {
     /// Explicit parameters passed to the function. Does not contain closure captures.
-    pub explicit_params: Vec<Variable>,
+    pub explicit_params: Vec<Value>,
     /// Scope containing closure instructions. Unknown variables that aren't explicit params are
     /// assumed to be captures.
     pub scope: Scope,
@@ -278,7 +296,7 @@ impl Display for Function {
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct UnaryOperands {
-    pub input: Variable,
+    pub input: Value,
 }
 
 impl From<Branch> for Instruction {

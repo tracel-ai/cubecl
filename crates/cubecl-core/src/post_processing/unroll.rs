@@ -1,8 +1,8 @@
 use alloc::{vec, vec::Vec};
 use cubecl_ir::{
-    Allocator, Arithmetic, BinaryOperands, CoopMma, GlobalState, IndexOperands, Instruction,
-    MatrixLayout, Memory, Metadata, Operation, OperationReflect, Operator, Scope, Type, Variable,
-    VariableKind, VectorInsertOperands, VectorSize,
+    AddressSpace, Allocator, Arithmetic, BinaryOperands, CoopMma, GlobalState, IndexOperands,
+    Instruction, MatrixLayout, Memory, Metadata, Operation, OperationReflect, Operator, Scope,
+    Type, Value, ValueKind, VectorInsertOperands, VectorSize,
 };
 use hashbrown::HashMap;
 
@@ -27,19 +27,19 @@ pub struct UnrollVisitor {
 }
 
 #[derive(Default, Debug)]
-struct Mappings(HashMap<Variable, Vec<Variable>>);
+struct Mappings(HashMap<Value, Vec<Value>>);
 
 impl Mappings {
     fn get(
         &mut self,
         alloc: &Allocator,
-        var: Variable,
+        val: Value,
         unroll_factor: usize,
         vector_size: VectorSize,
-    ) -> Vec<Variable> {
+    ) -> Vec<Value> {
         self.0
-            .entry(var)
-            .or_insert_with(|| create_unrolled(alloc, &var, vector_size, unroll_factor))
+            .entry(val)
+            .or_insert_with(|| create_unrolled(alloc, &val, vector_size, unroll_factor))
             .to_vec()
     }
 }
@@ -78,19 +78,6 @@ impl InstructionVisitor for UnrollVisitor {
 
     fn visit_scope(&mut self, scope: &Scope, analyses: &GlobalAnalyses, changes: &AtomicCounter) {
         visit_scope(self, scope, analyses, changes);
-
-        let state = scope.state();
-        let mut locals = state.allocator.local_mut_pool.borrow_mut();
-
-        for variable in locals.iter_mut() {
-            if variable.ty.vector_size() > self.max_vector_size {
-                let unroll_factor = variable.ty.vector_size() / self.max_vector_size;
-                variable.ty = variable.ty.with_vector_size(self.max_vector_size);
-                if let Type::Array(_, length, _) = &mut variable.ty {
-                    *length *= unroll_factor;
-                }
-            }
-        }
     }
 }
 
@@ -141,6 +128,70 @@ impl UnrollVisitor {
                 Operation::Operator(Operator::ReadBuiltin(_)) => {
                     return TransformAction::Ignore;
                 }
+                Operation::DeclareVariable {
+                    value_ty,
+                    addr_space: AddressSpace::Local,
+                    alignment,
+                } => {
+                    if value_ty.vector_size() > self.max_vector_size {
+                        let unroll_factor = value_ty.vector_size() / self.max_vector_size;
+                        let vector_size = self.max_vector_size;
+                        let value_ty = value_ty.with_vector_size(vector_size);
+                        let out = self
+                            .mappings
+                            .get(alloc, inst.out(), unroll_factor, vector_size);
+                        let declare = |out| {
+                            Instruction::new(
+                                Operation::DeclareVariable {
+                                    value_ty,
+                                    addr_space: AddressSpace::Local,
+                                    alignment: *alignment,
+                                },
+                                out,
+                            )
+                        };
+                        return TransformAction::Replace(out.into_iter().map(declare).collect());
+                    } else {
+                        return TransformAction::Ignore;
+                    }
+                }
+                Operation::DeclareVariable {
+                    value_ty: Type::Array(inner_ty, len),
+                    addr_space: AddressSpace::Shared,
+                    alignment,
+                } => {
+                    if inner_ty.vector_size() > self.max_vector_size {
+                        let unroll_factor = inner_ty.vector_size() / self.max_vector_size;
+                        let vector_size = self.max_vector_size;
+                        let inner_ty = inner_ty.with_vector_size(vector_size);
+                        let new_ty = Type::Array(inner_ty.intern(), *len * unroll_factor);
+                        let new_ptr_ty = Type::Pointer(new_ty.intern(), AddressSpace::Shared);
+                        let mut out = inst.out.unwrap();
+                        out.ty = new_ptr_ty;
+
+                        return TransformAction::Replace(vec![Instruction::new(
+                            Operation::DeclareVariable {
+                                value_ty: new_ty,
+                                addr_space: AddressSpace::Shared,
+                                alignment: *alignment,
+                            },
+                            out,
+                        )]);
+                    } else {
+                        return TransformAction::Ignore;
+                    }
+                }
+                Operation::DeclareVariable {
+                    value_ty,
+                    addr_space: AddressSpace::Shared,
+                    ..
+                } => {
+                    if value_ty.vector_size() > self.max_vector_size {
+                        todo!()
+                    } else {
+                        return TransformAction::Ignore;
+                    }
+                }
                 other => {
                     panic!(
                         "Need special handling for unrolling non-reflectable operations.\nFound: {other}"
@@ -184,9 +235,9 @@ impl UnrollVisitor {
     fn transform_cmma_load(
         &mut self,
         alloc: &Allocator,
-        out: Variable,
-        ptr: &Variable,
-        stride: &Variable,
+        out: Value,
+        ptr: &Value,
+        stride: &Value,
         layout: &Option<MatrixLayout>,
     ) -> Vec<Instruction> {
         let vector_size = ptr.vector_size();
@@ -212,9 +263,9 @@ impl UnrollVisitor {
     fn transform_cmma_store(
         &mut self,
         alloc: &Allocator,
-        mat: &Variable,
-        stride: &Variable,
-        destination: &Variable,
+        mat: &Value,
+        stride: &Value,
+        destination: &Value,
         layout: &MatrixLayout,
     ) -> Vec<Instruction> {
         let vector_size = destination.vector_size();
@@ -238,7 +289,7 @@ impl UnrollVisitor {
     fn transform_array_index(
         &mut self,
         alloc: &Allocator,
-        out: Variable,
+        out: Value,
         op: &IndexOperands,
         operator: impl Fn(IndexOperands) -> Memory,
         unroll_factor: usize,
@@ -258,7 +309,6 @@ impl UnrollVisitor {
                 operator(IndexOperands {
                     list,
                     index: idx,
-                    vector_size: 0,
                     unroll_factor,
                     checked: op.checked,
                 }),
@@ -277,7 +327,7 @@ impl UnrollVisitor {
     fn transform_composite_extract(
         &mut self,
         alloc: &Allocator,
-        out: Variable,
+        out: Value,
         op: &BinaryOperands,
         unroll_factor: usize,
     ) -> Vec<Instruction> {
@@ -310,7 +360,7 @@ impl UnrollVisitor {
     fn transform_composite_insert(
         &mut self,
         alloc: &Allocator,
-        out: Variable,
+        out: Value,
         op: &VectorInsertOperands,
         unroll_factor: usize,
     ) -> Vec<Instruction> {
@@ -329,33 +379,35 @@ impl UnrollVisitor {
         let out = self
             .mappings
             .get(alloc, out, unroll_factor, self.max_vector_size);
-
-        vec![Instruction::new(
-            Operator::InsertComponent(VectorInsertOperands {
-                vector: vector[unroll_idx],
-                index: sub_idx.into(),
-                value: op.value,
-            }),
-            out[unroll_idx],
-        )]
+        (0..unroll_factor)
+            .map(|i| {
+                if i == unroll_idx {
+                    Instruction::new(
+                        Operator::InsertComponent(VectorInsertOperands {
+                            vector: vector[i],
+                            index: sub_idx.into(),
+                            value: op.value,
+                        }),
+                        out[i],
+                    )
+                } else {
+                    Instruction::new(Operation::Copy(vector[i]), out[i])
+                }
+            })
+            .collect()
     }
 
     /// Transforms metadata by just replacing the type of the buffer. The values are already
     /// properly calculated on the CPU.
-    fn transform_metadata(
-        &self,
-        out: Variable,
-        op: &Metadata,
-        args: Vec<Variable>,
-    ) -> Vec<Instruction> {
+    fn transform_metadata(&self, out: Value, op: &Metadata, args: Vec<Value>) -> Vec<Instruction> {
         let op_code = op.op_code();
         let args = args
             .into_iter()
-            .map(|mut var| {
-                if var.vector_size() > self.max_vector_size {
-                    var.ty = var.ty.with_vector_size(self.max_vector_size);
+            .map(|mut val| {
+                if val.vector_size() > self.max_vector_size {
+                    val.ty = val.ty.with_vector_size(self.max_vector_size);
                 }
-                var
+                val
             })
             .collect::<Vec<_>>();
         let operation = Metadata::from_code_and_args(op_code, &args).unwrap();
@@ -368,7 +420,7 @@ impl UnrollVisitor {
         &mut self,
         alloc: &Allocator,
         inst: &Instruction,
-        args: Vec<Variable>,
+        args: Vec<Value>,
         unroll_factor: usize,
     ) -> Vec<Instruction> {
         let op_code = inst.operation.op_code();
@@ -409,42 +461,33 @@ impl UnrollVisitor {
     }
 }
 
-fn max_vector_size(out: &Option<Variable>, args: &[Variable]) -> VectorSize {
+fn max_vector_size(out: &Option<Value>, args: &[Value]) -> VectorSize {
     let vector_size = args.iter().map(|it| it.vector_size()).max().unwrap();
     vector_size.max(out.map(|out| out.vector_size()).unwrap_or(1))
 }
 
 fn create_unrolled(
     allocator: &Allocator,
-    var: &Variable,
+    val: &Value,
     max_vector_size: VectorSize,
     unroll_factor: usize,
-) -> Vec<Variable> {
+) -> Vec<Value> {
     // Preserve scalars
-    if var.vector_size() == 1 {
-        return vec![*var; unroll_factor];
+    if val.vector_size() == 1 {
+        return vec![*val; unroll_factor];
     }
 
-    let item = var.ty.with_vector_size(max_vector_size);
+    let item = val.ty.with_vector_size(max_vector_size);
     (0..unroll_factor)
-        .map(|_| match var.kind {
-            VariableKind::LocalMut { .. } => allocator.create_local_mut(item),
-            VariableKind::Shared { .. } => {
-                let id = allocator.new_local_index();
-                let shared = VariableKind::Shared {
-                    id,
-                    alignment: None,
-                };
-                Variable::new(shared, item)
-            }
-            VariableKind::LocalConst { .. } => allocator.create_local(item),
+        .map(|_| match val.kind {
+            ValueKind::Value { .. } => allocator.create_value(item),
             other => panic!("Out must be local, found {other:?}"),
         })
         .collect()
 }
 
-fn add_index(alloc: &Allocator, idx: Variable, i: usize) -> (Instruction, Variable) {
-    let add_idx = alloc.create_local(idx.ty);
+fn add_index(alloc: &Allocator, idx: Value, i: usize) -> (Instruction, Value) {
+    let add_idx = alloc.create_value(idx.ty);
     let add = Instruction::new(
         Arithmetic::Add(BinaryOperands {
             lhs: idx,
@@ -455,8 +498,8 @@ fn add_index(alloc: &Allocator, idx: Variable, i: usize) -> (Instruction, Variab
     (add, add_idx)
 }
 
-fn mul_index(alloc: &Allocator, idx: Variable, unroll_factor: usize) -> (Instruction, Variable) {
-    let mul_idx = alloc.create_local(idx.ty);
+fn mul_index(alloc: &Allocator, idx: Value, unroll_factor: usize) -> (Instruction, Value) {
+    let mul_idx = alloc.create_value(idx.ty);
     let mul = Instruction::new(
         Arithmetic::Mul(BinaryOperands {
             lhs: idx,
@@ -467,12 +510,12 @@ fn mul_index(alloc: &Allocator, idx: Variable, unroll_factor: usize) -> (Instruc
     (mul, mul_idx)
 }
 
-fn unroll_array(mut var: Variable, max_vector_size: VectorSize, factor: usize) -> Variable {
-    var.ty = var.ty.with_vector_size(max_vector_size);
+fn unroll_array(mut val: Value, max_vector_size: VectorSize, factor: usize) -> Value {
+    val.ty = val.ty.with_vector_size(max_vector_size);
 
-    if let Type::Array(_, size, _) = &mut var.ty {
+    if let Type::Array(_, size) = &mut val.ty {
         *size *= factor;
     }
 
-    var
+    val
 }

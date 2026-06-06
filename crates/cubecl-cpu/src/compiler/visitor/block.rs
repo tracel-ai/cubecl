@@ -3,7 +3,7 @@ use std::ops::Deref;
 use cubecl_opt::{ControlFlow, Function, NodeIndex};
 use tracel_llvm::mlir_rs::{
     dialect::{cf, ods::llvm},
-    ir::{Block, BlockLike, BlockRef, RegionLike},
+    ir::{Block, BlockLike, BlockRef, RegionLike, Value},
 };
 
 use super::prelude::*;

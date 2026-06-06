@@ -8,9 +8,7 @@ use std::fmt::Display;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Variable {
     Constant(ConstantValue, Item),
-    LocalMut { id: Id, item: Item },
-    LocalConst { id: Id, item: Item },
-    Shared(Id, Item),
+    Value { id: Id, item: Item },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -87,15 +85,9 @@ impl Variable {
         self.item().is_ptr()
     }
 
-    pub fn is_memory(&self) -> bool {
-        matches!(self, Self::Shared(..))
-    }
-
     pub fn item(&self) -> Item {
         match self {
-            Self::Shared(_, e) => *e,
-            Self::LocalMut { item, .. } => *item,
-            Self::LocalConst { item, .. } => *item,
+            Self::Value { item, .. } => *item,
             Self::Constant(_, item) => *item,
         }
     }
@@ -174,6 +166,13 @@ impl Item {
             Item::Pointer(inner, _) => inner.elem(),
             Item::Array(inner, _) => inner.elem(),
             Item::DynamicArray(inner) => inner.elem(),
+        }
+    }
+
+    pub fn unwrap_ptr(&self) -> Item {
+        match self {
+            Item::Pointer(inner, _) => **inner,
+            other => *other,
         }
     }
 
@@ -281,8 +280,7 @@ impl Display for Item {
 impl Display for Variable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
-            Variable::LocalConst { id, .. } => write!(f, "l_{id}"),
+            Variable::Value { id, .. } => write!(f, "l_{id}"),
             Variable::Constant(val, item) => {
                 match (val, item.elem()) {
                     // naga can't seem to parse literals > i64::MAX or i64::MIN atm.
@@ -302,9 +300,6 @@ impl Display for Variable {
                     // For other cases we can just write the val with its type.
                     _ => write!(f, "{item}({val})"),
                 }
-            }
-            Variable::Shared(number, _) => {
-                write!(f, "shared_{number}")
             }
         }
     }
@@ -356,7 +351,7 @@ impl Display for IndexedVariable {
 impl Variable {
     pub fn fmt_left(&self) -> String {
         match self {
-            Variable::LocalConst { .. } => {
+            Variable::Value { .. } => {
                 format!("let {self}")
             }
             var => format!("{var}"),
@@ -364,7 +359,7 @@ impl Variable {
     }
 
     pub fn is_const(&self) -> bool {
-        matches!(self, Variable::LocalConst { .. })
+        matches!(self, Variable::Value { .. })
     }
 }
 

@@ -1,10 +1,10 @@
-use cubecl_core::ir::Comparison;
+use cubecl_core::ir::{self as cube, Comparison};
 use tracel_llvm::mlir_rs::dialect::arith::{self, CmpfPredicate, CmpiPredicate};
 
 use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
-    pub fn visit_comparison(&mut self, comparison: &Comparison, out: Variable) {
+    pub fn visit_comparison(&mut self, comparison: &Comparison, out: cube::Value) {
         let bin_op = match comparison {
             Comparison::Lower(bin_op) => bin_op,
             Comparison::LowerEqual(bin_op) => bin_op,

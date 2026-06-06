@@ -2,7 +2,7 @@ use core::ops::{Deref, DerefMut};
 use std::collections::VecDeque;
 
 use cubecl_core::{
-    ir::{self, Builtin, Id, VariableKind},
+    ir::{self, Builtin, Id, ValueKind},
     prelude::KernelDefinition,
 };
 use cubecl_opt::NodeIndex;
@@ -18,7 +18,7 @@ use rspirv::{
 use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
-    variable::{ConstVal, Variable},
+    variable::ConstVal,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -60,32 +60,16 @@ impl DerefMut for CompilerState {
 #[derive(Clone, Debug, Default)]
 pub struct LookupTables {
     pub buffers: Vec<Buffer>,
-
     pub shared: HashMap<Id, SharedVar>,
 
     pub globals: HashMap<Builtin, Word>,
     pub loaded_builtins: HashMap<BuiltIn, Word>,
-
     pub used_builtins: HashMap<BuiltIn, (Word, Item)>,
 
     pub constants: HashMap<(ConstVal, Item), Word>,
-    pub bindings: HashMap<Id, Word>,
-    pub variables: HashMap<Id, Word>,
+    pub values: HashMap<Id, Word>,
     pub labels: HashMap<NodeIndex, Word>,
     pub end_labels: HashMap<NodeIndex, Word>,
-
-    pub atomic_scopes: HashMap<Word, Scope>,
-
-    pub slices: HashMap<Id, Slice>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Slice {
-    pub ptr: Variable,
-    pub offset: Word,
-    pub end: Word,
-    pub const_len: Option<u32>,
-    pub item: Item,
 }
 
 #[derive(Clone, Debug)]
@@ -94,21 +78,10 @@ pub struct FuncDefinition {
     pub id: Word,
 }
 
-impl From<&Slice> for Variable {
-    fn from(value: &Slice) -> Self {
-        Variable::Slice {
-            ptr: Box::new(value.ptr.clone()),
-            offset: value.offset,
-            end: value.end,
-            const_len: value.const_len,
-            item: value.item.clone(),
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct SharedVar {
     pub id: Word,
+    pub var_id: Word,
     pub ptr_ty_id: Word,
     pub item: Item,
     pub offset: u32,
@@ -140,6 +113,8 @@ pub struct Buffer {
     pub id: Word,
     pub struct_ty_id: Word,
     pub struct_ptr_ty_id: Word,
+    pub arr_ty_id: Word,
+    pub arr_ptr_ty_id: Word,
     pub storage_class: StorageClass,
 }
 
@@ -172,15 +147,22 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let smem_id = self.id();
             let smem_ptr_ty_id = self.id();
 
-            let item = self.compile_type(alloc.smem.ty);
+            let smem_var_id = if self.compilation_options.vulkan.supports_explicit_smem {
+                self.id()
+            } else {
+                smem_id
+            };
+
+            let item = self.compile_type(alloc.smem.value_ty);
             self.state.base_lookups.shared.insert(
-                alloc.smem.id,
+                alloc.id,
                 SharedVar {
                     id: smem_id,
+                    var_id: smem_var_id,
                     ptr_ty_id: smem_ptr_ty_id,
                     item,
                     offset: alloc.offset as u32,
-                    align: alloc.smem.align as u32,
+                    align: alloc.smem.alignment as u32,
                 },
             );
         }
@@ -289,38 +271,19 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         id
     }
 
-    pub fn get_local(&mut self, id: Id, item: &Item, var: ir::Variable) -> Word {
-        if let Some(existing) = self.state.variables.get(&id) {
-            *existing
-        } else {
-            let ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
-            let word = self.declare_function_variable(ty, None);
-            self.state.variables.insert(id, word);
-            self.debug_var_name(word, var);
-            word
-        }
-    }
-
-    fn init_local_from_param(&mut self, id: Id, item: &Item, var: ir::Variable, init: Word) {
-        let ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
-        let word = self.declare_function_variable(ty, Some(init));
-        self.state.variables.insert(id, word);
-        self.debug_var_name(word, var);
-    }
-
-    pub fn get_binding(&mut self, id: Id, var: &ir::Variable) -> Word {
-        if let Some(existing) = self.state.bindings.get(&id) {
+    pub fn get_value(&mut self, id: Id) -> Word {
+        if let Some(existing) = self.state.values.get(&id) {
             *existing
         } else {
             let word = self.id();
-            self.state.bindings.insert(id, word);
-            self.debug_var_name(word, *var);
+            self.state.values.insert(id, word);
+            self.debug_var_name(word, id);
             word
         }
     }
 
-    pub fn merge_binding(&mut self, id: Id, word: Word) {
-        self.state.bindings.insert(id, word);
+    pub fn insert_value(&mut self, id: Id, word: Word) {
+        self.state.values.insert(id, word);
     }
 
     pub fn label(&mut self, block: NodeIndex) -> Word {
@@ -344,19 +307,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn init_function_param(&mut self, param: ir::Variable, param_id: Word) {
+    pub fn init_function_param(&mut self, param: ir::Value, param_id: Word) {
         let item = self.compile_type(param.ty);
         match param.kind {
-            VariableKind::Shared { id, .. } => {
-                self.state.shared.get_mut(&id).unwrap().id = param_id;
-            }
-            VariableKind::Constant(value) => {
+            ValueKind::Constant(value) => {
                 let const_val = (value, item.clone()).into();
                 self.state.constants.insert((const_val, item), param_id);
             }
-            VariableKind::LocalMut { id } => self.init_local_from_param(id, &item, param, param_id),
-            VariableKind::LocalConst { id } => {
-                self.state.bindings.insert(id, param_id);
+            ValueKind::Value { id } => {
+                self.state.values.insert(id, param_id);
             }
         }
     }

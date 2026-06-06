@@ -18,7 +18,7 @@
 
 use std::borrow::Cow;
 
-use cubecl_core::ir::{self as core, CubeFnSource, Id, SourceLoc, Variable};
+use cubecl_core::ir::{self as core, CubeFnSource, Id, SourceLoc, Value};
 use cubecl_opt::Function;
 use hashbrown::HashMap;
 use rspirv::spirv::{DebugInfoFlags, FunctionControl, Word};
@@ -269,7 +269,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let args = args
                 .iter()
                 .map(|arg| {
-                    let var = self.compile_variable(*arg);
+                    let var = self.compile_value(*arg);
                     self.read(&var)
                 })
                 .collect::<Vec<_>>();
@@ -401,10 +401,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn debug_var_name(&mut self, id: Word, var: Variable) {
+    pub fn debug_var_name(&mut self, id: Word, var: Id) {
         if self.debug_symbols {
-            let name = self.name_of_var(var);
-            self.debug_name(id, name);
+            self.debug_name(id, format!("%{var}"));
         }
     }
 
@@ -415,7 +414,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn name_of_var(&mut self, var: Variable) -> Cow<'static, str> {
+    pub fn name_of_var(&mut self, var: Value) -> Cow<'static, str> {
         let var_names = self
             .opt
             .global_state

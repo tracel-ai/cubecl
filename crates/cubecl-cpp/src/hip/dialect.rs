@@ -311,7 +311,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
                 if let PointerClass::Global(Visibility::Read | Visibility::Uniform) = class {
                     f.write_str("const ")?;
                 }
-                write!(f, "{inner}*")
+                match inner.as_ref() {
+                    Item::DynamicArray(inner) => write!(f, "{inner}*"),
+                    other => write!(f, "{other}*"),
+                }
             }
             Item::Array(inner, size) => {
                 write!(f, "array<{inner}, {size}>")
@@ -603,8 +606,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
         var: &Variable<Self>,
+        ty: &Item<Self>,
     ) -> std::fmt::Result {
-        M::compile_wmma_fragment_declaration(f, var)
+        M::compile_wmma_fragment_declaration(f, var, ty)
     }
 
     fn compile_wwma_fragment_ident(

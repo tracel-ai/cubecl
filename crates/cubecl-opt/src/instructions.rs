@@ -1,43 +1,59 @@
 use cubecl_ir::{
     CoopMma, Instruction, Marker, Metadata, NonSemantic, Operation, OperationReflect, Operator,
-    TensorIndexingOps, TmaOps, Variable,
+    TensorIndexingOps, TmaOps, Value, ValueKind,
 };
 
-use crate::{ControlFlow, Function, GlobalState, analyses::pointer_source::PointerSource};
+use crate::{
+    ControlFlow, Function, GlobalState, MemoryBlock, analyses::pointer_source::PointerSource,
+};
 
 impl Function {
     pub fn visit_out(
         &mut self,
-        var: &mut Option<Variable>,
-        mut visit_write: impl FnMut(&mut Self, &mut Variable),
+        val: &mut Option<Value>,
+        mut visit_write: impl FnMut(&mut Self, &mut Value),
     ) {
-        if let Some(out) = var {
+        if let Some(out) = val {
             visit_write(self, out);
         }
     }
 
     /// Visit an instruction with only a write visitor. Visits both `out` and any pointer writes.
-    pub fn visit_instruction_write(
+    pub fn visit_instruction_memory_writes(
         &mut self,
         state: &GlobalState,
-        inst: &mut Instruction,
-        mut visit_write: impl FnMut(&mut Self, &mut Variable),
+        inst: &Instruction,
+        mut visit_write: impl FnMut(&mut Self, &MemoryBlock),
     ) {
         let pointer_source = self.analysis::<PointerSource>(state);
         for ptr in inst.operation.write_pointers() {
-            if let Some(source) = pointer_source.borrow_mut().get_mut(&ptr) {
+            if let Some(source) = pointer_source.borrow_mut().get_mut(&ptr.id()) {
                 visit_write(self, source);
             }
         }
 
-        // This is hacky, because semantics for insert are very awkward.
-        if let Operation::Operator(Operator::InsertComponent(_)) = &mut inst.operation
-            && let Some(source) = pointer_source.borrow_mut().get_mut(&inst.out())
+        if let Some(Value {
+            kind: ValueKind::Value { id },
+            ..
+        }) = inst.out
+            && let Some(source) = pointer_source.borrow_mut().get_mut(&id)
         {
             visit_write(self, source);
         }
+    }
 
-        self.visit_out(&mut inst.out, visit_write);
+    pub fn visit_instruction_memory_reads(
+        &mut self,
+        state: &GlobalState,
+        inst: &Instruction,
+        mut visit_read: impl FnMut(&mut Self, &MemoryBlock),
+    ) {
+        let pointer_source = self.analysis::<PointerSource>(state);
+        for ptr in inst.operation.read_pointers() {
+            if let Some(source) = pointer_source.borrow_mut().get_mut(&ptr.id()) {
+                visit_read(self, source);
+            }
+        }
     }
 
     /// Visit an operation with a set of read and write visitors. Each visitor will be called with
@@ -46,11 +62,11 @@ impl Function {
         &mut self,
         state: &GlobalState,
         inst: &mut Instruction,
-        visit_read: impl FnMut(&mut Self, &mut Variable),
-        visit_write: impl FnMut(&mut Self, &mut Variable),
+        visit_read: impl FnMut(&mut Self, &mut Value),
+        visit_write: impl FnMut(&mut Self, &mut Value),
     ) {
         self.visit_operation(state, &mut inst.operation, visit_read);
-        self.visit_instruction_write(state, inst, visit_write);
+        self.visit_out(&mut inst.out, visit_write);
     }
 
     /// Visit an operation with a set of read and write visitors. Each visitor will be called with
@@ -59,15 +75,8 @@ impl Function {
         &mut self,
         state: &GlobalState,
         op: &mut Operation,
-        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+        mut visit_read: impl FnMut(&mut Self, &mut Value),
     ) {
-        let pointer_source = self.analysis::<PointerSource>(state);
-        for ptr in op.read_pointers() {
-            if let Some(source) = pointer_source.borrow_mut().get_mut(&ptr) {
-                visit_read(self, source);
-            }
-        }
-
         match op {
             Operation::Marker(Marker::Free(_)) => {}
             Operation::Metadata(meta) => self.visit_meta(meta, visit_read),
@@ -79,6 +88,7 @@ impl Function {
                 self.visit_nonsemantic(non_semantic, visit_read)
             }
             Operation::Operator(Operator::ReadBuiltin(_)) => {}
+            Operation::DeclareVariable { .. } => {}
             op => {
                 if let Some(args) = op.args_mut() {
                     for arg in args {
@@ -96,7 +106,7 @@ impl Function {
     pub fn visit_control_flow(
         &mut self,
         op: &mut ControlFlow,
-        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+        mut visit_read: impl FnMut(&mut Self, &mut Value),
     ) {
         match op {
             ControlFlow::IfElse { cond, .. } => visit_read(self, cond),
@@ -115,7 +125,7 @@ impl Function {
     fn visit_meta(
         &mut self,
         metadata: &mut Metadata,
-        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+        mut visit_read: impl FnMut(&mut Self, &mut Value),
     ) {
         // Don't count buffer as a read, since it's actually the info buffer that's read.
         match metadata {
@@ -133,7 +143,7 @@ impl Function {
         &mut self,
         state: &GlobalState,
         cmma: &mut CoopMma,
-        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+        mut visit_read: impl FnMut(&mut Self, &mut Value),
     ) {
         match cmma {
             CoopMma::Fill { value } => {
@@ -238,7 +248,7 @@ impl Function {
     fn visit_tma(
         &mut self,
         tma_ops: &mut TmaOps,
-        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+        mut visit_read: impl FnMut(&mut Self, &mut Value),
     ) {
         match tma_ops {
             TmaOps::TmaStore {
@@ -257,7 +267,7 @@ impl Function {
     fn visit_tensor_ops(
         &mut self,
         tensor_ops: &mut TensorIndexingOps,
-        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+        mut visit_read: impl FnMut(&mut Self, &mut Value),
     ) {
         match tensor_ops {
             TensorIndexingOps::CreateLayout {
@@ -292,7 +302,7 @@ impl Function {
     fn visit_nonsemantic(
         &mut self,
         non_semantic: &mut NonSemantic,
-        mut visit_read: impl FnMut(&mut Self, &mut Variable),
+        mut visit_read: impl FnMut(&mut Self, &mut Value),
     ) {
         match non_semantic {
             NonSemantic::Comment { .. }

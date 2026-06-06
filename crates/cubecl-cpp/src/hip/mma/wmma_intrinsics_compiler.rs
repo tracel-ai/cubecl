@@ -334,8 +334,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
         var: &crate::shared::Variable<HipDialect<Self>>,
+        ty: &crate::shared::Item<HipDialect<Self>>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_declaration(f, var)
+        wmma_api_base::compile_fragment_declaration(f, var, ty)
     }
 
     fn compile_wmma_fragment(

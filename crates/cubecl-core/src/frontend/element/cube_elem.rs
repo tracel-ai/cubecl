@@ -4,7 +4,7 @@ use crate::{
     self as cubecl, Assign, IntoRuntime,
     prelude::{Const, CubeDebug, IntoMut, Size},
 };
-use cubecl_ir::{ConstantValue, StorageType, Type, Variable, features::TypeUsage};
+use cubecl_ir::{ConstantValue, StorageType, Type, Value, features::TypeUsage};
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use cubecl_runtime::{client::ComputeClient, runtime::Runtime};
 use enumset::EnumSet;
@@ -60,7 +60,7 @@ pub trait CubePrimitive:
         Self::as_type_native_unchecked().size_bits()
     }
 
-    fn from_expand_elem(elem: Variable) -> Self::ExpandType {
+    fn from_expand_elem(elem: Value) -> Self::ExpandType {
         NativeExpand::new(elem)
     }
 

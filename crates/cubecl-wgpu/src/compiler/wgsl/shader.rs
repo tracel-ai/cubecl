@@ -13,16 +13,16 @@ pub struct KernelArg {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SharedValue {
-    pub index: Id,
-    item: Item,
-    alignment: Option<u32>,
+    pub ty: Item,
+    pub value: Variable,
+    alignment: u32,
 }
 
 impl SharedValue {
-    pub fn new(index: Id, item: Item, alignment: Option<u32>) -> Self {
+    pub fn new(ty: Item, value: Variable, alignment: u32) -> Self {
         Self {
-            index,
-            item,
+            ty,
+            value,
             alignment,
         }
     }
@@ -57,7 +57,7 @@ pub struct ComputeShader {
 
 impl ComputeShader {
     pub fn shared_memory_bytes(&self) -> usize {
-        self.shared_values.iter().map(|it| it.item.size()).sum()
+        self.shared_values.iter().map(|it| it.ty.size()).sum()
     }
 }
 
@@ -109,8 +109,8 @@ var<{location}, {visibility}> info: info_st;
             let location = "workgroup";
             write!(
                 f,
-                "var<{location}> shared_{}: {};\n\n",
-                value.index, value.item,
+                "var<{location}> {}_store: {};\n\n",
+                value.value, value.ty,
             )?;
         }
 
@@ -185,6 +185,14 @@ fn {}(
             )?;
         }
 
+        for KernelArg { value, .. } in self.buffers.iter() {
+            writeln!(f, "let {value} = &{value}_store;")?;
+        }
+
+        for SharedValue { value, .. } in self.shared_values.iter() {
+            writeln!(f, "let {value} = &{value}_store;")?;
+        }
+
         write!(f, "{}", self.body)?;
 
         // Close body
@@ -217,7 +225,7 @@ impl ComputeShader {
         binding: &KernelArg,
         num_entry: usize,
     ) -> core::fmt::Result {
-        let ty = binding.value.item();
+        let ty = binding.value.item().unwrap_ptr();
 
         let location = "storage";
         let visibility = match binding.visibility {
@@ -230,7 +238,7 @@ impl ComputeShader {
             f,
             "@group(0)
 @binding({num_entry})
-var<{location}, {visibility}> {name}: {ty};
+var<{location}, {visibility}> {name}_store: {ty};
 \n",
         )?;
 

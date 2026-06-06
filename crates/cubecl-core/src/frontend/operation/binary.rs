@@ -1,4 +1,4 @@
-use crate::ir::{Arithmetic, Bitwise, Scope, Variable};
+use crate::ir::{Arithmetic, Bitwise, Scope, Value};
 use crate::{
     flex32,
     frontend::{CubePrimitive, NativeExpand},
@@ -14,7 +14,7 @@ use cubecl_ir::{ClampOperands, Operator};
 use half::{bf16, f16};
 
 pub mod sub {
-    use cubecl_ir::{ConstantValue, Variable};
+    use cubecl_ir::{ConstantValue, Value};
 
     use super::*;
 
@@ -33,7 +33,7 @@ pub mod sub {
 
                 let item = item_lhs.with_vector_size(vector_size);
                 let value = (lhs_val - rhs_val).into();
-                Variable::constant(value, item).into()
+                Value::constant(value, item).into()
             }
             _ => binary_expand(scope, lhs.into(), rhs.into(), Arithmetic::Sub).into(),
         }
@@ -179,7 +179,7 @@ macro_rules! impl_binary_func_scalar_out {
             $(impl $trait_name for $type {})*
             impl<T: CubePrimitive + $trait_name> [<$trait_name Expand>] for NativeExpand<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &Scope, rhs: Self) -> Self::Scalar {
-                    let lhs: Variable = self.into();
+                    let lhs: Value = self.into();
                     let item = lhs.ty.with_vector_size(0);
                     binary_expand_fixed_output(scope, lhs, rhs.into(), item, $operator).into()
                 }
@@ -191,7 +191,7 @@ macro_rules! impl_binary_func_scalar_out {
 macro_rules! impl_binary_func_mixed_types {
     ($trait_name:ident, $method_name:ident, $rhs_ty: ident, $operator:expr, $($type:ty),*) => {
         paste::paste! {
-            pub trait $trait_name<Rhs: CubePrimitive + CubeType<ExpandType: Into<Variable>> + Sized>:
+            pub trait $trait_name<Rhs: CubePrimitive + CubeType<ExpandType: Into<Value>> + Sized>:
                 CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]<Rhs>> + Sized {
                 fn $method_name(self, _rhs: Rhs) -> Self {
                     unexpanded!()
@@ -303,11 +303,9 @@ impl_core_assign_binop!(BitXorAssign, bitxor_assign, Bitwise::BitwiseXor);
 impl_core_assign_binop!(ShlAssign, shl_assign, Bitwise::ShiftLeft);
 impl_core_assign_binop!(ShrAssign, shr_assign, Bitwise::ShiftRight);
 
-pub trait CubeAnd:
-    CubePrimitive + Into<Variable> + CubeType<ExpandType: AndExpand> + Sized
-{
+pub trait CubeAnd: CubePrimitive + Into<Value> + CubeType<ExpandType: AndExpand> + Sized {
     fn __expand_and_method(self, scope: &Scope, rhs: NativeExpand<Self>) -> NativeExpand<Self> {
-        let this: Variable = self.into();
+        let this: Value = self.into();
         let this: NativeExpand<Self> = this.into();
         this.__expand_and_method(scope, rhs)
     }
@@ -330,9 +328,9 @@ impl<T: CubeAnd + CubePrimitive> AndExpand for NativeExpand<T> {
     }
 }
 
-pub trait CubeOr: CubePrimitive + Into<Variable> + CubeType<ExpandType: OrExpand> + Sized {
+pub trait CubeOr: CubePrimitive + Into<Value> + CubeType<ExpandType: OrExpand> + Sized {
     fn __expand_or_method(self, scope: &Scope, rhs: NativeExpand<Self>) -> NativeExpand<Self> {
-        let this: Variable = self.into();
+        let this: Value = self.into();
         let this: NativeExpand<Self> = this.into();
         this.__expand_or_method(scope, rhs)
     }

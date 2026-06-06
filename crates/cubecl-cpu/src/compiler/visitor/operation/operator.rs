@@ -1,5 +1,6 @@
 use cubecl_core::ir::{
-    BinaryOperands, IndexOperands, Memory, Operator, StorageType, VectorInsertOperands,
+    self as cube, BinaryOperands, IndexOperands, Memory, Operator, StorageType,
+    VectorInsertOperands,
 };
 use tracel_llvm::mlir_rs::{
     dialect::{
@@ -7,7 +8,8 @@ use tracel_llvm::mlir_rs::{
         ods::{self, llvm, vector},
     },
     ir::{
-        Operation,
+        Operation, Value,
+        attribute::DenseI64ArrayAttribute,
         r#type::{IntegerType, MemRefType, StridedLayoutAttr},
     },
 };
@@ -15,12 +17,8 @@ use tracel_llvm::mlir_rs::{
 use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
-    pub fn visit_memory(&mut self, memory: &Memory, out: Option<Variable>) {
+    pub fn visit_memory(&mut self, memory: &Memory, out: Option<cube::Value>) {
         match memory {
-            Memory::Reference(variable) => {
-                let memref = self.get_memory(*variable);
-                self.insert_variable(out.unwrap(), memref);
-            }
             Memory::Index(index) => {
                 let value = self.visit_index(index);
                 self.insert_variable(out.unwrap(), value);
@@ -62,7 +60,7 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    pub fn visit_operator_with_out(&mut self, operator: &Operator, out: Variable) {
+    pub fn visit_operator_with_out(&mut self, operator: &Operator, out: cube::Value) {
         match operator {
             Operator::And(and) => {
                 let lhs = self.get_variable(and.lhs);
@@ -92,7 +90,10 @@ impl<'a> Visitor<'a> {
                 let value = self.visit_extract(op, out);
                 self.insert_variable(out, value);
             }
-            Operator::InsertComponent(op) => self.visit_insert(op, out),
+            Operator::InsertComponent(op) => {
+                let value = self.visit_insert(op);
+                self.insert_variable(out, value);
+            }
             Operator::Not(not) => {
                 let lhs = self.get_variable(not.input);
                 let mask = self.create_int_constant_from_item(not.input.ty, -1);
@@ -197,7 +198,7 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    fn visit_extract(&mut self, op: &BinaryOperands, out: Variable) -> Value<'a, 'a> {
+    fn visit_extract(&mut self, op: &BinaryOperands, out: cube::Value) -> Value<'a, 'a> {
         let mut index = self.get_variable(op.rhs);
         let u32_int = IntegerType::new(self.context, 32).into();
         if index.r#type() != u32_int {
@@ -211,12 +212,11 @@ impl<'a> Visitor<'a> {
     }
 
     fn visit_index(&mut self, index: &IndexOperands) -> Value<'a, 'a> {
-        assert!(index.vector_size == 0);
         let ty = index.list.ty;
         let index_value = self.get_index(index.index, ty, ty.is_vectorized());
         let memref = self.get_memory(index.list);
 
-        let value_ty = index.list.storage_type().to_type(self.context);
+        let value_ty = index.list.ty.scalar_value_type().to_type(self.context);
         let layout = StridedLayoutAttr::new(self.context, i64::MIN, &[1]);
         let memref_ty = MemRefType::new(
             value_ty,
@@ -240,19 +240,28 @@ impl<'a> Visitor<'a> {
         self.append_operation_with_result(view)
     }
 
-    fn visit_insert(&mut self, op: &VectorInsertOperands, out: Variable) {
+    fn visit_insert(&mut self, op: &VectorInsertOperands) -> Value<'a, 'a> {
         let mut index = self.get_variable(op.index);
         let index_ty = Type::index(self.context);
         if index.r#type() != index_ty {
             index = self.append_operation_with_result(index::casts(index, index_ty, self.location));
         }
-        let memref = self.get_memory(out);
-        let to_insert = self.get_variable(op.value);
-        let vector_insert = memref::store(to_insert, memref, &[index], self.location);
-        self.block.append_operation(vector_insert);
+        let vector = self.get_variable(op.vector);
+        let value = self.get_variable(op.value);
+
+        let vector_insert = vector::insert(
+            self.context,
+            vector.r#type(),
+            value,
+            vector,
+            &[index],
+            DenseI64ArrayAttribute::new(self.context, &[i64::MIN]).into(),
+            self.location,
+        );
+        self.append_operation_with_result(vector_insert)
     }
 
-    pub(crate) fn visit_cast(&mut self, to_cast: Variable, out: Variable) {
+    pub(crate) fn visit_cast(&mut self, to_cast: cube::Value, out: cube::Value) {
         let mut value = self.get_variable(to_cast);
         let target = out.ty.to_type(self.context);
 

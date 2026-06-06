@@ -1,4 +1,4 @@
-use super::{ConstantValue, Variable, VariableKind};
+use super::{ConstantValue, Value, ValueKind};
 use crate::{BarrierLevel, ClampMode, Id, MatrixType, TypeHash};
 use core::fmt::Display;
 use cubecl_common::{
@@ -140,8 +140,8 @@ impl ElemType {
     /// Create a constant from a constant value.
     ///
     /// The output will have the same type as the element.
-    pub fn constant(&self, val: ConstantValue) -> Variable {
-        Variable::constant(val, Type::scalar(*self))
+    pub fn constant(&self, val: ConstantValue) -> Value {
+        Value::constant(val, Type::scalar(*self))
     }
 
     /// Get the size in bytes.
@@ -232,7 +232,7 @@ impl ElemType {
         }
     }
 
-    pub fn max_variable(&self) -> Variable {
+    pub fn max_variable(&self) -> Value {
         let value = match self {
             ElemType::Float(kind) => match kind {
                 FloatKind::E2M1 => e2m1::MAX,
@@ -264,10 +264,13 @@ impl ElemType {
             ElemType::Bool => true.into(),
         };
 
-        Variable::new(VariableKind::Constant(value), Type::scalar(*self))
+        Value {
+            kind: ValueKind::Constant(value),
+            ty: Type::scalar(*self),
+        }
     }
 
-    pub fn min_variable(&self) -> Variable {
+    pub fn min_variable(&self) -> Value {
         let value = match self {
             ElemType::Float(kind) => match kind {
                 FloatKind::E2M1 => e2m1::MIN,
@@ -299,7 +302,10 @@ impl ElemType {
             ElemType::Bool => false.into(),
         };
 
-        Variable::new(VariableKind::Constant(value), Type::scalar(*self))
+        Value {
+            kind: ValueKind::Constant(value),
+            ty: Type::scalar(*self),
+        }
     }
 
     pub fn epsilon(&self) -> f64 {
@@ -394,8 +400,8 @@ impl StorageType {
         }
     }
 
-    pub fn constant(&self, value: ConstantValue) -> Variable {
-        Variable::constant(value, Type::new(*self))
+    pub fn constant(&self, value: ConstantValue) -> Value {
+        Value::constant(value, Type::new(*self))
     }
 }
 
@@ -459,9 +465,9 @@ pub enum Type {
     /// Pointer of `Type` into a `PointerClass`
     Pointer(Intern<Type>, AddressSpace),
     /// Statically sized array of `Type`s
-    Array(Intern<Type>, usize, AddressSpace),
+    Array(Intern<Type>, usize),
     /// Dynamically sized array of `Type`s
-    DynamicArray(Intern<Type>, AddressSpace),
+    DynamicArray(Intern<Type>),
     /// Cooperative Matrix
     Matrix(MatrixType),
     Aggregate(AggregateKind),
@@ -482,14 +488,12 @@ impl core::hash::Hash for Type {
                 intern.as_ref().hash(state);
                 addr_space.hash(state);
             }
-            Type::Array(intern, size, addr_space) => {
+            Type::Array(intern, size) => {
                 intern.as_ref().hash(state);
-                addr_space.hash(state);
                 size.hash(state);
             }
-            Type::DynamicArray(intern, addr_space) => {
+            Type::DynamicArray(intern) => {
                 intern.as_ref().hash(state);
-                addr_space.hash(state);
             }
             Type::Matrix(matrix_type) => {
                 matrix_type.hash(state);
@@ -542,13 +546,11 @@ impl Type {
             Type::Pointer(inner, class) => {
                 Type::Pointer(inner.with_vector_size(vector_size).intern(), class)
             }
-            Type::Array(inner, size, addr_space) => Type::Array(
-                inner.with_vector_size(vector_size).intern(),
-                size,
-                addr_space,
-            ),
-            Type::DynamicArray(inner, addr_space) => {
-                Type::DynamicArray(inner.with_vector_size(vector_size).intern(), addr_space)
+            Type::Array(inner, size) => {
+                Type::Array(inner.with_vector_size(vector_size).intern(), size)
+            }
+            Type::DynamicArray(inner) => {
+                Type::DynamicArray(inner.with_vector_size(vector_size).intern())
             }
             Type::Aggregate(AggregateKind::Ptr { inner_ty, meta }) => {
                 Type::Aggregate(AggregateKind::Ptr {
@@ -564,8 +566,8 @@ impl Type {
         Self::Pointer(ty.into().intern(), class)
     }
 
-    pub fn array(ty: impl Into<Type>, size: usize, addr_space: AddressSpace) -> Self {
-        Self::Array(ty.into().intern(), size, addr_space)
+    pub fn array(ty: impl Into<Type>, size: usize) -> Self {
+        Self::Array(ty.into().intern(), size)
     }
 
     pub fn vector_size(&self) -> VectorSize {
@@ -585,7 +587,7 @@ impl Type {
 
     pub fn array_size(&self) -> usize {
         match self {
-            Type::Array(_, size, _) => *size,
+            Type::Array(_, size) => *size,
             Type::Scalar(_) => 1,
             Type::Opaque(_) => 1,
             Type::Vector(inner, _) | Type::Atomic(inner) | Type::Pointer(inner, _) => {
@@ -597,18 +599,34 @@ impl Type {
         }
     }
 
+    pub fn align(&self) -> usize {
+        match self {
+            Type::Scalar(ty) => ty.size(),
+            Type::Opaque(opaque) => opaque.size(),
+            Type::Vector(ty, vector_size) => ty.size() * *vector_size,
+            Type::Atomic(inner) => inner.align(),
+            Type::Array(inner, _) => inner.align(),
+            Type::DynamicArray(inner, ..) => inner.align(),
+            // All platforms use at least conceptually 64-bit pointers
+            Type::Pointer(..) => align_of::<u64>(),
+            Type::Semantic(_) => 0,
+            Type::Matrix(mat) => mat.storage.size(),
+            Type::Aggregate(..) => panic!("Can't get size of opaque type `Aggregate`"),
+        }
+    }
+
     pub fn size(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.size(),
             Type::Opaque(opaque) => opaque.size(),
             Type::Vector(ty, vector_size) => ty.size() * *vector_size,
             Type::Atomic(inner) => inner.size(),
-            Type::Array(inner, size, _) => inner.size() * *size,
+            Type::Array(inner, size) => inner.size() * *size,
             Type::DynamicArray(inner, ..) => inner.size(),
             // All platforms use at least conceptually 64-bit pointers
             Type::Pointer(..) => size_of::<u64>(),
             Type::Semantic(_) => 0,
-            Type::Matrix(_) => panic!("Can't get size of opaque type `Matrix`"),
+            Type::Matrix(..) => panic!("Can't get size of opaque type `Matrix`"),
             Type::Aggregate(..) => panic!("Can't get size of opaque type `Aggregate`"),
         }
     }
@@ -624,7 +642,7 @@ impl Type {
             // All platforms use at least conceptually 64-bit pointers
             Type::Pointer(..) => u64::BITS as usize,
             Type::Semantic(_) => 0,
-            Type::Matrix(_) => panic!("Can't get size of opaque type `Matrix`"),
+            Type::Matrix(..) => panic!("Can't get size of opaque type `Matrix`"),
             Type::Aggregate(..) => panic!("Can't get size of opaque type `Aggregate`"),
         }
     }
@@ -746,18 +764,60 @@ impl Type {
         }
     }
 
+    pub fn as_scalar(&self) -> Self {
+        match self {
+            Type::Scalar(_) => *self,
+            Type::Vector(inner, _) => inner.as_scalar(),
+            Type::Atomic(inner) => Type::Atomic(inner.as_scalar().intern()),
+            Type::Pointer(inner, class) => Type::Pointer(inner.as_scalar().intern(), *class),
+            Type::Array(inner, size) => Type::Array(inner.as_scalar().intern(), *size),
+            Type::Opaque(opaque_type) => Type::Opaque(*opaque_type),
+            Type::Semantic(semantic_type) => Type::Semantic(*semantic_type),
+            Type::DynamicArray(inner) => Type::DynamicArray(inner.as_scalar().intern()),
+            Type::Matrix(matrix_type) => Type::Matrix(*matrix_type),
+            Type::Aggregate(aggregate_kind) => Type::Aggregate(*aggregate_kind),
+        }
+    }
+
+    /// Utility mainly for use in `cubecl-cpu`
+    pub fn scalar_value_type(&self) -> Self {
+        self.value_type().as_scalar()
+    }
+
     pub fn is_semantic(&self) -> bool {
         matches!(self, Type::Semantic(_))
     }
 
-    pub fn constant(&self, value: ConstantValue) -> Variable {
-        Variable::constant(value, *self)
+    pub fn constant(&self, value: ConstantValue) -> Value {
+        Value::constant(value, *self)
+    }
+
+    pub fn unwrap_ptr(&self) -> Type {
+        match self {
+            Type::Pointer(inner, _) => **inner,
+            other => *other,
+        }
+    }
+
+    pub fn address_space(&self) -> Option<AddressSpace> {
+        match self {
+            Type::Scalar(..)
+            | Type::Opaque(..)
+            | Type::Vector(..)
+            | Type::Semantic(..)
+            | Type::Atomic(..)
+            | Type::Matrix(..)
+            | Type::Array(..)
+            | Type::DynamicArray(..)
+            | Type::Aggregate(..) => None,
+            Type::Pointer(.., address_space) => Some(*address_space),
+        }
     }
 
     pub fn value_type(&self) -> Type {
         match self {
             Type::Pointer(inner, _) | Type::Array(inner, ..) | Type::DynamicArray(inner, ..) => {
-                **inner
+                inner.value_type()
             }
             this @ (Type::Scalar(..)
             | Type::Vector(..)
@@ -771,6 +831,29 @@ impl Type {
 
     pub fn is_array(&self) -> bool {
         matches!(self, Type::Array(..) | Type::DynamicArray(..))
+    }
+
+    /// Whether a type is scalarizable. This implies that
+    /// * it does not have dynamic field offsets (i.e. `Array`)
+    /// * it can exist in registers (i.e. no `Barrier` or `Atomic`)
+    pub fn is_destructurable(&self) -> bool {
+        match self {
+            Type::Scalar(..) | Type::Vector(..) => true,
+            // Should be `true`, but semantics are too dodgy right now. They're registers, but CUDA
+            // wmma uses pointers for all matrix ops. So we need to keep them in memory for now.
+            Type::Matrix(..) => false,
+            Type::Pointer(..)
+            | Type::Array(..)
+            | Type::DynamicArray(..)
+            | Type::Semantic(..)
+            | Type::Atomic(..)
+            | Type::Aggregate(..) => false,
+            Type::Opaque(opaque) => match opaque {
+                // Can only exist in memory
+                OpaqueType::Barrier(..) | OpaqueType::TensorMap => false,
+                OpaqueType::BarrierToken(..) => true,
+            },
+        }
     }
 
     pub fn is_value(&self) -> bool {
@@ -787,8 +870,8 @@ impl Display for Type {
             Type::Vector(ty, vector_size) => write!(f, "vector<{ty}, {vector_size}>"),
             Type::Atomic(ty) => write!(f, "atomic<{ty}>"),
             Type::Pointer(ty, addr_space) => write!(f, "ptr<{ty}, {addr_space}>"),
-            Type::Array(ty, size, addr_space) => write!(f, "array<{ty}, {addr_space}, {size}>"),
-            Type::DynamicArray(ty, addr_space) => write!(f, "array<{ty}, {addr_space}>"),
+            Type::Array(ty, size) => write!(f, "array<{ty}, {size}>"),
+            Type::DynamicArray(ty) => write!(f, "array<{ty}>"),
             Type::Matrix(mat) => write!(
                 f,
                 "matrix<{}, m{}xn{}xk{}x{}, {}, {}>",
@@ -920,19 +1003,19 @@ impl SliceMetadata {
     pub const LENGTH: usize = 2;
 }
 
-impl From<e2m1x2> for Variable {
+impl From<e2m1x2> for Value {
     fn from(_value: e2m1x2) -> Self {
         unimplemented!("Can't currently construct e2m1x2")
     }
 }
 
-impl From<e2m3> for Variable {
+impl From<e2m3> for Value {
     fn from(_value: e2m3) -> Self {
         unimplemented!("Can't currently construct fp6")
     }
 }
 
-impl From<e3m2> for Variable {
+impl From<e3m2> for Value {
     fn from(_value: e3m2) -> Self {
         unimplemented!("Can't currently construct fp6")
     }
@@ -1043,9 +1126,9 @@ impl From<f32> for ConstantValue {
 macro_rules! impl_into_variable {
     ($($ty: ty => $kind: path,)*) => {
         $(
-            impl From<$ty> for Variable {
+            impl From<$ty> for Value {
                 fn from(value: $ty) -> Self {
-                    Variable::new(VariableKind::Constant(value.into()), $kind.into())
+                    Value {kind: ValueKind::Constant(value.into()), ty: $kind.into()}
                 }
             }
         )*

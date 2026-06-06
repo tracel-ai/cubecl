@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 use cubecl_ir::{
     Arithmetic, Bitwise, Comparison, ConstantValue, GlobalState, Instruction, Operation, Operator,
-    Type, Variable,
+    Type, Value,
 };
 
 use crate::post_processing::{
@@ -139,7 +139,7 @@ impl InstructionVisitor for ConstEval {
         changes: &AtomicCounter,
     ) -> Vec<Instruction> {
         if let Some(const_eval) = try_const_eval(&mut inst) {
-            let input = Variable::constant(const_eval, inst.out().ty);
+            let input = Value::constant(const_eval, inst.out().ty);
             inst.operation = Operation::Copy(input);
             changes.inc();
         }

@@ -1,10 +1,9 @@
-use alloc::{rc::Rc, vec::Vec};
-use core::cell::RefCell;
+use alloc::rc::Rc;
 
 use cubecl_macros_internal::TypeHash;
 use portable_atomic::{AtomicU32, Ordering};
 
-use super::{Type, Variable, VariableKind};
+use super::{Type, Value};
 
 /// An allocator for local variables of a kernel.
 ///
@@ -27,15 +26,12 @@ use super::{Type, Variable, VariableKind};
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Default, TypeHash)]
 pub struct Allocator {
-    #[cfg_attr(feature = "serde", serde(skip))]
-    pub local_mut_pool: Rc<RefCell<Vec<Variable>>>,
     next_id: Rc<AtomicU32>,
 }
 
 impl PartialEq for Allocator {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.local_mut_pool, &other.local_mut_pool)
-            && Rc::ptr_eq(&self.next_id, &other.next_id)
+        Rc::ptr_eq(&self.next_id, &other.next_id)
     }
 }
 impl Eq for Allocator {}
@@ -43,36 +39,14 @@ impl Eq for Allocator {}
 impl Allocator {
     pub fn clone_deep(&self) -> Self {
         Allocator {
-            local_mut_pool: Rc::new(RefCell::new(self.local_mut_pool.borrow().clone())),
             next_id: Rc::new(AtomicU32::new(self.next_id.load(Ordering::SeqCst))),
         }
     }
 
     /// Create a new immutable local variable of type specified by `item`.
-    pub fn create_local(&self, ty: Type) -> Variable {
+    pub fn create_value(&self, ty: Type) -> Value {
         let id = self.new_local_index();
-        let local = VariableKind::LocalConst { id };
-        Variable::new(local, ty)
-    }
-
-    /// Create a new mutable local variable of type specified by `item`.
-    pub fn create_local_mut(&self, ty: Type) -> Variable {
-        self.add_local_mut(ty)
-    }
-
-    /// Create a new mutable local variable of type specified by `item`.
-    pub fn create_local_restricted(&self, ty: Type) -> Variable {
-        let id = self.new_local_index();
-        Variable::new(VariableKind::LocalMut { id }, ty)
-    }
-
-    /// Add a new variable to the pool with type specified by `item` for the given `scope`.
-    pub fn add_local_mut(&self, item: Type) -> Variable {
-        let id = self.new_local_index();
-        let local = Variable::new(VariableKind::LocalMut { id }, item);
-        let mut pool = self.local_mut_pool.borrow_mut();
-        pool.push(local);
-        local
+        Value::new(id, ty)
     }
 
     pub fn new_local_index(&self) -> u32 {
@@ -81,9 +55,5 @@ impl Allocator {
 
     pub fn current_local_index(&self) -> u32 {
         self.next_id.load(Ordering::SeqCst)
-    }
-
-    pub fn take_variables(&self) -> Vec<Variable> {
-        self.local_mut_pool.borrow_mut().drain(..).collect()
     }
 }

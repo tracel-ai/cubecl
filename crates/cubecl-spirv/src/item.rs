@@ -1,4 +1,4 @@
-use cubecl_core::ir::{self as core, AddressSpace, ClampMode, FloatKind, Id, IntKind, UIntKind};
+use cubecl_core::ir::{self as core, AddressSpace, ClampMode, FloatKind, IntKind, UIntKind};
 use rspirv::spirv::{
     Capability, CooperativeMatrixLayout, CooperativeMatrixUse, FPEncoding, Scope, StorageClass,
     TensorClampMode, Word,
@@ -14,7 +14,7 @@ pub enum Item {
     Vector(Elem, u32),
     Pointer(StorageClass, Box<Item>),
     Array(Box<Item>, u32),
-    DynamicArray(Box<Item>, Id),
+    DynamicArray(Box<Item>),
     CoopMatrix {
         ty: Elem,
         rows: u32,
@@ -57,7 +57,7 @@ impl Item {
                 let size = b.const_u32(*size);
                 b.type_array_id(Some(id), item, size)
             }
-            Item::DynamicArray(item, _) => {
+            Item::DynamicArray(item) => {
                 let item = item.id(b);
                 let id = b.id();
                 b.type_runtime_array_id(Some(id), item)
@@ -114,7 +114,14 @@ impl Item {
         match self {
             Item::Pointer(_, item) => item.value_type(),
             Item::Array(item, _) => item.value_type(),
-            Item::DynamicArray(item, _) => item.value_type(),
+            Item::DynamicArray(item) => item.value_type(),
+            other => other.clone(),
+        }
+    }
+
+    pub fn unwrap_ptr(&self) -> Item {
+        match self {
+            Item::Pointer(_, item) => item.as_ref().clone(),
             other => other.clone(),
         }
     }
@@ -125,7 +132,7 @@ impl Item {
             Item::Vector(elem, factor) => elem.size() * *factor,
             Item::Pointer(_, item) => item.size(),
             Item::Array(item, size) => item.size() * *size,
-            Item::DynamicArray(item, _) => item.size(),
+            Item::DynamicArray(item) => item.size(),
             Item::CoopMatrix { ty, .. } => ty.size(),
             Item::TensorLayout { .. } => 1,
             Item::TensorView { .. } => 1,
@@ -138,7 +145,7 @@ impl Item {
             Item::Vector(elem, _) => *elem,
             Item::Pointer(_, item) => item.elem(),
             Item::Array(item, _) => item.elem(),
-            Item::DynamicArray(item, _) => item.elem(),
+            Item::DynamicArray(item) => item.elem(),
             Item::CoopMatrix { ty, .. } => *ty,
             Item::TensorLayout { .. } => Elem::Void,
             Item::TensorView { .. } => Elem::Void,
@@ -307,6 +314,10 @@ impl Item {
         }
     }
 
+    pub fn is_ptr(&self) -> bool {
+        matches!(self, Item::Pointer(..))
+    }
+
     pub fn is_array(&self) -> bool {
         matches!(self, Item::Array(..) | Item::DynamicArray(..))
     }
@@ -404,16 +415,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     permutation: permutation[..dims].to_vec(),
                 },
             },
-            core::Type::Array(inner, size, _) => {
+            core::Type::Array(inner, size) => {
                 let item = self.compile_type(*inner);
                 Item::Array(Box::new(item), size as u32)
             }
-            core::Type::DynamicArray(inner, addr_space) => {
-                let AddressSpace::Global(id) = addr_space else {
-                    panic!("Dynamic arrays can only exist in global memory")
-                };
+            core::Type::DynamicArray(inner) => {
                 let item = self.compile_type(*inner);
-                Item::DynamicArray(Box::new(item), id)
+                Item::DynamicArray(Box::new(item))
             }
             core::Type::Matrix(ty) => {
                 let mat = self.compile_matrix(&ty);
@@ -508,17 +516,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn compile_function_param_type(&mut self, var: core::Variable) -> Word {
+    pub fn compile_function_param_type(&mut self, var: core::Value) -> Word {
         match var.kind {
-            core::VariableKind::LocalMut { .. }
-                if let AddressSpace::Global(id) = var.address_space() =>
-            {
-                self.state.base_lookups.buffers[id as usize].struct_ptr_ty_id
+            core::ValueKind::Value { .. } | core::ValueKind::Constant(..) => {
+                self.compile_type(var.ty).id(self)
             }
-            core::VariableKind::LocalMut { .. }
-            | core::VariableKind::LocalConst { .. }
-            | core::VariableKind::Constant(..) => self.compile_type(var.ty).id(self),
-            core::VariableKind::Shared { id, .. } => self.state.base_lookups.shared[&id].ptr_ty_id,
         }
     }
 
@@ -595,7 +597,7 @@ impl std::fmt::Display for Item {
             Item::Vector(elem, factor) => write!(f, "vec{factor}<{elem}>"),
             Item::Pointer(class, item) => write!(f, "ptr<{class:?}, {item}>"),
             Item::Array(item, size) => write!(f, "array<{item}, {size}>"),
-            Item::DynamicArray(item, _) => write!(f, "array<{item}>"),
+            Item::DynamicArray(item) => write!(f, "array<{item}>"),
             Item::CoopMatrix { ty, ident, .. } => write!(f, "matrix<{ty}, {ident:?}>"),
             Item::TensorLayout { dims, clamp_mode } => {
                 write!(f, "tensor_layout<{dims}, {clamp_mode:?}>")

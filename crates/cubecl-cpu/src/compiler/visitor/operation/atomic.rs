@@ -1,4 +1,4 @@
-use cubecl_core::ir::{AtomicBinaryOperands, AtomicOp, Variable};
+use cubecl_core::ir::{self as cube, AtomicBinaryOperands, AtomicOp};
 use tracel_llvm::mlir_rs::{
     dialect::{
         arith::{self, AtomicRMWKind},
@@ -15,7 +15,7 @@ use tracel_llvm::mlir_rs::{
 use crate::compiler::visitor::{Visitor, prelude::IntoType};
 
 impl<'a> Visitor<'a> {
-    pub fn visit_atomic(&mut self, atomic: &AtomicOp, out: Option<Variable>) {
+    pub fn visit_atomic(&mut self, atomic: &AtomicOp, out: Option<cube::Value>) {
         match atomic {
             AtomicOp::Load(variable) => {
                 let raw_ptr = self.get_raw_ptr(*variable);
@@ -90,7 +90,8 @@ impl<'a> Visitor<'a> {
             }
         };
     }
-    fn get_raw_ptr(&mut self, variable: Variable) -> Value<'a, 'a> {
+
+    fn get_raw_ptr(&mut self, variable: cube::Value) -> Value<'a, 'a> {
         let value = self.get_memory(variable);
         let value = self.append_operation_with_result(memref::extract_aligned_pointer_as_index(
             value,
@@ -105,11 +106,12 @@ impl<'a> Visitor<'a> {
         let ptr_ty = r#type::pointer(self.context, 0);
         self.append_operation_with_result(llvm::inttoptr(int, ptr_ty, self.location))
     }
+
     fn visit_atomic_binary_operands(
         &mut self,
         atomic: &AtomicOp,
         atomic_binary_operands: &AtomicBinaryOperands,
-        out: Option<Variable>,
+        out: Option<cube::Value>,
     ) {
         let ty = atomic_binary_operands.ptr.ty.elem_type();
         let value = if let AtomicOp::Sub(_) = atomic {

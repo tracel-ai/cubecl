@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 use crate::shared::FmtLeft;
 
 use super::{Component, Dialect, Elem, Item, Variable};
@@ -480,32 +482,43 @@ impl Index {
         list: &Variable<D>,
         index: &Variable<D>,
         out: &Variable<D>,
-        vector_size: u32,
     ) -> std::fmt::Result {
         if list.item().vectorization() != out.item().vectorization() {
-            let item = Item::new(list.elem(), vector_size as usize);
             let item_ptr = out.item();
-            let tmp = Variable::tmp_declared(item);
+            let tmp = Variable::tmp_declared(item_ptr);
 
             writeln!(
                 f,
                 "{item_ptr} {tmp} = reinterpret_cast<{item_ptr}>({list});"
             )?;
 
-            writeln!(f, "{item_ptr} {out} = &{tmp}[{index}];")
+            let index = fmt_index(&tmp, index, &tmp.item());
+            writeln!(f, "{item_ptr} {out} = &{index};")
         } else {
             let item_out = out.item();
+            let index = fmt_index(list, index, &list.item());
             if matches!(item_out, Item::Barrier(_)) {
                 let addr_space = D::address_space_for_variable(list);
-                writeln!(
-                    f,
-                    "{addr_space}{}& {out} = {list}[{index}];",
-                    item_out.elem()
-                )
+                writeln!(f, "{addr_space}{}& {out} = {index};", item_out.elem())
             } else {
-                writeln!(f, "{item_out} {out} = &{list}[{index}];")
+                writeln!(f, "{item_out} {out} = &{index};")
             }
         }
+    }
+}
+
+pub fn fmt_index<D: Dialect>(
+    list: &impl Display,
+    index: &impl Display,
+    list_ty: &Item<D>,
+) -> String {
+    // Array nested in pointer, deref first
+    if let Item::Pointer(list_ty, _) = list_ty
+        && matches!(**list_ty, Item::Array(..))
+    {
+        format!("(*{list})[{index}]")
+    } else {
+        format!("{list}[{index}]")
     }
 }
 
@@ -569,22 +582,35 @@ impl<D: Dialect> ExtractComponent<D> {
 impl<D: Dialect> InsertComponent<D> {
     pub fn format(
         f: &mut Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
+        vector: &Variable<D>,
+        index: &Variable<D>,
+        value: &Variable<D>,
         out: &Variable<D>,
     ) -> std::fmt::Result {
-        let index = match lhs {
+        let index = match index {
             Variable::Constant(value, _) => value.as_usize(),
             _ => {
+                let tmp = Variable::tmp(out.item());
+                writeln!(f, "{} = {vector};", tmp.fmt_left())?;
+
                 let elem = out.elem();
                 let addr_space = D::address_space_for_variable(out);
-                return writeln!(f, "*(({addr_space}{elem}*)&{out} + {lhs}) = {rhs};");
+                let ptr = tmp.fmt_ptr();
+                writeln!(f, "*(({addr_space}{elem}*){ptr} + {index}) = {value};")?;
+                return writeln!(f, "{} = {tmp};", out.fmt_left());
             }
         };
 
-        let out = out.index(index);
-        let rhs = rhs.index(index);
+        let elements = (0..out.item().vectorization())
+            .map(|i| {
+                if i == index {
+                    format!("{value}")
+                } else {
+                    format!("{}", vector.index(i))
+                }
+            })
+            .join(", ");
 
-        writeln!(f, "{out} = {rhs};")
+        write!(f, "{} = {{{elements}}};", out.fmt_left())
     }
 }

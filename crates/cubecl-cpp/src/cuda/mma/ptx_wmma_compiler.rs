@@ -37,19 +37,20 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for PtxWmmaCompiler {
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
         var: &Variable<CudaDialect<Self>>,
+        ty: &Item<CudaDialect<Self>>,
     ) -> std::fmt::Result {
-        let frag = match var.item() {
+        let frag = match ty {
             Item::Fragment(frag) => frag,
             _ => panic!("load instruction expects a WmmaFragment"),
         };
-        let reg_count = get_fragment_register_total_count(&frag);
+        let reg_count = get_fragment_register_total_count(frag);
         let ty = match frag.elem {
             Elem::U8 | Elem::I8 | Elem::F16 | Elem::BF16 | Elem::TF32 => "unsigned int",
             Elem::F32 => "float",
             Elem::F64 => "double",
             _ => panic!("unsupported type"),
         };
-        writeln!(f, "{ty} {var}[{reg_count}];")
+        writeln!(f, "{ty} {var}_store[{reg_count}];")
     }
 
     fn compile_wmma_instruction(
@@ -621,10 +622,13 @@ pub(super) fn compile_scaled_mma<D: Dialect>(
     let frag_c = (0..cd_regs).map(|i| as_const_ty_idx(frag_c, i, cd_ty));
     let frag_d = (0..cd_regs).map(|i| as_ty_idx(frag_d, i, cd_ty));
 
+    let scales_a = scales_a.ensure_lvalue(f)?;
+    let scales_b = scales_b.ensure_lvalue(f)?;
+
     let fragments = comma_separated(frag_a.chain(frag_b).chain(frag_c).chain(frag_d));
     write!(
         f,
-        "__mma_scaled_{scales_factor}x_m16n8k{}_{}_{}_{}({fragments}, reinterpret_cast<uint32&>({scales_a}), reinterpret_cast<uint32&>({scales_b}));",
+        "__mma_scaled_{scales_factor}x_m16n8k{}_{}_{}_{}({fragments}, reinterpret_cast<const uint32&>({scales_a}), reinterpret_cast<const uint32&>({scales_b}));",
         shape.k, a_elem, b_elem, cd_elem
     )
 }

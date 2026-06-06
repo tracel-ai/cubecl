@@ -284,7 +284,7 @@ tma_store!(5, v, w, z, y, x);
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use cubecl_ir::{Metadata, Variable};
+    use cubecl_ir::{Metadata, Value};
 
     use super::*;
     use crate::ir::{Arithmetic, BinaryOperands, Instruction};
@@ -403,12 +403,12 @@ mod metadata {
             scope: &Scope,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let dim: Variable = dim.into();
-            let out = scope.create_local(usize::__expand_as_type(scope));
+            let dim: Value = dim.into();
+            let out = scope.create_value(usize::__expand_as_type(scope));
             scope.register(Instruction::new(
                 Metadata::Stride {
                     dim,
-                    var: self.expand,
+                    list: self.expand,
                 },
                 out,
             ));
@@ -421,12 +421,12 @@ mod metadata {
             scope: &Scope,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let dim: Variable = dim.into();
-            let out = scope.create_local(usize::__expand_as_type(scope));
+            let dim: Value = dim.into();
+            let out = scope.create_value(usize::__expand_as_type(scope));
             scope.register(Instruction::new(
                 Metadata::Shape {
                     dim,
-                    var: self.expand,
+                    list: self.expand,
                 },
                 out,
             ));
@@ -440,12 +440,12 @@ mod metadata {
             index: NativeExpand<usize>,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let index: Variable = index.into();
+            let index: Value = index.into();
             let stride = self.__expand_stride_method(scope, dim);
             let shape = self.__expand_shape_method(scope, dim);
 
             // Compute `num_strides = index / stride`.
-            let num_strides = scope.create_local(usize::__expand_as_type(scope));
+            let num_strides = scope.create_value(usize::__expand_as_type(scope));
             scope.register(Instruction::new(
                 Arithmetic::Div(BinaryOperands {
                     lhs: index,
@@ -455,7 +455,7 @@ mod metadata {
             ));
 
             // Compute `coordinate = num_strides % shape `.
-            let coordinate = scope.create_local(usize::__expand_as_type(scope));
+            let coordinate = scope.create_value(usize::__expand_as_type(scope));
             scope.register(Instruction::new(
                 Arithmetic::Rem(BinaryOperands {
                     lhs: num_strides,

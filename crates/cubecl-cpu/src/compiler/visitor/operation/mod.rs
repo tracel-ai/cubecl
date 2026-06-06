@@ -7,8 +7,8 @@ pub(super) mod operator;
 pub(super) mod synchronization;
 
 use cubecl_core::ir::{
-    AtomicOp, BarrierLevel, BarrierOps, Memory, NonSemantic, OpaqueType, Operation,
-    Synchronization, Type,
+    self as cube, AddressSpace, AtomicOp, BarrierLevel, BarrierOps, Memory, NonSemantic,
+    OpaqueType, Operation, Synchronization, Type,
 };
 use tracel_llvm::mlir_rs::{
     dialect::{llvm, ods::llvm as llvm_ods},
@@ -125,8 +125,26 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    pub fn visit_operation_with_out(&mut self, operation: &Operation, out: Variable) {
+    pub fn visit_operation_with_out(&mut self, operation: &Operation, out: cube::Value) {
         match operation {
+            Operation::DeclareVariable {
+                value_ty,
+                addr_space: AddressSpace::Local,
+                alignment,
+            } => {
+                self.declare_mutable_memory(out, *value_ty, *alignment);
+            }
+            Operation::DeclareVariable {
+                addr_space: AddressSpace::Shared,
+                ..
+            } => {
+                // Collected and allocated by optimizer. Only insert existing value into lookups.
+                let value = self.args_manager.shared_memory_values[&out.id()];
+                self.values.insert(out.kind, value);
+            }
+            Operation::DeclareVariable { addr_space, .. } => {
+                unimplemented!("Unsupported address space in declaration: {addr_space}")
+            }
             Operation::Memory(memory) => {
                 self.visit_memory(memory, Some(out));
             }

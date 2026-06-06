@@ -11,8 +11,8 @@ use crate::shared::{
 };
 
 use super::{
-    Architecture, Body, Component, CubeIndexFlags, Elem, Flags, FragmentType, FragmentIdent,
-    FragmentLayout, Instruction, Item, KernelArg, SharedMemory, Variable, WarpInstruction,
+    Architecture, Body, Component, CubeIndexFlags, Elem, Flags, FragmentIdent, FragmentLayout,
+    FragmentType, Instruction, Item, KernelArg, SharedMemory, Variable, WarpInstruction,
     WmmaInstruction,
 };
 
@@ -89,25 +89,14 @@ pub trait DialectTypes<D: Dialect> {
         f: &mut std::fmt::Formatter<'_>,
         shared: &SharedMemory<D>,
     ) -> std::fmt::Result {
-        let SharedMemory { index, offset, .. } = shared;
-        match shared.item {
-            Item::Array(item, length) => {
-                let size_bytes = length * item.size();
-                writeln!(f, "// Shared array size: {length}, {size_bytes} bytes")?;
-                writeln!(
-                    f,
-                    "{item} *shared_memory_{index} = reinterpret_cast<{item}*>(&dynamic_shared_mem[{offset}]);"
-                )
-            }
-            item => {
-                let size_bytes = item.size() as u32;
-                writeln!(f, "// Shared value size: {size_bytes} bytes")?;
-                writeln!(
-                    f,
-                    "{item} &shared_memory_{index} = reinterpret_cast<{item}&>(dynamic_shared_mem[{offset}]);"
-                )
-            }
-        }
+        let SharedMemory { ptr, offset, .. } = shared;
+        let ptr_ty = ptr.item();
+        let size_bytes = shared.size();
+        writeln!(f, "// Shared value size: {size_bytes} bytes")?;
+        writeln!(
+            f,
+            "{ptr_ty} {ptr} = reinterpret_cast<{ptr_ty}>(&dynamic_shared_mem[{offset}]);"
+        )
     }
     fn compile_polyfills(_f: &mut std::fmt::Formatter<'_>, _flags: &Flags<D>) -> std::fmt::Result {
         Ok(())
@@ -973,6 +962,7 @@ pub trait DialectWmmaCompiler<D: Dialect>:
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
         var: &Variable<D>,
+        value_ty: &Item<D>,
     ) -> std::fmt::Result;
 
     fn compile_wmma_instruction(

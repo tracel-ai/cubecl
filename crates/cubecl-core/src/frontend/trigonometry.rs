@@ -1,4 +1,4 @@
-use cubecl_ir::Variable;
+use cubecl_ir::Value;
 
 use crate::prelude::*;
 use crate::{self as cubecl};
@@ -25,7 +25,7 @@ pub fn hypot<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector<
 }
 
 #[allow(missing_docs)]
-pub fn expand_hypot(scope: &Scope, lhs: Variable, rhs: Variable, out: Variable) {
+pub fn expand_hypot(scope: &Scope, lhs: Value, rhs: Value, out: Value) {
     scope.register_type::<ElemA>(lhs.ty.storage_type());
     scope.register_size::<SizeA>(lhs.vector_size());
     let res = hypot::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into());
@@ -51,7 +51,7 @@ pub fn rhypot<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector
 }
 
 #[allow(missing_docs)]
-pub fn expand_rhypot(scope: &Scope, lhs: Variable, rhs: Variable, out: Variable) {
+pub fn expand_rhypot(scope: &Scope, lhs: Value, rhs: Value, out: Value) {
     scope.register_type::<ElemA>(lhs.ty.storage_type());
     scope.register_size::<SizeA>(lhs.vector_size());
     let res = rhypot::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into());

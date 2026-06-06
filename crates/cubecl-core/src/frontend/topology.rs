@@ -17,9 +17,9 @@ macro_rules! constant {
         pub mod $ident {
             use super::*;
 
-            /// Expansion of the constant variable.
+            /// Expansion of the constant value.
             pub fn expand(scope: &Scope) -> NativeExpand<u32> {
-                let out = scope.create_local(u32::__expand_as_type(scope));
+                let out = scope.create_value(u32::__expand_as_type(scope));
                 scope.register(Instruction::new(Operator::ReadBuiltin($var), out));
                 out.into()
             }
@@ -37,9 +37,9 @@ macro_rules! constant_usize {
         pub mod $ident {
             use super::*;
 
-            /// Expansion of the constant variable.
+            /// Expansion of the constant value.
             pub fn expand(scope: &Scope) -> NativeExpand<usize> {
-                let out = scope.create_local(usize::__expand_as_type(scope));
+                let out = scope.create_value(usize::__expand_as_type(scope));
                 scope.register(Instruction::new(Operator::ReadBuiltin($var), out));
                 out.into()
             }

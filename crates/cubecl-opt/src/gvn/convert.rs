@@ -1,25 +1,25 @@
-use cubecl_ir::{Operation, OperationReflect, Operator, Variable, VariableKind};
+use cubecl_ir::{AddressSpace, Operation, OperationReflect, Operator, Value, ValueKind};
 use hashbrown::HashMap;
 use smallvec::SmallVec;
 
-use super::{Expression, Local, Value};
+use crate::Function;
+
+use super::Expression;
 
 impl Expression {
     pub fn to_operation(&self, leaders: &HashMap<u32, Value>) -> Operation {
         match self {
             Expression::Copy(val, _) => {
-                let input = leaders[val].as_var();
+                let input = leaders[val];
                 Operation::Copy(input)
             }
-            Expression::Value(value) | Expression::Volatile(value) => {
-                Operation::Copy(value.as_var())
-            }
+            Expression::Value(value) | Expression::Volatile(value) => Operation::Copy(*value),
             Expression::Instruction(instruction) => {
                 let args = instruction
                     .args
                     .iter()
-                    .map(|val| leaders[val].as_var())
-                    .collect::<SmallVec<[Variable; 4]>>();
+                    .map(|val| leaders[val])
+                    .collect::<SmallVec<[Value; 4]>>();
 
                 <Operation as OperationReflect>::from_code_and_args(instruction.op, &args).unwrap()
             }
@@ -29,23 +29,20 @@ impl Expression {
     }
 }
 
-impl Value {
-    pub(crate) fn as_var(&self) -> Variable {
-        match self {
-            Value::Constant(val, ty) => Variable::constant(*val, *ty),
-            Value::Local(Local { id, item }) => {
-                Variable::new(VariableKind::LocalConst { id: *id }, *item)
+impl Function {
+    pub(super) fn value_of_var(&self, var: &Value) -> Option<Value> {
+        match &var.kind {
+            // TODO: This is a hack and should be replaced with instruction-level invalidation
+            ValueKind::Value { id }
+                if let Some(mem) = self.memories.get(id)
+                    && matches!(
+                        mem.address_space,
+                        AddressSpace::Local | AddressSpace::Shared
+                    ) =>
+            {
+                None
             }
+            _ => Some(*var),
         }
     }
-}
-
-pub fn value_of_var(var: &Variable) -> Option<Value> {
-    let item = var.ty;
-    let val = match var.kind {
-        VariableKind::LocalConst { id } => Value::Local(Local { id, item }),
-        VariableKind::Constant(val) => Value::Constant(val, item),
-        VariableKind::LocalMut { .. } | VariableKind::Shared { .. } => None?,
-    };
-    Some(val)
 }

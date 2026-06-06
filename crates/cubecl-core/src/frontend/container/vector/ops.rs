@@ -296,7 +296,7 @@ impl<P: CountOnes + Scalar, N: Size> Vector<P, N> {
         intrinsic!(|scope| {
             let out_item = Type::scalar(ElemType::UInt(UIntKind::U32))
                 .with_vector_size(self.expand.ty.vector_size());
-            let out = scope.create_local(out_item);
+            let out = scope.create_value(out_item);
             scope.register(Instruction::new(
                 Bitwise::CountOnes(UnaryOperands { input: self.expand }),
                 out,

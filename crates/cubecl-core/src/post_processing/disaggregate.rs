@@ -1,7 +1,7 @@
 use alloc::{format, vec::Vec};
 
 use cubecl_ir::{
-    GlobalState, Instruction, Memory, NonSemantic, Operation, Scope, Variable, VariableKind,
+    GlobalState, Instruction, Memory, NonSemantic, Operation, Scope, Value, ValueKind,
 };
 use hashbrown::HashMap;
 
@@ -11,8 +11,8 @@ use crate::post_processing::{
     visitor::{InstructionVisitor, Visitor},
 };
 
-type Substitutes = HashMap<VariableKind, Vec<Variable>>;
-type Extracted = HashMap<VariableKind, Variable>;
+type Substitutes = HashMap<ValueKind, Vec<Value>>;
+type Extracted = HashMap<ValueKind, Value>;
 
 /// Disaggregates compiler-internal aggregates like bounds checked pointers and slice pointers into
 /// individual variables.
@@ -45,14 +45,14 @@ impl InstructionVisitor for DisaggregateVisitor {
         let allocator = &state.allocator;
 
         // This needs to run even for aggregates so extract -> construct will be properly replaced
-        visitor.visit_operation(&mut instruction.operation, analyses, |_, var| {
-            if let Some(replacement) = self.extracted.get(&var.kind).copied() {
-                *var = replacement;
+        visitor.visit_operation(&mut instruction.operation, analyses, |_, val| {
+            if let Some(replacement) = self.extracted.get(&val.kind).copied() {
+                *val = replacement;
             }
         });
-        visitor.visit_out(&mut instruction.out, |_, var| {
-            if let Some(replacement) = self.extracted.get(&var.kind) {
-                *var = *replacement;
+        visitor.visit_out(&mut instruction.out, |_, val| {
+            if let Some(replacement) = self.extracted.get(&val.kind) {
+                *val = *replacement;
             }
         });
 
@@ -64,11 +64,11 @@ impl InstructionVisitor for DisaggregateVisitor {
                 // Make an immutable copy if the value is mutable
                 for field in fields.iter_mut().filter(|it| it.can_mutate()) {
                     if field.is_value() {
-                        let new_field = allocator.create_local(field.ty);
+                        let new_field = allocator.create_value(field.ty);
                         new_instructions.push(Instruction::new(Operation::Copy(*field), new_field));
                         *field = new_field;
                     } else if !field.is_array() {
-                        let new_field = allocator.create_local(field.ty);
+                        let new_field = allocator.create_value(field.ty);
                         new_instructions.push(Instruction::new(Memory::Load(*field), new_field));
                         *field = new_field;
                     }

@@ -14,6 +14,7 @@ use std::fmt::Display;
 pub enum Instruction {
     DeclareVariable {
         var: Variable,
+        value_ty: Item,
     },
     Max {
         lhs: Variable,
@@ -73,10 +74,6 @@ pub enum Instruction {
     },
     // Index handles casting to correct local variable.
     Assign {
-        input: Variable,
-        out: Variable,
-    },
-    Reference {
         input: Variable,
         out: Variable,
     },
@@ -472,6 +469,7 @@ pub enum Instruction {
         vector: Variable,
         index: Variable,
         value: Variable,
+        out: Variable,
     },
     CopyBulk {
         source: Variable,
@@ -486,9 +484,9 @@ pub enum Instruction {
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Instruction::DeclareVariable { var } => {
-                let item = var.item();
-                writeln!(f, "var {var}: {item};")
+            Instruction::DeclareVariable { var, value_ty } => {
+                writeln!(f, "var {var}_store: {value_ty};")?;
+                writeln!(f, "let {var} = &{var}_store;")
             }
             Instruction::Add { lhs, rhs, out } => {
                 let lhs = lhs.fmt_cast_to(out.item());
@@ -762,9 +760,6 @@ impl Display for Instruction {
                     writeln!(f, "{out} = {input};")
                 }
             }
-            Instruction::Reference { input, out } => {
-                writeln!(f, "let {out} = &{input};")
-            }
             Instruction::Load { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = *{input};")
@@ -797,15 +792,14 @@ impl Display for Instruction {
             } => {
                 let increment = step
                     .as_ref()
-                    .map(|step| format!("{i} += {step}"))
-                    .unwrap_or_else(|| format!("{i}++"));
+                    .map(|step| format!("*{i} += {step}"))
+                    .unwrap_or_else(|| format!("*{i}++"));
                 let cmp = if *inclusive { "<=" } else { "<" };
-                let i_ty = i.item();
 
                 write!(
                     f,
                     "
-for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
+for (*{i} = {start}; *{i} {cmp} {end}; {increment}) {{
 "
                 )?;
                 for instruction in instructions {
@@ -1129,8 +1123,11 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 vector,
                 index,
                 value,
+                out,
             } => {
-                writeln!(f, "{vector}[{index}] = {value};")
+                writeln!(f, "var {out}_tmp: {} = {vector};", vector.item())?;
+                writeln!(f, "{out}_tmp[{index}] = {value};")?;
+                writeln!(f, "{} = {out}_tmp;", out.fmt_left())
             }
             Instruction::Comment { content } => {
                 if content.contains('\n') {
