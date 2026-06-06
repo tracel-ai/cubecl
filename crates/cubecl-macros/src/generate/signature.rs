@@ -1,5 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
+use syn::Type;
 
 use crate::{
     parse::{kernel::expand_kernel_ty, signature::*},
@@ -17,7 +18,8 @@ impl ToTokens for KernelSignature {
 
         let return_type = match &self.returns {
             KernelReturns::ExpandType(ty) => {
-                let normalized_ty = expand_kernel_ty(ty.clone(), false);
+                let normalized_ty = expand_kernel_ty(ty.clone(), false)
+                    .unwrap_or_else(|err| Type::Verbatim(err.into_compile_error()));
                 quote![#normalized_ty]
             }
             KernelReturns::Plain(ty) => quote![#ty],
