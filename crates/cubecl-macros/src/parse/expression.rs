@@ -576,10 +576,6 @@ fn generate_strided_index(
 }
 
 fn fn_associated_type(path: &Expression) -> Option<(Path, Option<QSelf>, PathSegment)> {
-    if !matches!(path, Expression::Path { .. }) {
-        panic!("path: {path:?}");
-    }
-
     match path {
         Expression::Path { path, qself } => {
             let second_last = path.segments.iter().nth_back(1)?;
@@ -625,5 +621,20 @@ pub(crate) fn is_runtime_compatible_variant(pat: &Pat) -> bool {
         Pat::TupleStruct(pat) => pat.elems.len() == 1,
         Pat::Wild(_) => true,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scope::Context;
+    use syn::parse_quote;
+
+    // Calling a non-path expression like `out[0]()` used to panic in `fn_associated_type`.
+    #[test]
+    fn call_on_indexed_value_does_not_panic() {
+        let mut context = Context::new(parse_quote!(()), false, false);
+        let expr: Expr = parse_quote!(out[0]());
+        assert!(Expression::from_expr(expr, &mut context).is_ok());
     }
 }
