@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::compute::threadpool::circular_buffer::CircularBuffer;
+use super::circular_buffer::CircularBuffer;
 
 pub trait GetId {
     fn get_id(&self) -> usize;
@@ -70,18 +70,24 @@ impl<T: GetId> ThreadBuffer<T> {
     }
 
     fn pop_local(&mut self) -> Option<T> {
-        if self.streams.is_empty() {
-            return None;
+        loop {
+            if self.streams.is_empty() {
+                return None;
+            }
+            let front = self.streams.front();
+            let fifos = &mut self.streams[front];
+            if fifos.is_empty() {
+                self.streams.pop_front();
+                continue;
+            }
+            let elem = fifos.pop_front().unwrap();
+            if fifos.is_empty() {
+                let stream = self.streams.pop_front().unwrap();
+                self.empty_streams.push(stream);
+                self.streams_id.remove(&elem.get_id());
+            }
+            return Some(elem);
         }
-        let front = self.streams.front();
-        let fifos = &mut self.streams[front];
-        let elem = fifos.pop_front().unwrap();
-        if fifos.is_empty() {
-            let stream = self.streams.pop_front().unwrap();
-            self.empty_streams.push(stream);
-            self.streams_id.remove(&elem.get_id());
-        }
-        Some(elem)
     }
 
     fn steal(&mut self) -> Option<T> {
@@ -118,6 +124,12 @@ impl<T: GetId> ThreadBuffer<T> {
             return Some(elem);
         }
         None
+    }
+
+    /// Pop task with id for flushing
+    pub fn pop_id(&mut self, thread_id: usize) -> Option<T> {
+        let id = self.streams_id.get(&thread_id)?;
+        self.empty_streams[*id].pop_front()
     }
 }
 
