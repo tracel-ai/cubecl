@@ -75,9 +75,8 @@ mod tests {
         let client = TestRuntime::client(&Default::default());
 
         // The CPU backend reports utilization via `sysinfo`, so it should always be available and
-        // within a sensible percentage range.
-        let utilization = client
-            .device_utilization()
+        // within a sensible percentage range once the deferred future is resolved.
+        let utilization = cubecl_common::future::block_on(client.device_utilization())
             .expect("CPU backend should report utilization");
 
         assert!(

@@ -38,9 +38,10 @@ pub struct CpuServer {
     compilation_cache: HashMap<KernelId, CpuKernel>,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
-    // Reused across `device_utilization` calls so CPU usage can be computed from the delta
-    // between two refreshes rather than reconstructed every time.
-    system: sysinfo::System,
+    // Shared with the deferred `device_utilization` futures. Each measurement refreshes it and
+    // reads the global CPU usage; usage is the delta since the previous refresh, so the sampling
+    // interval is set by however often the metrics thread resolves the future.
+    system: Arc<std::sync::Mutex<sysinfo::System>>,
 }
 
 impl CpuServer {
@@ -69,7 +70,12 @@ impl CpuServer {
             utilities,
             compilation_cache: HashMap::new(),
             streams_pool: Vec::new(),
-            system: sysinfo::System::new(),
+            system: {
+                // Seed an initial sample so the first measurement has a baseline to diff against.
+                let mut system = sysinfo::System::new();
+                system.refresh_cpu_usage();
+                Arc::new(std::sync::Mutex::new(system))
+            },
         }
     }
 
@@ -276,16 +282,18 @@ impl ComputeServer for CpuServer {
         Ok(stream.memory_management.memory_usage())
     }
 
-    fn device_utilization(&mut self) -> Option<DeviceUtilization> {
-        // CPU usage is a rate, so it needs two samples to compute. We take them back to back,
-        // separated by the minimum interval `sysinfo` requires for a meaningful reading, rather
-        // than relying on the (unknown) time between successive calls from the caller.
-        self.system.refresh_cpu_usage();
-        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
-        self.system.refresh_cpu_usage();
+    fn device_utilization(&mut self) -> DynFut<Option<DeviceUtilization>> {
+        // Capture the shared `System` and defer the (blocking) refresh to when the future is
+        // resolved, so it runs on the caller's thread rather than under the server lock.
+        let system = self.system.clone();
 
-        Some(DeviceUtilization {
-            compute_percentage: self.system.global_cpu_usage(),
+        Box::pin(async move {
+            let mut system = system.lock().unwrap();
+            system.refresh_cpu_usage();
+
+            Some(DeviceUtilization {
+                compute_percentage: system.global_cpu_usage(),
+            })
         })
     }
 

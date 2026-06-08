@@ -47,7 +47,7 @@ mod tests {
 
         // Utilization is only available for vendors/platforms we have a source for (amdgpu sysfs,
         // NVML); otherwise the query must degrade gracefully to `None` rather than panic.
-        if let Some(utilization) = client.device_utilization() {
+        if let Some(utilization) = cubecl_common::future::block_on(client.device_utilization()) {
             assert!(
                 (0.0..=100.0).contains(&utilization.compute_percentage),
                 "compute_percentage out of range: {}",

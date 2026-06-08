@@ -37,7 +37,8 @@ pub struct HipServer {
     /// HIP device ordinal, used to index the device in `ROCm SMI` utilization queries.
     device_index: u32,
     /// `ROCm SMI` handle for device utilization queries, `None` when `ROCm SMI` is unavailable.
-    smi: Option<RocmSmi>,
+    /// Shared into the deferred utilization futures, so it must be cheaply cloneable.
+    smi: Option<Arc<RocmSmi>>,
 }
 
 // SAFETY: `HipServer` is only accessed from one thread at a time via the `DeviceHandle`
@@ -226,10 +227,16 @@ impl ComputeServer for HipServer {
         Ok(command.memory_usage())
     }
 
-    fn device_utilization(&mut self) -> Option<DeviceUtilization> {
-        let compute_percentage = self.smi.as_ref()?.compute_utilization(self.device_index)?;
+    fn device_utilization(&mut self) -> DynFut<Option<DeviceUtilization>> {
+        // Capture the ROCm SMI handle and device index; defer the query to when the future
+        // resolves, off the server lock.
+        let smi = self.smi.clone();
+        let index = self.device_index;
 
-        Some(DeviceUtilization { compute_percentage })
+        Box::pin(async move {
+            let compute_percentage = smi?.compute_utilization(index)?;
+            Some(DeviceUtilization { compute_percentage })
+        })
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {
@@ -299,7 +306,7 @@ impl HipServer {
             ),
             utilities: Arc::new(utilities),
             device_index,
-            smi: RocmSmi::open(),
+            smi: RocmSmi::open().map(Arc::new),
         }
     }
 

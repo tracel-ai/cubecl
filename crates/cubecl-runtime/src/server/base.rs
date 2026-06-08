@@ -426,14 +426,20 @@ where
     /// Memory usage of the given stream.
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError>;
 
-    /// Current utilization of the device, if the backend can measure it.
+    /// Prepare a deferred measurement of the device's current utilization.
     ///
-    /// This is a device-level query (not per-stream): it reports how busy the whole device is,
-    /// polled from the driver or operating system. It returns `None` when the backend has no way
-    /// to obtain utilization (e.g. WGPU exposes no such API) or when the underlying library is
-    /// unavailable at runtime. The default implementation returns `None`.
-    fn device_utilization(&mut self) -> Option<DeviceUtilization> {
-        None
+    /// This is a device-level query (not per-stream) that reports how busy the whole device is,
+    /// polled from the driver or operating system. Crucially, the returned future does **not**
+    /// hold the server: producing it is cheap (it only captures the handles it needs), and the
+    /// actual measurement happens when the future is resolved. Callers should resolve it off the
+    /// hot path — typically on a metrics thread — so that polling utilization never stalls kernel
+    /// submission.
+    ///
+    /// The future resolves to `None` when the backend has no way to obtain utilization (e.g. WGPU
+    /// exposes no such API), when the underlying library is unavailable at runtime, or when the
+    /// measurement itself fails. The default implementation resolves to `None`.
+    fn device_utilization(&mut self) -> DynFut<Option<DeviceUtilization>> {
+        Box::pin(core::future::ready(None))
     }
 
     /// Stream ids the client should iterate to aggregate across the device.

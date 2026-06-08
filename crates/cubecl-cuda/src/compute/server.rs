@@ -5,7 +5,6 @@ use crate::{
         command::Command,
         communication::{get_nccl_comm_id, get_nccl_dtype_count, to_nccl_op},
         context::CudaContext,
-        nvml::Nvml,
         stream::CudaStreamBackend,
         sync::Fence,
     },
@@ -56,8 +55,9 @@ pub struct CudaServer {
     utilities: Arc<ServerUtilities<Self>>,
     comm_stream: *mut CUstream_st,
     communicators: HashMap<CommunicationId, *mut cudarc::nccl::sys::ncclComm>,
-    /// NVML handle for device utilization queries, `None` when NVML is unavailable.
-    nvml: Option<Nvml>,
+    /// NVML handle for device utilization queries, `None` when NVML is unavailable. Shared into
+    /// the deferred utilization futures, so it must be cheaply cloneable.
+    nvml: Option<Arc<nvml_wrapper::Nvml>>,
 }
 
 // SAFETY: `CudaServer` is only accessed from one thread at a time via the `DeviceHandle`,
@@ -245,13 +245,20 @@ impl ComputeServer for CudaServer {
         Ok(command.memory_usage())
     }
 
-    fn device_utilization(&mut self) -> Option<DeviceUtilization> {
-        let compute_percentage = self
-            .nvml
-            .as_ref()?
-            .compute_utilization(self.device_id.index_id as u32)?;
+    fn device_utilization(&mut self) -> DynFut<Option<DeviceUtilization>> {
+        // Capture the NVML handle and device index; defer the query to when the future resolves.
+        let nvml = self.nvml.clone();
+        let index = self.device_id.index_id as u32;
 
-        Some(DeviceUtilization { compute_percentage })
+        Box::pin(async move {
+            let nvml = nvml?;
+            let device = nvml.device_by_index(index).ok()?;
+            let utilization = device.utilization_rates().ok()?;
+
+            Some(DeviceUtilization {
+                compute_percentage: utilization.gpu as f32,
+            })
+        })
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {
@@ -584,7 +591,8 @@ impl CudaServer {
             utilities: Arc::new(utilities),
             comm_stream,
             communicators: HashMap::default(),
-            nvml: Nvml::open(),
+            // Dynamically loads `libnvidia-ml`; `None` if NVML isn't present at runtime.
+            nvml: nvml_wrapper::Nvml::init().ok().map(Arc::new),
         }
     }
 

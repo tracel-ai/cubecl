@@ -32,7 +32,7 @@ mod tests {
 
         // ROCm SMI may be unavailable (e.g. CI without the library), in which case we only require
         // that the query degrades gracefully to `None` rather than panicking.
-        if let Some(utilization) = client.device_utilization() {
+        if let Some(utilization) = cubecl_common::future::block_on(client.device_utilization()) {
             assert!(
                 (0.0..=100.0).contains(&utilization.compute_percentage),
                 "compute_percentage out of range: {}",

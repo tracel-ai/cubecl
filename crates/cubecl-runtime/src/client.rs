@@ -857,14 +857,19 @@ impl<R: Runtime> ComputeClient<R> {
             .unwrap()
     }
 
-    /// Current utilization of this client's device, if the backend can measure it.
+    /// Prepare a deferred measurement of this client's device utilization.
     ///
     /// Unlike [`memory_usage`](Self::memory_usage), which the runtime tracks internally, device
     /// utilization is polled from the driver or operating system, so it is a device-level query
-    /// rather than a per-stream one. It returns `None` when the backend cannot report utilization
-    /// (for example WGPU, which has no such API) or when the required library is unavailable at
-    /// runtime.
-    pub fn device_utilization(&self) -> Option<DeviceUtilization> {
+    /// rather than a per-stream one, and measuring it can be relatively expensive. This call is
+    /// cheap: it returns a future without touching the device, and the measurement only happens
+    /// when that future is resolved. Resolve it off the hot path (e.g. on a metrics thread) so it
+    /// never competes with kernel submission.
+    ///
+    /// The future resolves to `None` when the backend cannot report utilization (for example WGPU
+    /// on an unsupported vendor/platform), when the required library is unavailable at runtime, or
+    /// when the measurement fails.
+    pub fn device_utilization(&self) -> DynFut<Option<DeviceUtilization>> {
         self.device
             .submit_blocking(move |server| server.device_utilization())
             .unwrap()
