@@ -38,13 +38,9 @@ impl KernelFn {
         let (debug_source, debug_params) = if cfg_debug || self.args.debug_symbols.is_present() {
             let debug_source = frontend_type("debug_source_expand");
             let cube_debug = frontend_type("CubeDebug");
+            // Span-based source-file inference needs the compiler-only `proc_macro::Span`, absent
+            // in this normal lib, so rely on the explicit `src_file` arg (and `file!()` below).
             let src_file = self.args.src_file.as_ref().map(|file| file.value());
-            let src_file = src_file.or_else(|| {
-                let span: proc_macro::Span = self.span.unwrap();
-                let source_path = span.local_file();
-                let source_file = source_path.as_ref().and_then(|path| path.file_name());
-                source_file.map(|file| file.to_string_lossy().into())
-            });
             let source_text = match src_file {
                 Some(file) => quote![include_str!(#file)],
                 None => quote![""],

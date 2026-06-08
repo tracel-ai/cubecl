@@ -1,35 +1,9 @@
+//! Thin `proc-macro` shim: converts token streams and forwards to `cubecl-macros-core`, where the
+//! expansion logic lives (so it can be tested and fuzzed outside a `proc-macro` crate).
 #![allow(clippy::large_enum_variant)]
 
-use core::panic;
-
-use error::error_into_token_stream;
-use generate::autotune::generate_autotune_key;
-use parse::{
-    cube_impl::CubeImpl,
-    cube_trait::{CubeTrait, CubeTraitImpl},
-    helpers::RemoveHelpers,
-    kernel::{Launch, from_tokens},
-};
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Item, visit_mut::VisitMut};
-
-use crate::{
-    generate::{assign::generate_cube_type_mut, into_runtime::generate_into_runtime},
-    parse::{
-        cube_type::generate_cube_type, derive_expand::generate_derive_expand,
-        helpers::ReplaceDefines,
-    },
-};
-
-mod error;
-mod expression;
-mod generate;
-mod operator;
-mod parse;
-mod paths;
-mod scope;
-mod statement;
 
 /// Mark a cube function, trait or implementation for expansion.
 ///
@@ -54,103 +28,19 @@ mod statement;
 /// ```
 #[proc_macro_attribute]
 pub fn cube(args: TokenStream, input: TokenStream) -> TokenStream {
-    match cube_impl(args, input.clone()) {
-        Ok(tokens) => tokens,
-        Err(e) => error_into_token_stream(e, input.into()).into(),
-    }
-}
-
-fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
-    let mut item: Item = syn::parse(input)?;
-    let args = from_tokens(args.into())?;
-
-    let tokens = match item.clone() {
-        Item::Fn(kernel) => {
-            let kernel = Launch::from_item_fn(kernel, args)?;
-            RemoveHelpers.visit_item_mut(&mut item);
-            ReplaceDefines.visit_item_mut(&mut item);
-
-            let extra_allow = match kernel.func.context.is_intrinsic {
-                true => quote![#[allow(unused_variables)]],
-                false => quote![],
-            };
-
-            return Ok(TokenStream::from(quote! {
-                #[allow(dead_code, clippy::too_many_arguments)]
-                #extra_allow
-                #item
-                #kernel
-            }));
-        }
-        Item::Trait(kernel_trait) => {
-            let is_debug = args.debug.is_present();
-            let expand_trait = CubeTrait::from_item_trait(kernel_trait, args)?;
-
-            let tokens = TokenStream::from(quote! {
-                #expand_trait
-            });
-            if is_debug {
-                panic!("{tokens}");
-            }
-            return Ok(tokens);
-        }
-        Item::Impl(item_impl) => {
-            if item_impl.trait_.is_some() {
-                let mut expand_impl = CubeTraitImpl::from_item_impl(item_impl, &args)?;
-                let expand_impl = expand_impl.to_tokens_mut();
-
-                Ok(TokenStream::from(quote! {
-                    #expand_impl
-                }))
-            } else {
-                let mut expand_impl = CubeImpl::from_item_impl(item_impl, &args)?;
-                let expand_impl = expand_impl.to_tokens_mut();
-
-                Ok(TokenStream::from(quote! {
-                    #expand_impl
-                }))
-            }
-        }
-        item => Err(syn::Error::new_spanned(
-            item,
-            "`#[cube]` is only supported on traits and functions",
-        ))?,
-    };
-
-    if args.debug.is_present() {
-        match tokens {
-            Ok(tokens) => panic!("{tokens}"),
-            Err(err) => panic!("{err}"),
-        };
-    }
-
-    tokens
+    cubecl_macros_core::cube(args.into(), input.into()).into()
 }
 
 /// Derive macro to define a cube type that is launched with a kernel
 #[proc_macro_derive(CubeLaunch, attributes(cube, launch))]
 pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
-    gen_cube_type(input, true)
+    cubecl_macros_core::cube_type(input.into(), true).into()
 }
 
 /// Derive macro to define a cube type that is not launched
 #[proc_macro_derive(CubeType, attributes(cube, expand))]
 pub fn module_derive_cube_type(input: TokenStream) -> TokenStream {
-    gen_cube_type(input, false)
-}
-
-fn gen_cube_type(input: TokenStream, with_launch: bool) -> TokenStream {
-    let parsed = syn::parse(input);
-
-    let input = match &parsed {
-        Ok(val) => val,
-        Err(err) => return err.to_compile_error().into(),
-    };
-
-    match generate_cube_type(input, with_launch) {
-        Ok(val) => val.into(),
-        Err(err) => err.to_compile_error().into(),
-    }
+    cubecl_macros_core::cube_type(input.into(), false).into()
 }
 
 /// Attribute macro to define a type that can be used as a kernel comptime
@@ -168,10 +58,7 @@ pub fn derive_cube_comptime(_metadata: TokenStream, input: TokenStream) -> Token
 /// Attribute macro to derive cube traits for existing structs, without redefining that struct.
 #[proc_macro_attribute]
 pub fn derive_expand(metadata: TokenStream, input: TokenStream) -> TokenStream {
-    match generate_derive_expand(input.into(), metadata.into()) {
-        Ok(val) => val.into(),
-        Err(err) => err.to_compile_error().into(),
-    }
+    cubecl_macros_core::derive_expand(metadata.into(), input.into()).into()
 }
 
 /// Mark the contents of this macro as compile time values, turning off all
@@ -218,7 +105,7 @@ pub fn intrinsic(_input: TokenStream) -> TokenStream {
 /// #use cubecl_macros::cube;
 /// #[cube]
 /// fn do_stuff(#[comptime] input: u32) -> comptime_type!(u32) {
-///     input + 5   
+///     input + 5
 /// }
 /// ```
 ///
@@ -278,45 +165,19 @@ pub fn terminate(input: TokenStream) -> TokenStream {
 /// For now, only an exponential function is supported, and it can be modified
 /// with `exp`. By default, the base is '2' and there are no `min` or `max`
 /// provided.
-///
-/// # Example
-/// ```ignore
-/// #[derive(AutotuneKey, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-/// pub struct OperationKey {
-///     #[autotune(name = "Batch Size")]
-///     batch_size: usize,
-///     channels: usize,
-///     #[autotune(anchor(exp(min = 16, max = 1024, base = 2)))]
-///     height: usize,
-///     #[autotune(anchor)]
-///     width: usize,
-/// }
-/// ```
 #[proc_macro_derive(AutotuneKey, attributes(autotune))]
 pub fn derive_autotune_key(input: TokenStream) -> TokenStream {
-    let input = syn::parse(input).unwrap();
-    match generate_autotune_key(input) {
-        Ok(tokens) => tokens.into(),
-        Err(e) => e.into_compile_error().into(),
-    }
+    cubecl_macros_core::autotune_key(input.into()).into()
 }
 
 /// Implements `IntoRuntime` for a `CubeType`
 #[proc_macro_derive(IntoRuntime, attributes(cube))]
 pub fn derive_into_runtime(input: TokenStream) -> TokenStream {
-    let input = syn::parse(input).unwrap();
-    match generate_into_runtime(&input) {
-        Ok(tokens) => tokens.into(),
-        Err(e) => e.into_compile_error().into(),
-    }
+    cubecl_macros_core::into_runtime(input.into()).into()
 }
 
 /// Implements mutability for a `CubeType`
 #[proc_macro_derive(CubeTypeMut, attributes(cube))]
 pub fn derive_assign(input: TokenStream) -> TokenStream {
-    let input = syn::parse(input).unwrap();
-    match generate_cube_type_mut(&input) {
-        Ok(tokens) => tokens.into(),
-        Err(e) => e.into_compile_error().into(),
-    }
+    cubecl_macros_core::cube_type_mut(input.into()).into()
 }

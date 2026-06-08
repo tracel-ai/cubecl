@@ -22,22 +22,15 @@ workspace = true
 
 
 [features]
-debug_symbols = []
+debug_symbols = ["cubecl-macros-core/debug_symbols"]
 default = []
-std = []
+std = ["cubecl-macros-core/std"]
 
-tracing = ["cubecl-common/tracing"]
+tracing = ["cubecl-macros-core/tracing"]
 
 
 [dependencies]
-darling = { workspace = true }
-derive-new = { workspace = true }
-derive_more = { workspace = true }
-ident_case = { workspace = true }
-inflections = "1"
-prettyplease = "0.2"
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
-syn = { workspace = true }
 
-cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-features = false }
+cubecl-macros-core = { path = "../cubecl-macros-core", version = "=0.11.0-pre.1" }
