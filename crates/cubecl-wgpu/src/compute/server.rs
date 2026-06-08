@@ -445,6 +445,14 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         Ok(stream.mem_manage.memory_usage())
     }
 
+    // wgpu has no utilization API of its own, so on native targets we identify the adapter and read
+    // the figure from a vendor source (amdgpu sysfs / NVML). On wasm there is no such source, so
+    // the default `None` from `ComputeServer` applies.
+    #[cfg(not(target_family = "wasm"))]
+    fn device_utilization(&mut self) -> Option<cubecl_runtime::server::DeviceUtilization> {
+        crate::compute::utilization::device_utilization(&self.device.adapter_info())
+    }
+
     fn stream_ids(&self) -> Vec<StreamId> {
         self.scheduler.stream_ids().collect()
     }

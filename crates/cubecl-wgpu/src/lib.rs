@@ -38,6 +38,23 @@ mod tests {
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([flex32, f32, u32]);
     cubecl_std::testgen_quantized_view!(f32);
+
+    #[test]
+    fn test_device_utilization_wgpu() {
+        use cubecl_core::Runtime;
+
+        let client = TestRuntime::client(&Default::default());
+
+        // Utilization is only available for vendors/platforms we have a source for (amdgpu sysfs,
+        // NVML); otherwise the query must degrade gracefully to `None` rather than panic.
+        if let Some(utilization) = client.device_utilization() {
+            assert!(
+                (0.0..=100.0).contains(&utilization.compute_percentage),
+                "compute_percentage out of range: {}",
+                utilization.compute_percentage
+            );
+        }
+    }
 }
 
 #[cfg(all(test, feature = "spirv"))]

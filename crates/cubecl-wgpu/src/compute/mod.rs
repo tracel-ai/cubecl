@@ -8,6 +8,8 @@ pub(super) mod schedule;
 mod server;
 pub(super) mod stream;
 pub(super) mod timings;
+#[cfg(not(target_family = "wasm"))]
+pub(super) mod utilization;
 
 pub use server::*;
 pub use storage::*;
