@@ -7,8 +7,8 @@ use cubecl_core::{
     backtrace::BackTrace,
     ir::MemoryDeviceProperties,
     server::{
-        Binding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError,
-        StreamErrorMode,
+        Binding, CopyDescriptor, IoError, LaunchError, ProfileError, ProfilingToken,
+        ResourceLimitError, ServerError, StreamErrorMode,
     },
 };
 use cubecl_runtime::{
@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 pub struct CpuStream {
     queue: CpuExecutionQueue,
+    pub(crate) max_units_per_cube: u32,
     pub(crate) memory_management: MemoryManagement<BytesStorage>,
     pub(crate) timestamps: TimestampProfiler,
     errors: Vec<ServerError>,
@@ -36,6 +37,7 @@ impl core::fmt::Debug for CpuStream {
 
 impl CpuStream {
     pub fn new(
+        max_units_per_cube: u32,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         logger: Arc<ServerLogger>,
@@ -49,6 +51,7 @@ impl CpuStream {
         );
 
         Self {
+            max_units_per_cube,
             memory_management,
             timestamps: TimestampProfiler::default(),
             queue: CpuExecutionQueue::get(logger),
@@ -57,6 +60,20 @@ impl CpuStream {
     }
 
     pub fn enqueue_task(&mut self, task: ScheduleTask) {
+        if let ScheduleTask::Execute { cube_dim, .. } = task {
+            let requested = cube_dim.num_elems();
+            let max = self.max_units_per_cube;
+            if requested > max {
+                let launch_error: LaunchError = ResourceLimitError::MaxUnitPerCube {
+                    requested,
+                    max,
+                    backtrace: BackTrace::capture(),
+                }
+                .into();
+                self.error(launch_error.into());
+                return;
+            }
+        }
         self.queue.add(task);
     }
 

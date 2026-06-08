@@ -11,20 +11,39 @@ pub fn tensor_coordinate<N: Size>(input: &Tensor<Vector<f32, N>>, output: &mut [
 }
 
 pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R>) {
-    let stride = [2, 1, 4];
-    let shape = [2, 2, 3];
+    let (stride, shape, expected) =
+        if let Some(num_core) = client.properties().hardware.num_cpu_cores {
+            if num_core < 12 {
+                return; // Needs enough core to see coordinate mapping
+            }
+            let stride = vec![2, 1];
+            let shape = vec![2, 3];
+
+            // Each column corresponds to a complete coordinate.
+            // That is, when increasing the index, the coordinates are
+            // [0,0,0], [0,1,1] ... [0,2,1].
+            let expected = vec![
+                0, 0, 1, 1, 0, 0, //
+                0, 1, 2, 0, 1, 2, //
+            ];
+            (stride, shape, expected)
+        } else {
+            let stride = vec![2, 1, 4];
+            let shape = vec![2, 2, 3];
+
+            // Each column corresponds to a complete coordinate.
+            // That is, when increasing the index, the coordinates are
+            // [0,0,0], [0,1,0] ... [1,1,2].
+            let expected = vec![
+                0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, //
+                0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, //
+                0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, //
+            ];
+            (stride, shape, expected)
+        };
 
     let input_size = shape.iter().product::<usize>();
     let input = client.empty(core::mem::size_of::<f32>() * input_size);
-
-    // Each column corresponds to a complete coordinate.
-    // That is, when increasing the index, the coordinates are
-    // [0,0,0], [0,1,0] ... [1,1,2].
-    let expected = vec![
-        0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, //
-        0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, //
-        0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, //
-    ];
 
     let output_size = shape.len() * input_size;
 
@@ -37,7 +56,11 @@ pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R>) {
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new_2d(input_size as u32, shape.len() as u32),
                 vector_size,
-                TensorArg::from_raw_parts(input.clone(), stride.into(), shape.into()),
+                TensorArg::from_raw_parts(
+                    input.clone(),
+                    stride.clone().into(),
+                    shape.clone().into(),
+                ),
                 BufferArg::from_raw_parts(output.clone(), output_size),
             )
         };

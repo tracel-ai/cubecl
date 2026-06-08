@@ -82,7 +82,7 @@ impl DeviceService for CpuServer {
                 ..Default::default()
             },
             mem_properties.clone(),
-            topology,
+            topology.clone(),
             TimingMethod::Device,
         );
         register_supported_types(&mut device_props);
@@ -93,7 +93,12 @@ impl DeviceService for CpuServer {
             (),
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
-        CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
+        CpuServer::new(
+            available_parallelism,
+            mem_properties,
+            options.memory_config,
+            Arc::new(utilities),
+        )
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {
