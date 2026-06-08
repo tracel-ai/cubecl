@@ -5,6 +5,7 @@ use crate::{
         command::Command,
         communication::{get_nccl_comm_id, get_nccl_dtype_count, to_nccl_op},
         context::CudaContext,
+        nvml::Nvml,
         stream::CudaStreamBackend,
         sync::Fence,
     },
@@ -19,9 +20,9 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Binding, CommunicationId, CopyDescriptor, Handle, KernelArguments, LaunchError,
-        ProfileError, ProfilingToken, ReduceOperation, ServerCommunication, ServerError,
-        ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
+        Binding, CommunicationId, CopyDescriptor, DeviceUtilization, Handle, KernelArguments,
+        LaunchError, ProfileError, ProfilingToken, ReduceOperation, ServerCommunication,
+        ServerError, ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
     },
 };
 use cubecl_runtime::{
@@ -55,6 +56,8 @@ pub struct CudaServer {
     utilities: Arc<ServerUtilities<Self>>,
     comm_stream: *mut CUstream_st,
     communicators: HashMap<CommunicationId, *mut cudarc::nccl::sys::ncclComm>,
+    /// NVML handle for device utilization queries, `None` when NVML is unavailable.
+    nvml: Option<Nvml>,
 }
 
 // SAFETY: `CudaServer` is only accessed from one thread at a time via the `DeviceHandle`,
@@ -240,6 +243,15 @@ impl ComputeServer for CudaServer {
             },
         )?;
         Ok(command.memory_usage())
+    }
+
+    fn device_utilization(&mut self) -> Option<DeviceUtilization> {
+        let compute_percentage = self
+            .nvml
+            .as_ref()?
+            .compute_utilization(self.device_id.index_id as u32)?;
+
+        Some(DeviceUtilization { compute_percentage })
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {
@@ -572,6 +584,7 @@ impl CudaServer {
             utilities: Arc::new(utilities),
             comm_stream,
             communicators: HashMap::default(),
+            nvml: Nvml::open(),
         }
     }
 

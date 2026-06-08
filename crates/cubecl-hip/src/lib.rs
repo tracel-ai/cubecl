@@ -23,4 +23,21 @@ mod tests {
     cubecl_std::testgen!();
     cubecl_core::testgen_all!(f32: [f16, f32], i32: [i16, i32], u32: [u16, u32]);
     cubecl_core::testgen_launch_dynamic_count!();
+
+    #[test]
+    fn test_device_utilization_hip() {
+        use cubecl_core::Runtime;
+
+        let client = TestRuntime::client(&Default::default());
+
+        // ROCm SMI may be unavailable (e.g. CI without the library), in which case we only require
+        // that the query degrades gracefully to `None` rather than panicking.
+        if let Some(utilization) = client.device_utilization() {
+            assert!(
+                (0.0..=100.0).contains(&utilization.compute_percentage),
+                "compute_percentage out of range: {}",
+                utilization.compute_percentage
+            );
+        }
+    }
 }

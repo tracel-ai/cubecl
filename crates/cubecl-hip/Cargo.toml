@@ -58,6 +58,7 @@ bytemuck = { workspace = true }
 
 derive-new = { workspace = true }
 half = { workspace = true }
+libloading = { workspace = true }
 paste = { workspace = true }
 serde = { workspace = true }
 

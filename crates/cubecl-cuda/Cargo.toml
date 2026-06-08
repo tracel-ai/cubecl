@@ -60,6 +60,7 @@ cudarc = { workspace = true }
 
 derive-new = { workspace = true }
 half = { workspace = true }
+libloading = { workspace = true }
 serde = { workspace = true }
 
 

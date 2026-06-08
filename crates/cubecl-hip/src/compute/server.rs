@@ -1,6 +1,8 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::{
-    compute::{command::Command, context::HipContext, fence::Fence, stream::HipStreamBackend},
+    compute::{
+        command::Command, context::HipContext, fence::Fence, smi::RocmSmi, stream::HipStreamBackend,
+    },
     runtime::HipCompiler,
 };
 use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
@@ -11,7 +13,7 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        Binding, CopyDescriptor, KernelArguments, ProfileError, ProfilingToken,
+        Binding, CopyDescriptor, DeviceUtilization, KernelArguments, ProfileError, ProfilingToken,
         ServerCommunication, ServerError, ServerUtilities, StreamErrorMode,
     },
 };
@@ -32,6 +34,10 @@ pub struct HipServer {
     ctx: HipContext,
     streams: MultiStream<HipStreamBackend>,
     utilities: Arc<ServerUtilities<Self>>,
+    /// HIP device ordinal, used to index the device in `ROCm SMI` utilization queries.
+    device_index: u32,
+    /// `ROCm SMI` handle for device utilization queries, `None` when `ROCm SMI` is unavailable.
+    smi: Option<RocmSmi>,
 }
 
 // SAFETY: `HipServer` is only accessed from one thread at a time via the `DeviceHandle`
@@ -220,6 +226,12 @@ impl ComputeServer for HipServer {
         Ok(command.memory_usage())
     }
 
+    fn device_utilization(&mut self) -> Option<DeviceUtilization> {
+        let compute_percentage = self.smi.as_ref()?.compute_utilization(self.device_index)?;
+
+        Some(DeviceUtilization { compute_percentage })
+    }
+
     fn stream_ids(&self) -> Vec<StreamId> {
         self.streams.stream_ids().collect()
     }
@@ -266,6 +278,7 @@ impl HipServer {
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
         is_integrated: bool,
+        device_index: u32,
         utilities: ServerUtilities<Self>,
     ) -> Self {
         let config = CubeClRuntimeConfig::get();
@@ -285,6 +298,8 @@ impl HipServer {
                 max_streams,
             ),
             utilities: Arc::new(utilities),
+            device_index,
+            smi: RocmSmi::open(),
         }
     }
 

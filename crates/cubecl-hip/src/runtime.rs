@@ -202,6 +202,7 @@ impl DeviceService for HipServer {
             options.memory_config,
             mem_alignment,
             is_integrated,
+            device_id.index_id as u32,
             utilities,
         )
     }

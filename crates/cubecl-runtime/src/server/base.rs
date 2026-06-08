@@ -327,6 +327,23 @@ pub struct StreamErrorMode {
     pub flush: bool,
 }
 
+/// A snapshot of how busy a device is, as opposed to [`MemoryUsage`] which reports how much
+/// memory is allocated.
+///
+/// Unlike memory usage, which the runtime tracks itself, utilization has to be polled from the
+/// driver or operating system (NVML on CUDA, `ROCm SMI` on HIP, `sysinfo` on CPU, ...). Not every
+/// backend or platform can report it, which is why [`ComputeServer::device_utilization`] returns
+/// an [`Option`] of this type rather than the type directly.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct DeviceUtilization {
+    /// Fraction of time the device's compute engine was busy, as a percentage in `[0.0, 100.0]`.
+    ///
+    /// For GPUs this is the proportion of the sampling window during which one or more kernels were
+    /// executing (NVML's `gpu` utilization rate, `ROCm SMI`'s busy percent). For the CPU backend it
+    /// is the global CPU usage across all cores.
+    pub compute_percentage: f32,
+}
+
 /// The compute server is responsible for handling resources and computations over resources.
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
@@ -408,6 +425,16 @@ where
 
     /// Memory usage of the given stream.
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError>;
+
+    /// Current utilization of the device, if the backend can measure it.
+    ///
+    /// This is a device-level query (not per-stream): it reports how busy the whole device is,
+    /// polled from the driver or operating system. It returns `None` when the backend has no way
+    /// to obtain utilization (e.g. WGPU exposes no such API) or when the underlying library is
+    /// unavailable at runtime. The default implementation returns `None`.
+    fn device_utilization(&mut self) -> Option<DeviceUtilization> {
+        None
+    }
 
     /// Stream ids the client should iterate to aggregate across the device.
     ///

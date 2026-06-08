@@ -71,6 +71,23 @@ mod tests {
     }
 
     #[test]
+    fn test_device_utilization_cpu() {
+        let client = TestRuntime::client(&Default::default());
+
+        // The CPU backend reports utilization via `sysinfo`, so it should always be available and
+        // within a sensible percentage range.
+        let utilization = client
+            .device_utilization()
+            .expect("CPU backend should report utilization");
+
+        assert!(
+            (0.0..=100.0).contains(&utilization.compute_percentage),
+            "compute_percentage out of range: {}",
+            utilization.compute_percentage
+        );
+    }
+
+    #[test]
     fn test_barrier_smoke_cpu() {
         let client = TestRuntime::client(&Default::default());
         let out = client.empty(core::mem::size_of::<f32>());

@@ -14,8 +14,8 @@ use cubecl_core::{
     future::DynFut,
     ir::MemoryDeviceProperties,
     server::{
-        Binding, ComputeServer, CopyDescriptor, IoError, KernelArguments, ProfileError,
-        ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
+        Binding, ComputeServer, CopyDescriptor, DeviceUtilization, IoError, KernelArguments,
+        ProfileError, ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -38,6 +38,9 @@ pub struct CpuServer {
     compilation_cache: HashMap<KernelId, CpuKernel>,
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
+    // Reused across `device_utilization` calls so CPU usage can be computed from the delta
+    // between two refreshes rather than reconstructed every time.
+    system: sysinfo::System,
 }
 
 impl CpuServer {
@@ -66,6 +69,7 @@ impl CpuServer {
             utilities,
             compilation_cache: HashMap::new(),
             streams_pool: Vec::new(),
+            system: sysinfo::System::new(),
         }
     }
 
@@ -270,6 +274,19 @@ impl ComputeServer for CpuServer {
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
         let stream = self.scheduler.stream(&stream_id);
         Ok(stream.memory_management.memory_usage())
+    }
+
+    fn device_utilization(&mut self) -> Option<DeviceUtilization> {
+        // CPU usage is a rate, so it needs two samples to compute. We take them back to back,
+        // separated by the minimum interval `sysinfo` requires for a meaningful reading, rather
+        // than relying on the (unknown) time between successive calls from the caller.
+        self.system.refresh_cpu_usage();
+        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+        self.system.refresh_cpu_usage();
+
+        Some(DeviceUtilization {
+            compute_percentage: self.system.global_cpu_usage(),
+        })
     }
 
     fn stream_ids(&self) -> Vec<StreamId> {

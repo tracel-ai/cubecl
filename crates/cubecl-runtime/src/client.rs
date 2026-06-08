@@ -5,10 +5,10 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
-        KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
-        MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
-        ServerUtilities,
+        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, DeviceUtilization,
+        ExecutionMode, Handle, IoError, KernelArguments, MemoryLayout, MemoryLayoutDescriptor,
+        MemoryLayoutPolicy, MemoryLayoutStrategy, ProfileError, ReduceOperation,
+        ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
 };
@@ -854,6 +854,19 @@ impl<R: Runtime> ComputeClient<R> {
                         Ok(acc.combine(server.memory_usage(id)?))
                     })
             })
+            .unwrap()
+    }
+
+    /// Current utilization of this client's device, if the backend can measure it.
+    ///
+    /// Unlike [`memory_usage`](Self::memory_usage), which the runtime tracks internally, device
+    /// utilization is polled from the driver or operating system, so it is a device-level query
+    /// rather than a per-stream one. It returns `None` when the backend cannot report utilization
+    /// (for example WGPU, which has no such API) or when the required library is unavailable at
+    /// runtime.
+    pub fn device_utilization(&self) -> Option<DeviceUtilization> {
+        self.device
+            .submit_blocking(move |server| server.device_utilization())
             .unwrap()
     }
 
