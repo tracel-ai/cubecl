@@ -221,8 +221,10 @@ impl Launch {
                 true => quote![self.#name.clone()],
                 false => {
                     let mut mapped = it.ty.clone();
-                    map_type_normalized(&mut mapped, &|_| parse_quote![#name]);
-                    quote![#mapped]
+                    match map_type_normalized(&mut mapped, &|_| parse_quote![#name]) {
+                        Ok(()) => quote![#mapped],
+                        Err(err) => err.into_compile_error(),
+                    }
                 }
             }
         });
