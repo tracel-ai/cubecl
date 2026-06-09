@@ -491,42 +491,51 @@ impl Launch {
     }
 }
 
-pub fn expand_kernel_ty(mut ty: Type, is_const: bool) -> Type {
+pub fn expand_kernel_ty(mut ty: Type, is_const: bool) -> syn::Result<Type> {
     if is_const {
-        ty
+        Ok(ty)
     } else {
         let cube_type = prelude_type("CubeType");
-        map_type_normalized(&mut ty, &|ty| parse_quote![<#ty as #cube_type>::ExpandType]);
-        ty
+        map_type_normalized(&mut ty, &|ty| parse_quote![<#ty as #cube_type>::ExpandType])?;
+        Ok(ty)
     }
 }
 
-pub fn map_type_normalized(ty: &mut Type, op: &impl Fn(&Type) -> Type) {
+pub fn map_type_normalized(ty: &mut Type, op: &impl Fn(&Type) -> Type) -> syn::Result<()> {
     match ty {
-        Type::Group(type_group) => map_type_normalized(&mut type_group.elem, op),
-        Type::ImplTrait(_) => {
-            unimplemented!("impl trait not yet supported in kernel args")
+        Type::Group(type_group) => map_type_normalized(&mut type_group.elem, op)?,
+        Type::ImplTrait(impl_trait) => {
+            return Err(syn::Error::new_spanned(
+                impl_trait,
+                "`impl Trait` is not supported in kernel arguments",
+            ));
         }
         // Probably won't work with inference but we can at least try
         Type::Infer(_) => {}
         // Do nothing
         Type::Macro(type_macro) if type_macro.mac.path.is_ident("comptime_type") => {}
-        Type::Macro(_) => {
-            unimplemented!("Macro types not allowed for kernel args")
+        Type::Macro(type_macro) => {
+            return Err(syn::Error::new_spanned(
+                type_macro,
+                "macro types are not allowed as kernel arguments",
+            ));
         }
         Type::Never(_) => {}
-        Type::Paren(type_paren) => map_type_normalized(&mut type_paren.elem, op),
-        Type::Ptr(type_ptr) => map_type_normalized(&mut type_ptr.elem, op),
-        Type::Reference(type_reference) => map_type_normalized(&mut type_reference.elem, op),
-        Type::TraitObject(_) => {
-            unimplemented!("Trait objects are not allowed for kernel args")
+        Type::Paren(type_paren) => map_type_normalized(&mut type_paren.elem, op)?,
+        Type::Ptr(type_ptr) => map_type_normalized(&mut type_ptr.elem, op)?,
+        Type::Reference(type_reference) => map_type_normalized(&mut type_reference.elem, op)?,
+        Type::TraitObject(trait_object) => {
+            return Err(syn::Error::new_spanned(
+                trait_object,
+                "trait objects (`dyn Trait`) are not allowed as kernel arguments",
+            ));
         }
         // the `ExpandType` of tuple equals the expand type of each constituent, so we can
         // probably support more cases by handling each contained type separately. Won't hurt
         // at least.
         Type::Tuple(type_tuple) => {
             for ty in type_tuple.elems.iter_mut() {
-                map_type_normalized(ty, op);
+                map_type_normalized(ty, op)?;
             }
         }
         Type::Verbatim(_) => {}
@@ -534,6 +543,7 @@ pub fn map_type_normalized(ty: &mut Type, op: &impl Fn(&Type) -> Type) {
             *other = op(other);
         }
     }
+    Ok(())
 }
 
 pub fn all_path_args_mut(path: &mut Path) -> impl Iterator<Item = &mut GenericArgument> {

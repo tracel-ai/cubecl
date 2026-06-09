@@ -1,6 +1,6 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
-use syn::{Token, spanned::Spanned};
+use syn::{Token, Type, spanned::Spanned};
 
 use crate::{
     expression::Expression,
@@ -37,7 +37,8 @@ impl Statement {
                     })
                 };
                 let ty = variable.ty.as_ref().map(|ty| {
-                    let ty = expand_kernel_ty(ty.clone(), is_const);
+                    let ty = expand_kernel_ty(ty.clone(), is_const)
+                        .unwrap_or_else(|err| Type::Verbatim(err.into_compile_error()));
                     quote_spanned! {
                         ty.span()=> :#ty
                     }

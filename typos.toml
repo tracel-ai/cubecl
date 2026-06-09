@@ -3,8 +3,10 @@ extend-ignore-identifiers-re = ["CU_DEVICE_ATTRIBUTE_*", "HSA_*"]
 
 [default.extend-identifiers]
 Olt = "Olt"
+Sned = "Sned" # Intentional typo example in obfuscation.rs's macro docs.
 UE4M3 = "UE4M3"
 UE8M0 = "UE8M0"
 arange = "arange"
+cpy = "cpy" # Shorthand for "copy" (CUDA_MEMCPY2D_st locals).
 ue4m3 = "ue4m3"
 ue8m0 = "ue8m0"

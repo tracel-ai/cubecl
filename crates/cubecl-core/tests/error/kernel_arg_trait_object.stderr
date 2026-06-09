@@ -1,0 +1,5 @@
+error: trait objects (`dyn Trait`) are not allowed as kernel arguments
+ --> tests/error/kernel_arg_trait_object.rs:7:32
+  |
+7 | fn kernel_arg_trait_object(x: &dyn Foo) {
+  |                                ^^^^^^^
