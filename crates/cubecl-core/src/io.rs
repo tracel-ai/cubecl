@@ -2,151 +2,84 @@ use alloc::{
     borrow::Cow,
     string::{String, ToString},
 };
-use derive_more::Display;
 
 use crate as cubecl;
 use cubecl::prelude::*;
-use cubecl_ir::{ManagedVariable, Variable};
+use cubecl_ir::{Instruction, Operation, Variable};
 
 define_scalar!(ElemA);
 define_size!(SizeA);
 
 /// Returns the value at `index` in `list` if `condition` is `true`, otherwise returns `value`.
 #[cube]
-pub fn read_masked<C: CubePrimitive>(mask: bool, list: Slice<C>, index: usize, value: C) -> C {
+pub fn read_masked<C: CubePrimitive>(mask: bool, list: &[C], index: usize, value: C) -> C {
     let index = index * usize::cast_from(mask);
-    let input = list.read_unchecked(index);
+    let input = unsafe { *list.get_unchecked(index) };
 
     select(mask, input, value)
 }
 
-/// Returns the value at `index` in tensor within bounds.
+/// Returns the value at `index` in `list` if the index is in bounds, otherwise returns `value`.
 #[cube]
-pub fn read_tensor_checked<C: CubePrimitive + Default + IntoRuntime>(
-    tensor: Tensor<C>,
-    index: usize,
-    #[comptime] unroll_factor: usize,
-) -> C {
-    let len = tensor.buffer_len() * unroll_factor;
-    let in_bounds = index < len;
-    let index = index.min(len - 1);
+pub fn read_checked<C: CubePrimitive>(list: &[C], index: usize) -> C {
+    let fallback = comptime![C::Scalar::default()].runtime();
+    let clamped = index.min(list.len() - 1);
+    let input = unsafe { *list.get_unchecked(clamped) };
 
-    select(in_bounds, tensor.read_unchecked(index), C::default())
+    select(index == clamped, input, C::cast_from(fallback))
+}
+
+/// Writes the value only if it is in bounds of the buffer
+#[cube]
+pub fn write_checked<C: CubePrimitive>(list: &mut [C], index: usize, value: C) {
+    if index < list.len() {
+        unsafe { *list.get_unchecked_mut(index) = value };
+    }
 }
 
 /// Returns the value at `index` in tensor within bounds.
 #[cube]
-pub fn read_tensor_atomic_checked<C: Scalar>(
-    tensor: Tensor<Atomic<C>>,
+pub fn checked_index<E: Scalar, N: Size>(
     index: usize,
+    buffer_len: usize,
     #[comptime] unroll_factor: usize,
-) -> Atomic<C> {
-    let index = index.min(tensor.buffer_len() * unroll_factor - 1);
-
-    tensor.read_unchecked(index)
+) -> usize {
+    let len = buffer_len * unroll_factor;
+    index.min(len - 1)
 }
 
 /// Returns the value at `index` in tensor within bounds.
 #[cube]
-pub fn read_tensor_validate<C: CubePrimitive + Default + IntoRuntime>(
-    tensor: Tensor<C>,
+pub fn validate_index<E: Scalar, N: Size>(
+    tensor: &[Vector<E, N>],
     index: usize,
+    buffer_len: usize,
     #[comptime] unroll_factor: usize,
     #[comptime] kernel_name: String,
-) -> C {
-    let len = tensor.buffer_len() * unroll_factor;
+) -> usize {
+    let len = buffer_len * unroll_factor;
     let in_bounds = index < len;
     if !in_bounds {
-        print_oob::<Tensor<C>>(kernel_name, OobKind::Read, index, len, &tensor);
+        print_oob::<[Vector<E, N>]>(kernel_name, index, len, tensor);
     }
 
-    let index = index.min(len - 1);
-
-    select(in_bounds, tensor.read_unchecked(index), C::default())
-}
-
-/// Returns the value at `index` in tensor within bounds.
-#[cube]
-pub fn read_tensor_atomic_validate<C: Scalar>(
-    tensor: Tensor<Atomic<C>>,
-    index: usize,
-    #[comptime] unroll_factor: usize,
-    #[comptime] kernel_name: String,
-) -> Atomic<C> {
-    let len = tensor.buffer_len() * unroll_factor;
-    if index >= len {
-        print_oob::<Tensor<Atomic<C>>>(kernel_name, OobKind::Read, index, len, &tensor);
-    }
-    let index = index.min(tensor.buffer_len() * unroll_factor - 1);
-
-    tensor.read_unchecked(index)
-}
-
-#[cube]
-fn checked_index_assign<E: Scalar, N: Size>(
-    index: usize,
-    value: Vector<E, N>,
-    out: &mut Array<Vector<E, N>>,
-    #[comptime] has_buffer_len: bool,
-    #[comptime] unroll_factor: usize,
-) {
-    let array_len = if has_buffer_len {
-        out.buffer_len()
-    } else {
-        out.len()
-    };
-
-    if index < array_len * unroll_factor {
-        unsafe { out.index_assign_unchecked(index, value) };
-    }
-}
-
-#[cube]
-fn validate_index_assign<E: Scalar, N: Size>(
-    index: usize,
-    value: Vector<E, N>,
-    out: &mut Array<Vector<E, N>>,
-    #[comptime] has_buffer_len: bool,
-    #[comptime] unroll_factor: usize,
-    #[comptime] kernel_name: String,
-) {
-    let array_len = if has_buffer_len {
-        out.buffer_len()
-    } else {
-        out.len()
-    };
-    let len = array_len * unroll_factor;
-
-    if index < len {
-        unsafe { out.index_assign_unchecked(index, value) };
-    } else {
-        print_oob::<Array<Vector<E, N>>>(kernel_name, OobKind::Write, index, len, out);
-    }
-}
-
-#[derive(Display)]
-enum OobKind {
-    #[display("read")]
-    Read,
-    #[display("write")]
-    Write,
+    index.min(len)
 }
 
 #[cube]
 #[allow(unused)]
-fn print_oob<Out: CubeType<ExpandType: Into<Variable>>>(
+fn print_oob<Out: CubeType<ExpandType: Into<Variable>> + ?Sized>(
     #[comptime] kernel_name: String,
-    #[comptime] kind: OobKind,
     index: usize,
     len: usize,
     buffer: &Out,
 ) {
     intrinsic!(|scope| {
-        let name = name_of_var(scope, buffer.into());
-        debug_print_expand!(
+        let name = name_of_var(scope, buffer.clone_unchecked().into());
+        __expand_debug_print!(
             scope,
             alloc::format!(
-                "[VALIDATION {kernel_name}]: Encountered OOB {kind} in {name} at %u, length is %u\n"
+                "[VALIDATION {kernel_name}]: Encountered OOB index in {name} at %u, length is %u\n"
             ),
             index,
             len
@@ -160,43 +93,43 @@ fn name_of_var(scope: &Scope, var: Variable) -> Cow<'static, str> {
 }
 
 #[allow(missing_docs)]
-pub fn expand_checked_index_assign(
-    scope: &mut Scope,
-    lhs: Variable,
-    rhs: Variable,
+pub fn expand_checked_index(
+    scope: &Scope,
+    list: Variable,
+    index: Variable,
     out: Variable,
     unroll_factor: usize,
 ) {
-    scope.register_type::<ElemA>(rhs.ty.storage_type());
-    scope.register_size::<SizeA>(rhs.ty.vector_size());
-    checked_index_assign::expand::<ElemA, SizeA>(
-        scope,
-        ManagedVariable::Plain(lhs).into(),
-        ManagedVariable::Plain(rhs).into(),
-        ManagedVariable::Plain(out).into(),
-        out.has_buffer_length(),
-        unroll_factor,
-    );
+    scope.register_type::<ElemA>(list.ty.storage_type());
+    scope.register_size::<SizeA>(list.ty.vector_size());
+    let len = expand_buffer_length_native(scope, list);
+    let index =
+        checked_index::expand::<ElemA, SizeA>(scope, index.into(), len.into(), unroll_factor);
+    let ptr = index_expand(scope, list, index.expand, None, false);
+    scope.register(Instruction::new(Operation::Copy(ptr), out));
 }
 
 #[allow(missing_docs)]
-pub fn expand_validate_index_assign(
-    scope: &mut Scope,
-    lhs: Variable,
-    rhs: Variable,
+pub fn expand_validate_index(
+    scope: &Scope,
+    list: Variable,
+    index: Variable,
     out: Variable,
     unroll_factor: usize,
     kernel_name: &str,
 ) {
-    scope.register_type::<ElemA>(rhs.ty.storage_type());
-    scope.register_size::<SizeA>(rhs.ty.vector_size());
-    validate_index_assign::expand::<ElemA, SizeA>(
+    scope.register_type::<ElemA>(list.ty.storage_type());
+    scope.register_size::<SizeA>(list.ty.vector_size());
+    let len = expand_buffer_length_native(scope, list);
+    let tensor = list.into();
+    let index = validate_index::expand::<ElemA, SizeA>(
         scope,
-        ManagedVariable::Plain(lhs).into(),
-        ManagedVariable::Plain(rhs).into(),
-        ManagedVariable::Plain(out).into(),
-        out.has_buffer_length(),
+        &tensor,
+        index.into(),
+        len.into(),
         unroll_factor,
         kernel_name.to_string(),
     );
+    let ptr = index_expand(scope, list, index.expand, None, false);
+    scope.register(Instruction::new(Operation::Copy(ptr), out));
 }

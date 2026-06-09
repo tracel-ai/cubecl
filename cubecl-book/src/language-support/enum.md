@@ -73,8 +73,8 @@ pub enum Function {
 
 #[cube(launch_unchecked)]
 pub fn kernel_enum_example(
-    input: &Array<Vector<f32>>,
-    output: &mut Array<Vector<f32>>,
+    input: &[Vector<f32>],
+    output: &mut [Vector<f32>],
     function: Function,
 ) {
     output[UNIT_POS] = match function {
@@ -93,8 +93,8 @@ pub fn kernel_enum_example(
 #             &client,
 #             CubeCount::Static(1, 1, 1),
 #             CubeDim::new_1d(3),
-#             ArrayArg::from_raw_parts::<f32>(&input, 3, 2),
-#             ArrayArg::from_raw_parts::<f32>(&output, 3, 2),
+#             BufferArg::from_raw_parts::<f32>(&input, 3, 2),
+#             BufferArg::from_raw_parts::<f32>(&output, 3, 2),
 #             FunctionArgs::AffineTransformation {
 #                 a: 1.0,
 #                 b: 2.0,
@@ -125,7 +125,7 @@ You can also use enums with data in pattern matching:
 # }
 #
 #[cube(launch_unchecked)]
-pub fn kernel_enum_option(input: &Array<f32>, output: &mut Array<f32>, maybe: ComptimeOption<Array<f32>>) {
+pub fn kernel_enum_option(input: &[f32], output: &mut [f32], maybe: ComptimeOption<&[f32]>) {
     #[comptime]
     output[UNIT_POS] = match maybe {
         ComptimeOption::Some(val) => input[UNIT_POS] + val[UNIT_POS],
@@ -167,8 +167,8 @@ impl Function {
 
 #[cube(launch_unchecked)]
 pub fn kernel_enum_example(
-    input: &Array<Vector<f32>>,
-    output: &mut Array<Vector<f32>>,
+    input: &[Vector<f32>],
+    output: &mut [Vector<f32>],
     function: Function,
     bias: Option<f32>,
 ) {
@@ -189,8 +189,8 @@ pub fn kernel_enum_example(
 #             &client,
 #             CubeCount::Static(1, 1, 1),
 #             CubeDim::new_1d(3),
-#             ArrayArg::from_raw_parts::<f32>(&input, 3, 2),
-#             ArrayArg::from_raw_parts::<f32>(&output, 3, 2),
+#             BufferArg::from_raw_parts::<f32>(&input, 3, 2),
+#             BufferArg::from_raw_parts::<f32>(&output, 3, 2),
 #             FunctionArgs::AffineTransformation {
 #                 a: 1.0,
 #                 b: 2.0,

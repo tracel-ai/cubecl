@@ -4,7 +4,7 @@ use darling::{
 };
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
-use syn::{DeriveInput, Index, WhereClause};
+use syn::{DeriveInput, Index, Path, WhereClause};
 
 use crate::{
     generate::bounded_where_clause,
@@ -15,12 +15,14 @@ use crate::{
 impl ToTokens for Assign {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let assign = prelude_type("Assign");
+        let runtime_assign = prelude_type("RuntimeAssign");
         let scope = prelude_type("Scope");
 
         let name = &self.ident;
         let expand_name = format_ident!("{name}Expand");
         let (generics, generic_names, _) = self.generics.split_for_impl();
-        let where_clause = self.where_clause();
+        let where_clause = self.where_clause(&assign);
+        let where_clause_init = self.where_clause(&runtime_assign);
 
         let init_mut_body = match &self.data {
             Data::Enum(_) if self.runtime_variants.is_present() => {
@@ -38,12 +40,14 @@ impl ToTokens for Assign {
 
         tokens.extend(quote! {
             impl #generics #assign for #expand_name #generic_names #where_clause {
-                fn expand_assign(&mut self, scope: &mut Scope, value: Self) {
+                fn __expand_assign_method(&mut self, scope: &#scope, value: Self) {
                     use #assign as _;
                     #assign_body
                 }
+            }
 
-                fn init_mut(&self, scope: &mut #scope) -> Self {
+            impl #generics #runtime_assign for #expand_name #generic_names #where_clause_init {
+                fn init_mut(&self, scope: &#scope) -> Self {
                     use #assign as _;
                     #init_mut_body
                 }
@@ -61,10 +65,10 @@ impl Assign {
             match &field.ident {
                 Some(name) if field.comptime.is_present() => quote![self.#name = value.#name;],
                 Some(name) => {
-                    quote![self.#name.expand_assign(scope, value.#name);]
+                    quote![self.#name.__expand_assign_method(scope, value.#name);]
                 }
                 None if field.comptime.is_present() => quote![self.#index = value.#index;],
-                None => quote![self.#index.expand_assign(scope, value.#index);],
+                None => quote![self.#index.__expand_assign_method(scope, value.#index);],
             }
         });
         quote![#(#fields)*]
@@ -148,7 +152,7 @@ impl Assign {
                     let name_other = format_ident!("{name}_other");
                     match field.comptime.is_present() {
                         true => quote![*#name_this = #name_other;],
-                        false => quote![#name_this.expand_assign(scope, #name_other);],
+                        false => quote![#name_this.__expand_assign_method(scope, #name_other);],
                     }
                 });
 
@@ -210,8 +214,8 @@ impl Assign {
 
     fn assign_body_runtime_enum(&self) -> TokenStream {
         quote! {
-            self.discriminant.expand_assign(scope, value.discriminant);
-            self.value.expand_assign(scope, value.value);
+            self.discriminant.__expand_assign_method(scope, value.discriminant);
+            self.value.__expand_assign_method(scope, value.value);
         }
     }
 
@@ -224,9 +228,8 @@ impl Assign {
         }
     }
 
-    fn where_clause(&self) -> Option<WhereClause> {
+    fn where_clause(&self, trait_: &Path) -> Option<WhereClause> {
         let cube_type = prelude_type("CubeType");
-        let assign = prelude_type("Assign");
 
         let fields: Vec<_> = match &self.data {
             Data::Enum(variants) => variants
@@ -244,7 +247,7 @@ impl Assign {
         bounded_where_clause(
             &self.generics,
             fields,
-            |param| quote!(<#param as #cube_type>::ExpandType: #assign),
+            |param| quote!(<#param as #cube_type>::ExpandType: #trait_),
         )
     }
 }

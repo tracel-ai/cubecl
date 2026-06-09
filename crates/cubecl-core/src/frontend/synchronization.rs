@@ -1,7 +1,10 @@
 use crate::{
-    ir::{Scope, Synchronization},
+    frontend::{NativeExpand, element::Atomic},
+    ir::{Instruction, Scope, Synchronization},
+    prelude::{CubePrimitive, Numeric},
     unexpanded,
 };
+use cubecl_ir::Operation;
 
 // Among all backends, the memory order guarantee of WebGPU is the weakest
 // So Cubecl's memory order cannot be stronger than that of WebGPU
@@ -19,7 +22,7 @@ pub fn sync_cube() {}
 pub mod sync_cube {
     use super::*;
 
-    pub fn expand(scope: &mut Scope) {
+    pub fn expand(scope: &Scope) {
         scope.register(Synchronization::SyncCube)
     }
 }
@@ -34,7 +37,7 @@ pub fn sync_plane() {
 pub mod sync_plane {
     use super::*;
 
-    pub fn expand(scope: &mut Scope) {
+    pub fn expand(scope: &Scope) {
         scope.register(Synchronization::SyncPlane);
     }
 }
@@ -47,7 +50,7 @@ pub fn sync_storage() {}
 pub mod sync_storage {
     use super::*;
 
-    pub fn expand(scope: &mut Scope) {
+    pub fn expand(scope: &Scope) {
         scope.register(Synchronization::SyncStorage)
     }
 }
@@ -64,7 +67,61 @@ pub fn sync_async_proxy_shared() {
 pub mod sync_async_proxy_shared {
     use super::*;
 
-    pub fn expand(scope: &mut Scope) {
+    pub fn expand(scope: &Scope) {
         scope.register(Synchronization::SyncAsyncProxyShared)
+    }
+}
+
+/// Barrier, then load `reference` with the result marked workgroup-uniform —
+/// mirrors WGSL's `workgroupUniformLoad`. Lets a workgroup-shared value gate
+/// control flow that contains barriers. Non-WGSL backends lower it to
+/// [`sync_cube`] plus a plain load.
+///
+/// Use [`workgroup_uniform_load_atomic`] for `Atomic<E>`.
+#[allow(unused_variables)]
+pub fn workgroup_uniform_load<E: CubePrimitive>(reference: &E) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [`workgroup_uniform_load()`].
+pub mod workgroup_uniform_load {
+    use super::*;
+
+    /// Expand method of [`workgroup_uniform_load()`].
+    pub fn expand<E: CubePrimitive>(scope: &Scope, reference: &NativeExpand<E>) -> NativeExpand<E> {
+        let out = scope.create_local(E::__expand_as_type(scope));
+        scope.register(Instruction::new(
+            Operation::WorkgroupUniformLoad(reference.expand),
+            out,
+        ));
+        out.into()
+    }
+}
+
+/// Atomic counterpart of [`workgroup_uniform_load`]: barrier + atomic load,
+/// returning the underlying numeric (WGSL's atomic `workgroupUniformLoad`
+/// overload).
+#[allow(unused_variables)]
+pub fn workgroup_uniform_load_atomic<E: CubePrimitive<Scalar: Numeric>>(
+    reference: &Atomic<E>,
+) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [`workgroup_uniform_load_atomic()`].
+pub mod workgroup_uniform_load_atomic {
+    use super::*;
+
+    /// Expand method of [`workgroup_uniform_load_atomic()`].
+    pub fn expand<E: CubePrimitive<Scalar: Numeric>>(
+        scope: &Scope,
+        reference: &NativeExpand<Atomic<E>>,
+    ) -> NativeExpand<E> {
+        let out = scope.create_local(E::__expand_as_type(scope));
+        scope.register(Instruction::new(
+            Operation::WorkgroupUniformLoad(reference.expand),
+            out,
+        ));
+        out.into()
     }
 }

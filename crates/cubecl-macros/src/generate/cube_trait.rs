@@ -14,6 +14,7 @@ impl ToTokens for CubeTrait {
         let original_body = &self.original_trait.items;
         let mut colon = self.original_trait.colon_token;
         let mut base_traits = self.original_trait.supertraits.clone();
+        let where_clause = self.original_trait.generics.where_clause.clone();
         let attrs = &self.attrs;
         let vis = &self.vis;
         let unsafety = &self.unsafety;
@@ -23,7 +24,7 @@ impl ToTokens for CubeTrait {
         let assoc_methods = self
             .items
             .iter()
-            .filter_map(|it| CubeTraitItem::associated_method(it, &self.args));
+            .filter_map(CubeTraitItem::associated_method);
 
         let has_expand = self
             .items
@@ -57,14 +58,13 @@ impl ToTokens for CubeTrait {
             }
 
             base_traits.push(parse_quote!(#cube_type<ExpandType: #expand_name #generic_args>));
-
             colon = Some(Token![:](tokens.span()));
         }
 
         let out = quote! {
             #(#attrs)*
             #[allow(clippy::too_many_arguments)]
-            #vis #unsafety trait #name #generics #colon #base_traits {
+            #vis #unsafety trait #name #generics #colon #base_traits #where_clause {
                 #(#original_body)*
 
                 #(
@@ -150,7 +150,7 @@ impl CubeTraitImpl {
             #unsafety impl #generics #trait_name for #struct_name #impl_where {
                 #(#items)*
                 #(
-                    #[allow(unused, clone_on_copy, clippy::all)]
+                    #[allow(unused, clippy::all)]
                     #fns
                 )*
             }
@@ -193,7 +193,7 @@ impl CubeTraitImpl {
             #unsafety impl #generics #trait_name for #struct_name #impl_where {
                 #(#others)*
                 #(
-                    #[allow(unused, clone_on_copy, clippy::all)]
+                    #[allow(unused, clippy::all)]
                     #methods
                 )*
             }

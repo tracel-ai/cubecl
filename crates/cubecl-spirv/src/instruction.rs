@@ -1,13 +1,12 @@
 use cubecl_core::ir::{
-    self as core, BinaryOperator, Comparison, Instruction, InstructionModes, Operation, Operator,
-    UnaryOperator,
+    self as core, BinaryOperands, Comparison, Instruction, InstructionModes, Memory, Operation,
+    Operator, UnaryOperands,
 };
-use rspirv::spirv::{Capability, Decoration, Word};
+use rspirv::spirv::{Decoration, MemoryAccess, Word};
 
 use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
-    variable::IndexedVariable,
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
@@ -16,7 +15,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         if !matches!(inst.operation, Operation::NonSemantic(_)) {
             self.set_source_loc(&inst.source_loc);
         }
-        let uniform = matches!(inst.out, Some(out) if self.uniformity.is_var_uniform(out));
+        let uniform = inst
+            .out
+            .is_some_and(|out| self.uniformity.is_var_uniform(out));
         match inst.operation {
             Operation::Copy(var) => {
                 let input = self.compile_variable(var);
@@ -30,6 +31,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.mark_uniformity(out_id, uniform);
                 self.write(&out, out_id);
             }
+            Operation::Memory(mem) => self.compile_memory(mem, inst.out),
             Operation::Arithmetic(operator) => {
                 self.compile_arithmetic(operator, inst.out, inst.modes, uniform)
             }
@@ -43,11 +45,23 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operation::Metadata(meta) => self.compile_meta(meta, inst.out, uniform),
             Operation::Plane(plane) => self.compile_plane(plane, inst.out, uniform),
             Operation::Synchronization(sync) => self.compile_sync(sync),
+            Operation::WorkgroupUniformLoad(op) => {
+                self.compile_sync(core::Synchronization::SyncCube);
+                if op.ty.is_atomic() {
+                    self.compile_atomic(core::AtomicOp::Load(op), inst.out, inst.modes);
+                } else {
+                    self.compile_memory(core::Memory::Load(op), inst.out);
+                }
+            }
             Operation::CoopMma(cmma) => self.compile_cmma(cmma, inst.out),
+            Operation::TensorIndexing(tensor) => self.compile_tensor_indexing(tensor, inst.out),
             Operation::NonSemantic(debug) => self.compile_debug(debug),
             Operation::Barrier(_) => panic!("Barrier not supported in SPIR-V"),
             Operation::Tma(_) => panic!("TMA not supported in SPIR-V"),
             Operation::Marker(_) => {}
+            Operation::ConstructAggregate(..) | Operation::ExtractAggregateField(..) => {
+                unreachable!("Should be disaggregated at this point")
+            }
         }
     }
 
@@ -187,39 +201,79 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
+    pub fn compile_memory(&mut self, mem: Memory, out: Option<core::Variable>) {
+        match mem {
+            Memory::Index(op) => {
+                let list = self.compile_variable(op.list);
+                let index = self.compile_variable(op.index);
+                let out = self.compile_variable(out.unwrap());
+
+                let ptr = self.index(&list, &index, &out);
+
+                self.write(&out, ptr);
+            }
+            // In SPIR-V, variables are already pointers. So for reference we just treat the out
+            // var as an alias for the input.
+            Memory::Reference(variable) => {
+                let var = self.compile_variable(variable).id(self);
+                let out_id = out.unwrap().index().unwrap();
+                self.state.lookups.bindings.insert(out_id, var);
+            }
+            Memory::Load(variable) => {
+                let ptr = self.compile_variable(variable);
+                let out = self.compile_variable(out.unwrap());
+
+                let id = self.load_aligned(&ptr, &out);
+                self.write(&out, id);
+            }
+            Memory::Store(op) => {
+                let ptr = self.compile_variable(op.ptr);
+                let value = self.compile_variable(op.value);
+
+                self.store_aligned(&ptr, &value);
+            }
+            Memory::CopyMemory(op) => {
+                let source = self.compile_variable(op.source);
+                let target = self.compile_variable(op.target);
+
+                let out_ty = target.item();
+                let align = source.item().size().max(target.item().size());
+
+                let source = self.read(&source);
+                let target = self.read(&target);
+
+                if op.len == 1 {
+                    self.copy_memory(
+                        target,
+                        source,
+                        Some(MemoryAccess::ALIGNED),
+                        [align.into()],
+                        None,
+                        [],
+                    )
+                    .unwrap();
+                } else {
+                    let size = op.len as u32 * out_ty.size();
+                    let size_id = self.const_u32(size);
+
+                    self.copy_memory_sized(
+                        target,
+                        source,
+                        size_id,
+                        Some(MemoryAccess::ALIGNED),
+                        [size.into()],
+                        None,
+                        [],
+                    )
+                    .unwrap();
+                }
+            }
+        }
+    }
+
     pub fn compile_operator(&mut self, op: Operator, out: Option<core::Variable>, uniform: bool) {
         let out = out.unwrap();
         match op {
-            Operator::Index(op) | Operator::UncheckedIndex(op) => {
-                let is_atomic = op.list.ty.is_atomic();
-                let value = self.compile_variable(op.list);
-                let index = self.compile_variable(op.index);
-                let out = self.compile_variable(out);
-
-                if is_atomic {
-                    let ptr = match self.index(&value, &index, true) {
-                        IndexedVariable::Pointer(ptr, _) => ptr,
-                        _ => unreachable!("Atomic is always pointer"),
-                    };
-                    self.state.atomic_scopes.insert(ptr, value.scope());
-                    let out_id = out.as_binding().unwrap();
-
-                    // This isn't great but atomics can't currently be constructed so should be fine
-                    self.merge_binding(out_id, ptr);
-                } else {
-                    let out_id = self.read_indexed(&out, &value, &index);
-                    self.mark_uniformity(out_id, uniform);
-                    self.write(&out, out_id);
-                }
-            }
-            Operator::IndexAssign(op) | Operator::UncheckedIndexAssign(op) => {
-                let index = self.compile_variable(op.index);
-                let value = self.compile_variable(op.value);
-                let out = self.compile_variable(out);
-                let value_id = self.read_as(&value, &out.indexed_item());
-
-                self.write_indexed(&out, &index, value_id);
-            }
             Operator::Cast(op) => {
                 let input = self.compile_variable(op.input);
                 let out = self.compile_variable(out);
@@ -274,30 +328,51 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.composite_construct(ty, Some(out_id), values).unwrap();
                 self.write(&out, out_id);
             }
-            Operator::CopyMemory(op) => {
-                let input = self.compile_variable(op.input);
-                let in_index = self.compile_variable(op.in_index);
-                let out = self.compile_variable(out);
-                let out_index = self.compile_variable(op.out_index);
+            Operator::InsertComponent(op) => {
+                let vector = self.compile_variable(op.vector);
+                let value = self.compile_variable(op.value);
+                let output = self.compile_variable(out);
 
-                let in_ptr = self.index_ptr(&input, &in_index);
-                let out_ptr = self.index_ptr(&out, &out_index);
-                self.copy_memory(out_ptr, in_ptr, None, None, vec![])
-                    .unwrap();
+                let vector = self.read(&vector);
+                let value = self.read(&value);
+                let out_ty = output.item().id(self);
+                let write_id = self.write_id(&output);
+
+                if let Some(index) = op.index.as_const() {
+                    let index = index.as_u32();
+                    self.composite_insert(out_ty, Some(write_id), value, vector, [index])
+                        .unwrap();
+                } else {
+                    let index = self.compile_variable(op.index);
+                    let index = self.read(&index);
+
+                    self.vector_insert_dynamic(out_ty, Some(write_id), vector, value, index)
+                        .unwrap();
+                }
+
+                self.write(&output, write_id);
             }
-            Operator::CopyMemoryBulk(op) => {
-                self.capabilities.insert(Capability::Addresses);
-                let input = self.compile_variable(op.input);
-                let in_index = self.compile_variable(op.in_index);
-                let out = self.compile_variable(out);
-                let out_index = self.compile_variable(op.out_index);
-                let len = op.len;
+            Operator::ExtractComponent(op) => {
+                let vector = self.compile_variable(op.lhs);
+                let output = self.compile_variable(out);
 
-                let source = self.index_ptr(&input, &in_index);
-                let target = self.index_ptr(&out, &out_index);
-                let size = self.const_u32(len as u32 * out.item().size());
-                self.copy_memory_sized(target, source, size, None, None, vec![])
-                    .unwrap();
+                let vector = self.read(&vector);
+                let out_ty = output.item().id(self);
+                let write_id = self.write_id(&output);
+
+                if let Some(index) = op.rhs.as_const() {
+                    let index = index.as_u32();
+                    self.composite_extract(out_ty, Some(write_id), vector, [index])
+                        .unwrap();
+                } else {
+                    let index = self.compile_variable(op.rhs);
+                    let index = self.read(&index);
+
+                    self.vector_extract_dynamic(out_ty, Some(write_id), vector, index)
+                        .unwrap();
+                }
+
+                self.write(&output, write_id);
             }
             Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out, uniform),
         }
@@ -305,7 +380,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_unary_op_cast(
         &mut self,
-        op: UnaryOperator,
+        op: UnaryOperands,
         out: core::Variable,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
@@ -326,7 +401,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_unary_op(
         &mut self,
-        op: UnaryOperator,
+        op: UnaryOperands,
         out: core::Variable,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
@@ -347,7 +422,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_unary_op_bool(
         &mut self,
-        op: UnaryOperator,
+        op: UnaryOperands,
         out: core::Variable,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
@@ -368,7 +443,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_binary_op(
         &mut self,
-        op: BinaryOperator,
+        op: BinaryOperands,
         out: core::Variable,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
@@ -391,7 +466,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_binary_op_no_cast(
         &mut self,
-        op: BinaryOperator,
+        op: BinaryOperands,
         out: core::Variable,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
@@ -414,7 +489,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_binary_op_bool(
         &mut self,
-        op: BinaryOperator,
+        op: BinaryOperands,
         out: core::Variable,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),

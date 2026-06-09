@@ -1,278 +1,142 @@
-use super::{ReadOnly, ReadWrite, Slice, SliceExpand, SliceOriginExpand, SliceVisibility};
-use crate as cubecl;
+use core::ops::{Deref, DerefMut};
+
+use super::SliceExpand;
+use crate::{
+    self as cubecl,
+    frontend::{container::slice, ranges::range},
+};
 use crate::{ir::Scope, prelude::*, unexpanded};
 use cubecl_common::tf32;
-use cubecl_ir::ManagedVariable;
 
-pub(crate) fn is_tf32<C: CubePrimitive, T: CubePrimitive>(scope: &mut Scope) -> bool {
-    let ty_c = C::as_type(scope).storage_type();
-    let ty_t = T::as_type(scope).storage_type();
-    let ty_f32 = f32::as_type(scope).storage_type();
-    let ty_tf32 = tf32::as_type(scope).storage_type();
+pub(crate) fn is_tf32<C: CubePrimitive, T: CubePrimitive>(scope: &Scope) -> bool {
+    let ty_c = C::__expand_as_type(scope).storage_type();
+    let ty_t = T::__expand_as_type(scope).storage_type();
+    let ty_f32 = f32::__expand_as_type(scope).storage_type();
+    let ty_tf32 = tf32::__expand_as_type(scope).storage_type();
 
     (ty_c == ty_f32 && ty_t == ty_tf32) || (ty_c == ty_tf32 && ty_t == ty_f32)
 }
 
-impl<E: CubePrimitive> SliceOperator<E> for SharedMemory<E> {}
-impl<E: CubePrimitive> SliceOperatorExpand<E> for NativeExpand<SharedMemory<E>> {
+type ArrayExpand<E> = NativeExpand<Array<E>>;
+
+impl<E: CubePrimitive, T: Deref<Target = SliceExpand<E>> + DerefMut> SliceOperatorExpand<E> for T {
     fn __expand_slice_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> SliceExpand<E, ReadOnly> {
-        Slice::__expand_new(
-            scope,
-            SliceOriginExpand::SharedMemory(self.clone()),
-            start,
-            end,
-        )
+    ) -> &SliceExpand<E> {
+        self.deref().__expand_slice_method(scope, start, end)
     }
 
-    fn __expand_to_slice_method(&self, scope: &mut Scope) -> SliceExpand<E, ReadOnly> {
-        let len = expand_length_native(scope, *self.expand);
-
-        Slice::__expand_new(
-            scope,
-            SliceOriginExpand::SharedMemory(self.clone()),
-            0usize.into(),
-            ManagedVariable::Plain(len).into(),
-        )
-    }
-}
-
-impl<E: CubePrimitive> SliceMutOperator<E> for SharedMemory<E> {}
-impl<E: CubePrimitive> SliceMutOperatorExpand<E> for NativeExpand<SharedMemory<E>> {
     fn __expand_slice_mut_method(
-        &self,
-        scope: &mut Scope,
+        &mut self,
+        scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> SliceExpand<E, ReadWrite> {
-        Slice::__expand_new(
-            scope,
-            SliceOriginExpand::SharedMemory(self.clone()),
-            start,
-            end,
-        )
-    }
-
-    fn __expand_to_slice_mut_method(&self, scope: &mut Scope) -> SliceExpand<E, ReadWrite> {
-        let len = expand_length_native(scope, *self.expand);
-
-        Slice::__expand_new(
-            scope,
-            SliceOriginExpand::SharedMemory(self.clone()),
-            0usize.into(),
-            ManagedVariable::Plain(len).into(),
-        )
+    ) -> &mut SliceExpand<E> {
+        self.deref_mut()
+            .__expand_slice_mut_method(scope, start, end)
     }
 }
 
+impl<E: CubePrimitive> SliceOperator<E> for Shared<[E]> {}
 impl<E: CubePrimitive> SliceOperator<E> for Tensor<E> {}
-impl<E: CubePrimitive> SliceOperatorExpand<E> for NativeExpand<Tensor<E>> {
-    fn __expand_slice_method(
-        &self,
-        scope: &mut Scope,
-        start: NativeExpand<usize>,
-        end: NativeExpand<usize>,
-    ) -> SliceExpand<E, ReadOnly> {
-        Slice::__expand_new(scope, SliceOriginExpand::Tensor(self.clone()), start, end)
-    }
-
-    fn __expand_to_slice_method(&self, scope: &mut Scope) -> SliceExpand<E, ReadOnly> {
-        let len = self.clone().__expand_len_method(scope);
-        Slice::__expand_new(
-            scope,
-            SliceOriginExpand::Tensor(self.clone()),
-            0usize.into(),
-            len,
-        )
-    }
-}
-
-impl<E: CubePrimitive> SliceMutOperator<E> for Tensor<E> {}
-impl<E: CubePrimitive> SliceMutOperatorExpand<E> for NativeExpand<Tensor<E>> {
-    fn __expand_slice_mut_method(
-        &self,
-        scope: &mut Scope,
-        start: NativeExpand<usize>,
-        end: NativeExpand<usize>,
-    ) -> SliceExpand<E, ReadWrite> {
-        Slice::__expand_new(scope, SliceOriginExpand::Tensor(self.clone()), start, end)
-    }
-
-    fn __expand_to_slice_mut_method(&self, scope: &mut Scope) -> SliceExpand<E, ReadWrite> {
-        let len = self.clone().__expand_len_method(scope);
-        Slice::__expand_new(
-            scope,
-            SliceOriginExpand::Tensor(self.clone()),
-            0usize.into(),
-            len,
-        )
-    }
-}
-
 impl<E: CubePrimitive> SliceOperator<E> for Array<E> {}
-impl<E: CubePrimitive> SliceOperatorExpand<E> for NativeExpand<Array<E>> {
+
+#[cube]
+impl<E: CubePrimitive> Array<E> {
+    pub fn as_slice(&self) -> &[E] {
+        intrinsic!(|_| self.deref())
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [E] {
+        intrinsic!(|_| self.deref_mut())
+    }
+}
+
+#[cube]
+impl<E: CubePrimitive> Shared<[E]> {
+    pub fn as_slice(&self) -> &[E] {
+        intrinsic!(|_| self.deref())
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [E] {
+        intrinsic!(|_| self.deref_mut())
+    }
+}
+
+impl<E: CubePrimitive> SliceOperator<E> for [E] {}
+impl<E: CubePrimitive> SliceOperatorExpand<E> for SliceExpand<E> {
     fn __expand_slice_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> SliceExpand<E, ReadOnly> {
-        Slice::__expand_new(scope, SliceOriginExpand::Array(self.clone()), start, end)
+    ) -> &SliceExpand<E> {
+        let length = end.__expand_sub_method(scope, start);
+        let list = self.__extract_list(scope);
+        let offset = self.__extract_offset(scope);
+        let offset = start.__expand_add_method(scope, offset);
+        let slice = slice::from_raw_parts(scope, list, offset, length);
+        scope.create_kernel_ref(slice)
     }
 
-    fn __expand_to_slice_method(&self, scope: &mut Scope) -> SliceExpand<E, ReadOnly> {
-        let len = self.clone().__expand_len_method(scope);
-        Slice::__expand_new(
-            scope,
-            SliceOriginExpand::Array(self.clone()),
-            0usize.into(),
-            len,
-        )
-    }
-}
-
-impl<E: CubePrimitive> SliceMutOperator<E> for Array<E> {}
-impl<E: CubePrimitive> SliceMutOperatorExpand<E> for NativeExpand<Array<E>> {
     fn __expand_slice_mut_method(
-        &self,
-        scope: &mut Scope,
+        &mut self,
+        scope: &Scope,
         start: NativeExpand<usize>,
         end: NativeExpand<usize>,
-    ) -> SliceExpand<E, ReadWrite> {
-        Slice::__expand_new(scope, SliceOriginExpand::Array(self.clone()), start, end)
-    }
+    ) -> &mut SliceExpand<E> {
+        let length = end.__expand_sub_method(scope, start);
+        let list = self.__extract_list(scope);
+        let offset = self.__extract_offset(scope);
+        let offset = start.__expand_add_method(scope, offset);
 
-    fn __expand_to_slice_mut_method(&self, scope: &mut Scope) -> SliceExpand<E, ReadWrite> {
-        let len = self.clone().__expand_len_method(scope);
-        Slice::__expand_new(
-            scope,
-            SliceOriginExpand::Array(self.clone()),
-            0usize.into(),
-            len,
-        )
+        let slice = slice::from_raw_parts(scope, list, offset, length);
+        scope.create_kernel_ref(slice)
     }
 }
 
-impl<E: CubePrimitive, IO: SliceVisibility> SliceOperator<E> for Slice<E, IO> {}
-impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpand<E, IO> {
-    fn __expand_slice_method(
-        &self,
-        scope: &mut Scope,
-        start: NativeExpand<usize>,
-        end: NativeExpand<usize>,
-    ) -> SliceExpand<E, ReadOnly> {
-        let length = crate::frontend::sub::expand(scope, end, start.clone());
-        let offset = crate::frontend::add::expand(scope, start, self.offset.clone());
-
-        SliceExpand {
-            origin: self.origin.clone(),
-            io: core::marker::PhantomData,
-            offset,
-            length,
-            vector_size: self.vector_size,
-        }
-    }
-
-    fn __expand_to_slice_method(&self, _scope: &mut Scope) -> SliceExpand<E, ReadOnly> {
-        SliceExpand {
-            origin: self.origin.clone(),
-            io: core::marker::PhantomData,
-            offset: self.offset.clone(),
-            length: self.length.clone(),
-            vector_size: self.vector_size,
-        }
-    }
-}
-
-impl<E: CubePrimitive> SliceMutOperator<E> for Slice<E, ReadWrite> {}
-impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
-    fn __expand_slice_mut_method(
-        &self,
-        scope: &mut Scope,
-        start: NativeExpand<usize>,
-        end: NativeExpand<usize>,
-    ) -> SliceExpand<E, ReadWrite> {
-        let length = crate::frontend::sub::expand(scope, end, start.clone());
-        let offset = crate::frontend::add::expand(scope, start, self.offset.clone());
-
-        SliceExpand {
-            origin: self.origin.clone(),
-            io: core::marker::PhantomData,
-            offset,
-            length,
-            vector_size: self.vector_size,
-        }
-    }
-
-    fn __expand_to_slice_mut_method(&self, _scope: &mut Scope) -> SliceExpand<E, ReadWrite> {
-        SliceExpand {
-            origin: self.origin.clone(),
-            io: core::marker::PhantomData,
-            offset: self.offset.clone(),
-            length: self.length.clone(),
-            vector_size: self.vector_size,
-        }
-    }
-}
-
-#[cube(self_type = "ref")]
+#[cube]
 pub trait SliceOperator<E: CubePrimitive> {
     /// Return a read-only view of all elements comprise between the `start` and `end` indices.
     /// In `checked` mode, if the `end` index is out-of-bound, it is replaced by
     /// the length of `self`.
     #[allow(unused_variables)]
-    fn slice(&self, start: usize, end: usize) -> Slice<E, ReadOnly> {
+    fn slice(&self, start: usize, end: usize) -> &[E] {
         unexpanded!()
     }
 
-    /// Reinterprete the current type as a read-only slice.
-    #[allow(unused_variables)]
-    fn to_slice(&self) -> Slice<E, ReadOnly> {
-        unexpanded!()
-    }
-}
-
-#[cube(self_type = "ref")]
-pub trait SliceMutOperator<E: CubePrimitive> {
     /// Return a read-write view of all elements comprise between the `start` and `end` indices.
     /// In `checked` mode, if the `end` index is out-of-bound, it is replaced by
     /// the length of `self`.
     #[allow(unused_variables)]
-    fn slice_mut(&mut self, start: usize, end: usize) -> Slice<E, ReadWrite> {
-        unexpanded!()
-    }
-
-    /// Reinterprete the current type as a read-write slice.
-    #[allow(unused_variables)]
-    fn to_slice_mut(&mut self) -> Slice<E, ReadWrite> {
+    fn slice_mut(&mut self, start: usize, end: usize) -> &mut [E] {
         unexpanded!()
     }
 }
 
-// Automatic implementation for references to SliceOperator.
-impl<'a, T: CubePrimitive, L: SliceOperator<T>> SliceOperator<T> for &'a L where
-    &'a L: CubeType<ExpandType = L::ExpandType>
-{
-}
+// Simple heuristic
+const MEMCPY_UNROLL_LIMIT: usize = 8;
 
-// Automatic implementation for mutable references to SliceOperator.
-impl<'a, T: CubePrimitive, L: SliceOperator<T>> SliceOperator<T> for &'a mut L where
-    &'a mut L: CubeType<ExpandType = L::ExpandType>
-{
-}
-
-// Automatic implementation for references to SliceMutOperator.
-impl<'a, T: CubePrimitive, L: SliceMutOperator<T>> SliceMutOperator<T> for &'a L where
-    &'a L: CubeType<ExpandType = L::ExpandType>
-{
-}
-
-// Automatic implementation for mutable references to SliceMutOperator.
-impl<'a, T: CubePrimitive, L: SliceMutOperator<T>> SliceMutOperator<T> for &'a mut L where
-    &'a mut L: CubeType<ExpandType = L::ExpandType>
-{
+impl<E: CubePrimitive> SliceExpand<E> {
+    pub fn __expand_copy_from_slice_method(&mut self, scope: &Scope, source: &SliceExpand<E>) {
+        let len = source.__expand_len_method(scope);
+        let unroll = source
+            .const_len()
+            .is_some_and(|it| it <= MEMCPY_UNROLL_LIMIT);
+        for_expand(
+            scope,
+            range::expand(scope, 0usize.into_expand(scope), len),
+            unroll,
+            |scope, idx| {
+                copy::expand(
+                    scope,
+                    source.__expand_index_method(scope, idx),
+                    self.__expand_index_mut_method(scope, idx),
+                );
+            },
+        );
+    }
 }

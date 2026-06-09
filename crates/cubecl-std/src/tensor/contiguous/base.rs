@@ -94,33 +94,33 @@ pub fn index_offset_contiguous_fastdivmod(
 
 #[cube(launch, address_type = "dynamic")]
 fn copy_kernel<T: Numeric, N: Size>(
-    input: &LinearView<Vector<T, N>>,
-    output: &mut Tensor<Vector<T, N>>,
+    input: LinearView<'_, Vector<T, N>>,
+    output: &mut [Vector<T, N>],
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: usize,
     #[define(T)] _elem: StorageType,
 ) {
     let offset_linear = ABSOLUTE_POS * elems_per_thread;
 
-    let mut registers = Array::<Vector<T, N>>::new(elems_per_thread);
+    let mut registers = Array::new(elems_per_thread);
 
     #[unroll]
     for i in 0..elems_per_thread {
-        registers[i] = input[offset_linear + i];
+        registers[i] = input.read_checked(offset_linear + i);
     }
 
     let offset_output = out_layout.to_source_pos(offset_linear);
 
     #[unroll]
     for i in 0..elems_per_thread {
-        output[offset_output + i] = registers[i];
+        write_checked(output, offset_output + i, registers[i]);
     }
 }
 
 #[cube(launch, address_type = "dynamic")]
 fn copy_kernel_pack<T: Numeric, N: Size>(
-    input: &LinearView<T>,
-    output: &mut Tensor<Vector<T, N>>,
+    input: LinearView<'_, T>,
+    output: &mut [Vector<T, N>],
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: usize,
     #[define(T)] _elem: StorageType,
@@ -131,7 +131,7 @@ fn copy_kernel_pack<T: Numeric, N: Size>(
     let offset_output = ABSOLUTE_POS * vectors_per_thread;
     let offset_input = offset_output * vector_size;
 
-    let mut registers = Array::<Vector<T, N>>::new(vectors_per_thread);
+    let mut registers = Array::new(vectors_per_thread);
 
     #[unroll]
     for i in 0..vectors_per_thread {
@@ -140,7 +140,7 @@ fn copy_kernel_pack<T: Numeric, N: Size>(
         #[unroll]
         for k in 0..vector_size {
             let offset_input = offset_input + offset + k;
-            reg[k] = input[offset_input];
+            reg.insert(k, input.read_checked(offset_input));
         }
         registers[i] = reg;
     }
@@ -149,7 +149,7 @@ fn copy_kernel_pack<T: Numeric, N: Size>(
 
     #[unroll]
     for i in 0..vectors_per_thread {
-        output[offset_output + i] = registers[i];
+        write_checked(output, offset_output + i, registers[i]);
     }
 }
 
@@ -220,7 +220,7 @@ fn copy_kernel_packed<T: Int, N: Size>(
         terminate!()
     }
 
-    let mut registers = Array::<Vector<T, N>>::new(vectors_per_thread);
+    let mut registers = Array::new(vectors_per_thread);
 
     #[unroll]
     for i in 0..vectors_per_thread {
@@ -230,7 +230,10 @@ fn copy_kernel_packed<T: Int, N: Size>(
         for k in 0..vector_size {
             let offset_input = offset_input + offset + k;
 
-            reg[k] = index_packed(input, offset_input, &in_shape, packed_dim, packing, rank);
+            reg.insert(
+                k,
+                index_packed(input, offset_input, &in_shape, packed_dim, packing, rank),
+            );
         }
         registers[i] = reg;
     }
@@ -370,7 +373,7 @@ pub fn copy_gpu_ref<R: Runtime>(
         address_type,
         out_vec,
         input,
-        output.into_tensor_arg(),
+        output.clone().into_buffer_arg(),
         out_layout,
         elems_per_unit,
         dtype,

@@ -57,15 +57,13 @@ pub enum Instruction {
     Unreachable,
     WorkgroupBarrier,
     StorageBarrier,
+    WorkgroupUniformLoad {
+        input: Variable,
+        out: Variable,
+    },
     // Index handles casting to correct local variable.
     Index {
         lhs: Variable,
-        rhs: Variable,
-        out: Variable,
-    },
-    // Index assign handles casting to correct output variable.
-    IndexAssign {
-        index: Variable,
         rhs: Variable,
         out: Variable,
     },
@@ -74,7 +72,19 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
-    Modulo {
+    Reference {
+        input: Variable,
+        out: Variable,
+    },
+    Load {
+        input: Variable,
+        out: Variable,
+    },
+    Store {
+        input: Variable,
+        out: Variable,
+    },
+    ModFloor {
         lhs: Variable,
         rhs: Variable,
         out: Variable,
@@ -363,44 +373,44 @@ pub enum Instruction {
         out: Variable,
     },
     AtomicCompareExchangeWeak {
-        lhs: Variable,
+        ptr: Variable,
         cmp: Variable,
         value: Variable,
         out: Variable,
     },
     AtomicAdd {
-        lhs: Variable,
-        rhs: Variable,
+        ptr: Variable,
+        value: Variable,
         out: Variable,
     },
     AtomicSub {
-        lhs: Variable,
-        rhs: Variable,
+        ptr: Variable,
+        value: Variable,
         out: Variable,
     },
     AtomicMax {
-        lhs: Variable,
-        rhs: Variable,
+        ptr: Variable,
+        value: Variable,
         out: Variable,
     },
     AtomicMin {
-        lhs: Variable,
-        rhs: Variable,
+        ptr: Variable,
+        value: Variable,
         out: Variable,
     },
     AtomicAnd {
-        lhs: Variable,
-        rhs: Variable,
+        ptr: Variable,
+        value: Variable,
         out: Variable,
     },
     AtomicOr {
-        lhs: Variable,
-        rhs: Variable,
+        ptr: Variable,
+        value: Variable,
         out: Variable,
     },
     AtomicXor {
-        lhs: Variable,
-        rhs: Variable,
+        ptr: Variable,
+        value: Variable,
         out: Variable,
     },
     Subgroup(Subgroup),
@@ -437,17 +447,19 @@ pub enum Instruction {
         inputs: Vec<Variable>,
         out: Variable,
     },
-    Copy {
-        input: Variable,
-        in_index: Variable,
+    Extract {
+        vector: Variable,
+        index: Variable,
         out: Variable,
-        out_index: Variable,
+    },
+    Insert {
+        vector: Variable,
+        index: Variable,
+        value: Variable,
     },
     CopyBulk {
-        input: Variable,
-        in_index: Variable,
-        out: Variable,
-        out_index: Variable,
+        source: Variable,
+        target: Variable,
         len: u32,
     },
     Comment {
@@ -463,15 +475,10 @@ impl Display for Instruction {
                 writeln!(f, "var {var}: {item};")
             }
             Instruction::Add { lhs, rhs, out } => {
-                if out.is_atomic() {
-                    assert_eq!(lhs, out, "Can't use regular addition on atomic");
-                    writeln!(f, "atomicAdd({out}, {rhs});")
-                } else {
-                    let lhs = lhs.fmt_cast_to(out.item());
-                    let rhs = rhs.fmt_cast_to(out.item());
-                    let out = out.fmt_left();
-                    writeln!(f, "{out} = {lhs} + {rhs};")
-                }
+                let lhs = lhs.fmt_cast_to(out.item());
+                let rhs = rhs.fmt_cast_to(out.item());
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {lhs} + {rhs};")
             }
             Instruction::Slice {
                 input,
@@ -502,33 +509,20 @@ impl Display for Instruction {
                 writeln!(f, "{out} = fma({a}, {b}, {c});")
             }
             Instruction::Min { lhs, rhs, out } => {
-                if out.is_atomic() {
-                    assert_eq!(lhs, out, "Can't use regular min on atomic");
-                    writeln!(f, "atomicMin({out}, {rhs});")
-                } else {
-                    let lhs = lhs.fmt_cast_to(out.item());
-                    let rhs = rhs.fmt_cast_to(out.item());
-                    let out = out.fmt_left();
-                    writeln!(f, "{out} = min({lhs}, {rhs});")
-                }
+                let lhs = lhs.fmt_cast_to(out.item());
+                let rhs = rhs.fmt_cast_to(out.item());
+                let out = out.fmt_left();
+                writeln!(f, "{out} = min({lhs}, {rhs});")
             }
             Instruction::Max { lhs, rhs, out } => {
-                if out.is_atomic() {
-                    assert_eq!(lhs, out, "Can't use regular max on atomic");
-                    writeln!(f, "atomicMax({out}, {rhs});")
-                } else {
-                    let lhs = lhs.fmt_cast_to(out.item());
-                    let rhs = rhs.fmt_cast_to(out.item());
-                    let out = out.fmt_left();
-                    writeln!(f, "{out} = max({lhs}, {rhs});")
-                }
+                let lhs = lhs.fmt_cast_to(out.item());
+                let rhs = rhs.fmt_cast_to(out.item());
+                let out = out.fmt_left();
+                writeln!(f, "{out} = max({lhs}, {rhs});")
             }
             Instruction::And { lhs, rhs, out } => {
                 let vector_size = out.item().vectorization_factor();
-                if out.is_atomic() {
-                    assert_eq!(lhs, out, "Can't use regular and on atomic");
-                    writeln!(f, "atomicAnd({out}, {rhs});")
-                } else if vector_size > 1 {
+                if vector_size > 1 {
                     let item = out.item();
                     let out = out.fmt_left();
                     writeln!(f, "{out} = {item}(")?;
@@ -545,10 +539,7 @@ impl Display for Instruction {
             }
             Instruction::Or { lhs, rhs, out } => {
                 let vector_size = out.item().vectorization_factor();
-                if out.is_atomic() {
-                    assert_eq!(lhs, out, "Can't use regular or on atomic");
-                    writeln!(f, "atomicOr({out}, {rhs});")
-                } else if vector_size > 1 {
+                if vector_size > 1 {
                     let item = out.item();
                     let out = out.fmt_left();
                     writeln!(f, "{out} = {item}(")?;
@@ -567,43 +558,26 @@ impl Display for Instruction {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = !{input};")
             }
-            Instruction::Index { lhs, rhs, out } => index(f, lhs, rhs, out, None, None),
-            Instruction::IndexAssign {
-                index: lhs,
-                rhs,
-                out,
-            } => index_assign(f, lhs, rhs, out, None),
-            Instruction::Copy {
-                input,
-                in_index,
-                out,
-                out_index,
-            } => {
-                let rhs = format!("{input}[{in_index}]");
-                let lhs = format!("{out}[{out_index}]");
-                writeln!(f, "{lhs} = {rhs};")
+            Instruction::Index { lhs, rhs, out } => {
+                writeln!(f, "let {out} = &{lhs}[{rhs}];")
             }
             Instruction::CopyBulk {
-                input,
-                in_index,
-                out,
-                out_index,
+                source,
+                target,
                 len,
             } => {
-                for i in 0..*len {
-                    let rhs = format!("{input}[{in_index} + {i}]");
-                    let lhs = format!("{out}[{out_index} + {i}]");
-                    writeln!(f, "{lhs} = {rhs};")?;
+                if *len > 1 {
+                    panic!("WGSL doesn't support bulk copy yet");
                 }
-                Ok(())
+                writeln!(f, "*{target} = *{source};")
             }
-            Instruction::Modulo { lhs, rhs, out } => {
+            Instruction::Remainder { lhs, rhs, out } => {
                 let lhs = lhs.fmt_cast_to(out.item());
                 let rhs = rhs.fmt_cast_to(out.item());
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {lhs} % {rhs};")
             }
-            Instruction::Remainder { lhs, rhs, out } => {
+            Instruction::ModFloor { lhs, rhs, out } => {
                 let f_type = out.item().with_elem(Elem::F32);
                 let ty = out.item();
                 let lhs_f = lhs.fmt_cast_to(f_type);
@@ -615,15 +589,10 @@ impl Display for Instruction {
                 writeln!(f, "{out} = {lhs} - {rhs} * {floor};")
             }
             Instruction::Sub { lhs, rhs, out } => {
-                if out.is_atomic() {
-                    assert_eq!(lhs, out, "Can't use regular sub on atomic");
-                    writeln!(f, "atomicSub({out}, {rhs});")
-                } else {
-                    let lhs = lhs.fmt_cast_to(out.item());
-                    let rhs = rhs.fmt_cast_to(out.item());
-                    let out = out.fmt_left();
-                    writeln!(f, "{out} = {lhs} - {rhs};")
-                }
+                let lhs = lhs.fmt_cast_to(out.item());
+                let rhs = rhs.fmt_cast_to(out.item());
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {lhs} - {rhs};")
             }
             Instruction::Mul { lhs, rhs, out } => {
                 let lhs = lhs.fmt_cast_to(out.item());
@@ -757,13 +726,7 @@ impl Display for Instruction {
                 let vec_left = out.item().vectorization_factor();
                 let vec_right = input.item().vectorization_factor();
 
-                if out.elem().is_atomic() {
-                    if !input.is_atomic() {
-                        writeln!(f, "let {out} = {input};")
-                    } else {
-                        writeln!(f, "let {out} = &{input};")
-                    }
-                } else if vec_left != vec_right {
+                if vec_left != vec_right {
                     if vec_right == 1 {
                         let input = input.fmt_cast_to(out.item());
                         let out = out.fmt_left();
@@ -781,6 +744,16 @@ impl Display for Instruction {
                     let out = out.fmt_left();
                     writeln!(f, "{out} = {input};")
                 }
+            }
+            Instruction::Reference { input, out } => {
+                writeln!(f, "let {out} = &{input};")
+            }
+            Instruction::Load { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = *{input};")
+            }
+            Instruction::Store { input, out } => {
+                writeln!(f, "*{out} = {input};")
             }
             Instruction::Metadata { info_offset, out } => {
                 let out = out.fmt_left();
@@ -884,17 +857,15 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Break => f.write_str("break;\n"),
             Instruction::WorkgroupBarrier => f.write_str("workgroupBarrier();\n"),
             Instruction::StorageBarrier => f.write_str("storageBarrier();\n"),
+            Instruction::WorkgroupUniformLoad { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = workgroupUniformLoad({input});")
+            }
             Instruction::Length { var, out } => {
                 let out = out.fmt_left();
 
-                match var {
-                    Variable::ConstantArray(_, _, length) => {
-                        writeln!(f, "{out} = {length}u;")
-                    }
-                    Variable::LocalArray(_, _, length) => {
-                        writeln!(f, "{out} = {length}u;")
-                    }
-                    Variable::SharedArray(_, _, length) => {
+                match var.item() {
+                    Item::Array(_, length) => {
                         writeln!(f, "{out} = {length}u;")
                     }
                     _ => {
@@ -1045,36 +1016,36 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 write!(f, "{out} = atomicExchange({lhs}, {rhs});")
             }
-            Instruction::AtomicAdd { lhs, rhs, out } => {
+            Instruction::AtomicAdd { ptr, value, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicAdd({lhs}, {rhs});")
+                write!(f, "{out} = atomicAdd({ptr}, {value});")
             }
-            Instruction::AtomicSub { lhs, rhs, out } => {
+            Instruction::AtomicSub { ptr, value, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicSub({lhs}, {rhs});")
+                write!(f, "{out} = atomicSub({ptr}, {value});")
             }
-            Instruction::AtomicMax { lhs, rhs, out } => {
+            Instruction::AtomicMax { ptr, value, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicMax({lhs}, {rhs});")
+                write!(f, "{out} = atomicMax({ptr}, {value});")
             }
-            Instruction::AtomicMin { lhs, rhs, out } => {
+            Instruction::AtomicMin { ptr, value, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicMin({lhs}, {rhs});")
+                write!(f, "{out} = atomicMin({ptr}, {value});")
             }
-            Instruction::AtomicAnd { lhs, rhs, out } => {
+            Instruction::AtomicAnd { ptr, value, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicAnd({lhs}, {rhs});")
+                write!(f, "{out} = atomicAnd({ptr}, {value});")
             }
-            Instruction::AtomicOr { lhs, rhs, out } => {
+            Instruction::AtomicOr { ptr, value, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicOr({lhs}, {rhs});")
+                write!(f, "{out} = atomicOr({ptr}, {value});")
             }
-            Instruction::AtomicXor { lhs, rhs, out } => {
+            Instruction::AtomicXor { ptr, value, out } => {
                 let out = out.fmt_left();
-                write!(f, "{out} = atomicXor({lhs}, {rhs});")
+                write!(f, "{out} = atomicXor({ptr}, {value});")
             }
             Instruction::AtomicCompareExchangeWeak {
-                lhs,
+                ptr,
                 cmp,
                 value,
                 out,
@@ -1083,7 +1054,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 writeln!(
                     f,
                     // For compatibility with cuda, only return old_value
-                    "{out} = atomicCompareExchangeWeak({lhs}, {cmp}, {value}).old_value;"
+                    "{out} = atomicCompareExchangeWeak({ptr}, {cmp}, {value}).old_value;"
                 )
             }
             Instruction::Negate { input, out } => {
@@ -1099,7 +1070,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                     // We need a check for vectorization factor 1 here, for compatibility with cuda.
                     // You can almost use sign here, however that does not correctly handle the case for x == 0.0.
                     // Therefore we use normalize with vec2, as there is no way to use a NaN literal in wgsl.
-                    let vec2_type = Item::Vec2(out.elem());
+                    let vec2_type = Item::Vector(out.elem(), 2);
                     let out = out.fmt_left();
                     writeln!(f, "{out} = normalize({vec2_type}({input}, 0.0)).x;")
                 } else {
@@ -1133,6 +1104,17 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {item}({});", inputs.join(", "))
             }
+            Instruction::Extract { vector, index, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {vector}[{index}];")
+            }
+            Instruction::Insert {
+                vector,
+                index,
+                value,
+            } => {
+                writeln!(f, "{vector}[{index}] = {value};")
+            }
             Instruction::Comment { content } => {
                 if content.contains('\n') {
                     writeln!(f, "/* {content} */")
@@ -1158,175 +1140,4 @@ fn comparison(
     let rhs = rhs.fmt_cast_to(item);
     let out = out.fmt_left();
     writeln!(f, "{out} = {lhs} {op} {rhs};")
-}
-
-struct IndexOffset {
-    var: Variable,
-    offset: Option<Variable>,
-    index: usize,
-}
-impl IndexOffset {
-    fn new(var: &Variable, offset: &Option<Variable>, index: usize) -> Self {
-        Self {
-            var: var.clone(),
-            offset: offset.clone(),
-            index,
-        }
-    }
-}
-
-impl Display for IndexOffset {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let var = self.var.index(self.index);
-
-        match &self.offset {
-            Some(offset) => {
-                let offset = offset.index(self.index);
-                write!(f, "{var} + {offset}")
-            }
-            None => write!(f, "{var}"),
-        }
-    }
-}
-
-fn index(
-    f: &mut std::fmt::Formatter<'_>,
-    lhs: &Variable,
-    rhs: &Variable,
-    out: &Variable,
-    offset: Option<Variable>,
-    len: Option<&Variable>,
-) -> core::fmt::Result {
-    let is_scalar = match lhs {
-        Variable::LocalMut { item, .. } => item.vectorization_factor() == 1,
-        Variable::LocalConst { item, .. } => item.vectorization_factor() == 1,
-        Variable::Constant(..) => true,
-        _ => false,
-    };
-
-    let (mut value, index) = if is_scalar {
-        (format!("{lhs}"), None)
-    } else {
-        let value = if let Some(offset) = offset {
-            format!("{lhs}[{rhs}+{offset}]")
-        } else {
-            format!("{lhs}[{rhs}]")
-        };
-
-        (value, Some(format!("{rhs}")))
-    };
-
-    if out.item().elem().is_atomic() {
-        // Atomic values don't support casting or bound checking - we just assign the reference.
-        value = format!("&{value}");
-        writeln!(f, "let {out} = {value};")
-    } else {
-        // Check for casting
-        if lhs.elem() != out.elem() {
-            value = lhs.item().fmt_cast_to(out.item(), value)
-        };
-
-        // Check for bounds.
-        if let Some(ind) = index
-            && let Some(len) = len
-        {
-            // Note: This is technically not 100% allowed. According to the WebGPU specification,
-            // any OOB access is a "dynamic error" which allows "many possible outcomes". In practice,
-            // both wgpu and Dawn handle this by either returning dummy data or clamping the index
-            // to valid bounds. This means it's harmless to use in a select.
-            let out_item = out.item();
-            value = format!("select({out_item}(0), {value}, {ind} < {len})");
-        };
-
-        let out = out.fmt_left();
-        writeln!(f, "{out} = {value};")
-    }
-}
-
-fn index_assign(
-    f: &mut std::fmt::Formatter<'_>,
-    lhs: &Variable,
-    rhs: &Variable,
-    out: &Variable,
-    offset: Option<Variable>,
-) -> core::fmt::Result {
-    match lhs.item() {
-        Item::Vec4(elem) => {
-            let item = Item::Scalar(elem);
-            let lhs0 = IndexOffset::new(lhs, &offset, 0);
-
-            let rhs0 = rhs.index(0).fmt_cast(item);
-            let rhs1 = rhs.index(1).fmt_cast(item);
-            let rhs2 = rhs.index(2).fmt_cast(item);
-            let rhs3 = rhs.index(3).fmt_cast(item);
-
-            write!(f, "{out}[{lhs0}] = vec4({rhs0}, {rhs1}, {rhs2}, {rhs3})")
-        }
-        Item::Vec3(elem) => {
-            let item = Item::Scalar(elem);
-            let lhs0 = IndexOffset::new(lhs, &offset, 0);
-
-            let rhs0 = rhs.index(0).fmt_cast(item);
-            let rhs1 = rhs.index(1).fmt_cast(item);
-            let rhs2 = rhs.index(2).fmt_cast(item);
-
-            writeln!(f, "{out}[{lhs0}] = vec3({rhs0}, {rhs1}, {rhs2});")
-        }
-        Item::Vec2(elem) => {
-            let item = Item::Scalar(elem);
-            let lhs0 = IndexOffset::new(lhs, &offset, 0);
-
-            let rhs0 = rhs.index(0).fmt_cast(item);
-            let rhs1 = rhs.index(1).fmt_cast(item);
-
-            writeln!(f, "{out}[{lhs0}] = vec2({rhs0}, {rhs1});")
-        }
-        Item::Scalar(_elem) => {
-            let is_array = match out {
-                Variable::GlobalInputArray(_, _)
-                | Variable::GlobalOutputArray(_, _)
-                | Variable::SharedArray(_, _, _)
-                | Variable::LocalArray(_, _, _) => true,
-                Variable::Named { is_array, .. } => *is_array,
-                _ => false,
-            };
-
-            if !is_array {
-                let elem_out = out.elem();
-                let casting_type = match rhs.item() {
-                    Item::Vec4(_) => Item::Vec4(elem_out),
-                    Item::Vec3(_) => Item::Vec3(elem_out),
-                    Item::Vec2(_) => Item::Vec2(elem_out),
-                    Item::Scalar(_) => Item::Scalar(elem_out),
-                };
-                let rhs = rhs.fmt_cast_to(casting_type);
-                if matches!(out.item(), Item::Scalar(_)) {
-                    writeln!(f, "{out} = {rhs};")
-                } else {
-                    writeln!(f, "{out}[{lhs}] = {rhs};")
-                }
-            } else {
-                let item_rhs = rhs.item();
-                let item_out = out.item();
-                let lhs = IndexOffset::new(lhs, &offset, 0);
-
-                let vectorization_factor = item_out.vectorization_factor();
-                if vectorization_factor > item_rhs.vectorization_factor() {
-                    let casting_type = Item::Scalar(*item_out.elem());
-                    write!(f, "{out}[{lhs}] = vec{vectorization_factor}(")?;
-                    for i in 0..vectorization_factor {
-                        f.write_str(&rhs.index(i).fmt_cast(casting_type))?;
-
-                        if i < vectorization_factor - 1 {
-                            f.write_str(",")?;
-                        }
-                    }
-                    f.write_str(");\n")
-                } else {
-                    let rhs = rhs.fmt_cast_to(item_out);
-                    writeln!(f, "{out}[{lhs}] = {rhs};")
-                }
-            }
-        }
-    }
 }

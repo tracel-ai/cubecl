@@ -1,243 +1,177 @@
 use cubecl_ir::{
-    Arithmetic, BinaryOperator, Comparison, ElemType, IndexAssignOperator, IndexOperator,
-    Instruction, ManagedVariable, Operation, Operator, Scope, Type, UnaryOperator, Variable,
-    VariableKind, VectorSize,
+    Arithmetic, BinaryOperands, Comparison, ElemType, IndexOperands, Instruction, Memory,
+    Operation, Scope, Type, UnaryOperands, Variable, VectorSize,
 };
 use cubecl_macros::cube;
 
-use crate::{
-    self as cubecl,
-    prelude::{CubeIndex, CubeType, Int, NativeExpand, eq, rem},
-};
+use crate::{self as cubecl, prelude::*};
 
-pub(crate) fn binary_expand<F, Op>(
-    scope: &mut Scope,
-    lhs: ManagedVariable,
-    rhs: ManagedVariable,
-    func: F,
-) -> ManagedVariable
+pub(crate) fn read_variable(scope: &Scope, var: Variable) -> Variable {
+    if let Type::Pointer(inner, _) = var.ty {
+        let out = scope.create_local(*inner);
+        scope.register(Instruction::new(Memory::Load(var), out));
+        out
+    } else {
+        var
+    }
+}
+
+pub(crate) fn binary_expand<F, Op>(scope: &Scope, lhs: Variable, rhs: Variable, func: F) -> Variable
 where
-    F: Fn(BinaryOperator) -> Op,
+    F: Fn(BinaryOperands) -> Op,
     Op: Into<Operation>,
 {
-    let lhs = lhs.consume();
-    let rhs = rhs.consume();
-
-    let item_lhs = lhs.ty;
-    let item_rhs = rhs.ty;
+    let item_lhs = lhs.value_type();
+    let item_rhs = rhs.value_type();
 
     let vector_size = find_vectorization(item_lhs, item_rhs);
 
     let item = item_lhs.with_vector_size(vector_size);
 
     let output = scope.create_local(item);
-    let out = *output;
 
-    let op = func(BinaryOperator { lhs, rhs });
+    let op = func(BinaryOperands { lhs, rhs });
 
-    scope.register(Instruction::new(op, out));
-
-    output
-}
-
-pub(crate) fn index_expand_no_vec<F>(
-    scope: &mut Scope,
-    list: ManagedVariable,
-    index: ManagedVariable,
-    func: F,
-) -> ManagedVariable
-where
-    F: Fn(IndexOperator) -> Operator,
-{
-    let list = list.consume();
-    let index = index.consume();
-
-    let item_lhs = list.ty;
-
-    let item = item_lhs.with_vector_size(0);
-
-    let output = scope.create_local(item);
-    let out = *output;
-
-    let op = func(IndexOperator {
-        list,
-        index,
-        vector_size: 0,
-        unroll_factor: 1,
-    });
-
-    scope.register(Instruction::new(op, out));
+    scope.register(Instruction::new(op, output));
 
     output
 }
-pub(crate) fn index_expand<F, Op>(
-    scope: &mut Scope,
-    list: ManagedVariable,
-    index: ManagedVariable,
+
+pub(crate) fn index_expand(
+    scope: &Scope,
+    list: Variable,
+    index: Variable,
     vector_size: Option<VectorSize>,
-    func: F,
-) -> ManagedVariable
-where
-    F: Fn(IndexOperator) -> Op,
-    Op: Into<Operation>,
-{
-    let list = list.consume();
-    let index = index.consume();
+    checked: bool,
+) -> Variable {
+    let item_lhs = list.value_type();
 
-    let item_lhs = list.ty;
-    let item_rhs = index.ty;
-
-    let vec = if let Some(vector_size) = vector_size {
-        vector_size
+    let ty = if let Some(vector_size) = vector_size {
+        item_lhs.with_vector_size(vector_size)
     } else {
-        find_vectorization(item_lhs, item_rhs)
+        item_lhs
     };
 
-    let item = item_lhs.with_vector_size(vec);
+    let class = list.address_space();
+    let output = scope.create_local(Type::pointer(ty, class));
 
-    let output = scope.create_local(item);
-    let out = *output;
-
-    let op = func(IndexOperator {
+    let op = Memory::Index(IndexOperands {
         list,
         index,
         vector_size: vector_size.unwrap_or(0),
         unroll_factor: 1,
+        checked,
     });
 
-    scope.register(Instruction::new(op, out));
+    scope.register(Instruction::new(op, output));
 
     output
 }
 
 pub(crate) fn binary_expand_fixed_output<F>(
-    scope: &mut Scope,
-    lhs: ManagedVariable,
-    rhs: ManagedVariable,
+    scope: &Scope,
+    lhs: Variable,
+    rhs: Variable,
     out_item: Type,
     func: F,
-) -> ManagedVariable
+) -> Variable
 where
-    F: Fn(BinaryOperator) -> Arithmetic,
+    F: Fn(BinaryOperands) -> Arithmetic,
 {
-    let lhs_var = lhs.consume();
-    let rhs_var = rhs.consume();
-
     let out = scope.create_local(out_item);
+    let op = func(BinaryOperands { lhs, rhs });
 
-    let out_var = *out;
-
-    let op = func(BinaryOperator {
-        lhs: lhs_var,
-        rhs: rhs_var,
-    });
-
-    scope.register(Instruction::new(op, out_var));
+    scope.register(Instruction::new(op, out));
 
     out
 }
 
-pub(crate) fn cmp_expand<F>(
-    scope: &mut Scope,
-    lhs: ManagedVariable,
-    rhs: ManagedVariable,
-    func: F,
-) -> ManagedVariable
+pub(crate) fn cmp_expand<F>(scope: &Scope, lhs: Variable, rhs: Variable, func: F) -> Variable
 where
-    F: Fn(BinaryOperator) -> Comparison,
+    F: Fn(BinaryOperands) -> Comparison,
 {
-    let lhs = lhs.consume();
-    let rhs = rhs.consume();
-
-    let item_lhs = lhs.ty;
-    let item_rhs = rhs.ty;
+    let item_lhs = lhs.value_type();
+    let item_rhs = rhs.value_type();
 
     let vector_size = find_vectorization(item_lhs, item_rhs);
 
     let out_item = Type::scalar(ElemType::Bool).with_vector_size(vector_size);
 
     let out = scope.create_local(out_item);
-    let out_var = *out;
 
-    let op = func(BinaryOperator { lhs, rhs });
+    let op = func(BinaryOperands { lhs, rhs });
 
-    scope.register(Instruction::new(op, out_var));
+    scope.register(Instruction::new(op, out));
 
     out
 }
 
-pub(crate) fn assign_op_expand<F, Op>(
-    scope: &mut Scope,
-    lhs: ManagedVariable,
-    rhs: ManagedVariable,
-    func: F,
-) -> ManagedVariable
-where
-    F: Fn(BinaryOperator) -> Op,
+pub(crate) fn assign_op_expand<T: CubeType, Op>(
+    scope: &Scope,
+    lhs: &mut NativeExpand<T>,
+    rhs: NativeExpand<T>,
+    func: impl Fn(BinaryOperands) -> Op,
+) where
     Op: Into<Operation>,
+    NativeExpand<T>: DerefExpand<Target = NativeExpand<T>>,
 {
+    let lhs_value = lhs.__expand_deref_method(scope).expand;
+    let lhs = lhs.expand;
+    let rhs = rhs.expand;
+
     if lhs.is_immutable() {
         panic!("Can't have a mutable operation on a const variable. Try to use `RuntimeCell`.");
     }
-    let lhs_var: Variable = *lhs;
-    let rhs: Variable = *rhs;
 
-    let op = func(BinaryOperator { lhs: lhs_var, rhs });
+    let tmp = scope.create_local(lhs.value_type());
+    let op = func(BinaryOperands {
+        lhs: lhs_value,
+        rhs,
+    });
 
-    scope.register(Instruction::new(op, lhs_var));
-
-    lhs
+    scope.register(Instruction::new(op, tmp));
+    assign::expand_element(scope, tmp, lhs);
 }
 
-pub fn unary_expand<F, Op>(scope: &mut Scope, input: ManagedVariable, func: F) -> ManagedVariable
+pub fn unary_expand<F, Op>(scope: &Scope, input: Variable, func: F) -> Variable
 where
-    F: Fn(UnaryOperator) -> Op,
+    F: Fn(UnaryOperands) -> Op,
     Op: Into<Operation>,
 {
-    let input = input.consume();
-    let item = input.ty;
+    let item = input.value_type();
 
     let out = scope.create_local(item);
-    let out_var = *out;
 
-    let op = func(UnaryOperator { input });
+    let op = func(UnaryOperands { input });
 
-    scope.register(Instruction::new(op, out_var));
+    scope.register(Instruction::new(op, out));
 
     out
 }
 
 pub fn unary_expand_fixed_output<F, Op>(
-    scope: &mut Scope,
-    input: ManagedVariable,
+    scope: &Scope,
+    input: Variable,
     out_item: Type,
     func: F,
-) -> ManagedVariable
+) -> Variable
 where
-    F: Fn(UnaryOperator) -> Op,
+    F: Fn(UnaryOperands) -> Op,
     Op: Into<Operation>,
 {
-    let input = input.consume();
     let output = scope.create_local(out_item);
-    let out = *output;
 
-    let op = func(UnaryOperator { input });
+    let op = func(UnaryOperands { input });
 
-    scope.register(Instruction::new(op, out));
+    scope.register(Instruction::new(op, output));
 
     output
 }
 
-pub fn init_expand<F>(
-    scope: &mut Scope,
-    input: ManagedVariable,
-    mutable: bool,
-    func: F,
-) -> ManagedVariable
+pub fn init_expand<F>(scope: &Scope, input: Variable, mutable: bool, func: F) -> Variable
 where
     F: Fn(Variable) -> Operation,
 {
-    let input_var: Variable = *input;
     let item = input.ty;
 
     let out = if mutable {
@@ -246,10 +180,8 @@ where
         scope.create_local(item)
     };
 
-    let out_var = *out;
-
-    let op = func(input_var);
-    scope.register(Instruction::new(op, out_var));
+    let op = func(input);
+    scope.register(Instruction::new(op, out));
 
     out
 }
@@ -262,66 +194,37 @@ pub(crate) fn find_vectorization(lhs: Type, rhs: Type) -> VectorSize {
     }
 }
 
-pub fn array_assign_binary_op_expand<
-    A: CubeType + CubeIndex,
+pub fn assign_binary_op_expand<
+    A: CubeType,
     V: CubeType,
-    F: Fn(BinaryOperator) -> Op,
+    F: Fn(BinaryOperands) -> Op,
     Op: Into<Operation>,
 >(
-    scope: &mut Scope,
-    array: NativeExpand<A>,
-    index: NativeExpand<usize>,
-    value: NativeExpand<V>,
+    scope: &Scope,
+    lhs: &mut NativeExpand<A>,
+    rhs: NativeExpand<V>,
     func: F,
 ) where
-    A::Output: CubeType + Sized,
+    NativeExpand<A>: DerefExpand<Target = NativeExpand<A>>,
 {
-    let array: ManagedVariable = array.into();
-    let index: ManagedVariable = index.into();
-    let value: ManagedVariable = value.into();
+    let lhs_value = lhs.__expand_deref_method(scope).expand;
+    let lhs: Variable = lhs.expand;
+    let rhs: Variable = rhs.into();
 
-    let array_item = match array.kind {
-        // In that case, the array is a vector.
-        VariableKind::LocalMut { .. } => array.ty.with_vector_size(0),
-        _ => array.ty,
-    };
-    let array_value = scope.create_local(array_item);
-
-    let read = Instruction::new(
-        Operator::Index(IndexOperator {
-            list: *array,
-            index: *index,
-            vector_size: 0,
-            unroll_factor: 1,
+    scope.register(Instruction::new(
+        func(BinaryOperands {
+            lhs: lhs_value,
+            rhs,
         }),
-        *array_value,
-    );
-    let array_value = array_value.consume();
-    let op_out = scope.create_local(array_item);
-    let calculate = Instruction::new(
-        func(BinaryOperator {
-            lhs: array_value,
-            rhs: *value,
-        }),
-        *op_out,
-    );
-
-    let write = Operator::IndexAssign(IndexAssignOperator {
-        index: *index,
-        value: op_out.consume(),
-        vector_size: 0,
-        unroll_factor: 1,
-    });
-    scope.register(read);
-    scope.register(calculate);
-    scope.register(Instruction::new(write, *array));
+        lhs,
+    ));
 }
 
 pub trait DivCeil: Int + CubeType<ExpandType: DivCeilExpand<Self>> {
     fn div_ceil(self, divisor: Self) -> Self;
 
     fn __expand_div_ceil(
-        scope: &mut Scope,
+        scope: &Scope,
         a: NativeExpand<Self>,
         b: NativeExpand<Self>,
     ) -> NativeExpand<Self> {
@@ -330,15 +233,11 @@ pub trait DivCeil: Int + CubeType<ExpandType: DivCeilExpand<Self>> {
 }
 
 pub trait DivCeilExpand<E: Int> {
-    fn __expand_div_ceil_method(self, scope: &mut Scope, divisor: Self) -> Self;
+    fn __expand_div_ceil_method(self, scope: &Scope, divisor: Self) -> Self;
 }
 
 impl<E: DivCeil> DivCeilExpand<E> for NativeExpand<E> {
-    fn __expand_div_ceil_method(
-        self,
-        scope: &mut Scope,
-        divisor: NativeExpand<E>,
-    ) -> NativeExpand<E> {
+    fn __expand_div_ceil_method(self, scope: &Scope, divisor: NativeExpand<E>) -> NativeExpand<E> {
         div_ceil::expand::<E>(scope, self, divisor)
     }
 }
@@ -361,11 +260,11 @@ impl_div_ceil!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 impl<E: Int> NativeExpand<E> {
     pub fn __expand_is_multiple_of_method(
         self,
-        scope: &mut Scope,
+        scope: &Scope,
         factor: NativeExpand<E>,
     ) -> NativeExpand<bool> {
-        let modulo = rem::expand(scope, self, factor);
-        eq::expand(scope, modulo, E::from_int(0).into())
+        let modulo = self.__expand_rem_method(scope, factor);
+        modulo.__expand_eq_method(scope, &E::from_int(0).into())
     }
 }
 

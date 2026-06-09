@@ -1,11 +1,9 @@
-use std::{
-    collections::{HashMap, HashSet},
-    ops::Deref,
-};
+use core::ops::Deref;
 
 use cubecl_ir::Id;
+use hashbrown::{HashMap, HashSet};
 
-use crate::{NodeIndex, Optimizer};
+use crate::{Function, GlobalState, NodeIndex, local_variable_id};
 
 use super::Analysis;
 
@@ -24,15 +22,17 @@ impl Deref for Writes {
 }
 
 impl Writes {
-    pub fn new(opt: &mut Optimizer) -> Self {
-        let nodes = opt.node_ids().into_iter().map(|it| (it, HashSet::new()));
+    pub fn new(func: &mut Function, state: &GlobalState) -> Self {
+        let nodes = func.node_ids().into_iter().map(|it| (it, HashSet::new()));
         let mut writes: HashMap<NodeIndex, HashSet<Id>> = nodes.collect();
-        for block in opt.node_ids() {
-            let ops = opt.program[block].ops.clone();
-            for inst in ops.borrow().values() {
-                if let Some(id) = inst.out.as_ref().and_then(|it| opt.local_variable_id(it)) {
-                    writes.get_mut(&block).unwrap().insert(id);
-                }
+        for block in func.node_ids() {
+            let ops = func[block].ops.clone();
+            for inst in ops.borrow_mut().values_mut() {
+                func.visit_instruction_write(state, inst, |_, var| {
+                    if let Some(id) = local_variable_id(var) {
+                        writes.get_mut(&block).unwrap().insert(id);
+                    }
+                });
             }
         }
         Writes { writes }
@@ -40,7 +40,7 @@ impl Writes {
 }
 
 impl Analysis for Writes {
-    fn init(opt: &mut crate::Optimizer) -> Self {
-        Writes::new(opt)
+    fn init(func: &mut crate::Function, state: &GlobalState) -> Self {
+        Writes::new(func, state)
     }
 }

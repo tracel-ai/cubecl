@@ -3,9 +3,10 @@ use cubecl_core::{
     ir::{BarrierLevel, ConstantValue, Id},
     ue8m0,
 };
+use cubecl_runtime::kernel::Visibility;
 use std::fmt::{Display, Formatter};
 
-use crate::shared::{FP4Kind, FP8Kind};
+use crate::shared::{FP4Kind, FP8Kind, PointerClass};
 
 use super::{COUNTER_TMP_VAR, Dialect, Elem, Fragment, FragmentIdent, Item};
 
@@ -22,7 +23,7 @@ pub trait FmtLeft: Display {
     fn fmt_left(&self) -> String;
 }
 
-#[derive(new)]
+#[derive(new, Debug)]
 pub struct OptimizedArgs<const N: usize, D: Dialect> {
     pub args: [Variable<D>; N],
     pub optimization_factor: Option<usize>,
@@ -63,8 +64,7 @@ pub enum Variable<D: Dialect> {
     ClusterIndexX,
     ClusterIndexY,
     ClusterIndexZ,
-    GlobalInputArray(Id, Item<D>),
-    GlobalOutputArray(Id, Item<D>),
+    GlobalBuffer(Id, Item<D>),
     GlobalScalar {
         id: Id,
         elem: Elem<D>,
@@ -122,61 +122,40 @@ impl<D: Dialect> Component<D> for Variable<D> {
 
     fn item(&self) -> Item<D> {
         match self {
-            Variable::AbsolutePos(elem) => Item::scalar(*elem, true),
-            Variable::AbsolutePosBaseName => Item {
-                elem: Elem::U32,
-                vectorization: 3,
-                native: true,
-            },
-            Variable::AbsolutePosX => Item::scalar(Elem::U32, true),
-            Variable::AbsolutePosY => Item::scalar(Elem::U32, true),
-            Variable::AbsolutePosZ => Item::scalar(Elem::U32, true),
-            Variable::CubeCount(elem) => Item::scalar(*elem, true),
-            Variable::CubeCountBaseName => Item {
-                elem: Elem::U32,
-                vectorization: 3,
-                native: true,
-            },
-            Variable::CubeCountX => Item::scalar(Elem::U32, true),
-            Variable::CubeCountY => Item::scalar(Elem::U32, true),
-            Variable::CubeCountZ => Item::scalar(Elem::U32, true),
-            Variable::CubeDimBaseName => Item {
-                elem: Elem::U32,
-                vectorization: 3,
-                native: true,
-            },
-            Variable::CubeDim => Item::scalar(Elem::U32, true),
-            Variable::CubeDimX => Item::scalar(Elem::U32, true),
-            Variable::CubeDimY => Item::scalar(Elem::U32, true),
-            Variable::CubeDimZ => Item::scalar(Elem::U32, true),
-            Variable::CubePos(elem) => Item::scalar(*elem, true),
-            Variable::CubePosBaseName => Item {
-                elem: Elem::U32,
-                vectorization: 3,
-                native: true,
-            },
-            Variable::CubePosX => Item::scalar(Elem::U32, true),
-            Variable::CubePosY => Item::scalar(Elem::U32, true),
-            Variable::CubePosZ => Item::scalar(Elem::U32, true),
-            Variable::UnitPos => Item::scalar(Elem::U32, true),
-            Variable::UnitPosBaseName => Item {
-                elem: Elem::U32,
-                vectorization: 3,
-                native: true,
-            },
-            Variable::UnitPosX => Item::scalar(Elem::U32, true),
-            Variable::UnitPosY => Item::scalar(Elem::U32, true),
-            Variable::UnitPosZ => Item::scalar(Elem::U32, true),
-            Variable::PlaneDim => Item::scalar(Elem::U32, true),
-            Variable::PlaneDimChecked => Item::scalar(Elem::U32, true),
-            Variable::PlanePos => Item::scalar(Elem::U32, true),
-            Variable::UnitPosPlane => Item::scalar(Elem::U32, true),
-            Variable::ClusterRank => Item::scalar(Elem::U32, true),
-            Variable::ClusterIndexX => Item::scalar(Elem::U32, true),
-            Variable::ClusterIndexY => Item::scalar(Elem::U32, true),
-            Variable::ClusterIndexZ => Item::scalar(Elem::U32, true),
-            Variable::GlobalInputArray(_, e) => *e,
-            Variable::GlobalOutputArray(_, e) => *e,
+            Variable::AbsolutePos(elem) => Item::Scalar(*elem),
+            Variable::AbsolutePosBaseName => Item::NativeVector(Elem::U32, 3),
+            Variable::AbsolutePosX => Item::Scalar(Elem::U32),
+            Variable::AbsolutePosY => Item::Scalar(Elem::U32),
+            Variable::AbsolutePosZ => Item::Scalar(Elem::U32),
+            Variable::CubeCount(elem) => Item::Scalar(*elem),
+            Variable::CubeCountBaseName => Item::NativeVector(Elem::U32, 3),
+            Variable::CubeCountX => Item::Scalar(Elem::U32),
+            Variable::CubeCountY => Item::Scalar(Elem::U32),
+            Variable::CubeCountZ => Item::Scalar(Elem::U32),
+            Variable::CubeDimBaseName => Item::NativeVector(Elem::U32, 3),
+            Variable::CubeDim => Item::Scalar(Elem::U32),
+            Variable::CubeDimX => Item::Scalar(Elem::U32),
+            Variable::CubeDimY => Item::Scalar(Elem::U32),
+            Variable::CubeDimZ => Item::Scalar(Elem::U32),
+            Variable::CubePos(elem) => Item::Scalar(*elem),
+            Variable::CubePosBaseName => Item::NativeVector(Elem::U32, 3),
+            Variable::CubePosX => Item::Scalar(Elem::U32),
+            Variable::CubePosY => Item::Scalar(Elem::U32),
+            Variable::CubePosZ => Item::Scalar(Elem::U32),
+            Variable::UnitPos => Item::Scalar(Elem::U32),
+            Variable::UnitPosBaseName => Item::NativeVector(Elem::U32, 3),
+            Variable::UnitPosX => Item::Scalar(Elem::U32),
+            Variable::UnitPosY => Item::Scalar(Elem::U32),
+            Variable::UnitPosZ => Item::Scalar(Elem::U32),
+            Variable::PlaneDim => Item::Scalar(Elem::U32),
+            Variable::PlaneDimChecked => Item::Scalar(Elem::U32),
+            Variable::PlanePos => Item::Scalar(Elem::U32),
+            Variable::UnitPosPlane => Item::Scalar(Elem::U32),
+            Variable::ClusterRank => Item::Scalar(Elem::U32),
+            Variable::ClusterIndexX => Item::Scalar(Elem::U32),
+            Variable::ClusterIndexY => Item::Scalar(Elem::U32),
+            Variable::ClusterIndexZ => Item::Scalar(Elem::U32),
+            Variable::GlobalBuffer(_, e) => *e,
             Variable::LocalArray(_, e, _) => *e,
             Variable::SharedArray(_, e, _) => *e,
             Variable::Shared(_, e) => *e,
@@ -186,12 +165,12 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::Named { item, .. } => *item,
             Variable::Slice { item, .. } => *item,
             Variable::Constant(_, e) => *e,
-            Variable::GlobalScalar { elem, .. } => Item::scalar(*elem, false),
-            Variable::WmmaFragment { frag, .. } => Item::scalar(frag.elem, false),
+            Variable::GlobalScalar { elem, .. } => Item::Scalar(*elem),
+            Variable::WmmaFragment { frag, .. } => Item::Scalar(frag.elem),
             Variable::Tmp { item, .. } => *item,
             Variable::Pipeline { .. }
             | Variable::Barrier { .. }
-            | Variable::BarrierToken { .. } => Item::new(Elem::Bool, 1, false),
+            | Variable::BarrierToken { .. } => Item::Scalar(Elem::Bool),
             Variable::TensorMap(_) => unreachable!(),
         }
     }
@@ -200,10 +179,13 @@ impl<D: Dialect> Component<D> for Variable<D> {
         if let Variable::Tmp { is_const, .. } = self {
             return *is_const;
         }
+        if let Item::Pointer(_, PointerClass::Global(Visibility::Read)) = self.item() {
+            return true;
+        }
 
         matches!(
             self,
-            Variable::LocalConst { .. } | Variable::GlobalInputArray { .. }
+            Variable::LocalConst { .. } | Variable::GlobalBuffer { .. }
         )
     }
 }
@@ -233,23 +215,22 @@ pub(crate) fn format_const<D: Dialect>(number: &ConstantValue, item: &Item<D>) -
 impl<D: Dialect> Display for Variable<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::GlobalInputArray(id, _) => f.write_fmt(format_args!("buffer_{id}")),
-            Variable::GlobalOutputArray(id, _) => write!(f, "buffer_{id}"),
+            Variable::GlobalBuffer(id, _) => write!(f, "buffer_{id}"),
             Variable::TensorMap(id) => write!(f, "tensor_map_{id}"),
-            Variable::LocalMut { id, .. } => f.write_fmt(format_args!("l_mut_{id}")),
-            Variable::LocalConst { id, .. } => f.write_fmt(format_args!("l_{id}")),
-            Variable::Named { name, .. } => f.write_fmt(format_args!("{name}")),
+            Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
+            Variable::LocalConst { id, .. } => write!(f, "l_{id}"),
+            Variable::Named { name, .. } => write!(f, "{name}"),
             Variable::Slice { id, .. } => {
                 write!(f, "slice_{id}")
             }
             Variable::GlobalScalar { id, elem } => write!(f, "info.scalars_{elem}[{id}]"),
-            Variable::Constant(number, item) if item.vectorization <= 1 => {
+            Variable::Constant(number, item) if item.vectorization() <= 1 => {
                 let value = format_const(number, item);
                 write!(f, "{item}({value})")
             }
             Variable::Constant(number, item) => {
                 let number = format_const(number, item);
-                let values = (0..item.vectorization)
+                let values = (0..item.vectorization())
                     .map(|_| format!("{}({number})", item.elem()))
                     .collect::<Vec<_>>();
                 write!(f, "{item} {{ {} }}", values.join(","))
@@ -292,7 +273,7 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::ClusterIndexY => D::compile_cluster_pos_y(f),
             Variable::ClusterIndexZ => D::compile_cluster_pos_z(f),
 
-            Variable::ConstantArray(number, _, _) => f.write_fmt(format_args!("arrays_{number}")),
+            Variable::ConstantArray(number, _, _) => write!(f, "arrays_{number}"),
             Variable::LocalArray(id, _, _) => {
                 write!(f, "l_arr_{id}")
             }
@@ -401,12 +382,12 @@ impl<D: Dialect> Variable<D> {
         if is_optimized {
             let vectorization_before = args
                 .iter()
-                .map(|var| var.item().vectorization)
+                .map(|var| var.item().vectorization())
                 .max()
                 .unwrap();
             let vectorization_after = args_after
                 .iter()
-                .map(|var| var.item().vectorization)
+                .map(|var| var.item().vectorization())
                 .max()
                 .unwrap();
 
@@ -418,12 +399,7 @@ impl<D: Dialect> Variable<D> {
 
     pub fn optimized(&self) -> Self {
         match self {
-            Variable::GlobalInputArray(id, item) => {
-                Variable::GlobalInputArray(*id, item.optimized())
-            }
-            Variable::GlobalOutputArray(id, item) => {
-                Variable::GlobalOutputArray(*id, item.optimized())
-            }
+            Variable::GlobalBuffer(id, item) => Variable::GlobalBuffer(*id, item.optimized()),
             Variable::LocalMut { id, item } => Variable::LocalMut {
                 id: *id,
                 item: item.optimized(),
@@ -450,17 +426,17 @@ impl<D: Dialect> Variable<D> {
                 is_const: *is_const,
             },
             Variable::SharedArray(id, item, size) => {
-                let before = item.vectorization;
+                let before = item.vectorization();
                 let item = item.optimized();
-                let after = item.vectorization;
+                let after = item.vectorization();
                 let scaling = before / after;
 
                 Variable::SharedArray(*id, item, size / scaling)
             }
             Variable::LocalArray(id, item, size) => {
-                let before = item.vectorization;
+                let before = item.vectorization();
                 let item = item.optimized();
-                let after = item.vectorization;
+                let after = item.vectorization();
                 let scaling = before / after;
 
                 Variable::LocalArray(*id, item.optimized(), size / scaling)
@@ -509,8 +485,7 @@ impl<D: Dialect> Variable<D> {
             Variable::BarrierToken { .. } => false,
             Variable::ConstantArray(_, _, _) => false,
             Variable::Constant(_, _) => true,
-            Variable::GlobalInputArray(_, _) => false,
-            Variable::GlobalOutputArray(_, _) => false,
+            Variable::GlobalBuffer(_, _) => false,
             Variable::GlobalScalar { .. } => true,
             Variable::LocalArray(_, _, _) => false,
             Variable::LocalConst { .. } => false,
@@ -540,8 +515,7 @@ impl<D: Dialect> Variable<D> {
 
     pub fn id(&self) -> Option<Id> {
         match self {
-            Variable::GlobalInputArray(id, ..) => Some(*id),
-            Variable::GlobalOutputArray(id, ..) => Some(*id),
+            Variable::GlobalBuffer(id, ..) => Some(*id),
             Variable::GlobalScalar { id, .. } => Some(*id),
             Variable::ConstantArray(id, ..) => Some(*id),
             Variable::LocalMut { id, .. } => Some(*id),
@@ -564,9 +538,12 @@ impl<D: Dialect> Variable<D> {
         match self {
             Variable::Slice { .. }
             | Variable::SharedArray(_, _, _)
-            | Variable::GlobalInputArray(_, _)
-            | Variable::GlobalOutputArray(_, _) => format!("{self}"),
-            _ => format!("&{self}"),
+            | Variable::GlobalBuffer(_, _) => format!("{self}"),
+            other => match other.item() {
+                Item::Array(..) => format!("{other}.data"),
+                Item::DynamicArray(..) | Item::Pointer(..) => format!("{other}"),
+                _ => format!("&{other}"),
+            },
         }
     }
 
@@ -578,14 +555,28 @@ impl<D: Dialect> Variable<D> {
             format!("{item}({self})")
         }
     }
+
+    /// Ensure a variable is a named lvalue, reassigning to a temporary if necessary.
+    /// This is required for reinterpreting constants.
+    pub fn ensure_lvalue(&self, f: &mut Formatter<'_>) -> Result<Variable<D>, core::fmt::Error> {
+        if matches!(self, Variable::Constant(..)) {
+            let mut tmp = Variable::tmp(self.item());
+            tmp.to_const();
+            writeln!(f, "{} = {self};", tmp.fmt_left())?;
+            Ok(tmp)
+        } else {
+            Ok(*self)
+        }
+    }
 }
 
 impl<D: Dialect> FmtLeft for Variable<D> {
     fn fmt_left(&self) -> String {
         match self {
-            Self::LocalConst { item, .. } => match item.elem {
-                Elem::Atomic(_) => {
-                    format!("{item}* {self}")
+            Self::LocalConst { item, .. } => match item {
+                // Pointer constness is determined by the type, not variable kind
+                Item::Pointer(..) => {
+                    format!("{item} {self}")
                 }
                 _ => {
                     format!("const {item} {self}")
@@ -601,14 +592,11 @@ impl<D: Dialect> FmtLeft for Variable<D> {
                 if *is_declared {
                     return format!("{self}");
                 }
-                if *is_ptr {
-                    if *is_const {
-                        return format!("const {item} *{self}");
-                    }
-                    return format!("{item} *{self}");
+                if *is_const && !*is_ptr {
+                    format!("const {item} {self}")
+                } else {
+                    format!("{item} {self}")
                 }
-
-                format!("{item} {self}")
             }
             var => format!("{var}"),
         }
@@ -645,26 +633,32 @@ impl<D: Dialect> Display for IndexedVariable<D> {
             return write!(f, "{}({value})", item.elem());
         }
 
-        let ref_ = matches!(var, Variable::LocalConst { .. })
-            .then_some("const&")
-            .unwrap_or("&");
+        let item = var.item();
+        let addr_space = D::address_space_for_variable(&self.var);
+        let ty = match var {
+            _ if item.is_ptr() => {
+                format!("{item}")
+            }
+            Variable::LocalConst { item, .. } => format!("{addr_space}{item} const&"),
+            _ => format!("{addr_space}{item}&"),
+        };
+        let accessor = match var.item().is_ptr() {
+            true => "->",
+            false => ".",
+        };
 
-        if self.var.item().vectorization > 1 {
+        if self.var.item().vectorization() > 1 {
             if self.optimized {
-                let item = self.var.item();
-                let addr_space = D::address_space_for_variable(&self.var);
                 write!(
                     f,
-                    "(reinterpret_cast<{addr_space}{item} {ref_}>({var})).i_{}",
+                    "(reinterpret_cast<{ty}>({var})){accessor}i_{}",
                     self.index
                 )
             } else {
-                write!(f, "{var}.i_{}", self.index)
+                write!(f, "{var}{accessor}i_{}", self.index)
             }
         } else if self.optimized {
-            let item = self.var.item();
-            let addr_space = D::address_space_for_variable(&self.var);
-            write!(f, "reinterpret_cast<{addr_space}{item} {ref_}>({var})")
+            write!(f, "reinterpret_cast<{ty}>({var})")
         } else {
             write!(f, "{var}")
         }
@@ -678,7 +672,7 @@ impl<D: Dialect> FmtLeft for IndexedVariable<D> {
             .then_some("const&")
             .unwrap_or("&");
 
-        let name = if self.var.item().vectorization > 1 {
+        let name = if self.var.item().vectorization() > 1 {
             if self.optimized {
                 let item = self.var.item();
                 let addr_space = D::address_space_for_variable(&self.var);

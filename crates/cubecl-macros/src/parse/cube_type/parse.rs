@@ -21,5 +21,6 @@ impl FromDeriveInput for CubeType {
 
 pub fn generate_cube_type(input: &DeriveInput, with_launch: bool) -> syn::Result<TokenStream> {
     let cube_type = CubeType::from_derive_input(input)?;
+
     Ok(cube_type.generate(with_launch))
 }

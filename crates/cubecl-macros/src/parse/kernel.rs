@@ -1,24 +1,22 @@
 use crate::{
-    RemoveHelpers,
     expression::{Block, Expression},
-    parse::helpers::is_define_attribute,
+    parse::signature::KernelSignature,
     paths::{frontend_type, prelude_type},
     scope::Context,
-    statement::{DefineKind, Pattern, Statement},
+    statement::{DefineKind, Statement},
 };
 use core::hash::Hash;
 use darling::{FromMeta, ast::NestedMeta, util::Flag};
-use inflections::case::to_snake_case;
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use std::{collections::HashMap, iter};
 use syn::{
-    ConstParam, Expr, FnArg, Generics, Ident, ItemFn, LitStr, ReturnType, Signature, Token,
-    TraitItemFn, Type, TypeMacro, TypeParam, Visibility, parse, parse_quote,
-    punctuated::Punctuated, spanned::Spanned, token::Mut, visit_mut::VisitMut,
+    AssocType, Attribute, ConstParam, Expr, GenericArgument, Generics, Ident, ItemFn, LitStr, Path,
+    ReturnType, Signature, Type, TypeGroup, TypeParam, TypeParen, Visibility, parse_quote,
+    punctuated::Punctuated, visit_mut::VisitMut,
 };
 
-use super::{desugar::Desugar, helpers::is_comptime_attr, statement::parse_pat};
+use super::desugar::Desugar;
 
 #[derive(Default, FromMeta, Clone)]
 pub(crate) struct KernelArgs {
@@ -38,19 +36,8 @@ pub(crate) struct KernelArgs {
     pub expand_base_traits: Option<String>,
     /// Pass define types explicitly, to allow concrete types instead of auto-generating them
     pub explicit_define: Flag,
-    /// What self should be taken as for the expansion
-    #[darling(default)]
-    pub self_type: SelfType,
     #[darling(default)]
     pub address_type: AddressType,
-}
-
-#[derive(Default, FromMeta, PartialEq, Eq, Clone, Copy)]
-pub(crate) enum SelfType {
-    #[default]
-    Owned,
-    Ref,
-    RefMut,
 }
 
 #[derive(Default, FromMeta, PartialEq, Eq, Clone, Copy)]
@@ -102,7 +89,7 @@ impl GenericAnalysis {
                         output.extend(quote![#ident,]);
                     }
                 }
-                _ => todo!(),
+                other => output.extend(quote![#other,]),
             }
         }
 
@@ -171,61 +158,66 @@ impl GenericAnalysis {
     }
 
     pub fn process_ty(&self, ty: &syn::Type) -> syn::Type {
-        let type_path = match &ty {
-            Type::Path(type_path) => type_path,
-            _ => return ty.clone(),
-        };
-        let path = &type_path.path;
-
-        let mut returned = syn::Path {
-            leading_colon: path.leading_colon,
-            segments: syn::punctuated::Punctuated::new(),
-        };
-
-        for pair in path.segments.pairs() {
-            let segment = pair.value();
-            let punc = pair.punct();
-
-            if let Some(GenericArg { expand_ty, .. }) = self.map.get(&segment.ident) {
-                returned.segments.extend(expand_ty.segments.clone());
-            } else {
-                match &segment.arguments {
-                    syn::PathArguments::AngleBracketed(arg) => {
-                        let mut args = syn::punctuated::Punctuated::new();
-                        arg.args.iter().for_each(|arg| match arg {
-                            syn::GenericArgument::Type(ty) => {
-                                let ty = self.process_ty(ty);
-                                args.push(syn::GenericArgument::Type(ty));
-                            }
-                            _ => args.push_value(arg.clone()),
-                        });
-
-                        let segment = syn::PathSegment {
-                            ident: segment.ident.clone(),
-                            arguments: syn::PathArguments::AngleBracketed(
-                                syn::AngleBracketedGenericArguments {
-                                    colon2_token: arg.colon2_token,
-                                    lt_token: arg.lt_token,
-                                    args,
-                                    gt_token: arg.gt_token,
-                                },
-                            ),
-                        };
-                        returned.segments.push_value(segment);
+        fn process_ty_inner(ty: &mut Type, map: &HashMap<syn::Ident, GenericArg>) {
+            match ty {
+                Type::Array(type_array) => process_ty_inner(&mut type_array.elem, map),
+                Type::Group(type_group) => process_ty_inner(&mut type_group.elem, map),
+                Type::Paren(type_paren) => process_ty_inner(&mut type_paren.elem, map),
+                Type::Path(type_path) => {
+                    if let Some(GenericArg { expand_ty, .. }) =
+                        type_path.path.get_ident().and_then(|ident| map.get(ident))
+                    {
+                        type_path.path = expand_ty.clone();
                     }
-                    _ => returned.segments.push_value((*segment).clone()),
+                    let generics = all_path_args_mut(&mut type_path.path);
+                    for generic in generics {
+                        process_generic_param_inner(generic, map);
+                    }
                 }
-            }
-
-            if let Some(punc) = punc {
-                returned.segments.push_punct(**punc)
+                Type::Ptr(type_ptr) => process_ty_inner(&mut type_ptr.elem, map),
+                Type::Reference(type_reference) => process_ty_inner(&mut type_reference.elem, map),
+                Type::Slice(type_slice) => process_ty_inner(&mut type_slice.elem, map),
+                Type::Tuple(type_tuple) => {
+                    for ty in type_tuple.elems.iter_mut() {
+                        process_ty_inner(ty, map);
+                    }
+                }
+                // Maybe implement this later
+                Type::ImplTrait(_) => {}
+                _ => {}
             }
         }
 
-        syn::Type::Path(syn::TypePath {
-            qself: type_path.qself.clone(),
-            path: returned,
-        })
+        fn process_generic_param_inner(
+            arg: &mut GenericArgument,
+            map: &HashMap<syn::Ident, GenericArg>,
+        ) {
+            match arg {
+                GenericArgument::Type(Type::Path(path))
+                    if path
+                        .path
+                        .get_ident()
+                        .is_some_and(|ident| map.contains_key(ident)) =>
+                {
+                    let GenericArg { expand_ty, .. } =
+                        map.get(path.path.get_ident().unwrap()).unwrap();
+                    path.path = expand_ty.clone();
+                }
+                GenericArgument::Type(ty) => process_ty_inner(ty, map),
+                GenericArgument::AssocType(AssocType {
+                    generics: Some(generics),
+                    ..
+                }) => {
+                    for arg in generics.args.iter_mut() {
+                        process_generic_param_inner(arg, map);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut ty = ty.clone();
+        process_ty_inner(&mut ty, &self.map);
+        ty
     }
 
     pub fn from_generics(generics: &syn::Generics, explicit_defines: bool) -> Self {
@@ -307,6 +299,7 @@ pub struct Launch {
 
 #[derive(Clone)]
 pub struct KernelFn {
+    pub attrs: Vec<Attribute>,
     pub vis: Visibility,
     pub sig: KernelSignature,
     pub body: KernelBody,
@@ -322,53 +315,6 @@ pub struct KernelFn {
 pub enum KernelBody {
     Block(Block),
     Verbatim(TokenStream),
-}
-
-#[derive(Clone, Debug)]
-pub struct KernelSignature {
-    pub name: Ident,
-    pub parameters: Vec<KernelParam>,
-    pub returns: KernelReturns,
-    pub generics: Generics,
-    pub receiver_arg: Option<FnArg>,
-}
-
-impl KernelSignature {
-    pub fn runtime_params(&self) -> impl Iterator<Item = &KernelParam> {
-        self.parameters.iter().filter(|it| !it.is_const)
-    }
-
-    pub fn define_mappings(&self) -> HashMap<Ident, (Ident, Option<usize>)> {
-        let mut mapping = HashMap::new();
-        for param in self.parameters.iter() {
-            for define in param.defines.iter() {
-                match define {
-                    DefinedGeneric::Single(ident) => {
-                        mapping.insert(ident.clone(), (param.name.clone(), None));
-                    }
-                    DefinedGeneric::Multiple(ident, index) => {
-                        mapping.insert(ident.clone(), (param.name.clone(), Some(*index)));
-                    }
-                }
-            }
-        }
-        mapping
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum KernelReturns {
-    ExpandType(Type),
-    Plain(Type),
-}
-
-impl KernelReturns {
-    pub fn ty(&self) -> Type {
-        match self {
-            KernelReturns::ExpandType(ty) => ty.clone(),
-            KernelReturns::Plain(ty) => ty.clone(),
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -397,230 +343,9 @@ impl DefinedGeneric {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct KernelParam {
-    pub name: Ident,
-    pub ty: Type,
-    pub normalized_ty: Type,
-    pub defines: Vec<DefinedGeneric>,
-    pub is_const: bool,
-    pub is_mut: bool,
-    pub is_ref: bool,
-    pub mut_token: Option<Mut>,
-}
-
-impl KernelParam {
-    pub fn from_param(param: FnArg, args: &KernelArgs, has_body: bool) -> syn::Result<Self> {
-        let param = match param {
-            FnArg::Typed(param) => param,
-            FnArg::Receiver(param) => {
-                let mut is_ref = false;
-                let mut is_mut = false;
-                let normalized_ty =
-                    normalize_kernel_ty(*param.ty.clone(), false, &mut is_ref, &mut is_mut);
-
-                let normalized_ty = match args.self_type {
-                    SelfType::Owned => normalized_ty,
-                    SelfType::Ref => parse_quote!(&#normalized_ty),
-                    SelfType::RefMut => parse_quote!(&mut #normalized_ty),
-                };
-
-                is_mut = param.mutability.is_some();
-                is_ref = param.reference.is_some();
-
-                let mut_token = if has_body && is_mut {
-                    let span = param.span();
-                    Some(Token![mut](span))
-                } else {
-                    None
-                };
-
-                return Ok(KernelParam {
-                    name: Ident::new("self", param.span()),
-                    ty: *param.ty,
-                    normalized_ty,
-                    defines: Vec::new(),
-                    is_const: false,
-                    is_mut,
-                    is_ref,
-                    mut_token,
-                });
-            }
-        };
-        let Pattern {
-            ident,
-            mut is_ref,
-            mut is_mut,
-            ..
-        } = parse_pat(*param.pat.clone())?;
-        let mut is_const = false;
-        let mut defines = Vec::new();
-
-        for attr in param.attrs.iter() {
-            if is_comptime_attr(attr) {
-                is_const = true;
-            }
-            if is_define_attribute(attr) {
-                match attr.parse_args::<Ident>() {
-                    Ok(ident) => {
-                        defines.push(DefinedGeneric::Single(ident));
-                    }
-                    Err(_) => {
-                        let list = attr.meta.require_list().expect("Wrong syntax.");
-                        let tokens = list.tokens.to_string();
-                        let names = tokens.split(",");
-                        for (i, name) in names.enumerate() {
-                            let ident = Ident::new(name.trim(), attr.span());
-                            defines.push(DefinedGeneric::Multiple(ident, i));
-                        }
-                    }
-                };
-                is_const = true;
-            }
-        }
-
-        let ty = *param.ty.clone();
-        let normalized_ty = normalize_kernel_ty(*param.ty, is_const, &mut is_ref, &mut is_mut);
-
-        let mut_token = if has_body && is_mut {
-            let span = ident.span();
-            Some(Token![mut](span))
-        } else {
-            None
-        };
-
-        Ok(Self {
-            name: ident,
-            ty,
-            defines,
-            normalized_ty,
-            is_const,
-            is_mut,
-            is_ref,
-            mut_token,
-        })
-    }
-
-    pub fn ty_owned(&self) -> Type {
-        strip_ref(self.ty.clone(), &mut false, &mut false)
-    }
-
-    /// If the type is self, we set the normalized ty to self as well.
-    ///
-    /// Useful when the param is used in functions or methods associated to the
-    /// expand type.
-    pub fn plain_normalized_self(&mut self) {
-        if let Type::Path(pat) = &self.ty
-            && pat
-                .path
-                .get_ident()
-                .filter(|ident| *ident == "Self")
-                .is_some()
-        {
-            self.normalized_ty = self.ty.clone();
-        }
-    }
-}
-
-impl KernelSignature {
-    pub fn from_signature(sig: Signature, args: &KernelArgs, has_body: bool) -> syn::Result<Self> {
-        let name = sig.ident;
-        let mut generics = sig.generics;
-        let returns = match sig.output {
-            syn::ReturnType::Default => KernelReturns::ExpandType(parse_quote![()]),
-            syn::ReturnType::Type(_, ty) => match *ty.clone() {
-                Type::Macro(TypeMacro { mac }) => {
-                    if mac.path.is_ident("comptime_type") {
-                        let inner_type = parse::<Type>(mac.tokens.into())
-                            .expect("Interior of comptime_type macro should be a valid type.");
-                        KernelReturns::Plain(inner_type)
-                    } else {
-                        panic!("Only comptime_type macro supported on return type")
-                    }
-                }
-                _ => KernelReturns::ExpandType(*ty),
-            },
-        };
-        let sig_params = sig
-            .inputs
-            .into_iter()
-            .map(|it| KernelParam::from_param(it, args, has_body))
-            .collect::<Result<Vec<_>, _>>()?;
-        let manually_defined_params = sig_params
-            .iter()
-            .flat_map(|it| it.defines.iter().map(|it| it.ident()))
-            .collect::<Vec<_>>();
-        let define_params = generics
-            .type_params()
-            .filter(|it| !manually_defined_params.contains(&&it.ident))
-            .filter(|it| {
-                it.attrs.iter().any(is_define_attribute)
-                    // define sizes by default on launch functions
-                    || (args.is_launch() && it.bounds.to_token_stream().to_string() == "Size")
-            })
-            .map(|ty_param| {
-                let type_ = prelude_type("Type");
-                let ident = &ty_param.ident;
-                let name = format_ident!("_{}", to_snake_case(&ident.to_string()));
-                let is_size = ty_param.bounds.to_token_stream().to_string() == "Size";
-                let ty = match is_size {
-                    true => quote![usize],
-                    false => quote![#type_],
-                };
-                KernelParam::from_param(parse_quote!(#[define(#ident)] #name: #ty), args, has_body)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let parameters = define_params
-            .into_iter()
-            .chain(sig_params)
-            .collect::<Vec<_>>();
-        let receiver_arg = if parameters.iter().any(|it| it.name == "self") {
-            Some(match args.self_type {
-                SelfType::Owned => parse_quote!(self),
-                SelfType::Ref => parse_quote!(&self),
-                SelfType::RefMut => parse_quote!(&mut self),
-            })
-        } else {
-            None
-        };
-
-        RemoveHelpers.visit_generics_mut(&mut generics);
-
-        Ok(KernelSignature {
-            generics,
-            name,
-            parameters,
-            returns,
-            receiver_arg,
-        })
-    }
-
-    pub fn from_trait_fn(function: TraitItemFn, args: &KernelArgs) -> syn::Result<Self> {
-        Self::from_signature(function.sig, args, false)
-    }
-
-    /// If the type is self, we set the returns type to plain instead of expand
-    /// type.
-    pub fn plain_self(&mut self) {
-        if let Type::Path(pat) = self.returns.ty()
-            && pat.path.is_ident("Self")
-        {
-            self.returns = KernelReturns::Plain(self.returns.ty());
-        }
-
-        for param in self.parameters.iter_mut() {
-            if let Type::Path(pat) = &param.ty
-                && pat.path.is_ident("Self")
-            {
-                param.normalized_ty = parse_quote!(Self);
-            }
-        }
-    }
-}
-
 impl KernelFn {
     pub fn from_sig_and_block(
+        attrs: Vec<Attribute>,
         vis: Visibility,
         sig: Signature,
         mut block: syn::Block,
@@ -631,12 +356,12 @@ impl KernelFn {
         let debug_symbols = cfg_debug || args.debug_symbols.is_present();
 
         let span = Span::call_site();
-        let sig = KernelSignature::from_signature(sig, args, true)?;
+        let sig = KernelSignature::from_signature(sig, args)?;
 
         let analysis =
             GenericAnalysis::from_generics(&sig.generics, args.explicit_define.is_present());
 
-        let mut context = Context::new(sig.returns.ty(), debug_symbols);
+        let mut context = Context::new(sig.returns.ty(), debug_symbols, false);
         context.extend(sig.parameters.clone());
 
         Desugar.visit_block_mut(&mut block);
@@ -646,6 +371,7 @@ impl KernelFn {
         Self::patch_mut_owned_inputs(&mut block, &sig);
 
         Ok(KernelFn {
+            attrs,
             vis,
             sig,
             body: KernelBody::Block(block),
@@ -670,7 +396,7 @@ impl KernelFn {
         let into_mut = frontend_type("IntoMut");
 
         for s in sig.parameters.iter() {
-            if !s.is_ref && s.is_mut {
+            if s.mutability.is_some() {
                 let name = s.name.clone();
                 let expression = Expression::Verbatim {
                     tokens: quote! {
@@ -704,6 +430,7 @@ impl Launch {
             // a module. By setting the visibility to pub here, we
             // ensure that the function is visible outside that
             // module.
+            function.attrs,
             Visibility::Public(parse_quote![pub]),
             function.sig,
             *function.block,
@@ -764,23 +491,129 @@ impl Launch {
     }
 }
 
-fn normalize_kernel_ty(ty: Type, is_const: bool, is_ref: &mut bool, is_mut: &mut bool) -> Type {
-    let ty = strip_ref(ty, is_ref, is_mut);
-    let cube_type = prelude_type("CubeType");
+pub fn expand_kernel_ty(mut ty: Type, is_const: bool) -> syn::Result<Type> {
     if is_const {
-        ty
+        Ok(ty)
     } else {
-        parse_quote![<#ty as #cube_type>::ExpandType]
+        let cube_type = prelude_type("CubeType");
+        map_type_normalized(&mut ty, &|ty| parse_quote![<#ty as #cube_type>::ExpandType])?;
+        Ok(ty)
     }
 }
 
-pub fn strip_ref(ty: Type, is_ref: &mut bool, is_mut: &mut bool) -> Type {
+pub fn map_type_normalized(ty: &mut Type, op: &impl Fn(&Type) -> Type) -> syn::Result<()> {
     match ty {
-        Type::Reference(reference) => {
-            *is_ref = true;
-            *is_mut = *is_mut || reference.mutability.is_some();
-            *reference.elem
+        Type::Group(type_group) => map_type_normalized(&mut type_group.elem, op)?,
+        Type::ImplTrait(impl_trait) => {
+            return Err(syn::Error::new_spanned(
+                impl_trait,
+                "`impl Trait` is not supported in kernel arguments",
+            ));
         }
+        // Probably won't work with inference but we can at least try
+        Type::Infer(_) => {}
+        // Do nothing
+        Type::Macro(type_macro) if type_macro.mac.path.is_ident("comptime_type") => {}
+        Type::Macro(type_macro) => {
+            return Err(syn::Error::new_spanned(
+                type_macro,
+                "macro types are not allowed as kernel arguments",
+            ));
+        }
+        Type::Never(_) => {}
+        Type::Paren(type_paren) => map_type_normalized(&mut type_paren.elem, op)?,
+        Type::Ptr(type_ptr) => map_type_normalized(&mut type_ptr.elem, op)?,
+        Type::Reference(type_reference) => map_type_normalized(&mut type_reference.elem, op)?,
+        Type::TraitObject(trait_object) => {
+            return Err(syn::Error::new_spanned(
+                trait_object,
+                "trait objects (`dyn Trait`) are not allowed as kernel arguments",
+            ));
+        }
+        // the `ExpandType` of tuple equals the expand type of each constituent, so we can
+        // probably support more cases by handling each contained type separately. Won't hurt
+        // at least.
+        Type::Tuple(type_tuple) => {
+            for ty in type_tuple.elems.iter_mut() {
+                map_type_normalized(ty, op)?;
+            }
+        }
+        Type::Verbatim(_) => {}
+        other => {
+            *other = op(other);
+        }
+    }
+    Ok(())
+}
+
+pub fn all_path_args_mut(path: &mut Path) -> impl Iterator<Item = &mut GenericArgument> {
+    path.segments
+        .iter_mut()
+        .flat_map(|it| match &mut it.arguments {
+            syn::PathArguments::AngleBracketed(args) => args.args.iter_mut().collect::<Vec<_>>(),
+            _ => vec![],
+        })
+}
+
+pub fn strip_ref(ty: Type) -> Type {
+    match ty {
+        Type::Reference(reference) => strip_ref(*reference.elem),
+        Type::Ptr(ptr) => strip_ref(*ptr.elem),
+        Type::Group(paren) => Type::Group(TypeGroup {
+            elem: Box::new(strip_ref(*paren.elem)),
+            ..paren
+        }),
+        Type::Paren(paren) => Type::Paren(TypeParen {
+            elem: Box::new(strip_ref(*paren.elem)),
+            ..paren
+        }),
         ty => ty,
     }
+}
+
+pub fn anon_lifetime_to_static(mut ty: Type) -> Type {
+    fn map_ty(ty: &mut Type) {
+        match ty {
+            Type::Array(type_array) => map_ty(&mut type_array.elem),
+            Type::Group(type_group) => map_ty(&mut type_group.elem),
+            Type::Paren(type_paren) => map_ty(&mut type_paren.elem),
+            Type::Path(type_path) => map_path(&mut type_path.path),
+            Type::Ptr(type_ptr) => map_ty(&mut type_ptr.elem),
+            Type::Reference(reference)
+                if reference.lifetime.as_ref().is_none_or(|l| l.ident == "_") =>
+            {
+                reference.lifetime = Some(parse_quote!('static));
+            }
+            Type::Slice(type_slice) => map_ty(&mut type_slice.elem),
+            Type::Tuple(type_tuple) => {
+                for ty in type_tuple.elems.iter_mut() {
+                    map_ty(ty);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn map_path(path: &mut Path) {
+        for arg in path.segments.iter_mut().map(|it| &mut it.arguments) {
+            if let syn::PathArguments::AngleBracketed(args) = arg {
+                for arg in args.args.iter_mut() {
+                    map_arg(arg)
+                }
+            }
+        }
+    }
+
+    fn map_arg(arg: &mut GenericArgument) {
+        match arg {
+            GenericArgument::Lifetime(lifetime) if lifetime.ident == "_" => {
+                *lifetime = parse_quote!('static);
+            }
+            GenericArgument::Type(ty) => map_ty(ty),
+            _ => {}
+        }
+    }
+
+    map_ty(&mut ty);
+    ty
 }

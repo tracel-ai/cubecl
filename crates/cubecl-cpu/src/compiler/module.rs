@@ -1,5 +1,5 @@
 use cubecl_core::{ir::StorageType, prelude::KernelDefinition};
-use cubecl_opt::Optimizer;
+use cubecl_opt::Function;
 use tracel_llvm::mlir_rs::{
     Context, ExecutionEngine,
     ir::{Location, operation::OperationLike},
@@ -31,7 +31,7 @@ impl<'a> Module<'a> {
     pub(super) fn visit_kernel(
         &mut self,
         kernel: &KernelDefinition,
-        opt: &Optimizer,
+        func: &Function,
         shared_memories: &SharedMemories,
         addr_type: StorageType,
     ) {
@@ -40,7 +40,7 @@ impl<'a> Module<'a> {
             self.location,
             kernel,
             &self.module,
-            opt,
+            func,
             shared_memories,
             addr_type,
         )
@@ -70,17 +70,21 @@ impl<'a> Module<'a> {
         pass_manager.add_pass(pass::transform::create_canonicalizer());
         pass_manager.add_pass(pass::conversion::create_math_to_libm());
         pass_manager.add_pass(pass::conversion::create_scf_to_control_flow());
+
+        // Run index/math/vector/arith lowering inside func scope before cf-to-llvm.
+        let func_passes = pass_manager.nested_under("func.func");
+        func_passes.add_pass(pass::memref::create_expand_strided_metadata_pass());
+        func_passes.add_pass(pass::arith::create_arith_emulate_unsupported_floats());
+        func_passes.add_pass(pass::conversion::create_index_to_llvm());
+        func_passes.add_pass(pass::conversion::create_math_to_llvm());
+        func_passes.add_pass(pass::conversion::create_vector_to_llvm());
+        func_passes.add_pass(pass::conversion::create_arith_to_llvm());
+
         pass_manager.add_pass(pass::conversion::create_finalize_mem_ref_to_llvm());
         // Clean up unrealized casts now so cf.cond_br block arguments don't carry memref types
         // into cf-to-llvm (which would fail verification).
         pass_manager.add_pass(pass::conversion::create_reconcile_unrealized_casts());
         // scf-to-cf can introduce index-typed block arguments (e.g. loop induction variables).
-        // Run index/math/vector/arith lowering inside func scope before cf-to-llvm.
-        let func_passes = pass_manager.nested_under("func.func");
-        func_passes.add_pass(pass::conversion::create_index_to_llvm());
-        func_passes.add_pass(pass::conversion::create_math_to_llvm());
-        func_passes.add_pass(pass::conversion::create_vector_to_llvm());
-        func_passes.add_pass(pass::conversion::create_arith_to_llvm());
         pass_manager.add_pass(pass::conversion::create_control_flow_to_llvm());
         pass_manager.add_pass(pass::conversion::create_func_to_llvm());
         pass_manager.add_pass(pass::transform::create_inliner());
@@ -97,7 +101,7 @@ impl<'a> Module<'a> {
     }
 
     pub(super) fn into_execution_engine(self) -> ExecutionEngine {
-        ExecutionEngine::new(&self.module, 0, &[], true)
+        ExecutionEngine::new(&self.module, 0, &[], true, false)
     }
 }
 

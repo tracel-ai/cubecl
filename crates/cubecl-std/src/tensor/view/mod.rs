@@ -1,6 +1,5 @@
 mod as_view;
 mod base;
-mod idx;
 pub mod launch;
 mod operations;
 

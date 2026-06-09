@@ -122,7 +122,7 @@ impl<'a> Visitor<'a> {
                     clamp.input.storage_type().to_type(self.context),
                 );
                 if clamp.input.ty.is_vectorized() && !clamp.min_value.ty.is_vectorized() {
-                    min = self.append_operation_with_result(vector::splat(
+                    min = self.append_operation_with_result(vector::broadcast(
                         self.context,
                         vector_type,
                         min,
@@ -131,7 +131,7 @@ impl<'a> Visitor<'a> {
                 }
 
                 if clamp.input.ty.is_vectorized() && !clamp.max_value.ty.is_vectorized() {
-                    max = self.append_operation_with_result(vector::splat(
+                    max = self.append_operation_with_result(vector::broadcast(
                         self.context,
                         vector_type,
                         max,
@@ -324,7 +324,7 @@ impl<'a> Visitor<'a> {
                 };
                 self.insert_variable(out, value);
             }
-            Arithmetic::Modulo(modulo) => {
+            Arithmetic::Rem(modulo) => {
                 let (lhs, rhs) = self.get_binary_op_variable(modulo.lhs, modulo.rhs);
                 let value = if modulo.lhs.storage_type().is_signed_int() {
                     self.append_operation_with_result(arith::remsi(lhs, rhs, self.location))
@@ -388,7 +388,7 @@ impl<'a> Visitor<'a> {
                             self.location,
                         ));
                         let vector_type = normalize.input.ty.to_type(self.context);
-                        let square_root = self.append_operation_with_result(vector::splat(
+                        let square_root = self.append_operation_with_result(vector::broadcast(
                             self.context,
                             vector_type,
                             square_root,
@@ -457,7 +457,7 @@ impl<'a> Visitor<'a> {
                     self.append_operation_with_result(arith::divf(one, value, self.location));
                 self.insert_variable(out, recip);
             }
-            Arithmetic::Remainder(remainder) => {
+            Arithmetic::ModFloor(remainder) => {
                 let (lhs, rhs) = self.get_binary_op_variable(remainder.lhs, remainder.rhs);
                 let value = if remainder.lhs.storage_type().is_signed_int() {
                     // TODO: check what is PyTorch behaviour with signed integer

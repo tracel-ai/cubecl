@@ -11,7 +11,6 @@ pub struct Body<D: Dialect> {
     pub pipelines: Vec<PipelineOps<D>>,
     pub barriers: Vec<BarrierOps<D>>,
     pub const_arrays: Vec<super::ConstArray<D>>,
-    pub local_arrays: Vec<super::LocalArray<D>>,
     pub info_by_ptr: bool,
     pub has_dynamic_meta: bool,
     pub address_type: Item<D>,
@@ -46,15 +45,6 @@ impl<D: Dialect> Display for Body<D> {
                 f.write_fmt(format_args!("{value},"))?;
             }
             f.write_str("};\n")?;
-        }
-
-        // Local arrays
-        for array in self.local_arrays.iter() {
-            write!(
-                f,
-                "{} l_arr_{}[{}];\n\n",
-                array.item, array.index, array.size
-            )?;
         }
 
         D::compile_wmma_local_variables(f)?;

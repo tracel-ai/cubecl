@@ -1,10 +1,10 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-
+use alloc::{collections::vec_deque::VecDeque, vec, vec::Vec};
 use cubecl_ir::{self as ir, Operation};
+use hashbrown::{HashMap, HashSet};
 use petgraph::graph::NodeIndex;
 
 use crate::{
-    AtomicCounter, Optimizer, PhiInstruction,
+    AtomicCounter, Function, GlobalState, PhiInstruction,
     analyses::dominance::Dominators,
     gvn::{convert::value_of_var, phi_translate},
     version::PhiEntry,
@@ -16,21 +16,21 @@ impl GvnState {
     /// Find places where an expression is partially but not fully available, and hoist the
     /// computation into the blocks that do not currently have the value available to make the
     /// expression fully redundant
-    pub fn insert(&mut self, opt: &mut Optimizer, changes: &AtomicCounter) {
+    pub fn insert(&mut self, func: &mut Function, state: &GlobalState, changes: &AtomicCounter) {
         let mut loops = 1;
         let changes_pre = changes.get();
-        let dominators = opt.analysis::<Dominators>();
+        let dominators = func.analysis::<Dominators>(state);
 
         let mut new_expr = HashMap::new();
 
         let mut worklist = VecDeque::new();
-        worklist.push_back(opt.entry());
+        worklist.push_back(func.root);
 
         let mut changed = true;
         while changed {
             changed = false;
             while let Some(current) = worklist.pop_front() {
-                changed |= self.insert_block(opt, current, &mut new_expr, changes);
+                changed |= self.insert_block(func, state, current, &mut new_expr, changes);
                 let children = dominators.immediately_dominated_by(current);
                 worklist.extend(children);
             }
@@ -44,15 +44,16 @@ impl GvnState {
 
     fn insert_block(
         &mut self,
-        opt: &mut Optimizer,
+        func: &mut Function,
+        state: &GlobalState,
         current: NodeIndex,
         new_expr: &mut HashMap<NodeIndex, HashSet<u32>>,
         changes: &AtomicCounter,
     ) -> bool {
         let mut changed = false;
-        let dominators = opt.analysis::<Dominators>();
+        let dominators = func.analysis::<Dominators>(state);
 
-        let predecessors = opt.predecessors(current);
+        let predecessors = func.predecessors(current);
         if predecessors.len() > 1 {
             new_expr.entry(current).or_default();
             for pred in predecessors.iter() {
@@ -66,7 +67,7 @@ impl GvnState {
                 .map(|pred| {
                     (
                         *pred,
-                        phi_translate(opt, phi_gen, antic, current, *pred, &mut self.values),
+                        phi_translate(func, phi_gen, antic, current, *pred, &mut self.values),
                     )
                 })
                 .collect::<Vec<_>>();
@@ -95,9 +96,9 @@ impl GvnState {
                     }
                     let leaders = &mut self.block_sets.get_mut(&pred).unwrap().leaders;
                     if !leaders.contains_key(&val) {
-                        let new_temp = *opt.allocator.create_local(expr.item());
+                        let new_temp = state.allocator.create_local(expr.item());
                         let new_op = ir::Instruction::new(expr.to_operation(leaders), new_temp);
-                        opt.program[pred].ops.borrow_mut().push(new_op);
+                        func[pred].ops.borrow_mut().push(new_op);
                         leaders.insert(val, value_of_var(&new_temp).unwrap());
                         new_expr.get_mut(&pred).unwrap().insert(val);
                         changed = true;
@@ -114,7 +115,7 @@ impl GvnState {
             let new_phis = new_phis
                 .into_iter()
                 .map(|entries| PhiInstruction {
-                    out: *opt.allocator.create_local(entries[0].value.ty),
+                    out: state.allocator.create_local(entries[0].value.ty),
                     entries,
                 })
                 .collect::<Vec<_>>();
@@ -131,7 +132,7 @@ impl GvnState {
                 new_expr.get_mut(&current).unwrap().insert(*val);
                 phi_idx += 1;
             }
-            opt.program[current].phi_nodes.borrow_mut().extend(new_phis);
+            func[current].phi_nodes.borrow_mut().extend(new_phis);
         }
 
         let children = dominators
@@ -155,11 +156,11 @@ impl GvnState {
 
     /// Find fully redundant expressions and replace them with trivial assignments. These can later
     /// be eliminated in a copy-propagation pass.
-    pub fn eliminate(&mut self, opt: &mut Optimizer, changes: &AtomicCounter) {
+    pub fn eliminate(&mut self, func: &mut Function, changes: &AtomicCounter) {
         let changes_pre = changes.get();
-        for block in opt.node_ids() {
+        for block in func.node_ids() {
             let leaders = &self.block_sets[&block].leaders;
-            for op in opt.program[block].ops.borrow_mut().values_mut() {
+            for op in func[block].ops.borrow_mut().values_mut() {
                 if let Some(leader) = self.values.lookup_op(op).and_then(|val| leaders.get(&val)) {
                     let var = leader.as_var();
                     let out = op.out;

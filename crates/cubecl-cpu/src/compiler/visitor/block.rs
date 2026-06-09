@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use cubecl_opt::{ControlFlow, NodeIndex};
+use cubecl_opt::{ControlFlow, Function, NodeIndex};
 use tracel_llvm::mlir_rs::{
     dialect::{cf, ods::llvm},
     ir::{Block, BlockLike, BlockRef, RegionLike},
@@ -9,12 +9,12 @@ use tracel_llvm::mlir_rs::{
 use super::prelude::*;
 
 impl<'a> Visitor<'a> {
-    pub fn visit_basic_block(&mut self, block_id: NodeIndex, opt: &Optimizer) -> BlockRef<'a, 'a> {
+    pub fn visit_basic_block(&mut self, block_id: NodeIndex, func: &Function) -> BlockRef<'a, 'a> {
         if let Some(block) = self.blocks.get(&block_id) {
             return *block;
         }
 
-        let basic_block = opt.block(block_id);
+        let basic_block = func.block(block_id);
 
         let arguments: Vec<_> = basic_block
             .phi_nodes
@@ -60,10 +60,10 @@ impl<'a> Visitor<'a> {
                 let condition = self.get_variable(*cond);
                 let condition = self.cast_to_bool(condition, cond.ty);
                 if let Some(merge) = merge {
-                    self.visit_basic_block(*merge, opt);
+                    self.visit_basic_block(*merge, func);
                 }
-                let true_successor = self.visit_basic_block(*then, opt);
-                let false_successor = self.visit_basic_block(*or_else, opt);
+                let true_successor = self.visit_basic_block(*then, func);
+                let false_successor = self.visit_basic_block(*or_else, func);
                 let true_successor_operands = self.get_block_args(block_id, *then);
                 let false_successor_operands = self.get_block_args(block_id, *or_else);
                 this_block.append_operation(cf::cond_br(
@@ -86,14 +86,14 @@ impl<'a> Visitor<'a> {
                 let operand = self.get_variable(*value);
                 let operand_type = value.ty.to_type(self.context);
                 if let Some(merge) = merge {
-                    self.visit_basic_block(*merge, opt);
+                    self.visit_basic_block(*merge, func);
                 }
-                let default_block = self.visit_basic_block(*default, opt);
+                let default_block = self.visit_basic_block(*default, func);
                 let attributes: Vec<Value<'a, 'a>> = self.get_block_args(block_id, *default);
                 let default_destination = (default_block.deref(), attributes.as_slice());
                 let blocks: Vec<_> = branches
                     .iter()
-                    .map(|(_, block_id)| self.visit_basic_block(*block_id, opt))
+                    .map(|(_, block_id)| self.visit_basic_block(*block_id, func))
                     .collect();
                 let attributes_vec: Vec<Vec<Value<'a, 'a>>> = branches
                     .iter()
@@ -120,10 +120,10 @@ impl<'a> Visitor<'a> {
                 continue_target,
                 merge,
             } => {
-                let body_block = self.visit_basic_block(*body, opt);
+                let body_block = self.visit_basic_block(*body, func);
                 let destination_operands = self.get_block_args(block_id, *body);
-                self.visit_basic_block(*continue_target, opt);
-                self.visit_basic_block(*merge, opt);
+                self.visit_basic_block(*continue_target, func);
+                self.visit_basic_block(*merge, func);
                 this_block.append_operation(cf::br(
                     body_block.deref(),
                     &destination_operands,
@@ -138,9 +138,9 @@ impl<'a> Visitor<'a> {
             } => {
                 let condition = self.get_variable(*break_cond);
                 let condition = self.cast_to_bool(condition, break_cond.ty);
-                let body_block = self.visit_basic_block(*body, opt);
-                self.visit_basic_block(*continue_target, opt);
-                let next_block = self.visit_basic_block(*merge, opt);
+                let body_block = self.visit_basic_block(*body, func);
+                self.visit_basic_block(*continue_target, func);
+                let next_block = self.visit_basic_block(*merge, func);
                 let body_argument = self.get_block_args(block_id, *body);
                 let next_argument = self.get_block_args(block_id, *continue_target);
                 this_block.append_operation(cf::cond_br(
@@ -153,15 +153,18 @@ impl<'a> Visitor<'a> {
                     self.location,
                 ));
             }
-            ControlFlow::Return => {
+            ControlFlow::Return { value } => {
+                if value.is_some() {
+                    panic!("Return types not yet implemented");
+                }
                 this_block.append_operation(cf::br(&self.last_block, &[], self.location));
             }
             ControlFlow::Unreachable => {
                 this_block.append_operation(llvm::unreachable(self.context, self.location));
             }
             ControlFlow::None => {
-                let destination = opt.successors(block_id)[0];
-                let successor = self.visit_basic_block(destination, opt);
+                let destination = func.successors(block_id)[0];
+                let successor = self.visit_basic_block(destination, func);
                 let block_arg = self.get_block_args(block_id, destination);
                 this_block.append_operation(cf::br(successor.deref(), &block_arg, self.location));
             }

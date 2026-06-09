@@ -1,16 +1,14 @@
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet, LinkedList, VecDeque},
-    ops::Deref,
-};
+use core::{cell::RefCell, ops::Deref};
 
-use crate::{ControlFlow, NodeIndex, analyses::Analysis};
+use crate::{ControlFlow, Function, GlobalState, NodeIndex, analyses::Analysis};
+use alloc::{
+    collections::{linked_list::LinkedList, vec_deque::VecDeque},
+    vec,
+};
+use hashbrown::{HashMap, HashSet};
 use smallvec::SmallVec;
 
-use crate::{
-    Optimizer,
-    analyses::dominance::{Dominators, PostDominators},
-};
+use crate::analyses::dominance::{Dominators, PostDominators};
 
 use super::{Expression, Value, ValueTable, convert::value_of_var};
 
@@ -34,9 +32,9 @@ pub struct GvnState {
 }
 
 impl Analysis for GlobalValues {
-    fn init(opt: &mut Optimizer) -> Self {
+    fn init(func: &mut Function, state: &GlobalState) -> Self {
         let mut this = GvnState::default();
-        this.build_sets(opt);
+        this.build_sets(func, state);
         GlobalValues(RefCell::new(this))
     }
 }
@@ -65,9 +63,9 @@ impl GvnState {
     /// 1. Forward DFA that generates the available expressions, values and leaders for each block
     /// 2. Backward fixed-point DFA that generates the anticipated expressions/antileaders for each
     ///    block
-    pub fn build_sets(&mut self, opt: &mut Optimizer) {
-        self.build_sets_forward(opt);
-        self.build_sets_backward(opt);
+    pub fn build_sets(&mut self, func: &mut Function, state: &GlobalState) {
+        self.build_sets_forward(func, state);
+        self.build_sets_backward(func, state);
 
         let global_leaders = self.values.value_numbers.iter();
         let global_leaders = global_leaders
@@ -75,11 +73,10 @@ impl GvnState {
                 matches!(
                     k,
                     Value::Constant(_, _)
-                        | Value::Input(_, _)
+                        | Value::Global(_, _)
                         | Value::Scalar(_, _)
                         | Value::ConstArray(_, _, _, _)
                         | Value::Builtin(..)
-                        | Value::Output(_, _)
                 )
             })
             .map(|(k, v)| (*v, *k))
@@ -89,34 +86,34 @@ impl GvnState {
         }
     }
 
-    fn build_sets_forward(&mut self, opt: &mut Optimizer) {
+    fn build_sets_forward(&mut self, func: &mut Function, state: &GlobalState) {
         let mut worklist = VecDeque::new();
-        let dominators = opt.analysis::<Dominators>();
+        let dominators = func.analysis::<Dominators>(state);
 
-        worklist.push_back((vec![opt.entry()], HashMap::new(), HashSet::new()));
+        worklist.push_back((vec![func.root], HashMap::new(), HashSet::new()));
 
         while let Some((successors, leaders, tmp_gen)) = worklist.pop_front() {
             for block in successors {
                 let (leaders, tmp_gen) =
-                    self.build_block_sets_forward(opt, block, leaders.clone(), tmp_gen.clone());
+                    self.build_block_sets_forward(func, block, leaders.clone(), tmp_gen.clone());
                 let successors = dominators.immediately_dominated_by(block);
                 worklist.push_back((successors.collect(), leaders, tmp_gen));
             }
         }
     }
 
-    fn build_sets_backward(&mut self, opt: &mut Optimizer) {
+    fn build_sets_backward(&mut self, func: &mut Function, state: &GlobalState) {
         let mut build_passes = 0;
         let mut changed = true;
         let mut worklist = VecDeque::new();
-        let post_doms = opt.analysis::<PostDominators>();
+        let post_doms = func.analysis::<PostDominators>(state);
 
-        worklist.push_back(opt.ret);
+        worklist.push_back(func.ret);
 
         while changed && build_passes < MAX_SET_PASSES {
             changed = false;
             while let Some(current) = worklist.pop_front() {
-                changed |= self.build_block_sets_backward(opt, current);
+                changed |= self.build_block_sets_backward(func, current);
                 let predecessors = post_doms.immediately_dominated_by(current);
                 worklist.extend(predecessors);
             }
@@ -129,7 +126,7 @@ impl GvnState {
     /// variables that represent them are also available there.
     fn build_block_sets_forward(
         &mut self,
-        opt: &mut Optimizer,
+        func: &mut Function,
         block: NodeIndex,
         mut leaders: HashMap<u32, Value>,
         tmp_gen: HashSet<Value>,
@@ -145,13 +142,13 @@ impl GvnState {
         let mut added_exprs = HashSet::new();
 
         // Number phi outputs and add the out var as a leader for that value
-        for phi in opt.program[block].phi_nodes.borrow().iter() {
+        for phi in func[block].phi_nodes.borrow().iter() {
             let (num, val) = self.values.lookup_or_add_phi(phi);
             leaders.entry(num).or_insert(val);
             phi_gen.entry(num).or_insert(val);
         }
 
-        for op in opt.program[block].ops.borrow().values() {
+        for op in func[block].ops.borrow().values() {
             // Try inserting operation
             match self
                 .values
@@ -185,10 +182,10 @@ impl GvnState {
     /// Do a fixed point data backward flow analysis to find expected expressions at any given
     /// program point. Iterates through the post-dominator tree because it's the fastest way to
     /// converge.
-    fn build_block_sets_backward(&mut self, opt: &mut Optimizer, current: NodeIndex) -> bool {
+    fn build_block_sets_backward(&mut self, func: &mut Function, current: NodeIndex) -> bool {
         let mut changed = false;
 
-        let successors = opt.successors(current);
+        let successors = func.successors(current);
         // Since we have no critical edges, if successors > 1 then they must have only one entry,
         // So no phi nodes.
         //
@@ -199,12 +196,18 @@ impl GvnState {
         // is likely secondary.
         #[allow(clippy::comparison_chain)]
         if let ControlFlow::Loop { body, .. } | ControlFlow::LoopBreak { body, .. } =
-            opt.block(current).control_flow.borrow().clone()
+            func.block(current).control_flow.borrow().clone()
         {
             let antic_in_succ = &self.block_sets[&body].antic_in;
             let phi_gen = &self.block_sets[&body].phi_gen;
-            let result =
-                phi_translate(opt, phi_gen, antic_in_succ, body, current, &mut self.values);
+            let result = phi_translate(
+                func,
+                phi_gen,
+                antic_in_succ,
+                body,
+                current,
+                &mut self.values,
+            );
             if self.block_sets[&current].antic_out != result {
                 changed = true;
             }
@@ -230,7 +233,7 @@ impl GvnState {
             let antic_in_succ = &self.block_sets[&child].antic_in;
             let phi_gen = &self.block_sets[&child].phi_gen;
             let result = phi_translate(
-                opt,
+                func,
                 phi_gen,
                 antic_in_succ,
                 child,
@@ -285,7 +288,7 @@ impl GvnState {
 
 /// Translate the phi output values to their equivalent input value in the predecessor block
 pub fn phi_translate(
-    opt: &Optimizer,
+    func: &Function,
     phi_gen: &HashMap<u32, Value>,
     antic: &LinkedList<(u32, Expression)>,
     child: NodeIndex,
@@ -296,7 +299,7 @@ pub fn phi_translate(
     let mut translated = HashMap::new();
 
     // Translate each phi's output variable value to the input variable value
-    for phi in opt.block(child).phi_nodes.borrow().iter() {
+    for phi in func.block(child).phi_nodes.borrow().iter() {
         let (num, _) = values.lookup_or_add_phi(phi);
         let here = phi.entries.iter().find(|it| it.block == parent).unwrap();
         let num_here = values.lookup_or_add_var(&here.value).unwrap();
@@ -306,7 +309,7 @@ pub fn phi_translate(
     for (val, expr) in antic {
         // Translate phi node itself
         if let Some(value) = phi_gen.get(val) {
-            let nodes = opt.block(child).phi_nodes.borrow();
+            let nodes = func.block(child).phi_nodes.borrow();
             let phi = nodes
                 .iter()
                 .find(|it| &value_of_var(&it.out).unwrap() == value);

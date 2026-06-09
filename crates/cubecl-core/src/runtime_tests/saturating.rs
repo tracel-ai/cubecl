@@ -4,9 +4,9 @@ use cubecl::prelude::*;
 
 #[cube(launch_unchecked)]
 pub fn kernel_saturating_add<I: Int, N: Size>(
-    lhs: &Array<Vector<I, N>>,
-    rhs: &Array<Vector<I, N>>,
-    output: &mut Array<Vector<I, N>>,
+    lhs: &[Vector<I, N>],
+    rhs: &[Vector<I, N>],
+    output: &mut [Vector<I, N>],
 ) {
     if (UNIT_POS as usize) < output.len() {
         output[UNIT_POS as usize] =
@@ -16,9 +16,9 @@ pub fn kernel_saturating_add<I: Int, N: Size>(
 
 #[cube(launch_unchecked)]
 pub fn kernel_saturating_sub<I: Int, N: Size>(
-    lhs: &Array<Vector<I, N>>,
-    rhs: &Array<Vector<I, N>>,
-    output: &mut Array<Vector<I, N>>,
+    lhs: &[Vector<I, N>],
+    rhs: &[Vector<I, N>],
+    output: &mut [Vector<I, N>],
 ) {
     if (UNIT_POS as usize) < output.len() {
         output[UNIT_POS as usize] =
@@ -61,9 +61,9 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
             vector_size,
-            ArrayArg::from_raw_parts(lhs_handle, 4),
-            ArrayArg::from_raw_parts(rhs_handle, 4),
-            ArrayArg::from_raw_parts(out_handle.clone(), 4),
+            BufferArg::from_raw_parts(lhs_handle, 4),
+            BufferArg::from_raw_parts(rhs_handle, 4),
+            BufferArg::from_raw_parts(out_handle.clone(), 4),
         )
     }
     let actual = client.read_one_unchecked(out_handle);
@@ -102,9 +102,9 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
             vector_size,
-            ArrayArg::from_raw_parts(lhs_handle, 4),
-            ArrayArg::from_raw_parts(rhs_handle, 4),
-            ArrayArg::from_raw_parts(out_handle.clone(), 4),
+            BufferArg::from_raw_parts(lhs_handle, 4),
+            BufferArg::from_raw_parts(rhs_handle, 4),
+            BufferArg::from_raw_parts(out_handle.clone(), 4),
         )
     }
     let actual = client.read_one_unchecked(out_handle);
@@ -184,9 +184,9 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
             vector_size,
-            ArrayArg::from_raw_parts(lhs_handle, 16),
-            ArrayArg::from_raw_parts(rhs_handle, 16),
-            ArrayArg::from_raw_parts(out_handle.clone(), 16),
+            BufferArg::from_raw_parts(lhs_handle, 16),
+            BufferArg::from_raw_parts(rhs_handle, 16),
+            BufferArg::from_raw_parts(out_handle.clone(), 16),
         )
     }
     let actual = client.read_one_unchecked(out_handle);
@@ -266,9 +266,9 @@ pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
             CubeCount::new_single(),
             CubeDim::new_1d(out.len() as u32),
             vector_size,
-            ArrayArg::from_raw_parts(lhs_handle, 16),
-            ArrayArg::from_raw_parts(rhs_handle, 16),
-            ArrayArg::from_raw_parts(out_handle.clone(), 16),
+            BufferArg::from_raw_parts(lhs_handle, 16),
+            BufferArg::from_raw_parts(rhs_handle, 16),
+            BufferArg::from_raw_parts(out_handle.clone(), 16),
         )
     }
     let actual = client.read_one_unchecked(out_handle);

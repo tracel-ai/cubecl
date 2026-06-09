@@ -12,6 +12,7 @@ macro_rules! declare_uint {
         }
 
         impl Scalar for $primitive {}
+        impl CubeDebug for $primitive {}
         impl CubePrimitive for $primitive {
             type Scalar = Self;
             type Size = Const<1>;
@@ -30,13 +31,21 @@ macro_rules! declare_uint {
         }
 
         impl IntoRuntime for $primitive {
-            fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+            fn __expand_runtime_method(self, _scope: &Scope) -> NativeExpand<Self> {
+                self.into()
+            }
+        }
+
+        impl IntoExpand for $primitive {
+            type Expand = NativeExpand<$primitive>;
+
+            fn into_expand(self, _: &Scope) -> Self::Expand {
                 self.into()
             }
         }
 
         impl IntoMut for $primitive {
-            fn into_mut(self, _scope: &mut Scope) -> Self {
+            fn into_mut(self, _scope: &Scope) -> Self {
                 self
             }
         }
@@ -59,6 +68,8 @@ macro_rules! declare_uint {
                 val as $primitive
             }
         }
+
+        impl_scalar_launch!($primitive);
     };
 }
 
@@ -71,6 +82,7 @@ impl CubeType for usize {
     type ExpandType = NativeExpand<Self>;
 }
 
+impl CubeDebug for usize {}
 impl Scalar for usize {}
 impl CubePrimitive for usize {
     type Scalar = Self;
@@ -84,19 +96,27 @@ impl CubePrimitive for usize {
         value as usize
     }
 
-    fn as_type(scope: &Scope) -> Type {
+    fn __expand_as_type(scope: &Scope) -> Type {
         Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
     }
 }
 
 impl IntoRuntime for usize {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
-        self.into()
+    fn __expand_runtime_method(self, scope: &Scope) -> NativeExpand<Self> {
+        NativeExpand::from_lit(scope, self)
+    }
+}
+
+impl IntoExpand for usize {
+    type Expand = NativeExpand<usize>;
+
+    fn into_expand(self, scope: &Scope) -> Self::Expand {
+        self.__expand_runtime_method(scope)
     }
 }
 
 impl IntoMut for usize {
-    fn into_mut(self, _scope: &mut Scope) -> Self {
+    fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
 }
@@ -121,10 +141,13 @@ impl Int for usize {
     }
 }
 
+impl_scalar_launch!(usize);
+
 impl CubeType for isize {
     type ExpandType = NativeExpand<Self>;
 }
 
+impl CubeDebug for isize {}
 impl Scalar for isize {}
 impl CubePrimitive for isize {
     type Scalar = Self;
@@ -138,19 +161,27 @@ impl CubePrimitive for isize {
         value as isize
     }
 
-    fn as_type(scope: &Scope) -> Type {
+    fn __expand_as_type(scope: &Scope) -> Type {
         Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
     }
 }
 
 impl IntoRuntime for isize {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
-        self.into()
+    fn __expand_runtime_method(self, scope: &Scope) -> NativeExpand<Self> {
+        NativeExpand::from_lit(scope, self)
+    }
+}
+
+impl IntoExpand for isize {
+    type Expand = NativeExpand<isize>;
+
+    fn into_expand(self, scope: &Scope) -> Self::Expand {
+        self.__expand_runtime_method(scope)
     }
 }
 
 impl IntoMut for isize {
-    fn into_mut(self, _scope: &mut Scope) -> Self {
+    fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
 }
@@ -174,3 +205,5 @@ impl Int for isize {
         val as isize
     }
 }
+
+impl_scalar_launch!(isize);

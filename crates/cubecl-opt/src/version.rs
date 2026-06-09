@@ -1,14 +1,11 @@
-use std::{
-    collections::{HashMap, HashSet},
-    mem::take,
-};
+use core::mem::take;
 
+use alloc::vec::Vec;
 use cubecl_ir::{Id, Instruction, Type, Variable, VariableKind};
+use hashbrown::{HashMap, HashSet};
 use petgraph::visit::EdgeRef;
 
-use crate::{ControlFlow, EdgeIndex, NodeIndex};
-
-use super::Optimizer;
+use crate::{ControlFlow, EdgeIndex, Function, GlobalState, NodeIndex};
 
 /// The state required by the SSA transform
 #[derive(Debug)]
@@ -66,10 +63,10 @@ pub struct PhiInstruction {
     pub entries: Vec<PhiEntry>,
 }
 
-impl Optimizer {
+impl Function {
     /// Version all variables in the program so they are each assigned to exactly once.
-    pub(crate) fn version_program(&mut self) {
-        let versions: HashMap<_, _> = self.program.variables.keys().map(|key| (*key, 0)).collect();
+    pub(crate) fn version_program(&mut self, global_state: &GlobalState) {
+        let versions: HashMap<_, _> = self.variables.keys().map(|key| (*key, 0)).collect();
         let mut visited_blocks = HashSet::new();
         let mut visited_edges = HashSet::new();
         let mut max_versions = versions.clone();
@@ -79,17 +76,18 @@ impl Optimizer {
             visited_edges: &mut visited_edges,
             max_versions: &mut max_versions,
         };
-        self.version_block(self.entry(), initial_state);
+        self.version_block(global_state, self.root, initial_state);
     }
 
-    fn version_block(&mut self, block: NodeIndex, mut state: SsaState<'_>) {
-        self.version_block_ops(block, &mut state);
+    fn version_block(
+        &mut self,
+        global_state: &GlobalState,
+        block: NodeIndex,
+        mut state: SsaState<'_>,
+    ) {
+        self.version_block_ops(global_state, block, &mut state);
 
-        let edges: Vec<_> = self
-            .program
-            .edges(block)
-            .map(|it| (it.id(), it.target()))
-            .collect();
+        let edges: Vec<_> = self.edges(block).map(|it| (it.id(), it.target())).collect();
         let state = &mut state;
         for (edge_id, target) in edges {
             let edge_visited = state.visited_edges.contains(&edge_id);
@@ -108,14 +106,14 @@ impl Optimizer {
                 self.version_phi(target, block, &new_state);
             }
             if !block_visited {
-                self.version_block(target, new_state);
+                self.version_block(global_state, target, new_state);
             }
         }
     }
 
     /// Version the phi entry for this edge
     fn version_phi(&mut self, target: NodeIndex, source: NodeIndex, state: &SsaState<'_>) {
-        let phi = self.program[target].phi_nodes.clone();
+        let phi = self[target].phi_nodes.clone();
         for node in phi.borrow_mut().iter_mut() {
             let entry = node
                 .entries
@@ -123,7 +121,7 @@ impl Optimizer {
                 .find(|it| it.block == source)
                 .unwrap();
             if let Some((id, item, _)) = as_versioned(entry.value)
-                && self.program.variables.contains_key(&id)
+                && self.variables.contains_key(&id)
             {
                 let version = state.versions[&id];
                 entry.value = Variable::new(VariableKind::Versioned { id, version }, item);
@@ -132,10 +130,15 @@ impl Optimizer {
     }
 
     /// Version the operations for this block
-    fn version_block_ops(&mut self, block: NodeIndex, state: &mut SsaState<'_>) {
-        for phi in self.program[block].phi_nodes.borrow_mut().iter_mut() {
+    fn version_block_ops(
+        &mut self,
+        global_state: &GlobalState,
+        block: NodeIndex,
+        state: &mut SsaState<'_>,
+    ) {
+        for phi in self[block].phi_nodes.borrow_mut().iter_mut() {
             if let Some((id, item, _)) = as_versioned(phi.out)
-                && self.program.variables.contains_key(&id)
+                && self.variables.contains_key(&id)
             {
                 let version = state.versions.get_mut(&id).unwrap();
                 let max_version = state.max_versions.get_mut(&id).unwrap();
@@ -151,24 +154,34 @@ impl Optimizer {
             }
         }
 
-        let mut ops = take(&mut *self.program[block].ops.borrow_mut());
+        let mut ops = take(&mut *self[block].ops.borrow_mut());
         for operation in ops.values_mut() {
-            self.version_reads(operation, state);
+            self.version_reads(global_state, operation, state);
             self.version_writes(operation, state);
         }
-        *self.program[block].ops.borrow_mut() = ops;
-        match &mut *self.program[block].control_flow.borrow_mut() {
+        *self[block].ops.borrow_mut() = ops;
+        match &mut *self[block].control_flow.borrow_mut() {
             ControlFlow::IfElse { cond, .. } => self.version_read(cond, state),
             ControlFlow::LoopBreak { break_cond, .. } => self.version_read(break_cond, state),
             ControlFlow::Switch { value, .. } => self.version_read(value, state),
             ControlFlow::Loop { .. } => {}
-            ControlFlow::Return | ControlFlow::Unreachable | ControlFlow::None => {}
+            ControlFlow::Return { value } => {
+                if let Some(value) = value {
+                    self.version_read(value, state);
+                }
+            }
+            ControlFlow::Unreachable | ControlFlow::None => {}
         }
     }
 
-    fn version_reads(&mut self, op: &mut Instruction, state: &mut SsaState<'_>) {
-        self.visit_operation(&mut op.operation, &mut op.out, |opt, var| {
-            opt.version_read(var, state)
+    fn version_reads(
+        &mut self,
+        global_state: &GlobalState,
+        op: &mut Instruction,
+        state: &mut SsaState<'_>,
+    ) {
+        self.visit_operation(global_state, &mut op.operation, |func, var| {
+            func.version_read(var, state)
         });
     }
 
@@ -195,7 +208,7 @@ impl Optimizer {
     fn version_read(&self, var: &mut Variable, state: &mut SsaState<'_>) {
         match var.kind {
             VariableKind::LocalMut { id } | VariableKind::Versioned { id, .. } => {
-                if self.program.variables.contains_key(&id)
+                if self.variables.contains_key(&id)
                     && let Some(version) = state.versions.get(&id)
                 {
                     *var = Variable::new(

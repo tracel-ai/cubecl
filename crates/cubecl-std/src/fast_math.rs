@@ -9,6 +9,7 @@ use cubecl_core::{self as cubecl};
 /// Implementation based on ONNX:
 /// <https://github.com/microsoft/onnxruntime/blob/main/onnxruntime/core/providers/cuda/shared_inc/fast_divmod.h>
 #[derive(CubeType, Clone, Copy)]
+#[expand(derive(Clone, Copy))]
 pub enum FastDivmod<I: FastDivmodInt> {
     Fast {
         divisor: I,
@@ -20,7 +21,7 @@ pub enum FastDivmod<I: FastDivmodInt> {
     },
 }
 
-pub trait FastDivmodInt: Int + MulHi + ScalarArgSettings {
+pub trait FastDivmodInt: Int + MulHi + ScalarArgSettings + LaunchArg<CompilationArg = ()> {
     fn size<R: Runtime>(launcher: &KernelLauncher<R>) -> usize;
 }
 
@@ -74,6 +75,14 @@ impl<I: FastDivmodInt> FastDivmod<I> {
 }
 
 fn find_params_u32(divisor: u32) -> (u32, u32) {
+    // A zero divisor arises only when a tensor has a zero-sized dimension
+    // (e.g. Brush's `sh_coeffs_rest` of shape [N, 0, 3] at SH degree 0).
+    // Such tensors cause 0 workgroups to be dispatched, so these params are
+    // never read by any kernel thread — return a dummy pair instead of
+    // panicking during kernel launch preparation.
+    if divisor == 0 {
+        return (0, 0);
+    }
     let div_64 = divisor as u64;
     let shift = divisor.next_power_of_two().trailing_zeros();
     let multiplier = ((1u64 << 32) * ((1u64 << shift) - div_64)) / div_64 + 1;
@@ -81,6 +90,9 @@ fn find_params_u32(divisor: u32) -> (u32, u32) {
 }
 
 fn find_params_u64(divisor: u64) -> (u32, u64) {
+    if divisor == 0 {
+        return (0, 0);
+    }
     let div_128 = divisor as u128;
     let shift = divisor.next_power_of_two().trailing_zeros();
     let multiplier = ((1u128 << 64) * ((1u128 << shift) - div_128)) / div_128 + 1;
@@ -98,7 +110,10 @@ mod launch {
         Fallback,
     }
 
-    impl<I: FastDivmodInt> LaunchArg for FastDivmod<I> {
+    impl<I: FastDivmodInt> LaunchArg for FastDivmod<I>
+    where
+        I: LaunchArg<CompilationArg = ()>,
+    {
         type RuntimeArg<R: Runtime> = I;
         type CompilationArg = FastDivmodCompilationArg;
 
@@ -106,7 +121,8 @@ mod launch {
             divisor: Self::RuntimeArg<R>,
             launcher: &mut KernelLauncher<R>,
         ) -> Self::CompilationArg {
-            let props = launcher.with_scope(|scope| scope.properties.clone().unwrap());
+            let props =
+                launcher.with_scope(|scope| scope.state().device_properties.clone().unwrap());
             let fast = props.features.supports_type(UIntKind::U64);
             match fast {
                 true => {
@@ -127,13 +143,13 @@ mod launch {
                         }
                         _ => panic!("unsupported type size for FastDivmod"),
                     };
-                    <I as LaunchArg>::register(divisor, launcher);
-                    <I as LaunchArg>::register(multiplier, launcher);
-                    <u32 as LaunchArg>::register(shift_right, launcher);
+                    divisor.register(launcher);
+                    multiplier.register(launcher);
+                    shift_right.register(launcher);
                     FastDivmodCompilationArg::Fast
                 }
                 false => {
-                    <I as LaunchArg>::register(divisor, launcher);
+                    divisor.register(launcher);
                     FastDivmodCompilationArg::Fallback
                 }
             }

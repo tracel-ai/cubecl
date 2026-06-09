@@ -1,20 +1,21 @@
+use alloc::vec::Vec;
 use cubecl_ir::{Id, Type, Variable, VariableKind};
 use petgraph::graph::NodeIndex;
 
 use crate::{
-    Optimizer,
+    Function, GlobalState,
     analyses::{dominance::DomFrontiers, liveness::Liveness, writes::Writes},
 };
 
 use super::version::{PhiEntry, PhiInstruction};
 
-impl Optimizer {
+impl Function {
     /// Places a phi node for each live variable at each frontier
-    pub fn place_phi_nodes(&mut self) {
-        let keys: Vec<_> = self.program.variables.keys().cloned().collect();
-        let writes = self.analysis::<Writes>();
-        let liveness = self.analysis::<Liveness>();
-        let dom_frontiers = self.analysis::<DomFrontiers>();
+    pub fn place_phi_nodes(&mut self, state: &GlobalState) {
+        let keys: Vec<_> = self.variables.keys().cloned().collect();
+        let writes = self.analysis::<Writes>(state);
+        let liveness = self.analysis::<Liveness>(state);
+        let dom_frontiers = self.analysis::<DomFrontiers>(state);
 
         for var in keys {
             let mut workset: Vec<_> = self
@@ -31,7 +32,7 @@ impl Optimizer {
                     if already_inserted.contains(&frontier) || liveness.is_dead(frontier, var) {
                         continue;
                     }
-                    self.insert_phi(frontier, var, self.program.variables[&var]);
+                    self.insert_phi(frontier, var, self.variables[&var]);
                     already_inserted.push(frontier);
                     if !considered.contains(&frontier) {
                         workset.push(frontier);
@@ -53,6 +54,6 @@ impl Optimizer {
             out: var,
             entries: entries.collect(),
         };
-        self.program[block].phi_nodes.borrow_mut().push(phi);
+        self[block].phi_nodes.borrow_mut().push(phi);
     }
 }

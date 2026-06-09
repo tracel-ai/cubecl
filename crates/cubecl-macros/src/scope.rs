@@ -7,7 +7,7 @@ use std::{
 use quote::format_ident;
 use syn::{Ident, Type, parse_quote};
 
-use crate::parse::kernel::KernelParam;
+use crate::parse::signature::KernelParam;
 
 pub const KEYWORDS: [&str; 31] = [
     "ABSOLUTE_POS",
@@ -53,10 +53,11 @@ pub struct Context {
     level: usize,
     mut_scope_idx: usize,
     pub debug_symbols: bool,
+    pub is_intrinsic: bool,
 }
 
 impl Context {
-    pub fn new(return_type: Type, debug_symbols: bool) -> Self {
+    pub fn new(return_type: Type, debug_symbols: bool, is_intrinsic: bool) -> Self {
         let mut root_scope = ManagedScope::default();
         root_scope.extend(KEYWORDS.iter().map(|it| {
             let name = format_ident!("{it}");
@@ -65,8 +66,7 @@ impl Context {
                 name,
                 ty: Some(ty),
                 is_const: false,
-                is_ref: false,
-                is_mut: false,
+                is_mut_owned: false,
                 is_keyword: true,
                 use_count: AtomicUsize::new(0).into(),
                 level: 0,
@@ -78,6 +78,7 @@ impl Context {
             level: 0,
             mut_scope_idx: 0,
             debug_symbols,
+            is_intrinsic,
         }
     }
 
@@ -86,15 +87,13 @@ impl Context {
         name: Ident,
         ty: Option<Type>,
         is_const: bool,
-        is_ref: bool,
-        is_mut: bool,
+        is_mut_owned: bool,
     ) -> ManagedVar {
         let var = ManagedVar {
             name,
             ty,
             is_const,
-            is_ref,
-            is_mut,
+            is_mut_owned,
             is_keyword: false,
             use_count: AtomicUsize::new(0).into(),
             level: self.scopes.len() - 1,
@@ -161,14 +160,14 @@ pub struct ManagedVar {
     pub name: Ident,
     pub ty: Option<Type>,
     pub is_const: bool,
-    pub is_ref: bool,
-    pub is_mut: bool,
+    pub is_mut_owned: bool,
     pub is_keyword: bool,
     use_count: Rc<AtomicUsize>,
     level: usize,
 }
 
 impl ManagedVar {
+    #[allow(unused, reason = "May need to free variables, test performance")]
     pub fn try_consume(&self, context: &mut Context) -> bool {
         let count = self.use_count.fetch_sub(1, Ordering::AcqRel);
         self.level >= context.mut_scope_idx && count <= 1
@@ -183,8 +182,7 @@ impl From<KernelParam> for ManagedVar {
             is_const: value.is_const,
             is_keyword: false,
             use_count: AtomicUsize::new(0).into(),
-            is_ref: value.is_ref,
-            is_mut: value.is_mut,
+            is_mut_owned: value.mutability.is_some(),
             level: 0,
         }
     }

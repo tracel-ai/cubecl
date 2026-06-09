@@ -2,135 +2,12 @@ use cubecl_core::ir as core;
 use cubecl_opt::{ControlFlow, NodeIndex};
 use rspirv::{
     dr::Operand,
-    spirv::{LoopControl, SelectionControl, Word},
+    spirv::{LoopControl, SelectionControl},
 };
 
-use crate::{SpirvCompiler, SpirvTarget, item::Item, variable::Variable};
+use crate::{SpirvCompiler, SpirvTarget};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_read_bound(
-        &mut self,
-        arr: &Variable,
-        index: Word,
-        item: Item,
-        read: impl FnOnce(&mut Self) -> Word,
-    ) -> Word {
-        let ty = item.id(self);
-        let len = match arr.has_buffer_len() {
-            true => self.buffer_length(arr, None, false),
-            false => self.length(arr, None, false),
-        };
-        let bool = self.type_bool();
-        let cond = self.u_less_than(bool, None, index, len).unwrap();
-
-        let current_block = self.current_block.unwrap();
-
-        let current_label = self.end_label(current_block);
-        let in_bounds = self.id();
-        let next = self.id();
-
-        self.selection_merge(next, SelectionControl::DONT_FLATTEN)
-            .unwrap();
-        self.branch_conditional(cond, in_bounds, next, vec![1, 0])
-            .unwrap();
-
-        self.begin_block(Some(in_bounds)).unwrap();
-        let value = read(self);
-        self.branch(next).unwrap();
-
-        let fallback_value = item.constant(self, 0u32.into());
-
-        self.state.end_labels.insert(current_block, next);
-
-        self.begin_block(Some(next)).unwrap();
-        self.phi(
-            ty,
-            None,
-            vec![(value, in_bounds), (fallback_value, current_label)],
-        )
-        .unwrap()
-    }
-
-    pub fn compile_write_bound(
-        &mut self,
-        arr: &Variable,
-        index: Word,
-        write: impl FnOnce(&mut Self),
-    ) {
-        let len = match arr.has_buffer_len() {
-            true => self.buffer_length(arr, None, false),
-            false => self.length(arr, None, false),
-        };
-        let bool = self.type_bool();
-        let cond = self.u_less_than(bool, None, index, len).unwrap();
-        let current_block = self.current_block.unwrap();
-
-        let in_bounds = self.id();
-        let next = self.id();
-
-        self.selection_merge(next, SelectionControl::DONT_FLATTEN)
-            .unwrap();
-        self.branch_conditional(cond, in_bounds, next, vec![1, 0])
-            .unwrap();
-
-        self.begin_block(Some(in_bounds)).unwrap();
-        write(self);
-        self.branch(next).unwrap();
-
-        self.begin_block(Some(next)).unwrap();
-        self.state.end_labels.insert(current_block, next);
-    }
-
-    pub fn compile_copy_bound(
-        &mut self,
-        input: &Variable,
-        out: &Variable,
-        in_index: Word,
-        out_index: Word,
-        len: Option<u32>,
-        copy: impl FnOnce(&mut Self),
-    ) {
-        let in_len = match input.has_buffer_len() {
-            true => self.buffer_length(input, None, false),
-            false => self.length(input, None, false),
-        };
-        let out_len = match out.has_buffer_len() {
-            true => self.buffer_length(out, None, false),
-            false => self.length(out, None, false),
-        };
-
-        let bool = self.type_bool();
-        let int = self.type_int(32, 0);
-        let in_index = match len {
-            Some(len) => self.i_add(int, None, in_index, len).unwrap(),
-            None => in_index,
-        };
-        let out_index = match len {
-            Some(len) => self.i_add(int, None, out_index, len).unwrap(),
-            None => out_index,
-        };
-        let cond_in = self.u_less_than(bool, None, in_index, in_len).unwrap();
-        let cond_out = self.u_less_than(bool, None, out_index, out_len).unwrap();
-        let cond = self.logical_and(bool, None, cond_in, cond_out).unwrap();
-
-        let current_block = self.current_block.unwrap();
-
-        let in_bounds = self.id();
-        let next = self.id();
-
-        self.selection_merge(next, SelectionControl::DONT_FLATTEN)
-            .unwrap();
-        self.branch_conditional(cond, in_bounds, next, vec![1, 0])
-            .unwrap();
-
-        self.begin_block(Some(in_bounds)).unwrap();
-        copy(self);
-        self.branch(next).unwrap();
-
-        self.begin_block(Some(next)).unwrap();
-        self.state.end_labels.insert(current_block, next);
-    }
-
     pub fn compile_control_flow(&mut self, control_flow: ControlFlow) {
         match control_flow {
             ControlFlow::IfElse {
@@ -156,8 +33,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 continue_target,
                 merge,
             } => self.compile_loop_break(break_cond, body, continue_target, merge),
-            ControlFlow::Return => {
-                self.ret().unwrap();
+            ControlFlow::Return { value } => {
+                if let Some(value) = value {
+                    let value = self.compile_variable(value);
+                    let value_id = self.read(&value);
+                    self.ret_value(value_id).unwrap();
+                } else {
+                    self.ret().unwrap();
+                }
                 self.current_block = None;
             }
             ControlFlow::Unreachable => {
@@ -166,7 +49,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             ControlFlow::None => {
                 let opt = self.opt.clone();
-                let children = opt.successors(self.current_block.unwrap());
+                let func = self
+                    .current_func
+                    .map(|id| &opt.global_state.extra_functions[&id])
+                    .unwrap_or(&opt.main);
+                let children = func.successors(self.current_block.unwrap());
                 assert_eq!(
                     children.len(),
                     1,
@@ -174,7 +61,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 );
                 let label = self.label(children[0]);
                 self.branch(label).unwrap();
-                self.compile_block(children[0]);
             }
         }
     }
@@ -198,11 +84,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
         self.branch_conditional(cond_id, then_label, else_label, None)
             .unwrap();
-        self.compile_block(then);
-        self.compile_block(or_else);
-        if let Some(it) = merge {
-            self.compile_block(it);
-        }
     }
 
     fn compile_switch(
@@ -231,13 +112,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
 
         self.switch(value_id, default_label, targets).unwrap();
-        self.compile_block(default);
-        for (_, block) in branches {
-            self.compile_block(block);
-        }
-        if let Some(it) = merge {
-            self.compile_block(it);
-        }
     }
 
     fn compile_loop(&mut self, body: NodeIndex, continue_target: NodeIndex, merge: NodeIndex) {
@@ -248,9 +122,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.loop_merge(merge_label, continue_label, LoopControl::NONE, vec![])
             .unwrap();
         self.branch(body_label).unwrap();
-        self.compile_block(body);
-        self.compile_block(continue_target);
-        self.compile_block(merge);
     }
 
     fn compile_loop_break(
@@ -270,8 +141,5 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .unwrap();
         self.branch_conditional(cond_id, body_label, merge_label, [])
             .unwrap();
-        self.compile_block(body);
-        self.compile_block(continue_target);
-        self.compile_block(merge);
     }
 }

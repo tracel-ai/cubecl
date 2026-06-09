@@ -1,9 +1,10 @@
-use std::{cell::RefCell, mem::take};
+use core::{cell::RefCell, mem::take};
 
-use cubecl_ir::{CoopMma, Instruction, Operation, Operator, UnaryOperator};
+use alloc::vec::Vec;
+use cubecl_ir::{CoopMma, Instruction, Operation, Operator, UnaryOperands};
 use stable_vec::StableVec;
 
-use crate::{AtomicCounter, Optimizer, visit_noop};
+use crate::{AtomicCounter, Function, GlobalState, visit_noop};
 
 use super::OptimizerPass;
 
@@ -12,18 +13,18 @@ use super::OptimizerPass;
 pub struct InlineAssignments;
 
 impl OptimizerPass for InlineAssignments {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        while search_loop(opt) {
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        while search_loop(func, state) {
             changes.inc();
         }
     }
 }
 
-fn search_loop(opt: &mut Optimizer) -> bool {
-    for node in opt.program.node_indices().collect::<Vec<_>>() {
+fn search_loop(func: &mut Function, state: &GlobalState) -> bool {
+    for node in func.node_indices().collect::<Vec<_>>() {
         let mut removed_phi = Vec::new();
         // Remove trivial phi nodes left from PRE
-        opt.program[node].phi_nodes.borrow_mut().retain(|it| {
+        func[node].phi_nodes.borrow_mut().retain(|it| {
             let reference = it.entries[0].value;
             if it.entries.iter().all(|it| it.value == reference) {
                 removed_phi.push(it.clone());
@@ -39,26 +40,29 @@ fn search_loop(opt: &mut Optimizer) -> bool {
                 .map(|phi| Instruction::new(Operation::Copy(phi.entries[0].value), phi.out))
                 .collect::<StableVec<_>>();
 
-            let ops = take(&mut *opt.program[node].ops.borrow_mut());
+            let ops = take(&mut *func[node].ops.borrow_mut());
             phi_assigns.extend(ops.into_iter().map(|(_, v)| v));
-            *opt.program[node].ops.borrow_mut() = phi_assigns;
+            *func[node].ops.borrow_mut() = phi_assigns;
             return true;
         }
 
-        let ops = opt.program[node].ops.borrow().indices().collect::<Vec<_>>();
+        let ops = func[node].ops.borrow().indices().collect::<Vec<_>>();
 
         for idx in ops {
-            let op = opt.program[node].ops.borrow()[idx].clone();
+            let op = func[node].ops.borrow()[idx].clone();
             match op.operation {
                 Operation::Copy(input)
-                | Operation::Operator(Operator::Cast(UnaryOperator { input }))
-                | Operation::Operator(Operator::Reinterpret(UnaryOperator { input }))
+                | Operation::Operator(Operator::Cast(UnaryOperands { input }))
+                | Operation::Operator(Operator::Reinterpret(UnaryOperands { input }))
                 | Operation::CoopMma(CoopMma::Cast { input })
-                    if (input.is_immutable() || input.is_array())
-                        && (op.out().is_immutable() || op.out().is_array())
+                    if (input.is_immutable() || input.is_array() || input.ty.is_ptr())
+                        && (op.out().is_immutable()
+                            || op.out().is_array()
+                            || op.out().ty.is_ptr())
                         && input.ty == op.ty() =>
                 {
-                    opt.visit_all(
+                    func.visit_all(
+                        state,
                         |_, var| {
                             if *var == op.out() {
                                 *var = input
@@ -66,7 +70,7 @@ fn search_loop(opt: &mut Optimizer) -> bool {
                         },
                         visit_noop,
                     );
-                    opt.program[node].ops.borrow_mut().remove(idx);
+                    func[node].ops.borrow_mut().remove(idx);
                     return true;
                 }
                 _ => {}
@@ -97,19 +101,20 @@ fn search_loop(opt: &mut Optimizer) -> bool {
 pub struct MergeSameExpressions;
 
 impl OptimizerPass for MergeSameExpressions {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        for node in opt.node_ids() {
-            let ops = opt.program[node].ops.clone();
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        for node in func.node_ids() {
+            let ops = func[node].ops.clone();
             let indices = ops.borrow().indices().collect::<Vec<_>>();
             for (i, idx) in indices.iter().enumerate() {
-                check_op(opt, i, *idx, &ops, &indices, &changes);
+                check_op(func, state, i, *idx, &ops, &indices, &changes);
             }
         }
     }
 }
 
 fn check_op(
-    opt: &mut Optimizer,
+    func: &mut Function,
+    state: &GlobalState,
     i: usize,
     idx: usize,
     ops: &RefCell<StableVec<Instruction>>,
@@ -119,12 +124,12 @@ fn check_op(
     let mut op = ops.borrow()[idx].clone();
     let out = op.out?;
     let mut is_mut = false;
-    opt.visit_operation(&mut op.operation, &mut Some(out), |_, var| {
+    func.visit_operation(state, &mut op.operation, |_, var| {
         if !var.is_immutable() {
             is_mut = true;
         }
     });
-    opt.visit_out(&mut op.out, |_, var| {
+    func.visit_out(&mut op.out, |_, var| {
         if !var.is_immutable() {
             is_mut = true;
         }

@@ -14,6 +14,7 @@ use crate::{
 
 impl ToTokens for IntoRuntime {
     fn to_tokens(&self, tokens: &mut TokenStream) {
+        let into_expand = prelude_type("IntoExpand");
         let into_runtime = core_type("IntoRuntime");
         let cube_type = prelude_type("CubeType");
         let scope = prelude_type("Scope");
@@ -30,9 +31,17 @@ impl ToTokens for IntoRuntime {
 
         tokens.extend(quote! {
             impl #generics #into_runtime for #name #generic_names #where_clause {
-                fn __expand_runtime_method(self, scope: &mut #scope) -> Self::ExpandType {
+                fn __expand_runtime_method(self, scope: &#scope) -> Self::ExpandType {
                     type _Ty #generic_names = <#name #generic_names as #cube_type>::ExpandType;
                     #init
+                }
+            }
+
+            impl #generics #into_expand for #name #generic_names #where_clause {
+                type Expand = <Self as #cube_type>::ExpandType;
+
+                fn into_expand(self, scope: &#scope) -> Self::Expand {
+                    self.__expand_runtime_method(scope)
                 }
             }
         });

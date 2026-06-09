@@ -43,12 +43,13 @@ impl Statement {
                         ident,
                         ty,
                         is_ref,
-                        is_mut,
+                        mutability,
                     } = parse_pat(local.pat)?;
+                    let is_mut = mutability.is_some();
                     let is_const = init.as_ref().is_some_and(|init| init.is_const());
 
                     let variable =
-                        context.push_variable(ident, ty, is_const && !is_mut, is_ref, is_mut);
+                        context.push_variable(ident, ty, is_const && !is_mut, !is_ref && is_mut);
                     Self::Local { variable, init }
                 }
             }
@@ -80,31 +81,28 @@ pub fn parse_pat(pat: Pat) -> syn::Result<Pattern> {
             ident: ident.ident,
             ty: None,
             is_ref: ident.by_ref.is_some(),
-            is_mut: ident.mutability.is_some(),
+            mutability: ident.mutability,
         },
         Pat::Type(pat) => {
             let ty = *pat.ty;
             let is_ref = matches!(ty, Type::Reference(_));
-            let ref_mut = matches!(
-                ty,
-                Type::Reference(TypeReference {
-                    mutability: Some(_),
-                    ..
-                })
-            );
+            let mutability = match ty {
+                Type::Reference(TypeReference { mutability, .. }) => mutability,
+                _ => None,
+            };
             let inner = parse_pat(*pat.pat)?;
             Pattern {
                 ident: inner.ident,
                 ty: Some(ty),
                 is_ref: is_ref || inner.is_ref,
-                is_mut: ref_mut || inner.is_mut,
+                mutability: mutability.or(inner.mutability),
             }
         }
         Pat::Wild(_) => Pattern {
             ident: format_ident!("_"),
             ty: None,
             is_ref: false,
-            is_mut: false,
+            mutability: None,
         },
         pat => Err(syn::Error::new_spanned(
             pat.clone(),
@@ -151,11 +149,11 @@ pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression
     .into_iter()
     .any(|target| mac.path.is_ident(&target))
     {
-        Ok(Expression::RustMacro {
+        Ok(Expression::PanickingMacro {
             ident: mac.path.segments.last().unwrap().ident.clone(),
             tokens: mac.tokens,
         })
-    } else if mac.path.is_ident("debug_print") {
+    } else if mac.path.is_ident("debug_print") || mac.path.is_ident("seq") {
         let args = mac.tokens;
         let arg_exprs: ExprArray = parse_quote!([#args]);
         let args = arg_exprs
@@ -173,6 +171,7 @@ pub fn parse_macros(mac: Macro, context: &mut Context) -> syn::Result<Expression
     } else if mac.path.is_ident("terminate") {
         Ok(Expression::Terminate)
     } else if mac.path.is_ident("intrinsic") {
+        context.is_intrinsic = true;
         let closure: syn::ExprClosure = mac.parse_body()?;
         let arg = &closure.inputs[0];
         let block = *closure.body;

@@ -9,12 +9,12 @@ pub trait Unary<D: Dialect> {
     ) -> std::fmt::Result {
         let out_item = out.item();
 
-        if out_item.vectorization == 1 {
+        if out_item.vectorization() == 1 {
             write!(f, "{} = ", out.fmt_left())?;
-            Self::format_scalar(f, *input, out_item.elem)?;
+            Self::format_scalar(f, *input, *out_item.elem())?;
             f.write_str(";\n")
         } else {
-            Self::unroll_vec(f, input, out, out_item.elem, out_item.vectorization)
+            Self::unroll_vec(f, input, out, *out_item.elem(), out_item.vectorization())
         }
     }
 
@@ -178,6 +178,18 @@ function!(FastTanh, "__tanhf", false);
 
 function!(Erf, "erf", false);
 function!(Abs, "abs", false);
+
+pub struct Neg;
+
+impl<D: Dialect> Unary<D> for Neg {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _out_elem: Elem<D>,
+    ) -> std::fmt::Result {
+        writeln!(f, "-{}", input)
+    }
+}
 
 pub struct Log1p;
 
@@ -352,13 +364,14 @@ impl<D: Dialect> Unary<D> for Assign {
         out: &Variable<D>,
     ) -> std::fmt::Result {
         let item = out.item();
+        let item = item.value_ty();
 
-        if item.vectorization == 1 || input.item() == item {
+        if item.vectorization() == 1 || input.item().value_ty() == item {
             write!(f, "{} = ", out.fmt_left())?;
-            Self::format_scalar(f, *input, item.elem)?;
+            Self::format_scalar(f, *input, *item.elem())?;
             f.write_str(";\n")
         } else {
-            Self::unroll_vec(f, input, out, item.elem, item.vectorization)
+            Self::unroll_vec(f, input, out, *item.elem(), item.vectorization())
         }
     }
 

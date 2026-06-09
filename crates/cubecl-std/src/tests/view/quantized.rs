@@ -22,15 +22,15 @@ impl Layout for TestPerTensorScaleLayout {
     type SourceCoordinates = Coords1d;
 
     fn to_source_pos(&self, _pos: Self::Coordinates) -> Self::SourceCoordinates {
-        0usize.runtime()
+        0
     }
 
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool) {
-        (self.to_source_pos(pos), true.runtime())
+        (self.to_source_pos(pos), true)
     }
 
     fn is_in_bounds(&self, _pos: Self::Coordinates) -> bool {
-        true.runtime()
+        true
     }
 
     fn shape(&self) -> Self::Coordinates {
@@ -40,11 +40,11 @@ impl Layout for TestPerTensorScaleLayout {
 
 #[cube(launch_unchecked)]
 pub fn kernel_quantized_view<F: Float, N: Size>(
-    lhs: View<Vector<F, N>, Coords1d>,
-    output: &mut Array<Vector<F, N>>,
+    lhs: View<'_, Vector<F, N>, Coords1d>,
+    output: &mut [Vector<F, N>],
 ) {
     if (UNIT_POS as usize) < lhs.shape() {
-        output[UNIT_POS as usize] = lhs[UNIT_POS as usize];
+        output[UNIT_POS as usize] = lhs.read(UNIT_POS as usize);
     }
 }
 
@@ -70,14 +70,14 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
     let scales_layout = TestPerTensorScaleLayoutLaunch::new(16);
 
     let values_view =
-        ViewArg::new_array::<PlainLayout>(unsafe { ArrayArg::from_raw_parts(values, 2) }, ());
+        ViewArg::new_array::<PlainLayout>(unsafe { BufferArg::from_raw_parts(values, 2) }, ());
     let scales_view = ViewArg::new_array::<TestPerTensorScaleLayout>(
-        unsafe { ArrayArg::from_raw_parts(scales, 1) },
+        unsafe { BufferArg::from_raw_parts(scales, 1) },
         scales_layout,
     );
     let quantized_view = ViewArg::new_quantized(values_view, scales_view, scheme);
     let float_view = ViewArg::new_array::<PlainLayout>(
-        unsafe { ArrayArg::from_raw_parts(float_values, 16) },
+        unsafe { BufferArg::from_raw_parts(float_values, 16) },
         (),
     );
 
@@ -88,7 +88,7 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
             CubeDim::new_1d(2),
             vector_size_float,
             quantized_view,
-            ArrayArg::from_raw_parts(output.clone(), 16),
+            BufferArg::from_raw_parts(output.clone(), 16),
         );
         kernel_quantized_view::launch_unchecked::<F, R>(
             &client,
@@ -96,7 +96,7 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
             CubeDim::new_1d(2),
             vector_size_float,
             float_view,
-            ArrayArg::from_raw_parts(float_output.clone(), 16),
+            BufferArg::from_raw_parts(float_output.clone(), 16),
         );
     }
 
@@ -136,14 +136,14 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     let scales_layout = TestPerTensorScaleLayoutLaunch::new(16);
 
     let values_view =
-        ViewArg::new_array::<PlainLayout>(unsafe { ArrayArg::from_raw_parts(values, 2) }, ());
+        ViewArg::new_array::<PlainLayout>(unsafe { BufferArg::from_raw_parts(values, 2) }, ());
     let scales_view = ViewArg::new_array::<TestPerTensorScaleLayout>(
-        unsafe { ArrayArg::from_raw_parts(scales, 1) },
+        unsafe { BufferArg::from_raw_parts(scales, 1) },
         scales_layout,
     );
     let quantized_view = ViewArg::new_quantized(values_view, scales_view, scheme);
     let float_view = ViewArg::new_array::<PlainLayout>(
-        unsafe { ArrayArg::from_raw_parts(float_values, 16) },
+        unsafe { BufferArg::from_raw_parts(float_values, 16) },
         (),
     );
 
@@ -154,7 +154,7 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
             CubeDim::new_1d(2),
             vector_size_float,
             quantized_view,
-            ArrayArg::from_raw_parts(output.clone(), 16),
+            BufferArg::from_raw_parts(output.clone(), 16),
         );
         kernel_quantized_view::launch_unchecked::<F, R>(
             &client,
@@ -162,7 +162,7 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
             CubeDim::new_1d(2),
             vector_size_float,
             float_view,
-            ArrayArg::from_raw_parts(float_output.clone(), 16),
+            BufferArg::from_raw_parts(float_output.clone(), 16),
         );
     }
 

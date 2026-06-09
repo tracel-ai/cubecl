@@ -2,9 +2,11 @@ use core::any::TypeId;
 use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
-use cubecl_core::{ir::Processor, post_processing::saturating::SaturatingArithmeticProcessor};
+use cubecl_core::{
+    ir::Processor, post_processing::saturating::SaturatingArithmeticProcessor, prelude::Visibility,
+};
 
-use crate::shared::DialectWarpReduceCompiler;
+use crate::shared::{DialectWarpReduceCompiler, PointerClass};
 use crate::{
     Dialect,
     shared::{
@@ -289,22 +291,34 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
                 shared::Elem::U64 => f.write_str("uint64"),
                 shared::Elem::Bool => f.write_str("bool"),
                 shared::Elem::Barrier(_) => panic!("Barrier object not supported in HIP"),
-                shared::Elem::Atomic(inner) => inner.fmt(f),
                 shared::Elem::_Dialect(_) => Ok(()),
             }
         }
     }
 
     fn compile_item(f: &mut std::fmt::Formatter<'_>, item: &Item<Self>) -> std::fmt::Result {
-        if 1 == item.vectorization {
-            return write!(f, "{}", item.elem);
-        }
-        if item.native {
-            // native types use the word form of types only
-            Self::compile_elem(f, &item.elem, true)?;
-            write!(f, "{}", item.vectorization)
-        } else {
-            write!(f, "{}_{}", item.elem, item.vectorization)
+        match item {
+            Item::Scalar(elem) => write!(f, "{elem}"),
+            Item::Vector(inner, vectorization) => {
+                write!(f, "{inner}_{vectorization}")
+            }
+            Item::NativeVector(elem, vectorization) => {
+                Self::compile_elem(f, elem, true)?;
+                write!(f, "{vectorization}")
+            }
+            Item::Atomic(inner) => Self::compile_item(f, inner.as_ref()),
+            Item::Pointer(inner, class) => {
+                if let PointerClass::Global(Visibility::Read | Visibility::Uniform) = class {
+                    f.write_str("const ")?;
+                }
+                write!(f, "{inner}*")
+            }
+            Item::Array(inner, size) => {
+                write!(f, "array<{inner}, {size}>")
+            }
+            Item::DynamicArray(inner) => {
+                write!(f, "{inner}*")
+            }
         }
     }
 
@@ -346,7 +360,7 @@ extern \"C\" __global__ void __launch_bounds__({}) {kernel_name}(
             let max_align = body
                 .shared_memories
                 .iter()
-                .map(|smem| smem.align())
+                .map(|smem| smem.align)
                 .max()
                 .unwrap();
             // The `__align__` instead of `alignas` is on purpose - the compiler is currently bugged
@@ -536,7 +550,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         input: &T,
     ) -> std::fmt::Result {
         let item = input.item();
-        let elem = item.elem;
+        let elem = item.elem();
         write!(f, "static_cast<{elem}>(__all({input}))")
     }
     fn compile_warp_any<T: Component<Self>>(
@@ -544,7 +558,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         input: &T,
     ) -> std::fmt::Result {
         let item = input.item();
-        let elem = item.elem;
+        let elem = item.elem();
         write!(f, "static_cast<{elem}>(__any({input}))")
     }
     fn compile_warp_ballot(

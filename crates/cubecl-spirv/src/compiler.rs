@@ -2,22 +2,24 @@ use crate::{
     SpirvKernel,
     debug::DebugInfo,
     item::Item,
-    lookups::LookupTables,
+    lookups::CompilerState,
     target::{GLCompute, SpirvTarget},
     transformers::{BitwiseTransform, ErfTransform, HypotTransform, RhypotTransform},
 };
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
     Compiler, CubeDim, Info, Metadata, WgpuCompilationOptions,
-    ir::{self as core, ElemType, InstructionModes, StorageType, UIntKind, features::EnumSet},
+    ir::{self as core, ElemType, Id, InstructionModes, StorageType, UIntKind, features::EnumSet},
     post_processing::{
-        checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
-        unroll::UnrollProcessor,
+        checked_io::CheckedIoVisitor, disaggregate::DisaggregateVisitor,
+        saturating::SaturatingArithmeticProcessor, unroll::UnrollVisitor,
     },
-    prelude::{FastMath, KernelDefinition},
+    prelude::{FastMath, KernelDefinition, Visibility},
     server::ExecutionMode,
 };
-use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, SharedLiveness, Uniformity};
+use cubecl_opt::{
+    BasicBlock, Function, NodeIndex, Optimizer, OptimizerBuilder, SharedLiveness, Uniformity,
+};
 use cubecl_runtime::{
     compiler::CompilationError,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel},
@@ -36,8 +38,6 @@ use std::{
     sync::Arc,
 };
 
-pub const MAX_VECTORIZATION: usize = 4;
-
 pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub target: Target,
     pub(crate) builder: Builder,
@@ -52,11 +52,11 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub opt: Rc<Optimizer>,
     pub uniformity: Rc<Uniformity>,
     pub shared_liveness: Rc<SharedLiveness>,
+    pub current_func: Option<Id>,
     pub current_block: Option<NodeIndex>,
-    pub visited: HashSet<NodeIndex>,
 
     pub capabilities: HashSet<Capability>,
-    pub state: LookupTables,
+    pub state: CompilerState,
     pub ext_meta_pos: Vec<u32>,
     pub info: Info,
     pub debug_info: Option<DebugInfo>,
@@ -80,11 +80,11 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             opt: self.opt.clone(),
             uniformity: self.uniformity.clone(),
             shared_liveness: self.shared_liveness.clone(),
+            current_func: self.current_func,
             current_block: self.current_block,
             capabilities: self.capabilities.clone(),
             state: self.state.clone(),
             debug_symbols: self.debug_symbols,
-            visited: self.visited.clone(),
             info: self.info.clone(),
             debug_info: self.debug_info.clone(),
             ext_meta_pos: self.ext_meta_pos.clone(),
@@ -116,9 +116,9 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             opt: Default::default(),
             uniformity: Default::default(),
             shared_liveness: Default::default(),
+            current_func: Default::default(),
             current_block: Default::default(),
             debug_symbols: debug_symbols_activated(),
-            visited: Default::default(),
             info: Default::default(),
             debug_info: Default::default(),
             ext_meta_pos: Default::default(),
@@ -147,7 +147,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
 
     fn compile(
         &mut self,
-        mut value: KernelDefinition,
+        value: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
         addr_type: StorageType,
@@ -197,15 +197,32 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         self.ext_meta_pos = ext_meta_pos;
 
         let (module, optimizer, shared_size) = self.compile_kernel(value);
-        let uniform_info = matches!(T::info_storage_class(self), StorageClass::Uniform);
+        let info_visibility = match T::info_storage_class(self) {
+            StorageClass::Uniform => Visibility::Uniform,
+            _ => Visibility::Read,
+        };
+        let immediate_size = match T::params_storage_class(self, bindings.len()) {
+            StorageClass::PushConstant => Some((bindings.len() + 1) * size_of::<u64>()),
+            _ => None,
+        };
+
+        let visibility = self.opt.global_state.buffer_visibility.borrow();
+        let bindings = visibility
+            .iter()
+            .map(|vis| match vis.writable {
+                true => Visibility::ReadWrite,
+                false => Visibility::Read,
+            })
+            .collect();
 
         Ok(SpirvKernel {
             assembled_module: module.assemble(),
             module: Some(Arc::new(module)),
             optimizer: Some(Arc::new(optimizer)),
-            bindings: bindings.iter().map(|it| it.visibility).collect(),
+            bindings,
             shared_size,
-            uniform_info,
+            immediate_size,
+            info_visibility,
         })
     }
 
@@ -225,7 +242,7 @@ impl<Target: SpirvTarget> Debug for SpirvCompiler<Target> {
 }
 
 impl<Target: SpirvTarget> SpirvCompiler<Target> {
-    pub fn compile_kernel(&mut self, kernel: KernelDefinition) -> (Module, Optimizer, usize) {
+    pub fn compile_kernel(&mut self, mut kernel: KernelDefinition) -> (Module, Optimizer, usize) {
         let options = kernel.options.clone();
 
         self.debug_symbols = debug_symbols_activated() || options.debug_symbols;
@@ -242,24 +259,45 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             ))
             .with_transformer(HypotTransform)
             .with_transformer(RhypotTransform)
-            .with_processor(CheckedIoProcessor::new(
+            .with_visitor(CheckedIoVisitor::new(
                 self.mode,
                 kernel.options.kernel_name.clone(),
             ))
-            .with_processor(UnrollProcessor::new(MAX_VECTORIZATION))
+            .with_visitor(DisaggregateVisitor::default())
+            .with_visitor(UnrollVisitor::new(
+                self.compilation_options.vulkan.max_vector_size,
+            ))
             .with_processor(SaturatingArithmeticProcessor::new(true))
             .optimize(kernel.body.clone(), kernel.cube_dim);
 
-        self.uniformity = opt.analysis::<Uniformity>();
-        self.shared_liveness = opt.analysis::<SharedLiveness>();
+        self.uniformity = opt.main.analysis::<Uniformity>(&opt.global_state);
+        self.shared_liveness = opt.main.analysis::<SharedLiveness>(&opt.global_state);
         self.opt = Rc::new(opt);
 
-        self.init_state(kernel.clone());
         self.init_debug();
+        self.init_base_state(&mut kernel);
+        let shared_size = self.declare_shared_memories();
 
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
 
         target.set_kernel_name(options.kernel_name.clone());
+
+        let opt = self.opt.clone();
+        for (id, func) in opt.global_state.extra_functions.iter() {
+            let def = self.declare_function(func);
+            self.current_func = Some(*id);
+
+            let blocks = func.breadth_first_dominators();
+            for block in blocks {
+                self.compile_block(block);
+            }
+            self.end_function_and_reset_lookups();
+
+            self.state.extra_funcs.insert(*id, def);
+            self.current_func = None;
+        }
+
+        self.init_kernel_state(kernel);
 
         let (main, debug_setup) = self.declare_main(&options.kernel_name);
 
@@ -268,24 +306,20 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let entry = self.opt.entry();
         let body = self.label(entry);
+
         let setup_block = self.setup(setup, debug_setup);
         self.setup_block = setup_block;
-        self.compile_block(entry);
 
-        let ret = self.opt.ret;
-        self.compile_block(ret);
-
-        if self.selected_block().is_some() {
-            let label = self.label(ret);
-            self.branch(label).unwrap();
+        let blocks = opt.main.breadth_first_dominators();
+        for block in blocks {
+            self.compile_block(block);
         }
 
         self.select_block(Some(setup_block)).unwrap();
         self.branch(body).unwrap();
 
+        // Don't reset the state here, need to keep used builtins around
         self.end_function().unwrap();
-
-        let shared_size = self.declare_shared_memories();
 
         let builtins = self
             .state
@@ -310,9 +344,11 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.begin_block(Some(label)).unwrap();
 
         let opt = self.opt.clone();
-        for const_arr in opt.const_arrays() {
+        for const_arr in opt.main.const_arrays() {
             self.register_const_array(const_arr);
         }
+
+        Target::load_params(self);
 
         debug_setup(self);
 
@@ -323,7 +359,15 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
     #[track_caller]
     pub fn current_block(&self) -> BasicBlock {
-        self.opt.block(self.current_block.unwrap()).clone()
+        self.current_func()
+            .block(self.current_block.unwrap())
+            .clone()
+    }
+
+    pub fn current_func(&self) -> &Function {
+        self.current_func
+            .map(|func| &self.opt.global_state.extra_functions[&func])
+            .unwrap_or(&self.opt.main)
     }
 
     pub fn builtin(&mut self, builtin: BuiltIn, item: Item) -> Word {
@@ -337,10 +381,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 
     pub fn compile_block(&mut self, block: NodeIndex) {
-        if self.visited.contains(&block) {
-            return;
-        }
-        self.visited.insert(block);
         self.current_block = Some(block);
 
         let label = self.label(block);
@@ -359,7 +399,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         let current = self.selected_block();
         self.select_block(Some(block_id)).unwrap();
-        let phi = { self.opt.block(block).phi_nodes.borrow().clone() };
+        let phi = { self.current_func().block(block).phi_nodes.borrow().clone() };
         for phi in phi {
             let out = self.compile_variable(phi.out);
             let ty = out.item().id(self);
@@ -381,15 +421,18 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 
     // Declare variable in the first block of the function
-    pub fn declare_function_variable(&mut self, ty: Word) -> Word {
+    pub fn declare_function_variable(&mut self, ty: Word, init: Option<Word>) -> Word {
         let setup = self.setup_block;
         let id = self.id();
-        let var = Instruction::new(
+        let mut var = Instruction::new(
             Op::Variable,
             Some(ty),
             Some(id),
             vec![Operand::StorageClass(StorageClass::Function)],
         );
+        if let Some(init) = init {
+            var.operands.push(Operand::IdRef(init));
+        }
         let current_block = self.selected_block();
         self.select_block(Some(setup)).unwrap();
         self.insert_into_block(InsertPoint::Begin, var).unwrap();
@@ -412,70 +455,22 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     fn declare_shared_memories_explicit(&mut self) -> u32 {
         let mut shared_size = 0;
 
-        let shared_arrays = self.state.shared_arrays.clone();
         let shared = self.state.shared.clone();
-        if shared_arrays.is_empty() && shared.is_empty() {
+        if shared.is_empty() {
             return shared_size;
         }
 
         self.capabilities
             .insert(Capability::WorkgroupMemoryExplicitLayoutKHR);
 
-        for (index, memory) in shared_arrays {
-            let item_size = memory.item.size();
-            shared_size = shared_size.max(memory.offset + memory.len * item_size);
-
-            // It's safe to assume that if 8-bit/16-bit types are supported, they're supported for
-            // explicit layout as well.
-            match item_size {
-                1 => {
-                    self.capabilities
-                        .insert(Capability::WorkgroupMemoryExplicitLayout8BitAccessKHR);
-                }
-                2 => {
-                    self.capabilities
-                        .insert(Capability::WorkgroupMemoryExplicitLayout16BitAccessKHR);
-                }
-                _ => {}
-            }
-
-            let arr_ty = Item::Array(Box::new(memory.item), memory.len);
-            let arr_id = arr_ty.id(self);
-
-            if !self.state.decorated_types.contains(&arr_id) {
-                self.decorate(
-                    arr_id,
-                    Decoration::ArrayStride,
-                    [Operand::LiteralBit32(item_size)],
-                );
-                self.state.decorated_types.insert(arr_id);
-            }
-
-            let block_ty = Item::Struct(vec![arr_ty]);
-            let block_id = block_ty.id(self);
-
-            self.decorate(block_id, Decoration::Block, []);
-            self.member_decorate(
-                block_id,
-                0,
-                Decoration::Offset,
-                [Operand::LiteralBit32(memory.offset)],
-            );
-
-            let ptr_ty = self.type_pointer(None, StorageClass::Workgroup, block_id);
-
-            self.debug_shared(memory.id, index);
-            self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
-            self.decorate(memory.id, Decoration::Aliased, []);
-        }
-
         for (index, memory) in shared {
-            let item_size = memory.item.size();
-            shared_size = shared_size.max(memory.offset + item_size);
+            let memory_size = memory.item.size();
+            let value_size = memory.item.value_type().size();
+            shared_size = shared_size.max(memory.offset + memory_size);
 
             // It's safe to assume that if 8-bit/16-bit types are supported, they're supported for
             // explicit layout as well.
-            match item_size {
+            match value_size {
                 1 => {
                     self.capabilities
                         .insert(Capability::WorkgroupMemoryExplicitLayout8BitAccessKHR);
@@ -487,18 +482,20 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                 _ => {}
             }
 
-            let block_ty = Item::Struct(vec![memory.item]);
-            let block_id = block_ty.id(self);
+            let item_id = memory.item.id(self);
+            let block_id = self.id();
+
+            if let Item::Array(_, _) = memory.item {
+                self.decorate(item_id, Decoration::ArrayStride, [value_size.into()]);
+            }
+
+            self.type_struct_id(Some(block_id), [item_id]);
 
             self.decorate(block_id, Decoration::Block, []);
-            self.member_decorate(
-                block_id,
-                0,
-                Decoration::Offset,
-                [Operand::LiteralBit32(memory.offset)],
-            );
+            self.member_decorate(block_id, 0, Decoration::Offset, [memory.offset.into()]);
 
-            let ptr_ty = self.type_pointer(None, StorageClass::Workgroup, block_id);
+            let ptr_ty =
+                self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, block_id);
 
             self.debug_shared(memory.id, index);
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
@@ -510,21 +507,13 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
     fn declare_shared_memories_implicit(&mut self) -> u32 {
         let mut shared_size = 0;
-        let shared_memories = self.state.shared_arrays.clone();
-        for (index, memory) in shared_memories {
-            shared_size += memory.len * memory.item.size();
 
-            let arr_ty = Item::Array(Box::new(memory.item), memory.len);
-            let ptr_ty = Item::Pointer(StorageClass::Workgroup, Box::new(arr_ty)).id(self);
-
-            self.debug_shared(memory.id, index);
-            self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
-        }
         let shared = self.state.shared.clone();
         for (index, memory) in shared {
             shared_size += memory.item.size();
 
-            let ptr_ty = Item::Pointer(StorageClass::Workgroup, Box::new(memory.item)).id(self);
+            let ty_id = memory.item.id(self);
+            let ptr_ty = self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, ty_id);
 
             self.debug_shared(memory.id, index);
             self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);

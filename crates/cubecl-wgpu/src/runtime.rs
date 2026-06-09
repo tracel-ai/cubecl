@@ -1,3 +1,6 @@
+use std::marker::PhantomData;
+
+use crate::WgpuCompiler;
 use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
@@ -19,10 +22,18 @@ use wgpu::{InstanceFlags, RequestAdapterOptions};
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
 /// For advanced configuration, use [`init_setup`] to pass in runtime options or to select a
 /// specific graphics API.
-#[derive(Debug, Clone)]
-pub struct WgpuRuntime;
+#[derive(Debug)]
+pub struct WgpuRuntime<Compiler = AutoCompiler> {
+    _p: PhantomData<Compiler>,
+}
 
-impl DeviceService for WgpuServer {
+impl<C> Clone for WgpuRuntime<C> {
+    fn clone(&self) -> Self {
+        Self { _p: self._p }
+    }
+}
+
+impl<C: WgpuCompiler> DeviceService for WgpuServer<C> {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let device = WgpuDevice::from_id(device_id);
         let setup = future::block_on(create_setup_for_device(&device, AutoGraphicsApi::backend()));
@@ -34,9 +45,9 @@ impl DeviceService for WgpuServer {
     }
 }
 
-impl Runtime for WgpuRuntime {
-    type Compiler = AutoCompiler;
-    type Server = WgpuServer;
+impl<C: WgpuCompiler> Runtime for WgpuRuntime<C> {
+    type Compiler = C;
+    type Server = WgpuServer<C>;
     type Device = WgpuDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self> {
@@ -272,7 +283,10 @@ pub async fn init_setup_async<G: GraphicsApi>(
     return_setup
 }
 
-pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuServer {
+pub(crate) fn create_server<C: WgpuCompiler>(
+    setup: WgpuSetup,
+    options: RuntimeOptions,
+) -> WgpuServer<C> {
     let limits = setup.device.limits();
     let adapter_limits = setup.adapter.limits();
     let mut adapter_info = setup.adapter.get_info();
@@ -324,6 +338,8 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         min_tensor_cores_dim: None,
         num_cpu_cores: None, // TODO: Check if device is CPU.
         max_vector_size: 4,
+        // Init later if extension is enabled
+        cube_mma_reserved_shared_memory: 0,
     };
 
     let mut compilation_options = Default::default();
@@ -393,8 +409,7 @@ pub(crate) async fn create_setup_for_device(
     let (device, queue) = backend::request_device(&adapter).await;
 
     log::info!(
-        "Created wgpu compute server on device {:?} => {:?}",
-        device,
+        "Created wgpu compute server on device {:?}",
         adapter.get_info()
     );
 
@@ -491,8 +506,6 @@ async fn request_adapter(
         }
     };
 
-    log::info!("Using adapter {:?}", adapter.get_info());
-
     (instance, adapter)
 }
 
@@ -505,6 +518,7 @@ async fn request_adapter_with_preference(
             power_preference,
             force_fallback_adapter: false,
             compatible_surface: None,
+            ..RequestAdapterOptions::default()
         })
         .await
         .expect("No possible adapter available for backend. Falling back to first available.")

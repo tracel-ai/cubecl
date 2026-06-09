@@ -1,17 +1,24 @@
 use core::marker::PhantomData;
 
-use cubecl_ir::AddressType;
+use cubecl_ir::{AddressType, Id};
 use cubecl_runtime::{runtime::Runtime, server::CopyDescriptor};
 use cubecl_zspace::{Shape, Strides};
-use serde::{Deserialize, Serialize};
 
 use crate::{
+    self as cubecl,
     compute::{KernelBuilder, KernelLauncher},
-    ir::Id,
-    prelude::{ArrayArg, ArrayBinding, CubePrimitive, LaunchArg, NativeExpand},
+    frontend::container::slice,
+    prelude::*,
 };
 
 use super::Tensor;
+
+#[derive(CubeType, CubeLaunch, Clone, Copy)]
+#[expand(derive(Clone, Copy))]
+pub struct TensorMeta {
+    pub len: usize,
+    pub rank: usize,
+}
 
 /// Argument to be used for [tensors](Tensor) passed as arguments to kernels.
 #[derive(Debug)]
@@ -72,9 +79,10 @@ impl<R: Runtime> core::fmt::Debug for TensorBinding<R> {
 }
 
 /// Compilation argument for a [tensor](Tensor).
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct TensorCompilationArg {
-    pub inplace: Option<Id>,
+    pub meta: TensorMetaCompilationArg,
+    pub buffer: BufferCompilationArg,
 }
 
 impl<C: CubePrimitive> LaunchArg for Tensor<C> {
@@ -85,27 +93,50 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
         arg: Self::RuntimeArg<R>,
         launcher: &mut KernelLauncher<R>,
     ) -> Self::CompilationArg {
-        let ty = launcher.with_scope(|scope| C::as_type(scope));
-        let compilation_arg = match &arg {
-            TensorArg::Handle { .. } => TensorCompilationArg { inplace: None },
-            TensorArg::Alias { input_pos, .. } => TensorCompilationArg {
+        let ty = launcher.with_scope(|scope| C::__expand_as_type(scope));
+        let len = arg.size() / ty.vector_size();
+        let meta_arg = TensorMetaLaunch::new(len, arg.shape().len());
+        let buffer = match &arg {
+            TensorArg::Handle { .. } => BufferCompilationArg { inplace: None },
+            TensorArg::Alias { input_pos, .. } => BufferCompilationArg {
                 inplace: Some(*input_pos as Id),
             },
         };
         launcher.register_tensor(arg, ty);
-        compilation_arg
+        let meta = TensorMeta::register(meta_arg, launcher);
+        TensorCompilationArg { meta, buffer }
     }
 
-    fn expand(_arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<Tensor<C>> {
-        builder.input_tensor(C::as_type(&builder.scope)).into()
+    fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> TensorExpand<C> {
+        let buffer = match arg.buffer.inplace {
+            Some(id) => builder.inplace(id),
+            None => builder.tensor(C::__expand_as_type(&builder.scope)),
+        };
+        let meta = TensorMeta::expand(&arg.meta, builder);
+        let scope = &builder.scope;
+        let len = expand_buffer_length_native(scope, buffer);
+        let buffer =
+            slice::from_raw_parts::<C>(scope, buffer, 0usize.into_expand(scope), len.into());
+        TensorExpand { meta, buffer }
     }
-    fn expand_output(
-        arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> NativeExpand<Tensor<C>> {
-        match arg.inplace {
-            Some(id) => builder.inplace_output(id).into(),
-            None => builder.output_tensor(C::as_type(&builder.scope)).into(),
+}
+
+impl<C: CubePrimitive> LaunchArg for OwnedTensor<C> {
+    type RuntimeArg<R: Runtime> = TensorArg<R>;
+    type CompilationArg = TensorCompilationArg;
+
+    fn register<R: Runtime>(
+        arg: Self::RuntimeArg<R>,
+        launcher: &mut KernelLauncher<R>,
+    ) -> Self::CompilationArg {
+        Tensor::<C>::register(arg, launcher)
+    }
+
+    fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> OwnedTensorExpand<C> {
+        let tensor = Tensor::<C>::expand(arg, builder);
+        OwnedTensorExpand {
+            meta: tensor.meta,
+            buffer: tensor.buffer.expand.into(),
         }
     }
 }
@@ -168,18 +199,18 @@ impl<R: Runtime> TensorArg<R> {
 }
 
 impl<R: Runtime> TensorArg<R> {
-    pub fn into_array_arg(self) -> ArrayArg<R> {
+    pub fn into_buffer_arg(self) -> BufferArg<R> {
         match self {
             TensorArg::Handle { handle } => {
                 let handle = unsafe {
                     let size = handle.size();
-                    ArrayBinding::from_raw_parts_binding(handle.handle, size)
+                    BufferBinding::from_raw_parts_binding(handle.handle, size)
                 };
-                ArrayArg::Handle { handle }
+                BufferArg::Handle { handle }
             }
             TensorArg::Alias {
                 input_pos, shape, ..
-            } => ArrayArg::Alias {
+            } => BufferArg::Alias {
                 input_pos,
                 length: [shape.iter().product()],
             },
@@ -190,7 +221,7 @@ impl<R: Runtime> TensorArg<R> {
 impl<R: Runtime> TensorBinding<R> {
     /// Convert the handle into a [tensor argument](TensorArg).
     pub fn into_tensor_arg(self) -> TensorArg<R> {
-        unsafe { TensorArg::from_raw_parts_binding(self.handle, self.strides, self.shape) }
+        TensorArg::Handle { handle: self }
     }
     /// Convert the handle into a [tensor argument](TensorArg).
     pub fn into_alias(self, index: usize) -> TensorArg<R> {
@@ -208,10 +239,9 @@ impl<R: Runtime> TensorBinding<R> {
             shape: self.shape.clone(),
         }
     }
-    /// Convert the handle into an [array argument](ArrayArg).
-    pub fn into_array_arg(self) -> ArrayArg<R> {
-        let length = self.shape.iter().product();
-        unsafe { ArrayArg::from_raw_parts_binding(self.handle, length) }
+    /// Convert the handle into a [buffer argument](BufferArg).
+    pub fn into_buffer_arg(self) -> BufferArg<R> {
+        unsafe { BufferArg::from_raw_parts_binding(self.handle, self.shape.iter().product()) }
     }
 
     /// Create a handle from raw parts.

@@ -1,10 +1,11 @@
+use alloc::vec::Vec;
 use cubecl_ir::{
     Builtin, Operation, OperationReflect, Plane, Synchronization, Variable, VariableKind,
 };
+use hashbrown::{HashMap, HashSet};
 use petgraph::{graph::EdgeIndex, visit::EdgeRef};
-use std::collections::{HashMap, HashSet};
 
-use crate::{ControlFlow, NodeIndex, Optimizer};
+use crate::{ControlFlow, Function, GlobalState, NodeIndex};
 
 use super::Analysis;
 
@@ -16,22 +17,22 @@ pub struct Uniformity {
 }
 
 impl Analysis for Uniformity {
-    fn init(opt: &mut Optimizer) -> Self {
+    fn init(func: &mut Function, _: &GlobalState) -> Self {
         let mut this = Self::default();
-        this.run(opt);
+        this.run(func);
         this
     }
 }
 
 impl Uniformity {
-    fn run(&mut self, opt: &Optimizer) {
-        let root = opt.entry();
+    fn run(&mut self, func: &Function) {
+        let root = func.root;
         self.block_uniformity.insert(root, true);
-        while self.analyze_block(opt, root).is_none() {}
+        while self.analyze_block(func, root).is_none() {}
     }
 
-    fn analyze_block(&mut self, opt: &Optimizer, block_id: NodeIndex) -> Option<()> {
-        let block = opt.block(block_id);
+    fn analyze_block(&mut self, func: &Function, block_id: NodeIndex) -> Option<()> {
+        let block = func.block(block_id);
         let mut block_uniform = self.block_uniformity[&block_id];
 
         for phi in block.phi_nodes.borrow().iter() {
@@ -159,9 +160,9 @@ impl Uniformity {
                 self.block_uniformity
                     .insert(*merge, is_uniform && block_uniform);
             }
-            ControlFlow::Return | ControlFlow::Unreachable => {}
+            ControlFlow::Return { .. } | ControlFlow::Unreachable => {}
             ControlFlow::None => {
-                let successor = opt.successors(block_id)[0];
+                let successor = func.successors(block_id)[0];
                 self.block_uniformity
                     .entry(successor)
                     .and_modify(|it| {
@@ -171,10 +172,10 @@ impl Uniformity {
             }
         }
 
-        for edge in opt.program.edges(block_id) {
+        for edge in func.edges(block_id) {
             if !self.visited.contains(&edge.id()) {
                 self.visited.insert(edge.id());
-                self.analyze_block(opt, edge.target())?;
+                self.analyze_block(func, edge.target())?;
             }
         }
 
@@ -207,10 +208,8 @@ impl Uniformity {
     pub fn is_var_uniform(&self, var: Variable) -> bool {
         match var.kind {
             VariableKind::ConstantArray { .. }
-            | VariableKind::SharedArray { .. }
             | VariableKind::Shared { .. }
-            | VariableKind::GlobalInputArray(_)
-            | VariableKind::GlobalOutputArray(_)
+            | VariableKind::GlobalBuffer(_)
             | VariableKind::GlobalScalar(_)
             | VariableKind::Constant(_) => true,
             VariableKind::Builtin(builtin) => match builtin {
@@ -247,16 +246,15 @@ impl Uniformity {
                 | Builtin::PlaneDim => true,
             },
             VariableKind::LocalMut { .. } => false,
-            VariableKind::LocalArray { .. }
-            | VariableKind::LocalConst { .. }
+            VariableKind::LocalConst { .. }
             | VariableKind::Versioned { .. }
             | VariableKind::Matrix { .. }
             | VariableKind::BarrierToken { .. }
             | VariableKind::Pipeline { .. } => {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)
             }
-            VariableKind::TensorMapInput(_) => true,
-            VariableKind::TensorMapOutput(_) => true,
+            VariableKind::TensorMap(_) => true,
+            VariableKind::Aggregate { .. } => unreachable!("Should be disaggregated at this point"),
         }
     }
 

@@ -3,9 +3,9 @@ use cubecl::prelude::*;
 // These functions aren't implemented on Vector, need to fix this at some point
 #[cube(launch_unchecked)]
 fn norm_test<F: Float, N: Size>(
-    input: &Array<Vector<F, N>>,
-    output_a: &mut Array<Vector<F, N>>,
-    output_b: &mut Array<Vector<F, N>>,
+    input: &[Vector<F, N>],
+    output_a: &mut [Vector<F, N>],
+    output_b: &mut [Vector<F, N>],
 ) {
     if ABSOLUTE_POS < input.len() {
         output_a[ABSOLUTE_POS] = Vector::cast_from(F::normalize(F::cast_from(input[ABSOLUTE_POS])));
@@ -27,9 +27,9 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(input.len() as u32),
             4,
-            ArrayArg::from_raw_parts(input_handle, input.len()),
-            ArrayArg::from_raw_parts(output_a_handle.clone(), input.len()),
-            ArrayArg::from_raw_parts(output_b_handle.clone(), input.len()),
+            BufferArg::from_raw_parts(input_handle, input.len()),
+            BufferArg::from_raw_parts(output_a_handle.clone(), input.len()),
+            BufferArg::from_raw_parts(output_b_handle.clone(), input.len()),
         )
     };
 

@@ -1,23 +1,21 @@
 //! Metadata helpers to easily get offsets etc.
 //!
 //! Conceptually, metadata is represented like this:
-//! ```rust
+//! ```ignore
 //! struct Metadata<const NUM_BUFS: usize, const NUM_EXT: usize> {
 //!     base: BaseMeta<NUM_BUFS>,
 //!     extended: ExtendedMeta<NUM_EXT>,
 //! }
 //!
 //! struct BaseMeta<const N: usize> {
-//!     buffer_lengths: [u32; N],
-//!     logical_lengths: [u32; N],
+//!     buffer_lengths: [usize; N],
 //! }
 //!
 //! struct ExtendedMeta<const N: usize> {
-//!     ranks: [u32; N],
 //!     shape_offsets: [usize; N],
 //!     stride_offsets: [usize; N],
-//!     shapes: Vec<u32>,
-//!     strides: Vec<u32>
+//!     shapes: [usize],
+//!     strides: [usize]
 //! }
 //! ```
 //! where `Vec` isn't an actual `Vec`, just a dynamically sized series of values.
@@ -33,14 +31,12 @@ use num_traits::NumCast;
 
 // Metadata
 const BUFFER_LEN: u32 = 0;
-const LENGTH: u32 = 1;
-const BASE_LEN: u32 = 2;
+const BASE_LEN: u32 = 1;
 
 // Extended Metadata
-const RANK: u32 = 0;
-const SHAPE_OFFSETS: u32 = 1;
-const STRIDE_OFFSETS: u32 = 2;
-const EXTENDED_LEN: u32 = 3;
+const SHAPE_OFFSETS: u32 = 0;
+const STRIDE_OFFSETS: u32 = 1;
+const EXTENDED_LEN: u32 = 2;
 
 /// Helper to calculate metadata offsets based on buffer count and position
 #[derive(Clone, Copy, Debug, Default)]
@@ -85,14 +81,6 @@ impl Metadata {
         self.offset_of(BUFFER_LEN) + buffer_idx
     }
 
-    pub fn len_index(&self, buffer_idx: u32) -> u32 {
-        self.offset_of(LENGTH) + buffer_idx
-    }
-
-    pub fn rank_index(&self, buffer_idx: u32) -> u32 {
-        self.offset_of_extended(RANK) + buffer_idx
-    }
-
     pub fn shape_offset_index(&self, buffer_idx: u32) -> u32 {
         self.offset_of_extended(SHAPE_OFFSETS) + buffer_idx
     }
@@ -114,8 +102,6 @@ pub struct MetadataBuilder {
 #[derive(Default)]
 struct State<T: Pod> {
     buffer_lens: Vec<T>,
-    lengths: Vec<T>,
-    ranks: Vec<T>,
     shapes: Vec<T>,
     strides: Vec<T>,
 
@@ -124,15 +110,13 @@ struct State<T: Pod> {
 
 impl MetadataBuilder {
     /// Add an array to a builder
-    pub fn register_array(&mut self, buffer_len: u64, len: u64, address_type: AddressType) {
+    pub fn register_buffer(&mut self, buffer_len: u64, address_type: AddressType) {
         match address_type {
             AddressType::U64 => {
                 self.state_64.buffer_lens.push(buffer_len);
-                self.state_64.lengths.push(len);
             }
             AddressType::U32 => {
                 self.state_32.buffer_lens.push(buffer_len as u32);
-                self.state_32.lengths.push(len as u32);
             }
         }
     }
@@ -140,9 +124,7 @@ impl MetadataBuilder {
     /// Add a tensor to a builder
     pub fn register_tensor(
         &mut self,
-        rank: u64,
         buffer_len: u64,
-        len: u64,
         shape: Shape,
         strides: Strides,
         address_type: AddressType,
@@ -151,8 +133,6 @@ impl MetadataBuilder {
             AddressType::U64 => {
                 let state = &mut self.state_64;
                 state.buffer_lens.push(buffer_len);
-                state.lengths.push(len);
-                state.ranks.push(rank);
                 state.offsets.push(state.shapes.len());
                 state.shapes.extend(shape.iter().map(|s| *s as u64));
                 state.strides.extend(strides.iter().map(|s| *s as u64));
@@ -160,8 +140,6 @@ impl MetadataBuilder {
             AddressType::U32 => {
                 let state = &mut self.state_32;
                 state.buffer_lens.push(buffer_len as u32);
-                state.lengths.push(len as u32);
-                state.ranks.push(rank as u32);
                 state.offsets.push(state.shapes.len());
                 state.shapes.extend(shape.iter().map(|s| *s as u32));
                 state.strides.extend(strides.iter().map(|s| *s as u32));
@@ -171,8 +149,8 @@ impl MetadataBuilder {
 
     pub fn static_len(&self, address_type: AddressType) -> usize {
         let (base, ext) = match address_type {
-            AddressType::U32 => (self.state_32.buffer_lens.len(), self.state_32.ranks.len()),
-            AddressType::U64 => (self.state_64.buffer_lens.len(), self.state_64.ranks.len()),
+            AddressType::U32 => (self.state_32.buffer_lens.len(), self.state_32.offsets.len()),
+            AddressType::U64 => (self.state_64.buffer_lens.len(), self.state_64.offsets.len()),
         };
         base * BASE_LEN as usize + ext * EXTENDED_LEN as usize
     }
@@ -192,22 +170,12 @@ impl MetadataBuilder {
 
             {
                 let buffer_lens = bytemuck::cast_slice::<T, u8>(&state.buffer_lens);
-                let lengths = bytemuck::cast_slice::<T, u8>(&state.lengths);
-                let ranks = bytemuck::cast_slice::<T, u8>(&state.ranks);
 
                 sized[..buffer_lens.len()].copy_from_slice(buffer_lens);
                 sized = &mut sized[buffer_lens.len()..];
-
-                sized[..lengths.len()].copy_from_slice(lengths);
-                sized = &mut sized[lengths.len()..];
-
-                sized[..ranks.len()].copy_from_slice(ranks);
-                sized = &mut sized[ranks.len()..];
             }
 
             state.buffer_lens.clear();
-            state.lengths.clear();
-            state.ranks.clear();
 
             let strides_offset_base = state.shapes.len();
 

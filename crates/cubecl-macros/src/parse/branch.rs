@@ -49,8 +49,7 @@ pub fn expand_for_loop(
             var.ident.clone(),
             var.ty.clone(),
             false,
-            var.is_ref,
-            var.is_mut,
+            !var.is_ref && var.mutability.is_some(),
         );
         Block::from_block(for_loop.body, context)
     })?;

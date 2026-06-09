@@ -4,7 +4,7 @@ use cubecl_core::{self as cubecl};
 use crate::{
     FastDivmod,
     tensor::{
-        launch::{BufferArg, ViewLayoutLaunchArg},
+        launch::{MemoryArg, ViewLayoutLaunchArg},
         layout::{Coords1d, Layout, LayoutExpand},
     },
 };
@@ -30,7 +30,7 @@ impl ViewLayoutLaunchArg for StridedLayout {
     type RuntimeArg<R: Runtime> = ();
     type CompilationArg = StridedLayoutCompilationArg;
 
-    fn register<R: Runtime, B: BufferArg>(
+    fn register<R: Runtime, B: MemoryArg>(
         _: Self::RuntimeArg<R>,
         buffer: &B,
         ty: Type,

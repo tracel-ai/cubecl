@@ -1,9 +1,19 @@
-use std::{fmt::Display, rc::Rc};
+use core::fmt::Display;
 
-use petgraph::visit::EdgeRef;
+use alloc::{
+    format,
+    rc::Rc,
+    string::{String, ToString},
+    vec::Vec,
+};
+use petgraph::{
+    dot::{Config, Dot},
+    prelude::StableDiGraph,
+    visit::EdgeRef,
+};
 
 use crate::{
-    BasicBlock, ControlFlow,
+    BasicBlock, ControlFlow, Function, Optimizer,
     analyses::{
         liveness::{
             Liveness,
@@ -14,13 +24,37 @@ use crate::{
     gvn::{BlockSets, Expression, GlobalValues, Instruction, Local, Value, ValueTable},
 };
 
-use super::Optimizer;
+const DEBUG_GVN: bool = option_env!("CUBECL_DEBUG_GVN").is_some();
 
-const DEBUG_GVN: bool = false;
+impl Display for Optimizer {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "main: {{\n{}\n}}", self.main)?;
+        for (id, extra_func) in self.global_state.extra_functions.iter() {
+            write!(
+                f,
+                "\n\nfunc_{id}[{}]({}): {{\n{}\n}}",
+                extra_func
+                    .implicit_params
+                    .iter()
+                    .map(|it| it.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                extra_func
+                    .explicit_params
+                    .iter()
+                    .map(|it| it.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                extra_func
+            )?;
+        }
+        Ok(())
+    }
+}
 
 /// Debug display for the program state.
-impl Display for Optimizer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for Function {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let global_nums = self
             .analysis_cache
             .try_get::<GlobalValues>()
@@ -50,9 +84,9 @@ impl Display for Optimizer {
         let smems = smems.collect::<Vec<_>>().join(",\n");
         writeln!(f, "Shared memories: [\n{smems}\n]\n")?;
 
-        for node in self.program.node_indices() {
+        for node in self.node_indices() {
             let id = node.index();
-            let bb = &self.program[node];
+            let bb = &self[node];
             let uniform = match uniformity.is_block_uniform(node) {
                 true => "uniform ",
                 false => "",
@@ -94,7 +128,7 @@ impl Display for Optimizer {
                     true => " @ uniform",
                     false => "",
                 };
-                writeln!(f, ";{is_uniform}\n")?;
+                writeln!(f, ";{is_uniform}")?;
             }
             if !bb.phi_nodes.borrow().is_empty() {
                 writeln!(f)?;
@@ -170,10 +204,14 @@ impl Display for Optimizer {
                         merge.index()
                     )?;
                 }
-                super::ControlFlow::Return => writeln!(f, "    return;")?,
+                super::ControlFlow::Return { value } => writeln!(
+                    f,
+                    "    return{};",
+                    value.map(|it| format!(" {it}")).unwrap_or_default()
+                )?,
                 super::ControlFlow::Unreachable => writeln!(f, "    unreachable;")?,
                 super::ControlFlow::None => {
-                    let edge = self.program.edges(node).next();
+                    let edge = self.edges(node).next();
                     let target = edge.map(|it| it.target().index()).unwrap_or(255);
                     writeln!(f, "    branch bb{target};")?;
                 }
@@ -186,7 +224,7 @@ impl Display for Optimizer {
 }
 
 impl Display for BlockSets {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut exp_gen = self.exp_gen.iter().collect::<Vec<_>>();
         exp_gen.sort_by_key(|it| it.0);
         let exp_gen = exp_gen
@@ -233,7 +271,7 @@ impl Display for BlockSets {
 }
 
 impl Display for ValueTable {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut values = self.value_numbers.iter().collect::<Vec<_>>();
         values.sort_by_key(|it| it.1);
         writeln!(f, "values: [")?;
@@ -252,21 +290,20 @@ impl Display for ValueTable {
 }
 
 impl Display for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Value::Constant(constant, _) => write!(f, "{constant}"),
             Value::Local(local) => write!(f, "{local}"),
-            Value::Input(id, _) => write!(f, "input({id})"),
+            Value::Global(id, _) => write!(f, "global({id})"),
             Value::Scalar(id, elem) => write!(f, "scalar({elem}, {id})"),
             Value::ConstArray(id, _, _, _) => write!(f, "const_array({id})"),
             Value::Builtin(builtin, _) => write!(f, "{builtin:?}"),
-            Value::Output(id, _) => write!(f, "output({id})"),
         }
     }
 }
 
 impl Display for Local {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.version {
             0 => write!(f, "binding({})", self.id),
             v => write!(f, "local({}).v{v}", self.id),
@@ -275,7 +312,7 @@ impl Display for Local {
 }
 
 impl Display for Expression {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Expression::Instruction(instruction) => write!(f, "{instruction}"),
             Expression::Copy(val, _) => write!(f, "copy({val})"),
@@ -295,13 +332,13 @@ impl Display for Expression {
 }
 
 impl Display for Instruction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{:?}: [{:?}]", self.op, self.args)
     }
 }
 
 impl Display for BasicBlock {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         for phi in self.phi_nodes.borrow().iter() {
             write!(f, "    {} = phi ", phi.out)?;
             for entry in &phi.entries {
@@ -380,7 +417,11 @@ impl Display for BasicBlock {
                     merge.index()
                 )?;
             }
-            super::ControlFlow::Return => writeln!(f, "    return;")?,
+            super::ControlFlow::Return { value } => writeln!(
+                f,
+                "    return{};",
+                value.map(|it| format!(" {it}")).unwrap_or_default()
+            )?,
             super::ControlFlow::Unreachable => writeln!(f, "    unreachable;")?,
             super::ControlFlow::None => {
                 writeln!(f, "    branch;")?;
@@ -391,27 +432,78 @@ impl Display for BasicBlock {
 }
 
 impl Display for SmemAllocation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.smem {
-            crate::SharedMemory::Array {
-                id,
-                length,
-                ty,
-                align,
-            } => {
-                write!(
-                    f,
-                    "shared_array(id: {id}, offset: {}, length: {length}, align: {align}, ty: {ty})",
-                    self.offset,
-                )
-            }
-            crate::SharedMemory::Value { id, ty, align } => {
-                write!(
-                    f,
-                    "shared(id: {id}, offset: {}, align: {align}, ty: {ty})",
-                    self.offset,
-                )
-            }
-        }
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let crate::SharedMemory { id, ty, align } = self.smem;
+        write!(
+            f,
+            "shared(id: {id}, offset: {}, align: {align}, ty: {ty})",
+            self.offset,
+        )
     }
+}
+
+impl Function {
+    pub fn dot_viz(&self) -> String {
+        let uniformity = self.analysis_cache.try_get::<Uniformity>();
+
+        let get_node_attributes = |_, (index, bb)| {
+            let uniform = uniformity
+                .as_ref()
+                .map(|uniformity| uniformity.is_block_uniform(index))
+                .unwrap_or(false);
+            let title = match uniform {
+                true => format!("uniform bb{}", index.index()),
+                false => format!("bb{}", index.index()),
+            };
+            let bb = format!("{bb}");
+            let lines = bb
+                    .lines()
+                    .map(|it| it.trim())
+                    .map(escape_html)
+                    .filter(|it| !it.is_empty())
+                    .enumerate()
+                    .map(|(i, it)| {
+                        format!(r#"<TR><TD ALIGN="LEFT"><FONT COLOR="dimgray">{i} </FONT></TD><TD ALIGN="LEFT">{it}</TD></TR>"#)
+                    })
+                    .collect::<Vec<_>>();
+            format!(
+                r#"label = <
+<TABLE ALIGN="LEFT" BORDER="0" CELLSPACING="0" CELLBORDER="1" CELLPADDING="0">
+    <TR><TD BGCOLOR="lightgray" ALIGN="LEFT" CELLPADDING="3"><B>{title}</B></TD></TR>
+    <TR><TD CELLPADDING="4">
+    <TABLE ALIGN="LEFT" BORDER="0" CELLSPACING="0" CELLPADDING="0">
+        {}
+    </TABLE>
+    </TD></TR>
+</TABLE>>"#,
+                lines.join("")
+            )
+        };
+
+        //Dot::with_config(&self.program, &[Config::EdgeNoLabel])
+        let content: Dot<'_, &StableDiGraph<BasicBlock, u32>> = Dot::with_attr_getters(
+            &self.graph,
+            &[
+                Config::EdgeNoLabel,
+                Config::NodeNoLabel,
+                Config::GraphContentOnly,
+            ],
+            &|_, _| String::new(),
+            &get_node_attributes,
+        );
+        format!(
+            r#"
+digraph {{
+    node [ shape = box, fontname = "Consolas, 'Courier New', monospace", fontsize = "12", margin = 0 ]
+{content}
+}}
+"#
+        )
+    }
+}
+
+fn escape_html(s: &str) -> String {
+    s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
 }

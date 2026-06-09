@@ -9,6 +9,7 @@ impl CubeType for flex32 {
     type ExpandType = NativeExpand<flex32>;
 }
 
+impl CubeDebug for flex32 {}
 impl Scalar for flex32 {}
 impl CubePrimitive for flex32 {
     type Scalar = Self;
@@ -29,7 +30,13 @@ impl CubePrimitive for flex32 {
 }
 
 impl IntoRuntime for flex32 {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+    fn __expand_runtime_method(self, _scope: &Scope) -> NativeExpand<Self> {
+        self.into()
+    }
+}
+impl IntoExpand for flex32 {
+    type Expand = NativeExpand<flex32>;
+    fn into_expand(self, _: &Scope) -> Self::Expand {
         self.into()
     }
 }

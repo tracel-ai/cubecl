@@ -18,6 +18,8 @@ use super::Variable;
 pub enum Marker {
     /// Frees a shared memory, allowing reuse in later blocks.
     Free(Variable),
+    #[operation(pure)]
+    DummyRead(Variable),
 }
 
 impl OperationReflect for Marker {
@@ -26,12 +28,15 @@ impl OperationReflect for Marker {
     fn op_code(&self) -> Self::OpCode {
         self.__match_opcode()
     }
+
+    fn sanitize_args(&mut self, _: &crate::Scope) {}
 }
 
 impl Display for Marker {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Marker::Free(var) => write!(f, "free({var})"),
+            Marker::DummyRead(variable) => write!(f, "mark_read({variable})"),
         }
     }
 }

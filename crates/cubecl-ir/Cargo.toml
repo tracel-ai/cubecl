@@ -27,19 +27,22 @@ std = []
 tracing = ["cubecl-common/tracing"]
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "=0.10.0-pre.4", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-features = false, features = [
     "fp4",
     "fp8",
 ] }
-cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "=0.10.0-pre.4" }
+cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "=0.11.0-pre.1" }
 
+bumpalo = { workspace = true }
 derive-new = { workspace = true }
-derive_more = { workspace = true, features = ["from"] }
+derive_more = { workspace = true, features = ["from", "eq"] }
 enumset = { workspace = true }
 float-ord = { workspace = true }
 fnv = { workspace = true }
 foldhash = { workspace = true }
 half = { workspace = true }
+internment = { workspace = true, features = ["intern", "serde"] }
+itertools = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true, optional = true, features = ["rc"] }
 variadics_please = { workspace = true }

@@ -1,7 +1,7 @@
 use alloc::{string::ToString, vec::Vec};
 use cubecl_ir::{Id, Scope, StorageType, Type};
 use cubecl_runtime::{
-    kernel::{KernelArg, KernelDefinition, KernelOptions, ScalarKernelArg, Visibility},
+    kernel::{KernelArg, KernelDefinition, KernelOptions, ScalarKernelArg},
     server::CubeDim,
 };
 
@@ -9,7 +9,7 @@ use crate::prelude::AddressType;
 
 /// The kernel integrator allows you to create a [kernel definition](KernelDefinition) based on
 /// [kernel expansion](KernelExpansion) and [kernel settings](KernelSettings).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct KernelIntegrator {
     expansion: KernelExpansion,
     buffer_bindings: Vec<KernelArg>,
@@ -18,7 +18,7 @@ pub struct KernelIntegrator {
 }
 
 /// The information necessary to compile a [kernel definition](KernelDefinition).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct KernelExpansion {
     pub buffers: Vec<BufferInfo>,
     pub scalars: Vec<ScalarInfo>,
@@ -80,7 +80,6 @@ impl KernelSettings {
 pub struct BufferInfo {
     pub id: Id,
     pub item: Type,
-    pub visibility: Visibility,
     /// Whether this input has extended metadata (rank, shape, strides)
     pub has_extended_meta: bool,
 }
@@ -127,9 +126,7 @@ impl KernelIntegrator {
             self.buffer_bindings.push(KernelArg {
                 id: buffer.id,
                 ty: buffer.item,
-                visibility: buffer.visibility,
                 has_extended_meta: buffer.has_extended_meta,
-                size: None,
             });
         }
     }
@@ -148,9 +145,7 @@ impl KernelIntegrator {
             self.tensor_maps.push(KernelArg {
                 id: buffer.id,
                 ty: buffer.item,
-                visibility: buffer.visibility,
                 has_extended_meta: buffer.has_extended_meta,
-                size: None,
             });
         }
     }

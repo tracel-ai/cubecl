@@ -1,68 +1,104 @@
 use crate::{
-    frontend::{CubePrimitive, CubeType, NativeExpand, SizedContainer},
     ir::{Metadata, Scope},
     prelude::*,
     unexpanded,
 };
-use core::{
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-};
+use alloc::boxed::Box;
+use core::ops::{Deref, DerefMut};
 use cubecl_ir::VectorSize;
-use cubecl_macros::{cube, intrinsic};
 
 use crate as cubecl;
 
-/// The tensor type is similar to the [array type](crate::prelude::Array), however it comes with more
+/// The tensor type is a wrapper around `[T]` that comes with more
 /// metadata such as [stride](Tensor::stride) and [shape](Tensor::shape).
-#[derive(new, Clone, Copy)]
-pub struct Tensor<T: CubeType> {
-    _val: PhantomData<T>,
+#[derive(CubeType)]
+pub struct Tensor<T: CubePrimitive> {
+    pub(super) meta: TensorMeta,
+    pub(super) buffer: [T],
 }
 
-type TensorExpand<T> = NativeExpand<Tensor<T>>;
+#[derive(CubeType, Clone)]
+#[expand(derive(Clone))]
+pub struct OwnedTensor<T: CubePrimitive> {
+    #[allow(unused)]
+    pub(super) meta: TensorMeta,
+    pub(super) buffer: Box<[T]>,
+}
+
+impl<T: CubePrimitive> TensorExpand<T> {
+    /// Expand only because `[T]` can't be passed to a function
+    pub fn __expand_from_parts(meta: TensorMetaExpand, buffer: NativeExpand<[T]>) -> Self {
+        Self { meta, buffer }
+    }
+}
+
+#[cube]
+impl<T: CubePrimitive> OwnedTensor<T> {
+    pub fn from_parts(meta: TensorMeta, buffer: Box<[T]>) -> Self {
+        OwnedTensor::<T> { meta, buffer }
+    }
+}
+
+#[cube]
+impl<T: CubePrimitive> OwnedTensor<T> {
+    pub fn as_slice(&self) -> &[T] {
+        &self.buffer
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut self.buffer
+    }
+}
+
+#[cube]
+impl<T: CubePrimitive> Tensor<T> {
+    pub fn as_slice(&self) -> &[T] {
+        &self.buffer
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut self.buffer
+    }
+}
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use cubecl_ir::ManagedVariable;
+    use cubecl_ir::Variable;
 
     use super::*;
-    use crate::{
-        ir::{Arithmetic, BinaryOperator, Instruction},
-        prelude::Array,
-    };
+    use crate::ir::{Arithmetic, BinaryOperands, Instruction};
 
     #[cube]
-    impl<T: CubeType> Tensor<T> {
+    impl<T: CubePrimitive> Tensor<T> {
         /// Obtain the stride of input at dimension dim
-        #[allow(unused_variables)]
         pub fn stride(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
-                let dim: ManagedVariable = dim.into();
-                let out = scope.create_local(usize::as_type(scope));
+                let dim: Variable = dim.into();
+                let list = self.__extract_list(scope);
+                let out = scope.create_local(usize::__expand_as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::Stride {
-                        dim: *dim,
-                        var: self.expand.into(),
+                        dim: dim,
+                        var: list,
                     },
-                    out.clone().into(),
+                    out,
                 ));
                 out.into()
             })
         }
 
         /// Obtain the shape of input at dimension dim
-        #[allow(unused_variables)]
         pub fn shape(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
-                let dim: ManagedVariable = dim.into();
-                let out = scope.create_local(usize::as_type(scope));
+                let dim: Variable = dim.into();
+                let list = self.__extract_list(scope);
+                let out = scope.create_local(usize::__expand_as_type(scope));
                 scope.register(Instruction::new(
                     Metadata::Shape {
-                        dim: *dim,
-                        var: self.expand.into(),
+                        dim: dim,
+                        var: list,
                     },
-                    out.clone().into(),
+                    out,
                 ));
                 out.into()
             })
@@ -72,28 +108,27 @@ mod metadata {
         ///
         /// A coordinate is a list of indices corresponding to the multi-dimensional position of an element in the tensor.
         /// The `dim` element in a coordinate is the position along the `dim` dimension of the tensor.
-        #[allow(unused_variables)]
         pub fn coordinate(&self, index: usize, dim: usize) -> usize {
             intrinsic!(|scope| {
-                let index: ManagedVariable = index.into();
-                let stride = self.clone().__expand_stride_method(scope, dim.clone());
-                let shape = self.clone().__expand_shape_method(scope, dim.clone());
+                let index: Variable = index.into();
+                let stride = self.__expand_stride_method(scope, dim.clone());
+                let shape = self.__expand_shape_method(scope, dim.clone());
 
                 // Compute `num_strides = index / stride`.
-                let num_strides = scope.create_local(usize::as_type(scope));
+                let num_strides = scope.create_local(usize::__expand_as_type(scope));
                 scope.register(Instruction::new(
-                    Arithmetic::Div(BinaryOperator {
-                        lhs: *index,
+                    Arithmetic::Div(BinaryOperands {
+                        lhs: index,
                         rhs: stride.expand.into(),
                     }),
                     num_strides.clone().into(),
                 ));
 
                 // Compute `coordinate = num_strides % shape `.
-                let coordinate = scope.create_local(usize::as_type(scope));
+                let coordinate = scope.create_local(usize::__expand_as_type(scope));
                 scope.register(Instruction::new(
-                    Arithmetic::Modulo(BinaryOperator {
-                        lhs: *num_strides,
+                    Arithmetic::Rem(BinaryOperands {
+                        lhs: num_strides,
                         rhs: shape.expand.into(),
                     }),
                     coordinate.clone().into(),
@@ -111,10 +146,7 @@ mod metadata {
         /// you should multiply the length by the vectorization factor.
         #[allow(clippy::len_without_is_empty)]
         pub fn len(&self) -> usize {
-            intrinsic!(|scope| {
-                let elem: NativeExpand<Array<u32>> = self.expand.into();
-                elem.__expand_len_method(scope)
-            })
+            self.meta.len
         }
 
         /// The length of the buffer representing the tensor in terms of vectorized elements.
@@ -125,73 +157,12 @@ mod metadata {
         /// elements, you should multiply the length by the vectorization factor.
         #[allow(clippy::len_without_is_empty)]
         pub fn buffer_len(&self) -> usize {
-            intrinsic!(|scope| {
-                let elem: NativeExpand<Array<u32>> = self.expand.into();
-                elem.__expand_buffer_len_method(scope)
-            })
+            intrinsic!(|scope| { self.__extract_length(scope) })
         }
 
         /// Returns the rank of the tensor.
         pub fn rank(&self) -> usize {
-            intrinsic!(|scope| {
-                let out = scope.create_local(usize::as_type(scope));
-                scope.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
-                out.into()
-            })
-        }
-    }
-}
-
-/// Module that contains the implementation details of the index functions.
-mod indexation {
-    use cubecl_ir::{IndexAssignOperator, IndexOperator, Operator};
-
-    use crate::ir::Instruction;
-
-    use super::*;
-
-    #[cube]
-    impl<E: CubePrimitive> Tensor<E> {
-        /// Perform an unchecked index into the array
-        ///
-        /// # Safety
-        /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
-        /// always in bounds
-        #[allow(unused_variables)]
-        pub unsafe fn index_unchecked(&self, i: usize) -> &E {
-            intrinsic!(|scope| {
-                let out = scope.create_local(self.expand.ty);
-                scope.register(Instruction::new(
-                    Operator::UncheckedIndex(IndexOperator {
-                        list: *self.expand,
-                        index: i.expand.consume(),
-                        vector_size: 0,
-                        unroll_factor: 1,
-                    }),
-                    *out,
-                ));
-                out.into()
-            })
-        }
-
-        /// Perform an unchecked index assignment into the array
-        ///
-        /// # Safety
-        /// Out of bounds indexing causes undefined behaviour and may segfault. Ensure index is
-        /// always in bounds
-        #[allow(unused_variables)]
-        pub unsafe fn index_assign_unchecked(&mut self, i: usize, value: E) {
-            intrinsic!(|scope| {
-                scope.register(Instruction::new(
-                    Operator::UncheckedIndexAssign(IndexAssignOperator {
-                        index: i.expand.consume(),
-                        value: value.expand.consume(),
-                        vector_size: 0,
-                        unroll_factor: 1,
-                    }),
-                    *self.expand,
-                ));
-            })
+            self.meta.rank
         }
     }
 }
@@ -215,18 +186,50 @@ mod vector {
         // Expand function of [size](Tensor::vector_size).
         pub fn __expand_vector_size(
             expand: <Self as CubeType>::ExpandType,
-            scope: &mut Scope,
+            scope: &Scope,
         ) -> VectorSize {
             expand.__expand_vector_size_method(scope)
         }
     }
 }
 
-impl<T: CubePrimitive> SizedContainer for Tensor<T> {
-    type Item = T;
+impl<'a, E: CubePrimitive> From<&'a OwnedTensorExpand<E>> for &'a TensorExpand<E> {
+    fn from(value: &'a OwnedTensorExpand<E>) -> Self {
+        value.deref()
+    }
 }
 
-impl<T: CubeType> Iterator for &Tensor<T> {
+impl<'a, E: CubePrimitive> From<&'a mut OwnedTensorExpand<E>> for &'a mut TensorExpand<E> {
+    fn from(value: &'a mut OwnedTensorExpand<E>) -> Self {
+        value.deref_mut()
+    }
+}
+
+impl<'a, E: CubePrimitive> From<&'a TensorExpand<E>> for &'a SliceExpand<E> {
+    fn from(value: &'a TensorExpand<E>) -> Self {
+        value.deref()
+    }
+}
+
+impl<'a, E: CubePrimitive> From<&'a mut TensorExpand<E>> for &'a mut SliceExpand<E> {
+    fn from(value: &'a mut TensorExpand<E>) -> Self {
+        value.deref_mut()
+    }
+}
+
+impl<T: CubePrimitive> SizedContainer<usize> for Tensor<T> {
+    fn len(&self) -> usize {
+        unexpanded!()
+    }
+}
+
+impl<T: CubePrimitive> SizedContainerExpand<usize> for TensorExpand<T> {
+    fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
+        self.__expand_len_method(scope)
+    }
+}
+
+impl<T: CubePrimitive> Iterator for &Tensor<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -234,41 +237,7 @@ impl<T: CubeType> Iterator for &Tensor<T> {
     }
 }
 
-impl<T: CubeType> CubeType for Tensor<T> {
-    type ExpandType = NativeExpand<Tensor<T>>;
-}
-
-impl<T: CubeType> CubeType for *const Tensor<T> {
-    type ExpandType = NativeExpand<Tensor<T>>;
-}
-
-impl<T: CubeType> CubeType for *mut Tensor<T> {
-    type ExpandType = NativeExpand<Tensor<T>>;
-}
-
-impl<T: CubeType> CubeType for &mut Tensor<T> {
-    type ExpandType = NativeExpand<Tensor<T>>;
-}
-
-impl<T: CubeType> CubeType for &Tensor<T> {
-    type ExpandType = NativeExpand<Tensor<T>>;
-}
-
-impl<C: CubeType> IntoMut for NativeExpand<Tensor<C>> {
-    fn into_mut(self, _scope: &mut Scope) -> Self {
-        self
-    }
-}
-
-impl<T: CubePrimitive> List<T> for Tensor<T> {
-    fn __expand_read(
-        scope: &mut Scope,
-        this: NativeExpand<Tensor<T>>,
-        idx: NativeExpand<usize>,
-    ) -> NativeExpand<T> {
-        index::expand(scope, this, idx)
-    }
-}
+impl<T: CubePrimitive> List<T> for Tensor<T> {}
 
 impl<T: CubePrimitive> Deref for Tensor<T> {
     type Target = [T];
@@ -284,48 +253,59 @@ impl<T: CubePrimitive> DerefMut for Tensor<T> {
     }
 }
 
-impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Tensor<T>> {
-    fn __expand_read_method(&self, scope: &mut Scope, idx: NativeExpand<usize>) -> NativeExpand<T> {
-        index::expand(scope, self.clone(), idx)
-    }
-    fn __expand_read_unchecked_method(
-        &self,
-        scope: &mut Scope,
-        idx: NativeExpand<usize>,
-    ) -> NativeExpand<T> {
-        index_unchecked::expand(scope, self.clone(), idx)
-    }
+impl<T: CubePrimitive> Deref for TensorExpand<T> {
+    type Target = SliceExpand<T>;
 
-    fn __expand_len_method(&self, scope: &mut Scope) -> NativeExpand<usize> {
-        Self::__expand_len(scope, self.clone())
+    fn deref(&self) -> &Self::Target {
+        &self.buffer
+    }
+}
+
+impl<T: CubePrimitive> DerefMut for TensorExpand<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.buffer
+    }
+}
+
+impl<T: CubePrimitive> Deref for OwnedTensor<T> {
+    type Target = Tensor<T>;
+
+    fn deref(&self) -> &Self::Target {
+        unexpanded!()
+    }
+}
+
+impl<T: CubePrimitive> DerefMut for OwnedTensor<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unexpanded!()
+    }
+}
+
+impl<T: CubePrimitive> Deref for OwnedTensorExpand<T> {
+    type Target = TensorExpand<T>;
+
+    fn deref(&self) -> &Self::Target {
+        // SAFETY: Expand type has compatible layout since the type of the buffer is just a marker
+        unsafe { core::mem::transmute(self) }
+    }
+}
+
+impl<T: CubePrimitive> DerefMut for OwnedTensorExpand<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: Expand type has compatible layout since the type of the buffer is just a marker
+        unsafe { core::mem::transmute(self) }
+    }
+}
+
+impl<T: CubePrimitive> ListExpand<T> for TensorExpand<T> {
+    fn __expand_len_method(&self, scope: &Scope) -> NativeExpand<usize> {
+        Self::__expand_len_method(self, scope)
     }
 }
 
 impl<T: CubePrimitive> Vectorized for Tensor<T> {}
-impl<T: CubePrimitive> VectorizedExpand for NativeExpand<Tensor<T>> {
+impl<T: CubePrimitive> VectorizedExpand for TensorExpand<T> {
     fn vector_size(&self) -> VectorSize {
-        self.expand.ty.vector_size()
-    }
-}
-
-impl<T: CubePrimitive> ListMut<T> for Tensor<T> {
-    fn __expand_write(
-        scope: &mut Scope,
-        this: NativeExpand<Tensor<T>>,
-        idx: NativeExpand<usize>,
-        value: NativeExpand<T>,
-    ) {
-        index_assign::expand(scope, this, idx, value);
-    }
-}
-
-impl<T: CubePrimitive> ListMutExpand<T> for NativeExpand<Tensor<T>> {
-    fn __expand_write_method(
-        &self,
-        scope: &mut Scope,
-        idx: NativeExpand<usize>,
-        value: NativeExpand<T>,
-    ) {
-        index_assign::expand(scope, self.clone(), idx, value);
+        self.buffer.expand.ty.vector_size()
     }
 }

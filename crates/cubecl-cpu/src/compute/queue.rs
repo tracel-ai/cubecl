@@ -1,13 +1,15 @@
 use crate::{
     compiler::mlir_engine::MlirEngine,
     compute::{
-        runner::KernelRunner,
+        notification::{Notification, Notifications},
         schedule::{BindingsResource, ScheduleTask},
+        threadpool::Threadpool,
     },
 };
 use cubecl_common::bytes::Bytes;
-use cubecl_core::{CubeDim, server::ExecutionMode};
+use cubecl_core::{CubeDim, stream_id::StreamId};
 use cubecl_runtime::{logging::ServerLogger, storage::BytesResource};
+use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, mpsc::SyncSender};
 
 static INSTANCE: OnceLock<CpuExecutionQueue> = OnceLock::new();
@@ -22,7 +24,7 @@ pub struct CpuExecutionQueue {
 
 enum QueueItem {
     Task(ScheduleTask),
-    Flush(std::sync::mpsc::SyncSender<()>),
+    Flush(Notification),
 }
 
 impl CpuExecutionQueue {
@@ -33,9 +35,11 @@ impl CpuExecutionQueue {
 
     /// Flushes the queue, making sure all enqueued tasks before this point are executed.
     pub fn flush(&self) {
-        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        self.sender.send(QueueItem::Flush(sender)).unwrap();
-        receiver.recv().unwrap()
+        let notification = Notification::new();
+        self.sender
+            .send(QueueItem::Flush(notification.clone()))
+            .unwrap();
+        notification.wait();
     }
 
     /// Resolves the global execution queue instance.
@@ -48,16 +52,20 @@ impl CpuExecutionQueue {
 
         std::thread::spawn(move || {
             let mut server = CpuExecutionQueueServer {
-                runner: KernelRunner::new(logger),
+                runner: Threadpool::new(logger),
+                pending_notifications: HashMap::new(),
             };
 
             loop {
                 match receiver.recv() {
                     Ok(item) => match item {
                         QueueItem::Task(task) => server.execute_task(task),
-                        QueueItem::Flush(sender) => sender.send(()).unwrap(),
+                        QueueItem::Flush(notification) => {
+                            server.flush();
+                            notification.send();
+                        }
                     },
-                    Err(err) => panic!("{err:?}"),
+                    Err(err) => panic!("{err}"),
                 }
             }
         });
@@ -67,20 +75,46 @@ impl CpuExecutionQueue {
 }
 
 struct CpuExecutionQueueServer {
-    runner: KernelRunner,
+    runner: Threadpool,
+    pending_notifications: HashMap<StreamId, Vec<Notifications>>,
 }
 
 impl CpuExecutionQueueServer {
     fn execute_task(&mut self, task: ScheduleTask) {
         match task {
-            ScheduleTask::Write { data, buffer } => self.write(data, buffer),
+            ScheduleTask::Write {
+                stream_id,
+                data,
+                buffer,
+            } => {
+                self.flush_stream(stream_id);
+                self.write(data, buffer)
+            }
             ScheduleTask::Execute {
+                stream_id,
                 mlir_engine,
                 bindings,
-                kind,
                 cube_dim,
                 cube_count,
-            } => self.kernel(mlir_engine, bindings, kind, cube_dim, cube_count),
+                ..
+            } => {
+                self.flush_stream(stream_id);
+                self.kernel(stream_id, mlir_engine, bindings, cube_dim, cube_count)
+            }
+        }
+    }
+
+    fn flush(&mut self) {
+        for notifications in self.pending_notifications.drain().flat_map(|(_, v)| v) {
+            notifications.wait();
+        }
+    }
+
+    fn flush_stream(&mut self, stream_id: StreamId) {
+        if let Some(notifications) = self.pending_notifications.remove(&stream_id) {
+            for notifications in notifications {
+                notifications.wait();
+            }
         }
     }
 
@@ -90,13 +124,18 @@ impl CpuExecutionQueueServer {
 
     fn kernel(
         &mut self,
+        stream_id: StreamId,
         mlir_engine: MlirEngine,
         bindings: BindingsResource,
-        kind: ExecutionMode,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
     ) {
-        self.runner
-            .execute_data(mlir_engine, bindings, kind, cube_dim, cube_count)
+        let notifications = self
+            .runner
+            .execute_data(mlir_engine, bindings, cube_dim, cube_count);
+        self.pending_notifications
+            .entry(stream_id)
+            .or_default()
+            .push(notifications);
     }
 }

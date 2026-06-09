@@ -42,7 +42,7 @@ used as local variables:
 # }
 #
 #[cube(launch_unchecked)]
-pub fn kernel_struct_example(pair: &Pair<Array<f32>>, output: &mut Array<f32>) {
+pub fn kernel_struct_example(pair: Pair<Box<[f32]>>, output: &mut [f32]) {
     output[UNIT_POS] = pair.left[UNIT_POS] + pair.right[UNIT_POS];
 }
 #
@@ -61,10 +61,10 @@ pub fn kernel_struct_example(pair: &Pair<Array<f32>>, output: &mut Array<f32>) {
 #             CubeCount::Static(1, 1, 1),
 #             CubeDim::new_1d(1),
 #             PairLaunch::new(
-#                 ArrayArg::from_raw_parts::<f32>(&left, 1, 1),
-#                 ArrayArg::from_raw_parts::<f32>(&right, 1, 1),
+#                 BufferArg::from_raw_parts::<f32>(&left, 1, 1),
+#                 BufferArg::from_raw_parts::<f32>(&right, 1, 1),
 #             ),
-#             ArrayArg::from_raw_parts::<f32>(&output, 1, 1),
+#             BufferArg::from_raw_parts::<f32>(&output, 1, 1),
 #         )
 #     };
 #
@@ -86,13 +86,13 @@ You can also mutate struct fields if the struct is passed as a mutable reference
 # use cubecl::prelude::*;
 #
 # #[derive(CubeType, CubeLaunch)]
-# pub struct Pair<T: CubeLaunch> {
+# pub struct Pair<T: CubeType> {
 #     pub left: T,
 #     pub right: T,
 # }
 #
 #[cube(launch_unchecked)]
-pub fn kernel_struct_mut(output: &mut Pair<Array<f32>>) {
+pub fn kernel_struct_mut(output: Pair<&mut [f32]>) {
     output.left[UNIT_POS] = 42.0;
     output.right[UNIT_POS] = 3.14;
 }
@@ -111,8 +111,8 @@ pub fn kernel_struct_mut(output: &mut Pair<Array<f32>>) {
 #             CubeCount::Static(1, 1, 1),
 #             CubeDim::new_1d(1),
 #             PairLaunch::new(
-#                 ArrayArg::from_raw_parts::<f32>(&left, 1, 1),
-#                 ArrayArg::from_raw_parts::<f32>(&right, 1, 1),
+#                 BufferArg::from_raw_parts::<f32>(&left, 1, 1),
+#                 BufferArg::from_raw_parts::<f32>(&right, 1, 1),
 #             ),
 #         )
 #     };
@@ -139,14 +139,14 @@ time and can be used for specialization:
 # use cubecl::prelude::*;
 #
 #[derive(CubeType, CubeLaunch)]
-pub struct TaggedArray {
-    pub array: Array<f32>,
+pub struct TaggedSlice {
+    pub array: Box<[f32]>,
     #[cube(comptime)]
     pub tag: String,
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_with_tag(output: &mut TaggedArray) {
+pub fn kernel_with_tag(output: &mut TaggedSlice) {
     if UNIT_POS == 0 {
         if comptime! {&output.tag == "zero"} {
             output.array[0] = 0.0;
@@ -166,8 +166,8 @@ pub fn kernel_with_tag(output: &mut TaggedArray) {
 #             &client,
 #             CubeCount::Static(1, 1, 1),
 #             CubeDim::new_1d(1),
-#             TaggedArrayLaunch::new(
-#                 ArrayArg::from_raw_parts::<F>(&output, 1, 1),
+#             TaggedSliceLaunch::new(
+#                 BufferArg::from_raw_parts::<F>(&output, 1, 1),
 #                 &"not_zero".to_string(),
 #             ),
 #         )
@@ -200,14 +200,14 @@ pub struct Pair<T: CubeLaunch> {
 }
 
 #[cube]
-impl Pair<Array<f32>> {
+impl Pair<Box<[f32]>> {
     pub fn sum(&self, index: u32) -> f32 {
         self.left[index] + self.right[index]
     }
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_struct_example(pair: &Pair<Array<f32>>, output: &mut Array<f32>) {
+pub fn kernel_struct_example(pair: &Pair<Box<[f32]>>, output: &mut [f32]) {
     output[UNIT_POS] = pair.sum(UNIT_POS);
 }
 #
@@ -226,10 +226,10 @@ pub fn kernel_struct_example(pair: &Pair<Array<f32>>, output: &mut Array<f32>) {
 #             CubeCount::Static(1, 1, 1),
 #             CubeDim::new_1d(1),
 #             PairLaunch::new(
-#                 ArrayArg::from_raw_parts::<f32>(&left, 1, 1),
-#                 ArrayArg::from_raw_parts::<f32>(&right, 1, 1),
+#                 BufferArg::from_raw_parts::<f32>(&left, 1, 1),
+#                 BufferArg::from_raw_parts::<f32>(&right, 1, 1),
 #             ),
-#             ArrayArg::from_raw_parts::<f32>(&output, 1, 1),
+#             BufferArg::from_raw_parts::<f32>(&output, 1, 1),
 #         )
 #     };
 #

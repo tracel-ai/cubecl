@@ -14,21 +14,37 @@ pub struct RuntimeCell<T: CubeType> {
 pub struct RuntimeCellExpand<T: CubeType> {
     value: <T as cubecl::prelude::CubeType>::ExpandType,
 }
-impl<T: CubeType> Clone for RuntimeCellExpand<T> {
+impl<T: CubeType<ExpandType: Clone>> Clone for RuntimeCellExpand<T> {
     fn clone(&self) -> Self {
         Self {
             value: self.value.clone(),
         }
     }
 }
+
+impl<T: CubeType> IntoExpand for RuntimeCellExpand<T> {
+    type Expand = Self;
+
+    fn into_expand(self, _scope: &Scope) -> Self::Expand {
+        self
+    }
+}
+impl<T: CubeType> ExpandTypeClone for RuntimeCellExpand<T> {
+    fn clone_unchecked(&self) -> Self {
+        Self {
+            value: self.value.clone_unchecked(),
+        }
+    }
+}
 impl<T: CubeType> cubecl::prelude::CubeType for RuntimeCell<T> {
     type ExpandType = RuntimeCellExpand<T>;
 }
+
 impl<T: CubeType> cubecl::prelude::IntoMut for RuntimeCellExpand<T> {
-    fn into_mut(self, _scope: &mut cubecl::prelude::Scope) -> Self {
+    fn into_mut(self, _scope: &Scope) -> Self {
         Self {
             // We keep the same as a cell would do.
-            value: self.value.clone(),
+            value: self.value,
         }
     }
 }
@@ -37,7 +53,6 @@ impl<T: CubeType> cubecl::prelude::CubeDebug for RuntimeCellExpand<T> {}
 #[cube]
 impl<T: CubePrimitive> RuntimeCell<T> {
     /// Create a new runtime cell with the given initial value.
-    #[allow(unused_variables)]
     pub fn new(init: T) -> Self {
         intrinsic!(|scope| {
             let value = init_expand(scope, init.expand, true, Operation::Copy);
@@ -48,17 +63,17 @@ impl<T: CubePrimitive> RuntimeCell<T> {
     }
 
     /// Store a new value in the cell.
-    #[allow(unused_variables)]
     pub fn store(&self, value: T) {
         intrinsic!(|scope| {
-            expand_no_check(scope, value, self.value);
+            let mut this = self.value.clone();
+            expand_no_check(scope, value, &mut this);
         })
     }
 
     /// Get the value from the call
     pub fn read(&self) -> T {
         intrinsic!(|scope| {
-            let value = init_expand(scope, self.value.expand, false, Operation::Copy);
+            let value = init_expand(scope, self.value.clone().expand, false, Operation::Copy);
             value.into()
         })
     }
@@ -70,19 +85,25 @@ impl<T: CubePrimitive> RuntimeCell<T> {
 }
 
 #[cube]
-impl<T: CubeIndexMut> RuntimeCell<T> {
+impl<S: Scalar, N: Size> RuntimeCell<Vector<S, N>> {
+    /// Extract the value in the cell at the given index.
+    pub fn extract(&mut self, index: usize) -> S {
+        intrinsic!(|scope| { self.value.__expand_extract_method(scope, index) })
+    }
+
     /// Store a new value in the cell at the given index.
-    #[allow(unused_variables)]
-    pub fn store_at(&mut self, index: <T as CubeIndex>::Idx, value: <T as CubeIndex>::Output) {
-        intrinsic!(|scope| { self.value.expand_index_mut(scope, index, value) })
+    pub fn insert(&mut self, index: usize, value: S) {
+        intrinsic!(|scope| { self.value.__expand_insert_method(scope, index, value) })
     }
 }
 
-#[cube]
-impl<T: CubeIndex> RuntimeCell<T> {
-    /// Read a value in the cell at the given index.
-    #[allow(unused_variables)]
-    pub fn read_at(&self, index: T::Idx) -> T::Output {
-        intrinsic!(|scope| { self.value.expand_index(scope, index) })
+impl<T: CubeType> AsRefExpand for RuntimeCellExpand<T> {
+    fn __expand_ref_method(&self, _: &Scope) -> &Self {
+        self
+    }
+}
+impl<T: CubeType> AsMutExpand for RuntimeCellExpand<T> {
+    fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
+        self
     }
 }

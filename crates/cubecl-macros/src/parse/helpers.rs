@@ -1,15 +1,12 @@
 use darling::FromMeta;
 use syn::{
-    Attribute, Expr, ExprReference, Stmt, parse_quote,
+    Attribute, Expr, Stmt, parse_quote,
     visit_mut::{self, VisitMut},
 };
 
 use crate::{
-    expression::Expression,
-    parse::statement::parse_define_macro,
-    paths::{prelude_path, prelude_type},
-    scope::Context,
-    statement::DefineKind,
+    expression::Expression, parse::statement::parse_define_macro, paths::prelude_type,
+    scope::Context, statement::DefineKind,
 };
 
 pub struct Unroll {
@@ -121,118 +118,7 @@ impl VisitMut for RemoveHelpers {
     }
 }
 
-pub struct ReplaceIndices;
-pub struct ReplaceIndex;
-pub struct ReplaceIndexMut;
-
 pub struct ReplaceDefines;
-
-impl VisitMut for ReplaceIndices {
-    fn visit_expr_assign_mut(&mut self, i: &mut syn::ExprAssign) {
-        ReplaceIndexMut.visit_expr_mut(&mut i.left);
-        ReplaceIndex.visit_expr_mut(&mut i.right);
-        visit_mut::visit_expr_assign_mut(self, i);
-    }
-
-    fn visit_expr_binary_mut(&mut self, i: &mut syn::ExprBinary) {
-        match i.op {
-            syn::BinOp::AddAssign(_)
-            | syn::BinOp::SubAssign(_)
-            | syn::BinOp::MulAssign(_)
-            | syn::BinOp::DivAssign(_)
-            | syn::BinOp::RemAssign(_)
-            | syn::BinOp::BitXorAssign(_)
-            | syn::BinOp::BitAndAssign(_)
-            | syn::BinOp::BitOrAssign(_)
-            | syn::BinOp::ShlAssign(_)
-            | syn::BinOp::ShrAssign(_) => {
-                ReplaceIndexMut.visit_expr_mut(&mut i.left);
-                ReplaceIndex.visit_expr_mut(&mut i.right);
-            }
-            _ => {}
-        }
-        visit_mut::visit_expr_binary_mut(self, i);
-    }
-
-    fn visit_expr_mut(&mut self, i: &mut syn::Expr) {
-        match i {
-            Expr::Reference(ExprReference {
-                mutability: Some(_),
-                expr,
-                ..
-            }) => {
-                ReplaceIndexMut.visit_expr_mut(expr);
-            }
-            Expr::Index(_) => ReplaceIndex.visit_expr_mut(i),
-            _ => {}
-        }
-        visit_mut::visit_expr_mut(self, i);
-    }
-
-    fn visit_item_fn_mut(&mut self, i: &mut syn::ItemFn) {
-        let prelude_path = prelude_path();
-        let import = parse_quote![use #prelude_path::{
-            CubeIndex as _, CubeIndexMut as _,
-            ComptimeIndex as _, ComptimeIndexMut as _
-        };];
-        i.block.stmts.insert(0, import);
-        visit_mut::visit_item_fn_mut(self, i);
-    }
-
-    fn visit_impl_item_fn_mut(&mut self, i: &mut syn::ImplItemFn) {
-        let prelude_path = prelude_path();
-        let import = parse_quote![use #prelude_path::{
-            CubeIndex as _, CubeIndexMut as _,
-            ComptimeIndex as _, ComptimeIndexMut as _
-        };];
-        i.block.stmts.insert(0, import);
-        visit_mut::visit_impl_item_fn_mut(self, i);
-    }
-
-    fn visit_trait_item_fn_mut(&mut self, i: &mut syn::TraitItemFn) {
-        if let Some(block) = &mut i.default {
-            let prelude_path = prelude_path();
-            let import = parse_quote![use #prelude_path::{
-                CubeIndex as _, CubeIndexMut as _,
-                ComptimeIndex as _, ComptimeIndexMut as _
-            };];
-            block.stmts.insert(0, import);
-        }
-        visit_mut::visit_trait_item_fn_mut(self, i);
-    }
-}
-
-impl VisitMut for ReplaceIndex {
-    fn visit_expr_mut(&mut self, i: &mut Expr) {
-        match i {
-            Expr::Reference(ExprReference {
-                mutability: Some(_),
-                expr,
-                ..
-            }) => {
-                ReplaceIndexMut.visit_expr_mut(expr);
-            }
-            Expr::Index(index) => {
-                let inner = &index.expr;
-                let index = &index.index;
-                *i = parse_quote![*#inner.cube_idx(#index)]
-            }
-            _ => {}
-        }
-        visit_mut::visit_expr_mut(self, i);
-    }
-}
-
-impl VisitMut for ReplaceIndexMut {
-    fn visit_expr_mut(&mut self, i: &mut syn::Expr) {
-        if let Expr::Index(index) = i {
-            let inner = &index.expr;
-            let index = &index.index;
-            *i = parse_quote![*#inner.cube_idx_mut(#index)]
-        }
-        visit_mut::visit_expr_mut(self, i);
-    }
-}
 
 impl VisitMut for ReplaceDefines {
     fn visit_block_mut(&mut self, i: &mut syn::Block) {

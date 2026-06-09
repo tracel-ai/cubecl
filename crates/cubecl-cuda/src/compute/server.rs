@@ -118,7 +118,7 @@ impl ComputeServer for CudaServer {
             },
         ) {
             Ok(val) => val,
-            Err(err) => unreachable!("{err:?}"),
+            Err(err) => unreachable!("{err}"),
         };
 
         let reserved = command.reserve(size).unwrap();
@@ -135,7 +135,7 @@ impl ComputeServer for CudaServer {
             },
         ) {
             Ok(val) => val,
-            Err(err) => unreachable!("{err:?}"),
+            Err(err) => unreachable!("{err}"),
         };
 
         for (descriptor, data) in descriptors {
@@ -157,7 +157,7 @@ impl ComputeServer for CudaServer {
         if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id) {
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
                 Ok(stream) => stream,
-                Err(err) => unreachable!("{err:?}"),
+                Err(err) => unreachable!("{err}"),
             };
             stream.current().errors.push(err);
         }
@@ -242,6 +242,10 @@ impl ComputeServer for CudaServer {
         Ok(command.memory_usage())
     }
 
+    fn stream_ids(&self) -> Vec<StreamId> {
+        self.streams.stream_ids().collect()
+    }
+
     fn memory_cleanup(&mut self, stream_id: StreamId) {
         let mut command = match self.command_no_inputs(
             stream_id,
@@ -251,7 +255,7 @@ impl ComputeServer for CudaServer {
             },
         ) {
             Ok(val) => val,
-            Err(err) => unreachable!("{err:?}"),
+            Err(err) => unreachable!("{err}"),
         };
         command.memory_cleanup()
     }
@@ -265,7 +269,7 @@ impl ComputeServer for CudaServer {
             },
         ) {
             Ok(val) => val,
-            Err(err) => unreachable!("{err:?}"),
+            Err(err) => unreachable!("{err}"),
         };
         command.allocation_mode(mode)
     }
@@ -545,13 +549,11 @@ impl CudaServer {
     ) -> Self {
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
+        let stream_priority = config.streaming.priority;
 
         ctx.unsafe_set_current().unwrap();
 
-        let comm_stream = cudarc::driver::result::stream::create(
-            cudarc::driver::result::stream::StreamKind::NonBlocking,
-        )
-        .expect("Can create a new stream.");
+        let comm_stream = crate::compute::stream::create_cuda_stream(stream_priority);
 
         Self {
             ctx,
@@ -563,6 +565,7 @@ impl CudaServer {
                     mem_config,
                     mem_alignment,
                     utilities.logger.clone(),
+                    stream_priority,
                 ),
                 max_streams,
             ),
@@ -674,6 +677,11 @@ impl CudaServer {
                 (data[0], data[1], data[2])
             }
         };
+
+        // A dynamic count can resolve to zero, which the driver rejects.
+        if count.0 == 0 || count.1 == 0 || count.2 == 0 {
+            return Ok(());
+        }
 
         let (info_const, info_binding) = if grid_constants {
             let info = &bindings.info;

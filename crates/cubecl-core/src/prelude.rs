@@ -18,6 +18,7 @@ pub use cubecl_runtime::{
     server::{CubeCount, CubeDim, ExecutionMode, LaunchError},
 };
 
-pub use crate::{define, define_scalar, define_size, size};
+pub use crate::io::{read_checked, write_checked};
+pub use crate::{__expand_seq, define, define_scalar, define_size, seq, size};
 pub use cubecl_macros::*;
 pub use num_traits::{clamp, clamp_max, clamp_min};

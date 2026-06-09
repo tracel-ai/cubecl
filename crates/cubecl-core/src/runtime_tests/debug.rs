@@ -7,7 +7,7 @@ fn helper_fn<F: Float>(num: F) -> F {
 }
 
 #[cube(launch)]
-fn simple_call_kernel<F: Float>(out: &mut Array<F>) {
+fn simple_call_kernel<F: Float>(out: &mut [F]) {
     if UNIT_POS == 0 {
         out[0] = helper_fn::<F>(out[0]);
     }
@@ -20,7 +20,7 @@ pub fn test_simple_call<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -35,7 +35,7 @@ fn nested_helper<F: Float>(num: F) -> F {
 }
 
 #[cube(launch)]
-fn nested_call_kernel<F: Float>(out: &mut Array<F>) {
+fn nested_call_kernel<F: Float>(out: &mut [F]) {
     if UNIT_POS == 0 {
         out[0] = nested_helper::<F>(out[0]);
     }
@@ -48,7 +48,7 @@ pub fn test_nested_call<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -58,7 +58,7 @@ pub fn test_nested_call<R: Runtime>(client: ComputeClient<R>) {
 }
 
 #[cube(launch)]
-fn debug_print_kernel<F: Float>(out: &mut Array<F>) {
+fn debug_print_kernel<F: Float>(out: &mut [F]) {
     if UNIT_POS == 0 {
         let val = out[0];
         debug_print!("Test value: %f\n", val);
@@ -75,7 +75,7 @@ pub fn test_debug_print<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one_unchecked(handle);

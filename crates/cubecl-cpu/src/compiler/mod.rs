@@ -16,8 +16,8 @@ use cubecl_core::{
     Compiler,
     ir::{self, StorageType},
     post_processing::{
-        checked_io::CheckedIoProcessor, predicate::PredicateProcessor,
-        saturating::SaturatingArithmeticProcessor,
+        checked_io::CheckedIoVisitor, disaggregate::DisaggregateVisitor,
+        predicate::PredicateProcessor, saturating::SaturatingArithmeticProcessor,
     },
     prelude::KernelDefinition,
     server::ExecutionMode,
@@ -43,7 +43,7 @@ impl Compiler for MlirCompiler {
 
     fn compile(
         &mut self,
-        mut kernel: KernelDefinition,
+        kernel: KernelDefinition,
         _compilation_options: &Self::CompilationOptions, // TODO pass this through the visitor, though it doesn't need anything for the moment
         mode: ExecutionMode, // TODO support this by adding array bound checking
         addr_type: StorageType,
@@ -68,10 +68,11 @@ impl Compiler for MlirCompiler {
             .with_transformer(ErfTransform)
             .with_transformer(HypotTransform)
             .with_transformer(RhypotTransform)
-            .with_processor(CheckedIoProcessor::new(
+            .with_visitor(CheckedIoVisitor::new(
                 mode,
                 kernel.options.kernel_name.clone(),
             ))
+            .with_visitor(DisaggregateVisitor::default())
             .with_processor(SaturatingArithmeticProcessor::new(true))
             .with_processor(PredicateProcessor)
             .optimize(kernel.body.clone(), kernel.cube_dim);
@@ -83,7 +84,7 @@ impl Compiler for MlirCompiler {
         dump_opt(&opt, &kernel.options.kernel_name);
         Ok(MlirEngine::from_cubecl_ir(
             kernel,
-            &opt,
+            &opt.main,
             shared_memories,
             addr_type,
         ))
@@ -116,10 +117,6 @@ fn dump_opt(opt: &cubecl_opt::Optimizer, name: &str) {
         let path = format!("{dir}/{name}");
         let _ = fs::create_dir(&path);
         fs::write(format!("{path}/cubecl-opt.ir.txt"), format!("{}", opt)).unwrap();
-        fs::write(
-            format!("{path}/cubecl-opt.ir.dot"),
-            format!("{}", opt.dot_viz()),
-        )
-        .unwrap();
+        fs::write(format!("{path}/cubecl-opt.ir.dot"), opt.main.dot_viz()).unwrap();
     }
 }

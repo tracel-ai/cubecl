@@ -1,155 +1,149 @@
+use alloc::{vec, vec::Vec};
 use cubecl_ir::{
-    Arithmetic, Bitwise, Comparison, ConstantValue, Instruction, Metadata, Operation, Operator,
-    Type, Variable, VariableKind,
+    Arithmetic, Bitwise, Comparison, ConstantValue, GlobalState, Instruction, Operation, Operator,
+    Type, Variable,
 };
 
-use crate::{AtomicCounter, Optimizer};
-
-use super::OptimizerPass;
+use crate::post_processing::{
+    analysis_helper::GlobalAnalyses, util::AtomicCounter, visitor::InstructionVisitor,
+};
 
 /// Simplifies certain expressions where one operand is constant.
 /// For example: `out = x * 1` to `out = x`
+#[derive(Debug)]
 pub struct ConstOperandSimplify;
 
-impl OptimizerPass for ConstOperandSimplify {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        for node in opt.program.node_indices().collect::<Vec<_>>() {
-            let ops = opt.program[node].ops.borrow().indices().collect::<Vec<_>>();
-
-            for idx in ops {
-                let op = &mut opt.program[node].ops.borrow_mut()[idx];
-                match &mut op.operation {
-                    Operation::Arithmetic(operator) => match operator {
-                        // 0 * x == 0
-                        Arithmetic::Mul(bin_op) if bin_op.lhs.is_constant(0) => {
-                            op.operation = Operation::Copy(bin_op.lhs);
-                            changes.inc();
-                        }
-                        // x * 0 == 0
-                        Arithmetic::Mul(bin_op) if bin_op.rhs.is_constant(0) => {
-                            op.operation = Operation::Copy(bin_op.rhs);
-                            changes.inc();
-                        }
-                        // 1 * x == x
-                        Arithmetic::Mul(bin_op) if bin_op.lhs.is_constant(1) => {
-                            op.operation = Operation::Copy(bin_op.rhs);
-                            changes.inc();
-                        }
-                        // x * 1 == x
-                        Arithmetic::Mul(bin_op) if bin_op.rhs.is_constant(1) => {
-                            op.operation = Operation::Copy(bin_op.lhs);
-                            changes.inc();
-                        }
-                        // 0 + x = x
-                        Arithmetic::Add(bin_op) if bin_op.lhs.is_constant(0) => {
-                            op.operation = Operation::Copy(bin_op.rhs);
-                            changes.inc();
-                        }
-                        // x + 0 = x
-                        Arithmetic::Add(bin_op) if bin_op.rhs.is_constant(0) => {
-                            op.operation = Operation::Copy(bin_op.lhs);
-                            changes.inc();
-                        }
-                        // x - 0 == x
-                        Arithmetic::Sub(bin_op) if bin_op.rhs.is_constant(0) => {
-                            op.operation = Operation::Copy(bin_op.lhs);
-                            changes.inc();
-                        }
-                        // x / 1 == x, 0 / x == 0
-                        Arithmetic::Div(bin_op)
-                            if bin_op.lhs.is_constant(0) || bin_op.rhs.is_constant(1) =>
-                        {
-                            op.operation = Operation::Copy(bin_op.lhs);
-                            changes.inc();
-                        }
-                        // x % 1 == 0, 0 % x == 0
-                        Arithmetic::Modulo(bin_op)
-                            if bin_op.rhs.is_constant(1) || bin_op.lhs.is_constant(0) =>
-                        {
-                            op.operation = Operation::Copy(op.ty().constant(ConstantValue::Int(0)));
-                            changes.inc();
-                        }
-                        _ => {}
-                    },
-
-                    Operation::Operator(operator) => match operator {
-                        // true || x == true, x || true == true
-                        Operator::Or(bin_op) if bin_op.lhs.is_true() || bin_op.rhs.is_true() => {
-                            op.operation = Operation::Copy(true.into());
-                            changes.inc();
-                        }
-                        // false || x == x, x || false == x
-                        Operator::Or(bin_op) if bin_op.lhs.is_false() => {
-                            op.operation = Operation::Copy(bin_op.rhs);
-                            changes.inc();
-                        }
-                        // x || false == x
-                        Operator::Or(bin_op) if bin_op.rhs.is_false() => {
-                            op.operation = Operation::Copy(bin_op.lhs);
-                            changes.inc();
-                        }
-                        // false && x == false, x && false == false
-                        Operator::And(bin_op) if bin_op.lhs.is_false() || bin_op.rhs.is_false() => {
-                            op.operation = Operation::Copy(false.into());
-                            changes.inc();
-                        }
-                        // true && x == x
-                        Operator::And(bin_op) if bin_op.lhs.is_true() => {
-                            op.operation = Operation::Copy(bin_op.rhs);
-                            changes.inc();
-                        }
-                        // x && true == x
-                        Operator::And(bin_op) if bin_op.rhs.is_true() => {
-                            op.operation = Operation::Copy(bin_op.lhs);
-                            changes.inc();
-                        }
-                        // select(true, a, b) == a
-                        Operator::Select(select) if select.cond.is_true() => {
-                            op.operation = Operation::Copy(select.then);
-                            changes.inc();
-                        }
-                        // select(false, a, b) == b
-                        Operator::Select(select) if select.cond.is_false() => {
-                            op.operation = Operation::Copy(select.or_else);
-                            changes.inc();
-                        }
-                        _ => {}
-                    },
-
-                    // Constant length to const value
-                    Operation::Metadata(Metadata::Length { var }) => match var.kind {
-                        VariableKind::ConstantArray { length, .. }
-                        | VariableKind::SharedArray { length, .. }
-                        | VariableKind::LocalArray { length, .. } => {
-                            op.operation = Operation::Copy(length.into());
-                            changes.inc();
-                        }
-                        _ => {}
-                    },
-                    _ => {}
+impl InstructionVisitor for ConstOperandSimplify {
+    fn visit_instruction(
+        &mut self,
+        mut inst: Instruction,
+        _state: &GlobalState,
+        _analyses: &GlobalAnalyses,
+        changes: &AtomicCounter,
+    ) -> Vec<Instruction> {
+        match &mut inst.operation {
+            Operation::Arithmetic(operator) => match operator {
+                // 0 * x == 0
+                Arithmetic::Mul(bin_op) if bin_op.lhs.is_constant(0) => {
+                    inst.operation = Operation::Copy(bin_op.lhs);
+                    changes.inc();
                 }
-            }
-        }
+                // x * 0 == 0
+                Arithmetic::Mul(bin_op) if bin_op.rhs.is_constant(0) => {
+                    inst.operation = Operation::Copy(bin_op.rhs);
+                    changes.inc();
+                }
+                // 1 * x == x
+                Arithmetic::Mul(bin_op) if bin_op.lhs.is_constant(1) => {
+                    inst.operation = Operation::Copy(bin_op.rhs);
+                    changes.inc();
+                }
+                // x * 1 == x
+                Arithmetic::Mul(bin_op) if bin_op.rhs.is_constant(1) => {
+                    inst.operation = Operation::Copy(bin_op.lhs);
+                    changes.inc();
+                }
+                // 0 + x = x
+                Arithmetic::Add(bin_op) if bin_op.lhs.is_constant(0) => {
+                    inst.operation = Operation::Copy(bin_op.rhs);
+                    changes.inc();
+                }
+                // x + 0 = x
+                Arithmetic::Add(bin_op) if bin_op.rhs.is_constant(0) => {
+                    inst.operation = Operation::Copy(bin_op.lhs);
+                    changes.inc();
+                }
+                // x - 0 == x
+                Arithmetic::Sub(bin_op) if bin_op.rhs.is_constant(0) => {
+                    inst.operation = Operation::Copy(bin_op.lhs);
+                    changes.inc();
+                }
+                // x / 1 == x, 0 / x == 0
+                Arithmetic::Div(bin_op)
+                    if bin_op.lhs.is_constant(0) || bin_op.rhs.is_constant(1) =>
+                {
+                    inst.operation = Operation::Copy(bin_op.lhs);
+                    changes.inc();
+                }
+                // x % 1 == 0, 0 % x == 0
+                Arithmetic::ModFloor(bin_op) | Arithmetic::Rem(bin_op)
+                    if bin_op.rhs.is_constant(1) || bin_op.lhs.is_constant(0) =>
+                {
+                    inst.operation = Operation::Copy(inst.ty().constant(ConstantValue::Int(0)));
+                    changes.inc();
+                }
+                _ => {}
+            },
+
+            Operation::Operator(operator) => match operator {
+                // true || x == true, x || true == true
+                Operator::Or(bin_op) if bin_op.lhs.is_true() || bin_op.rhs.is_true() => {
+                    inst.operation = Operation::Copy(true.into());
+                    changes.inc();
+                }
+                // false || x == x, x || false == x
+                Operator::Or(bin_op) if bin_op.lhs.is_false() => {
+                    inst.operation = Operation::Copy(bin_op.rhs);
+                    changes.inc();
+                }
+                // x || false == x
+                Operator::Or(bin_op) if bin_op.rhs.is_false() => {
+                    inst.operation = Operation::Copy(bin_op.lhs);
+                    changes.inc();
+                }
+                // false && x == false, x && false == false
+                Operator::And(bin_op) if bin_op.lhs.is_false() || bin_op.rhs.is_false() => {
+                    inst.operation = Operation::Copy(false.into());
+                    changes.inc();
+                }
+                // true && x == x
+                Operator::And(bin_op) if bin_op.lhs.is_true() => {
+                    inst.operation = Operation::Copy(bin_op.rhs);
+                    changes.inc();
+                }
+                // x && true == x
+                Operator::And(bin_op) if bin_op.rhs.is_true() => {
+                    inst.operation = Operation::Copy(bin_op.lhs);
+                    changes.inc();
+                }
+                // select(true, a, b) == a
+                Operator::Select(select) if select.cond.is_true() => {
+                    inst.operation = Operation::Copy(select.then);
+                    changes.inc();
+                }
+                // select(false, a, b) == b
+                Operator::Select(select) if select.cond.is_false() => {
+                    inst.operation = Operation::Copy(select.or_else);
+                    changes.inc();
+                }
+                _ => {}
+            },
+            _ => {}
+        };
+        vec![inst]
     }
 }
 
 /// Evaluates expressions where both operands are constant and replaces them with simple constant
 /// assignments. This can often be applied as a result of assignment merging or constant operand
 /// simplification.
+#[derive(Debug)]
 pub struct ConstEval;
 
-impl OptimizerPass for ConstEval {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        for node in opt.node_ids() {
-            let ops = opt.program[node].ops.clone();
-            for op in ops.borrow_mut().values_mut() {
-                if let Some(const_eval) = try_const_eval(op) {
-                    let input = Variable::constant(const_eval, op.out().ty);
-                    op.operation = Operation::Copy(input);
-                    changes.inc();
-                }
-            }
+impl InstructionVisitor for ConstEval {
+    fn visit_instruction(
+        &mut self,
+        mut inst: Instruction,
+        _state: &GlobalState,
+        _analyses: &GlobalAnalyses,
+        changes: &AtomicCounter,
+    ) -> Vec<Instruction> {
+        if let Some(const_eval) = try_const_eval(&mut inst) {
+            let input = Variable::constant(const_eval, inst.out().ty);
+            inst.operation = Operation::Copy(input);
+            changes.inc();
         }
+        vec![inst]
     }
 }
 
@@ -172,23 +166,6 @@ macro_rules! const_eval {
             None
         }
     }};
-    ($lhs:expr, $rhs:expr; $op:path) => {{
-        use ConstantScalarValue::*;
-
-        let lhs = $lhs.as_const();
-        let rhs = $rhs.as_const();
-        if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
-            let rhs = rhs.cast_to(lhs.storage_type());
-            Some(match (lhs, rhs) {
-                (Int(lhs, kind), Int(rhs, _)) => ConstantScalarValue::Int($op(lhs, rhs), kind),
-                (Float(lhs, kind), Float(rhs, _)) => ConstantScalarValue::Float($op(lhs, rhs), kind),
-                (UInt(lhs), UInt(rhs)) => ConstantScalarValue::UInt($op(lhs, rhs)),
-                _ => unreachable!(),
-            })
-        } else {
-            None
-        }
-    }};
 }
 
 macro_rules! const_eval_int {
@@ -201,8 +178,25 @@ macro_rules! const_eval_int {
         if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
             let rhs = rhs.cast_to(ty);
             Some(match (lhs, rhs) {
-                (Int(lhs), Int(rhs)) => ConstantValue::Int(lhs $op rhs),
-                (UInt(lhs), UInt(rhs)) => ConstantValue::UInt(lhs $op rhs),
+                (Int(lhs), Int(rhs)) => Int(lhs $op rhs),
+                (UInt(lhs), UInt(rhs)) => UInt(lhs $op rhs),
+                _ => unreachable!(),
+            })
+        } else {
+            None
+        }
+    }};
+    ($lhs:expr, $rhs:expr; $op:path) => {{
+        use ConstantValue::*;
+
+        let ty = $lhs.ty;
+        let lhs = $lhs.as_const();
+        let rhs = $rhs.as_const();
+        if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
+            let rhs = rhs.cast_to(ty);
+            Some(match (lhs, rhs) {
+                (Int(lhs), Int(rhs)) => Int($op(lhs, rhs)),
+                (UInt(lhs), UInt(rhs)) => UInt($op(lhs, rhs)),
                 _ => unreachable!(),
             })
         } else {
@@ -302,11 +296,14 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
             let rhs = op.rhs.as_const();
             if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
                 let rhs = rhs.cast_to(ty);
-                // Saturating ops only support 32-bit
-                // NOTE: Change this if that's ever not the case!
-                Some(match (lhs, rhs) {
-                    (Int(lhs), Int(rhs)) => Int((lhs as i32).saturating_add(rhs as i32) as i64),
-                    (UInt(lhs), UInt(rhs)) => UInt((lhs as u32).saturating_add(rhs as u32) as u64),
+                let width = ty.size();
+                Some(match (lhs, rhs, width) {
+                    (Int(lhs), Int(rhs), 4) => Int((lhs as i32).saturating_add(rhs as i32) as i64),
+                    (Int(lhs), Int(rhs), 8) => Int(lhs.saturating_add(rhs)),
+                    (UInt(lhs), UInt(rhs), 4) => {
+                        UInt((lhs as u32).saturating_add(rhs as u32) as u64)
+                    }
+                    (UInt(lhs), UInt(rhs), 8) => UInt(lhs.saturating_add(rhs)),
                     _ => unreachable!(),
                 })
             } else {
@@ -321,24 +318,27 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
             let rhs = op.rhs.as_const();
             if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
                 let rhs = rhs.cast_to(ty);
-                // Saturating ops only support 32-bit
-                // NOTE: Change this if that's ever not the case!
-                Some(match (lhs, rhs) {
-                    (Int(lhs), Int(rhs)) => Int((lhs as i32).saturating_sub(rhs as i32) as i64),
-                    (UInt(lhs), UInt(rhs)) => UInt((lhs as u32).saturating_sub(rhs as u32) as u64),
+                let width = ty.size();
+                Some(match (lhs, rhs, width) {
+                    (Int(lhs), Int(rhs), 4) => Int((lhs as i32).saturating_sub(rhs as i32) as i64),
+                    (Int(lhs), Int(rhs), 8) => Int(lhs.saturating_sub(rhs)),
+                    (UInt(lhs), UInt(rhs), 4) => {
+                        UInt((lhs as u32).saturating_sub(rhs as u32) as u64)
+                    }
+                    (UInt(lhs), UInt(rhs), 8) => UInt(lhs.saturating_sub(rhs)),
                     _ => unreachable!(),
                 })
             } else {
                 None
             }
         }
-        Arithmetic::Powf(op) => const_eval_float!(op.lhs, op.rhs; num::Float::powf),
+        Arithmetic::Powf(op) => const_eval_float!(op.lhs, op.rhs; num_traits::Float::powf),
         // powf is fast enough for const eval
         Arithmetic::Powi(op) => {
-            const_eval_float!(op.lhs, op.rhs; num::Float::powf)
+            const_eval_float!(op.lhs, op.rhs; num_traits::Float::powf)
         }
-        Arithmetic::Modulo(op) => const_eval!(% op.lhs, op.rhs),
-        Arithmetic::Remainder(op) => const_eval!(% op.lhs, op.rhs),
+        Arithmetic::ModFloor(op) => const_eval_int!(op.lhs, op.rhs; num_integer::mod_floor),
+        Arithmetic::Rem(op) => const_eval!(% op.lhs, op.rhs),
         Arithmetic::MulHi(op) => {
             use ConstantValue::*;
             let ty = op.lhs.ty;
@@ -399,49 +399,45 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
                 _ => unreachable!(),
             })
         }
-        Arithmetic::Exp(op) => const_eval_float!(op.input; num::Float::exp),
-        Arithmetic::Log(op) => const_eval_float!(op.input; num::Float::ln),
-        Arithmetic::Log1p(op) => const_eval_float!(op.input; num::Float::ln_1p),
-        Arithmetic::Cos(op) => const_eval_float!(op.input; num::Float::cos),
-        Arithmetic::Sin(op) => const_eval_float!(op.input; num::Float::sin),
-        Arithmetic::Tan(op) => const_eval_float!(op.input; num::Float::tan),
-        Arithmetic::Tanh(op) => const_eval_float!(op.input; num::Float::tanh),
-        Arithmetic::Sinh(op) => const_eval_float!(op.input; num::Float::sinh),
-        Arithmetic::Cosh(op) => const_eval_float!(op.input; num::Float::cosh),
-        Arithmetic::ArcCos(op) => const_eval_float!(op.input; num::Float::acos),
-        Arithmetic::ArcSin(op) => const_eval_float!(op.input; num::Float::asin),
-        Arithmetic::ArcTan(op) => const_eval_float!(op.input; num::Float::atan),
-        Arithmetic::ArcSinh(op) => const_eval_float!(op.input; num::Float::asinh),
-        Arithmetic::ArcCosh(op) => const_eval_float!(op.input; num::Float::acosh),
-        Arithmetic::ArcTanh(op) => const_eval_float!(op.input; num::Float::atanh),
-        Arithmetic::Degrees(op) => const_eval_float!(op.input; num::Float::to_degrees),
-        Arithmetic::Radians(op) => const_eval_float!(op.input; num::Float::to_radians),
-        Arithmetic::ArcTan2(op) => {
-            use ConstantValue::*;
-            let ty = op.lhs.ty;
-            if let (Some(lhs), Some(rhs)) = (op.lhs.as_const(), op.rhs.as_const()) {
-                let rhs = rhs.cast_to(ty);
-                Some(match (lhs, rhs) {
-                    (Float(lhs), Float(rhs)) => ConstantValue::Float(lhs.atan2(rhs)),
-                    _ => unreachable!(),
-                })
-            } else {
-                None
-            }
+        Arithmetic::Exp(op) => const_eval_float!(op.input; num_traits::Float::exp),
+        Arithmetic::Log(op) => const_eval_float!(op.input; num_traits::Float::ln),
+        Arithmetic::Log1p(op) => const_eval_float!(op.input; num_traits::Float::ln_1p),
+        Arithmetic::Cos(op) => const_eval_float!(op.input; num_traits::Float::cos),
+        Arithmetic::Sin(op) => const_eval_float!(op.input; num_traits::Float::sin),
+        Arithmetic::Tan(op) => const_eval_float!(op.input; num_traits::Float::tan),
+        Arithmetic::Tanh(op) => const_eval_float!(op.input; num_traits::Float::tanh),
+        Arithmetic::Sinh(op) => const_eval_float!(op.input; num_traits::Float::sinh),
+        Arithmetic::Cosh(op) => const_eval_float!(op.input; num_traits::Float::cosh),
+        Arithmetic::ArcCos(op) => const_eval_float!(op.input; num_traits::Float::acos),
+        Arithmetic::ArcSin(op) => const_eval_float!(op.input; num_traits::Float::asin),
+        Arithmetic::ArcTan(op) => const_eval_float!(op.input; num_traits::Float::atan),
+        Arithmetic::ArcSinh(op) => const_eval_float!(op.input; num_traits::Float::asinh),
+        Arithmetic::ArcCosh(op) => const_eval_float!(op.input; num_traits::Float::acosh),
+        Arithmetic::ArcTanh(op) => const_eval_float!(op.input; num_traits::Float::atanh),
+        Arithmetic::Degrees(op) => const_eval_float!(op.input; num_traits::Float::to_degrees),
+        Arithmetic::Radians(op) => const_eval_float!(op.input; num_traits::Float::to_radians),
+        Arithmetic::ArcTan2(op) => const_eval_float!(op.lhs, op.rhs; num_traits::Float::atan2),
+        Arithmetic::Sqrt(op) => const_eval_float!(op.input; num_traits::Float::sqrt),
+        Arithmetic::Hypot(op) => const_eval_float!(op.lhs, op.rhs; num_traits::Float::hypot),
+        Arithmetic::Rhypot(op) => {
+            let hypot = const_eval_float!(op.lhs, op.rhs; num_traits::Float::hypot)?;
+            let ConstantValue::Float(val) = hypot else {
+                unreachable!()
+            };
+            Some(ConstantValue::Float(1.0 / val))
         }
-        Arithmetic::Sqrt(op) => const_eval_float!(op.input; num::Float::sqrt),
         Arithmetic::InverseSqrt(op) => {
-            let sqrt = const_eval_float!(op.input; num::Float::sqrt)?;
+            let sqrt = const_eval_float!(op.input; num_traits::Float::sqrt)?;
             let ConstantValue::Float(val) = sqrt else {
                 unreachable!()
             };
             Some(ConstantValue::Float(1.0 / val))
         }
-        Arithmetic::Round(op) => const_eval_float!(op.input; num::Float::round),
-        Arithmetic::Floor(op) => const_eval_float!(op.input; num::Float::floor),
-        Arithmetic::Ceil(op) => const_eval_float!(op.input; num::Float::ceil),
-        Arithmetic::Trunc(op) => const_eval_float!(op.input; num::Float::trunc),
-        Arithmetic::Recip(op) => const_eval_float!(op.input; num::Float::recip),
+        Arithmetic::Round(op) => const_eval_float!(op.input; num_traits::Float::round),
+        Arithmetic::Floor(op) => const_eval_float!(op.input; num_traits::Float::floor),
+        Arithmetic::Ceil(op) => const_eval_float!(op.input; num_traits::Float::ceil),
+        Arithmetic::Trunc(op) => const_eval_float!(op.input; num_traits::Float::trunc),
+        Arithmetic::Recip(op) => const_eval_float!(op.input; num_traits::Float::recip),
         Arithmetic::Neg(op) => {
             use ConstantValue::*;
             op.input.as_const().map(|input| match input {
@@ -486,8 +482,6 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
             })
         }
         Arithmetic::Erf(_)
-        | Arithmetic::Hypot(_)
-        | Arithmetic::Rhypot(_)
         | Arithmetic::Magnitude(_)
         | Arithmetic::Normalize(_)
         | Arithmetic::VectorSum(_) => None,
@@ -571,13 +565,9 @@ fn try_const_eval_operator(op: &mut Operator, out_ty: Option<Type>) -> Option<Co
             })
         }
         Operator::Cast(op) => op.input.as_const().map(|val| val.cast_to(out_ty.unwrap())),
-        Operator::Index(_)
-        | Operator::CopyMemory(_)
-        | Operator::CopyMemoryBulk(_)
-        | Operator::UncheckedIndex(_)
-        | Operator::IndexAssign(_)
-        | Operator::InitVector(_)
-        | Operator::UncheckedIndexAssign(_)
+        Operator::InitVector(_)
+        | Operator::InsertComponent(_)
+        | Operator::ExtractComponent(_)
         | Operator::Reinterpret(_)
         | Operator::Select(_) => None,
     }

@@ -2,55 +2,26 @@ use super::{Body, Elem, Extension, Item, Variable};
 use cubecl_core::{CubeDim, Info, ir::Id, prelude::Visibility};
 use std::fmt::Display;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Location {
-    Storage,
-    Workgroup,
-}
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct KernelArg {
     pub id: Id,
-    pub location: Location,
     pub visibility: Visibility,
     pub item: Item,
-    pub size: Option<usize>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct SharedArray {
-    location: Location,
-    pub index: Id,
-    item: Item,
-    size: u32,
-    alignment: Option<u32>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SharedValue {
-    location: Location,
     pub index: Id,
     item: Item,
-}
-
-impl SharedArray {
-    pub fn new(index: Id, item: Item, size: u32, alignment: Option<u32>) -> Self {
-        Self {
-            location: Location::Workgroup,
-            index,
-            item,
-            size,
-            alignment,
-        }
-    }
+    alignment: Option<u32>,
 }
 
 impl SharedValue {
-    pub fn new(index: Id, item: Item) -> Self {
+    pub fn new(index: Id, item: Item, alignment: Option<u32>) -> Self {
         Self {
-            location: Location::Workgroup,
             index,
             item,
+            alignment,
         }
     }
 }
@@ -63,27 +34,12 @@ pub struct ConstantArray {
     pub values: Vec<Variable>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct LocalArray {
-    pub index: Id,
-    item: Item,
-    size: u32,
-}
-
-impl LocalArray {
-    pub fn new(index: Id, item: Item, size: u32) -> Self {
-        Self { index, item, size }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct ComputeShader {
     pub buffers: Vec<KernelArg>,
     pub scalars: Vec<(Elem, usize)>,
-    pub shared_arrays: Vec<SharedArray>,
     pub shared_values: Vec<SharedValue>,
     pub constant_arrays: Vec<ConstantArray>,
-    pub local_arrays: Vec<LocalArray>,
     pub info: Info,
     pub static_meta_len: usize,
     pub workgroup_size: CubeDim,
@@ -108,11 +64,7 @@ pub struct ComputeShader {
 
 impl ComputeShader {
     pub fn shared_memory_bytes(&self) -> usize {
-        self.shared_arrays
-            .iter()
-            .map(|it| it.size as usize * it.item.size())
-            .chain(self.shared_values.iter().map(|it| it.item.size()))
-            .sum()
+        self.shared_values.iter().map(|it| it.item.size()).sum()
     }
 }
 
@@ -148,7 +100,7 @@ impl Display for ComputeShader {
             }
             f.write_str("}\n\n")?;
 
-            let location = Location::Storage;
+            let location = "storage";
             let visibility = "read";
 
             write!(
@@ -160,19 +112,12 @@ var<{location}, {visibility}> info: info_st;
             )?;
         }
 
-        for array in self.shared_arrays.iter() {
-            write!(
-                f,
-                "var<{}> shared_memory_{}: array<{}, {}>;\n\n",
-                array.location, array.index, array.item, array.size
-            )?;
-        }
-
         for value in self.shared_values.iter() {
+            let location = "workgroup";
             write!(
                 f,
-                "var<{}> shared_memory_{}: {};\n\n",
-                value.location, value.index, value.item,
+                "var<{location}> shared_{}: {};\n\n",
+                value.index, value.item,
             )?;
         }
 
@@ -239,15 +184,6 @@ fn {}(
         // Open body
         f.write_str(") {\n")?;
 
-        // Local arrays
-        for array in self.local_arrays.iter() {
-            writeln!(
-                f,
-                "var a_{}: array<{}, {}>;\n",
-                array.index, array.item, array.size
-            )?;
-        }
-
         let addr_ty = self.address_type;
 
         // Body
@@ -307,35 +243,23 @@ impl ComputeShader {
         binding: &KernelArg,
         num_entry: usize,
     ) -> core::fmt::Result {
-        let ty = match binding.size {
-            Some(size) => format!("array<{}, {}>", binding.item, size),
-            None => format!("array<{}>", binding.item),
-        };
+        let ty = format!("array<{}>", binding.item);
 
+        let location = "storage";
         let visibility = match binding.visibility {
             #[cfg(exclusive_memory_only)]
-            Visibility::Read if !binding.item.elem().is_atomic() => "read",
+            Visibility::Read => "read",
             _ => "read_write",
         };
 
         write!(
             f,
             "@group(0)
-@binding({})
-var<{}, {}> {}: {};
+@binding({num_entry})
+var<{location}, {visibility}> {name}: {ty};
 \n",
-            num_entry, binding.location, visibility, name, ty
         )?;
 
         Ok(())
-    }
-}
-
-impl Display for Location {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Location::Storage => f.write_str("storage"),
-            Location::Workgroup => f.write_str("workgroup"),
-        }
     }
 }

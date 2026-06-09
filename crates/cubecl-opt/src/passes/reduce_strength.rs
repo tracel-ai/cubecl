@@ -1,10 +1,11 @@
-use std::mem::take;
+use core::mem::take;
 
+use alloc::vec::Vec;
 use cubecl_ir::{
-    Arithmetic, BinaryOperator, Bitwise, ElemType, Instruction, Operation, UIntKind, Variable,
+    Arithmetic, BinaryOperands, Bitwise, ElemType, Instruction, Operation, UIntKind, Variable,
 };
 
-use crate::{AtomicCounter, Optimizer};
+use crate::{AtomicCounter, Function, GlobalState};
 
 use super::OptimizerPass;
 
@@ -24,9 +25,9 @@ use super::OptimizerPass;
 pub struct ReduceStrength;
 
 impl OptimizerPass for ReduceStrength {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        for block in opt.node_ids() {
-            let ops = take(&mut *opt.block(block).ops.borrow_mut());
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        for block in func.node_ids() {
+            let ops = take(&mut *func.block(block).ops.borrow_mut());
             let mut new_ops = Vec::with_capacity(ops.capacity());
             for (_, inst) in ops.into_iter() {
                 let op = match inst.operation.clone() {
@@ -51,7 +52,7 @@ impl OptimizerPass for ReduceStrength {
                         match const_val {
                             val if val.is_power_of_two() => {
                                 new_ops.push(Instruction::new(
-                                    Bitwise::ShiftLeft(BinaryOperator {
+                                    Bitwise::ShiftLeft(BinaryOperands {
                                         lhs: dyn_val,
                                         rhs: val.trailing_zeros().into(),
                                     }),
@@ -60,16 +61,16 @@ impl OptimizerPass for ReduceStrength {
                                 changes.inc();
                             }
                             val if (val + 1).is_power_of_two() => {
-                                let temp = *opt.allocator.create_local(inst.ty());
+                                let temp = state.allocator.create_local(inst.ty());
                                 new_ops.push(Instruction::new(
-                                    Bitwise::ShiftLeft(BinaryOperator {
+                                    Bitwise::ShiftLeft(BinaryOperands {
                                         lhs: dyn_val,
                                         rhs: (val + 1).trailing_zeros().into(),
                                     }),
                                     temp,
                                 ));
                                 new_ops.push(Instruction::new(
-                                    Arithmetic::Sub(BinaryOperator {
+                                    Arithmetic::Sub(BinaryOperands {
                                         lhs: temp,
                                         rhs: dyn_val,
                                     }),
@@ -78,16 +79,16 @@ impl OptimizerPass for ReduceStrength {
                                 changes.inc();
                             }
                             val if (val - 1).is_power_of_two() => {
-                                let temp = *opt.allocator.create_local(inst.ty());
+                                let temp = state.allocator.create_local(inst.ty());
                                 new_ops.push(Instruction::new(
-                                    Bitwise::ShiftLeft(BinaryOperator {
+                                    Bitwise::ShiftLeft(BinaryOperands {
                                         lhs: dyn_val,
                                         rhs: (val - 1).trailing_zeros().into(),
                                     }),
                                     temp,
                                 ));
                                 new_ops.push(Instruction::new(
-                                    Arithmetic::Add(BinaryOperator {
+                                    Arithmetic::Add(BinaryOperands {
                                         lhs: temp,
                                         rhs: dyn_val,
                                     }),
@@ -110,7 +111,7 @@ impl OptimizerPass for ReduceStrength {
                             }
                         };
                         new_ops.push(Instruction::new(
-                            Bitwise::ShiftRight(BinaryOperator {
+                            Bitwise::ShiftRight(BinaryOperands {
                                 lhs: dyn_val,
                                 rhs: const_val.trailing_zeros().into(),
                             }),
@@ -118,11 +119,11 @@ impl OptimizerPass for ReduceStrength {
                         ));
                         changes.inc();
                     }
-                    Arithmetic::Modulo(op) if is_pow2(op.rhs) => {
+                    Arithmetic::Rem(op) if is_pow2(op.rhs) => {
                         let const_val = op.rhs.as_const().unwrap().as_u32();
 
                         new_ops.push(Instruction::new(
-                            Bitwise::BitwiseAnd(BinaryOperator {
+                            Bitwise::BitwiseAnd(BinaryOperands {
                                 lhs: op.lhs,
                                 rhs: (const_val - 1).into(),
                             }),
@@ -135,7 +136,7 @@ impl OptimizerPass for ReduceStrength {
                     }
                 }
             }
-            opt.block(block).ops.borrow_mut().extend(new_ops);
+            func.block(block).ops.borrow_mut().extend(new_ops);
         }
     }
 }

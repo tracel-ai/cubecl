@@ -1,10 +1,23 @@
-use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
-use crate::{WgpuResource, controller::WgpuAllocController, schedule::ScheduleTask};
+use super::{
+    mem_manager::WgpuMemManager,
+    poll::WgpuPoll,
+    timings::{QueryProfiler, TimestampQuerySetBudget},
+};
+use crate::{
+    WgpuResource,
+    controller::WgpuAllocController,
+    schedule::{Addresses, ScheduleTask},
+};
+use core::iter;
+#[cfg(renderdoc)]
+use core::{cell::LazyCell, ptr::null};
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
 };
+#[cfg(renderdoc)]
+use cubecl_core::stub::Mutex;
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
@@ -16,12 +29,21 @@ use cubecl_runtime::{
     logging::ServerLogger, memory_management::ManagedMemoryHandle,
     timestamp_profiler::TimestampProfiler,
 };
+#[cfg(renderdoc)]
+use renderdoc::{RenderDoc, V100};
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 use wgpu::ComputePipeline;
 
+#[cfg(renderdoc)]
+thread_local! {
+    static RENDERDOC: LazyCell<Option<Mutex<RenderDoc<V100>>>> = LazyCell::new(|| RenderDoc::new().ok().map(Mutex::new));
+}
+
 #[derive(Debug)]
 enum Timings {
-    Device(QueryProfiler),
+    // Boxed: `QueryProfiler` is much larger than `TimestampProfiler`
+    // (clippy::large_enum_variant).
+    Device(Box<QueryProfiler>),
     System(TimestampProfiler),
 }
 
@@ -46,17 +68,23 @@ pub struct WgpuStream {
 
 impl WgpuStream {
     /// Creates a new WGPU stream.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         timing_method: TimingMethod,
+        timing_budget: Arc<TimestampQuerySetBudget>,
         tasks_max: usize,
         logger: Arc<ServerLogger>,
+        use_vulkan_compiler: bool,
     ) -> Self {
-        let timings = if timing_method == TimingMethod::Device {
-            Timings::Device(QueryProfiler::new(&queue, &device))
+        // Device timing needs a counter sample buffer per query set, capped per device on
+        // Metal. Reserve a budget slot up front (lock-free); if none is free, fall back to
+        // the system timer so we never exceed the hardware limit.
+        let timings = if timing_method == TimingMethod::Device && timing_budget.try_acquire() {
+            Timings::Device(Box::new(QueryProfiler::new(&queue, &device, timing_budget)))
         } else {
             if cfg!(target_family = "wasm") {
                 // On WASM, there's not much we can do here anymore. This should be very rare however,
@@ -68,11 +96,24 @@ impl WgpuStream {
             Timings::System(TimestampProfiler::default())
         };
 
+        #[cfg(renderdoc)]
+        RENDERDOC.with(|renderdoc| {
+            if let Some(renderdoc) = &**renderdoc {
+                let mut renderdoc = renderdoc.lock().unwrap();
+                renderdoc.start_frame_capture(null(), null());
+            }
+        });
+
         let poll = WgpuPoll::new(device.clone());
 
         #[allow(unused_mut)]
-        let mut mem_manage =
-            WgpuMemManager::new(device.clone(), memory_properties, memory_config, logger);
+        let mut mem_manage = WgpuMemManager::new(
+            device.clone(),
+            memory_properties,
+            memory_config,
+            logger,
+            use_vulkan_compiler,
+        );
 
         Self {
             mem_manage,
@@ -118,8 +159,8 @@ impl WgpuStream {
                 count,
                 resources,
             } => {
-                let resources = resources.into_resources(self);
-                self.register_pipeline(pipeline, resources.iter(), &count);
+                let (resources, custom_handles, addresses) = resources.into_resources(self);
+                self.register_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
             }
         }
     }
@@ -493,6 +534,15 @@ impl WgpuStream {
         self.mem_manage.memory_cleanup(false);
         self.mem_manage.release_uniforms();
 
+        #[cfg(renderdoc)]
+        RENDERDOC.with(|renderdoc| {
+            if let Some(renderdoc) = &**renderdoc {
+                let mut renderdoc = renderdoc.lock().unwrap();
+                renderdoc.end_frame_capture(null(), null());
+                renderdoc.start_frame_capture(null(), null());
+            }
+        });
+
         self.tasks_count = 0;
         self.pending_write_count = 0;
 
@@ -500,6 +550,19 @@ impl WgpuStream {
     }
 
     fn flush_errors(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
+        #[cfg(feature = "deny-validation-errors")]
+        {
+            let validation_errors = wgpu_hal::VALIDATION_CANARY.get_and_reset();
+            self.errors.extend(
+                validation_errors
+                    .into_iter()
+                    .map(|err| ServerError::Validation {
+                        message: err,
+                        backtrace: BackTrace::capture(),
+                    }),
+            );
+        }
+
         if mode.flush {
             let errors = self.flush_errors_queue();
 
@@ -521,10 +584,12 @@ impl WgpuStream {
         Ok(())
     }
 
-    fn register_pipeline<'a>(
+    fn register_pipeline(
         &mut self,
         pipeline: Arc<ComputePipeline>,
-        resources: impl Iterator<Item = &'a WgpuResource>,
+        resources: &[WgpuResource],
+        custom_resources: &[WgpuResource],
+        addresses: Option<Addresses>,
         dispatch: &CubeCount,
     ) {
         if dispatch.is_empty() {
@@ -532,6 +597,7 @@ impl WgpuStream {
         }
 
         let entries = resources
+            .iter()
             .enumerate()
             .map(|(i, r)| wgpu::BindGroupEntry {
                 binding: i as u32,
@@ -564,15 +630,33 @@ impl WgpuStream {
 
         self.tasks_count += 1;
 
-        let group_layout = pipeline.get_bind_group_layout(0);
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &group_layout,
-            entries: &entries,
-        });
-
         pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
+
+        if !resources.is_empty() {
+            let group_layout = pipeline.get_bind_group_layout(0);
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &group_layout,
+                entries: &entries,
+            });
+
+            pass.set_bind_group(0, &bind_group, &[]);
+        }
+
+        if let Some(addresses) = addresses {
+            pass.set_immediates(0, bytemuck::cast_slice(&addresses));
+        }
+
+        if !custom_resources.is_empty() {
+            let buffer_transitions =
+                custom_resources
+                    .iter()
+                    .map(|resource| wgpu::BufferTransition {
+                        buffer: &resource.buffer,
+                        state: wgpu::BufferUses::STORAGE_READ_WRITE,
+                    });
+            pass.transition_resources(buffer_transitions, iter::empty())
+        }
 
         match dispatch.clone() {
             CubeCount::Static(x, y, z) => {
@@ -583,6 +667,7 @@ impl WgpuStream {
                 pass.dispatch_workgroups_indirect(&res.buffer, res.offset);
             }
         }
+
         self.flush_if_needed();
     }
 

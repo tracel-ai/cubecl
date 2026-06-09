@@ -7,10 +7,7 @@ use cubecl_common::{e2m1x2, e2m3, e3m2, e4m3, e5m2, ue8m0};
 use cubecl_ir::features::TypeUsage;
 
 #[cube(launch_unchecked)]
-pub fn kernel_fp8<F: Float, N: Size>(
-    input: &mut Array<Vector<F, N>>,
-    out: &mut Array<Vector<u8, N>>,
-) {
+pub fn kernel_fp8<F: Float, N: Size>(input: &mut [Vector<F, N>], out: &mut [Vector<u8, N>]) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
 
@@ -21,10 +18,7 @@ pub fn kernel_fp8<F: Float, N: Size>(
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_fp6<F: Float, N: Size>(
-    input: &mut Array<Vector<F, N>>,
-    out: &mut Array<Vector<u8, N>>,
-) {
+pub fn kernel_fp6<F: Float, N: Size>(input: &mut [Vector<F, N>], out: &mut [Vector<u8, N>]) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
 
@@ -36,8 +30,8 @@ pub fn kernel_fp6<F: Float, N: Size>(
 
 #[cube(launch_unchecked)]
 pub fn kernel_fp4<F: Float, N: Size, N2: Size>(
-    input: &mut Array<Vector<F, N>>,
-    out: &mut Array<Vector<u8, N2>>,
+    input: &mut [Vector<F, N>],
+    out: &mut [Vector<u8, N2>],
 ) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
@@ -48,7 +42,7 @@ pub fn kernel_fp4<F: Float, N: Size, N2: Size>(
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_scale<N: Size>(input: &mut Array<Vector<f32, N>>, out: &mut Array<Vector<ue8m0, N>>) {
+pub fn kernel_scale<N: Size>(input: &mut [Vector<f32, N>], out: &mut [Vector<ue8m0, N>]) {
     if ABSOLUTE_POS == 0 {
         let value = input[0];
 
@@ -78,8 +72,8 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             vector_size,
-            ArrayArg::from_raw_parts(handle1.clone(), num_out),
-            ArrayArg::from_raw_parts(handle2.clone(), 2 * num_out),
+            BufferArg::from_raw_parts(handle1.clone(), num_out),
+            BufferArg::from_raw_parts(handle2.clone(), 2 * num_out),
         )
     };
 
@@ -124,8 +118,8 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             vector_size,
-            ArrayArg::from_raw_parts(handle1.clone(), num_out),
-            ArrayArg::from_raw_parts(handle2.clone(), 2 * num_out),
+            BufferArg::from_raw_parts(handle1.clone(), num_out),
+            BufferArg::from_raw_parts(handle2.clone(), 2 * num_out),
         )
     };
 
@@ -171,8 +165,8 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
             CubeDim::new_1d(1),
             vector_size,
             vector_size / 2,
-            ArrayArg::from_raw_parts(handle1.clone(), num_out),
-            ArrayArg::from_raw_parts(handle2.clone(), 2 * num_out),
+            BufferArg::from_raw_parts(handle1.clone(), num_out),
+            BufferArg::from_raw_parts(handle2.clone(), 2 * num_out),
         )
     };
 
@@ -210,8 +204,8 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R>, vector_size: VectorSize)
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
             vector_size,
-            ArrayArg::from_raw_parts(handle1.clone(), num_out),
-            ArrayArg::from_raw_parts(handle2.clone(), num_out),
+            BufferArg::from_raw_parts(handle1.clone(), num_out),
+            BufferArg::from_raw_parts(handle2.clone(), num_out),
         )
     };
 

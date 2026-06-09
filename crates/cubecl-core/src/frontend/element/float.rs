@@ -73,7 +73,7 @@ pub trait Float:
     const RADIX: u32;
 
     fn new(val: f32) -> Self;
-    fn __expand_new(scope: &mut Scope, val: f32) -> <Self as CubeType>::ExpandType {
+    fn __expand_new(scope: &Scope, val: f32) -> <Self as CubeType>::ExpandType {
         __expand_new(scope, val)
     }
 }
@@ -95,15 +95,15 @@ pub trait FloatOps: CubePrimitive + PartialOrd + Sized {
 
 impl<T: Float> FloatOps for T {}
 impl<T: FloatOps + CubePrimitive> FloatOpsExpand for NativeExpand<T> {
-    fn __expand_min_method(self, scope: &mut Scope, other: Self) -> Self {
+    fn __expand_min_method(self, scope: &Scope, other: Self) -> Self {
         min::expand(scope, self, other)
     }
 
-    fn __expand_max_method(self, scope: &mut Scope, other: Self) -> Self {
+    fn __expand_max_method(self, scope: &Scope, other: Self) -> Self {
         max::expand(scope, self, other)
     }
 
-    fn __expand_clamp_method(self, scope: &mut Scope, min: Self, max: Self) -> Self {
+    fn __expand_clamp_method(self, scope: &Scope, min: Self, max: Self) -> Self {
         clamp::expand(scope, self, min, max)
     }
 }
@@ -120,6 +120,7 @@ macro_rules! impl_float {
             type ExpandType = NativeExpand<$primitive>;
         }
 
+        impl CubeDebug for $primitive {}
         impl Scalar for $primitive {}
         impl CubePrimitive for $primitive {
             type Scalar = Self;
@@ -140,7 +141,15 @@ macro_rules! impl_float {
         }
 
         impl IntoRuntime for $primitive {
-            fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+            fn __expand_runtime_method(self, _scope: &Scope) -> NativeExpand<Self> {
+                self.into()
+            }
+        }
+
+        impl IntoExpand for $primitive {
+            type Expand = NativeExpand<$primitive>;
+
+            fn into_expand(self, _: &Scope) -> Self::Expand {
                 self.into()
             }
         }
@@ -157,7 +166,7 @@ macro_rules! impl_float {
         impl NativeAssign for $primitive {}
 
         impl IntoMut for $primitive {
-            fn into_mut(self, _scope: &mut Scope) -> Self {
+            fn into_mut(self, _scope: &Scope) -> Self {
                 self
             }
         }
@@ -180,6 +189,8 @@ macro_rules! impl_float {
                 $new(val as f64)
             }
         }
+
+        impl_scalar_launch!($primitive);
     };
 }
 

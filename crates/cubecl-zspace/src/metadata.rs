@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{MetadataError, shape::Shape, strides::Strides};
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 pub struct Metadata {
     pub shape: Shape,
     pub strides: Strides,

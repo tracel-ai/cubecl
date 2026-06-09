@@ -14,23 +14,24 @@ pub struct EventFloat {
     pub value: f32,
 }
 
-#[derive(CubeType, Clone)]
+#[derive(CubeType)]
 pub struct EventListenerPosZero {
-    items: SliceMut<f32>,
+    items: Box<[f32]>,
 }
 
-#[derive(CubeType, Clone)]
+#[derive(CubeType)]
 pub struct EventListenerPosOne {
-    items: SliceMut<f32>,
+    items: Box<[f32]>,
 }
 
-#[derive(CubeType, Clone)]
+#[derive(CubeType)]
 pub struct EventListenerPosTwo {
-    items: SliceMut<f32>,
+    items: Box<[f32]>,
     times: ComptimeCell<Counter>,
 }
 
 #[derive(CubeType, Clone)]
+#[expand(derive(Clone))]
 pub struct Counter {
     #[cube(comptime)]
     value: u32,
@@ -59,7 +60,7 @@ impl EventListener for EventListenerPosOne {
 
     fn on_event(&mut self, event: Self::Event, _bus: &mut ComptimeEventBus) {
         comment!("On event pos one");
-        self.items[1] = (f32::cast_from(event.value) * 2.0) + self.items[1];
+        self.items[1] += f32::cast_from(event.value) * 2.0;
     }
 }
 
@@ -69,7 +70,7 @@ impl EventListener for EventListenerPosTwo {
 
     fn on_event(&mut self, event: Self::Event, bus: &mut ComptimeEventBus) {
         comment!("On event pos two");
-        self.items[2] = event.value + self.items[2];
+        self.items[2] += event.value;
 
         let times = self.times.read();
         self.times.store(Counter {
@@ -88,10 +89,14 @@ impl EventListener for EventListenerPosTwo {
 }
 
 #[cube]
-fn test_1(items: SliceMut<f32>) {
+fn test_1(items: &mut [f32]) {
     let mut bus = ComptimeEventBus::new();
-    let listener_zero = EventListenerPosZero { items };
-    let listener_one = EventListenerPosOne { items };
+    let listener_zero = EventListenerPosZero {
+        items: unsafe { items.as_boxed_unchecked() },
+    };
+    let listener_one = EventListenerPosOne {
+        items: unsafe { items.as_boxed_unchecked() },
+    };
 
     bus.listener::<EventListenerPosZero>(listener_zero);
     bus.listener::<EventListenerPosOne>(listener_one);
@@ -100,10 +105,14 @@ fn test_1(items: SliceMut<f32>) {
 }
 
 #[cube]
-fn test_2(items: SliceMut<f32>) {
+fn test_2(items: &mut [f32]) {
     let mut bus = ComptimeEventBus::new();
-    let listener_zero = EventListenerPosZero { items };
-    let listener_one = EventListenerPosOne { items };
+    let listener_zero = EventListenerPosZero {
+        items: unsafe { items.as_boxed_unchecked() },
+    };
+    let listener_one = EventListenerPosOne {
+        items: unsafe { items.as_boxed_unchecked() },
+    };
 
     bus.listener::<EventListenerPosZero>(listener_zero);
     bus.listener::<EventListenerPosOne>(listener_one);
@@ -112,12 +121,16 @@ fn test_2(items: SliceMut<f32>) {
 }
 
 #[cube]
-fn test_3(items: SliceMut<f32>) {
+fn test_3(items: &mut [f32]) {
     let mut bus = ComptimeEventBus::new();
-    let listener_zero = EventListenerPosZero { items };
-    let listener_one = EventListenerPosOne { items };
+    let listener_zero = EventListenerPosZero {
+        items: unsafe { items.as_boxed_unchecked() },
+    };
+    let listener_one = EventListenerPosOne {
+        items: unsafe { items.as_boxed_unchecked() },
+    };
     let listener_two = EventListenerPosTwo {
-        items,
+        items: unsafe { items.as_boxed_unchecked() },
         times: ComptimeCell::new(Counter { value: 0u32 }),
     };
 
@@ -129,25 +142,25 @@ fn test_3(items: SliceMut<f32>) {
 }
 
 #[cube(launch_unchecked)]
-fn launch_test_1(output: &mut Array<f32>) {
+fn launch_test_1(output: &mut [f32]) {
     output[0] = 0.0;
     output[1] = 0.0;
-    test_1(output.to_slice_mut());
+    test_1(output);
 }
 
 #[cube(launch_unchecked)]
-fn launch_test_2(output: &mut Array<f32>) {
+fn launch_test_2(output: &mut [f32]) {
     output[0] = 0.0;
     output[1] = 0.0;
-    test_2(output.to_slice_mut());
+    test_2(output);
 }
 
 #[cube(launch_unchecked)]
-fn launch_test_3(output: &mut Array<f32>) {
+fn launch_test_3(output: &mut [f32]) {
     output[0] = 0.0;
     output[1] = 0.0;
     output[2] = 0.0;
-    test_3(output.to_slice_mut());
+    test_3(output);
 }
 
 pub fn event_test_1<R: Runtime>(client: ComputeClient<R>) {
@@ -158,7 +171,7 @@ pub fn event_test_1<R: Runtime>(client: ComputeClient<R>) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim { x: 1, y: 1, z: 1 },
-            ArrayArg::from_raw_parts(output.clone(), 2),
+            BufferArg::from_raw_parts(output.clone(), 2),
         );
     }
 
@@ -176,7 +189,7 @@ pub fn event_test_2<R: Runtime>(client: ComputeClient<R>) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim { x: 1, y: 1, z: 1 },
-            ArrayArg::from_raw_parts(output.clone(), 2),
+            BufferArg::from_raw_parts(output.clone(), 2),
         )
     }
 
@@ -194,7 +207,7 @@ pub fn event_test_3<R: Runtime>(client: ComputeClient<R>) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim { x: 1, y: 1, z: 1 },
-            ArrayArg::from_raw_parts(output.clone(), 3),
+            BufferArg::from_raw_parts(output.clone(), 3),
         )
     }
 

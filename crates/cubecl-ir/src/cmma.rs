@@ -1,8 +1,8 @@
-use alloc::{format, string::String, vec, vec::Vec};
+use alloc::{format, string::String};
 use derive_new::new;
 
 use super::Variable;
-use crate::{OperationCode, OperationReflect};
+use crate::{Closure, OperationReflect};
 use crate::{StorageType, TypeHash};
 use core::fmt::Display;
 
@@ -25,6 +25,14 @@ pub enum MatrixLayout {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[allow(missing_docs)]
+pub enum MatrixScope {
+    Plane,
+    Cube,
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(new, Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(missing_docs)]
 pub struct Matrix {
@@ -34,6 +42,7 @@ pub struct Matrix {
     pub k: usize,
     pub storage: StorageType,
     pub layout: MatrixLayout,
+    pub scope: MatrixScope,
 }
 
 impl Matrix {
@@ -48,9 +57,19 @@ impl Matrix {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ClampMode {
+    Undefined,
+    Constant(u32),
+    ClampToEdge,
+    Repeat,
+    RepeatMirrored,
+}
+
 /// Cooperative Matrix-Multiply and Accumulate Instruction.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCode)]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = CmmaOpCode)]
 #[allow(missing_docs)]
 pub enum CoopMma {
@@ -58,10 +77,18 @@ pub enum CoopMma {
     Fill { value: Variable },
     /// Load the value into the matrix given the stride.
     Load {
-        value: Variable,
+        #[args(allow_ptr, ptr_read)]
+        ptr: Variable,
         stride: Variable,
-        offset: Variable,
+        #[args(skip)]
         layout: Option<MatrixLayout>,
+    },
+    /// Load the value into the matrix given the tensor layout.
+    LoadTensor {
+        buffer: Variable,
+        layout: Variable,
+        #[args(skip)]
+        view: Option<Variable>,
     },
     /// Executes D=A*B+C;
     ///
@@ -75,8 +102,17 @@ pub enum CoopMma {
     Store {
         mat: Variable,
         stride: Variable,
-        offset: Variable,
+        #[args(allow_ptr, ptr_write)]
+        destination: Variable,
+        #[args(skip)]
         layout: MatrixLayout,
+    },
+    /// Store the matrix in an output variable following the tensor layout.
+    StoreTensor {
+        mat: Variable,
+        layout: Variable,
+        #[args(skip)]
+        view: Option<Variable>,
     },
     /// Cast a fragment to another type.
     Cast { input: Variable },
@@ -85,32 +121,34 @@ pub enum CoopMma {
     RowIndex {
         lane_id: Variable,
         i: Variable,
+        #[args(skip)]
         matrix: Matrix,
     },
     /// Column index of nth element in the lane
     ColIndex {
         lane_id: Variable,
         i: Variable,
+        #[args(skip)]
         matrix: Matrix,
     },
     /// Execute a CUDA `ldmatrix` instruction
     LoadMatrix {
-        buffer: Variable,
-        offset: Variable,
-        vector_size: Option<usize>,
+        #[args(allow_ptr, ptr_read)]
+        ptr: Variable,
         factor: usize,
         transpose: bool,
     },
     /// Execute a CUDA `stmatrix` instruction
     StoreMatrix {
-        offset: Variable,
-        vector_size: Option<usize>,
         registers: Variable,
         factor: usize,
         transpose: bool,
+        #[args(allow_ptr, ptr_write)]
+        destination: Variable,
     },
     /// Manual execute.
     ExecuteManual {
+        #[args(skip)]
         matrix: Matrix,
         registers_a: Variable,
         registers_b: Variable,
@@ -118,6 +156,7 @@ pub enum CoopMma {
     },
     /// Scaled manual execute.
     ExecuteScaled {
+        #[args(skip)]
         matrix: Matrix,
         registers_a: Variable,
         registers_b: Variable,
@@ -126,46 +165,11 @@ pub enum CoopMma {
         scales_b: Variable,
         scales_factor: usize,
     },
-}
-
-impl OperationReflect for CoopMma {
-    type OpCode = CmmaOpCode;
-
-    fn op_code(&self) -> Self::OpCode {
-        self.__match_opcode()
-    }
-
-    fn args(&self) -> Option<Vec<Variable>> {
-        match self {
-            CoopMma::Fill { value } => Some(vec![*value]),
-            CoopMma::Load { .. }
-            | CoopMma::Execute { .. }
-            | CoopMma::ExecuteManual { .. }
-            | CoopMma::ExecuteScaled { .. }
-            | CoopMma::Store { .. }
-            | CoopMma::RowIndex { .. }
-            | CoopMma::ColIndex { .. }
-            | CoopMma::LoadMatrix { .. }
-            | CoopMma::StoreMatrix { .. } => None,
-            CoopMma::Cast { input } => Some(vec![*input]),
-        }
-    }
-
-    fn from_code_and_args(op_code: Self::OpCode, args: &[Variable]) -> Option<Self> {
-        match op_code {
-            CmmaOpCode::Fill => Some(CoopMma::Fill { value: args[0] }),
-            CmmaOpCode::Load
-            | CmmaOpCode::Execute
-            | CmmaOpCode::ExecuteManual
-            | CmmaOpCode::ExecuteScaled
-            | CmmaOpCode::Store
-            | CmmaOpCode::RowIndex
-            | CmmaOpCode::ColIndex
-            | CmmaOpCode::LoadMatrix
-            | CmmaOpCode::StoreMatrix => None,
-            CmmaOpCode::Cast => Some(CoopMma::Cast { input: args[0] }),
-        }
-    }
+    ExecuteElementwise {
+        matrix: Variable,
+        #[args(skip)]
+        op: Closure,
+    },
 }
 
 impl Display for CoopMma {
@@ -173,18 +177,22 @@ impl Display for CoopMma {
         match self {
             CoopMma::Fill { value } => write!(f, "{value}"),
             CoopMma::Load {
-                value,
+                ptr,
                 stride,
-                offset,
                 layout,
             } => {
                 let layout = layout
                     .map(|it| format!(", layout: {it:?}"))
                     .unwrap_or(String::new());
-                write!(
-                    f,
-                    "matrix_load({value}, stride: {stride}{layout}, offset: {offset})"
-                )
+                write!(f, "matrix_load({ptr}, stride: {stride}{layout})")
+            }
+            CoopMma::LoadTensor {
+                buffer,
+                layout,
+                view,
+            } => {
+                let view = view.map(|it| format!(", view: {it}")).unwrap_or_default();
+                write!(f, "matrix_load_tensor({buffer}, layout: {layout}{view})")
             }
             CoopMma::Execute {
                 mat_a,
@@ -228,15 +236,21 @@ impl Display for CoopMma {
                 )"
                 )
             }
+            CoopMma::ExecuteElementwise { matrix, op } => {
+                write!(f, "execute_elementwise({matrix}, {op})")
+            }
             CoopMma::Store {
                 mat,
                 stride,
-                offset,
+                destination,
                 layout,
             } => write!(
                 f,
-                "matrix_store({mat}, stride: {stride}, layout: {layout:?}, offset: {offset:?})"
+                "matrix_store({mat}, stride: {stride}, layout: {layout:?}, dest: {destination})"
             ),
+            CoopMma::StoreTensor { mat, layout, .. } => {
+                write!(f, "matrix_store_tensor({mat}, layout: {layout})")
+            }
             CoopMma::Cast { input } => {
                 write!(f, "matrix_cast(input: {input})")
             }
@@ -247,27 +261,21 @@ impl Display for CoopMma {
                 write!(f, "col_idx(lane_id: {lane_id}, i: {i}, matrix: {matrix:?})",)
             }
             CoopMma::LoadMatrix {
-                buffer,
-                offset,
+                ptr,
                 factor,
                 transpose,
-                ..
             } => {
-                write!(
-                    f,
-                    "ldmatrix_{factor}x(&{buffer}[{offset}], transpose: {transpose})"
-                )
+                write!(f, "ldmatrix_{factor}x({ptr}, transpose: {transpose})")
             }
             CoopMma::StoreMatrix {
-                offset,
                 registers,
                 factor,
                 transpose,
-                ..
+                destination,
             } => {
                 write!(
                     f,
-                    "stmatrix_{factor}x({registers}, offset: {offset}, transpose: {transpose})"
+                    "stmatrix_{factor}x({registers}, dest: {destination}, transpose: {transpose})"
                 )
             }
         }

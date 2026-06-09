@@ -1,232 +1,110 @@
-use alloc::{string::String, vec::Vec};
-use cubecl_ir::{Allocator, Instruction, ManagedVariable, Operation, Operator, Processor, Scope};
+use alloc::{vec, vec::Vec};
+
+use alloc::string::String;
+use cubecl_ir::{GlobalState, Instruction, Memory, Operation, Scope};
 use cubecl_runtime::server::ExecutionMode;
 
 use crate::{
-    define_scalar, define_size,
-    io::{
-        expand_checked_index_assign, expand_validate_index_assign, read_tensor_atomic_checked,
-        read_tensor_atomic_validate, read_tensor_checked, read_tensor_validate,
+    io::*,
+    post_processing::{
+        analysis_helper::GlobalAnalyses, util::AtomicCounter, visitor::InstructionVisitor,
     },
-    prelude::Vector,
 };
 
-define_scalar!(ElemA);
-define_size!(SizeA);
-
 #[derive(new, Debug)]
-pub struct CheckedIoProcessor {
+pub struct CheckedIoVisitor {
     mode: ExecutionMode,
     kernel_name: String,
 }
 
-impl Processor for CheckedIoProcessor {
-    fn transform(
-        &self,
-        processing: cubecl_ir::ScopeProcessing,
-        allocator: Allocator,
-    ) -> cubecl_ir::ScopeProcessing {
+impl CheckedIoVisitor {
+    pub fn apply(&mut self, scope: &Scope) {
+        let changes = AtomicCounter::new(0);
+        // We don't care about pointer sources or used variables at this point
+        let analyses = GlobalAnalyses::default();
+        self.visit_scope(scope, &analyses, &changes);
+    }
+}
+
+impl InstructionVisitor for CheckedIoVisitor {
+    fn visit_instruction(
+        &mut self,
+        instruction: Instruction,
+        global_state: &GlobalState,
+        _analyses: &GlobalAnalyses,
+        _changes: &AtomicCounter,
+    ) -> Vec<Instruction> {
         match self.mode {
-            ExecutionMode::Checked => self.transform_checked(processing, allocator),
-            ExecutionMode::Unchecked => processing,
-            ExecutionMode::Validate => self.transform_validate(processing, allocator),
+            ExecutionMode::Checked => self.transform_checked(instruction, global_state),
+            ExecutionMode::Validate => self.transform_validate(instruction, global_state),
+            ExecutionMode::Unchecked => vec![instruction],
         }
     }
 }
 
-impl CheckedIoProcessor {
+impl CheckedIoVisitor {
     fn transform_checked(
         &self,
-        mut processing: cubecl_ir::ScopeProcessing,
-        allocator: Allocator,
-    ) -> cubecl_ir::ScopeProcessing {
-        let mut instructions = Vec::new();
-        core::mem::swap(&mut processing.instructions, &mut instructions);
+        instruction: Instruction,
+        global_state: &GlobalState,
+    ) -> Vec<Instruction> {
+        if let Operation::Memory(memory) = &instruction.operation {
+            match memory {
+                Memory::Index(op) if op.checked => {
+                    let has_length = op.list.has_buffer_length();
 
-        for instruction in instructions {
-            if let Operation::Operator(operator) = &instruction.operation {
-                match operator {
-                    Operator::Index(op) => {
-                        let has_length = op.list.has_length();
+                    if has_length {
+                        let list = op.list;
+                        let index = op.index;
+                        let scope = Scope::root(false).with_global_state(global_state.clone());
 
-                        if has_length {
-                            let list = ManagedVariable::Plain(op.list);
-                            let index = ManagedVariable::Plain(op.index);
-                            let mut scope = Scope::root(false)
-                                .with_allocator(allocator.clone())
-                                .with_types(processing.typemap.clone());
-                            scope.register_type::<ElemA>(op.list.storage_type());
-                            scope.register_size::<SizeA>(op.list.vector_size());
+                        expand_checked_index(
+                            &scope,
+                            list,
+                            index,
+                            instruction.out(),
+                            op.unroll_factor,
+                        );
 
-                            let input = if op.list.ty.is_atomic() {
-                                // Atomic can't really be checked, since the pointer needs to be
-                                // valid, so the kernel will probably not output the correct value if
-                                // not manually checked later, but will at least avoid out-of-bounds
-                                // memory access.
-                                read_tensor_atomic_checked::expand::<ElemA>(
-                                    &mut scope,
-                                    list.into(),
-                                    index.into(),
-                                    op.unroll_factor,
-                                )
-                                .expand
-                            } else {
-                                read_tensor_checked::expand::<Vector<ElemA, SizeA>>(
-                                    &mut scope,
-                                    list.into(),
-                                    index.into(),
-                                    op.unroll_factor,
-                                )
-                                .expand
-                            };
-                            let tmp_processing = scope.process([]);
-
-                            for inst in tmp_processing.instructions {
-                                processing.instructions.push(inst);
-                            }
-                            for var in tmp_processing.variables {
-                                processing.variables.push(var);
-                            }
-
-                            processing
-                                .instructions
-                                .push(Instruction::new(Operation::Copy(*input), instruction.out()));
-                            continue;
-                        }
+                        return scope.take_instructions();
                     }
-                    Operator::IndexAssign(op) => {
-                        let out = instruction.out();
-
-                        if out.has_length() {
-                            let mut scope = Scope::root(false)
-                                .with_allocator(allocator.clone())
-                                .with_types(processing.typemap.clone());
-                            expand_checked_index_assign(
-                                &mut scope,
-                                op.index,
-                                op.value,
-                                out,
-                                op.unroll_factor,
-                            );
-
-                            let tmp_processing = scope.process([]);
-
-                            for inst in tmp_processing.instructions {
-                                processing.instructions.push(inst);
-                            }
-                            for var in tmp_processing.variables {
-                                processing.variables.push(var);
-                            }
-
-                            continue;
-                        }
-                    }
-                    _ => {}
                 }
+                _ => {}
             }
-
-            // When we have nothing to do.
-            processing.instructions.push(instruction);
         }
-        processing
+        vec![instruction]
     }
 
     fn transform_validate(
         &self,
-        mut processing: cubecl_ir::ScopeProcessing,
-        allocator: Allocator,
-    ) -> cubecl_ir::ScopeProcessing {
-        let mut instructions = Vec::new();
-        core::mem::swap(&mut processing.instructions, &mut instructions);
+        instruction: Instruction,
+        global_state: &GlobalState,
+    ) -> Vec<Instruction> {
+        if let Operation::Memory(memory) = &instruction.operation {
+            match memory {
+                Memory::Index(op) if op.checked => {
+                    let has_length = op.list.has_buffer_length();
 
-        for instruction in instructions {
-            if let Operation::Operator(operator) = &instruction.operation {
-                match operator {
-                    Operator::Index(op) => {
-                        let has_length = op.list.has_length();
+                    if has_length {
+                        let list = op.list;
+                        let index = op.index;
+                        let scope = Scope::root(false).with_global_state(global_state.clone());
 
-                        if has_length {
-                            let list = ManagedVariable::Plain(op.list);
-                            let index = ManagedVariable::Plain(op.index);
-                            let mut scope = Scope::root(false)
-                                .with_allocator(allocator.clone())
-                                .with_types(processing.typemap.clone());
-                            scope.register_type::<ElemA>(op.list.storage_type());
-                            scope.register_size::<SizeA>(op.list.vector_size());
+                        expand_validate_index(
+                            &scope,
+                            list,
+                            index,
+                            instruction.out(),
+                            op.unroll_factor,
+                            &self.kernel_name,
+                        );
 
-                            let input = if op.list.ty.is_atomic() {
-                                // Atomic can't really be checked, since the pointer needs to be
-                                // valid, so the kernel will probably not output the correct value if
-                                // not manually checked later, but will at least avoid out-of-bounds
-                                // memory access.
-                                read_tensor_atomic_validate::expand::<ElemA>(
-                                    &mut scope,
-                                    list.into(),
-                                    index.into(),
-                                    op.unroll_factor,
-                                    self.kernel_name.clone(),
-                                )
-                                .expand
-                            } else {
-                                read_tensor_validate::expand::<Vector<ElemA, SizeA>>(
-                                    &mut scope,
-                                    list.into(),
-                                    index.into(),
-                                    op.unroll_factor,
-                                    self.kernel_name.clone(),
-                                )
-                                .expand
-                            };
-                            let tmp_processing = scope.process([]);
-
-                            for inst in tmp_processing.instructions {
-                                processing.instructions.push(inst);
-                            }
-                            for var in tmp_processing.variables {
-                                processing.variables.push(var);
-                            }
-
-                            processing
-                                .instructions
-                                .push(Instruction::new(Operation::Copy(*input), instruction.out()));
-                            continue;
-                        }
+                        return scope.take_instructions();
                     }
-                    Operator::IndexAssign(op) => {
-                        let out = instruction.out();
-
-                        if out.has_length() {
-                            let mut scope = Scope::root(false)
-                                .with_allocator(allocator.clone())
-                                .with_types(processing.typemap.clone());
-                            expand_validate_index_assign(
-                                &mut scope,
-                                op.index,
-                                op.value,
-                                out,
-                                op.unroll_factor,
-                                &self.kernel_name,
-                            );
-
-                            let tmp_processing = scope.process([]);
-
-                            for inst in tmp_processing.instructions {
-                                processing.instructions.push(inst);
-                            }
-                            for var in tmp_processing.variables {
-                                processing.variables.push(var);
-                            }
-
-                            continue;
-                        }
-                    }
-                    _ => {}
                 }
+                _ => {}
             }
-
-            // When we have nothing to do.
-            processing.instructions.push(instruction);
         }
-        processing
+        vec![instruction]
     }
 }

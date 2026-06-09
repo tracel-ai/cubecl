@@ -33,11 +33,17 @@ pub struct ExtendedFeatures<'a> {
     /// Only used to enable the spec compliant rem/mod behavior
     pub maintenance_8: Option<PhysicalDeviceMaintenance8FeaturesKHR<'a>>,
     pub maintenance_9: Option<PhysicalDeviceMaintenance9FeaturesKHR<'a>>,
+    pub long_vector: Option<PhysicalDeviceShaderLongVectorFeaturesEXT<'a>>,
 
     // Nvidia
     pub nv_atomic_float_vector: Option<PhysicalDeviceShaderAtomicFloat16VectorFeaturesNV<'a>>,
+    pub nv_cooperative_matrix2: Option<PhysicalDeviceCooperativeMatrix2FeaturesNV<'a>>,
+
+    // Properties
+    pub long_vector_properties: Option<PhysicalDeviceShaderLongVectorPropertiesEXT<'a>>,
 
     pub max_spirv_version: (u8, u8),
+
     pub extensions: Vec<&'static CStr>,
 }
 
@@ -78,6 +84,7 @@ impl<'a> ExtendedFeatures<'a> {
         let mut this = Self::default();
         this.fill_extensions(adapter, features);
         this.fill_features(ash, adapter);
+        this.fill_properties(ash, adapter);
         this
     }
 
@@ -128,7 +135,12 @@ impl<'a> ExtendedFeatures<'a> {
             EXT_SHADER_UNIFORM_BUFFER_UNSIZED_ARRAY_NAME => uniform_unsized_array,
             KHR_MAINTENANCE8_NAME => maintenance_8,
             KHR_MAINTENANCE9_NAME => maintenance_9,
+            EXT_SHADER_LONG_VECTOR_NAME => long_vector,
             NV_SHADER_ATOMIC_FLOAT16_VECTOR_NAME => nv_atomic_float_vector,
+            NV_COOPERATIVE_MATRIX2_NAME => nv_cooperative_matrix2,
+
+            // Properties
+            EXT_SHADER_LONG_VECTOR_NAME => long_vector_properties,
         );
     }
 
@@ -170,6 +182,8 @@ impl<'a> ExtendedFeatures<'a> {
         info = push_opt(info, &mut self.uniform_unsized_array);
         info = push_opt(info, &mut self.maintenance_8);
         info = push_opt(info, &mut self.maintenance_9);
+        info = push_opt(info, &mut self.long_vector);
+        info = push_opt(info, &mut self.nv_cooperative_matrix2);
 
         // Nvidia
         info = push_opt(info, &mut self.nv_atomic_float_vector);
@@ -214,6 +228,8 @@ impl<'a> ExtendedFeatures<'a> {
         features = push_opt(features, &mut self.uniform_unsized_array);
         features = push_opt(features, &mut self.maintenance_8);
         features = push_opt(features, &mut self.maintenance_9);
+        features = push_opt(features, &mut self.long_vector);
+        features = push_opt(features, &mut self.nv_cooperative_matrix2);
 
         // Nvidia
         features = push_opt(features, &mut self.nv_atomic_float_vector);
@@ -227,6 +243,31 @@ impl<'a> ExtendedFeatures<'a> {
                 ash::vk::PhysicalDeviceFeatures,
                 tracel_ash::vk::PhysicalDeviceFeatures,
             >(features.features);
+        }
+
+        self.zero_pointers();
+    }
+
+    fn fill_properties(&mut self, ash: &ash::Instance, adapter: &vulkan::Adapter) {
+        let mut properties = PhysicalDeviceProperties2::default();
+
+        fn push_opt<'a, 'b: 'a, T: Extends<PhysicalDeviceProperties2<'a>> + TaggedStructure<'b>>(
+            mut properties: PhysicalDeviceProperties2<'a>,
+            feat: &'a mut Option<T>,
+        ) -> PhysicalDeviceProperties2<'a> {
+            if let Some(feat) = feat {
+                properties = properties.push(feat);
+            }
+            properties
+        }
+
+        properties = push_opt(properties, &mut self.long_vector_properties);
+
+        unsafe {
+            // convert to ash version, they represent the same type so this is safe
+            let properties =
+                &mut *<*mut _>::cast::<ash::vk::PhysicalDeviceProperties2<'_>>(&mut properties);
+            ash.get_physical_device_properties2(adapter.raw_physical_device(), properties);
         }
 
         self.zero_pointers();
@@ -258,7 +299,11 @@ impl<'a> ExtendedFeatures<'a> {
             uniform_unsized_array,
             maintenance_8,
             maintenance_9,
+            long_vector,
             nv_atomic_float_vector,
+            nv_cooperative_matrix2,
+            // Properties
+            long_vector_properties,
         );
     }
 

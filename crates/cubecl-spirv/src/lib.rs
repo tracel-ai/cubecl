@@ -25,6 +25,7 @@ mod metadata;
 mod subgroup;
 mod sync;
 mod target;
+mod tensor_indexing;
 mod transformers;
 mod variable;
 
@@ -42,7 +43,8 @@ pub struct SpirvKernel {
     pub assembled_module: Vec<u32>,
     pub bindings: Vec<Visibility>,
     pub shared_size: usize,
-    pub uniform_info: bool,
+    pub immediate_size: Option<usize>,
+    pub info_visibility: Visibility,
 }
 
 impl Eq for SpirvKernel {}

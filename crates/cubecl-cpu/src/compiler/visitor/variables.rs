@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use cubecl_core::ir::{self, Builtin, ConstantValue, FloatKind, VariableKind};
+use cubecl_opt::Function;
 use tracel_llvm::mlir_rs::{
     dialect::{
         index, memref,
@@ -21,7 +22,7 @@ pub struct Variables<'a> {
 }
 
 impl<'a> Variables<'a> {
-    pub fn new(opt: &Optimizer) -> Self {
+    pub fn new(opt: &Function) -> Self {
         let mut variables = Self::default();
         for const_array in opt.const_arrays() {
             variables
@@ -39,9 +40,10 @@ impl<'a> Visitor<'a> {
                 self.variables.local.insert(variable.kind, value);
             }
             VariableKind::LocalMut { .. } => {
-                self.insert_mutable_memory(variable, value, 1);
-            }
-            VariableKind::LocalArray { length, .. } => {
+                let length = match variable.ty {
+                    ir::Type::Array(_, length, _) => length,
+                    _ => 1,
+                };
                 self.insert_mutable_memory(variable, value, length);
             }
             VariableKind::Shared { .. } => {
@@ -130,7 +132,7 @@ impl<'a> Visitor<'a> {
                     &[vectorization_factor as u64],
                     lhs.storage_type().to_type(self.context),
                 );
-                lhs_value = self.append_operation_with_result(vector::splat(
+                lhs_value = self.append_operation_with_result(vector::broadcast(
                     self.context,
                     vector_type,
                     lhs_value,
@@ -142,7 +144,7 @@ impl<'a> Visitor<'a> {
                     &[vectorization_factor as u64],
                     rhs.storage_type().to_type(self.context),
                 );
-                rhs_value = self.append_operation_with_result(vector::splat(
+                rhs_value = self.append_operation_with_result(vector::broadcast(
                     self.context,
                     vector_type,
                     rhs_value,
@@ -155,23 +157,19 @@ impl<'a> Visitor<'a> {
 
     pub fn get_memory(&mut self, variable: Variable) -> Value<'a, 'a> {
         match variable.kind {
-            VariableKind::GlobalInputArray(id) | VariableKind::GlobalOutputArray(id) => {
-                self.args_manager.buffers[id as usize]
-            }
-            VariableKind::SharedArray { id, .. } => *self
-                .args_manager
-                .shared_memory_values
-                .get(&id)
-                .expect("Variable should have been declared before"),
+            VariableKind::GlobalBuffer(id) => self.args_manager.buffers[id as usize],
             VariableKind::Shared { id, .. } => *self
                 .args_manager
                 .shared_memory_values
                 .get(&id)
                 .expect("Variable should have been declared before"),
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. } => {
-                self.get_mutable_memory(variable, 1)
+                let length = match variable.ty {
+                    ir::Type::Array(_, length, _) => length,
+                    _ => 1,
+                };
+                self.get_mutable_memory(variable, length)
             }
-            VariableKind::LocalArray { length, .. } => self.get_mutable_memory(variable, length),
             VariableKind::ConstantArray {
                 id,
                 length,
@@ -198,19 +196,6 @@ impl<'a> Visitor<'a> {
                 variable
             ),
         }
-    }
-
-    pub fn is_memory(&self, variable: Variable) -> bool {
-        matches!(
-            variable.kind,
-            VariableKind::GlobalInputArray(_)
-                | VariableKind::GlobalOutputArray(_)
-                | VariableKind::LocalMut { .. }
-                | VariableKind::LocalArray { .. }
-                | VariableKind::ConstantArray { .. }
-                | VariableKind::SharedArray { .. }
-                | VariableKind::Shared { .. }
-        )
     }
 
     pub fn get_variable(&self, variable: Variable) -> Value<'a, 'a> {
@@ -266,7 +251,7 @@ impl<'a> Visitor<'a> {
                 match variable.ty.is_vectorized() {
                     true => {
                         let vector = Type::vector(&[variable.vector_size() as u64], const_type);
-                        self.append_operation_with_result(vector::splat(
+                        self.append_operation_with_result(vector::broadcast(
                             self.context,
                             vector,
                             value,
@@ -333,7 +318,7 @@ impl<'a> Visitor<'a> {
                             &[variable.vector_size() as u64],
                             variable.storage_type().to_type(self.context),
                         );
-                        self.append_operation_with_result(vector::splat(
+                        self.append_operation_with_result(vector::broadcast(
                             self.context,
                             vector,
                             value,
@@ -343,7 +328,7 @@ impl<'a> Visitor<'a> {
                     false => value,
                 }
             }
-            VariableKind::Shared { id } => {
+            VariableKind::Shared { id, .. } => {
                 let memref = *self.args_manager.shared_memory_values.get(&id).unwrap();
                 let index = self
                     .block
@@ -360,7 +345,7 @@ impl<'a> Visitor<'a> {
                             &[variable.vector_size() as u64],
                             variable.storage_type().to_type(self.context),
                         );
-                        self.append_operation_with_result(vector::splat(
+                        self.append_operation_with_result(vector::broadcast(
                             self.context,
                             vector,
                             value,

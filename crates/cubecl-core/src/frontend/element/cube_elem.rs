@@ -4,7 +4,7 @@ use crate::{
     self as cubecl, Assign, IntoRuntime,
     prelude::{Const, CubeDebug, IntoMut, Size},
 };
-use cubecl_ir::{ConstantValue, ManagedVariable, StorageType, Type, features::TypeUsage};
+use cubecl_ir::{ConstantValue, StorageType, Type, Variable, features::TypeUsage};
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use cubecl_runtime::{client::ComputeClient, runtime::Runtime};
 use enumset::EnumSet;
@@ -19,8 +19,7 @@ use super::{NativeAssign, NativeExpand};
 pub trait CubePrimitive:
     CubeType<ExpandType = NativeExpand<Self>>
     + NativeAssign
-    // + IntoRuntime
-    + core::cmp::PartialEq
+    + CubeDebug
     + Send
     + Sync
     + 'static
@@ -32,8 +31,8 @@ pub trait CubePrimitive:
     type WithScalar<S: Scalar>: CubePrimitive;
 
     /// Return the element type to use on GPU.
-    fn as_type(_scope: &Scope) -> Type {
-        Self::as_type_native().expect("To be overridden if not native")
+    fn as_type() -> Type {
+        Self::as_type_native_unchecked()
     }
 
     /// Native or static element type.
@@ -61,7 +60,7 @@ pub trait CubePrimitive:
         Self::as_type_native_unchecked().size_bits()
     }
 
-    fn from_expand_elem(elem: ManagedVariable) -> Self::ExpandType {
+    fn from_expand_elem(elem: Variable) -> Self::ExpandType {
         NativeExpand::new(elem)
     }
 
@@ -71,9 +70,7 @@ pub trait CubePrimitive:
         self
     }
 
-    fn supported_uses<R: Runtime>(
-        client: &ComputeClient<R>,
-    ) -> EnumSet<TypeUsage> {
+    fn supported_uses<R: Runtime>(client: &ComputeClient<R>) -> EnumSet<TypeUsage> {
         let elem = Self::as_type_native_unchecked();
         client.features().type_usage(elem.storage_type())
     }
@@ -94,20 +91,24 @@ pub trait CubePrimitive:
         Self::as_type_native_unchecked().vector_size()
     }
 
+    fn __expand_as_type(_scope: &Scope) -> Type {
+        Self::as_type_native().expect("To be overridden if not native")
+    }
+
     fn __expand_type_size(scope: &Scope) -> usize {
-        Self::as_type(scope).size()
+        Self::__expand_as_type(scope).size()
     }
 
     fn __expand_type_size_bits(scope: &Scope) -> usize {
-        Self::as_type(scope).size_bits()
+        Self::__expand_as_type(scope).size_bits()
     }
 
     fn __expand_packing_factor(scope: &Scope) -> usize {
-        Self::as_type(scope).packing_factor()
+        Self::__expand_as_type(scope).packing_factor()
     }
 
     fn __expand_vector_size(scope: &Scope) -> usize {
-        Self::as_type(scope).vector_size()
+        Self::__expand_as_type(scope).vector_size()
     }
 }
 
@@ -125,16 +126,16 @@ impl<T: CubePrimitive> CubePrimitiveExpand for NativeExpand<T> {
 /// **not** for `Vector` or non-standard primitives like `Barrier`. Alternatively, treat these as
 /// types that can be stored in a [`Vector`]
 pub trait Scalar:
-    CubePrimitive<Scalar = Self, Size = Const<1>> + Default + IntoRuntime + Debug
+    CubePrimitive<Scalar = Self, Size = Const<1>> + Default + IntoRuntime + Debug + core::cmp::PartialEq
 {
 }
 
 #[cube]
 pub fn type_of<E: CubePrimitive>() -> comptime_type!(Type) {
-    intrinsic!(|scope| { E::as_type(scope) })
+    intrinsic!(|scope| { E::__expand_as_type(scope) })
 }
 
 #[cube]
 pub fn storage_type_of<E: CubePrimitive>() -> comptime_type!(StorageType) {
-    intrinsic!(|scope| { E::as_type(scope).storage_type() })
+    intrinsic!(|scope| { E::__expand_as_type(scope).storage_type() })
 }

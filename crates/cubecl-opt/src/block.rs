@@ -1,9 +1,10 @@
-use std::{cell::RefCell, rc::Rc};
+use core::cell::RefCell;
 
+use alloc::{rc::Rc, vec::Vec};
 use cubecl_ir::{Instruction, Variable};
 use stable_vec::StableVec;
 
-use crate::{ControlFlow, Optimizer, version::PhiInstruction};
+use crate::{ControlFlow, Function, GlobalState, version::PhiInstruction};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockUse {
@@ -24,17 +25,18 @@ pub struct BasicBlock {
     pub control_flow: Rc<RefCell<ControlFlow>>,
 }
 
-impl Optimizer {
+impl Function {
     /// Visit all operations in the program with the specified read and write visitors.
     pub fn visit_all(
         &mut self,
+        state: &GlobalState,
         mut visit_read: impl FnMut(&mut Self, &mut Variable) + Clone,
         mut visit_write: impl FnMut(&mut Self, &mut Variable) + Clone,
     ) {
-        for node in self.program.node_indices().collect::<Vec<_>>() {
-            let phi = self.program[node].phi_nodes.clone();
-            let ops = self.program[node].ops.clone();
-            let control_flow = self.program[node].control_flow.clone();
+        for node in self.node_indices().collect::<Vec<_>>() {
+            let phi = self[node].phi_nodes.clone();
+            let ops = self[node].ops.clone();
+            let control_flow = self[node].control_flow.clone();
 
             for phi in phi.borrow_mut().iter_mut() {
                 for elem in &mut phi.entries {
@@ -43,7 +45,7 @@ impl Optimizer {
                 visit_write(self, &mut phi.out);
             }
             for op in ops.borrow_mut().values_mut() {
-                self.visit_instruction(op, visit_read.clone(), visit_write.clone());
+                self.visit_instruction(state, op, visit_read.clone(), visit_write.clone());
             }
             self.visit_control_flow(&mut control_flow.borrow_mut(), visit_read.clone());
         }

@@ -1,14 +1,14 @@
-use core::fmt::Display;
+use core::{cell::Ref, fmt::Display};
 
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
-use crate::{Allocator, TypeMap};
+use crate::{GlobalState, GlobalStateInner};
 
 use super::{Instruction, Variable};
 
 pub trait Processor: core::fmt::Debug {
-    fn transform(&self, processing: ScopeProcessing, allocator: Allocator) -> ScopeProcessing;
+    fn transform(&self, processing: ScopeProcessing) -> ScopeProcessing;
 }
 
 /// Information necessary when compiling a scope.
@@ -17,8 +17,14 @@ pub struct ScopeProcessing {
     pub variables: Vec<Variable>,
     /// The operations.
     pub instructions: Vec<Instruction>,
-    /// The type map
-    pub typemap: TypeMap,
+    /// The global state
+    pub global_state: GlobalState,
+}
+
+impl ScopeProcessing {
+    pub fn state(&self) -> Ref<'_, GlobalStateInner> {
+        self.global_state.borrow()
+    }
 }
 
 impl Display for ScopeProcessing {

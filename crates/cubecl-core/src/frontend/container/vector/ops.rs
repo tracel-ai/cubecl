@@ -1,5 +1,8 @@
-use core::{marker::PhantomData, ops::Not};
-use cubecl_ir::{Bitwise, ConstantValue, ElemType, Instruction, Type, UIntKind, UnaryOperator};
+use core::{
+    marker::PhantomData,
+    ops::{Not, Rem},
+};
+use cubecl_ir::{Bitwise, ConstantValue, ElemType, Instruction, Type, UIntKind, UnaryOperands};
 use cubecl_macros::{cube, intrinsic};
 use num_traits::{NumCast, One, ToPrimitive, Zero};
 
@@ -255,7 +258,7 @@ impl<P: Scalar + ArcCosh, N: Size> ArcCosh for Vector<P, N> {}
 impl<P: Scalar + ArcTanh, N: Size> ArcTanh for Vector<P, N> {}
 impl<P: Scalar + ArcTan2, N: Size> ArcTan2 for Vector<P, N> {}
 impl<P: Scalar + Recip, N: Size> Recip for Vector<P, N> {}
-impl<P: Scalar + Remainder, N: Size> Remainder for Vector<P, N> {}
+impl<P: Scalar + ModFloor, N: Size> ModFloor for Vector<P, N> {}
 impl<P: Scalar + Round, N: Size> Round for Vector<P, N> {}
 impl<P: Scalar + Floor, N: Size> Floor for Vector<P, N> {}
 impl<P: Scalar + Ceil, N: Size> Ceil for Vector<P, N> {}
@@ -272,6 +275,14 @@ impl<P: Scalar + VectorSum, N: Size> VectorSum for Vector<P, N> {}
 impl<P: Scalar + Degrees, N: Size> Degrees for Vector<P, N> {}
 impl<P: Scalar + Radians, N: Size> Radians for Vector<P, N> {}
 
+impl<P: Scalar + Rem<Output = P>, N: Size> Rem for Vector<P, N> {
+    type Output = Self;
+
+    fn rem(self, rhs: Self) -> Self::Output {
+        Vector::new(self.val.rem(rhs.val))
+    }
+}
+
 impl<P: Scalar + Ord, N: Size> Ord for Vector<P, N> {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.val.cmp(&other.val)
@@ -286,10 +297,8 @@ impl<P: CountOnes + Scalar, N: Size> Vector<P, N> {
                 .with_vector_size(self.expand.ty.vector_size());
             let out = scope.create_local(out_item);
             scope.register(Instruction::new(
-                Bitwise::CountOnes(UnaryOperator {
-                    input: *self.expand,
-                }),
-                *out,
+                Bitwise::CountOnes(UnaryOperands { input: self.expand }),
+                out,
             ));
             out.into()
         })
@@ -342,9 +351,16 @@ impl<T: Scalar + Default, N: Size> Default for Vector<T, N> {
 }
 
 impl<T: Scalar + IntoRuntime, N: Size> IntoRuntime for Vector<T, N> {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> Self::ExpandType {
+    fn __expand_runtime_method(self, scope: &Scope) -> Self::ExpandType {
         let val = self.val.__expand_runtime_method(scope);
         Self::__expand_new(scope, val)
+    }
+}
+impl<T: Scalar + IntoExpand, N: Size> IntoExpand for Vector<T, N> {
+    type Expand = VectorExpand<T, N>;
+
+    fn into_expand(self, scope: &Scope) -> Self::Expand {
+        self.__expand_runtime_method(scope)
     }
 }
 

@@ -2,14 +2,14 @@ use crate::{self as cubecl, as_bytes};
 use cubecl::prelude::*;
 
 #[cube(launch)]
-pub fn sequence_for_loop<F: Float>(output: &mut Array<F>) {
+pub fn sequence_for_loop<F: Float>(output: &mut [F]) {
     if UNIT_POS != 0 {
         terminate!();
     }
 
     let mut sequence = Sequence::<F>::new();
-    sequence.push(F::new(1.0));
-    sequence.push(F::new(4.0));
+    sequence.push(F::new(1f32));
+    sequence.push(F::new(4f32));
 
     for value in sequence {
         output[0] += value;
@@ -17,14 +17,14 @@ pub fn sequence_for_loop<F: Float>(output: &mut Array<F>) {
 }
 
 #[cube(launch)]
-pub fn sequence_index<F: Float>(output: &mut Array<F>) {
+pub fn sequence_index<F: Float>(output: &mut [F]) {
     if UNIT_POS != 0 {
         terminate!();
     }
 
     let mut sequence = Sequence::<F>::new();
-    sequence.push(F::new(2.0));
-    sequence.push(F::new(4.0));
+    sequence.push(F::new(2f32));
+    sequence.push(F::new(4f32));
 
     output[0] += sequence[0];
     output[0] += *Sequence::<F>::index(&sequence, 1usize);
@@ -37,7 +37,7 @@ pub fn test_sequence_for_loop<R: Runtime, F: Float + CubeElement>(client: Comput
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -53,7 +53,7 @@ pub fn test_sequence_index<R: Runtime, F: Float + CubeElement>(client: ComputeCl
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
     );
 
     let actual = client.read_one_unchecked(handle);

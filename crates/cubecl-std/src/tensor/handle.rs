@@ -183,7 +183,7 @@ where
                 cube_dim,
                 output.required_address_type(),
                 vector_size,
-                ArrayArg::from_raw_parts(output.handle.clone(), array_len),
+                BufferArg::from_raw_parts(output.handle.clone(), array_len),
                 dtype,
             )
         };
@@ -198,7 +198,7 @@ pub(crate) mod init {
 
     #[cube(launch_unchecked, address_type = "dynamic")]
     pub fn zeros_array<C: Numeric, N: Size>(
-        output: &mut Array<Vector<C, N>>,
+        output: &mut [Vector<C, N>],
         #[define(C)] _elem: StorageType,
     ) {
         if ABSOLUTE_POS < output.len() {

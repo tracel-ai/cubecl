@@ -1,12 +1,11 @@
-use alloc::{rc::Rc, vec::Vec};
-use core::cell::RefCell;
+use alloc::vec::Vec;
 
 use cubecl_runtime::runtime::Runtime;
 use cubecl_zspace::SmallVec;
 
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
-    prelude::LaunchArg,
+    prelude::{CubeType, LaunchArg},
 };
 
 use super::{Sequence, SequenceExpand};
@@ -64,7 +63,7 @@ impl<C: LaunchArg> core::fmt::Debug for SequenceCompilationArg<C> {
 }
 impl<C: LaunchArg> core::cmp::Eq for SequenceCompilationArg<C> {}
 
-impl<C: LaunchArg> LaunchArg for Sequence<C> {
+impl<C: LaunchArg + CubeType + 'static> LaunchArg for Sequence<C> {
     type RuntimeArg<R: Runtime> = SequenceArg<R, C>;
     type CompilationArg = SequenceCompilationArg<C>;
 
@@ -85,21 +84,7 @@ impl<C: LaunchArg> LaunchArg for Sequence<C> {
             .map(|value| C::expand(value, builder))
             .collect::<Vec<_>>();
 
-        SequenceExpand {
-            values: Rc::new(RefCell::new(values)),
-        }
-    }
-
-    fn expand_output(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> SequenceExpand<C> {
-        let values = arg
-            .values
-            .iter()
-            .map(|value| C::expand_output(value, builder))
-            .collect::<Vec<_>>();
-
-        SequenceExpand {
-            values: Rc::new(RefCell::new(values)),
-        }
+        SequenceExpand { values }
     }
 }
 
@@ -116,5 +101,17 @@ impl<E: LaunchArg> FromIterator<E::CompilationArg> for SequenceCompilationArg<E>
         Self {
             values: iter.into_iter().collect(),
         }
+    }
+}
+
+impl<R: Runtime, E: LaunchArg, const N: usize> From<[E::RuntimeArg<R>; N]> for SequenceArg<R, E> {
+    fn from(value: [E::RuntimeArg<R>; N]) -> Self {
+        let mut arg = SequenceArg::<R, E> {
+            values: SmallVec::new(),
+        };
+        for v in value {
+            arg.values.push(v)
+        }
+        arg
     }
 }

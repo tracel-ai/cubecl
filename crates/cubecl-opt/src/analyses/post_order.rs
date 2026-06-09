@@ -1,4 +1,5 @@
-use crate::NodeIndex;
+use crate::{GlobalState, NodeIndex};
+use alloc::vec::Vec;
 use petgraph::visit::{DfsPostOrder, Walker};
 
 use super::Analysis;
@@ -6,9 +7,9 @@ use super::Analysis;
 pub struct PostOrder(Vec<NodeIndex>);
 
 impl Analysis for PostOrder {
-    fn init(opt: &mut crate::Optimizer) -> Self {
-        let po = DfsPostOrder::new(&opt.program.graph, opt.entry());
-        PostOrder(po.iter(&opt.program.graph).collect())
+    fn init(func: &mut crate::Function, _: &GlobalState) -> Self {
+        let po = DfsPostOrder::new(&func.graph, func.root);
+        PostOrder(po.iter(&func.graph).collect())
     }
 }
 

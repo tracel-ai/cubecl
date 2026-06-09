@@ -8,11 +8,11 @@ use cubecl_opt::{IrTransformer, TransformAction};
 pub(crate) struct ErfTransform;
 
 impl IrTransformer for ErfTransform {
-    fn maybe_transform(&self, scope: &mut Scope, inst: &Instruction) -> TransformAction {
+    fn maybe_transform(&self, scope: &Scope, inst: &Instruction) -> TransformAction {
         match &inst.operation {
             Operation::Arithmetic(Arithmetic::Erf(op)) => {
-                let mut scope = scope.child();
-                expand_erf(&mut scope, op.input, inst.out.unwrap());
+                let scope = scope.child();
+                expand_erf(&scope, op.input, inst.out.unwrap());
                 TransformAction::Replace(scope.process([]).instructions)
             }
             _ => TransformAction::Ignore,

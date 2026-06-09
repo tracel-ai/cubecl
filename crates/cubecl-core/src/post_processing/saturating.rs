@@ -1,8 +1,8 @@
 use crate as cubecl;
 use alloc::vec::Vec;
 use cubecl_ir::{
-    Allocator, Arithmetic, ElemType, Instruction, IntKind, ManagedVariable, Operation, Processor,
-    Scope, ScopeProcessing, StorageType, UIntKind, Variable,
+    Arithmetic, ElemType, Instruction, IntKind, Operation, Processor, Scope, ScopeProcessing,
+    StorageType, UIntKind, Variable,
 };
 
 use crate::prelude::*;
@@ -20,11 +20,7 @@ pub struct SaturatingArithmeticProcessor {
 }
 
 impl Processor for SaturatingArithmeticProcessor {
-    fn transform(
-        &self,
-        mut processing: cubecl_ir::ScopeProcessing,
-        allocator: Allocator,
-    ) -> cubecl_ir::ScopeProcessing {
+    fn transform(&self, mut processing: cubecl_ir::ScopeProcessing) -> cubecl_ir::ScopeProcessing {
         let mut instructions = Vec::new();
         core::mem::swap(&mut processing.instructions, &mut instructions);
 
@@ -37,7 +33,6 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.lhs,
                             op.rhs,
                             instruction.out(),
-                            &allocator,
                             saturating_add_unsigned::expand::<ElemA, SizeA>,
                         );
                         continue;
@@ -51,7 +46,6 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.lhs,
                             op.rhs,
                             instruction.out(),
-                            &allocator,
                             saturating_add_signed::expand::<ElemA, ElemB, SizeA>,
                         );
                         continue;
@@ -62,7 +56,6 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.lhs,
                             op.rhs,
                             instruction.out(),
-                            &allocator,
                             saturating_sub_unsigned::expand::<ElemA, SizeA>,
                         );
                         continue;
@@ -76,7 +69,6 @@ impl Processor for SaturatingArithmeticProcessor {
                             op.lhs,
                             op.rhs,
                             instruction.out(),
-                            &allocator,
                             saturating_sub_signed::expand::<ElemA, ElemB, SizeA>,
                         );
                         continue;
@@ -103,14 +95,9 @@ fn run_polyfill<T: CubePrimitive>(
     lhs: Variable,
     rhs: Variable,
     out: Variable,
-    allocator: &Allocator,
-    mut polyfill: impl FnMut(&mut Scope, NativeExpand<T>, NativeExpand<T>) -> NativeExpand<T>,
+    mut polyfill: impl FnMut(&Scope, NativeExpand<T>, NativeExpand<T>) -> NativeExpand<T>,
 ) {
-    let lhs = ManagedVariable::Plain(lhs);
-    let rhs = ManagedVariable::Plain(rhs);
-    let mut scope = Scope::root(false)
-        .with_allocator(allocator.clone())
-        .with_types(processing.typemap.clone());
+    let scope = Scope::root(false).with_global_state(processing.global_state.clone());
     scope.register_type::<ElemA>(lhs.storage_type());
     scope.register_size::<SizeA>(lhs.vector_size());
     if let ElemType::Int(kind) = lhs.elem_type() {
@@ -123,7 +110,7 @@ fn run_polyfill<T: CubePrimitive>(
         scope.register_type::<ElemB>(ElemType::UInt(unsigned_ty).into())
     }
 
-    let out_poly = polyfill(&mut scope, lhs.into(), rhs.into()).expand;
+    let out_poly = polyfill(&scope, lhs.into(), rhs.into()).expand;
     let tmp_processing = scope.process([]);
 
     for inst in tmp_processing.instructions {
@@ -135,7 +122,7 @@ fn run_polyfill<T: CubePrimitive>(
 
     processing
         .instructions
-        .push(Instruction::new(Operation::Copy(*out_poly), out));
+        .push(Instruction::new(Operation::Copy(out_poly), out));
 }
 
 #[cube]
@@ -164,8 +151,8 @@ fn saturating_add_signed<I: Int, U: Int, N: Size>(
     let uy = Vector::<U, N>::cast_from(y);
     let res = ux + uy;
     let ux = (ux >> shift) + Vector::<U, N>::cast_from(I::max_value());
-    let cond =
-        Vector::<I, N>::cast_from((ux ^ uy) | !(uy ^ res)).greater_equal(Vector::new(I::new(0)));
+    let zero = Vector::new(I::new(0));
+    let cond = Vector::<I, N>::cast_from((ux ^ uy) | !(uy ^ res)).greater_equal(&zero);
     select_many(cond, Vector::cast_from(ux), Vector::cast_from(res))
 }
 
@@ -183,6 +170,7 @@ fn saturating_sub_signed<I: Int, U: Int, N: Size>(
     let uy = Vector::<U, N>::cast_from(y);
     let res = ux - uy;
     let ux = (ux >> shift) + Vector::<U, N>::cast_from(I::max_value());
-    let cond = Vector::<I, N>::cast_from((ux ^ uy) & (ux ^ res)).less_than(Vector::new(I::new(0)));
+    let zero = Vector::new(I::new(0));
+    let cond = Vector::<I, N>::cast_from((ux ^ uy) & (ux ^ res)).less_than(&zero);
     select_many(cond, Vector::cast_from(ux), Vector::cast_from(res))
 }

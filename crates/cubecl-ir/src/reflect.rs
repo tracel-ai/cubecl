@@ -3,7 +3,7 @@ use alloc::collections::VecDeque;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::Variable;
+use crate::{Instruction, Memory, Scope, Type, Variable};
 
 /// An operation that can be reflected on
 pub trait OperationReflect: Sized {
@@ -17,12 +17,17 @@ pub trait OperationReflect: Sized {
     fn args(&self) -> Option<Vec<Variable>> {
         None
     }
+    fn args_mut(&mut self) -> Option<Vec<&mut Variable>> {
+        None
+    }
     /// Create typed operation from an opcode and a list of arguments. Returns `None` if not all
     /// arguments are [`Variable`].
     #[allow(unused)]
     fn from_code_and_args(op_code: Self::OpCode, args: &[Variable]) -> Option<Self> {
         None
     }
+    /// Sanitize args, i.e. loading inputs from pointers for ops that take values
+    fn sanitize_args(&mut self, scope: &Scope);
     /// Whether this operation is commutative (arguments can be freely reordered). Ignored for
     /// single argument operations.
     fn is_commutative(&self) -> bool {
@@ -33,10 +38,23 @@ pub trait OperationReflect: Sized {
     fn is_pure(&self) -> bool {
         false
     }
+
+    fn read_pointers(&self) -> Vec<Variable> {
+        Vec::new()
+    }
+
+    fn write_pointers(&self) -> Vec<Variable> {
+        Vec::new()
+    }
 }
 
 /// A type that represents an operation's arguments
 pub trait OperationArgs: Sized {
+    /// Sanitize args for the `ptr` constraint, loading inputs from pointers for ops that take values.
+    /// This is needed because Rust "helpfully" auto-derefs references, skipping the explicit deref
+    /// code that inserts a [`Memory::Load`].
+    fn sanitize_args_ptr(&mut self, scope: &Scope);
+
     /// Construct this type from a list of arguments. If not all arguments are [`Variable`], returns
     /// `None`
     #[allow(unused)]
@@ -49,9 +67,27 @@ pub trait OperationArgs: Sized {
     fn as_args(&self) -> Option<Vec<Variable>> {
         None
     }
+
+    /// Turns this type into a flat list of arguments. If not all arguments are [`Variable`],
+    /// returns `None`
+    fn as_args_mut(&mut self) -> Option<Vec<&mut Variable>> {
+        None
+    }
+
+    fn read_pointers(&self) -> Vec<Variable> {
+        Vec::new()
+    }
+
+    fn write_pointers(&self) -> Vec<Variable> {
+        Vec::new()
+    }
 }
 
 impl OperationArgs for Variable {
+    fn sanitize_args_ptr(&mut self, scope: &Scope) {
+        *self = read_variable(scope, *self)
+    }
+
     fn from_args(args: &[Variable]) -> Option<Self> {
         Some(args[0])
     }
@@ -59,6 +95,44 @@ impl OperationArgs for Variable {
     fn as_args(&self) -> Option<Vec<Variable>> {
         Some(vec![*self])
     }
+
+    fn as_args_mut(&mut self) -> Option<Vec<&mut Variable>> {
+        Some(vec![self])
+    }
+}
+
+impl<T: OperationArgs> OperationArgs for Vec<T> {
+    fn sanitize_args_ptr(&mut self, scope: &Scope) {
+        self.iter_mut().for_each(|it| it.sanitize_args_ptr(scope));
+    }
+
+    fn as_args_mut(&mut self) -> Option<Vec<&mut Variable>> {
+        let inner = self.iter_mut().map(|it| it.as_args_mut());
+        let inner = inner.collect::<Option<Vec<_>>>()?;
+        Some(inner.into_iter().flatten().collect())
+    }
+}
+
+impl<T: OperationArgs> OperationArgs for Option<T> {
+    fn sanitize_args_ptr(&mut self, scope: &Scope) {
+        if let Some(it) = self.as_mut() {
+            it.sanitize_args_ptr(scope)
+        }
+    }
+
+    fn as_args_mut(&mut self) -> Option<Vec<&mut Variable>> {
+        self.as_mut().and_then(|inner| inner.as_args_mut())
+    }
+}
+
+impl OperationArgs for usize {
+    fn sanitize_args_ptr(&mut self, _: &Scope) {}
+}
+impl OperationArgs for u32 {
+    fn sanitize_args_ptr(&mut self, _: &Scope) {}
+}
+impl OperationArgs for bool {
+    fn sanitize_args_ptr(&mut self, _: &Scope) {}
 }
 
 /// Types that can be destructured into and created from a list of [`Variable`]s.
@@ -68,6 +142,7 @@ pub trait FromArgList: Sized {
     fn from_arg_list(args: &mut VecDeque<Variable>) -> Self;
     /// Turns this type into a list of [`Variable`]s.
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable>;
+    fn as_arg_list_mut(&mut self) -> impl IntoIterator<Item = &mut Variable>;
 }
 
 impl FromArgList for Variable {
@@ -78,6 +153,10 @@ impl FromArgList for Variable {
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
         [*self]
     }
+
+    fn as_arg_list_mut(&mut self) -> impl IntoIterator<Item = &mut Variable> {
+        [self]
+    }
 }
 
 impl FromArgList for Vec<Variable> {
@@ -87,6 +166,10 @@ impl FromArgList for Vec<Variable> {
 
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
         self.iter().cloned()
+    }
+
+    fn as_arg_list_mut(&mut self) -> impl IntoIterator<Item = &mut Variable> {
+        self.iter_mut()
     }
 }
 
@@ -102,6 +185,10 @@ impl FromArgList for bool {
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
         [(*self).into()]
     }
+
+    fn as_arg_list_mut(&mut self) -> impl IntoIterator<Item = &mut Variable> {
+        []
+    }
 }
 
 impl FromArgList for u32 {
@@ -116,6 +203,10 @@ impl FromArgList for u32 {
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
         [(*self).into()]
     }
+
+    fn as_arg_list_mut(&mut self) -> impl IntoIterator<Item = &mut Variable> {
+        []
+    }
 }
 
 impl FromArgList for usize {
@@ -129,5 +220,19 @@ impl FromArgList for usize {
 
     fn as_arg_list(&self) -> impl IntoIterator<Item = Variable> {
         [(*self).into()]
+    }
+
+    fn as_arg_list_mut(&mut self) -> impl IntoIterator<Item = &mut Variable> {
+        []
+    }
+}
+
+fn read_variable(scope: &Scope, var: Variable) -> Variable {
+    if let Type::Pointer(inner, _) = var.ty {
+        let out = scope.create_local(*inner);
+        scope.register(Instruction::new(Memory::Load(var), out));
+        out
+    } else {
+        var
     }
 }

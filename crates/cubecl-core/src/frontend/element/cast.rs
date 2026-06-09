@@ -1,7 +1,7 @@
 use crate::unexpanded;
 use crate::{
     expand_assert,
-    ir::{Instruction, Operator, Scope, UnaryOperator},
+    ir::{Instruction, Operator, Scope, UnaryOperands},
 };
 use crate::{
     expand_error,
@@ -15,10 +15,10 @@ pub trait Cast: CubePrimitive {
     fn cast_from<From: CubePrimitive>(value: From) -> Self;
 
     fn __expand_cast_from<From: CubePrimitive>(
-        scope: &mut Scope,
+        scope: &Scope,
         value: NativeExpand<From>,
     ) -> <Self as CubeType>::ExpandType {
-        if Self::as_type(scope) == From::as_type(scope) {
+        if Self::__expand_as_type(scope) == From::__expand_as_type(scope) {
             return value.expand.into();
         }
         let vec_in = value.expand.vector_size();
@@ -27,8 +27,8 @@ pub trait Cast: CubePrimitive {
         if vec_in > 1 && elems_in != elems_out {
             expand_error!("Cast element count must match if input is not scalar");
         }
-        let new_var = scope.create_local(<Self as CubePrimitive>::as_type(scope));
-        cast::expand::<From, Self>(scope, value, new_var.clone().into());
+        let new_var = scope.create_local(<Self as CubePrimitive>::__expand_as_type(scope));
+        cast::expand::<From, Self>(scope, value, new_var.into());
         new_var.into()
     }
 }
@@ -53,23 +53,23 @@ pub trait Reinterpret: CubePrimitive {
     }
 
     fn __expand_reinterpret<From: CubePrimitive>(
-        scope: &mut Scope,
+        scope: &Scope,
         value: NativeExpand<From>,
     ) -> <Self as CubeType>::ExpandType {
         let size_in = value.expand.ty.size();
         let size_out = Self::__expand_type_size(scope);
         expand_assert!(size_in == size_out, "Reinterpret type sizes must match");
-        let new_var = scope.create_local(<Self as CubePrimitive>::as_type(scope));
+        let new_var = scope.create_local(<Self as CubePrimitive>::__expand_as_type(scope));
         scope.register(Instruction::new(
-            Operator::Reinterpret(UnaryOperator {
-                input: *value.expand,
+            Operator::Reinterpret(UnaryOperands {
+                input: value.expand,
             }),
-            *new_var.clone(),
+            new_var,
         ));
         new_var.into()
     }
 
-    fn __expand_reinterpret_vectorization<From: CubePrimitive>(scope: &mut Scope) -> usize {
+    fn __expand_reinterpret_vectorization<From: CubePrimitive>(scope: &Scope) -> usize {
         let type_size = From::__expand_type_size(scope);
         type_size / Self::Scalar::__expand_type_size(scope)
     }

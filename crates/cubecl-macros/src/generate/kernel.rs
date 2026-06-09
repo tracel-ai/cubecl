@@ -3,23 +3,33 @@ use std::collections::HashMap;
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use inflections::case::to_snake_case;
 use proc_macro2::TokenStream;
-use quote::{ToTokens, format_ident, quote, quote_spanned};
-use syn::{Ident, TypeParamBound};
+use quote::{format_ident, quote, quote_spanned};
+use syn::{Ident, TypeParamBound, parse_quote};
 
 use crate::{
-    parse::kernel::{
-        DefinedGeneric, KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch,
-        strip_ref,
+    parse::{
+        kernel::{
+            DefinedGeneric, KernelBody, KernelFn, Launch, anon_lifetime_to_static,
+            map_type_normalized, strip_ref,
+        },
+        signature::KernelReturns,
     },
     paths::{frontend_type, prelude_type},
 };
 
 impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
+        let attrs = &self.attrs;
         let vis = &self.vis;
         let sig = &self.sig;
+
         let body = match &self.body {
-            KernelBody::Block(block) => &block.to_tokens(&mut self.context),
+            KernelBody::Block(block) => match matches!(sig.returns, KernelReturns::ExpandType(_))
+                && !self.context.is_intrinsic
+            {
+                true => &block.to_tokens_runtime_return(&mut self.context),
+                false => &block.to_tokens(&mut self.context),
+            },
             KernelBody::Verbatim(tokens) => tokens,
         };
         let name = &self.full_name;
@@ -72,6 +82,7 @@ impl KernelFn {
 
         let out = quote! {
             #[allow(unused_mut)]
+            #(#attrs)*
             #vis #sig {
                 #debug_source;
                 #(#debug_params)*
@@ -95,57 +106,6 @@ fn trait_imports() -> TokenStream {
     }
 }
 
-impl ToTokens for KernelSignature {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let scope = prelude_type("Scope");
-        let cube_type = prelude_type("CubeType");
-
-        let name = &self.name;
-        let generics = &self.generics;
-        let where_clause = &generics.where_clause;
-
-        let return_type = match &self.returns {
-            KernelReturns::ExpandType(ty) => {
-                let mut is_mut = false;
-                let mut is_ref = false;
-                let ty = strip_ref(ty.clone(), &mut is_ref, &mut is_mut);
-                quote![<#ty as #cube_type>::ExpandType]
-            }
-            KernelReturns::Plain(ty) => quote![#ty],
-        };
-        let out = if let Some(receiver) = &self.receiver_arg {
-            let args = self.parameters.iter().skip(1);
-
-            quote! {
-                fn #name #generics(
-                    #receiver,
-                    scope: &mut #scope,
-                    #(#args),*
-                ) -> #return_type #where_clause
-            }
-        } else {
-            let args = &self.parameters;
-            quote! {
-                fn #name #generics(
-                    scope: &mut #scope,
-                    #(#args),*
-                ) -> #return_type #where_clause
-            }
-        };
-
-        tokens.extend(out);
-    }
-}
-
-impl ToTokens for KernelParam {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let name = &self.name;
-        let ty = &self.normalized_ty;
-        let mut_ = &self.mut_token;
-        tokens.extend(quote![#mut_ #name: #ty]);
-    }
-}
-
 impl Launch {
     fn kernel_phantom_data(&self) -> Option<TokenStream> {
         let generics = self.kernel_generics.clone();
@@ -163,17 +123,19 @@ impl Launch {
         let lifetimes: Vec<_> = declared_lifetimes.difference(&used_lifetimes).collect();
         let type_params: Vec<_> = declared_type_params.difference(&used_type_params).collect();
 
-        (!lifetimes.is_empty() || !type_params.is_empty())
-            .then(|| quote![__ty: ::core::marker::PhantomData<(#(#lifetimes,)* #(#type_params),*)>])
+        (!lifetimes.is_empty() || !type_params.is_empty()).then(
+            || quote![__ty: ::core::marker::PhantomData<(#(&#lifetimes (),)* #(#type_params),*)>],
+        )
     }
 
     pub fn compilation_args_def(&self) -> (Vec<TokenStream>, Vec<Ident>) {
+        let launch_arg = prelude_type("LaunchArg");
         let mut tokens = Vec::new();
         let mut args = Vec::new();
-        let launch_arg = prelude_type("LaunchArg");
 
         self.runtime_params().for_each(|input| {
-            let ty = &input.ty_owned();
+            let ty = strip_ref(input.ty.clone());
+            let ty = anon_lifetime_to_static(ty);
             let name = &input.name;
 
             tokens.push(quote! {
@@ -191,7 +153,8 @@ impl Launch {
         let mut args = quote! {};
 
         self.runtime_params().enumerate().for_each(|(i, input)| {
-            let ty = &input.ty_owned();
+            let ty = strip_ref(input.ty.clone());
+            let ty = anon_lifetime_to_static(ty);
             let ident = &input.name;
             let var = Ident::new(format!("comp_arg_{i}").as_str(), ident.span());
 
@@ -213,19 +176,17 @@ impl Launch {
         let launch_arg = prelude_type("LaunchArg");
         let mut define = quote! {};
 
-        let expand_fn = |ident, expand_name, ty| {
+        let expand_fn = |ident, ty| {
             let ty = self.func.analysis.process_ty(&ty);
+            let ty = strip_ref(ty);
+            let ty = anon_lifetime_to_static(ty);
 
             quote! {
-                let #ident =  <#ty as #launch_arg>::#expand_name(&self.#ident.dynamic_cast(), &mut builder);
+                let mut #ident = <#ty as #launch_arg>::expand(&self.#ident.dynamic_cast(), &mut builder);
             }
         };
         for param in self.runtime_params() {
-            let expand_name = match param.is_mut {
-                true => format_ident!("expand_output"),
-                false => format_ident!("expand"),
-            };
-            define.extend(expand_fn(&param.name, expand_name, param.ty_owned()));
+            define.extend(expand_fn(&param.name, param.ty.clone()));
         }
 
         quote! {
@@ -257,8 +218,14 @@ impl Launch {
         let args = self.func.sig.parameters.iter().map(|it| {
             let name = &it.name;
             match it.is_const {
-                true => quote![self.#name],
-                false => quote![#name],
+                true => quote![self.#name.clone()],
+                false => {
+                    let mut mapped = it.ty.clone();
+                    match map_type_normalized(&mut mapped, &|_| parse_quote![#name]) {
+                        Ok(()) => quote![#mapped],
+                        Err(err) => err.into_compile_error(),
+                    }
+                }
             }
         });
         let generics = self
@@ -274,7 +241,7 @@ impl Launch {
             #register_type
             self.settings.address_type.register(&mut builder.scope);
             #io_map
-            expand #generics(&mut builder.scope, #(#args.clone(),)*);
+            expand #generics(&mut builder.scope, #(#args,)*);
             builder.build(self.settings.clone())
         }
     }
@@ -286,14 +253,14 @@ impl Launch {
     /// For example a kernel:
     /// ```text
     /// #[cube(launch)]
-    /// fn my_kernel(input: &Array<f32>, output: &mut Array<f32>) {}
+    /// fn my_kernel(input: &[f32], output: &mut [f32]) {}
     /// ```
     /// would produce the name `my_kernel`.
     ///
     /// If a generic has the `Float` or `Numeric` bound the kernel also has a
     /// suffix with the name of that type in use:
     /// ```text
-    /// fn my_kernel<F: Float>(input: &Array<F>, output: &mut Array<F>) {}
+    /// fn my_kernel<F: Float>(input: &[F], output: &mut [F]) {}
     /// ```
     /// now produces the name `my_kernel_f16` or `my_kernel_f32` etc. depending
     /// on which variant of the kernel is launched by the user.

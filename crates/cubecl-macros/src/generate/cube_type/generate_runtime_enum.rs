@@ -72,11 +72,18 @@ impl CubeTypeEnum {
     fn expand_value_ty(&self) -> proc_macro2::TokenStream {
         let cube_enum = prelude_type("CubeEnum");
         let expand_elem = frontend_type("NativeExpand");
+
+        let expand_derives = match &self.derive {
+            Some(derives) => quote![#[#derives]],
+            None => quote![],
+        };
+
         let name_expand = &self.name_expand;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
         let vis = &self.vis;
 
         quote! {
+            #expand_derives
             #vis struct #name_expand #generics #where_clause {
                 discriminant: #expand_elem<i32>,
                 value: <#name_expand #generic_names as #cube_enum>::RuntimeValue,
@@ -86,7 +93,11 @@ impl CubeTypeEnum {
 
     fn expand_type_impl_runtime(&self) -> proc_macro2::TokenStream {
         let scope = prelude_type("Scope");
+        let clone = prelude_type("ExpandTypeClone");
+        let into_expand = prelude_type("IntoExpand");
         let into_mut = prelude_type("IntoMut");
+        let as_ref = prelude_type("AsRefExpand");
+        let as_mut = prelude_type("AsMutExpand");
         let debug = prelude_type("CubeDebug");
 
         let name = &self.ident;
@@ -117,8 +128,16 @@ impl CubeTypeEnum {
         };
 
         quote! {
+            impl #generics #into_expand for #name_expand #generic_names #where_clause {
+                type Expand = Self;
+
+                fn into_expand(self, _: &#scope) -> Self {
+                    self
+                }
+            }
+
             impl #generics #into_mut for #name_expand #generic_names #where_clause {
-                fn into_mut(mut self, scope: &mut #scope) -> Self {
+                fn into_mut(mut self, scope: &#scope) -> Self {
                     Self {
                         discriminant: #into_mut::into_mut(self.discriminant, scope),
                         value: #into_mut::into_mut(self.value, scope)
@@ -128,12 +147,22 @@ impl CubeTypeEnum {
 
             impl #generics #debug for #name #generic_names #where_clause {}
             impl #generics #debug for #name_expand #generic_names #where_clause {}
+            impl #generics #as_ref for #name_expand #generic_names #where_clause {
+                fn __expand_ref_method(&self, _: &#scope) -> &Self {
+                    self
+                }
+            }
+            impl #generics #as_mut for #name_expand #generic_names #where_clause {
+                fn __expand_ref_mut_method(&mut self, _: &#scope) -> &mut Self {
+                    self
+                }
+            }
 
-            impl #generics Clone for #name_expand #generic_names #where_clause {
-                fn clone(&self) -> Self {
+            impl #generics #clone for #name_expand #generic_names #where_clause {
+                fn clone_unchecked(&self) -> Self {
                     Self {
                         discriminant: self.discriminant.clone(),
-                        value: self.value.clone()
+                        value: #clone::clone_unchecked(&self.value)
                     }
                 }
             }
@@ -244,7 +273,7 @@ impl CubeTypeEnum {
         );
 
         quote! {
-            #vis enum #name #generics {
+            #vis enum #name #generics #where_clause {
                 Comptime {
                     discriminant: i32,
                     value: <#value_ty as #launch_arg>::CompilationArg
@@ -451,29 +480,6 @@ impl CubeTypeEnum {
                         }
                     }
                 }
-
-                fn expand_output(
-                    arg: &Self::CompilationArg,
-                    builder: &mut #kernel_builder,
-                ) -> <Self as #cube_type>::ExpandType {
-                    match arg {
-                        #compilation_arg::Comptime { discriminant, value } => {
-                            let value = <#value_ty as #launch_arg>::expand_output(value, builder);
-                            #expand_name #generic_names {
-                                discriminant: (*discriminant).into(),
-                                value,
-                            }
-                        }
-                        #compilation_arg::Runtime { discriminant, value } => {
-                            let discriminant = <i32 as #launch_arg>::expand_output(discriminant, builder);
-                            let value = <#value_ty as #launch_arg>::expand_output(value, builder);
-                            #expand_name #generic_names {
-                                discriminant,
-                                value,
-                            }
-                        }
-                    }
-                }
             }
         }
     }
@@ -506,7 +512,7 @@ impl CubeTypeVariant {
                         cubecl::unexpanded!()
                     }
 
-                    pub fn #expand_function(_: &mut #scope, value: <#ty as #cube_type>::ExpandType) -> #ident_ty_expand #generics {
+                    pub fn #expand_function(_: &#scope, value: <#ty as #cube_type>::ExpandType) -> #ident_ty_expand #generics {
                         #ident_ty_expand #generics {
                             discriminant: #index.into(),
                             value
@@ -520,7 +526,7 @@ impl CubeTypeVariant {
                         cubecl::unexpanded!()
                     }
 
-                    pub fn #expand_function(scope: &mut #scope) -> #ident_ty_expand #generics {
+                    pub fn #expand_function(scope: &#scope) -> #ident_ty_expand #generics {
                         #ident_ty_expand #generics {
                             discriminant: #index.into(),
                             value: <#value_ty as #into_runtime>::__expand_runtime_method(Default::default(), scope),

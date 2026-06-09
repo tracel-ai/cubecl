@@ -1,12 +1,11 @@
-use std::{
-    collections::{HashSet, LinkedList},
-    mem::swap,
-};
+use core::mem::swap;
 
+use alloc::{collections::linked_list::LinkedList, vec::Vec};
 use cubecl_ir::{
-    self as ir, Arithmetic, Comparison, ComparisonOpCode, Metadata, OpCode, Operation,
-    OperationReflect, Operator, Variable, VariableKind,
+    self as ir, Arithmetic, AtomicOp, Comparison, ComparisonOpCode, Memory, OpCode, Operation,
+    OperationReflect, Variable,
 };
+use hashbrown::HashSet;
 
 use crate::PhiInstruction;
 
@@ -114,21 +113,31 @@ impl ValueTable {
                 let num = self.lookup_or_add_var(variable)?;
                 Ok((Expression::Copy(num, item), out))
             }
+            Operation::Memory(memory) => self.create_expr_memory(memory, inst.out),
             Operation::Arithmetic(arithmetic) => {
                 self.create_expr_arithmetic(arithmetic, inst.out())
             }
             Operation::Comparison(cmp) => self.create_expr_cmp(cmp, inst.out()),
             Operation::Bitwise(bitwise) => self.create_expr_simple_op(bitwise, inst.out()),
-            Operation::Operator(operator) => self.create_expr_operator(operator, inst.out()),
-            Operation::Metadata(metadata) => self.create_expr_meta(metadata, inst.out()),
-            Operation::Plane(_) | Operation::Atomic(_) => Err(value_of_var(&inst.out())),
+            Operation::Operator(operator) => self.create_expr_simple_op(operator, inst.out()),
+            Operation::Metadata(metadata) => self.create_expr_simple_op(metadata, inst.out()),
+            // Not numberable: it has a barrier side-effect and a
+            // workgroup-uniformity contract, so it must never be deduplicated.
+            Operation::Plane(_) | Operation::WorkgroupUniformLoad(_) => {
+                Err(value_of_var(&inst.out()))
+            }
+            Operation::Atomic(atomic) => self.create_expr_atomic(atomic, inst.out),
             Operation::Branch(_)
             | Operation::Synchronization(_)
             | Operation::CoopMma(_)
             | Operation::NonSemantic(_)
             | Operation::Barrier(_)
             | Operation::Tma(_)
+            | Operation::TensorIndexing(_)
             | Operation::Marker(_) => Err(None),
+            Operation::ConstructAggregate(..) | Operation::ExtractAggregateField(..) => {
+                unreachable!("Should be disaggregated at this point")
+            }
         }
     }
 
@@ -184,55 +193,28 @@ impl ValueTable {
         }
     }
 
-    fn create_expr_operator(
+    fn create_expr_memory(
         &mut self,
-        operator: &Operator,
-        out: Variable,
+        memory: &Memory,
+        out: Option<Variable>,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
-        let (expr, val) = match operator {
-            Operator::Index(_) | Operator::UncheckedIndex(_) => Err(value_of_var(&out))?,
-
-            Operator::IndexAssign(_)
-            | Operator::UncheckedIndexAssign(_)
-            | Operator::CopyMemoryBulk(_)
-            | Operator::CopyMemory(_) => Err(None)?,
-
-            op => self.create_expr_simple_op(op, out)?,
+        let (expr, val) = match memory {
+            Memory::Load(_) => Err(value_of_var(&out.unwrap()))?,
+            Memory::Store(..) | Memory::CopyMemory(..) => Err(None)?,
+            op => self.create_expr_simple_op(op, out.unwrap())?,
         };
         Ok((expr, val))
     }
 
-    fn create_expr_meta(
+    fn create_expr_atomic(
         &mut self,
-        meta: &Metadata,
-        out: Variable,
+        atomic: &AtomicOp,
+        out: Option<Variable>,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
-        let op = OpCode::Metadata(meta.op_code());
-        let (expr, val) = match meta {
-            Metadata::Length { var } => {
-                let item = out.ty;
-                let out = value_of_var(&out);
-                let var = match var.kind {
-                    VariableKind::GlobalInputArray { .. }
-                    | VariableKind::GlobalOutputArray { .. }
-                    | VariableKind::GlobalScalar { .. } => self.lookup_or_add_var(var)?,
-                    VariableKind::ConstantArray { length, .. }
-                    | VariableKind::SharedArray { length, .. }
-                    | VariableKind::LocalArray { length, .. } => {
-                        let constant = length.into();
-                        let constant = Variable::constant(constant, item);
-                        let num = self.lookup_or_add_var(&constant)?;
-                        let expr = Expression::Copy(num, item);
-                        return Ok((expr, out));
-                    }
-                    _ => unreachable!("Length only available on array"),
-                };
-                let expr = Instruction::new(op, &[var], item);
-                (expr.into(), out)
-            }
-            op => self.create_expr_simple_op(op, out)?,
-        };
-        Ok((expr, val))
+        match atomic {
+            AtomicOp::Store(..) => Err(None),
+            _ => Err(value_of_var(&out.unwrap())),
+        }
     }
 
     fn create_expr_simple_op<Code: Into<OpCode>>(

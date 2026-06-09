@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use crate::TypeHash;
 
-use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Variable};
+use crate::{BinaryOperands, OperationArgs, OperationReflect, UnaryOperands, Variable};
 
 /// Arithmetic operations
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -10,61 +10,63 @@ use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Vari
 #[operation(opcode_name = ArithmeticOpCode, pure)]
 pub enum Arithmetic {
     #[operation(commutative)]
-    Add(BinaryOperator),
+    Add(BinaryOperands),
     #[operation(commutative)]
-    SaturatingAdd(BinaryOperator),
-    Fma(FmaOperator),
-    Sub(BinaryOperator),
-    SaturatingSub(BinaryOperator),
+    SaturatingAdd(BinaryOperands),
+    Fma(FmaOperands),
+    Sub(BinaryOperands),
+    SaturatingSub(BinaryOperands),
     #[operation(commutative)]
-    Mul(BinaryOperator),
-    Div(BinaryOperator),
-    Abs(UnaryOperator),
-    Exp(UnaryOperator),
-    Log(UnaryOperator),
-    Log1p(UnaryOperator),
-    Cos(UnaryOperator),
-    Sin(UnaryOperator),
-    Tan(UnaryOperator),
-    Tanh(UnaryOperator),
-    Sinh(UnaryOperator),
-    Cosh(UnaryOperator),
-    ArcCos(UnaryOperator),
-    ArcSin(UnaryOperator),
-    ArcTan(UnaryOperator),
-    ArcSinh(UnaryOperator),
-    ArcCosh(UnaryOperator),
-    ArcTanh(UnaryOperator),
-    Degrees(UnaryOperator),
-    Radians(UnaryOperator),
-    ArcTan2(BinaryOperator),
-    Powf(BinaryOperator),
-    Powi(BinaryOperator),
-    Hypot(BinaryOperator),
-    Rhypot(BinaryOperator),
-    Sqrt(UnaryOperator),
-    InverseSqrt(UnaryOperator),
-    Round(UnaryOperator),
-    Floor(UnaryOperator),
-    Ceil(UnaryOperator),
-    Trunc(UnaryOperator),
-    Erf(UnaryOperator),
-    Recip(UnaryOperator),
-    Clamp(ClampOperator),
-    Modulo(BinaryOperator),
-    Neg(UnaryOperator),
+    Mul(BinaryOperands),
+    Div(BinaryOperands),
+    Abs(UnaryOperands),
+    Exp(UnaryOperands),
+    Log(UnaryOperands),
+    Log1p(UnaryOperands),
+    Cos(UnaryOperands),
+    Sin(UnaryOperands),
+    Tan(UnaryOperands),
+    Tanh(UnaryOperands),
+    Sinh(UnaryOperands),
+    Cosh(UnaryOperands),
+    ArcCos(UnaryOperands),
+    ArcSin(UnaryOperands),
+    ArcTan(UnaryOperands),
+    ArcSinh(UnaryOperands),
+    ArcCosh(UnaryOperands),
+    ArcTanh(UnaryOperands),
+    Degrees(UnaryOperands),
+    Radians(UnaryOperands),
+    ArcTan2(BinaryOperands),
+    Powf(BinaryOperands),
+    Powi(BinaryOperands),
+    Hypot(BinaryOperands),
+    Rhypot(BinaryOperands),
+    Sqrt(UnaryOperands),
+    InverseSqrt(UnaryOperands),
+    Round(UnaryOperands),
+    Floor(UnaryOperands),
+    Ceil(UnaryOperands),
+    Trunc(UnaryOperands),
+    Erf(UnaryOperands),
+    Recip(UnaryOperands),
+    Clamp(ClampOperands),
+    Neg(UnaryOperands),
     #[operation(commutative)]
-    Max(BinaryOperator),
+    Max(BinaryOperands),
     #[operation(commutative)]
-    Min(BinaryOperator),
-    Remainder(BinaryOperator),
-    Magnitude(UnaryOperator),
-    Normalize(UnaryOperator),
+    Min(BinaryOperands),
+    /// Rust `Rem::rem`
+    Rem(BinaryOperands),
+    /// Pytorch %, or mod in SPIR-V
+    ModFloor(BinaryOperands),
+    Magnitude(UnaryOperands),
+    Normalize(UnaryOperands),
     #[operation(commutative)]
-    Dot(BinaryOperator),
+    Dot(BinaryOperands),
     #[operation(commutative)]
-    MulHi(BinaryOperator),
-    VectorSum(UnaryOperator),
+    MulHi(BinaryOperands),
+    VectorSum(UnaryOperands),
 }
 
 impl Display for Arithmetic {
@@ -111,11 +113,11 @@ impl Display for Arithmetic {
             Arithmetic::Clamp(op) => {
                 write!(f, "{}.clamp({}, {})", op.input, op.min_value, op.max_value)
             }
-            Arithmetic::Modulo(op) => write!(f, "{} % {}", op.lhs, op.rhs),
             Arithmetic::Neg(op) => write!(f, "-{}", op.input),
             Arithmetic::Max(op) => write!(f, "{}.max({})", op.lhs, op.rhs),
             Arithmetic::Min(op) => write!(f, "{}.min({})", op.lhs, op.rhs),
-            Arithmetic::Remainder(op) => write!(f, "{} rem {}", op.lhs, op.rhs),
+            Arithmetic::Rem(op) => write!(f, "{} % {}", op.lhs, op.rhs),
+            Arithmetic::ModFloor(op) => write!(f, "{}.mod_floor({})", op.lhs, op.rhs),
             Arithmetic::Magnitude(op) => write!(f, "{}.length()", op.input),
             Arithmetic::Normalize(op) => write!(f, "{}.normalize()", op.input),
             Arithmetic::Dot(op) => write!(f, "{}.dot({})", op.lhs, op.rhs),
@@ -128,7 +130,7 @@ impl Display for Arithmetic {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct ClampOperator {
+pub struct ClampOperands {
     pub input: Variable,
     pub min_value: Variable,
     pub max_value: Variable,
@@ -137,23 +139,7 @@ pub struct ClampOperator {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct ReadGlobalOperator {
-    pub variable: Variable,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
-#[allow(missing_docs)]
-pub struct ReadGlobalWithLayoutOperator {
-    pub variable: Variable,
-    pub tensor_read_pos: usize,
-    pub tensor_layout_pos: usize,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
-#[allow(missing_docs)]
-pub struct FmaOperator {
+pub struct FmaOperands {
     pub a: Variable,
     pub b: Variable,
     pub c: Variable,

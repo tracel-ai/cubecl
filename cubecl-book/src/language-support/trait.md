@@ -10,9 +10,9 @@ trait methods, and how CubeCL works behind the scenes.
 #[cube]
 trait MyTrait {
     /// Does not get added to an expand trait.
-    fn my_function(x: &Array<f32>) -> f32;
+    fn my_function(x: &[f32]) -> f32;
     /// Generates an expand copy in the expand trait.
-    fn my_function_2(&self, x: &Array<f32>) -> f32;
+    fn my_function_2(&self, x: &[f32]) -> f32;
 }
 ```
 
@@ -32,14 +32,7 @@ types and values. The reasons this is relevant to traits are four-fold:
    forward their body to the expanded methods. This means your trait _must_ extend some version of
    `CubeType<ExpandType: {name}Expand>`. This is done automatically by the macro, but should be kept
    in mind since it introduces a hidden supertrait.
-3. Expanded methods will use an owned `self` by default, meaning they cannot be used with dynamic
-   dispatch. If you need dynamic dispatch on the expanded values (as seen in
-   [`VirtualTensor`](https://docs.rs/cubecl-std/latest/cubecl_std/tensor/virtual/struct.VirtualTensor.html)
-   for example), you can override this behaviour by setting the `self_type` to either
-   `#[cube(self_type = "ref")]`, or `#[cube(self_type = "ref_mut")]`. This will also need to be
-   added to any implementations, since the macro doesn't know type resolution, so can't tell the
-   type of `self`.
-4. Expanded traits will not inherit any traits from the base. If you need the expanded trait to
+3. Expanded traits will not inherit any traits from the base. If you need the expanded trait to
    implement base traits (i.e. `Clone`), use the `expand_base_traits` option on the macro.
 
 # Example

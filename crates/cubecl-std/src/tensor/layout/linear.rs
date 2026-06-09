@@ -1,11 +1,9 @@
-use alloc::rc::Rc;
-
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, ir::UIntKind, unexpanded, zspace::Shape};
+use cubecl_core::{self as cubecl, ir::UIntKind, zspace::Shape};
 
 use crate::tensor::{
-    View, is_contiguous, is_contiguous_pitched,
-    launch::{BufferArg, ConcreteLayout, ConcreteLayoutLaunch, ViewArg, ViewLayoutLaunchArg},
+    View, ViewMut, is_contiguous, is_contiguous_pitched,
+    launch::{ConcreteLayout, ConcreteLayoutLaunch, MemoryArg, ViewArg, ViewLayoutLaunchArg},
     layout::{
         Coords1d, Layout, LayoutExpand, VirtualLayoutOperationsExpand,
         permuted::{PermutedLayout, PermutedLayoutCompilationArg, PermutedLayoutLaunch},
@@ -31,21 +29,15 @@ pub enum LinearViewLayout {
     Permuted(PermutedLayout),
 }
 
-impl LinearViewLayout {
-    fn inner(&self) -> &PlainLayout {
-        unexpanded!()
-    }
-}
-
 impl LinearViewLayoutExpand {
     fn __expand_inner_method(
-        self,
-        _scope: &mut Scope,
-    ) -> Rc<dyn VirtualLayoutOperationsExpand<Coords1d, Coords1d>> {
+        &self,
+        _scope: &Scope,
+    ) -> &dyn VirtualLayoutOperationsExpand<Coords1d, Coords1d> {
         match self {
-            LinearViewLayoutExpand::Plain(layout) => Rc::new(layout),
-            LinearViewLayoutExpand::Strided(layout) => Rc::new(layout),
-            LinearViewLayoutExpand::Permuted(layout) => Rc::new(layout),
+            LinearViewLayoutExpand::Plain(layout) => layout,
+            LinearViewLayoutExpand::Strided(layout) => layout,
+            LinearViewLayoutExpand::Permuted(layout) => layout,
         }
     }
 }
@@ -59,7 +51,7 @@ impl ViewLayoutLaunchArg for LinearViewLayout {
     type RuntimeArg<R: Runtime> = LinearViewLayoutLaunch;
     type CompilationArg = LinearLayoutCompilationArg;
 
-    fn register<R: Runtime, B: BufferArg>(
+    fn register<R: Runtime, B: MemoryArg>(
         runtime_arg: Self::RuntimeArg<R>,
         buffer: &B,
         ty: Type,
@@ -138,8 +130,12 @@ impl Layout for LinearViewLayout {
     type Coordinates = Coords1d;
     type SourceCoordinates = Coords1d;
 
+    #[allow(unused)]
     fn to_source_pos(&self, pos: Self::Coordinates) -> usize {
-        self.inner().to_source_pos(pos)
+        intrinsic!(|scope| {
+            let inner = self.__expand_inner_method(scope);
+            inner.__expand_to_source_pos_virt_method(scope, pos)
+        })
     }
 
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (usize, bool) {
@@ -147,11 +143,18 @@ impl Layout for LinearViewLayout {
     }
 
     fn shape(&self) -> Self::Coordinates {
-        self.inner().shape()
+        intrinsic!(|scope| {
+            let inner = self.__expand_inner_method(scope);
+            inner.__expand_shape_virt_method(scope)
+        })
     }
 
+    #[allow(unused)]
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
-        self.inner().is_in_bounds(pos)
+        intrinsic!(|scope| {
+            let inner = self.__expand_inner_method(scope);
+            inner.__expand_is_in_bounds_virt_method(scope, pos)
+        })
     }
 }
 
@@ -161,7 +164,8 @@ pub type LinearLayoutLaunch<R> = ConcreteLayoutLaunch<LinearViewLayout, R>;
 
 /// [`View`] with a linear layout inferred from the shape/strides at launch.
 /// Useful for elementwise kernels.
-pub type LinearView<E, IO = ReadOnly> = View<E, Coords1d, IO>;
+pub type LinearView<'a, E> = View<'a, E, Coords1d>;
+pub type LinearViewMut<'a, E> = ViewMut<'a, E, Coords1d>;
 /// Launch type for [`LinearView`].
 pub type LinearViewLaunch<R> = ViewArg<Coords1d, R>;
 

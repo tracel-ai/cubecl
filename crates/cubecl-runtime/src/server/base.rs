@@ -34,6 +34,7 @@ use cubecl_common::{
 use cubecl_ir::{DeviceProperties, ElemType, StorageType};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use hashbrown::HashSet;
+use itertools::Itertools;
 use thiserror::Error;
 
 #[derive(Error, Clone)]
@@ -263,9 +264,21 @@ impl core::fmt::Debug for ResourceLimitError {
 }
 
 /// Error that can happen asynchronously while executing registered kernels.
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum ServerError {
+    /// A runtime validation error
+    #[error(
+        "A validation error happened during execution\nCaused by:\n  {message}\nBacktrace:\n{backtrace}"
+    )]
+    Validation {
+        /// The details of the validation error.
+        message: String,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// A generic runtime error.
     #[error("An error happened during execution\nCaused by:\n  {reason}\nBacktrace:\n{backtrace}")]
     Generic {
@@ -284,12 +297,12 @@ pub enum ServerError {
     #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
     Profile(#[from] ProfileError),
 
-    /// An execution error happened during profiling
-    #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
+    /// An IO error happened during profiling
+    #[error("An IO error happened during profiling\nCaused by:\n  {0}")]
     Io(#[from] IoError),
 
     /// The server is an invalid state.
-    #[error("The server is in an invalid state\nCaused by:\n  {errors:?}")]
+    #[error("The server is in an invalid state\nCaused by:\n  {}", errors.iter().join("\n"))]
     ServerUnhealthy {
         /// The details of the generic error.
         errors: Vec<Self>,
@@ -297,6 +310,12 @@ pub enum ServerError {
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
+}
+
+impl Debug for ServerError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self}")
+    }
 }
 
 /// How errors are handled in a stream when executing a task.
@@ -387,8 +406,17 @@ where
     /// Flush all outstanding tasks in the server.
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
-    /// The current memory usage of the server.
+    /// Memory usage of the given stream.
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError>;
+
+    /// Stream ids the client should iterate to aggregate across the device.
+    ///
+    /// Default is just the calling stream, which is correct for
+    /// non-multi-stream backends; multi-stream backends override to
+    /// return one id per initialized stream pool slot.
+    fn stream_ids(&self) -> Vec<StreamId> {
+        Vec::from([StreamId::current()])
+    }
 
     /// Ask the server to release memory that it can release.
     fn memory_cleanup(&mut self, stream_id: StreamId);

@@ -2,8 +2,9 @@ use core::fmt::Display;
 
 use super::{Branch, CoopMma, NonSemantic, Plane, Synchronization, Type, Variable};
 use crate::{
-    Arithmetic, AtomicOp, Bitwise, InstructionModes, Metadata, OperationArgs, OperationReflect,
-    Operator, TmaOps, VectorSize, comparison::Comparison, marker::Marker,
+    Arithmetic, AtomicOp, Bitwise, Id, InstructionModes, Memory, Metadata, OperationArgs,
+    OperationReflect, Operator, Scope, TensorIndexingOps, TmaOps, VectorSize,
+    comparison::Comparison, marker::Marker,
 };
 use crate::{BarrierOps, SourceLoc, TypeHash};
 use alloc::{
@@ -12,6 +13,7 @@ use alloc::{
     vec::Vec,
 };
 use derive_more::derive::From;
+use itertools::Itertools;
 
 /// All operations that can be used in a GPU compute shader.
 ///
@@ -27,7 +29,15 @@ use derive_more::derive::From;
 pub enum Operation {
     #[operation(pure)]
     #[from(ignore)]
-    Copy(Variable),
+    Copy(#[args(allow_ptr)] Variable),
+    /// Construct an aggregate (i.e. fat pointer) that's later disaggregated into normal variables
+    /// supported by codegen. Not allowed to exist after the disaggregation pass.
+    ConstructAggregate(#[args(allow_ptr)] Vec<Variable>),
+    /// Extract a specific field from an aggregate (i.e. read the length from a slice ptr).
+    /// Not allowed to exist after the disaggregation pass.
+    ExtractAggregateField(AggregateExtractOperands),
+    #[operation(nested)]
+    Memory(Memory),
     #[operation(nested)]
     Arithmetic(Arithmetic),
     #[operation(nested)]
@@ -44,6 +54,15 @@ pub enum Operation {
     Branch(Branch),
     #[operation(nested)]
     Synchronization(Synchronization),
+    /// Barrier followed by a load whose result is workgroup-uniform.
+    ///
+    /// Mirrors WGSL's `workgroupUniformLoad`: the input is a reference into
+    /// workgroup-shared memory (`&list[i]`, produced by [`Memory::Index`]),
+    /// and both the non-atomic and atomic WGSL overloads map here. Other
+    /// backends lower this to a `sync_cube` followed by a regular (or atomic)
+    /// load — uniformity is implicit there.
+    #[from(ignore)]
+    WorkgroupUniformLoad(#[args(allow_ptr, ptr_read)] Variable),
     #[operation(nested)]
     Plane(Plane),
     #[operation(nested)]
@@ -52,6 +71,8 @@ pub enum Operation {
     Barrier(BarrierOps),
     #[operation(nested)]
     Tma(TmaOps),
+    #[operation(nested)]
+    TensorIndexing(TensorIndexingOps),
     /// Non-semantic instructions (i.e. comments, debug info)
     #[operation(nested)]
     NonSemantic(NonSemantic),
@@ -89,10 +110,12 @@ impl Instruction {
         }
     }
 
+    #[track_caller]
     pub fn out(&self) -> Variable {
         self.out.unwrap()
     }
 
+    #[track_caller]
     pub fn ty(&self) -> Type {
         self.out().ty
     }
@@ -101,47 +124,6 @@ impl Instruction {
 impl Display for Instruction {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match &self.operation {
-            Operation::Operator(Operator::CopyMemory(op)) => write!(
-                f,
-                "copy_mem({}[{}], {}[{}])",
-                self.out(),
-                op.out_index,
-                op.input,
-                op.in_index
-            ),
-            Operation::Operator(Operator::CopyMemoryBulk(op)) => write!(
-                f,
-                "copy_mem_bulk({}[{}], {}[{}], {})",
-                self.out(),
-                op.out_index,
-                op.input,
-                op.in_index,
-                op.len
-            ),
-            Operation::Operator(Operator::IndexAssign(op)) => {
-                write!(
-                    f,
-                    "{}[{}] = {}  : ({}, {}) -> ({})",
-                    self.out(),
-                    op.index,
-                    op.value,
-                    op.index.ty,
-                    op.value.ty,
-                    self.out().ty,
-                )
-            }
-            Operation::Operator(Operator::UncheckedIndexAssign(op)) => {
-                write!(
-                    f,
-                    "unchecked {}[{}] = {} : ({}, {}) -> ({})",
-                    self.out(),
-                    op.index,
-                    op.value,
-                    op.index.ty,
-                    op.value.ty,
-                    self.out().ty,
-                )
-            }
             Operation::Operator(Operator::Cast(op)) => {
                 write!(
                     f,
@@ -181,6 +163,14 @@ impl Display for Instruction {
 impl Display for Operation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Operation::Copy(variable) => write!(f, "{variable}"),
+            Operation::ConstructAggregate(variables) => {
+                write!(f, "aggregate({})", variables.iter().join(", "))
+            }
+            Operation::ExtractAggregateField(AggregateExtractOperands { aggregate, field }) => {
+                write!(f, "extract({aggregate}, {field})")
+            }
+            Operation::Memory(memory) => write!(f, "{memory}"),
             Operation::Arithmetic(arithmetic) => write!(f, "{arithmetic}"),
             Operation::Comparison(comparison) => write!(f, "{comparison}"),
             Operation::Bitwise(bitwise) => write!(f, "{bitwise}"),
@@ -189,12 +179,15 @@ impl Display for Operation {
             Operation::Metadata(metadata) => write!(f, "{metadata}"),
             Operation::Branch(branch) => write!(f, "{branch}"),
             Operation::Synchronization(synchronization) => write!(f, "{synchronization}"),
+            Operation::WorkgroupUniformLoad(var) => {
+                write!(f, "workgroup_uniform_load({var})")
+            }
             Operation::Plane(plane) => write!(f, "{plane}"),
             Operation::CoopMma(coop_mma) => write!(f, "{coop_mma}"),
-            Operation::Copy(variable) => write!(f, "{variable}"),
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
             Operation::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Operation::Tma(tma_ops) => write!(f, "{tma_ops}"),
+            Operation::TensorIndexing(ops) => write!(f, "{ops}"),
             Operation::Marker(marker) => write!(f, "{marker}"),
         }
     }
@@ -216,28 +209,27 @@ pub fn fmt_vararg(args: &[impl Display]) -> String {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct IndexOperator {
+pub struct IndexOperands {
     pub list: Variable,
     pub index: Variable,
     pub vector_size: VectorSize, // 0 == same as list.
     pub unroll_factor: usize,    // Adjustment factor for bounds check
+    pub checked: bool,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct IndexAssignOperator {
-    // list is out.
-    pub index: Variable,
+pub struct StoreOperands {
+    #[args(allow_ptr, ptr_write)]
+    pub ptr: Variable,
     pub value: Variable,
-    pub vector_size: VectorSize, // 0 == same as list.
-    pub unroll_factor: usize,    // Adjustment factor for bounds check
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct BinaryOperator {
+pub struct BinaryOperands {
     pub lhs: Variable,
     pub rhs: Variable,
 }
@@ -245,7 +237,47 @@ pub struct BinaryOperator {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
-pub struct UnaryOperator {
+pub struct AtomicBinaryOperands {
+    #[args(allow_ptr, ptr_read, ptr_write)]
+    pub ptr: Variable,
+    pub value: Variable,
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
+pub struct AggregateExtractOperands {
+    #[args(allow_ptr)]
+    pub aggregate: Variable,
+    pub field: usize,
+}
+
+/// Closure passed to an intrinsic
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
+pub struct Function {
+    /// Explicit parameters passed to the function. Does not contain closure captures.
+    pub explicit_params: Vec<Variable>,
+    /// Scope containing closure instructions. Unknown variables that aren't explicit params are
+    /// assumed to be captures.
+    pub scope: Scope,
+}
+
+/// Closures are functions invoked by the runtime, not us. So we only use the Id, no params.
+pub type Closure = Id;
+
+impl Display for Function {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let params = self.explicit_params.iter().join(", ");
+        let instructions = self.scope.instructions.borrow().iter().join("\n");
+        write!(f, "|{params}| {{\n{instructions}\n}}")
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
+#[allow(missing_docs)]
+pub struct UnaryOperands {
     pub input: Variable,
 }
 

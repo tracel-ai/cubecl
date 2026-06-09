@@ -1,9 +1,9 @@
 use core::{marker::PhantomData, ops::Neg};
 
 use crate::frontend::{CubePrimitive, CubeType, NativeAssign, NativeExpand};
-use crate::ir::{BinaryOperator, Instruction, Scope, Type};
+use crate::ir::{BinaryOperands, Instruction, Scope, Type};
 use crate::{self as cubecl, prelude::*};
-use cubecl_ir::{Comparison, ConstantValue, ManagedVariable};
+use cubecl_ir::{Comparison, ConstantValue, Variable};
 use cubecl_macros::{cube, intrinsic};
 
 /// A contiguous list of elements that supports auto-vectorized operations.
@@ -53,7 +53,7 @@ mod new {
             }
         }
 
-        pub fn __expand_new(scope: &mut Scope, val: NativeExpand<P>) -> VectorExpand<P, N> {
+        pub fn __expand_new(scope: &Scope, val: NativeExpand<P>) -> VectorExpand<P, N> {
             Vector::<P, N>::__expand_cast_from(scope, val)
         }
     }
@@ -62,6 +62,52 @@ mod new {
         /// Get the length of the current vector.
         pub fn vector_size(&self) -> comptime_type!(VectorSize) {
             N::value()
+        }
+    }
+}
+
+mod components {
+    use cubecl_ir::{Operator, VectorInsertOperands};
+
+    use super::*;
+
+    #[cube]
+    impl<P: Scalar, N: Size> Vector<P, N> {
+        #[allow(unused)]
+        pub fn extract(self, index: usize) -> P {
+            intrinsic!(|scope| {
+                if self.expand.vector_size() > 1 {
+                    let out = scope.create_local(P::__expand_as_type(scope));
+                    scope.register(Instruction::new(
+                        Operator::ExtractComponent(BinaryOperands {
+                            lhs: self.expand,
+                            rhs: index.expand,
+                        }),
+                        out,
+                    ));
+                    out.into()
+                } else {
+                    read_variable(scope, self.expand).into()
+                }
+            })
+        }
+
+        #[allow(unused)]
+        pub fn insert(&mut self, index: usize, value: P) {
+            intrinsic!(|scope| {
+                if self.expand.vector_size() > 1 {
+                    scope.register(Instruction::new(
+                        Operator::InsertComponent(VectorInsertOperands {
+                            vector: self.expand,
+                            index: index.expand,
+                            value: value.expand,
+                        }),
+                        self.expand,
+                    ));
+                } else {
+                    assign::expand_element(scope, value.expand, self.expand);
+                }
+            })
         }
     }
 }
@@ -110,10 +156,9 @@ mod fill {
         /// vector[0] = 1;
         /// vector[1] = 2;
         /// ```
-        #[allow(unused_variables)]
         pub fn fill(self, value: P) -> Self {
             intrinsic!(|scope| {
-                let output = scope.create_local(Vector::<P, N>::as_type(scope));
+                let output = scope.create_local(Vector::<P, N>::__expand_as_type(scope));
 
                 cast::expand::<P, Vector<P, N>>(scope, value, output.clone().into());
 
@@ -172,7 +217,7 @@ mod size {
         }
 
         /// Expand function of [size](Self::size).
-        pub fn __expand_size(scope: &mut Scope, element: NativeExpand<Vector<P, N>>) -> VectorSize {
+        pub fn __expand_size(scope: &Scope, element: NativeExpand<Vector<P, N>>) -> VectorSize {
             element.__expand_vector_size_method(scope)
         }
     }
@@ -184,7 +229,7 @@ mod size {
         }
 
         /// Expand method of [size](Vector::size).
-        pub fn __expand_size_method(&self, _scope: &mut Scope) -> VectorSize {
+        pub fn __expand_size_method(&self, _scope: &Scope) -> VectorSize {
             self.size()
         }
     }
@@ -206,17 +251,18 @@ macro_rules! impl_vector_comparison {
                         $comment,
                         " the second vector."
                     )]
-                    #[allow(unused_variables)]
-                    pub fn $name(self, other: Self) -> Vector<bool, N> {
+                    pub fn $name(&self, other: &Self) -> Vector<bool, N> {
                         intrinsic!(|scope| {
-                            let size = self.expand.ty.vector_size();
-                            let lhs = self.expand.into();
+                            let this = self.__expand_deref_method(scope);
+                            let other = other.__expand_deref_method(scope);
+                            let size = this.expand.ty.vector_size();
+                            let lhs = this.expand;
                             let rhs = other.expand.into();
 
-                            let output = scope.create_local_mut(Vector::<bool, N>::as_type(scope));
+                            let output = scope.create_local_mut(Vector::<bool, N>::__expand_as_type(scope));
 
                             scope.register(Instruction::new(
-                                Comparison::$operator(BinaryOperator { lhs, rhs }),
+                                Comparison::$operator(BinaryOperands { lhs, rhs }),
                                 output.clone().into(),
                             ));
 
@@ -247,8 +293,7 @@ mod bool_and {
     #[cube]
     impl<N: Size> Vector<bool, N> {
         /// Return a new vector with the element-wise and of the vectors
-        #[allow(unused_variables)]
-        pub fn and(self, other: Self) -> Vector<bool, N> {
+        pub fn vec_and(self, other: Self) -> Vector<bool, N> {
             intrinsic!(
                 |scope| binary_expand(scope, self.expand, other.expand, Operator::And).into()
             )
@@ -266,7 +311,6 @@ mod bool_or {
     #[cube]
     impl<N: Size> Vector<bool, N> {
         /// Return a new vector with the element-wise and of the vectors
-        #[allow(unused_variables)]
         pub fn or(self, other: Self) -> Vector<bool, N> {
             intrinsic!(|scope| binary_expand(scope, self.expand, other.expand, Operator::Or).into())
         }
@@ -277,16 +321,10 @@ impl<P: Scalar, N: Size> CubeType for Vector<P, N> {
     type ExpandType = NativeExpand<Self>;
 }
 
-impl<P: Scalar, N: Size> CubeType for &Vector<P, N> {
-    type ExpandType = NativeExpand<Vector<P, N>>;
-}
-
-impl<P: Scalar, N: Size> CubeType for &mut Vector<P, N> {
-    type ExpandType = NativeExpand<Vector<P, N>>;
-}
+impl<P: Scalar, N: Size> CubeDebug for Vector<P, N> {}
 
 impl<P: Scalar, N: Size> NativeAssign for Vector<P, N> {
-    fn elem_init_mut(scope: &mut crate::ir::Scope, elem: ManagedVariable) -> ManagedVariable {
+    fn elem_init_mut(scope: &Scope, elem: Variable) -> Variable {
         P::elem_init_mut(scope, elem)
     }
 }
@@ -296,14 +334,14 @@ impl<P: Scalar, N: Size> CubePrimitive for Vector<P, N> {
     type Size = N;
     type WithScalar<S: Scalar> = Vector<S, N>;
 
-    fn as_type(scope: &Scope) -> Type {
-        P::as_type(scope).with_vector_size(N::__expand_value(scope))
+    fn __expand_as_type(scope: &Scope) -> Type {
+        Type::with_vector_size(P::__expand_as_type(scope), N::__expand_value(scope))
     }
 
     fn as_type_native() -> Option<Type> {
         P::as_type_native().and_then(|ty| {
             let vector_size = N::try_value_const()?;
-            Some(ty.with_vector_size(vector_size))
+            Some(Type::with_vector_size(ty, vector_size))
         })
     }
 

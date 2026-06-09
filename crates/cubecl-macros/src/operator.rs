@@ -1,7 +1,8 @@
-use std::fmt::Display;
+use derive_more::Display;
 
 /// An operator used in the intermediate representation
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
+#[display(rename_all = "lowercase")]
 pub enum Operator {
     // Arithmetic
     /// Add (+) operator
@@ -77,12 +78,12 @@ pub enum Operator {
     Not,
     /// Negation unary operator (-)
     Neg,
-}
 
-impl Display for Operator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{self:?}"))
-    }
+    // Extra
+    #[display("as_deref")]
+    AsDeref,
+    #[display("as_deref_mut")]
+    AsDerefMut,
 }
 
 impl Operator {
@@ -104,23 +105,21 @@ impl Operator {
         )
     }
 
+    /// Whether this is a comparison op, which insert a hidden reference
+    pub fn is_cmp(&self) -> bool {
+        matches!(
+            self,
+            Operator::Eq | Operator::Ne | Operator::Lt | Operator::Le | Operator::Gt | Operator::Ge
+        )
+    }
+
     /// Get the expanded op name for this operation
     pub fn op_name(&self) -> String {
         if self.is_assign() {
-            let name = self.to_string().to_lowercase();
-            format!("{}_assign_op", &name[..name.len() - 6])
+            let name = self.to_string();
+            format!("{}_assign", &name[..name.len() - 6])
         } else {
-            self.to_string().to_lowercase()
-        }
-    }
-
-    /// Get the expanded op name for this array operation
-    pub fn array_op_name(&self) -> String {
-        if self.is_assign() {
-            let name = self.to_string().to_lowercase();
-            format!("{}_assign_array_op", &name[..name.len() - 6])
-        } else {
-            self.to_string().to_lowercase()
+            self.to_string()
         }
     }
 }

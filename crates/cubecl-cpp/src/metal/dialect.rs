@@ -7,11 +7,11 @@ use super::{
 use crate::{
     Dialect,
     shared::{
-        self, AtomicKind, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
-        DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
-        DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
-        FragmentIdent, FragmentLayout, Instruction, Item, KernelArg, ManualMma, SharedMemory,
-        SupportedMmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
+        self, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins, DialectIncludes,
+        DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
+        DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout,
+        Instruction, Item, KernelArg, ManualMma, SharedMemory, SupportedMmaCombinations, Variable,
+        WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
 use core::panic;
@@ -36,22 +36,19 @@ impl MslDialect {
         simd_op_suffix: &str,
     ) -> core::fmt::Result {
         let out = out.fmt_left();
-        let vectorization = input.item().vectorization;
 
-        f.write_fmt(format_args!("{out} = {} {{", input.item()))?;
+        if let Item::Vector(_, vectorization) = input.item() {
+            f.write_fmt(format_args!("{out} = {} {{", input.item()))?;
 
-        for k in 0..vectorization {
-            let index = if vectorization > 1 {
-                format!(".i_{k}")
-            } else {
-                String::new()
-            };
-            let comma = if k + 1 < vectorization { "," } else { "" };
+            for k in 0..vectorization {
+                let comma = if k + 1 < vectorization { "," } else { "" };
+                writeln!(f, "{simd_op_prefix}{input}.i_{k}{simd_op_suffix}{comma}")?;
+            }
 
-            writeln!(f, "{simd_op_prefix}{input}{index}{simd_op_suffix}{comma}")?;
+            f.write_fmt(format_args!("}};\n"))
+        } else {
+            writeln!(f, "{out} = {simd_op_prefix}{input}{simd_op_suffix};")
         }
-
-        f.write_fmt(format_args!("}};\n"))
     }
 }
 
@@ -228,25 +225,25 @@ impl DialectTypes<Self> for MslDialect {
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
         for item in items.iter() {
-            let elem = item.elem;
-            let size = item.vectorization;
-            let alignment = elem.size() * size;
-            if size > 1 {
-                write!(
-                    f,
-                    "
-struct alignas({alignment}) {item} {{"
-                )?;
-
-                for i in 0..size {
+            if let Item::Vector(inner, vectorization) = item {
+                let alignment = item.size();
+                if *vectorization > 1 {
                     write!(
                         f,
                         "
-    {elem} i_{i};"
+struct alignas({alignment}) {item} {{"
                     )?;
-                }
 
-                f.write_str("\n};\n")?;
+                    for i in 0..*vectorization {
+                        write!(
+                            f,
+                            "
+    {inner} i_{i};"
+                        )?;
+                    }
+
+                    f.write_str("\n};\n")?;
+                }
             }
         }
 
@@ -281,39 +278,43 @@ struct alignas({alignment}) {item} {{"
             shared::Elem::U8 => f.write_str("uchar"),
             shared::Elem::U16 => f.write_str("ushort"),
             shared::Elem::U32 => f.write_str("uint"),
-            shared::Elem::U64 => f.write_str("uint64_t"), // or unsigned long
+            shared::Elem::U64 => f.write_str("ulong"),
             shared::Elem::Bool => f.write_str("bool"),
             shared::Elem::Barrier(_) => unimplemented!("metal doesn't support barrier object"),
-            shared::Elem::Atomic(inner) => inner.fmt(f),
             shared::Elem::_Dialect(_) => Ok(()),
         }
     }
 
     fn compile_item(f: &mut std::fmt::Formatter<'_>, item: &Item<Self>) -> std::fmt::Result {
-        if 1 == item.vectorization {
-            return write!(f, "{}", item.elem);
-        }
-        if item.native {
-            write!(f, "{}{}", item.elem, item.vectorization)
-        } else {
-            write!(f, "{}_{}", item.elem, item.vectorization)
-        }
-    }
-
-    fn compile_atomic_kind(
-        f: &mut std::fmt::Formatter<'_>,
-        kind: &AtomicKind<Self>,
-    ) -> std::fmt::Result {
-        match kind {
-            AtomicKind::I32 => write!(f, "atomic_int"),
-            AtomicKind::I64 => panic!("I64 atomic kind no supported."),
-            AtomicKind::U32 => write!(f, "atomic_uint"),
-            AtomicKind::U64 => write!(f, "atomic_ulong"),
-            AtomicKind::F16 | AtomicKind::F16x2 => panic!("F16 atomic kind no supported."),
-            AtomicKind::BF16 | AtomicKind::BF16x2 => panic!("BF16 atomic kind no supported."),
-            AtomicKind::F32 => write!(f, "atomic_float"), // needs metal 3
-            AtomicKind::F64 => panic!("F64 atomic kind no supported."),
-            AtomicKind::_Dialect(_) => Ok(()),
+        match item {
+            Item::Scalar(elem) => write!(f, "{elem}"),
+            Item::Vector(inner, vectorization) => {
+                Self::compile_item(f, inner.as_ref())?;
+                write!(f, "_{vectorization}")
+            }
+            Item::NativeVector(elem, vectorization) => {
+                Self::compile_elem(f, elem, true)?;
+                write!(f, "{vectorization}")
+            }
+            Item::Atomic(inner) => {
+                write!(f, "atomic_{inner}")
+            }
+            Item::Pointer(inner, class) => {
+                let address_space = match class {
+                    shared::PointerClass::Global(vis) => (*vis).into(),
+                    shared::PointerClass::Shared => AddressSpace::ThreadGroup,
+                    shared::PointerClass::Local => AddressSpace::Thread,
+                };
+                write!(f, "{address_space} ")?;
+                Self::compile_item(f, inner.as_ref())?;
+                f.write_str("*")
+            }
+            Item::Array(inner, size) => {
+                write!(f, "array<{inner}, {size}>")
+            }
+            Item::DynamicArray(inner) => {
+                write!(f, "{inner}*")
+            }
         }
     }
 
@@ -329,14 +330,9 @@ struct alignas({alignment}) {item} {{"
         f: &mut std::fmt::Formatter<'_>,
         shared: &SharedMemory<Self>,
     ) -> std::fmt::Result {
-        match shared {
-            SharedMemory::Array {
-                index,
-                item,
-                length,
-                offset,
-                ..
-            } => {
+        let SharedMemory { index, offset, .. } = shared;
+        match shared.item {
+            Item::Array(item, length) => {
                 let size_bytes = length * item.size();
                 writeln!(f, "// Shared array size: {length}, {size_bytes} bytes")?;
                 writeln!(
@@ -344,12 +340,7 @@ struct alignas({alignment}) {item} {{"
                     "threadgroup {item}* shared_memory_{index} = reinterpret_cast<threadgroup {item}*>(&dynamic_shared_mem[{offset}]);"
                 )
             }
-            SharedMemory::Value {
-                index,
-                item,
-                offset,
-                ..
-            } => {
+            item => {
                 let size_bytes = item.size();
                 writeln!(f, "// Shared value size: {size_bytes} bytes")?;
                 writeln!(
@@ -444,7 +435,7 @@ void {kernel_name}("
             let size = body
                 .shared_memories
                 .iter()
-                .map(|it| it.offset() + it.size())
+                .map(|it| it.offset + it.size())
                 .max()
                 .unwrap();
 
@@ -1115,9 +1106,8 @@ impl DialectWmmaCompiler<Self> for MslDialect {
             }
             WmmaInstruction::Load {
                 frag,
-                value,
+                ptr,
                 stride,
-                offset,
                 layout: _layout,
             } => {
                 let transpose = match frag {
@@ -1128,26 +1118,16 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                     },
                     _ => panic!("should be a fragment"),
                 };
-                let item = value.item();
-                if item.vectorization > 1 {
-                    let elem = item.elem;
-                    match value {
-                        Variable::GlobalInputArray(..) => writeln!(
-                            f,
-                            "simdgroup_load({frag}, (device {elem}*)({value} + {offset}), {stride}, 0, {transpose});"
-                        ),
-                        Variable::SharedArray(..) => writeln!(
-                            f,
-                            "simdgroup_load({frag}, reinterpret_cast<threadgroup {elem} *>({value} + {offset}), {stride}, 0, {transpose});"
-                        ),
-                        _ => panic!(
-                            "Vectorized wmma load is only supported from global or shared memory."
-                        ),
-                    }
+                if let Item::Vector(..) = *ptr.item().value_ty() {
+                    let elem_ptr = ptr.item().as_scalar();
+                    writeln!(
+                        f,
+                        "simdgroup_load({frag}, ({elem_ptr})({ptr}), {stride}, 0, {transpose});"
+                    )
                 } else {
                     writeln!(
                         f,
-                        "simdgroup_load({frag}, {value} + {offset}, {stride}, 0, {transpose});"
+                        "simdgroup_load({frag}, {ptr}, {stride}, 0, {transpose});"
                     )
                 }
             }
@@ -1161,28 +1141,28 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 writeln!(f, "simdgroup_multiply_accumulate({d}, {a}, {b}, {c});")
             }
             WmmaInstruction::Store {
-                output,
                 frag,
                 stride,
-                offset,
+                destination,
                 layout: _layout,
             } => {
-                let item = output.item();
-                let mut reinterpret_cast = item.vectorization > 1;
-                let elem = match item.elem {
+                let item = destination.item();
+                let mut reinterpret_cast = item.vectorization() > 1;
+                let elem = match item.value_ty().elem() {
                     Elem::BF16 => {
                         reinterpret_cast = true;
                         Elem::F16
                     }
-                    _ => item.elem,
+                    _ => *item.elem(),
                 };
+                let scalar_ptr = item.as_scalar().with_elem(elem);
                 if reinterpret_cast {
                     writeln!(
                         f,
-                        "simdgroup_store({frag}, reinterpret_cast<threadgroup {elem} *>({output} + {offset}), {stride});"
+                        "simdgroup_store({frag}, reinterpret_cast<{scalar_ptr}>({destination}), {stride});"
                     )
                 } else {
-                    writeln!(f, "simdgroup_store({frag}, {output} + {offset}, {stride});")
+                    writeln!(f, "simdgroup_store({frag}, {destination}, {stride});")
                 }?;
                 writeln!(f, "simdgroup_barrier(mem_flags::mem_none);")
             }

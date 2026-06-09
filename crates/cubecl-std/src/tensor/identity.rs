@@ -13,6 +13,7 @@ fn identity_kernel<C: Numeric, N: Size>(
 ) {
     let pos_x = ABSOLUTE_POS_X as usize * output.vector_size();
     let pos_y = ABSOLUTE_POS_Y as usize;
+    let vector_size = output.vector_size();
     if pos_y < output.shape(0) && pos_x < output.shape(1) {
         let mut vector = Vector::new(C::from_int(0));
         let offs_y = pos_y * output.stride(0);
@@ -22,13 +23,13 @@ fn identity_kernel<C: Numeric, N: Size>(
         while offset < output.vector_size() {
             let remainder = (start_pos + offset) % gap;
             if remainder == 0 {
-                vector[offset] = C::from_int(1);
+                vector.insert(offset, C::from_int(1));
                 offset += gap;
             } else {
                 offset += gap - remainder;
             }
         }
-        output[start_pos / output.vector_size()] = vector;
+        output[start_pos / vector_size] = vector;
     }
 }
 

@@ -1,24 +1,24 @@
 use core::fmt::Display;
 
-use crate::{TypeHash, UnaryOperator};
+use crate::{TypeHash, UnaryOperands};
 
-use crate::{BinaryOperator, OperationReflect};
+use crate::{BinaryOperands, OperationReflect};
 
 /// Comparison operations
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = ComparisonOpCode, pure)]
 pub enum Comparison {
-    Lower(BinaryOperator),
-    LowerEqual(BinaryOperator),
+    Lower(BinaryOperands),
+    LowerEqual(BinaryOperands),
     #[operation(commutative)]
-    Equal(BinaryOperator),
+    Equal(BinaryOperands),
     #[operation(commutative)]
-    NotEqual(BinaryOperator),
-    GreaterEqual(BinaryOperator),
-    Greater(BinaryOperator),
-    IsNan(UnaryOperator),
-    IsInf(UnaryOperator),
+    NotEqual(BinaryOperands),
+    GreaterEqual(BinaryOperands),
+    Greater(BinaryOperands),
+    IsNan(UnaryOperands),
+    IsInf(UnaryOperands),
 }
 
 impl Display for Comparison {

@@ -3,7 +3,7 @@ use crate::{self as cubecl, as_type};
 use cubecl::prelude::*;
 
 #[cube(launch)]
-pub fn kernel_properties(output: &mut Array<u32>) {
+pub fn kernel_properties(output: &mut [u32]) {
     if UNIT_POS == 0 {
         let properties = comptime::device_properties().comptime();
         output[0] = properties.hardware.plane_size_min;
@@ -18,7 +18,7 @@ pub fn test_kernel_properties<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
     );
 
     let actual = client.read_one_unchecked(handle);

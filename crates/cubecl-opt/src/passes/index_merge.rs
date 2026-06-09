@@ -1,8 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use alloc::vec::Vec;
+use cubecl_ir::{CopyMemoryOperands, Id, Instruction, Memory, Operation, Variable, VariableKind};
+use hashbrown::{HashMap, HashSet};
 
-use cubecl_ir::{CopyMemoryOperator, Id, Instruction, Operation, Operator, Variable, VariableKind};
-
-use crate::{AtomicCounter, Optimizer};
+use crate::{
+    AtomicCounter, Function, GlobalState, analyses::pointer_source::PointerSource, visit_noop,
+};
 
 use super::OptimizerPass;
 
@@ -11,29 +13,33 @@ use super::OptimizerPass;
 pub struct CopyTransform;
 
 impl OptimizerPass for CopyTransform {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        for block in opt.node_ids() {
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        let ptr_source = func.analysis::<PointerSource>(state);
+        for block in func.node_ids() {
             let mut reads = HashMap::new();
             let mut writes = HashMap::new();
-            let ops = opt.program[block].ops.clone();
+            let ops = func[block].ops.clone();
             let indices = ops.borrow().indices().collect::<Vec<_>>();
             for idx in indices {
                 let inst = ops.borrow()[idx].clone();
                 match &inst.operation {
-                    Operation::Operator(Operator::Index(op))
-                        if op.list.is_memory()
-                            && op.list.ty == inst.ty()
-                            && !is_reused(opt, &inst.out) =>
+                    Operation::Memory(Memory::Load(ptr))
+                        if ptr_source
+                            .get(ptr)
+                            .is_some_and(|it| it.ty == inst.ty() && it.is_memory())
+                            && !is_reused(func, state, &inst.out) =>
                     {
+                        let source = ptr_source.get(ptr).unwrap();
                         if let Some(id) = as_versioned(&inst.out()) {
-                            reads.insert(id, (idx, op.list, op.index));
+                            reads.insert(id, (idx, *ptr, source));
                         }
                     }
-                    Operation::Operator(Operator::IndexAssign(op))
-                        if inst.out().is_memory() && inst.ty() == op.value.ty =>
+                    Operation::Memory(Memory::Store(op))
+                        if ptr_source.get(&op.ptr).is_some_and(|it| it.is_memory()) =>
                     {
+                        let source = ptr_source.get(&op.ptr).unwrap();
                         if let Some(id) = as_versioned(&op.value) {
-                            writes.insert(id, (idx, inst.out(), op.index));
+                            writes.insert(id, (idx, op.ptr, source));
                         }
                     }
                     _ => {}
@@ -43,22 +49,29 @@ impl OptimizerPass for CopyTransform {
             let write_ids: HashSet<_> = writes.keys().collect();
             let copy_ids = read_ids.intersection(&write_ids);
             for id in copy_ids {
-                let (read_idx, input, in_index) = reads[*id];
-                let (write_idx, out, out_index) = writes[*id];
-                let valid = (read_idx..write_idx)
-                    .filter_map(|idx| ops.borrow().get(idx).and_then(|it| it.out))
-                    .all(|write| write != input && write != out);
-                if !valid {
+                let (read_idx, in_ptr, in_source) = reads[*id];
+                let (write_idx, out_ptr, out_source) = writes[*id];
+                let mut is_overwritten = false;
+                for mut inst in
+                    (read_idx..write_idx).filter_map(|idx| ops.borrow().get(idx).cloned())
+                {
+                    func.visit_instruction(state, &mut inst, visit_noop, |_, var| {
+                        if *var == in_source || *var == out_source {
+                            is_overwritten = true;
+                        }
+                    });
+                }
+                if is_overwritten {
                     continue;
                 }
 
                 ops.borrow_mut().remove(read_idx);
-                let copy = Operator::CopyMemory(CopyMemoryOperator {
-                    out_index,
-                    input,
-                    in_index,
+                let copy = Memory::CopyMemory(CopyMemoryOperands {
+                    source: in_ptr,
+                    target: out_ptr,
+                    len: 1,
                 });
-                ops.borrow_mut()[write_idx] = Instruction::new(copy, out);
+                ops.borrow_mut()[write_idx] = Instruction::no_out(copy);
                 changes.inc();
             }
         }
@@ -73,10 +86,11 @@ fn as_versioned(var: &Variable) -> Option<(Id, u16)> {
     }
 }
 
-fn is_reused(opt: &mut Optimizer, var: &Option<Variable>) -> bool {
+fn is_reused(func: &mut Function, state: &GlobalState, var: &Option<Variable>) -> bool {
     if let Some(var) = var.as_ref() {
         let count = AtomicCounter::new(0);
-        opt.visit_all(
+        func.visit_all(
+            state,
             |_, other| {
                 if other == var {
                     count.inc();

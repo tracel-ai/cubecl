@@ -13,6 +13,7 @@ pub mod expression;
 pub mod into_runtime;
 pub mod kernel;
 pub mod launch;
+pub mod signature;
 pub mod statement;
 
 pub trait RuntimeField: Clone + UsesTypeParams {

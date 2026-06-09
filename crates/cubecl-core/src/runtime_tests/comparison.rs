@@ -5,7 +5,7 @@ macro_rules! test_binary_impl {
     (
         $test_name:ident,
         $primitive_type:tt,
-        $cmp:tt,
+        $cmp:ident,
         [$({
             vectorization: $vectorization:expr,
             lhs: $lhs:expr,
@@ -14,12 +14,12 @@ macro_rules! test_binary_impl {
         pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = FastMath::all())]
             fn test_function<N: Size>(
-                lhs: &Array<Vector<$primitive_type, N>>,
-                rhs: &Array<Vector<$primitive_type, N>>,
-                output: &mut Array<Vector<u32, N>>
+                lhs: &[Vector<$primitive_type, N>],
+                rhs: &[Vector<$primitive_type, N>],
+                output: &mut [Vector<u32, N>]
             ) {
                 if ABSOLUTE_POS < rhs.len() {
-                    output[ABSOLUTE_POS] = Vector::cast_from(lhs[ABSOLUTE_POS] $cmp rhs[ABSOLUTE_POS]);
+                    output[ABSOLUTE_POS] = Vector::cast_from(lhs[ABSOLUTE_POS].$cmp(&rhs[ABSOLUTE_POS]));
                 }
             }
 
@@ -37,9 +37,9 @@ macro_rules! test_binary_impl {
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $vectorization as usize) as u32),
                         $vectorization,
-                        ArrayArg::from_raw_parts(lhs_handle, lhs.len()),
-                        ArrayArg::from_raw_parts(rhs_handle, rhs.len()),
-                        ArrayArg::from_raw_parts(output_handle.clone(), $lhs.len()),
+                        BufferArg::from_raw_parts(lhs_handle, lhs.len()),
+                        BufferArg::from_raw_parts(rhs_handle, rhs.len()),
+                        BufferArg::from_raw_parts(output_handle.clone(), $lhs.len()),
                     )
                 };
 
@@ -49,7 +49,7 @@ macro_rules! test_binary_impl {
                 for i in 0..lhs.len() {
                     let l = lhs[i];
                     let r = rhs[i];
-                    let result = (l $cmp r) as u32;
+                    let result = (l.$cmp(&r)) as u32;
                     assert!(actual[i] == result, "{} {} should give {} but gave {}", l, r, result, actual[i]);
                 }
             }
@@ -63,7 +63,7 @@ macro_rules! test_binary_impl {
 test_binary_impl!(
     test_gt,
     u32,
-    >,
+    gt,
     [
         {
             vectorization: 4,
@@ -76,7 +76,7 @@ test_binary_impl!(
 test_binary_impl!(
     test_lt,
     u32,
-    <,
+    lt,
     [
         {
             vectorization: 4,
@@ -89,7 +89,7 @@ test_binary_impl!(
 test_binary_impl!(
     test_ge,
     u32,
-    >=,
+    ge,
     [
         {
             vectorization: 4,
@@ -102,7 +102,7 @@ test_binary_impl!(
 test_binary_impl!(
     test_le,
     u32,
-    <=,
+    le,
     [
         {
             vectorization: 4,
@@ -115,7 +115,7 @@ test_binary_impl!(
 test_binary_impl!(
     test_eq,
     u32,
-    ==,
+    eq,
     [
         {
             vectorization: 4,
@@ -128,7 +128,7 @@ test_binary_impl!(
 test_binary_impl!(
     test_ne,
     u32,
-    !=,
+    ne,
     [
         {
             vectorization: 4,

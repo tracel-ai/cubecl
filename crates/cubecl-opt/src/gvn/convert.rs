@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-
 use cubecl_ir::{Operation, OperationReflect, Type, Variable, VariableKind};
+use hashbrown::HashMap;
 use smallvec::SmallVec;
 
 use super::{Expression, Local, Value};
@@ -45,7 +44,7 @@ impl Value {
                 },
                 *item,
             ),
-            Value::Input(id, item) => Variable::new(VariableKind::GlobalInputArray(*id), *item),
+            Value::Global(id, item) => Variable::new(VariableKind::GlobalBuffer(*id), *item),
             Value::Scalar(id, elem) => {
                 Variable::new(VariableKind::GlobalScalar(*id), Type::new(*elem))
             }
@@ -58,7 +57,6 @@ impl Value {
                 *item,
             ),
             Value::Builtin(builtin, ty) => Variable::builtin(*builtin, *ty),
-            Value::Output(id, item) => Variable::new(VariableKind::GlobalOutputArray(*id), *item),
         }
     }
 }
@@ -66,13 +64,11 @@ impl Value {
 pub fn value_of_var(var: &Variable) -> Option<Value> {
     let item = var.ty;
     let val = match var.kind {
-        VariableKind::GlobalInputArray(id) => Value::Input(id, item),
-        VariableKind::GlobalOutputArray(id) => Value::Output(id, item),
+        VariableKind::GlobalBuffer(id) => Value::Global(id, item),
         VariableKind::GlobalScalar(id) => Value::Scalar(id, item.storage_type()),
         VariableKind::Versioned { id, version } => Value::Local(Local { id, version, item }),
         VariableKind::LocalConst { id } => Value::Local(Local {
             id,
-
             version: 0,
             item,
         }),
@@ -83,17 +79,15 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
             unroll_factor,
         } => Value::ConstArray(id, item, length, unroll_factor),
         VariableKind::LocalMut { .. }
-        | VariableKind::SharedArray { .. }
         | VariableKind::Shared { .. }
-        | VariableKind::LocalArray { .. }
         | VariableKind::Matrix { .. } => None?,
         VariableKind::Builtin(builtin) => Value::Builtin(builtin, item.storage_type()),
         VariableKind::Pipeline { .. } => panic!("Pipeline is not supported"),
         VariableKind::BarrierToken { .. } => {
             panic!("Barrier is not supported")
         }
-        VariableKind::TensorMapInput(_) => panic!("Tensor map is not supported"),
-        VariableKind::TensorMapOutput(_) => panic!("Tensor map is not supported"),
+        VariableKind::TensorMap(_) => panic!("Tensor map is not supported"),
+        VariableKind::Aggregate { .. } => unreachable!("Should be disaggregated at this point"),
     };
     Some(val)
 }

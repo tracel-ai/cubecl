@@ -19,13 +19,14 @@
 use std::borrow::Cow;
 
 use cubecl_core::ir::{self as core, CubeFnSource, Id, SourceLoc, Variable};
+use cubecl_opt::Function;
 use hashbrown::HashMap;
 use rspirv::spirv::{DebugInfoFlags, FunctionControl, Word};
 use rspirv::sr::{
     nonsemantic_debugprintf::DebugPrintfBuilder, nonsemantic_shader_debuginfo_100::DebugInfoBuilder,
 };
 
-use crate::{SpirvCompiler, SpirvTarget};
+use crate::{SpirvCompiler, SpirvTarget, lookups::FuncDefinition};
 
 pub const SIGNATURE: &str = concat!(env!("CARGO_PKG_NAME"), " v", env!("CARGO_PKG_VERSION"));
 
@@ -73,7 +74,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         if self.debug_enabled() {
             let return_ty = self.type_void();
             let function_ty = self.debug_type_function(DebugInfoFlags::NONE, return_ty, []);
-            let entry_loc = self.opt.root_scope.debug.entry_loc.clone().unwrap();
+            let entry_loc = self
+                .opt
+                .global_state
+                .root_scope
+                .debug
+                .entry_loc
+                .borrow()
+                .clone()
+                .unwrap();
 
             self.debug_info = Some(DebugInfo {
                 function_ty,
@@ -105,7 +114,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     /// Collect sources ahead of time so line numbers and source file names are correct
     fn collect_sources(&mut self) {
-        let cube_fns = self.opt.root_scope.debug.sources.borrow().clone();
+        let cube_fns = self
+            .opt
+            .global_state
+            .root_scope
+            .debug
+            .sources
+            .borrow()
+            .clone();
         let mut sources = HashMap::new();
         for cube_fn in cube_fns.iter() {
             // If source is missing, don't override since it might exist from another function in the
@@ -134,6 +150,47 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             };
             self.declare_debug_function(name, &mut function);
             self.definitions().functions.insert(cube_fn, function);
+        }
+    }
+
+    pub fn declare_function(&mut self, func: &Function) -> FuncDefinition {
+        let return_ty = func
+            .return_value
+            .map(|it| self.compile_type(it.ty).id(self))
+            .unwrap_or_else(|| self.type_void());
+        let param_types = func
+            .all_params()
+            .map(|it| self.compile_function_param_type(it))
+            .collect::<Vec<_>>();
+        let func_ty = self.type_function(return_ty, param_types.iter().copied());
+
+        let definition = self
+            .debug_info
+            .as_ref()
+            .and_then(|info| info.previous_loc.clone())
+            .map(|loc| self.definitions().functions[&loc.source]);
+
+        if let Some(definition) = definition {
+            let func_call = FunctionCall {
+                definition,
+                inlined_at: None,
+            };
+
+            self.stack().push(func_call);
+        }
+
+        let id = self
+            .begin_function(return_ty, None, FunctionControl::NONE, func_ty)
+            .unwrap();
+
+        for (param_ty, param) in param_types.into_iter().zip(func.all_params()) {
+            let param_id = self.function_parameter(param_ty).unwrap();
+            self.init_function_param(param, param_id);
+        }
+
+        FuncDefinition {
+            type_id: func_ty,
+            id,
         }
     }
 
@@ -322,7 +379,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     fn debug_enabled(&self) -> bool {
-        self.debug_symbols && self.opt.root_scope.debug.entry_loc.is_some()
+        self.debug_symbols
+            && self
+                .opt
+                .global_state
+                .root_scope
+                .debug
+                .entry_loc
+                .borrow()
+                .is_some()
     }
 
     #[track_caller]
@@ -351,7 +416,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn name_of_var(&mut self, var: Variable) -> Cow<'static, str> {
-        let var_names = self.opt.root_scope.debug.variable_names.clone();
+        let var_names = self
+            .opt
+            .global_state
+            .root_scope
+            .debug
+            .variable_names
+            .clone();
         let debug_name = var_names.borrow().get(&var).cloned();
         debug_name.unwrap_or_else(|| var.to_string().into())
     }

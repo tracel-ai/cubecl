@@ -1,27 +1,12 @@
 use cubecl_core::ir::{OperationReflect, StorageType, Variable, VariableKind};
 use cubecl_opt::Optimizer;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum SharedMemory {
-    Array {
-        id: u32,
-        ty: StorageType,
-        // Length include the vectorization factor
-        length: usize,
-    },
-    Value {
-        id: u32,
-        ty: StorageType,
-    },
-}
-
-impl SharedMemory {
-    pub fn id(&self) -> u32 {
-        match self {
-            SharedMemory::Array { id, .. } => *id,
-            SharedMemory::Value { id, .. } => *id,
-        }
-    }
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct SharedMemory {
+    pub id: u32,
+    pub ty: StorageType,
+    // Length include the vectorization factor
+    pub length: usize,
 }
 
 #[derive(Default)]
@@ -31,31 +16,25 @@ impl SharedMemories {
     pub fn visit_variable(&mut self, variable: Variable) {
         // Alignment is ignored for the moment it is taken from the type
         match variable.kind {
-            VariableKind::SharedArray { id, length, .. }
-                if self.0.iter().all(|shared_memory| shared_memory.id() != id) =>
+            VariableKind::Shared { id, .. }
+                if self.0.iter().all(|shared_memory| shared_memory.id != id) =>
             {
                 let elem = variable.storage_type();
-                let vectorization = variable.vector_size();
-                let length = length * vectorization;
-                self.0.push(SharedMemory::Array {
+                let length = variable.ty.size() / elem.size();
+
+                self.0.push(SharedMemory {
                     id,
                     ty: elem,
                     length,
                 });
             }
-            VariableKind::Shared { id }
-                if self.0.iter().all(|shared_memory| shared_memory.id() != id) =>
-            {
-                let elem = variable.storage_type();
-                self.0.push(SharedMemory::Value { id, ty: elem });
-            }
             _ => {}
         }
     }
     pub fn visit(&mut self, opt: &Optimizer) {
-        for node in opt.program.node_indices().collect::<Vec<_>>() {
-            let phi = opt.program[node].phi_nodes.clone();
-            let ops = opt.program[node].ops.clone();
+        for node in opt.main.node_indices().collect::<Vec<_>>() {
+            let phi = opt.main[node].phi_nodes.clone();
+            let ops = opt.main[node].ops.clone();
 
             for phi in phi.borrow_mut().iter_mut() {
                 self.visit_variable(phi.out);
@@ -71,6 +50,6 @@ impl SharedMemories {
                 }
             }
         }
-        self.0.sort_by_key(|a| a.id());
+        self.0.sort_by_key(|a| a.id);
     }
 }

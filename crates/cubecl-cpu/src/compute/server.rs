@@ -2,8 +2,8 @@ use crate::{
     CpuCompiler,
     compiler::MlirCompilerOptions,
     compute::{
-        runner::CpuKernel,
         schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
+        threadpool::CpuKernel,
     },
 };
 use cubecl_common::{
@@ -96,6 +96,7 @@ impl CpuServer {
         count: CubeCount,
         bindings: BindingsResource,
         kind: ExecutionMode,
+        stream_id: StreamId,
     ) -> Result<ScheduleTask, CompilationError> {
         let cube_count = match count {
             CubeCount::Static(x, y, z) => [x, y, z],
@@ -121,7 +122,7 @@ impl CpuServer {
             }
         };
 
-        self.prepare_task_inner(kernel, cube_count, bindings, kind)
+        self.prepare_task_inner(kernel, cube_count, bindings, kind, stream_id)
     }
 
     fn prepare_task_inner(
@@ -130,6 +131,7 @@ impl CpuServer {
         cube_count: [u32; 3],
         bindings: BindingsResource,
         kind: ExecutionMode,
+        stream_id: StreamId,
     ) -> Result<ScheduleTask, CompilationError> {
         let kernel_id = kernel.id();
         let kernel = if let Some(kernel) = self.compilation_cache.get(&kernel_id) {
@@ -153,11 +155,12 @@ impl CpuServer {
         let mlir_engine = kernel.mlir.repr.clone().unwrap();
 
         let task = ScheduleTask::Execute {
+            stream_id,
             mlir_engine,
             bindings,
-            kind,
             cube_dim,
             cube_count,
+            kind,
         };
 
         Ok(task)
@@ -255,6 +258,7 @@ impl ComputeServer for CpuServer {
                 }
             };
             let task = ScheduleTask::Write {
+                stream_id,
                 data,
                 buffer: resource,
             };
@@ -266,6 +270,10 @@ impl ComputeServer for CpuServer {
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError> {
         let stream = self.scheduler.stream(&stream_id);
         Ok(stream.memory_management.memory_usage())
+    }
+
+    fn stream_ids(&self) -> Vec<StreamId> {
+        self.scheduler.stream_ids().collect()
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {
@@ -287,7 +295,9 @@ impl ComputeServer for CpuServer {
             .iter()
             .for_each(|b| self.streams_pool.push(b.stream));
         let bindings = self.prepare_bindings(bindings);
-        let task = self.prepare_task(kernel, count, bindings, kind).unwrap();
+        let task = self
+            .prepare_task(kernel, count, bindings, kind, stream_id)
+            .unwrap();
 
         self.scheduler.register(stream_id, task, &self.streams_pool);
     }

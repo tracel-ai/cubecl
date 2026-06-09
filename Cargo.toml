@@ -11,7 +11,7 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 rust-version = "1.92"
-version = "0.10.0-pre.4"
+version = "0.11.0-pre.1"
 
 [workspace.lints.rust]
 warnings = "warn"
@@ -58,12 +58,12 @@ serde_bytes = { version = "0.11.17", default-features = false, features = [
 ] } # alloc for no_std
 serde_json = { version = "1.0.119", default-features = false }
 toml = "1"
-variadics_please = "1"
+variadics_please = "2"
 
 # no_std compatibility
 dashmap = "6.1.0"
 foldhash = { version = "0.2", default-features = false }
-hashbrown = "0.16"
+hashbrown = "0.17"
 smallvec = { version = "1", features = [
     "union",
     "const_generics",
@@ -98,14 +98,18 @@ half = { version = "2.5", features = [
     "num-traits",
     "serde",
 ], default-features = false }
+num-integer = { version = "0.1", default-features = false }
 num-traits = { version = "0.2.19", default-features = false, features = [
     "libm",
 ] } # libm is for no_std
 
+bumpalo = "3"
 cfg-if = "1.0.0"
 darling = "0.23.0"
-enumset = { version = "1.1.10", default-features = false }
+enumset = { version = "1.1.12", default-features = false }
 ident_case = "1"
+internment = "0.8"
+itertools = "0.14"
 paste = "1"
 proc-macro2 = "1"
 quote = "1"
@@ -124,12 +128,19 @@ embassy-futures = { version = "0.1.1" }                        # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
-sysinfo = "0.38.0"
-tracel-llvm = { version = "20.1.4-6", features = ["mlir-helpers"] }
-### For development, if you uncomment, don't forget do to it in `crates/cubecl-cpu/Cargo.toml` [build-dependencies] too to avoid race conditions during build
-# tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = ["mlir-helpers"] }
+sysinfo = "0.38"
+tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm", rev = "82401e3c00a35a3fb7d5e2b415e79692e09e1079", features = ["mlir-helpers"] }
+tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm", rev = "82401e3c00a35a3fb7d5e2b415e79692e09e1079" }
+### For development
+# tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = [
+#     "mlir-helpers",
+# ] }
+# tracel-llvm-bundler = { path = "../tracel-llvm/crates/tracel-llvm-bundler" }
+libc = "^0.2.186"
+winapi = { version = "^0.3.9", features = ["processthreadsapi", "winbase"] }
 
-cudarc = { version = "0.19.0", features = [
+
+cudarc = { version = "0.19.6", features = [
     "std",
     "driver",
     "nvrtc",
@@ -140,18 +151,21 @@ cudarc = { version = "0.19.0", features = [
 ], default-features = false } # CubeCL-CUDA
 
 # CubeCL-SPIR-V
-rspirv = { package = "tracel-rspirv", version = "0.12.1" }
+rspirv = { package = "tracel-rspirv", version = "0.13.0" }
 
 # CubeCL-WGPU
 ash = "0.38"
-# tracel-ash = "0.38.0"
-tracel-ash = "0.39"
+tracel-ash = "0.39.2"
+# tracel-ash = { path = "../tracel-ash/crates/ash" }
 
-wgpu = "29"
+wgpu = { git = "https://github.com/gfx-rs/wgpu.git", rev = "bde709122f8320571ab1733ab055dcb54415a483" }
+# wgpu = "^29.0.1"
+wgpu-hal = { git = "https://github.com/gfx-rs/wgpu.git", rev = "bde709122f8320571ab1733ab055dcb54415a483" }
+
+renderdoc = "0.12"
 
 # Build deps
 cfg_aliases = "0.2.1"
-
 
 [profile.dev.build-override]
 opt-level = 3

@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use core::marker::PhantomData;
 
 use crate::{self as cubecl, IntoRuntime, as_bytes};
@@ -90,7 +91,7 @@ pub fn kernel_runtime_values(test: TestEnum<i32>) {
 }
 
 #[cube(launch)]
-pub fn kernel_scalar_enum(test: TestEnum<i32>, output: &mut Array<f32>) {
+pub fn kernel_scalar_enum(test: TestEnum<i32>, output: &mut [f32]) {
     match test {
         TestEnum::A(x, y) | TestEnum::F { x, y } => {
             output[0] = f32::cast_from(x) + f32::cast_from(y);
@@ -108,7 +109,7 @@ pub fn kernel_scalar_enum(test: TestEnum<i32>, output: &mut Array<f32>) {
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_runtime_variants_empty(test: u32, output: &mut Array<f32>) {
+pub fn kernel_runtime_variants_empty(test: u32, output: &mut [f32]) {
     let test = if test == 0 {
         RuntimeEnumEmpty::new_A()
     } else if test == 1 {
@@ -130,7 +131,7 @@ pub fn kernel_runtime_variants_empty(test: u32, output: &mut Array<f32>) {
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_runtime_variants_empty_wildcard(test: RuntimeEnumEmpty, output: &mut Array<f32>) {
+pub fn kernel_runtime_variants_empty_wildcard(test: RuntimeEnumEmpty, output: &mut [f32]) {
     match test {
         RuntimeEnumEmpty::B => {
             output[0] = 20.0;
@@ -142,7 +143,7 @@ pub fn kernel_runtime_variants_empty_wildcard(test: RuntimeEnumEmpty, output: &m
 }
 
 #[cube(launch_unchecked)]
-pub fn kernel_runtime_variants_value(test: RuntimeEnumSingleValue, output: &mut Array<f32>) {
+pub fn kernel_runtime_variants_value(test: RuntimeEnumSingleValue, output: &mut [f32]) {
     let value: i32 = match test {
         RuntimeEnumSingleValue::B(bstruct) => bstruct.x,
         RuntimeEnumSingleValue::A => 0i32,
@@ -159,7 +160,7 @@ pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R>) {
         CubeCount::new_single(),
         CubeDim::new_single(),
         TestEnumArgs::<i32, R>::C(10),
-        unsafe { ArrayArg::from_raw_parts(array.clone(), 1) },
+        unsafe { BufferArg::from_raw_parts(array.clone(), 1) },
     );
     let bytes = client.read_one_unchecked(array);
     let actual = f32::from_bytes(&bytes);
@@ -176,7 +177,7 @@ pub fn test_runtime_variants_empty<R: Runtime>(client: ComputeClient<R>) {
             CubeCount::new_single(),
             CubeDim::new_single(),
             1,
-            ArrayArg::from_raw_parts(array.clone(), 1),
+            BufferArg::from_raw_parts(array.clone(), 1),
         )
     };
     let bytes = client.read_one_unchecked(array);
@@ -196,7 +197,7 @@ pub fn test_runtime_variants_value<R: Runtime>(client: ComputeClient<R>) {
             RuntimeEnumSingleValueLaunch::Runtime(RuntimeEnumSingleValueArgs::B(
                 BStructLaunch::new(5, 5),
             )),
-            ArrayArg::from_raw_parts(array.clone(), 1),
+            BufferArg::from_raw_parts(array.clone(), 1),
         )
     };
     let bytes = client.read_one_unchecked(array);
@@ -214,7 +215,7 @@ pub fn test_runtime_variants_empty_wildcard<R: Runtime>(client: ComputeClient<R>
             CubeCount::new_single(),
             CubeDim::new_single(),
             RuntimeEnumEmptyLaunch::Runtime(RuntimeEnumEmptyArgs::C),
-            ArrayArg::from_raw_parts(array.clone(), 1),
+            BufferArg::from_raw_parts(array.clone(), 1),
         )
     };
     let bytes = client.read_one_unchecked(array);
@@ -225,8 +226,8 @@ pub fn test_runtime_variants_empty_wildcard<R: Runtime>(client: ComputeClient<R>
 
 #[derive(CubeLaunch, CubeType)]
 pub enum ArrayFloatInt {
-    Float(Array<f32>),
-    Int(Array<i32>),
+    Float(Box<[f32]>),
+    Int(Box<[i32]>),
 }
 
 #[cube(launch)]
@@ -239,7 +240,7 @@ fn kernel_array_float_int(array: &mut ArrayFloatInt) {
     }
 }
 
-pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
+pub fn test_array_float_int<R: Runtime, T: Scalar + CubeElement>(
     client: &ComputeClient<R>,
     expected: T,
 ) {
@@ -250,9 +251,9 @@ pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
         CubeCount::new_single(),
         CubeDim::new_single(),
         if core::any::TypeId::of::<T>() == core::any::TypeId::of::<f32>() {
-            ArrayFloatIntArgs::Float(unsafe { ArrayArg::from_raw_parts(array.clone(), 1) })
+            ArrayFloatIntArgs::Float(unsafe { BufferArg::from_raw_parts(array.clone(), 1) })
         } else {
-            ArrayFloatIntArgs::Int(unsafe { ArrayArg::from_raw_parts(array.clone(), 1) })
+            ArrayFloatIntArgs::Int(unsafe { BufferArg::from_raw_parts(array.clone(), 1) })
         },
     );
 
@@ -263,12 +264,12 @@ pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
 }
 
 #[derive(CubeLaunch, CubeType)]
-pub enum SimpleEnum<T: LaunchArg> {
+pub enum SimpleEnum<T: CubeType> {
     Variant(T),
 }
 
 #[cube(launch)]
-fn kernel_tuple_enum(first: &mut SimpleEnum<Array<u32>>, second: SimpleEnum<Array<u32>>) {
+fn kernel_tuple_enum(first: SimpleEnum<&mut [u32]>, second: SimpleEnum<&[u32]>) {
     if UNIT_POS == 0 {
         match (first, second) {
             (SimpleEnum::Variant(x), SimpleEnum::Variant(y)) => {
@@ -286,10 +287,10 @@ pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R>) {
         client,
         CubeCount::new_single(),
         CubeDim::new_single(),
-        SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe {
-            ArrayArg::from_raw_parts(first.clone(), 1)
+        SimpleEnumArgs::<&mut [u32], R>::Variant(unsafe {
+            BufferArg::from_raw_parts(first.clone(), 1)
         }),
-        SimpleEnumArgs::<Array<u32>, R>::Variant(unsafe { ArrayArg::from_raw_parts(second, 1) }),
+        SimpleEnumArgs::<&[u32], R>::Variant(unsafe { BufferArg::from_raw_parts(second, 1) }),
     );
 
     let bytes = client.read_one_unchecked(first);

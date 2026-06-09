@@ -79,14 +79,14 @@ pub fn kernel_min<F: Float, N: Size>(output: &mut Tensor<Vector<F, N>>) {
 #[cube(launch)]
 pub fn kernel_all<F: Float>(output: &mut Tensor<F>) {
     let val = output[UNIT_POS as usize];
-    let val2 = plane_all(val < F::new(5.0));
+    let val2 = plane_all(val < F::new(5f32));
     output[UNIT_POS as usize] = F::cast_from(val2);
 }
 
 #[cube(launch)]
 pub fn kernel_any<F: Float>(output: &mut Tensor<F>) {
     let val = output[UNIT_POS as usize];
-    let val2 = plane_any(val > F::new(5.0));
+    let val2 = plane_any(val > F::new(5f32));
     output[UNIT_POS as usize] = F::cast_from(val2);
 }
 
@@ -94,7 +94,7 @@ pub fn kernel_any<F: Float>(output: &mut Tensor<F>) {
 pub fn kernel_elect<F: Float>(output: &mut Tensor<F>) {
     let elect = plane_elect();
     if elect {
-        output[20] += F::new(1.0);
+        output[20] += F::new(1f32);
     }
 }
 

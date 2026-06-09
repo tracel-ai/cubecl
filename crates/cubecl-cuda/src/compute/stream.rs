@@ -11,13 +11,14 @@ use cubecl_core::{
     server::{Binding, ServerError},
 };
 use cubecl_runtime::{
+    config::streaming::StreamPriority,
     logging::ServerLogger,
     memory_management::{
         MemoryAllocationMode, MemoryManagement, MemoryManagementOptions, drop_queue,
     },
     stream::EventStreamBackend,
 };
-use std::sync::Arc;
+use std::{mem::MaybeUninit, sync::Arc};
 
 #[derive(Debug)]
 pub struct Stream {
@@ -40,6 +41,61 @@ pub struct CudaStreamBackend {
     mem_config: MemoryConfiguration,
     mem_alignment: usize,
     logger: Arc<ServerLogger>,
+    priority: StreamPriority,
+}
+
+/// Create a non-blocking CUDA stream, applying the requested priority hint.
+///
+/// `StreamPriority::Default` preserves the historical `cuStreamCreate` path so
+/// existing users see no change. `Low`/`High` go through
+/// `cuStreamCreateWithPriority` using the device's range as queried via
+/// `cuCtxGetStreamPriorityRange`. CUDA convention: lower number = higher
+/// priority, so the queried `greatest` is numerically smallest (most
+/// aggressive) and `least` is numerically largest (least aggressive). On
+/// devices without priority support both values are 0 and CUDA silently
+/// ignores the priority argument — equivalent to the default path.
+///
+/// Both calls require a current CUDA context; callers in this crate always
+/// set the context before invoking stream creation.
+pub(crate) fn create_cuda_stream(priority: StreamPriority) -> cudarc::driver::sys::CUstream {
+    use cudarc::driver::sys::{self, CUstream_flags};
+
+    let use_greatest = match priority {
+        StreamPriority::Default => {
+            return cudarc::driver::result::stream::create(
+                cudarc::driver::result::stream::StreamKind::NonBlocking,
+            )
+            .expect("Can create a new stream.");
+        }
+        StreamPriority::High => true,
+        StreamPriority::Low => false,
+    };
+
+    // SAFETY: `cuCtxGetStreamPriorityRange` writes through both pointers on
+    // success; we only read the locals after the `.expect()` confirms success.
+    let value = unsafe {
+        let mut least: i32 = 0;
+        let mut greatest: i32 = 0;
+        sys::cuCtxGetStreamPriorityRange(&mut least, &mut greatest)
+            .result()
+            .expect("Can query CUDA stream priority range.");
+        if use_greatest { greatest } else { least }
+    };
+
+    // SAFETY: `cuStreamCreateWithPriority` writes the new stream handle through
+    // the out pointer on success; `.expect()` ensures we only `assume_init` on
+    // success.
+    unsafe {
+        let mut stream = MaybeUninit::uninit();
+        sys::cuStreamCreateWithPriority(
+            stream.as_mut_ptr(),
+            CUstream_flags::CU_STREAM_NON_BLOCKING as u32,
+            value,
+        )
+        .result()
+        .expect("Can create a new CUDA stream with priority.");
+        stream.assume_init()
+    }
 }
 
 impl EventStreamBackend for CudaStreamBackend {
@@ -47,10 +103,7 @@ impl EventStreamBackend for CudaStreamBackend {
     type Event = Fence;
 
     fn create_stream(&self) -> Self::Stream {
-        let stream = cudarc::driver::result::stream::create(
-            cudarc::driver::result::stream::StreamKind::NonBlocking,
-        )
-        .expect("Can create a new stream.");
+        let stream = create_cuda_stream(self.priority);
 
         let storage = GpuStorage::new(self.mem_alignment, stream);
         let memory_management_gpu = MemoryManagement::from_configuration(

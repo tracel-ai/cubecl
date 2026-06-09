@@ -2,7 +2,7 @@ use cubecl_core::prelude::Visibility;
 
 use crate::{
     Dialect,
-    shared::{Component, KernelArg, Variable},
+    shared::{Component, Item, KernelArg, PointerClass, Variable},
 };
 
 use super::BufferAttribute;
@@ -54,15 +54,29 @@ impl From<AddressSpace> for Visibility {
 
 impl<D: Dialect> From<&KernelArg<D>> for AddressSpace {
     fn from(value: &KernelArg<D>) -> Self {
-        match value.vis {
+        value.vis.into()
+    }
+}
+
+impl From<Visibility> for AddressSpace {
+    fn from(value: Visibility) -> Self {
+        match value {
             Visibility::Read => AddressSpace::ConstDevice,
             Visibility::ReadWrite => AddressSpace::Device,
+            Visibility::Uniform => AddressSpace::Constant,
         }
     }
 }
 
 impl<D: Dialect> From<&Variable<D>> for AddressSpace {
     fn from(value: &Variable<D>) -> Self {
+        if let Item::Pointer(_, class) = value.item() {
+            return match class {
+                PointerClass::Global(visibility) => visibility.into(),
+                PointerClass::Shared => AddressSpace::ThreadGroup,
+                PointerClass::Local => AddressSpace::Thread,
+            };
+        }
         match value {
             Variable::AbsolutePosBaseName
             | Variable::AbsolutePosX
@@ -86,8 +100,7 @@ impl<D: Dialect> From<&Variable<D>> for AddressSpace {
             | Variable::CubeCountZ
             | Variable::PlaneDim
             | Variable::UnitPosPlane => AddressSpace::None,
-            Variable::GlobalInputArray(..) => AddressSpace::ConstDevice,
-            Variable::GlobalOutputArray(..) => AddressSpace::Device,
+            Variable::GlobalBuffer(..) => AddressSpace::Device,
             Variable::GlobalScalar { .. } => {
                 if value.is_const() {
                     AddressSpace::ConstDevice

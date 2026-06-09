@@ -73,7 +73,7 @@ macro_rules! test_unary_impl {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = FastMath::all())]
             fn test_function<$float_type: Float, In: Size, Out: Size>(
-                input: &Array<Vector<$float_type, In>>, output: &mut Array<Vector<$float_type, Out>>
+                input: &[Vector<$float_type, In>], output: &mut [Vector<$float_type, Out>]
             ) {
                 if ABSOLUTE_POS < input.len() {
                     output[ABSOLUTE_POS] = Vector::cast_from($unary_func(input[ABSOLUTE_POS]));
@@ -93,8 +93,8 @@ macro_rules! test_unary_impl {
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
                         $input_vectorization,
                         $out_vectorization,
-                        ArrayArg::from_raw_parts(input_handle, input.len()),
-                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                        BufferArg::from_raw_parts(input_handle, input.len()),
+                        BufferArg::from_raw_parts(output_handle.clone(), $expected.len()),
                     )
                 };
 
@@ -119,8 +119,8 @@ macro_rules! test_unary_impl_fixed {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked)]
             fn test_function<$float_type: Float, N: Size>(
-                input: &Array<Vector<$float_type, N>>,
-                output: &mut Array<Vector<$out_type, N>>
+                input: &[Vector<$float_type, N>],
+                output: &mut [Vector<$out_type, N>]
             ) {
                 if ABSOLUTE_POS < input.len() {
                     output[ABSOLUTE_POS] = Vector::cast_from($unary_func(input[ABSOLUTE_POS]));
@@ -139,8 +139,8 @@ macro_rules! test_unary_impl_fixed {
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
                         $input_vectorization,
-                        ArrayArg::from_raw_parts(input_handle, input.len()),
-                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                        BufferArg::from_raw_parts(input_handle, input.len()),
+                        BufferArg::from_raw_parts(output_handle.clone(), $expected.len()),
                     )
                 };
 
@@ -167,8 +167,8 @@ macro_rules! test_unary_impl_int {
         pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R>) {
             #[cube(launch_unchecked)]
             fn test_function<$int_type: Int, N: Size>(
-                input: &Array<Vector<$int_type, N>>,
-                output: &mut Array<Vector<$int_type, N>>
+                input: &[Vector<$int_type, N>],
+                output: &mut [Vector<$int_type, N>]
             ) {
                 if ABSOLUTE_POS < input.len() {
                     output[ABSOLUTE_POS] = Vector::cast_from($unary_func(input[ABSOLUTE_POS]));
@@ -187,8 +187,8 @@ macro_rules! test_unary_impl_int {
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
                         $input_vectorization,
-                        ArrayArg::from_raw_parts(input_handle, input.len()),
-                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                        BufferArg::from_raw_parts(input_handle, input.len()),
+                        BufferArg::from_raw_parts(output_handle.clone(), $expected.len()),
                     )
                 };
 
@@ -216,8 +216,8 @@ macro_rules! test_unary_impl_int_fixed {
         pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R>) {
             #[cube(launch_unchecked)]
             fn test_function<$int_type: Int, N: Size>(
-                input: &Array<Vector<$int_type, N>>,
-                output: &mut Array<Vector<$out_type, N>>
+                input: &[Vector<$int_type, N>],
+                output: &mut [Vector<$out_type, N>]
             ) {
                 if ABSOLUTE_POS < input.len() {
                     output[ABSOLUTE_POS] = Vector::cast_from($unary_func(input[ABSOLUTE_POS]));
@@ -236,8 +236,8 @@ macro_rules! test_unary_impl_int_fixed {
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((input.len() / $input_vectorization as usize) as u32),
                         $input_vectorization,
-                        ArrayArg::from_raw_parts(input_handle, input.len()),
-                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                        BufferArg::from_raw_parts(input_handle, input.len()),
+                        BufferArg::from_raw_parts(output_handle.clone(), $expected.len()),
                     )
                 };
 
@@ -959,8 +959,8 @@ test_unary_impl_int!(test_abs_int, I, Abs::abs, [
 pub fn test_vector_sum_int<R: Runtime, I: Int + CubeElement>(client: ComputeClient<R>) {
     #[cube(launch_unchecked)]
     fn test_function<I: Int, In: Size, Out: Size>(
-        input: &Array<Vector<I, In>>,
-        output: &mut Array<Vector<I, Out>>,
+        input: &[Vector<I, In>],
+        output: &mut [Vector<I, Out>],
     ) {
         if ABSOLUTE_POS < input.len() {
             output[ABSOLUTE_POS] = Vector::cast_from(input[ABSOLUTE_POS].vector_sum());
@@ -980,8 +980,8 @@ pub fn test_vector_sum_int<R: Runtime, I: Int + CubeElement>(client: ComputeClie
                 CubeDim::new_1d(input.len() as u32),
                 1usize,
                 1usize,
-                ArrayArg::from_raw_parts(input_handle, input.len()),
-                ArrayArg::from_raw_parts(output_handle.clone(), input.len()),
+                BufferArg::from_raw_parts(input_handle, input.len()),
+                BufferArg::from_raw_parts(output_handle.clone(), input.len()),
             )
         };
 
@@ -1003,8 +1003,8 @@ pub fn test_vector_sum_int<R: Runtime, I: Int + CubeElement>(client: ComputeClie
                 CubeDim::new_1d(2),
                 2usize,
                 1usize,
-                ArrayArg::from_raw_parts(input_handle, input.len()),
-                ArrayArg::from_raw_parts(output_handle.clone(), 2),
+                BufferArg::from_raw_parts(input_handle, input.len()),
+                BufferArg::from_raw_parts(output_handle.clone(), 2),
             )
         };
 
@@ -1026,8 +1026,8 @@ pub fn test_vector_sum_int<R: Runtime, I: Int + CubeElement>(client: ComputeClie
                 CubeDim::new_1d(1),
                 4usize,
                 1usize,
-                ArrayArg::from_raw_parts(input_handle, input.len()),
-                ArrayArg::from_raw_parts(output_handle.clone(), 1),
+                BufferArg::from_raw_parts(input_handle, input.len()),
+                BufferArg::from_raw_parts(output_handle.clone(), 1),
             )
         };
 

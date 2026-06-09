@@ -1,7 +1,8 @@
 use std::sync::mpsc;
 use std::thread;
 
-use super::compute_task::{ComputeTask, Message};
+use super::compute_task::ComputeTask;
+use crate::compute::affinity::{CoreId, set_for_current};
 
 pub const MAX_STACK_SIZE: usize = 16 * 1024 * 1024;
 pub const DEFAULT_STACK_SIZE: usize = 64 * 1024 * 1024;
@@ -23,11 +24,29 @@ fn resolve_stack_size() -> usize {
 #[derive(Debug)]
 pub struct Worker {
     // TODO: A circular sync buffer with cache alignment would be a better fit, but for the moment a mpsc channel will do the job.
-    tx: mpsc::Sender<Message>,
+    tx: mpsc::Sender<ComputeTask>,
 }
 
 impl Default for Worker {
     fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Worker {
+    pub fn new_with_affinity(core_id: CoreId) -> Self {
+        let (tx, rx) = mpsc::channel();
+        let inner_worker = InnerWorker { rx };
+        thread::Builder::new()
+            .stack_size(resolve_stack_size())
+            .spawn(move || {
+                set_for_current(core_id);
+                inner_worker.work()
+            })
+            .unwrap();
+        Self { tx }
+    }
+    pub fn new() -> Self {
         let (tx, rx) = mpsc::channel();
         let inner_worker = InnerWorker { rx };
         thread::Builder::new()
@@ -36,29 +55,19 @@ impl Default for Worker {
             .unwrap();
         Self { tx }
     }
-}
-
-impl Worker {
     pub fn send_task(&mut self, compute_task: ComputeTask) {
-        self.tx.send(Message::ComputeTask(compute_task)).unwrap();
-    }
-
-    pub fn send_stop(&mut self, callback: mpsc::Sender<()>) {
-        self.tx.send(Message::EndTask(callback)).unwrap();
+        self.tx.send(compute_task).unwrap();
     }
 }
 
 struct InnerWorker {
-    rx: mpsc::Receiver<Message>,
+    rx: mpsc::Receiver<ComputeTask>,
 }
 
 impl InnerWorker {
     fn work(self) {
-        for msg in self.rx.into_iter() {
-            match msg {
-                Message::ComputeTask(compute_task) => compute_task.compute(),
-                Message::EndTask(end_task) => end_task.send(()).unwrap(),
-            }
+        for compute_task in self.rx.into_iter() {
+            compute_task.compute();
         }
     }
 }

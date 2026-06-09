@@ -1,9 +1,9 @@
-use cubecl::prelude::*;
+use cubecl::{num_traits::One, prelude::*};
 
 #[cube(launch_unchecked)]
 /// A [Vector] represents a contiguous series of elements where SIMD operations may be available.
 /// The runtime will automatically use SIMD instructions when possible for improved performance.
-fn gelu_array<F: Float, N: Size>(input: &Array<Vector<F, N>>, output: &mut Array<Vector<F, N>>) {
+fn gelu_array<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut [Vector<F, N>]) {
     if ABSOLUTE_POS < input.len() {
         output[ABSOLUTE_POS] = gelu_scalar(input[ABSOLUTE_POS]);
     }
@@ -15,7 +15,7 @@ fn gelu_scalar<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     let sqrt2 = F::new(comptime!(2.0f32.sqrt()));
     let tmp = x / Vector::new(sqrt2);
 
-    x * (Vector::erf(tmp) + 1.0) / 2.0
+    x * (Vector::erf(tmp) + Vector::one()) / Vector::new(F::new(2.0f32))
 }
 
 pub fn launch<R: Runtime>(device: &R::Device) {
@@ -31,8 +31,8 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(input.len() as u32 / vector_size as u32),
             vector_size,
-            ArrayArg::from_raw_parts(input_handle, input.len()),
-            ArrayArg::from_raw_parts(output_handle.clone(), input.len()),
+            BufferArg::from_raw_parts(input_handle, input.len()),
+            BufferArg::from_raw_parts(output_handle.clone(), input.len()),
         )
     };
 

@@ -1,21 +1,18 @@
-use cubecl_ir::{ConstantValue, ManagedVariable};
+use cubecl_ir::{ConstantValue, Variable};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::{NumCast, One, Zero};
 
 use crate::compute::KernelLauncher;
 use crate::{IntoRuntime, ScalarArgType, compute::KernelBuilder};
 use crate::{
-    frontend::{Abs, Remainder, VectorSum},
+    frontend::{Abs, ModFloor, VectorSum},
     unexpanded,
 };
 use crate::{
     frontend::{CubePrimitive, CubeType},
     prelude::InputScalar,
 };
-use crate::{
-    ir::{Scope, Variable},
-    prelude::Scalar,
-};
+use crate::{ir::Scope, prelude::Scalar};
 
 use super::{LaunchArg, NativeAssign, NativeExpand};
 
@@ -25,7 +22,7 @@ pub trait Numeric:
     Copy
     + Abs
     + VectorSum
-    + Remainder
+    + ModFloor
     + Scalar
     + NativeAssign
     + Into<NativeExpand<Self>>
@@ -40,18 +37,16 @@ pub trait Numeric:
     fn min_value() -> Self;
     fn max_value() -> Self;
 
-    fn __expand_min_value(scope: &mut Scope) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_type(scope).elem_type();
+    fn __expand_min_value(scope: &Scope) -> <Self as CubeType>::ExpandType {
+        let elem = Self::__expand_as_type(scope).elem_type();
         let var = elem.min_variable();
-        let expand = ManagedVariable::Plain(var);
-        expand.into()
+        var.into()
     }
 
-    fn __expand_max_value(scope: &mut Scope) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_type(scope).elem_type();
+    fn __expand_max_value(scope: &Scope) -> <Self as CubeType>::ExpandType {
+        let elem = Self::__expand_as_type(scope).elem_type();
         let var = elem.max_variable();
-        let expand = ManagedVariable::Plain(var);
-        expand.into()
+        var.into()
     }
 
     /// Create a new constant numeric.
@@ -83,14 +78,11 @@ pub trait Numeric:
         unexpanded!()
     }
 
-    fn __expand_from_int(
-        scope: &mut Scope,
-        val: NativeExpand<i64>,
-    ) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_type(scope).elem_type();
+    fn __expand_from_int(scope: &Scope, val: NativeExpand<i64>) -> <Self as CubeType>::ExpandType {
+        let elem = Self::__expand_as_type(scope).elem_type();
         let var: Variable = elem.constant(val.constant().unwrap());
 
-        ManagedVariable::Plain(var).into()
+        var.into()
     }
 }
 
@@ -101,7 +93,7 @@ pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
     fn expand_scalar(builder: &mut KernelBuilder) -> NativeExpand<Self> {
         builder
-            .scalar(Self::as_type(&builder.scope).storage_type())
+            .scalar(Self::__expand_as_type(&builder.scope).storage_type())
             .into()
     }
 }
@@ -126,35 +118,40 @@ impl ScalarArgSettings for isize {
     }
 }
 
-impl<T: ScalarArgSettings> LaunchArg for T {
-    type RuntimeArg<R: Runtime> = T;
-    type CompilationArg = ();
+macro_rules! impl_scalar_launch {
+    ($ty: ty) => {
+        impl LaunchArg for $ty {
+            type RuntimeArg<R: Runtime> = $ty;
+            type CompilationArg = ();
 
-    fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
-        arg.register(launcher);
-    }
+            fn register<R: Runtime>(arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) {
+                arg.register(launcher);
+            }
 
-    fn expand(_: &(), builder: &mut KernelBuilder) -> NativeExpand<Self> {
-        T::expand_scalar(builder)
-    }
+            fn expand(_: &(), builder: &mut KernelBuilder) -> NativeExpand<Self> {
+                <$ty>::expand_scalar(builder)
+            }
+        }
+    };
 }
+pub(crate) use impl_scalar_launch;
 
 pub trait ZeroExpand: CubeType + Zero {
-    fn __expand_zero(scope: &mut Scope) -> Self::ExpandType;
+    fn __expand_zero(scope: &Scope) -> Self::ExpandType;
 }
 
 pub trait OneExpand: CubeType + One {
-    fn __expand_one(scope: &mut Scope) -> Self::ExpandType;
+    fn __expand_one(scope: &Scope) -> Self::ExpandType;
 }
 
 impl<T: CubeType + Zero + IntoRuntime> ZeroExpand for T {
-    fn __expand_zero(scope: &mut Scope) -> Self::ExpandType {
+    fn __expand_zero(scope: &Scope) -> Self::ExpandType {
         T::zero().__expand_runtime_method(scope)
     }
 }
 
 impl<T: CubeType + One + IntoRuntime> OneExpand for T {
-    fn __expand_one(scope: &mut Scope) -> Self::ExpandType {
+    fn __expand_one(scope: &Scope) -> Self::ExpandType {
         T::one().__expand_runtime_method(scope)
     }
 }

@@ -1,4 +1,3 @@
-mod array;
 mod base;
 mod slice;
 mod tensor_map;

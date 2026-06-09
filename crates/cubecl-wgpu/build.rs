@@ -6,6 +6,8 @@ fn main() {
     cfg_aliases! {
         exclusive_memory_only: { any(feature = "exclusive-memory-only", target_family = "wasm") },
         apple_silicon: { all(target_os = "macos", target_arch = "aarch64") },
+        // Renderdoc adds a compile time error on MacOS and iOS
+        renderdoc: { all(feature = "renderdoc", not(any(target_os = "macos", target_os = "ios"))) }
     }
 
     // Automatically enable spirv-dump if an output path is set
@@ -19,6 +21,10 @@ fn main() {
 
     if env::var("CUBECL_VULKAN_VALIDATE").is_ok() {
         println!("cargo:rustc-cfg=feature=\"vulkan-validate\"");
+    }
+
+    if env::var("CUBECL_ENABLE_RENDERDOC").is_ok() {
+        println!("cargo:rustc-cfg=feature=\"renderdoc\"");
     }
 
     // Check if we are on macOS

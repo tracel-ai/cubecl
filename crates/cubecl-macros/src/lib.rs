@@ -7,7 +7,7 @@ use generate::autotune::generate_autotune_key;
 use parse::{
     cube_impl::CubeImpl,
     cube_trait::{CubeTrait, CubeTraitImpl},
-    helpers::{RemoveHelpers, ReplaceIndices},
+    helpers::RemoveHelpers,
     kernel::{Launch, from_tokens},
 };
 use proc_macro::TokenStream;
@@ -42,9 +42,6 @@ mod statement;
 ///
 /// # Trait arguments
 /// * `expand_base_traits` - base traits for the expanded "second half" of a trait with methods.
-/// * `self_type` - the type used for the `self` parameter of the expanded "second half" of a trait
-///   with methods. You shouldn't need to touch this unless you specifically need to dynamically
-///   dispatch an expanded trait.
 ///
 /// # Example
 ///
@@ -71,11 +68,16 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
         Item::Fn(kernel) => {
             let kernel = Launch::from_item_fn(kernel, args)?;
             RemoveHelpers.visit_item_mut(&mut item);
-            ReplaceIndices.visit_item_mut(&mut item);
             ReplaceDefines.visit_item_mut(&mut item);
+
+            let extra_allow = match kernel.func.context.is_intrinsic {
+                true => quote![#[allow(unused_variables)]],
+                false => quote![],
+            };
 
             return Ok(TokenStream::from(quote! {
                 #[allow(dead_code, clippy::too_many_arguments)]
+                #extra_allow
                 #item
                 #kernel
             }));
@@ -132,7 +134,7 @@ pub fn module_derive_cube_launch(input: TokenStream) -> TokenStream {
 }
 
 /// Derive macro to define a cube type that is not launched
-#[proc_macro_derive(CubeType, attributes(cube))]
+#[proc_macro_derive(CubeType, attributes(cube, expand))]
 pub fn module_derive_cube_type(input: TokenStream) -> TokenStream {
     gen_cube_type(input, false)
 }

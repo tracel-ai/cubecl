@@ -9,6 +9,7 @@ pub mod binary;
 pub mod branch;
 pub mod cluster;
 pub mod cmma;
+pub mod cmma2;
 pub mod comparison;
 pub mod const_match;
 pub mod constants;
@@ -25,6 +26,7 @@ pub mod plane;
 pub mod properties;
 pub mod saturating;
 pub mod sequence;
+pub mod short_circuit;
 pub mod slice;
 pub mod stream;
 pub mod synchronization;
@@ -127,6 +129,7 @@ macro_rules! testgen_int {
 macro_rules! testgen_uint {
     () => {
         cubecl_core::testgen_const_match!();
+        cubecl_core::testgen_atomic_uint!();
         cubecl_core::testgen_saturating_uint!();
     };
 }
@@ -138,6 +141,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_launch_untyped!();
 
         cubecl_core::testgen_cmma!();
+        cubecl_core::testgen_cmma2!();
         cubecl_core::testgen_numeric!();
         cubecl_core::testgen_file!();
         cubecl_core::testgen_metadata!();
@@ -146,7 +150,6 @@ macro_rules! testgen_untyped {
 
         cubecl_core::testgen_constants!();
         cubecl_core::testgen_sync_plane!();
-        cubecl_core::testgen_atomic_untyped!();
         cubecl_core::testgen_tensor_indexing!();
         cubecl_core::testgen_debug!();
         cubecl_core::testgen_binary_untyped!();
@@ -157,6 +160,8 @@ macro_rules! testgen_untyped {
 
         cubecl_core::testgen_to_client!();
         cubecl_core::testgen_all_reduce!();
+
+        cubecl_core::testgen_short_circuit!();
     };
 }
 

@@ -1,7 +1,8 @@
 use std::println;
 
 use crate::{
-    self as cubecl, prelude::barrier::Barrier, runtime_tests::binary::assert_equals_approx,
+    self as cubecl, cmma::Cube, prelude::barrier::Barrier,
+    runtime_tests::binary::assert_equals_approx,
 };
 
 use cubecl::{
@@ -11,21 +12,21 @@ use cubecl::{
 
 use alloc::{vec, vec::Vec};
 use cubecl_common::{e2m1, e2m1x2, ue8m0};
-use cubecl_ir::MatrixIdent;
 use cubecl_ir::features::{MmaConfig, ScaledMmaConfig};
+use cubecl_ir::{MatrixIdent, MatrixLayout};
 use half::{bf16, f16};
 use num_traits::NumCast;
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_f16_m16n16k16_gmem(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>) {
+pub fn kernel_simple_f16_m16n16k16_gmem(lhs: &[f16], rhs: &[f16], out: &mut [f32]) {
     let a = cmma::Matrix::<f16>::from_slice(
         cmma::MatrixIdent::A,
         16usize,
         16usize,
         16usize,
         cmma::MatrixLayout::RowMajor,
-        &lhs.to_slice(),
+        lhs,
         16,
     );
     let b = cmma::Matrix::<f16>::from_slice(
@@ -34,51 +35,7 @@ pub fn kernel_simple_f16_m16n16k16_gmem(lhs: &Array<f16>, rhs: &Array<f16>, out:
         16usize,
         16usize,
         cmma::MatrixLayout::ColMajor,
-        &rhs.to_slice(),
-        16,
-    );
-    let c = cmma::Matrix::<f32>::from_value(
-        cmma::MatrixIdent::Accumulator,
-        16usize,
-        16usize,
-        16usize,
-        cmma::MatrixLayout::Undefined,
-        0.0,
-    );
-
-    cmma::execute::<f16, f16, f32, f32>(&a, &b, &c, &c);
-
-    cmma::store(
-        &mut out.to_slice_mut(),
-        &c,
-        16,
-        cmma::MatrixLayout::RowMajor,
-    );
-}
-
-#[cube(launch)]
-/// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_1_vectorized<N: Size>(
-    lhs: &Array<Vector<f16, N>>,
-    rhs: &Array<Vector<f16, N>>,
-    out: &mut Array<Vector<f32, N>>,
-) {
-    let a = cmma::Matrix::<Vector<f16, N>>::from_slice(
-        cmma::MatrixIdent::A,
-        16usize,
-        16usize,
-        16usize,
-        cmma::MatrixLayout::RowMajor,
-        &lhs.to_slice(),
-        16,
-    );
-    let b = cmma::Matrix::<Vector<f16, N>>::from_slice(
-        cmma::MatrixIdent::B,
-        16usize,
-        16usize,
-        16usize,
-        cmma::MatrixLayout::ColMajor,
-        &rhs.to_slice(),
+        rhs,
         16,
     );
     let c = cmma::Matrix::<f32>::from_value(
@@ -92,20 +49,54 @@ pub fn kernel_simple_1_vectorized<N: Size>(
 
     cmma::execute(&a, &b, &c, &c);
 
-    cmma::store(
-        &mut out.to_slice_mut(),
-        &c,
-        16,
+    cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
+}
+
+#[cube(launch)]
+/// Executes Out = Lhs @ Rhs.T
+pub fn kernel_simple_1_vectorized<N: Size>(
+    lhs: &[Vector<f16, N>],
+    rhs: &[Vector<f16, N>],
+    out: &mut [Vector<f32, N>],
+) {
+    let a = cmma::Matrix::<Vector<f16, N>>::from_slice(
+        cmma::MatrixIdent::A,
+        16usize,
+        16usize,
+        16usize,
         cmma::MatrixLayout::RowMajor,
+        lhs,
+        16,
     );
+    let b = cmma::Matrix::<Vector<f16, N>>::from_slice(
+        cmma::MatrixIdent::B,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::ColMajor,
+        rhs,
+        16,
+    );
+    let c = cmma::Matrix::<f32>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        16usize,
+        16usize,
+        16usize,
+        cmma::MatrixLayout::Undefined,
+        0.0,
+    );
+
+    cmma::execute(&a, &b, &c, &c);
+
+    cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
 }
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
 pub fn kernel_simple_1_vectorized_offset<N: Size>(
-    lhs: &Array<Vector<f16, N>>,
-    rhs: &Array<Vector<f16, N>>,
-    out: &mut Array<Vector<f32, N>>,
+    lhs: &[Vector<f16, N>],
+    rhs: &[Vector<f16, N>],
+    out: &mut [Vector<f32, N>],
     offset_lhs: usize,
     offset_rhs: usize,
     offset_out: usize,
@@ -120,7 +111,7 @@ pub fn kernel_simple_1_vectorized_offset<N: Size>(
         16usize,
         16usize,
         cmma::MatrixLayout::RowMajor,
-        &lhs.slice(offset_lhs, len_lhs),
+        &lhs[offset_lhs..len_lhs],
         16,
     );
     let b = cmma::Matrix::<Vector<f16, N>>::from_slice(
@@ -129,7 +120,7 @@ pub fn kernel_simple_1_vectorized_offset<N: Size>(
         16usize,
         16usize,
         cmma::MatrixLayout::ColMajor,
-        &rhs.slice(offset_rhs, len_rhs),
+        &rhs[offset_rhs..len_rhs],
         16,
     );
     let c = cmma::Matrix::<f32>::from_value(
@@ -144,7 +135,7 @@ pub fn kernel_simple_1_vectorized_offset<N: Size>(
     cmma::execute(&a, &b, &c, &c);
 
     cmma::store(
-        &mut out.slice_mut(offset_out, len_out),
+        &mut out[offset_out..len_out],
         &c,
         16,
         cmma::MatrixLayout::RowMajor,
@@ -153,14 +144,14 @@ pub fn kernel_simple_1_vectorized_offset<N: Size>(
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_2(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f16>) {
+pub fn kernel_simple_2(lhs: &[f16], rhs: &[f16], out: &mut [f16]) {
     let a = cmma::Matrix::<f16>::from_slice(
         cmma::MatrixIdent::A,
         8usize,
         8usize,
         8usize,
         cmma::MatrixLayout::RowMajor,
-        &lhs.to_slice(),
+        lhs,
         8,
     );
     let b = cmma::Matrix::<f16>::from_slice(
@@ -169,7 +160,7 @@ pub fn kernel_simple_2(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f16>)
         8usize,
         8usize,
         cmma::MatrixLayout::ColMajor,
-        &rhs.to_slice(),
+        rhs,
         8,
     );
     let c = cmma::Matrix::<f16>::from_value(
@@ -181,21 +172,21 @@ pub fn kernel_simple_2(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f16>)
         half::f16::from_int(0),
     );
 
-    cmma::execute::<f16, f16, f16, f16>(&a, &b, &c, &c);
+    cmma::execute(&a, &b, &c, &c);
 
-    cmma::store(&mut out.to_slice_mut(), &c, 8, cmma::MatrixLayout::RowMajor);
+    cmma::store(out, &c, 8, cmma::MatrixLayout::RowMajor);
 }
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_3(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>) {
+pub fn kernel_simple_3(lhs: &[f16], rhs: &[f16], out: &mut [f32]) {
     let a = cmma::Matrix::<f16>::from_slice(
         cmma::MatrixIdent::A,
         8usize,
         8usize,
         8usize,
         cmma::MatrixLayout::RowMajor,
-        &lhs.to_slice(),
+        lhs,
         8,
     );
     let b = cmma::Matrix::<f16>::from_slice(
@@ -204,7 +195,7 @@ pub fn kernel_simple_3(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>)
         8usize,
         8usize,
         cmma::MatrixLayout::ColMajor,
-        &rhs.to_slice(),
+        rhs,
         8,
     );
     let c = cmma::Matrix::<f32>::from_value(
@@ -216,21 +207,21 @@ pub fn kernel_simple_3(lhs: &Array<f16>, rhs: &Array<f16>, out: &mut Array<f32>)
         0.0,
     );
 
-    cmma::execute::<f16, f16, f32, f32>(&a, &b, &c, &c);
+    cmma::execute(&a, &b, &c, &c);
 
-    cmma::store(&mut out.to_slice_mut(), &c, 8, cmma::MatrixLayout::RowMajor);
+    cmma::store(out, &c, 8, cmma::MatrixLayout::RowMajor);
 }
 
 #[cube(launch)]
 /// Executes Out = Lhs @ Rhs.T
-pub fn kernel_simple_tf32(lhs: &Array<tf32>, rhs: &Array<tf32>, out: &mut Array<f32>) {
+pub fn kernel_simple_tf32(lhs: &[tf32], rhs: &[tf32], out: &mut [f32]) {
     let a = cmma::Matrix::<tf32>::from_slice(
         cmma::MatrixIdent::A,
         16usize,
         16usize,
         8usize,
         cmma::MatrixLayout::RowMajor,
-        &lhs.to_slice(),
+        lhs,
         8,
     );
     let b = cmma::Matrix::<tf32>::from_slice(
@@ -239,7 +230,7 @@ pub fn kernel_simple_tf32(lhs: &Array<tf32>, rhs: &Array<tf32>, out: &mut Array<
         16usize,
         8usize,
         cmma::MatrixLayout::RowMajor,
-        &rhs.to_slice(),
+        rhs,
         16,
     );
     let c = cmma::Matrix::<f32>::from_value(
@@ -251,19 +242,112 @@ pub fn kernel_simple_tf32(lhs: &Array<tf32>, rhs: &Array<tf32>, out: &mut Array<
         0.0,
     );
 
-    cmma::execute::<tf32, tf32, f32, f32>(&a, &b, &c, &c);
+    cmma::execute(&a, &b, &c, &c);
 
-    cmma::store(
-        &mut out.to_slice_mut(),
-        &c,
-        16,
-        cmma::MatrixLayout::RowMajor,
-    );
+    cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
 }
 
 #[cube(launch)]
-pub fn cast_matrix_f16(input: &Array<f32>, out: &mut Array<f16>) {
-    let acc = unsafe {
+/// Executes Out = Lhs @ Rhs.T
+pub fn kernel_simple_f16_workgroup_gmem(
+    lhs: &[f16],
+    rhs: &[f16],
+    out: &mut [f32],
+    #[comptime] size: (usize, usize, usize),
+) {
+    let (m, n, k) = size;
+
+    let a = cmma::Matrix::<f16, Cube>::from_slice(
+        cmma::MatrixIdent::A,
+        m,
+        n,
+        k,
+        cmma::MatrixLayout::RowMajor,
+        lhs,
+        k as u32,
+    );
+    let b = cmma::Matrix::<f16, Cube>::from_slice(
+        cmma::MatrixIdent::B,
+        m,
+        n,
+        k,
+        cmma::MatrixLayout::ColMajor,
+        rhs,
+        k as u32,
+    );
+    let c = cmma::Matrix::<f32, Cube>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        m,
+        n,
+        k,
+        cmma::MatrixLayout::Undefined,
+        0.0,
+    );
+
+    cmma::execute(&a, &b, &c, &c);
+
+    cmma::store(out, &c, n as u32, cmma::MatrixLayout::RowMajor);
+}
+
+#[cube(launch)]
+/// Executes Out = Lhs @ Rhs.T
+pub fn kernel_simple_f16_workgroup_tensor(
+    lhs: &[f16],
+    rhs: &[f16],
+    out: &mut [f32],
+    size_k: u32,
+    #[comptime] size: (usize, usize, usize),
+) {
+    let (m, n, k) = size;
+
+    let lhs = TensorView::new(lhs, seq![m as u32, size_k]).finish();
+    let rhs = TensorView::new(rhs, seq![n as u32, size_k]).finish();
+    let mut out = TensorView::new(&*out, seq![m as u32, n as u32]).finish();
+
+    let mut a = unsafe {
+        cmma::Matrix::<f16, Cube>::uninitialized(
+            cmma::MatrixIdent::A,
+            m,
+            n,
+            k,
+            MatrixLayout::Undefined,
+        )
+    };
+    let mut b = unsafe {
+        cmma::Matrix::<f16, Cube>::uninitialized(
+            cmma::MatrixIdent::B,
+            m,
+            n,
+            k,
+            MatrixLayout::Undefined,
+        )
+    };
+    let c = cmma::Matrix::<f32, Cube>::from_value(
+        cmma::MatrixIdent::Accumulator,
+        m,
+        n,
+        k,
+        cmma::MatrixLayout::Undefined,
+        0.0,
+    );
+
+    for k_offs in range_stepped(0, size_k, k as u32) {
+        let lhs = lhs.slice(seq![0, k_offs], seq![m as u32, k as u32]);
+        let rhs = rhs.slice(seq![0, k_offs], seq![n as u32, k as u32]);
+        let rhs = rhs.permuted(seq![1, 0]);
+
+        cmma::load_tensor(&mut a, &lhs);
+        cmma::load_tensor(&mut b, &rhs);
+
+        cmma::execute(&a, &b, &c, &c);
+    }
+
+    cmma::store_tensor(&mut out, &c);
+}
+
+#[cube(launch)]
+pub fn cast_matrix_f16(input: &[f32], out: &mut [f16]) {
+    let mut acc = unsafe {
         cmma::Matrix::<f32>::uninitialized(
             cmma::MatrixIdent::Accumulator,
             16usize,
@@ -272,21 +356,16 @@ pub fn cast_matrix_f16(input: &Array<f32>, out: &mut Array<f16>) {
             cmma::MatrixLayout::Undefined,
         )
     };
-    cmma::load_with_layout(&acc, &input.to_slice(), 16, cmma::MatrixLayout::RowMajor);
+    cmma::load_with_layout(&mut acc, input, 16, cmma::MatrixLayout::RowMajor);
 
-    let output = cmma::cast::<f32, f16>(&acc);
+    let output: cmma::Matrix<f16> = cmma::cast(&acc);
 
-    cmma::store(
-        &mut out.to_slice_mut(),
-        &output,
-        16,
-        cmma::MatrixLayout::RowMajor,
-    );
+    cmma::store(out, &output, 16, cmma::MatrixLayout::RowMajor);
 }
 
 #[cube(launch)]
-pub fn cast_matrix_bf16(input: &Array<f32>, out: &mut Array<bf16>) {
-    let acc = unsafe {
+pub fn cast_matrix_bf16(input: &[f32], out: &mut [bf16]) {
+    let mut acc = unsafe {
         cmma::Matrix::<f32>::uninitialized(
             cmma::MatrixIdent::Accumulator,
             16usize,
@@ -295,16 +374,11 @@ pub fn cast_matrix_bf16(input: &Array<f32>, out: &mut Array<bf16>) {
             cmma::MatrixLayout::Undefined,
         )
     };
-    cmma::load_with_layout(&acc, &input.to_slice(), 16, cmma::MatrixLayout::RowMajor);
+    cmma::load_with_layout(&mut acc, input, 16, cmma::MatrixLayout::RowMajor);
 
-    let output = cmma::cast::<f32, bf16>(&acc);
+    let output: cmma::Matrix<bf16> = cmma::cast(&acc);
 
-    cmma::store(
-        &mut out.to_slice_mut(),
-        &output,
-        16,
-        cmma::MatrixLayout::RowMajor,
-    );
+    cmma::store(out, &output, 16, cmma::MatrixLayout::RowMajor);
 }
 
 pub fn test_simple_1_vectorized<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
@@ -333,9 +407,9 @@ pub fn test_simple_1_vectorized<R: Runtime>(client: ComputeClient<R>, cube_dimen
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
             4,
-            ArrayArg::from_raw_parts(lhs, 256 / 4),
-            ArrayArg::from_raw_parts(rhs, 256 / 4),
-            ArrayArg::from_raw_parts(out.clone(), 256 / 4),
+            BufferArg::from_raw_parts(lhs, 256 / 4),
+            BufferArg::from_raw_parts(rhs, 256 / 4),
+            BufferArg::from_raw_parts(out.clone(), 256 / 4),
         )
     };
 
@@ -386,9 +460,9 @@ pub fn test_simple_1_vectorized_offset<R: Runtime>(
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
             vector_size,
-            ArrayArg::from_raw_parts(lhs, lhs_len),
-            ArrayArg::from_raw_parts(rhs, rhs_len),
-            ArrayArg::from_raw_parts(out.clone(), out_len),
+            BufferArg::from_raw_parts(lhs, lhs_len),
+            BufferArg::from_raw_parts(rhs, rhs_len),
+            BufferArg::from_raw_parts(out.clone(), out_len),
             offset_lhs,
             offset_rhs,
             offset_out,
@@ -429,9 +503,9 @@ pub fn test_simple_1<R: Runtime>(client: ComputeClient<R>, cube_dimensions: Cube
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts(lhs, 256),
-            ArrayArg::from_raw_parts(rhs, 256),
-            ArrayArg::from_raw_parts(out.clone(), 256),
+            BufferArg::from_raw_parts(lhs, 256),
+            BufferArg::from_raw_parts(rhs, 256),
+            BufferArg::from_raw_parts(out.clone(), 256),
         )
     };
 
@@ -467,6 +541,152 @@ pub fn test_simple_1_expected() -> Vec<f32> {
     ]
 }
 
+pub fn test_simple_cube<R: Runtime>(client: ComputeClient<R>, cube_dimensions: u32) {
+    let ab_ty = ElemType::Float(FloatKind::F16).into();
+    let cd_ty = ElemType::Float(FloatKind::F32).into();
+    let config = client.features().matmul.cube_mma.iter().find(|cfg| {
+        cfg.a_type == ab_ty
+            && cfg.b_type == ab_ty
+            && cfg.cd_type == cd_ty
+            && cfg
+                .units_per_block
+                .map(|it| it == cube_dimensions)
+                .unwrap_or(true)
+    });
+    if config.is_none() {
+        // We can't execute the test, skip.
+        println!("No valid config for cube matmul, skipping");
+        return;
+    }
+
+    let config = config.unwrap();
+    println!("Running config {config:?} with cube dim {cube_dimensions}");
+
+    let m = config.m_granularity as usize;
+    let n = config.n_granularity as usize;
+    let k = config.k_granularity as usize;
+
+    let lhs_size = m * k;
+    let rhs_size = k * n;
+    let acc_size = m * n;
+
+    let lhs: Vec<f16> = (0..lhs_size).map(|i| f16::from_f32(i as f32)).collect();
+    let rhs: Vec<f16> = (0..rhs_size)
+        .map(|i| f16::from_f32((i % 8) as f32))
+        .collect();
+
+    let lhs = client.create_from_slice(f16::as_bytes(&lhs));
+    let rhs = client.create_from_slice(f16::as_bytes(&rhs));
+    let out = client.empty(core::mem::size_of::<f32>() * acc_size);
+
+    unsafe {
+        kernel_simple_f16_workgroup_gmem::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(cube_dimensions),
+            BufferArg::from_raw_parts(lhs, lhs_size),
+            BufferArg::from_raw_parts(rhs, rhs_size),
+            BufferArg::from_raw_parts(out.clone(), acc_size),
+            (m, n, k),
+        )
+    };
+
+    let actual = client.read_one_unchecked(out);
+    let actual = f32::from_bytes(&actual);
+
+    assert_eq!(test_simple_cube_expected(m, n, k), actual);
+}
+
+pub fn test_simple_cube_tensor<R: Runtime>(client: ComputeClient<R>, cube_dimensions: u32) {
+    let ab_ty = ElemType::Float(FloatKind::F16).into();
+    let cd_ty = ElemType::Float(FloatKind::F32).into();
+    let config = client.features().matmul.cube_mma.iter().find(|cfg| {
+        cfg.a_type == ab_ty
+            && cfg.b_type == ab_ty
+            && cfg.cd_type == cd_ty
+            && cfg
+                .units_per_block
+                .map(|it| it == cube_dimensions)
+                .unwrap_or(true)
+    });
+    if config.is_none() {
+        // We can't execute the test, skip.
+        log::info!("No valid config for cube matmul, skipping");
+        return;
+    }
+
+    let config = config.unwrap();
+    log::info!("Running config {config:?} with cube dim {cube_dimensions}");
+
+    let m = config.m_granularity as usize;
+    let n = config.n_granularity as usize;
+    let k = config.k_granularity as usize;
+
+    let k_chunks = 2;
+
+    let size_k = k * k_chunks as usize;
+
+    let lhs_size = m * size_k;
+    let rhs_size = size_k * n;
+    let acc_size = m * n;
+
+    let lhs: Vec<f16> = (0..lhs_size).map(|i| f16::from_f32(i as f32)).collect();
+    let rhs: Vec<f16> = (0..rhs_size)
+        .map(|i| f16::from_f32((i % 8) as f32))
+        .collect();
+
+    let lhs = client.create_from_slice(f16::as_bytes(&lhs));
+    let rhs = client.create_from_slice(f16::as_bytes(&rhs));
+    let out = client.empty(core::mem::size_of::<f32>() * acc_size);
+
+    unsafe {
+        kernel_simple_f16_workgroup_tensor::launch(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new_1d(cube_dimensions),
+            BufferArg::from_raw_parts(lhs, lhs_size),
+            BufferArg::from_raw_parts(rhs, rhs_size),
+            BufferArg::from_raw_parts(out.clone(), acc_size),
+            size_k as u32,
+            (m, n, k),
+        )
+    };
+
+    let actual = client.read_one_unchecked(out);
+    let actual = f32::from_bytes(&actual);
+
+    assert_eq!(test_simple_cube_expected(m, n, size_k), actual);
+}
+
+pub fn test_simple_cube_expected(m: usize, n: usize, k: usize) -> Vec<f32> {
+    let lhs_size = m * k;
+    let rhs_size = k * n;
+    let acc_size = m * n;
+
+    let lhs: Vec<f16> = (0..lhs_size).map(|i| f16::from_f32(i as f32)).collect();
+    let rhs: Vec<f16> = (0..rhs_size)
+        .map(|i| f16::from_f32((i % 8) as f32))
+        .collect();
+    let mut out = vec![0f32; acc_size];
+
+    for m in 0..m {
+        let lhs_offs = m * k;
+        let out_offs = m * n;
+        for n in 0..n {
+            let rhs_offs = n * k;
+            let mut sum = 0f32;
+            for k in 0..k {
+                let lhs = lhs[lhs_offs + k].to_f32();
+                let rhs = rhs[rhs_offs + k].to_f32();
+                sum += lhs * rhs;
+            }
+            out[out_offs + n] = sum;
+        }
+    }
+
+    out
+}
+
 // pub fn test_simple_2<R: Runtime>(
 //     client: ComputeClient<R>,
 //     cube_dimensions: CubeDim,
@@ -495,9 +715,9 @@ pub fn test_simple_1_expected() -> Vec<f32> {
 //             &client,
 //             CubeCount::Static(1, 1, 1),
 //             cube_dimensions,
-//             ArrayArg::from_raw_parts::<f16>(&lhs, 64, 1),
-//             ArrayArg::from_raw_parts::<f16>(&rhs, 64, 1),
-//             ArrayArg::from_raw_parts::<f16>(&out, 64, 1),
+//             BufferArg::from_raw_parts::<f16>(&lhs, 64, 1),
+//             BufferArg::from_raw_parts::<f16>(&rhs, 64, 1),
+//             BufferArg::from_raw_parts::<f16>(&out, 64, 1),
 //         )
 //     };
 
@@ -531,8 +751,8 @@ pub fn test_cmma_cast_f16<R: Runtime>(client: ComputeClient<R>, cube_dimensions:
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts(input, 256),
-            ArrayArg::from_raw_parts(out.clone(), 256),
+            BufferArg::from_raw_parts(input, 256),
+            BufferArg::from_raw_parts(out.clone(), 256),
         )
     };
 
@@ -565,8 +785,8 @@ pub fn test_cmma_cast_bf16<R: Runtime>(client: ComputeClient<R>, cube_dimensions
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts(input, 256),
-            ArrayArg::from_raw_parts(out.clone(), 256),
+            BufferArg::from_raw_parts(input, 256),
+            BufferArg::from_raw_parts(out.clone(), 256),
         )
     };
 
@@ -602,9 +822,9 @@ pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R>, cube_dimensions: C
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts(lhs, 128),
-            ArrayArg::from_raw_parts(rhs, 128),
-            ArrayArg::from_raw_parts(out.clone(), 256),
+            BufferArg::from_raw_parts(lhs, 128),
+            BufferArg::from_raw_parts(rhs, 128),
+            BufferArg::from_raw_parts(out.clone(), 256),
         )
     };
 
@@ -637,9 +857,9 @@ pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R>, cube_dimensions: C
 
 #[cube(launch)]
 pub fn kernel_strided(
-    lhs: &Array<f16>,
-    rhs: &Array<f16>,
-    out: &mut Array<f32>,
+    lhs: &[f16],
+    rhs: &[f16],
+    out: &mut [f32],
     #[comptime] stride_lhs: u32,
     #[comptime] stride_rhs: u32,
 ) {
@@ -649,7 +869,7 @@ pub fn kernel_strided(
         16usize,
         16usize,
         cmma::MatrixLayout::RowMajor,
-        &lhs.to_slice(),
+        lhs,
         stride_lhs,
     );
     let b = cmma::Matrix::<f16>::from_slice(
@@ -658,7 +878,7 @@ pub fn kernel_strided(
         16usize,
         16usize,
         cmma::MatrixLayout::ColMajor,
-        &rhs.to_slice(),
+        rhs,
         stride_rhs,
     );
     let c = cmma::Matrix::<f32>::from_value(
@@ -670,14 +890,9 @@ pub fn kernel_strided(
         0.0,
     );
 
-    cmma::execute::<f16, f16, f32, f32>(&a, &b, &c, &c);
+    cmma::execute(&a, &b, &c, &c);
 
-    cmma::store(
-        &mut out.to_slice_mut(),
-        &c,
-        16,
-        cmma::MatrixLayout::RowMajor,
-    );
+    cmma::store(out, &c, 16, cmma::MatrixLayout::RowMajor);
 }
 
 pub fn test_cmma_strided<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
@@ -717,9 +932,9 @@ pub fn test_cmma_strided<R: Runtime>(client: ComputeClient<R>, cube_dimensions: 
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
-            ArrayArg::from_raw_parts(lhs, m * k),
-            ArrayArg::from_raw_parts(rhs, k * n),
-            ArrayArg::from_raw_parts(out.clone(), m * n),
+            BufferArg::from_raw_parts(lhs, m * k),
+            BufferArg::from_raw_parts(rhs, k * n),
+            BufferArg::from_raw_parts(out.clone(), m * n),
             k as u32,
             n as u32,
         )
@@ -799,7 +1014,7 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
             let n_elem = i * vector_size_a + k;
             let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::A);
             let value = a[(row * size_k as u32 + col) as usize];
-            reg[k] = value;
+            reg.insert(k, value);
         }
         registers_a[i] = reg;
     }
@@ -813,7 +1028,7 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
             let n_elem = i * vector_size_b + k;
             let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::B);
             let value = b[(row * size_n as u32 + col) as usize];
-            reg[k] = value;
+            reg.insert(k, value);
         }
         registers_b[i] = reg;
     }
@@ -827,7 +1042,7 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
             let n_elem = i * vector_size_c + k;
             let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::Accumulator);
             let value = c[(row * size_n as u32 + col) as usize];
-            reg[k] = value;
+            reg.insert(k, value);
         }
         registers_c[i] = reg;
     }
@@ -842,7 +1057,7 @@ pub fn kernel_manual<A: Scalar, B: Scalar, CD: Numeric>(
         for k in 0..vector_size_d {
             let n_elem = i * vector_size_d + k;
             let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::Accumulator);
-            out[(row * size_n as u32 + col) as usize] = reg[k];
+            out[(row * size_n as u32 + col) as usize] = reg.extract(k);
         }
     }
 }
@@ -961,30 +1176,30 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     let elem_size = AB::type_size();
     let width = comptime![16 / elem_size];
 
-    let mut stage_a = SharedMemory::new_aligned(size_m * size_k, 16usize);
-    let mut stage_b = SharedMemory::new_aligned(size_k * size_n, 16usize);
-    bar.memcpy_async_cooperative(&a.to_slice(), &mut stage_a.to_slice_mut());
-    bar.memcpy_async_cooperative(&b.to_slice(), &mut stage_b.to_slice_mut());
+    let mut stage_a = Shared::new_aligned_slice(size_m * size_k, 16usize);
+    let mut stage_b = Shared::new_aligned_slice(size_k * size_n, 16usize);
+    bar.memcpy_async_cooperative(a.as_slice(), stage_a.as_mut_slice());
+    bar.memcpy_async_cooperative(b.as_slice(), stage_b.as_mut_slice());
     bar.arrive_and_wait();
 
     let row = lane_id % 16;
 
     let col_a = (lane_id / 16) * width;
     let start_a = row * size_k + col_a;
-    let slice_a = stage_a.slice(start_a, start_a + width);
+    let slice_a = &stage_a[start_a..start_a + width];
     let vector_count_a = def.vectors_per_lane(MatrixIdent::A);
 
     let size!(NA) = def.vector_size(MatrixIdent::A);
-    let registers_a = def.load_matrix::<_, NA>(&slice_a, MatrixIdent::A, vector_count_a, false);
+    let registers_a = def.load_matrix::<_, NA>(slice_a, MatrixIdent::A, vector_count_a, false);
 
     // B frags are only 2 registers, so top 16 threads do nothing
     let col_b = 0;
     let start_b = row * size_n + col_b;
-    let slice_b = stage_b.slice(start_b, start_b + width);
+    let slice_b = &stage_b[start_b..start_b + width];
     let vector_count_b = def.vectors_per_lane(MatrixIdent::B);
 
     let size!(NB) = def.vector_size(MatrixIdent::B);
-    let registers_b = def.load_matrix::<_, NB>(&slice_b, MatrixIdent::B, vector_count_b, true);
+    let registers_b = def.load_matrix::<_, NB>(slice_b, MatrixIdent::B, vector_count_b, true);
 
     let vector_size_c = def.vector_size(MatrixIdent::Accumulator);
     let size!(NC) = vector_size_c;
@@ -1004,7 +1219,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
             let (row, col) =
                 def.position_of_nth(lane_id as u32, n_elem as u32, MatrixIdent::Accumulator);
             let value = c[row as usize * size_n + col as usize];
-            reg[k] = value;
+            reg.insert(k, value);
         }
         registers_c[i] = reg;
     }
@@ -1020,7 +1235,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
             let n_elem = i * vector_size_d + k;
             let (row, col) =
                 def.position_of_nth(lane_id as u32, n_elem as u32, MatrixIdent::Accumulator);
-            out[row as usize * size_n + col as usize] = reg[k];
+            out[row as usize * size_n + col as usize] = reg.extract(k);
         }
     }
 }
@@ -1180,7 +1395,7 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
     let scales_idx_a = def.scales_index(lane_id, MatrixIdent::A);
     #[unroll]
     for i in 0..scales_count {
-        scales_register_a[i] = scales_a[scales_idx_a as usize * scales_factor + i];
+        scales_register_a.insert(i, scales_a[scales_idx_a as usize * scales_factor + i]);
     }
 
     // Load B
@@ -1197,7 +1412,7 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
     let scales_idx_b = def.scales_index(lane_id, MatrixIdent::B);
     #[unroll]
     for i in 0..scales_count {
-        scales_register_b[i] = scales_b[scales_idx_b as usize * scales_factor + i];
+        scales_register_b.insert(i, scales_b[scales_idx_b as usize * scales_factor + i]);
     }
 
     // Load C
@@ -1223,8 +1438,8 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
     for i in 0..vector_count_d {
         let n_elem = i * vector_size_d;
         let (row, col) = def.position_of_nth(lane_id, n_elem as u32, MatrixIdent::Accumulator);
-        let idx = row as usize * size_n + col as usize;
-        out[idx / out.vector_size()] = registers_d[i];
+        let idx = (row as usize * size_n + col as usize) / out.vector_size();
+        out[idx] = registers_d[i];
     }
 }
 
@@ -1504,6 +1719,36 @@ macro_rules! testgen_cmma {
             cubecl_core::runtime_tests::cmma::test_simple_tf32::<TestRuntime>(
                 client,
                 cube_dimensions,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cube_mma_simple() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::cmma::test_simple_cube::<TestRuntime>(client.clone(), 32);
+            cubecl_core::runtime_tests::cmma::test_simple_cube::<TestRuntime>(client.clone(), 64);
+            cubecl_core::runtime_tests::cmma::test_simple_cube::<TestRuntime>(client.clone(), 128);
+            cubecl_core::runtime_tests::cmma::test_simple_cube::<TestRuntime>(client.clone(), 256);
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_cube_mma_simple_tensor() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::cmma::test_simple_cube_tensor::<TestRuntime>(
+                client.clone(),
+                32,
+            );
+            cubecl_core::runtime_tests::cmma::test_simple_cube_tensor::<TestRuntime>(
+                client.clone(),
+                64,
+            );
+            cubecl_core::runtime_tests::cmma::test_simple_cube_tensor::<TestRuntime>(
+                client.clone(),
+                128,
+            );
+            cubecl_core::runtime_tests::cmma::test_simple_cube_tensor::<TestRuntime>(
+                client.clone(),
+                256,
             );
         }
 

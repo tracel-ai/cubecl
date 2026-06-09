@@ -238,9 +238,7 @@ fn mma_ty<D: Dialect>(elem: Elem<D>) -> &'static str {
 
 pub fn ldmatrix_call<D: Dialect>(
     output: &Variable<D>,
-    buffer: &Variable<D>,
-    offset: &Variable<D>,
-    vector_size: &Option<usize>,
+    ptr: &Variable<D>,
     factor: &u32,
     transpose: &bool,
 ) -> String {
@@ -249,15 +247,9 @@ pub fn ldmatrix_call<D: Dialect>(
     let is_transposed = if *transpose { "_trans" } else { "" };
     let regs =
         comma_separated((0..*factor).map(|i| format!("reinterpret_cast<uint32&>({output}[{i}])")));
-    let buffer = if let Some(vector_size) = *vector_size {
-        let mut item = buffer.item();
-        item.vectorization = vector_size;
-        format!("reinterpret_cast<{item}*>({})", buffer.fmt_ptr())
-    } else {
-        buffer.fmt_ptr()
-    };
+    let ptr = ptr.fmt_ptr();
 
-    format!("__ldmatrix_m{width}n8_{elem}_{factor}x{is_transposed}({regs}, {buffer} + {offset});\n")
+    format!("__ldmatrix_m{width}n8_{elem}_{factor}x{is_transposed}({regs}, {ptr});\n")
 }
 
 pub fn ldmatrix_template<D: Dialect>(elem: Elem<D>, factor: u32, transpose: bool) -> String {
@@ -304,9 +296,7 @@ __ldmatrix_m{width}n8_{elem}_{factor}x{is_transposed}({args}) {{
 
 pub fn stmatrix_call<D: Dialect>(
     registers: &Variable<D>,
-    buffer: &Variable<D>,
-    offset: &Variable<D>,
-    vector_size: &Option<usize>,
+    ptr: &Variable<D>,
     factor: &u32,
     transpose: &bool,
 ) -> String {
@@ -316,15 +306,9 @@ pub fn stmatrix_call<D: Dialect>(
     let regs = comma_separated(
         (0..*factor).map(|i| format!("reinterpret_cast<uint32&>({registers}[{i}])")),
     );
-    let buffer = if let Some(vector_size) = *vector_size {
-        let mut item = buffer.item();
-        item.vectorization = vector_size;
-        format!("reinterpret_cast<{item}*>({})", buffer.fmt_ptr())
-    } else {
-        buffer.fmt_ptr()
-    };
+    let ptr = ptr.fmt_ptr();
 
-    format!("__stmatrix_m{width}n8_{elem}_{factor}x{is_transposed}({regs}, {buffer} + {offset});\n")
+    format!("__stmatrix_m{width}n8_{elem}_{factor}x{is_transposed}({regs}, {ptr});\n")
 }
 
 pub fn stmatrix_template<D: Dialect>(elem: Elem<D>, factor: u32, transpose: bool) -> String {

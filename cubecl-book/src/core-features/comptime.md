@@ -13,7 +13,7 @@ You can easily unroll loops in CubeCL using the `unroll` attribute on top of a f
 
 ```rust
 #[cube(launch)]
-fn sum<F: Float>(input: &Array<F>, output: &mut Array<F>, #[comptime] end: Option<u32>) {
+fn sum<F: Float>(input: &[F], output: &mut [F], #[comptime] end: Option<u32>) {
     let unroll = end.is_some();
     let end = end.unwrap_or_else(|| input.len());
     let mut sum = F::new(0.0);
@@ -39,8 +39,8 @@ back on the previous implementation, essentially making it portable.
 ```rust
 #[cube(launch)]
 fn sum_plane<F: Float>(
-    input: &Array<F>,
-    output: &mut Array<F>,
+    input: &[F],
+    output: &mut [F],
     #[comptime] plane: bool,
     #[comptime] end: Option<u32>,
 ) {

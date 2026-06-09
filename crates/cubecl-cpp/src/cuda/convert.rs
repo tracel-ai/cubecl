@@ -42,17 +42,16 @@ pub(crate) fn special_cast<D: Dialect>(
         input.elem().unpacked(),
         Elem::FP4(_) | Elem::FP6(_) | Elem::FP8(_)
     ) {
-        let mut item = out.item();
-        item.elem = match input.elem().unpacked() {
+        let item = out.item().with_elem(match input.elem().unpacked() {
             Elem::FP8(FP8Kind::UE8M0) => Elem::BF16,
             _ => Elem::F16,
-        };
+        });
         let out_var = if item == out.item() {
             *out
         } else {
             Variable::tmp(item)
         };
-        if item.elem == Elem::F16 {
+        if *item.elem() == Elem::F16 {
             cast_minifloat_to_half(f, current_in, out_var)?;
         } else {
             cast_scale_to_bfloat(f, current_in, out_var)?;
@@ -60,13 +59,15 @@ pub(crate) fn special_cast<D: Dialect>(
         current_in = out_var;
     }
 
+    let in_vec = match current_in.item() {
+        Item::Scalar(_) => 1,
+        Item::Vector(_, vectorization) | Item::NativeVector(_, vectorization) => vectorization,
+        _ => panic!("Invalid input item for special cast"),
+    };
+
     // Broadcast scalars to packing factor
-    if out.item().packing_factor() > 1 && input.item().vectorization == 1 {
-        let tmp = Variable::tmp(Item {
-            elem: input.item().elem,
-            vectorization: out.item().packing_factor(),
-            native: input.item().native,
-        });
+    if out.item().packing_factor() > 1 && in_vec == 1 {
+        let tmp = Variable::tmp(Item::new(input.elem(), out.item().packing_factor()));
         let assign = Instruction::Assign(UnaryInstruction {
             input: current_in,
             out: tmp,
@@ -74,6 +75,12 @@ pub(crate) fn special_cast<D: Dialect>(
         writeln!(f, "{assign}")?;
         current_in = tmp;
     }
+
+    let in_vec = match current_in.item() {
+        Item::Scalar(_) => 1,
+        Item::Vector(_, vectorization) | Item::NativeVector(_, vectorization) => vectorization,
+        _ => panic!("Invalid input item for special cast"),
+    };
 
     if matches!(
         current_in.elem(),
@@ -88,11 +95,7 @@ pub(crate) fn special_cast<D: Dialect>(
             | Elem::Bool
     ) {
         // Precision is irrelevant for int, so use bf16 for the range
-        let tmp = Variable::tmp(Item {
-            elem: Elem::BF16,
-            vectorization: current_in.item().vectorization,
-            native: current_in.item().native,
-        });
+        let tmp = Variable::tmp(Item::new(Elem::BF16, in_vec));
         let assign = Instruction::Assign(UnaryInstruction {
             input: current_in,
             out: tmp,
@@ -108,8 +111,7 @@ pub(crate) fn special_cast<D: Dialect>(
     if matches!(out.elem().unpacked(), Elem::FP8(FP8Kind::UE8M0)) {
         // Scale can't be converted from half...
         if matches!(current_in.elem(), Elem::F16) {
-            let mut item = current_in.item();
-            item.elem = Elem::BF16;
+            let item = current_in.item().with_elem(Elem::BF16);
             let tmp = Variable::tmp(item);
             let assign = Instruction::Assign(UnaryInstruction {
                 input: current_in,
@@ -344,7 +346,11 @@ fn handle_unroll<D: Dialect>(
     mut op: impl FnMut(&mut fmt::Formatter, usize) -> fmt::Result,
 ) -> fmt::Result {
     let out_opt = out.item().optimized();
-    let vec = out_opt.vectorization;
+    let vec = match out_opt {
+        Item::Scalar(_) => 1,
+        Item::Vector(_, vectorization) | Item::NativeVector(_, vectorization) => vectorization,
+        _ => panic!("Invalid input item for special cast"),
+    };
     let out_var = if out.item() != out_opt {
         Variable::tmp(out_opt)
     } else {

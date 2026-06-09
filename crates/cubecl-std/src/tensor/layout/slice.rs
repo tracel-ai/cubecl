@@ -50,7 +50,7 @@ impl<C: Coordinates> Layout for SliceLayout<C> {
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         comment!("is_in_bounds");
         let x = if comptime![self.checked] {
-            C::is_in_bounds(&pos, &self.size)
+            C::is_in_bounds(pos, self.size.clone())
         } else {
             true.runtime()
         };
@@ -61,9 +61,7 @@ impl<C: Coordinates> Layout for SliceLayout<C> {
     #[allow(unused)]
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool) {
         intrinsic!(|scope| {
-            let in_bounds = self
-                .clone()
-                .__expand_is_in_bounds_method(scope, pos.clone());
+            let in_bounds = self.__expand_is_in_bounds_method(scope, pos.clone());
             let pos = self.__expand_to_source_pos_method(scope, pos);
             (pos, in_bounds)
         })

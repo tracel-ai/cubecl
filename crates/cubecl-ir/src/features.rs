@@ -53,6 +53,11 @@ pub struct Types {
 pub struct MatmulFeatures {
     /// The cmma feature enables cooperative matrix-multiply and accumulate operations.
     pub cmma: BTreeSet<MmaConfig>,
+    /// Cube MMA is like cmma but at the cube level, rather than the plane level.
+    /// Loading may be staged in shared memory by the driver on Vulkan - check
+    /// [`cube_mma_reserved_shared_memory`](crate::HardwareProperties::cube_mma_reserved_shared_memory)
+    /// to take this into account when generating a matmul config.
+    pub cube_mma: BTreeSet<CubeMmaConfig>,
     /// The manual MMA feature enables cooperative matrix-multiply with manually managed data
     /// movement
     pub mma: BTreeSet<MmaConfig>,
@@ -63,6 +68,8 @@ pub struct MatmulFeatures {
     pub ldmatrix: BTreeSet<StorageType>,
     /// Types supported by stmatrix, if any
     pub stmatrix: BTreeSet<StorageType>,
+    /// Whether tensor addressing is supported for CMMA load/store
+    pub cmma_tensor_addressing: bool,
 }
 
 /// Operations allowed for this type. CMMA is defined separately.
@@ -105,6 +112,10 @@ pub enum AtomicUsage {
     Add,
     /// Atomic min/max
     MinMax,
+    /// Atomic bitwise and/or/xor
+    Bitwise,
+    /// Atomic compare-and-exchange
+    CompareExchange,
 }
 
 impl AtomicUsage {
@@ -140,6 +151,35 @@ pub struct MmaConfig {
     pub n: u32,
     /// The size of the matrix on the `k` dimension
     pub k: u32,
+}
+
+/// Shape and element types of a valid flexible MMA configuration
+/// Only Vulkan for now, but this should also be usable for wgmma/xmma on datacenter CUDA.
+/// Actual matrix size must be multiple of `granularity` and `<= max`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct CubeMmaConfig {
+    /// Element of the A matrix
+    pub a_type: StorageType,
+    /// Element of the B matrix
+    pub b_type: StorageType,
+    /// Element of the C/D matrices
+    pub cd_type: StorageType,
+    /// The granularity of the matrix on the `m` dimension
+    pub m_granularity: u32,
+    /// The maximum value for `m`
+    pub m_max: u32,
+    /// The size of the matrix on the `n` dimension
+    pub n_granularity: u32,
+    /// The maximum value for `n`
+    pub n_max: u32,
+    /// The size of the matrix on the `k` dimension
+    pub k_granularity: u32,
+    /// The maximum value for `k`
+    pub k_max: u32,
+    /// The number of units that must be in the cube for this configuration to be valid.
+    /// `None` means it's always valid (but might still have an optimal value).
+    pub units_per_block: Option<u32>,
 }
 
 /// Shape and element types of a valid block-scaled MMA configuration
@@ -199,10 +239,8 @@ impl Features {
     /// Whether the type is supported in any way
     pub fn supports_type(&self, ty: impl Into<Type>) -> bool {
         match ty.into() {
-            Type::Scalar(storage_type) | Type::Vector(storage_type, _) => {
-                self.types.storage.contains_key(&storage_type)
-            }
             Type::Semantic(semantic_type) => self.types.semantic.contains(&semantic_type),
+            ty => self.types.storage.contains_key(&ty.storage_type()),
         }
     }
 

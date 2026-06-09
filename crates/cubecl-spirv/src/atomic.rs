@@ -10,65 +10,78 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         out: Option<Variable>,
         modes: InstructionModes,
     ) {
-        let out = out.unwrap();
-
-        if matches!(
-            out.elem_type(),
-            ElemType::Int(IntKind::I64) | ElemType::UInt(UIntKind::U64)
-        ) {
+        if let Some(out) = out
+            && matches!(
+                out.elem_type(),
+                ElemType::Int(IntKind::I64) | ElemType::UInt(UIntKind::U64)
+            )
+        {
             self.capabilities.insert(Capability::Int64Atomics);
         }
 
         match atomic {
-            AtomicOp::Load(op) => {
-                let input = self.compile_variable(op.input);
+            AtomicOp::Load(ptr) => {
+                let out = out.unwrap();
+
+                let ptr = self.compile_variable(ptr);
                 let out = self.compile_variable(out);
                 let out_ty = out.item();
 
-                let input_id = input.id(self);
+                let input_id = ptr.id(self);
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.scope(&input);
-                let semantics = self.semantics_r(&input);
+                let memory = self.scope(&ptr);
+                let semantics = self.semantics_r(&ptr);
 
                 self.atomic_load(ty, Some(out_id), input_id, memory, semantics)
                     .unwrap();
                 self.write(&out, out_id);
             }
             AtomicOp::Store(op) => {
-                let input = self.compile_variable(op.input);
-                let out = self.compile_variable(out);
+                if matches!(
+                    op.value.elem_type(),
+                    ElemType::Int(IntKind::I64) | ElemType::UInt(UIntKind::U64)
+                ) {
+                    self.capabilities.insert(Capability::Int64Atomics);
+                }
 
-                let input_id = self.read(&input);
-                let out_id = out.id(self);
+                let value = self.compile_variable(op.value);
+                let ptr = self.compile_variable(op.ptr);
 
-                let memory = self.scope(&out);
-                let semantics = self.semantics_w(&out);
+                let value_id = self.read(&value);
+                let ptr_id = ptr.id(self);
 
-                self.atomic_store(out_id, memory, semantics, input_id)
+                let memory = self.scope(&ptr);
+                let semantics = self.semantics_w(&ptr);
+
+                self.atomic_store(ptr_id, memory, semantics, value_id)
                     .unwrap();
             }
             AtomicOp::Swap(op) => {
-                let lhs = self.compile_variable(op.lhs);
-                let rhs = self.compile_variable(op.rhs);
+                let out = out.unwrap();
+
+                let ptr = self.compile_variable(op.ptr);
+                let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id(self);
-                let rhs_id = self.read(&rhs);
+                let ptr_id = ptr.id(self);
+                let value_id = self.read(&value);
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.scope(&lhs);
-                let semantics = self.semantics_rw(&lhs);
+                let memory = self.scope(&ptr);
+                let semantics = self.semantics_rw(&ptr);
 
-                self.atomic_exchange(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                self.atomic_exchange(ty, Some(out_id), ptr_id, memory, semantics, value_id)
                     .unwrap();
                 self.write(&out, out_id);
             }
             AtomicOp::CompareAndSwap(op) => {
-                let atomic = self.compile_variable(op.input);
+                let out = out.unwrap();
+
+                let atomic = self.compile_variable(op.ptr);
                 let cmp = self.compile_variable(op.cmp);
                 let val = self.compile_variable(op.val);
                 let out = self.compile_variable(out);
@@ -102,22 +115,24 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             AtomicOp::Add(op) => {
-                let lhs = self.compile_variable(op.lhs);
-                let rhs = self.compile_variable(op.rhs);
+                let out = out.unwrap();
+
+                let ptr = self.compile_variable(op.ptr);
+                let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id(self);
-                let rhs_id = self.read(&rhs);
+                let ptr_id = ptr.id(self);
+                let value_id = self.read(&value);
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.scope(&lhs);
-                let semantics = self.semantics_rw(&lhs);
+                let memory = self.scope(&ptr);
+                let semantics = self.semantics_rw(&ptr);
 
                 match out_ty.elem() {
                     Elem::Int(_, _) => self
-                        .atomic_i_add(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                        .atomic_i_add(ty, Some(out_id), ptr_id, memory, semantics, value_id)
                         .unwrap(),
                     Elem::Float(width, None) => {
                         match width {
@@ -129,7 +144,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             64 => self.capabilities.insert(Capability::AtomicFloat64AddEXT),
                             _ => unreachable!(),
                         };
-                        self.atomic_f_add_ext(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                        self.atomic_f_add_ext(ty, Some(out_id), ptr_id, memory, semantics, value_id)
                             .unwrap()
                     }
                     _ => unreachable!(),
@@ -138,26 +153,24 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             AtomicOp::Sub(op) => {
-                let lhs = self.compile_variable(op.lhs);
-                let rhs = self.compile_variable(op.rhs);
+                let out = out.unwrap();
+
+                let ptr = self.compile_variable(op.ptr);
+                let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id(self);
-                let rhs_id = self.read(&rhs);
+                let ptr_id = ptr.id(self);
+                let value_id = self.read(&value);
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.scope(&lhs);
-                let semantics = self.semantics_rw(&lhs);
+                let memory = self.scope(&ptr);
+                let semantics = self.semantics_rw(&ptr);
 
-                assert!(
-                    matches!(out_ty.elem(), Elem::Int(_, _)),
-                    "sub doesn't support float atomics"
-                );
                 match out_ty.elem() {
                     Elem::Int(_, _) => self
-                        .atomic_i_sub(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                        .atomic_i_sub(ty, Some(out_id), ptr_id, memory, semantics, value_id)
                         .unwrap(),
                     Elem::Float(width, None) => {
                         match width {
@@ -169,37 +182,37 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             64 => self.capabilities.insert(Capability::AtomicFloat64AddEXT),
                             _ => unreachable!(),
                         };
-                        let negated = self.f_negate(ty, None, rhs_id).unwrap();
+                        let negated = self.f_negate(ty, None, value_id).unwrap();
                         self.declare_math_mode(modes, negated);
-                        self.atomic_f_add_ext(ty, Some(out_id), lhs_id, memory, semantics, negated)
+                        self.atomic_f_add_ext(ty, Some(out_id), ptr_id, memory, semantics, negated)
                             .unwrap()
                     }
                     _ => unreachable!(),
                 };
-                self.atomic_i_sub(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
-                    .unwrap();
                 self.write(&out, out_id);
             }
             AtomicOp::Max(op) => {
-                let lhs = self.compile_variable(op.lhs);
-                let rhs = self.compile_variable(op.rhs);
+                let out = out.unwrap();
+
+                let ptr = self.compile_variable(op.ptr);
+                let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id(self);
-                let rhs_id = self.read(&rhs);
+                let ptr_id = ptr.id(self);
+                let value_id = self.read(&value);
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.scope(&lhs);
-                let semantics = self.semantics_rw(&lhs);
+                let memory = self.scope(&ptr);
+                let semantics = self.semantics_rw(&ptr);
 
                 match out_ty.elem() {
                     Elem::Int(_, false) => self
-                        .atomic_u_max(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                        .atomic_u_max(ty, Some(out_id), ptr_id, memory, semantics, value_id)
                         .unwrap(),
                     Elem::Int(_, true) => self
-                        .atomic_s_max(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                        .atomic_s_max(ty, Some(out_id), ptr_id, memory, semantics, value_id)
                         .unwrap(),
                     Elem::Float(width, None) => {
                         match width {
@@ -211,7 +224,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             64 => self.capabilities.insert(Capability::AtomicFloat64MinMaxEXT),
                             _ => unreachable!(),
                         };
-                        self.atomic_f_max_ext(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                        self.atomic_f_max_ext(ty, Some(out_id), ptr_id, memory, semantics, value_id)
                             .unwrap()
                     }
                     _ => unreachable!(),
@@ -219,25 +232,27 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             AtomicOp::Min(op) => {
-                let lhs = self.compile_variable(op.lhs);
-                let rhs = self.compile_variable(op.rhs);
+                let out = out.unwrap();
+
+                let ptr = self.compile_variable(op.ptr);
+                let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id(self);
-                let rhs_id = self.read(&rhs);
+                let ptr_id = ptr.id(self);
+                let value_id = self.read(&value);
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.scope(&lhs);
-                let semantics = self.semantics_rw(&lhs);
+                let memory = self.scope(&ptr);
+                let semantics = self.semantics_rw(&ptr);
 
                 match out_ty.elem() {
                     Elem::Int(_, false) => self
-                        .atomic_u_min(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                        .atomic_u_min(ty, Some(out_id), ptr_id, memory, semantics, value_id)
                         .unwrap(),
                     Elem::Int(_, true) => self
-                        .atomic_s_min(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                        .atomic_s_min(ty, Some(out_id), ptr_id, memory, semantics, value_id)
                         .unwrap(),
                     Elem::Float(width, None) => {
                         match width {
@@ -249,7 +264,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             64 => self.capabilities.insert(Capability::AtomicFloat64MinMaxEXT),
                             _ => unreachable!(),
                         };
-                        self.atomic_f_min_ext(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                        self.atomic_f_min_ext(ty, Some(out_id), ptr_id, memory, semantics, value_id)
                             .unwrap()
                     }
                     _ => unreachable!(),
@@ -257,68 +272,74 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             AtomicOp::And(op) => {
-                let lhs = self.compile_variable(op.lhs);
-                let rhs = self.compile_variable(op.rhs);
+                let out = out.unwrap();
+
+                let ptr = self.compile_variable(op.ptr);
+                let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id(self);
-                let rhs_id = self.read(&rhs);
+                let ptr_id = ptr.id(self);
+                let value_id = self.read(&value);
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.scope(&lhs);
-                let semantics = self.semantics_rw(&lhs);
+                let memory = self.scope(&ptr);
+                let semantics = self.semantics_rw(&ptr);
 
                 assert!(
                     matches!(out_ty.elem(), Elem::Int(_, _)),
                     "and doesn't support float atomics"
                 );
-                self.atomic_and(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                self.atomic_and(ty, Some(out_id), ptr_id, memory, semantics, value_id)
                     .unwrap();
                 self.write(&out, out_id);
             }
             AtomicOp::Or(op) => {
-                let lhs = self.compile_variable(op.lhs);
-                let rhs = self.compile_variable(op.rhs);
+                let out = out.unwrap();
+
+                let ptr = self.compile_variable(op.ptr);
+                let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id(self);
-                let rhs_id = self.read(&rhs);
+                let ptr_id = ptr.id(self);
+                let value_id = self.read(&value);
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.scope(&lhs);
-                let semantics = self.semantics_rw(&lhs);
+                let memory = self.scope(&ptr);
+                let semantics = self.semantics_rw(&ptr);
 
                 assert!(
                     matches!(out_ty.elem(), Elem::Int(_, _)),
                     "or doesn't support float atomics"
                 );
-                self.atomic_or(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                self.atomic_or(ty, Some(out_id), ptr_id, memory, semantics, value_id)
                     .unwrap();
                 self.write(&out, out_id);
             }
             AtomicOp::Xor(op) => {
-                let lhs = self.compile_variable(op.lhs);
-                let rhs = self.compile_variable(op.rhs);
+                let out = out.unwrap();
+
+                let ptr = self.compile_variable(op.ptr);
+                let value = self.compile_variable(op.value);
                 let out = self.compile_variable(out);
                 let out_ty = out.item();
 
-                let lhs_id = lhs.id(self);
-                let rhs_id = self.read(&rhs);
+                let ptr_id = ptr.id(self);
+                let value_id = self.read(&value);
                 let out_id = self.write_id(&out);
 
                 let ty = out_ty.id(self);
-                let memory = self.scope(&lhs);
-                let semantics = self.semantics_rw(&lhs);
+                let memory = self.scope(&ptr);
+                let semantics = self.semantics_rw(&ptr);
 
                 assert!(
                     matches!(out_ty.elem(), Elem::Int(_, _)),
                     "xor doesn't support float atomics"
                 );
-                self.atomic_xor(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
+                self.atomic_xor(ty, Some(out_id), ptr_id, memory, semantics, value_id)
                     .unwrap();
                 self.write(&out, out_id);
             }
@@ -326,7 +347,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     fn scope(&mut self, var: &crate::variable::Variable) -> Word {
-        let value = self.scope_of(var) as u32;
+        let value = var.scope() as u32;
         self.const_u32(value)
     }
 
@@ -345,17 +366,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.const_u32(value.bits())
     }
 
-    fn scope_of(&mut self, var: &crate::variable::Variable) -> Scope {
-        let id = var.id(self);
-        *self
-            .state
-            .atomic_scopes
-            .get(&id)
-            .expect("Atomic should have a scope registered")
-    }
-
     fn semantics_of(&mut self, var: &crate::variable::Variable) -> MemorySemantics {
-        match self.scope_of(var) {
+        match var.scope() {
             Scope::Device => MemorySemantics::UNIFORM_MEMORY,
             Scope::Workgroup => MemorySemantics::WORKGROUP_MEMORY,
             Scope::Subgroup => MemorySemantics::SUBGROUP_MEMORY,

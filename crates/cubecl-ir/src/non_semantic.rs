@@ -38,6 +38,8 @@ impl OperationReflect for NonSemantic {
     fn op_code(&self) -> Self::OpCode {
         self.__match_opcode()
     }
+
+    fn sanitize_args(&mut self, _: &crate::Scope) {}
 }
 
 impl Display for NonSemantic {

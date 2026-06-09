@@ -25,8 +25,6 @@ pub enum BarrierOps<D: Dialect> {
         source: Variable<D>,
         destination: Variable<D>,
         source_length: Variable<D>,
-        offset_source: Variable<D>,
-        offset_out: Variable<D>,
         cooperative: bool,
     },
     MemCopyAsyncTx {
@@ -34,29 +32,23 @@ pub enum BarrierOps<D: Dialect> {
         source: Variable<D>,
         destination: Variable<D>,
         source_length: Variable<D>,
-        offset_source: Variable<D>,
-        offset_out: Variable<D>,
     },
     CopyAsync {
         source: Variable<D>,
         destination: Variable<D>,
         source_length: Variable<D>,
-        offset_source: Variable<D>,
-        offset_out: Variable<D>,
         copy_size: u32,
         checked: bool,
     },
     MemCopyAsyncTensorGlobalToShared {
         barrier: Variable<D>,
         smem_buffer: Variable<D>,
-        smem_offset: Variable<D>,
         tensor_map: Variable<D>,
         indices: Vec<Variable<D>>,
     },
     TmaLoadIm2col {
         barrier: Variable<D>,
         smem_buffer: Variable<D>,
-        smem_offset: Variable<D>,
         tensor_map: Variable<D>,
         indices: Vec<Variable<D>>,
         offsets: Vec<Variable<D>>,
@@ -172,23 +164,22 @@ __syncthreads();
                 source,
                 destination,
                 source_length,
-                offset_source,
-                offset_out,
+
                 cooperative,
             } => {
                 let item = source.item();
-                let size = format!("sizeof({item})");
+                let size = format!("sizeof({})", item.value_ty());
                 match cooperative {
                     false => write!(
                         f,
                         "
-cuda::memcpy_async({destination} + {offset_out}, {source} + {offset_source}, {source_length} * {size}, {barrier});
+cuda::memcpy_async({destination}, {source}, {source_length} * {size}, {barrier});
                     "
                     ),
                     true => write!(
                         f,
                         "
-cuda::memcpy_async(block_{barrier}, {destination} + {offset_out}, {source} + {offset_source}, {source_length} * {size}, {barrier});
+cuda::memcpy_async(block_{barrier}, {destination}, {source}, {source_length} * {size}, {barrier});
                         "
                     ),
                 }
@@ -198,40 +189,36 @@ cuda::memcpy_async(block_{barrier}, {destination} + {offset_out}, {source} + {of
                 source,
                 destination,
                 source_length,
-                offset_source,
-                offset_out,
             } => {
                 let item = source.item();
-                let size = format!("sizeof({item})");
+                let size = format!("sizeof({})", item.value_ty());
                 write!(
-                        f,
+                    f,
+                    "
+cuda::device::memcpy_async_tx({destination}, {source}, {source_length} * {size}, {barrier});
                         "
-cuda::device::memcpy_async_tx({destination} + {offset_out}, {source} + {offset_source}, {source_length} * {size}, {barrier});
-                        "
-                    )
+                )
             }
             BarrierOps::CopyAsync {
                 source,
                 destination,
                 source_length,
-                offset_source,
-                offset_out,
                 copy_size,
                 checked,
             } => {
                 let item = source.item();
-                let size = format!("{source_length} * sizeof({item})");
+                let size = format!("{source_length} * sizeof({})", item.value_ty());
                 match *checked {
                     false => write!(
                         f,
                         "
-__cp_async_shared_global<{copy_size}>({source} + {offset_source}, {destination} + {offset_out});
+__cp_async_shared_global<{copy_size}>({source}, {destination});
                     "
                     ),
                     true => write!(
                         f,
                         "
-__cp_async_shared_global<{copy_size}>({source} + {offset_source}, {destination} + {offset_out}, {size});
+__cp_async_shared_global<{copy_size}>({source}, {destination}, {size});
                         "
                     ),
                 }
@@ -239,7 +226,6 @@ __cp_async_shared_global<{copy_size}>({source} + {offset_source}, {destination} 
             BarrierOps::MemCopyAsyncTensorGlobalToShared {
                 barrier,
                 smem_buffer,
-                smem_offset,
                 tensor_map,
                 indices,
             } => {
@@ -251,13 +237,12 @@ __cp_async_shared_global<{copy_size}>({source} + {offset_source}, {destination} 
                 });
                 writeln!(
                     f,
-                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_global_to_shared({smem_ptr} + {smem_offset}, &{tensor_map}, {indices} {barrier});"
+                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_global_to_shared({smem_ptr}, &{tensor_map}, {indices} {barrier});"
                 )
             }
             BarrierOps::TmaLoadIm2col {
                 barrier,
                 smem_buffer,
-                smem_offset,
                 tensor_map,
                 indices,
                 offsets,
@@ -272,7 +257,7 @@ __cp_async_shared_global<{copy_size}>({source} + {offset_source}, {destination} 
                     .collect();
                 writeln!(
                     f,
-                    "tma_load_im2col_{rank}d(&{tensor_map}, {barrier}, {smem_ptr} + {smem_offset}, {});",
+                    "tma_load_im2col_{rank}d(&{tensor_map}, {barrier}, {smem_ptr}, {});",
                     args.join(", ")
                 )
             }

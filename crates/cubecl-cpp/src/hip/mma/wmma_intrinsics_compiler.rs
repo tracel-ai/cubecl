@@ -373,14 +373,13 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
             }
             WmmaInstruction::Load {
                 frag,
-                value,
+                ptr,
                 layout,
-                offset,
                 stride,
             } => {
                 let extension = WmmaLoad::new(variable_to_frag(frag), *layout);
                 let name = extension.fn_name();
-                let value_ptr = frag_as_ptr(f, value, offset);
+                let value_ptr = frag_as_ptr(f, ptr);
                 writeln!(f, "{name}({frag}, {value_ptr}, {stride});")
             }
             WmmaInstruction::LdMatrix { .. } | WmmaInstruction::StMatrix { .. } => {
@@ -434,15 +433,14 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 *scales_factor,
             ),
             WmmaInstruction::Store {
-                output,
                 frag,
                 layout,
-                offset,
+                destination,
                 stride,
             } => {
                 let extension = WmmaStore::new(variable_to_frag(frag), *layout);
                 let name = extension.fn_name();
-                let output_ptr = frag_as_ptr(f, output, offset);
+                let output_ptr = frag_as_ptr(f, destination);
                 writeln!(f, "{name}({frag}, {output_ptr}, {stride});")
             }
             WmmaInstruction::Cast { input, output } => {
@@ -553,15 +551,14 @@ pub(super) fn compile_manual_mma<D: Dialect>(
     let cd_elems = shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
 
     let frag_cd_step = 4usize.div_ceil(frag_c.elem().size());
-    let frag_d_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
+    let frag_d_tmp = Variable::tmp_declared(Item::Scalar(Elem::<D>::I32)).fmt_left();
 
     // Need to reconstruct the fragments from an array of vectors to a single vector type.
     // This requires double indexing over both the array index and the vector index.
     // Will generate something like
     // `float8_t {arr[0].i_0, arr[0].i_1, arr[1].i_0, ...}`
     let frag = |var: &Variable<D>, len: usize| {
-        let vec = var.item().vectorization;
-        let frag: Vec<_> = if vec > 1 {
+        let frag: Vec<_> = if let Item::Vector(_, vec) = var.item() {
             (0..len)
                 .map(|i| format!("{var}[{}].i_{}", i / vec, i % vec))
                 .collect()
@@ -576,8 +573,7 @@ pub(super) fn compile_manual_mma<D: Dialect>(
     // C matrix needs to be padded for f16, because it only uses the low bytes. The simplest way is
     // to just replicate the same f16 in both halves of the register.
     let frag_c = {
-        let vec = frag_c.item().vectorization;
-        let frag: Vec<_> = if vec > 1 {
+        let frag: Vec<_> = if let Item::Vector(_, vec) = frag_c.item() {
             (0..cd_elems as usize)
                 .flat_map(|i| {
                     (0..frag_cd_step).map(move |_| format!("{frag_c}[{}].i_{}", i / vec, i % vec))
@@ -604,8 +600,7 @@ pub(super) fn compile_manual_mma<D: Dialect>(
     )?;
 
     for i in 0..cd_elems as usize {
-        let vec = frag_d.item().vectorization;
-        if vec > 1 {
+        if let Item::Vector(_, vec) = frag_d.item() {
             writeln!(
                 f,
                 "{frag_d}[{}].i_{} = {frag_d_tmp}[{i} * {frag_cd_step}];",

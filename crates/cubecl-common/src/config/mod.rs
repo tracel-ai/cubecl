@@ -145,7 +145,7 @@ pub trait RuntimeConfig:
         let content = std::fs::read_to_string(path)?;
         let config: Self = match toml::from_str(&content) {
             Ok(val) => val,
-            Err(err) => panic!("The file provided doesn't have the right format => {err:?}"),
+            Err(err) => panic!("The file provided doesn't have the right format => {err}"),
         };
 
         Ok(config)
@@ -160,7 +160,7 @@ pub trait RuntimeConfig:
         let content = std::fs::read_to_string(path)?;
         let mut table: toml::Table = match toml::from_str(&content) {
             Ok(val) => val,
-            Err(err) => panic!("The file provided doesn't have the right format => {err:?}"),
+            Err(err) => panic!("The file provided doesn't have the right format => {err}"),
         };
 
         let value = match table.remove(section) {
@@ -176,7 +176,7 @@ pub trait RuntimeConfig:
         let config: Self = match value.try_into() {
             Ok(val) => val,
             Err(err) => {
-                panic!("The section '{section}' doesn't have the right format => {err:?}")
+                panic!("The section '{section}' doesn't have the right format => {err}")
             }
         };
 

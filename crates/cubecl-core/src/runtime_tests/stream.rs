@@ -4,7 +4,7 @@ use cubecl::prelude::*;
 use cubecl_common::stream_id::StreamId;
 
 #[cube(launch)]
-pub fn big_task<F: Float>(input: &Array<u32>, output: &mut Array<F>, num_loop: usize) {
+pub fn big_task<F: Float>(input: &[u32], output: &mut [F], num_loop: usize) {
     if ABSOLUTE_POS > output.len() {
         terminate!()
     }
@@ -39,8 +39,8 @@ pub fn test_stream<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
                 &client_1,
                 CubeCount::Static(len as u32 / 32, 1, 1),
                 CubeDim::new_1d(32),
-                ArrayArg::from_raw_parts(input, len),
-                ArrayArg::from_raw_parts(output_.clone(), len),
+                BufferArg::from_raw_parts(input, len),
+                BufferArg::from_raw_parts(output_.clone(), len),
                 4096,
             )
         };

@@ -3,7 +3,7 @@ use cubecl_macros::intrinsic;
 use crate as cubecl;
 use crate::prelude::{CubePrimitive, Vector};
 use crate::{
-    ir::{Operator, Scope, Select},
+    ir::{Operator, Scope, SelectOperands},
     prelude::*,
 };
 
@@ -20,7 +20,6 @@ pub fn select<C: CubePrimitive>(condition: bool, then: C, or_else: C) -> C {
 
 /// Same as [`select()`] but with vectors instead.
 #[cube]
-#[allow(unused_variables)]
 pub fn select_many<C: Scalar, N: Size>(
     condition: Vector<bool, N>,
     then: Vector<C, N>,
@@ -37,12 +36,12 @@ pub mod select {
     use super::*;
 
     pub fn expand<C: CubePrimitive>(
-        scope: &mut Scope,
+        scope: &Scope,
         condition: NativeExpand<bool>,
         then: NativeExpand<C>,
         or_else: NativeExpand<C>,
     ) -> NativeExpand<C> {
-        let cond = condition.expand.consume();
+        let cond = condition.expand;
 
         if let VariableKind::Constant(value) = cond.kind {
             if value.as_bool() {
@@ -52,22 +51,21 @@ pub mod select {
             }
         }
 
-        let then = then.expand.consume();
-        let or_else = or_else.expand.consume();
+        let then = then.expand;
+        let or_else = or_else.expand;
 
         let vf = cond.vector_size();
         let vf = Ord::max(vf, then.vector_size());
         let vf = Ord::max(vf, or_else.vector_size());
 
-        let output = scope.create_local(then.ty.with_vector_size(vf));
-        let out = *output;
+        let output = scope.create_local(then.value_type().with_vector_size(vf));
 
-        let select = Operator::Select(Select {
+        let select = Operator::Select(SelectOperands {
             cond,
             then,
             or_else,
         });
-        scope.register(Instruction::new(select, out));
+        scope.register(Instruction::new(select, output));
 
         output.into()
     }

@@ -40,7 +40,13 @@ pub struct OperationVariant {
 }
 
 #[derive(FromField)]
+#[darling(attributes(args))]
 pub struct OperationField {
     pub ident: Option<Ident>,
     pub ty: Type,
+
+    pub skip: Flag,
+    pub allow_ptr: Flag,
+    pub ptr_read: Flag,
+    pub ptr_write: Flag,
 }

@@ -11,20 +11,24 @@ use crate::WgslCompiler;
 pub fn bindings(
     repr: &<WgslCompiler as Compiler>::Representation,
     args: &KernelArguments,
-) -> (Vec<Visibility>, Option<Visibility>, bool) {
-    let bindings = repr
+) -> (Vec<Visibility>, usize) {
+    let mut bindings = repr
         .buffers
         .iter()
         .map(|it| {
-            if it.item.elem().is_atomic() {
-                Visibility::ReadWrite
-            } else {
+            // When slices are shared, it needs to be read-write if ANY of the slices is read-write,
+            // and since we can't be sure, we'll assume everything is read-write.
+            if cfg!(exclusive_memory_only) {
                 it.visibility
+            } else {
+                Visibility::ReadWrite
             }
         })
         .collect::<Vec<_>>();
-    let meta = (!args.info.data.is_empty()).then_some(Visibility::Read);
-    (bindings, meta, false)
+    if !args.info.data.is_empty() {
+        bindings.push(Visibility::Read);
+    }
+    (bindings, 0)
 }
 
 pub async fn request_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgpu::Queue) {
@@ -67,7 +71,7 @@ pub fn register_wgsl_features(
 }
 
 pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
-    use cubecl_core::ir::{AddressType, ElemType, FloatKind, IntKind, StorageType};
+    use cubecl_core::ir::{AddressType, ElemType, FloatKind, IntKind};
     use cubecl_ir::features::*;
 
     props.register_address_type(AddressType::U32);
@@ -88,7 +92,7 @@ pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
 
     for ty in supported_atomic_types {
         props.register_atomic_type_usage(
-            Type::new(StorageType::Atomic(ty)),
+            Type::atomic(ty),
             AtomicUsage::LoadStore | AtomicUsage::Add,
         );
     }
@@ -107,7 +111,7 @@ pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
     }
     if feats.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
         props.register_atomic_type_usage(
-            Type::new(StorageType::Atomic(ElemType::Float(FloatKind::F32))),
+            Type::atomic(ElemType::Float(FloatKind::F32)),
             AtomicUsage::LoadStore | AtomicUsage::Add,
         );
     }

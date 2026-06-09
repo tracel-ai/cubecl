@@ -1,6 +1,6 @@
+use core::cell::UnsafeCell;
 use std::{
     any::{Any, TypeId},
-    cell::RefCell,
     collections::HashMap,
     rc::Rc,
 };
@@ -18,12 +18,13 @@ use cubecl_core::{self as cubecl, intrinsic};
 pub struct ComptimeEventBus {
     #[allow(unused)]
     #[cube(comptime)]
-    listener_family: Rc<RefCell<HashMap<TypeId, Vec<EventItem>>>>,
+    listener_family: Rc<UnsafeCell<HashMap<TypeId, Vec<EventItem>>>>,
 }
 
 type EventItem = Box<dyn Any>;
-type Call<E> =
-    Box<dyn Fn(&mut Scope, &Box<dyn Any>, <E as CubeType>::ExpandType, ComptimeEventBusExpand)>;
+type Call<E> = Box<
+    dyn FnMut(&Scope, &mut Box<dyn Any>, <E as CubeType>::ExpandType, &mut ComptimeEventBusExpand),
+>;
 
 struct Payload<E: CubeType> {
     listener: Box<dyn Any>,
@@ -42,12 +43,11 @@ impl ComptimeEventBus {
     pub fn new() -> Self {
         intrinsic!(|_| {
             ComptimeEventBusExpand {
-                listener_family: Rc::new(RefCell::new(HashMap::new())),
+                listener_family: Rc::new(UnsafeCell::new(HashMap::new())),
             }
         })
     }
 
-    #[allow(unused_variables)]
     /// Registers a new callback to be called when its event is launched.
     ///
     /// # Notes
@@ -57,19 +57,19 @@ impl ComptimeEventBus {
     pub fn listener<L: EventListener>(&mut self, listener: L) {
         intrinsic!(|_| {
             let type_id = TypeId::of::<L::Event>();
-            let mut listeners = self.listener_family.borrow_mut();
+            let mut listeners = unsafe { self.listener_family.get().as_mut().unwrap() };
 
             // The call dynamic function erases the [EventListener] type.
             //
             // This is necessary since we need to clone the expand type when calling the expand
             // method. The listener is passed as a dynamic type and casted during the function call.
             let call =
-                |scope: &mut cubecl::prelude::Scope,
-                 listener: &Box<dyn Any>,
+                |scope: &Scope,
+                 listener: &mut Box<dyn Any>,
                  event: <L::Event as cubecl::prelude::CubeType>::ExpandType,
-                 bus: <ComptimeEventBus as cubecl::prelude::CubeType>::ExpandType| {
-                    let listener: &L::ExpandType = listener.downcast_ref().unwrap();
-                    listener.clone().__expand_on_event_method(scope, event, bus)
+                 bus: &mut <ComptimeEventBus as cubecl::prelude::CubeType>::ExpandType| {
+                    let listener: &mut L::ExpandType = listener.downcast_mut().unwrap();
+                    listener.__expand_on_event_method(scope, event, bus)
                 };
             let call: Call<L::Event> = Box::new(call);
 
@@ -89,21 +89,21 @@ impl ComptimeEventBus {
         })
     }
 
-    #[allow(unused_variables)]
     /// Registers a new event to be processed by [registered listeners](EventListener).
     pub fn event<E: CubeType + 'static>(&mut self, event: E) {
         intrinsic!(|scope| {
             let type_id = TypeId::of::<E>();
-            let family = self.listener_family.borrow();
-            let listeners = match family.get(&type_id) {
+            let family = self.listener_family.clone();
+            let family = unsafe { family.get().as_mut().unwrap() };
+            let listeners = match family.get_mut(&type_id) {
                 Some(val) => val,
                 None => return,
             };
 
-            for listener in listeners.iter() {
-                let payload = listener.downcast_ref::<Payload<E>>().unwrap();
-                let call = &payload.call;
-                call(scope, &payload.listener, event.clone(), self.clone());
+            for listener in listeners.iter_mut() {
+                let mut payload = listener.downcast_mut::<Payload<E>>().unwrap();
+                let call = &mut payload.call;
+                call(scope, &mut payload.listener, event.clone_unchecked(), self);
             }
         })
     }

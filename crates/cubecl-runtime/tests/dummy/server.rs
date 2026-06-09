@@ -262,6 +262,7 @@ impl DummyServer {
             min_tensor_cores_dim: None,
             num_cpu_cores: None,
             max_vector_size: VectorSize::MAX,
+            cube_mma_reserved_shared_memory: 0,
         };
         let features = Features::default();
         let timing_method = cubecl_common::profile::TimingMethod::System;

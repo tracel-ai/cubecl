@@ -70,9 +70,9 @@ macro_rules! test_binary_impl {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = *FAST_MATH)]
             fn test_function<$float_type: Float, In: Size, Out: Size>(
-                lhs: &Array<Vector<$float_type, In>>,
-                rhs: &Array<Vector<$float_type, In>>,
-                output: &mut Array<Vector<$float_type, Out>>
+                lhs: &[Vector<$float_type, In>],
+                rhs: &[Vector<$float_type, In>],
+                output: &mut [Vector<$float_type, Out>]
             ) {
                 if ABSOLUTE_POS < rhs.len() {
                     output[ABSOLUTE_POS] = Vector::cast_from($binary_func(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]));
@@ -94,9 +94,9 @@ macro_rules! test_binary_impl {
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
                         $input_vectorization,
                         $out_vectorization,
-                        ArrayArg::from_raw_parts(lhs_handle, lhs.len()),
-                        ArrayArg::from_raw_parts(rhs_handle, rhs.len()),
-                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                        BufferArg::from_raw_parts(lhs_handle, lhs.len()),
+                        BufferArg::from_raw_parts(rhs_handle, rhs.len()),
+                        BufferArg::from_raw_parts(output_handle.clone(), $expected.len()),
                     )
                 };
 
@@ -255,9 +255,9 @@ test_binary_impl!(
 
 #[cube(launch_unchecked)]
 fn test_powi_kernel<F: Float, N: Size>(
-    lhs: &Array<Vector<F, N>>,
-    rhs: &Array<Vector<i32, N>>,
-    output: &mut Array<Vector<F, N>>,
+    lhs: &[Vector<F, N>],
+    rhs: &[Vector<i32, N>],
+    output: &mut [Vector<F, N>],
 ) {
     if ABSOLUTE_POS < rhs.len() {
         output[ABSOLUTE_POS] = Powi::powi(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
@@ -289,9 +289,9 @@ macro_rules! test_powi_impl {
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
                         $input_vectorization,
-                        ArrayArg::from_raw_parts(lhs_handle, lhs.len()),
-                        ArrayArg::from_raw_parts(rhs_handle, rhs.len()),
-                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                        BufferArg::from_raw_parts(lhs_handle, lhs.len()),
+                        BufferArg::from_raw_parts(rhs_handle, rhs.len()),
+                        BufferArg::from_raw_parts(output_handle.clone(), $expected.len()),
                     )
                 };
 
@@ -323,9 +323,9 @@ test_powi_impl!(
 
 #[cube(launch_unchecked)]
 fn test_mulhi_kernel<N: Size>(
-    lhs: &Array<Vector<u32, N>>,
-    rhs: &Array<Vector<u32, N>>,
-    output: &mut Array<Vector<u32, N>>,
+    lhs: &[Vector<u32, N>],
+    rhs: &[Vector<u32, N>],
+    output: &mut [Vector<u32, N>],
 ) {
     if ABSOLUTE_POS < rhs.len() {
         output[ABSOLUTE_POS] = lhs[ABSOLUTE_POS].mul_hi(rhs[ABSOLUTE_POS]);
@@ -356,9 +356,9 @@ macro_rules! test_mulhi_impl {
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new_1d((lhs.len() / $input_vectorization as usize) as u32),
                         $input_vectorization,
-                        ArrayArg::from_raw_parts(lhs_handle, lhs.len()),
-                        ArrayArg::from_raw_parts(rhs_handle, rhs.len()),
-                        ArrayArg::from_raw_parts(output_handle.clone(), $expected.len()),
+                        BufferArg::from_raw_parts(lhs_handle, lhs.len()),
+                        BufferArg::from_raw_parts(rhs_handle, rhs.len()),
+                        BufferArg::from_raw_parts(output_handle.clone(), $expected.len()),
                     )
                 };
 

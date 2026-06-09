@@ -1,9 +1,13 @@
-use crate::{WgpuResource, stream::WgpuStream};
+use crate::{
+    CompilerInfo, ParamsTransfer, WgpuResource, stream::WgpuStream,
+    timings::TimestampQuerySetBudget,
+};
 use alloc::sync::Arc;
 use cubecl_common::{bytes::Bytes, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     server::{MetadataBindingInfo, StreamErrorMode},
+    zspace::SmallVec,
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
@@ -52,6 +56,9 @@ pub struct BindingsResource {
     pub resources: Vec<WgpuResource>,
     /// Metadata for uniform bindings.
     pub info: MetadataBindingInfo,
+    /// Which compiler was used. This determines the passing strategy of params.
+    /// WGSL and metal use bindings, Vulkan uses buffer addresses sent via a uniform buffer.
+    pub compiler_info: CompilerInfo,
 }
 
 /// Represents a WGPU backend for scheduling tasks on streams.
@@ -69,9 +76,12 @@ pub struct WgpuStreamFactory {
     memory_properties: MemoryDeviceProperties,
     memory_config: MemoryConfiguration,
     timing_method: TimingMethod,
+    /// Per-device budget of live timestamp query sets, shared by every stream it creates.
+    timing_budget: Arc<TimestampQuerySetBudget>,
     tasks_max: usize,
     logger: Arc<ServerLogger>,
     count: u64,
+    use_vulkan_compiler: bool,
 }
 
 impl StreamFactory for WgpuStreamFactory {
@@ -86,23 +96,34 @@ impl StreamFactory for WgpuStreamFactory {
             self.memory_properties.clone(),
             self.memory_config.clone(),
             self.timing_method,
+            self.timing_budget.clone(),
             self.tasks_max,
             self.logger.clone(),
+            self.use_vulkan_compiler,
         )
     }
 }
 
 impl ScheduledWgpuBackend {
     /// Creates a new `ScheduledWgpuBackend` with the given WGPU device, queue, and configurations.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         timing_method: TimingMethod,
+        backend: wgpu::Backend,
         tasks_max: usize,
         logger: Arc<ServerLogger>,
+        use_vulkan_compiler: bool,
     ) -> Self {
+        // One budget per device. Only Metal caps counter sample buffers; others go unbounded.
+        let timing_budget = Arc::new(match backend {
+            wgpu::Backend::Metal => TimestampQuerySetBudget::metal(),
+            _ => TimestampQuerySetBudget::unbounded(),
+        });
+
         Self {
             factory: WgpuStreamFactory {
                 device,
@@ -110,25 +131,53 @@ impl ScheduledWgpuBackend {
                 memory_properties,
                 memory_config,
                 timing_method,
+                timing_budget,
                 tasks_max,
                 logger,
                 count: 0,
+                use_vulkan_compiler,
             },
         }
     }
 }
 
+pub type Addresses = SmallVec<[u64; 8]>;
+
 impl BindingsResource {
     /// Converts metadata and scalar bindings into WGPU resources for a stream.
-    pub fn into_resources(mut self, stream: &mut WgpuStream) -> Vec<WgpuResource> {
-        // If metadata contains data, create a uniform buffer for it.
-        if !self.info.data.is_empty() {
-            let info = stream.create_uniform(bytemuck::cast_slice(&self.info.data));
-            self.resources.push(info);
+    pub fn into_resources(
+        mut self,
+        stream: &mut WgpuStream,
+    ) -> (Vec<WgpuResource>, Vec<WgpuResource>, Option<Addresses>) {
+        let info = (!self.info.data.is_empty())
+            .then(|| stream.create_uniform(bytemuck::cast_slice(&self.info.data)));
+        match self.compiler_info {
+            CompilerInfo::Vulkan { params_transfer } => {
+                let addresses = self
+                    .resources
+                    .iter()
+                    .chain(info.iter())
+                    .map(|it| it.address.unwrap().get() + it.offset)
+                    .collect::<Addresses>();
+                if let Some(info) = info {
+                    self.resources.push(info);
+                }
+                match params_transfer {
+                    ParamsTransfer::Immediate => (vec![], self.resources, Some(addresses)),
+                    ParamsTransfer::Uniform => {
+                        let address_buffer =
+                            stream.create_uniform(bytemuck::cast_slice(&addresses));
+                        (vec![address_buffer], self.resources, None)
+                    }
+                }
+            }
+            _ => {
+                if let Some(info) = info {
+                    self.resources.push(info);
+                }
+                (self.resources, vec![], None)
+            }
         }
-
-        // Return the complete list of resources.
-        self.resources
     }
 }
 

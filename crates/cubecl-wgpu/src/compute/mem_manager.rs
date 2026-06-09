@@ -29,6 +29,7 @@ impl WgpuMemManager {
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         logger: Arc<ServerLogger>,
+        use_vulkan_compiler: bool,
     ) -> Self {
         // Allocate storage & memory management for the main memory buffers. Any calls
         // to empty() or create() with a small enough size will be allocated from this
@@ -41,6 +42,7 @@ impl WgpuMemManager {
                     | BufferUsages::COPY_SRC
                     | BufferUsages::COPY_DST
                     | BufferUsages::INDIRECT,
+                use_vulkan_compiler,
             ),
             &memory_properties,
             memory_config,
@@ -53,6 +55,7 @@ impl WgpuMemManager {
                 wgpu::COPY_BUFFER_ALIGNMENT as usize,
                 device.clone(),
                 wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                false,
             ),
             &memory_properties,
             // Unfortunately, we can't reuse a different part of a buffer for different reads, so we
@@ -69,6 +72,7 @@ impl WgpuMemManager {
                 memory_properties.alignment as usize,
                 device.clone(),
                 BufferUsages::UNIFORM | BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                use_vulkan_compiler,
             ),
             &memory_properties,
             MemoryConfiguration::ExclusivePages,

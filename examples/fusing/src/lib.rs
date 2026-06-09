@@ -15,8 +15,8 @@ struct Operation {
 
 #[cube(launch_unchecked)]
 fn fusing<F: Float, N: Size>(
-    inputs: &Sequence<Array<Vector<F, N>>>,
-    outputs: &mut Sequence<Array<Vector<F, N>>>,
+    inputs: Sequence<Box<[Vector<F, N>]>>,
+    mut outputs: Sequence<Box<[Vector<F, N>]>>,
     #[comptime] ops: Sequence<Operation>,
 ) {
     #[unroll]
@@ -45,12 +45,12 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let mut outputs = SequenceArg::new();
 
     unsafe {
-        inputs.push(ArrayArg::from_raw_parts(input_handle, input.len()));
-        outputs.push(ArrayArg::from_raw_parts(
+        inputs.push(BufferArg::from_raw_parts(input_handle, input.len()));
+        outputs.push(BufferArg::from_raw_parts(
             output_handle_1.clone(),
             input.len(),
         ));
-        outputs.push(ArrayArg::from_raw_parts(
+        outputs.push(BufferArg::from_raw_parts(
             output_handle_2.clone(),
             input.len(),
         ));

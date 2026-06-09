@@ -45,6 +45,13 @@ pub struct KernelDefinition {
     pub options: KernelOptions,
 }
 
+impl KernelDefinition {
+    /// Returns the total number of global buffers (including tensor maps)
+    pub fn num_global_buffers(&self) -> usize {
+        self.buffers.len() + self.tensor_maps.len()
+    }
+}
+
 #[derive(Default, Clone, Debug, Hash, PartialEq, Eq)]
 /// Options for a specific kernel compilation
 pub struct KernelOptions {
@@ -61,13 +68,8 @@ pub struct KernelOptions {
 pub struct KernelArg {
     /// The kernel id.
     pub id: Id,
-    /// Whether the global argument can only be accessed for reading, or if it can also be accessed
-    /// for write.
-    pub visibility: Visibility,
     /// The type of the argument.
     pub ty: Type,
-    /// The size of the argument.
-    pub size: Option<usize>,
     /// Whether the argument has metadata.
     pub has_extended_meta: bool,
 }
@@ -79,9 +81,10 @@ pub struct ScalarKernelArg {
     pub count: usize,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Hash)]
 #[allow(missing_docs)]
 pub enum Visibility {
+    Uniform,
     Read,
     ReadWrite,
 }

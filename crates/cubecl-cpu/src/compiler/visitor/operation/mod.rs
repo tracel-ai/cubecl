@@ -1,4 +1,5 @@
 pub(super) mod arithmetic;
+pub(super) mod atomic;
 pub(super) mod bitwise;
 pub(super) mod comparison;
 pub(super) mod metadata;
@@ -6,7 +7,8 @@ pub(super) mod operator;
 pub(super) mod synchronization;
 
 use cubecl_core::ir::{
-    BarrierLevel, BarrierOps, NonSemantic, OpaqueType, Operation, StorageType, Synchronization,
+    AtomicOp, BarrierLevel, BarrierOps, Memory, NonSemantic, OpaqueType, Operation, StorageType,
+    Synchronization,
 };
 use tracel_llvm::mlir_rs::{
     dialect::{llvm, ods::llvm as llvm_ods},
@@ -23,6 +25,9 @@ use super::Visitor;
 impl<'a> Visitor<'a> {
     pub fn visit_operation(&mut self, operation: &Operation) {
         match operation {
+            Operation::Memory(memory) => {
+                self.visit_memory(memory, None);
+            }
             Operation::NonSemantic(NonSemantic::Print {
                 format_string,
                 args,
@@ -110,6 +115,9 @@ impl<'a> Visitor<'a> {
                 self.visit_synchronization(synchronization);
             }
             Operation::Marker(_) => {}
+            Operation::Atomic(atomic) => {
+                self.visit_atomic(atomic, None);
+            }
             operation => {
                 todo!(
                     "This operation ({}) is not implemented without an out",
@@ -121,8 +129,11 @@ impl<'a> Visitor<'a> {
 
     pub fn visit_operation_with_out(&mut self, operation: &Operation, out: Variable) {
         match operation {
-            Operation::Atomic(_atomic) => {
-                todo!("Atomic operation are not yet supported");
+            Operation::Memory(memory) => {
+                self.visit_memory(memory, Some(out));
+            }
+            Operation::Atomic(atomic) => {
+                self.visit_atomic(atomic, Some(out));
             }
             Operation::Arithmetic(arithmetic) => {
                 self.visit_arithmetic(arithmetic, out);
@@ -152,7 +163,17 @@ impl<'a> Visitor<'a> {
             Operation::Operator(operator) => {
                 self.visit_operator_with_out(operator, out);
             }
-            Operation::CoopMma(_) | Operation::Plane(_) | Operation::Tma(_) => {
+            Operation::WorkgroupUniformLoad(input) => {
+                if input.ty.is_atomic() {
+                    self.visit_atomic(&AtomicOp::Load(*input), Some(out));
+                } else {
+                    self.visit_memory(&Memory::Load(*input), Some(out));
+                }
+            }
+            Operation::CoopMma(_)
+            | Operation::Plane(_)
+            | Operation::Tma(_)
+            | Operation::TensorIndexing(_) => {
                 panic!("{operation} is not supported on CPU.");
             }
             Operation::Branch(_) => {
@@ -160,6 +181,9 @@ impl<'a> Visitor<'a> {
             }
             Operation::Synchronization(_) | Operation::NonSemantic(_) | Operation::Marker(_) => {
                 unreachable!("{operation} doesn't have an out");
+            }
+            Operation::ConstructAggregate(..) | Operation::ExtractAggregateField(..) => {
+                unreachable!("Should be disaggregated at this point")
             }
         }
     }

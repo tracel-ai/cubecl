@@ -2,7 +2,7 @@ use alloc::{boxed::Box, vec::Vec};
 use core::marker::PhantomData;
 
 use crate::Runtime;
-use crate::prelude::{ArrayArg, TensorArg, TensorMapArg, TensorMapKind};
+use crate::prelude::{BufferArg, TensorArg, TensorMapArg, TensorMapKind};
 use crate::{InfoBuilder, KernelSettings, ScalarArgType};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
@@ -36,13 +36,13 @@ pub struct KernelLauncher<R: Runtime> {
 
 impl<R: Runtime> KernelLauncher<R> {
     #[cfg(feature = "std")]
-    pub fn with_scope<T>(&mut self, fun: impl FnMut(&mut Scope) -> T) -> T {
-        SCOPE.with_borrow_mut(fun)
+    pub fn with_scope<T>(&mut self, fun: impl FnMut(&Scope) -> T) -> T {
+        SCOPE.with_borrow(fun)
     }
 
     #[cfg(not(feature = "std"))]
-    pub fn with_scope<T>(&mut self, mut fun: impl FnMut(&mut Scope) -> T) -> T {
-        fun(&mut self.scope)
+    pub fn with_scope<T>(&mut self, mut fun: impl FnMut(&Scope) -> T) -> T {
+        fun(&self.scope)
     }
 
     #[cfg(feature = "std")]
@@ -140,16 +140,12 @@ impl<R: Runtime> KernelLauncher<R> {
         };
 
         let elem_size = ty.size();
-        let vectorization = ty.vector_size();
-
         let buffer_len = tensor.handle.size_in_used() / elem_size as u64;
-        let len = tensor.shape.iter().product::<usize>() / vectorization;
         let address_type = self.address_type;
+
         self.with_info(|info| {
             info.metadata.register_tensor(
-                tensor.strides.len() as u64,
                 buffer_len,
-                len as u64,
                 tensor.shape.clone(),
                 tensor.strides.clone(),
                 address_type,
@@ -159,30 +155,22 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 
     /// Push a new input array to the state.
-    pub fn register_array(&mut self, array: ArrayArg<R>, ty: Type) {
-        if let Some(tensor) = self.process_array(array, ty) {
+    pub fn register_buffer(&mut self, array: BufferArg<R>, ty: Type) {
+        if let Some(tensor) = self.process_buffer(array, ty) {
             self.buffers.push(tensor);
         }
     }
 
-    fn process_array(&mut self, array: ArrayArg<R>, ty: Type) -> Option<Binding> {
+    fn process_buffer(&mut self, array: BufferArg<R>, ty: Type) -> Option<Binding> {
         let array = match array {
-            ArrayArg::Handle { handle, .. } => handle,
-            ArrayArg::Alias { .. } => return None,
+            BufferArg::Handle { handle, .. } => handle,
+            BufferArg::Alias { .. } => return None,
         };
 
         let elem_size = ty.size();
-        let vectorization = ty.vector_size();
-
         let buffer_len = array.handle.size_in_used() / elem_size as u64;
         let address_type = self.address_type;
-        self.with_info(|info| {
-            info.metadata.register_array(
-                buffer_len,
-                array.length[0] as u64 / vectorization as u64,
-                address_type,
-            )
-        });
+        self.with_info(|info| info.metadata.register_buffer(buffer_len, address_type));
         Some(array.handle)
     }
 

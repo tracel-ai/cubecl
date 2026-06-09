@@ -29,14 +29,6 @@ pub struct IndexInstruction<D: Dialect> {
     pub out: Variable<D>,
 }
 
-#[derive(Debug, Clone)]
-pub struct IndexAssignInstruction<D: Dialect> {
-    pub index: Variable<D>,
-    pub value: Variable<D>,
-    pub vector_size: u32,
-    pub out: Variable<D>,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct UnaryInstruction<D: Dialect> {
     pub input: Variable<D>,
@@ -65,8 +57,6 @@ pub enum Instruction<D: Dialect> {
     DeclareVariable {
         var: Variable<D>,
     },
-    Modulo(BinaryInstruction<D>),
-    Remainder(BinaryInstruction<D>),
     Add(BinaryInstruction<D>),
     SaturatingAdd(BinaryInstruction<D>),
     Fma {
@@ -76,6 +66,8 @@ pub enum Instruction<D: Dialect> {
         out: Variable<D>,
     },
     Div(BinaryInstruction<D>),
+    Rem(BinaryInstruction<D>),
+    ModFloor(BinaryInstruction<D>),
     FastDiv(BinaryInstruction<D>),
     FastRecip(UnaryInstruction<D>),
     Mul(BinaryInstruction<D>),
@@ -83,8 +75,10 @@ pub enum Instruction<D: Dialect> {
     SaturatingSub(BinaryInstruction<D>),
     HiMul(BinaryInstruction<D>),
     Index(IndexInstruction<D>),
-    IndexAssign(IndexAssignInstruction<D>),
     Assign(UnaryInstruction<D>),
+    Store(UnaryInstruction<D>),
+    Reference(UnaryInstruction<D>),
+    Load(UnaryInstruction<D>),
     SpecialCast(UnaryInstruction<D>),
     RangeLoop {
         i: Variable<D>,
@@ -98,6 +92,8 @@ pub enum Instruction<D: Dialect> {
         inputs: Vec<Variable<D>>,
         out: Variable<D>,
     },
+    InsertComponent(BinaryInstruction<D>),
+    ExtractComponent(BinaryInstruction<D>),
     Loop {
         instructions: Vec<Self>,
     },
@@ -254,16 +250,8 @@ pub enum Instruction<D: Dialect> {
     Dot(BinaryInstruction<D>),
     VectorSum(UnaryInstruction<D>),
     Copy {
-        input: Variable<D>,
-        in_index: Variable<D>,
-        out: Variable<D>,
-        out_index: Variable<D>,
-    },
-    CopyBulk {
-        input: Variable<D>,
-        in_index: Variable<D>,
-        out: Variable<D>,
-        out_index: Variable<D>,
+        source: Variable<D>,
+        dest: Variable<D>,
         len: u32,
     },
     Printf {
@@ -277,7 +265,6 @@ pub enum Instruction<D: Dialect> {
     Barrier(BarrierOps<D>),
     MemCopyAsyncTensorSharedToGlobal {
         smem_buffer: Variable<D>,
-        smem_offset: Variable<D>,
         tensor_map: Variable<D>,
         indices: Vec<Variable<D>>,
     },
@@ -295,10 +282,7 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Unreachable => D::compile_unreachable(f),
             Instruction::DeclareVariable { var } => match var {
                 Variable::WmmaFragment { .. } => D::compile_wmma_fragment_declaration(f, var),
-                _ => {
-                    let item = var.item();
-                    writeln!(f, "{item} {var};")
-                }
+                var => writeln!(f, "{} {var};", var.item()),
             },
             Instruction::Add(it) => Add::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::SaturatingAdd(it) => SaturatingAdd::format(f, &it.lhs, &it.rhs, &it.out),
@@ -330,8 +314,7 @@ impl<D: Dialect> Display for Instruction<D> {
                 vector_size,
                 out,
             } => {
-                let mut item = out.item();
-                item.vectorization = *vector_size as usize;
+                let item = Item::new(out.elem(), *vector_size as usize);
                 let addr_space = D::address_space_for_variable(input);
 
                 writeln!(
@@ -346,7 +329,7 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Sub(it) => Sub::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::SaturatingSub(it) => SaturatingSub::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::HiMul(it) => HiMul::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Modulo(inst) => Modulo::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Instruction::ModFloor(inst) => ModFloor::format(f, &inst.lhs, &inst.rhs, &inst.out),
             Instruction::BitwiseOr(it) => BitwiseOr::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::BitwiseAnd(it) => BitwiseAnd::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::BitwiseXor(it) => BitwiseXor::format(f, &it.lhs, &it.rhs, &it.out),
@@ -360,30 +343,25 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Index(it) => {
                 Index::format(f, &it.list, &it.index, &it.out, it.vector_size)
             }
-            Instruction::IndexAssign(it) => {
-                IndexAssign::format(f, &it.index, &it.value, &it.out, it.vector_size)
-            }
-            Instruction::Copy {
-                input,
-                in_index,
-                out,
-                out_index,
-            } => {
-                writeln!(f, "{out}[{out_index}] = {input}[{in_index}];")
-            }
-            Instruction::CopyBulk {
-                input,
-                in_index,
-                out,
-                out_index,
-                len,
-            } => {
+            Instruction::Copy { source, dest, len } => {
                 for i in 0..*len {
-                    writeln!(f, "{out}[{out_index} + {i}] = {input}[{in_index} + {i}];")?;
+                    writeln!(f, "*({dest} + {i}) = *({source} + {i});")?;
                 }
                 Ok(())
             }
             Instruction::Assign(it) => Assign::format(f, &it.input, &it.out),
+            Instruction::Store(it) => {
+                writeln!(f, "*{} = {};", it.out, it.input)
+            }
+            Instruction::Reference(it) => {
+                let out_ty = it.out.item();
+                let out = it.out;
+                writeln!(f, "{out_ty} {out} = {};", it.input.fmt_ptr())
+            }
+            Instruction::Load(it) => {
+                let out = it.out.fmt_left();
+                writeln!(f, "{out} = *{};", it.input)
+            }
             Instruction::RangeLoop {
                 i,
                 start,
@@ -449,13 +427,13 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let item_then = then.item();
                 let item_out = out.item();
 
-                let vf_then = item_then.vectorization;
-                let vf_or_else = item_or_else.vectorization;
-                let vf_out = item_out.vectorization;
-                let vf_cond = cond.item().vectorization;
+                let vf_then = item_then.vectorization();
+                let vf_or_else = item_or_else.vectorization();
+                let vf_out = item_out.vectorization();
+                let vf_cond = cond.item().vectorization();
 
                 let item_out = out.item();
-                let cond_elem = cond.item().elem;
+                let cond_elem = cond.elem();
                 let out = out.fmt_left();
 
                 // It seems to always be faster to broadcast the select, because the compiler is
@@ -606,9 +584,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let input_item = input.item();
                 let out_item = out.item();
 
-                if out_item.elem.size() * out_item.vectorization
-                    != input.item().elem.size() * input.item().vectorization
-                {
+                if out_item.size() != input_item.size() {
                     panic!("Unsupported type for bitcasting {out_item:?} from {input_item:?}");
                 } else {
                     let out = out.fmt_left();
@@ -655,11 +631,8 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::AtomicXor(BinaryInstruction { lhs, rhs, out }) => {
                 D::compile_atomic_xor(f, lhs, rhs, out)
             }
-            Instruction::Remainder(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
-            Instruction::Neg(UnaryInstruction { input, out }) => {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = -{input};")
-            }
+            Instruction::Rem(inst) => Remainder::format(f, &inst.lhs, &inst.rhs, &inst.out),
+            Instruction::Neg(UnaryInstruction { input, out }) => Neg::format(f, input, out),
             Instruction::Normalize(inst) => {
                 Normalize::<D, InverseSqrt>::format(f, &inst.input, &inst.out)
             }
@@ -680,6 +653,12 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     .collect::<Vec<_>>();
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {item}{{{}}};", inputs.join(","))
+            }
+            Instruction::InsertComponent(inst) => {
+                InsertComponent::format(f, &inst.lhs, &inst.rhs, &inst.out)
+            }
+            Instruction::ExtractComponent(inst) => {
+                ExtractComponent::format(f, &inst.lhs, &inst.rhs, &inst.out)
             }
             Instruction::Printf {
                 format_string,
@@ -733,7 +712,6 @@ if({pos} == 0) {{
             }
             Instruction::MemCopyAsyncTensorSharedToGlobal {
                 smem_buffer,
-                smem_offset,
                 tensor_map,
                 indices,
             } => {
@@ -745,7 +723,7 @@ if({pos} == 0) {{
                 });
                 writeln!(
                     f,
-                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices} {smem_ptr} + {smem_offset});"
+                    "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices} {smem_ptr});"
                 )
             }
             Instruction::SpecialCast(UnaryInstruction { input, out }) => {
@@ -778,12 +756,9 @@ impl<D: Dialect> Fma<D> {
         out: &Variable<D>,
     ) -> core::fmt::Result {
         let out_item = out.item();
-        let num = out_item.vectorization;
 
         let out = out.fmt_left();
-        if num == 1 {
-            writeln!(f, "{out} = fma({a}, {b}, {c});")
-        } else {
+        if let Item::Vector(_, num) = out_item {
             writeln!(f, "{out} = {out_item}{{")?;
 
             for i in 0..num {
@@ -794,6 +769,8 @@ impl<D: Dialect> Fma<D> {
                 writeln!(f, "fma({ai}, {bi}, {ci}),")?;
             }
             f.write_str("};\n")
+        } else {
+            writeln!(f, "{out} = fma({a}, {b}, {c});")
         }
     }
 }
@@ -811,13 +788,13 @@ impl<D: Dialect> Clamp<D> {
         out: &Variable<D>,
     ) -> core::fmt::Result {
         let out_item = out.item();
-        if out.item().vectorization == 1 {
+        if let Item::Vector(..) = out_item {
+            Self::unroll_vec(f, input, min_value, max_value, out)
+        } else {
             let out = out.fmt_left();
             write!(f, "{out} = ")?;
             Self::format_scalar(f, *input, *min_value, *max_value, out_item)?;
             f.write_str(";\n")
-        } else {
-            Self::unroll_vec(f, input, min_value, max_value, out)
         }
     }
 
@@ -847,9 +824,9 @@ impl<D: Dialect> Clamp<D> {
         let item_out_original = out.item();
         let item_out_optimized = out_optimized.item();
 
-        let index = match optimized.optimization_factor {
-            Some(factor) => item_out_original.vectorization / factor,
-            None => item_out_optimized.vectorization,
+        let index = match item_out_optimized {
+            Item::Vector(_, index) => index,
+            _ => 1,
         };
 
         let mut write_op = |input: &Variable<D>,
@@ -889,97 +866,6 @@ impl<D: Dialect> Clamp<D> {
     }
 }
 
-struct Remainder<D: Dialect> {
-    _dialect: PhantomData<D>,
-}
-
-impl<D: Dialect> Remainder<D> {
-    fn format(
-        f: &mut core::fmt::Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
-    ) -> core::fmt::Result {
-        let floor = |elem| {
-            let prefix = match elem {
-                Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
-                Elem::F16x2 | Elem::BF16x2 => D::compile_instruction_half2_function_name_prefix(),
-                _ => "",
-            };
-            format!("{prefix}floor")
-        };
-
-        let is_int = matches!(
-            out.elem(),
-            Elem::I8 | Elem::I16 | Elem::I32 | Elem::U8 | Elem::U16 | Elem::U32 | Elem::U64
-        );
-        let out_elem = out.elem();
-        let rem_expr = |lhs, rhs, floor: &str| {
-            if is_int {
-                format!("{lhs} - {rhs} * ({out_elem}){floor}((float){lhs} / (float){rhs})")
-            } else {
-                format!("{lhs} - {rhs} * {floor}({lhs} / {rhs})")
-            }
-        };
-
-        if out.item().vectorization == 1 {
-            let floor = floor(out.elem());
-
-            let out = out.fmt_left();
-            let rem = rem_expr(lhs.to_string(), rhs.to_string(), &floor);
-            return writeln!(f, "{out} = {rem};");
-        }
-
-        let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
-        let [lhs, rhs, out_optimized] = optimized.args;
-
-        let item_out_original = out.item();
-        let item_out_optimized = out_optimized.item();
-
-        let index = match optimized.optimization_factor {
-            Some(factor) => item_out_original.vectorization / factor,
-            None => item_out_optimized.vectorization,
-        };
-
-        let floor = floor(*item_out_optimized.elem());
-
-        let mut write_op =
-            |lhs: &Variable<D>, rhs: &Variable<D>, out: &Variable<D>, item_out: Item<D>| {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = {item_out}{{")?;
-                for i in 0..index {
-                    let lhsi = lhs.index(i);
-                    let rhsi = rhs.index(i);
-
-                    let rem = rem_expr(lhsi.to_string(), rhsi.to_string(), &floor);
-                    writeln!(f, "{rem}")?;
-                    f.write_str(", ")?;
-                }
-
-                f.write_str("};\n")
-            };
-
-        if item_out_original == item_out_optimized {
-            write_op(&lhs, &rhs, out, item_out_optimized)
-        } else {
-            let out_tmp = Variable::tmp(item_out_optimized);
-
-            write_op(&lhs, &rhs, &out_tmp, item_out_optimized)?;
-
-            let addr_space = D::address_space_for_variable(&out_tmp);
-            let qualifier = out.const_qualifier();
-            let out = out.fmt_left();
-
-            writeln!(
-                f,
-                "{out} = reinterpret_cast<{addr_space}{item_out_original}{qualifier}&>({out_tmp});\n"
-            )?;
-
-            Ok(())
-        }
-    }
-}
-
 struct Magnitude<D: Dialect, S: FunctionFmt<D>> {
     _dialect: PhantomData<D>,
     _sqrt: PhantomData<S>,
@@ -991,7 +877,10 @@ impl<D: Dialect, S: FunctionFmt<D>> Magnitude<D, S> {
         input: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
-        let num = input.item().vectorization;
+        let num = match input.item() {
+            Item::Vector(_, vectorization) => vectorization,
+            _ => 1,
+        };
         let elem = input.elem();
 
         let mag = format!("{out}_mag");
@@ -1021,7 +910,10 @@ impl<D: Dialect, InvS: FunctionFmt<D>> Normalize<D, InvS> {
         input: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
-        let num = input.item().vectorization;
+        let num = match input.item() {
+            Item::Vector(_, vectorization) => vectorization,
+            _ => 1,
+        };
         let elem = input.elem();
         let norm = format!("{out}_norm");
 
@@ -1064,7 +956,10 @@ impl<D: Dialect> Dot<D> {
         rhs: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
-        let num = lhs.item().vectorization;
+        let num = match lhs.item() {
+            Item::Vector(_, vectorization) => vectorization,
+            _ => 1,
+        };
 
         let muls = (0..num)
             .map(|i| {
@@ -1089,7 +984,7 @@ impl<D: Dialect> VectorSumFmt<D> {
         input: &Variable<D>,
         out: &Variable<D>,
     ) -> core::fmt::Result {
-        let num = input.item().vectorization;
+        let num = input.item().vectorization();
 
         let elems = (0..num)
             .map(|i| format!("{}", input.index(i)))

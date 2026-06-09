@@ -1,9 +1,8 @@
-use std::{
-    collections::{HashMap, HashSet},
-    ops::Deref,
-};
+use alloc::{collections::VecDeque, vec::Vec};
+use core::ops::Deref;
 
-use crate::{NodeIndex, Optimizer};
+use crate::{Function, GlobalState, NodeIndex};
+use hashbrown::{HashMap, HashSet};
 use petgraph::algo::dominators;
 
 use super::Analysis;
@@ -30,16 +29,29 @@ impl Deref for PostDominators {
 }
 
 impl Analysis for Dominators {
-    fn init(opt: &mut crate::Optimizer) -> Self {
-        Dominators(dominators::simple_fast(&opt.program.graph, opt.entry()))
+    fn init(func: &mut crate::Function, _: &GlobalState) -> Self {
+        Dominators(dominators::simple_fast(&func.graph, func.root))
     }
 }
 
 impl Analysis for PostDominators {
-    fn init(opt: &mut crate::Optimizer) -> Self {
-        let mut reversed = opt.program.graph.clone();
+    fn init(func: &mut crate::Function, _: &GlobalState) -> Self {
+        let mut reversed = func.graph.clone();
         reversed.reverse();
-        PostDominators(dominators::simple_fast(&reversed, opt.ret))
+        PostDominators(dominators::simple_fast(&reversed, func.ret))
+    }
+}
+
+impl Dominators {
+    pub fn breadth_first_nodes(&self) -> Vec<NodeIndex> {
+        let mut out = Vec::new();
+        let mut worklist = VecDeque::new();
+        worklist.push_back(self.root());
+        while let Some(node) = worklist.pop_front() {
+            out.push(node);
+            worklist.extend(self.immediately_dominated_by(node));
+        }
+        out
     }
 }
 
@@ -59,13 +71,13 @@ impl Deref for DomFrontiers {
 
 impl DomFrontiers {
     /// Find dominance frontiers for each block
-    pub fn new(opt: &mut Optimizer) -> Self {
-        let doms = opt.analysis::<Dominators>();
-        let nodes = opt.node_ids().into_iter().map(|it| (it, HashSet::new()));
+    pub fn new(func: &mut Function, state: &GlobalState) -> Self {
+        let doms = func.analysis::<Dominators>(state);
+        let nodes = func.node_ids().into_iter().map(|it| (it, HashSet::new()));
         let mut dom_frontiers: HashMap<NodeIndex, HashSet<NodeIndex>> = nodes.collect();
 
-        for node in opt.node_ids() {
-            let predecessors = opt.predecessors(node);
+        for node in func.node_ids() {
+            let predecessors = func.predecessors(node);
             if predecessors.len() >= 2 {
                 for predecessor in predecessors {
                     let mut runner = predecessor;
@@ -81,7 +93,7 @@ impl DomFrontiers {
 }
 
 impl Analysis for DomFrontiers {
-    fn init(opt: &mut Optimizer) -> Self {
-        DomFrontiers::new(opt)
+    fn init(func: &mut Function, state: &GlobalState) -> Self {
+        DomFrontiers::new(func, state)
     }
 }

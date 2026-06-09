@@ -15,10 +15,11 @@ pub struct CubeTypeEnum {
     pub runtime_variants: bool,
     pub with_constructors: bool,
     pub skip_bounds: bool,
+    pub derive: Option<syn::Meta>,
 }
 
 #[derive(Debug, FromDeriveInput)]
-#[darling(attributes(cube, launch), supports(enum_any))]
+#[darling(attributes(cube, launch, expand), supports(enum_any))]
 pub struct CubeTypeEnumRepr {
     ident: Ident,
     vis: syn::Visibility,
@@ -28,6 +29,7 @@ pub struct CubeTypeEnumRepr {
     /// Don't generate constructors, useful for expanding existing types where a new impl isn't allowed
     no_constructors: Flag,
     pub skip_bounds: Flag,
+    derive: Option<syn::Meta>,
 }
 
 #[derive(Debug)]
@@ -59,6 +61,7 @@ impl FromDeriveInput for CubeTypeEnum {
                 runtime_variants: repr.runtime_variants.is_present(),
                 with_constructors: !repr.no_constructors.is_present(),
                 skip_bounds: repr.skip_bounds.is_present(),
+                derive: repr.derive,
                 variants: variants
                     .iter()
                     .map(|a| -> Result<_, syn::Error> {

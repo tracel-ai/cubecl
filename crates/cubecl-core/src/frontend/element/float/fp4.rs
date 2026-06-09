@@ -7,6 +7,7 @@ impl CubeType for e2m1 {
     type ExpandType = NativeExpand<e2m1>;
 }
 
+impl CubeDebug for e2m1 {}
 impl Scalar for e2m1 {}
 impl CubePrimitive for e2m1 {
     type Scalar = Self;
@@ -27,7 +28,13 @@ impl CubePrimitive for e2m1 {
 }
 
 impl IntoRuntime for e2m1 {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+    fn __expand_runtime_method(self, _scope: &Scope) -> NativeExpand<Self> {
+        self.into()
+    }
+}
+impl IntoExpand for e2m1 {
+    type Expand = NativeExpand<e2m1>;
+    fn into_expand(self, _scope: &Scope) -> Self::Expand {
         self.into()
     }
 }
@@ -38,6 +45,7 @@ impl CubeType for e2m1x2 {
     type ExpandType = NativeExpand<e2m1x2>;
 }
 
+impl CubeDebug for e2m1x2 {}
 // Considered a scalar because it's really just a `u8` in a trenchcoat, and should be possible to
 // store in a `Vector`.
 impl Scalar for e2m1x2 {}
@@ -62,7 +70,13 @@ impl CubePrimitive for e2m1x2 {
 }
 
 impl IntoRuntime for e2m1x2 {
-    fn __expand_runtime_method(self, _scope: &mut Scope) -> NativeExpand<Self> {
+    fn __expand_runtime_method(self, _scope: &Scope) -> NativeExpand<Self> {
+        self.into()
+    }
+}
+impl IntoExpand for e2m1x2 {
+    type Expand = NativeExpand<e2m1x2>;
+    fn into_expand(self, _scope: &Scope) -> Self::Expand {
         self.into()
     }
 }

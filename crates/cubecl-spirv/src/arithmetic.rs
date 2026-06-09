@@ -102,7 +102,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     };
                 });
             }
-            Arithmetic::Remainder(op) => {
+            Arithmetic::ModFloor(op) => {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
@@ -134,7 +134,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     };
                 });
             }
-            Arithmetic::Modulo(op) => {
+            Arithmetic::Rem(op) => {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
@@ -303,11 +303,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 } else if matches!(out_ty.elem(), Elem::Float(..) | Elem::Relaxed) {
                     // Float vector: use OpDot with ones vector for optimal single instruction
                     self.declare_math_mode(modes, out_id);
-                    let ones_val = in_item
-                        .elem()
-                        .constant(self, ConstVal::Bit32(1.0f32.to_bits()));
-                    let vec_ty = in_item.id(self);
-                    let ones = self.constant_composite(vec_ty, (0..vec_size).map(|_| ones_val));
+                    let ones = in_item.constant(
+                        self,
+                        ConstVal::from_float(
+                            1.0,
+                            in_item.elem().width(),
+                            in_item.elem().float_encoding(),
+                        ),
+                    );
                     self.dot(scalar_ty, Some(out_id), input_id, ones).unwrap();
                     if matches!(out_ty.elem(), Elem::Relaxed) {
                         self.decorate(out_id, Decoration::RelaxedPrecision, []);

@@ -123,6 +123,8 @@ impl_type_hash!(
     portable_atomic::AtomicU8,
     portable_atomic::AtomicUsize,
     enumset::EnumSet<T: EnumSetType>,
+    internment::Intern<T: ?Sized>,
+    bumpalo::Bump,
 );
 
 macro_rules! impl_type_hash_tuple {
@@ -180,5 +182,14 @@ impl<T: TypeHash + ?Sized> TypeHash for &mut T {
     fn write_hash(hasher: &mut impl Hasher) {
         hasher.write(b"&mut");
         T::write_hash(hasher);
+    }
+}
+
+impl<T: TypeHash + ?Sized, U: TypeHash + ?Sized> TypeHash for fn(T) -> U {
+    fn write_hash(hasher: &mut impl Hasher) {
+        hasher.write(b"fn(");
+        T::write_hash(hasher);
+        hasher.write(b") -> ");
+        U::write_hash(hasher);
     }
 }

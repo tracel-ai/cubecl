@@ -74,7 +74,7 @@ impl<'a> Visitor<'a> {
         ));
         let result_type = item.to_type(self.context);
         match item.is_vectorized() {
-            true => self.append_operation_with_result(vector::splat(
+            true => self.append_operation_with_result(vector::broadcast(
                 self.context,
                 result_type,
                 constant,
@@ -94,7 +94,7 @@ impl<'a> Visitor<'a> {
         ));
         let result_type = item.to_type(self.context);
         match item.is_vectorized() {
-            true => self.append_operation_with_result(vector::splat(
+            true => self.append_operation_with_result(vector::broadcast(
                 self.context,
                 result_type,
                 constant,
@@ -102,6 +102,16 @@ impl<'a> Visitor<'a> {
             )),
             false => constant,
         }
+    }
+
+    pub fn create_constant_index(&self, constant: i64) -> Value<'a, 'a> {
+        let ty = Type::index(self.context);
+        let constant = IntegerAttribute::new(ty, constant);
+        self.append_operation_with_result(arith::constant(
+            self.context,
+            constant.into(),
+            self.location,
+        ))
     }
 
     pub fn cast_to_bool(&self, value: Value<'a, 'a>, item: ir::Type) -> Value<'a, 'a> {

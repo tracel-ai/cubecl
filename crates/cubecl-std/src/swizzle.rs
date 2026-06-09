@@ -28,6 +28,7 @@ use cubecl_core::{self as cubecl};
 /// * 128-byte span with a 32-byte atom = `[3, 5, 2]`
 ///
 #[derive(CubeType, CubeLaunch, Clone, Copy)]
+#[expand(derive(Clone, Copy))]
 pub struct Swizzle {
     #[cube(comptime)]
     yyy_mask: u32,

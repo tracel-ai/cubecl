@@ -5,7 +5,7 @@ use crate::{
     FastDivmod,
     tensor::{
         index_offset_contiguous_fastdivmod,
-        launch::{BufferArg, ViewLayoutLaunchArg},
+        launch::{MemoryArg, ViewLayoutLaunchArg},
         layout::{Coords1d, Layout, LayoutExpand},
     },
 };
@@ -53,7 +53,7 @@ impl ViewLayoutLaunchArg for PermutedLayout {
     type RuntimeArg<R: Runtime> = PermutedLayoutLaunch;
     type CompilationArg = PermutedLayoutCompilationArg;
 
-    fn register<R: Runtime, B: BufferArg>(
+    fn register<R: Runtime, B: MemoryArg>(
         arg: Self::RuntimeArg<R>,
         buffer: &B,
         ty: Type,

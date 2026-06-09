@@ -22,13 +22,13 @@ impl CubeTypeStruct {
             }
         } else {
             let expand_ty = self.expand_ty();
-            let clone_expand = self.clone_expand();
+            let clone_impl = self.clone_expand();
             let cube_type_impl = self.cube_type_impl();
             let expand_type_impl = self.expand_type_impl();
 
             quote! {
                 #expand_ty
-                #clone_expand
+                #clone_impl
                 #cube_type_impl
                 #expand_type_impl
             }
@@ -36,12 +36,18 @@ impl CubeTypeStruct {
     }
 
     fn expand_ty(&self) -> proc_macro2::TokenStream {
+        let expand_derives = match &self.derive {
+            Some(derives) => quote![#[#derives]],
+            None => quote![],
+        };
+
         let fields = self.fields.iter().map(TypeField::expand_field);
         let name = &self.name_expand;
         let generics = &self.generics;
         let vis = &self.vis;
 
         quote! {
+            #expand_derives
             #vis struct #name #generics {
                 #(#fields),*
             }
@@ -49,7 +55,7 @@ impl CubeTypeStruct {
     }
 
     fn clone_expand(&self) -> proc_macro2::TokenStream {
-        let scope = prelude_type("Scope");
+        let clone = prelude_type("ExpandTypeClone");
 
         let fields = self.fields.iter().map(TypeField::clone_field);
         let name = &self.name_expand;
@@ -58,17 +64,11 @@ impl CubeTypeStruct {
         let (generics_impl, generics_use, where_clause) = generics.split_for_impl();
 
         quote! {
-            impl #generics_impl Clone for #name #generics_use #where_clause {
-                fn clone(&self) -> Self {
+            impl #generics_impl #clone for #name #generics_use #where_clause {
+                fn clone_unchecked(&self) -> Self {
                     Self {
                         #(#fields),*
                     }
-                }
-            }
-
-            impl #generics_impl #name #generics_use #where_clause {
-                pub fn __expand_clone_method(&self, _scope: &mut #scope) -> Self {
-                    self.clone()
                 }
             }
         }
@@ -159,8 +159,9 @@ impl CubeTypeStruct {
         let name_debug = &self.ident;
         let fields = self.fields.iter().map(TypeField::compilation_arg_field);
         let generics = &self.generics;
-        let (type_generics_names, impl_generics, where_generics) = self.generics.split_for_impl();
+        let (type_generics_names, impl_generics, _) = self.generics.split_for_impl();
         let vis = &self.vis;
+        let where_clause = self.launch_arg_where();
 
         fn generate<'a, F: Fn(&Ident) -> TokenStream>(
             fields: impl Iterator<Item = &'a TypeField>,
@@ -183,11 +184,11 @@ impl CubeTypeStruct {
         );
 
         quote! {
-            #vis struct #name #generics {
+            #vis struct #name #generics #where_clause {
                 #(#fields),*
             }
 
-            impl #type_generics_names Clone for #name #impl_generics #where_generics {
+            impl #type_generics_names Clone for #name #impl_generics #where_clause {
                 fn clone(&self) -> Self {
                     Self {
                         #(#clone,)*
@@ -195,31 +196,32 @@ impl CubeTypeStruct {
                 }
             }
 
-            impl #type_generics_names core::hash::Hash for #name #impl_generics #where_generics {
+            impl #type_generics_names core::hash::Hash for #name #impl_generics #where_clause {
                 fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
                     #(#hash;)*
                 }
             }
 
-            impl #type_generics_names core::cmp::PartialEq for #name #impl_generics #where_generics {
+            impl #type_generics_names core::cmp::PartialEq for #name #impl_generics #where_clause {
                 fn eq(&self, other: &Self) -> bool {
                     #(#partial_eq &&)* true
                 }
             }
 
-            impl #type_generics_names core::fmt::Debug for #name #impl_generics #where_generics {
+            impl #type_generics_names core::fmt::Debug for #name #impl_generics #where_clause {
                 fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                     f.debug_struct(stringify!(#name_debug))
                     #(#debug)*
                     .finish()
                 }
             }
-            impl #type_generics_names core::cmp::Eq for #name #impl_generics #where_generics { }
+            impl #type_generics_names core::cmp::Eq for #name #impl_generics #where_clause { }
         }
     }
 
     fn launch_arg_impl(&self) -> proc_macro2::TokenStream {
         let launch_arg = prelude_type("LaunchArg");
+        let cube_type = prelude_type("CubeType");
         let body_input =
             self.fields
                 .iter()
@@ -229,17 +231,6 @@ impl CubeTypeStruct {
                         quote![#name: arg.#name.clone()]
                     } else {
                         quote![#name: <#ty as #launch_arg>::expand(&arg.#name, builder)]
-                    }
-                });
-        let body_output =
-            self.fields
-                .iter()
-                .map(TypeField::split)
-                .map(|(_vis, name, ty, is_comptime)| {
-                    if is_comptime {
-                        quote![#name: arg.#name.clone()]
-                    } else {
-                        quote![#name: <#ty as #launch_arg>::expand_output(&arg.#name, builder)]
                     }
                 });
 
@@ -272,17 +263,9 @@ impl CubeTypeStruct {
                 fn expand(
                     arg: &Self::CompilationArg,
                     builder: &mut KernelBuilder,
-                ) -> <Self as CubeType>::ExpandType {
+                ) -> <Self as #cube_type>::ExpandType {
                     #name_expand {
                         #(#body_input),*
-                    }
-                }
-                fn expand_output(
-                    arg: &Self::CompilationArg,
-                    builder: &mut KernelBuilder,
-                ) -> <Self as CubeType>::ExpandType {
-                    #name_expand {
-                        #(#body_output),*
                     }
                 }
             }
@@ -290,9 +273,13 @@ impl CubeTypeStruct {
     }
 
     fn expand_type_impl(&self) -> proc_macro2::TokenStream {
+        let into_expand = prelude_type("IntoExpand");
         let into_mut = prelude_type("IntoMut");
         let debug = prelude_type("CubeDebug");
+        let as_ref = prelude_type("AsRefExpand");
+        let as_mut = prelude_type("AsMutExpand");
         let scope = prelude_type("Scope");
+
         let name_expand = &self.name_expand;
         let (generics, generic_names, where_clause) = self.generics.split_for_impl();
         let body = self
@@ -308,8 +295,16 @@ impl CubeTypeStruct {
             });
 
         quote! {
+            impl #generics #into_expand for #name_expand #generic_names #where_clause {
+                type Expand = Self;
+
+                fn into_expand(self, _: &#scope) -> Self {
+                    self
+                }
+            }
+
             impl #generics #into_mut for #name_expand #generic_names #where_clause {
-                fn into_mut(self, scope: &mut #scope) -> Self {
+                fn into_mut(self, scope: &#scope) -> Self {
                     Self {
                         #(#body),*
                     }
@@ -317,6 +312,16 @@ impl CubeTypeStruct {
             }
 
             impl #generics #debug for #name_expand #generic_names #where_clause {}
+            impl #generics #as_ref for #name_expand #generic_names #where_clause {
+                fn __expand_ref_method(&self, _: &#scope) -> &Self {
+                    self
+                }
+            }
+            impl #generics #as_mut for #name_expand #generic_names #where_clause {
+                fn __expand_ref_mut_method(&mut self, _: &#scope) -> &mut Self {
+                    self
+                }
+            }
         }
     }
 
@@ -348,8 +353,14 @@ impl TypeField {
     }
 
     pub fn clone_field(&self) -> TokenStream {
+        let clone = prelude_type("ExpandTypeClone");
         let name = self.ident.as_ref().unwrap();
-        quote![#name: self.#name.clone()]
+        let is_comptime = self.comptime.is_present();
+        if is_comptime {
+            quote![#name: self.#name.clone()]
+        } else {
+            quote![#name: #clone::clone_unchecked(&self.#name)]
+        }
     }
 
     pub fn launch_field(&self) -> TokenStream {

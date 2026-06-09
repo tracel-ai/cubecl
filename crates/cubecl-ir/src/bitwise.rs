@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use crate::TypeHash;
 
-use crate::{BinaryOperator, OperationReflect, UnaryOperator};
+use crate::{BinaryOperands, OperationReflect, UnaryOperands};
 
 /// Bitwise operations
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -10,22 +10,22 @@ use crate::{BinaryOperator, OperationReflect, UnaryOperator};
 #[operation(opcode_name = BitwiseOpCode, pure)]
 pub enum Bitwise {
     #[operation(commutative)]
-    BitwiseAnd(BinaryOperator),
+    BitwiseAnd(BinaryOperands),
     #[operation(commutative)]
-    BitwiseOr(BinaryOperator),
+    BitwiseOr(BinaryOperands),
     #[operation(commutative)]
-    BitwiseXor(BinaryOperator),
-    ShiftLeft(BinaryOperator),
-    ShiftRight(BinaryOperator),
-    CountOnes(UnaryOperator),
-    ReverseBits(UnaryOperator),
-    BitwiseNot(UnaryOperator),
+    BitwiseXor(BinaryOperands),
+    ShiftLeft(BinaryOperands),
+    ShiftRight(BinaryOperands),
+    CountOnes(UnaryOperands),
+    ReverseBits(UnaryOperands),
+    BitwiseNot(UnaryOperands),
     /// Count leading zeros
-    LeadingZeros(UnaryOperator),
+    LeadingZeros(UnaryOperands),
     /// Count trailing zeros
-    TrailingZeros(UnaryOperator),
+    TrailingZeros(UnaryOperands),
     /// Find least significant bit set
-    FindFirstSet(UnaryOperator),
+    FindFirstSet(UnaryOperands),
 }
 
 impl Display for Bitwise {

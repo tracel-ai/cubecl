@@ -2,6 +2,7 @@ use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::profile::ProfileDuration;
+use derive_more::Display;
 
 use core::time::Duration;
 
@@ -46,10 +47,11 @@ impl core::fmt::Display for AutotuneOutcome {
 }
 
 /// Error from running autotune.
-#[derive(Debug, Clone)]
+#[derive(Clone, Display)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneError {
     /// An unknown error happened.
+    #[display("{name}: An unknown error happened.\n{err}")]
     Unknown {
         /// The name of the tunable.
         name: String,
@@ -57,6 +59,7 @@ pub enum AutotuneError {
         err: String,
     },
     /// All samples are invalid.
+    #[display("{name}: All samples are invalid.")]
     InvalidSamples {
         /// The name of the tunable.
         name: String,
@@ -66,11 +69,13 @@ pub enum AutotuneError {
     /// # Warning
     ///
     /// This is an unrecoverable error and will cause a panic.
+    #[display("No autotune was flagged as valid for the problem.\n{context}")]
     NoValidKernelFound {
         /// The formatted context on why no valid kernel was found.
         context: String,
     },
     /// The autotune is skipped manually.
+    #[display("{name}: The autotune is skipped manually.")]
     Skip {
         /// The name of the skipped kernel.
         name: String,
@@ -78,6 +83,12 @@ pub enum AutotuneError {
 
     /// An error happened when launching a kernel.
     Launch(LaunchError),
+}
+
+impl core::fmt::Debug for AutotuneError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self}")
+    }
 }
 
 impl From<LaunchError> for AutotuneError {
@@ -384,7 +395,7 @@ fn log_result<K: AutotuneKey>(
                     Ok(val) => {
                         logger.log_autotune(&format!("{val}"));
                     }
-                    Err(err) => logger.log_autotune(&format!("{err:?}")),
+                    Err(err) => logger.log_autotune(&format!("{err}")),
                 }
             }
         }

@@ -2,7 +2,7 @@ use crate::{self as cubecl, as_bytes, as_type};
 use cubecl::prelude::*;
 
 #[cube(launch)]
-pub fn unroll_add<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
+pub fn unroll_add<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     if UNIT_POS != 0 {
         terminate!();
     }
@@ -15,14 +15,14 @@ pub fn unroll_add<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
     let mut out = Vector::<u32, N>::empty();
     #[unroll]
     for i in 0..N::value() {
-        out[i] = c[i];
+        out.insert(i, c.extract(i));
     }
 
     output[0] = Vector::cast_from(out);
 }
 
 #[cube(launch)]
-pub fn unroll_load_store<F: Float, N: Size>(output: &mut Array<Vector<F, N>>) {
+pub fn unroll_load_store<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     if UNIT_POS != 0 {
         terminate!();
     }
@@ -43,7 +43,7 @@ pub fn test_unroll_add<R: Runtime, F: Float + CubeElement>(client: ComputeClient
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         4,
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 4) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 4) },
     );
 
     let actual = client.read_one_unchecked(handle);
@@ -60,7 +60,7 @@ pub fn test_unroll_load_store<R: Runtime, F: Float + CubeElement>(client: Comput
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
         8,
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 8) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 8) },
     );
 
     let actual = client.read_one_unchecked(handle);

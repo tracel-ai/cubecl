@@ -10,18 +10,15 @@ use cubecl_zspace::{Shape, shape, strides};
 use std::println;
 
 #[cube(launch)]
-fn tensormap_load<F: Float, N: Size>(
-    input: &TensorMap<F, Tiled>,
-    output: &mut Array<Vector<F, N>>,
-) {
+fn tensormap_load<F: Float, N: Size>(input: &TensorMap<F, Tiled>, output: &mut [Vector<F, N>]) {
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
-    let mut stage = SharedMemory::new_aligned(32usize * 16, 128usize);
+    let mut stage: Shared<[Vector<F, N>]> = Shared::new_aligned_slice(32usize * 16, 128usize);
 
     let type_size = F::type_size();
     let expected = select(UNIT_POS == 0, comptime![32 * 16 * type_size] as u32, 0);
     if UNIT_POS == 0 {
-        barrier.tma_load_2d(input, &mut stage.to_slice_mut(), 0, 8);
+        barrier.tma_load_2d(input, stage.as_mut_slice(), 0, 8);
     }
     let token = barrier.arrive_and_expect_tx(1, expected);
     barrier.wait(token);
@@ -31,11 +28,8 @@ fn tensormap_load<F: Float, N: Size>(
 }
 
 #[cube(launch)]
-fn tensormap_store<F: Float, N: Size>(
-    input: &Array<Vector<F, N>>,
-    output: &mut TensorMap<F, Tiled>,
-) {
-    let mut shared = SharedMemory::new_aligned(32usize * 16, 128usize);
+fn tensormap_store<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut TensorMap<F, Tiled>) {
+    let mut shared: Shared<[Vector<F, N>]> = Shared::new_aligned_slice(32usize * 16, 128usize);
 
     let in_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
     shared[in_pos as usize] = input[in_pos as usize];
@@ -44,7 +38,7 @@ fn tensormap_store<F: Float, N: Size>(
     sync_cube();
 
     if UNIT_POS == 0 {
-        tma_store_2d(&shared.to_slice(), output, 16, 8);
+        tma_store_2d(shared.as_slice(), output, 16, 8);
         tma_group_commit();
         tma_group_wait_read(0u32);
     }
@@ -66,7 +60,8 @@ fn tensormap_im2col_load<F: Float, N: Size>(
 
     let barrier = Barrier::shared(CUBE_DIM, UNIT_POS == 0);
     sync_async_proxy_shared();
-    let mut stage = SharedMemory::new_aligned(tile_k * tile_width, 128usize);
+    let mut stage: Shared<[Vector<F, N>]> =
+        Shared::new_aligned_slice(tile_k * tile_width, 128usize);
 
     let type_size = F::type_size();
     let expected = select(
@@ -82,10 +77,10 @@ fn tensormap_im2col_load<F: Float, N: Size>(
                 let kernel_idx = kernel_y * kernel_w + kernel_x;
                 let slice_start = kernel_idx as usize * tile_width;
                 let slice_end = slice_start + tile_width;
-                let mut stage_slice = stage.slice_mut(slice_start, slice_end);
+                let stage_slice = &mut stage[slice_start..slice_end];
                 barrier.tma_load_im2col_4d(
                     input,
-                    &mut stage_slice,
+                    stage_slice,
                     0,
                     -pad_h,
                     -pad_w,
@@ -145,7 +140,7 @@ where
             input,
             F::as_type_native_unchecked(),
         ),
-        unsafe { ArrayArg::from_raw_parts(out.clone(), 32 * 16) },
+        unsafe { BufferArg::from_raw_parts(out.clone(), 32 * 16) },
     );
 
     let actual = client.read_one_unchecked(out);
@@ -181,7 +176,7 @@ where
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(32, 16),
         1,
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 32 * 16) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 32 * 16) },
         TensorMapArg::new(
             TiledArgs {
                 tile_size: shape![16, 32],

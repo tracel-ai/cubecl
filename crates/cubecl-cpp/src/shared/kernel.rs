@@ -7,47 +7,20 @@ use std::{collections::HashSet, fmt::Display};
 pub struct KernelArg<D: Dialect> {
     pub id: Id,
     pub item: Item<D>,
-    pub size: Option<usize>,
     pub vis: Visibility,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum SharedMemory<D: Dialect> {
-    Array {
-        index: Id,
-        item: Item<D>,
-        length: usize,
-        align: usize,
-        offset: usize,
-    },
-    Value {
-        index: Id,
-        item: Item<D>,
-        align: usize,
-        offset: usize,
-    },
+pub struct SharedMemory<D: Dialect> {
+    pub index: Id,
+    pub item: Item<D>,
+    pub align: usize,
+    pub offset: usize,
 }
 
 impl<D: Dialect> SharedMemory<D> {
     pub fn size(&self) -> usize {
-        match self {
-            SharedMemory::Array { item, length, .. } => *length * item.size(),
-            SharedMemory::Value { item, .. } => item.size(),
-        }
-    }
-
-    pub fn align(&self) -> usize {
-        match self {
-            SharedMemory::Array { align, .. } => *align,
-            SharedMemory::Value { align, .. } => *align,
-        }
-    }
-
-    pub fn offset(&self) -> usize {
-        match self {
-            SharedMemory::Array { offset, .. } => *offset,
-            SharedMemory::Value { offset, .. } => *offset,
-        }
+        self.item.size()
     }
 }
 
@@ -59,32 +32,9 @@ pub struct ConstArray<D: Dialect> {
     pub values: Vec<Variable<D>>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct LocalArray<D: Dialect> {
-    pub index: Id,
-    pub item: Item<D>,
-    pub size: usize,
-}
-
-impl<D: Dialect> LocalArray<D> {
-    pub fn new(index: Id, item: Item<D>, size: usize) -> Self {
-        Self { index, item, size }
-    }
-}
-
 impl<D: Dialect> SharedMemory<D> {
-    pub fn new_array(index: Id, item: Item<D>, size: usize, align: usize) -> Self {
-        Self::Array {
-            index,
-            item,
-            length: size,
-            align,
-            offset: 0, // initialized later
-        }
-    }
-
-    pub fn new_value(index: Id, item: Item<D>, align: usize) -> Self {
-        Self::Value {
+    pub fn new(index: Id, item: Item<D>, align: usize) -> Self {
+        Self {
             index,
             item,
             align,
@@ -112,7 +62,7 @@ pub struct ComputeKernel<D: Dialect> {
 impl<D: Dialect> ComputeKernel<D> {
     pub fn shared_memory_size(&self) -> usize {
         let smems = self.body.shared_memories.iter();
-        let ends = smems.map(|it| it.offset() + it.size());
+        let ends = smems.map(|it| it.offset + it.size());
         ends.max().unwrap_or_default()
     }
 }
@@ -161,7 +111,26 @@ pub fn type_definitions<D: Dialect>(f: &mut std::fmt::Formatter<'_>) -> std::fmt
     writeln!(f, "typedef signed int int32;")?;
     writeln!(f, "typedef signed long long int int64;")?;
 
+    define_array_polyfill(f, "__device__")?;
+
     Ok(())
+}
+
+/// Define a minimal version of C++'s `std::array` so we can match Rust semantics on arrays.
+pub fn define_array_polyfill(
+    f: &mut core::fmt::Formatter<'_>,
+    function_class: &str,
+) -> core::fmt::Result {
+    writeln!(
+        f,
+        "
+template <typename T, size_t N>
+struct array {{
+    T data[N];
+    {function_class} T& operator[](size_t i) {{ return data[i]; }}
+    {function_class} const T& operator[](size_t i) const {{ return data[i]; }}
+}};"
+    )
 }
 
 pub fn type_vectorized_definitions<D: Dialect>(
@@ -169,8 +138,8 @@ pub fn type_vectorized_definitions<D: Dialect>(
     items: &HashSet<Item<D>>,
 ) -> std::fmt::Result {
     for item in items.iter() {
-        let elem = item.elem;
-        let size = item.vectorization;
+        let elem = item.elem();
+        let size = item.vectorization();
         let alignment = elem.size() * size;
         if size > 1 {
             write!(
@@ -242,14 +211,11 @@ pub fn compile_bindings<D: Dialect>(
             .iter()
             .chain(buffers.iter())
             .map(|binding| match binding.vis {
-                Visibility::Read if !binding.item.is_atomic() => {
+                Visibility::Read | Visibility::Uniform => {
                     format!("const {}* __restrict__ buffer_{}", binding.item, binding.id)
                 }
-                Visibility::Read => {
-                    format!("{}* buffer_{}", binding.item, binding.id)
-                }
-                Visibility::ReadWrite => {
-                    format!("{}* buffer_{}", binding.item, binding.id)
+                _ => {
+                    format!("{}* __restrict__ buffer_{}", binding.item, binding.id)
                 }
             }),
     );
@@ -305,7 +271,7 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     }
 
     if settings.indexes.absolute_pos {
-        let variable = Variable::<D>::AbsolutePos(settings.address_type.elem);
+        let variable = Variable::<D>::AbsolutePos(*settings.address_type.elem());
         let ty = variable.item();
         let absolute_pos_x = Variable::<D>::AbsolutePosX.fmt_cast_to(ty);
         let absolute_pos_y = Variable::<D>::AbsolutePosY.fmt_cast_to(ty);
@@ -336,7 +302,7 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     }
 
     if settings.indexes.cube_count {
-        let variable = Variable::<D>::CubeCount(settings.address_type.elem);
+        let variable = Variable::<D>::CubeCount(*settings.address_type.elem());
         let ty = variable.item();
         let cube_count_x = Variable::<D>::CubeCountX.fmt_cast_to(ty);
         let cube_count_y = Variable::<D>::CubeCountY.fmt_cast_to(ty);
@@ -348,7 +314,7 @@ fn compile_cube_builtin_bindings_decl<D: Dialect>(
     }
 
     if settings.indexes.cube_pos {
-        let variable = Variable::<D>::CubePos(settings.address_type.elem);
+        let variable = Variable::<D>::CubePos(*settings.address_type.elem());
         let ty = variable.item();
         let cube_pos_x = Variable::<D>::CubePosX.fmt_cast_to(ty);
         let cube_pos_y = Variable::<D>::CubePosY.fmt_cast_to(ty);

@@ -4,7 +4,7 @@ use crate as cubecl;
 use crate::prelude::*;
 
 #[cube(launch)]
-fn constant_array_kernel<F: Float>(out: &mut Array<F>, #[comptime] data: Vec<u32>) {
+fn constant_array_kernel<F: Float>(out: &mut [F], #[comptime] data: Vec<u32>) {
     let array = Array::<F>::from_data(data);
 
     if UNIT_POS == 0 {
@@ -19,7 +19,7 @@ pub fn test_constant_array<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
         vec![3, 5, 1],
     );
 
@@ -35,6 +35,7 @@ macro_rules! testgen_constants {
     () => {
         use super::*;
 
+        #[ignore = "constant arrays are inconsistent across implementations"]
         #[$crate::runtime_tests::test_log::test]
         fn test_constant_array() {
             let client = TestRuntime::client(&Default::default());

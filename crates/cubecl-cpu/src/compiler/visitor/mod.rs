@@ -14,7 +14,7 @@ use cubecl_core::{
     ir::{Builtin, StorageType},
     prelude::KernelDefinition,
 };
-use cubecl_opt::{NodeIndex, Optimizer};
+use cubecl_opt::{Function, NodeIndex};
 use tracel_llvm::mlir_rs::{
     Context,
     dialect::{
@@ -36,6 +36,8 @@ use tracel_llvm::mlir_rs::{
 
 use prelude::*;
 use variables::Variables;
+
+use crate::compiler::visitor::operation::synchronization::add_sync_cube_function;
 
 use super::{
     external_function::add_external_function_to_module, passes::shared_memories::SharedMemories,
@@ -68,12 +70,12 @@ impl<'a> Visitor<'a> {
         context: &'a Context,
         location: Location<'a>,
         args_manager: ArgsManager<'a>,
-        opt: &Optimizer,
+        func: &Function,
     ) -> Self {
         let blocks = HashMap::new();
         let blocks_args = HashMap::new();
         let str_counter = 0;
-        let variables = Variables::new(opt);
+        let variables = Variables::new(func);
         Self {
             first_block: None,
             block: current_block,
@@ -91,16 +93,21 @@ impl<'a> Visitor<'a> {
     }
 
     pub fn get_block_args(
-        &self,
+        &mut self,
         block_id: NodeIndex,
         destination: NodeIndex,
     ) -> Vec<Value<'a, 'a>> {
-        self.blocks_args
+        let current_block = self.block;
+        self.block = self.blocks[&block_id];
+        let args = self
+            .blocks_args
             .get(&(block_id, destination))
             .unwrap_or(&vec![])
             .iter()
             .map(|v| self.get_variable(*v))
-            .collect()
+            .collect();
+        self.block = current_block;
+        args
     }
 
     pub fn append_global_str(&mut self, str_to_append: &str) -> String {
@@ -152,7 +159,7 @@ impl<'a> Visitor<'a> {
         location: Location<'a>,
         kernel: &'b KernelDefinition,
         module: &tracel_llvm::mlir_rs::ir::Module<'a>,
-        opt: &Optimizer,
+        func: &Function,
         shared_memories: &SharedMemories,
         addr_type: StorageType,
     ) {
@@ -166,7 +173,7 @@ impl<'a> Visitor<'a> {
         let args = ArgsManagerBuilder::new(kernel, context, location, shared_memories, addr_type);
 
         let func_type = TypeAttribute::new(args.get_fn_type(context).into());
-        for const_array in opt.const_arrays() {
+        for const_array in func.const_arrays() {
             let global = const_array.id;
             let name = global.to_string();
             let r#type = const_array.item.to_type(context);
@@ -195,6 +202,7 @@ impl<'a> Visitor<'a> {
             ));
         }
         add_external_function_to_module(context, module);
+        add_sync_cube_function(context, module).unwrap();
         module.body().append_operation(func::func(
             context,
             name,
@@ -204,7 +212,7 @@ impl<'a> Visitor<'a> {
                 let args = args.create_top_block(&region, context, location);
                 let block = region.first_block().unwrap();
 
-                Self::insert_builtin_loop(block, module, opt, context, location, args).unwrap();
+                Self::insert_builtin_loop(block, module, func, context, location, args).unwrap();
 
                 block.append_operation(func::r#return(&[], location));
 
@@ -218,12 +226,12 @@ impl<'a> Visitor<'a> {
     pub(self) fn insert_builtin_loop(
         block: BlockRef<'a, 'a>,
         module: &tracel_llvm::mlir_rs::ir::Module<'a>,
-        opt: &Optimizer,
+        func: &Function,
         context: &'a Context,
         location: Location<'a>,
         mut args: ArgsManager<'a>,
     ) -> Result<(), Error> {
-        let basic_block_id = opt.entry();
+        let basic_block_id = func.root;
         let integer_type = IntegerType::new(context, 32).into();
         let start = block.const_int_from_type(context, location, 0, integer_type)?;
         let step = block.const_int_from_type(context, location, 1, integer_type)?;
@@ -385,9 +393,9 @@ impl<'a> Visitor<'a> {
                                     context,
                                     location,
                                     args,
-                                    opt,
+                                    func,
                                 );
-                                visitor.visit_basic_block(basic_block_id, opt);
+                                visitor.visit_basic_block(basic_block_id, func);
 
                                 current_block.append_operation(scf::r#yield(&[], location));
                                 region

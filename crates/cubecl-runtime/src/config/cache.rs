@@ -25,7 +25,8 @@ impl CacheConfig {
         match self {
             Self::Local => std::env::current_dir().unwrap(),
             Self::Target => {
-                let dir_original = std::env::current_dir().unwrap();
+                let dir_original =
+                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
                 let mut dir = dir_original.clone();
 
                 // Search for Cargo.toml in parent directories to locate project root.
@@ -39,6 +40,18 @@ impl CacheConfig {
                     }
                 }
 
+                // No Cargo.toml anywhere above cwd — this is a bundled or
+                // installed application (Tauri, GUI app, CLI installed via
+                // cargo install, etc.) running outside a workspace. The
+                // previous fallback of `dir_original.join("target")` became
+                // `/target` when cwd was `/`, which fails on most platforms
+                // with EROFS (read-only system volume on macOS, root-owned
+                // on Linux) and cascaded a `CacheFile::new` directory
+                // failure into the whole autotune pipeline. Use the
+                // platform-appropriate user cache directory instead.
+                if let Some(cache) = dirs::cache_dir() {
+                    return cache.join("cubecl");
+                }
                 dir_original.join("target")
             }
             Self::Global => dirs::config_local_dir().unwrap(),

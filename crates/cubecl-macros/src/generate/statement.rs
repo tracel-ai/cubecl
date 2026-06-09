@@ -1,9 +1,10 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
-use syn::{Token, spanned::Spanned};
+use syn::{Token, Type, spanned::Spanned};
 
 use crate::{
     expression::Expression,
+    parse::kernel::expand_kernel_ty,
     paths::{frontend_type, prelude_type},
     scope::Context,
     statement::{DefineKind, Statement},
@@ -13,10 +14,9 @@ impl Statement {
     pub fn to_tokens(&self, context: &mut Context) -> TokenStream {
         match self {
             Statement::Local { variable, init } => {
-                let cube_type = frontend_type("CubeType");
                 let name = &variable.name;
-                let is_mut = variable.is_mut || init.as_deref().is_some_and(is_mut_owned);
-                let mutable = variable.is_mut.then(|| quote![mut]);
+                let is_mut = variable.is_mut_owned || init.as_deref().is_some_and(is_mut_owned);
+                let mutable = variable.is_mut_owned.then(|| quote![mut]);
                 let is_const = init.as_ref().is_some_and(|it| it.is_const());
                 let init = if is_mut {
                     if let Some(as_const) =
@@ -37,8 +37,10 @@ impl Statement {
                     })
                 };
                 let ty = variable.ty.as_ref().map(|ty| {
+                    let ty = expand_kernel_ty(ty.clone(), is_const)
+                        .unwrap_or_else(|err| Type::Verbatim(err.into_compile_error()));
                     quote_spanned! {
-                        ty.span()=> :<#ty as #cube_type>::ExpandType
+                        ty.span()=> :#ty
                     }
                 });
 
@@ -46,13 +48,10 @@ impl Statement {
                     (true, Some(init)) => {
                         let into_mut = frontend_type("IntoMut");
                         let init_ty =
-                            quote_spanned![init.span()=> #into_mut::into_mut(_init, scope)];
-                        Some(quote! {
-                            {
-                                let _init = #init;
-                                #init_ty
-                            }
-                        })
+                            quote_spanned![init.span()=> #into_mut::into_mut(#init, scope)];
+                        Some(quote! {{
+                            #init_ty
+                        }})
                     }
                     (_, init) => init,
                 };
@@ -64,13 +63,12 @@ impl Statement {
                             let debug_var = frontend_type("debug_var_expand");
 
                             quote![
-                                #debug_var(scope, #name_str, __init)
+                                #debug_var(scope, #name_str, #init)
                             ]
                         } else {
-                            quote![__init]
+                            quote![#init]
                         };
                         init = quote! {{
-                            let __init = #init;
                             #init_var
                         }};
                     }
@@ -95,8 +93,7 @@ impl Statement {
                 quote! {
                     #define_func!(#name);
                     {
-                        let __init = #value;
-                        scope.#register::<#name>(__init);
+                        scope.#register::<#name>(#value);
                     }
                 }
             }
@@ -119,7 +116,7 @@ impl Statement {
 
 fn is_mut_owned(init: &Expression) -> bool {
     match init {
-        Expression::Variable(var) => var.is_mut && !var.is_ref,
+        Expression::Variable(var) => var.is_mut_owned,
         Expression::FieldAccess { base, .. } => is_mut_owned(base),
         _ => false,
     }

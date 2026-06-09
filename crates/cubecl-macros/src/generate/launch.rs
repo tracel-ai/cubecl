@@ -1,10 +1,13 @@
 use ident_case::RenameRule;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
-use syn::{Ident, parse_quote};
+use syn::{GenericParam, Generics, Ident, parse_quote};
 
 use crate::{
-    parse::kernel::{AddressType, GenericArg, KernelParam, Launch},
+    parse::{
+        kernel::{AddressType, GenericArg, Launch, anon_lifetime_to_static, strip_ref},
+        signature::KernelParam,
+    },
     paths::{core_type, prelude_type},
 };
 
@@ -103,7 +106,7 @@ impl Launch {
                    other unpredictable behaviour.",
                 self.func.sig.name
             );
-            let generics = &self.launch_generics;
+            let generics = &self.kernel_generics;
             let args = self.launch_args();
             let body = self.launch_body();
 
@@ -142,7 +145,8 @@ impl Launch {
 
         let settings = self.configure_settings();
         let kernel_name = self.kernel_name();
-        let kernel_generics = self.kernel_generics.split_for_impl();
+        let kernel_generics = self.kernel_call_generics();
+        let kernel_generics = kernel_generics.split_for_impl();
         let kernel_generics = kernel_generics.1.as_turbofish();
         let comptime_args = self.comptime_params().map(|it| &it.name);
         let (registers, args) = self.arg_registers();
@@ -208,7 +212,7 @@ impl Launch {
                 "Launch the kernel [{}()] on the given runtime",
                 self.func.sig.name
             );
-            let generics = &self.launch_generics;
+            let generics = &self.kernel_generics;
             let (_, generic_names, _) = self.kernel_generics.split_for_impl();
 
             let settings = self.configure_settings();
@@ -250,9 +254,10 @@ impl Launch {
         let mut args = self.func.sig.parameters.clone();
         let runtime_arg = core_type("RuntimeArg");
         for arg in args.iter_mut().filter(|it| !it.is_const) {
-            let ty = arg.ty_owned();
+            let ty = strip_ref(arg.ty.clone());
+            let ty = anon_lifetime_to_static(ty);
             arg.normalized_ty = parse_quote![#runtime_arg<#ty, __R>];
-            arg.mut_token = None;
+            arg.mutability = None;
         }
         args
     }
@@ -260,6 +265,16 @@ impl Launch {
     pub fn kernel_name(&self) -> Ident {
         let kernel_name = RenameRule::PascalCase.apply_to_field(self.func.sig.name.to_string());
         format_ident!("{kernel_name}")
+    }
+
+    pub fn kernel_call_generics(&self) -> Generics {
+        let mut generics = self.kernel_generics.clone();
+        generics.params = generics
+            .params
+            .into_iter()
+            .filter(|it| !matches!(it, GenericParam::Lifetime(..)))
+            .collect();
+        generics
     }
 
     pub fn comptime_params(&self) -> impl Iterator<Item = &KernelParam> {

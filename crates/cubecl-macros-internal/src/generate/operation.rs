@@ -42,20 +42,64 @@ impl Operation {
             } else if variant.fields.is_empty() {
                 quote![Self::#ident => Some(alloc::vec::Vec::new())]
             } else if variant.fields.fields[0].ident.is_some() {
-                let names = variant
-                    .fields
-                    .fields
-                    .iter()
-                    .map(|it| it.ident.clone().unwrap())
-                    .collect::<Vec<_>>();
-                let body = quote![{
-                    let mut args = alloc::vec::Vec::new();
-                    #(args.extend(crate::FromArgList::as_arg_list(#names));)*
-                    Some(args)
-                }];
-                quote![Self::#ident { #(#names),* } => #body]
+                if variant.fields.fields.iter().any(|it| it.skip.is_present()) {
+                    quote![Self::#ident { .. } => None]
+                } else {
+                    let names = variant
+                        .fields
+                        .fields
+                        .iter()
+                        .map(|it| it.ident.clone().unwrap())
+                        .collect::<Vec<_>>();
+                    let body = quote![{
+                        let mut args = alloc::vec::Vec::new();
+                        #(args.extend(crate::FromArgList::as_arg_list(#names));)*
+                        Some(args)
+                    }];
+                    quote![Self::#ident { #(#names),* } => #body]
+                }
+            } else if variant.fields.fields[0].skip.is_present() {
+                quote![Self::#ident(args) => None]
             } else {
                 quote![Self::#ident(args) => crate::OperationArgs::as_args(args)]
+            }
+        });
+        quote! {
+            match self {
+                #(#match_variants),*
+            }
+        }
+    }
+
+    fn generate_args_mut_impl(&self) -> TokenStream {
+        let variants = self.variants();
+        let match_variants = variants.iter().map(|variant| {
+            let ident = &variant.ident;
+            if variant.nested.is_present() {
+                quote![Self::#ident(child) => crate::OperationReflect::args_mut(child)]
+            } else if variant.fields.is_empty() {
+                quote![Self::#ident => Some(alloc::vec::Vec::new())]
+            } else if variant.fields.fields[0].ident.is_some() {
+                if variant.fields.fields.iter().any(|it| it.skip.is_present()) {
+                    quote![Self::#ident { .. } => None]
+                } else {
+                    let names = variant
+                        .fields
+                        .fields
+                        .iter()
+                        .map(|it| it.ident.clone().unwrap())
+                        .collect::<Vec<_>>();
+                    let body = quote![{
+                        let mut args = alloc::vec::Vec::new();
+                        #(args.extend(crate::FromArgList::as_arg_list_mut(#names));)*
+                        Some(args)
+                    }];
+                    quote![Self::#ident { #(#names),* } => #body]
+                }
+            } else if variant.fields.fields[0].skip.is_present() {
+                quote![Self::#ident(args) => None]
+            } else {
+                quote![Self::#ident(args) => crate::OperationArgs::as_args_mut(args)]
             }
         });
         quote! {
@@ -74,6 +118,8 @@ impl Operation {
                 quote![#opcode::#ident(child) => Some(Self::#ident(crate::OperationReflect::from_code_and_args(child, args)?))]
             } else if variant.fields.is_empty() {
                 quote![#opcode::#ident => Some(Self::#ident)]
+            } else if variant.fields.fields.iter().any(|it| it.skip.is_present()) {
+                quote![#opcode::#ident => None]
             } else if variant.fields.fields[0].ident.is_some() {
                 let fields = variant
                     .fields
@@ -135,6 +181,103 @@ impl Operation {
         }
     }
 
+    fn generate_sanitize(&self) -> TokenStream {
+        let variants = self.variants();
+        let match_variants = variants.iter().map(|variant| {
+            let ident = &variant.ident;
+            if variant.nested.is_present() {
+                quote![Self::#ident(child) => crate::OperationReflect::sanitize_args(child, scope)]
+            } else if variant.fields.is_empty() {
+                quote![Self::#ident => {}]
+            } else if variant.fields.fields[0].ident.is_some() {
+                let names = variant
+                    .fields
+                    .fields
+                    .iter()
+                    .filter(|it| !it.allow_ptr.is_present() && !it.skip.is_present())
+                    .map(|it| it.ident.clone().unwrap())
+                    .collect::<Vec<_>>();
+                let body = quote![{
+                    #(crate::OperationArgs::sanitize_args_ptr(#names, scope);)*
+                }];
+                quote![Self::#ident { #(#names,)* .. } => #body]
+            } else if !variant.fields.fields[0].allow_ptr.is_present()
+                && !variant.fields.fields[0].skip.is_present()
+            {
+                quote![Self::#ident(args) => crate::OperationArgs::sanitize_args_ptr(args, scope)]
+            } else {
+                quote![Self::#ident(args) => {}]
+            }
+        });
+        quote! {
+            match self {
+                #(#match_variants),*
+            }
+        }
+    }
+
+    fn generate_read_ptrs(&self) -> TokenStream {
+        let variants = self.variants();
+        let match_variants = variants.iter().map(|variant| {
+            let ident = &variant.ident;
+            if variant.nested.is_present() {
+                quote![Self::#ident(child) => crate::OperationReflect::read_pointers(child)]
+            } else if variant.fields.is_empty() {
+                quote![Self::#ident => alloc::vec![]]
+            } else if variant.fields.fields[0].ident.is_some() {
+                let names = variant
+                    .fields
+                    .fields
+                    .iter()
+                    .filter(|it| it.ptr_read.is_present())
+                    .map(|it| it.ident.clone().unwrap())
+                    .collect::<Vec<_>>();
+                let body = quote![{ alloc::vec![#(*#names),*] }];
+                quote![Self::#ident { #(#names,)* .. } => #body]
+            } else if variant.fields.fields[0].ptr_read.is_present() {
+                quote![Self::#ident(args) => alloc::vec![*args]]
+            } else {
+                quote![Self::#ident(args) => crate::OperationArgs::read_pointers(args)]
+            }
+        });
+        quote! {
+            match self {
+                #(#match_variants),*
+            }
+        }
+    }
+
+    fn generate_write_ptrs(&self) -> TokenStream {
+        let variants = self.variants();
+        let match_variants = variants.iter().map(|variant| {
+            let ident = &variant.ident;
+            if variant.nested.is_present() {
+                quote![Self::#ident(child) => crate::OperationReflect::write_pointers(child)]
+            } else if variant.fields.is_empty() {
+                quote![Self::#ident => alloc::vec![]]
+            } else if variant.fields.fields[0].ident.is_some() {
+                let names = variant
+                    .fields
+                    .fields
+                    .iter()
+                    .filter(|it| it.ptr_write.is_present())
+                    .map(|it| it.ident.clone().unwrap())
+                    .collect::<Vec<_>>();
+                let body = quote![{ alloc::vec![#(*#names),*] }];
+                quote![Self::#ident { #(#names,)* .. } => #body]
+            } else if variant.fields.fields[0].ptr_write.is_present() {
+                quote![Self::#ident(args) => alloc::vec![*args]]
+            } else {
+                quote![Self::#ident(args) => crate::OperationArgs::write_pointers(args)]
+            }
+        });
+        quote! {
+            match self {
+                #(#match_variants),*
+            }
+        }
+    }
+
     fn generate_operation_impl(&self) -> TokenStream {
         let name = &self.ident;
         let opcode_name = &self.opcode_name;
@@ -142,10 +285,15 @@ impl Operation {
 
         let opcode_impl = self.generate_opcode_impl();
         let args_impl = self.generate_args_impl();
+        let args_mut_impl = self.generate_args_mut_impl();
         let from_args_impl = self.generate_from_args_impl();
         let commutative =
             self.generate_bool_property(|x| x.commutative, |x| x.commutative, "is_commutative");
         let pure = self.generate_bool_property(|x| x.pure, |x| x.pure, "is_pure");
+        let sanitize = self.generate_sanitize();
+
+        let read_ptrs = self.generate_read_ptrs();
+        let write_ptrs = self.generate_write_ptrs();
 
         quote![impl #generics crate::OperationReflect for #name #generic_names #where_clause {
             type OpCode = #opcode_name;
@@ -156,8 +304,22 @@ impl Operation {
             fn args(&self) -> Option<alloc::vec::Vec<crate::Variable>> {
                 #args_impl
             }
+            fn args_mut(&mut self) -> Option<alloc::vec::Vec<&mut crate::Variable>> {
+                #args_mut_impl
+            }
             fn from_code_and_args(op_code: Self::OpCode, args: &[crate::Variable]) -> Option<Self> {
                 #from_args_impl
+            }
+            fn sanitize_args(&mut self, scope: &crate::Scope) {
+                #sanitize
+            }
+
+            fn read_pointers(&self) -> alloc::vec::Vec<crate::Variable> {
+                #read_ptrs
+            }
+
+            fn write_pointers(&self) -> alloc::vec::Vec<crate::Variable> {
+                #write_ptrs
             }
 
             #commutative

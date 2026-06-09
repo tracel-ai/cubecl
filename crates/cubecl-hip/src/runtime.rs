@@ -153,6 +153,7 @@ impl DeviceService for HipServer {
             },
             num_cpu_cores: None,
             max_vector_size: VectorSize::MAX,
+            cube_mma_reserved_shared_memory: 0,
         };
 
         let mut device_props = DeviceProperties::new(

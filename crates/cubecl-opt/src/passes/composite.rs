@@ -1,12 +1,17 @@
-use std::{collections::HashMap, mem::take};
+use core::mem::take;
 
+use alloc::vec::Vec;
 use cubecl_ir::{
-    Id, IndexAssignOperator, IndexOperator, Instruction, Operation, Operator, Type, Variable,
-    VariableKind, VectorInitOperator,
+    BinaryOperands, Id, InitVectorOperands, Instruction, Operation, Operator, Type, Variable,
+    VariableKind, VectorInsertOperands,
 };
+use hashbrown::HashMap;
 use stable_vec::StableVec;
 
-use crate::{AtomicCounter, Optimizer};
+use crate::{
+    AtomicCounter, Function, GlobalState, analyses::pointer_source::PointerSource,
+    local_variable_id,
+};
 
 use super::OptimizerPass;
 
@@ -27,20 +32,21 @@ use super::OptimizerPass;
 pub struct CompositeMerge;
 
 impl OptimizerPass for CompositeMerge {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        let blocks = opt.node_ids();
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        let blocks = func.node_ids();
+        let ptr_source = func.analysis::<PointerSource>(state);
 
         for block in blocks {
             let mut assigns = HashMap::<Id, Vec<(usize, u32, Variable)>>::new();
 
-            let ops = opt.program[block].ops.clone();
+            let ops = func[block].ops.clone();
             let indices = { ops.borrow().indices().collect::<Vec<_>>() };
             for idx in indices {
                 // Reset writes when read
                 {
                     let op = &mut ops.borrow_mut()[idx];
-                    opt.visit_operation(&mut op.operation, &mut op.out, |opt, var| {
-                        if let Some(id) = opt.local_variable_id(var) {
+                    func.visit_operation(state, &mut op.operation, |_, var| {
+                        if let Some(id) = local_variable_id(var) {
                             assigns.remove(&id);
                         }
                     });
@@ -48,14 +54,16 @@ impl OptimizerPass for CompositeMerge {
 
                 let op = { ops.borrow()[idx].clone() };
                 if let (
-                    Operation::Operator(Operator::IndexAssign(IndexAssignOperator {
+                    Operation::Operator(Operator::InsertComponent(VectorInsertOperands {
                         index,
                         value,
                         ..
                     })),
                     Some(VariableKind::LocalMut { id }),
-                ) = (op.operation, op.out.map(|it| it.kind))
-                    && value.is_immutable()
+                ) = (
+                    op.operation,
+                    op.out.map(|it| ptr_source.get(&it).unwrap_or(it).kind),
+                ) && value.is_immutable()
                 {
                     let item = op.out.unwrap().ty;
                     if let Some(index) = index.as_const() {
@@ -66,21 +74,21 @@ impl OptimizerPass for CompositeMerge {
                             assigns.push((idx, index, value));
                             if assigns.len() == vector_size {
                                 merge_assigns(
-                                    &mut opt.program[block].ops.borrow_mut(),
+                                    &mut func[block].ops.borrow_mut(),
                                     take(assigns),
                                     id,
                                     item,
                                 );
-                                opt.program.variables.insert(id, item);
+                                func.variables.insert(id, item);
                                 changes.inc();
                             }
                         } else {
                             assert_eq!(index, 0, "Can't index into scalar {}", op.out.unwrap());
-                            opt.program[block].ops.borrow_mut()[idx] = Instruction::new(
+                            func[block].ops.borrow_mut()[idx] = Instruction::new(
                                 Operation::Copy(value),
                                 Variable::new(VariableKind::LocalMut { id }, item),
                             );
-                            opt.program.variables.insert(id, item);
+                            func.variables.insert(id, item);
                             changes.inc();
                         }
                     }
@@ -105,7 +113,7 @@ fn merge_assigns(
     let out = Variable::new(VariableKind::LocalMut { id }, item);
     ops.insert(
         last,
-        Instruction::new(Operator::InitVector(VectorInitOperator { inputs }), out),
+        Instruction::new(Operator::InitVector(InitVectorOperands { inputs }), out),
     );
 }
 
@@ -114,22 +122,24 @@ fn merge_assigns(
 pub struct RemoveIndexScalar;
 
 impl OptimizerPass for RemoveIndexScalar {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        let blocks = opt.node_ids();
+    fn apply_post_ssa(&mut self, func: &mut Function, _: &GlobalState, changes: AtomicCounter) {
+        let blocks = func.node_ids();
 
         for block in blocks {
-            let ops = opt.program[block].ops.clone();
+            let ops = func[block].ops.clone();
             for op in ops.borrow_mut().values_mut() {
-                if let Operation::Operator(Operator::Index(IndexOperator { list, index, .. })) =
-                    &mut op.operation
-                    && !list.is_array()
+                if let Operation::Operator(Operator::ExtractComponent(BinaryOperands {
+                    lhs: vector,
+                    rhs: index,
+                    ..
+                })) = &mut op.operation
                     && let Some(index) = index.as_const()
                 {
                     let index = index.as_u32();
-                    let vector_size = list.ty.vector_size();
+                    let vector_size = vector.ty.vector_size();
                     if vector_size == 1 {
                         assert_eq!(index, 0, "Can't index into scalar");
-                        op.operation = Operation::Copy(*list);
+                        op.operation = Operation::Copy(*vector);
                         changes.inc();
                     }
                 }

@@ -1,11 +1,12 @@
 use alloc::vec::Vec;
 use cubecl::prelude::*;
 use cubecl_common::{e4m3, e5m2, ue8m0};
+use cubecl_ir::Variable;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     self as cubecl, ScalarArgType, intrinsic,
-    ir::{ElemType, FloatKind, IntKind, ManagedVariable, UIntKind},
+    ir::{ElemType, FloatKind, IntKind, UIntKind},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -19,20 +20,45 @@ pub struct InputScalar {
 
 #[derive(Clone)]
 pub struct InputScalarExpand {
-    pub expand: ManagedVariable,
+    pub expand: Variable,
 }
 
 impl CubeType for InputScalar {
     type ExpandType = InputScalarExpand;
 }
 
+impl ExpandTypeClone for InputScalarExpand {
+    fn clone_unchecked(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl IntoExpand for InputScalarExpand {
+    type Expand = Self;
+
+    fn into_expand(self, _scope: &Scope) -> Self::Expand {
+        self
+    }
+}
+
 impl IntoMut for InputScalarExpand {
-    fn into_mut(self, _scope: &mut Scope) -> Self {
+    fn into_mut(self, _scope: &Scope) -> Self {
         self
     }
 }
 
 impl CubeDebug for InputScalarExpand {}
+
+impl AsRefExpand for InputScalarExpand {
+    fn __expand_ref_method(&self, _: &Scope) -> &Self {
+        self
+    }
+}
+impl AsMutExpand for InputScalarExpand {
+    fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut Self {
+        self
+    }
+}
 
 impl InputScalar {
     /// Creates an [`InputScalar`] from the given element and dtype.
@@ -94,12 +120,12 @@ impl InputScalar {
     /// Performs casting if necessary.
     pub fn get<C: Scalar>(&self) -> C {
         intrinsic!(|scope| {
-            let dtype = C::as_type(scope);
+            let dtype = C::__expand_as_type(scope);
             if self.expand.ty == dtype {
-                return self.expand.into();
+                return self.expand.clone().into();
             }
             let new_var = scope.create_local(dtype);
-            cast::expand::<C, C>(scope, self.expand.into(), new_var.clone().into());
+            cast::expand::<C, C>(scope, self.expand.clone().into(), new_var.clone().into());
             new_var.into()
         })
     }

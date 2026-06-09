@@ -38,7 +38,7 @@ pub fn unpack_cast_u32<F: Numeric, NQ: Size, NF: Size>(
 
     #[unroll]
     for vector_idx in 0..value.size() {
-        let packed_val = value[vector_idx];
+        let packed_val = value.extract(vector_idx);
         let out_offset = vector_idx * num_quants;
         #[unroll]
         for packed_idx in range_stepped(0, num_quants, native_packing) {
@@ -50,7 +50,7 @@ pub fn unpack_cast_u32<F: Numeric, NQ: Size, NF: Size>(
             #[unroll]
             for native_idx in 0..native_packing {
                 let out_offset = out_offset + packed_idx + native_idx;
-                out[out_offset] = float_value[native_idx];
+                out.insert(out_offset, float_value.extract(native_idx));
             }
         }
     }

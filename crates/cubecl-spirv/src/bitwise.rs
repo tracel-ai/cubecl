@@ -183,7 +183,7 @@ pub(crate) fn u64_leading_zeros<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32,
     let high_zeros = Vector::leading_zeros(high);
 
     select_many(
-        high_zeros.equal(Vector::new(32)),
+        high_zeros.equal(&Vector::new(32)),
         low_zeros + high_zeros,
         high_zeros,
     )
@@ -203,11 +203,11 @@ pub(crate) fn u64_ffs<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
     let high_ffs = Vector::find_first_set(high);
 
     let high_ffs = select_many(
-        high_ffs.equal(Vector::new(0)),
+        high_ffs.equal(&Vector::new(0)),
         high_ffs,
         high_ffs + Vector::new(32),
     );
-    select_many(low_ffs.equal(Vector::new(0)), high_ffs, low_ffs)
+    select_many(low_ffs.equal(&Vector::new(0)), high_ffs, low_ffs)
 }
 
 /// Subtract extra leading zeros after normalizing
@@ -235,11 +235,11 @@ pub(crate) fn u64_trailing_zeros<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32
     let high_tz = Vector::trailing_zeros(high);
 
     let high_tz = select_many(
-        high_tz.equal(Vector::new(32)),
+        high_tz.equal(&Vector::new(32)),
         Vector::new(64),
         high_tz + Vector::new(32),
     );
-    select_many(low_tz.equal(Vector::new(32)), high_tz, low_tz)
+    select_many(low_tz.equal(&Vector::new(32)), high_tz, low_tz)
 }
 
 /// Clamp to width

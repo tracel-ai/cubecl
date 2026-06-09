@@ -1,5 +1,7 @@
-use cubecl_core::ir::{self as core, FloatKind, IntKind, UIntKind};
-use rspirv::spirv::{Capability, CooperativeMatrixUse, FPEncoding, Scope, StorageClass, Word};
+use cubecl_core::ir::{self as core, AddressSpace, ClampMode, FloatKind, IntKind, UIntKind};
+use rspirv::spirv::{
+    Capability, CooperativeMatrixUse, FPEncoding, Scope, StorageClass, TensorClampMode, Word,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{compiler::SpirvCompiler, target::SpirvTarget, variable::ConstVal};
@@ -7,17 +9,26 @@ use crate::{compiler::SpirvCompiler, target::SpirvTarget, variable::ConstVal};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Item {
     Scalar(Elem),
-    // Vector of scalars. Must be 2, 3, or 4, or 8/16 for OpenCL only
+    // Vector of scalars. Must be 2, 3, or 4, unless long vectors extension is enabled
     Vector(Elem, u32),
-    Array(Box<Item>, u32),
-    RuntimeArray(Box<Item>),
-    Struct(Vec<Item>),
     Pointer(StorageClass, Box<Item>),
+    Array(Box<Item>, u32),
+    DynamicArray(Box<Item>),
     CoopMatrix {
         ty: Elem,
         rows: u32,
         columns: u32,
         ident: CooperativeMatrixUse,
+        scope: Scope,
+    },
+    TensorLayout {
+        dims: usize,
+        clamp_mode: TensorClampMode,
+    },
+    TensorView {
+        dims: usize,
+        has_dims: bool,
+        permutation: Vec<u32>,
     },
 }
 
@@ -27,36 +38,62 @@ impl Item {
             Item::Scalar(elem) => elem.id(b),
             Item::Vector(elem, vec) => {
                 let elem = elem.id(b);
-                b.type_vector(elem, *vec)
-            }
-            Item::Array(item, len) => {
-                let item = item.id(b);
-                let len = b.const_u32(*len);
-                b.type_array(item, len)
-            }
-            Item::RuntimeArray(item) => {
-                let item = item.id(b);
-                b.type_runtime_array(item)
-            }
-            Item::Struct(vec) => {
-                let items: Vec<_> = vec.iter().map(|item| item.id(b)).collect();
-                let id = b.id(); // Avoid deduplicating this struct, because of decorations
-                b.type_struct_id(Some(id), items)
+                if b.compilation_options.vulkan.supports_long_vectors {
+                    let len = b.const_u32(*vec);
+                    b.type_vector_id_ext(elem, len)
+                } else {
+                    b.type_vector(elem, *vec)
+                }
             }
             Item::Pointer(storage_class, item) => {
                 let item = item.id(b);
                 b.type_pointer(None, *storage_class, item)
+            }
+            Item::Array(item, size) => {
+                let item = item.id(b);
+                let id = b.id();
+                let size = b.const_u32(*size);
+                b.type_array_id(Some(id), item, size)
+            }
+            Item::DynamicArray(item) => {
+                let item = item.id(b);
+                let id = b.id();
+                b.type_runtime_array_id(Some(id), item)
             }
             Item::CoopMatrix {
                 ty,
                 rows,
                 columns,
                 ident,
+                scope,
             } => {
                 let ty = ty.id(b);
-                let scope = b.const_u32(Scope::Subgroup as u32);
+                let scope = b.const_u32(*scope as u32);
                 let usage = b.const_u32(*ident as u32);
                 b.type_cooperative_matrix_khr(ty, scope, *rows, *columns, usage)
+            }
+            Item::TensorLayout { dims, clamp_mode } => {
+                let dim = b.const_u32(*dims as u32);
+                let clamp_mode = b.const_u32(*clamp_mode as u32);
+                b.type_tensor_layout_nv(dim, clamp_mode)
+            }
+            Item::TensorView {
+                dims,
+                has_dims,
+                permutation,
+            } => {
+                let bool = b.type_bool();
+                let dim = b.const_u32(*dims as u32);
+                let has_dims = if *has_dims {
+                    b.constant_true(bool)
+                } else {
+                    b.constant_false(bool)
+                };
+                let permutation = permutation
+                    .iter()
+                    .map(|it| b.const_u32(*it))
+                    .collect::<Vec<_>>();
+                b.type_tensor_view_nv(dim, has_dims, permutation)
             }
         };
         if b.debug_symbols && !b.state.debug_types.contains(&id) {
@@ -70,15 +107,25 @@ impl Item {
         Item::Scalar(Elem::Int(32, false))
     }
 
+    pub fn value_type(&self) -> Item {
+        match self {
+            Item::Pointer(_, item) => item.value_type(),
+            Item::Array(item, _) => item.value_type(),
+            Item::DynamicArray(item) => item.value_type(),
+            other => other.clone(),
+        }
+    }
+
     pub fn size(&self) -> u32 {
         match self {
             Item::Scalar(elem) => elem.size(),
             Item::Vector(elem, factor) => elem.size() * *factor,
-            Item::Array(item, len) => item.size() * *len,
-            Item::RuntimeArray(item) => item.size(),
-            Item::Struct(vec) => vec.iter().map(|it| it.size()).sum(),
             Item::Pointer(_, item) => item.size(),
+            Item::Array(item, size) => item.size() * *size,
+            Item::DynamicArray(item) => item.size(),
             Item::CoopMatrix { ty, .. } => ty.size(),
+            Item::TensorLayout { .. } => 1,
+            Item::TensorView { .. } => 1,
         }
     }
 
@@ -86,11 +133,12 @@ impl Item {
         match self {
             Item::Scalar(elem) => *elem,
             Item::Vector(elem, _) => *elem,
-            Item::Array(item, _) => item.elem(),
-            Item::RuntimeArray(item) => item.elem(),
-            Item::Struct(_) => Elem::Void,
             Item::Pointer(_, item) => item.elem(),
+            Item::Array(item, _) => item.elem(),
+            Item::DynamicArray(item) => item.elem(),
             Item::CoopMatrix { ty, .. } => *ty,
+            Item::TensorLayout { .. } => Elem::Void,
+            Item::TensorView { .. } => Elem::Void,
         }
     }
 
@@ -115,20 +163,12 @@ impl Item {
         match self {
             Item::Scalar(_) => scalar,
             Item::Vector(_, vec) => b.constant_composite(ty, (0..*vec).map(|_| scalar)),
-            Item::Array(item, len) => {
-                let elem = item.constant(b, value);
-                b.constant_composite(ty, (0..*len).map(|_| elem))
-            }
-            Item::RuntimeArray(_) => unimplemented!("Can't create constant runtime array"),
-            Item::Struct(elems) => {
-                let items = elems
-                    .iter()
-                    .map(|item| item.constant(b, value))
-                    .collect::<Vec<_>>();
-                b.constant_composite(ty, items)
-            }
             Item::Pointer(_, _) => unimplemented!("Can't create constant pointer"),
+            Item::Array(_, _) => unimplemented!("Can't create constant pointer"),
+            Item::DynamicArray(_) => unimplemented!("Can't create constant pointer"),
             Item::CoopMatrix { .. } => unimplemented!("Can't create constant cmma matrix"),
+            Item::TensorLayout { .. } => unimplemented!("Can't create constant cmma matrix"),
+            Item::TensorView { .. } => unimplemented!("Can't create constant cmma matrix"),
         }
     }
 
@@ -167,8 +207,9 @@ impl Item {
 
         let matching_vec = match (self, other) {
             (Item::Scalar(_), Item::Scalar(_)) => true,
+            (Item::Scalar(_), Item::Vector(..)) => false,
             (Item::Vector(_, factor_from), Item::Vector(_, factor_to)) => factor_from == factor_to,
-            _ => false,
+            _ => true,
         };
         let matching_elem = self.elem() == other.elem();
 
@@ -235,6 +276,13 @@ impl Item {
                 (Elem::Float(_, _), Elem::Int(_, true)) | (Elem::Relaxed, Elem::Int(_, true)) => {
                     b.convert_f_to_s(ty, out_id, obj).unwrap()
                 }
+                (Elem::Float(32, _), Elem::Relaxed) | (Elem::Relaxed, Elem::Float(32, _)) => {
+                    if out_id.is_some() {
+                        b.copy_object(ty, out_id, obj).unwrap()
+                    } else {
+                        obj
+                    }
+                }
                 (Elem::Float(_, _), Elem::Float(_, _))
                 | (Elem::Float(_, _), Elem::Relaxed)
                 | (Elem::Relaxed, Elem::Float(_, _)) => b.f_convert(ty, out_id, obj).unwrap(),
@@ -254,6 +302,10 @@ impl Item {
                 cast_elem(b, broadcast, out_id)
             }
         }
+    }
+
+    pub fn is_array(&self) -> bool {
+        matches!(self, Item::Array(..))
     }
 }
 
@@ -311,22 +363,55 @@ impl Elem {
             _ => None,
         }
     }
+
+    pub fn width(&self) -> u32 {
+        self.size() * 8
+    }
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_type(&mut self, item: core::Type) -> Item {
         match item {
             core::Type::Scalar(storage) => Item::Scalar(self.compile_storage_type(storage)),
-            core::Type::Vector(storage, size) => {
-                Item::Vector(self.compile_storage_type(storage), size as u32)
+            core::Type::Vector(inner, size) => {
+                Item::Vector(self.compile_storage_type(inner.storage_type()), size as u32)
             }
-            core::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
+            core::Type::Atomic(inner) => self.compile_type(*inner),
+            core::Type::Pointer(inner, class) => {
+                let storage_class = compile_pointer_class(class);
+                let item = self.compile_type(*inner);
+                Item::Pointer(storage_class, Box::new(item))
+            }
+            core::Type::Semantic(semantic) => match semantic {
+                core::SemanticType::BarrierToken
+                | core::SemanticType::Pipeline
+                | core::SemanticType::TensorMap => {
+                    unimplemented!("Unsupported semantic type")
+                }
+                core::SemanticType::TensorLayout(dims, clamp_mode) => Item::TensorLayout {
+                    dims,
+                    clamp_mode: compile_clamp_mode(clamp_mode),
+                },
+                core::SemanticType::TensorView(dims, has_dims, permutation) => Item::TensorView {
+                    dims,
+                    has_dims,
+                    permutation: permutation[..dims].to_vec(),
+                },
+            },
+            core::Type::Array(inner, size, _) => {
+                let item = self.compile_type(*inner);
+                Item::Array(Box::new(item), size as u32)
+            }
+            core::Type::DynamicArray(inner, _) => {
+                let item = self.compile_type(*inner);
+                Item::DynamicArray(Box::new(item))
+            }
         }
     }
 
     pub fn compile_storage_type(&mut self, ty: core::StorageType) -> Elem {
         match ty {
-            core::StorageType::Scalar(ty) | core::StorageType::Atomic(ty) => self.compile_elem(ty),
+            core::StorageType::Scalar(ty) => self.compile_elem(ty),
             core::StorageType::Opaque(ty) => match ty {
                 core::OpaqueType::Barrier(_) => {
                     unimplemented!("Barrier type not supported in SPIR-V")
@@ -399,6 +484,40 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
+    pub fn compile_function_param_type(&mut self, var: core::Variable) -> Word {
+        match var.kind {
+            core::VariableKind::GlobalBuffer(id) => {
+                self.state.base_lookups.buffers[id as usize].struct_ptr_ty_id
+            }
+            core::VariableKind::TensorMap(_) => {
+                unimplemented!("Tensor maps not supported")
+            }
+            core::VariableKind::LocalMut { .. }
+            | core::VariableKind::LocalConst { .. }
+            | core::VariableKind::Versioned { .. }
+            | core::VariableKind::Constant(..)
+            | core::VariableKind::GlobalScalar(_)
+            | core::VariableKind::Builtin(..) => self.compile_type(var.ty).id(self),
+            core::VariableKind::ConstantArray { .. } => {
+                todo!("Constant arrays not yet supported for args")
+            }
+            core::VariableKind::Shared { id, .. } => self.state.base_lookups.shared[&id].ptr_ty_id,
+            core::VariableKind::Matrix { mat, .. } => {
+                let mat = self.compile_matrix(&mat);
+                self.item(&mat).id(self)
+            }
+            core::VariableKind::Pipeline { .. } => {
+                unimplemented!("Pipelines not supported")
+            }
+            core::VariableKind::BarrierToken { .. } => {
+                unimplemented!("Barrier tokens not supported")
+            }
+            core::VariableKind::Aggregate { .. } => {
+                unreachable!("Should be disaggregated at this point")
+            }
+        }
+    }
+
     pub fn static_cast(&mut self, val: ConstVal, from: &Elem, item: &Item) -> (Word, ConstVal) {
         let elem_cast = match (*from, item.elem()) {
             (Elem::Bool, Elem::Int(width, _)) => ConstVal::from_uint(val.as_u32() as u64, width),
@@ -457,22 +576,37 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 }
 
+pub fn compile_pointer_class(class: AddressSpace) -> StorageClass {
+    match class {
+        AddressSpace::Global(_) => StorageClass::PhysicalStorageBuffer,
+        AddressSpace::Shared => StorageClass::Workgroup,
+        AddressSpace::Local => StorageClass::Function,
+    }
+}
+
 impl std::fmt::Display for Item {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Item::Scalar(elem) => write!(f, "{elem}"),
             Item::Vector(elem, factor) => write!(f, "vec{factor}<{elem}>"),
-            Item::Array(item, len) => write!(f, "array<{item}, {len}>"),
-            Item::RuntimeArray(item) => write!(f, "array<{item}>"),
-            Item::Struct(members) => {
-                write!(f, "struct<")?;
-                for item in members {
-                    write!(f, "{item}")?;
-                }
-                f.write_str(">")
-            }
             Item::Pointer(class, item) => write!(f, "ptr<{class:?}, {item}>"),
+            Item::Array(item, size) => write!(f, "array<{item}, {size}>"),
+            Item::DynamicArray(item) => write!(f, "array<{item}>"),
             Item::CoopMatrix { ty, ident, .. } => write!(f, "matrix<{ty}, {ident:?}>"),
+            Item::TensorLayout { dims, clamp_mode } => {
+                write!(f, "tensor_layout<{dims}, {clamp_mode:?}>")
+            }
+            Item::TensorView {
+                dims,
+                has_dims,
+                permutation,
+            } => {
+                write!(
+                    f,
+                    "tensor_view<{:?}, has_dims: {has_dims}>",
+                    &permutation[..*dims]
+                )
+            }
         }
     }
 }
@@ -490,5 +624,15 @@ impl std::fmt::Display for Elem {
             Elem::Float(_, Some(FPEncoding::Float8E5M2EXT)) => write!(f, "e5m2"),
             Elem::Relaxed => write!(f, "flex32"),
         }
+    }
+}
+
+fn compile_clamp_mode(clamp_mode: ClampMode) -> TensorClampMode {
+    match clamp_mode {
+        ClampMode::Undefined => TensorClampMode::Undefined,
+        ClampMode::Constant(_) => TensorClampMode::Constant,
+        ClampMode::ClampToEdge => TensorClampMode::ClampToEdge,
+        ClampMode::Repeat => TensorClampMode::Repeat,
+        ClampMode::RepeatMirrored => TensorClampMode::RepeatMirrored,
     }
 }

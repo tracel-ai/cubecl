@@ -4,7 +4,7 @@ use variadics_please::all_tuples;
 
 /// A set of coordinates used in layouts. Contains some utilities for comptime inspection.
 #[cube]
-pub trait Coordinates: CubeType + Clone {
+pub trait Coordinates: CubeType<ExpandType: Clone> + Clone {
     /// Add two coordinates together and return the result.
     fn add(this: Self, other: Self) -> Self;
     /// Subtract two coordinates from each other and return the result.
@@ -14,10 +14,10 @@ pub trait Coordinates: CubeType + Clone {
     /// Apply an elementwise maximum to the coordinates and return the result.
     fn max(this: Self, other: Self) -> Self;
     /// Check whether `pos` is fully contained within `bounds`.
-    fn is_in_bounds(pos: &Self, bounds: &Self) -> bool;
+    fn is_in_bounds(pos: Self, bounds: Self) -> bool;
     /// Create a new coordinates object where all values are `value`.
     /// `this` may be used as a reference coordinate for dynamically sized layouts.
-    fn from_int(this: &Self, #[comptime] value: i64) -> Self;
+    fn from_int(this: Self, #[comptime] value: i64) -> Self;
 }
 
 // Aliases for convenience and semantic clarity
@@ -58,12 +58,12 @@ macro_rules! impl_coordinates_tuple {
                 let ($($o),*) = other;
                 ($($T::max($t, $o)),*)
             }
-            fn is_in_bounds(this: &Self, other: &Self) -> bool {
+            fn is_in_bounds(this: Self, other: Self) -> bool {
                 let ($($t),*) = this;
                 let ($($o),*) = other;
                 true $(&& $T::is_in_bounds($t, $o))*
             }
-            fn from_int(this: &Self, #[comptime] value: i64) -> Self {
+            fn from_int(this: Self, #[comptime] value: i64) -> Self {
                 let ($($t),*) = this;
                 ($($T::from_int($t, value)),*)
             }
@@ -88,10 +88,10 @@ macro_rules! impl_coordinates_primitive {
             fn max(this: Self, other: Self) -> Self {
                 this.max(other)
             }
-            fn is_in_bounds(pos: &Self, bounds: &Self) -> bool {
+            fn is_in_bounds(pos: Self, bounds: Self) -> bool {
                 pos < bounds
             }
-            fn from_int(_this: &Self, #[comptime] value: i64) -> Self {
+            fn from_int(_this: Self, #[comptime] value: i64) -> Self {
                 <$ty as Numeric>::from_int(value)
             }
         }
@@ -105,7 +105,9 @@ impl_coordinates_primitive!(u8, u16, u32, u64, usize, i8, i16, i32, i64);
 all_tuples!(impl_coordinates_tuple, 2, 12, T, t, o);
 
 #[cube]
-impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
+impl<T: Coordinates<ExpandType: DerefExpand<Target = T::ExpandType>> + Copy> Coordinates
+    for Sequence<T>
+{
     fn add(this: Self, other: Self) -> Self {
         let rank = this.len();
         let mut out = Sequence::new();
@@ -154,25 +156,25 @@ impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
         out
     }
 
-    fn is_in_bounds(pos: &Self, bounds: &Self) -> bool {
+    fn is_in_bounds(pos: Self, bounds: Self) -> bool {
         let rank = pos.len();
         let mut out = true;
 
         #[unroll]
         for i in 0..rank {
-            out &= T::is_in_bounds(&pos[i], &bounds[i]);
+            out &= T::is_in_bounds(pos[i], bounds[i]);
         }
 
         out
     }
 
-    fn from_int(this: &Self, #[comptime] value: i64) -> Self {
+    fn from_int(this: Self, #[comptime] value: i64) -> Self {
         let rank = this.len();
         let mut origin = Sequence::new();
 
         #[unroll]
         for i in 0..rank {
-            origin.push(T::from_int(&this[i], value));
+            origin.push(T::from_int(this[i], value));
         }
 
         origin

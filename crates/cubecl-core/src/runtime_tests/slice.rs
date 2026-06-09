@@ -2,28 +2,28 @@ use crate::{self as cubecl, as_bytes, as_type};
 use cubecl::prelude::*;
 
 #[cube(launch)]
-pub fn slice_select<F: Float>(input: &Array<F>, output: &mut Array<F>) {
+pub fn slice_select<F: Float>(input: &[F], output: &mut [F]) {
     if UNIT_POS == 0 {
-        let slice = input.slice(2, 3);
+        let slice = &input[2..3];
         output[0] = slice[0];
     }
 }
 
 #[cube(launch)]
-pub fn slice_len<F: Float>(input: &Array<F>, output: &mut Array<u32>) {
+pub fn slice_len<F: Float>(input: &[F], output: &mut [u32]) {
     if UNIT_POS == 0 {
-        let slice = input.slice(2, 4);
+        let slice = &input[2..4];
         output[0] = slice.len() as u32;
     }
 }
 
 #[cube(launch)]
-pub fn slice_for<F: Float>(input: &Array<F>, output: &mut Array<F>) {
+pub fn slice_for<F: Float>(input: &[F], output: &mut [F]) {
     if UNIT_POS == 0 {
-        let mut sum = F::new(0.0);
+        let mut sum = F::new(0f32);
 
-        for item in input.slice(2, 4) {
-            sum += item;
+        for item in &input[2..4] {
+            sum += *item;
         }
 
         output[0] = sum;
@@ -31,17 +31,17 @@ pub fn slice_for<F: Float>(input: &Array<F>, output: &mut Array<F>) {
 }
 
 #[cube(launch)]
-pub fn slice_mut_assign<F: Float>(input: &Array<F>, output: &mut Array<F>) {
+pub fn slice_mut_assign<F: Float>(input: &[F], output: &mut [F]) {
     if UNIT_POS == 0 {
-        let slice_1 = &mut output.slice_mut(2, 3);
+        let slice_1 = &mut output[2..3];
         slice_1[0] = input[0];
     }
 }
 
 #[cube(launch)]
-pub fn slice_mut_len(output: &mut Array<u32>) {
+pub fn slice_mut_len(output: &mut [u32]) {
     if UNIT_POS == 0 {
-        let slice = output.slice_mut(0, 2).into_vectorized();
+        let slice = output[..2].as_vectorized_mut();
         output[0] = slice.len() as u32;
     }
 }
@@ -55,8 +55,8 @@ pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(client: ComputeClie
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts(input, 5),
-            ArrayArg::from_raw_parts(output.clone(), 1),
+            BufferArg::from_raw_parts(input, 5),
+            BufferArg::from_raw_parts(output.clone(), 1),
         )
     };
 
@@ -75,8 +75,8 @@ pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts(input, 5),
-            ArrayArg::from_raw_parts(output.clone(), 1),
+            BufferArg::from_raw_parts(input, 5),
+            BufferArg::from_raw_parts(output.clone(), 1),
         )
     };
 
@@ -95,8 +95,8 @@ pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts(input, 5),
-            ArrayArg::from_raw_parts(output.clone(), 1),
+            BufferArg::from_raw_parts(input, 5),
+            BufferArg::from_raw_parts(output.clone(), 1),
         )
     };
 
@@ -115,8 +115,8 @@ pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(client: Compute
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts(input, 5),
-            ArrayArg::from_raw_parts(output.clone(), 1),
+            BufferArg::from_raw_parts(input, 1),
+            BufferArg::from_raw_parts(output.clone(), 5),
         )
     };
 
@@ -134,7 +134,7 @@ pub fn test_slice_mut_len<R: Runtime>(client: ComputeClient<R>) {
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new_1d(1),
-            ArrayArg::from_raw_parts(output.clone(), 4),
+            BufferArg::from_raw_parts(output.clone(), 4),
         )
     };
 

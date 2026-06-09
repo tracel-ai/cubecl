@@ -16,7 +16,7 @@ use core::{cmp::Ordering, ops::*};
 use core::{f32, marker::PhantomData};
 
 use bytemuck::Zeroable;
-use cubecl_ir::{ConstantValue, ManagedVariable, Type};
+use cubecl_ir::{ConstantValue, Type};
 use derive_more::derive::{Debug, Display};
 use float_ord::FloatOrd;
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
@@ -239,6 +239,7 @@ impl<Marker: 'static> CubeType for DynamicScalar<Marker> {
     type ExpandType = NativeExpand<DynamicScalar<Marker>>;
 }
 
+impl<Marker: 'static> CubeDebug for DynamicScalar<Marker> {}
 impl<Marker: 'static> Scalar for DynamicScalar<Marker> {}
 impl<Marker: 'static> CubePrimitive for DynamicScalar<Marker> {
     type Scalar = Self;
@@ -246,7 +247,7 @@ impl<Marker: 'static> CubePrimitive for DynamicScalar<Marker> {
     type WithScalar<S: Scalar> = S;
 
     /// Return the element type to use on GPU
-    fn as_type(scope: &Scope) -> Type {
+    fn __expand_as_type(scope: &Scope) -> Type {
         Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
     }
 
@@ -271,13 +272,21 @@ impl<Marker: 'static> From<DynamicScalar<Marker>> for Variable {
 impl<Marker: 'static> From<DynamicScalar<Marker>> for NativeExpand<DynamicScalar<Marker>> {
     fn from(value: DynamicScalar<Marker>) -> Self {
         let var: Variable = value.into();
-        NativeExpand::new(ManagedVariable::Plain(var))
+        NativeExpand::new(var)
     }
 }
 
 impl<Marker: 'static> IntoRuntime for DynamicScalar<Marker> {
-    fn __expand_runtime_method(self, scope: &mut Scope) -> NativeExpand<Self> {
+    fn __expand_runtime_method(self, scope: &Scope) -> NativeExpand<Self> {
         NativeExpand::from_lit(scope, self)
+    }
+}
+
+impl<Marker: 'static> IntoExpand for DynamicScalar<Marker> {
+    type Expand = NativeExpand<Self>;
+
+    fn into_expand(self, scope: &Scope) -> Self::Expand {
+        self.__expand_runtime_method(scope)
     }
 }
 
@@ -305,7 +314,7 @@ impl<Marker: 'static> VectorSum for DynamicScalar<Marker> {}
 impl<Marker: 'static> Recip for DynamicScalar<Marker> {}
 impl<Marker: 'static> Erf for DynamicScalar<Marker> {}
 impl<Marker: 'static> Exp for DynamicScalar<Marker> {}
-impl<Marker: 'static> Remainder for DynamicScalar<Marker> {}
+impl<Marker: 'static> ModFloor for DynamicScalar<Marker> {}
 impl<Marker: 'static> Abs for DynamicScalar<Marker> {}
 impl<Marker: 'static> Log for DynamicScalar<Marker> {}
 impl<Marker: 'static> Log1p for DynamicScalar<Marker> {}

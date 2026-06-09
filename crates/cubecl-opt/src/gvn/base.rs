@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-
+use alloc::vec::Vec;
 use cubecl_ir::{Builtin, ConstantValue, Id, OpCode, StorageType, Type};
+use hashbrown::HashMap;
 use petgraph::graph::NodeIndex;
 use smallvec::SmallVec;
 
-use crate::{AtomicCounter, Optimizer, PhiInstruction, passes::OptimizerPass};
+use crate::{AtomicCounter, Function, GlobalState, PhiInstruction, passes::OptimizerPass};
 
 use super::{GlobalValues, convert::value_of_var};
 
@@ -12,8 +12,8 @@ use super::{GlobalValues, convert::value_of_var};
 pub struct GvnPass;
 
 impl OptimizerPass for GvnPass {
-    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
-        self.run(opt, &changes);
+    fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        self.run(func, state, &changes);
     }
 }
 
@@ -25,11 +25,11 @@ impl GvnPass {
     ///    redundant
     /// 4. Replace fully redundant expressions with simple assignments from the leader of that
     ///    expression to `out`
-    pub fn run(&mut self, opt: &mut Optimizer, changes: &AtomicCounter) {
-        let analysis = opt.analysis::<GlobalValues>();
+    pub fn run(&mut self, func: &mut Function, state: &GlobalState, changes: &AtomicCounter) {
+        let analysis = func.analysis::<GlobalValues>(state);
 
-        analysis.0.borrow_mut().insert(opt, changes);
-        analysis.0.borrow_mut().eliminate(opt, changes);
+        analysis.0.borrow_mut().insert(func, state, changes);
+        analysis.0.borrow_mut().eliminate(func, changes);
     }
 }
 
@@ -78,12 +78,10 @@ pub struct Local {
 pub enum Value {
     Constant(ConstantValue, Type),
     Local(Local),
-    Input(Id, Type),
+    Global(Id, Type),
     Scalar(Id, StorageType),
     ConstArray(Id, Type, usize, usize),
     Builtin(Builtin, StorageType),
-    // Metadata only
-    Output(Id, Type),
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
@@ -125,11 +123,10 @@ impl Value {
         match self {
             Value::Constant(_, ty) => *ty,
             Value::Local(local) => local.item,
-            Value::Input(_, item) => *item,
+            Value::Global(_, item) => *item,
             Value::Scalar(_, elem) => Type::new(*elem),
             Value::ConstArray(_, item, _, _) => *item,
             Value::Builtin(_, ty) => Type::new(*ty),
-            Value::Output(_, item) => *item,
         }
     }
 }

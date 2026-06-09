@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use super::*;
 use crate::tensor::layout::{Coordinates, VirtualLayout, VirtualLayoutExpand};
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, prelude::barrier::BarrierExpand};
+use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 
 #[derive(CubeType)]
 pub struct VirtualView<T: CubePrimitive, C: Coordinates, S: Coordinates, V: ViewOperations<T, S>> {
@@ -108,21 +108,17 @@ macro_rules! impl_virtual_read {
         where
             V: $trait<T, S>,
         {
-            fn __expand_read_method(
-                &self,
-                scope: &mut Scope,
-                pos: <C>::ExpandType,
-            ) -> <T>::ExpandType {
+            fn __expand_read_method(&self, scope: &Scope, pos: <C>::ExpandType) -> <T>::ExpandType {
                 let pos = self
                     .layout
                     .clone()
                     .__expand_to_source_pos_method(scope, pos);
-                self.view.clone().__expand_read_method(scope, pos)
+                self.view.__expand_read_method(scope, pos)
             }
 
             fn __expand_read_checked_method(
                 &self,
-                scope: &mut Scope,
+                scope: &Scope,
                 pos: <C>::ExpandType,
             ) -> <T>::ExpandType {
                 let (read_pos, in_bounds) = self
@@ -136,7 +132,7 @@ macro_rules! impl_virtual_read {
 
             fn __expand_read_masked_method(
                 &self,
-                scope: &mut Scope,
+                scope: &Scope,
                 pos: <C>::ExpandType,
                 mask_value: <T>::ExpandType,
             ) -> <T>::ExpandType {
@@ -150,7 +146,7 @@ macro_rules! impl_virtual_read {
 
             fn __expand_read_unchecked_method(
                 &self,
-                scope: &mut Scope,
+                scope: &Scope,
                 pos: <C>::ExpandType,
             ) -> <T>::ExpandType {
                 let pos = self
@@ -160,12 +156,12 @@ macro_rules! impl_virtual_read {
                 self.view.__expand_read_unchecked_method(scope, pos)
             }
 
-            fn __expand_to_linear_slice_method(
+            fn __expand_as_linear_slice_method(
                 &self,
-                scope: &mut Scope,
+                scope: &Scope,
                 pos: <C>::ExpandType,
                 end: <C>::ExpandType,
-            ) -> SliceExpand<T, ReadOnly> {
+            ) -> &SliceExpand<T> {
                 let pos = self
                     .layout
                     .clone()
@@ -174,31 +170,31 @@ macro_rules! impl_virtual_read {
                     .layout
                     .clone()
                     .__expand_to_source_pos_method(scope, end);
-                self.view.__expand_to_linear_slice_method(scope, pos, end)
+                self.view.__expand_as_linear_slice_method(scope, pos, end)
             }
 
-            fn __expand_shape_method(&self, scope: &mut Scope) -> <C>::ExpandType {
+            fn __expand_shape_method(&self, scope: &Scope) -> <C>::ExpandType {
                 self.layout.clone().__expand_shape_method(scope)
             }
 
             fn __expand_is_in_bounds_method(
                 &self,
-                scope: &mut Scope,
+                scope: &Scope,
                 pos: C::ExpandType,
             ) -> NativeExpand<bool> {
                 let (pos, in_bounds_layout) = self
                     .layout
                     .clone()
                     .__expand_to_source_pos_checked_method(scope, pos);
-                let in_bounds_view = self.view.clone().__expand_is_in_bounds_method(scope, pos);
-                and::expand(scope, in_bounds_layout, in_bounds_view)
+                let in_bounds_view = self.view.__expand_is_in_bounds_method(scope, pos);
+                in_bounds_layout.__expand_and_method(scope, in_bounds_view)
             }
 
             fn __expand_tensor_map_load_method(
                 &self,
-                scope: &mut Scope,
-                barrier: BarrierExpand,
-                shared_memory: SliceExpand<T, ReadWrite>,
+                scope: &Scope,
+                barrier: &NativeExpand<Barrier>,
+                shared_memory: &mut SliceExpand<T>,
                 pos: C::ExpandType,
             ) {
                 let pos = self
@@ -227,12 +223,7 @@ impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> ViewOperationsMutExpan
 where
     V: ViewOperationsMut<T, S>,
 {
-    fn __expand_write_method(
-        &self,
-        scope: &mut Scope,
-        pos: <C>::ExpandType,
-        value: <T>::ExpandType,
-    ) {
+    fn __expand_write_method(&self, scope: &Scope, pos: <C>::ExpandType, value: <T>::ExpandType) {
         let pos = self
             .layout
             .clone()
@@ -242,7 +233,7 @@ where
 
     fn __expand_write_checked_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
         value: <T>::ExpandType,
     ) {
@@ -255,12 +246,12 @@ where
         });
     }
 
-    fn __expand_to_linear_slice_mut_method(
+    fn __expand_as_linear_slice_mut_method(
         &self,
-        scope: &mut Scope,
+        scope: &Scope,
         pos: <C>::ExpandType,
         end: <C>::ExpandType,
-    ) -> SliceExpand<T, ReadWrite> {
+    ) -> &mut SliceExpand<T> {
         let pos = self
             .layout
             .clone()
@@ -270,13 +261,13 @@ where
             .clone()
             .__expand_to_source_pos_method(scope, end);
         self.view
-            .__expand_to_linear_slice_mut_method(scope, pos, end)
+            .__expand_as_linear_slice_mut_method(scope, pos, end)
     }
 
     fn __expand_tensor_map_store_method(
         &self,
-        scope: &mut Scope,
-        shared_memory: SliceExpand<T, ReadOnly>,
+        scope: &Scope,
+        shared_memory: &SliceExpand<T>,
         pos: C::ExpandType,
     ) {
         let pos = self

@@ -3,14 +3,14 @@ use cubecl::prelude::*;
 use cubecl_ir::{ElemType, FloatKind, UIntKind};
 
 #[cube(launch)]
-pub fn kernel_define<N: Numeric>(array: &mut Array<N>, #[define(N)] _elem: ElemType) {
+pub fn kernel_define<N: Numeric>(array: &mut [N], #[define(N)] _elem: ElemType) {
     array[UNIT_POS as usize] += N::cast_from(5.0f32);
 }
 
 #[cube(launch)]
 pub fn kernel_define_many<N: Numeric, N2: Numeric>(
-    array: &mut Array<N>,
-    second: Array<N2>,
+    array: &mut [N],
+    second: &[N2],
     #[define(N, N2)] _defines: [ElemType; 2],
 ) {
     array[UNIT_POS as usize] += N::cast_from(second[UNIT_POS as usize]);
@@ -25,7 +25,7 @@ pub fn test_kernel_define<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(2),
-        unsafe { ArrayArg::from_raw_parts(handle.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
         elem,
     );
 
@@ -47,8 +47,8 @@ pub fn test_kernel_define_many<R: Runtime>(client: ComputeClient<R>) {
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(2),
-        unsafe { ArrayArg::from_raw_parts(first.clone(), 2) },
-        unsafe { ArrayArg::from_raw_parts(second.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(first.clone(), 2) },
+        unsafe { BufferArg::from_raw_parts(second.clone(), 2) },
         [elem_first, elem_second],
     );
 
