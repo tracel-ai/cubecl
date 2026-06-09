@@ -27,6 +27,7 @@ pub struct CpuStream {
     pub(crate) memory_management: MemoryManagement<BytesStorage>,
     pub(crate) timestamps: TimestampProfiler,
     errors: Vec<ServerError>,
+    index: usize,
 }
 
 impl core::fmt::Debug for CpuStream {
@@ -41,6 +42,7 @@ impl CpuStream {
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         logger: Arc<ServerLogger>,
+        index: usize,
     ) -> Self {
         let memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -56,6 +58,7 @@ impl CpuStream {
             timestamps: TimestampProfiler::default(),
             queue: CpuExecutionQueue::get(logger),
             errors: Vec::new(),
+            index,
         }
     }
 
