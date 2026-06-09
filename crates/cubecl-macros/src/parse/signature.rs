@@ -242,7 +242,7 @@ impl KernelParam {
         let param = match param {
             FnArg::Typed(param) => param,
             FnArg::Receiver(param) => {
-                let normalized_ty = expand_kernel_ty(*param.ty.clone(), false);
+                let normalized_ty = expand_kernel_ty(*param.ty.clone(), false)?;
 
                 let mutability = if param.reference.is_none() {
                     param.mutability
@@ -293,7 +293,7 @@ impl KernelParam {
         }
 
         let ty = *param.ty.clone();
-        let normalized_ty = expand_kernel_ty(*param.ty, is_const);
+        let normalized_ty = expand_kernel_ty(*param.ty, is_const)?;
 
         let mut_token = if !is_ref { mutability } else { None };
 

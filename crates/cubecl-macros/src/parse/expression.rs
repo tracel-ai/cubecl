@@ -47,9 +47,16 @@ impl Expression {
                     Self::from_expr(*binary.left, context)?
                 };
 
-                if left.is_const() && right.is_const() {
-                    let left = left.as_const(context).unwrap();
-                    let right = right.as_const(context).unwrap();
+                // `is_const()` doesn't guarantee `as_const()` succeeds (e.g. a compiler
+                // intrinsic), so fall back to runtime instead of unwrapping a `None`.
+                let folded = if left.is_const() && right.is_const() {
+                    let left = left.as_const(context);
+                    let right = right.as_const(context);
+                    left.zip(right)
+                } else {
+                    None
+                };
+                if let Some((left, right)) = folded {
                     let op = binary.op;
                     Expression::Verbatim {
                         tokens: quote![(#left #op #right)],
@@ -87,8 +94,8 @@ impl Expression {
             Expr::Unary(unary) => {
                 let span = unary.span();
                 let input = Self::from_expr(*unary.expr, context)?;
-                if input.is_const() {
-                    let input = input.as_const(context).unwrap();
+                let folded = input.is_const().then(|| input.as_const(context)).flatten();
+                if let Some(input) = folded {
                     let op = unary.op;
                     Expression::Verbatim {
                         tokens: quote![(#op #input)],
@@ -576,10 +583,6 @@ fn generate_strided_index(
 }
 
 fn fn_associated_type(path: &Expression) -> Option<(Path, Option<QSelf>, PathSegment)> {
-    if !matches!(path, Expression::Path { .. }) {
-        panic!("path: {path:?}");
-    }
-
     match path {
         Expression::Path { path, qself } => {
             let second_last = path.segments.iter().nth_back(1)?;
@@ -625,5 +628,36 @@ pub(crate) fn is_runtime_compatible_variant(pat: &Pat) -> bool {
         Pat::TupleStruct(pat) => pat.elems.len() == 1,
         Pat::Wild(_) => true,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scope::Context;
+    use syn::parse_quote;
+
+    // Calling a non-path expression like `out[0]()` used to panic in `fn_associated_type`.
+    #[test]
+    fn call_on_indexed_value_does_not_panic() {
+        let mut context = Context::new(parse_quote!(()), false, false);
+        let expr: Expr = parse_quote!(out[0]());
+        assert!(Expression::from_expr(expr, &mut context).is_ok());
+    }
+
+    // A const expression that can't be rendered as const tokens (a compiler intrinsic)
+    // used to make the `as_const().unwrap()` fold path panic.
+    #[test]
+    fn const_fold_on_unfoldable_const_binary_does_not_panic() {
+        let mut context = Context::new(parse_quote!(()), false, false);
+        let expr: Expr = parse_quote!(vectorization_of(x) + vectorization_of(x));
+        assert!(Expression::from_expr(expr, &mut context).is_ok());
+    }
+
+    #[test]
+    fn const_fold_on_unfoldable_const_unary_does_not_panic() {
+        let mut context = Context::new(parse_quote!(()), false, false);
+        let expr: Expr = parse_quote!(-vectorization_of(x));
+        assert!(Expression::from_expr(expr, &mut context).is_ok());
     }
 }

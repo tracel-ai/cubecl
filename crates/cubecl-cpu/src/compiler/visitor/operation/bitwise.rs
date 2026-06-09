@@ -132,7 +132,7 @@ impl<'a> Visitor<'a> {
                 let value = self.append_operation_with_result(llvm::intr_ctlz(
                     self.context,
                     value,
-                    true,
+                    false,
                     result_type,
                     self.location,
                 ));
@@ -144,7 +144,7 @@ impl<'a> Visitor<'a> {
                 let value = self.append_operation_with_result(llvm::intr_cttz(
                     self.context,
                     value,
-                    true,
+                    false,
                     result_type,
                     self.location,
                 ));
