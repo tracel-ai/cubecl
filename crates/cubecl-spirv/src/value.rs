@@ -7,40 +7,26 @@ use crate::{
     item::{Elem, Item},
 };
 use cubecl_core::ir::{self, ConstantValue, Id};
-use rspirv::{
-    dr::Builder,
-    spirv::{self, FPEncoding, MemoryAccess, StorageClass, Word},
-};
+use rspirv::spirv::{self, FPEncoding, MemoryAccess, StorageClass, Word};
 
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Constant(Word, ConstVal, Item),
     Value { id: Id, item: Item },
-    Raw(Word, Item),
-    Id(Word),
 }
 
 impl Value {
     pub fn scope(&self) -> spirv::Scope {
         match self.item() {
-            Item::Pointer(class, _) => {
-                return match class {
-                    StorageClass::StorageBuffer
-                    | StorageClass::PhysicalStorageBuffer
-                    | StorageClass::Uniform => spirv::Scope::Device,
-                    StorageClass::Workgroup => spirv::Scope::Workgroup,
-                    _ => spirv::Scope::Invocation,
-                };
-            }
-            Item::CoopMatrix { scope, .. } => {
-                return scope;
-            }
-            _ => {}
-        }
-        match self {
-            Value::Raw(..) => unimplemented!("Can't get scope of raw variable"),
-            Value::Id(_) => unimplemented!("Can't get scope of raw id"),
+            Item::Pointer(class, _) => match class {
+                StorageClass::StorageBuffer
+                | StorageClass::PhysicalStorageBuffer
+                | StorageClass::Uniform => spirv::Scope::Device,
+                StorageClass::Workgroup => spirv::Scope::Workgroup,
+                _ => spirv::Scope::Invocation,
+            },
+            Item::CoopMatrix { scope, .. } => scope,
             _ => spirv::Scope::Invocation,
         }
     }
@@ -63,7 +49,7 @@ impl ConstVal {
     pub fn as_u32(&self) -> u32 {
         match self {
             ConstVal::Bit32(val) => *val,
-            ConstVal::Bit64(_) => panic!("Truncating 64 bit variable to 32 bit"),
+            ConstVal::Bit64(_) => panic!("Truncating 64 bit value to 32 bit"),
         }
     }
 
@@ -170,8 +156,6 @@ impl Value {
         match self {
             Value::Constant(id, _, _) => *id,
             Value::Value { id, .. } => b.get_value(*id),
-            Value::Raw(id, _) => *id,
-            Value::Id(id) => *id,
         }
     }
 
@@ -179,18 +163,6 @@ impl Value {
         match self {
             Value::Constant(_, _, item) => item.clone(),
             Value::Value { item, .. } => item.clone(),
-            Value::Raw(_, item) => item.clone(),
-            Value::Id(_) => unimplemented!("Can't get item of raw ID"),
-        }
-    }
-
-    pub fn indexed_item(&self) -> Item {
-        match self {
-            Value::Value {
-                item: Item::Vector(elem, _),
-                ..
-            } => Item::Scalar(*elem),
-            other => other.item(),
         }
     }
 
@@ -198,24 +170,9 @@ impl Value {
         self.item().elem()
     }
 
-    pub fn has_len(&self) -> bool {
-        self.item().is_array()
-    }
-
-    pub fn has_buffer_len(&self) -> bool {
-        matches!(self.item(), Item::DynamicArray(..))
-    }
-
     pub fn as_const(&self) -> Option<ConstVal> {
         match self {
             Self::Constant(_, val, _) => Some(*val),
-            _ => None,
-        }
-    }
-
-    pub fn as_binding(&self) -> Option<Id> {
-        match self {
-            Self::Value { id, .. } => Some(*id),
             _ => None,
         }
     }
@@ -244,36 +201,32 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn read(&mut self, variable: &Value) -> Word {
-        variable.id(self)
+    pub fn read(&mut self, value: &Value) -> Word {
+        value.id(self)
     }
 
-    pub fn read_as(&mut self, variable: &Value, item: &Item) -> Word {
-        if let Some(as_const) = variable.as_const() {
-            self.static_cast(as_const, &variable.elem(), item).0
+    pub fn read_as(&mut self, value: &Value, item: &Item) -> Word {
+        if let Some(as_const) = value.as_const() {
+            self.static_cast(as_const, &value.elem(), item).0
         } else {
-            let id = self.read(variable);
-            variable.item().cast_to(self, None, id, item)
+            let id = self.read(value);
+            value.item().cast_to(self, None, id, item)
         }
     }
 
-    pub fn index(&mut self, variable: &Value, index: &Value, out: &Value) -> Word {
+    pub fn index(&mut self, list: &Value, index: &Value, out: &Value) -> Word {
+        let list = self.read(list);
         let index_id = self.read(index);
         let write_id = self.write_id(out);
         let ptr_ty = out.item().id(self);
-        let access_chain = |this, id, indices| {
-            Builder::in_bounds_access_chain(this, ptr_ty, Some(write_id), id, indices).unwrap()
-        };
-        let list = self.read(variable);
-        access_chain(self, list, vec![index_id])
+        self.in_bounds_access_chain(ptr_ty, Some(write_id), list, [index_id])
+            .unwrap()
     }
 
     pub fn write_id(&mut self, value: &Value) -> Word {
         match value {
             Value::Value { id, .. } => self.get_value(*id),
-            Value::Raw(id, _) => *id,
             Value::Constant(_, _, _) => panic!("Can't write to constant scalar"),
-            global => panic!("Can't write to builtin {global:?}"),
         }
     }
 
@@ -283,9 +236,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         match value {
             Value::Value { item, .. } if item.is_ptr() => self.id(),
             Value::Value { id, .. } => self.get_value(*id),
-            Value::Raw(id, _) => *id,
             Value::Constant(_, _, _) => panic!("Can't write to constant scalar"),
-            global => panic!("Can't write to builtin {global:?}"),
         }
     }
 

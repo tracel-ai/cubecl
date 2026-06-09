@@ -9,7 +9,7 @@ use crate::{
     shared::{
         Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, FragmentIdent,
         FragmentLayout, FragmentType, Item, ManualMma, SupportedMmaCombinations,
-        SupportedScaledMmaCombinations, Variable, WmmaInstruction,
+        SupportedScaledMmaCombinations, Value, WmmaInstruction,
     },
 };
 use cubecl_core::ir::{
@@ -36,7 +36,7 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for PtxWmmaCompiler {
 
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
-        var: &Variable<CudaDialect<Self>>,
+        val: &Value<CudaDialect<Self>>,
         ty: &Item<CudaDialect<Self>>,
     ) -> std::fmt::Result {
         let frag = match ty {
@@ -50,7 +50,7 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for PtxWmmaCompiler {
             Elem::F64 => "double",
             _ => panic!("unsupported type"),
         };
-        writeln!(f, "{ty} {var}_store[{reg_count}];")
+        writeln!(f, "{ty} {val}_store[{reg_count}];")
     }
 
     fn compile_wmma_instruction(
@@ -58,28 +58,28 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for PtxWmmaCompiler {
         instruction: &WmmaInstruction<CudaDialect<Self>>,
     ) -> std::fmt::Result {
         match instruction {
-            WmmaInstruction::Fill { frag: var, value } => {
-                let frag = match var.item() {
+            WmmaInstruction::Fill { frag, value } => {
+                let frag_ty = match frag.item() {
                     Item::Fragment(frag) => frag,
                     _ => panic!("load instruction expects a WmmaFragment"),
                 };
-                let reg_count = get_fragment_register_total_count(&frag);
+                let reg_count = get_fragment_register_total_count(&frag_ty);
                 write!(
                     f,
                     "// fill
 for (uint i = 0; i < uint({reg_count}); ++i) {{
-  {var}[i] = {value};
+  {frag}[i] = {value};
 }}
  "
                 )
             }
             WmmaInstruction::Load {
-                frag: var,
+                frag,
                 ptr,
                 stride,
                 layout,
             } => {
-                let frag = match var.item() {
+                let frag_ty = match frag.item() {
                     Item::Fragment(frag) => frag,
                     _ => panic!("load instruction expects a WmmaFragment"),
                 };
@@ -87,8 +87,8 @@ for (uint i = 0; i < uint({reg_count}); ++i) {{
                 // CUDA wmma which is not optimal in the case of PTX wmma and mma
                 // We choose here to use the layout defined in the fragment first,
                 // if it is unknown and we look into the layout passed to the instruction.
-                let layout = if frag.layout.is_some() {
-                    get_fragment_layout_qualifier(var)
+                let layout = if frag_ty.layout.is_some() {
+                    get_fragment_layout_qualifier(frag)
                 } else if let Some(layout) = layout {
                     get_qualifier_from_layout(layout)
                 } else {
@@ -96,18 +96,18 @@ for (uint i = 0; i < uint({reg_count}); ++i) {{
                 };
                 // instruction qualifiers
                 let ty = get_type_qualifier(ptr);
-                let matrix = match frag.ident {
+                let matrix = match frag_ty.ident {
                     FragmentIdent::A => "a",
                     FragmentIdent::B => "b",
                     FragmentIdent::Accumulator => "c",
                     FragmentIdent::_Dialect(_) => unreachable!(),
                 };
-                let value_ty = *ptr.item().value_ty();
-                let opcode = match frag.elem {
+                let value_ptr_ty = ptr.item().value_ptr();
+                let opcode = match frag_ty.elem {
                     Elem::U8 | Elem::I8 | Elem::F16 | Elem::BF16 | Elem::F32 | Elem::TF32 => {
                         format!(
                             "wmma.load.{matrix}.sync.aligned.{layout}.m{}n{}k{}.{ty}",
-                            frag.m, frag.n, frag.k,
+                            frag_ty.m, frag_ty.n, frag_ty.k,
                         )
                     }
                     other => panic!("{other} fragment type not supported"),
@@ -115,16 +115,16 @@ for (uint i = 0; i < uint({reg_count}); ++i) {{
                 // constraints
                 let mut reg_count = 0;
                 let (regs_decl, out_constraints) =
-                    get_variable_regs_decl_constraints(var, true, &mut reg_count);
+                    get_value_regs_decl_constraints(frag, true, &mut reg_count);
                 let buffer_reg = format_reg_and_inc(&mut reg_count);
                 let (stride_reg, stride_constraint) =
-                    get_variable_regs_decl_constraints(stride, false, &mut reg_count);
-                let tmp_ptr = Variable::tmp_ptr(value_ty);
+                    get_value_regs_decl_constraints(stride, false, &mut reg_count);
+                let tmp_ptr = Value::tmp(value_ptr_ty);
                 let tmp_ptr_left = tmp_ptr.fmt_left();
                 write!(
                     f,
                     r#"// load
-{tmp_ptr_left} = ({value_ty}*){ptr};
+{tmp_ptr_left} = ({value_ptr_ty}){ptr};
 asm volatile(
     "{opcode} "
     "{{{regs_decl}}}, [{buffer_reg}], {stride_reg};\n"
@@ -147,45 +147,45 @@ asm volatile(
                 transpose,
             } => f.write_str(&stmatrix_call(registers, ptr, factor, transpose)),
             WmmaInstruction::Execute {
-                frag_a: var_a,
-                frag_b: var_b,
-                frag_c: var_c,
-                frag_d: var_d,
+                frag_a,
+                frag_b,
+                frag_c,
+                frag_d,
                 ..
             } => {
-                let frag_a = match var_a.item() {
+                let frag_a_ty = match frag_a.item() {
                     Item::Fragment(frag) => frag,
-                    _ => panic!("variable should be WmmaFragment"),
+                    _ => panic!("value should be WmmaFragment"),
                 };
-                let layout_a = get_fragment_layout_qualifier(var_a);
-                let layout_b = get_fragment_layout_qualifier(var_b);
-                let type_c = get_type_qualifier(var_c);
-                let type_d = get_type_qualifier(var_d);
-                let opcode = match var_a.elem() {
+                let layout_a = get_fragment_layout_qualifier(frag_a);
+                let layout_b = get_fragment_layout_qualifier(frag_b);
+                let type_c = get_type_qualifier(frag_c);
+                let type_d = get_type_qualifier(frag_d);
+                let opcode = match frag_a.elem() {
                     Elem::U8 | Elem::I8 | Elem::F16 | Elem::F32 => format!(
                         "wmma.mma.sync.aligned.m{}n{}k{}.{layout_a}.{layout_b}.{type_d}.{type_c}",
-                        frag_a.m, frag_a.n, frag_a.k,
+                        frag_a_ty.m, frag_a_ty.n, frag_a_ty.k,
                     ),
                     Elem::BF16 => format!(
                         "wmma.mma.sync.aligned.{layout_a}.{layout_b}.m{}n{}k{}.f32.bf16.bf16.f32",
-                        frag_a.m, frag_a.n, frag_a.k,
+                        frag_a_ty.m, frag_a_ty.n, frag_a_ty.k,
                     ),
                     Elem::TF32 => format!(
                         "wmma.mma.sync.aligned.{layout_a}.{layout_b}.m{}n{}k{}.f32.tf32.tf32.f32",
-                        frag_a.m, frag_a.n, frag_a.k,
+                        frag_a_ty.m, frag_a_ty.n, frag_a_ty.k,
                     ),
                     other => panic!("{other} fragment type not supported"),
                 };
                 let mut reg_count = 0;
                 // order matters, declare the registers in the same order as the intrinsic
                 let (regs_decl_d, out_constraints_d) =
-                    get_variable_regs_decl_constraints(var_d, true, &mut reg_count);
+                    get_value_regs_decl_constraints(frag_d, true, &mut reg_count);
                 let (regs_decl_a, in_constraints_a) =
-                    get_variable_regs_decl_constraints(var_a, false, &mut reg_count);
+                    get_value_regs_decl_constraints(frag_a, false, &mut reg_count);
                 let (regs_decl_b, in_constraints_b) =
-                    get_variable_regs_decl_constraints(var_b, false, &mut reg_count);
+                    get_value_regs_decl_constraints(frag_b, false, &mut reg_count);
                 let (regs_decl_c, in_constraints_c) =
-                    get_variable_regs_decl_constraints(var_c, false, &mut reg_count);
+                    get_value_regs_decl_constraints(frag_c, false, &mut reg_count);
                 write!(
                     f,
                     r#"// execute
@@ -228,14 +228,14 @@ asm volatile(
                 *scales_factor,
             ),
             WmmaInstruction::Store {
-                frag: var,
+                frag,
                 stride,
                 destination,
                 layout,
             } => {
-                let frag_acc = match var.item() {
+                let frag_acc = match frag.item() {
                     Item::Fragment(frag) => frag,
-                    _ => panic!("variable should be WmmaFragment"),
+                    _ => panic!("value should be WmmaFragment"),
                 };
                 // instruction qualifiers
                 let layout = match layout {
@@ -243,7 +243,7 @@ asm volatile(
                     FragmentLayout::RowMajor => "row",
                     FragmentLayout::_Dialect(..) => unreachable!(),
                 };
-                let opcode = match var.elem() {
+                let opcode = match frag.elem() {
                     Elem::F16 | Elem::BF16 => format!(
                         // hack because wmma.store does not support bf16
                         // f16 should still work correctly for bf16 as long
@@ -269,10 +269,10 @@ asm volatile(
                 // offset and stride can be passed as local const or as const scalar
                 // we need to handle both cases correctly in the asm.
                 let (stride_reg, stride_constraint) =
-                    get_variable_regs_decl_constraints(stride, false, &mut reg_count);
+                    get_value_regs_decl_constraints(stride, false, &mut reg_count);
                 // we start at 2 because of the buffer address calculation
                 let (regs_decl, in_constraints) =
-                    get_variable_regs_decl_constraints(var, false, &mut reg_count);
+                    get_value_regs_decl_constraints(frag, false, &mut reg_count);
                 write!(
                     f,
                     r#"// store
@@ -289,7 +289,7 @@ asm volatile(
             WmmaInstruction::Cast { input, output } => {
                 let frag = match input.item() {
                     Item::Fragment(frag) => frag,
-                    _ => panic!("variable should be WmmaFragment"),
+                    _ => panic!("value should be WmmaFragment"),
                 };
                 let reg_count = get_fragment_register_total_count(&frag);
                 match output.elem() {
@@ -335,8 +335,8 @@ for (int i = 0; i < {reg_count}; ++i) {{
     fn compile_scaled_mma(
         f: &mut std::fmt::Formatter<'_>,
         mma: ManualMma<CudaDialect<Self>>,
-        scales_a: Variable<CudaDialect<Self>>,
-        scales_b: Variable<CudaDialect<Self>>,
+        scales_a: Value<CudaDialect<Self>>,
+        scales_b: Value<CudaDialect<Self>>,
         scales_factor: u32,
     ) -> std::fmt::Result {
         compile_scaled_mma(f, mma, scales_a, scales_b, scales_factor)
@@ -456,8 +456,8 @@ fn get_fragment_register_total_count(frag: &FragmentType<CudaDialect<PtxWmmaComp
     elements / (lanes_per_reg * threads_per_frag)
 }
 
-fn get_type_qualifier(var: &Variable<CudaDialect<PtxWmmaCompiler>>) -> String {
-    match var.elem() {
+fn get_type_qualifier(val: &Value<CudaDialect<PtxWmmaCompiler>>) -> String {
+    match val.elem() {
         Elem::U8 => "u8",
         Elem::I8 => "s8",
         Elem::F16 => "f16",
@@ -471,10 +471,10 @@ fn get_type_qualifier(var: &Variable<CudaDialect<PtxWmmaCompiler>>) -> String {
     .to_string()
 }
 
-fn get_fragment_layout_qualifier(var: &Variable<CudaDialect<PtxWmmaCompiler>>) -> String {
-    let frag = match var.item() {
+fn get_fragment_layout_qualifier(val: &Value<CudaDialect<PtxWmmaCompiler>>) -> String {
+    let frag = match val.item() {
         Item::Fragment(frag) => frag,
-        _ => panic!("variable should be WmmaFragment"),
+        _ => panic!("value should be WmmaFragment"),
     };
     match frag.layout {
         Some(layout) => get_qualifier_from_layout(&layout),
@@ -491,13 +491,13 @@ fn get_qualifier_from_layout(layout: &FragmentLayout<CudaDialect<PtxWmmaCompiler
     .to_string()
 }
 
-fn get_variable_regs_decl_constraints(
-    var: &Variable<CudaDialect<PtxWmmaCompiler>>,
+fn get_value_regs_decl_constraints(
+    val: &Value<CudaDialect<PtxWmmaCompiler>>,
     output: bool,
     reg_count: &mut u8,
 ) -> (String, String) {
-    match var {
-        _ if let Item::Fragment(frag) = var.item() => {
+    match val {
+        _ if let Item::Fragment(frag) = val.item() => {
             let reg_total_count = get_fragment_register_total_count(&frag);
             let reg_decl = (0..reg_total_count)
                 .map(|_| format_reg_and_inc(reg_count))
@@ -514,16 +514,16 @@ fn get_variable_regs_decl_constraints(
                 },
             );
             let constraints = (0..reg_total_count)
-                .map(|i| format!("\"{modifier}\"({var}[{i}])"))
+                .map(|i| format!("\"{modifier}\"({val}[{i}])"))
                 .collect::<Vec<_>>()
                 .join(", ");
             (reg_decl, constraints)
         }
-        Variable::Constant(number, ..) => match number {
+        Value::Constant(number, ..) => match number {
             ConstantValue::UInt(val, ..) => (val.to_string(), "".to_string()),
-            _ => panic!("variable should be an unsigned integer"),
+            _ => panic!("value should be an unsigned integer"),
         },
-        _ => (format_reg_and_inc(reg_count), format!(r#", "r"({var})"#)),
+        _ => (format_reg_and_inc(reg_count), format!(r#", "r"({val})"#)),
     }
 }
 
@@ -533,12 +533,12 @@ fn format_reg_and_inc(count: &mut u8) -> String {
     res
 }
 
-fn as_ty_idx<D: Dialect>(var: &Variable<D>, idx: impl Display, ty: impl Display) -> String {
-    format!("reinterpret_cast<{ty}*>({})[{idx}]", var.fmt_ptr())
+fn as_ty_idx<D: Dialect>(val: &Value<D>, idx: impl Display, ty: impl Display) -> String {
+    format!("reinterpret_cast<{ty}*>({})[{idx}]", val.fmt_ptr())
 }
 
-fn as_const_ty_idx<D: Dialect>(var: &Variable<D>, idx: impl Display, ty: impl Display) -> String {
-    format!("reinterpret_cast<const {ty}*>({})[{idx}]", var.fmt_ptr())
+fn as_const_ty_idx<D: Dialect>(val: &Value<D>, idx: impl Display, ty: impl Display) -> String {
+    format!("reinterpret_cast<const {ty}*>({})[{idx}]", val.fmt_ptr())
 }
 
 pub(super) fn compile_manual_mma<D: Dialect>(
@@ -590,8 +590,8 @@ pub(super) fn compile_manual_mma<D: Dialect>(
 pub(super) fn compile_scaled_mma<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
     mma: ManualMma<D>,
-    scales_a: Variable<D>,
-    scales_b: Variable<D>,
+    scales_a: Value<D>,
+    scales_b: Value<D>,
     scales_factor: u32,
 ) -> std::fmt::Result {
     let ManualMma {

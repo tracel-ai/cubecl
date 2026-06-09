@@ -62,8 +62,7 @@ impl<'a> Visitor<'a> {
             Operation::NonSemantic(_) => {}
             Operation::Barrier(barrier) => {
                 let barrier_level = match barrier {
-                    BarrierOps::Declare { barrier }
-                    | BarrierOps::Init { barrier, .. }
+                    BarrierOps::Init { barrier, .. }
                     | BarrierOps::InitManual { barrier, .. }
                     | BarrierOps::MemCopyAsync { barrier, .. }
                     | BarrierOps::MemCopyAsyncCooperative { barrier, .. }
@@ -95,8 +94,7 @@ impl<'a> Visitor<'a> {
                             self.visit_synchronization(&Synchronization::SyncCube);
                         }
                     }
-                    BarrierOps::Declare { .. }
-                    | BarrierOps::Init { .. }
+                    BarrierOps::Init { .. }
                     | BarrierOps::InitManual { .. }
                     | BarrierOps::MemCopyAsync { .. }
                     | BarrierOps::MemCopyAsyncCooperative { .. }

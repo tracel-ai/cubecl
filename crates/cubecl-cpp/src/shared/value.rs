@@ -13,7 +13,7 @@ use super::{COUNTER_TMP_VAR, Dialect, Elem, Item};
 pub trait Component<D: Dialect>: Display + FmtLeft {
     fn item(&self) -> Item<D>;
     fn is_const(&self) -> bool;
-    fn index(&self, index: usize) -> IndexedVariable<D>;
+    fn index(&self, index: usize) -> IndexedValue<D>;
     fn elem(&self) -> Elem<D> {
         *self.item().elem()
     }
@@ -25,12 +25,12 @@ pub trait FmtLeft: Display {
 
 #[derive(new, Debug)]
 pub struct OptimizedArgs<const N: usize, D: Dialect> {
-    pub args: [Variable<D>; N],
+    pub args: [Value<D>; N],
     pub optimization_factor: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Variable<D: Dialect> {
+pub enum Value<D: Dialect> {
     Constant(ConstantValue, Item<D>),
     Value {
         id: Id,
@@ -131,28 +131,28 @@ impl<D: Dialect> Builtin<D> {
     }
 }
 
-impl<D: Dialect> Component<D> for Variable<D> {
-    fn index(&self, index: usize) -> IndexedVariable<D> {
+impl<D: Dialect> Component<D> for Value<D> {
+    fn index(&self, index: usize) -> IndexedValue<D> {
         self.index(index)
     }
 
     fn item(&self) -> Item<D> {
         match self {
-            Variable::Value { item, .. } => *item,
-            Variable::Constant(_, e) => *e,
-            Variable::Tmp { item, .. } => *item,
+            Value::Value { item, .. } => *item,
+            Value::Constant(_, e) => *e,
+            Value::Tmp { item, .. } => *item,
         }
     }
 
     fn is_const(&self) -> bool {
-        if let Variable::Tmp { is_const, .. } = self {
+        if let Value::Tmp { is_const, .. } = self {
             return *is_const;
         }
         if let Item::Pointer(_, PointerClass::Global(Visibility::Read)) = self.item() {
             return true;
         }
 
-        matches!(self, Variable::Value { .. })
+        matches!(self, Value::Value { .. })
     }
 }
 
@@ -178,22 +178,22 @@ pub(crate) fn format_const<D: Dialect>(number: &ConstantValue, item: &Item<D>) -
     format!("{number}")
 }
 
-impl<D: Dialect> Display for Variable<D> {
+impl<D: Dialect> Display for Value<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::Value { id, .. } => write!(f, "l_{id}"),
-            Variable::Constant(number, item) if item.vectorization() <= 1 => {
+            Value::Value { id, .. } => write!(f, "val_{id}"),
+            Value::Constant(number, item) if item.vectorization() <= 1 => {
                 let value = format_const(number, item);
                 write!(f, "{item}({value})")
             }
-            Variable::Constant(number, item) => {
+            Value::Constant(number, item) => {
                 let number = format_const(number, item);
                 let values = (0..item.vectorization())
                     .map(|_| format!("{}({number})", item.elem()))
                     .collect::<Vec<_>>();
                 write!(f, "{item} {{ {} }}", values.join(","))
             }
-            Variable::Tmp { id, .. } => write!(f, "_tmp_{id}"),
+            Value::Tmp { id, .. } => write!(f, "_tmp_{id}"),
         }
     }
 }
@@ -238,7 +238,7 @@ impl<D: Dialect> Display for Builtin<D> {
     }
 }
 
-impl<D: Dialect> Variable<D> {
+impl<D: Dialect> Value<D> {
     pub fn is_optimized(&self) -> bool {
         self.item().is_optimized()
     }
@@ -249,7 +249,7 @@ impl<D: Dialect> Variable<D> {
     pub fn tmp(item: Item<D>) -> Self {
         let inc = COUNTER_TMP_VAR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        Variable::Tmp {
+        Value::Tmp {
             id: inc as Id,
             item,
             is_declared: false,
@@ -259,7 +259,7 @@ impl<D: Dialect> Variable<D> {
     }
 
     pub fn to_const(&mut self) {
-        if let Variable::Tmp { is_const, .. } = self {
+        if let Value::Tmp { is_const, .. } = self {
             *is_const = true;
         }
     }
@@ -274,7 +274,7 @@ impl<D: Dialect> Variable<D> {
 
         let elem = out.elem();
         let qualifier = out.const_qualifier();
-        let addr_space = D::address_space_for_variable(self);
+        let addr_space = D::address_space_for_value(self);
         let out_fmt = out.fmt_left();
 
         writeln!(
@@ -292,7 +292,7 @@ impl<D: Dialect> Variable<D> {
     pub fn tmp_ptr(item: Item<D>) -> Self {
         let inc = COUNTER_TMP_VAR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        Variable::Tmp {
+        Value::Tmp {
             id: inc as Id,
             item,
             is_declared: false,
@@ -305,11 +305,11 @@ impl<D: Dialect> Variable<D> {
     ///
     /// # Notes
     ///
-    /// Calling `var.fmt_left()` will assume the variable already exist.
+    /// Calling `val.fmt_left()` will assume the variable already exist.
     pub fn tmp_declared(item: Item<D>) -> Self {
         let inc = COUNTER_TMP_VAR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        Variable::Tmp {
+        Value::Tmp {
             id: inc as Id,
             item,
             is_declared: true,
@@ -321,17 +321,17 @@ impl<D: Dialect> Variable<D> {
     pub fn optimized_args<const N: usize>(args: [Self; N]) -> OptimizedArgs<N, D> {
         let args_after = args.map(|a| a.optimized());
 
-        let is_optimized = args_after.iter().all(|var| var.is_optimized());
+        let is_optimized = args_after.iter().all(|val| val.is_optimized());
 
         if is_optimized {
             let vectorization_before = args
                 .iter()
-                .map(|var| var.item().vectorization())
+                .map(|val| val.item().vectorization())
                 .max()
                 .unwrap();
             let vectorization_after = args_after
                 .iter()
-                .map(|var| var.item().vectorization())
+                .map(|val| val.item().vectorization())
                 .max()
                 .unwrap();
 
@@ -343,17 +343,17 @@ impl<D: Dialect> Variable<D> {
 
     pub fn optimized(&self) -> Self {
         match self {
-            Variable::Value { id, item } => Variable::Value {
+            Value::Value { id, item } => Value::Value {
                 id: *id,
                 item: item.optimized(),
             },
-            Variable::Tmp {
+            Value::Tmp {
                 id,
                 item,
                 is_declared,
                 is_ptr,
                 is_const,
-            } => Variable::Tmp {
+            } => Value::Tmp {
                 id: *id,
                 item: item.optimized(),
                 is_declared: *is_declared,
@@ -364,9 +364,9 @@ impl<D: Dialect> Variable<D> {
         }
     }
 
-    pub fn index(&self, index: usize) -> IndexedVariable<D> {
-        IndexedVariable {
-            var: *self,
+    pub fn index(&self, index: usize) -> IndexedValue<D> {
+        IndexedValue {
+            val: *self,
             index,
             optimized: self.is_optimized(),
         }
@@ -378,8 +378,8 @@ impl<D: Dialect> Variable<D> {
 
     pub fn id(&self) -> Option<Id> {
         match self {
-            Variable::Value { id, .. } => Some(*id),
-            Variable::Tmp { id, .. } => Some(*id),
+            Value::Value { id, .. } => Some(*id),
+            Value::Tmp { id, .. } => Some(*id),
             _ => None,
         }
     }
@@ -416,13 +416,13 @@ impl<D: Dialect> Variable<D> {
 
     /// Ensure a variable is a named lvalue, reassigning to a temporary if necessary.
     /// This is required for reinterpreting constants.
-    pub fn ensure_lvalue(&self, f: &mut Formatter<'_>) -> Result<Variable<D>, core::fmt::Error> {
-        if matches!(self, Variable::Constant(..)) {
-            let tmp = Variable::tmp(self.item());
+    pub fn ensure_lvalue(&self, f: &mut Formatter<'_>) -> Result<Value<D>, core::fmt::Error> {
+        if matches!(self, Value::Constant(..)) {
+            let tmp = Value::tmp(self.item());
             writeln!(f, "{} = {self};", tmp.fmt_left())?;
             Ok(tmp)
         } else if matches!(self.item(), Item::Pointer(..)) {
-            let tmp = Variable::tmp(*self.item().value_ty());
+            let tmp = Value::tmp(*self.item().value_ty());
             writeln!(f, "{}& {tmp} = *{self};", tmp.item())?;
             Ok(tmp)
         } else {
@@ -431,7 +431,7 @@ impl<D: Dialect> Variable<D> {
     }
 }
 
-impl<D: Dialect> FmtLeft for Variable<D> {
+impl<D: Dialect> FmtLeft for Value<D> {
     fn fmt_left(&self) -> String {
         match self {
             Self::Value { item, .. } => match item {
@@ -453,7 +453,7 @@ impl<D: Dialect> FmtLeft for Variable<D> {
                     format!("const {item} {self}")
                 }
             },
-            Variable::Tmp {
+            Value::Tmp {
                 item,
                 is_declared,
                 is_ptr,
@@ -475,31 +475,31 @@ impl<D: Dialect> FmtLeft for Variable<D> {
 }
 
 #[derive(Debug, Clone)]
-pub struct IndexedVariable<D: Dialect> {
-    var: Variable<D>,
+pub struct IndexedValue<D: Dialect> {
+    val: Value<D>,
     optimized: bool,
     index: usize,
 }
 
-impl<D: Dialect> Component<D> for IndexedVariable<D> {
+impl<D: Dialect> Component<D> for IndexedValue<D> {
     fn item(&self) -> Item<D> {
-        self.var.item()
+        self.val.item()
     }
 
-    fn index(&self, index: usize) -> IndexedVariable<D> {
-        self.var.index(index)
+    fn index(&self, index: usize) -> IndexedValue<D> {
+        self.val.index(index)
     }
 
     fn is_const(&self) -> bool {
-        self.var.is_const()
+        self.val.is_const()
     }
 }
 
-impl<D: Dialect> Display for IndexedVariable<D> {
+impl<D: Dialect> Display for IndexedValue<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let var = &self.var;
+        let var = &self.val;
 
-        if let Variable::Constant(value, item) = var {
+        if let Value::Constant(value, item) = var {
             let value = format_const(value, item);
             return write!(f, "{}({value})", item.elem());
         }
@@ -509,12 +509,12 @@ impl<D: Dialect> Display for IndexedVariable<D> {
         }
 
         let item = var.item();
-        let addr_space = D::address_space_for_variable(&self.var);
+        let addr_space = D::address_space_for_value(&self.val);
         let ty = match var {
             _ if item.is_ptr() => {
                 format!("{item}")
             }
-            Variable::Value { item, .. } => format!("{addr_space}{item} const&"),
+            Value::Value { item, .. } => format!("{addr_space}{item} const&"),
             _ => format!("{addr_space}{item}&"),
         };
         let accessor = match var.item().is_ptr() {
@@ -522,7 +522,7 @@ impl<D: Dialect> Display for IndexedVariable<D> {
             false => ".",
         };
 
-        if self.var.item().vectorization() > 1 {
+        if self.val.item().vectorization() > 1 {
             if self.optimized {
                 write!(
                     f,
@@ -540,17 +540,17 @@ impl<D: Dialect> Display for IndexedVariable<D> {
     }
 }
 
-impl<D: Dialect> FmtLeft for IndexedVariable<D> {
+impl<D: Dialect> FmtLeft for IndexedValue<D> {
     fn fmt_left(&self) -> String {
-        let var = &self.var;
-        let ref_ = matches!(var, Variable::Value { .. })
+        let var = &self.val;
+        let ref_ = matches!(var, Value::Value { .. })
             .then_some("const&")
             .unwrap_or("&");
 
-        let name = if self.var.item().vectorization() > 1 {
+        let name = if self.val.item().vectorization() > 1 {
             if self.optimized {
-                let item = self.var.item();
-                let addr_space = D::address_space_for_variable(&self.var);
+                let item = self.val.item();
+                let addr_space = D::address_space_for_value(&self.val);
                 format!(
                     "(reinterpret_cast<{addr_space}{item} {ref_}>({var})).i_{}",
                     self.index
@@ -562,8 +562,8 @@ impl<D: Dialect> FmtLeft for IndexedVariable<D> {
             format!("{var}")
         };
         match var {
-            Variable::Value { item, .. } => format!("const {item} {name}"),
-            Variable::Tmp { item, is_ptr, .. } => {
+            Value::Value { item, .. } => format!("const {item} {name}"),
+            Value::Tmp { item, is_ptr, .. } => {
                 if *is_ptr {
                     format!("{item} *{name}")
                 } else {

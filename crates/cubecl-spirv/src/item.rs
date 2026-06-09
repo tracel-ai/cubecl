@@ -5,7 +5,7 @@ use rspirv::spirv::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{compiler::SpirvCompiler, target::SpirvTarget, variable::ConstVal};
+use crate::{compiler::SpirvCompiler, target::SpirvTarget, value::ConstVal};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Item {
@@ -516,10 +516,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn compile_function_param_type(&mut self, var: core::Value) -> Word {
-        match var.kind {
+    pub fn compile_function_param_type(&mut self, val: core::Value) -> Word {
+        match val.kind {
             core::ValueKind::Value { .. } | core::ValueKind::Constant(..) => {
-                self.compile_type(var.ty).id(self)
+                self.compile_type(val.ty).id(self)
             }
         }
     }

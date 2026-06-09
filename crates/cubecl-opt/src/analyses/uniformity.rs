@@ -38,7 +38,7 @@ impl Uniformity {
         for phi in block.phi_nodes.borrow().iter() {
             let uniform = phi.entries.iter().all(|entry| {
                 let block_uniform = self.is_block_uniform(entry.block);
-                let value_uniform = self.is_var_uniform(entry.value);
+                let value_uniform = self.is_val_uniform(entry.value);
                 block_uniform && value_uniform
             }) && block_uniform;
             self.mark_uniformity(phi.out, uniform && block_uniform)?;
@@ -70,7 +70,7 @@ impl Uniformity {
                     // the output, otherwise not.
                     Plane::Broadcast(op) => {
                         let input_uniform =
-                            self.is_var_uniform(op.lhs) || self.is_var_uniform(op.rhs);
+                            self.is_val_uniform(op.lhs) || self.is_val_uniform(op.rhs);
                         self.mark_uniformity(out, input_uniform && block_uniform)?;
                     }
                     // Shuffle operations: if offset/mask/delta is uniform, output is non-uniform
@@ -79,7 +79,7 @@ impl Uniformity {
                     | Plane::ShuffleXor(op)
                     | Plane::ShuffleUp(op)
                     | Plane::ShuffleDown(op) => {
-                        let input_uniform = self.is_var_uniform(op.lhs);
+                        let input_uniform = self.is_val_uniform(op.lhs);
                         self.mark_uniformity(out, input_uniform && block_uniform)?;
                     }
                 },
@@ -113,7 +113,7 @@ impl Uniformity {
                 or_else,
                 merge,
             } => {
-                let is_uniform = self.is_var_uniform(*cond);
+                let is_uniform = self.is_val_uniform(*cond);
                 self.block_uniformity
                     .insert(*then, is_uniform && block_uniform);
                 self.block_uniformity
@@ -128,7 +128,7 @@ impl Uniformity {
                 branches,
                 merge,
             } => {
-                let is_uniform = self.is_var_uniform(*value);
+                let is_uniform = self.is_val_uniform(*value);
                 self.block_uniformity
                     .insert(*default, is_uniform && block_uniform);
                 for branch in branches {
@@ -156,7 +156,7 @@ impl Uniformity {
                 continue_target,
                 merge,
             } => {
-                let is_uniform = self.is_var_uniform(*break_cond);
+                let is_uniform = self.is_val_uniform(*break_cond);
                 self.block_uniformity
                     .insert(block_id, is_uniform && block_uniform);
                 self.block_uniformity
@@ -206,17 +206,15 @@ impl Uniformity {
     }
 
     fn is_all_uniform(&self, args: Option<Vec<Value>>) -> bool {
-        args.map(|it| it.iter().all(|it| self.is_var_uniform(*it)))
+        args.map(|it| it.iter().all(|it| self.is_val_uniform(*it)))
             .unwrap_or(false)
     }
 
     /// Whether a variable is plane uniform
-    pub fn is_var_uniform(&self, var: Value) -> bool {
+    pub fn is_val_uniform(&self, var: Value) -> bool {
         match var.kind {
             ValueKind::Constant(_) => true,
-            ValueKind::Value { .. } => {
-                self.variable_uniformity.get(&var).copied().unwrap_or(true)
-            }
+            ValueKind::Value { .. } => self.variable_uniformity.get(&var).copied().unwrap_or(true),
         }
     }
 

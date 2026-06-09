@@ -11,7 +11,7 @@ use crate::{
         DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
         DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, FragmentIdent,
         FragmentLayout, FragmentType, Instruction, Item, KernelArg, ManualMma, SharedMemory,
-        SupportedMmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
+        SupportedMmaCombinations, Value, WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
 use core::panic;
@@ -30,8 +30,8 @@ impl Dialect for MslDialect {
 impl MslDialect {
     fn warp_op_vectorized(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
         simd_op_prefix: &str,
         simd_op_suffix: &str,
     ) -> core::fmt::Result {
@@ -55,71 +55,71 @@ impl MslDialect {
 impl DialectWarpReduceCompiler<Self> for MslDialect {
     fn warp_reduce_sum(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_sum(", ")")
     }
     fn warp_reduce_prod(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_product(", ")")
     }
     fn warp_reduce_max(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_max(", ")")
     }
     fn warp_reduce_min(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_min(", ")")
     }
     fn warp_reduce_all(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_and(", "? 1u : 0u) != 0u")
     }
     fn warp_reduce_any(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_or(", "? 1u : 0u) != 0u")
     }
     fn warp_reduce_sum_inclusive(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_prefix_inclusive_sum(", ")")
     }
     fn warp_reduce_prod_inclusive(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_prefix_inclusive_product(", ")")
     }
     fn warp_reduce_sum_exclusive(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_prefix_exclusive_sum(", ")")
     }
     fn warp_reduce_prod_exclusive(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_prefix_exclusive_product(", ")")
     }
@@ -325,8 +325,8 @@ struct alignas({alignment}) {item} {{"
         }
     }
 
-    fn address_space_for_variable(variable: &Variable<Self>) -> String {
-        format!("{} ", AddressSpace::from(variable))
+    fn address_space_for_value(value: &Value<Self>) -> String {
+        format!("{} ", AddressSpace::from(value))
     }
 
     fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -376,13 +376,13 @@ void {kernel_name}("
 
         if flags.has_info {
             let comma = if buffer_idx > 0 { "," } else { "" };
-            let (address_space, var) = match flags.has_dynamic_meta {
+            let (address_space, val) = match flags.has_dynamic_meta {
                 true => (AddressSpace::ConstDevice, "info_st* info_ptr"),
                 false => (AddressSpace::Constant, "info_st& info"),
             };
             let attribute = address_space.attribute();
 
-            write!(f, "{comma}\n    {address_space} {var}",)?;
+            write!(f, "{comma}\n    {address_space} {val}",)?;
             // attribute
             attribute.indexed_fmt(buffer_idx, f)?;
             buffer_idx += 1;
@@ -419,7 +419,7 @@ void {kernel_name}("
         builtins
             .iter()
             .filter(|(cond, _)| *cond)
-            .try_for_each(|(_, var)| format_metal_builtin_binding_arg(f, var, comma))?;
+            .try_for_each(|(_, val)| format_metal_builtin_binding_arg(f, val, comma))?;
         f.write_str("\n)")
     }
 
@@ -456,7 +456,7 @@ void {kernel_name}("
 // Cube builtins dialect
 
 impl DialectCubeBuiltins<Self> for MslDialect {
-    /// Depending on the dialect available built-in variables the
+    /// Depending on the dialect available built-ins the
     /// inclusion rules might change.
     /// For instance in metal we have a built-in for the Unit plane position
     /// so we don't rely on other builtins.
@@ -645,9 +645,9 @@ impl DialectInstructions<Self> for MslDialect {
     // atomics
     fn compile_atomic_add(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -658,9 +658,9 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_and(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -671,10 +671,10 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_cas(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        cmp: &Variable<Self>,
-        val: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        cmp: &Value<Self>,
+        val: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -685,8 +685,8 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_load(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -697,9 +697,9 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_max(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -710,9 +710,9 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_min(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -723,9 +723,9 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_or(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -736,8 +736,8 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_store(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         writeln!(
             f,
@@ -747,9 +747,9 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_sub(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -760,9 +760,9 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_swap(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -773,9 +773,9 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_xor(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -806,7 +806,7 @@ impl DialectInstructions<Self> for MslDialect {
     fn compile_instruction_printf(
         f: &mut std::fmt::Formatter<'_>,
         format_string: &str,
-        args: &[Variable<Self>],
+        args: &[Value<Self>],
     ) -> std::fmt::Result {
         let args = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>();
         let args = match args.is_empty() {
@@ -971,35 +971,35 @@ impl DialectInstructions<Self> for MslDialect {
     // Warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         source: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle({var}, {source})")
+        write!(f, "simd_shuffle({val}, {source})")
     }
 
     fn compile_warp_shuffle_xor(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         _elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle_xor({var}, {offset})")
+        write!(f, "simd_shuffle_xor({val}, {offset})")
     }
 
     fn compile_warp_shuffle_up(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle_up({var}, {offset})")
+        write!(f, "simd_shuffle_up({val}, {offset})")
     }
 
     fn compile_warp_shuffle_down(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle_down({var}, {offset})")
+        write!(f, "simd_shuffle_down({val}, {offset})")
     }
 
     fn compile_warp_all<T: Component<Self>>(
@@ -1018,7 +1018,7 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<Self>,
+        input: &Value<Self>,
         out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
         write!(f, "{out_elem}(uint64_t(simd_ballot({input})))")
@@ -1046,10 +1046,10 @@ impl DialectWmmaCompiler<Self> for MslDialect {
 
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
-        var: &crate::shared::Variable<MslDialect>,
+        val: &crate::shared::Value<MslDialect>,
         ty: &crate::shared::Item<MslDialect>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_declaration(f, var, ty)
+        wmma_api_base::compile_fragment_declaration(f, val, ty)
     }
 
     fn compile_wwma_fragment_ident(
@@ -1171,7 +1171,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 };
                 match ty {
                     Elem::BF16 => {
-                        let addr_space = Self::address_space_for_variable(output);
+                        let addr_space = Self::address_space_for_value(output);
                         let elem = Elem::<Self>::F16;
                         // TODO: to test with benchmarks
 
@@ -1234,8 +1234,8 @@ impl DialectWmmaCompiler<Self> for MslDialect {
     fn compile_scaled_mma(
         f: &mut std::fmt::Formatter<'_>,
         _mma: shared::ManualMma<Self>,
-        _scales_a: Variable<Self>,
-        _scales_b: Variable<Self>,
+        _scales_a: Value<Self>,
+        _scales_b: Value<Self>,
         _scales_factor: u32,
     ) -> std::fmt::Result {
         f.write_str("#error scaled mma not supported on Metal\n")

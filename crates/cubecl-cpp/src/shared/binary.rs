@@ -2,7 +2,7 @@ use itertools::Itertools;
 
 use crate::shared::FmtLeft;
 
-use super::{Component, Dialect, Elem, Item, Variable};
+use super::{Component, Dialect, Elem, Item, Value};
 use std::{
     fmt::{Display, Formatter},
     marker::PhantomData,
@@ -11,9 +11,9 @@ use std::{
 pub trait Binary<D: Dialect> {
     fn format(
         f: &mut Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
+        lhs: &Value<D>,
+        rhs: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
         let out_item = *out.item().value_ty();
         if let Item::Vector(..) = out_item {
@@ -35,30 +35,27 @@ pub trait Binary<D: Dialect> {
 
     fn unroll_vec(
         f: &mut Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
+        lhs: &Value<D>,
+        rhs: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
-        let mut write_op = |index: usize,
-                            lhs: &Variable<D>,
-                            rhs: &Variable<D>,
-                            out: &Variable<D>,
-                            item_out: Item<D>| {
-            let out = out.fmt_left();
-            writeln!(f, "{out} = {item_out}{{")?;
-            for i in 0..index {
-                let lhsi = lhs.index(i);
-                let rhsi = rhs.index(i);
+        let mut write_op =
+            |index: usize, lhs: &Value<D>, rhs: &Value<D>, out: &Value<D>, item_out: Item<D>| {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = {item_out}{{")?;
+                for i in 0..index {
+                    let lhsi = lhs.index(i);
+                    let rhsi = rhs.index(i);
 
-                Self::format_scalar(f, lhsi, rhsi, item_out)?;
-                f.write_str(", ")?;
-            }
+                    Self::format_scalar(f, lhsi, rhsi, item_out)?;
+                    f.write_str(", ")?;
+                }
 
-            f.write_str("};\n")
-        };
+                f.write_str("};\n")
+            };
 
         if Self::can_optimize() {
-            let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
+            let optimized = Value::optimized_args([*lhs, *rhs, *out]);
             let [lhs, rhs, out_optimized] = optimized.args;
 
             let item_out_original = *out.item().value_ty();
@@ -72,9 +69,9 @@ pub trait Binary<D: Dialect> {
             if item_out_original == item_out_optimized {
                 write_op(index, &lhs, &rhs, out, item_out_optimized)
             } else {
-                let out_tmp = Variable::tmp(item_out_optimized);
+                let out_tmp = Value::tmp(item_out_optimized);
                 write_op(index, &lhs, &rhs, &out_tmp, item_out_optimized)?;
-                let addr_space = D::address_space_for_variable(out);
+                let addr_space = D::address_space_for_value(out);
                 let out = out.fmt_left();
 
                 writeln!(
@@ -479,13 +476,13 @@ pub struct Index;
 impl Index {
     pub(crate) fn format<D: Dialect>(
         f: &mut Formatter<'_>,
-        list: &Variable<D>,
-        index: &Variable<D>,
-        out: &Variable<D>,
+        list: &Value<D>,
+        index: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
         if list.item().vectorization() != out.item().vectorization() {
             let item_ptr = out.item();
-            let tmp = Variable::tmp_declared(item_ptr);
+            let tmp = Value::tmp_declared(item_ptr);
 
             writeln!(
                 f,
@@ -498,7 +495,7 @@ impl Index {
             let item_out = out.item();
             let index = fmt_index(list, index, &list.item());
             if matches!(item_out, Item::Barrier(_)) {
-                let addr_space = D::address_space_for_variable(list);
+                let addr_space = D::address_space_for_value(list);
                 writeln!(f, "{addr_space}{}& {out} = {index};", item_out.elem())
             } else {
                 writeln!(f, "{item_out} {out} = &{index};")
@@ -528,8 +525,8 @@ pub fn fmt_index<D: Dialect>(
 ///
 /// ```c
 /// float4 rhs;
-/// float item = var[0]; // We want that.
-/// float item = var.x; // So we compile to that.
+/// float item = val[0]; // We want that.
+/// float item = val.x; // So we compile to that.
 /// ```
 pub struct ExtractComponent<D: Dialect> {
     _dialect: PhantomData<D>,
@@ -540,10 +537,10 @@ pub struct ExtractComponent<D: Dialect> {
 /// # Examples
 ///
 /// ```c
-/// float4 var;
+/// float4 val;
 ///
-/// var[0] = 1.0; // We want that.
-/// var.x = 1.0;  // So we compile to that.
+/// val[0] = 1.0; // We want that.
+/// val.x = 1.0;  // So we compile to that.
 /// ```
 pub struct InsertComponent<D: Dialect> {
     _dialect: PhantomData<D>,
@@ -552,12 +549,12 @@ pub struct InsertComponent<D: Dialect> {
 impl<D: Dialect> ExtractComponent<D> {
     pub fn format(
         f: &mut Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
+        lhs: &Value<D>,
+        rhs: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
         match rhs {
-            Variable::Constant(value, _elem) => {
+            Value::Constant(value, _elem) => {
                 let index = value.as_usize();
                 let out = out.index(index);
                 let lhs = lhs.index(index);
@@ -567,7 +564,7 @@ impl<D: Dialect> ExtractComponent<D> {
             _ => {
                 let elem = out.elem();
                 let qualifier = out.const_qualifier();
-                let addr_space = D::address_space_for_variable(out);
+                let addr_space = D::address_space_for_value(out);
                 let lhs = lhs.ensure_lvalue(f)?;
                 let out = out.fmt_left();
                 writeln!(
@@ -582,19 +579,19 @@ impl<D: Dialect> ExtractComponent<D> {
 impl<D: Dialect> InsertComponent<D> {
     pub fn format(
         f: &mut Formatter<'_>,
-        vector: &Variable<D>,
-        index: &Variable<D>,
-        value: &Variable<D>,
-        out: &Variable<D>,
+        vector: &Value<D>,
+        index: &Value<D>,
+        value: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
         let index = match index {
-            Variable::Constant(value, _) => value.as_usize(),
+            Value::Constant(value, _) => value.as_usize(),
             _ => {
-                let tmp = Variable::tmp(out.item());
+                let tmp = Value::tmp(out.item());
                 writeln!(f, "{} = {vector};", tmp.fmt_left())?;
 
                 let elem = out.elem();
-                let addr_space = D::address_space_for_variable(out);
+                let addr_space = D::address_space_for_value(out);
                 let ptr = tmp.fmt_ptr();
                 writeln!(f, "*(({addr_space}{elem}*){ptr} + {index}) = {value};")?;
                 return writeln!(f, "{} = {tmp};", out.fmt_left());

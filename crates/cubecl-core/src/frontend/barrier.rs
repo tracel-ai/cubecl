@@ -226,7 +226,6 @@ impl Barrier {
         intrinsic!(|scope| {
             let value =
                 scope.create_shared(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Cube), None);
-            scope.register(BarrierOps::Declare { barrier: value });
             value.into()
         })
     }

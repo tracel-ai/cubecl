@@ -1,4 +1,4 @@
-use super::base::{Elem, Item, Variable};
+use super::base::{Elem, Item, Value};
 use std::fmt::Display;
 
 /// Not all functions are native to WGSL, so this struct allows to support more functions.
@@ -107,7 +107,7 @@ const IS_NAN: &str = "is_nan";
 const IS_INF_PRIMITIVE: &str = "is_inf_primitive";
 const IS_INF: &str = "is_inf";
 
-pub fn powf_extension(rhs: &Variable, out: &Variable) -> Extension {
+pub fn powf_extension(rhs: &Value, out: &Value) -> Extension {
     if should_use_scalar_powf(rhs) {
         Extension::PowfScalar(out.item())
     } else {
@@ -117,9 +117,9 @@ pub fn powf_extension(rhs: &Variable, out: &Variable) -> Extension {
 
 pub fn call_powf(
     f: &mut core::fmt::Formatter,
-    lhs: &Variable,
-    rhs: &Variable,
-    out: &Variable,
+    lhs: &Value,
+    rhs: &Value,
+    out: &Value,
 ) -> core::fmt::Result {
     let (lhs, rhs, base_name) = if should_use_scalar_powf(rhs) {
         let rhs = rhs.fmt_cast_to(Item::Scalar(lhs.elem()));
@@ -141,22 +141,22 @@ pub fn call_powf(
 #[cfg(target_os = "macos")]
 pub fn call_safe_tanh(
     f: &mut core::fmt::Formatter,
-    input: &Variable,
-    out: &Variable,
+    input: &Value,
+    out: &Value,
 ) -> core::fmt::Result {
     let function_name = construct_vectorized_name(SAFE_TANH, out.item());
     let out = out.fmt_left();
     write!(f, "{out} = {function_name}({input});")
 }
 
-fn should_use_scalar_powf(rhs: &Variable) -> bool {
+fn should_use_scalar_powf(rhs: &Value) -> bool {
     rhs.item().vectorization_factor() == 1
 }
 
 pub fn call_is_nan(
     f: &mut core::fmt::Formatter,
-    input: &Variable,
-    out: &Variable,
+    input: &Value,
+    out: &Value,
 ) -> core::fmt::Result {
     let function_name = construct_vectorized_name(IS_NAN, input.item());
     let out = out.fmt_left();
@@ -165,8 +165,8 @@ pub fn call_is_nan(
 
 pub fn call_is_inf(
     f: &mut core::fmt::Formatter,
-    input: &Variable,
-    out: &Variable,
+    input: &Value,
+    out: &Value,
 ) -> core::fmt::Result {
     let function_name = construct_vectorized_name(IS_INF, input.item());
     let out = out.fmt_left();

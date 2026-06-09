@@ -346,28 +346,28 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    fn scope(&mut self, var: &crate::variable::Value) -> Word {
-        let value = var.scope() as u32;
+    fn scope(&mut self, val: &crate::value::Value) -> Word {
+        let value = val.scope() as u32;
         self.const_u32(value)
     }
 
-    fn semantics_r(&mut self, var: &crate::variable::Value) -> Word {
-        let value = self.semantics_of(var) | MemorySemantics::ACQUIRE;
+    fn semantics_r(&mut self, val: &crate::value::Value) -> Word {
+        let value = self.semantics_of(val) | MemorySemantics::ACQUIRE;
         self.const_u32(value.bits())
     }
 
-    fn semantics_w(&mut self, var: &crate::variable::Value) -> Word {
-        let value = self.semantics_of(var) | MemorySemantics::RELEASE;
+    fn semantics_w(&mut self, val: &crate::value::Value) -> Word {
+        let value = self.semantics_of(val) | MemorySemantics::RELEASE;
         self.const_u32(value.bits())
     }
 
-    fn semantics_rw(&mut self, var: &crate::variable::Value) -> Word {
-        let value = self.semantics_of(var) | MemorySemantics::ACQUIRE_RELEASE;
+    fn semantics_rw(&mut self, val: &crate::value::Value) -> Word {
+        let value = self.semantics_of(val) | MemorySemantics::ACQUIRE_RELEASE;
         self.const_u32(value.bits())
     }
 
-    fn semantics_of(&mut self, var: &crate::variable::Value) -> MemorySemantics {
-        match var.scope() {
+    fn semantics_of(&mut self, val: &crate::value::Value) -> MemorySemantics {
+        match val.scope() {
             Scope::Device => MemorySemantics::UNIFORM_MEMORY,
             Scope::Workgroup => MemorySemantics::WORKGROUP_MEMORY,
             Scope::Subgroup => MemorySemantics::SUBGROUP_MEMORY,

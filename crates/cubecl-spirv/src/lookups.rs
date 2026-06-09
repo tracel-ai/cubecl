@@ -18,7 +18,7 @@ use rspirv::{
 use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
-    variable::ConstVal,
+    value::ConstVal,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -60,7 +60,7 @@ impl DerefMut for CompilerState {
 #[derive(Clone, Debug, Default)]
 pub struct LookupTables {
     pub buffers: Vec<Buffer>,
-    pub shared: HashMap<Id, SharedVar>,
+    pub shared: HashMap<Id, SharedVal>,
 
     pub globals: HashMap<Builtin, Word>,
     pub loaded_builtins: HashMap<BuiltIn, Word>,
@@ -79,9 +79,9 @@ pub struct FuncDefinition {
 }
 
 #[derive(Clone, Debug)]
-pub struct SharedVar {
+pub struct SharedVal {
     pub id: Word,
-    pub var_id: Word,
+    pub val_id: Word,
     pub ptr_ty_id: Word,
     pub item: Item,
     pub offset: u32,
@@ -147,7 +147,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let smem_id = self.id();
             let smem_ptr_ty_id = self.id();
 
-            let smem_var_id = if self.compilation_options.vulkan.supports_explicit_smem {
+            let smem_val_id = if self.compilation_options.vulkan.supports_explicit_smem {
                 self.id()
             } else {
                 smem_id
@@ -156,9 +156,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let item = self.compile_type(alloc.smem.value_ty);
             self.state.base_lookups.shared.insert(
                 alloc.id,
-                SharedVar {
+                SharedVal {
                     id: smem_id,
-                    var_id: smem_var_id,
+                    val_id: smem_val_id,
                     ptr_ty_id: smem_ptr_ty_id,
                     item,
                     offset: alloc.offset as u32,
@@ -277,7 +277,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         } else {
             let word = self.id();
             self.state.values.insert(id, word);
-            self.debug_var_name(word, id);
+            self.debug_val_name(word, id);
             word
         }
     }

@@ -10,7 +10,7 @@ mod instruction;
 mod item;
 mod kernel;
 mod mma;
-mod variable;
+mod value;
 mod warp;
 
 pub use base::*;
@@ -21,7 +21,7 @@ pub use instruction::*;
 pub use item::*;
 pub use kernel::*;
 pub use mma::*;
-pub use variable::*;
+pub use value::*;
 pub use warp::*;
 
 #[cfg(feature = "metal")]

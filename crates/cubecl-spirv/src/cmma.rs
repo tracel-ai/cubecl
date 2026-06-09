@@ -2,7 +2,7 @@ use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     lookups::Matrix,
-    variable::Value,
+    value::Value,
 };
 use cubecl_core::ir::{self as core, CoopMma, ElemType, Id, MatrixLayout, MatrixScope};
 use rspirv::{
@@ -184,9 +184,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let ty = item.id(self);
         let mat_id = match value {
             Value::Constant(id, _, _) => self.constant_composite(ty, vec![id]),
-            var => {
-                let var = self.read(&var);
-                self.composite_construct(ty, Some(mat_id), vec![var])
+            val => {
+                let val = self.read(&val);
+                self.composite_construct(ty, Some(mat_id), vec![val])
                     .unwrap()
             }
         };
@@ -343,11 +343,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .clone();
         let captures = captures
             .into_iter()
-            .map(|var| self.compile_value(var))
+            .map(|val| self.compile_value(val))
             .collect::<Vec<_>>();
         let captures = captures
             .iter()
-            .map(|var| self.read(var))
+            .map(|val| self.read(val))
             .collect::<Vec<_>>();
         let func = self.state.extra_funcs[&op].id;
 
@@ -434,15 +434,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 }
 
-fn matrix_ident(var: &Value) -> CooperativeMatrixUse {
-    let Item::CoopMatrix { ident, .. } = var.item().unwrap_ptr() else {
+fn matrix_ident(val: &Value) -> CooperativeMatrixUse {
+    let Item::CoopMatrix { ident, .. } = val.item().unwrap_ptr() else {
         unreachable!()
     };
     ident
 }
 
-fn matrix_layout(var: &Value) -> Option<CooperativeMatrixLayout> {
-    let Item::CoopMatrix { layout, .. } = var.item().unwrap_ptr() else {
+fn matrix_layout(val: &Value) -> Option<CooperativeMatrixLayout> {
+    let Item::CoopMatrix { layout, .. } = val.item().unwrap_ptr() else {
         unreachable!()
     };
     layout

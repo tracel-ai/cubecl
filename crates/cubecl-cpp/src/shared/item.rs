@@ -61,6 +61,16 @@ impl<D: Dialect> Item<D> {
         }
     }
 
+    /// Type of the pointer returned when indexing
+    pub fn value_ptr(&self) -> Item<D> {
+        match self {
+            Item::Pointer(inner, class) => Item::Pointer(inner.value_ptr().intern(), *class),
+            Item::Array(inner, _) => inner.value_ptr(),
+            Item::DynamicArray(inner) => inner.value_ptr(),
+            other => *other,
+        }
+    }
+
     pub fn elem(&self) -> &Elem<D> {
         match self {
             Item::Scalar(elem) | Item::NativeVector(elem, _) => elem,

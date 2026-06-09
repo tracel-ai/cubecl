@@ -420,18 +420,18 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     pub fn declare_function_variable(&mut self, ty: Word, init: Option<Word>) -> Word {
         let setup = self.setup_block;
         let id = self.id();
-        let mut var = Instruction::new(
+        let mut val = Instruction::new(
             Op::Variable,
             Some(ty),
             Some(id),
             vec![Operand::StorageClass(StorageClass::Function)],
         );
         if let Some(init) = init {
-            var.operands.push(Operand::IdRef(init));
+            val.operands.push(Operand::IdRef(init));
         }
         let current_block = self.selected_block();
         self.select_block(Some(setup)).unwrap();
-        self.insert_into_block(InsertPoint::Begin, var).unwrap();
+        self.insert_into_block(InsertPoint::Begin, val).unwrap();
         self.select_block(current_block).unwrap();
         id
     }
@@ -497,15 +497,15 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             self.debug_shared(memory.id, index);
             self.variable(
                 block_ptr_ty,
-                Some(memory.var_id),
+                Some(memory.val_id),
                 StorageClass::Workgroup,
                 None,
             );
-            self.decorate(memory.var_id, Decoration::Aliased, []);
+            self.decorate(memory.val_id, Decoration::Aliased, []);
 
             self.insert_in_setup(|b| {
                 let zero = b.const_u32(0);
-                b.in_bounds_access_chain(ptr_ty, Some(memory.id), memory.var_id, [zero])
+                b.in_bounds_access_chain(ptr_ty, Some(memory.id), memory.val_id, [zero])
                     .unwrap()
             });
         }

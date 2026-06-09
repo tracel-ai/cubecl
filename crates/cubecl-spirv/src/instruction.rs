@@ -17,10 +17,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
         let uniform = inst
             .out
-            .is_some_and(|out| self.uniformity.is_var_uniform(out));
+            .is_some_and(|out| self.uniformity.is_val_uniform(out));
         match inst.operation {
-            Operation::Copy(var) => {
-                let input = self.compile_value(var);
+            Operation::Copy(val) => {
+                let input = self.compile_value(val);
                 let out = self.compile_value(inst.out());
                 let ty = out.item().id(self);
                 let in_id = self.read(&input);
@@ -233,8 +233,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 self.write(&out, ptr);
             }
-            Memory::Load(variable) => {
-                let ptr = self.compile_value(variable);
+            Memory::Load(value) => {
+                let ptr = self.compile_value(value);
                 let out = self.compile_value(out.unwrap());
 
                 let id = self.load_aligned(&ptr, &out);

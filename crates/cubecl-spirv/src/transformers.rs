@@ -183,16 +183,16 @@ impl IrTransformer for BitwiseTransform {
     }
 }
 
-fn is_u64(var: Value) -> bool {
+fn is_u64(val: Value) -> bool {
     matches!(
-        var.ty.elem_type(),
+        val.ty.elem_type(),
         ElemType::Int(IntKind::I64) | ElemType::UInt(UIntKind::U64)
     )
 }
 
-fn is_u16_u8(var: Value) -> bool {
+fn is_u16_u8(val: Value) -> bool {
     matches!(
-        var.ty.elem_type(),
+        val.ty.elem_type(),
         ElemType::Int(IntKind::I16)
             | ElemType::UInt(UIntKind::U16)
             | ElemType::Int(IntKind::I8)

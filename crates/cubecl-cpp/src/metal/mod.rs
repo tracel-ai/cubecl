@@ -4,7 +4,7 @@ pub mod attribute;
 pub mod binding;
 pub mod dialect;
 mod extension;
-pub mod variable;
+pub mod value;
 
 pub use address_space::*;
 pub use attribute::*;

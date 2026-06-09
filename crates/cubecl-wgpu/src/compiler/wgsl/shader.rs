@@ -1,4 +1,4 @@
-use crate::compiler::wgsl::Variable;
+use crate::compiler::wgsl::Value;
 
 use super::{Body, Elem, Extension, Item};
 use cubecl_core::{CubeDim, Info, ir::Id, prelude::Visibility};
@@ -8,18 +8,18 @@ use std::fmt::Display;
 pub struct KernelArg {
     pub id: Id,
     pub visibility: Visibility,
-    pub value: Variable,
+    pub value: Value,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SharedValue {
     pub ty: Item,
-    pub value: Variable,
+    pub value: Value,
     alignment: u32,
 }
 
 impl SharedValue {
-    pub fn new(ty: Item, value: Variable, alignment: u32) -> Self {
+    pub fn new(ty: Item, value: Value, alignment: u32) -> Self {
         Self {
             ty,
             value,

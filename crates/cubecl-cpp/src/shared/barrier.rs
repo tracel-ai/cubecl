@@ -4,84 +4,80 @@ use cubecl_core::ir::BarrierLevel;
 
 use crate::shared::FmtLeft;
 
-use super::{Component, Dialect, Variable};
+use super::{Component, Dialect, Value};
 
 #[derive(Debug, Clone)]
 pub enum BarrierOps<D: Dialect> {
-    Declare {
-        barrier: Variable<D>,
-        level: BarrierLevel,
-    },
     Init {
-        barrier: Variable<D>,
-        is_elected: Variable<D>,
-        arrival_count: Variable<D>,
+        barrier: Value<D>,
+        is_elected: Value<D>,
+        arrival_count: Value<D>,
         level: BarrierLevel,
     },
     InitManual {
-        barrier: Variable<D>,
-        arrival_count: Variable<D>,
+        barrier: Value<D>,
+        arrival_count: Value<D>,
     },
     MemCopyAsync {
-        barrier: Variable<D>,
-        source: Variable<D>,
-        destination: Variable<D>,
-        source_length: Variable<D>,
+        barrier: Value<D>,
+        source: Value<D>,
+        destination: Value<D>,
+        source_length: Value<D>,
         cooperative: bool,
     },
     MemCopyAsyncTx {
-        barrier: Variable<D>,
-        source: Variable<D>,
-        destination: Variable<D>,
-        source_length: Variable<D>,
+        barrier: Value<D>,
+        source: Value<D>,
+        destination: Value<D>,
+        source_length: Value<D>,
     },
     CopyAsync {
-        source: Variable<D>,
-        destination: Variable<D>,
-        source_length: Variable<D>,
+        source: Value<D>,
+        destination: Value<D>,
+        source_length: Value<D>,
         copy_size: u32,
         checked: bool,
     },
     MemCopyAsyncTensorGlobalToShared {
-        barrier: Variable<D>,
-        smem_buffer: Variable<D>,
-        tensor_map: Variable<D>,
-        indices: Vec<Variable<D>>,
+        barrier: Value<D>,
+        smem_buffer: Value<D>,
+        tensor_map: Value<D>,
+        indices: Vec<Value<D>>,
     },
     TmaLoadIm2col {
-        barrier: Variable<D>,
-        smem_buffer: Variable<D>,
-        tensor_map: Variable<D>,
-        indices: Vec<Variable<D>>,
-        offsets: Vec<Variable<D>>,
+        barrier: Value<D>,
+        smem_buffer: Value<D>,
+        tensor_map: Value<D>,
+        indices: Vec<Value<D>>,
+        offsets: Vec<Value<D>>,
     },
     Arrive {
-        barrier: Variable<D>,
-        token: Variable<D>,
+        barrier: Value<D>,
+        token: Value<D>,
     },
     ArriveTx {
-        barrier: Variable<D>,
-        token: Variable<D>,
-        arrive_count_update: Variable<D>,
-        transaction_count_update: Variable<D>,
+        barrier: Value<D>,
+        token: Value<D>,
+        arrive_count_update: Value<D>,
+        transaction_count_update: Value<D>,
     },
     ArriveCopyAsync {
-        barrier: Variable<D>,
+        barrier: Value<D>,
     },
     ExpectTx {
-        barrier: Variable<D>,
-        transaction_count_update: Variable<D>,
+        barrier: Value<D>,
+        transaction_count_update: Value<D>,
     },
     Wait {
-        barrier: Variable<D>,
-        token: Variable<D>,
+        barrier: Value<D>,
+        token: Value<D>,
     },
     WaitParity {
-        barrier: Variable<D>,
-        phase: Variable<D>,
+        barrier: Value<D>,
+        phase: Value<D>,
     },
     ArriveAndWait {
-        barrier: Variable<D>,
+        barrier: Value<D>,
         level: BarrierLevel,
     },
 }
@@ -91,7 +87,6 @@ impl<D: Dialect> BarrierOps<D> {
         match self {
             BarrierOps::MemCopyAsync { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::MemCopyAsyncTx { barrier, .. } => barrier.id().unwrap(),
-            BarrierOps::Declare { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::Init { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::InitManual { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::ArriveAndWait { barrier, .. } => barrier.id().unwrap(),
@@ -111,7 +106,6 @@ impl<D: Dialect> BarrierOps<D> {
 impl<D: Dialect> Display for BarrierOps<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BarrierOps::Declare { .. } => Ok(()),
             BarrierOps::Init {
                 barrier,
                 is_elected,

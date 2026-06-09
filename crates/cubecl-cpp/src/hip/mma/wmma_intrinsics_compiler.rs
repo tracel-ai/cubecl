@@ -5,8 +5,8 @@ use crate::{
     hip::{HipDialect, arch::AMDArchitecture},
     shared::{
         Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, FragmentIdent,
-        FragmentLayout, FragmentType, Item, ManualMma, MmaShape, SupportedMmaCombinations,
-        Variable, WmmaInstruction, frag_as_ptr, frag_ident_str, frag_layout_str, variable_to_frag,
+        FragmentLayout, FragmentType, Item, ManualMma, MmaShape, SupportedMmaCombinations, Value,
+        WmmaInstruction, frag_as_ptr, frag_ident_str, frag_layout_str, value_to_frag,
         wmma_api_base,
     },
 };
@@ -333,10 +333,10 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
 
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
-        var: &crate::shared::Variable<HipDialect<Self>>,
+        val: &crate::shared::Value<HipDialect<Self>>,
         ty: &crate::shared::Item<HipDialect<Self>>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_declaration(f, var, ty)
+        wmma_api_base::compile_fragment_declaration(f, val, ty)
     }
 
     fn compile_wmma_fragment(
@@ -378,7 +378,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 layout,
                 stride,
             } => {
-                let extension = WmmaLoad::new(variable_to_frag(frag), *layout);
+                let extension = WmmaLoad::new(value_to_frag(frag), *layout);
                 let name = extension.fn_name();
                 let value_ptr = frag_as_ptr(f, ptr);
                 writeln!(f, "{name}({frag}, {value_ptr}, {stride});")
@@ -400,10 +400,10 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 }
 
                 let extension = WmmaExecute::new(
-                    variable_to_frag(frag_a),
-                    variable_to_frag(frag_b),
-                    variable_to_frag(frag_c),
-                    variable_to_frag(frag_d),
+                    value_to_frag(frag_a),
+                    value_to_frag(frag_b),
+                    value_to_frag(frag_c),
+                    value_to_frag(frag_d),
                 );
                 let name = extension.fn_name();
                 writeln!(f, "{name}({frag_a}, {frag_b}, {frag_c}, {frag_d});")
@@ -439,13 +439,13 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 destination,
                 stride,
             } => {
-                let extension = WmmaStore::new(variable_to_frag(frag), *layout);
+                let extension = WmmaStore::new(value_to_frag(frag), *layout);
                 let name = extension.fn_name();
                 let output_ptr = frag_as_ptr(f, destination);
                 writeln!(f, "{name}({frag}, {output_ptr}, {stride});")
             }
             WmmaInstruction::Cast { input, output } => {
-                let extension = WmmaCast::new(variable_to_frag(input), variable_to_frag(output));
+                let extension = WmmaCast::new(value_to_frag(input), value_to_frag(output));
                 let name = extension.fn_name();
                 writeln!(f, "{name}({input}, {output});")
             }
@@ -462,8 +462,8 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
     fn compile_scaled_mma(
         f: &mut std::fmt::Formatter<'_>,
         _mma: ManualMma<HipDialect<Self>>,
-        _scales_a: Variable<HipDialect<Self>>,
-        _scales_b: Variable<HipDialect<Self>>,
+        _scales_a: Value<HipDialect<Self>>,
+        _scales_b: Value<HipDialect<Self>>,
         _scales_factor: u32,
     ) -> std::fmt::Result {
         f.write_str("#error scaled mma not supported in HIP\n")
@@ -542,29 +542,29 @@ fn get_output_accumulator_index_step<D: Dialect>(
 pub(super) fn compile_manual_mma<D: Dialect>(
     f: &mut std::fmt::Formatter<'_>,
     shape: MmaShape<D>,
-    frag_a: &Variable<D>,
-    frag_b: &Variable<D>,
-    frag_c: &Variable<D>,
-    frag_d: &Variable<D>,
+    frag_a: &Value<D>,
+    frag_b: &Value<D>,
+    frag_c: &Value<D>,
+    frag_d: &Value<D>,
 ) -> std::fmt::Result {
     let extension = WmmaExecute::from_manual(shape, frag_a.elem(), frag_c.elem());
 
     let cd_elems = shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
 
     let frag_cd_step = 4usize.div_ceil(frag_c.elem().size());
-    let frag_d_tmp = Variable::tmp_declared(Item::Scalar(Elem::<D>::I32)).fmt_left();
+    let frag_d_tmp = Value::tmp_declared(Item::Scalar(Elem::<D>::I32)).fmt_left();
 
     // Need to reconstruct the fragments from an array of vectors to a single vector type.
     // This requires double indexing over both the array index and the vector index.
     // Will generate something like
     // `float8_t {arr[0].i_0, arr[0].i_1, arr[1].i_0, ...}`
-    let frag = |var: &Variable<D>, len: usize| {
-        let frag: Vec<_> = if let Item::Vector(_, vec) = var.item() {
+    let frag = |val: &Value<D>, len: usize| {
+        let frag: Vec<_> = if let Item::Vector(_, vec) = val.item() {
             (0..len)
-                .map(|i| format!("{var}[{}].i_{}", i / vec, i % vec))
+                .map(|i| format!("{val}[{}].i_{}", i / vec, i % vec))
                 .collect()
         } else {
-            (0..len).map(|i| format!("{var}[{}]", i)).collect()
+            (0..len).map(|i| format!("{val}[{}]", i)).collect()
         };
         frag.join(", ")
     };

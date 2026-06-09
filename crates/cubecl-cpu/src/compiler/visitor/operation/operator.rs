@@ -54,8 +54,13 @@ impl<'a> Visitor<'a> {
                 assert_eq!(op.len, 1, "Bulk copy not supported on CPU");
                 let source = self.get_variable(op.source);
                 let target = self.get_variable(op.target);
+                let zero = self.create_constant_index(0);
+                // Note: this should use `memref.copy`, but that seems to be generating broken code.
+                // So keep it like this for now and hopefully I remember to report the bug upstream
+                let tmp =
+                    self.append_operation_with_result(memref::load(source, &[zero], self.location));
                 self.block
-                    .append_operation(memref::copy(source, target, self.location));
+                    .append_operation(memref::store(tmp, target, &[zero], self.location));
             }
         }
     }

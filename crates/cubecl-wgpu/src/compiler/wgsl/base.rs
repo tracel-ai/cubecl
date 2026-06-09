@@ -6,7 +6,7 @@ use cubecl_ir::Intern;
 use std::fmt::Display;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Variable {
+pub enum Value {
     Constant(ConstantValue, Item),
     Value { id: Id, item: Item },
 }
@@ -68,15 +68,15 @@ pub enum PointerClass {
 }
 
 #[derive(Debug, Clone)]
-pub struct IndexedVariable {
-    var: Variable,
+pub struct IndexedValue {
+    val: Value,
     index: usize,
 }
 
-impl Variable {
-    pub fn index(&self, index: usize) -> IndexedVariable {
-        IndexedVariable {
-            var: self.clone(),
+impl Value {
+    pub fn index(&self, index: usize) -> IndexedValue {
+        IndexedValue {
+            val: self.clone(),
             index,
         }
     }
@@ -277,11 +277,11 @@ impl Display for Item {
     }
 }
 
-impl Display for Variable {
+impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::Value { id, .. } => write!(f, "l_{id}"),
-            Variable::Constant(val, item) => {
+            Value::Value { id, .. } => write!(f, "val_{id}"),
+            Value::Constant(val, item) => {
                 match (val, item.elem()) {
                     // naga can't seem to parse literals > i64::MAX or i64::MIN atm.
                     // Work around this by emitting instructions to construct these literals.
@@ -335,45 +335,45 @@ impl Display for Builtin {
     }
 }
 
-impl Display for IndexedVariable {
+impl Display for IndexedValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let var = &self.var;
-        let item = var.item();
+        let val = &self.val;
+        let item = val.item();
         let index = self.index;
 
-        match &self.var {
-            var if matches!(item, Item::Scalar(_)) => write!(f, "{var}"),
-            var => write!(f, "{var}[{index}]"),
+        match &self.val {
+            val if matches!(item, Item::Scalar(_)) => write!(f, "{val}"),
+            val => write!(f, "{val}[{index}]"),
         }
     }
 }
 
-impl Variable {
+impl Value {
     pub fn fmt_left(&self) -> String {
         match self {
-            Variable::Value { .. } => {
+            Value::Value { .. } => {
                 format!("let {self}")
             }
-            var => format!("{var}"),
+            val => format!("{val}"),
         }
     }
 
     pub fn is_const(&self) -> bool {
-        matches!(self, Variable::Value { .. })
+        matches!(self, Value::Value { .. })
     }
 }
 
-impl IndexedVariable {
+impl IndexedValue {
     pub fn fmt_left(&self) -> String {
-        let item = self.var.item();
-        match &self.var {
-            var if matches!(item, Item::Scalar(_)) => var.fmt_left(),
+        let item = self.val.item();
+        match &self.val {
+            val if matches!(item, Item::Scalar(_)) => val.fmt_left(),
             _ => format!("{self}"),
         }
     }
 
     pub fn fmt_cast(&self, item: Item) -> String {
-        if self.var.item() != item {
+        if self.val.item() != item {
             format!("{item}({self})")
         } else {
             format!("{self}")

@@ -121,9 +121,9 @@ impl ValueTable {
             }
             Operation::DeclareVariable { .. } => Err(None),
             Operation::Operator(Operator::ReadBuiltin(builtin)) => {
-                let item = inst.ty();
+                let ty = inst.ty();
                 let out = inst.out;
-                Ok((Expression::Builtin(*builtin, item), out))
+                Ok((Expression::Builtin(*builtin, ty), out))
             }
             Operation::Memory(memory) => self.create_expr_memory(func, memory, inst.out),
             Operation::Arithmetic(arithmetic) => {

@@ -269,8 +269,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let args = args
                 .iter()
                 .map(|arg| {
-                    let var = self.compile_value(*arg);
-                    self.read(&var)
+                    let val = self.compile_value(*arg);
+                    self.read(&val)
                 })
                 .collect::<Vec<_>>();
             DebugPrintfBuilder::debug_printf(&mut self.builder, format_string, args).unwrap();
@@ -395,15 +395,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.debug_info.as_mut().unwrap()
     }
 
-    pub fn debug_name(&mut self, var: Word, name: impl Into<String>) {
+    pub fn debug_name(&mut self, val: Word, name: impl Into<String>) {
         if self.debug_symbols {
-            self.name(var, name);
+            self.name(val, name);
         }
     }
 
-    pub fn debug_var_name(&mut self, id: Word, var: Id) {
+    pub fn debug_val_name(&mut self, id: Word, val: Id) {
         if self.debug_symbols {
-            self.debug_name(id, format!("%{var}"));
+            self.debug_name(id, format!("%{val}"));
         }
     }
 
@@ -414,15 +414,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn name_of_var(&mut self, var: Value) -> Cow<'static, str> {
-        let var_names = self
-            .opt
-            .global_state
-            .root_scope
-            .debug
-            .variable_names
-            .clone();
-        let debug_name = var_names.borrow().get(&var).cloned();
-        debug_name.unwrap_or_else(|| var.to_string().into())
+    pub fn name_of_val(&mut self, val: Value) -> Cow<'static, str> {
+        let val_names = self.opt.global_state.root_scope.debug.value_names.clone();
+        let debug_name = val_names.borrow().get(&val).cloned();
+        debug_name.unwrap_or_else(|| val.to_string().into())
     }
 }

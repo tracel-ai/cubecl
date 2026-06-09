@@ -89,7 +89,7 @@ pub struct ValidationErrors {
 pub struct DebugInfo {
     pub enabled: bool,
     pub sources: Rc<RefCell<HashSet<CubeFnSource>>>,
-    pub variable_names: Rc<RefCell<HashMap<Value, Cow<'static, str>>>>,
+    pub value_names: Rc<RefCell<HashMap<Value, Cow<'static, str>>>>,
     pub source_loc: RefCell<Option<SourceLoc>>,
     pub entry_loc: RefCell<Option<SourceLoc>>,
 }
@@ -148,7 +148,7 @@ impl Scope {
             debug: DebugInfo {
                 enabled: debug_enabled,
                 sources: Default::default(),
-                variable_names: Default::default(),
+                value_names: Default::default(),
                 source_loc: Default::default(),
                 entry_loc: Default::default(),
             },
@@ -371,7 +371,7 @@ impl Scope {
     pub fn update_variable_name(&self, variable: Value, name: impl Into<Cow<'static, str>>) {
         if self.debug.enabled {
             self.debug
-                .variable_names
+                .value_names
                 .borrow_mut()
                 .insert(variable, name.into());
         }

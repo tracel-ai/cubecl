@@ -4,7 +4,7 @@ use std::{fmt::Display, hash::Hash};
 use cubecl_core::ir::Processor;
 
 use crate::shared::{
-    Builtin, FmtLeft, IndexedVariable, MmaShape, SupportedMmaCombinations,
+    Builtin, FmtLeft, IndexedValue, MmaShape, SupportedMmaCombinations,
     SupportedScaledMmaCombinations, reduce_comparison, reduce_exclusive, reduce_inclusive,
     reduce_operator, reduce_quantifier,
     unary::{Neg, Unary},
@@ -12,7 +12,7 @@ use crate::shared::{
 
 use super::{
     Architecture, Body, Component, CubeIndexFlags, Elem, Flags, FragmentIdent, FragmentLayout,
-    FragmentType, Instruction, Item, KernelArg, SharedMemory, Variable, WarpInstruction,
+    FragmentType, Instruction, Item, KernelArg, SharedMemory, Value, WarpInstruction,
     WmmaInstruction,
 };
 
@@ -102,7 +102,7 @@ pub trait DialectTypes<D: Dialect> {
         Ok(())
     }
     /// Address space (for Metal dialect only).
-    fn address_space_for_variable(_variable: &Variable<D>) -> String {
+    fn address_space_for_value(_value: &Value<D>) -> String {
         "".to_string()
     }
 }
@@ -128,7 +128,7 @@ pub trait DialectBindings<D: Dialect> {
 // Cube builtins dialect
 
 pub trait DialectCubeBuiltins<D: Dialect> {
-    /// Depending on the dialect available built-in variables the
+    /// Depending on the dialect available built-ins the
     /// inclusion rules might change.
     /// For instance in metal we have a built-in for the Unit plane position
     /// but in other dialects there is none so we have to compute it using
@@ -170,8 +170,8 @@ pub trait DialectCubeBuiltins<D: Dialect> {
     }
 
     fn compile_absolute_pos_tuple_computation(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let variable = Builtin::<D>::AbsolutePosBaseName;
-        let ty = variable.item();
+        let value = Builtin::<D>::AbsolutePosBaseName;
+        let ty = value.item();
         let cube_pos_x = Builtin::<D>::CubePosX;
         let cube_pos_y = Builtin::<D>::CubePosY;
         let cube_pos_z = Builtin::<D>::CubePosZ;
@@ -183,7 +183,7 @@ pub trait DialectCubeBuiltins<D: Dialect> {
         let unit_pos_z = Builtin::<D>::UnitPosZ;
         writeln!(
             f,
-            "{ty} {variable} = make_{ty}(
+            "{ty} {value} = make_{ty}(
     {cube_pos_x} * {cube_dim_x} + {unit_pos_x},
     {cube_pos_y} * {cube_dim_y} + {unit_pos_y},
     {cube_pos_z} * {cube_dim_z} + {unit_pos_z}
@@ -284,8 +284,8 @@ pub trait DialectCubeBuiltins<D: Dialect> {
     }
 
     fn compile_unit_pos_computation(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let variable = Builtin::<D>::UnitPos;
-        let ty = variable.item();
+        let value = Builtin::<D>::UnitPos;
+        let ty = value.item();
         let cube_dim_x = Builtin::<D>::CubeDimX;
         let cube_dim_y = Builtin::<D>::CubeDimY;
         let unit_pos_x = Builtin::<D>::UnitPosX;
@@ -293,7 +293,7 @@ pub trait DialectCubeBuiltins<D: Dialect> {
         let unit_pos_z = Builtin::<D>::UnitPosZ;
         writeln!(
             f,
-            "{ty} {variable} = {unit_pos_x} + {unit_pos_y} * {cube_dim_x} + {unit_pos_z} * ({cube_dim_x} * {cube_dim_y});"
+            "{ty} {value} = {unit_pos_x} + {unit_pos_y} * {cube_dim_x} + {unit_pos_z} * ({cube_dim_x} * {cube_dim_y});"
         )
     }
 
@@ -361,16 +361,16 @@ pub trait DialectInstructions<D: Dialect> {
     // atomics
     fn compile_atomic_add(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
+        lhs: &Value<D>,
+        rhs: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
         let rhs = rhs.ensure_lvalue(f)?;
 
-        let optimized = Variable::optimized_args([*lhs, rhs, *out]);
+        let optimized = Value::optimized_args([*lhs, rhs, *out]);
         let [lhs, rhs, out_optimized] = optimized.args;
 
-        let addr_space = D::address_space_for_variable(out);
+        let addr_space = D::address_space_for_value(out);
         let out_item = out.item();
         let out = out.fmt_left();
 
@@ -382,7 +382,7 @@ pub trait DialectInstructions<D: Dialect> {
             ),
             Item::Vector(inner, vectorization) if matches!(inner.elem(), Elem::F32) => {
                 let vec_ty = Item::NativeVector(*inner.elem(), vectorization);
-                let out_tmp = Variable::tmp(out_optimized.item());
+                let out_tmp = Value::tmp(out_optimized.item());
                 writeln!(
                     f,
                     "{vec_ty} {out_tmp} = atomicAdd(
@@ -395,7 +395,7 @@ pub trait DialectInstructions<D: Dialect> {
                 )
             }
             Item::Scalar(Elem::F16x2) | Item::Scalar(Elem::BF16x2) => {
-                let out_tmp = Variable::tmp(out_optimized.item());
+                let out_tmp = Value::tmp(out_optimized.item());
                 writeln!(
                     f,
                     "{} = atomicAdd(
@@ -416,9 +416,9 @@ pub trait DialectInstructions<D: Dialect> {
 
     fn compile_atomic_and(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
+        lhs: &Value<D>,
+        rhs: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(f, "{out} = atomicAnd({lhs}, {rhs});")
@@ -426,12 +426,12 @@ pub trait DialectInstructions<D: Dialect> {
 
     fn compile_atomic_cas(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        cmp: &Variable<D>,
-        val: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        cmp: &Value<D>,
+        val: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
-        let addr_space = D::address_space_for_variable(out);
+        let addr_space = D::address_space_for_value(out);
         let out_item = out.item();
         let out = out.fmt_left();
 
@@ -441,7 +441,7 @@ pub trait DialectInstructions<D: Dialect> {
                 let cmp = cmp.ensure_lvalue(f)?;
                 let val = val.ensure_lvalue(f)?;
                 let u64 = Item::Scalar(Elem::<D>::U64);
-                let out_tmp = Variable::tmp(u64);
+                let out_tmp = Value::tmp(u64);
                 writeln!(
                     f,
                     "{} = atomicCAS(
@@ -456,7 +456,7 @@ pub trait DialectInstructions<D: Dialect> {
                 let cmp = cmp.ensure_lvalue(f)?;
                 let val = val.ensure_lvalue(f)?;
                 let u32 = Item::Scalar(Elem::<D>::U32);
-                let out_tmp = Variable::tmp(u32);
+                let out_tmp = Value::tmp(u32);
                 writeln!(
                     f,
                     "{} = atomicCAS(
@@ -473,8 +473,8 @@ pub trait DialectInstructions<D: Dialect> {
 
     fn compile_atomic_load(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
         let out_item = out.item();
         let out = out.fmt_left();
@@ -491,7 +491,7 @@ pub trait DialectInstructions<D: Dialect> {
             // Hacky, but it's CUDA only for now. We should really migrate to a more modern API in
             // general
             16 => {
-                let out_tmp = Variable::tmp(out_item);
+                let out_tmp = Value::tmp(out_item);
                 writeln!(f, "{};", out_tmp.fmt_left())?;
                 writeln!(
                     f,
@@ -503,8 +503,8 @@ pub trait DialectInstructions<D: Dialect> {
         };
         let unsigned_ptr_ty = Item::Pointer(unsigned_ty.intern(), class);
 
-        let ptr_tmp = Variable::tmp(unsigned_ptr_ty);
-        let out_tmp = Variable::tmp(unsigned_ty);
+        let ptr_tmp = Value::tmp(unsigned_ptr_ty);
+        let out_tmp = Value::tmp(unsigned_ty);
         writeln!(
             f,
             "volatile {} = reinterpret_cast<volatile {unsigned_ptr_ty}>({input});",
@@ -516,9 +516,9 @@ pub trait DialectInstructions<D: Dialect> {
 
     fn compile_atomic_max(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
+        lhs: &Value<D>,
+        rhs: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(f, "{out} = atomicMax({lhs}, {rhs});")
@@ -526,9 +526,9 @@ pub trait DialectInstructions<D: Dialect> {
 
     fn compile_atomic_min(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
+        lhs: &Value<D>,
+        rhs: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(f, "{out} = atomicMin({lhs}, {rhs});")
@@ -536,9 +536,9 @@ pub trait DialectInstructions<D: Dialect> {
 
     fn compile_atomic_or(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
+        lhs: &Value<D>,
+        rhs: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(f, "{out} = atomicOr({lhs}, {rhs});")
@@ -546,29 +546,29 @@ pub trait DialectInstructions<D: Dialect> {
 
     fn compile_atomic_store(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
-        let tmp = Variable::tmp(input.item());
+        let tmp = Value::tmp(input.item());
         Self::compile_atomic_swap(f, out, input, &tmp)
     }
 
     fn compile_atomic_sub(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
+        lhs: &Value<D>,
+        rhs: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
-        let tmp = Variable::tmp(rhs.item());
+        let tmp = Value::tmp(rhs.item());
         Neg::format(f, rhs, &tmp)?;
         Self::compile_atomic_add(f, lhs, &tmp, out)
     }
 
     fn compile_atomic_swap(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
+        lhs: &Value<D>,
+        rhs: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
         let out_item = out.item();
         let out = out.fmt_left();
@@ -589,7 +589,7 @@ pub trait DialectInstructions<D: Dialect> {
         let unsigned_ty = Item::Scalar(unsigned_elem);
         let unsigned_ptr_ty = Item::Pointer(unsigned_ty.intern(), class);
 
-        let out_tmp = Variable::tmp(unsigned_ty);
+        let out_tmp = Value::tmp(unsigned_ty);
         writeln!(
             f,
             "{} = atomicExch(
@@ -602,9 +602,9 @@ pub trait DialectInstructions<D: Dialect> {
 
     fn compile_atomic_xor(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
+        lhs: &Value<D>,
+        rhs: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(f, "{out} = atomicXor({lhs}, {rhs});")
@@ -628,7 +628,7 @@ pub trait DialectInstructions<D: Dialect> {
     fn compile_instruction_printf(
         f: &mut std::fmt::Formatter<'_>,
         format_string: &str,
-        args: &[Variable<D>],
+        args: &[Value<D>],
     ) -> std::fmt::Result {
         let args = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>();
         let args = match args.is_empty() {
@@ -787,23 +787,23 @@ pub trait DialectInstructions<D: Dialect> {
     // warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         source: &str,
     ) -> std::fmt::Result;
     fn compile_warp_shuffle_xor(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         elem: &Elem<D>,
         offset: &str,
     ) -> std::fmt::Result;
     fn compile_warp_shuffle_up(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         offset: &str,
     ) -> std::fmt::Result;
     fn compile_warp_shuffle_down(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         offset: &str,
     ) -> std::fmt::Result;
     fn compile_warp_all<T: Component<D>>(
@@ -816,7 +816,7 @@ pub trait DialectInstructions<D: Dialect> {
     ) -> std::fmt::Result;
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<D>,
+        input: &Value<D>,
         out_elem: &Elem<D>,
     ) -> std::fmt::Result;
     fn compile_warp_elect(f: &mut std::fmt::Formatter<'_>, out: &str) -> std::fmt::Result {
@@ -835,10 +835,10 @@ unsigned int leader = __ffs(mask) - 1;
 #[derive(Debug, Clone, Copy, new)]
 pub struct ManualMma<'a, D: Dialect> {
     pub shape: MmaShape<D>,
-    pub frag_a: &'a Variable<D>,
-    pub frag_b: &'a Variable<D>,
-    pub frag_c: &'a Variable<D>,
-    pub frag_d: &'a Variable<D>,
+    pub frag_a: &'a Value<D>,
+    pub frag_b: &'a Value<D>,
+    pub frag_c: &'a Value<D>,
+    pub frag_d: &'a Value<D>,
 }
 
 pub trait DialectWarpReduceCompiler<D: Dialect>:
@@ -846,71 +846,71 @@ pub trait DialectWarpReduceCompiler<D: Dialect>:
 {
     fn warp_reduce_sum(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
         reduce_operator(f, input, out, "+=")
     }
     fn warp_reduce_prod(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
         reduce_operator(f, input, out, "*=")
     }
     fn warp_reduce_max(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
         reduce_comparison(f, input, out, D::compile_instruction_max_function_name)
     }
     fn warp_reduce_min(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
         reduce_comparison(f, input, out, D::compile_instruction_min_function_name)
     }
     fn warp_reduce_all(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
-        reduce_quantifier(f, input, out, D::compile_warp_all::<IndexedVariable<D>>)
+        reduce_quantifier(f, input, out, D::compile_warp_all::<IndexedValue<D>>)
     }
     fn warp_reduce_any(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
-        reduce_quantifier(f, input, out, D::compile_warp_any::<IndexedVariable<D>>)
+        reduce_quantifier(f, input, out, D::compile_warp_any::<IndexedValue<D>>)
     }
     fn warp_reduce_sum_inclusive(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
         reduce_inclusive(f, input, out, "+=")
     }
     fn warp_reduce_prod_inclusive(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
         reduce_inclusive(f, input, out, "*=")
     }
     fn warp_reduce_sum_exclusive(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
         reduce_exclusive(f, input, out, "+=", "0")
     }
     fn warp_reduce_prod_exclusive(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
         reduce_exclusive(f, input, out, "*=", "1")
     }
@@ -961,7 +961,7 @@ pub trait DialectWmmaCompiler<D: Dialect>:
 
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
-        var: &Variable<D>,
+        val: &Value<D>,
         value_ty: &Item<D>,
     ) -> std::fmt::Result;
 
@@ -973,8 +973,8 @@ pub trait DialectWmmaCompiler<D: Dialect>:
     fn compile_scaled_mma(
         f: &mut std::fmt::Formatter<'_>,
         mma: ManualMma<D>,
-        scales_a: Variable<D>,
-        scales_b: Variable<D>,
+        scales_a: Value<D>,
+        scales_b: Value<D>,
         scales_factor: u32,
     ) -> std::fmt::Result;
     fn supported_wmma_combinations(arch: &D::Architecture) -> SupportedMmaCombinations;

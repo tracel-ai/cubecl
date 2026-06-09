@@ -64,7 +64,7 @@ impl SpirvTarget for GLCompute {
         let interface: Vec<u32> = builtins
             .into_iter()
             .chain(iter::once(b.state.params))
-            .chain(b.state.shared.values().map(|it| it.var_id))
+            .chain(b.state.shared.values().map(|it| it.val_id))
             .collect();
 
         let version = b.compilation_options.vulkan.max_spirv_version;

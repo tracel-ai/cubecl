@@ -1,6 +1,6 @@
 use crate::{
     Dialect,
-    shared::{Component, Elem, FP4Kind, FP6Kind, FP8Kind, Variable},
+    shared::{Component, Elem, FP4Kind, FP6Kind, FP8Kind, Value},
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -237,8 +237,8 @@ fn mma_ty<D: Dialect>(elem: Elem<D>) -> &'static str {
 }
 
 pub fn ldmatrix_call<D: Dialect>(
-    output: &Variable<D>,
-    ptr: &Variable<D>,
+    output: &Value<D>,
+    ptr: &Value<D>,
     factor: &u32,
     transpose: &bool,
 ) -> String {
@@ -296,8 +296,8 @@ __ldmatrix_m{width}n8_{elem}_{factor}x{is_transposed}({args}) {{
 }
 
 pub fn stmatrix_call<D: Dialect>(
-    registers: &Variable<D>,
-    ptr: &Variable<D>,
+    registers: &Value<D>,
+    ptr: &Value<D>,
     factor: &u32,
     transpose: &bool,
 ) -> String {

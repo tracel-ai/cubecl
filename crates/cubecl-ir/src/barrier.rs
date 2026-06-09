@@ -18,10 +18,6 @@ pub enum BarrierLevel {
 #[operation(opcode_name = BarrierOpCode)]
 /// Operations available on a barrier
 pub enum BarrierOps {
-    /// Declare the barrier, without doing any initialization
-    Declare {
-        barrier: Value,
-    },
     /// Initialize the barrier, optionally with a cta proxy fence
     Init {
         barrier: Value,
@@ -118,7 +114,6 @@ pub enum BarrierOps {
 impl Display for BarrierOps {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            BarrierOps::Declare { .. } => Ok(()),
             BarrierOps::Init {
                 barrier,
                 arrival_count,

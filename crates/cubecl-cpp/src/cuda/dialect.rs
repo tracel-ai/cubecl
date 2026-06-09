@@ -17,7 +17,7 @@ use crate::{
         self, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
         DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
         DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind, Flags, Instruction, Item, KernelArg,
-        ManualMma, PointerClass, Variable, WarpInstruction, unary,
+        ManualMma, PointerClass, Value, WarpInstruction, unary,
     },
 };
 
@@ -602,32 +602,32 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
     // warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         source: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_sync(-1, {var}, {source})")
+        write!(f, "__shfl_sync(-1, {val}, {source})")
     }
     fn compile_warp_shuffle_xor(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         _elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_xor_sync(-1, {var}, {offset})")
+        write!(f, "__shfl_xor_sync(-1, {val}, {offset})")
     }
     fn compile_warp_shuffle_up(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_up_sync(-1, {var}, {offset})")
+        write!(f, "__shfl_up_sync(-1, {val}, {offset})")
     }
     fn compile_warp_shuffle_down(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_down_sync(-1, {var}, {offset})")
+        write!(f, "__shfl_down_sync(-1, {val}, {offset})")
     }
     fn compile_warp_all<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,
@@ -644,7 +644,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
 
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<Self>,
+        input: &Value<Self>,
         _out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
         write!(f, "__ballot_sync(-1, {input})")
@@ -700,10 +700,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
 
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
-        var: &Variable<Self>,
+        val: &Value<Self>,
         value_ty: &Item<Self>,
     ) -> std::fmt::Result {
-        M::compile_wmma_fragment_declaration(f, var, value_ty)
+        M::compile_wmma_fragment_declaration(f, val, value_ty)
     }
 
     fn compile_wwma_fragment_ident(
@@ -744,8 +744,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
     fn compile_scaled_mma(
         f: &mut std::fmt::Formatter<'_>,
         mma: ManualMma<Self>,
-        scales_a: Variable<Self>,
-        scales_b: Variable<Self>,
+        scales_a: Value<Self>,
+        scales_b: Value<Self>,
         scales_factor: u32,
     ) -> std::fmt::Result {
         M::compile_scaled_mma(f, mma, scales_a, scales_b, scales_factor)

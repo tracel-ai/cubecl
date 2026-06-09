@@ -124,7 +124,7 @@ impl Display for Function {
                     write!(f, "[bb{}: ", entry.block.index())?;
                     write!(f, "{}]", entry.value)?;
                 }
-                let is_uniform = match uniformity.is_var_uniform(phi.out) {
+                let is_uniform = match uniformity.is_val_uniform(phi.out) {
                     true => " @ uniform",
                     false => "",
                 };
@@ -140,7 +140,7 @@ impl Display for Function {
                     continue;
                 }
 
-                let is_uniform = match op.out.is_some_and(|out| uniformity.is_var_uniform(out)) {
+                let is_uniform = match op.out.is_some_and(|out| uniformity.is_val_uniform(out)) {
                     true => " @ uniform",
                     false => "",
                 };

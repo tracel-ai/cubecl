@@ -85,7 +85,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Plane::Broadcast(op) => {
-                let is_broadcast = self.uniformity.is_var_uniform(op.rhs);
+                let is_broadcast = self.uniformity.is_val_uniform(op.rhs);
                 self.compile_binary_op_no_cast(op, out, uniform, |b, _, ty, lhs, rhs, out| {
                     match is_broadcast {
                         true => {
