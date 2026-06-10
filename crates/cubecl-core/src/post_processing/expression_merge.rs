@@ -36,9 +36,9 @@ impl InstructionVisitor for InlineAssignments {
             | Operation::Operator(Operator::Cast(UnaryOperands { input }))
             | Operation::Operator(Operator::Reinterpret(UnaryOperands { input }))
             | Operation::CoopMma(CoopMma::Cast { input })
-                if (input.is_immutable() || input.is_array() || input.ty.is_ptr())
+                if (input.is_immutable() || input.is_array_like() || input.ty.is_ptr())
                     && (inst.out.unwrap().is_immutable()
-                        || inst.out.unwrap().is_array()
+                        || inst.out.unwrap().is_array_like()
                         || inst.out.unwrap().ty.is_ptr())
                     && input.ty == inst.out.unwrap().ty =>
             {

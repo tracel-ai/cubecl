@@ -10,7 +10,7 @@ members = ["crates/*", "examples/*", "xtask"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-rust-version = "1.92"
+rust-version = "1.95"
 version = "0.11.0-pre.1"
 
 [workspace.lints.rust]

@@ -108,6 +108,10 @@ pub trait FunctionFmt<D: Dialect> {
                 Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
                     write!(f, "{}({}(float({input})))", elem, Self::function_name(elem))
                 }
+                // Small ints cause issues around auto-promotion on AMD, so use explicit cast on out
+                Elem::U16 | Elem::U8 | Elem::I16 | Elem::I8 => {
+                    write!(f, "{elem}({}({input}))", Self::function_name(elem))
+                }
                 _ => write!(f, "{}({input})", Self::function_name(elem)),
             }
         }
@@ -332,12 +336,13 @@ impl<D: Dialect> Unary<D> for BitwiseNot {
     fn format_scalar<Input>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        _out_elem: Elem<D>,
+        out_elem: Elem<D>,
     ) -> std::fmt::Result
     where
         Input: Component<D>,
     {
-        write!(f, "~{input}")
+        // Bitwise negation may widen, so use explicit cast
+        write!(f, "{out_elem}(~{input})")
     }
 }
 

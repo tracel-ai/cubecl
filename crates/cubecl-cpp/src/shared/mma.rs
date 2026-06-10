@@ -473,7 +473,7 @@ pub fn frag_layout_str<D: Dialect>(frag: &Option<FragmentLayout<D>>) -> &str {
 }
 
 pub fn value_to_frag<D: Dialect>(frag: &Value<D>) -> FragmentType<D> {
-    match frag.item() {
+    match frag.item().unwrap_ptr() {
         Item::Fragment(frag) => frag,
         _ => panic!(),
     }

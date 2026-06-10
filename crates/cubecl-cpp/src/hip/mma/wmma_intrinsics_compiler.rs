@@ -207,7 +207,7 @@ impl<D: Dialect> WmmaStore<D> {
             f,
             "
 // Store the fragment.
-__device__ void {name}({frag}& frag, {elem}* output_ptr, uint stride) {{
+__device__ void {name}(const {frag}& frag, {elem}* output_ptr, uint stride) {{
     {WMMA_LANE_DEF}
 
     #pragma unroll
@@ -304,7 +304,7 @@ impl<D: Dialect> WmmaCast<D> {
             f,
             "
 // Cast the fragment.
-__device__ void {name}({input}& input, {output}& output) {{
+__device__ void {name}(const {input}& input, {output}& output) {{
     #pragma unroll
     for (uint elemIdx = 0; elemIdx < uint(8); ++elemIdx) {{
       output[elemIdx * {step}] = input[elemIdx];
@@ -365,11 +365,12 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
     ) -> std::fmt::Result {
         match instruction {
             WmmaInstruction::Fill { frag, value } => {
-                let extension = WmmaFill::new(match frag.item() {
+                let extension = WmmaFill::new(match frag.item().unwrap_ptr() {
                     Item::Fragment(frag) => frag,
                     _ => panic!(),
                 });
                 let name = extension.fn_name();
+                let frag = frag.fmt_ref();
                 writeln!(f, "{name}({frag}, {value});")
             }
             WmmaInstruction::Load {
@@ -381,6 +382,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 let extension = WmmaLoad::new(value_to_frag(frag), *layout);
                 let name = extension.fn_name();
                 let value_ptr = frag_as_ptr(f, ptr);
+                let frag = frag.fmt_ref();
                 writeln!(f, "{name}({frag}, {value_ptr}, {stride});")
             }
             WmmaInstruction::LdMatrix { .. } | WmmaInstruction::StMatrix { .. } => {
@@ -406,6 +408,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                     value_to_frag(frag_d),
                 );
                 let name = extension.fn_name();
+                let frag_d = frag_d.fmt_ref();
                 writeln!(f, "{name}({frag_a}, {frag_b}, {frag_c}, {frag_d});")
             }
             WmmaInstruction::ExecuteManual {
@@ -442,11 +445,14 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 let extension = WmmaStore::new(value_to_frag(frag), *layout);
                 let name = extension.fn_name();
                 let output_ptr = frag_as_ptr(f, destination);
+                let frag = frag.fmt_ref();
                 writeln!(f, "{name}({frag}, {output_ptr}, {stride});")
             }
             WmmaInstruction::Cast { input, output } => {
                 let extension = WmmaCast::new(value_to_frag(input), value_to_frag(output));
                 let name = extension.fn_name();
+                let input = input.fmt_ref();
+                let output = output.fmt_ref();
                 writeln!(f, "{name}({input}, {output});")
             }
         }
@@ -559,12 +565,12 @@ pub(super) fn compile_manual_mma<D: Dialect>(
     // Will generate something like
     // `float8_t {arr[0].i_0, arr[0].i_1, arr[1].i_0, ...}`
     let frag = |val: &Value<D>, len: usize| {
-        let frag: Vec<_> = if let Item::Vector(_, vec) = val.item() {
+        let frag: Vec<_> = if let Item::Vector(_, vec) = *val.item().value_ty() {
             (0..len)
-                .map(|i| format!("{val}[{}].i_{}", i / vec, i % vec))
+                .map(|i| format!("{}.i_{}", val.index(i / vec), i % vec))
                 .collect()
         } else {
-            (0..len).map(|i| format!("{val}[{}]", i)).collect()
+            (0..len).map(|i| format!("{}", val.index(i))).collect()
         };
         frag.join(", ")
     };
@@ -604,12 +610,12 @@ pub(super) fn compile_manual_mma<D: Dialect>(
         if let Item::Vector(_, vec) = frag_d.item() {
             writeln!(
                 f,
-                "{frag_d}[{}].i_{} = {frag_d_tmp}[{i} * {frag_cd_step}];",
-                i / vec,
+                "{}.i_{} = {frag_d_tmp}[{i} * {frag_cd_step}];",
+                frag_d.index(i / vec),
                 i % vec
             )?;
         } else {
-            writeln!(f, "{frag_d}[{i}] = {frag_d_tmp}[{i} * {frag_cd_step}];")?;
+            writeln!(f, "{} = {frag_d_tmp}[{i} * {frag_cd_step}];", frag_d.index(i))?;
         }
     }
 

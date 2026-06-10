@@ -152,7 +152,7 @@ impl<D: Dialect> Component<D> for Value<D> {
             return true;
         }
 
-        matches!(self, Value::Value { .. })
+        !self.item().is_ptr()
     }
 }
 

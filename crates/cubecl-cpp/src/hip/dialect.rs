@@ -229,8 +229,24 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
         info: &cubecl_core::Info,
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
+        let mut items_deduplicated = HashSet::new();
+
+        for item in items {
+            let mut item = *item.value_ty();
+            match item {
+                Item::NativeVector(..) => {
+                    continue;
+                }
+                Item::Atomic(inner) => {
+                    item = *inner;
+                }
+                _ => {}
+            }
+            items_deduplicated.insert(item);
+        }
+
         shared::type_definitions::<Self>(f)?;
-        shared::type_vectorized_definitions::<Self>(f, items)?;
+        shared::type_vectorized_definitions::<Self>(f, &items_deduplicated)?;
 
         shared::type_info_definition_sized(f, info, scalars, flags.address_type)?;
 

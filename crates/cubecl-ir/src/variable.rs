@@ -113,7 +113,7 @@ impl Value {
 
     /// Is this an array type that yields items when indexed,
     /// or a scalar/vector that yields elems/slices when indexed?
-    pub fn is_array(&self) -> bool {
+    pub fn is_array_like(&self) -> bool {
         self.ty.is_array_like()
     }
 
