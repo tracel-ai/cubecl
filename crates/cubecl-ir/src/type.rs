@@ -829,7 +829,7 @@ impl Type {
         }
     }
 
-    pub fn is_array(&self) -> bool {
+    pub fn is_array_like(&self) -> bool {
         matches!(self, Type::Array(..) | Type::DynamicArray(..))
     }
 

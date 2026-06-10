@@ -1095,7 +1095,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                         // Only 8x8x8 fragemts are supported. Check is done at fragment compilation time.
                         writeln!(
                             f,
-                            "{frag} = make_filled_simdgroup_matrix<{ty}, 8, 8>({value});"
+                            "*{frag} = make_filled_simdgroup_matrix<{ty}, 8, 8>({value});"
                         )
                     }
                     _ => panic!("should be a fragment"),
@@ -1119,12 +1119,12 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                     let elem_ptr = ptr.item().as_scalar();
                     writeln!(
                         f,
-                        "simdgroup_load({frag}, ({elem_ptr})({ptr}), {stride}, 0, {transpose});"
+                        "simdgroup_load(*{frag}, ({elem_ptr})({ptr}), {stride}, 0, {transpose});"
                     )
                 } else {
                     writeln!(
                         f,
-                        "simdgroup_load({frag}, {ptr}, {stride}, 0, {transpose});"
+                        "simdgroup_load(*{frag}, {ptr}, {stride}, 0, {transpose});"
                     )
                 }
             }
@@ -1135,7 +1135,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 frag_d: d,
                 ..
             } => {
-                writeln!(f, "simdgroup_multiply_accumulate({d}, {a}, {b}, {c});")
+                writeln!(f, "simdgroup_multiply_accumulate(*{d}, {a}, {b}, {c});")
             }
             WmmaInstruction::Store {
                 frag,
@@ -1179,7 +1179,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                             f,
                             "for(int e=0; e<8; e++) {{
     {ty} elem = {ty}({input}.thread_elements()[e]);
-    {output}.thread_elements()[e] = *reinterpret_cast<{addr_space}{elem} *>(&elem);
+    {output}->thread_elements()[e] = *reinterpret_cast<{addr_space}{elem} *>(&elem);
 }}"
                         )
                     }
@@ -1187,7 +1187,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                         writeln!(
                             f,
                             "for(int e=0; e<8; e++) {{
-    {output}.thread_elements()[e] = {ty}({input}.thread_elements()[e]);
+    {output}->thread_elements()[e] = {ty}({input}.thread_elements()[e]);
 }}"
                         )
                     }

@@ -1,8 +1,6 @@
 use alloc::{format, vec::Vec};
 
-use cubecl_ir::{
-    GlobalState, Instruction, Memory, NonSemantic, Operation, Scope, Value, ValueKind,
-};
+use cubecl_ir::{GlobalState, Instruction, NonSemantic, Operation, Scope, Value, ValueKind};
 use hashbrown::HashMap;
 
 use crate::post_processing::{
@@ -36,13 +34,11 @@ impl InstructionVisitor for DisaggregateVisitor {
     fn visit_instruction(
         &mut self,
         mut instruction: Instruction,
-        global_state: &GlobalState,
+        _global_state: &GlobalState,
         analyses: &GlobalAnalyses,
         _changes: &AtomicCounter,
     ) -> Vec<Instruction> {
         let mut visitor = Visitor(());
-        let state = global_state.borrow();
-        let allocator = &state.allocator;
 
         // This needs to run even for aggregates so extract -> construct will be properly replaced
         visitor.visit_operation(&mut instruction.operation, analyses, |_, val| {
@@ -60,19 +56,7 @@ impl InstructionVisitor for DisaggregateVisitor {
 
         match &mut instruction.operation {
             Operation::ConstructAggregate(fields) => {
-                let mut fields = fields.clone();
-                // Make an immutable copy if the value is mutable
-                for field in fields.iter_mut().filter(|it| it.can_mutate()) {
-                    if field.is_value() {
-                        let new_field = allocator.create_value(field.ty);
-                        new_instructions.push(Instruction::new(Operation::Copy(*field), new_field));
-                        *field = new_field;
-                    } else if !field.is_array() {
-                        let new_field = allocator.create_value(field.ty);
-                        new_instructions.push(Instruction::new(Memory::Load(*field), new_field));
-                        *field = new_field;
-                    }
-                }
+                let fields = fields.clone();
                 self.substitutes.insert(instruction.out().kind, fields);
             }
             Operation::ExtractAggregateField(operands) => {
