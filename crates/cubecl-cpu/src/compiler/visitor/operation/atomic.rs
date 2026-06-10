@@ -34,12 +34,12 @@ impl<'a> Visitor<'a> {
                     extra_options,
                 ));
                 if let Some(out) = out {
-                    self.insert_variable(out, value);
+                    self.insert_value(out, value);
                 }
             }
             AtomicOp::Store(store_operands) => {
                 let raw_ptr = self.get_raw_ptr(store_operands.ptr);
-                let value = self.get_variable(store_operands.value);
+                let value = self.get_value(store_operands.value);
                 let size = store_operands.value.ty.elem_type().size();
                 let integer_type = IntegerType::new(self.context, 64).into();
                 let size = IntegerAttribute::new(integer_type, size as i64);
@@ -64,8 +64,8 @@ impl<'a> Visitor<'a> {
             | AtomicOp::Xor(op) => self.visit_atomic_binary_operands(atomic, op, out),
             AtomicOp::CompareAndSwap(compare_and_swap_operands) => {
                 let ptr = self.get_raw_ptr(compare_and_swap_operands.ptr);
-                let cmp = self.get_variable(compare_and_swap_operands.cmp);
-                let val = self.get_variable(compare_and_swap_operands.val);
+                let cmp = self.get_value(compare_and_swap_operands.cmp);
+                let val = self.get_value(compare_and_swap_operands.val);
                 let extra_options = CmpXchgOptions::new();
                 let value = self.append_operation_with_result(llvm::cmpxchg(
                     self.context,
@@ -85,14 +85,14 @@ impl<'a> Visitor<'a> {
                         out.ty.to_type(self.context),
                         self.location,
                     ));
-                    self.insert_variable(out, value);
+                    self.insert_value(out, value);
                 }
             }
         };
     }
 
-    fn get_raw_ptr(&mut self, variable: cube::Value) -> Value<'a, 'a> {
-        let value = self.get_memory(variable);
+    fn get_raw_ptr(&mut self, value: cube::Value) -> Value<'a, 'a> {
+        let value = self.get_value(value);
         let value = self.append_operation_with_result(memref::extract_aligned_pointer_as_index(
             value,
             self.location,
@@ -117,7 +117,7 @@ impl<'a> Visitor<'a> {
         let value = if let AtomicOp::Sub(_) = atomic {
             self.get_neg_val(atomic_binary_operands.value)
         } else {
-            self.get_variable(atomic_binary_operands.value)
+            self.get_value(atomic_binary_operands.value)
         };
         let kind = match atomic {
             AtomicOp::Swap(_) => AtomicRMWKind::Assign,
@@ -136,7 +136,7 @@ impl<'a> Visitor<'a> {
             AtomicOp::Xor(_) => AtomicRMWKind::XOrI,
             _ => unreachable!(),
         };
-        let memref = self.get_memory(atomic_binary_operands.ptr);
+        let memref = self.get_value(atomic_binary_operands.ptr);
         let zero = self.create_constant_index(0);
 
         let value = self.append_operation_with_result(memref::atomic_rmw(
@@ -148,7 +148,7 @@ impl<'a> Visitor<'a> {
             self.location,
         ));
         if let Some(out) = out {
-            self.insert_variable(out, value);
+            self.insert_value(out, value);
         }
     }
 }

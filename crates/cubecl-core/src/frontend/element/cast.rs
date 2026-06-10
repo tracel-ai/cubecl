@@ -35,12 +35,12 @@ pub(crate) fn cast_expand_elem(scope: &Scope, from: Value, to_ty: Type) -> Value
     if vec_in > 1 && elems_in != elems_out {
         expand_error!("Cast element count must match if input is not scalar");
     }
-    let new_var = scope.create_value(to_ty.unwrap_ptr());
+    let new_val = scope.create_value(to_ty.unwrap_ptr());
     scope.register(Instruction::new(
         Operator::Cast(UnaryOperands { input: from }),
-        new_var,
+        new_val,
     ));
-    new_var
+    new_val
 }
 
 impl<P: CubePrimitive> Cast for P {
@@ -71,14 +71,14 @@ pub trait Reinterpret: CubePrimitive {
         let size_in = ty_in.size();
         let size_out = ty_out.size();
         expand_assert!(size_in == size_out, "Reinterpret type sizes must match");
-        let new_var = scope.create_value(ty_out);
+        let new_val = scope.create_value(ty_out);
         scope.register(Instruction::new(
             Operator::Reinterpret(UnaryOperands {
                 input: value.expand,
             }),
-            new_var,
+            new_val,
         ));
-        new_var.into()
+        new_val.into()
     }
 
     fn __expand_reinterpret_vectorization<From: CubePrimitive>(scope: &Scope) -> usize {

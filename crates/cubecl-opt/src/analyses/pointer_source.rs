@@ -10,7 +10,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct PointerSource {
-    /// The source variable of each pointer, propagated through copies
+    /// The source memory of each pointer, propagated through copies
     pointer_sources: RefCell<HashMap<Id, MemoryBlock>>,
 }
 

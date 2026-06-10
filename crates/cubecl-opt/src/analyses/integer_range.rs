@@ -1,6 +1,5 @@
 use cubecl_ir::{
-    Arithmetic, Builtin, ConstantValue, ElemType, Id, Operation, Operator, Type, Value,
-    ValueKind,
+    Arithmetic, Builtin, ConstantValue, ElemType, Id, Operation, Operator, Type, Value, ValueKind,
 };
 use hashbrown::HashMap;
 
@@ -17,7 +16,7 @@ pub struct Range {
 /// Perform analysis on the possible ranges of integer values and store the results for use in later
 /// optimization passes. Reasons for integers being bounded but not constant might be: the modulo
 /// operator (bounds it to `0..m`), or `UNIT_POS` (bounded by `CubeDim`). Bounds can be transferred
-/// between simple arithmetic, so we can determine the possible range of a good number of variables.
+/// between simple arithmetic, so we can determine the possible range of a good number of values.
 /// This is currently only used in index bound analysis.
 #[derive(Debug, Default)]
 #[allow(unused)]
@@ -58,7 +57,7 @@ impl Ranges {
                 match &inst.operation {
                     Operation::Arithmetic(op) => match op {
                         Arithmetic::Add(binop) if is_uint(inst.ty()) => {
-                            if let Some(out_id) = var_id(&inst.out()) {
+                            if let Some(out_id) = val_id(&inst.out()) {
                                 let lhs_range = self.range_of(&binop.lhs);
                                 let rhs_range = self.range_of(&binop.rhs);
                                 let out_range = lhs_range + rhs_range;
@@ -69,7 +68,7 @@ impl Ranges {
                             }
                         }
                         Arithmetic::Sub(binop) if is_uint(inst.ty()) => {
-                            if let Some(out_id) = var_id(&inst.out()) {
+                            if let Some(out_id) = val_id(&inst.out()) {
                                 let lhs_range = self.range_of(&binop.lhs);
                                 let rhs_range = self.range_of(&binop.rhs);
                                 let out_range = lhs_range - rhs_range;
@@ -80,7 +79,7 @@ impl Ranges {
                             }
                         }
                         Arithmetic::Mul(binop) if is_uint(inst.ty()) => {
-                            if let Some(out_id) = var_id(&inst.out()) {
+                            if let Some(out_id) = val_id(&inst.out()) {
                                 let lhs_range = self.range_of(&binop.lhs);
                                 let rhs_range = self.range_of(&binop.rhs);
                                 let out_range = lhs_range * rhs_range;
@@ -91,7 +90,7 @@ impl Ranges {
                             }
                         }
                         Arithmetic::Div(binop) if is_uint(inst.ty()) => {
-                            if let Some(out_id) = var_id(&inst.out()) {
+                            if let Some(out_id) = val_id(&inst.out()) {
                                 let lhs_range = self.range_of(&binop.lhs);
                                 let rhs_range = self.range_of(&binop.rhs);
                                 let out_range = lhs_range / rhs_range;
@@ -102,7 +101,7 @@ impl Ranges {
                             }
                         }
                         Arithmetic::ModFloor(binop) if is_uint(inst.ty()) => {
-                            if let Some(out_id) = var_id(&inst.out()) {
+                            if let Some(out_id) = val_id(&inst.out()) {
                                 let lhs_range = self.range_of(&binop.lhs);
                                 let rhs_range = self.range_of(&binop.rhs);
                                 let out_range = lhs_range % rhs_range;
@@ -115,17 +114,17 @@ impl Ranges {
                         _ => {}
                     },
                     Operation::Operator(Operator::ReadBuiltin(builtin)) => {
-                        if let Some(out_id) = var_id(&inst.out()) {
+                        if let Some(out_id) = val_id(&inst.out()) {
                             let cube_dim = state.cube_dim;
                             let range = match builtin {
                                 Builtin::UnitPos => Range::uint(cube_dim.num_elems() as u64 - 1),
                                 Builtin::UnitPosX => Range::uint(cube_dim.x as u64 - 1),
                                 Builtin::UnitPosY => Range::uint(cube_dim.y as u64 - 1),
                                 Builtin::UnitPosZ => Range::uint(cube_dim.z as u64 - 1),
-                                Builtin::CubeCount => Range::constant(cube_dim.num_elems() as u64),
-                                Builtin::CubeCountX => Range::constant(cube_dim.x as u64),
-                                Builtin::CubeCountY => Range::constant(cube_dim.y as u64),
-                                Builtin::CubeCountZ => Range::constant(cube_dim.z as u64),
+                                Builtin::CubeDim => Range::constant(cube_dim.num_elems() as u64),
+                                Builtin::CubeDimX => Range::constant(cube_dim.x as u64),
+                                Builtin::CubeDimY => Range::constant(cube_dim.y as u64),
+                                Builtin::CubeDimZ => Range::constant(cube_dim.z as u64),
                                 _ => Default::default(),
                             };
                             self.int_ranges.insert(out_id, range);
@@ -141,11 +140,11 @@ impl Ranges {
 }
 
 impl Ranges {
-    /// The possible range of values of any variable, if applicable. Returns unbounded range if no range
+    /// The possible range of values of any values, if applicable. Returns unbounded range if no range
     /// can be determined, or the type is not an integer.
-    pub fn range_of(&self, var: &Value) -> Range {
-        match var.kind {
-            ValueKind::Value { id } if is_uint(var.ty) => {
+    pub fn range_of(&self, val: &Value) -> Range {
+        match val.kind {
+            ValueKind::Value { id } if is_uint(val.ty) => {
                 self.int_ranges.get(&id).copied().unwrap_or(Range {
                     lower_bound: Some(0),
                     upper_bound: None,
@@ -158,8 +157,8 @@ impl Ranges {
     }
 }
 
-pub(crate) fn var_id(var: &Value) -> Option<Id> {
-    match var.kind {
+pub(crate) fn val_id(val: &Value) -> Option<Id> {
+    match val.kind {
         ValueKind::Value { id } => Some(id),
         _ => None,
     }

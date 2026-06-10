@@ -20,7 +20,7 @@ impl<'a> Visitor<'a> {
             &[offset],
             self.location,
         ));
-        self.insert_variable(out, result);
+        self.insert_value(out, result);
     }
 
     fn append_extended_metadata(&mut self, offset: u32, dim: cube::Value, out: cube::Value) {
@@ -53,7 +53,7 @@ impl<'a> Visitor<'a> {
             &[offset],
             self.location,
         ));
-        self.insert_variable(out, result);
+        self.insert_value(out, result);
     }
 
     pub fn visit_metadata(&mut self, metadata: &Metadata, out: cube::Value) {

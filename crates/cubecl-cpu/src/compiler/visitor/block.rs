@@ -34,7 +34,7 @@ impl<'a> Visitor<'a> {
 
         let block = Block::new(&arguments);
         for (i, phi_node) in basic_block.phi_nodes.borrow().iter().enumerate() {
-            self.insert_variable(phi_node.out, block.argument(i).unwrap().into());
+            self.insert_value(phi_node.out, block.argument(i).unwrap().into());
         }
         let this_block = self
             .current_region
@@ -57,7 +57,7 @@ impl<'a> Visitor<'a> {
                 or_else,
                 merge,
             } => {
-                let condition = self.get_variable(*cond);
+                let condition = self.get_value(*cond);
                 let condition = self.cast_to_bool(condition, cond.ty);
                 if let Some(merge) = merge {
                     self.visit_basic_block(*merge, func);
@@ -83,7 +83,7 @@ impl<'a> Visitor<'a> {
                 merge,
             } => {
                 let case_values: Vec<_> = branches.iter().map(|(n, _)| *n as i64).collect();
-                let operand = self.get_variable(*value);
+                let operand = self.get_value(*value);
                 let operand_type = value.ty.to_type(self.context);
                 if let Some(merge) = merge {
                     self.visit_basic_block(*merge, func);
@@ -136,7 +136,7 @@ impl<'a> Visitor<'a> {
                 continue_target,
                 merge,
             } => {
-                let condition = self.get_variable(*break_cond);
+                let condition = self.get_value(*break_cond);
                 let condition = self.cast_to_bool(condition, break_cond.ty);
                 let body_block = self.visit_basic_block(*body, func);
                 self.visit_basic_block(*continue_target, func);

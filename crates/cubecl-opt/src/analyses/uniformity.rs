@@ -12,7 +12,7 @@ use super::Analysis;
 #[derive(Default, Clone)]
 pub struct Uniformity {
     block_uniformity: HashMap<NodeIndex, bool>,
-    variable_uniformity: HashMap<Value, bool>,
+    value_uniformity: HashMap<Value, bool>,
     visited: HashSet<EdgeIndex>,
 }
 
@@ -188,19 +188,19 @@ impl Uniformity {
         Some(())
     }
 
-    fn mark_uniformity(&mut self, var: Value, value: bool) -> Option<()> {
-        if let Some(val) = self.variable_uniformity.get_mut(&var) {
+    fn mark_uniformity(&mut self, val: Value, new_value: bool) -> Option<()> {
+        if let Some(prev_value) = self.value_uniformity.get_mut(&val) {
             // If the value was already set before and has been invalidated, we need to revisit
-            // all edges. This only happens for loopback edges, where an uninitialized variable
+            // all edges. This only happens for loopback edges, where an uninitialized value
             // was assumed to be uniform but actually isn't
-            let invalidate = !value && *val;
-            *val = *val && value;
+            let invalidate = !new_value && *prev_value;
+            *prev_value = *prev_value && new_value;
             if invalidate {
                 self.visited.clear();
                 return None;
             }
         } else {
-            self.variable_uniformity.insert(var, value);
+            self.value_uniformity.insert(val, new_value);
         }
         Some(())
     }
@@ -210,11 +210,11 @@ impl Uniformity {
             .unwrap_or(false)
     }
 
-    /// Whether a variable is plane uniform
-    pub fn is_val_uniform(&self, var: Value) -> bool {
-        match var.kind {
+    /// Whether a value is plane uniform
+    pub fn is_val_uniform(&self, val: Value) -> bool {
+        match val.kind {
             ValueKind::Constant(_) => true,
-            ValueKind::Value { .. } => self.variable_uniformity.get(&var).copied().unwrap_or(true),
+            ValueKind::Value { .. } => self.value_uniformity.get(&val).copied().unwrap_or(true),
         }
     }
 

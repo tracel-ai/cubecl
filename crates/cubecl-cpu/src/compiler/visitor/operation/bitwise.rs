@@ -82,23 +82,23 @@ impl<'a> Visitor<'a> {
     pub fn visit_bitwise(&mut self, bitwise: &Bitwise, out: cube::Value) {
         let value = match bitwise {
             Bitwise::BitwiseAnd(bin_op) => {
-                let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
+                let (lhs, rhs) = self.get_binary_op_values(bin_op.lhs, bin_op.rhs);
                 self.append_operation_with_result(arith::andi(lhs, rhs, self.location))
             }
             Bitwise::BitwiseOr(bin_op) => {
-                let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
+                let (lhs, rhs) = self.get_binary_op_values(bin_op.lhs, bin_op.rhs);
                 self.append_operation_with_result(arith::ori(lhs, rhs, self.location))
             }
             Bitwise::BitwiseXor(bin_op) => {
-                let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
+                let (lhs, rhs) = self.get_binary_op_values(bin_op.lhs, bin_op.rhs);
                 self.append_operation_with_result(arith::xori(lhs, rhs, self.location))
             }
             Bitwise::ShiftLeft(bin_op) => {
-                let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
+                let (lhs, rhs) = self.get_binary_op_values(bin_op.lhs, bin_op.rhs);
                 self.append_operation_with_result(arith::shli(lhs, rhs, self.location))
             }
             Bitwise::ShiftRight(bin_op) => {
-                let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
+                let (lhs, rhs) = self.get_binary_op_values(bin_op.lhs, bin_op.rhs);
                 let operation = if bin_op.lhs.ty.is_signed_int() {
                     arith::shrsi(lhs, rhs, self.location)
                 } else {
@@ -107,7 +107,7 @@ impl<'a> Visitor<'a> {
                 self.append_operation_with_result(operation)
             }
             Bitwise::CountOnes(unary_op) => {
-                let value = self.get_variable(unary_op.input);
+                let value = self.get_value(unary_op.input);
                 let result_type = unary_op.input.ty.to_type(self.context);
                 let value = self.append_operation_with_result(llvm::intr_ctpop(
                     value,
@@ -117,7 +117,7 @@ impl<'a> Visitor<'a> {
                 self.convert_bit_count_to_u32(value, unary_op.input)
             }
             Bitwise::ReverseBits(unary_op) => {
-                let value = self.get_variable(unary_op.input);
+                let value = self.get_value(unary_op.input);
                 let result_type = unary_op.input.ty.to_type(self.context);
                 self.append_operation_with_result(llvm::intr_bitreverse(
                     value,
@@ -126,12 +126,12 @@ impl<'a> Visitor<'a> {
                 ))
             }
             Bitwise::BitwiseNot(unary_op) => {
-                let value = self.get_variable(unary_op.input);
+                let value = self.get_value(unary_op.input);
                 let mask = self.create_int_constant_from_item(unary_op.input.ty, -1);
                 self.append_operation_with_result(arith::xori(value, mask, self.location))
             }
             Bitwise::LeadingZeros(unary_op) => {
-                let value = self.get_variable(unary_op.input);
+                let value = self.get_value(unary_op.input);
                 let result_type = unary_op.input.ty.to_type(self.context);
                 let value = self.append_operation_with_result(llvm::intr_ctlz(
                     self.context,
@@ -143,7 +143,7 @@ impl<'a> Visitor<'a> {
                 self.count_zeros_with_clamp(value, unary_op.input, out)
             }
             Bitwise::TrailingZeros(unary_op) => {
-                let value = self.get_variable(unary_op.input);
+                let value = self.get_value(unary_op.input);
                 let result_type = unary_op.input.ty.to_type(self.context);
                 let value = self.append_operation_with_result(llvm::intr_cttz(
                     self.context,
@@ -155,7 +155,7 @@ impl<'a> Visitor<'a> {
                 self.count_zeros_with_clamp(value, unary_op.input, out)
             }
             Bitwise::FindFirstSet(unary_op) => {
-                let value = self.get_variable(unary_op.input);
+                let value = self.get_value(unary_op.input);
                 let result_type = unary_op.input.ty.to_type(self.context);
                 let value = self.append_operation_with_result(llvm::intr_cttz(
                     self.context,
@@ -193,6 +193,6 @@ impl<'a> Visitor<'a> {
                 self.convert_bit_count_to_u32(value, unary_op.input)
             }
         };
-        self.insert_variable(out, value);
+        self.insert_value(out, value);
     }
 }

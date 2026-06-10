@@ -74,7 +74,12 @@ impl<'a> Visitor<'a> {
         let blocks = HashMap::new();
         let blocks_args = HashMap::new();
         let str_counter = 0;
-        let values = Values::new();
+        let mut values = Values::new();
+
+        for (&id, &buffer) in args_manager.buffers.iter() {
+            values.insert(id, buffer);
+        }
+
         Self {
             first_block: None,
             block: current_block,
@@ -103,7 +108,7 @@ impl<'a> Visitor<'a> {
             .get(&(block_id, destination))
             .unwrap_or(&vec![])
             .iter()
-            .map(|v| self.get_variable(*v))
+            .map(|v| self.get_value(*v))
             .collect();
         self.block = current_block;
         args

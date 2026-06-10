@@ -674,8 +674,8 @@ impl WgslCompiler {
                 out: self.compile_value(out),
             }),
             cube::Arithmetic::Expm1(op) => instructions.push(wgsl::Instruction::Expm1 {
-                input: self.compile_variable(op.input),
-                out: self.compile_variable(out),
+                input: self.compile_value(op.input),
+                out: self.compile_value(out),
             }),
             cube::Arithmetic::Cos(op) => instructions.push(wgsl::Instruction::Cos {
                 input: self.compile_value(op.input),

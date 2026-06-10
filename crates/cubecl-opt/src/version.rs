@@ -15,7 +15,7 @@ pub struct SsaState<'a> {
     visited_edges: &'a mut HashSet<EdgeIndex>,
 }
 
-/// An entry in the phi instruction. Contains the variable ID that should be used when coming from
+/// An entry in the phi instruction. Contains the value ID that should be used when coming from
 /// `block`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PhiEntry {
@@ -56,7 +56,7 @@ pub struct PhiEntry {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct PhiInstruction {
-    /// The out variable for the phi instruction
+    /// The out value for the phi instruction
     pub out: Value,
     /// The set of `block`-`value` pairs for the phi instruction
     pub entries: Vec<PhiEntry>,
@@ -184,9 +184,9 @@ impl Function {
     }
 }
 
-fn as_local(var: Value) -> Option<(Id, Type)> {
-    match var.kind {
-        ValueKind::Value { id } => Some((id, var.ty)),
+fn as_local(val: Value) -> Option<(Id, Type)> {
+    match val.kind {
+        ValueKind::Value { id } => Some((id, val.ty)),
         _ => None,
     }
 }

@@ -30,7 +30,7 @@ pub enum Operation {
     #[operation(pure)]
     #[from(ignore)]
     Copy(#[args(allow_ptr)] Value),
-    /// Construct an aggregate (i.e. fat pointer) that's later disaggregated into normal variables
+    /// Construct an aggregate (i.e. fat pointer) that's later disaggregated into normal values
     /// supported by codegen. Not allowed to exist after the disaggregation pass.
     ConstructAggregate(#[args(allow_ptr)] Vec<Value>),
     /// Extract a specific field from an aggregate (i.e. read the length from a slice ptr).
@@ -276,7 +276,7 @@ pub struct AggregateExtractOperands {
 pub struct Function {
     /// Explicit parameters passed to the function. Does not contain closure captures.
     pub explicit_params: Vec<Value>,
-    /// Scope containing closure instructions. Unknown variables that aren't explicit params are
+    /// Scope containing closure instructions. Unknown values that aren't explicit params are
     /// assumed to be captures.
     pub scope: Scope,
 }

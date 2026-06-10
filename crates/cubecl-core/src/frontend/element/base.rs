@@ -761,7 +761,7 @@ impl<T: NativeAssign> IntoMut for NativeExpand<T> {
 
 impl<T: ?Sized> CubeDebug for NativeExpand<T> {
     fn set_debug_name(&self, scope: &Scope, name: &'static str) {
-        scope.update_variable_name(self.expand, name);
+        scope.update_value_name(self.expand, name);
     }
 }
 

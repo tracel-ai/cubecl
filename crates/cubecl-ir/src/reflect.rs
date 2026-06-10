@@ -167,8 +167,8 @@ impl OperationArgs for bool {
 
 /// Types that can be destructured into and created from a list of [`Value`]s.
 pub trait FromArgList: Sized {
-    /// Creates this type from a list of variables. This works like a parse stream, where consumed
-    /// variables are popped from the front.
+    /// Creates this type from a list of values. This works like a parse stream, where consumed
+    /// values are popped from the front.
     fn from_arg_list(args: &mut VecDeque<Value>) -> Self;
     /// Turns this type into a list of [`Value`]s.
     fn as_arg_list(&self) -> impl IntoIterator<Item = Value>;
@@ -177,7 +177,7 @@ pub trait FromArgList: Sized {
 
 impl FromArgList for Value {
     fn from_arg_list(args: &mut VecDeque<Value>) -> Self {
-        args.pop_front().expect("Missing variable from arg list")
+        args.pop_front().expect("Missing value from arg list")
     }
 
     fn as_arg_list(&self) -> impl IntoIterator<Item = Value> {
@@ -206,7 +206,7 @@ impl FromArgList for Vec<Value> {
 impl FromArgList for bool {
     fn from_arg_list(args: &mut VecDeque<Value>) -> Self {
         args.pop_front()
-            .expect("Missing variable from arg list")
+            .expect("Missing value from arg list")
             .as_const()
             .unwrap()
             .as_bool()
@@ -224,7 +224,7 @@ impl FromArgList for bool {
 impl FromArgList for u32 {
     fn from_arg_list(args: &mut VecDeque<Value>) -> Self {
         args.pop_front()
-            .expect("Missing variable from arg list")
+            .expect("Missing value from arg list")
             .as_const()
             .unwrap()
             .as_u32()
@@ -246,7 +246,7 @@ impl OperationArgs for Builtin {
 impl FromArgList for usize {
     fn from_arg_list(args: &mut VecDeque<Value>) -> Self {
         args.pop_front()
-            .expect("Missing variable from arg list")
+            .expect("Missing value from arg list")
             .as_const()
             .unwrap()
             .as_usize()

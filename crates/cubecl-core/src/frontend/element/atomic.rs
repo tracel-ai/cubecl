@@ -25,9 +25,9 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     pub fn load(&self) -> Inner {
         intrinsic!(|scope| {
             let pointer: Value = self.clone().into();
-            let new_var = scope.create_value(Inner::__expand_as_type(scope));
-            scope.register(Instruction::new(AtomicOp::Load(pointer), new_var));
-            new_var.into()
+            let new_val = scope.create_value(Inner::__expand_as_type(scope));
+            scope.register(Instruction::new(AtomicOp::Load(pointer), new_val));
+            new_val.into()
         })
     }
 
@@ -48,12 +48,12 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Value = self.clone().into();
             let value: Value = value.into();
-            let new_var = scope.create_value(Inner::__expand_as_type(scope));
+            let new_val = scope.create_value(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Swap(AtomicBinaryOperands { ptr, value }),
-                new_var,
+                new_val,
             ));
-            new_var.into()
+            new_val.into()
         })
     }
 
@@ -62,12 +62,12 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Value = self.clone().into();
             let value: Value = value.into();
-            let new_var = scope.create_value(Inner::__expand_as_type(scope));
+            let new_val = scope.create_value(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Add(AtomicBinaryOperands { ptr, value }),
-                new_var,
+                new_val,
             ));
-            new_var.into()
+            new_val.into()
         })
     }
 
@@ -76,12 +76,12 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Value = self.clone().into();
             let value: Value = value.into();
-            let new_var = scope.create_value(Inner::__expand_as_type(scope));
+            let new_val = scope.create_value(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Sub(AtomicBinaryOperands { ptr, value }),
-                new_var,
+                new_val,
             ));
-            new_var.into()
+            new_val.into()
         })
     }
 
@@ -91,12 +91,12 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Value = self.clone().into();
             let value: Value = value.into();
-            let new_var = scope.create_value(Inner::__expand_as_type(scope));
+            let new_val = scope.create_value(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Max(AtomicBinaryOperands { ptr, value }),
-                new_var,
+                new_val,
             ));
-            new_var.into()
+            new_val.into()
         })
     }
 
@@ -106,12 +106,12 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Value = self.clone().into();
             let value: Value = value.into();
-            let new_var = scope.create_value(Inner::__expand_as_type(scope));
+            let new_val = scope.create_value(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Min(AtomicBinaryOperands { ptr, value }),
-                new_var,
+                new_val,
             ));
-            new_var.into()
+            new_val.into()
         })
     }
 }
@@ -128,16 +128,16 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
             let pointer: Value = self.clone().into();
             let cmp: Value = cmp.into();
             let value: Value = value.into();
-            let new_var = scope.create_value(Inner::__expand_as_type(scope));
+            let new_val = scope.create_value(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::CompareAndSwap(CompareAndSwapOperands {
                     ptr: pointer,
                     cmp: cmp,
                     val: value,
                 }),
-                new_var,
+                new_val,
             ));
-            new_var.into()
+            new_val.into()
         })
     }
 
@@ -146,12 +146,12 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Value = self.clone().into();
             let value: Value = value.into();
-            let new_var = scope.create_value(Inner::__expand_as_type(scope));
+            let new_val = scope.create_value(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::And(AtomicBinaryOperands { ptr, value }),
-                new_var,
+                new_val,
             ));
-            new_var.into()
+            new_val.into()
         })
     }
 
@@ -160,12 +160,12 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Value = self.clone().into();
             let value: Value = value.into();
-            let new_var = scope.create_value(Inner::__expand_as_type(scope));
+            let new_val = scope.create_value(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Or(AtomicBinaryOperands { ptr, value }),
-                new_var,
+                new_val,
             ));
-            new_var.into()
+            new_val.into()
         })
     }
 
@@ -174,12 +174,12 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr: Value = self.clone().into();
             let value: Value = value.into();
-            let new_var = scope.create_value(Inner::__expand_as_type(scope));
+            let new_val = scope.create_value(Inner::__expand_as_type(scope));
             scope.register(Instruction::new(
                 AtomicOp::Xor(AtomicBinaryOperands { ptr, value }),
-                new_var,
+                new_val,
             ));
-            new_var.into()
+            new_val.into()
         })
     }
 }

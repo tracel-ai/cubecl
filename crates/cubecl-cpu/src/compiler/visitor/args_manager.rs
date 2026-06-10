@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use cubecl_core::{
     Info, Metadata,
-    ir::{self as cube, AddressSpace, Builtin, ElemType, IntKind, StorageType, UIntKind},
-    prelude::{KernelDefinition, ScalarKernelArg},
+    ir::{self as cube, AddressSpace, Builtin, ElemType, Id, IntKind, StorageType, UIntKind},
+    prelude::{KernelArg, KernelDefinition, ScalarKernelArg},
 };
 use tracel_llvm::mlir_rs::{
     dialect::{arith, memref},
@@ -25,7 +25,7 @@ const NB_SYNC_CUBE_ARGS: usize = 1;
 
 pub(super) struct ArgsManagerBuilder<'a, 'b> {
     scalars: Vec<ScalarKernelArg>,
-    buffers_len: usize,
+    buffers: Vec<KernelArg>,
     function_types: Vec<Type<'a>>,
     info: Info,
     ext_meta_positions: HashMap<cube::Value, u32>,
@@ -71,10 +71,11 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
 
         let metadata = Metadata::new(num_meta as u32, num_ext);
         let info = Info::new(&kernel.scalars, metadata, addr_type);
+        let buffers = kernel.buffers.clone();
         let scalars = kernel.scalars.clone();
 
         let mut args = Self {
-            buffers_len: kernel.buffers.len(),
+            buffers,
             scalars,
             function_types: Vec::with_capacity(total_arg_len),
             block_inputs: Vec::with_capacity(total_arg_len),
@@ -137,7 +138,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         location: Location<'a>,
     ) -> ArgsManager<'a> {
         let mut args = ArgsManager {
-            buffers: Vec::with_capacity(self.buffers_len),
+            buffers: HashMap::with_capacity(self.buffers.len()),
             scalars_memref: HashMap::with_capacity(self.scalars.len()),
             static_metadata_memref: None,
             dynamic_metadata_memref: None,
@@ -153,11 +154,12 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         let block = Block::new(&self.block_inputs);
 
         let mut total_len = 0;
-        for i in 0..self.buffers_len {
-            args.buffers.push(block.argument(i).unwrap().into());
+        for (i, buffer) in self.buffers.iter().enumerate() {
+            args.buffers
+                .insert(buffer.value.id(), block.argument(i).unwrap().into());
         }
 
-        total_len += self.buffers_len;
+        total_len += self.buffers.len();
 
         for (i, shared_memory) in self.shared_memories.0.iter().enumerate() {
             let i = i + total_len;
@@ -254,7 +256,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
 }
 
 pub(super) struct ArgsManager<'a> {
-    pub buffers: Vec<Value<'a, 'a>>,
+    pub buffers: HashMap<Id, Value<'a, 'a>>,
     pub scalars_memref: HashMap<StorageType, Value<'a, 'a>>,
     pub static_metadata_memref: Option<Value<'a, 'a>>,
     pub dynamic_metadata_memref: Option<Value<'a, 'a>>,

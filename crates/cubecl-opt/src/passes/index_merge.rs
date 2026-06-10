@@ -4,7 +4,7 @@ use hashbrown::{HashMap, HashSet};
 
 use crate::{
     AtomicCounter, Function, GlobalState,
-    analyses::{integer_range::var_id, pointer_source::PointerSource},
+    analyses::{integer_range::val_id, pointer_source::PointerSource},
     visit_noop,
 };
 
@@ -26,20 +26,20 @@ impl OptimizerPass for CopyTransform {
                 let inst = ops.borrow()[idx].clone();
                 match &inst.operation {
                     Operation::Memory(Memory::Load(ptr))
-                        if is_copyable(&ptr.ty)
+                        if can_copy(&ptr.ty)
                             && let Some(source) = ptr_source.get(ptr)
                             && source.value_ty == inst.ty()
                             && !is_reused(func, state, &inst.out) =>
                     {
-                        if let Some(id) = var_id(&inst.out()) {
+                        if let Some(id) = val_id(&inst.out()) {
                             reads.insert(id, (idx, *ptr, source.root_ptr));
                         }
                     }
                     Operation::Memory(Memory::Store(op))
-                        if is_copyable(&op.ptr.ty)
+                        if can_copy(&op.ptr.ty)
                             && let Some(source) = ptr_source.get(&op.ptr) =>
                     {
-                        if let Some(id) = var_id(&op.value) {
+                        if let Some(id) = val_id(&op.value) {
                             writes.insert(id, (idx, op.ptr, source.root_ptr));
                         }
                     }
@@ -56,8 +56,8 @@ impl OptimizerPass for CopyTransform {
                 for mut inst in
                     (read_idx..write_idx).filter_map(|idx| ops.borrow().get(idx).cloned())
                 {
-                    func.visit_instruction(state, &mut inst, visit_noop, |_, var| {
-                        if *var == in_source || *var == out_source {
+                    func.visit_instruction(state, &mut inst, visit_noop, |_, val| {
+                        if *val == in_source || *val == out_source {
                             is_overwritten = true;
                         }
                     });
@@ -81,20 +81,20 @@ impl OptimizerPass for CopyTransform {
 
 /// Copy is only implemented in SPIR-V for global -> shared or shared -> global. So no point merging
 /// locals.
-fn is_copyable(ty: &Type) -> bool {
+fn can_copy(ty: &Type) -> bool {
     matches!(
         ty.address_space(),
         Some(AddressSpace::Global(..)) | Some(AddressSpace::Shared)
     )
 }
 
-fn is_reused(func: &mut Function, state: &GlobalState, var: &Option<Value>) -> bool {
-    if let Some(var) = var.as_ref() {
+fn is_reused(func: &mut Function, state: &GlobalState, val: &Option<Value>) -> bool {
+    if let Some(val) = val.as_ref() {
         let count = AtomicCounter::new(0);
         func.visit_all(
             state,
             |_, other| {
-                if other == var {
+                if other == val {
                     count.inc();
                 }
             },

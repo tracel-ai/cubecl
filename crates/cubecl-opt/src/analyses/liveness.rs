@@ -99,8 +99,8 @@ fn calculate_block_sets(func: &mut Function, state: &GlobalState, block: NodeInd
     let ops = func[block].ops.clone();
 
     let control_flow = func[block].control_flow.clone();
-    func.visit_control_flow(&mut control_flow.borrow_mut(), |func, var| {
-        if let Some(id) = func.local_variable_id(var) {
+    func.visit_control_flow(&mut control_flow.borrow_mut(), |func, val| {
+        if let Some(id) = func.local_variable_id(val) {
             generated.insert(id);
         }
     });

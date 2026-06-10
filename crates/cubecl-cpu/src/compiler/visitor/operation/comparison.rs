@@ -17,7 +17,7 @@ impl<'a> Visitor<'a> {
             }
         };
 
-        let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
+        let (lhs, rhs) = self.get_binary_op_values(bin_op.lhs, bin_op.rhs);
         let (lhs, rhs) = self.visit_correct_index(lhs, rhs);
 
         let value = if bin_op.lhs.ty.is_float() {
@@ -75,6 +75,6 @@ impl<'a> Visitor<'a> {
             panic!("Impossible comparison");
         };
         let value = self.cast_to_u8(value, out.ty);
-        self.insert_variable(out, value);
+        self.insert_value(out, value);
     }
 }

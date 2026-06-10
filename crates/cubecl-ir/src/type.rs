@@ -833,7 +833,7 @@ impl Type {
         matches!(self, Type::Array(..) | Type::DynamicArray(..))
     }
 
-    /// Whether a type is scalarizable. This implies that
+    /// Whether a type is destructurable. This implies that
     /// * it does not have dynamic field offsets (i.e. `Array`)
     /// * it can exist in registers (i.e. no `Barrier` or `Atomic`)
     pub fn is_destructurable(&self) -> bool {
@@ -1123,7 +1123,7 @@ impl From<f32> for ConstantValue {
     }
 }
 
-macro_rules! impl_into_variable {
+macro_rules! impl_into_value {
     ($($ty: ty => $kind: path,)*) => {
         $(
             impl From<$ty> for Value {
@@ -1135,7 +1135,7 @@ macro_rules! impl_into_variable {
     };
 }
 
-impl_into_variable!(
+impl_into_value!(
     bool => ElemType::Bool,
 
     i8 => IntKind::I8,

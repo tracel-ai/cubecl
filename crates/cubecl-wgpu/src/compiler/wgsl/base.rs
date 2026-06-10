@@ -357,10 +357,6 @@ impl Value {
             val => format!("{val}"),
         }
     }
-
-    pub fn is_const(&self) -> bool {
-        matches!(self, Value::Value { .. })
-    }
 }
 
 impl IndexedValue {

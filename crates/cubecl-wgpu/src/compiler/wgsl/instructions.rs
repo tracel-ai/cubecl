@@ -128,8 +128,8 @@ pub enum Instruction {
         out: Value,
     },
     Expm1 {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Cos {
         input: Value,
@@ -1147,7 +1147,7 @@ for (*{i} = {start}; *{i} {cmp} {end}; {increment}) {{
     }
 }
 
-fn expm1(f: &mut std::fmt::Formatter<'_>, input: &Variable, out: &Variable) -> std::fmt::Result {
+fn expm1(f: &mut std::fmt::Formatter<'_>, input: &Value, out: &Value) -> std::fmt::Result {
     let item = out.item();
     let scalar = Item::Scalar(*item.elem());
     let input = input.fmt_cast_to(item);

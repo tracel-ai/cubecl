@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_core::ir::{self as cube, AddressSpace, Builtin, ConstantValue, FloatKind, ValueKind};
+use cubecl_core::ir::{self as cube, Builtin, ConstantValue, FloatKind, Id, ValueKind};
 use tracel_llvm::mlir_rs::{
     dialect::{
         index, memref,
@@ -15,21 +15,16 @@ use tracel_llvm::mlir_rs::{
 
 use super::prelude::*;
 
-pub type Values<'a> = HashMap<ValueKind, Value<'a, 'a>>;
+pub type Values<'a> = HashMap<Id, Value<'a, 'a>>;
 
 impl<'a> Visitor<'a> {
-    pub fn insert_variable(&mut self, variable: cube::Value, value: Value<'a, 'a>) {
-        match variable.kind {
-            ValueKind::Value { .. } => {
-                self.values.insert(variable.kind, value);
-            }
-            _ => todo!("This variable is not implemented {:?}", variable),
-        };
+    pub fn insert_value(&mut self, cube_value: cube::Value, mlir_value: Value<'a, 'a>) {
+        self.values.insert(cube_value.id(), mlir_value);
     }
 
     pub fn declare_mutable_memory(
         &mut self,
-        variable: cube::Value,
+        cube_value: cube::Value,
         value_ty: cube::Type,
         alignment: usize,
     ) {
@@ -50,16 +45,16 @@ impl<'a> Visitor<'a> {
                 self.location,
             ))
             .unwrap();
-        self.values.insert(variable.kind, value);
+        self.values.insert(cube_value.id(), value);
     }
 
-    pub fn get_binary_op_variable(
+    pub fn get_binary_op_values(
         &self,
         lhs: cube::Value,
         rhs: cube::Value,
     ) -> (Value<'a, 'a>, Value<'a, 'a>) {
         let vectorization_factor = std::cmp::max(lhs.vector_size(), rhs.vector_size());
-        let (mut lhs_value, mut rhs_value) = (self.get_variable(lhs), self.get_variable(rhs));
+        let (mut lhs_value, mut rhs_value) = (self.get_value(lhs), self.get_value(rhs));
 
         if lhs_value.r#type().is_vector() || rhs_value.r#type().is_vector() {
             if !lhs_value.r#type().is_vector() {
@@ -90,39 +85,23 @@ impl<'a> Visitor<'a> {
         (lhs_value, rhs_value)
     }
 
-    pub fn get_memory(&mut self, variable: cube::Value) -> Value<'a, 'a> {
-        match variable.kind {
-            ValueKind::Value { .. } if let AddressSpace::Global(id) = variable.address_space() => {
-                self.args_manager.buffers[id as usize]
-            }
-            ValueKind::Value { .. } => *self
+    pub fn get_value(&self, cube_value: cube::Value) -> Value<'a, 'a> {
+        match cube_value.kind {
+            ValueKind::Value { id } => *self
                 .values
-                .get(&variable.kind)
-                .expect("Value should have been declared before"),
-            _ => todo!(
-                "This variable isn't backed by memory or implemented: {}",
-                variable
-            ),
-        }
-    }
-
-    pub fn get_variable(&self, variable: cube::Value) -> Value<'a, 'a> {
-        match variable.kind {
-            ValueKind::Value { .. } => *self
-                .values
-                .get(&variable.kind)
+                .get(&id)
                 .expect("Value should have been declared before"),
             ValueKind::Constant(constant_scalar_value) => {
                 let (const_type, attribute) = match constant_scalar_value {
                     ConstantValue::Int(value) => {
-                        let size = variable.ty.elem_type().size_bits() as u32;
+                        let size = cube_value.ty.elem_type().size_bits() as u32;
 
                         let integer_type = IntegerType::new(self.context, size).into();
                         let integer_attribute = IntegerAttribute::new(integer_type, value).into();
                         (integer_type, integer_attribute)
                     }
                     ConstantValue::UInt(value) => {
-                        let size = variable.ty.elem_type().size_bits() as u32;
+                        let size = cube_value.ty.elem_type().size_bits() as u32;
 
                         let integer_type = IntegerType::new(self.context, size).into();
                         let integer_attribute =
@@ -130,7 +109,7 @@ impl<'a> Visitor<'a> {
                         (integer_type, integer_attribute)
                     }
                     ConstantValue::Float(value) => {
-                        let float_type = match variable.ty.elem_type().as_float().unwrap() {
+                        let float_type = match cube_value.ty.elem_type().as_float().unwrap() {
                             FloatKind::F16 => Type::float16(self.context),
                             FloatKind::BF16 => Type::bfloat16(self.context),
                             FloatKind::F32 => Type::float32(self.context),
@@ -154,9 +133,9 @@ impl<'a> Visitor<'a> {
                     attribute,
                     self.location,
                 ));
-                match variable.ty.is_vectorized() {
+                match cube_value.ty.is_vectorized() {
                     true => {
-                        let vector = Type::vector(&[variable.vector_size() as u64], const_type);
+                        let vector = Type::vector(&[cube_value.vector_size() as u64], const_type);
                         self.append_operation_with_result(vector::broadcast(
                             self.context,
                             vector,
@@ -172,11 +151,11 @@ impl<'a> Visitor<'a> {
 
     pub fn get_index(
         &self,
-        variable: cube::Value,
+        value: cube::Value,
         target_item: cube::Type,
         list_is_vectorized: bool,
     ) -> Value<'a, 'a> {
-        let index = self.get_variable(variable);
+        let index = self.get_value(value);
         let mut index = self.append_operation_with_result(index::casts(
             index,
             Type::index(self.context),

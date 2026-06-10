@@ -42,7 +42,7 @@ impl<'a> Visitor<'a> {
                 ));
                 let callee: Vec<_> = [str_pointer]
                     .into_iter()
-                    .chain(args.iter().map(|arg| self.get_variable(*arg)))
+                    .chain(args.iter().map(|arg| self.get_value(*arg)))
                     .collect();
                 let integer_type = IntegerType::new(self.context, 32).into();
                 let argument_type = [llvm::r#type::pointer(self.context, 0)];
@@ -138,7 +138,7 @@ impl<'a> Visitor<'a> {
             } => {
                 // Collected and allocated by optimizer. Only insert existing value into lookups.
                 let value = self.args_manager.shared_memory_values[&out.id()];
-                self.values.insert(out.kind, value);
+                self.values.insert(out.id(), value);
             }
             Operation::DeclareVariable { addr_space, .. } => {
                 unimplemented!("Unsupported address space in declaration: {addr_space}")
@@ -163,8 +163,8 @@ impl<'a> Visitor<'a> {
             }
             Operation::Copy(copy) => {
                 if copy.ty == out.ty {
-                    let value = self.get_variable(*copy);
-                    self.insert_variable(out, value);
+                    let value = self.get_value(*copy);
+                    self.insert_value(out, value);
                 } else {
                     // Other backends implicitly cast on copy, so we do it too
                     // to ensure compatibility with emitted cubecl IR

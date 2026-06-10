@@ -176,12 +176,12 @@ impl CudaContext {
                     }
                 })?;
             if cudarc::nvrtc::result::compile_program(program, &options).is_err() {
-                let log_raw = cudarc::nvrtc::result::get_program_log(program)
-                    .map_err(|err| CompilationError::Generic {
+                let log_raw = cudarc::nvrtc::result::get_program_log(program).map_err(|err| {
+                    CompilationError::Generic {
                         reason: format!("{err}"),
                         backtrace: BackTrace::capture(),
-                    })
-                    .unwrap();
+                    }
+                })?;
 
                 let log_ptr = log_raw.as_ptr();
                 let log = CStr::from_ptr(log_ptr).to_str().unwrap();
@@ -199,13 +199,10 @@ impl CudaContext {
                         kernel.address_type(),
                     )?
                     .source;
-                panic!(
-                    "{}",
-                    CompilationError::Generic {
-                        reason: format!("{message}\n[Source]  \n{source}"),
-                        backtrace: BackTrace::capture(),
-                    }
-                );
+                Err(CompilationError::Generic {
+                    reason: format!("{message}\n[Source]  \n{source}"),
+                    backtrace: BackTrace::capture(),
+                })?;
             };
             cudarc::nvrtc::result::get_ptx(program).map_err(|err| CompilationError::Generic {
                 reason: format!("{err}"),

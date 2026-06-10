@@ -5,24 +5,11 @@ use portable_atomic::{AtomicU32, Ordering};
 
 use super::{Type, Value};
 
-/// An allocator for local variables of a kernel.
-///
-/// A local variable is unique to a unit. That is, each unit have their own copy of a local variable.
-/// There are three types of local variables based on their capabilities.
-///     - An immutable local variable is obtained by calling [`Allocator::create_local`].
-///     - A mutable local variable is obtained by calling [`Allocator::create_local_mut`]. The allocator will reuse
-///       previously defined mutable variables if possible.
-///     - A restricted mutable local variable is obtained by calling [`Allocator::create_local_restricted`]. This a is
-///       mutable variable that cannot be reused. This is mostly used for loop indices.
-///
-/// # Performance tips
-///
-/// In order, prefer immutable local variables, then mutable, then restricted.
-///
-/// To enable many compiler optimizations, it is preferred to use the [static single-assignment] strategy for immutable variables.
-/// That is, each variable must be declared and used exactly once.
-///
-/// [static single-assignment](https://en.wikipedia.org/wiki/Static_single-assignment_form)
+/// An allocator for the [static single-assignment](https://en.wikipedia.org/wiki/Static_single-assignment_form)
+/// values of a kernel. For mutable variables, the value is the *root pointer* that serves as a
+/// handle into the place where the inner value is stored (`memref`, `Place`, `lvalue`, whatever your
+/// compiler of choice uses as a name). This means all values are immutable, and only the memory
+/// referenced by them may be mutated.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Default, TypeHash)]
 pub struct Allocator {
@@ -43,7 +30,7 @@ impl Allocator {
         }
     }
 
-    /// Create a new immutable local variable of type specified by `item`.
+    /// Create a new immutable value of type specified by `ty`.
     pub fn create_value(&self, ty: Type) -> Value {
         let id = self.new_local_index();
         Value::new(id, ty)

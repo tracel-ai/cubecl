@@ -193,7 +193,7 @@ impl<C: CubeType, S: MatrixScope> IntoMut for MatrixExpand<C, S> {
 
 impl<C: CubeType, S: MatrixScope> CubeDebug for MatrixExpand<C, S> {
     fn set_debug_name(&self, scope: &Scope, name: &'static str) {
-        scope.update_variable_name(self.elem, name);
+        scope.update_value_name(self.elem, name);
     }
 }
 

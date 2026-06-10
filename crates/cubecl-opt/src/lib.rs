@@ -286,8 +286,8 @@ impl GlobalState {
     }
 }
 
-pub fn global_buffer_id(variable: &ir::Value) -> Option<Id> {
-    match variable.address_space() {
+pub fn global_buffer_id(value: &ir::Value) -> Option<Id> {
+    match value.address_space() {
         AddressSpace::Global(id) => Some(id),
         _ => None,
     }
@@ -562,7 +562,6 @@ impl Function {
             Box::new(ConstOperandSimplify),
             Box::new(MergeSameExpressions),
             Box::new(ConstEval),
-            // Box::new(RemoveIndexScalar),
             Box::new(EliminateConstBranches),
             Box::new(EmptyBranchToSelect),
             Box::new(EliminateDeadBlocks),

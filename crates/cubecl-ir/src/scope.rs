@@ -162,7 +162,7 @@ impl Scope {
         self
     }
 
-    /// Create a new immutable local variable of type specified by `ty`.
+    /// Create a new immutable value of type specified by `ty`.
     pub fn create_value(&self, ty: Type) -> Value {
         let id = self.new_local_index();
         Value::new(id, ty)
@@ -288,11 +288,11 @@ impl Scope {
         self.validation_errors.errors.replace_with(|_| Vec::new())
     }
 
-    /// Returns the variables and operations to be declared and executed.
+    /// Returns the operations to be declared and executed.
     ///
     /// Notes:
     ///
-    /// New operations and variables can be created within the same scope without having name
+    /// New operations can be created within the same scope without having name
     /// conflicts.
     pub fn process<'a>(
         &self,
@@ -368,12 +368,12 @@ impl Scope {
         }
     }
 
-    pub fn update_variable_name(&self, variable: Value, name: impl Into<Cow<'static, str>>) {
+    pub fn update_value_name(&self, value: Value, name: impl Into<Cow<'static, str>>) {
         if self.debug.enabled {
             self.debug
                 .value_names
                 .borrow_mut()
-                .insert(variable, name.into());
+                .insert(value, name.into());
         }
     }
 

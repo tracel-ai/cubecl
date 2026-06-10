@@ -40,20 +40,8 @@ impl Value {
         self.ty.storage_type()
     }
 
-    pub fn is_rvalue(&self) -> bool {
-        // Constant variables are just aliases to values in the IR, so are actually rvalues at least
-        // in WGSL, SPIR-V and LLVM.
-        matches!(self.kind, ValueKind::Constant(..) | ValueKind::Value { .. })
-    }
-
-    pub fn has_location(&self) -> bool {
-        !self.is_rvalue()
-    }
-
     pub fn can_mutate(&self) -> bool {
-        match self.kind {
-            ValueKind::Value { .. } | ValueKind::Constant(..) => false,
-        }
+        self.ty.is_ptr()
     }
 
     pub fn address_space(&self) -> AddressSpace {
@@ -117,17 +105,10 @@ pub enum Builtin {
 }
 
 impl Value {
-    /// Whether a variable is always immutable. Used for optimizations to determine whether it's
+    /// Whether a value is always immutable. Used for optimizations to determine whether it's
     /// safe to inline/merge
     pub fn is_immutable(&self) -> bool {
-        // Treat pointers as always mutable, Rust enforces the proper checks here already
-        if self.ty.is_ptr() {
-            return false;
-        }
-        match self.kind {
-            ValueKind::Value { .. } => true,
-            ValueKind::Constant(_) => true,
-        }
+        !self.can_mutate()
     }
 
     /// Is this an array type that yields items when indexed,
@@ -140,7 +121,7 @@ impl Value {
         self.ty.is_value()
     }
 
-    /// Is this an array type that is contained in concrete memory,
+    /// Is this an value type that is contained in concrete memory,
     /// or a local array/scalar/vector?
     pub fn is_memory(&self) -> bool {
         matches!(
