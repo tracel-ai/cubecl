@@ -64,11 +64,7 @@ pub struct ComputeShader {
 
 impl ComputeShader {
     pub fn shared_memory_bytes(&self) -> usize {
-        self.shared_values
-            .iter()
-            .map(|it| it.item.size())
-            .chain(self.shared_values.iter().map(|it| it.item.size()))
-            .sum()
+        self.shared_values.iter().map(|it| it.item.size()).sum()
     }
 }
 
