@@ -9,6 +9,7 @@
   - [Parallel Reduction 3D](./getting-started/parallel_reduction_3d.md)
   - [Examples](./getting-started/examples.md)
 - [Core Features](./core-features/summary.md)
+  - [Constants](./core-features/constants.md)
   - [Comptime](./core-features/comptime.md)
   - [Vectorization](./core-features/vectorization.md)
   - [Autotune](./core-features/autotune.md)
