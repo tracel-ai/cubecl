@@ -1,6 +1,5 @@
 use crate::compute::{
-    alloc_controller::CpuAllocController, notification::Notifications, schedule::ScheduleTask,
-    threadpool::Threadpool,
+    alloc_controller::CpuAllocController, schedule::ScheduleTask, threadpool::Threadpool,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
@@ -20,7 +19,7 @@ use cubecl_runtime::{
     storage::{BytesResource, BytesStorage},
     timestamp_profiler::TimestampProfiler,
 };
-use std::sync::Arc;
+use std::sync::{Arc, atomic::AtomicU64};
 
 pub struct CpuStream {
     pub(crate) max_units_per_cube: u32,
@@ -28,8 +27,9 @@ pub struct CpuStream {
     pub(crate) timestamps: TimestampProfiler,
     errors: Vec<ServerError>,
     threadpool: &'static spin::Mutex<Threadpool>,
-    last_notifications: Option<Notifications>,
-    _index: usize,
+    stream_id: usize,
+    next_counter_step: u64,
+    atomic_counter: Arc<AtomicU64>,
 }
 
 impl core::fmt::Debug for CpuStream {
@@ -44,7 +44,7 @@ impl CpuStream {
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         logger: Arc<ServerLogger>,
-        index: usize,
+        stream_id: usize,
     ) -> Self {
         let memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -54,37 +54,21 @@ impl CpuStream {
             MemoryManagementOptions::new("Main CPU"),
         );
         let threadpool = Threadpool::get();
-        let last_notifications = None;
+        let next_counter_step = 0;
+        let atomic_counter = Arc::new(AtomicU64::new(0));
         Self {
             max_units_per_cube,
             memory_management,
             timestamps: TimestampProfiler::default(),
             errors: Vec::new(),
-            _index: index,
+            stream_id,
             threadpool,
-            last_notifications,
-        }
-    }
-
-    fn validate_task(&mut self, task: &ScheduleTask) {
-        if let ScheduleTask::Execute { cube_dim, .. } = task {
-            let requested = cube_dim.num_elems();
-            let max = self.max_units_per_cube;
-            if requested > max {
-                let launch_error: LaunchError = ResourceLimitError::MaxUnitPerCube {
-                    requested,
-                    max,
-                    backtrace: BackTrace::capture(),
-                }
-                .into();
-                self.error(launch_error.into());
-                return;
-            }
+            next_counter_step,
+            atomic_counter,
         }
     }
 
     pub fn enqueue_task(&mut self, task: ScheduleTask) {
-        self.validate_task(&task);
         self.flush_uncheck();
         match task {
             ScheduleTask::Write { data, mut buffer } => {
@@ -96,21 +80,51 @@ impl CpuStream {
                 cube_dim,
                 cube_count,
             } => {
-                let notifications = self.threadpool.lock().execute_data(
+                let requested = cube_dim.num_elems();
+                let max = self.max_units_per_cube;
+                if requested > max {
+                    let launch_error: LaunchError = ResourceLimitError::MaxUnitPerCube {
+                        requested,
+                        max,
+                        backtrace: BackTrace::capture(),
+                    }
+                    .into();
+                    self.error(launch_error.into());
+                    return;
+                }
+
+                self.threadpool.lock().execute_data(
                     mlir_engine,
                     bindings,
                     cube_dim,
                     cube_count,
                     &mut self.memory_management,
+                    self.stream_id,
+                    self.next_counter_step,
+                    &self.atomic_counter,
                 );
-                self.last_notifications = Some(notifications);
+                self.next_counter_step += requested as u64;
             }
         }
     }
 
     fn flush_uncheck(&mut self) {
-        if let Some(notification) = self.last_notifications.take() {
-            notification.wait();
+        // println!(
+        //     "{}",
+        //     self.atomic_counter
+        //         .load(std::sync::atomic::Ordering::Acquire)
+        // );
+        while self
+            .atomic_counter
+            .load(std::sync::atomic::Ordering::Acquire)
+            != self.next_counter_step
+        {
+            // println!(
+            //     "{}",
+            //     self.atomic_counter
+            //         .load(std::sync::atomic::Ordering::Acquire)
+            // );
+            std::hint::spin_loop();
         }
     }
 

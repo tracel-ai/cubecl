@@ -1,14 +1,21 @@
-use super::{
-    affinity::get_active_cores, compute_task::ComputeTask, notification::Notifications,
-    schedule::BindingsResource, threadpool::worker::Worker,
+use cubecl_core::{CubeDim, config::RuntimeConfig};
+use cubecl_runtime::{
+    config::CubeClRuntimeConfig, memory_management::MemoryManagement, storage::BytesStorage,
 };
-use crate::compiler::{mlir_data::MlirData, mlir_engine::MlirEngine};
-use cubecl_core::CubeDim;
-use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
-use std::{fmt::Debug, sync::OnceLock};
+use std::sync::{Arc, OnceLock, atomic::AtomicU64};
 use sysinfo::System;
 
+use crate::{
+    compiler::{mlir_data::MlirData, mlir_engine::MlirEngine},
+    compute::{
+        affinity::{CoreId, get_active_cores},
+        schedule::BindingsResource,
+        threadpool::{compute_task::ComputeTask, thread_buffer::ThreadBuffer, worker::Worker},
+    },
+};
+
 pub mod circular_buffer;
+pub mod compute_task;
 pub mod thread_buffer;
 pub mod worker;
 
@@ -19,23 +26,34 @@ static INSTANCE: OnceLock<spin::Mutex<Threadpool>> = OnceLock::new();
 /// A single kernel runner is currently used for all kernels.
 /// To register work, you have to use the execution queue.
 pub struct Threadpool {
-    workers: Vec<Worker>,
-}
-
-impl Debug for Threadpool {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", &self.workers)
-    }
+    threads_buffer: Arc<[spin::Mutex<ThreadBuffer<ComputeTask>>]>,
 }
 
 impl Threadpool {
     fn init() -> Self {
+        let config = CubeClRuntimeConfig::get();
+        let max_streams = config.streaming.max_streams;
+
         let mut system = System::new();
         system.refresh_memory();
 
-        let workers = get_active_cores().map(Worker::new_with_affinity).collect();
+        let active_cores: Vec<CoreId> = get_active_cores().collect();
 
-        Self { workers }
+        let buffers = (0..active_cores.len())
+            .into_iter()
+            .map(|i| spin::Mutex::new(ThreadBuffer::new(i, max_streams as usize)))
+            .collect::<Vec<_>>();
+        let threads_buffer: Arc<[_]> = buffers.into();
+        for buffer in threads_buffer.iter() {
+            buffer.lock().set_threads_buffer(threads_buffer.clone());
+        }
+
+        for (thread_id, core_id) in active_cores.into_iter().enumerate() {
+            let threads_buffer = Arc::clone(&threads_buffer);
+            Worker::spawn_thread(core_id, thread_id, threads_buffer);
+        }
+
+        Self { threads_buffer }
     }
 
     /// Resolves the global execution queue instance.
@@ -49,20 +67,20 @@ impl Threadpool {
         bindings: BindingsResource,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
-        memory_management_shared_memory: &mut MemoryManagement<BytesStorage>,
-    ) -> Notifications {
-        let cube_dim_size = cube_dim.num_elems();
-
+        memory: &mut MemoryManagement<BytesStorage>,
+        stream_id: usize,
+        next_counter_step: u64,
+        atomic_counter: &Arc<AtomicU64>,
+    ) {
         let mlir_data = MlirData::new(
             bindings,
             &mlir_engine.0.shared_memories,
-            memory_management_shared_memory,
+            memory,
             cube_dim,
             cube_count,
         );
 
-        let notifications = Notifications::new(cube_dim_size);
-        let mut workers = self.workers.iter_mut();
+        let mut workers = self.threads_buffer.iter();
         for unit_pos_x in 0..cube_dim.x {
             for unit_pos_y in 0..cube_dim.y {
                 for unit_pos_z in 0..cube_dim.z {
@@ -72,17 +90,17 @@ impl Threadpool {
                     let mut mlir_data = mlir_data.clone();
                     mlir_data.builtin.set_unit_pos(unit_pos);
 
-                    let notifications = notifications.clone();
+                    let atomic_counter = Arc::clone(atomic_counter);
                     let compute_task = ComputeTask {
                         mlir_engine,
                         mlir_data,
-                        notifications,
+                        stream_id,
+                        next_counter_step,
+                        atomic_counter,
                     };
-                    worker.send_task(compute_task);
+                    worker.lock().push(compute_task);
                 }
             }
         }
-
-        notifications
     }
 }

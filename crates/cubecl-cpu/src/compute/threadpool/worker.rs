@@ -1,9 +1,10 @@
-use std::sync::mpsc;
+use std::sync::Arc;
 use std::thread;
 
 use crate::compute::{
     affinity::{CoreId, set_for_current},
-    compute_task::ComputeTask,
+    threadpool::compute_task::ComputeTask,
+    threadpool::thread_buffer::ThreadBuffer,
 };
 
 pub const MAX_STACK_SIZE: usize = 16 * 1024 * 1024;
@@ -23,53 +24,42 @@ fn resolve_stack_size() -> usize {
     DEFAULT_STACK_SIZE
 }
 
-#[derive(Debug)]
 pub struct Worker {
-    // TODO: A circular sync buffer with cache alignment would be a better fit, but for the moment a mpsc channel will do the job.
-    tx: mpsc::Sender<ComputeTask>,
-}
-
-impl Default for Worker {
-    fn default() -> Self {
-        Self::new()
-    }
+    threads_buffer: Arc<[spin::Mutex<ThreadBuffer<ComputeTask>>]>,
+    thread_id: usize,
 }
 
 impl Worker {
-    pub fn new_with_affinity(core_id: CoreId) -> Self {
-        let (tx, rx) = mpsc::channel();
-        let inner_worker = InnerWorker { rx };
+    pub fn spawn_thread(
+        core_id: CoreId,
+        thread_id: usize,
+        threads_buffer: Arc<[spin::Mutex<ThreadBuffer<ComputeTask>>]>,
+    ) {
         thread::Builder::new()
             .stack_size(resolve_stack_size())
             .spawn(move || {
                 set_for_current(core_id);
-                inner_worker.work()
+                let worker = Worker::new(threads_buffer, thread_id);
+                worker.work()
             })
             .unwrap();
-        Self { tx }
     }
-    pub fn new() -> Self {
-        let (tx, rx) = mpsc::channel();
-        let inner_worker = InnerWorker { rx };
-        thread::Builder::new()
-            .stack_size(resolve_stack_size())
-            .spawn(move || inner_worker.work())
-            .unwrap();
-        Self { tx }
+    fn new(
+        threads_buffer: Arc<[spin::Mutex<ThreadBuffer<ComputeTask>>]>,
+        thread_id: usize,
+    ) -> Self {
+        Self {
+            threads_buffer,
+            thread_id,
+        }
     }
-    pub fn send_task(&mut self, compute_task: ComputeTask) {
-        self.tx.send(compute_task).unwrap();
-    }
-}
-
-struct InnerWorker {
-    rx: mpsc::Receiver<ComputeTask>,
-}
-
-impl InnerWorker {
     fn work(self) {
-        for compute_task in self.rx.into_iter() {
-            compute_task.compute();
+        loop {
+            if let Some(compute_task) = self.threads_buffer[self.thread_id].lock().pop() {
+                compute_task.compute();
+            }
+
+            std::hint::spin_loop();
         }
     }
 }

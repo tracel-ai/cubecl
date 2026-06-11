@@ -5,13 +5,13 @@ use std::{
 
 use super::circular_buffer::CircularBuffer;
 
-pub trait GetId {
-    fn get_id(&self) -> usize;
+pub trait ThreadTask {
+    fn get_stream_id(&self) -> usize;
     fn is_ready(&self) -> bool;
 }
 
 /// Local thread buffer used for pushing task to a worker for the scheduler and for getting/stealing task for the worker
-pub struct ThreadBuffer<T: GetId> {
+pub struct ThreadBuffer<T: ThreadTask> {
     /// Main stream storage
     streams: CircularBuffer<VecDeque<T>>,
     /// Empty streams available to be reused to avoid reallocation
@@ -21,10 +21,10 @@ pub struct ThreadBuffer<T: GetId> {
     /// Reference to other thread buffer to be able to steal
     threads_buffer: Arc<[spin::Mutex<ThreadBuffer<T>>]>,
     /// Current thread id
-    thread_id: usize,
+    _thread_id: usize,
 }
 
-impl<T: GetId> ThreadBuffer<T> {
+impl<T: ThreadTask> ThreadBuffer<T> {
     /// Construct a ThreadBuffer with an empty reference to all thread_buffer
     pub fn new(thread_id: usize, capacity: usize) -> Self {
         let streams = CircularBuffer::new(capacity);
@@ -35,7 +35,7 @@ impl<T: GetId> ThreadBuffer<T> {
             empty_streams,
             streams_id,
             threads_buffer: Arc::new([]),
-            thread_id,
+            _thread_id: thread_id,
         }
     }
 
@@ -45,7 +45,7 @@ impl<T: GetId> ThreadBuffer<T> {
 
     /// This function assume that the fifo is not empty
     fn push_fifo(&mut self, fifo: VecDeque<T>) {
-        let id = fifo.front().unwrap().get_id();
+        let id = fifo.front().unwrap().get_stream_id();
         let back = self.streams.back();
         self.streams.push_back(fifo);
         self.streams_id.entry(id).insert_entry(back);
@@ -62,7 +62,7 @@ impl<T: GetId> ThreadBuffer<T> {
 
     /// Add new task to the local thread
     pub fn push(&mut self, elem: T) {
-        match self.streams_id.get(&elem.get_id()) {
+        match self.streams_id.get(&elem.get_stream_id()) {
             Some(&i) => {
                 self.streams[i].push_back(elem);
             }
@@ -88,7 +88,7 @@ impl<T: GetId> ThreadBuffer<T> {
             if fifos.is_empty() {
                 let stream = self.streams.pop_front().unwrap();
                 self.empty_streams.push(stream);
-                self.streams_id.remove(&elem.get_id());
+                self.streams_id.remove(&elem.get_stream_id());
             }
             return Some(elem);
         }
@@ -96,30 +96,30 @@ impl<T: GetId> ThreadBuffer<T> {
     }
 
     fn steal(&mut self) -> Option<T> {
-        for i in 0..self.threads_buffer.len() {
-            if self.thread_id == i {
-                continue;
-            }
-            let mut thread = self.threads_buffer[i].lock();
-            if thread.streams.len() <= 1 {
-                continue;
-            }
-            let mut last_stream = thread.streams.pop_back().unwrap();
-            let stream_id = last_stream.front().unwrap().get_id();
+        // for i in 0..self.threads_buffer.len() {
+        //     if self.thread_id == i {
+        //         continue;
+        //     }
+        //     let mut thread = self.threads_buffer[i].lock();
+        //     if thread.streams.len() <= 1 {
+        //         continue;
+        //     }
+        //     let mut last_stream = thread.streams.pop_back().unwrap();
+        //     let stream_id = last_stream.front().unwrap().get_stream_id();
 
-            thread.streams_id.remove(&stream_id);
-            drop(thread);
-            if !last_stream.front().unwrap().is_ready() {
-                return None;
-            }
-            let elem = last_stream.pop_front().unwrap();
-            if last_stream.is_empty() {
-                self.empty_streams.push(last_stream);
-            } else {
-                self.push_fifo(last_stream);
-            }
-            return Some(elem);
-        }
+        //     thread.streams_id.remove(&stream_id);
+        //     drop(thread);
+        //     if !last_stream.front().unwrap().is_ready() {
+        //         return None;
+        //     }
+        //     let elem = last_stream.pop_front().unwrap();
+        //     if last_stream.is_empty() {
+        //         self.empty_streams.push(last_stream);
+        //     } else {
+        //         self.push_fifo(last_stream);
+        //     }
+        //     return Some(elem);
+        // }
         None
     }
 
@@ -145,7 +145,7 @@ impl<T: GetId> ThreadBuffer<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{GetId, ThreadBuffer};
+    use super::{ThreadBuffer, ThreadTask};
     use std::cell::RefCell;
     use std::sync::Arc;
 
@@ -182,8 +182,8 @@ mod tests {
         }
     }
 
-    impl GetId for TestTask {
-        fn get_id(&self) -> usize {
+    impl ThreadTask for TestTask {
+        fn get_stream_id(&self) -> usize {
             self.stream_id
         }
 
