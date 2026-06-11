@@ -1,7 +1,9 @@
 //! A version of [`bytemuck::BoxBytes`] that is cloneable and allows trailing uninitialized elements.
 
 use crate::bytes::default_controller::{self, NativeAllocationController};
+use crate::bytes::shared_arc::SharedAllocationController;
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::alloc::LayoutError;
 use core::mem::MaybeUninit;
@@ -45,6 +47,25 @@ pub enum SplitError {
     Unsupported,
 }
 
+/// Controls how [`Bytes::split`] behaves when the allocation can't be split in place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SplitPolicy {
+    /// Prefer zero-copy splits, allowing the allocation to be shared behind an
+    /// [`Arc`] when it can't be split natively.
+    ///
+    /// Mutating a resulting half then triggers a copy-on-write. This is the best
+    /// choice for read-only or clone-heavy use cases, where the extra copy is
+    /// never paid.
+    Shared,
+    /// Ensure both halves are independently owned, copying eagerly when a native
+    /// split isn't possible.
+    ///
+    /// This avoids a later copy-on-write surprise when the halves will be
+    /// mutated. Prefer it when you split *in order to* mutate, so the copy is
+    /// paid once, up front, instead of lazily on first write.
+    Owned,
+}
+
 /// Defines how an ``Allocation`` can be controlled.
 ///
 /// This trait enables type erasure of the allocator after an ``Allocation`` is created, while still
@@ -73,6 +94,18 @@ pub trait AllocationController {
         _offset: usize,
     ) -> Result<(Box<dyn AllocationController>, Box<dyn AllocationController>), SplitError> {
         Err(SplitError::Unsupported)
+    }
+
+    /// Returns a controller over the sub-range `[start, end)` of this allocation
+    /// without copying, when the backend supports cheap sub-views (such as
+    /// files and shared buffers).
+    ///
+    /// Unlike [split](AllocationController::split), this borrows `&self` and
+    /// leaves the current allocation intact. Returns `None` when a zero-copy
+    /// sub-view isn't possible, in which case the caller falls back to sharing
+    /// or copying.
+    fn view(&self, _start: usize, _end: usize) -> Option<Box<dyn AllocationController>> {
+        None
     }
 
     /// Duplicates the current allocation with a clone on write strategy if the allocation
@@ -148,7 +181,38 @@ pub enum AllocationError {
 
 impl Bytes {
     /// Splits the current allocation at the given offset.
-    pub fn split(mut self, offset: usize) -> Result<(Bytes, Bytes), (Bytes, SplitError)> {
+    ///
+    /// Controllers that support a native split (such as files and shared
+    /// buffers) always split in place. When they can't, the behaviour of the
+    /// fallback is selected by `policy`:
+    ///
+    /// - [`SplitPolicy::Shared`] shares the allocation behind an [`Arc`] (via
+    ///   [`Self::shared`]) so both halves reference the same backing memory
+    ///   without copying. This is what makes [`Self::split`] work for native
+    ///   allocations whose element alignment is larger than one byte. Mutating a
+    ///   half then triggers a copy-on-write.
+    /// - [`SplitPolicy::Owned`] copies eagerly so each half is independently
+    ///   owned and can be mutated without a later copy-on-write.
+    ///
+    /// In both policies, when the allocation can be detached into a `Vec`
+    /// without copying, that zero-copy path is taken first.
+    pub fn split(
+        self,
+        offset: usize,
+        policy: SplitPolicy,
+    ) -> Result<(Bytes, Bytes), (Bytes, SplitError)> {
+        if offset > self.len {
+            return Err((self, SplitError::InvalidOffset));
+        }
+        match policy {
+            SplitPolicy::Shared => self.split_shared(offset),
+            SplitPolicy::Owned => self.split_owned(offset),
+        }
+    }
+
+    /// Split preferring zero-copy: native split, else detach into a `Vec`, else
+    /// share behind an [`Arc`]. See [`SplitPolicy::Shared`].
+    fn split_shared(mut self, offset: usize) -> Result<(Bytes, Bytes), (Bytes, SplitError)> {
         let right_len = self.len - offset;
         match self.controller.split(offset) {
             Ok((left, right)) => unsafe {
@@ -157,14 +221,128 @@ impl Bytes {
                     Bytes::from_controller(right, right_len),
                 ))
             },
-            Err(err) => match self.try_into_vec() {
+            Err(_) => match self.try_into_vec::<u8>() {
                 Ok(mut left) => {
                     let right = left.split_off(offset);
 
                     Ok((Bytes::from_bytes_vec(left), Bytes::from_bytes_vec(right)))
                 }
-                Err(this) => Err((this, err)),
+                // The allocation can't be detached into a `Vec` (e.g. a native
+                // allocation with element alignment > 1, or already shared
+                // data). Share it behind an `Arc` so both halves reference the
+                // same backing memory without copying.
+                Err(this) => Ok(this.shared_split(offset)),
             },
+        }
+    }
+
+    /// Split ensuring both halves are independently owned, copying eagerly when
+    /// a zero-copy detach isn't possible. See [`SplitPolicy::Owned`].
+    fn split_owned(self, offset: usize) -> Result<(Bytes, Bytes), (Bytes, SplitError)> {
+        match self.try_into_vec::<u8>() {
+            Ok(mut left) => {
+                let right = left.split_off(offset);
+
+                Ok((Bytes::from_bytes_vec(left), Bytes::from_bytes_vec(right)))
+            }
+            // The allocation can't be detached into a `Vec`. Copy each half into
+            // its own native allocation so they can be mutated without a later
+            // copy-on-write.
+            Err(this) => {
+                let align = this.align();
+                match (
+                    Self::try_from_data(align, &this[..offset]),
+                    Self::try_from_data(align, &this[offset..]),
+                ) {
+                    (Ok(left), Ok(right)) => Ok((left, right)),
+                    // A layout error here is practically unreachable: the data
+                    // already lives in a valid allocation of this alignment.
+                    _ => Err((this, SplitError::Unsupported)),
+                }
+            }
+        }
+    }
+
+    /// Returns the sub-range `[start, end)` as its own [`Bytes`], without
+    /// consuming `self`.
+    ///
+    /// This is the single-window, non-consuming analogue of [`Self::split`].
+    ///
+    /// - [`SplitPolicy::Shared`] returns a zero-copy window when the backend
+    ///   supports cheap sub-views (files and shared buffers); the window then
+    ///   keeps the whole backing allocation alive. A plain heap allocation can't
+    ///   be shared without consuming it, so its window is copied instead.
+    /// - [`SplitPolicy::Owned`] always copies the window into its own native
+    ///   allocation, so it can be mutated freely and doesn't retain the backing.
+    pub fn view(
+        &self,
+        start: usize,
+        end: usize,
+        policy: SplitPolicy,
+    ) -> Result<Bytes, SplitError> {
+        if start > end || end > self.len {
+            return Err(SplitError::InvalidOffset);
+        }
+        let len = end - start;
+
+        // A zero-copy sub-view, when the backend supports one.
+        let view = self.controller.view(start, end);
+
+        match policy {
+            SplitPolicy::Shared => match view {
+                // SAFETY: the sub-view controller reports exactly `len` bytes.
+                Some(controller) => Ok(unsafe { Bytes::from_controller(controller, len) }),
+                // A plain heap allocation can't be shared without consuming it.
+                None => Self::try_from_data(self.align(), &self[start..end])
+                    .map_err(|_| SplitError::Unsupported),
+            },
+            SplitPolicy::Owned => {
+                // Copy the window into its own native allocation. When a
+                // zero-copy sub-view exists, use it as the source so we read no
+                // more than the window itself (e.g. for file-backed data).
+                let owned = match view {
+                    Some(controller) => {
+                        let window = unsafe { Bytes::from_controller(controller, len) };
+                        Self::try_from_data(self.align(), &window)
+                    }
+                    None => Self::try_from_data(self.align(), &self[start..end]),
+                };
+                owned.map_err(|_| SplitError::Unsupported)
+            }
+        }
+    }
+
+    /// Shares the current allocation behind an [`Arc`], returning a new [`Bytes`]
+    /// that references the same data without copying.
+    ///
+    /// Cloning and [splitting](Self::split) the returned [`Bytes`] is cheap
+    /// (reference counted, zero-copy). Because the data is shared,
+    /// [`Self::try_into_vec`] will never succeed on the result, and mutating it
+    /// triggers a copy-on-write into a private buffer.
+    pub fn shared(self) -> Self {
+        let len = self.len;
+        let controller = SharedAllocationController::new(Arc::new(self), 0, len);
+
+        Self {
+            controller: Box::new(controller),
+            len,
+        }
+    }
+
+    /// Shares the allocation behind an [`Arc`] and returns two zero-copy views
+    /// split at `offset`. The caller must ensure `offset <= self.len`.
+    fn shared_split(self, offset: usize) -> (Bytes, Bytes) {
+        let len = self.len;
+        let inner = Arc::new(self);
+        let left = SharedAllocationController::new(inner.clone(), 0, offset);
+        let right = SharedAllocationController::new(inner, offset, len - offset);
+
+        // SAFETY: each view reports exactly its own length as initialized memory.
+        unsafe {
+            (
+                Bytes::from_controller(Box::new(left), offset),
+                Bytes::from_controller(Box::new(right), len - offset),
+            )
         }
     }
 
@@ -566,7 +744,7 @@ impl Eq for Bytes {}
 
 #[cfg(test)]
 mod tests {
-    use super::Bytes;
+    use super::{Bytes, SplitPolicy};
     use alloc::{vec, vec::Vec};
 
     const _CONST_ASSERTS: fn() = || {
@@ -646,7 +824,7 @@ mod tests {
     #[test_log::test]
     fn test_split_and_use() {
         let bytes = Bytes::from_elems(vec![0u8, 1, 2, 3, 4, 5, 6, 7]);
-        let (left, right) = bytes.split(4).unwrap();
+        let (left, right) = bytes.split(4, SplitPolicy::Shared).unwrap();
         assert_eq!(&left[..], &[0, 1, 2, 3]);
         assert_eq!(&right[..], &[4, 5, 6, 7]);
         let left2 = left.clone();
@@ -656,17 +834,82 @@ mod tests {
     #[test_log::test]
     fn test_split_at_zero() {
         let bytes = Bytes::from_elems(vec![10u8, 20, 30, 40]);
-        let (left, right) = bytes.split(0).unwrap();
+        let (left, right) = bytes.split(0, SplitPolicy::Shared).unwrap();
         assert_eq!(left.len(), 0);
         assert_eq!(&right[..], &[10, 20, 30, 40]);
+    }
+
+    /// A native allocation with element alignment > 1 can't be detached into a
+    /// `Vec<u8>`, so it used to fail to split. With [`SplitPolicy::Shared`] it
+    /// now shares behind an `Arc`.
+    #[test_log::test]
+    fn test_split_native_over_aligned_shared() {
+        let bytes = Bytes::from_elems(vec![0u32, 1, 2, 3]);
+        let (left, right) = bytes.split(8, SplitPolicy::Shared).unwrap();
+        assert_eq!(&left[..], &[0, 0, 0, 0, 1, 0, 0, 0]);
+        assert_eq!(&right[..], &[2, 0, 0, 0, 3, 0, 0, 0]);
+        // The shared halves stay usable after cloning.
+        assert_eq!(&left.clone()[..], &left[..]);
+    }
+
+    /// [`SplitPolicy::Owned`] copies eagerly so each half is independently owned
+    /// and can be mutated in place (no copy-on-write occurs on first write).
+    #[test_log::test]
+    fn test_split_native_over_aligned_owned() {
+        let bytes = Bytes::from_elems(vec![0u32, 1, 2, 3]);
+        let (mut left, mut right) = bytes.split(8, SplitPolicy::Owned).unwrap();
+        left[0] = 9;
+        right[0] = 8;
+        assert_eq!(&left[..], &[9, 0, 0, 0, 1, 0, 0, 0]);
+        assert_eq!(&right[..], &[8, 0, 0, 0, 3, 0, 0, 0]);
     }
 
     #[test_log::test]
     fn test_split_at_end() {
         let bytes = Bytes::from_elems(vec![10u8, 20, 30, 40]);
-        let (left, right) = bytes.split(4).unwrap();
+        let (left, right) = bytes.split(4, SplitPolicy::Owned).unwrap();
         assert_eq!(&left[..], &[10, 20, 30, 40]);
         assert_eq!(right.len(), 0);
+    }
+
+    /// `view` borrows `self`, so the original stays usable afterwards. For a
+    /// plain heap allocation the window is copied (it can't be shared).
+    #[test_log::test]
+    fn test_view_does_not_consume() {
+        let bytes = Bytes::from_elems(vec![0u8, 1, 2, 3, 4, 5, 6, 7]);
+        let view = bytes.view(2, 5, SplitPolicy::Shared).unwrap();
+        assert_eq!(&view[..], &[2, 3, 4]);
+        // The original is still readable.
+        assert_eq!(&bytes[..], &[0, 1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    /// [`SplitPolicy::Owned`] copies the window so it can be mutated in place.
+    #[test_log::test]
+    fn test_view_owned() {
+        let bytes = Bytes::from_elems(vec![0u32, 1, 2, 3]);
+        let mut view = bytes.view(4, 12, SplitPolicy::Owned).unwrap();
+        view[0] = 9;
+        assert_eq!(&view[..], &[9, 0, 0, 0, 2, 0, 0, 0]);
+        // The original is untouched by the mutation.
+        assert_eq!(&bytes[..], &[0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0]);
+    }
+
+    #[test_log::test]
+    fn test_view_full_and_empty() {
+        let bytes = Bytes::from_elems(vec![10u8, 20, 30, 40]);
+        let full = bytes.view(0, 4, SplitPolicy::Shared).unwrap();
+        assert_eq!(&full[..], &[10, 20, 30, 40]);
+
+        let empty = bytes.view(2, 2, SplitPolicy::Shared).unwrap();
+        assert_eq!(empty.len(), 0);
+    }
+
+    #[test_log::test]
+    fn test_view_invalid_range() {
+        let bytes = Bytes::from_elems(vec![10u8, 20, 30, 40]);
+        // end past the length, and start > end, are both rejected.
+        assert!(bytes.view(0, 5, SplitPolicy::Shared).is_err());
+        assert!(bytes.view(3, 1, SplitPolicy::Shared).is_err());
     }
 
     /// `from_bytes_vec` enforces `MAX_ALIGN`, so converting the result to a Vec of

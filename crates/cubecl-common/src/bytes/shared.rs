@@ -202,6 +202,22 @@ impl AllocationController for SharedBytesAllocationController {
         ))
     }
 
+    fn view(&self, start: usize, end: usize) -> Option<Box<dyn AllocationController>> {
+        if self.init.load(Ordering::Relaxed) {
+            // Already copied to heap, can't view the original bytes anymore.
+            return None;
+        }
+        if start > end || end > self.bytes.len() {
+            return None;
+        }
+
+        // bytes::Bytes supports efficient slicing (reference counted, no copy).
+        Some(Box::new(SharedBytesAllocationController::new(
+            self.bytes.slice(start..end),
+            self.property,
+        )))
+    }
+
     fn duplicate(&self) -> Option<Box<dyn AllocationController>> {
         if self.init.load(Ordering::Relaxed) {
             // After mutation, can't duplicate (forces full copy in Clone)
@@ -259,7 +275,7 @@ impl AllocationController for SharedBytesAllocationController {
 
 #[cfg(test)]
 mod tests {
-    use super::super::Bytes;
+    use super::super::{Bytes, SplitPolicy};
     use super::*;
 
     #[test_log::test]
@@ -286,7 +302,7 @@ mod tests {
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4, 5, 6]);
         let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
 
-        let (left, right) = bytes.split(3).unwrap();
+        let (left, right) = bytes.split(3, SplitPolicy::Shared).unwrap();
 
         assert_eq!(&left[..], &[1, 2, 3]);
         assert_eq!(&right[..], &[4, 5, 6]);
@@ -298,7 +314,7 @@ mod tests {
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
         let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
 
-        let (left, right) = bytes.split(0).unwrap();
+        let (left, right) = bytes.split(0, SplitPolicy::Shared).unwrap();
 
         assert_eq!(left.len(), 0);
         assert_eq!(&right[..], &[1, 2, 3, 4]);
@@ -311,7 +327,7 @@ mod tests {
         let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
         let len = bytes.len();
 
-        let (left, right) = bytes.split(len).unwrap();
+        let (left, right) = bytes.split(len, SplitPolicy::Shared).unwrap();
 
         assert_eq!(&left[..], &[1, 2, 3, 4]);
         assert_eq!(right.len(), 0);
@@ -359,7 +375,7 @@ mod tests {
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4, 5, 6]);
         let bytes = Bytes::from_shared(shared, AllocationProperty::File);
 
-        let (left, right) = bytes.split(3).unwrap();
+        let (left, right) = bytes.split(3, SplitPolicy::Shared).unwrap();
 
         assert!(matches!(left.property(), AllocationProperty::File));
         assert!(matches!(right.property(), AllocationProperty::File));

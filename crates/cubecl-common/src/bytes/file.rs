@@ -99,6 +99,27 @@ impl AllocationController for FileAllocationController {
         Ok((Box::new(left), Box::new(right)))
     }
 
+    fn view(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Option<Box<dyn AllocationController>> {
+        if self.init.load(Ordering::Relaxed) {
+            // The in-memory buffer may diverge from the file after a
+            // copy-on-write, so fall back to sharing the current data instead.
+            return None;
+        }
+        if start > end || end as u64 > self.size {
+            return None;
+        }
+
+        Some(Box::new(FileAllocationController::from_path_buf(
+            self.file.clone(),
+            (end - start) as u64,
+            self.offset + start as u64,
+        )))
+    }
+
     fn property(&self) -> AllocationProperty {
         AllocationProperty::File
     }
@@ -165,7 +186,7 @@ impl AllocationController for FileAllocationController {
 mod tests {
     use tempfile::TempDir;
 
-    use super::super::Bytes;
+    use super::super::{Bytes, SplitPolicy};
     use std::{io::Write, path::PathBuf, vec::Vec};
 
     #[test_log::test]
@@ -186,7 +207,7 @@ mod tests {
 
         let bytes_file = Bytes::from_file(&path, bytes.len() as u64, 0);
         let offset = 40;
-        let (left, right) = bytes_file.split(offset).unwrap();
+        let (left, right) = bytes_file.split(offset, SplitPolicy::Shared).unwrap();
 
         let left_expected: &[u8] = &bytes[0..offset];
         let right_expected: &[u8] = &bytes[offset..];
@@ -205,10 +226,25 @@ mod tests {
         let (path, bytes, dir) = with_data(elems);
 
         let bytes_file = Bytes::from_file(&path, bytes.len() as u64, 0);
-        let (left, right) = bytes_file.split(0).unwrap();
+        let (left, right) = bytes_file.split(0, SplitPolicy::Shared).unwrap();
 
         assert_eq!(left.len(), 0);
         assert_eq!(&right[..], &bytes[..]);
+        core::mem::drop(dir);
+    }
+
+    #[test_log::test]
+    fn test_view_file_is_zero_copy() {
+        let elems: Vec<u8> = (0..100).collect();
+        let (path, bytes, dir) = with_data(elems);
+
+        let bytes_file = Bytes::from_file(&path, bytes.len() as u64, 0);
+        // A file-backed view reads the corresponding sub-range straight from
+        // the file, no full load required, and leaves the original usable.
+        let view = bytes_file.view(10, 20, SplitPolicy::Shared).unwrap();
+
+        assert_eq!(&view[..], &bytes[10..20]);
+        assert_eq!(&bytes_file[..], &bytes[..]);
         core::mem::drop(dir);
     }
 
@@ -220,7 +256,7 @@ mod tests {
 
         let bytes_file = Bytes::from_file(&path, bytes.len() as u64, 0);
         let len = bytes_file.len();
-        let (left, right) = bytes_file.split(len).unwrap();
+        let (left, right) = bytes_file.split(len, SplitPolicy::Shared).unwrap();
 
         assert_eq!(&left[..], &bytes[..]);
         assert_eq!(right.len(), 0);
