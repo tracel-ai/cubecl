@@ -105,14 +105,9 @@ pub trait AllocationController {
         Err(SplitError::Unsupported)
     }
 
-    /// Returns a controller over the sub-range `[start, end)` of this allocation
-    /// without copying, when the backend supports cheap sub-views (such as
-    /// files and shared buffers).
-    ///
-    /// Unlike [split](AllocationController::split), this borrows `&self` and
-    /// leaves the current allocation intact. Returns `None` when a zero-copy
-    /// sub-view isn't possible, in which case the caller falls back to sharing
-    /// or copying.
+    /// Returns a zero-copy controller over the sub-range `[start, end)` of this
+    /// allocation when the backend supports cheap sub-views (files and shared
+    /// buffers), borrowing `&self`. Returns `None` otherwise.
     fn view(&self, _start: usize, _end: usize) -> Option<Box<dyn AllocationController>> {
         None
     }
