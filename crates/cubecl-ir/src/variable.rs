@@ -429,7 +429,7 @@ impl Value {
     pub fn id(&self) -> Id {
         match self.kind {
             ValueKind::Value { id, .. } => id,
-            _ => panic!(),
+            _ => panic!("Can't get ID of constant"),
         }
     }
 

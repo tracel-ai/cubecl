@@ -1,8 +1,8 @@
 use alloc::{vec, vec::Vec};
 use cubecl_ir::{
-    AddressSpace, Allocator, Arithmetic, BinaryOperands, CoopMma, GlobalState, IndexOperands,
-    Instruction, MatrixLayout, Memory, Metadata, Operation, OperationReflect, Operator, Scope,
-    Type, Value, ValueKind, VectorInsertOperands, VectorSize,
+    Allocator, Arithmetic, BinaryOperands, CoopMma, GlobalState, IndexOperands, Instruction,
+    MatrixLayout, Memory, Metadata, Operation, OperationReflect, Operator, Scope, Type, Value,
+    ValueKind, VectorInsertOperands, VectorSize,
 };
 use hashbrown::HashMap;
 
@@ -129,8 +129,34 @@ impl UnrollVisitor {
                     return TransformAction::Ignore;
                 }
                 Operation::DeclareVariable {
+                    value_ty: Type::Array(inner_ty, len),
+                    addr_space,
+                    alignment,
+                } => {
+                    if inner_ty.vector_size() > self.max_vector_size {
+                        let unroll_factor = inner_ty.vector_size() / self.max_vector_size;
+                        let vector_size = self.max_vector_size;
+                        let inner_ty = inner_ty.with_vector_size(vector_size);
+                        let new_ty = Type::Array(inner_ty.intern(), *len * unroll_factor);
+                        let new_ptr_ty = Type::Pointer(new_ty.intern(), *addr_space);
+                        let mut out = inst.out.unwrap();
+                        out.ty = new_ptr_ty;
+
+                        return TransformAction::Replace(vec![Instruction::new(
+                            Operation::DeclareVariable {
+                                value_ty: new_ty,
+                                addr_space: *addr_space,
+                                alignment: *alignment,
+                            },
+                            out,
+                        )]);
+                    } else {
+                        return TransformAction::Ignore;
+                    }
+                }
+                Operation::DeclareVariable {
                     value_ty,
-                    addr_space: AddressSpace::Local,
+                    addr_space,
                     alignment,
                 } => {
                     if value_ty.vector_size() > self.max_vector_size {
@@ -144,50 +170,13 @@ impl UnrollVisitor {
                             Instruction::new(
                                 Operation::DeclareVariable {
                                     value_ty,
-                                    addr_space: AddressSpace::Local,
+                                    addr_space: *addr_space,
                                     alignment: *alignment,
                                 },
                                 out,
                             )
                         };
                         return TransformAction::Replace(out.into_iter().map(declare).collect());
-                    } else {
-                        return TransformAction::Ignore;
-                    }
-                }
-                Operation::DeclareVariable {
-                    value_ty: Type::Array(inner_ty, len),
-                    addr_space: AddressSpace::Shared,
-                    alignment,
-                } => {
-                    if inner_ty.vector_size() > self.max_vector_size {
-                        let unroll_factor = inner_ty.vector_size() / self.max_vector_size;
-                        let vector_size = self.max_vector_size;
-                        let inner_ty = inner_ty.with_vector_size(vector_size);
-                        let new_ty = Type::Array(inner_ty.intern(), *len * unroll_factor);
-                        let new_ptr_ty = Type::Pointer(new_ty.intern(), AddressSpace::Shared);
-                        let mut out = inst.out.unwrap();
-                        out.ty = new_ptr_ty;
-
-                        return TransformAction::Replace(vec![Instruction::new(
-                            Operation::DeclareVariable {
-                                value_ty: new_ty,
-                                addr_space: AddressSpace::Shared,
-                                alignment: *alignment,
-                            },
-                            out,
-                        )]);
-                    } else {
-                        return TransformAction::Ignore;
-                    }
-                }
-                Operation::DeclareVariable {
-                    value_ty,
-                    addr_space: AddressSpace::Shared,
-                    ..
-                } => {
-                    if value_ty.vector_size() > self.max_vector_size {
-                        todo!()
                     } else {
                         return TransformAction::Ignore;
                     }
