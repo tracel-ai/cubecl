@@ -274,12 +274,7 @@ impl Bytes {
     ///   be shared without consuming it, so its window is copied instead.
     /// - [`SplitPolicy::Owned`] always copies the window into its own native
     ///   allocation, so it can be mutated freely and doesn't retain the backing.
-    pub fn view(
-        &self,
-        start: usize,
-        end: usize,
-        policy: SplitPolicy,
-    ) -> Result<Bytes, SplitError> {
+    pub fn view(&self, start: usize, end: usize, policy: SplitPolicy) -> Result<Bytes, SplitError> {
         if start > end || end > self.len {
             return Err(SplitError::InvalidOffset);
         }
@@ -891,7 +886,10 @@ mod tests {
         view[0] = 9;
         assert_eq!(&view[..], &[9, 0, 0, 0, 2, 0, 0, 0]);
         // The original is untouched by the mutation.
-        assert_eq!(&bytes[..], &[0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0]);
+        assert_eq!(
+            &bytes[..],
+            &[0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0]
+        );
     }
 
     #[test_log::test]

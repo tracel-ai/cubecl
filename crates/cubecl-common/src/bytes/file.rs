@@ -99,11 +99,7 @@ impl AllocationController for FileAllocationController {
         Ok((Box::new(left), Box::new(right)))
     }
 
-    fn view(
-        &self,
-        start: usize,
-        end: usize,
-    ) -> Option<Box<dyn AllocationController>> {
+    fn view(&self, start: usize, end: usize) -> Option<Box<dyn AllocationController>> {
         if self.init.load(Ordering::Relaxed) {
             // The in-memory buffer may diverge from the file after a
             // copy-on-write, so fall back to sharing the current data instead.

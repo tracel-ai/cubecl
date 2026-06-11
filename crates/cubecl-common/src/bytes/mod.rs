@@ -8,6 +8,6 @@ mod shared_arc;
 mod base;
 
 pub use base::*;
-pub use shared_arc::SharedAllocationController;
 #[cfg(feature = "shared-bytes")]
 pub use shared::SharedBytesAllocationController;
+pub use shared_arc::SharedAllocationController;
