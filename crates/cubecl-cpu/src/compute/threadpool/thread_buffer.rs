@@ -71,7 +71,7 @@ impl<T: GetId> ThreadBuffer<T> {
     }
 
     fn pop_local(&mut self) -> Option<T> {
-        loop {
+        for _ in 0..self.streams.len() {
             if self.streams.is_empty() {
                 return None;
             }
@@ -92,6 +92,7 @@ impl<T: GetId> ThreadBuffer<T> {
             }
             return Some(elem);
         }
+        return None;
     }
 
     fn steal(&mut self) -> Option<T> {
@@ -145,7 +146,22 @@ impl<T: GetId> ThreadBuffer<T> {
 #[cfg(test)]
 mod tests {
     use super::{GetId, ThreadBuffer};
+    use std::cell::RefCell;
     use std::sync::Arc;
+
+    thread_local! {
+        static FAKE_TIME: RefCell<u64> = RefCell::new(0);
+    }
+
+    fn set_fake_time(time: u64) {
+        FAKE_TIME.with(|t| {
+            *t.borrow_mut() = time;
+        });
+    }
+
+    fn get_fake_time() -> u64 {
+        FAKE_TIME.with(|t| *t.borrow())
+    }
 
     #[derive(Clone, Debug, PartialEq, Eq)]
     struct TestTask {
@@ -168,6 +184,36 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct TestTaskWithDuration {
+        stream_id: usize,
+        value: usize,
+        created_at: u64,
+        duration: u64,
+    }
+
+    impl TestTaskWithDuration {
+        fn new(stream_id: usize, value: usize, duration: u64) -> Self {
+            Self {
+                stream_id,
+                value,
+                created_at: get_fake_time(),
+                duration,
+            }
+        }
+    }
+
+    impl GetId for TestTaskWithDuration {
+        fn get_id(&self) -> usize {
+            self.stream_id
+        }
+
+        fn is_ready(&self) -> bool {
+            let elapsed = get_fake_time().saturating_sub(self.created_at);
+            elapsed >= self.duration
+        }
+    }
+
     fn setup_buffers(
         thread_count: usize,
         capacity: usize,
@@ -176,6 +222,20 @@ mod tests {
             .map(|thread_id| spin::Mutex::new(ThreadBuffer::new(thread_id, capacity)))
             .collect::<Vec<_>>();
         let shared: Arc<[spin::Mutex<ThreadBuffer<TestTask>>]> = buffers.into();
+        for buffer in shared.iter() {
+            buffer.lock().set_threads_buffer(shared.clone());
+        }
+        shared
+    }
+
+    fn setup_buffers_with_duration(
+        thread_count: usize,
+        capacity: usize,
+    ) -> Arc<[spin::Mutex<ThreadBuffer<TestTaskWithDuration>>]> {
+        let buffers = (0..thread_count)
+            .map(|thread_id| spin::Mutex::new(ThreadBuffer::new(thread_id, capacity)))
+            .collect::<Vec<_>>();
+        let shared: Arc<[spin::Mutex<ThreadBuffer<TestTaskWithDuration>>]> = buffers.into();
         for buffer in shared.iter() {
             buffer.lock().set_threads_buffer(shared.clone());
         }
@@ -287,5 +347,193 @@ mod tests {
         assert_eq!(Some(TestTask::new(2, 11)), second);
         assert_eq!(Some(TestTask::new(2, 12)), third);
         assert_eq!(None, shared[1].lock().pop());
+    }
+
+    #[test]
+    fn test_task_with_duration_not_ready_not_popped() {
+        set_fake_time(0);
+        let mut buffer = ThreadBuffer::<TestTaskWithDuration>::new(0, 8);
+
+        buffer.push(TestTaskWithDuration::new(1, 10, 100));
+
+        // Task not ready yet
+        assert_eq!(None, buffer.pop());
+
+        // Task still not ready
+        set_fake_time(50);
+        assert_eq!(None, buffer.pop());
+    }
+
+    #[test]
+    fn test_task_with_duration_becomes_ready() {
+        set_fake_time(0);
+        let mut buffer = ThreadBuffer::<TestTaskWithDuration>::new(0, 8);
+
+        let task = TestTaskWithDuration::new(1, 10, 100);
+        buffer.push(task.clone());
+
+        // Task not ready yet at time 0
+        assert_eq!(None, buffer.pop());
+
+        // Time passes, task becomes ready at time 100
+        set_fake_time(100);
+        let popped = buffer.pop();
+        assert!(popped.is_some());
+        let popped_task = popped.unwrap();
+        assert_eq!(popped_task.stream_id, 1);
+        assert_eq!(popped_task.value, 10);
+        assert_eq!(popped_task.duration, 100);
+
+        assert_eq!(None, buffer.pop());
+    }
+
+    #[test]
+    fn test_multiple_tasks_with_different_durations() {
+        set_fake_time(0);
+        let mut buffer = ThreadBuffer::<TestTaskWithDuration>::new(0, 8);
+
+        // Push tasks on different streams with different durations
+        // They will be tried in push order when popping
+        buffer.push(TestTaskWithDuration::new(1, 100, 0));
+        buffer.push(TestTaskWithDuration::new(2, 200, 50));
+        buffer.push(TestTaskWithDuration::new(3, 300, 100));
+
+        // At time 0, stream 1 is ready, so it gets popped
+        let task1 = buffer.pop();
+        assert!(task1.is_some());
+        let t1 = task1.unwrap();
+        assert_eq!(t1.stream_id, 1);
+        assert_eq!(t1.value, 100);
+
+        // At time 50, stream 2 is ready (stream 1 is gone, stream 2 is now front)
+        set_fake_time(50);
+        let task2 = buffer.pop();
+        assert!(task2.is_some());
+        let t2 = task2.unwrap();
+        assert_eq!(t2.stream_id, 2);
+        assert_eq!(t2.value, 200);
+
+        // At time 100, stream 3 is ready
+        set_fake_time(100);
+        let task3 = buffer.pop();
+        assert!(task3.is_some());
+        let t3 = task3.unwrap();
+        assert_eq!(t3.stream_id, 3);
+        assert_eq!(t3.value, 300);
+        assert_eq!(None, buffer.pop());
+    }
+
+    #[test]
+    fn test_multiple_tasks_same_stream_with_duration() {
+        set_fake_time(0);
+        let mut buffer = ThreadBuffer::<TestTaskWithDuration>::new(0, 8);
+
+        // Push multiple tasks on the same stream with different durations
+        buffer.push(TestTaskWithDuration::new(1, 10, 50));
+        buffer.push(TestTaskWithDuration::new(1, 11, 50)); // Same stream, same duration
+        buffer.push(TestTaskWithDuration::new(1, 12, 50));
+
+        // At time 0, nothing is ready
+        assert_eq!(None, buffer.pop());
+
+        // At time 50, all tasks should be ready in FIFO order
+        set_fake_time(50);
+        let t1 = buffer.pop().unwrap();
+        assert_eq!(t1.stream_id, 1);
+        assert_eq!(t1.value, 10);
+
+        let t2 = buffer.pop().unwrap();
+        assert_eq!(t2.stream_id, 1);
+        assert_eq!(t2.value, 11);
+
+        let t3 = buffer.pop().unwrap();
+        assert_eq!(t3.stream_id, 1);
+        assert_eq!(t3.value, 12);
+
+        assert_eq!(None, buffer.pop());
+    }
+
+    #[test]
+    fn test_skip_not_ready_tasks_in_same_stream() {
+        set_fake_time(0);
+        let mut buffer = ThreadBuffer::<TestTaskWithDuration>::new(0, 8);
+
+        // Push tasks with different durations on same stream
+        // Since both tasks are on the same stream, if the front one isn't ready,
+        // we can't access the next one without popping the first
+        buffer.push(TestTaskWithDuration::new(1, 10, 50));
+        buffer.push(TestTaskWithDuration::new(1, 11, 100));
+
+        // At time 50, first task is ready and should be popped
+        set_fake_time(50);
+        let task = buffer.pop();
+        assert!(task.is_some());
+        let popped = task.unwrap();
+        assert_eq!(popped.stream_id, 1);
+        assert_eq!(popped.value, 10);
+
+        // Now second task is ready at time 100
+        set_fake_time(100);
+        let task = buffer.pop();
+        assert!(task.is_some());
+        let popped = task.unwrap();
+        assert_eq!(popped.stream_id, 1);
+        assert_eq!(popped.value, 11);
+    }
+
+    #[test]
+    fn test_steal_respects_ready_status() {
+        set_fake_time(0);
+        let shared = setup_buffers_with_duration(2, 8);
+
+        let mut source = shared[0].lock();
+        source.push(TestTaskWithDuration::new(10, 100, 0)); // Ready immediately
+        source.push(TestTaskWithDuration::new(20, 200, 0)); // Ready immediately
+        drop(source);
+
+        // Thread 1 can steal the last stream from thread 0 (has >1 streams)
+        let stolen = shared[1].lock().pop();
+        assert!(stolen.is_some());
+        let task = stolen.unwrap();
+        assert_eq!(task.stream_id, 20);
+        assert_eq!(task.value, 200);
+
+        // Thread 0 can now pop its remaining stream
+        let remaining = shared[0].lock().pop();
+        assert!(remaining.is_some());
+        let task = remaining.unwrap();
+        assert_eq!(task.stream_id, 10);
+        assert_eq!(task.value, 100);
+    }
+
+    #[test]
+    fn test_mixed_ready_and_not_ready_streams() {
+        set_fake_time(0);
+        let mut buffer = ThreadBuffer::<TestTaskWithDuration>::new(0, 8);
+
+        // Create multiple streams all with immediate readiness
+        buffer.push(TestTaskWithDuration::new(1, 10, 0));
+        buffer.push(TestTaskWithDuration::new(2, 20, 0));
+        buffer.push(TestTaskWithDuration::new(3, 30, 0));
+        buffer.push(TestTaskWithDuration::new(4, 40, 0));
+
+        // All tasks are ready immediately, should pop in FIFO order
+        let t1 = buffer.pop().unwrap();
+        assert_eq!(t1.stream_id, 1);
+        assert_eq!(t1.value, 10);
+
+        let t2 = buffer.pop().unwrap();
+        assert_eq!(t2.stream_id, 2);
+        assert_eq!(t2.value, 20);
+
+        let t3 = buffer.pop().unwrap();
+        assert_eq!(t3.stream_id, 3);
+        assert_eq!(t3.value, 30);
+
+        let t4 = buffer.pop().unwrap();
+        assert_eq!(t4.stream_id, 4);
+        assert_eq!(t4.value, 40);
+
+        assert_eq!(None, buffer.pop());
     }
 }
