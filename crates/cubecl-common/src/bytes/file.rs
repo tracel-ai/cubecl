@@ -237,7 +237,7 @@ mod tests {
         let bytes_file = Bytes::from_file(&path, bytes.len() as u64, 0);
         // A file-backed view reads the corresponding sub-range straight from
         // the file, no full load required, and leaves the original usable.
-        let view = bytes_file.view(10, 20, SplitPolicy::Shared).unwrap();
+        let view = bytes_file.view(10, 20).unwrap();
 
         assert_eq!(&view[..], &bytes[10..20]);
         assert_eq!(&bytes_file[..], &bytes[..]);

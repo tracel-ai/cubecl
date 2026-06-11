@@ -250,7 +250,7 @@ mod tests {
     #[test_log::test]
     fn test_shared_view_is_zero_copy() {
         let shared = Bytes::from_elems(vec![0u8, 1, 2, 3, 4, 5]).shared();
-        let view = shared.view(1, 4, SplitPolicy::Shared).unwrap();
+        let view = shared.view(1, 4).unwrap();
         assert_eq!(&view[..], &[1, 2, 3]);
         // The original is untouched and the window can't be detached into a Vec.
         assert_eq!(&shared[..], &[0, 1, 2, 3, 4, 5]);
