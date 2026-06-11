@@ -7,6 +7,7 @@ use super::circular_buffer::CircularBuffer;
 
 pub trait GetId {
     fn get_id(&self) -> usize;
+    fn is_ready(&self) -> bool;
 }
 
 /// Local thread buffer used for pushing task to a worker for the scheduler and for getting/stealing task for the worker
@@ -80,6 +81,9 @@ impl<T: GetId> ThreadBuffer<T> {
                 self.streams.pop_front();
                 continue;
             }
+            if !fifos.front().unwrap().is_ready() {
+                continue;
+            }
             let elem = fifos.pop_front().unwrap();
             if fifos.is_empty() {
                 let stream = self.streams.pop_front().unwrap();
@@ -104,6 +108,9 @@ impl<T: GetId> ThreadBuffer<T> {
 
             thread.streams_id.remove(&stream_id);
             drop(thread);
+            if !last_stream.front().unwrap().is_ready() {
+                return None;
+            }
             let elem = last_stream.pop_front().unwrap();
             if last_stream.is_empty() {
                 self.empty_streams.push(last_stream);
@@ -120,8 +127,10 @@ impl<T: GetId> ThreadBuffer<T> {
         if let Some(elem) = self.pop_local() {
             return Some(elem);
         }
-        if let Some(elem) = self.steal() {
-            return Some(elem);
+        if self.streams.is_empty() {
+            if let Some(elem) = self.steal() {
+                return Some(elem);
+            }
         }
         None
     }
@@ -153,6 +162,9 @@ mod tests {
     impl GetId for TestTask {
         fn get_id(&self) -> usize {
             self.stream_id
+        }
+        fn is_ready(&self) -> bool {
+            true
         }
     }
 
