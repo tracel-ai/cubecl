@@ -263,16 +263,20 @@ impl Bytes {
         }
     }
 
-    /// Returns the sub-range `[start, end)` as its own [`Bytes`], without
-    /// consuming `self`.
+    /// Returns the sub-range `[start, end)` as a zero-copy [`Bytes`] window,
+    /// without consuming `self`.
     ///
     /// This is the single-window, non-consuming analogue of [`Self::split`].
-    /// Unlike [`Self::split`], there's no [`SplitPolicy`]: because `self` is only
-    /// borrowed, no ownership is handed over, so the only sensible behaviour is a
-    /// zero-copy window when the backend supports cheap sub-views (files and
-    /// shared buffers), keeping the whole backing allocation alive. A plain heap
-    /// allocation can't be shared without consuming it, so its window is copied
-    /// instead.
+    /// Unlike [`Self::split`], there's no [`SplitPolicy`] and no copying
+    /// fallback: because `self` is only borrowed, no ownership is handed over, so
+    /// the only thing `view` does is hand back a zero-copy window when the
+    /// backend supports cheap sub-views (files and shared buffers), keeping the
+    /// whole backing allocation alive.
+    ///
+    /// When the backend can't produce a zero-copy window (a plain heap
+    /// allocation can't be shared without consuming it), this returns
+    /// [`SplitError::Unsupported`] rather than silently allocating. A caller that
+    /// owns the data can [`Self::shared`] it first and then `view` the result.
     pub fn view(&self, start: usize, end: usize) -> Result<Bytes, SplitError> {
         if start > end || end > self.len {
             return Err(SplitError::InvalidOffset);
@@ -283,9 +287,10 @@ impl Bytes {
             // A zero-copy sub-view, when the backend supports one.
             // SAFETY: the sub-view controller reports exactly `len` bytes.
             Some(controller) => Ok(unsafe { Bytes::from_controller(controller, len) }),
-            // A plain heap allocation can't be shared without consuming it.
-            None => Self::try_from_data(self.align(), &self[start..end])
-                .map_err(|_| SplitError::Unsupported),
+            // No zero-copy window available. We don't fall back to copying: a
+            // borrowing `view` must never silently allocate. The caller can
+            // `shared()` first (if it owns the data) and then `view`.
+            None => Err(SplitError::Unsupported),
         }
     }
 
@@ -721,7 +726,7 @@ impl Eq for Bytes {}
 
 #[cfg(test)]
 mod tests {
-    use super::{Bytes, SplitPolicy};
+    use super::{Bytes, SplitError, SplitPolicy};
     use alloc::{vec, vec::Vec};
 
     const _CONST_ASSERTS: fn() = || {
@@ -849,39 +854,31 @@ mod tests {
         assert_eq!(right.len(), 0);
     }
 
-    /// `view` borrows `self`, so the original stays usable afterwards. For a
-    /// plain heap allocation the window is copied (it can't be shared).
+    /// A plain heap allocation has no zero-copy window, so `view` reports
+    /// [`SplitError::Unsupported`] rather than silently copying. `view` only
+    /// borrows, so the original stays usable.
     #[test_log::test]
-    fn test_view_does_not_consume() {
+    fn test_view_heap_unsupported() {
         let bytes = Bytes::from_elems(vec![0u8, 1, 2, 3, 4, 5, 6, 7]);
-        let view = bytes.view(2, 5).unwrap();
-        assert_eq!(&view[..], &[2, 3, 4]);
+        assert!(matches!(bytes.view(2, 5), Err(SplitError::Unsupported)));
         // The original is still readable.
         assert_eq!(&bytes[..], &[0, 1, 2, 3, 4, 5, 6, 7]);
     }
 
-    /// A copied window can be mutated without touching the original.
+    /// Sharing first (the caller owns the data) makes a zero-copy `view`
+    /// available; mutating the window then copies on write, leaving the original
+    /// untouched.
     #[test_log::test]
-    fn test_view_mutate() {
-        let bytes = Bytes::from_elems(vec![0u32, 1, 2, 3]);
-        let mut view = bytes.view(4, 12).unwrap();
+    fn test_view_shared_then_mutate() {
+        let shared = Bytes::from_elems(vec![0u32, 1, 2, 3]).shared();
+        let mut view = shared.view(4, 12).unwrap();
         view[0] = 9;
         assert_eq!(&view[..], &[9, 0, 0, 0, 2, 0, 0, 0]);
         // The original is untouched by the mutation.
         assert_eq!(
-            &bytes[..],
+            &shared[..],
             &[0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0]
         );
-    }
-
-    #[test_log::test]
-    fn test_view_full_and_empty() {
-        let bytes = Bytes::from_elems(vec![10u8, 20, 30, 40]);
-        let full = bytes.view(0, 4).unwrap();
-        assert_eq!(&full[..], &[10, 20, 30, 40]);
-
-        let empty = bytes.view(2, 2).unwrap();
-        assert_eq!(empty.len(), 0);
     }
 
     #[test_log::test]
