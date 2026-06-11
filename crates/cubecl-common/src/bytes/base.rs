@@ -47,6 +47,15 @@ pub enum SplitError {
     Unsupported,
 }
 
+/// Error when taking a [view](Bytes::view) into an allocation.
+#[derive(Debug, Clone, Copy)]
+pub enum ViewError {
+    /// The range is out of bounds.
+    InvalidRange,
+    /// The backend can't produce a zero-copy window.
+    Unsupported,
+}
+
 /// Controls how [`Bytes::split`] behaves when the allocation can't be split in place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SplitPolicy {
@@ -264,33 +273,21 @@ impl Bytes {
     }
 
     /// Returns the sub-range `[start, end)` as a zero-copy [`Bytes`] window,
-    /// without consuming `self`.
+    /// borrowing `self`.
     ///
-    /// This is the single-window, non-consuming analogue of [`Self::split`].
-    /// Unlike [`Self::split`], there's no [`SplitPolicy`] and no copying
-    /// fallback: because `self` is only borrowed, no ownership is handed over, so
-    /// the only thing `view` does is hand back a zero-copy window when the
-    /// backend supports cheap sub-views (files and shared buffers), keeping the
-    /// whole backing allocation alive.
-    ///
-    /// When the backend can't produce a zero-copy window (a plain heap
-    /// allocation can't be shared without consuming it), this returns
-    /// [`SplitError::Unsupported`] rather than silently allocating. A caller that
-    /// owns the data can [`Self::shared`] it first and then `view` the result.
-    pub fn view(&self, start: usize, end: usize) -> Result<Bytes, SplitError> {
+    /// Returns [`ViewError::Unsupported`] when the backend can't produce a
+    /// zero-copy window (e.g. a plain heap allocation); [`Self::shared`] it first
+    /// to make views available.
+    pub fn view(&self, start: usize, end: usize) -> Result<Bytes, ViewError> {
         if start > end || end > self.len {
-            return Err(SplitError::InvalidOffset);
+            return Err(ViewError::InvalidRange);
         }
         let len = end - start;
 
         match self.controller.view(start, end) {
-            // A zero-copy sub-view, when the backend supports one.
             // SAFETY: the sub-view controller reports exactly `len` bytes.
             Some(controller) => Ok(unsafe { Bytes::from_controller(controller, len) }),
-            // No zero-copy window available. We don't fall back to copying: a
-            // borrowing `view` must never silently allocate. The caller can
-            // `shared()` first (if it owns the data) and then `view`.
-            None => Err(SplitError::Unsupported),
+            None => Err(ViewError::Unsupported),
         }
     }
 
@@ -726,7 +723,7 @@ impl Eq for Bytes {}
 
 #[cfg(test)]
 mod tests {
-    use super::{Bytes, SplitError, SplitPolicy};
+    use super::{Bytes, SplitPolicy, ViewError};
     use alloc::{vec, vec::Vec};
 
     const _CONST_ASSERTS: fn() = || {
@@ -855,12 +852,12 @@ mod tests {
     }
 
     /// A plain heap allocation has no zero-copy window, so `view` reports
-    /// [`SplitError::Unsupported`] rather than silently copying. `view` only
+    /// [`ViewError::Unsupported`] rather than silently copying. `view` only
     /// borrows, so the original stays usable.
     #[test_log::test]
     fn test_view_heap_unsupported() {
         let bytes = Bytes::from_elems(vec![0u8, 1, 2, 3, 4, 5, 6, 7]);
-        assert!(matches!(bytes.view(2, 5), Err(SplitError::Unsupported)));
+        assert!(matches!(bytes.view(2, 5), Err(ViewError::Unsupported)));
         // The original is still readable.
         assert_eq!(&bytes[..], &[0, 1, 2, 3, 4, 5, 6, 7]);
     }
