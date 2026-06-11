@@ -153,21 +153,13 @@ fn should_use_scalar_powf(rhs: &Value) -> bool {
     rhs.item().vectorization_factor() == 1
 }
 
-pub fn call_is_nan(
-    f: &mut core::fmt::Formatter,
-    input: &Value,
-    out: &Value,
-) -> core::fmt::Result {
+pub fn call_is_nan(f: &mut core::fmt::Formatter, input: &Value, out: &Value) -> core::fmt::Result {
     let function_name = construct_vectorized_name(IS_NAN, input.item());
     let out = out.fmt_left();
     write!(f, "{out} = {function_name}({input});")
 }
 
-pub fn call_is_inf(
-    f: &mut core::fmt::Formatter,
-    input: &Value,
-    out: &Value,
-) -> core::fmt::Result {
+pub fn call_is_inf(f: &mut core::fmt::Formatter, input: &Value, out: &Value) -> core::fmt::Result {
     let function_name = construct_vectorized_name(IS_INF, input.item());
     let out = out.fmt_left();
     write!(f, "{out} = {function_name}({input});")

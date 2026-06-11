@@ -162,11 +162,7 @@ impl<T> Visitor<T> {
         }
     }
 
-    fn visit_cmma(
-        &mut self,
-        cmma: &mut CoopMma,
-        mut visit_read: impl FnMut(&mut T, &mut Value),
-    ) {
+    fn visit_cmma(&mut self, cmma: &mut CoopMma, mut visit_read: impl FnMut(&mut T, &mut Value)) {
         match cmma {
             CoopMma::Fill { value } => {
                 visit_read(self, value);
@@ -268,11 +264,7 @@ impl<T> Visitor<T> {
         }
     }
 
-    fn visit_tma(
-        &mut self,
-        tma_ops: &mut TmaOps,
-        mut visit_read: impl FnMut(&mut T, &mut Value),
-    ) {
+    fn visit_tma(&mut self, tma_ops: &mut TmaOps, mut visit_read: impl FnMut(&mut T, &mut Value)) {
         match tma_ops {
             TmaOps::TmaStore {
                 source,

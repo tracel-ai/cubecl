@@ -615,7 +615,11 @@ pub(super) fn compile_manual_mma<D: Dialect>(
                 i % vec
             )?;
         } else {
-            writeln!(f, "{} = {frag_d_tmp}[{i} * {frag_cd_step}];", frag_d.index(i))?;
+            writeln!(
+                f,
+                "{} = {frag_d_tmp}[{i} * {frag_cd_step}];",
+                frag_d.index(i)
+            )?;
         }
     }
 

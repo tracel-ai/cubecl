@@ -1,4 +1,4 @@
-use crate::{MatrixType, MatrixIdent, MatrixLayout, TypeHash, VectorSize};
+use crate::{MatrixIdent, MatrixLayout, MatrixType, TypeHash, VectorSize};
 
 /// Hacky solution for getting comptime properties into the scope.
 /// Allows querying certain target-specific properties at compile time, rather than at runtime.
