@@ -2,7 +2,7 @@ use std::sync::{Arc, atomic::AtomicU64};
 
 use crate::{
     compiler::{mlir_data::MlirData, mlir_engine::MlirEngine},
-    compute::threadpool::thread_buffer::ThreadTask,
+    compute::{threadpool::thread_buffer::ThreadTask, utils::cache_padded::CachePadded},
 };
 
 pub struct ComputeTask {
@@ -10,7 +10,7 @@ pub struct ComputeTask {
     pub mlir_data: MlirData,
     pub stream_id: usize,
     pub next_counter_step: u64,
-    pub atomic_counter: Arc<AtomicU64>,
+    pub atomic_counter: Arc<CachePadded<AtomicU64>>,
 }
 
 impl ThreadTask for ComputeTask {

@@ -6,3 +6,4 @@ pub(crate) mod alloc_controller;
 pub(crate) mod cpu_kernel;
 pub(crate) mod schedule;
 pub(crate) mod stream;
+pub(crate) mod utils;

@@ -1,5 +1,6 @@
 use crate::compute::{
     alloc_controller::CpuAllocController, schedule::ScheduleTask, threadpool::Threadpool,
+    utils::cache_padded::CachePadded,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
@@ -29,7 +30,7 @@ pub struct CpuStream {
     threadpool: &'static spin::Mutex<Threadpool>,
     stream_id: usize,
     next_counter_step: u64,
-    atomic_counter: Arc<AtomicU64>,
+    atomic_counter: Arc<CachePadded<AtomicU64>>,
 }
 
 impl core::fmt::Debug for CpuStream {
@@ -55,7 +56,7 @@ impl CpuStream {
         );
         let threadpool = Threadpool::get();
         let next_counter_step = 0;
-        let atomic_counter = Arc::new(AtomicU64::new(0));
+        let atomic_counter = Arc::new(CachePadded::new(AtomicU64::new(0)));
         Self {
             max_units_per_cube,
             memory_management,
@@ -109,21 +110,11 @@ impl CpuStream {
     }
 
     fn flush_uncheck(&mut self) {
-        // println!(
-        //     "{}",
-        //     self.atomic_counter
-        //         .load(std::sync::atomic::Ordering::Acquire)
-        // );
         while self
             .atomic_counter
             .load(std::sync::atomic::Ordering::Acquire)
             != self.next_counter_step
         {
-            // println!(
-            //     "{}",
-            //     self.atomic_counter
-            //         .load(std::sync::atomic::Ordering::Acquire)
-            // );
             std::hint::spin_loop();
         }
     }

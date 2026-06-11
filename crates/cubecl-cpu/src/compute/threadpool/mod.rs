@@ -11,6 +11,7 @@ use crate::{
         affinity::{CoreId, get_active_cores},
         schedule::BindingsResource,
         threadpool::{compute_task::ComputeTask, thread_buffer::ThreadBuffer, worker::Worker},
+        utils::cache_padded::CachePadded,
     },
 };
 
@@ -70,7 +71,7 @@ impl Threadpool {
         memory: &mut MemoryManagement<BytesStorage>,
         stream_id: usize,
         next_counter_step: u64,
-        atomic_counter: &Arc<AtomicU64>,
+        atomic_counter: &Arc<CachePadded<AtomicU64>>,
     ) {
         let mlir_data = MlirData::new(
             bindings,
