@@ -5,31 +5,14 @@ use cubecl_core::{
 use cubecl_ir::Intern;
 use std::fmt::Display;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Variable {
-    GlobalBuffer(Id, Item),
-    GlobalScalar(Id, Elem),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Value {
     Constant(ConstantValue, Item),
-    LocalMut {
-        id: Id,
-        item: Item,
-    },
-    LocalConst {
-        id: Id,
-        item: Item,
-    },
-    Named {
-        name: String,
-        item: Item,
-        is_array: bool,
-    },
-    // TODO: Potential cleanup, seems that variable is not used at all
-    LocalScalar {
-        id: Id,
-        elem: Elem,
-    },
-    Shared(Id, Item),
-    ConstantArray(Id, Item, u32),
+    Value { id: Id, item: Item },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Builtin {
     Id,
     LocalInvocationIndex,
     LocalInvocationIdX,
@@ -85,51 +68,15 @@ pub enum PointerClass {
 }
 
 #[derive(Debug, Clone)]
-pub struct IndexedVariable {
-    var: Variable,
+pub struct IndexedValue {
+    val: Value,
     index: usize,
 }
 
-impl Variable {
-    pub fn is_always_scalar(&self) -> bool {
-        match self {
-            Variable::GlobalScalar(_, _) => true,
-            Variable::Constant(_, _) => true,
-            Variable::LocalScalar { .. } => true,
-            Variable::Id => true,
-            Variable::LocalInvocationIndex => true,
-            Variable::LocalInvocationIdX => true,
-            Variable::LocalInvocationIdY => true,
-            Variable::LocalInvocationIdZ => true,
-            Variable::GlobalBuffer(_, _) => false,
-            Variable::Shared(_, _) => false,
-            Variable::ConstantArray(_, _, _) => false,
-            Variable::LocalMut { .. } => false,
-            Variable::LocalConst { .. } => false,
-            Variable::Named { .. } => false,
-            Variable::WorkgroupIdX => true,
-            Variable::WorkgroupIdY => true,
-            Variable::WorkgroupIdZ => true,
-            Variable::GlobalInvocationIdX => true,
-            Variable::GlobalInvocationIdY => true,
-            Variable::GlobalInvocationIdZ => true,
-            Variable::WorkgroupSizeX => true,
-            Variable::WorkgroupSizeY => true,
-            Variable::WorkgroupSizeZ => true,
-            Variable::NumWorkgroupsX => true,
-            Variable::NumWorkgroupsY => true,
-            Variable::NumWorkgroupsZ => true,
-            Variable::WorkgroupId => true,
-            Variable::WorkgroupSize => true,
-            Variable::NumWorkgroups => true,
-            Variable::SubgroupSize => true,
-            Variable::SubgroupId => true,
-            Variable::SubgroupInvocationId => true,
-        }
-    }
-    pub fn index(&self, index: usize) -> IndexedVariable {
-        IndexedVariable {
-            var: self.clone(),
+impl Value {
+    pub fn index(&self, index: usize) -> IndexedValue {
+        IndexedValue {
+            val: self.clone(),
             index,
         }
     }
@@ -138,44 +85,10 @@ impl Variable {
         self.item().is_ptr()
     }
 
-    pub fn is_memory(&self) -> bool {
-        matches!(self, Self::GlobalBuffer(..) | Self::Shared(..))
-    }
-
     pub fn item(&self) -> Item {
         match self {
-            Self::GlobalBuffer(_, e) => *e,
-            Self::Shared(_, e) => *e,
-            Self::ConstantArray(_, e, _) => *e,
-            Self::LocalMut { item, .. } => *item,
-            Self::LocalConst { item, .. } => *item,
-            Self::Named { item, .. } => *item,
+            Self::Value { item, .. } => *item,
             Self::Constant(_, item) => *item,
-            Self::GlobalScalar(_, e) => Item::Scalar(*e),
-            Self::Id => Item::Scalar(Elem::U32),
-            Self::LocalInvocationIndex => Item::Scalar(Elem::U32),
-            Self::LocalInvocationIdX => Item::Scalar(Elem::U32),
-            Self::LocalInvocationIdY => Item::Scalar(Elem::U32),
-            Self::LocalInvocationIdZ => Item::Scalar(Elem::U32),
-            Self::LocalScalar { elem, .. } => Item::Scalar(*elem),
-            Self::WorkgroupId => Item::Scalar(Elem::U32),
-            Self::WorkgroupIdX => Item::Scalar(Elem::U32),
-            Self::WorkgroupIdY => Item::Scalar(Elem::U32),
-            Self::WorkgroupIdZ => Item::Scalar(Elem::U32),
-            Self::GlobalInvocationIdX => Item::Scalar(Elem::U32),
-            Self::GlobalInvocationIdY => Item::Scalar(Elem::U32),
-            Self::GlobalInvocationIdZ => Item::Scalar(Elem::U32),
-            Self::WorkgroupSize => Item::Scalar(Elem::U32),
-            Self::WorkgroupSizeX => Item::Scalar(Elem::U32),
-            Self::WorkgroupSizeY => Item::Scalar(Elem::U32),
-            Self::WorkgroupSizeZ => Item::Scalar(Elem::U32),
-            Self::NumWorkgroups => Item::Scalar(Elem::U32),
-            Self::NumWorkgroupsX => Item::Scalar(Elem::U32),
-            Self::NumWorkgroupsY => Item::Scalar(Elem::U32),
-            Self::NumWorkgroupsZ => Item::Scalar(Elem::U32),
-            Self::SubgroupSize => Item::Scalar(Elem::U32),
-            Self::SubgroupId => Item::Scalar(Elem::U32),
-            Self::SubgroupInvocationId => Item::Scalar(Elem::U32),
         }
     }
     pub fn elem(&self) -> Elem {
@@ -253,6 +166,13 @@ impl Item {
             Item::Pointer(inner, _) => inner.elem(),
             Item::Array(inner, _) => inner.elem(),
             Item::DynamicArray(inner) => inner.elem(),
+        }
+    }
+
+    pub fn unwrap_ptr(&self) -> Item {
+        match self {
+            Item::Pointer(inner, _) => **inner,
+            other => *other,
         }
     }
 
@@ -357,20 +277,11 @@ impl Display for Item {
     }
 }
 
-impl Display for Variable {
+impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Variable::GlobalBuffer(number, _) => {
-                write!(f, "buffer_{number}_global")
-            }
-            Variable::LocalScalar { id: index, .. } => write!(f, "s_{index}"),
-            Variable::LocalMut { id, .. } => write!(f, "l_mut_{id}"),
-            Variable::LocalConst { id, .. } => write!(f, "l_{id}"),
-            Variable::Named { name, .. } => f.write_str(name),
-            Variable::GlobalScalar(number, elem) => {
-                write!(f, "info.scalars_{elem}[{number}]")
-            }
-            Variable::Constant(val, item) => {
+            Value::Value { id, .. } => write!(f, "val_{id}"),
+            Value::Constant(val, item) => {
                 match (val, item.elem()) {
                     // naga can't seem to parse literals > i64::MAX or i64::MIN atm.
                     // Work around this by emitting instructions to construct these literals.
@@ -390,78 +301,75 @@ impl Display for Variable {
                     _ => write!(f, "{item}({val})"),
                 }
             }
-            Variable::Shared(number, _) => {
-                write!(f, "shared_{number}")
-            }
-            Variable::ConstantArray(number, _, _) => write!(f, "arrays_{number}"),
-            Variable::Id => f.write_str("id"),
-            Variable::LocalInvocationIndex => f.write_str("local_idx"),
-            Variable::LocalInvocationIdX => f.write_str("local_invocation_id.x"),
-            Variable::LocalInvocationIdY => f.write_str("local_invocation_id.y"),
-            Variable::LocalInvocationIdZ => f.write_str("local_invocation_id.z"),
-            Variable::WorkgroupId => f.write_str("workgroup_id_no_axis"),
-            Variable::WorkgroupIdX => f.write_str("workgroup_id.x"),
-            Variable::WorkgroupIdY => f.write_str("workgroup_id.y"),
-            Variable::WorkgroupIdZ => f.write_str("workgroup_id.z"),
-            Variable::GlobalInvocationIdX => f.write_str("global_id.x"),
-            Variable::GlobalInvocationIdY => f.write_str("global_id.y"),
-            Variable::GlobalInvocationIdZ => f.write_str("global_id.z"),
-            Variable::WorkgroupSizeX => f.write_str("WORKGROUP_SIZE_X"),
-            Variable::WorkgroupSizeY => f.write_str("WORKGROUP_SIZE_Y"),
-            Variable::WorkgroupSizeZ => f.write_str("WORKGROUP_SIZE_Z"),
-            Variable::NumWorkgroupsX => f.write_str("num_workgroups.x"),
-            Variable::NumWorkgroupsY => f.write_str("num_workgroups.y"),
-            Variable::NumWorkgroupsZ => f.write_str("num_workgroups.z"),
-            Variable::WorkgroupSize => f.write_str("workgroup_size_no_axis"),
-            Variable::NumWorkgroups => f.write_str("num_workgroups_no_axis"),
-            Variable::SubgroupSize => f.write_str("subgroup_size"),
-            Variable::SubgroupId => f.write_str("subgroup_id"),
-            Variable::SubgroupInvocationId => f.write_str("subgroup_invocation_id"),
         }
     }
 }
 
-impl Display for IndexedVariable {
+impl Display for Builtin {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let var = &self.var;
-        let item = var.item();
+        match self {
+            Builtin::Id => f.write_str("id"),
+            Builtin::LocalInvocationIndex => f.write_str("local_idx"),
+            Builtin::LocalInvocationIdX => f.write_str("local_invocation_id.x"),
+            Builtin::LocalInvocationIdY => f.write_str("local_invocation_id.y"),
+            Builtin::LocalInvocationIdZ => f.write_str("local_invocation_id.z"),
+            Builtin::WorkgroupId => f.write_str("workgroup_id_no_axis"),
+            Builtin::WorkgroupIdX => f.write_str("workgroup_id.x"),
+            Builtin::WorkgroupIdY => f.write_str("workgroup_id.y"),
+            Builtin::WorkgroupIdZ => f.write_str("workgroup_id.z"),
+            Builtin::GlobalInvocationIdX => f.write_str("global_id.x"),
+            Builtin::GlobalInvocationIdY => f.write_str("global_id.y"),
+            Builtin::GlobalInvocationIdZ => f.write_str("global_id.z"),
+            Builtin::WorkgroupSizeX => f.write_str("WORKGROUP_SIZE_X"),
+            Builtin::WorkgroupSizeY => f.write_str("WORKGROUP_SIZE_Y"),
+            Builtin::WorkgroupSizeZ => f.write_str("WORKGROUP_SIZE_Z"),
+            Builtin::NumWorkgroupsX => f.write_str("num_workgroups.x"),
+            Builtin::NumWorkgroupsY => f.write_str("num_workgroups.y"),
+            Builtin::NumWorkgroupsZ => f.write_str("num_workgroups.z"),
+            Builtin::WorkgroupSize => f.write_str("workgroup_size_no_axis"),
+            Builtin::NumWorkgroups => f.write_str("num_workgroups_no_axis"),
+            Builtin::SubgroupSize => f.write_str("subgroup_size"),
+            Builtin::SubgroupId => f.write_str("subgroup_id"),
+            Builtin::SubgroupInvocationId => f.write_str("subgroup_invocation_id"),
+        }
+    }
+}
+
+impl Display for IndexedValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let val = &self.val;
+        let item = val.item();
         let index = self.index;
 
-        match &self.var {
-            Variable::GlobalScalar(_, _) => write!(f, "{var}"),
-            var if matches!(item, Item::Scalar(_)) => write!(f, "{var}"),
-            var => write!(f, "{var}[{index}]"),
+        match &self.val {
+            val if matches!(item, Item::Scalar(_)) => write!(f, "{val}"),
+            val => write!(f, "{val}[{index}]"),
         }
     }
 }
 
-impl Variable {
+impl Value {
     pub fn fmt_left(&self) -> String {
         match self {
-            Variable::LocalConst { .. } => {
+            Value::Value { .. } => {
                 format!("let {self}")
             }
-            var => format!("{var}"),
+            val => format!("{val}"),
         }
-    }
-
-    pub fn is_const(&self) -> bool {
-        matches!(self, Variable::LocalConst { .. })
     }
 }
 
-impl IndexedVariable {
+impl IndexedValue {
     pub fn fmt_left(&self) -> String {
-        let item = self.var.item();
-        match &self.var {
-            Variable::GlobalScalar(_, _) => self.var.fmt_left(),
-            var if matches!(item, Item::Scalar(_)) => var.fmt_left(),
+        let item = self.val.item();
+        match &self.val {
+            val if matches!(item, Item::Scalar(_)) => val.fmt_left(),
             _ => format!("{self}"),
         }
     }
 
     pub fn fmt_cast(&self, item: Item) -> String {
-        if self.var.item() != item {
+        if self.val.item() != item {
             format!("{item}({self})")
         } else {
             format!("{self}")

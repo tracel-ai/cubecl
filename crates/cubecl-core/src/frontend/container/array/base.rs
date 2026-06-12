@@ -1,8 +1,4 @@
-use alloc::vec::Vec;
-use core::{
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-};
+use core::ops::{Deref, DerefMut};
 
 use cubecl_ir::{Scope, VectorSize};
 
@@ -28,11 +24,10 @@ impl<E> AsMutExpand for ArrayExpand<E> {
 
 /// Module that contains the implementation details of the new function.
 mod new {
-    use cubecl_ir::AddressSpace;
     use cubecl_macros::intrinsic;
 
     use super::*;
-    use crate::{frontend::container::slice, ir::Variable};
+    use crate::frontend::container::slice;
 
     #[cube]
     impl<T: CubePrimitive + Clone> Array<T> {
@@ -43,7 +38,7 @@ mod new {
                 // Unlike Rust, we can't construct fat pointers ad-hoc without access to the scope,
                 // so it needs to be prepared in advance.
                 let elem = T::__expand_as_type(scope);
-                let ty = Type::array(elem, length, AddressSpace::Local);
+                let ty = Type::array(elem, length);
                 let buffer = scope.create_local_mut(ty);
                 let slice = slice::from_raw_parts::<T>(
                     scope,
@@ -53,52 +48,6 @@ mod new {
                 );
                 slice.expand.into()
             })
-        }
-    }
-
-    impl<T: CubePrimitive + Clone> Array<T> {
-        /// Create an array from data.
-        #[allow(unused_variables)]
-        pub fn from_data<C: CubePrimitive>(data: impl IntoIterator<Item = C>) -> Array<T> {
-            unexpanded!()
-        }
-
-        /// Expand function of [`from_data`](Array::from_data).
-        pub fn __expand_from_data<C: CubePrimitive>(
-            scope: &Scope,
-            data: ArrayData<C>,
-        ) -> ArrayExpand<T> {
-            let len = data.values.len();
-            let buffer = scope.create_const_array(T::__expand_as_type(scope), data.values);
-            let slice = slice::from_raw_parts::<T>(
-                scope,
-                buffer,
-                0usize.into_expand(scope),
-                len.into_expand(scope),
-            );
-            slice.expand.into()
-        }
-    }
-
-    /// Type useful for the expand function of [`from_data`](Array::from_data).
-    pub struct ArrayData<C> {
-        values: Vec<Variable>,
-        _ty: PhantomData<C>,
-    }
-
-    impl<C: CubePrimitive + Into<NativeExpand<C>>, T: IntoIterator<Item = C>> From<T> for ArrayData<C> {
-        fn from(value: T) -> Self {
-            let values: Vec<Variable> = value
-                .into_iter()
-                .map(|value| {
-                    let value: NativeExpand<C> = value.into();
-                    value.expand
-                })
-                .collect();
-            ArrayData {
-                values,
-                _ty: PhantomData,
-            }
         }
     }
 }

@@ -2,7 +2,7 @@ use cubecl_core::prelude::Visibility;
 
 use crate::{
     Dialect,
-    shared::{Component, Item, KernelArg, PointerClass, Variable},
+    shared::{Component, Item, KernelArg, PointerClass, Value},
 };
 
 use super::BufferAttribute;
@@ -68,8 +68,8 @@ impl From<Visibility> for AddressSpace {
     }
 }
 
-impl<D: Dialect> From<&Variable<D>> for AddressSpace {
-    fn from(value: &Variable<D>) -> Self {
+impl<D: Dialect> From<&Value<D>> for AddressSpace {
+    fn from(value: &Value<D>) -> Self {
         if let Item::Pointer(_, class) = value.item() {
             return match class {
                 PointerClass::Global(visibility) => visibility.into(),
@@ -77,39 +77,6 @@ impl<D: Dialect> From<&Variable<D>> for AddressSpace {
                 PointerClass::Local => AddressSpace::Thread,
             };
         }
-        match value {
-            Variable::AbsolutePosBaseName
-            | Variable::AbsolutePosX
-            | Variable::AbsolutePosY
-            | Variable::AbsolutePosZ
-            | Variable::UnitPosBaseName
-            | Variable::UnitPosX
-            | Variable::UnitPosY
-            | Variable::UnitPosZ
-            | Variable::CubePosBaseName
-            | Variable::CubePosX
-            | Variable::CubePosY
-            | Variable::CubePosZ
-            | Variable::CubeDimBaseName
-            | Variable::CubeDimX
-            | Variable::CubeDimY
-            | Variable::CubeDimZ
-            | Variable::CubeCountBaseName
-            | Variable::CubeCountX
-            | Variable::CubeCountY
-            | Variable::CubeCountZ
-            | Variable::PlaneDim
-            | Variable::UnitPosPlane => AddressSpace::None,
-            Variable::GlobalBuffer(..) => AddressSpace::Device,
-            Variable::GlobalScalar { .. } => {
-                if value.is_const() {
-                    AddressSpace::ConstDevice
-                } else {
-                    AddressSpace::Device
-                }
-            }
-            Variable::SharedArray(..) => AddressSpace::ThreadGroup,
-            _ => AddressSpace::Thread,
-        }
+        AddressSpace::Thread
     }
 }

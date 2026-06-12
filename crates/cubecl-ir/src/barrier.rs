@@ -4,7 +4,7 @@ use core::fmt::{Display, Write};
 
 use crate::OperationReflect;
 
-use super::Variable;
+use super::Value;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
@@ -18,107 +18,102 @@ pub enum BarrierLevel {
 #[operation(opcode_name = BarrierOpCode)]
 /// Operations available on a barrier
 pub enum BarrierOps {
-    /// Declare the barrier, without doing any initialization
-    Declare {
-        barrier: Variable,
-    },
     /// Initialize the barrier, optionally with a cta proxy fence
     Init {
-        barrier: Variable,
-        is_elected: Variable,
-        arrival_count: Variable,
+        barrier: Value,
+        is_elected: Value,
+        arrival_count: Value,
     },
     /// Manually initialize the barrier with an arrival count, without any sync or election handling
     InitManual {
-        barrier: Variable,
-        arrival_count: Variable,
+        barrier: Value,
+        arrival_count: Value,
     },
     /// Copy source to destination
     MemCopyAsync {
-        barrier: Variable,
+        barrier: Value,
         #[args(allow_ptr, ptr_read)]
-        source: Variable,
+        source: Value,
         #[args(allow_ptr, ptr_write)]
-        destination: Variable,
-        source_length: Variable,
+        destination: Value,
+        source_length: Value,
     },
     /// Copy source to destination, with cooperative behaviour
     MemCopyAsyncCooperative {
-        barrier: Variable,
+        barrier: Value,
         #[args(allow_ptr, ptr_read)]
-        source: Variable,
+        source: Value,
         #[args(allow_ptr, ptr_write)]
-        destination: Variable,
-        source_length: Variable,
+        destination: Value,
+        source_length: Value,
     },
     /// Copy source to destination, with transaction count
     MemCopyAsyncTx {
-        barrier: Variable,
+        barrier: Value,
         #[args(allow_ptr, ptr_read)]
-        source: Variable,
+        source: Value,
         #[args(allow_ptr, ptr_write)]
-        destination: Variable,
-        source_length: Variable,
+        destination: Value,
+        source_length: Value,
     },
     /// Copy source to destination
     CopyAsync {
         #[args(allow_ptr, ptr_read)]
-        source: Variable,
+        source: Value,
         #[args(allow_ptr, ptr_write)]
-        destination: Variable,
-        source_length: Variable,
+        destination: Value,
+        source_length: Value,
         copy_length: u32,
         checked: bool,
     },
     TmaLoad {
-        barrier: Variable,
-        tensor_map: Variable,
+        barrier: Value,
+        tensor_map: Value,
         #[args(allow_ptr, ptr_write)]
-        destination: Variable,
-        indices: Vec<Variable>,
+        destination: Value,
+        indices: Vec<Value>,
     },
     TmaLoadIm2col {
-        barrier: Variable,
-        tensor_map: Variable,
+        barrier: Value,
+        tensor_map: Value,
         #[args(allow_ptr, ptr_write)]
-        destination: Variable,
-        indices: Vec<Variable>,
-        offsets: Vec<Variable>,
+        destination: Value,
+        indices: Vec<Value>,
+        offsets: Vec<Value>,
     },
     /// Arrives at the barrier (decrements barrier count)
     Arrive {
-        barrier: Variable,
+        barrier: Value,
     },
     ArriveTx {
-        barrier: Variable,
-        arrive_count_update: Variable,
-        transaction_count_update: Variable,
+        barrier: Value,
+        arrive_count_update: Value,
+        transaction_count_update: Value,
     },
     CommitCopyAsync {
-        barrier: Variable,
+        barrier: Value,
     },
     ExpectTx {
-        barrier: Variable,
-        transaction_count_update: Variable,
+        barrier: Value,
+        transaction_count_update: Value,
     },
     Wait {
-        barrier: Variable,
-        token: Variable,
+        barrier: Value,
+        token: Value,
     },
     WaitParity {
-        barrier: Variable,
-        phase: Variable,
+        barrier: Value,
+        phase: Value,
     },
     /// Waits until data is loaded
     ArriveAndWait {
-        barrier: Variable,
+        barrier: Value,
     },
 }
 
 impl Display for BarrierOps {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            BarrierOps::Declare { .. } => Ok(()),
             BarrierOps::Init {
                 barrier,
                 arrival_count,

@@ -1,14 +1,13 @@
 use alloc::vec::Vec;
 use cubecl_ir::{
-    AddressSpace, Id, Instruction, Memory, Operation, Operator, Type, UnaryOperands, Variable,
-    VariableKind,
+    AddressSpace, Id, Instruction, Memory, Operation, Operator, StoreOperands, Type, UnaryOperands,
+    Value, ValueKind,
 };
 use hashbrown::HashMap;
 
 use crate::{
     AtomicCounter, Function, GlobalState,
-    analyses::{pointer_source::PointerSource, writes::Writes},
-    local_variable_id,
+    analyses::{pointer_source::PointerSource, writes::LocalStores},
 };
 
 use super::OptimizerPass;
@@ -45,14 +44,25 @@ impl OptimizerPass for DisaggregateArray {
             let block = func.root;
             let old_insts = func[block].ops.take();
             let arr_id = id;
+            let ty = ty.value_type();
             let vars = (0..length)
-                .map(|_| state.allocator.create_local_mut(ty.value_type()))
+                .map(|_| func.create_local_mut(state, ty))
                 .collect::<Vec<_>>();
-            for var in &vars {
-                let local_id = local_variable_id(var).unwrap();
-                func.variables.insert(local_id, var.ty);
+
+            // Prepare zero value
+            let zero = {
+                let zero = state.allocator.create_value(ty);
                 let init =
-                    Instruction::new(Operator::Cast(UnaryOperands { input: 0u32.into() }), *var);
+                    Instruction::new(Operator::Cast(UnaryOperands { input: 0u32.into() }), zero);
+                func[block].ops.borrow_mut().push(init);
+                zero
+            };
+
+            for var in &vars {
+                let init = Instruction::no_out(Memory::Store(StoreOperands {
+                    ptr: *var,
+                    value: zero,
+                }));
                 func[block].ops.borrow_mut().push(init);
             }
             func[block]
@@ -81,8 +91,9 @@ fn find_const_arrays(func: &mut Function) -> Vec<Array> {
         let ops = func[block].ops.clone();
         for op in ops.borrow().values() {
             if let Operation::Memory(Memory::Index(index)) = &op.operation
-                && let VariableKind::LocalMut { id } = index.list.kind
-                && let Type::Array(ty, length, AddressSpace::Local) = index.list.ty
+                && let ValueKind::Value { id } = index.list.kind
+                && let Type::Pointer(inner, AddressSpace::Local) = index.list.ty
+                && let Type::Array(ty, length) = *inner
             {
                 arrays.insert(
                     id,
@@ -105,17 +116,17 @@ fn find_const_arrays(func: &mut Function) -> Vec<Array> {
         .collect()
 }
 
-fn replace_const_arrays(func: &mut Function, arr_id: Id, vars: &[Variable]) {
+fn replace_const_arrays(func: &mut Function, arr_id: Id, vars: &[Value]) {
     for block in func.node_ids() {
         let ops = func[block].ops.clone();
         for op in ops.borrow_mut().values_mut() {
             if let Operation::Memory(Memory::Index(index)) = &mut op.operation.clone()
-                && let VariableKind::LocalMut { id, .. } = index.list.kind
+                && let ValueKind::Value { id } = index.list.kind
                 && id == arr_id
             {
                 let const_index = index.index.as_const().unwrap().as_i64() as usize;
-                op.operation = Operation::Memory(Memory::Reference(vars[const_index]));
-                func.invalidate_analysis::<Writes>();
+                op.operation = Operation::Copy(vars[const_index]);
+                func.invalidate_analysis::<LocalStores>();
             }
         }
     }

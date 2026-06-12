@@ -1,8 +1,6 @@
 use cubecl_core::{
     self as cubecl,
-    ir::{
-        CoopMma, Instruction, MatrixIdent, Operation, Processor, Scope, ScopeProcessing, Variable,
-    },
+    ir::{CoopMma, Instruction, MatrixIdent, Operation, Processor, Scope, ScopeProcessing, Value},
     prelude::*,
 };
 
@@ -20,7 +18,7 @@ impl Processor for CudaMmaProcessor {
                     let elems_per_reg = 32 / matrix.storage.elem_type().size_bits();
                     let scope =
                         Scope::root(false).with_global_state(processing.global_state.clone());
-                    let row_idx: Variable = row_index::expand(
+                    let row_idx: Value = row_index::expand(
                         &scope,
                         lane_id.into(),
                         i.into(),
@@ -31,9 +29,6 @@ impl Processor for CudaMmaProcessor {
                     let tmp_processing = scope.process([]);
                     for inst in tmp_processing.instructions {
                         processing.instructions.push(inst);
-                    }
-                    for var in tmp_processing.variables {
-                        processing.variables.push(var);
                     }
 
                     processing.instructions.push(Instruction::new(
@@ -45,7 +40,7 @@ impl Processor for CudaMmaProcessor {
                     let elems_per_reg = 32 / matrix.storage.elem_type().size_bits();
                     let scope =
                         Scope::root(false).with_global_state(processing.global_state.clone());
-                    let col_idx: Variable = col_index::expand(
+                    let col_idx: Value = col_index::expand(
                         &scope,
                         lane_id.into(),
                         i.into(),
@@ -56,9 +51,6 @@ impl Processor for CudaMmaProcessor {
                     let tmp_processing = scope.process([]);
                     for inst in tmp_processing.instructions {
                         processing.instructions.push(inst);
-                    }
-                    for var in tmp_processing.variables {
-                        processing.variables.push(var);
                     }
 
                     processing.instructions.push(Instruction::new(

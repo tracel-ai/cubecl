@@ -4,10 +4,8 @@ use hashbrown::{HashMap, HashSet};
 use petgraph::graph::NodeIndex;
 
 use crate::{
-    AtomicCounter, Function, GlobalState, PhiInstruction,
-    analyses::dominance::Dominators,
-    gvn::{convert::value_of_var, phi_translate},
-    version::PhiEntry,
+    AtomicCounter, Function, GlobalState, PhiInstruction, analyses::dominance::Dominators,
+    gvn::phi_translate, version::PhiEntry,
 };
 
 use super::GvnState;
@@ -96,26 +94,23 @@ impl GvnState {
                     }
                     let leaders = &mut self.block_sets.get_mut(&pred).unwrap().leaders;
                     if !leaders.contains_key(&val) {
-                        let new_temp = state.allocator.create_local(expr.item());
+                        let new_temp = state.allocator.create_value(expr.item());
                         let new_op = ir::Instruction::new(expr.to_operation(leaders), new_temp);
                         func[pred].ops.borrow_mut().push(new_op);
-                        leaders.insert(val, value_of_var(&new_temp).unwrap());
+                        leaders.insert(val, func.value_of_var(&new_temp).unwrap());
                         new_expr.get_mut(&pred).unwrap().insert(val);
                         changed = true;
                         changes.inc();
                     }
-                    let value = leaders.get(&val).unwrap();
-                    new_phis[i].push(PhiEntry {
-                        block: pred,
-                        value: value.as_var(),
-                    });
+                    let value = *leaders.get(&val).unwrap();
+                    new_phis[i].push(PhiEntry { block: pred, value });
                     i += 1;
                 }
             }
             let new_phis = new_phis
                 .into_iter()
                 .map(|entries| PhiInstruction {
-                    out: state.allocator.create_local(entries[0].value.ty),
+                    out: state.allocator.create_value(entries[0].value.ty),
                     entries,
                 })
                 .collect::<Vec<_>>();
@@ -126,8 +121,8 @@ impl GvnState {
                     continue;
                 }
                 let phi = &new_phis[phi_idx];
-                let value = value_of_var(&phi.out).unwrap();
-                self.values.insert_phi(phi, *val);
+                let value = func.value_of_var(&phi.out).unwrap();
+                self.values.insert_phi(func, phi, *val);
                 leaders.insert(*val, value);
                 new_expr.get_mut(&current).unwrap().insert(*val);
                 phi_idx += 1;
@@ -161,8 +156,11 @@ impl GvnState {
         for block in func.node_ids() {
             let leaders = &self.block_sets[&block].leaders;
             for op in func[block].ops.borrow_mut().values_mut() {
-                if let Some(leader) = self.values.lookup_op(op).and_then(|val| leaders.get(&val)) {
-                    let var = leader.as_var();
+                if let Some(&var) = self
+                    .values
+                    .lookup_op(func, op)
+                    .and_then(|val| leaders.get(&val))
+                {
                     let out = op.out;
                     if Some(var) != out {
                         op.operation = Operation::Copy(var);

@@ -1,9 +1,9 @@
 use alloc::collections::vec_deque::VecDeque;
-use cubecl_ir::Id;
+use cubecl_ir::{Id, Value, ValueKind};
 use hashbrown::{HashMap, HashSet};
 use petgraph::graph::NodeIndex;
 
-use crate::{Function, GlobalState, analyses::post_order::PostOrder, local_variable_id};
+use crate::{Function, GlobalState, analyses::post_order::PostOrder};
 
 use super::Analysis;
 
@@ -99,22 +99,22 @@ fn calculate_block_sets(func: &mut Function, state: &GlobalState, block: NodeInd
     let ops = func[block].ops.clone();
 
     let control_flow = func[block].control_flow.clone();
-    func.visit_control_flow(&mut control_flow.borrow_mut(), |_, var| {
-        if let Some(id) = local_variable_id(var) {
+    func.visit_control_flow(&mut control_flow.borrow_mut(), |func, val| {
+        if let Some(id) = func.local_variable_id(val) {
             generated.insert(id);
         }
     });
     let mut ops = ops.borrow().clone();
     for op in ops.values_mut().rev() {
         // Reads must be tracked after writes
-        func.visit_out(&mut op.out, |_, var| {
-            if let Some(id) = local_variable_id(var) {
+        func.visit_out(&mut op.out, |func, val| {
+            if let Some(id) = func.local_variable_id(val) {
                 kill.insert(id);
                 generated.remove(&id);
             }
         });
-        func.visit_operation(state, &mut op.operation, |_, var| {
-            if let Some(id) = local_variable_id(var) {
+        func.visit_operation(state, &mut op.operation, |func, val| {
+            if let Some(id) = func.local_variable_id(val) {
                 generated.insert(id);
             }
         });
@@ -123,36 +123,33 @@ fn calculate_block_sets(func: &mut Function, state: &GlobalState, block: NodeInd
     BlockSets { generated, kill }
 }
 
+impl Function {
+    /// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.
+    pub fn local_variable_id(&self, value: &Value) -> Option<Id> {
+        match value.kind {
+            ValueKind::Value { id } if self.destructurable_local_memories().contains_key(&id) => {
+                Some(id)
+            }
+            _ => None,
+        }
+    }
+}
+
 /// Shared memory liveness analysis and allocation
 pub mod shared {
     use alloc::vec::Vec;
-    use cubecl_ir::{Marker, Operation, Type, Variable, VariableKind};
+    use cubecl_ir::{AddressSpace, Marker, Operation, Type, Value, ValueKind};
 
-    use crate::Uniformity;
+    use crate::{MemoryBlock, Uniformity};
 
     use super::*;
-
-    /// A shared memory instance, all the information contained in the `VariableKind`, but with
-    /// a non-optional `align`.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct SharedMemory {
-        pub id: Id,
-        pub ty: Type,
-        pub align: usize,
-    }
-
-    impl SharedMemory {
-        /// The byte size of this shared memory
-        pub fn size(&self) -> usize {
-            self.ty.size()
-        }
-    }
 
     /// A specific allocation of shared memory at some `offset`
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct SmemAllocation {
+        pub id: Id,
         /// The shared memory being allocated
-        pub smem: SharedMemory,
+        pub smem: MemoryBlock,
         /// The offset in the shared memory buffer
         pub offset: usize,
     }
@@ -169,7 +166,7 @@ pub mod shared {
         live_vars: HashMap<NodeIndex, HashSet<Id>>,
         /// Map of all shared memories by their ID. Populated during the first pass with all
         /// accessed shared memories.
-        pub shared_memories: HashMap<Id, SharedMemory>,
+        pub shared_memories: HashMap<Id, MemoryBlock>,
         /// Map of allocations for each shared memory by its ID. Populated after the analysis, and
         /// should contain all memories from `shared_memories`.
         pub allocations: HashMap<Id, SmemAllocation>,
@@ -237,9 +234,15 @@ pub mod shared {
                 for live_smem in self.at_block(block).clone() {
                     if !self.allocations.contains_key(&live_smem) {
                         let smem = self.shared_memories[&live_smem];
-                        let offset = self.allocate_slice(block, smem.size(), smem.align);
-                        self.allocations
-                            .insert(smem.id, SmemAllocation { smem, offset });
+                        let offset = self.allocate_slice(block, smem.size(), smem.alignment);
+                        self.allocations.insert(
+                            live_smem,
+                            SmemAllocation {
+                                id: live_smem,
+                                smem,
+                                offset,
+                            },
+                        );
                     }
                 }
             }
@@ -354,21 +357,22 @@ pub mod shared {
             let ops = func[block].ops.clone();
 
             for op in ops.borrow_mut().values_mut() {
-                func.visit_out(&mut op.out, |_, var| {
-                    if let Some(smem) = shared_memory(var) {
-                        generated.insert(smem.id);
-                        self.shared_memories.insert(smem.id, smem);
+                func.visit_out(&mut op.out, |func, var| {
+                    if let Some((id, smem)) = shared_memory(func, var) {
+                        generated.insert(id);
+                        self.shared_memories.insert(id, smem);
                     }
                 });
-                func.visit_operation(state, &mut op.operation, |_, var| {
-                    if let Some(smem) = shared_memory(var) {
-                        generated.insert(smem.id);
-                        self.shared_memories.insert(smem.id, smem);
+                func.visit_operation(state, &mut op.operation, |func, var| {
+                    if let Some((id, smem)) = shared_memory(func, var) {
+                        generated.insert(id);
+                        self.shared_memories.insert(id, smem);
                     }
                 });
 
-                if let Operation::Marker(Marker::Free(Variable {
-                    kind: VariableKind::Shared { id, .. },
+                if let Operation::Marker(Marker::Free(Value {
+                    ty: Type::Pointer(_, AddressSpace::Shared),
+                    kind: ValueKind::Value { id, .. },
                     ..
                 })) = &op.operation
                 {
@@ -381,31 +385,35 @@ pub mod shared {
         }
     }
 
-    fn shared_memory(var: &Variable) -> Option<SharedMemory> {
+    fn shared_memory(func: &Function, var: &Value) -> Option<(Id, MemoryBlock)> {
         match var.kind {
-            VariableKind::Shared { id, alignment } => Some(SharedMemory {
-                id,
-                ty: var.ty,
-                align: alignment.unwrap_or_else(|| var.value_type().size()),
-            }),
+            ValueKind::Value { id } => {
+                if let Some(mem) = func.memories.get(&id)
+                    && matches!(mem.address_space, AddressSpace::Shared)
+                {
+                    Some((id, *mem))
+                } else {
+                    None
+                }
+            }
             _ => None,
         }
     }
 }
 
 mod captures {
-    use cubecl_ir::Variable;
+    use cubecl_ir::Value;
 
     use super::*;
 
     pub struct Captures {
-        live_vars: HashMap<NodeIndex, HashSet<Variable>>,
+        live_vars: HashMap<NodeIndex, HashSet<Value>>,
     }
 
     #[derive(Clone)]
     struct BlockSets {
-        generated: HashSet<Variable>,
-        kill: HashSet<Variable>,
+        generated: HashSet<Value>,
+        kill: HashSet<Value>,
     }
 
     struct State {
@@ -431,7 +439,7 @@ mod captures {
             Self { live_vars }
         }
 
-        pub fn at_block(&self, block: NodeIndex) -> &HashSet<Variable> {
+        pub fn at_block(&self, block: NodeIndex) -> &HashSet<Value> {
             &self.live_vars[&block]
         }
 
@@ -495,7 +503,7 @@ mod captures {
         });
         for inst in ops.borrow_mut().values_mut().rev() {
             // Reads must be tracked after writes
-            func.visit_instruction_write(state, inst, |_, var| {
+            func.visit_out(&mut inst.out, |_, var| {
                 kill.insert(*var);
                 generated.remove(var);
             });

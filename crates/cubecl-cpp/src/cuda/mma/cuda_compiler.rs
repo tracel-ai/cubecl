@@ -9,8 +9,8 @@ use crate::{
         },
     },
     shared::{
-        Architecture, DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout,
-        ManualMma, SupportedMmaCombinations, SupportedScaledMmaCombinations, Variable,
+        Architecture, DialectWmmaCompiler, Flags, FragmentIdent, FragmentLayout, FragmentType,
+        ManualMma, SupportedMmaCombinations, SupportedScaledMmaCombinations, Value,
         WmmaInstruction, wmma_api_base,
     },
 };
@@ -30,9 +30,10 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
 
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
-        var: &crate::shared::Variable<CudaDialect<Self>>,
+        val: &crate::shared::Value<CudaDialect<Self>>,
+        ty: &crate::shared::Item<CudaDialect<Self>>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_declaration(f, var)
+        wmma_api_base::compile_fragment_declaration(f, val, ty)
     }
 
     fn compile_wwma_fragment_ident(
@@ -51,7 +52,7 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
 
     fn compile_wmma_fragment(
         f: &mut std::fmt::Formatter<'_>,
-        fragment: &Fragment<CudaDialect<Self>>,
+        fragment: &FragmentType<CudaDialect<Self>>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_fragment(f, WMMA_NAMESPACE, fragment)
     }
@@ -73,8 +74,8 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
     fn compile_scaled_mma(
         f: &mut std::fmt::Formatter<'_>,
         mma: ManualMma<CudaDialect<Self>>,
-        scales_a: Variable<CudaDialect<Self>>,
-        scales_b: Variable<CudaDialect<Self>>,
+        scales_a: Value<CudaDialect<Self>>,
+        scales_b: Value<CudaDialect<Self>>,
         scales_factor: u32,
     ) -> std::fmt::Result {
         compile_scaled_mma(f, mma, scales_a, scales_b, scales_factor)

@@ -1,5 +1,6 @@
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicI8, Ordering};
+use derive_more::Deref;
 
 use crate::{
     BufferInfo, KernelExpansion, KernelIntegrator, KernelSettings, ScalarInfo,
@@ -7,14 +8,16 @@ use crate::{
     prelude::KernelDefinition,
 };
 use alloc::collections::BTreeMap;
-use cubecl_ir::{DeviceProperties, Scope, StorageType, TargetProperties, Variable, VariableKind};
+use cubecl_ir::{DeviceProperties, Scope, StorageType, TargetProperties, Value};
 use cubecl_runtime::config::{
     CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel,
 };
 
 /// Prepare a kernel to create a [`KernelDefinition`].
+#[derive(Deref)]
 pub struct KernelBuilder {
     /// Cube [scope](Scope).
+    #[deref]
     pub scope: Scope,
     buffers: Vec<BufferInfo>,
     scalars: BTreeMap<StorageType, usize>,
@@ -24,59 +27,58 @@ pub struct KernelBuilder {
 static DEBUG: AtomicI8 = AtomicI8::new(-1);
 
 impl KernelBuilder {
-    /// Register a scalar and return the [element](Variable) to be used for kernel expansion.
-    pub fn scalar(&mut self, storage: StorageType) -> Variable {
-        let id = self.scalars.entry(storage).or_default();
-        let expand = self.scope.scalar(*id as Id, storage);
-        *id += 1;
-        expand
+    /// Register a scalar and return the [element](Value) to be used for kernel expansion.
+    pub fn scalar(&mut self, storage: StorageType) -> Id {
+        let current_id = self.scalars.entry(storage).or_default();
+        let id = *current_id;
+        *current_id += 1;
+        id as Id
     }
 
     fn buffer_id(&self) -> Id {
         self.buffers.len() as Id + self.tensor_maps.len() as Id
     }
 
-    /// Register a buffer and return the [element](Variable) to be used for kernel expansion.
-    pub fn buffer(&mut self, item: Type) -> Variable {
+    /// Register a buffer and return the [element](Value) to be used for kernel expansion.
+    pub fn buffer(&mut self, value_ty: Type) -> Value {
         let id = self.buffer_id();
+        let value = self.scope.global(id, value_ty);
         self.buffers.push(BufferInfo {
             id,
-            item,
+            value,
             has_extended_meta: false,
         });
-        self.scope.global(id, item)
+        value
     }
 
-    /// Register a tensor and return the [element](Variable) to be used for kernel expansion.
-    pub fn tensor(&mut self, item: Type) -> Variable {
+    /// Register a tensor and return the [element](Value) to be used for kernel expansion.
+    pub fn tensor(&mut self, value_ty: Type) -> Value {
         let id = self.buffer_id();
+        let value = self.scope.global(id, value_ty);
         self.buffers.push(BufferInfo {
             id,
-            item,
+            value,
             has_extended_meta: true,
         });
-        self.scope.global(id, item)
+        value
     }
 
-    /// Register a tensor map and return the [element](Variable) to be used for kernel expansion.
-    pub fn tensor_map(&mut self, item: Type) -> Variable {
+    /// Register a tensor map and return the [element](Value) to be used for kernel expansion.
+    pub fn tensor_map(&mut self) -> Value {
         let id = self.buffer_id();
+        let value = self.scope.tensor_map(id);
         self.tensor_maps.push(BufferInfo {
             id,
-            item,
+            value,
             has_extended_meta: true,
         });
-        Variable::new(VariableKind::TensorMap(id), item)
+        value
     }
 
     /// Register an output that uses the same resource as the input as the given position.
-    pub fn inplace(&mut self, position: Id) -> Variable {
-        let input = self
-            .buffers
-            .get_mut(position as usize)
-            .expect("Position valid");
-
-        self.scope.global(position, input.item)
+    pub fn inplace(&mut self, position: Id) -> Value {
+        let input = self.buffers.get_mut(position as usize);
+        input.expect("Position valid").value
     }
 
     pub fn runtime_properties(&mut self, properties: TargetProperties) {

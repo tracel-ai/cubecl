@@ -24,7 +24,7 @@ where
         let len = self.__expand_len_method(scope);
 
         let mut child = scope.child();
-        let i = child.create_local_restricted(index_ty);
+        let i = scope.create_local_mut(index_ty);
 
         let index = NativeExpand::new(i);
         let item = self

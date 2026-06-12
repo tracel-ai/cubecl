@@ -89,7 +89,7 @@ pub mod workgroup_uniform_load {
 
     /// Expand method of [`workgroup_uniform_load()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, reference: &NativeExpand<E>) -> NativeExpand<E> {
-        let out = scope.create_local(E::__expand_as_type(scope));
+        let out = scope.create_value(E::__expand_as_type(scope));
         scope.register(Instruction::new(
             Operation::WorkgroupUniformLoad(reference.expand),
             out,
@@ -117,7 +117,7 @@ pub mod workgroup_uniform_load_atomic {
         scope: &Scope,
         reference: &NativeExpand<Atomic<E>>,
     ) -> NativeExpand<E> {
-        let out = scope.create_local(E::__expand_as_type(scope));
+        let out = scope.create_value(E::__expand_as_type(scope));
         scope.register(Instruction::new(
             Operation::WorkgroupUniformLoad(reference.expand),
             out,

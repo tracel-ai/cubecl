@@ -1,7 +1,7 @@
 //! In this file we use a trick where the constant has the same name as the module containing
 //! the expand function, so that a user implicitly imports the expand function when importing the constant.
 
-use cubecl_ir::Scope;
+use cubecl_ir::{Instruction, Operator, Scope};
 
 use crate::prelude::CubePrimitive;
 
@@ -17,12 +17,11 @@ macro_rules! constant {
         pub mod $ident {
             use super::*;
 
-            /// Expansion of the constant variable.
+            /// Expansion of the constant value.
             pub fn expand(scope: &Scope) -> NativeExpand<u32> {
-                NativeExpand::new(crate::ir::Variable::builtin(
-                    $var,
-                    u32::__expand_as_type(scope).storage_type(),
-                ))
+                let out = scope.create_value(u32::__expand_as_type(scope));
+                scope.register(Instruction::new(Operator::ReadBuiltin($var), out));
+                out.into()
             }
         }
     };
@@ -38,12 +37,11 @@ macro_rules! constant_usize {
         pub mod $ident {
             use super::*;
 
-            /// Expansion of the constant variable.
+            /// Expansion of the constant value.
             pub fn expand(scope: &Scope) -> NativeExpand<usize> {
-                NativeExpand::new(crate::ir::Variable::builtin(
-                    $var,
-                    usize::__expand_as_type(scope).storage_type(),
-                ))
+                let out = scope.create_value(usize::__expand_as_type(scope));
+                scope.register(Instruction::new(Operator::ReadBuiltin($var), out));
+                out.into()
             }
         }
     };

@@ -1,11 +1,8 @@
-use alloc::{
-    borrow::Cow,
-    string::{String, ToString},
-};
+use alloc::string::{String, ToString};
 
 use crate as cubecl;
 use cubecl::prelude::*;
-use cubecl_ir::{Instruction, Operation, Variable};
+use cubecl_ir::{Instruction, Operation, Value};
 
 define_scalar!(ElemA);
 define_size!(SizeA);
@@ -68,14 +65,15 @@ pub fn validate_index<E: Scalar, N: Size>(
 
 #[cube]
 #[allow(unused)]
-fn print_oob<Out: CubeType<ExpandType: Into<Variable>> + ?Sized>(
+fn print_oob<Out: CubeType<ExpandType: Into<Value>> + ?Sized>(
     #[comptime] kernel_name: String,
     index: usize,
     len: usize,
     buffer: &Out,
 ) {
     intrinsic!(|scope| {
-        let name = name_of_var(scope, buffer.clone_unchecked().into());
+        let value: Value = buffer.clone_unchecked().into();
+        let name = value.address_space();
         __expand_debug_print!(
             scope,
             alloc::format!(
@@ -87,17 +85,12 @@ fn print_oob<Out: CubeType<ExpandType: Into<Variable>> + ?Sized>(
     })
 }
 
-fn name_of_var(scope: &Scope, var: Variable) -> Cow<'static, str> {
-    let debug_name = scope.debug.variable_names.borrow().get(&var).cloned();
-    debug_name.unwrap_or_else(|| var.to_string().into())
-}
-
 #[allow(missing_docs)]
 pub fn expand_checked_index(
     scope: &Scope,
-    list: Variable,
-    index: Variable,
-    out: Variable,
+    list: Value,
+    index: Value,
+    out: Value,
     unroll_factor: usize,
 ) {
     scope.register_type::<ElemA>(list.ty.storage_type());
@@ -105,16 +98,16 @@ pub fn expand_checked_index(
     let len = expand_buffer_length_native(scope, list);
     let index =
         checked_index::expand::<ElemA, SizeA>(scope, index.into(), len.into(), unroll_factor);
-    let ptr = index_expand(scope, list, index.expand, None, false);
+    let ptr = index_expand(scope, list, index.expand, false);
     scope.register(Instruction::new(Operation::Copy(ptr), out));
 }
 
 #[allow(missing_docs)]
 pub fn expand_validate_index(
     scope: &Scope,
-    list: Variable,
-    index: Variable,
-    out: Variable,
+    list: Value,
+    index: Value,
+    out: Value,
     unroll_factor: usize,
     kernel_name: &str,
 ) {
@@ -130,6 +123,6 @@ pub fn expand_validate_index(
         unroll_factor,
         kernel_name.to_string(),
     );
-    let ptr = index_expand(scope, list, index.expand, None, false);
+    let ptr = index_expand(scope, list, index.expand, false);
     scope.register(Instruction::new(Operation::Copy(ptr), out));
 }

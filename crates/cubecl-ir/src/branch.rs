@@ -3,7 +3,7 @@ use core::fmt::Display;
 
 use crate::{OperationArgs, OperationReflect};
 
-use super::{OperationCode, Scope, Variable};
+use super::{OperationCode, Scope, Value};
 use crate::TypeHash;
 
 /// All branching types.
@@ -89,7 +89,7 @@ impl Display for Branch {
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct If {
-    pub cond: Variable,
+    pub cond: Value,
     pub scope: Scope,
 }
 
@@ -97,7 +97,7 @@ pub struct If {
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct IfElse {
-    pub cond: Variable,
+    pub cond: Value,
     pub scope_if: Scope,
     pub scope_else: Scope,
 }
@@ -106,26 +106,25 @@ pub struct IfElse {
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct Switch {
-    pub value: Variable,
+    pub value: Value,
     pub scope_default: Scope,
-    pub cases: Vec<(Variable, Scope)>,
+    pub cases: Vec<(Value, Scope)>,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash)]
 #[allow(missing_docs)]
 pub struct RangeLoop {
-    pub i: Variable,
-    pub start: Variable,
-    pub end: Variable,
-    pub step: Option<Variable>,
+    pub i: Value,
+    pub start: Value,
+    pub end: Value,
+    pub step: Option<Value>,
     pub inclusive: bool,
     pub scope: Scope,
 }
 
 impl RangeLoop {
     pub fn sanitize_args_ptr(&mut self, scope: &Scope) {
-        self.i.sanitize_args_ptr(scope);
         self.start.sanitize_args_ptr(scope);
         self.end.sanitize_args_ptr(scope);
         self.step.sanitize_args_ptr(scope);

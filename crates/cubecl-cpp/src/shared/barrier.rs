@@ -2,84 +2,82 @@ use std::fmt::{Display, Write};
 
 use cubecl_core::ir::BarrierLevel;
 
-use super::{Component, Dialect, Variable};
+use crate::shared::FmtLeft;
+
+use super::{Component, Dialect, Value};
 
 #[derive(Debug, Clone)]
 pub enum BarrierOps<D: Dialect> {
-    Declare {
-        barrier: Variable<D>,
-        level: BarrierLevel,
-    },
     Init {
-        barrier: Variable<D>,
-        is_elected: Variable<D>,
-        arrival_count: Variable<D>,
+        barrier: Value<D>,
+        is_elected: Value<D>,
+        arrival_count: Value<D>,
         level: BarrierLevel,
     },
     InitManual {
-        barrier: Variable<D>,
-        arrival_count: Variable<D>,
+        barrier: Value<D>,
+        arrival_count: Value<D>,
     },
     MemCopyAsync {
-        barrier: Variable<D>,
-        source: Variable<D>,
-        destination: Variable<D>,
-        source_length: Variable<D>,
+        barrier: Value<D>,
+        source: Value<D>,
+        destination: Value<D>,
+        source_length: Value<D>,
         cooperative: bool,
     },
     MemCopyAsyncTx {
-        barrier: Variable<D>,
-        source: Variable<D>,
-        destination: Variable<D>,
-        source_length: Variable<D>,
+        barrier: Value<D>,
+        source: Value<D>,
+        destination: Value<D>,
+        source_length: Value<D>,
     },
     CopyAsync {
-        source: Variable<D>,
-        destination: Variable<D>,
-        source_length: Variable<D>,
+        source: Value<D>,
+        destination: Value<D>,
+        source_length: Value<D>,
         copy_size: u32,
         checked: bool,
     },
     MemCopyAsyncTensorGlobalToShared {
-        barrier: Variable<D>,
-        smem_buffer: Variable<D>,
-        tensor_map: Variable<D>,
-        indices: Vec<Variable<D>>,
+        barrier: Value<D>,
+        smem_buffer: Value<D>,
+        tensor_map: Value<D>,
+        indices: Vec<Value<D>>,
     },
     TmaLoadIm2col {
-        barrier: Variable<D>,
-        smem_buffer: Variable<D>,
-        tensor_map: Variable<D>,
-        indices: Vec<Variable<D>>,
-        offsets: Vec<Variable<D>>,
+        barrier: Value<D>,
+        smem_buffer: Value<D>,
+        tensor_map: Value<D>,
+        indices: Vec<Value<D>>,
+        offsets: Vec<Value<D>>,
     },
     Arrive {
-        barrier: Variable<D>,
-        token: Variable<D>,
+        barrier: Value<D>,
+        token: Value<D>,
     },
     ArriveTx {
-        barrier: Variable<D>,
-        token: Variable<D>,
-        arrive_count_update: Variable<D>,
-        transaction_count_update: Variable<D>,
+        barrier: Value<D>,
+        token: Value<D>,
+        arrive_count_update: Value<D>,
+        transaction_count_update: Value<D>,
     },
     ArriveCopyAsync {
-        barrier: Variable<D>,
+        barrier: Value<D>,
     },
     ExpectTx {
-        barrier: Variable<D>,
-        transaction_count_update: Variable<D>,
+        barrier: Value<D>,
+        transaction_count_update: Value<D>,
     },
     Wait {
-        barrier: Variable<D>,
-        token: Variable<D>,
+        barrier: Value<D>,
+        token: Value<D>,
     },
     WaitParity {
-        barrier: Variable<D>,
-        phase: Variable<D>,
+        barrier: Value<D>,
+        phase: Value<D>,
     },
     ArriveAndWait {
-        barrier: Variable<D>,
+        barrier: Value<D>,
         level: BarrierLevel,
     },
 }
@@ -89,7 +87,6 @@ impl<D: Dialect> BarrierOps<D> {
         match self {
             BarrierOps::MemCopyAsync { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::MemCopyAsyncTx { barrier, .. } => barrier.id().unwrap(),
-            BarrierOps::Declare { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::Init { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::InitManual { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::ArriveAndWait { barrier, .. } => barrier.id().unwrap(),
@@ -109,50 +106,28 @@ impl<D: Dialect> BarrierOps<D> {
 impl<D: Dialect> Display for BarrierOps<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BarrierOps::Declare { barrier, level } => {
-                match level {
-                    // Note: Arrival token exists for cuda::thread_scope_thread, but is not public.
-                    // So skip creating the token for unit barriers.
-                    BarrierLevel::Unit => Ok(()),
-                    BarrierLevel::Cube => write!(
-                        f,
-                        "
-cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thread_block();
-cuda::barrier<cuda::thread_scope_block>::arrival_token barrier_{}_token;
-",
-                        barrier.id().unwrap()
-                    ),
-                }
-            }
             BarrierOps::Init {
                 barrier,
                 is_elected,
                 arrival_count,
                 level,
-            } => {
-                match level {
-                    // Note: Arrival token exists for cuda::thread_scope_thread, but is not public.
-                    // So skip creating the token for unit barriers.
-                    BarrierLevel::Unit => write!(
-                        f,
-                        "
+            } => match level {
+                BarrierLevel::Unit => write!(
+                    f,
+                    "
 init(&{barrier}, {arrival_count});
                 "
-                    ),
-                    BarrierLevel::Cube => write!(
-                        f,
-                        "
-cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thread_block();
-cuda::barrier<cuda::thread_scope_block>::arrival_token barrier_{}_token;
+                ),
+                BarrierLevel::Cube => write!(
+                    f,
+                    "
 if ({is_elected}) {{
    init(&{barrier}, {arrival_count});
 }}
 __syncthreads();
 ",
-                        barrier.id().unwrap()
-                    ),
-                }
-            }
+                ),
+            },
             BarrierOps::InitManual {
                 barrier,
                 arrival_count,
@@ -164,7 +139,6 @@ __syncthreads();
                 source,
                 destination,
                 source_length,
-
                 cooperative,
             } => {
                 let item = source.item();
@@ -179,7 +153,7 @@ cuda::memcpy_async({destination}, {source}, {source_length} * {size}, {barrier})
                     true => write!(
                         f,
                         "
-cuda::memcpy_async(block_{barrier}, {destination}, {source}, {source_length} * {size}, {barrier});
+cuda::memcpy_async(thread_block, {destination}, {source}, {source_length} * {size}, {barrier});
                         "
                     ),
                 }
@@ -262,7 +236,7 @@ __cp_async_shared_global<{copy_size}>({source}, {destination}, {size});
                 )
             }
             BarrierOps::Arrive { barrier, token, .. } => {
-                writeln!(f, "{token} = {barrier}.arrive();")
+                writeln!(f, "{} = {barrier}.arrive();", token.fmt_left())
             }
             BarrierOps::ArriveTx {
                 barrier,
@@ -272,7 +246,8 @@ __cp_async_shared_global<{copy_size}>({source}, {destination}, {size});
             } => {
                 writeln!(
                     f,
-                    "{token} = cuda::device::barrier_arrive_tx({barrier}, {arrive_count_update}, {transaction_count_update});"
+                    "{} = cuda::device::barrier_arrive_tx({barrier}, {arrive_count_update}, {transaction_count_update});",
+                    token.fmt_left()
                 )
             }
             BarrierOps::ArriveCopyAsync { barrier } => {

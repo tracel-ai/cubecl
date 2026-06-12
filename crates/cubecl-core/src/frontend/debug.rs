@@ -2,7 +2,7 @@ use alloc::{string::String, vec::Vec};
 
 use cubecl_ir::CubeFnSource;
 
-use crate::ir::{NonSemantic, Scope, Variable};
+use crate::ir::{NonSemantic, Scope, Value};
 
 use super::CubeDebug;
 
@@ -52,7 +52,7 @@ pub fn debug_var_expand<E: CubeDebug>(scope: &Scope, name: &'static str, expand:
 }
 
 /// Prints a formatted message using the print debug layer in Vulkan, or `printf` in CUDA.
-pub fn printf_expand(scope: &Scope, format_string: impl Into<String>, args: Vec<Variable>) {
+pub fn printf_expand(scope: &Scope, format_string: impl Into<String>, args: Vec<Value>) {
     scope.register(NonSemantic::Print {
         format_string: format_string.into(),
         args,
@@ -80,7 +80,7 @@ macro_rules! debug_print {
 macro_rules! __expand_debug_print {
     ($scope:expr, $format:expr, $($args:expr),*) => {
         {
-            let args = $crate::__private::vec![$($crate::ir::Variable::from($args)),*];
+            let args = $crate::__private::vec![$($crate::ir::Value::from($args)),*];
             $crate::frontend::printf_expand($scope, $format, args);
         }
     };

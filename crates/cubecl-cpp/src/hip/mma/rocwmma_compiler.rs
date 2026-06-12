@@ -5,8 +5,8 @@ use crate::{
         mma::{compile_manual_mma, supported_mma_combinations},
     },
     shared::{
-        DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout, ManualMma,
-        SupportedMmaCombinations, Variable, WmmaInstruction, wmma_api_base,
+        DialectWmmaCompiler, Flags, FragmentIdent, FragmentLayout, FragmentType, ManualMma,
+        SupportedMmaCombinations, Value, WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu, features::MmaConfig};
@@ -46,9 +46,10 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
 
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
-        var: &crate::shared::Variable<HipDialect<Self>>,
+        val: &crate::shared::Value<HipDialect<Self>>,
+        ty: &crate::shared::Item<HipDialect<Self>>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_declaration(f, var)
+        wmma_api_base::compile_fragment_declaration(f, val, ty)
     }
 
     fn compile_wwma_fragment_ident(
@@ -67,7 +68,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
 
     fn compile_wmma_fragment(
         f: &mut std::fmt::Formatter<'_>,
-        fragment: &Fragment<HipDialect<Self>>,
+        fragment: &FragmentType<HipDialect<Self>>,
     ) -> std::fmt::Result {
         wmma_api_base::compile_fragment(f, ROCWMMA_NAMESPACE, fragment)
     }
@@ -89,8 +90,8 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
     fn compile_scaled_mma(
         f: &mut std::fmt::Formatter<'_>,
         _mma: ManualMma<HipDialect<Self>>,
-        _scales_a: Variable<HipDialect<Self>>,
-        _scales_b: Variable<HipDialect<Self>>,
+        _scales_a: Value<HipDialect<Self>>,
+        _scales_b: Value<HipDialect<Self>>,
         _scales_factor: u32,
     ) -> std::fmt::Result {
         f.write_str("#error Scaled MMA not supported on HIP\n")

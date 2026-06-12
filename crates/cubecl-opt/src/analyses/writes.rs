@@ -1,46 +1,48 @@
 use core::ops::Deref;
 
-use cubecl_ir::Id;
+use cubecl_ir::{Id, Memory, Operation};
 use hashbrown::{HashMap, HashSet};
 
-use crate::{Function, GlobalState, NodeIndex, local_variable_id};
+use crate::{Function, GlobalState, NodeIndex};
 
 use super::Analysis;
 
 #[derive(Debug)]
-pub struct Writes {
-    /// The variables written to by each block.
-    writes: HashMap<NodeIndex, HashSet<Id>>,
+pub struct LocalStores {
+    /// The memories stored to by each block.
+    stores: HashMap<NodeIndex, HashSet<Id>>,
 }
 
-impl Deref for Writes {
+impl Deref for LocalStores {
     type Target = HashMap<NodeIndex, HashSet<Id>>;
 
     fn deref(&self) -> &Self::Target {
-        &self.writes
+        &self.stores
     }
 }
 
-impl Writes {
-    pub fn new(func: &mut Function, state: &GlobalState) -> Self {
+impl LocalStores {
+    pub fn new(func: &mut Function, _state: &GlobalState) -> Self {
         let nodes = func.node_ids().into_iter().map(|it| (it, HashSet::new()));
-        let mut writes: HashMap<NodeIndex, HashSet<Id>> = nodes.collect();
+        let mut stores: HashMap<NodeIndex, HashSet<Id>> = nodes.collect();
+        let locals = func.destructurable_local_memories();
+
         for block in func.node_ids() {
-            let ops = func[block].ops.clone();
-            for inst in ops.borrow_mut().values_mut() {
-                func.visit_instruction_write(state, inst, |_, var| {
-                    if let Some(id) = local_variable_id(var) {
-                        writes.get_mut(&block).unwrap().insert(id);
-                    }
-                });
+            let ops = func[block].ops.borrow();
+            for inst in ops.values() {
+                if let Operation::Memory(Memory::Store(store)) = &inst.operation
+                    && locals.contains_key(&store.ptr.id())
+                {
+                    stores.get_mut(&block).unwrap().insert(store.ptr.id());
+                }
             }
         }
-        Writes { writes }
+        LocalStores { stores }
     }
 }
 
-impl Analysis for Writes {
+impl Analysis for LocalStores {
     fn init(func: &mut crate::Function, state: &GlobalState) -> Self {
-        Writes::new(func, state)
+        LocalStores::new(func, state)
     }
 }

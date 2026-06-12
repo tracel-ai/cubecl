@@ -4,7 +4,7 @@ use core::fmt::{Display, Write};
 
 use crate::OperationReflect;
 
-use super::Variable;
+use super::Value;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
@@ -13,8 +13,8 @@ use super::Variable;
 pub enum TmaOps {
     TmaStore {
         #[args(allow_ptr, ptr_read)]
-        source: Variable,
-        coordinates: Vec<Variable>,
+        source: Value,
+        coordinates: Vec<Value>,
     },
     CommitGroup,
     WaitGroup {
