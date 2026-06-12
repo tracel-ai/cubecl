@@ -168,7 +168,7 @@ impl<E: CubePrimitive, K: TensorMapKind> LaunchArg for TensorMap<E, K> {
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> NativeExpand<TensorMap<E, K>> {
-        let tensor = builder.tensor_map(E::__expand_as_type(&builder.scope));
+        let tensor = builder.tensor_map();
         tensor.into()
     }
 }
@@ -284,17 +284,12 @@ tma_store!(5, v, w, z, y, x);
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use cubecl_ir::{Metadata, Variable, VariableKind};
+    use cubecl_ir::{Metadata, Value};
 
     use super::*;
     use crate::ir::{Arithmetic, BinaryOperands, Instruction};
 
     impl<T: Scalar, K: TensorMapKind> TensorMap<T, K> {
-        /// Get a reference to the underlying buffer for the tensor map.
-        pub fn buffer<N: Size>(&self) -> &Tensor<Vector<T, N>> {
-            unexpanded!()
-        }
-
         /// Obtain the stride of input at dimension dim
         pub fn stride(&self, _dim: usize) -> usize {
             unexpanded!()
@@ -346,14 +341,6 @@ mod metadata {
         /// types are supposed to be the same.
         pub fn downcast<E: CubePrimitive>(&self) -> TensorMap<E, K> {
             unexpanded!()
-        }
-
-        // Expand function of [buffer](TensorMap::buffer).
-        pub fn __expand_buffer(
-            scope: &Scope,
-            expand: NativeExpand<TensorMap<T, K>>,
-        ) -> NativeExpand<Tensor<T>> {
-            expand.__expand_buffer_method(scope)
         }
 
         // Expand function of [stride](TensorMap::stride).
@@ -410,27 +397,18 @@ mod metadata {
     }
 
     impl<T: CubePrimitive, K: TensorMapKind> NativeExpand<TensorMap<T, K>> {
-        // Expand method of [buffer](TensorMap::buffer).
-        pub fn __expand_buffer_method(self, scope: &Scope) -> NativeExpand<Tensor<T>> {
-            let tensor = match self.expand.kind {
-                VariableKind::TensorMap(id) => scope.global(id, self.expand.ty),
-                _ => unreachable!(),
-            };
-            tensor.into()
-        }
-
         // Expand method of [stride](Tensor::stride).
         pub fn __expand_stride_method(
             self,
             scope: &Scope,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let dim: Variable = dim.into();
-            let out = scope.create_local(usize::__expand_as_type(scope));
+            let dim: Value = dim.into();
+            let out = scope.create_value(usize::__expand_as_type(scope));
             scope.register(Instruction::new(
                 Metadata::Stride {
                     dim,
-                    var: self.expand,
+                    list: self.expand,
                 },
                 out,
             ));
@@ -443,12 +421,12 @@ mod metadata {
             scope: &Scope,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let dim: Variable = dim.into();
-            let out = scope.create_local(usize::__expand_as_type(scope));
+            let dim: Value = dim.into();
+            let out = scope.create_value(usize::__expand_as_type(scope));
             scope.register(Instruction::new(
                 Metadata::Shape {
                     dim,
-                    var: self.expand,
+                    list: self.expand,
                 },
                 out,
             ));
@@ -462,12 +440,12 @@ mod metadata {
             index: NativeExpand<usize>,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let index: Variable = index.into();
+            let index: Value = index.into();
             let stride = self.__expand_stride_method(scope, dim);
             let shape = self.__expand_shape_method(scope, dim);
 
             // Compute `num_strides = index / stride`.
-            let num_strides = scope.create_local(usize::__expand_as_type(scope));
+            let num_strides = scope.create_value(usize::__expand_as_type(scope));
             scope.register(Instruction::new(
                 Arithmetic::Div(BinaryOperands {
                     lhs: index,
@@ -477,7 +455,7 @@ mod metadata {
             ));
 
             // Compute `coordinate = num_strides % shape `.
-            let coordinate = scope.create_local(usize::__expand_as_type(scope));
+            let coordinate = scope.create_value(usize::__expand_as_type(scope));
             scope.register(Instruction::new(
                 Arithmetic::Rem(BinaryOperands {
                     lhs: num_strides,

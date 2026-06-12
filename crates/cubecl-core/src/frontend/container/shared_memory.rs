@@ -7,8 +7,7 @@ use crate::{
     unexpanded,
 };
 use cubecl_ir::{
-    AddressSpace, AggregateKind, BoundsCheckMetadata, Marker, MetadataKind, SliceMetadata,
-    VariableKind, VectorSize,
+    AggregateKind, BoundsCheckMetadata, Marker, MetadataKind, SliceMetadata, VectorSize,
 };
 use cubecl_macros::{cube, intrinsic};
 
@@ -56,7 +55,7 @@ impl<T: CubePrimitive> Shared<[T]> {
     /// undefined behavior.
     pub fn new_slice(#[comptime] len: usize) -> Self {
         intrinsic!(|scope| {
-            let ty = Type::array(T::__expand_as_type(scope), len, AddressSpace::Shared);
+            let ty = Type::array(T::__expand_as_type(scope), len);
             let buffer = scope.create_shared(ty, None);
             let slice = slice::from_raw_parts::<T>(
                 scope,
@@ -76,7 +75,7 @@ impl<T: CubePrimitive> Shared<[T]> {
     #[allow(unused_variables)]
     pub fn new_aligned_slice(#[comptime] len: usize, #[comptime] alignment: usize) -> Self {
         intrinsic!(|scope| {
-            let ty = Type::array(T::__expand_as_type(scope), len, AddressSpace::Shared);
+            let ty = Type::array(T::__expand_as_type(scope), len);
             let buffer = scope.create_shared(ty, Some(alignment));
             let slice = slice::from_raw_parts::<T>(
                 scope,
@@ -120,8 +119,8 @@ impl<T: CubePrimitive> Shared<T> {
     /// undefined behavior.
     pub fn new() -> Self {
         intrinsic!(|scope| {
-            let var = scope.create_shared(T::__expand_as_type(scope), None);
-            NativeExpand::new(var)
+            let val = scope.create_shared(T::__expand_as_type(scope), None);
+            NativeExpand::new(val)
         })
     }
 }
@@ -157,12 +156,16 @@ impl<T: NativeCubeType + ?Sized> Shared<T> {
     /// *Must not* have any dangling references to this shared memory
     pub unsafe fn free(&self) {
         intrinsic!(|scope| {
-            let var = match self.expand.kind {
-                VariableKind::Aggregate { aggregate_kind, .. } => match aggregate_kind {
-                    AggregateKind::Ptr(MetadataKind::Slice) => {
-                        scope.extract_field(self.expand, self.expand.ty, SliceMetadata::LIST)
-                    }
-                    AggregateKind::Ptr(MetadataKind::BoundsCheck) => scope.extract_field(
+            let val = match self.expand.ty {
+                Type::Aggregate(aggregate_kind) => match aggregate_kind {
+                    AggregateKind::Ptr {
+                        meta: MetadataKind::Slice,
+                        ..
+                    } => scope.extract_field(self.expand, self.expand.ty, SliceMetadata::LIST),
+                    AggregateKind::Ptr {
+                        meta: MetadataKind::BoundsCheck,
+                        ..
+                    } => scope.extract_field(
                         self.expand,
                         self.expand.ty,
                         BoundsCheckMetadata::POINTER,
@@ -170,13 +173,13 @@ impl<T: NativeCubeType + ?Sized> Shared<T> {
                 },
                 _ => self.expand,
             };
-            scope.register(Marker::Free(var))
+            scope.register(Marker::Free(val))
         })
     }
 }
 
 fn len_static<T: CubePrimitive>(shared: &NativeExpand<Shared<[T]>>) -> NativeExpand<usize> {
-    let Type::Array(_, length, _) = shared.expand.ty else {
+    let Type::Array(_, length) = shared.expand.ty else {
         unreachable!("Kind of shared memory is always shared memory")
     };
     length.into()
@@ -249,8 +252,8 @@ impl<T: NativeCubeType + ?Sized> AsDerefMutExpand for SharedExpand<T> {
 
 impl<T: CubePrimitive> Assign<NativeExpand<T>> for SharedExpand<T> {
     fn __expand_assign_method(&mut self, scope: &Scope, value: NativeExpand<T>) {
-        self.__expand_deref_method(scope)
-            .__expand_assign_method(scope, value);
+        let value = read_value(scope, value.expand);
+        assign::expand_element(scope, value, self.expand);
     }
 }
 

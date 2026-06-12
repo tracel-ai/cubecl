@@ -1,11 +1,11 @@
-use super::{Component, Dialect, Elem, FmtLeft, Variable};
+use super::{Component, Dialect, Elem, FmtLeft, Value};
 use std::fmt::Display;
 
 pub trait Unary<D: Dialect> {
     fn format(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
         let out_item = out.item();
 
@@ -26,12 +26,12 @@ pub trait Unary<D: Dialect> {
 
     fn unroll_vec(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
         out_elem: Elem<D>,
         index: usize,
     ) -> std::fmt::Result {
-        let mut write_op = |index, out_elem, input: &Variable<D>, out: &Variable<D>| {
+        let mut write_op = |index, out_elem, input: &Value<D>, out: &Value<D>| {
             let out_item = out.item();
             let out = out.fmt_left();
             writeln!(f, "{out} = {out_item}{{")?;
@@ -47,7 +47,7 @@ pub trait Unary<D: Dialect> {
         };
 
         if Self::can_optimize() {
-            let optimized = Variable::optimized_args([*input, *out]);
+            let optimized = Value::optimized_args([*input, *out]);
             let [input, out_optimized] = optimized.args;
 
             let item_out_original = out.item();
@@ -59,11 +59,11 @@ pub trait Unary<D: Dialect> {
             };
 
             if item_out_original != item_out_optimized {
-                let out_tmp = Variable::tmp(item_out_optimized);
+                let out_tmp = Value::tmp(item_out_optimized);
 
                 write_op(index, out_elem, &input, &out_tmp)?;
                 let qualifier = out.const_qualifier();
-                let addr_space = D::address_space_for_variable(out);
+                let addr_space = D::address_space_for_value(out);
                 let out_fmt = out.fmt_left();
                 writeln!(
                     f,
@@ -107,6 +107,10 @@ pub trait FunctionFmt<D: Dialect> {
             match elem {
                 Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
                     write!(f, "{}({}(float({input})))", elem, Self::function_name(elem))
+                }
+                // Small ints cause issues around auto-promotion on AMD, so use explicit cast on out
+                Elem::U16 | Elem::U8 | Elem::I16 | Elem::I8 => {
+                    write!(f, "{elem}({}({input}))", Self::function_name(elem))
                 }
                 _ => write!(f, "{}({input})", Self::function_name(elem)),
             }
@@ -332,12 +336,13 @@ impl<D: Dialect> Unary<D> for BitwiseNot {
     fn format_scalar<Input>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        _out_elem: Elem<D>,
+        out_elem: Elem<D>,
     ) -> std::fmt::Result
     where
         Input: Component<D>,
     {
-        write!(f, "~{input}")
+        // Bitwise negation may widen, so use explicit cast
+        write!(f, "{out_elem}(~{input})")
     }
 }
 
@@ -361,8 +366,8 @@ pub struct Assign;
 impl<D: Dialect> Unary<D> for Assign {
     fn format(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
         let item = out.item();
         let item = item.value_ty();

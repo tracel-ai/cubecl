@@ -62,6 +62,13 @@ impl<R: Runtime> BufferArg<R> {
         }
     }
 
+    pub fn alias(input_pos: usize, length: usize) -> Self {
+        Self::Alias {
+            input_pos,
+            length: [length],
+        }
+    }
+
     pub fn size(&self) -> usize {
         match self {
             BufferArg::Handle { handle } => handle.length[0],

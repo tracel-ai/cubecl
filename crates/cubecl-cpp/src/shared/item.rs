@@ -1,6 +1,11 @@
 use std::fmt::Display;
 
-use cubecl_core::{ir::Intern, prelude::Visibility};
+use cubecl_core::{
+    ir::{BarrierLevel, Intern},
+    prelude::Visibility,
+};
+
+use crate::shared::FragmentType;
 
 use super::{Dialect, Elem};
 
@@ -13,6 +18,10 @@ pub enum Item<D: Dialect> {
     Pointer(Intern<Item<D>>, PointerClass),
     Array(Intern<Item<D>>, usize),
     DynamicArray(Intern<Item<D>>),
+    Fragment(FragmentType<D>),
+    Barrier(BarrierLevel),
+    BarrierToken(BarrierLevel),
+    TensorMap,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -52,6 +61,16 @@ impl<D: Dialect> Item<D> {
         }
     }
 
+    /// Type of the pointer returned when indexing
+    pub fn value_ptr(&self) -> Item<D> {
+        match self {
+            Item::Pointer(inner, class) => Item::Pointer(inner.value_ptr().intern(), *class),
+            Item::Array(inner, _) => inner.value_ptr(),
+            Item::DynamicArray(inner) => inner.value_ptr(),
+            other => *other,
+        }
+    }
+
     pub fn elem(&self) -> &Elem<D> {
         match self {
             Item::Scalar(elem) | Item::NativeVector(elem, _) => elem,
@@ -60,6 +79,10 @@ impl<D: Dialect> Item<D> {
             | Item::Pointer(item, _)
             | Item::Array(item, _)
             | Item::DynamicArray(item) => item.elem(),
+            Item::Fragment(frag) => &frag.elem,
+            Item::BarrierToken(..) => &Elem::None,
+            Item::TensorMap => &Elem::None,
+            Item::Barrier(..) => &Elem::None,
         }
     }
 
@@ -74,6 +97,14 @@ impl<D: Dialect> Item<D> {
             Item::Pointer(inner, class) => Item::Pointer(inner.with_elem(elem).intern(), *class),
             Item::Array(inner, size) => Item::Array(inner.with_elem(elem).intern(), *size),
             Item::DynamicArray(inner) => Item::DynamicArray(inner.with_elem(elem).intern()),
+            Item::Fragment(fragment_type) => {
+                let mut frag_ty = *fragment_type;
+                frag_ty.elem = elem;
+                Item::Fragment(frag_ty)
+            }
+            Item::Barrier(..) => panic!("Can't set elem of barrier"),
+            Item::BarrierToken(..) => panic!("Can't set elem of barrier token"),
+            Item::TensorMap => panic!("Can't set elem of tensor map"),
         }
     }
 
@@ -86,6 +117,10 @@ impl<D: Dialect> Item<D> {
             Item::Pointer(inner, class) => Item::Pointer(inner.as_scalar().intern(), *class),
             Item::Array(inner, size) => Item::Array(inner.as_scalar().intern(), *size),
             Item::DynamicArray(inner) => Item::DynamicArray(inner.as_scalar().intern()),
+            Item::Fragment(fragment_type) => Item::Fragment(*fragment_type),
+            Item::Barrier(..) => panic!("Can't set elem of barrier"),
+            Item::BarrierToken(..) => panic!("Can't get elem of barrier token"),
+            Item::TensorMap => panic!("Can't get elem of tensor map"),
         }
     }
 
@@ -97,6 +132,9 @@ impl<D: Dialect> Item<D> {
             | Item::Pointer(inner, _)
             | Item::Array(inner, _)
             | Item::DynamicArray(inner) => inner.vectorization(),
+            Item::Fragment(_) => 1,
+            Item::Barrier(..) | Item::BarrierToken(..) => 1,
+            Item::TensorMap => 1,
         }
     }
 
@@ -109,17 +147,10 @@ impl<D: Dialect> Item<D> {
             Item::Array(inner, size) => inner.size() * *size,
             Item::DynamicArray(inner) => inner.size(),
             Item::Pointer(..) => size_of::<u64>(),
-        }
-    }
-
-    pub fn is_native(&self) -> bool {
-        match self {
-            Item::Scalar(..) | Item::NativeVector(..) => true,
-            Item::Vector(..) => false,
-            Item::Atomic(item)
-            | Item::Pointer(item, ..)
-            | Item::Array(item, _)
-            | Item::DynamicArray(item) => item.is_native(),
+            Item::Fragment(_) => panic!("Can't read size of fragment"),
+            Item::Barrier(..) => size_of::<u64>(),
+            Item::BarrierToken(..) => size_of::<u64>(),
+            Item::TensorMap => 128,
         }
     }
 
@@ -159,6 +190,10 @@ impl<D: Dialect> Item<D> {
             }
             Item::Array(inner, size) => Item::Array(inner.optimized().intern(), *size),
             Item::DynamicArray(inner) => Item::DynamicArray(inner.optimized().intern()),
+            Item::Fragment(fragment_type) => Item::Fragment(*fragment_type),
+            Item::Barrier(barrier_level) => Item::Barrier(*barrier_level),
+            Item::BarrierToken(barrier_level) => Item::BarrierToken(*barrier_level),
+            Item::TensorMap => Item::TensorMap,
         }
     }
 
@@ -201,6 +236,10 @@ impl<D: Dialect> Item<D> {
             }
             Item::Array(inner, size) => Item::Array(inner.de_optimized().intern(), *size),
             Item::DynamicArray(inner) => Item::DynamicArray(inner.de_optimized().intern()),
+            Item::Fragment(fragment_type) => Item::Fragment(*fragment_type),
+            Item::Barrier(barrier_level) => Item::Barrier(*barrier_level),
+            Item::BarrierToken(barrier_level) => Item::BarrierToken(*barrier_level),
+            Item::TensorMap => Item::TensorMap,
         }
     }
 
@@ -220,6 +259,17 @@ impl<D: Dialect> Item<D> {
     }
 
     pub fn is_array(&self) -> bool {
+        matches!(self, Item::Array(..))
+    }
+
+    pub fn is_array_like(&self) -> bool {
         matches!(self, Item::Array(..) | Item::DynamicArray(..))
+    }
+
+    pub fn unwrap_ptr(&self) -> Item<D> {
+        match self {
+            Item::Pointer(inner, _) => **inner,
+            other => *other,
+        }
     }
 }

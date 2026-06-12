@@ -5,7 +5,7 @@ use core::fmt;
 
 use crate::{
     Dialect,
-    shared::{Component, Elem, FP8Kind, FmtLeft, Instruction, Item, UnaryInstruction, Variable},
+    shared::{Component, Elem, FP8Kind, FmtLeft, Instruction, Item, UnaryInstruction, Value},
 };
 
 /// special cast function for recursive conversion in the case of minifloat to minifloat conversion
@@ -33,8 +33,8 @@ use crate::{
 /// <https://docs.nvidia.com/cuda/cuda-math-api/cuda_math_api/group__CUDA__MATH__FP4__MISC.html>
 pub(crate) fn special_cast<D: Dialect>(
     f: &mut std::fmt::Formatter,
-    input: &Variable<D>,
-    out: &Variable<D>,
+    input: &Value<D>,
+    out: &Value<D>,
 ) -> fmt::Result {
     let mut current_in = *input;
 
@@ -49,7 +49,7 @@ pub(crate) fn special_cast<D: Dialect>(
         let out_var = if item == out.item() {
             *out
         } else {
-            Variable::tmp(item)
+            Value::tmp(item)
         };
         if *item.elem() == Elem::F16 {
             cast_minifloat_to_half(f, current_in, out_var)?;
@@ -67,7 +67,7 @@ pub(crate) fn special_cast<D: Dialect>(
 
     // Broadcast scalars to packing factor
     if out.item().packing_factor() > 1 && in_vec == 1 {
-        let tmp = Variable::tmp(Item::new(input.elem(), out.item().packing_factor()));
+        let tmp = Value::tmp(Item::new(input.elem(), out.item().packing_factor()));
         let assign = Instruction::Assign(UnaryInstruction {
             input: current_in,
             out: tmp,
@@ -95,7 +95,7 @@ pub(crate) fn special_cast<D: Dialect>(
             | Elem::Bool
     ) {
         // Precision is irrelevant for int, so use bf16 for the range
-        let tmp = Variable::tmp(Item::new(Elem::BF16, in_vec));
+        let tmp = Value::tmp(Item::new(Elem::BF16, in_vec));
         let assign = Instruction::Assign(UnaryInstruction {
             input: current_in,
             out: tmp,
@@ -112,7 +112,7 @@ pub(crate) fn special_cast<D: Dialect>(
         // Scale can't be converted from half...
         if matches!(current_in.elem(), Elem::F16) {
             let item = current_in.item().with_elem(Elem::BF16);
-            let tmp = Variable::tmp(item);
+            let tmp = Value::tmp(item);
             let assign = Instruction::Assign(UnaryInstruction {
                 input: current_in,
                 out: tmp,
@@ -141,8 +141,8 @@ pub(crate) fn special_cast<D: Dialect>(
 /// Convert any float to fp4/fp6, with round to nearest
 fn cast_to_fp4_fp6<D: Dialect>(
     f: &mut fmt::Formatter,
-    input: Variable<D>,
-    out: Variable<D>,
+    input: Value<D>,
+    out: Value<D>,
 ) -> fmt::Result {
     let out_opt = out.optimized();
     let packing = out_opt.item().packing_factor();
@@ -180,8 +180,8 @@ fn cast_to_fp4_fp6<D: Dialect>(
 /// Convert any float except f16 to e8m0
 fn cast_to_scale<D: Dialect>(
     f: &mut fmt::Formatter,
-    input: Variable<D>,
-    out: Variable<D>,
+    input: Value<D>,
+    out: Value<D>,
 ) -> fmt::Result {
     let out_opt = out.optimized();
     let packing = out_opt.item().packing_factor();
@@ -214,11 +214,7 @@ fn cast_to_scale<D: Dialect>(
 }
 
 /// Convert any float to fp8 (except e8m0)
-fn cast_to_fp8<D: Dialect>(
-    f: &mut fmt::Formatter,
-    input: Variable<D>,
-    out: Variable<D>,
-) -> fmt::Result {
+fn cast_to_fp8<D: Dialect>(f: &mut fmt::Formatter, input: Value<D>, out: Value<D>) -> fmt::Result {
     let out_opt = out.optimized();
     let packing = out_opt.item().packing_factor();
     let packed = packing > 1;
@@ -251,7 +247,7 @@ fn cast_to_fp8<D: Dialect>(
 }
 
 /// Pack types that normally wouldn't be optimized into a `vec2` for conversion
-fn float_to_packed<D: Dialect>(input: Variable<D>, i: usize, packing: usize) -> String {
+fn float_to_packed<D: Dialect>(input: Value<D>, i: usize, packing: usize) -> String {
     match input.elem() {
         Elem::TF32 | Elem::F32 => {
             let i = i * packing;
@@ -277,8 +273,8 @@ fn float_to_packed<D: Dialect>(input: Variable<D>, i: usize, packing: usize) -> 
 /// Convert any FP8/6/4 except e8m0 to half
 fn cast_minifloat_to_half<D: Dialect>(
     f: &mut fmt::Formatter,
-    input: Variable<D>,
-    out: Variable<D>,
+    input: Value<D>,
+    out: Value<D>,
 ) -> fmt::Result {
     let in_opt = input.optimized();
     let out_opt = out.optimized().item();
@@ -312,8 +308,8 @@ fn cast_minifloat_to_half<D: Dialect>(
 /// Convert an e8m0 scaling factor to bf16
 fn cast_scale_to_bfloat<D: Dialect>(
     f: &mut fmt::Formatter,
-    input: Variable<D>,
-    out: Variable<D>,
+    input: Value<D>,
+    out: Value<D>,
 ) -> fmt::Result {
     let in_opt = input.optimized();
     let out_opt = out.optimized().item();
@@ -342,7 +338,7 @@ fn cast_scale_to_bfloat<D: Dialect>(
 
 fn handle_unroll<D: Dialect>(
     f: &mut fmt::Formatter,
-    out: Variable<D>,
+    out: Value<D>,
     mut op: impl FnMut(&mut fmt::Formatter, usize) -> fmt::Result,
 ) -> fmt::Result {
     let out_opt = out.item().optimized();
@@ -352,7 +348,7 @@ fn handle_unroll<D: Dialect>(
         _ => panic!("Invalid input item for special cast"),
     };
     let out_var = if out.item() != out_opt {
-        Variable::tmp(out_opt)
+        Value::tmp(out_opt)
     } else {
         out
     };

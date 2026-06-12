@@ -1,4 +1,6 @@
-use super::{Body, Elem, Extension, Item, Variable};
+use crate::compiler::wgsl::Value;
+
+use super::{Body, Elem, Extension, Item};
 use cubecl_core::{CubeDim, Info, ir::Id, prelude::Visibility};
 use std::fmt::Display;
 
@@ -6,32 +8,24 @@ use std::fmt::Display;
 pub struct KernelArg {
     pub id: Id,
     pub visibility: Visibility,
-    pub item: Item,
+    pub value: Value,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SharedValue {
-    pub index: Id,
-    item: Item,
-    alignment: Option<u32>,
+    pub ty: Item,
+    pub value: Value,
+    alignment: u32,
 }
 
 impl SharedValue {
-    pub fn new(index: Id, item: Item, alignment: Option<u32>) -> Self {
+    pub fn new(ty: Item, value: Value, alignment: u32) -> Self {
         Self {
-            index,
-            item,
+            ty,
+            value,
             alignment,
         }
     }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct ConstantArray {
-    pub index: Id,
-    pub item: Item,
-    pub size: u32,
-    pub values: Vec<Variable>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,7 +33,6 @@ pub struct ComputeShader {
     pub buffers: Vec<KernelArg>,
     pub scalars: Vec<(Elem, usize)>,
     pub shared_values: Vec<SharedValue>,
-    pub constant_arrays: Vec<ConstantArray>,
     pub info: Info,
     pub static_meta_len: usize,
     pub workgroup_size: CubeDim,
@@ -64,7 +57,7 @@ pub struct ComputeShader {
 
 impl ComputeShader {
     pub fn shared_memory_bytes(&self) -> usize {
-        self.shared_values.iter().map(|it| it.item.size()).sum()
+        self.shared_values.iter().map(|it| it.ty.size()).sum()
     }
 }
 
@@ -81,7 +74,7 @@ impl Display for ComputeShader {
             f.write_str("enable f16;")?;
         }
 
-        Self::format_bindings(f, "buffer", &self.buffers, 0)?;
+        Self::format_bindings(f, &self.buffers, 0)?;
 
         let offset = self.buffers.len();
 
@@ -116,22 +109,9 @@ var<{location}, {visibility}> info: info_st;
             let location = "workgroup";
             write!(
                 f,
-                "var<{location}> shared_{}: {};\n\n",
-                value.index, value.item,
+                "var<{location}> {}_store: {};\n\n",
+                value.value, value.ty,
             )?;
-        }
-
-        for array in self.constant_arrays.iter() {
-            write!(
-                f,
-                "const arrays_{}: array<{}, {}> = array(",
-                array.index, array.item, array.size
-            )?;
-            for value in array.values.iter() {
-                let value = value.fmt_cast_to(array.item);
-                write!(f, "{value},")?;
-            }
-            f.write_str(");\n\n")?;
         }
 
         write!(
@@ -205,6 +185,14 @@ fn {}(
             )?;
         }
 
+        for KernelArg { value, .. } in self.buffers.iter() {
+            writeln!(f, "let {value} = &{value}_store;")?;
+        }
+
+        for SharedValue { value, .. } in self.shared_values.iter() {
+            writeln!(f, "let {value} = &{value}_store;")?;
+        }
+
         write!(f, "{}", self.body)?;
 
         // Close body
@@ -221,17 +209,11 @@ fn {}(
 impl ComputeShader {
     fn format_bindings(
         f: &mut core::fmt::Formatter<'_>,
-        prefix: &str,
         bindings: &[KernelArg],
         num_entry: usize,
     ) -> core::fmt::Result {
         for (i, binding) in bindings.iter().enumerate() {
-            Self::format_binding(
-                f,
-                format!("{prefix}_{i}_global").as_str(),
-                binding,
-                num_entry + i,
-            )?;
+            Self::format_binding(f, &binding.value, binding, num_entry + i)?;
         }
 
         Ok(())
@@ -239,11 +221,11 @@ impl ComputeShader {
 
     fn format_binding(
         f: &mut core::fmt::Formatter<'_>,
-        name: &str,
+        name: &impl Display,
         binding: &KernelArg,
         num_entry: usize,
     ) -> core::fmt::Result {
-        let ty = format!("array<{}>", binding.item);
+        let ty = binding.value.item().unwrap_ptr();
 
         let location = "storage";
         let visibility = match binding.visibility {
@@ -256,7 +238,7 @@ impl ComputeShader {
             f,
             "@group(0)
 @binding({num_entry})
-var<{location}, {visibility}> {name}: {ty};
+var<{location}, {visibility}> {name}_store: {ty};
 \n",
         )?;
 

@@ -2,7 +2,7 @@ use crate as cubecl;
 use alloc::vec::Vec;
 use cubecl_ir::{
     Arithmetic, ElemType, Instruction, IntKind, Operation, Processor, Scope, ScopeProcessing,
-    StorageType, UIntKind, Variable,
+    StorageType, UIntKind, Value,
 };
 
 use crate::prelude::*;
@@ -92,9 +92,9 @@ impl SaturatingArithmeticProcessor {
 
 fn run_polyfill<T: CubePrimitive>(
     processing: &mut ScopeProcessing,
-    lhs: Variable,
-    rhs: Variable,
-    out: Variable,
+    lhs: Value,
+    rhs: Value,
+    out: Value,
     mut polyfill: impl FnMut(&Scope, NativeExpand<T>, NativeExpand<T>) -> NativeExpand<T>,
 ) {
     let scope = Scope::root(false).with_global_state(processing.global_state.clone());
@@ -115,9 +115,6 @@ fn run_polyfill<T: CubePrimitive>(
 
     for inst in tmp_processing.instructions {
         processing.instructions.push(inst);
-    }
-    for var in tmp_processing.variables {
-        processing.variables.push(var);
     }
 
     processing

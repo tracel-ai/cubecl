@@ -1,4 +1,4 @@
-use cubecl_ir::Variable;
+use cubecl_ir::Value;
 
 use super::{CubePrimitive, Vector};
 use crate::prelude::*;
@@ -19,7 +19,7 @@ pub mod plane_elect {
 
     /// Expand method of [`plane_elect()`].
     pub fn expand(scope: &Scope) -> NativeExpand<bool> {
-        let output = scope.create_local(Type::scalar(ElemType::Bool));
+        let output = scope.create_value(Type::scalar(ElemType::Bool));
         let out = output;
 
         scope.register(Instruction::new(Plane::Elect, out));
@@ -47,7 +47,7 @@ pub mod plane_broadcast {
         value: NativeExpand<E>,
         id: u32,
     ) -> NativeExpand<E> {
-        let output = scope.create_local(value.expand.value_type());
+        let output = scope.create_value(value.expand.value_type());
         let out = output;
         let lhs = value.expand;
         let rhs = id.into();
@@ -83,7 +83,7 @@ pub mod plane_shuffle {
         value: NativeExpand<E>,
         src_lane: NativeExpand<u32>,
     ) -> NativeExpand<E> {
-        let output = scope.create_local(value.expand.value_type());
+        let output = scope.create_value(value.expand.value_type());
         let out = output;
         let lhs = value.expand;
         let rhs = src_lane.expand;
@@ -122,7 +122,7 @@ pub mod plane_shuffle_xor {
         value: NativeExpand<E>,
         mask: NativeExpand<u32>,
     ) -> NativeExpand<E> {
-        let output = scope.create_local(value.expand.value_type());
+        let output = scope.create_value(value.expand.value_type());
         let out = output;
         let lhs = value.expand;
         let rhs = mask.expand;
@@ -158,7 +158,7 @@ pub mod plane_shuffle_up {
         value: NativeExpand<E>,
         delta: NativeExpand<u32>,
     ) -> NativeExpand<E> {
-        let output = scope.create_local(value.expand.value_type());
+        let output = scope.create_value(value.expand.value_type());
         let out = output;
         let lhs = value.expand;
         let rhs = delta.expand;
@@ -194,7 +194,7 @@ pub mod plane_shuffle_down {
         value: NativeExpand<E>,
         delta: NativeExpand<u32>,
     ) -> NativeExpand<E> {
-        let output = scope.create_local(value.expand.value_type());
+        let output = scope.create_value(value.expand.value_type());
         let out = output;
         let lhs = value.expand;
         let rhs = delta.expand;
@@ -220,8 +220,8 @@ pub mod plane_sum {
 
     /// Expand method of [`plane_sum()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Variable = elem.into();
-        let output = scope.create_local(elem.value_type());
+        let elem: Value = elem.into();
+        let output = scope.create_value(elem.value_type());
 
         let out = output;
         let input = elem;
@@ -249,8 +249,8 @@ pub mod plane_inclusive_sum {
 
     /// Expand method of [`plane_inclusive_sum()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Variable = elem.into();
-        let output = scope.create_local(elem.value_type());
+        let elem: Value = elem.into();
+        let output = scope.create_value(elem.value_type());
 
         let input = elem;
 
@@ -281,8 +281,8 @@ pub mod plane_exclusive_sum {
 
     /// Expand method of [`plane_exclusive_sum()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Variable = elem.into();
-        let output = scope.create_local(elem.value_type());
+        let elem: Value = elem.into();
+        let output = scope.create_value(elem.value_type());
 
         let out = output;
         let input = elem;
@@ -307,8 +307,8 @@ pub mod plane_prod {
 
     /// Expand method of [`plane_prod()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Variable = elem.into();
-        let output = scope.create_local(elem.value_type());
+        let elem: Value = elem.into();
+        let output = scope.create_value(elem.value_type());
 
         let out = output;
         let input = elem;
@@ -336,8 +336,8 @@ pub mod plane_inclusive_prod {
 
     /// Expand method of [`plane_inclusive_prod()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Variable = elem.into();
-        let output = scope.create_local(elem.value_type());
+        let elem: Value = elem.into();
+        let output = scope.create_value(elem.value_type());
 
         let out = output;
         let input = elem;
@@ -369,8 +369,8 @@ pub mod plane_exclusive_prod {
 
     /// Expand method of [`plane_exclusive_prod()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Variable = elem.into();
-        let output = scope.create_local(elem.value_type());
+        let elem: Value = elem.into();
+        let output = scope.create_value(elem.value_type());
 
         let out = output;
         let input = elem;
@@ -395,8 +395,8 @@ pub mod plane_max {
 
     /// Expand method of [`plane_max()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Variable = elem.into();
-        let output = scope.create_local(elem.value_type());
+        let elem: Value = elem.into();
+        let output = scope.create_value(elem.value_type());
 
         let out = output;
         let input = elem;
@@ -418,8 +418,8 @@ pub mod plane_min {
 
     /// Expand method of [`plane_min()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Variable = elem.into();
-        let output = scope.create_local(elem.value_type());
+        let elem: Value = elem.into();
+        let output = scope.create_value(elem.value_type());
 
         let out = output;
         let input = elem;
@@ -442,8 +442,8 @@ pub mod plane_all {
 
     /// Expand method of [`plane_all()`].
     pub fn expand(scope: &Scope, elem: NativeExpand<bool>) -> NativeExpand<bool> {
-        let elem: Variable = elem.into();
-        let output = scope.create_local(elem.value_type());
+        let elem: Value = elem.into();
+        let output = scope.create_value(elem.value_type());
 
         let out = output;
         let input = elem;
@@ -466,8 +466,8 @@ pub mod plane_any {
 
     /// Expand method of [`plane_any()`].
     pub fn expand(scope: &Scope, elem: NativeExpand<bool>) -> NativeExpand<bool> {
-        let elem: Variable = elem.into();
-        let output = scope.create_local(elem.value_type());
+        let elem: Value = elem.into();
+        let output = scope.create_value(elem.value_type());
 
         let out = output;
         let input = elem;
@@ -495,9 +495,9 @@ pub mod plane_ballot {
 
     /// Expand method of [`plane_ballot()`].
     pub fn expand(scope: &Scope, elem: NativeExpand<bool>) -> NativeExpand<Vector<u32, Const<4>>> {
-        let elem: Variable = elem.into();
+        let elem: Value = elem.into();
         let out_item = Type::scalar(ElemType::UInt(UIntKind::U32)).with_vector_size(4);
-        let output = scope.create_local(out_item);
+        let output = scope.create_value(out_item);
 
         let out = output;
         let input = elem;

@@ -6,7 +6,7 @@ use core::fmt::Display;
 
 use crate::OperationReflect;
 
-use super::Variable;
+use super::Value;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationCode)]
@@ -14,15 +14,15 @@ use super::Variable;
 /// Operations available on a barrier
 pub enum TensorIndexingOps {
     CreateLayout {
-        shape: Vec<Variable>,
-        strides: Option<Vec<Variable>>,
+        shape: Vec<Value>,
+        strides: Option<Vec<Value>>,
         clamp_mode: ClampMode,
     },
     CreateView,
     Slice {
-        layout: Variable,
-        offsets: Vec<Variable>,
-        shape: Vec<Variable>,
+        layout: Value,
+        offsets: Vec<Value>,
+        shape: Vec<Value>,
     },
 }
 
@@ -33,7 +33,7 @@ impl OperationReflect for TensorIndexingOps {
         self.__match_opcode()
     }
 
-    fn args(&self) -> Option<Vec<Variable>> {
+    fn args(&self) -> Option<Vec<Value>> {
         match self {
             TensorIndexingOps::CreateLayout { .. }
             | TensorIndexingOps::CreateView

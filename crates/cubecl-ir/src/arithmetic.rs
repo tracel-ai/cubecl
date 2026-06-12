@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use crate::TypeHash;
 
-use crate::{BinaryOperands, OperationArgs, OperationReflect, UnaryOperands, Variable};
+use crate::{BinaryOperands, OperationArgs, OperationReflect, UnaryOperands, Value};
 
 /// Arithmetic operations
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -133,16 +133,16 @@ impl Display for Arithmetic {
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct ClampOperands {
-    pub input: Variable,
-    pub min_value: Variable,
-    pub max_value: Variable,
+    pub input: Value,
+    pub min_value: Value,
+    pub max_value: Value,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct FmaOperands {
-    pub a: Variable,
-    pub b: Variable,
-    pub c: Variable,
+    pub a: Value,
+    pub b: Value,
+    pub c: Value,
 }

@@ -1,17 +1,17 @@
-use cubecl_core::ir::{Plane, UnaryOperands, Variable};
+use cubecl_core::ir::{Plane, UnaryOperands, Value};
 use rspirv::spirv::{Capability, GroupOperation, Scope, Word};
 
 use crate::{SpirvCompiler, SpirvTarget, item::Elem};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_plane(&mut self, plane: Plane, out: Option<Variable>, uniform: bool) {
+    pub fn compile_plane(&mut self, plane: Plane, out: Option<Value>, uniform: bool) {
         self.capabilities
             .insert(Capability::GroupNonUniformArithmetic);
         let subgroup = self.subgroup();
         let out = out.unwrap();
         match plane {
             Plane::Elect => {
-                let out = self.compile_variable(out);
+                let out = self.compile_value(out);
                 let out_id = self.write_id(&out);
                 let bool = self.type_bool();
                 self.group_non_uniform_elect(bool, Some(out_id), subgroup)
@@ -85,7 +85,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Plane::Broadcast(op) => {
-                let is_broadcast = self.uniformity.is_var_uniform(op.rhs);
+                let is_broadcast = self.uniformity.is_val_uniform(op.rhs);
                 self.compile_binary_op_no_cast(op, out, uniform, |b, _, ty, lhs, rhs, out| {
                     match is_broadcast {
                         true => {
@@ -218,13 +218,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    fn plane_sum(
-        &mut self,
-        op: UnaryOperands,
-        out: Variable,
-        action: GroupOperation,
-        uniform: bool,
-    ) {
+    fn plane_sum(&mut self, op: UnaryOperands, out: Value, action: GroupOperation, uniform: bool) {
         let subgroup = self.subgroup();
         self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
             match out_ty.elem() {
@@ -240,13 +234,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         });
     }
 
-    fn plane_prod(
-        &mut self,
-        op: UnaryOperands,
-        out: Variable,
-        action: GroupOperation,
-        uniform: bool,
-    ) {
+    fn plane_prod(&mut self, op: UnaryOperands, out: Value, action: GroupOperation, uniform: bool) {
         let subgroup = self.subgroup();
         self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
             match out_ty.elem() {

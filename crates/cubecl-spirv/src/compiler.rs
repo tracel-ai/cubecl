@@ -276,7 +276,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
         self.init_debug();
         self.init_base_state(&mut kernel);
-        let shared_size = self.declare_shared_memories();
 
         let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
 
@@ -310,6 +309,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         let setup_block = self.setup(setup, debug_setup);
         self.setup_block = setup_block;
 
+        let shared_size = self.declare_shared_memories();
+
         let blocks = opt.main.breadth_first_dominators();
         for block in blocks {
             self.compile_block(block);
@@ -342,11 +343,6 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
     fn setup(&mut self, label: Word, debug_setup: impl Fn(&mut Self)) -> usize {
         self.begin_block(Some(label)).unwrap();
-
-        let opt = self.opt.clone();
-        for const_arr in opt.main.const_arrays() {
-            self.register_const_array(const_arr);
-        }
 
         Target::load_params(self);
 
@@ -401,7 +397,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.select_block(Some(block_id)).unwrap();
         let phi = { self.current_func().block(block).phi_nodes.borrow().clone() };
         for phi in phi {
-            let out = self.compile_variable(phi.out);
+            let out = self.compile_value(phi.out);
             let ty = out.item().id(self);
             let out_id = self.write_id(&out);
             let entries: Vec<_> = phi
@@ -409,7 +405,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
                 .into_iter()
                 .map(|it| {
                     let label = self.end_label(it.block);
-                    let value = self.compile_variable(it.value);
+                    let value = self.compile_value(it.value);
                     let value = self.read(&value);
                     (value, label)
                 })
@@ -424,18 +420,18 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     pub fn declare_function_variable(&mut self, ty: Word, init: Option<Word>) -> Word {
         let setup = self.setup_block;
         let id = self.id();
-        let mut var = Instruction::new(
+        let mut val = Instruction::new(
             Op::Variable,
             Some(ty),
             Some(id),
             vec![Operand::StorageClass(StorageClass::Function)],
         );
         if let Some(init) = init {
-            var.operands.push(Operand::IdRef(init));
+            val.operands.push(Operand::IdRef(init));
         }
         let current_block = self.selected_block();
         self.select_block(Some(setup)).unwrap();
-        self.insert_into_block(InsertPoint::Begin, var).unwrap();
+        self.insert_into_block(InsertPoint::Begin, val).unwrap();
         self.select_block(current_block).unwrap();
         id
     }
@@ -494,12 +490,24 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             self.decorate(block_id, Decoration::Block, []);
             self.member_decorate(block_id, 0, Decoration::Offset, [memory.offset.into()]);
 
+            let block_ptr_ty = self.type_pointer(None, StorageClass::Workgroup, block_id);
             let ptr_ty =
-                self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, block_id);
+                self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, item_id);
 
             self.debug_shared(memory.id, index);
-            self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
-            self.decorate(memory.id, Decoration::Aliased, []);
+            self.variable(
+                block_ptr_ty,
+                Some(memory.val_id),
+                StorageClass::Workgroup,
+                None,
+            );
+            self.decorate(memory.val_id, Decoration::Aliased, []);
+
+            self.insert_in_setup(|b| {
+                let zero = b.const_u32(0);
+                b.in_bounds_access_chain(ptr_ty, Some(memory.id), memory.val_id, [zero])
+                    .unwrap()
+            });
         }
 
         shared_size

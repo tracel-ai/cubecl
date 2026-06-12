@@ -1,5 +1,5 @@
 use alloc::{vec, vec::Vec};
-use cubecl_ir::{CoopMma, GlobalState, Instruction, Operation, Operator, UnaryOperands, Variable};
+use cubecl_ir::{CoopMma, GlobalState, Instruction, Operation, Operator, UnaryOperands, Value};
 use hashbrown::HashMap;
 
 use crate::post_processing::{
@@ -12,7 +12,7 @@ use crate::post_processing::{
 /// and makes it easier to find optimizable expressions.
 #[derive(Default, Debug)]
 pub struct InlineAssignments {
-    substitutions: HashMap<Variable, Variable>,
+    substitutions: HashMap<Value, Value>,
 }
 
 impl InstructionVisitor for InlineAssignments {
@@ -24,9 +24,9 @@ impl InstructionVisitor for InlineAssignments {
         changes: &AtomicCounter,
     ) -> Vec<Instruction> {
         let mut visitor = Visitor(());
-        visitor.visit_operation(&mut inst.operation, analyses, |_, var| {
-            if let Some(substitution) = self.substitutions.get(var) {
-                *var = *substitution;
+        visitor.visit_operation(&mut inst.operation, analyses, |_, val| {
+            if let Some(substitution) = self.substitutions.get(val) {
+                *val = *substitution;
                 changes.inc();
             }
         });
@@ -36,9 +36,9 @@ impl InstructionVisitor for InlineAssignments {
             | Operation::Operator(Operator::Cast(UnaryOperands { input }))
             | Operation::Operator(Operator::Reinterpret(UnaryOperands { input }))
             | Operation::CoopMma(CoopMma::Cast { input })
-                if (input.is_immutable() || input.is_array() || input.ty.is_ptr())
+                if (input.is_immutable() || input.is_array_like() || input.ty.is_ptr())
                     && (inst.out.unwrap().is_immutable()
-                        || inst.out.unwrap().is_array()
+                        || inst.out.unwrap().is_array_like()
                         || inst.out.unwrap().ty.is_ptr())
                     && input.ty == inst.out.unwrap().ty =>
             {

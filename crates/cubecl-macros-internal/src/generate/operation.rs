@@ -128,7 +128,7 @@ impl Operation {
                     .map(|it| it.ident.clone().unwrap())
                     .map(|it| quote![#it: crate::FromArgList::from_arg_list(&mut args)]);
                 quote![#opcode::#ident => {
-                    let mut args: alloc::collections::VecDeque<crate::Variable> = args.iter().cloned().collect();
+                    let mut args: alloc::collections::VecDeque<crate::Value> = args.iter().cloned().collect();
                     Some(Self::#ident {
                         #(#fields),*
                     })
@@ -301,24 +301,24 @@ impl Operation {
             fn op_code(&self) -> Self::OpCode {
                 #opcode_impl
             }
-            fn args(&self) -> Option<alloc::vec::Vec<crate::Variable>> {
+            fn args(&self) -> Option<alloc::vec::Vec<crate::Value>> {
                 #args_impl
             }
-            fn args_mut(&mut self) -> Option<alloc::vec::Vec<&mut crate::Variable>> {
+            fn args_mut(&mut self) -> Option<alloc::vec::Vec<&mut crate::Value>> {
                 #args_mut_impl
             }
-            fn from_code_and_args(op_code: Self::OpCode, args: &[crate::Variable]) -> Option<Self> {
+            fn from_code_and_args(op_code: Self::OpCode, args: &[crate::Value]) -> Option<Self> {
                 #from_args_impl
             }
             fn sanitize_args(&mut self, scope: &crate::Scope) {
                 #sanitize
             }
 
-            fn read_pointers(&self) -> alloc::vec::Vec<crate::Variable> {
+            fn read_pointers(&self) -> alloc::vec::Vec<crate::Value> {
                 #read_ptrs
             }
 
-            fn write_pointers(&self) -> alloc::vec::Vec<crate::Variable> {
+            fn write_pointers(&self) -> alloc::vec::Vec<crate::Value> {
                 #write_ptrs
             }
 

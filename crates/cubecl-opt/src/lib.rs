@@ -37,7 +37,7 @@ use core::{
 };
 
 use alloc::{boxed::Box, collections::vec_deque::VecDeque, rc::Rc, vec, vec::Vec};
-use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::Writes};
+use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::LocalStores};
 use cubecl_core::{
     CubeDim,
     post_processing::{
@@ -48,15 +48,15 @@ use cubecl_core::{
     },
 };
 use cubecl_ir::{
-    self as ir, Allocator, Branch, Id, Memory, Operation, Operator, Processor, Scope, Type,
-    Variable, VariableKind,
+    self as ir, AddressSpace, Allocator, Branch, Id, Instruction, Operation, Processor, Scope,
+    Type, Value,
 };
 use gvn::GvnPass;
 use hashbrown::HashMap;
 use passes::{
-    CompositeMerge, EliminateConstBranches, EliminateDeadBlocks, EliminateDeadPhi,
-    EliminateUnusedVariables, EmptyBranchToSelect, InlineAssignments, MergeBlocks,
-    MergeSameExpressions, OptimizerPass, ReduceStrength, RemoveIndexScalar,
+    EliminateConstBranches, EliminateDeadBlocks, EliminateDeadPhi, EliminateUnusedVariables,
+    EmptyBranchToSelect, InlineCopies, MergeBlocks, MergeSameExpressions, OptimizerPass,
+    ReduceStrength,
 };
 use petgraph::{Direction, prelude::StableDiGraph, visit::EdgeRef};
 
@@ -80,34 +80,42 @@ pub use petgraph::graph::{EdgeIndex, NodeIndex};
 pub use transformers::*;
 pub use version::PhiInstruction;
 
-pub use crate::analyses::liveness::shared::{SharedLiveness, SharedMemory};
+pub use crate::analyses::liveness::shared::SharedLiveness;
 use crate::{
     analyses::{dominance::Dominators, liveness::Captures, pointer_source::PointerSource},
-    passes::{CopyTransform, DisaggregateArray, InlineRef},
+    passes::{CopyTransform, DisaggregateArray},
 };
 
-#[derive(Debug, Clone)]
-pub struct ConstArray {
-    pub id: Id,
-    pub length: usize,
-    pub item: Type,
-    pub values: Vec<ir::Variable>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MemoryBlock {
+    pub address_space: AddressSpace,
+    pub value_ty: Type,
+    pub alignment: usize,
+    /// The root pointer value returned from the allocation or passed into the kernel. All other
+    /// pointers into the same value are derived from this.
+    pub root_ptr: Value,
+}
+
+impl MemoryBlock {
+    /// The byte size of this shared memory
+    pub fn size(&self) -> usize {
+        self.value_ty.size()
+    }
 }
 
 #[derive(Default, Debug, Clone)]
 pub struct Function {
     /// Explicit parameters passed to the function, i.e. the inputs to a closure
-    pub explicit_params: Vec<Variable>,
+    pub explicit_params: Vec<Value>,
     /// Implicit parameters passed to the function, i.e. kernel args, closure captures
-    pub implicit_params: Vec<Variable>,
-    pub const_arrays: Vec<ConstArray>,
-    pub variables: HashMap<Id, Type>,
+    pub implicit_params: Vec<Value>,
+    pub memories: HashMap<Id, MemoryBlock>,
     pub graph: StableDiGraph<BasicBlock, u32>,
     pub root: NodeIndex,
     /// The single return block
     pub ret: NodeIndex,
     /// The return value, if any
-    pub return_value: Option<Variable>,
+    pub return_value: Option<Value>,
 
     /// Analyses with persistent state
     analysis_cache: Rc<AnalysisCache>,
@@ -130,8 +138,6 @@ impl DerefMut for Function {
         &mut self.graph
     }
 }
-
-type VarId = (Id, u16);
 
 /// An optimizer that applies various analyses and optimization passes to the IR.
 #[derive(Debug, Clone, Default)]
@@ -280,17 +286,9 @@ impl GlobalState {
     }
 }
 
-/// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.
-pub fn local_variable_id(variable: &ir::Variable) -> Option<Id> {
-    match variable.kind {
-        ir::VariableKind::LocalMut { id } if !variable.ty.is_atomic() => Some(id),
-        _ => None,
-    }
-}
-
-pub fn global_buffer_id(variable: &ir::Variable) -> Option<Id> {
-    match variable.kind {
-        VariableKind::GlobalBuffer(id) | VariableKind::TensorMap(id) => Some(id),
+pub fn global_buffer_id(value: &ir::Value) -> Option<Id> {
+    match value.address_space() {
+        AddressSpace::Global(id) => Some(id),
         _ => None,
     }
 }
@@ -304,6 +302,7 @@ impl Function {
         *self[self.ret].control_flow.borrow_mut() = ControlFlow::Return {
             value: self.return_value,
         };
+
         self.parse_scope(state, scope);
         if let Some(current_block) = self.current_block {
             let ret = self.ret;
@@ -324,27 +323,21 @@ impl Function {
         }
         let processed = scope.process(state.processors.iter().map(|it| &**it));
 
-        for var in processed.variables {
-            if let VariableKind::LocalMut { id } = var.kind {
-                self.variables.insert(id, var.ty);
+        for global_arg in processed.global_state.borrow().global_args.iter() {
+            let address_space = global_arg.address_space();
+            // Skip tensor maps
+            if matches!(address_space, AddressSpace::Local) {
+                continue;
             }
-        }
-
-        for (var, values) in scope.const_arrays.borrow().clone() {
-            let VariableKind::ConstantArray {
-                id,
-                length,
-                unroll_factor,
-            } = var.kind
-            else {
-                unreachable!()
-            };
-            self.const_arrays.push(ConstArray {
-                id,
-                length: length * unroll_factor,
-                item: var.ty,
-                values,
-            });
+            self.memories.insert(
+                global_arg.id(),
+                MemoryBlock {
+                    address_space,
+                    value_ty: global_arg.ty.unwrap_ptr(),
+                    alignment: global_arg.ty.align(),
+                    root_ptr: *global_arg,
+                },
+            );
         }
 
         let is_break = processed.instructions.contains(&Branch::Break.into());
@@ -372,6 +365,23 @@ impl Function {
                 continue;
             }
             match &mut instruction.operation {
+                Operation::DeclareVariable {
+                    value_ty,
+                    addr_space,
+                    alignment,
+                } => {
+                    let out = instruction.out.unwrap();
+                    self.memories.insert(
+                        out.id(),
+                        MemoryBlock {
+                            address_space: *addr_space,
+                            value_ty: *value_ty,
+                            alignment: *alignment,
+                            root_ptr: out,
+                        },
+                    );
+                    self.current_block_mut().ops.borrow_mut().push(instruction);
+                }
                 Operation::Branch(branch) => match self.parse_control_flow(state, branch.clone()) {
                     ControlFlowAction::None => {}
                     ControlFlowAction::AbortBlock => {
@@ -385,47 +395,6 @@ impl Function {
         }
 
         is_break
-    }
-
-    /// Remove non-constant index vectors from SSA transformation because they currently must be
-    /// mutated
-    fn exempt_index_assign_locals(&mut self) {
-        for node in self.node_ids() {
-            let ops = self[node].ops.clone();
-            for op in ops.borrow().values() {
-                if let Operation::Operator(Operator::InsertComponent(_)) = &op.operation
-                    && let VariableKind::LocalMut { id } = &op.out().kind
-                {
-                    self.variables.remove(id);
-                }
-                if let Operation::Memory(Memory::Index(op)) = &op.operation
-                    && let VariableKind::LocalMut { id } = &op.list.kind
-                {
-                    self.variables.remove(id);
-                }
-            }
-        }
-    }
-
-    /// Remove referenced variables from SSA transformation because they must stay a pointer and
-    /// can't be replaced with a value
-    fn exempt_referenced_locals(&mut self, state: &GlobalState) {
-        self.analysis::<PointerSource>(state);
-
-        // Eliminate unneeded refs
-        InlineRef.apply_pre_ssa(self, state, AtomicCounter::new(0));
-        EliminateUnusedVariables.apply_pre_ssa(self, state, AtomicCounter::new(0));
-
-        for node in self.node_ids() {
-            let ops = self[node].ops.clone();
-            for op in ops.borrow().values() {
-                if let Operation::Memory(Memory::Reference(var)) = &op.operation
-                    && let VariableKind::LocalMut { id } = &var.kind
-                {
-                    self.variables.remove(id);
-                }
-            }
-        }
     }
 
     /// Mutable reference to the current basic block
@@ -482,17 +451,12 @@ impl Function {
     }
 
     fn transform_ssa_and_merge_composites(&mut self, state: &GlobalState) {
-        self.exempt_index_assign_locals();
-        self.exempt_referenced_locals(state);
         self.ssa_transform(state);
 
         let mut done = false;
         while !done {
             let changes = AtomicCounter::new(0);
-            CompositeMerge.apply_post_ssa(self, state, changes.clone());
             if changes.get() > 0 {
-                self.exempt_index_assign_locals();
-                self.exempt_referenced_locals(state);
                 self.ssa_transform(state);
             } else {
                 done = true;
@@ -501,10 +465,10 @@ impl Function {
     }
 
     fn ssa_transform(&mut self, state: &GlobalState) {
+        InlineCopies.apply_pre_ssa(self, state, AtomicCounter::new(0));
         self.place_phi_nodes(state);
         self.version_program(state);
-        self.variables.clear();
-        self.invalidate_analysis::<Writes>();
+        self.invalidate_analysis::<LocalStores>();
         self.invalidate_analysis::<DomFrontiers>();
     }
 
@@ -512,6 +476,7 @@ impl Function {
     fn run_opt(&mut self, state: &GlobalState, scope: Scope) {
         self.parse_graph(state, scope);
         self.split_critical_edges();
+
         self.transform_ssa_and_merge_composites(state);
         self.analysis::<PointerSource>(state);
         self.apply_post_ssa_passes(state);
@@ -519,10 +484,13 @@ impl Function {
         // Special expensive passes that should only run once.
         // Need more optimization rounds in between.
 
+        // Disaggregate arrays, remove the resulting pointer copies, then re-run mem2reg on the new
+        // variables
         let arrays_prop = AtomicCounter::new(0);
         log::debug!("Applying {}", DisaggregateArray.name());
         DisaggregateArray.apply_post_ssa(self, state, arrays_prop.clone());
         if arrays_prop.get() > 0 {
+            InlineCopies.apply_post_ssa(self, state, AtomicCounter::new(0));
             self.invalidate_analysis::<Liveness>();
             self.transform_ssa_and_merge_composites(state);
             self.apply_post_ssa_passes(state);
@@ -573,13 +541,13 @@ impl Function {
     fn update_buffer_vis(&mut self, state: &GlobalState) {
         self.visit_all(
             state,
-            |_, var| {
-                if let Some(id) = global_buffer_id(var) {
+            |_, val| {
+                if let Some(id) = global_buffer_id(val) {
                     state.set_buffer_readable(id);
                 }
             },
-            |_, var| {
-                if let Some(id) = global_buffer_id(var) {
+            |_, val| {
+                if let Some(id) = global_buffer_id(val) {
                     state.set_buffer_writable(id);
                 }
             },
@@ -589,12 +557,11 @@ impl Function {
     fn apply_post_ssa_passes(&mut self, state: &GlobalState) {
         // Passes that run regardless of execution mode
         let mut passes: Vec<Box<dyn OptimizerPass>> = vec![
-            Box::new(InlineAssignments),
+            Box::new(InlineCopies),
             Box::new(EliminateUnusedVariables),
             Box::new(ConstOperandSimplify),
             Box::new(MergeSameExpressions),
             Box::new(ConstEval),
-            Box::new(RemoveIndexScalar),
             Box::new(EliminateConstBranches),
             Box::new(EmptyBranchToSelect),
             Box::new(EliminateDeadBlocks),
@@ -628,27 +595,47 @@ impl Function {
         }
     }
 
-    pub fn const_arrays(&self) -> Vec<ConstArray> {
-        self.const_arrays.clone()
-    }
-
-    pub fn all_params(&self) -> impl Iterator<Item = Variable> {
+    pub fn all_params(&self) -> impl Iterator<Item = Value> {
         self.explicit_params
             .iter()
             .copied()
             .chain(self.implicit_params.iter().copied())
     }
+
+    pub fn create_local_mut(&mut self, state: &GlobalState, value_ty: Type) -> Value {
+        let ty = Type::Pointer(value_ty.intern(), AddressSpace::Local);
+        let val = state.allocator.create_value(ty);
+        let root = self.root;
+        self[root].ops.borrow_mut().push(Instruction::new(
+            Operation::DeclareVariable {
+                value_ty,
+                addr_space: AddressSpace::Local,
+                alignment: value_ty.align(),
+            },
+            val,
+        ));
+        self.memories.insert(
+            val.id(),
+            MemoryBlock {
+                address_space: AddressSpace::Local,
+                value_ty,
+                alignment: value_ty.align(),
+                root_ptr: val,
+            },
+        );
+        val
+    }
 }
 
 /// A visitor that does nothing.
-pub fn visit_noop(_opt: &mut Function, _var: &mut Variable) {}
+pub fn visit_noop(_opt: &mut Function, _var: &mut Value) {}
 
 #[cfg(test)]
 mod test {
     use alloc::vec;
     use cubecl_core as cubecl;
     use cubecl_core::prelude::*;
-    use cubecl_ir::{ElemType, Type, UIntKind, Variable, VariableKind};
+    use cubecl_ir::{ElemType, Type, UIntKind};
 
     use crate::Optimizer;
 
@@ -669,21 +656,10 @@ mod test {
     #[ignore = "no good way to assert opt is applied"]
     fn test_pre() {
         let ctx = Scope::root(false);
-        let x = Variable::new(
-            VariableKind::GlobalScalar(0),
-            Type::scalar(ElemType::UInt(UIntKind::U32)),
-        )
-        .into();
-        let cond = Variable::new(
-            VariableKind::GlobalScalar(1),
-            Type::scalar(ElemType::UInt(UIntKind::U32)),
-        )
-        .into();
-        let mut arr = Variable::new(
-            VariableKind::GlobalBuffer(0),
-            Type::scalar(ElemType::UInt(UIntKind::U32)),
-        )
-        .into();
+        let u32 = Type::scalar(ElemType::UInt(UIntKind::U32));
+        let x = ctx.create_value(u32).into();
+        let cond = ctx.create_value(u32).into();
+        let mut arr = ctx.global(0, u32).into();
 
         pre_kernel::expand(&ctx, x, cond, &mut arr);
         let opt = Optimizer::new(ctx, CubeDim::new_1d(1), vec![], vec![], vec![]);

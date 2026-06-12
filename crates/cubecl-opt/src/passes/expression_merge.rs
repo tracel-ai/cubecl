@@ -10,9 +10,15 @@ use super::OptimizerPass;
 
 /// Inline constants or simple reassignments that don't change the type. This simplifies the code
 /// and makes it easier to find optimizable expressions.
-pub struct InlineAssignments;
+pub struct InlineCopies;
 
-impl OptimizerPass for InlineAssignments {
+impl OptimizerPass for InlineCopies {
+    fn apply_pre_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
+        while search_loop(func, state) {
+            changes.inc();
+        }
+    }
+
     fn apply_post_ssa(&mut self, func: &mut Function, state: &GlobalState, changes: AtomicCounter) {
         while search_loop(func, state) {
             changes.inc();
@@ -55,9 +61,9 @@ fn search_loop(func: &mut Function, state: &GlobalState) -> bool {
                 | Operation::Operator(Operator::Cast(UnaryOperands { input }))
                 | Operation::Operator(Operator::Reinterpret(UnaryOperands { input }))
                 | Operation::CoopMma(CoopMma::Cast { input })
-                    if (input.is_immutable() || input.is_array() || input.ty.is_ptr())
+                    if (input.is_immutable() || input.is_array_like() || input.ty.is_ptr())
                         && (op.out().is_immutable()
-                            || op.out().is_array()
+                            || op.out().is_array_like()
                             || op.out().ty.is_ptr())
                         && input.ty == op.ty() =>
                 {

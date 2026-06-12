@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use crate::TypeHash;
 
-use crate::{OperationReflect, Variable};
+use crate::{OperationReflect, Value};
 
 /// All metadata that can be accessed in a shader.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -11,19 +11,30 @@ use crate::{OperationReflect, Variable};
 #[allow(missing_docs)]
 pub enum Metadata {
     /// The stride of an array at the given dimension.
-    Stride { dim: Variable, var: Variable },
+    Stride {
+        dim: Value,
+        #[args(allow_ptr)]
+        list: Value,
+    },
     /// The shape of an array at the given dimension.
-    Shape { dim: Variable, var: Variable },
+    Shape {
+        dim: Value,
+        #[args(allow_ptr)]
+        list: Value,
+    },
     /// The length of an array's underlying buffer.
-    BufferLength { var: Variable },
+    BufferLength {
+        #[args(allow_ptr)]
+        list: Value,
+    },
 }
 
 impl Display for Metadata {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Metadata::Stride { dim, var } => write!(f, "{var}.strides[{dim}]"),
-            Metadata::Shape { dim, var } => write!(f, "{var}.shape[{dim}]"),
-            Metadata::BufferLength { var } => write!(f, "buffer_len({var})"),
+            Metadata::Stride { dim, list } => write!(f, "{list}.strides[{dim}]"),
+            Metadata::Shape { dim, list } => write!(f, "{list}.shape[{dim}]"),
+            Metadata::BufferLength { list } => write!(f, "buffer_len({list})"),
         }
     }
 }

@@ -27,7 +27,7 @@ mod sync;
 mod target;
 mod tensor_indexing;
 mod transformers;
-mod variable;
+mod value;
 
 pub use compiler::*;
 use serde::{Deserialize, Serialize};
