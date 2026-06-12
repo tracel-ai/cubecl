@@ -1,7 +1,11 @@
-use cubecl_ir::{ConstantValue, Type};
+use cubecl_ir::{
+    ConstantValue,
+    pliron::{context::Ptr, r#type::TypeObj},
+    types::scalar::IntType,
+};
 
 use crate::frontend::{CubeType, Numeric};
-use crate::ir::{ElemType, IntKind, Scope};
+use crate::ir::{IntKind, Scope};
 use crate::prelude::*;
 
 use super::{__expand_new, CubePrimitive, IntoMut, IntoRuntime, NativeAssign, NativeExpand};
@@ -43,20 +47,25 @@ pub trait Int:
 }
 
 macro_rules! impl_int {
-    ($type:ident, $kind:ident) => {
+    ($type: ident, $kind: ident) => {
         impl CubeType for $type {
             type ExpandType = NativeExpand<Self>;
         }
 
         impl CubeDebug for $type {}
-        impl Scalar for $type {}
+        impl Scalar for $type {
+            fn storage_type_native() -> StorageType {
+                IntKind::$kind.into()
+            }
+        }
         impl CubePrimitive for $type {
             type Scalar = Self;
             type Size = Const<1>;
             type WithScalar<S: Scalar> = S;
 
-            fn as_type_native() -> Option<Type> {
-                Some(ElemType::Int(IntKind::$kind).into())
+            fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+                let width = IntKind::$kind.size_bits();
+                IntType::get(&mut scope.ctx_mut(), width).into()
             }
 
             fn from_const_value(value: ConstantValue) -> Self {

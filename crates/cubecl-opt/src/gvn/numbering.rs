@@ -3,7 +3,7 @@ use core::mem::swap;
 use alloc::{collections::linked_list::LinkedList, vec::Vec};
 use cubecl_ir::{
     self as ir, Arithmetic, AtomicOp, Comparison, ComparisonOpCode, Memory, OpCode, Operation,
-    OperationReflect, Operator, Value,
+    OperationReflect, Operator, ExpandValue,
 };
 use hashbrown::HashSet;
 
@@ -21,7 +21,7 @@ impl ValueTable {
         op: &ir::Instruction,
         exp_gen: &mut LinkedList<(u32, Expression)>,
         added_exps: &mut HashSet<u32>,
-    ) -> Result<(u32, Option<Value>, Expression), Option<Value>> {
+    ) -> Result<(u32, Option<ExpandValue>, Expression), Option<ExpandValue>> {
         let expr = self.create_expr(func, op);
         if let Err(Some(val)) = expr {
             let num = self.lookup_or_add_value(val);
@@ -56,7 +56,7 @@ impl ValueTable {
         }
     }
 
-    pub fn lookup_or_add_phi(&mut self, func: &Function, phi: &PhiInstruction) -> (u32, Value) {
+    pub fn lookup_or_add_phi(&mut self, func: &Function, phi: &PhiInstruction) -> (u32, ExpandValue) {
         let expr = Expression::Phi(
             phi.entries
                 .iter()
@@ -68,7 +68,7 @@ impl ValueTable {
         (num, out)
     }
 
-    pub fn lookup_or_add_expr(&mut self, expr: Expression, value: Option<Value>) -> u32 {
+    pub fn lookup_or_add_expr(&mut self, expr: Expression, value: Option<ExpandValue>) -> u32 {
         let num = self.value_of_expr(expr).0;
         if let Some(value) = value {
             self.value_numbers.insert(value, num);
@@ -77,7 +77,7 @@ impl ValueTable {
         num
     }
 
-    pub fn lookup_or_add_value(&mut self, value: Value) -> u32 {
+    pub fn lookup_or_add_value(&mut self, value: ExpandValue) -> u32 {
         if let Some(existing) = self.value_numbers.get(&value) {
             *existing
         } else {
@@ -91,8 +91,8 @@ impl ValueTable {
     pub fn lookup_or_add_var(
         &mut self,
         func: &Function,
-        value: &Value,
-    ) -> Result<u32, Option<Value>> {
+        value: &ExpandValue,
+    ) -> Result<u32, Option<ExpandValue>> {
         let value = func.value_of_var(value).ok_or(None)?;
         if let Some(existing) = self.value_numbers.get(&value) {
             Ok(*existing)
@@ -111,7 +111,7 @@ impl ValueTable {
         &mut self,
         func: &Function,
         inst: &ir::Instruction,
-    ) -> Result<(Expression, Option<Value>), Option<Value>> {
+    ) -> Result<(Expression, Option<ExpandValue>), Option<ExpandValue>> {
         match &inst.operation {
             Operation::Copy(variable) => {
                 let item = inst.ty();
@@ -157,8 +157,8 @@ impl ValueTable {
         &mut self,
         func: &Function,
         operator: &Arithmetic,
-        out: Value,
-    ) -> Result<(Expression, Option<Value>), Option<Value>> {
+        out: ExpandValue,
+    ) -> Result<(Expression, Option<ExpandValue>), Option<ExpandValue>> {
         let (expr, val) = match operator {
             Arithmetic::Fma(op) => {
                 let item = out.ty;
@@ -183,8 +183,8 @@ impl ValueTable {
         &mut self,
         func: &Function,
         cmp: &Comparison,
-        out: Value,
-    ) -> Result<(Expression, Option<Value>), Option<Value>> {
+        out: ExpandValue,
+    ) -> Result<(Expression, Option<ExpandValue>), Option<ExpandValue>> {
         match cmp {
             // Compare ops
             Comparison::Lower(op)
@@ -211,8 +211,8 @@ impl ValueTable {
         &mut self,
         func: &Function,
         memory: &Memory,
-        out: Option<Value>,
-    ) -> Result<(Expression, Option<Value>), Option<Value>> {
+        out: Option<ExpandValue>,
+    ) -> Result<(Expression, Option<ExpandValue>), Option<ExpandValue>> {
         let (expr, val) = match memory {
             Memory::Load(_) => Err(func.value_of_var(&out.unwrap()))?,
             Memory::Store(..) | Memory::CopyMemory(..) => Err(None)?,
@@ -225,8 +225,8 @@ impl ValueTable {
         &mut self,
         func: &Function,
         atomic: &AtomicOp,
-        out: Option<Value>,
-    ) -> Result<(Expression, Option<Value>), Option<Value>> {
+        out: Option<ExpandValue>,
+    ) -> Result<(Expression, Option<ExpandValue>), Option<ExpandValue>> {
         match atomic {
             AtomicOp::Store(..) => Err(None),
             _ => Err(func.value_of_var(&out.unwrap())),
@@ -237,8 +237,8 @@ impl ValueTable {
         &mut self,
         func: &Function,
         op: &impl OperationReflect<OpCode = Code>,
-        out: Value,
-    ) -> Result<(Expression, Option<Value>), Option<Value>> {
+        out: ExpandValue,
+    ) -> Result<(Expression, Option<ExpandValue>), Option<ExpandValue>> {
         let item = out.ty;
         let id = op.op_code().into();
         let args = op.args();

@@ -49,7 +49,7 @@ pub struct Visitor<'a> {
     pub last_block: BlockRef<'a, 'a>,
     pub module: &'a Module<'a>,
     pub blocks: HashMap<NodeIndex, BlockRef<'a, 'a>>,
-    pub blocks_args: HashMap<(NodeIndex, NodeIndex), Vec<cube::Value>>,
+    pub blocks_args: HashMap<(NodeIndex, NodeIndex), Vec<cube::ExpandValue>>,
     pub current_region: RegionRef<'a, 'a>,
     pub context: &'a Context,
     pub location: Location<'a>,

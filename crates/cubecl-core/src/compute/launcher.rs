@@ -6,7 +6,7 @@ use crate::prelude::{BufferArg, TensorArg, TensorMapArg, TensorMapKind};
 use crate::{InfoBuilder, KernelSettings, ScalarArgType};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
-use cubecl_ir::{AddressType, Scope, StorageType, Type};
+use cubecl_ir::{AddressType, Scope, StorageType};
 use cubecl_runtime::server::{Binding, CubeCount, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
@@ -127,19 +127,18 @@ impl<R: Runtime> KernelLauncher<R> {
 // Tensors/arrays
 impl<R: Runtime> KernelLauncher<R> {
     /// Push a new input tensor to the state.
-    pub fn register_tensor(&mut self, tensor: TensorArg<R>, ty: Type) {
-        if let Some(tensor) = self.process_tensor(tensor, ty) {
+    pub fn register_tensor(&mut self, tensor: TensorArg<R>, elem_size: usize) {
+        if let Some(tensor) = self.process_tensor(tensor, elem_size) {
             self.buffers.push(tensor);
         }
     }
 
-    fn process_tensor(&mut self, tensor: TensorArg<R>, ty: Type) -> Option<Binding> {
+    fn process_tensor(&mut self, tensor: TensorArg<R>, elem_size: usize) -> Option<Binding> {
         let tensor = match tensor {
             TensorArg::Handle { handle, .. } => handle,
             TensorArg::Alias { .. } => return None,
         };
 
-        let elem_size = ty.size();
         let buffer_len = tensor.handle.size_in_used() / elem_size as u64;
         let address_type = self.address_type;
 
@@ -155,19 +154,18 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 
     /// Push a new input array to the state.
-    pub fn register_buffer(&mut self, array: BufferArg<R>, ty: Type) {
-        if let Some(tensor) = self.process_buffer(array, ty) {
+    pub fn register_buffer(&mut self, array: BufferArg<R>, elem_size: usize) {
+        if let Some(tensor) = self.process_buffer(array, elem_size) {
             self.buffers.push(tensor);
         }
     }
 
-    fn process_buffer(&mut self, array: BufferArg<R>, ty: Type) -> Option<Binding> {
+    fn process_buffer(&mut self, array: BufferArg<R>, elem_size: usize) -> Option<Binding> {
         let array = match array {
             BufferArg::Handle { handle, .. } => handle,
             BufferArg::Alias { .. } => return None,
         };
 
-        let elem_size = ty.size();
         let buffer_len = array.handle.size_in_used() / elem_size as u64;
         let address_type = self.address_type;
         self.with_info(|info| info.metadata.register_buffer(buffer_len, address_type));
@@ -175,9 +173,13 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 
     /// Push a new tensor to the state.
-    pub fn register_tensor_map<K: TensorMapKind>(&mut self, map: TensorMapArg<R, K>, ty: Type) {
+    pub fn register_tensor_map<K: TensorMapKind>(
+        &mut self,
+        map: TensorMapArg<R, K>,
+        elem_size: usize,
+    ) {
         let binding = self
-            .process_tensor(map.tensor, ty)
+            .process_tensor(map.tensor, elem_size)
             .expect("Can't use alias for TensorMap");
 
         let map = map.metadata.clone();

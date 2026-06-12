@@ -18,7 +18,7 @@
 
 use std::borrow::Cow;
 
-use cubecl_core::ir::{self as core, CubeFnSource, Id, SourceLoc, Value};
+use cubecl_core::ir::{self as core, CubeFnSource, Id, SourceLoc, ExpandValue};
 use cubecl_opt::Function;
 use hashbrown::HashMap;
 use rspirv::spirv::{DebugInfoFlags, FunctionControl, Word};
@@ -414,7 +414,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn name_of_val(&mut self, val: Value) -> Cow<'static, str> {
+    pub fn name_of_val(&mut self, val: ExpandValue) -> Cow<'static, str> {
         let val_names = self.opt.global_state.root_scope.debug.value_names.clone();
         let debug_name = val_names.borrow().get(&val).cloned();
         debug_name.unwrap_or_else(|| val.to_string().into())

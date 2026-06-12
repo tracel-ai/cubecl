@@ -29,19 +29,27 @@ impl<T: Vectorized + ?Sized> Vectorized for &T {}
 impl<T: Vectorized + ?Sized> Vectorized for &mut T {}
 
 pub trait VectorizedExpand {
-    fn vector_size(&self) -> VectorSize;
-    fn __expand_vector_size_method(&self, _scope: &Scope) -> VectorSize {
-        self.vector_size()
+    fn vector_size(&self) -> VectorSize {
+        unexpanded!()
     }
+    fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize;
 }
 
 impl<T: VectorizedExpand + ?Sized> VectorizedExpand for &T {
     fn vector_size(&self) -> VectorSize {
         (**self).vector_size()
     }
+
+    fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
+        (**self).__expand_vector_size_method(scope)
+    }
 }
 impl<T: VectorizedExpand + ?Sized> VectorizedExpand for &mut T {
     fn vector_size(&self) -> VectorSize {
         (**self).vector_size()
+    }
+
+    fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
+        (**self).__expand_vector_size_method(scope)
     }
 }

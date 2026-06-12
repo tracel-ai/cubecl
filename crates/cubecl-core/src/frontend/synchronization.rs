@@ -1,10 +1,12 @@
 use crate::{
     frontend::{NativeExpand, element::Atomic},
-    ir::{Instruction, Scope, Synchronization},
+    ir::{
+        Scope,
+        dialect::synchronization::{SyncAsyncProxyOp, SyncOp, SyncScope},
+    },
     prelude::{CubePrimitive, Numeric},
     unexpanded,
 };
-use cubecl_ir::Operation;
 
 // Among all backends, the memory order guarantee of WebGPU is the weakest
 // So Cubecl's memory order cannot be stronger than that of WebGPU
@@ -23,7 +25,7 @@ pub mod sync_cube {
     use super::*;
 
     pub fn expand(scope: &Scope) {
-        scope.register(Synchronization::SyncCube)
+        scope.register(&SyncOp::new(&mut scope.ctx_mut(), SyncScope::Cube.into()));
     }
 }
 
@@ -38,7 +40,7 @@ pub mod sync_plane {
     use super::*;
 
     pub fn expand(scope: &Scope) {
-        scope.register(Synchronization::SyncPlane);
+        scope.register(&SyncOp::new(&mut scope.ctx_mut(), SyncScope::Plane.into()));
     }
 }
 
@@ -51,7 +53,7 @@ pub mod sync_storage {
     use super::*;
 
     pub fn expand(scope: &Scope) {
-        scope.register(Synchronization::SyncStorage)
+        scope.register(&SyncOp::new(&mut scope.ctx_mut(), SyncScope::Device.into()));
     }
 }
 
@@ -68,7 +70,7 @@ pub mod sync_async_proxy_shared {
     use super::*;
 
     pub fn expand(scope: &Scope) {
-        scope.register(Synchronization::SyncAsyncProxyShared)
+        scope.register(&SyncAsyncProxyOp::new(&mut scope.ctx_mut()))
     }
 }
 
@@ -85,16 +87,18 @@ pub fn workgroup_uniform_load<E: CubePrimitive>(reference: &E) -> E {
 
 /// Module containing the expand function for [`workgroup_uniform_load()`].
 pub mod workgroup_uniform_load {
+    use cubecl_ir::{
+        dialect::plane::UniformLoadOp, pliron::builtin::op_interfaces::OneResultInterface,
+    };
+
     use super::*;
 
     /// Expand method of [`workgroup_uniform_load()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, reference: &NativeExpand<E>) -> NativeExpand<E> {
-        let out = scope.create_value(E::__expand_as_type(scope));
-        scope.register(Instruction::new(
-            Operation::WorkgroupUniformLoad(reference.expand),
-            out,
-        ));
-        out.into()
+        let ptr = reference.value(scope);
+        let op = UniformLoadOp::new(&mut scope.ctx_mut(), ptr);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -110,6 +114,10 @@ pub fn workgroup_uniform_load_atomic<E: CubePrimitive<Scalar: Numeric>>(
 
 /// Module containing the expand function for [`workgroup_uniform_load_atomic()`].
 pub mod workgroup_uniform_load_atomic {
+    use cubecl_ir::{
+        dialect::plane::UniformLoadOp, pliron::builtin::op_interfaces::OneResultInterface,
+    };
+
     use super::*;
 
     /// Expand method of [`workgroup_uniform_load_atomic()`].
@@ -117,11 +125,9 @@ pub mod workgroup_uniform_load_atomic {
         scope: &Scope,
         reference: &NativeExpand<Atomic<E>>,
     ) -> NativeExpand<E> {
-        let out = scope.create_value(E::__expand_as_type(scope));
-        scope.register(Instruction::new(
-            Operation::WorkgroupUniformLoad(reference.expand),
-            out,
-        ));
-        out.into()
+        let ptr = reference.value(scope);
+        let op = UniformLoadOp::new(&mut scope.ctx_mut(), ptr);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }

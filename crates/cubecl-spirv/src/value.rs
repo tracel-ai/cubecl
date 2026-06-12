@@ -179,7 +179,7 @@ impl Value {
 }
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_value(&mut self, value: ir::Value) -> Value {
+    pub fn compile_value(&mut self, value: ir::ExpandValue) -> Value {
         let item = value.ty;
         match value.kind {
             ir::ValueKind::Constant(value) => {

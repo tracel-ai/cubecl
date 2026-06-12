@@ -1,7 +1,7 @@
 use core::mem::take;
 
 use alloc::vec::Vec;
-use cubecl_ir::{Id, Instruction, Memory, Operation, Type, Value, ValueKind};
+use cubecl_ir::{Id, Instruction, Memory, Operation, Type, ExpandValue, ValueKind};
 use hashbrown::{HashMap, HashSet};
 use petgraph::visit::EdgeRef;
 
@@ -20,7 +20,7 @@ pub struct SsaState<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PhiEntry {
     pub block: NodeIndex,
-    pub value: Value,
+    pub value: ExpandValue,
 }
 
 /// A phi node that picks its value based on the `BasicBlock` that came immediately before.
@@ -57,7 +57,7 @@ pub struct PhiEntry {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PhiInstruction {
     /// The out value for the phi instruction
-    pub out: Value,
+    pub out: ExpandValue,
     /// The set of `block`-`value` pairs for the phi instruction
     pub entries: Vec<PhiEntry>,
 }
@@ -121,7 +121,7 @@ impl Function {
                 && self.destructurable_local_memories().contains_key(&id)
             {
                 let id = state.versions[&id];
-                entry.value = Value::new(id, item);
+                entry.value = ExpandValue::new(id, item);
             }
         }
     }
@@ -163,7 +163,7 @@ impl Function {
         if let Operation::Memory(Memory::Load(ptr)) = inst.operation
             && let Some(id) = state.versions.get(&ptr.id())
         {
-            let new_val = Value::new(*id, inst.out().ty);
+            let new_val = ExpandValue::new(*id, inst.out().ty);
             *inst = Instruction::new(Operation::Copy(new_val), inst.out())
         }
     }
@@ -184,7 +184,7 @@ impl Function {
     }
 }
 
-fn as_local(val: Value) -> Option<(Id, Type)> {
+fn as_local(val: ExpandValue) -> Option<(Id, Type)> {
     match val.kind {
         ValueKind::Value { id } => Some((id, val.ty)),
         _ => None,

@@ -1,6 +1,6 @@
 use alloc::{format, vec::Vec};
 
-use cubecl_ir::{GlobalState, Instruction, NonSemantic, Operation, Scope, Value, ValueKind};
+use cubecl_ir::{GlobalState, Instruction, NonSemantic, Operation, Scope, ExpandValue, ValueKind};
 use hashbrown::HashMap;
 
 use crate::post_processing::{
@@ -9,8 +9,8 @@ use crate::post_processing::{
     visitor::{InstructionVisitor, Visitor},
 };
 
-type Substitutes = HashMap<ValueKind, Vec<Value>>;
-type Extracted = HashMap<ValueKind, Value>;
+type Substitutes = HashMap<ValueKind, Vec<ExpandValue>>;
+type Extracted = HashMap<ValueKind, ExpandValue>;
 
 /// Disaggregates compiler-internal aggregates like bounds checked pointers and slice pointers into
 /// individual variables.

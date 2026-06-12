@@ -15,9 +15,9 @@ use crate::prelude::*;
 pub fn copy_bulk<C: CubePrimitive>(_from: &[C], _to: &mut [C], _length: usize) {}
 
 pub mod copy_bulk {
-    use cubecl_ir::{CopyMemoryOperands, Memory};
+    use cubecl_ir::dialect::memory::CopyOp;
 
-    use crate::ir::{Instruction, Scope};
+    use crate::ir::Scope;
 
     use super::*;
 
@@ -28,16 +28,15 @@ pub mod copy_bulk {
         to: &mut SliceExpand<C>,
         length: usize,
     ) {
-        let source = unsafe { *from.__expand_as_ptr_method(scope) }.expand;
-        let target = unsafe { *to.__expand_as_mut_ptr_method(scope) }.expand;
+        let source = unsafe { *from.__expand_as_ptr_method(scope) }.value(scope);
+        let target = unsafe { *to.__expand_as_mut_ptr_method(scope) }.value(scope);
 
-        scope.register(Instruction::no_out(Memory::CopyMemory(
-            CopyMemoryOperands {
-                source,
-                target,
-                len: length,
-            },
-        )));
+        scope.register(&CopyOp::new(
+            &mut scope.ctx_mut(),
+            source,
+            target,
+            length.into(),
+        ));
     }
 }
 
@@ -56,9 +55,9 @@ pub mod copy_bulk {
 pub fn copy<C: CubePrimitive>(_from: &C, _to: &mut C) {}
 
 pub mod copy {
-    use cubecl_ir::{CopyMemoryOperands, Memory};
+    use cubecl_ir::dialect::memory::CopyOp;
 
-    use crate::ir::{Instruction, Scope};
+    use crate::ir::Scope;
 
     use super::*;
 
@@ -68,15 +67,9 @@ pub mod copy {
         from: &NativeExpand<C>,
         to: &mut NativeExpand<C>,
     ) {
-        let source = from.expand;
-        let target = to.expand;
+        let source = from.value(scope);
+        let target = to.value(scope);
 
-        scope.register(Instruction::no_out(Memory::CopyMemory(
-            CopyMemoryOperands {
-                source,
-                target,
-                len: 1,
-            },
-        )));
+        scope.register(&CopyOp::new(&mut scope.ctx_mut(), source, target, 1.into()));
     }
 }

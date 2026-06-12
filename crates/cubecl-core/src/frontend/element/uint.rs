@@ -1,25 +1,33 @@
-use cubecl_ir::{ConstantValue, Scope, Type, UIntKind};
+use cubecl_ir::{
+    ConstantValue, Scope, UIntKind,
+    pliron::{context::Ptr, r#type::TypeObj},
+    types::scalar::{IndexType, UIntType},
+};
 
-use crate::ir::ElemType;
 use crate::prelude::*;
 
 use super::{IntoMut, IntoRuntime, NativeAssign, NativeExpand};
 
 macro_rules! declare_uint {
-    ($primitive:ident, $kind:ident) => {
+    ($primitive:ident, $kind: ident) => {
         impl CubeType for $primitive {
             type ExpandType = NativeExpand<Self>;
         }
 
-        impl Scalar for $primitive {}
+        impl Scalar for $primitive {
+            fn storage_type_native() -> StorageType {
+                UIntKind::$kind.into()
+            }
+        }
         impl CubeDebug for $primitive {}
         impl CubePrimitive for $primitive {
             type Scalar = Self;
             type Size = Const<1>;
             type WithScalar<S: Scalar> = S;
 
-            fn as_type_native() -> Option<Type> {
-                Some(ElemType::UInt(UIntKind::$kind).into())
+            fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+                let width = UIntKind::$kind.size_bits();
+                UIntType::get(&mut scope.ctx_mut(), width).into()
             }
 
             fn from_const_value(value: ConstantValue) -> Self {
@@ -83,7 +91,13 @@ impl CubeType for usize {
 }
 
 impl CubeDebug for usize {}
-impl Scalar for usize {}
+impl Scalar for usize {
+    fn storage_type(scope: &Scope) -> StorageType {
+        scope
+            .resolve_type::<Self>()
+            .expect("Type should be registered")
+    }
+}
 impl CubePrimitive for usize {
     type Scalar = Self;
     type Size = Const<1>;
@@ -96,8 +110,8 @@ impl CubePrimitive for usize {
         value as usize
     }
 
-    fn __expand_as_type(scope: &Scope) -> Type {
-        Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
+    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+        IndexType::get(&scope.ctx()).into()
     }
 }
 
@@ -148,7 +162,13 @@ impl CubeType for isize {
 }
 
 impl CubeDebug for isize {}
-impl Scalar for isize {}
+impl Scalar for isize {
+    fn storage_type(scope: &Scope) -> StorageType {
+        scope
+            .resolve_type::<Self>()
+            .expect("Type should be registered")
+    }
+}
 impl CubePrimitive for isize {
     type Scalar = Self;
     type Size = Const<1>;
@@ -161,8 +181,11 @@ impl CubePrimitive for isize {
         value as isize
     }
 
-    fn __expand_as_type(scope: &Scope) -> Type {
-        Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
+    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+        scope
+            .resolve_type::<Self>()
+            .expect("Type to be registered")
+            .to_type(&mut scope.ctx_mut())
     }
 }
 

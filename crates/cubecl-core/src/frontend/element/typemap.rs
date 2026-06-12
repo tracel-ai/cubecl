@@ -16,14 +16,17 @@ use core::{cmp::Ordering, ops::*};
 use core::{f32, marker::PhantomData};
 
 use bytemuck::Zeroable;
-use cubecl_ir::{ConstantValue, Type};
+use cubecl_ir::{
+    ConstantValue,
+    pliron::{context::Ptr, r#type::TypeObj},
+};
 use derive_more::derive::{Debug, Display};
 use float_ord::FloatOrd;
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
 
 use crate::{
-    ir::{FloatKind, Scope, Value},
+    ir::{ExpandValue, FloatKind, Scope},
     prelude::*,
 };
 
@@ -240,15 +243,22 @@ impl<Marker: 'static> CubeType for DynamicScalar<Marker> {
 }
 
 impl<Marker: 'static> CubeDebug for DynamicScalar<Marker> {}
-impl<Marker: 'static> Scalar for DynamicScalar<Marker> {}
+impl<Marker: 'static> Scalar for DynamicScalar<Marker> {
+    fn storage_type(scope: &Scope) -> StorageType {
+        scope.resolve_type::<Self>().expect("Should be registered")
+    }
+}
 impl<Marker: 'static> CubePrimitive for DynamicScalar<Marker> {
     type Scalar = Self;
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
     /// Return the element type to use on GPU
-    fn __expand_as_type(scope: &Scope) -> Type {
-        Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
+    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+        scope
+            .resolve_type::<Self>()
+            .expect("Type to be registered")
+            .to_type(&mut scope.ctx_mut())
     }
 
     fn from_const_value(value: ConstantValue) -> Self {
@@ -262,16 +272,16 @@ impl<Marker: 'static> From<DynamicScalar<Marker>> for ConstantValue {
     }
 }
 
-impl<Marker: 'static> From<DynamicScalar<Marker>> for Value {
+impl<Marker: 'static> From<DynamicScalar<Marker>> for ExpandValue {
     fn from(val: DynamicScalar<Marker>) -> Self {
         // TODO: Fix how we create literal.
-        Value::constant(val.val, FloatKind::F32)
+        ExpandValue::constant(val.val, FloatKind::F32)
     }
 }
 
 impl<Marker: 'static> From<DynamicScalar<Marker>> for NativeExpand<DynamicScalar<Marker>> {
     fn from(value: DynamicScalar<Marker>) -> Self {
-        let val: Value = value.into();
+        let val: ExpandValue = value.into();
         NativeExpand::new(val)
     }
 }

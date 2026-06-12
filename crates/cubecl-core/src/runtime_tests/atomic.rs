@@ -9,7 +9,7 @@ use cubecl_ir::features::AtomicUsage;
 pub enum NumericAtomicOp {
     Load,
     Store,
-    Swap,
+    Exchange,
     Add,
     Sub,
     Min,
@@ -29,7 +29,7 @@ fn supports_feature<R: Runtime, F: Numeric>(
     feat: AtomicUsage,
     vector_size: usize,
 ) -> bool {
-    let ty = Type::atomic(F::as_type_native_unchecked().with_vector_size(vector_size));
+    let ty = Type::atomic(F::storage_type_native().with_vector_size(vector_size));
     client.properties().atomic_type_usage(ty).contains(feat)
 }
 
@@ -39,7 +39,7 @@ fn require_feature<R: Runtime, F: Numeric>(
     vector_size: usize,
     operation: &str,
 ) -> bool {
-    let ty = Atomic::<F>::as_type_native_unchecked().with_vector_size(vector_size);
+    let ty = Type::atomic(F::storage_type_native().with_vector_size(vector_size));
 
     if supports_feature::<R, F>(client, feat, vector_size) {
         println!("{ty} {operation} supported - running");
@@ -68,7 +68,7 @@ fn numeric_op_name(op: NumericAtomicOp) -> &'static str {
     match op {
         NumericAtomicOp::Load => "Load",
         NumericAtomicOp::Store => "Store",
-        NumericAtomicOp::Swap => "Swap",
+        NumericAtomicOp::Exchange => "Swap",
         NumericAtomicOp::Add => "Add",
         NumericAtomicOp::Sub => "Sub",
         NumericAtomicOp::Min => "Min",
@@ -78,7 +78,7 @@ fn numeric_op_name(op: NumericAtomicOp) -> &'static str {
 
 fn numeric_op_feature(op: NumericAtomicOp) -> AtomicUsage {
     match op {
-        NumericAtomicOp::Load | NumericAtomicOp::Store | NumericAtomicOp::Swap => {
+        NumericAtomicOp::Load | NumericAtomicOp::Store | NumericAtomicOp::Exchange => {
             AtomicUsage::LoadStore
         }
         NumericAtomicOp::Add | NumericAtomicOp::Sub => AtomicUsage::Add,
@@ -90,7 +90,7 @@ fn numeric_expected(op: NumericAtomicOp) -> i64 {
     match op {
         NumericAtomicOp::Load => 12,
         NumericAtomicOp::Store => 5,
-        NumericAtomicOp::Swap => 5,
+        NumericAtomicOp::Exchange => 5,
         NumericAtomicOp::Add => 17,
         NumericAtomicOp::Sub => 7,
         NumericAtomicOp::Min => 5,
@@ -134,8 +134,8 @@ pub fn kernel_atomic_numeric<I: Numeric, N: Size>(
         match op {
             NumericAtomicOp::Load => output[0] = atomics[0].load(),
             NumericAtomicOp::Store => atomics[0].store(input[0]),
-            NumericAtomicOp::Swap => {
-                atomics[0].swap(Vector::from_int(5));
+            NumericAtomicOp::Exchange => {
+                atomics[0].exchange(Vector::from_int(5));
             }
             NumericAtomicOp::Add => {
                 atomics[0].fetch_add(Vector::from_int(5));

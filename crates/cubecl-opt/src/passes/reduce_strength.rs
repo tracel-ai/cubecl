@@ -2,7 +2,7 @@ use core::mem::take;
 
 use alloc::vec::Vec;
 use cubecl_ir::{
-    Arithmetic, BinaryOperands, Bitwise, ElemType, Instruction, Operation, UIntKind, Value,
+    Arithmetic, BinaryOperands, Bitwise, ElemType, Instruction, Operation, UIntKind, ExpandValue,
 };
 
 use crate::{AtomicCounter, Function, GlobalState};
@@ -141,7 +141,7 @@ impl OptimizerPass for ReduceStrength {
     }
 }
 
-fn is_pow2(var: Value) -> bool {
+fn is_pow2(var: ExpandValue) -> bool {
     var.ty.elem_type() == ElemType::UInt(UIntKind::U32)
         && var
             .as_const()

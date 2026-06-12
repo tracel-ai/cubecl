@@ -1,7 +1,7 @@
 use core::cell::RefCell;
 
 use alloc::{rc::Rc, vec::Vec};
-use cubecl_ir::{Instruction, Value};
+use cubecl_ir::{Instruction, ExpandValue};
 use stable_vec::StableVec;
 
 use crate::{ControlFlow, Function, GlobalState, version::PhiInstruction};
@@ -30,8 +30,8 @@ impl Function {
     pub fn visit_all(
         &mut self,
         state: &GlobalState,
-        mut visit_read: impl FnMut(&mut Self, &mut Value) + Clone,
-        mut visit_write: impl FnMut(&mut Self, &mut Value) + Clone,
+        mut visit_read: impl FnMut(&mut Self, &mut ExpandValue) + Clone,
+        mut visit_write: impl FnMut(&mut Self, &mut ExpandValue) + Clone,
     ) {
         for node in self.node_indices().collect::<Vec<_>>() {
             let phi = self[node].phi_nodes.clone();

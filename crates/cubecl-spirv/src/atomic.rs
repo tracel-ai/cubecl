@@ -1,4 +1,4 @@
-use cubecl_core::ir::{AtomicOp, ElemType, InstructionModes, IntKind, UIntKind, Value};
+use cubecl_core::ir::{AtomicOp, ElemType, InstructionModes, IntKind, UIntKind, ExpandValue};
 use rspirv::spirv::{Capability, MemorySemantics, Scope, Word};
 
 use crate::{SpirvCompiler, SpirvTarget, item::Elem};
@@ -7,7 +7,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_atomic(
         &mut self,
         atomic: AtomicOp,
-        out: Option<Value>,
+        out: Option<ExpandValue>,
         modes: InstructionModes,
     ) {
         if let Some(out) = out

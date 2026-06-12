@@ -10,7 +10,7 @@ use core::{
 };
 
 use cubecl_common::format::format_str;
-use cubecl_ir::{Id, Scope, StorageType, Value};
+use cubecl_ir::{Scope, StorageType, pliron::value::Value};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -34,7 +34,6 @@ pub trait KernelMetadata: Send + Sync + 'static {
     fn address_type(&self) -> StorageType;
 }
 
-#[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct KernelDefinition {
     pub buffers: Vec<KernelArg>,
@@ -63,11 +62,11 @@ pub struct KernelOptions {
     pub cluster_dim: Option<CubeDim>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 /// Global argument of a kernel.
 pub struct KernelArg {
-    /// The kernel id.
-    pub id: Id,
+    /// The index of the arg.
+    pub id: usize,
     /// The value the argument is bound to.
     pub value: Value,
     /// Whether the argument has metadata.

@@ -18,13 +18,13 @@ use super::prelude::*;
 pub type Values<'a> = HashMap<Id, Value<'a, 'a>>;
 
 impl<'a> Visitor<'a> {
-    pub fn insert_value(&mut self, cube_value: cube::Value, mlir_value: Value<'a, 'a>) {
+    pub fn insert_value(&mut self, cube_value: cube::ExpandValue, mlir_value: Value<'a, 'a>) {
         self.values.insert(cube_value.id(), mlir_value);
     }
 
     pub fn declare_mutable_memory(
         &mut self,
-        cube_value: cube::Value,
+        cube_value: cube::ExpandValue,
         value_ty: cube::Type,
         alignment: usize,
     ) {
@@ -50,8 +50,8 @@ impl<'a> Visitor<'a> {
 
     pub fn get_binary_op_values(
         &self,
-        lhs: cube::Value,
-        rhs: cube::Value,
+        lhs: cube::ExpandValue,
+        rhs: cube::ExpandValue,
     ) -> (Value<'a, 'a>, Value<'a, 'a>) {
         let vectorization_factor = std::cmp::max(lhs.vector_size(), rhs.vector_size());
         let (mut lhs_value, mut rhs_value) = (self.get_value(lhs), self.get_value(rhs));
@@ -85,7 +85,7 @@ impl<'a> Visitor<'a> {
         (lhs_value, rhs_value)
     }
 
-    pub fn get_value(&self, cube_value: cube::Value) -> Value<'a, 'a> {
+    pub fn get_value(&self, cube_value: cube::ExpandValue) -> Value<'a, 'a> {
         match cube_value.kind {
             ValueKind::Value { id } => *self
                 .values
@@ -151,7 +151,7 @@ impl<'a> Visitor<'a> {
 
     pub fn get_index(
         &self,
-        value: cube::Value,
+        value: cube::ExpandValue,
         target_item: cube::Type,
         list_is_vectorized: bool,
     ) -> Value<'a, 'a> {

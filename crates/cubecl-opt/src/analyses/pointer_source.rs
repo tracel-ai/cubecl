@@ -1,6 +1,6 @@
 use core::{cell::RefCell, ops::Deref};
 
-use cubecl_ir::{Id, Memory, Operation, Value, ValueKind};
+use cubecl_ir::{Id, Memory, Operation, ExpandValue, ValueKind};
 use hashbrown::HashMap;
 
 use crate::{
@@ -39,7 +39,7 @@ impl PointerSource {
                     unreachable!();
                 };
                 match &inst.operation {
-                    Operation::Copy(Value {
+                    Operation::Copy(ExpandValue {
                         kind: ValueKind::Value { id },
                         ..
                     }) => {
@@ -61,7 +61,7 @@ impl PointerSource {
         }
     }
 
-    pub fn get(&self, val: &Value) -> Option<MemoryBlock> {
+    pub fn get(&self, val: &ExpandValue) -> Option<MemoryBlock> {
         if let ValueKind::Value { id } = &val.kind {
             self.borrow().get(id).copied()
         } else {

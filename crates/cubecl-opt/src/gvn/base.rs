@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use cubecl_ir::{Builtin, OpCode, Type, Value};
+use cubecl_ir::{Builtin, OpCode, Type, ExpandValue};
 use hashbrown::HashMap;
 use petgraph::graph::NodeIndex;
 use smallvec::SmallVec;
@@ -36,7 +36,7 @@ impl GvnPass {
 /// A global value table that maps expressions and locals to the values they represent.
 #[derive(Debug, Clone)]
 pub struct ValueTable {
-    pub(crate) value_numbers: HashMap<Value, u32>,
+    pub(crate) value_numbers: HashMap<ExpandValue, u32>,
     pub(crate) expression_numbers: HashMap<Expression, u32>,
 
     pub(crate) next_expr_num: u32,
@@ -71,9 +71,9 @@ impl Default for ValueTable {
 pub enum Expression {
     Instruction(Instruction),
     Copy(u32, Type),
-    Value(Value),
-    Volatile(Value),
-    Phi(Vec<(Value, NodeIndex)>),
+    Value(ExpandValue),
+    Volatile(ExpandValue),
+    Phi(Vec<(ExpandValue, NodeIndex)>),
     Builtin(Builtin, Type),
 }
 

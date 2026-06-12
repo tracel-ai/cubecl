@@ -1,11 +1,19 @@
-use cubecl_ir::{AtomicBinaryOperands, AtomicOp, ConstantValue, StoreOperands, Value};
+use cubecl_ir::{
+    ConstantValue, ExpandValue,
+    dialect::atomic::{
+        AtomicAddOp, AtomicAndOp, AtomicCompareExchangeWeakOp, AtomicExchangeOp, AtomicLoadOp,
+        AtomicMaxOp, AtomicMinOp, AtomicOrOp, AtomicStoreOp, AtomicSubOp, AtomicXorOp,
+    },
+    pliron::{builtin::op_interfaces::OneResultInterface, context::Ptr, r#type::TypeObj},
+    types::AtomicType,
+};
 use cubecl_macros::intrinsic;
 
 use super::{NativeAssign, NativeExpand, Numeric};
 use crate::{
     self as cubecl,
     frontend::{CubePrimitive, CubeType},
-    ir::{CompareAndSwapOperands, Instruction, Scope, Type},
+    ir::Scope,
     prelude::*,
 };
 
@@ -24,64 +32,52 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     /// Load the value of the atomic.
     pub fn load(&self) -> Inner {
         intrinsic!(|scope| {
-            let pointer: Value = self.clone().into();
-            let new_val = scope.create_value(Inner::__expand_as_type(scope));
-            scope.register(Instruction::new(AtomicOp::Load(pointer), new_val));
-            new_val.into()
+            let ptr = self.value(scope);
+            let op = AtomicLoadOp::new(&mut scope.ctx_mut(), ptr);
+            scope.register(&op);
+            op.get_result(&scope.ctx()).into()
         })
     }
 
     /// Store the value of the atomic.
     pub fn store(&self, value: Inner) {
         intrinsic!(|scope| {
-            let ptr: Value = self.clone().into();
-            let value: Value = value.into();
-            scope.register(Instruction::no_out(AtomicOp::Store(StoreOperands {
-                ptr,
-                value,
-            })));
+            let ptr = self.value(scope);
+            let value = value.read_value(scope);
+            scope.register(&AtomicStoreOp::new(&mut scope.ctx_mut(), ptr, value));
         })
     }
 
     /// Atomically stores the value into the atomic and returns the old value.
-    pub fn swap(&self, value: Inner) -> Inner {
+    pub fn exchange(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: Value = self.clone().into();
-            let value: Value = value.into();
-            let new_val = scope.create_value(Inner::__expand_as_type(scope));
-            scope.register(Instruction::new(
-                AtomicOp::Swap(AtomicBinaryOperands { ptr, value }),
-                new_val,
-            ));
-            new_val.into()
+            let ptr = self.value(scope);
+            let value = value.read_value(scope);
+            let op = AtomicExchangeOp::new(&mut scope.ctx_mut(), ptr, value);
+            scope.register(&op);
+            op.get_result(&scope.ctx()).into()
         })
     }
 
     /// Atomically add a number to the atomic variable. Returns the old value.
     pub fn fetch_add(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: Value = self.clone().into();
-            let value: Value = value.into();
-            let new_val = scope.create_value(Inner::__expand_as_type(scope));
-            scope.register(Instruction::new(
-                AtomicOp::Add(AtomicBinaryOperands { ptr, value }),
-                new_val,
-            ));
-            new_val.into()
+            let ptr = self.value(scope);
+            let value = value.read_value(scope);
+            let op = AtomicAddOp::new(&mut scope.ctx_mut(), ptr, value);
+            scope.register(&op);
+            op.get_result(&scope.ctx()).into()
         })
     }
 
     /// Atomically subtracts a number from the atomic variable. Returns the old value.
     pub fn fetch_sub(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: Value = self.clone().into();
-            let value: Value = value.into();
-            let new_val = scope.create_value(Inner::__expand_as_type(scope));
-            scope.register(Instruction::new(
-                AtomicOp::Sub(AtomicBinaryOperands { ptr, value }),
-                new_val,
-            ));
-            new_val.into()
+            let ptr = self.value(scope);
+            let value = value.read_value(scope);
+            let op = AtomicSubOp::new(&mut scope.ctx_mut(), ptr, value);
+            scope.register(&op);
+            op.get_result(&scope.ctx()).into()
         })
     }
 
@@ -89,14 +85,11 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     /// the old value.
     pub fn fetch_max(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: Value = self.clone().into();
-            let value: Value = value.into();
-            let new_val = scope.create_value(Inner::__expand_as_type(scope));
-            scope.register(Instruction::new(
-                AtomicOp::Max(AtomicBinaryOperands { ptr, value }),
-                new_val,
-            ));
-            new_val.into()
+            let ptr = self.value(scope);
+            let value = value.read_value(scope);
+            let op = AtomicMaxOp::new(&mut scope.ctx_mut(), ptr, value);
+            scope.register(&op);
+            op.get_result(&scope.ctx()).into()
         })
     }
 
@@ -104,14 +97,11 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     /// old value.
     pub fn fetch_min(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: Value = self.clone().into();
-            let value: Value = value.into();
-            let new_val = scope.create_value(Inner::__expand_as_type(scope));
-            scope.register(Instruction::new(
-                AtomicOp::Min(AtomicBinaryOperands { ptr, value }),
-                new_val,
-            ));
-            new_val.into()
+            let ptr = self.value(scope);
+            let value = value.read_value(scope);
+            let op = AtomicMinOp::new(&mut scope.ctx_mut(), ptr, value);
+            scope.register(&op);
+            op.get_result(&scope.ctx()).into()
         })
     }
 }
@@ -125,61 +115,45 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
     /// Compare the returned value to `cmp` to determine whether the store was successful.
     pub fn compare_exchange_weak(&self, cmp: Inner, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let pointer: Value = self.clone().into();
-            let cmp: Value = cmp.into();
-            let value: Value = value.into();
-            let new_val = scope.create_value(Inner::__expand_as_type(scope));
-            scope.register(Instruction::new(
-                AtomicOp::CompareAndSwap(CompareAndSwapOperands {
-                    ptr: pointer,
-                    cmp: cmp,
-                    val: value,
-                }),
-                new_val,
-            ));
-            new_val.into()
+            let ptr = self.value(scope);
+            let cmp = cmp.read_value(scope);
+            let value = value.read_value(scope);
+            let op = AtomicCompareExchangeWeakOp::new(&mut scope.ctx_mut(), ptr, cmp, value);
+            scope.register(&op);
+            op.get_result(&scope.ctx()).into()
         })
     }
 
     /// Executes an atomic bitwise and operation on the atomic variable. Returns the old value.
     pub fn fetch_and(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: Value = self.clone().into();
-            let value: Value = value.into();
-            let new_val = scope.create_value(Inner::__expand_as_type(scope));
-            scope.register(Instruction::new(
-                AtomicOp::And(AtomicBinaryOperands { ptr, value }),
-                new_val,
-            ));
-            new_val.into()
+            let ptr = self.value(scope);
+            let value = value.read_value(scope);
+            let op = AtomicAndOp::new(&mut scope.ctx_mut(), ptr, value);
+            scope.register(&op);
+            op.get_result(&scope.ctx()).into()
         })
     }
 
     /// Executes an atomic bitwise or operation on the atomic variable. Returns the old value.
     pub fn fetch_or(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: Value = self.clone().into();
-            let value: Value = value.into();
-            let new_val = scope.create_value(Inner::__expand_as_type(scope));
-            scope.register(Instruction::new(
-                AtomicOp::Or(AtomicBinaryOperands { ptr, value }),
-                new_val,
-            ));
-            new_val.into()
+            let ptr = self.value(scope);
+            let value = value.read_value(scope);
+            let op = AtomicOrOp::new(&mut scope.ctx_mut(), ptr, value);
+            scope.register(&op);
+            op.get_result(&scope.ctx()).into()
         })
     }
 
     /// Executes an atomic bitwise xor operation on the atomic variable. Returns the old value.
     pub fn fetch_xor(&self, value: Inner) -> Inner {
         intrinsic!(|scope| {
-            let ptr: Value = self.clone().into();
-            let value: Value = value.into();
-            let new_val = scope.create_value(Inner::__expand_as_type(scope));
-            scope.register(Instruction::new(
-                AtomicOp::Xor(AtomicBinaryOperands { ptr, value }),
-                new_val,
-            ));
-            new_val.into()
+            let ptr = self.value(scope);
+            let value = value.read_value(scope);
+            let op = AtomicXorOp::new(&mut scope.ctx_mut(), ptr, value);
+            scope.register(&op);
+            op.get_result(&scope.ctx()).into()
         })
     }
 }
@@ -194,23 +168,12 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = Atomic<S>;
 
-    fn as_type_native() -> Option<Type> {
-        Inner::as_type_native().map(Type::atomic)
+    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+        let inner = Inner::__expand_as_type(scope);
+        AtomicType::get(&mut scope.ctx_mut(), inner).into()
     }
 
-    fn __expand_as_type(scope: &Scope) -> Type {
-        Type::atomic(Inner::__expand_as_type(scope))
-    }
-
-    fn as_type_native_unchecked() -> Type {
-        Type::atomic(Inner::as_type_native_unchecked())
-    }
-
-    fn size() -> Option<usize> {
-        Inner::size()
-    }
-
-    fn from_expand_elem(elem: Value) -> Self::ExpandType {
+    fn from_expand_elem(elem: ExpandValue) -> Self::ExpandType {
         NativeExpand::new(elem)
     }
 

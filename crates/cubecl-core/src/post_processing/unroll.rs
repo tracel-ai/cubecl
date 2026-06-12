@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 use cubecl_ir::{
     Allocator, Arithmetic, BinaryOperands, CoopMma, GlobalState, IndexOperands, Instruction,
-    MatrixLayout, Memory, Metadata, Operation, OperationReflect, Operator, Scope, Type, Value,
+    MatrixLayout, Memory, Metadata, Operation, OperationReflect, Operator, Scope, Type, ExpandValue,
     ValueKind, VectorInsertOperands, VectorSize,
 };
 use hashbrown::HashMap;
@@ -27,16 +27,16 @@ pub struct UnrollVisitor {
 }
 
 #[derive(Default, Debug)]
-struct Mappings(HashMap<Value, Vec<Value>>);
+struct Mappings(HashMap<ExpandValue, Vec<ExpandValue>>);
 
 impl Mappings {
     fn get(
         &mut self,
         alloc: &Allocator,
-        val: Value,
+        val: ExpandValue,
         unroll_factor: usize,
         vector_size: VectorSize,
-    ) -> Vec<Value> {
+    ) -> Vec<ExpandValue> {
         self.0
             .entry(val)
             .or_insert_with(|| create_unrolled(alloc, &val, vector_size, unroll_factor))
@@ -224,9 +224,9 @@ impl UnrollVisitor {
     fn transform_cmma_load(
         &mut self,
         alloc: &Allocator,
-        out: Value,
-        ptr: &Value,
-        stride: &Value,
+        out: ExpandValue,
+        ptr: &ExpandValue,
+        stride: &ExpandValue,
         layout: &Option<MatrixLayout>,
     ) -> Vec<Instruction> {
         let vector_size = ptr.vector_size();
@@ -252,9 +252,9 @@ impl UnrollVisitor {
     fn transform_cmma_store(
         &mut self,
         alloc: &Allocator,
-        mat: &Value,
-        stride: &Value,
-        destination: &Value,
+        mat: &ExpandValue,
+        stride: &ExpandValue,
+        destination: &ExpandValue,
         layout: &MatrixLayout,
     ) -> Vec<Instruction> {
         let vector_size = destination.vector_size();
@@ -278,7 +278,7 @@ impl UnrollVisitor {
     fn transform_array_index(
         &mut self,
         alloc: &Allocator,
-        out: Value,
+        out: ExpandValue,
         op: &IndexOperands,
         operator: impl Fn(IndexOperands) -> Memory,
         unroll_factor: usize,
@@ -316,7 +316,7 @@ impl UnrollVisitor {
     fn transform_composite_extract(
         &mut self,
         alloc: &Allocator,
-        out: Value,
+        out: ExpandValue,
         op: &BinaryOperands,
         unroll_factor: usize,
     ) -> Vec<Instruction> {
@@ -349,7 +349,7 @@ impl UnrollVisitor {
     fn transform_composite_insert(
         &mut self,
         alloc: &Allocator,
-        out: Value,
+        out: ExpandValue,
         op: &VectorInsertOperands,
         unroll_factor: usize,
     ) -> Vec<Instruction> {
@@ -388,7 +388,7 @@ impl UnrollVisitor {
 
     /// Transforms metadata by just replacing the type of the buffer. The values are already
     /// properly calculated on the CPU.
-    fn transform_metadata(&self, out: Value, op: &Metadata, args: Vec<Value>) -> Vec<Instruction> {
+    fn transform_metadata(&self, out: ExpandValue, op: &Metadata, args: Vec<ExpandValue>) -> Vec<Instruction> {
         let op_code = op.op_code();
         let args = args
             .into_iter()
@@ -409,7 +409,7 @@ impl UnrollVisitor {
         &mut self,
         alloc: &Allocator,
         inst: &Instruction,
-        args: Vec<Value>,
+        args: Vec<ExpandValue>,
         unroll_factor: usize,
     ) -> Vec<Instruction> {
         let op_code = inst.operation.op_code();
@@ -450,17 +450,17 @@ impl UnrollVisitor {
     }
 }
 
-fn max_vector_size(out: &Option<Value>, args: &[Value]) -> VectorSize {
+fn max_vector_size(out: &Option<ExpandValue>, args: &[ExpandValue]) -> VectorSize {
     let vector_size = args.iter().map(|it| it.vector_size()).max().unwrap();
     vector_size.max(out.map(|out| out.vector_size()).unwrap_or(1))
 }
 
 fn create_unrolled(
     allocator: &Allocator,
-    val: &Value,
+    val: &ExpandValue,
     max_vector_size: VectorSize,
     unroll_factor: usize,
-) -> Vec<Value> {
+) -> Vec<ExpandValue> {
     // Preserve scalars
     if val.vector_size() == 1 {
         return vec![*val; unroll_factor];
@@ -475,7 +475,7 @@ fn create_unrolled(
         .collect()
 }
 
-fn add_index(alloc: &Allocator, idx: Value, i: usize) -> (Instruction, Value) {
+fn add_index(alloc: &Allocator, idx: ExpandValue, i: usize) -> (Instruction, ExpandValue) {
     let add_idx = alloc.create_value(idx.ty);
     let add = Instruction::new(
         Arithmetic::Add(BinaryOperands {
@@ -487,7 +487,7 @@ fn add_index(alloc: &Allocator, idx: Value, i: usize) -> (Instruction, Value) {
     (add, add_idx)
 }
 
-fn mul_index(alloc: &Allocator, idx: Value, unroll_factor: usize) -> (Instruction, Value) {
+fn mul_index(alloc: &Allocator, idx: ExpandValue, unroll_factor: usize) -> (Instruction, ExpandValue) {
     let mul_idx = alloc.create_value(idx.ty);
     let mul = Instruction::new(
         Arithmetic::Mul(BinaryOperands {
@@ -499,7 +499,7 @@ fn mul_index(alloc: &Allocator, idx: Value, unroll_factor: usize) -> (Instructio
     (mul, mul_idx)
 }
 
-fn unroll_array(mut val: Value, max_vector_size: VectorSize, factor: usize) -> Value {
+fn unroll_array(mut val: ExpandValue, max_vector_size: VectorSize, factor: usize) -> ExpandValue {
     val.ty = val.ty.with_vector_size(max_vector_size);
 
     if let Type::Array(_, size) = &mut val.ty {
