@@ -4,10 +4,9 @@ use super::ComputeClient;
 use crate::runtime::Runtime;
 use crate::server::CopyDescriptor;
 use alloc::sync::Arc;
-use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
-use core::sync::atomic::{AtomicBool, Ordering};
 use cubecl_common::bytes::{AllocationController, AllocationProperty, Bytes};
+use spin::Once;
 
 /// Allocation controller that lazily copies a device resource into host memory on first access.
 ///
@@ -30,10 +29,8 @@ use cubecl_common::bytes::{AllocationController, AllocationProperty, Bytes};
 pub struct LazyDeviceController<R: Runtime> {
     client: ComputeClient<R>,
     descriptor: Arc<CopyDescriptor>,
-    /// Lazily materialized host bytes (the device-to-host read result).
-    materialized: UnsafeCell<Option<Bytes>>,
-    /// Whether `materialized` has been populated.
-    init: AtomicBool,
+    /// Host bytes, materialized from the device on first access.
+    materialized: Once<Bytes>,
 }
 
 impl<R: Runtime> LazyDeviceController<R> {
@@ -41,41 +38,25 @@ impl<R: Runtime> LazyDeviceController<R> {
         Self {
             client,
             descriptor,
-            materialized: UnsafeCell::new(None),
-            init: AtomicBool::new(false),
+            materialized: Once::new(),
         }
     }
 
     /// Materialize the device resource into host memory on first call, returning the cached
-    /// [`Bytes`] afterwards.
+    /// [`Bytes`] afterwards. Thread-safe: concurrent first accesses read exactly once.
     fn ensure_init(&self) -> &Bytes {
-        if !self.init.load(Ordering::Acquire) {
+        self.materialized.call_once(|| {
             let desc = self.descriptor.as_ref();
             // `read_one_unchecked_tensor` consumes the descriptor by value; rebuild one from the
-            // shared fields. All clones are cheap (the binding is `Arc`-backed) and this only
-            // happens once.
+            // shared fields. All clones are cheap (the binding is `Arc`-backed).
             let descriptor = CopyDescriptor::new(
                 desc.handle.clone(),
                 desc.shape.clone(),
                 desc.strides.clone(),
                 desc.elem_size,
             );
-            let bytes = self.client.read_one_unchecked_tensor(descriptor);
-
-            // SAFETY: `init` flips exactly once. Like the other lazy controllers (`file`,
-            // `shared`), a single `Bytes` value is not accessed concurrently.
-            unsafe {
-                *self.materialized.get() = Some(bytes);
-            }
-            self.init.store(true, Ordering::Release);
-        }
-
-        // SAFETY: `materialized` is `Some` once `init` is set.
-        unsafe {
-            (*self.materialized.get())
-                .as_ref()
-                .expect("materialized must be Some after init")
-        }
+            self.client.read_one_unchecked_tensor(descriptor)
+        })
     }
 }
 
@@ -83,18 +64,16 @@ impl<R: Runtime> AllocationController for LazyDeviceController<R> {
     fn alloc_align(&self) -> usize {
         // Avoid materializing just to answer. `try_detach` is never implemented, so this is not
         // used for `Vec` reconstruction; a conservative value is fine before materialization.
-        if self.init.load(Ordering::Acquire) {
-            self.ensure_init().align()
-        } else {
-            core::mem::align_of::<u128>()
+        match self.materialized.get() {
+            Some(bytes) => bytes.align(),
+            None => core::mem::align_of::<u128>(),
         }
     }
 
     fn property(&self) -> AllocationProperty {
-        if self.init.load(Ordering::Acquire) {
-            self.ensure_init().property()
-        } else {
-            AllocationProperty::Device
+        match self.materialized.get() {
+            Some(bytes) => bytes.property(),
+            None => AllocationProperty::Device,
         }
     }
 
@@ -109,12 +88,11 @@ impl<R: Runtime> AllocationController for LazyDeviceController<R> {
     unsafe fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {
         self.ensure_init();
 
-        // SAFETY: `ensure_init` guarantees `Some`, and `&mut self` gives exclusive access.
-        let bytes = unsafe {
-            (*self.materialized.get())
-                .as_mut()
-                .expect("materialized must be Some after init")
-        };
+        // SAFETY: `ensure_init` guarantees the cell is initialized, and `&mut self` is exclusive.
+        let bytes = self
+            .materialized
+            .get_mut()
+            .expect("materialized must be set after init");
         let slice: &mut [u8] = bytes;
         // SAFETY: same layout as above; every byte is initialized.
         unsafe { core::slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), slice.len()) }

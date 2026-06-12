@@ -3,10 +3,7 @@ use crate::bytes::{
     AllocationController,
     default_controller::{MAX_ALIGN, NativeAllocationController},
 };
-use core::{
-    cell::UnsafeCell,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use spin::Once;
 use std::{
     boxed::Box,
     fs::File,
@@ -18,12 +15,9 @@ use std::{
 
 /// The allocation is managed on a file.
 ///
-/// # Safety
-///
-/// This implementation uses an [`UnsafeCell`] to copy the content of a file into an in-memory buffer
-/// using the [`NativeAllocationController`]. It is safe because the controller can't be cloned or
-/// sync between multiple threads. You can duplicate the file allocator, but every version of it
-/// will have its own buffer.
+/// The content of the file is copied into an in-memory buffer (a [`NativeAllocationController`])
+/// lazily on first access, behind a [`Once`] so concurrent first accesses materialize exactly
+/// once. Duplicating the file allocator gives every version its own buffer.
 ///
 /// # Notes
 ///
@@ -33,8 +27,7 @@ pub(crate) struct FileAllocationController {
     file: Arc<PathBuf>,
     size: u64,
     offset: u64,
-    controller: UnsafeCell<Option<Box<dyn AllocationController>>>,
-    init: AtomicBool,
+    controller: Once<Box<dyn AllocationController>>,
 }
 
 impl FileAllocationController {
@@ -46,29 +39,22 @@ impl FileAllocationController {
         Self {
             file,
             size,
-            controller: UnsafeCell::new(None),
+            controller: Once::new(),
             offset,
-            init: false.into(),
         }
     }
 
-    fn init(&self) {
-        if self.init.load(Ordering::Relaxed) {
-            return;
-        }
+    /// Materialize the file content into an in-memory buffer on first call, returning the cached
+    /// controller afterwards.
+    fn ensure_init(&self) -> &dyn AllocationController {
+        &**self.controller.call_once(|| {
+            let mut file = File::open(self.file.as_ref()).unwrap();
+            let mut buf = vec![0u8; self.size as usize];
+            file.seek(SeekFrom::Start(self.offset)).unwrap();
+            file.read_exact(&mut buf).unwrap();
 
-        let mut file = File::open(self.file.as_ref()).unwrap();
-        let mut buf = vec![0u8; self.size as usize];
-        file.seek(SeekFrom::Start(self.offset)).unwrap();
-        file.read_exact(&mut buf).unwrap();
-
-        let controller = NativeAllocationController::from_elems(buf);
-        unsafe {
-            *self.controller.get() = Some(Box::new(controller));
-        };
-        self.init.store(true, Ordering::Relaxed);
-
-        core::mem::drop(file);
+            Box::new(NativeAllocationController::from_elems(buf)) as Box<dyn AllocationController>
+        })
     }
 }
 
@@ -100,7 +86,7 @@ impl AllocationController for FileAllocationController {
     }
 
     fn view(&self, start: usize, end: usize) -> Option<Box<dyn AllocationController>> {
-        if self.init.load(Ordering::Relaxed) {
+        if self.controller.is_completed() {
             // The in-memory buffer may diverge from the file after a
             // copy-on-write, so fall back to sharing the current data instead.
             return None;
@@ -121,35 +107,22 @@ impl AllocationController for FileAllocationController {
     }
 
     unsafe fn memory_mut(&mut self) -> &mut [core::mem::MaybeUninit<u8>] {
-        self.init();
+        self.ensure_init();
 
-        unsafe {
-            let controller = self.controller.get();
-            let option: &mut Option<Box<dyn AllocationController>> = controller.as_mut().unwrap();
-
-            match option {
-                Some(o) => o.memory_mut(),
-                None => unreachable!(),
-            }
-        }
+        // SAFETY: `ensure_init` guarantees the controller is set, and `&mut self` is exclusive.
+        let controller = self
+            .controller
+            .get_mut()
+            .expect("controller must be set after init");
+        unsafe { controller.memory_mut() }
     }
 
     fn memory(&self) -> &[core::mem::MaybeUninit<u8>] {
-        self.init();
-
-        unsafe {
-            let controller = self.controller.get();
-            let option: &Option<Box<dyn AllocationController>> = controller.as_ref().unwrap();
-
-            match option {
-                Some(o) => o.memory(),
-                None => unreachable!(),
-            }
-        }
+        self.ensure_init().memory()
     }
 
     fn duplicate(&self) -> Option<Box<dyn AllocationController>> {
-        if self.init.load(Ordering::Relaxed) {
+        if self.controller.is_completed() {
             return None;
         }
 
@@ -158,7 +131,7 @@ impl AllocationController for FileAllocationController {
     }
 
     unsafe fn copy_into(&self, buf: &mut [u8]) {
-        if self.init.load(Ordering::Relaxed) {
+        if self.controller.is_completed() {
             let len = buf.len();
             let memory = self.memory();
             let memory_slice = &memory[0..len];

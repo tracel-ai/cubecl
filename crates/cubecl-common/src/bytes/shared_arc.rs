@@ -26,18 +26,13 @@ use super::{
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
-use core::sync::atomic::{AtomicBool, Ordering};
+use spin::Once;
 
 /// Allocation controller that shares a view into another [`Bytes`] behind an [`Arc`].
 ///
-/// # Safety
-///
-/// Like the file and `bytes::Bytes` controllers, this uses an [`UnsafeCell`] to
-/// lazily copy the shared content into a private buffer on first mutable access
-/// (copy-on-write). This is sound because mutable access requires `&mut self`,
-/// which is exclusive, and the private buffer is only ever published once.
+/// The shared content is lazily copied into a private buffer on first mutable access
+/// (copy-on-write), behind a [`Once`] so the private buffer is materialized exactly once.
 pub struct SharedAllocationController {
     /// The shared underlying bytes.
     inner: Arc<Bytes>,
@@ -46,9 +41,7 @@ pub struct SharedAllocationController {
     /// Length, in bytes, of this view.
     len: usize,
     /// Lazily initialized private buffer (copy-on-write).
-    controller: UnsafeCell<Option<Box<dyn AllocationController>>>,
-    /// Whether the private buffer has been initialized (data copied out).
-    init: AtomicBool,
+    controller: Once<Box<dyn AllocationController>>,
 }
 
 impl SharedAllocationController {
@@ -62,8 +55,7 @@ impl SharedAllocationController {
             inner,
             offset,
             len,
-            controller: UnsafeCell::new(None),
-            init: AtomicBool::new(false),
+            controller: Once::new(),
         }
     }
 
@@ -72,29 +64,22 @@ impl SharedAllocationController {
         &self.inner[self.offset..self.offset + self.len]
     }
 
-    /// Copy the shared view into a private, writable native allocation.
+    /// Copy the shared view into a private, writable native allocation on first call.
     /// Called lazily on first mutable access (copy-on-write).
-    fn init_mutable(&self) {
-        if self.init.load(Ordering::Relaxed) {
-            return;
-        }
-
-        // Allocate with `MAX_ALIGN` to keep the data usable for any element type.
-        let controller = NativeAllocationController::alloc_with_data(self.view(), MAX_ALIGN)
-            .expect("failed to allocate copy-on-write buffer for shared bytes");
-
-        // SAFETY: We only write to the `UnsafeCell` while `init` is false, and
-        // mutable access requires `&mut self`, so no concurrent access exists.
-        unsafe {
-            *self.controller.get() = Some(Box::new(controller));
-        }
-        self.init.store(true, Ordering::Relaxed);
+    fn init_mutable(&self) -> &dyn AllocationController {
+        &**self.controller.call_once(|| {
+            // Allocate with `MAX_ALIGN` to keep the data usable for any element type.
+            Box::new(
+                NativeAllocationController::alloc_with_data(self.view(), MAX_ALIGN)
+                    .expect("failed to allocate copy-on-write buffer for shared bytes"),
+            ) as Box<dyn AllocationController>
+        })
     }
 }
 
 impl AllocationController for SharedAllocationController {
     fn alloc_align(&self) -> usize {
-        if self.init.load(Ordering::Relaxed) {
+        if self.controller.is_completed() {
             MAX_ALIGN
         } else {
             // Report the inner allocation's alignment. `try_into_vec` still
@@ -108,19 +93,15 @@ impl AllocationController for SharedAllocationController {
     }
 
     fn memory(&self) -> &[MaybeUninit<u8>] {
-        if self.init.load(Ordering::Relaxed) {
-            // SAFETY: `init` is true, so the private controller is `Some`.
-            unsafe {
-                (*self.controller.get())
-                    .as_ref()
-                    .expect("controller must be Some when init is true")
-                    .memory()
+        match self.controller.get() {
+            // After copy-on-write, read from the private controller.
+            Some(controller) => controller.memory(),
+            None => {
+                let slice = self.view();
+                // SAFETY: `&[u8]` and `&[MaybeUninit<u8>]` share a layout, and every
+                // byte of the shared view is initialized.
+                unsafe { core::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) }
             }
-        } else {
-            let slice = self.view();
-            // SAFETY: `&[u8]` and `&[MaybeUninit<u8>]` share a layout, and every
-            // byte of the shared view is initialized.
-            unsafe { core::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) }
         }
     }
 
@@ -128,20 +109,20 @@ impl AllocationController for SharedAllocationController {
         // Trigger copy-on-write so we never mutate the shared allocation.
         self.init_mutable();
 
-        // SAFETY: `init_mutable` guarantees the private controller is `Some`.
-        unsafe {
-            (*self.controller.get())
-                .as_mut()
-                .expect("controller must be Some after init_mutable")
-                .memory_mut()
-        }
+        // SAFETY: `init_mutable` guarantees the private controller is set, and `&mut self` is
+        // exclusive.
+        let controller = self
+            .controller
+            .get_mut()
+            .expect("controller must be set after init_mutable");
+        unsafe { controller.memory_mut() }
     }
 
     fn split(
         &mut self,
         offset: usize,
     ) -> Result<(Box<dyn AllocationController>, Box<dyn AllocationController>), SplitError> {
-        if self.init.load(Ordering::Relaxed) {
+        if self.controller.is_completed() {
             // After copy-on-write the private buffer is no longer shared.
             return Err(SplitError::Unsupported);
         }
@@ -161,7 +142,7 @@ impl AllocationController for SharedAllocationController {
     }
 
     fn view(&self, start: usize, end: usize) -> Option<Box<dyn AllocationController>> {
-        if self.init.load(Ordering::Relaxed) {
+        if self.controller.is_completed() {
             // After copy-on-write the private buffer is no longer shared.
             return None;
         }
@@ -177,7 +158,7 @@ impl AllocationController for SharedAllocationController {
     }
 
     fn duplicate(&self) -> Option<Box<dyn AllocationController>> {
-        if self.init.load(Ordering::Relaxed) {
+        if self.controller.is_completed() {
             // After mutation the private buffer can't be shared cheaply.
             return None;
         }
@@ -190,17 +171,20 @@ impl AllocationController for SharedAllocationController {
     }
 
     unsafe fn copy_into(&self, buf: &mut [u8]) {
-        if self.init.load(Ordering::Relaxed) {
-            let memory = self.memory();
-            let copy_len = buf.len().min(memory.len());
-            // SAFETY: every byte of the private buffer up to its length is initialized.
-            let data =
-                unsafe { core::slice::from_raw_parts(memory.as_ptr().cast::<u8>(), copy_len) };
-            buf[..copy_len].copy_from_slice(data);
-        } else {
-            let src = self.view();
-            let copy_len = buf.len().min(src.len());
-            buf[..copy_len].copy_from_slice(&src[..copy_len]);
+        match self.controller.get() {
+            Some(controller) => {
+                let memory = controller.memory();
+                let copy_len = buf.len().min(memory.len());
+                // SAFETY: every byte of the private buffer up to its length is initialized.
+                let data =
+                    unsafe { core::slice::from_raw_parts(memory.as_ptr().cast::<u8>(), copy_len) };
+                buf[..copy_len].copy_from_slice(data);
+            }
+            None => {
+                let src = self.view();
+                let copy_len = buf.len().min(src.len());
+                buf[..copy_len].copy_from_slice(&src[..copy_len]);
+            }
         }
     }
 }
