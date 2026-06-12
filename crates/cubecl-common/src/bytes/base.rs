@@ -34,6 +34,9 @@ pub enum AllocationProperty {
     Native,
     /// Pinned memory is used.
     Pinned,
+    /// The data still lives on a compute device and is only copied to host memory
+    /// lazily on first access (see [`ComputeClient::read_lazy`](https://docs.rs/cubecl-runtime)).
+    Device,
     /// Another kind of memory is used.
     Other,
 }
@@ -391,13 +394,13 @@ impl Bytes {
     ///
     /// # Safety
     ///
-    /// This function is highly unsafe, the provided length must be the actual number of bytes initialized in the
-    /// `AllocationController`
+    /// This function is highly unsafe, the provided length must be the actual number of bytes
+    /// initialized in the `AllocationController`.
+    ///
+    /// Note: we intentionally do not assert `len <= controller.memory().len()` here, as
+    /// `memory()` may force a lazy controller to materialize its data (e.g. a device-backed
+    /// allocation), defeating the laziness this constructor is meant to preserve.
     pub unsafe fn from_controller(controller: Box<dyn AllocationController>, len: usize) -> Self {
-        debug_assert!(
-            len <= controller.memory().len(),
-            "len must not exceed controller memory size"
-        );
         Self { controller, len }
     }
 
