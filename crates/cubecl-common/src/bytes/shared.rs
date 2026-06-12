@@ -23,7 +23,8 @@
 //! ```
 
 use super::{
-    AccessError, AccessPolicy, AllocationController, AllocationError, AllocationProperty, SplitError,
+    AccessError, AccessPolicy, AllocationController, AllocationError, AllocationProperty,
+    SplitError,
     default_controller::{MAX_ALIGN, NativeAllocationController},
 };
 use alloc::boxed::Box;

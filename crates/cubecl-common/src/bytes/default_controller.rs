@@ -95,7 +95,10 @@ impl<'a> NativeAllocationController<'a> {
             controller
                 .memory_mut(AccessPolicy::default())
                 .expect("native allocation is always host-resident")[..data.len()]
-                .copy_from_slice(core::slice::from_raw_parts(data.as_ptr().cast(), data.len()));
+                .copy_from_slice(core::slice::from_raw_parts(
+                    data.as_ptr().cast(),
+                    data.len(),
+                ));
         }
         Ok(controller)
     }
@@ -380,7 +383,10 @@ mod tests {
     fn test_core_allocation_controller_alloc_with_capacity() {
         let controller = NativeAllocationController::alloc_with_capacity(64, 8).unwrap();
         assert_eq!(controller.alloc_align(), 8);
-        assert_eq!(controller.memory(AccessPolicy::default()).unwrap().len(), 64);
+        assert_eq!(
+            controller.memory(AccessPolicy::default()).unwrap().len(),
+            64
+        );
     }
 
     #[test_log::test]
@@ -389,7 +395,10 @@ mod tests {
         let controller = NativeAllocationController::alloc_with_data(data, 8).unwrap();
         assert_eq!(controller.alloc_align(), 8);
         assert!(controller.memory(AccessPolicy::default()).unwrap().len() >= data.len());
-        assert_eq!(controller.memory(AccessPolicy::default()).unwrap().len() % 8, 0); // Should be multiple of alignment
+        assert_eq!(
+            controller.memory(AccessPolicy::default()).unwrap().len() % 8,
+            0
+        ); // Should be multiple of alignment
 
         // Verify data was copied correctly
         let memory = controller.memory(AccessPolicy::default()).unwrap();
@@ -405,7 +414,10 @@ mod tests {
 
         let controller = NativeAllocationController::from_elems(elems);
         assert_eq!(controller.alloc_align(), core::mem::align_of::<u32>());
-        assert_eq!(controller.memory(AccessPolicy::default()).unwrap().len(), expected_bytes);
+        assert_eq!(
+            controller.memory(AccessPolicy::default()).unwrap().len(),
+            expected_bytes
+        );
     }
 
     #[test_log::test]

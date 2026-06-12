@@ -57,9 +57,7 @@ pub enum AccessError {
 impl core::fmt::Display for AccessError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::WouldCopy => {
-                f.write_str("access would require a copy, which the policy forbids")
-            }
+            Self::WouldCopy => f.write_str("access would require a copy, which the policy forbids"),
             Self::Read(msg) => write!(f, "failed to materialize bytes: {msg}"),
         }
     }

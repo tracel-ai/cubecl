@@ -7,7 +7,9 @@ use alloc::boxed::Box;
 use alloc::format;
 use alloc::sync::Arc;
 use core::mem::MaybeUninit;
-use cubecl_common::bytes::{AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes};
+use cubecl_common::bytes::{
+    AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes,
+};
 use cubecl_zspace::striding::has_contiguous_row_major_strides;
 use spin::Once;
 
@@ -59,19 +61,20 @@ impl<R: Runtime> LazyDeviceController<R> {
             return Err(AccessError::WouldCopy);
         }
 
-        self.materialized.try_call_once(|| -> Result<Bytes, AccessError> {
-            let desc = self.descriptor.as_ref();
-            // `read_one_tensor_async` consumes the descriptor by value; rebuild one from the
-            // shared fields. All clones are cheap (the binding is `Arc`-backed).
-            let descriptor = CopyDescriptor::new(
-                desc.handle.clone(),
-                desc.shape.clone(),
-                desc.strides.clone(),
-                desc.elem_size,
-            );
-            cubecl_common::reader::read_sync(self.client.read_one_tensor_async(descriptor))
-                .map_err(|err| AccessError::Read(format!("{err:?}")))
-        })
+        self.materialized
+            .try_call_once(|| -> Result<Bytes, AccessError> {
+                let desc = self.descriptor.as_ref();
+                // `read_one_tensor_async` consumes the descriptor by value; rebuild one from the
+                // shared fields. All clones are cheap (the binding is `Arc`-backed).
+                let descriptor = CopyDescriptor::new(
+                    desc.handle.clone(),
+                    desc.shape.clone(),
+                    desc.strides.clone(),
+                    desc.elem_size,
+                );
+                cubecl_common::reader::read_sync(self.client.read_one_tensor_async(descriptor))
+                    .map_err(|err| AccessError::Read(format!("{err:?}")))
+            })
     }
 
     /// The host byte length, derived from the descriptor without materializing.

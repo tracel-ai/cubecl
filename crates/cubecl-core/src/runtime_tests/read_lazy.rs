@@ -37,7 +37,10 @@ pub fn test_read_lazy<R: Runtime>(client: ComputeClient<R>) {
 
         // A no-copy read must refuse rather than materialize.
         assert!(
-            matches!(lazy.read(Reader::new().no_copy()), Err(AccessError::WouldCopy)),
+            matches!(
+                lazy.read(Reader::new().no_copy()),
+                Err(AccessError::WouldCopy)
+            ),
             "a no-copy read of an unmaterialized device buffer must refuse"
         );
 

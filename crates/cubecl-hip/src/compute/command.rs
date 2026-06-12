@@ -312,7 +312,15 @@ impl<'a> Command<'a> {
             write_to_gpu(resource, &shape, &strides, elem_size, &data, current.sys)?;
         };
 
-        current.drop_queue.push(data);
+        println!("Loaded data with size: {size:?} Bytes");
+        if size > 10 * MB || true {
+            println!("Too large, let's sync.");
+            let fence = Fence::new(current.sys);
+            fence.wait_sync().unwrap();
+            core::mem::drop(data);
+        } else {
+            current.drop_queue.push(data);
+        }
 
         Ok(())
     }
