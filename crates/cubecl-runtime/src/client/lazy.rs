@@ -3,10 +3,12 @@
 use super::ComputeClient;
 use crate::runtime::Runtime;
 use crate::server::CopyDescriptor;
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::sync::Arc;
 use core::mem::MaybeUninit;
 use cubecl_common::bytes::{AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes};
+use cubecl_zspace::striding::has_contiguous_row_major_strides;
 use spin::Once;
 
 /// Allocation controller that lazily copies a device resource into host memory on first access.
@@ -99,6 +101,42 @@ impl<R: Runtime> AllocationController for LazyDeviceController<R> {
     // The host byte length, known from the descriptor without materializing.
     fn capacity(&self) -> usize {
         self.byte_len()
+    }
+
+    /// A zero-copy (until materialized) device sub-view over the byte range `[start, end)`:
+    /// a new lazy controller that, when read, copies only those bytes off the device.
+    fn view(&self, start: usize, end: usize) -> Option<Box<dyn AllocationController>> {
+        // Once materialized to host there is no device sub-view to take (and the host
+        // controller doesn't support views either).
+        if self.materialized.get().is_some() {
+            return None;
+        }
+        if start > end || end > self.byte_len() {
+            return None;
+        }
+
+        let desc = self.descriptor.as_ref();
+        // A byte sub-range only maps to a contiguous device region when the source is
+        // contiguous (a strided/padded tensor has gaps the byte offsets can't express).
+        if !has_contiguous_row_major_strides(&desc.shape, &desc.strides) {
+            return None;
+        }
+
+        // Narrow the binding to the byte window `[start, end)`. Offsets are byte-level and
+        // `offset_end` is trimmed-from-the-end (see `Binding::size_in_used`).
+        let base = desc.handle.offset_start.unwrap_or(0);
+        let size = desc.handle.size;
+        let mut binding = desc.handle.clone();
+        binding.offset_start = Some(base + start as u64);
+        binding.offset_end = Some(size - (base + end as u64));
+
+        // Flat byte descriptor over the sub-range; materializing reads only these bytes.
+        let descriptor = CopyDescriptor::new(binding, [end - start].into(), [1].into(), 1);
+
+        Some(Box::new(LazyDeviceController::new(
+            self.client.clone(),
+            Arc::new(descriptor),
+        )))
     }
 
     fn memory(&self, policy: AccessPolicy) -> Result<&[MaybeUninit<u8>], AccessError> {

@@ -46,6 +46,27 @@ pub fn test_read_lazy<R: Runtime>(client: ComputeClient<R>) {
             matches!(lazy.property(), AllocationProperty::Device),
             "len()/capacity()/no-copy read must not materialize the device buffer"
         );
+
+        // A device view is itself lazy and reads only its byte sub-range when materialized.
+        let (start, end) = (400, 800);
+        let view = lazy
+            .view(start, end)
+            .expect("a contiguous device buffer supports views");
+        assert!(
+            matches!(view.property(), AllocationProperty::Device),
+            "a device view must itself be lazy"
+        );
+        let view_bytes: &[u8] = &view;
+        assert_eq!(
+            view_bytes,
+            &bytes_expected[start..end],
+            "a device view must read its sub-range"
+        );
+        // Materializing the view must not have materialized the parent.
+        assert!(
+            matches!(lazy.property(), AllocationProperty::Device),
+            "viewing must not materialize the parent device buffer"
+        );
     }
 
     // First access materializes through the regular read path and caches the result.
