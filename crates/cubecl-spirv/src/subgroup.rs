@@ -1,10 +1,10 @@
-use cubecl_core::ir::{Plane, UnaryOperands, Value};
+use cubecl_core::ir::{Plane, UnaryOperands, ExpandValue};
 use rspirv::spirv::{Capability, GroupOperation, Scope, Word};
 
 use crate::{SpirvCompiler, SpirvTarget, item::Elem};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_plane(&mut self, plane: Plane, out: Option<Value>, uniform: bool) {
+    pub fn compile_plane(&mut self, plane: Plane, out: Option<ExpandValue>, uniform: bool) {
         self.capabilities
             .insert(Capability::GroupNonUniformArithmetic);
         let subgroup = self.subgroup();
@@ -218,7 +218,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    fn plane_sum(&mut self, op: UnaryOperands, out: Value, action: GroupOperation, uniform: bool) {
+    fn plane_sum(&mut self, op: UnaryOperands, out: ExpandValue, action: GroupOperation, uniform: bool) {
         let subgroup = self.subgroup();
         self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
             match out_ty.elem() {
@@ -234,7 +234,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         });
     }
 
-    fn plane_prod(&mut self, op: UnaryOperands, out: Value, action: GroupOperation, uniform: bool) {
+    fn plane_prod(&mut self, op: UnaryOperands, out: ExpandValue, action: GroupOperation, uniform: bool) {
         let subgroup = self.subgroup();
         self.compile_unary_op(op, out, uniform, |b, out_ty, ty, input, out| {
             match out_ty.elem() {

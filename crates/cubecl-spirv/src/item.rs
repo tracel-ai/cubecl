@@ -516,7 +516,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn compile_function_param_type(&mut self, val: core::Value) -> Word {
+    pub fn compile_function_param_type(&mut self, val: core::ExpandValue) -> Word {
         match val.kind {
             core::ValueKind::Value { .. } | core::ValueKind::Constant(..) => {
                 self.compile_type(val.ty).id(self)

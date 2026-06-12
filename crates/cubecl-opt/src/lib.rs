@@ -49,7 +49,7 @@ use cubecl_core::{
 };
 use cubecl_ir::{
     self as ir, AddressSpace, Allocator, Branch, Id, Instruction, Operation, Processor, Scope,
-    Type, Value,
+    Type, ExpandValue,
 };
 use gvn::GvnPass;
 use hashbrown::HashMap;
@@ -98,7 +98,7 @@ pub struct MemoryBlock {
     pub alignment: usize,
     /// The root pointer value returned from the allocation or passed into the kernel. All other
     /// pointers into the same value are derived from this.
-    pub root_ptr: Value,
+    pub root_ptr: ExpandValue,
 }
 
 impl MemoryBlock {
@@ -111,16 +111,16 @@ impl MemoryBlock {
 #[derive(Default, Debug, Clone)]
 pub struct Function {
     /// Explicit parameters passed to the function, i.e. the inputs to a closure
-    pub explicit_params: Vec<Value>,
+    pub explicit_params: Vec<ExpandValue>,
     /// Implicit parameters passed to the function, i.e. kernel args, closure captures
-    pub implicit_params: Vec<Value>,
+    pub implicit_params: Vec<ExpandValue>,
     pub memories: HashMap<Id, MemoryBlock>,
     pub graph: StableDiGraph<BasicBlock, u32>,
     pub root: NodeIndex,
     /// The single return block
     pub ret: NodeIndex,
     /// The return value, if any
-    pub return_value: Option<Value>,
+    pub return_value: Option<ExpandValue>,
 
     /// Analyses with persistent state
     analysis_cache: Rc<AnalysisCache>,
@@ -292,7 +292,7 @@ impl GlobalState {
     }
 }
 
-pub fn global_buffer_id(value: &ir::Value) -> Option<Id> {
+pub fn global_buffer_id(value: &ir::ExpandValue) -> Option<Id> {
     match value.address_space() {
         AddressSpace::Global(id) => Some(id),
         _ => None,
@@ -601,14 +601,14 @@ impl Function {
         }
     }
 
-    pub fn all_params(&self) -> impl Iterator<Item = Value> {
+    pub fn all_params(&self) -> impl Iterator<Item = ExpandValue> {
         self.explicit_params
             .iter()
             .copied()
             .chain(self.implicit_params.iter().copied())
     }
 
-    pub fn create_local_mut(&mut self, state: &GlobalState, value_ty: Type) -> Value {
+    pub fn create_local_mut(&mut self, state: &GlobalState, value_ty: Type) -> ExpandValue {
         let ty = Type::Pointer(value_ty.intern(), AddressSpace::Local);
         let val = state.allocator.create_value(ty);
         let root = self.root;
@@ -634,7 +634,7 @@ impl Function {
 }
 
 /// A visitor that does nothing.
-pub fn visit_noop(_opt: &mut Function, _var: &mut Value) {}
+pub fn visit_noop(_opt: &mut Function, _var: &mut ExpandValue) {}
 
 #[cfg(test)]
 mod test {

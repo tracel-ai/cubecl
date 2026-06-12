@@ -8,13 +8,22 @@ use crate::{
 use crate::{ir::Scope, prelude::*, unexpanded};
 use cubecl_common::tf32;
 
-pub(crate) fn is_tf32<C: CubePrimitive, T: CubePrimitive>(scope: &Scope) -> bool {
-    let ty_c = C::__expand_as_type(scope).storage_type();
-    let ty_t = T::__expand_as_type(scope).storage_type();
-    let ty_f32 = f32::__expand_as_type(scope).storage_type();
-    let ty_tf32 = tf32::__expand_as_type(scope).storage_type();
+pub(crate) fn is_tf32_cast<C: CubePrimitive, T: CubePrimitive>(scope: &Scope) -> bool {
+    let ty_c = C::Scalar::__expand_as_type(scope);
+    let ty_t = T::Scalar::__expand_as_type(scope);
+    let ty_f32 = f32::__expand_as_type(scope);
+    let ty_tf32 = tf32::__expand_as_type(scope);
 
     (ty_c == ty_f32 && ty_t == ty_tf32) || (ty_c == ty_tf32 && ty_t == ty_f32)
+}
+
+pub(crate) fn is_flex32_cast<C: CubePrimitive, T: CubePrimitive>(scope: &Scope) -> bool {
+    let ty_c = C::Scalar::__expand_as_type(scope);
+    let ty_t = T::Scalar::__expand_as_type(scope);
+    let ty_f32 = f32::__expand_as_type(scope);
+    let ty_flex32 = flex32::__expand_as_type(scope);
+
+    (ty_c == ty_f32 && ty_t == ty_flex32) || (ty_c == ty_flex32 && ty_t == ty_f32)
 }
 
 type ArrayExpand<E> = NativeExpand<Array<E>>;

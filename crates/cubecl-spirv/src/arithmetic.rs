@@ -10,7 +10,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_arithmetic(
         &mut self,
         op: Arithmetic,
-        out: Option<core::Value>,
+        out: Option<core::ExpandValue>,
         modes: InstructionModes,
         uniform: bool,
     ) {

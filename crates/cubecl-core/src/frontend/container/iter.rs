@@ -1,10 +1,6 @@
-use alloc::boxed::Box;
+use cubecl_ir::{OpInserter, dialect::branch::RangeLoopOp, types::scalar::IndexType};
 
-use crate::{
-    self as cubecl,
-    ir::{Branch, RangeLoop, Scope},
-    prelude::*,
-};
+use crate::{self as cubecl, ir::Scope, prelude::*};
 
 #[cube]
 pub trait SizedContainer<I: CubePrimitive> {
@@ -20,26 +16,26 @@ where
     type Item = <T::Output as CubeType>::ExpandType;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
-        let index_ty = u32::__expand_as_type(scope);
+        let index_ty = IndexType::get(&scope.ctx());
         let len = self.__expand_len_method(scope);
 
-        let mut child = scope.child();
-        let i = scope.create_local_mut(index_ty);
+        let start = scope.const_usize(0);
+        let end = len.read_value(scope);
+        let step = scope.const_usize(1);
 
-        let index = NativeExpand::new(i);
+        let i = scope.create_local_mut(index_ty);
+        let range_loop = RangeLoopOp::new(&mut scope.ctx_mut(), i, start, end, step, false);
+        let loop_body = range_loop.loop_body(&scope.ctx());
+
+        let mut child = scope.child(OpInserter::new_at_block_end(loop_body));
+
+        let index = NativeExpand::new(i.into());
         let item = self
             .__expand_index_method(&child, index)
             .__expand_deref_method(&child);
         body(&mut child, item);
 
-        scope.register(Branch::RangeLoop(Box::new(RangeLoop {
-            i,
-            start: 0u32.into(),
-            end: len.expand,
-            step: None,
-            inclusive: false,
-            scope: child,
-        })));
+        scope.register(&range_loop);
     }
 
     fn expand_unroll(self, _scope: &Scope, _body: impl FnMut(&Scope, Self::Item)) {

@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 use cubecl_ir::{
-    Arithmetic, Builtin, ConstantValue, ElemType, Id, Operation, Operator, Type, Value, ValueKind,
+    Arithmetic, Builtin, ConstantValue, ElemType, Id, Operation, Operator, Type, ExpandValue, ValueKind,
 };
 use hashbrown::HashMap;
 
@@ -145,7 +145,7 @@ impl Ranges {
 impl Ranges {
     /// The possible range of values of any values, if applicable. Returns unbounded range if no range
     /// can be determined, or the type is not an integer.
-    pub fn range_of(&self, val: &Value) -> Range {
+    pub fn range_of(&self, val: &ExpandValue) -> Range {
         match val.kind {
             ValueKind::Value { id } if is_uint(val.ty) => {
                 self.int_ranges.get(&id).copied().unwrap_or(Range {
@@ -160,7 +160,7 @@ impl Ranges {
     }
 }
 
-pub(crate) fn val_id(val: &Value) -> Option<Id> {
+pub(crate) fn val_id(val: &ExpandValue) -> Option<Id> {
     match val.kind {
         ValueKind::Value { id } => Some(id),
         _ => None,

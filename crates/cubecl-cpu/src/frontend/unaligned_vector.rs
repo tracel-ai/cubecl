@@ -1,6 +1,6 @@
 use cubecl_core::ir::{IndexOperands, Instruction, Memory};
 use cubecl_core::{self as cubecl, prelude::*};
-use cubecl_core::{intrinsic, ir::Value};
+use cubecl_core::{intrinsic, ir::ExpandValue};
 
 /// An extension trait for expanding the cubecl frontend with the ability to
 /// request unaligned vector reads and writes
@@ -72,7 +72,7 @@ impl_unaligned_vector!(Shared<[E]>);
 #[cube]
 fn unaligned_vector_read<E: Scalar, N: Size>(this: &[E], index: usize) -> Vector<E, N> {
     intrinsic!(|scope| {
-        let list: Value = this.__extract_list(scope);
+        let list: ExpandValue = this.__extract_list(scope);
         if !matches!(list.ty, cubecl::ir::Type::Scalar(_)) {
             todo!("Unaligned reads are only allowed on scalar arrays for now");
         }
@@ -95,7 +95,7 @@ fn unaligned_vector_read<E: Scalar, N: Size>(this: &[E], index: usize) -> Vector
 #[cube]
 fn unaligned_vector_write<E: Scalar, N: Size>(this: &mut [E], index: usize, value: Vector<E, N>) {
     intrinsic!(|scope| {
-        let list: Value = this.__extract_list(scope);
+        let list: ExpandValue = this.__extract_list(scope);
         if !matches!(list.ty, cubecl::ir::Type::Scalar(_)) {
             todo!("Unaligned reads are only allowed on scalar arrays for now");
         }

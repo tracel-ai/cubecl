@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use cubecl_ir::{AddressSpace, CopyMemoryOperands, Instruction, Memory, Operation, Type, Value};
+use cubecl_ir::{AddressSpace, CopyMemoryOperands, Instruction, Memory, Operation, Type, ExpandValue};
 use hashbrown::{HashMap, HashSet};
 
 use crate::{
@@ -88,7 +88,7 @@ fn can_copy(ty: &Type) -> bool {
     )
 }
 
-fn is_reused(func: &mut Function, state: &GlobalState, val: &Option<Value>) -> bool {
+fn is_reused(func: &mut Function, state: &GlobalState, val: &Option<ExpandValue>) -> bool {
     if let Some(val) = val.as_ref() {
         let count = AtomicCounter::new(0);
         func.visit_all(

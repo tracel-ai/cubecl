@@ -1,9 +1,12 @@
 use core::ops::{Index, IndexMut};
 
-use cubecl_ir::{IndexOperands, Instruction, Memory, Scope, Type, Value, ValueKind};
+use cubecl_ir::{
+    ExpandValue, Scope,
+    dialect::memory::IndexOp,
+    pliron::{builtin::op_interfaces::OneResultInterface, value::Value},
+};
 
 use super::{CubeType, NativeExpand, index_expand};
-use crate::prelude::CubePrimitive;
 
 /// Trait bound that can be used to guarantee the expand also implements `IndexExpand`
 pub trait CubeIndex<I: CubeType>:
@@ -73,15 +76,10 @@ pub(crate) fn expand_index_native<'a, O>(
     checked: bool,
 ) -> &'a O
 where
-    O: From<Value> + 'static,
+    O: From<ExpandValue> + 'static,
 {
-    let index: Value = index.into();
-    let index_var: Value = index;
-    let index = match index_var.kind {
-        ValueKind::Constant(value) => Value::constant(value, usize::__expand_as_type(scope)),
-        _ => index,
-    };
-    let val = index_expand(scope, list, index, checked);
+    let index = index.read_value(scope);
+    let val: ExpandValue = index_expand(scope, list, index, checked).into();
 
     scope.create_kernel_ref(val.into())
 }
@@ -93,27 +91,13 @@ pub(crate) fn expand_index_mut_native<'a, O>(
     checked: bool,
 ) -> &'a mut O
 where
-    O: From<Value> + 'static,
+    O: From<ExpandValue> + 'static,
 {
-    let index: Value = index.expand;
-    let index = match index.kind {
-        ValueKind::Constant(value) => Value::constant(value, usize::__expand_as_type(scope)),
-        _ => index,
-    };
+    let index = index.read_value(scope);
 
-    let ty = list.value_type();
-    let class = list.address_space();
-    let out = scope.create_value(Type::pointer(ty, class));
-
-    scope.register(Instruction::new(
-        Memory::Index(IndexOperands {
-            list,
-            index,
-            unroll_factor: 1,
-            checked,
-        }),
-        out,
-    ));
+    let index_op = IndexOp::new(&mut scope.ctx_mut(), list, index, 1.into(), checked.into());
+    scope.register(&index_op);
+    let out: ExpandValue = index_op.get_result(&scope.ctx()).into();
 
     scope.create_kernel_ref(out.into())
 }

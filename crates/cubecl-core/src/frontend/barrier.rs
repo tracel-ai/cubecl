@@ -3,12 +3,17 @@
 use alloc::vec;
 
 use crate as cubecl;
-use cubecl_ir::{Instruction, OpaqueType, Value};
+use cubecl_ir::{
+    ExpandValue,
+    dialect::tma::*,
+    pliron::{builtin::op_interfaces::OneResultInterface, context::Ptr, r#type::TypeObj},
+    types::barrier::BarrierType,
+};
 use cubecl_macros::intrinsic;
 use paste::paste;
 
 use crate::{
-    ir::{BarrierOps, Scope},
+    ir::{Scope, dialect::barrier::*},
     prelude::*,
     unexpanded,
 };
@@ -37,10 +42,14 @@ impl CubePrimitive for Barrier {
     fn from_const_value(_value: cubecl_ir::ConstantValue) -> Self {
         unreachable!("Can't create from const value")
     }
+
+    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+        BarrierType::get(&scope.ctx()).into()
+    }
 }
 
 impl NativeAssign for Barrier {
-    fn elem_init_mut(_scope: &Scope, elem: Value) -> Value {
+    fn elem_init_mut(_scope: &Scope, elem: ExpandValue) -> ExpandValue {
         elem
     }
 }
@@ -50,7 +59,7 @@ impl CubeType for BarrierToken {
 }
 
 impl NativeAssign for BarrierToken {
-    fn elem_init_mut(_scope: &Scope, elem: Value) -> Value {
+    fn elem_init_mut(_scope: &Scope, elem: ExpandValue) -> ExpandValue {
         elem
     }
 }
@@ -98,18 +107,13 @@ macro_rules! tensor_map_load {
                     destination: &mut SliceExpand<C2>,
                     $($arg: NativeExpand<i32>),*
                 ) {
-                    let barrier = self.expand;
-                    let source = source.expand;
-                    let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.expand;
+                    let barrier = self.value(scope);
+                    let source = source.value(scope);
+                    let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.value(scope);
+                    let indices = vec![$($arg.read_value(scope)),*];
 
-                    let mem_copy = BarrierOps::TmaLoad {
-                        barrier,
-                        tensor_map: source,
-                        destination,
-                        indices: vec![$($arg.expand),*],
-                    };
-
-                    scope.register(Instruction::no_out(mem_copy));
+                    let mem_copy = TmaLoadOp::new(&mut scope.ctx_mut(), barrier, source, destination, indices);
+                    scope.register(&mem_copy);
                 }
             }
         }
@@ -156,19 +160,14 @@ macro_rules! tensor_map_load_im2col {
                     $($arg: NativeExpand<i32>,)*
                     $($offset: NativeExpand<u16>),*
                 ) {
-                    let barrier = self.expand;
-                    let source = source.expand;
-                    let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.expand;
+                    let barrier = self.value(scope);
+                    let source = source.value(scope);
+                    let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.value(scope);
+                    let indices = vec![$($arg.read_value(scope)),*];
+                    let offsets = vec![$($offset.read_value(scope)),*];
 
-                    let mem_copy = BarrierOps::TmaLoadIm2col {
-                        barrier,
-                        tensor_map: source,
-                        destination,
-                        indices: vec![$($arg.expand),*],
-                        offsets: vec![$($offset.expand),*],
-                    };
-
-                    scope.register(Instruction::no_out(mem_copy));
+                    let mem_copy = TmaLoadIm2colOp::new(&mut scope.ctx_mut(), barrier, source, destination, indices, offsets);
+                    scope.register(&mem_copy);
                 }
             }
         }
@@ -191,12 +190,11 @@ impl Barrier {
     /// arrival count of `1`.
     pub fn local() -> Self {
         intrinsic!(|scope| {
-            let value = scope.create_local_mut(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Unit));
-            scope.register(BarrierOps::Init {
-                barrier: value,
-                is_elected: true.into(),
-                arrival_count: 1.into(),
-            });
+            let value = scope.create_local_mut(BarrierType::get(&scope.ctx()));
+            let arrival_count: ExpandValue = 1u32.into();
+            let arrival_count = arrival_count.read_value(scope);
+            let op = InitOp::new(&mut scope.ctx_mut(), value, arrival_count);
+            scope.register(&op);
             value.into()
         })
     }
@@ -209,12 +207,11 @@ impl Barrier {
     /// other purposes, only a subset may need to arrive.
     pub fn shared(arrival_count: u32, is_elected: bool) -> Shared<Barrier> {
         intrinsic!(|scope| {
-            let value =
-                scope.create_shared(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Cube), None);
-            scope.register(BarrierOps::Init {
-                barrier: value,
-                is_elected: is_elected.expand,
-                arrival_count: arrival_count.expand,
+            let value = scope.create_shared(BarrierType::get(&scope.ctx()), None);
+            if_expand(scope, is_elected, |scope| {
+                let arrival_count = arrival_count.read_value(scope);
+                let op = InitOp::new(&mut scope.ctx_mut(), value, arrival_count);
+                scope.register(&op);
             });
             value.into()
         })
@@ -224,8 +221,7 @@ impl Barrier {
     /// but not initialized.
     pub fn shared_uninit() -> Shared<Barrier> {
         intrinsic!(|scope| {
-            let value =
-                scope.create_shared(OpaqueType::Barrier(cubecl_ir::BarrierLevel::Cube), None);
+            let value = scope.create_shared(BarrierType::get(&scope.ctx()), None);
             value.into()
         })
     }
@@ -244,12 +240,10 @@ impl Barrier {
     /// [`sync_async_proxy_shared()`].
     pub fn init_manual(&self, arrival_count: u32) {
         intrinsic!(|scope| {
-            let barrier = self.expand;
-
-            scope.register(BarrierOps::InitManual {
-                barrier,
-                arrival_count: arrival_count.expand,
-            });
+            let barrier = self.value(scope);
+            let arrival_count = arrival_count.read_value(scope);
+            let op = InitOp::new(&mut scope.ctx_mut(), barrier, arrival_count);
+            scope.register(&op);
         })
     }
 }
@@ -266,19 +260,21 @@ impl Barrier {
     /// make sure source length <= destination length
     pub fn memcpy_async<C: CubePrimitive>(&self, source: &[C], destination: &mut [C]) {
         intrinsic!(|scope| {
-            let barrier = self.expand;
-            let source_length = source.__extract_length(scope).expand;
-            let source = unsafe { *source.__expand_as_ptr_method(scope) }.expand;
-            let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.expand;
+            let barrier = self.value(scope);
+            let source_length = source.__extract_length(scope).value(scope);
+            let source = unsafe { *source.__expand_as_ptr_method(scope) }.value(scope);
+            let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.value(scope);
 
-            let mem_copy = BarrierOps::MemCopyAsync {
+            let mem_copy = MemCopyAsyncOp::new(
+                &mut scope.ctx_mut(),
                 barrier,
                 destination,
                 source,
                 source_length,
-            };
+                false.into(),
+            );
 
-            scope.register(Instruction::no_out(mem_copy));
+            scope.register(&mem_copy);
         })
     }
 
@@ -290,19 +286,21 @@ impl Barrier {
     /// make sure source length <= destination length
     pub fn memcpy_async_cooperative<C: CubePrimitive>(&self, source: &[C], destination: &mut [C]) {
         intrinsic!(|scope| {
-            let barrier = self.expand;
-            let source_length = source.__extract_length(scope).expand;
-            let source = unsafe { *source.__expand_as_ptr_method(scope) }.expand;
-            let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.expand;
+            let barrier = self.value(scope);
+            let source_length = source.__extract_length(scope).value(scope);
+            let source = unsafe { *source.__expand_as_ptr_method(scope) }.value(scope);
+            let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.value(scope);
 
-            let mem_copy = BarrierOps::MemCopyAsyncCooperative {
+            let mem_copy = MemCopyAsyncOp::new(
+                &mut scope.ctx_mut(),
                 barrier,
-                source,
                 destination,
+                source,
                 source_length,
-            };
+                true.into(),
+            );
 
-            scope.register(Instruction::no_out(mem_copy));
+            scope.register(&mem_copy);
         })
     }
 
@@ -315,19 +313,20 @@ impl Barrier {
     /// make sure source length <= destination length
     pub fn memcpy_async_tx<C: CubePrimitive>(&self, source: &[C], destination: &mut [C]) {
         intrinsic!(|scope| {
-            let barrier = self.expand;
-            let source_length = source.__extract_length(scope).expand;
-            let source = unsafe { *source.__expand_as_ptr_method(scope) }.expand;
-            let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.expand;
+            let barrier = self.value(scope);
+            let source_length = source.__extract_length(scope).value(scope);
+            let source = unsafe { *source.__expand_as_ptr_method(scope) }.value(scope);
+            let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.value(scope);
 
-            let mem_copy = BarrierOps::MemCopyAsyncTx {
+            let mem_copy = MemCopyAsyncTxOp::new(
+                &mut scope.ctx_mut(),
                 barrier,
-                source,
                 destination,
+                source,
                 source_length,
-            };
+            );
 
-            scope.register(Instruction::no_out(mem_copy));
+            scope.register(&mem_copy);
         })
     }
 }
@@ -339,64 +338,57 @@ impl Barrier {
     /// Arrive at the barrier, decrementing arrival count
     pub fn arrive(&self) -> BarrierToken {
         intrinsic!(|scope| {
-            let barrier = self.expand;
-            let Type::Opaque(OpaqueType::Barrier(level)) = barrier.ty.unwrap_ptr() else {
-                unreachable!()
-            };
-            let token = scope.create_value(Type::Opaque(OpaqueType::BarrierToken(level)));
-            scope.register(Instruction::new(BarrierOps::Arrive { barrier }, token));
-            token.into()
+            let barrier = self.value(scope);
+            let arrive = ArriveOp::new(&mut scope.ctx_mut(), barrier);
+            scope.register(&arrive);
+            arrive.get_result(&scope.ctx()).into()
         })
     }
 
     /// Arrive at the barrier, decrementing arrival count. Additionally increments expected count.
     pub fn arrive_and_expect_tx(&self, arrival_count: u32, transaction_count: u32) -> BarrierToken {
         intrinsic!(|scope| {
-            let barrier = self.expand;
-            let Type::Opaque(OpaqueType::Barrier(level)) = barrier.ty.unwrap_ptr() else {
-                unreachable!()
-            };
-            let token = scope.create_value(Type::Opaque(OpaqueType::BarrierToken(level)));
-            let arrival_count: Value = arrival_count.into();
-            let transaction_count: Value = transaction_count.into();
-            scope.register(Instruction::new(
-                BarrierOps::ArriveTx {
-                    barrier,
-                    arrive_count_update: arrival_count,
-                    transaction_count_update: transaction_count,
-                },
-                token,
-            ));
-            token.into()
+            let barrier = self.value(scope);
+            let arrival_count = arrival_count.read_value(scope);
+            let transaction_count = transaction_count.read_value(scope);
+            let op = ArriveAndExpectTxOp::new(
+                &mut scope.ctx_mut(),
+                barrier,
+                arrival_count,
+                transaction_count,
+            );
+            scope.register(&op);
+            op.get_result(&scope.ctx()).into()
         })
     }
 
     /// Increments the expected count of the barrier.
-    pub fn expect_tx(&self, expected_count: u32) {
+    pub fn expect_tx(&self, transaction_count_update: u32) {
         intrinsic!(|scope| {
-            let barrier = self.expand;
-            let transaction_count: Value = expected_count.into();
-            scope.register(BarrierOps::ExpectTx {
+            let barrier = self.value(scope);
+            let transaction_count_update = transaction_count_update.value(scope);
+            scope.register(&ExpectTxOp::new(
+                &mut scope.ctx_mut(),
                 barrier,
-                transaction_count_update: transaction_count,
-            });
+                transaction_count_update,
+            ));
         })
     }
 
     /// Wait until all data is loaded
     pub fn arrive_and_wait(&self) {
         intrinsic!(|scope| {
-            let barrier = self.expand;
-            scope.register(BarrierOps::ArriveAndWait { barrier });
+            let barrier = self.value(scope);
+            scope.register(&ArriveAndWaitOp::new(&mut scope.ctx_mut(), barrier));
         })
     }
 
     /// Wait at the barrier until all arrivals are done
     pub fn wait(&self, token: BarrierToken) {
         intrinsic!(|scope| {
-            let barrier = self.expand;
-            let token = token.expand;
-            scope.register(BarrierOps::Wait { barrier, token });
+            let barrier = self.value(scope);
+            let token = token.value(scope);
+            scope.register(&WaitOp::new(&mut scope.ctx_mut(), barrier, token));
         })
     }
 
@@ -404,9 +396,9 @@ impl Barrier {
     /// to be managed manually.
     pub fn wait_parity(&self, phase: u32) {
         intrinsic!(|scope| {
-            let barrier = self.expand;
-            let phase = phase.expand;
-            scope.register(BarrierOps::WaitParity { barrier, phase });
+            let barrier = self.value(scope);
+            let phase = phase.read_value(scope);
+            scope.register(&WaitParityOp::new(&mut scope.ctx_mut(), barrier, phase));
         })
     }
 }
@@ -435,20 +427,21 @@ pub mod copy_async {
         destination: &mut SliceExpand<C>,
         copy_length: u32,
     ) {
-        let source_length = copy_length.into();
-        let source = unsafe { *source.__expand_as_ptr_method(scope) }.expand;
-        let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.expand;
-        let scalar_size = C::__expand_as_type(scope).storage_type().size();
+        let source_length = ExpandValue::from(copy_length).read_value(scope);
+        let source = unsafe { *source.__expand_as_ptr_method(scope) }.value(scope);
+        let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.value(scope);
+        let scalar_size = C::Scalar::__expand_size(scope);
 
-        let mem_copy = BarrierOps::CopyAsync {
+        let mem_copy = CopyAsyncOp::new(
+            &mut scope.ctx_mut(),
             source,
             destination,
             source_length,
-            copy_length: copy_length * scalar_size as u32,
-            checked: false,
-        };
+            (copy_length as usize * scalar_size).into(),
+            false.into(),
+        );
 
-        scope.register(Instruction::no_out(mem_copy));
+        scope.register(&mem_copy);
     }
 }
 
@@ -480,22 +473,24 @@ pub mod copy_async_checked {
         destination: &mut SliceExpand<C>,
         copy_length: u32,
     ) {
-        let source_length = source.__extract_length(scope).expand;
+        let source_length = source.__extract_length(scope).value(scope);
 
         // OOB pointer is allowed as long as length is 0
-        let source = unsafe { (*source.__expand_as_ptr_unchecked_method(scope)).expand };
-        let destination = unsafe { (*destination.__expand_as_ptr_unchecked_method(scope)).expand };
-        let scalar_size = C::__expand_as_type(scope).storage_type().size();
+        let source = unsafe { *source.__expand_as_ptr_unchecked_method(scope) }.value(scope);
+        let destination =
+            unsafe { *destination.__expand_as_ptr_unchecked_method(scope) }.value(scope);
+        let scalar_size = C::Scalar::__expand_size(scope);
 
-        let mem_copy = BarrierOps::CopyAsync {
+        let mem_copy = CopyAsyncOp::new(
+            &mut scope.ctx_mut(),
             source,
             destination,
             source_length,
-            copy_length: copy_length * scalar_size as u32,
-            checked: true,
-        };
+            (copy_length as usize * scalar_size).into(),
+            true.into(),
+        );
 
-        scope.register(Instruction::no_out(mem_copy));
+        scope.register(&mem_copy);
     }
 }
 
@@ -509,15 +504,8 @@ impl Barrier {
     /// `arrive_and_wait` should still be called afterwards.
     pub fn commit_copy_async(&self) {
         intrinsic!(|scope| {
-            let barrier = self.expand;
-            let Type::Opaque(OpaqueType::Barrier(level)) = barrier.ty.unwrap_ptr() else {
-                unreachable!()
-            };
-            let token = scope.create_value(Type::Opaque(OpaqueType::BarrierToken(level)));
-            scope.register(Instruction::new(
-                BarrierOps::CommitCopyAsync { barrier },
-                token,
-            ));
+            let barrier = self.value(scope);
+            scope.register(&CommitCopyAsyncOp::new(&mut scope.ctx_mut(), barrier));
         })
     }
 }

@@ -920,7 +920,9 @@ fn elem_to_tensor_map_type(ty: StorageType) -> CUtensorMapDataType {
         // packed fp4 should be treated as single 4-bit values to simplify indexing/shape handling
         // So a tile of width 16 with fp4 elements is 8 x fp4x2 elements wide.
         #[cfg(cuda_12080)]
-        StorageType::Packed(ty, 2) if ty.size_bits() == 4 => CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN8B,
+        StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2) => {
+            CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN8B
+        }
         StorageType::Scalar(ElemType::Float(kind)) => match kind {
             // There's no special handling for FP8, so load as u8. `0u8 == 0.0` when reinterpreting.
             FloatKind::E2M1 // single fp4s are padded to a full byte
@@ -1045,7 +1047,10 @@ fn check_tma_generic(
         "Shape must be <= u32::MAX"
     )?;
     #[cfg(cuda_12080)]
-    if matches!(map.storage_ty, StorageType::Packed(ty, 2) if ty.size_bits() == 4) {
+    if matches!(
+        map.storage_ty,
+        StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2)
+    ) {
         launch_check!(
             shape[0].is_multiple_of(2),
             "Packed tensor map must have multiple of 2 for the innermost dimension"

@@ -1,11 +1,19 @@
 use core::ops::{Deref, DerefMut};
 
-use cubecl_ir::{Scope, VectorSize};
+use cubecl_ir::{
+    Scope, VectorSize,
+    interfaces::MaybeVectorizedType,
+    pliron::{
+        r#type::{TypePtr, Typed},
+        value::Value,
+    },
+    types::{ArrayType, PointerType, aggregate::PtrAggregateType},
+};
 
 use crate::frontend::{CubePrimitive, NativeExpand};
 use crate::prelude::*;
 use crate::{self as cubecl};
-use crate::{frontend::CubeType, ir::Type, unexpanded};
+use crate::{frontend::CubeType, unexpanded};
 use cubecl_macros::{cube, intrinsic};
 
 /// A contiguous array of elements.
@@ -24,6 +32,7 @@ impl<E> AsMutExpand for ArrayExpand<E> {
 
 /// Module that contains the implementation details of the new function.
 mod new {
+    use cubecl_ir::types::ArrayType;
     use cubecl_macros::intrinsic;
 
     use super::*;
@@ -38,7 +47,7 @@ mod new {
                 // Unlike Rust, we can't construct fat pointers ad-hoc without access to the scope,
                 // so it needs to be prepared in advance.
                 let elem = T::__expand_as_type(scope);
-                let ty = Type::array(elem, length);
+                let ty = ArrayType::get(&mut scope.ctx_mut(), elem, length);
                 let buffer = scope.create_local_mut(ty);
                 let slice = slice::from_raw_parts::<T>(
                     scope,
@@ -83,7 +92,10 @@ impl<E: CubePrimitive> Array<E> {
     /// Obtain the array length
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> comptime_type!(usize) {
-        intrinsic!(|_| self.expand.ty.array_size())
+        intrinsic!(|scope| {
+            let ty = inner_array_ty(scope, self.value(scope));
+            ty.deref(&scope.ctx()).length
+        })
     }
 }
 
@@ -91,18 +103,15 @@ impl<C: CubePrimitive> Assign for ArrayExpand<C> {
     fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
         let value = value.__extract_list(scope);
         let arr = self.__extract_list(scope);
-        assert_eq!(
-            value.ty.array_size(),
-            arr.ty.array_size(),
-            "Can't assign differently sized arrays"
-        );
-        assign::expand_element(scope, value, arr);
+        assign::expand_element(scope, value.into(), arr.into());
     }
 }
 
 impl<C: CubePrimitive> RuntimeAssign for ArrayExpand<C> {
     fn init_mut(&self, scope: &Scope) -> Self::Expand {
-        Array::__expand_new(scope, self.expand.ty.array_size())
+        let ty = inner_array_ty(scope, self.value(scope));
+        let length = ty.deref(&scope.ctx()).length;
+        Array::__expand_new(scope, length)
     }
 }
 
@@ -174,6 +183,19 @@ impl<T: CubePrimitive> ListExpand<T> for ArrayExpand<T> {
 impl<T: CubePrimitive> Vectorized for Array<T> {}
 impl<T: CubePrimitive> VectorizedExpand for ArrayExpand<T> {
     fn vector_size(&self) -> VectorSize {
-        self.expand.ty.vector_size()
+        unexpanded!()
     }
+    fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
+        let ty = inner_array_ty(scope, self.value(scope));
+        ty.deref(&scope.ctx()).vector_size(&scope.ctx())
+    }
+}
+
+pub(crate) fn inner_array_ty(scope: &Scope, value: Value) -> TypePtr<ArrayType> {
+    let ctx = scope.ctx();
+    let ty = value.get_type(&ctx).deref(&ctx);
+    let PtrAggregateType { base_ty, .. } = *ty.downcast_ref().unwrap();
+    let base_ty = base_ty.deref(&ctx);
+    let PointerType { inner, .. } = base_ty.downcast_ref().unwrap();
+    TypePtr::from_ptr(*inner, &ctx).unwrap()
 }

@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use cubecl_ir::{AddressSpace, Id, Type, Value};
+use cubecl_ir::{AddressSpace, Id, Type, ExpandValue};
 use hashbrown::HashMap;
 use petgraph::graph::NodeIndex;
 
@@ -47,7 +47,7 @@ impl Function {
 
     /// Insert a phi node for variable `id` at `block`
     pub fn insert_phi(&mut self, block: NodeIndex, id: Id, item: Type) {
-        let val = Value::new(id, item);
+        let val = ExpandValue::new(id, item);
         let entries = self.predecessors(block).into_iter().map(|pred| PhiEntry {
             block: pred,
             value: val,

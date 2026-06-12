@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use cubecl_ir::{
     AddressSpace, Id, Instruction, Memory, Operation, Operator, StoreOperands, Type, UnaryOperands,
-    Value, ValueKind,
+    ExpandValue, ValueKind,
 };
 use hashbrown::HashMap;
 
@@ -123,7 +123,7 @@ fn find_const_arrays(func: &mut Function) -> Vec<Array> {
         .collect()
 }
 
-fn replace_const_arrays(func: &mut Function, arr_id: Id, vars: &[Value]) {
+fn replace_const_arrays(func: &mut Function, arr_id: Id, vars: &[ExpandValue]) {
     for block in func.node_ids() {
         let ops = func[block].ops.clone();
         for op in ops.borrow_mut().values_mut() {

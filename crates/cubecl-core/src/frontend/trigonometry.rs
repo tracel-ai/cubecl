@@ -1,4 +1,4 @@
-use cubecl_ir::Value;
+use cubecl_ir::pliron::value::Value;
 
 use crate::prelude::*;
 use crate::{self as cubecl};
@@ -25,11 +25,9 @@ pub fn hypot<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector<
 }
 
 #[allow(missing_docs)]
-pub fn expand_hypot(scope: &Scope, lhs: Value, rhs: Value, out: Value) {
-    scope.register_type::<ElemA>(lhs.ty.storage_type());
-    scope.register_size::<SizeA>(lhs.vector_size());
-    let res = hypot::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into());
-    assign::expand_no_check(scope, res, &mut out.into());
+pub fn expand_hypot(scope: &Scope, lhs: Value, rhs: Value) -> Value {
+    scope.register_value_type::<ElemA, SizeA>(lhs);
+    hypot::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
 }
 
 /// Computes the reciprocal of the hypotenuse of a right triangle given the lengths of the other two sides.
@@ -51,9 +49,7 @@ pub fn rhypot<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector
 }
 
 #[allow(missing_docs)]
-pub fn expand_rhypot(scope: &Scope, lhs: Value, rhs: Value, out: Value) {
-    scope.register_type::<ElemA>(lhs.ty.storage_type());
-    scope.register_size::<SizeA>(lhs.vector_size());
-    let res = rhypot::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into());
-    assign::expand_no_check(scope, res, &mut out.into());
+pub fn expand_rhypot(scope: &Scope, lhs: Value, rhs: Value) -> Value {
+    scope.register_value_type::<ElemA, SizeA>(lhs);
+    rhypot::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
 }

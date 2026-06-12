@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 use cubecl_ir::{
-    Builtin, Operation, OperationReflect, Operator, Plane, Synchronization, Value, ValueKind,
+    Builtin, Operation, OperationReflect, Operator, Plane, Synchronization, ExpandValue, ValueKind,
 };
 use hashbrown::{HashMap, HashSet};
 use petgraph::{graph::EdgeIndex, visit::EdgeRef};
@@ -12,7 +12,7 @@ use super::Analysis;
 #[derive(Default, Clone)]
 pub struct Uniformity {
     block_uniformity: HashMap<NodeIndex, bool>,
-    value_uniformity: HashMap<Value, bool>,
+    value_uniformity: HashMap<ExpandValue, bool>,
     visited: HashSet<EdgeIndex>,
 }
 
@@ -188,7 +188,7 @@ impl Uniformity {
         Some(())
     }
 
-    fn mark_uniformity(&mut self, val: Value, new_value: bool) -> Option<()> {
+    fn mark_uniformity(&mut self, val: ExpandValue, new_value: bool) -> Option<()> {
         if let Some(prev_value) = self.value_uniformity.get_mut(&val) {
             // If the value was already set before and has been invalidated, we need to revisit
             // all edges. This only happens for loopback edges, where an uninitialized value
@@ -205,13 +205,13 @@ impl Uniformity {
         Some(())
     }
 
-    fn is_all_uniform(&self, args: Option<Vec<Value>>) -> bool {
+    fn is_all_uniform(&self, args: Option<Vec<ExpandValue>>) -> bool {
         args.map(|it| it.iter().all(|it| self.is_val_uniform(*it)))
             .unwrap_or(false)
     }
 
     /// Whether a value is plane uniform
-    pub fn is_val_uniform(&self, val: Value) -> bool {
+    pub fn is_val_uniform(&self, val: ExpandValue) -> bool {
         match val.kind {
             ValueKind::Constant(_) => true,
             ValueKind::Value { .. } => self.value_uniformity.get(&val).copied().unwrap_or(true),

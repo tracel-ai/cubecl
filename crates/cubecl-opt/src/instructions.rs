@@ -1,6 +1,6 @@
 use cubecl_ir::{
     CoopMma, Instruction, Marker, Metadata, NonSemantic, Operation, OperationReflect, Operator,
-    TensorIndexingOps, TmaOps, Value, ValueKind,
+    TensorIndexingOps, TmaOps, ExpandValue, ValueKind,
 };
 
 use crate::{
@@ -10,8 +10,8 @@ use crate::{
 impl Function {
     pub fn visit_out(
         &mut self,
-        val: &mut Option<Value>,
-        mut visit_write: impl FnMut(&mut Self, &mut Value),
+        val: &mut Option<ExpandValue>,
+        mut visit_write: impl FnMut(&mut Self, &mut ExpandValue),
     ) {
         if let Some(out) = val {
             visit_write(self, out);
@@ -32,7 +32,7 @@ impl Function {
             }
         }
 
-        if let Some(Value {
+        if let Some(ExpandValue {
             kind: ValueKind::Value { id },
             ..
         }) = inst.out
@@ -62,8 +62,8 @@ impl Function {
         &mut self,
         state: &GlobalState,
         inst: &mut Instruction,
-        visit_read: impl FnMut(&mut Self, &mut Value),
-        visit_write: impl FnMut(&mut Self, &mut Value),
+        visit_read: impl FnMut(&mut Self, &mut ExpandValue),
+        visit_write: impl FnMut(&mut Self, &mut ExpandValue),
     ) {
         self.visit_operation(state, &mut inst.operation, visit_read);
         self.visit_out(&mut inst.out, visit_write);
@@ -75,7 +75,7 @@ impl Function {
         &mut self,
         state: &GlobalState,
         op: &mut Operation,
-        mut visit_read: impl FnMut(&mut Self, &mut Value),
+        mut visit_read: impl FnMut(&mut Self, &mut ExpandValue),
     ) {
         match op {
             Operation::Marker(Marker::Free(_)) => {}
@@ -106,7 +106,7 @@ impl Function {
     pub fn visit_control_flow(
         &mut self,
         op: &mut ControlFlow,
-        mut visit_read: impl FnMut(&mut Self, &mut Value),
+        mut visit_read: impl FnMut(&mut Self, &mut ExpandValue),
     ) {
         match op {
             ControlFlow::IfElse { cond, .. } => visit_read(self, cond),
@@ -125,7 +125,7 @@ impl Function {
     fn visit_meta(
         &mut self,
         metadata: &mut Metadata,
-        mut visit_read: impl FnMut(&mut Self, &mut Value),
+        mut visit_read: impl FnMut(&mut Self, &mut ExpandValue),
     ) {
         // Don't count buffer as a read, since it's actually the info buffer that's read.
         match metadata {
@@ -143,7 +143,7 @@ impl Function {
         &mut self,
         state: &GlobalState,
         cmma: &mut CoopMma,
-        mut visit_read: impl FnMut(&mut Self, &mut Value),
+        mut visit_read: impl FnMut(&mut Self, &mut ExpandValue),
     ) {
         match cmma {
             CoopMma::Fill { value } => {
@@ -248,7 +248,7 @@ impl Function {
     fn visit_tma(
         &mut self,
         tma_ops: &mut TmaOps,
-        mut visit_read: impl FnMut(&mut Self, &mut Value),
+        mut visit_read: impl FnMut(&mut Self, &mut ExpandValue),
     ) {
         match tma_ops {
             TmaOps::TmaStore {
@@ -267,7 +267,7 @@ impl Function {
     fn visit_tensor_ops(
         &mut self,
         tensor_ops: &mut TensorIndexingOps,
-        mut visit_read: impl FnMut(&mut Self, &mut Value),
+        mut visit_read: impl FnMut(&mut Self, &mut ExpandValue),
     ) {
         match tensor_ops {
             TensorIndexingOps::CreateLayout {
@@ -302,7 +302,7 @@ impl Function {
     fn visit_nonsemantic(
         &mut self,
         non_semantic: &mut NonSemantic,
-        mut visit_read: impl FnMut(&mut Self, &mut Value),
+        mut visit_read: impl FnMut(&mut Self, &mut ExpandValue),
     ) {
         match non_semantic {
             NonSemantic::Comment { .. }

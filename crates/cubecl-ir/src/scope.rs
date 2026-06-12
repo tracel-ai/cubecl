@@ -1,25 +1,46 @@
-use alloc::collections::BTreeMap;
-use alloc::{borrow::Cow, rc::Rc, string::String, string::ToString, vec::Vec};
+use alloc::{rc::Rc, string::String, vec::Vec};
 use core::{
     any::TypeId,
     cell::{Ref, RefCell, RefMut},
-    fmt::Display,
+    fmt::{Debug, Display},
 };
 use derive_more::{Eq, PartialEq};
 use enumset::EnumSet;
-use hashbrown::{HashMap, HashSet};
-use itertools::Itertools;
+use hashbrown::HashMap;
+use pliron::{
+    builtin::{
+        attributes::TypeAttr,
+        op_interfaces::{OneResultInterface, SingleBlockRegionInterface},
+        ops::{ConstantOp, FuncOp, ModuleOp},
+        type_interfaces::FunctionTypeInterface,
+        types::FunctionType,
+    },
+    context::{Context, Ptr},
+    identifier::Identifier,
+    irbuild::{
+        inserter::{IRInserter, Inserter},
+        listener::DummyListener,
+    },
+    op::Op,
+    printable::Printable,
+    r#type::{TypeObj, Typed, type_cast},
+    value::Value,
+};
+use std::vec;
 
 use crate::{
-    AddressSpace, AggregateExtractOperands, CubeFnSource, DeviceProperties, FastMath, Function,
-    OpaqueType, Operation, OperationReflect, Processor, SourceLoc, StorageType, TargetProperties,
-    TypeHash, arena::DropBump,
+    AddressSpace, DeviceProperties, FastMath, StorageType, TargetProperties, TypeHash,
+    arena::DropBump,
+    attributes::IndexAttr,
+    dialect::{general::AggregateExtractOp, memory::DeclareVariableOp},
+    interfaces::{ScalarType, TypedExt},
+    types::{PointerType, RuntimeArrayType, cuda::TensorMapType},
 };
-
-use super::{Allocator, Id, Instruction, Type, Value, processing::ScopeProcessing};
 
 pub type TypeMap = HashMap<TypeId, StorageType>;
 pub type SizeMap = HashMap<TypeId, usize>;
+
+pub type OpInserter = IRInserter<DummyListener>;
 
 /// The scope is the main [`crate::Operation`] and [`crate::Value`] container that simplify
 /// the process of reading inputs, creating local variables and adding new operations.
@@ -28,32 +49,36 @@ pub type SizeMap = HashMap<TypeId, usize>;
 ///
 /// This type isn't responsible for creating shader bindings and figuring out which
 /// variable can be written to.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
 #[allow(missing_docs)]
 pub struct Scope {
     validation_errors: ValidationErrors,
-    pub depth: u8,
-    pub instructions: RefCell<Vec<Instruction>>,
-    pub return_value: Option<Value>,
-    pub locals: RefCell<Vec<Value>>,
-    pub debug: DebugInfo,
-
-    #[cfg_attr(feature = "serde", serde(skip))]
+    pub inserter: RefCell<OpInserter>,
     pub global_state: GlobalState,
+}
+
+impl Debug for Scope {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Scope")
+            .field("validation_errors", &self.validation_errors)
+            .field("global_state", &self.global_state)
+            .finish()
+    }
 }
 
 pub type GlobalState = Rc<RefCell<GlobalStateInner>>;
 
-#[derive(Debug, PartialEq, Eq, TypeHash, Default)]
-pub struct GlobalStateInner {
-    #[partial_eq(skip)]
-    #[eq(skip)]
-    pub reference_arena: DropBump,
-    pub allocator: Allocator,
+pub fn ident(name: impl Into<String>) -> Identifier {
+    Identifier::try_new(name.into()).unwrap()
+}
 
-    pub global_args: Vec<Value>,
-    pub functions: BTreeMap<Id, Function>,
+pub struct GlobalStateInner {
+    pub reference_arena: DropBump,
+
+    pub ctx: Context,
+    pub module: ModuleOp,
+    pub module_inserter: OpInserter,
+    pub entry_func: FuncOp,
+    pub functions: Vec<FuncOp>,
     pub typemap: TypeMap,
     pub sizemap: SizeMap,
     pub modes: InstructionModes,
@@ -62,18 +87,44 @@ pub struct GlobalStateInner {
 }
 
 impl GlobalStateInner {
-    pub fn clone_deep(&self) -> Self {
-        Self {
-            reference_arena: DropBump::new(),
-            allocator: self.allocator.clone_deep(),
-            global_args: self.global_args.clone(),
-            functions: self.functions.clone(),
-            typemap: self.typemap.clone(),
-            sizemap: self.sizemap.clone(),
-            modes: self.modes,
-            target_properties: self.target_properties.clone(),
-            device_properties: self.device_properties.clone(),
-        }
+    pub fn new() -> GlobalState {
+        let mut context = Context::default();
+
+        let module = ModuleOp::new(&mut context, ident("kernel"));
+        let module_block = module.get_body(&context, 0);
+        let mut module_inserter = OpInserter::new_at_block_end(module_block);
+
+        let entry_func_ty = FunctionType::get(&mut context, vec![], vec![]);
+        let entry_func = FuncOp::new(&mut context, ident("main"), entry_func_ty);
+        module_inserter.append_op(&context, &entry_func);
+
+        let inner = Self {
+            reference_arena: Default::default(),
+            ctx: context,
+            module,
+            module_inserter,
+            entry_func,
+            functions: Default::default(),
+            typemap: Default::default(),
+            sizemap: Default::default(),
+            modes: Default::default(),
+            target_properties: Default::default(),
+            device_properties: Default::default(),
+        };
+        Rc::new(RefCell::new(inner))
+    }
+}
+
+impl Debug for GlobalStateInner {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("GlobalStateInner")
+            .field("reference_arena", &self.reference_arena)
+            .field("typemap", &self.typemap)
+            .field("sizemap", &self.sizemap)
+            .field("modes", &self.modes)
+            .field("target_properties", &self.target_properties)
+            .field("device_properties", &self.device_properties)
+            .finish()
     }
 }
 
@@ -83,30 +134,11 @@ pub struct ValidationErrors {
     errors: Rc<RefCell<Vec<String>>>,
 }
 
-/// Debug related fields, most of these are global
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
-pub struct DebugInfo {
-    pub enabled: bool,
-    pub sources: Rc<RefCell<HashSet<CubeFnSource>>>,
-    pub value_names: Rc<RefCell<HashMap<Value, Cow<'static, str>>>>,
-    pub source_loc: RefCell<Option<SourceLoc>>,
-    pub entry_loc: RefCell<Option<SourceLoc>>,
-}
-
 /// Modes set and reset during expansion
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, TypeHash)]
 pub struct InstructionModes {
     pub fp_math_mode: EnumSet<FastMath>,
-}
-
-impl core::hash::Hash for Scope {
-    fn hash<H: core::hash::Hasher>(&self, ra_expand_state: &mut H) {
-        self.depth.hash(ra_expand_state);
-        self.instructions.borrow().hash(ra_expand_state);
-        self.locals.borrow().hash(ra_expand_state);
-    }
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -133,26 +165,30 @@ impl Scope {
         self.global_state.borrow_mut()
     }
 
+    pub fn ctx(&self) -> Ref<'_, Context> {
+        Ref::map(self.state(), |state| &state.ctx)
+    }
+
+    pub fn ctx_mut(&self) -> RefMut<'_, Context> {
+        RefMut::map(self.state_mut(), |state| &mut state.ctx)
+    }
+
     /// Create a scope that is at the root of a kernel definition.
     ///
     /// A local scope can be created with the [child](Self::child) method.
-    pub fn root(debug_enabled: bool) -> Self {
+    pub fn root(_debug_enabled: bool) -> Self {
+        let global_state = GlobalStateInner::new();
+        let inserter = {
+            let state = global_state.borrow();
+            let entry_block = state.entry_func.get_entry_block(&state.ctx);
+            OpInserter::new_at_block_end(entry_block)
+        };
         Self {
             validation_errors: ValidationErrors {
                 errors: Rc::new(RefCell::new(Vec::new())),
             },
-            depth: 0,
-            instructions: Default::default(),
-            return_value: None,
-            locals: Default::default(),
-            debug: DebugInfo {
-                enabled: debug_enabled,
-                sources: Default::default(),
-                value_names: Default::default(),
-                source_loc: Default::default(),
-                entry_loc: Default::default(),
-            },
-            global_state: Default::default(),
+            inserter: RefCell::new(inserter),
+            global_state: GlobalStateInner::new(),
         }
     }
 
@@ -162,64 +198,56 @@ impl Scope {
         self
     }
 
-    /// Create a new immutable value of type specified by `ty`.
-    pub fn create_value(&self, ty: Type) -> Value {
-        let id = self.new_local_index();
-        Value::new(id, ty)
-    }
-
     /// Create a new mutable local variable of type specified by `value_ty`.
-    pub fn create_local_mut(&self, value_ty: impl Into<Type>) -> Value {
+    pub fn create_local_mut(&self, value_ty: impl Into<Ptr<TypeObj>>) -> Value {
         let value_ty = value_ty.into();
-        let ty = Type::Pointer(value_ty.intern(), AddressSpace::Local);
-        let out = self.create_value(ty);
-        self.register(Instruction::new(
-            Operation::DeclareVariable {
-                value_ty,
-                addr_space: AddressSpace::Local,
-                alignment: value_ty.align(),
-            },
-            out,
-        ));
+        let mut ctx = self.ctx_mut();
+        let align = value_ty.align(&ctx);
+        let op = DeclareVariableOp::new(
+            &mut ctx,
+            TypeAttr::new(value_ty),
+            AddressSpace::Local.into(),
+            align.into(),
+        );
+        let out = op.get_result(&ctx);
+        self.inserter.borrow_mut().append_op(&ctx, &op);
         out
     }
 
     /// Create a shared variable of the given item type.
-    pub fn create_shared(&self, value_ty: impl Into<Type>, alignment: Option<usize>) -> Value {
+    pub fn create_shared(
+        &self,
+        value_ty: impl Into<Ptr<TypeObj>>,
+        alignment: Option<usize>,
+    ) -> Value {
         let value_ty = value_ty.into();
-        let ty = Type::Pointer(value_ty.intern(), AddressSpace::Shared);
-        let out = self.create_value(ty);
-        self.register(Instruction::new(
-            Operation::DeclareVariable {
-                value_ty,
-                addr_space: AddressSpace::Shared,
-                alignment: alignment.unwrap_or_else(|| value_ty.align()),
-            },
-            out,
-        ));
+        let mut ctx = self.ctx_mut();
+        let align = alignment.unwrap_or_else(|| value_ty.align(&ctx));
+        let op = DeclareVariableOp::new(
+            &mut ctx,
+            TypeAttr::new(value_ty),
+            AddressSpace::Local.into(),
+            align.into(),
+        );
+        let out = op.get_result(&ctx);
+        self.inserter.borrow_mut().append_op(&ctx, &op);
         out
     }
 
     /// Create a new function.
-    pub fn create_function(&self, explicit_params: Vec<Value>, scope: Scope) -> Id {
-        let id = self.state().allocator.new_local_index();
-        self.state_mut().functions.insert(
-            id,
-            Function {
-                explicit_params,
-                scope,
-            },
-        );
-        id
+    pub fn create_function(&self, func: FuncOp) -> usize {
+        let mut state = self.state_mut();
+        let state = &mut *state;
+        let func_id = state.functions.len();
+        state.module_inserter.append_op(&state.ctx, &func);
+        state.functions.push(func);
+        func_id
     }
 
     /// Register an [`Instruction`] into the scope.
-    pub fn register<T: Into<Instruction>>(&self, instruction: T) {
-        let mut inst = instruction.into();
-        inst.operation.sanitize_args(self);
-        inst.source_loc = self.debug.source_loc.borrow().clone();
-        inst.modes = self.state().modes;
-        self.instructions.borrow_mut().push(inst)
+    pub fn register(&self, op: &dyn Op) {
+        let ctx = self.ctx();
+        self.inserter.borrow_mut().append_op(&ctx, op);
     }
 
     /// Add a value to the global arena so we can create a kernel-wide reference to it.
@@ -265,15 +293,26 @@ impl Scope {
         state.sizemap.insert(TypeId::of::<T>(), size);
     }
 
+    /// Register the type and size of a scalarizable type
+    pub fn register_value_type<T: 'static, N: 'static>(&self, value: Value) {
+        let ty = value.get_type(&self.ctx());
+        let scalar_ty = ty.scalar_ty(&self.ctx());
+        let vector_size = ty.vector_size(&self.ctx());
+        let storage_ty = {
+            let ctx = self.ctx();
+            let scalar_ty = scalar_ty.deref(&ctx);
+            let scalar = type_cast::<dyn ScalarType>(scalar_ty.as_ref()).unwrap();
+            scalar.storage_type(&ctx)
+        };
+        self.register_type::<T>(storage_ty);
+        self.register_size::<N>(vector_size);
+    }
+
     /// Create an empty child scope.
-    pub fn child(&self) -> Self {
+    pub fn child(&self, inserter: OpInserter) -> Self {
         Self {
             validation_errors: self.validation_errors.clone(),
-            depth: self.depth + 1,
-            instructions: Default::default(),
-            return_value: None,
-            locals: Default::default(),
-            debug: self.debug.clone(),
+            inserter: RefCell::new(inserter),
             global_state: self.global_state.clone(),
         }
     }
@@ -288,126 +327,72 @@ impl Scope {
         self.validation_errors.errors.replace_with(|_| Vec::new())
     }
 
-    /// Returns the operations to be declared and executed.
-    ///
-    /// Notes:
-    ///
-    /// New operations can be created within the same scope without having name
-    /// conflicts.
-    pub fn process<'a>(
-        &self,
-        processors: impl IntoIterator<Item = &'a dyn Processor>,
-    ) -> ScopeProcessing {
-        self.global_state.borrow_mut().reference_arena.reset();
+    /// Obtain the index-th buffer
+    pub fn global(&self, id: usize, value_ty: Ptr<TypeObj>) -> Value {
+        let mut state = self.state_mut();
+        let state = &mut *state;
 
-        let mut instructions = Vec::new();
+        let ty_arr = RuntimeArrayType::get(&mut state.ctx, value_ty);
+        let ty = PointerType::get(&mut state.ctx, ty_arr.into(), AddressSpace::Global(id));
 
-        for inst in self.instructions.borrow_mut().drain(..) {
-            instructions.push(inst);
-        }
-
-        let mut processing = ScopeProcessing {
-            instructions,
-            global_state: self.global_state.clone(),
+        let mut arg_types = {
+            let current_func_ty = state.entry_func.get_type(&state.ctx).deref(&state.ctx);
+            let current_func_ty = current_func_ty.downcast_ref::<FunctionType>().unwrap();
+            current_func_ty.arg_types()
         };
 
-        for p in processors {
-            processing = p.transform(processing);
-        }
+        arg_types.insert(id, ty.into());
+        let new_func_ty = FunctionType::get(&mut state.ctx, arg_types, vec![]);
+        state
+            .entry_func
+            .set_attr_func_type(&state.ctx, TypeAttr::new(new_func_ty.into()));
 
-        processing
-    }
-
-    pub fn new_local_index(&self) -> u32 {
-        self.state().allocator.new_local_index()
-    }
-
-    /// Obtain the index-th buffer
-    pub fn global(&self, id: Id, value_ty: Type) -> Value {
-        let ty_arr = Type::DynamicArray(value_ty.intern());
-        let ty = Type::Pointer(ty_arr.intern(), AddressSpace::Global(id));
-        let value = self.create_value(ty);
-        self.state_mut().global_args.insert(id as usize, value);
-        value
+        let entry_block = state
+            .entry_func
+            .get_entry_block(&state.ctx)
+            .deref(&state.ctx);
+        entry_block.get_argument(id)
     }
 
     /// Obtain the index-th tensor map
-    pub fn tensor_map(&self, id: Id) -> Value {
-        let ty = Type::Opaque(OpaqueType::TensorMap);
-        let value = self.create_value(ty);
-        self.state_mut().global_args.insert(id as usize, value);
-        value
+    pub fn tensor_map(&self, id: usize) -> Value {
+        let mut state = self.state_mut();
+        let ty = TensorMapType::get(&state.ctx);
+        let mut arg_types = {
+            let current_func_ty = state.entry_func.get_type(&state.ctx).deref(&state.ctx);
+            let current_func_ty = current_func_ty.downcast_ref::<FunctionType>().unwrap();
+            current_func_ty.arg_types()
+        };
+
+        arg_types.insert(id, ty.into());
+        let new_func_ty = FunctionType::get(&mut state.ctx, arg_types, vec![]);
+        state
+            .entry_func
+            .set_attr_func_type(&state.ctx, TypeAttr::new(new_func_ty.into()));
+        let entry_block = state
+            .entry_func
+            .get_entry_block(&state.ctx)
+            .deref(&state.ctx);
+        entry_block.get_argument(id)
     }
 
-    pub fn update_source(&self, source: CubeFnSource) {
-        if self.debug.enabled {
-            self.debug.sources.borrow_mut().insert(source.clone());
-            *self.debug.source_loc.borrow_mut() = Some(SourceLoc {
-                line: source.line,
-                column: source.column,
-                source,
-            });
-            if self.debug.entry_loc.borrow().is_none() {
-                *self.debug.entry_loc.borrow_mut() = self.debug.source_loc.borrow().clone();
-            }
-        }
+    pub fn extract_field(&self, aggregate: Value, field: usize) -> Value {
+        let mut ctx = self.ctx_mut();
+        let op = AggregateExtractOp::new(&mut ctx, aggregate, field.into());
+        self.register(&op);
+        op.get_result(&ctx)
     }
 
-    pub fn register_all(&self, instructions: impl IntoIterator<Item = Instruction>) {
-        self.instructions.borrow_mut().extend(instructions);
-    }
-
-    pub fn take_instructions(&self) -> Vec<Instruction> {
-        core::mem::take(&mut *self.instructions.borrow_mut())
-    }
-
-    pub fn update_span(&self, line: u32, col: u32) {
-        if let Some(loc) = self.debug.source_loc.borrow_mut().as_mut() {
-            loc.line = line;
-            loc.column = col;
-        }
-    }
-
-    pub fn update_value_name(&self, value: Value, name: impl Into<Cow<'static, str>>) {
-        if self.debug.enabled {
-            self.debug
-                .value_names
-                .borrow_mut()
-                .insert(value, name.into());
-        }
-    }
-
-    pub fn extract_field(&self, aggregate: Value, ty: Type, field: usize) -> Value {
-        if !matches!(aggregate.ty, Type::Aggregate(..)) {
-            panic!(
-                "Tried extracting field from non-aggregate {aggregate}.\nCurrent state:\n{}",
-                self.instructions.borrow().iter().join("\n")
-            )
-        }
-        let out = self.create_value(ty);
-        self.register(Instruction::new(
-            Operation::ExtractAggregateField(AggregateExtractOperands { aggregate, field }),
-            out,
-        ));
-        out
+    pub fn const_usize(&self, value: usize) -> Value {
+        let op = ConstantOp::new(&mut self.ctx_mut(), IndexAttr::new(value).into());
+        self.register(&op);
+        op.get_result(&self.ctx())
     }
 }
 
 impl Display for Scope {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        writeln!(f, "{{")?;
-        for instruction in self.instructions.borrow().iter() {
-            let instruction_str = instruction.to_string();
-            if !instruction_str.is_empty() {
-                writeln!(
-                    f,
-                    "{}{}",
-                    "    ".repeat(self.depth as usize + 1),
-                    instruction_str,
-                )?;
-            }
-        }
-        write!(f, "{}}}", "    ".repeat(self.depth as usize))?;
-        Ok(())
+        let state = self.state();
+        write!(f, "{}", state.module.disp(&state.ctx))
     }
 }

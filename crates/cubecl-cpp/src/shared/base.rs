@@ -104,7 +104,7 @@ pub struct CppCompiler<D: Dialect> {
     buffer_vis: Vec<Visibility>,
     barriers: Vec<BarrierOps<D>>,
     compilation_options: CompilationOptions,
-    ext_meta_positions: HashMap<ir::Value, u32>,
+    ext_meta_positions: HashMap<ir::ExpandValue, u32>,
     cluster_dim: CubeDim,
     extensions: Vec<D::Extension>,
     flags: Flags<D>,
@@ -258,7 +258,7 @@ impl<D: Dialect> CppCompiler<D> {
             .allocations
             .values()
             .map(|alloc| SharedMemory {
-                ptr: self.compile_value(ir::Value::new(alloc.id, alloc.smem.root_ptr.ty)),
+                ptr: self.compile_value(ir::ExpandValue::new(alloc.id, alloc.smem.root_ptr.ty)),
                 value_ty: self.compile_type(alloc.smem.value_ty),
                 align: alloc.smem.alignment,
                 offset: alloc.offset,
@@ -344,7 +344,7 @@ impl<D: Dialect> CppCompiler<D> {
         cubecl_core::Metadata::new(num_meta as u32, num_ext)
     }
 
-    pub(crate) fn ext_meta_position(&self, val: &ir::Value) -> u32 {
+    pub(crate) fn ext_meta_position(&self, val: &ir::ExpandValue) -> u32 {
         self.ext_meta_positions[val]
     }
 
@@ -823,7 +823,7 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_cmma(&mut self, cmma: ir::CoopMma, out: Option<ir::Value>) -> Instruction<D> {
+    fn compile_cmma(&mut self, cmma: ir::CoopMma, out: Option<ir::ExpandValue>) -> Instruction<D> {
         self.flags.inst_wmma = true;
 
         let inst = match cmma {
@@ -944,7 +944,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_metadata(
         &mut self,
         metadata: ir::Metadata,
-        out: Option<ir::Value>,
+        out: Option<ir::ExpandValue>,
     ) -> Instruction<D> {
         let out = out.unwrap();
         match metadata {
@@ -1021,7 +1021,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_atomic(
         &mut self,
         value: ir::AtomicOp,
-        out: Option<ir::Value>,
+        out: Option<ir::ExpandValue>,
         instructions: &mut Vec<Instruction<D>>,
     ) {
         match value {
@@ -1073,7 +1073,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_arithmetic(
         &mut self,
         value: ir::Arithmetic,
-        out: Option<ir::Value>,
+        out: Option<ir::ExpandValue>,
         modes: InstructionModes,
         instructions: &mut Vec<Instruction<D>>,
     ) {
@@ -1409,7 +1409,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_comparison(
         &mut self,
         value: ir::Comparison,
-        out: Option<ir::Value>,
+        out: Option<ir::ExpandValue>,
         instructions: &mut Vec<Instruction<D>>,
     ) {
         let out = out.unwrap();
@@ -1444,7 +1444,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_bitwise(
         &mut self,
         value: ir::Bitwise,
-        out: Option<ir::Value>,
+        out: Option<ir::ExpandValue>,
         instructions: &mut Vec<Instruction<D>>,
     ) {
         let out = out.unwrap();
@@ -1490,7 +1490,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_memory(
         &mut self,
         value: ir::Memory,
-        out: Option<ir::Value>,
+        out: Option<ir::ExpandValue>,
         instructions: &mut Vec<Instruction<D>>,
     ) {
         match value {
@@ -1516,7 +1516,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_operator(
         &mut self,
         value: ir::Operator,
-        out: Option<ir::Value>,
+        out: Option<ir::ExpandValue>,
         instructions: &mut Vec<Instruction<D>>,
     ) {
         let out = out.unwrap();
@@ -1755,7 +1755,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_binary(
         &mut self,
         value: ir::BinaryOperands,
-        out: ir::Value,
+        out: ir::ExpandValue,
     ) -> BinaryInstruction<D> {
         BinaryInstruction {
             lhs: self.compile_value(value.lhs),
@@ -1767,7 +1767,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_atomic_binary(
         &mut self,
         value: ir::AtomicBinaryOperands,
-        out: ir::Value,
+        out: ir::ExpandValue,
     ) -> BinaryInstruction<D> {
         BinaryInstruction {
             lhs: self.compile_value(value.ptr),
@@ -1776,7 +1776,7 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_index(&mut self, value: ir::IndexOperands, out: ir::Value) -> IndexInstruction<D> {
+    fn compile_index(&mut self, value: ir::IndexOperands, out: ir::ExpandValue) -> IndexInstruction<D> {
         IndexInstruction {
             list: self.compile_value(value.list),
             index: self.compile_value(value.index),
@@ -1784,14 +1784,14 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_unary(&mut self, value: ir::UnaryOperands, out: ir::Value) -> UnaryInstruction<D> {
+    fn compile_unary(&mut self, value: ir::UnaryOperands, out: ir::ExpandValue) -> UnaryInstruction<D> {
         UnaryInstruction {
             input: self.compile_value(value.input),
             out: self.compile_value(out),
         }
     }
 
-    fn compile_value(&mut self, value: ir::Value) -> Value<D> {
+    fn compile_value(&mut self, value: ir::ExpandValue) -> Value<D> {
         let item = value.ty;
         match value.kind {
             ir::ValueKind::Value { id } => Value::Value {

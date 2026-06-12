@@ -4,7 +4,7 @@ use tracel_llvm::mlir_rs::dialect::arith::{self, CmpfPredicate, CmpiPredicate};
 use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
-    pub fn visit_comparison(&mut self, comparison: &Comparison, out: cube::Value) {
+    pub fn visit_comparison(&mut self, comparison: &Comparison, out: cube::ExpandValue) {
         let bin_op = match comparison {
             Comparison::Lower(bin_op) => bin_op,
             Comparison::LowerEqual(bin_op) => bin_op,

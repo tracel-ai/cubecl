@@ -5,7 +5,7 @@ use crate::{
     features::{AtomicUsage, Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;
-use enumset::EnumSet;
+use enumset::{EnumSet, EnumSetType};
 
 /// Properties of the device related to the accelerator hardware.
 ///
@@ -158,5 +158,37 @@ impl DeviceProperties {
         self.features.hash(&mut hasher);
         self.hardware.hash(&mut hasher);
         hasher.finish()
+    }
+}
+
+/// Unchecked optimizations for float operations. May cause precision differences, or undefined
+/// behaviour if the relevant conditions are not followed.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Hash, TypeHash, EnumSetType)]
+pub enum FastMath {
+    /// Assume values are never `NaN`. If they are, the result is considered undefined behaviour.
+    NotNaN,
+    /// Assume values are never `Inf`/`-Inf`. If they are, the result is considered undefined
+    /// behaviour.
+    NotInf,
+    /// Ignore sign on zero values.
+    UnsignedZero,
+    /// Allow swapping float division with a reciprocal, even if that swap would change precision.
+    AllowReciprocal,
+    /// Allow contracting float operations into fewer operations, even if the precision could
+    /// change.
+    AllowContraction,
+    /// Allow reassociation for float operations, even if the precision could change.
+    AllowReassociation,
+    /// Allow all mathematical transformations for float operations, including contraction and
+    /// reassociation, even if the precision could change.
+    AllowTransform,
+    /// Allow using lower precision intrinsics
+    ReducedPrecision,
+}
+
+impl FastMath {
+    pub const fn all() -> EnumSet<FastMath> {
+        EnumSet::all()
     }
 }
