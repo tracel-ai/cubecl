@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use cubecl_ir::{AddressType, Id};
+use cubecl_ir::AddressType;
 use cubecl_runtime::{runtime::Runtime, server::CopyDescriptor};
 use cubecl_zspace::{Shape, Strides};
 
@@ -93,16 +93,17 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
         arg: Self::RuntimeArg<R>,
         launcher: &mut KernelLauncher<R>,
     ) -> Self::CompilationArg {
-        let ty = launcher.with_scope(|scope| C::__expand_as_type(scope));
-        let len = arg.size() / ty.vector_size();
+        let elem_size = launcher.with_scope(|scope| C::__expand_size(scope));
+        let vector_size = launcher.with_scope(|scope| C::__expand_vector_size(scope));
+        let len = arg.size() / vector_size;
         let meta_arg = TensorMetaLaunch::new(len, arg.shape().len());
         let buffer = match &arg {
             TensorArg::Handle { .. } => BufferCompilationArg { inplace: None },
             TensorArg::Alias { input_pos, .. } => BufferCompilationArg {
-                inplace: Some(*input_pos as Id),
+                inplace: Some(*input_pos),
             },
         };
-        launcher.register_tensor(arg, ty);
+        launcher.register_tensor(arg, elem_size);
         let meta = TensorMeta::register(meta_arg, launcher);
         TensorCompilationArg { meta, buffer }
     }

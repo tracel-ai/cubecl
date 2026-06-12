@@ -8,61 +8,45 @@ extern crate alloc;
 pub mod features;
 
 mod address;
-mod allocator;
-mod arithmetic;
-mod atomic;
-mod barrier;
-mod bitwise;
-mod branch;
-mod cmma;
-mod comparison;
-mod marker;
-mod memory;
-mod metadata;
-mod non_semantic;
-mod operation;
-mod operator;
-mod plane;
-mod processing;
 mod properties;
-mod reflect;
 mod runtime_properties;
 mod scope;
-mod synchronization;
-mod tensor_indexing;
-mod tma;
 mod r#type;
 mod type_hash;
-mod variable;
+mod value;
 
 pub mod arena;
+pub mod attributes;
+pub mod dialect;
+pub mod interfaces;
+pub mod types;
 
 pub use address::*;
-pub use allocator::*;
-pub use arithmetic::*;
-pub use atomic::*;
-pub use barrier::*;
-pub use bitwise::*;
-pub use branch::*;
-pub use cmma::*;
-pub use comparison::*;
-pub use marker::*;
-pub use memory::*;
-pub use metadata::*;
-pub use non_semantic::*;
-pub use operation::*;
-pub use operator::*;
-pub use plane::*;
-pub use processing::*;
 pub use properties::*;
-pub use reflect::*;
 pub use runtime_properties::*;
 pub use scope::*;
-pub use synchronization::*;
-pub use tensor_indexing::*;
-pub use tma::*;
 pub use r#type::*;
-pub use variable::*;
+pub use value::*;
 
-pub(crate) use cubecl_macros_internal::{OperationArgs, OperationCode, OperationReflect, TypeHash};
+pub(crate) use cubecl_macros_internal::TypeHash;
 pub use type_hash::TypeHash;
+
+pub mod pliron {
+    pub use pliron::derive::*;
+    pub use pliron::*;
+    pub mod prelude {
+        pub use alloc::{vec, vec::Vec};
+        pub use pliron::derive::derive_op_interface_impl as op_interfaces;
+        pub use pliron::{
+            builtin::op_interfaces::*,
+            common_traits::Verify,
+            context::{Context, Ptr},
+            derive::pliron_op,
+            op::Op,
+            operation::Operation,
+            result::Result,
+            r#type::{Type, TypeObj, Typed},
+            value::Value,
+        };
+    }
+}

@@ -5,9 +5,26 @@ use generate::{
 use proc_macro::TokenStream;
 use type_hash::type_hash_impl;
 
+use crate::{
+    generate::cube_op::generate_cube_op,
+    parse::{
+        cube_op::{CubeOp, CubeOpArgs},
+        from_meta_tokens,
+    },
+};
+
 mod generate;
 mod parse;
 mod type_hash;
+
+macro_rules! macro_try {
+    ($op: expr) => {
+        match $op {
+            Ok(res) => res,
+            Err(e) => return e.into_compile_error().into(),
+        }
+    };
+}
 
 /// *Internal macro*
 ///
@@ -17,10 +34,7 @@ mod type_hash;
 #[proc_macro_derive(OperationArgs, attributes(args))]
 pub fn derive_operation_args(input: TokenStream) -> TokenStream {
     let input = syn::parse(input).unwrap();
-    match generate_op_args(input) {
-        Ok(tokens) => tokens.into(),
-        Err(e) => e.into_compile_error().into(),
-    }
+    macro_try!(generate_op_args(input)).into()
 }
 
 /// Generates reflection info for an operation. Generates an opcode enum and an implementation of
@@ -43,10 +57,7 @@ pub fn derive_operation_args(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(OperationReflect, attributes(operation, args))]
 pub fn derive_operation(input: TokenStream) -> TokenStream {
     let input = syn::parse(input).unwrap();
-    match generate_operation(input) {
-        Ok(tokens) => tokens.into(),
-        Err(e) => e.into_compile_error().into(),
-    }
+    macro_try!(generate_operation(input)).into()
 }
 
 /// Generates an opcode enum for an operation, without implementation `OperationReflect`. Allows for
@@ -61,14 +72,18 @@ pub fn derive_operation(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(OperationCode, attributes(operation))]
 pub fn derive_opcode(input: TokenStream) -> TokenStream {
     let input = syn::parse(input).unwrap();
-    match generate_opcode(input) {
-        Ok(tokens) => tokens.into(),
-        Err(e) => e.into_compile_error().into(),
-    }
+    macro_try!(generate_opcode(input)).into()
 }
 
 #[proc_macro_derive(TypeHash, attributes(type_hash))]
 pub fn derive_type_hash(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = syn::parse(input).unwrap();
     type_hash_impl(input).into()
+}
+
+#[proc_macro_attribute]
+pub fn cube_op(args: TokenStream, input: TokenStream) -> TokenStream {
+    let args = macro_try!(from_meta_tokens(args.into()));
+    let input = macro_try!(syn::parse(input));
+    macro_try!(generate_cube_op(input, args)).into()
 }

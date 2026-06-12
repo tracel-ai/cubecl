@@ -12,8 +12,10 @@ use cubecl::{
 
 use alloc::{vec, vec::Vec};
 use cubecl_common::{e2m1, e2m1x2, ue8m0};
-use cubecl_ir::features::{MmaConfig, ScaledMmaConfig};
-use cubecl_ir::{MatrixIdent, MatrixLayout};
+use cubecl_ir::{
+    features::{MmaConfig, ScaledMmaConfig},
+    types::{MatrixIdent, MatrixLayout},
+};
 use half::{bf16, f16};
 use num_traits::NumCast;
 
@@ -1173,7 +1175,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     let def = cmma::MmaDefinition::<AB, AB, CD>::new(size_m, size_n, size_k);
     let lane_id = UNIT_POS_PLANE as usize;
 
-    let elem_size = AB::type_size();
+    let elem_size = AB::size();
     let width = comptime![16 / elem_size];
 
     let mut stage_a = Shared::new_aligned_slice(size_m * size_k, 16usize);

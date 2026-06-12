@@ -1,9 +1,14 @@
 use core::{marker::PhantomData, ops::Neg};
 
 use crate::frontend::{CubePrimitive, CubeType, NativeAssign, NativeExpand};
-use crate::ir::{BinaryOperands, Instruction, Scope, Type};
+use crate::ir::Scope;
 use crate::{self as cubecl, prelude::*};
-use cubecl_ir::{Comparison, ConstantValue, Value};
+use cubecl_ir::{
+    ConstantValue, ExpandValue,
+    dialect::cmp::*,
+    pliron::{builtin::op_interfaces::OneResultInterface, context::Ptr, r#type::TypeObj},
+    types::VectorType,
+};
 use cubecl_macros::{cube, intrinsic};
 
 /// A contiguous list of elements that supports auto-vectorized operations.
@@ -67,7 +72,11 @@ mod new {
 }
 
 mod components {
-    use cubecl_ir::{Operator, VectorInsertOperands};
+    use cubecl_ir::{
+        dialect::vector::{VectorExtractOp, VectorInsertOp},
+        interfaces::TypedExt,
+        pliron::builtin::op_interfaces::OneResultInterface,
+    };
 
     use super::*;
 
@@ -76,18 +85,18 @@ mod components {
         #[allow(unused)]
         pub fn extract(self, index: usize) -> P {
             intrinsic!(|scope| {
-                if self.expand.vector_size() > 1 {
-                    let out = scope.create_value(P::__expand_as_type(scope));
-                    scope.register(Instruction::new(
-                        Operator::ExtractComponent(BinaryOperands {
-                            lhs: self.expand,
-                            rhs: index.expand,
-                        }),
-                        out,
-                    ));
-                    out.into()
+                let this = self.read_value(scope);
+                if this.vector_size(&scope.ctx()) > 1 {
+                    let const_val = index.expand.as_const();
+                    let index = index.read_value(scope);
+                    let op = VectorExtractOp::new(&mut scope.ctx_mut(), this, index);
+                    if let Some(const_val) = const_val {
+                        op.set_attr_const_index(&scope.ctx(), const_val.as_usize().into());
+                    }
+                    scope.register(&op);
+                    op.get_result(&scope.ctx()).into()
                 } else {
-                    read_value(scope, self.expand).into()
+                    this.into()
                 }
             })
         }
@@ -95,19 +104,20 @@ mod components {
         #[allow(unused)]
         pub fn insert(&mut self, index: usize, value: P) {
             intrinsic!(|scope| {
-                if self.expand.vector_size() > 1 {
-                    let new_value = scope.create_value(self.expand.ty.unwrap_ptr());
-                    scope.register(Instruction::new(
-                        Operator::InsertComponent(VectorInsertOperands {
-                            vector: self.expand,
-                            index: index.expand,
-                            value: value.expand,
-                        }),
-                        new_value,
-                    ));
-                    assign::expand_element(scope, new_value, self.expand);
+                let this = self.read_value(scope);
+                let value = value.read_value(scope);
+                if this.vector_size(&scope.ctx()) > 1 {
+                    let const_val = index.expand.as_const();
+                    let index = index.read_value(scope);
+                    let op = VectorInsertOp::new(&mut scope.ctx_mut(), this, index, value);
+                    if let Some(const_val) = const_val {
+                        op.set_attr_const_index(&scope.ctx(), const_val.as_usize().into());
+                    }
+                    scope.register(&op);
+                    let new_value = op.get_result(&scope.ctx());
+                    assign::expand_element(scope, new_value.into(), self.expand);
                 } else {
-                    assign::expand_element(scope, value.expand, self.expand);
+                    assign::expand_element(scope, value.into(), self.expand);
                 }
             })
         }
@@ -191,7 +201,9 @@ mod empty {
 
 /// Module that contains the implementation details of the size function.
 mod size {
-    use cubecl_ir::VectorSize;
+    use cubecl_ir::{VectorSize, interfaces::TypedExt};
+
+    use crate::unexpanded;
 
     use super::*;
 
@@ -219,12 +231,12 @@ mod size {
     impl<P: Scalar, N: Size> NativeExpand<Vector<P, N>> {
         /// Comptime version of [size](Vector::size).
         pub fn size(&self) -> VectorSize {
-            self.expand.ty.vector_size()
+            unexpanded!()
         }
 
         /// Expand method of [size](Vector::size).
-        pub fn __expand_size_method(&self, _scope: &Scope) -> VectorSize {
-            self.size()
+        pub fn __expand_size_method(&self, scope: &Scope) -> VectorSize {
+            self.value(scope).vector_size(&scope.ctx())
         }
     }
 }
@@ -249,18 +261,14 @@ macro_rules! impl_vector_comparison {
                         intrinsic!(|scope| {
                             let this = self.__expand_deref_method(scope);
                             let other = other.__expand_deref_method(scope);
-                            let size = this.expand.ty.vector_size();
-                            let lhs = this.expand;
-                            let rhs = other.expand.into();
+                            let lhs = this.read_value(scope);
+                            let rhs = other.read_value(scope);
 
-                            let output = scope.create_value(Vector::<bool, N>::__expand_as_type(scope));
+                            let [lhs, rhs] = normalize_same_vectorization(scope, [lhs, rhs]);
 
-                            scope.register(Instruction::new(
-                                Comparison::$operator(BinaryOperands { lhs, rhs }),
-                                output.clone().into(),
-                            ));
-
-                            output.into()
+                            let op = $operator::new(&mut scope.ctx_mut(), lhs, rhs);
+                            scope.register(&op);
+                            op.get_result(&scope.ctx()).into()
                         })
                     }
                 }
@@ -270,15 +278,19 @@ macro_rules! impl_vector_comparison {
     };
 }
 
-impl_vector_comparison!(equal, Equal, "equal to");
-impl_vector_comparison!(not_equal, NotEqual, "not equal to");
-impl_vector_comparison!(less_than, Lower, "less than");
-impl_vector_comparison!(greater_than, Greater, "greater than");
-impl_vector_comparison!(less_equal, LowerEqual, "less than or equal to");
-impl_vector_comparison!(greater_equal, GreaterEqual, "greater than or equal to");
+impl_vector_comparison!(equal, EqualOp, "equal to");
+impl_vector_comparison!(not_equal, NotEqualOp, "not equal to");
+impl_vector_comparison!(less_than, LessThanOp, "less than");
+impl_vector_comparison!(greater_than, GreaterThanOp, "greater than");
+impl_vector_comparison!(less_equal, LessThanOrEqualOp, "less than or equal to");
+impl_vector_comparison!(
+    greater_equal,
+    GreaterThanOrEqualOp,
+    "greater than or equal to"
+);
 
 mod bool_and {
-    use cubecl_ir::Operator;
+    use cubecl_ir::dialect::general::BoolAndOp;
 
     use crate::prelude::binary_expand;
 
@@ -289,14 +301,14 @@ mod bool_and {
         /// Return a new vector with the element-wise and of the vectors
         pub fn vec_and(self, other: Self) -> Vector<bool, N> {
             intrinsic!(
-                |scope| binary_expand(scope, self.expand, other.expand, Operator::And).into()
+                |scope| binary_expand(scope, self.expand, other.expand, BoolAndOp::new).into()
             )
         }
     }
 }
 
 mod bool_or {
-    use cubecl_ir::Operator;
+    use cubecl_ir::dialect::general::BoolOrOp;
 
     use crate::prelude::binary_expand;
 
@@ -306,7 +318,9 @@ mod bool_or {
     impl<N: Size> Vector<bool, N> {
         /// Return a new vector with the element-wise and of the vectors
         pub fn or(self, other: Self) -> Vector<bool, N> {
-            intrinsic!(|scope| binary_expand(scope, self.expand, other.expand, Operator::Or).into())
+            intrinsic!(
+                |scope| binary_expand(scope, self.expand, other.expand, BoolOrOp::new).into()
+            )
         }
     }
 }
@@ -318,7 +332,7 @@ impl<P: Scalar, N: Size> CubeType for Vector<P, N> {
 impl<P: Scalar, N: Size> CubeDebug for Vector<P, N> {}
 
 impl<P: Scalar, N: Size> NativeAssign for Vector<P, N> {
-    fn elem_init_mut(scope: &Scope, elem: Value) -> Value {
+    fn elem_init_mut(scope: &Scope, elem: ExpandValue) -> ExpandValue {
         P::elem_init_mut(scope, elem)
     }
 }
@@ -328,15 +342,10 @@ impl<P: Scalar, N: Size> CubePrimitive for Vector<P, N> {
     type Size = N;
     type WithScalar<S: Scalar> = Vector<S, N>;
 
-    fn __expand_as_type(scope: &Scope) -> Type {
-        Type::with_vector_size(P::__expand_as_type(scope), N::__expand_value(scope))
-    }
-
-    fn as_type_native() -> Option<Type> {
-        P::as_type_native().and_then(|ty| {
-            let vector_size = N::try_value_const()?;
-            Some(Type::with_vector_size(ty, vector_size))
-        })
+    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+        let inner = P::__expand_as_type(scope);
+        let vectorization = N::__expand_value(scope);
+        VectorType::get(&mut scope.ctx_mut(), inner, vectorization).into()
     }
 
     fn from_const_value(value: ConstantValue) -> Self {

@@ -1,5 +1,9 @@
 use cubecl_common::{e2m3, e3m2};
-use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, Type};
+use cubecl_ir::{
+    ConstantValue, FloatKind, Scope,
+    pliron::{context::Ptr, r#type::TypeObj},
+    types::scalar::{ FloatType},
+};
 
 use crate::prelude::*;
 
@@ -8,15 +12,18 @@ impl CubeType for e2m3 {
 }
 
 impl CubeDebug for e2m3 {}
-impl Scalar for e2m3 {}
+impl Scalar for e2m3 {
+    fn storage_type_native() -> StorageType {
+        FloatKind::E2M3.into()
+    }
+}
 impl CubePrimitive for e2m3 {
     type Scalar = Self;
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    /// Return the element type to use on GPU
-    fn as_type_native() -> Option<Type> {
-        Some(ElemType::Float(FloatKind::E2M3).into())
+    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+        FloatType::get(&mut scope.ctx_mut(), FloatKind::E2M3).into()
     }
 
     fn from_const_value(_value: ConstantValue) -> Self {
@@ -43,15 +50,18 @@ impl CubeType for e3m2 {
 }
 
 impl CubeDebug for e3m2 {}
-impl Scalar for e3m2 {}
+impl Scalar for e3m2 {
+    fn storage_type_native() -> StorageType {
+        FloatKind::E3M2.into()
+    }
+}
 impl CubePrimitive for e3m2 {
     type Scalar = Self;
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    /// Return the element type to use on GPU
-    fn as_type_native() -> Option<Type> {
-        Some(ElemType::Float(FloatKind::E3M2).into())
+    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+        FloatType::get(&mut scope.ctx_mut(), FloatKind::E3M2).into()
     }
 
     fn from_const_value(_value: ConstantValue) -> Self {

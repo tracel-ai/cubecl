@@ -89,7 +89,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_cmp(
         &mut self,
         op: Comparison,
-        out: Option<core::Value>,
+        out: Option<core::ExpandValue>,
         modes: InstructionModes,
         uniform: bool,
     ) {
@@ -222,7 +222,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn compile_memory(&mut self, mem: Memory, out: Option<core::Value>) {
+    pub fn compile_memory(&mut self, mem: Memory, out: Option<core::ExpandValue>) {
         match mem {
             Memory::Index(op) => {
                 let list = self.compile_value(op.list);
@@ -285,7 +285,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn compile_operator(&mut self, op: Operator, out: Option<core::Value>, uniform: bool) {
+    pub fn compile_operator(&mut self, op: Operator, out: Option<core::ExpandValue>, uniform: bool) {
         let out = out.unwrap();
         match op {
             Operator::Cast(op) => {
@@ -405,7 +405,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_unary_op_cast(
         &mut self,
         op: UnaryOperands,
-        out: core::Value,
+        out: core::ExpandValue,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
     ) {
@@ -426,7 +426,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_unary_op(
         &mut self,
         op: UnaryOperands,
-        out: core::Value,
+        out: core::ExpandValue,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
     ) {
@@ -447,7 +447,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_unary_op_bool(
         &mut self,
         op: UnaryOperands,
-        out: core::Value,
+        out: core::ExpandValue,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
     ) {
@@ -468,7 +468,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_binary_op(
         &mut self,
         op: BinaryOperands,
-        out: core::Value,
+        out: core::ExpandValue,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
     ) {
@@ -491,7 +491,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_binary_op_no_cast(
         &mut self,
         op: BinaryOperands,
-        out: core::Value,
+        out: core::ExpandValue,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
     ) {
@@ -514,7 +514,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_binary_op_bool(
         &mut self,
         op: BinaryOperands,
-        out: core::Value,
+        out: core::ExpandValue,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
     ) {
@@ -537,10 +537,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_select(
         &mut self,
-        cond: core::Value,
-        then: core::Value,
-        or_else: core::Value,
-        out: core::Value,
+        cond: core::ExpandValue,
+        then: core::ExpandValue,
+        or_else: core::ExpandValue,
+        out: core::ExpandValue,
         uniform: bool,
     ) {
         let cond = self.compile_value(cond);

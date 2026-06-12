@@ -1,4 +1,9 @@
-use crate::{MatrixIdent, MatrixLayout, MatrixType, TypeHash, VectorSize};
+use pliron::r#type::TypePtr;
+
+use crate::{
+    TypeHash, VectorSize,
+    types::matrix::{MatrixIdent, MatrixLayout, MatrixType},
+};
 
 /// Hacky solution for getting comptime properties into the scope.
 /// Allows querying certain target-specific properties at compile time, rather than at runtime.
@@ -35,17 +40,17 @@ pub struct MmaProperties {
 
 #[derive(Clone)]
 pub struct ContiguousElements {
-    inner: alloc::rc::Rc<dyn Fn(MatrixIdent, MatrixType) -> VectorSize>,
+    inner: alloc::rc::Rc<dyn Fn(MatrixIdent, TypePtr<MatrixType>) -> VectorSize>,
 }
 
 impl ContiguousElements {
-    pub fn new(func: impl Fn(MatrixIdent, MatrixType) -> VectorSize + 'static) -> Self {
+    pub fn new(func: impl Fn(MatrixIdent, TypePtr<MatrixType>) -> VectorSize + 'static) -> Self {
         Self {
             inner: alloc::rc::Rc::new(func),
         }
     }
 
-    pub fn apply(&self, ident: MatrixIdent, matrix: MatrixType) -> VectorSize {
+    pub fn apply(&self, ident: MatrixIdent, matrix: TypePtr<MatrixType>) -> VectorSize {
         (self.inner)(ident, matrix)
     }
 }

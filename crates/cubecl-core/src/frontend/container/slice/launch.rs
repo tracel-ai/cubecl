@@ -2,13 +2,12 @@ use alloc::boxed::Box;
 use core::marker::PhantomData;
 
 use crate::{frontend::container::slice, prelude::*};
-use cubecl_ir::Id;
 use cubecl_runtime::runtime::Runtime;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct BufferCompilationArg {
-    pub inplace: Option<Id>,
+    pub inplace: Option<usize>,
 }
 
 /// Buffer representation with a reference to the [server handle](cubecl_runtime::server::Handle).
@@ -147,12 +146,12 @@ impl<C: CubePrimitive> LaunchArg for [C] {
         arg: Self::RuntimeArg<R>,
         launcher: &mut KernelLauncher<R>,
     ) -> Self::CompilationArg {
-        let ty = launcher.with_scope(|scope| C::__expand_as_type(scope));
+        let elem_size = launcher.with_scope(|scope| C::__expand_size(scope));
         let inplace = match &arg {
             BufferArg::Handle { .. } => None,
-            BufferArg::Alias { input_pos, .. } => Some(*input_pos as Id),
+            BufferArg::Alias { input_pos, .. } => Some(*input_pos),
         };
-        launcher.register_buffer(arg, ty);
+        launcher.register_buffer(arg, elem_size);
 
         BufferCompilationArg { inplace }
     }

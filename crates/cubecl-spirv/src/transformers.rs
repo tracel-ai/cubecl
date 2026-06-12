@@ -2,7 +2,7 @@ use cubecl_core::{
     define_scalar, define_size,
     ir::{
         Arithmetic, Bitwise, ElemType, Instruction, IntKind, Operation, Operator, Scope, Type,
-        UIntKind, UnaryOperands, Value,
+        UIntKind, UnaryOperands, ExpandValue,
     },
     prelude::{assign, expand_erf, expand_hypot, expand_rhypot},
 };
@@ -183,14 +183,14 @@ impl IrTransformer for BitwiseTransform {
     }
 }
 
-fn is_u64(val: Value) -> bool {
+fn is_u64(val: ExpandValue) -> bool {
     matches!(
         val.ty.elem_type(),
         ElemType::Int(IntKind::I64) | ElemType::UInt(UIntKind::U64)
     )
 }
 
-fn is_u16_u8(val: Value) -> bool {
+fn is_u16_u8(val: ExpandValue) -> bool {
     matches!(
         val.ty.elem_type(),
         ElemType::Int(IntKind::I16)

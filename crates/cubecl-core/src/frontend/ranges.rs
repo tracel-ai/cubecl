@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use core::ops::{Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
 
-use cubecl_ir::{Branch, RangeLoop, Value};
+use cubecl_ir::{ExpandValue, OpInserter, dialect::branch::RangeLoopOp};
 use num_traits::NumCast;
 
 use crate as cubecl;
@@ -349,23 +349,23 @@ fn iter_expand<I: Int>(
     inclusive: bool,
     mut body: impl FnMut(&Scope, <I as CubeType>::ExpandType),
 ) {
-    let mut child = scope.child();
-    let index_ty = I::__expand_as_type(scope);
-    let i = scope.create_local_mut(index_ty);
-
-    body(&mut child, i.into());
-
     let start = I::__expand_cast_from(scope, start).expand;
     let end = I::__expand_cast_from(scope, end).expand;
+    let step: ExpandValue = I::new(1).into();
 
-    scope.register(Branch::RangeLoop(Box::new(RangeLoop {
-        i,
-        start,
-        end,
-        step: None,
-        scope: child,
-        inclusive,
-    })));
+    let index_ty = I::__expand_as_type(scope);
+    let start = start.read_value(scope);
+    let end = end.read_value(scope);
+    let step = step.read_value(scope);
+
+    let i = scope.create_local_mut(index_ty);
+    let range_loop = RangeLoopOp::new(&mut scope.ctx_mut(), i, start, end, step, inclusive);
+    let body_block = range_loop.loop_body(&scope.ctx());
+    let child = scope.child(OpInserter::new_at_block_end(body_block));
+
+    body(&child, i.into());
+
+    scope.register(&range_loop);
 }
 
 pub struct SteppedRangeExpand<I: Int> {
@@ -375,24 +375,24 @@ pub struct SteppedRangeExpand<I: Int> {
     inclusive: bool,
 }
 
-impl<I: Int + Into<Value>> Iterable for SteppedRangeExpand<I> {
+impl<I: Int + Into<ExpandValue>> Iterable for SteppedRangeExpand<I> {
     type Item = NativeExpand<I>;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, <I as CubeType>::ExpandType)) {
-        let child = scope.child();
         let index_ty = I::__expand_as_type(scope);
+        let start = self.start.read_value(scope);
+        let end = self.end.read_value(scope);
+        let step = self.step.read_value(scope);
+
         let i = scope.create_local_mut(index_ty);
+        let range_loop =
+            RangeLoopOp::new(&mut scope.ctx_mut(), i, start, end, step, self.inclusive);
+        let body_block = range_loop.loop_body(&scope.ctx());
+        let child = scope.child(OpInserter::new_at_block_end(body_block));
 
         body(&child, i.into());
 
-        scope.register(Branch::RangeLoop(Box::new(RangeLoop {
-            i,
-            start: self.start.expand,
-            end: self.end.expand,
-            step: Some(self.step.expand),
-            scope: child,
-            inclusive: self.inclusive,
-        })));
+        scope.register(&range_loop);
     }
 
     fn expand_unroll(

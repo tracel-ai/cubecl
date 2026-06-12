@@ -6,9 +6,7 @@ use crate::{
     prelude::{Vectorized, VectorizedExpand},
     unexpanded,
 };
-use cubecl_ir::{
-    AggregateKind, BoundsCheckMetadata, Marker, MetadataKind, SliceMetadata, VectorSize,
-};
+use cubecl_ir::{VectorSize, dialect::general::FreeOp, interfaces::TypedExt, types::ArrayType};
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{
@@ -55,7 +53,8 @@ impl<T: CubePrimitive> Shared<[T]> {
     /// undefined behavior.
     pub fn new_slice(#[comptime] len: usize) -> Self {
         intrinsic!(|scope| {
-            let ty = Type::array(T::__expand_as_type(scope), len);
+            let inner = T::__expand_as_type(scope);
+            let ty = ArrayType::get(&mut scope.ctx_mut(), inner, len);
             let buffer = scope.create_shared(ty, None);
             let slice = slice::from_raw_parts::<T>(
                 scope,
@@ -75,7 +74,8 @@ impl<T: CubePrimitive> Shared<[T]> {
     #[allow(unused_variables)]
     pub fn new_aligned_slice(#[comptime] len: usize, #[comptime] alignment: usize) -> Self {
         intrinsic!(|scope| {
-            let ty = Type::array(T::__expand_as_type(scope), len);
+            let inner = T::__expand_as_type(scope);
+            let ty = ArrayType::get(&mut scope.ctx_mut(), inner, len);
             let buffer = scope.create_shared(ty, Some(alignment));
             let slice = slice::from_raw_parts::<T>(
                 scope,
@@ -89,7 +89,7 @@ impl<T: CubePrimitive> Shared<[T]> {
 
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
-        intrinsic!(|_| len_static(&self))
+        intrinsic!(|scope| len_static(scope, &self))
     }
 }
 
@@ -120,7 +120,7 @@ impl<T: CubePrimitive> Shared<T> {
     pub fn new() -> Self {
         intrinsic!(|scope| {
             let val = scope.create_shared(T::__expand_as_type(scope), None);
-            NativeExpand::new(val)
+            NativeExpand::new(val.into())
         })
     }
 }
@@ -156,33 +156,18 @@ impl<T: NativeCubeType + ?Sized> Shared<T> {
     /// *Must not* have any dangling references to this shared memory
     pub unsafe fn free(&self) {
         intrinsic!(|scope| {
-            let val = match self.expand.ty {
-                Type::Aggregate(aggregate_kind) => match aggregate_kind {
-                    AggregateKind::Ptr {
-                        meta: MetadataKind::Slice,
-                        ..
-                    } => scope.extract_field(self.expand, self.expand.ty, SliceMetadata::LIST),
-                    AggregateKind::Ptr {
-                        meta: MetadataKind::BoundsCheck,
-                        ..
-                    } => scope.extract_field(
-                        self.expand,
-                        self.expand.ty,
-                        BoundsCheckMetadata::POINTER,
-                    ),
-                },
-                _ => self.expand,
-            };
-            scope.register(Marker::Free(val))
+            let val = scope.extract_field(self.value(scope), 0);
+            scope.register(&FreeOp::new(&mut scope.ctx_mut(), val))
         })
     }
 }
 
-fn len_static<T: CubePrimitive>(shared: &NativeExpand<Shared<[T]>>) -> NativeExpand<usize> {
-    let Type::Array(_, length) = shared.expand.ty else {
-        unreachable!("Kind of shared memory is always shared memory")
-    };
-    length.into()
+fn len_static<T: CubePrimitive>(
+    scope: &Scope,
+    shared: &NativeExpand<Shared<[T]>>,
+) -> NativeExpand<usize> {
+    let array_ty = inner_array_ty(scope, shared.value(scope));
+    array_ty.deref(&scope.ctx()).length.into()
 }
 
 impl<T: CubePrimitive> List<T> for Shared<[T]> {}
@@ -194,8 +179,8 @@ impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Shared<[T]>> {
 
 impl<T: CubePrimitive> Vectorized for Shared<[T]> {}
 impl<T: CubePrimitive> VectorizedExpand for NativeExpand<Shared<[T]>> {
-    fn vector_size(&self) -> VectorSize {
-        self.expand.ty.vector_size()
+    fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
+        self.value(scope).vector_size(&scope.ctx())
     }
 }
 
@@ -252,8 +237,8 @@ impl<T: NativeCubeType + ?Sized> AsDerefMutExpand for SharedExpand<T> {
 
 impl<T: CubePrimitive> Assign<NativeExpand<T>> for SharedExpand<T> {
     fn __expand_assign_method(&mut self, scope: &Scope, value: NativeExpand<T>) {
-        let value = read_value(scope, value.expand);
-        assign::expand_element(scope, value, self.expand);
+        let value = value.read_value(scope);
+        assign::expand_element(scope, value.into(), self.expand);
     }
 }
 

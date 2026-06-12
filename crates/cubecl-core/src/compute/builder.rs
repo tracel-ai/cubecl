@@ -4,11 +4,13 @@ use derive_more::Deref;
 
 use crate::{
     BufferInfo, KernelExpansion, KernelIntegrator, KernelSettings, ScalarInfo,
-    ir::{Id, Type},
     prelude::KernelDefinition,
 };
 use alloc::collections::BTreeMap;
-use cubecl_ir::{DeviceProperties, Scope, StorageType, TargetProperties, Value};
+use cubecl_ir::{
+    DeviceProperties, Scope, StorageType, TargetProperties,
+    pliron::{context::Ptr, r#type::TypeObj, value::Value},
+};
 use cubecl_runtime::config::{
     CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel,
 };
@@ -28,19 +30,19 @@ static DEBUG: AtomicI8 = AtomicI8::new(-1);
 
 impl KernelBuilder {
     /// Register a scalar and return the [element](Value) to be used for kernel expansion.
-    pub fn scalar(&mut self, storage: StorageType) -> Id {
+    pub fn scalar(&mut self, storage: StorageType) -> usize {
         let current_id = self.scalars.entry(storage).or_default();
         let id = *current_id;
         *current_id += 1;
-        id as Id
+        id
     }
 
-    fn buffer_id(&self) -> Id {
-        self.buffers.len() as Id + self.tensor_maps.len() as Id
+    fn buffer_id(&self) -> usize {
+        self.buffers.len() + self.tensor_maps.len()
     }
 
     /// Register a buffer and return the [element](Value) to be used for kernel expansion.
-    pub fn buffer(&mut self, value_ty: Type) -> Value {
+    pub fn buffer(&mut self, value_ty: Ptr<TypeObj>) -> Value {
         let id = self.buffer_id();
         let value = self.scope.global(id, value_ty);
         self.buffers.push(BufferInfo {
@@ -52,7 +54,7 @@ impl KernelBuilder {
     }
 
     /// Register a tensor and return the [element](Value) to be used for kernel expansion.
-    pub fn tensor(&mut self, value_ty: Type) -> Value {
+    pub fn tensor(&mut self, value_ty: Ptr<TypeObj>) -> Value {
         let id = self.buffer_id();
         let value = self.scope.global(id, value_ty);
         self.buffers.push(BufferInfo {
@@ -76,8 +78,8 @@ impl KernelBuilder {
     }
 
     /// Register an output that uses the same resource as the input as the given position.
-    pub fn inplace(&mut self, position: Id) -> Value {
-        let input = self.buffers.get_mut(position as usize);
+    pub fn inplace(&mut self, position: usize) -> Value {
+        let input = self.buffers.get_mut(position);
         input.expect("Position valid").value
     }
 

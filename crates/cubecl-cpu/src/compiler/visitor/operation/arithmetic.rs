@@ -11,7 +11,7 @@ use tracel_llvm::mlir_rs::{
 use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
-    pub fn visit_arithmetic(&mut self, arithmetic: &Arithmetic, out: cube::Value) {
+    pub fn visit_arithmetic(&mut self, arithmetic: &Arithmetic, out: cube::ExpandValue) {
         match arithmetic {
             Arithmetic::Abs(abs) => {
                 let value = self.get_value(abs.input);
@@ -630,7 +630,7 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    pub fn get_neg_val(&self, cube_value: cube::Value) -> Value<'a, 'a> {
+    pub fn get_neg_val(&self, cube_value: cube::ExpandValue) -> Value<'a, 'a> {
         let value = self.get_value(cube_value);
         if cube_value.ty.is_int() {
             let zero = self.create_int_constant_from_item(cube_value.ty, 0);

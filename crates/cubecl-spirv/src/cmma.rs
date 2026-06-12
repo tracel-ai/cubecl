@@ -14,7 +14,7 @@ use rspirv::{
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_cmma(&mut self, cmma: CoopMma, out: Option<core::Value>) {
+    pub fn compile_cmma(&mut self, cmma: CoopMma, out: Option<core::ExpandValue>) {
         self.capabilities.insert(Capability::CooperativeMatrixKHR);
 
         if let Some(out) = out {
@@ -74,9 +74,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn compile_load(
         &mut self,
-        mat: core::Value,
-        ptr: core::Value,
-        stride: core::Value,
+        mat: core::ExpandValue,
+        ptr: core::ExpandValue,
+        stride: core::ExpandValue,
         layout: Option<MatrixLayout>,
     ) {
         let mat = self.compile_value(mat);
@@ -125,10 +125,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn compile_load_tensor(
         &mut self,
-        mat: core::Value,
-        buffer: core::Value,
-        layout: core::Value,
-        view: Option<core::Value>,
+        mat: core::ExpandValue,
+        buffer: core::ExpandValue,
+        layout: core::ExpandValue,
+        view: Option<core::ExpandValue>,
     ) {
         self.capabilities
             .insert(Capability::CooperativeMatrixTensorAddressingNV);
@@ -175,7 +175,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.write_cmma(&mat, mat_id);
     }
 
-    fn compile_fill(&mut self, mat: core::Value, value: core::Value) {
+    fn compile_fill(&mut self, mat: core::ExpandValue, value: core::ExpandValue) {
         let mat = self.compile_value(mat);
         let value = self.compile_value(value);
         let mat_id = self.write_id_cmma(&mat);
@@ -196,9 +196,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn compile_store(
         &mut self,
-        mat: core::Value,
-        stride: core::Value,
-        destination: core::Value,
+        mat: core::ExpandValue,
+        stride: core::ExpandValue,
+        destination: core::ExpandValue,
         layout: MatrixLayout,
     ) {
         let mat = self.compile_value(mat);
@@ -239,10 +239,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn compile_store_tensor(
         &mut self,
-        mat: core::Value,
-        out: core::Value,
-        layout: core::Value,
-        view: Option<core::Value>,
+        mat: core::ExpandValue,
+        out: core::ExpandValue,
+        layout: core::ExpandValue,
+        view: Option<core::ExpandValue>,
     ) {
         self.capabilities
             .insert(Capability::CooperativeMatrixTensorAddressingNV);
@@ -283,10 +283,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn compile_execute(
         &mut self,
-        mat_a: core::Value,
-        mat_b: core::Value,
-        mat_c: core::Value,
-        mat_d: core::Value,
+        mat_a: core::ExpandValue,
+        mat_b: core::ExpandValue,
+        mat_c: core::ExpandValue,
+        mat_d: core::ExpandValue,
     ) {
         let mat_a = self.compile_value(mat_a);
         let mat_b = self.compile_value(mat_b);
@@ -327,7 +327,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.write_cmma(&mat_d, mat_d_id);
     }
 
-    fn compile_elementwise_op(&mut self, matrix: core::Value, op: Id, output: core::Value) {
+    fn compile_elementwise_op(&mut self, matrix: core::ExpandValue, op: Id, output: core::ExpandValue) {
         self.capabilities
             .insert(Capability::CooperativeMatrixPerElementOperationsNV);
 
@@ -363,7 +363,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.write_cmma(&output, output_id);
     }
 
-    fn compile_cast(&mut self, input: core::Value, output: core::Value) {
+    fn compile_cast(&mut self, input: core::ExpandValue, output: core::ExpandValue) {
         let input = self.compile_value(input);
         let output = self.compile_value(output);
 

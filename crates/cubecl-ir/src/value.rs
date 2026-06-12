@@ -1,74 +1,91 @@
 use core::{fmt::Display, hash::Hash};
 
-use crate::{AddressSpace, FloatKind, IntKind, StorageType, TypeHash};
+use crate::{
+    FloatKind, IntKind, Scope, StorageType, TypeHash,
+    attributes::{BoolAttr, FloatAttr, IntAttr, UIntAttr},
+    dialect::memory::LoadOp,
+    interfaces::TypedExt,
+};
 
 use super::{ElemType, Type, UIntKind};
 use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
 use derive_more::From;
 use float_ord::FloatOrd;
+use pliron::{
+    builtin::{op_interfaces::OneResultInterface, ops::ConstantOp},
+    derive::format,
+    r#type::TypePtr,
+    utils::apfloat::f64_to_double,
+    value::Value,
+};
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, Hash, PartialEq, Eq, PartialOrd, Ord)]
-#[allow(missing_docs)]
-pub struct Value {
-    pub kind: ValueKind,
-    pub ty: Type,
-}
-
-impl Value {
-    pub fn new(id: Id, ty: Type) -> Self {
-        Self {
-            kind: ValueKind::Value { id },
-            ty,
-        }
+impl ExpandValue {
+    pub fn new(value: Value) -> Self {
+        Self::Value(value)
     }
 
-    pub fn constant(value: ConstantValue, ty: impl Into<Type>) -> Self {
+    pub fn constant(value: ConstantValue, ty: impl Into<StorageType>) -> Self {
         let ty = ty.into();
         let value = value.cast_to(ty);
-        Self {
-            kind: ValueKind::Constant(value),
-            ty,
+        Self::Constant { value, ty }
+    }
+
+    pub fn read_value(&self, scope: &Scope) -> Value {
+        let val = self.value(scope);
+        if val.is_ptr(&scope.ctx()) {
+            let op = LoadOp::new(&mut scope.ctx_mut(), val);
+            scope.register(&op);
+            op.get_result(&scope.ctx())
+        } else {
+            val
         }
     }
 
-    pub fn elem_type(&self) -> ElemType {
-        self.ty.elem_type()
-    }
-
-    pub fn storage_type(&self) -> StorageType {
-        self.ty.storage_type()
-    }
-
-    pub fn can_mutate(&self) -> bool {
-        self.ty.is_ptr()
-    }
-
-    pub fn address_space(&self) -> AddressSpace {
-        match self.ty {
-            Type::Pointer(_, addr_space) => addr_space,
-            _ => match self.kind {
-                ValueKind::Value { .. } | ValueKind::Constant(..) => AddressSpace::Local,
-            },
+    pub fn value(&self, scope: &Scope) -> Value {
+        match self {
+            ExpandValue::Value(value) => *value,
+            ExpandValue::Constant { value, ty } => {
+                let mut ctx = scope.ctx_mut();
+                let ty = ty.to_type(&mut ctx);
+                let value = match value {
+                    ConstantValue::Int(value) => {
+                        IntAttr::new(TypePtr::from_ptr(ty, &ctx).unwrap(), *value).into()
+                    }
+                    ConstantValue::UInt(value) => {
+                        UIntAttr::new(TypePtr::from_ptr(ty, &ctx).unwrap(), *value).into()
+                    }
+                    ConstantValue::Float(value) => {
+                        FloatAttr::new(TypePtr::from_ptr(ty, &ctx).unwrap(), f64_to_double(*value))
+                            .into()
+                    }
+                    ConstantValue::Bool(value) => BoolAttr::new(*value).into(),
+                };
+                let op = ConstantOp::new(&mut scope.ctx_mut(), value);
+                scope.register(&op);
+                op.get_result(&ctx)
+            }
         }
-    }
-
-    pub fn value_type(&self) -> Type {
-        self.ty.value_type()
     }
 }
 
-pub type Id = u32;
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash)]
+pub enum ExpandValue {
+    Value(Value),
+    Constant {
+        value: ConstantValue,
+        ty: StorageType,
+    },
+}
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum ValueKind {
-    Value { id: Id },
-    Constant(ConstantValue),
+impl From<Value> for ExpandValue {
+    fn from(value: Value) -> Self {
+        Self::Value(value)
+    }
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, PartialOrd, Ord)]
+#[format]
 #[repr(u32)]
 pub enum Builtin {
     UnitPos,
@@ -102,63 +119,6 @@ pub enum Builtin {
     AbsolutePosX,
     AbsolutePosY,
     AbsolutePosZ,
-}
-
-impl Value {
-    /// Whether a value is always immutable. Used for optimizations to determine whether it's
-    /// safe to inline/merge
-    pub fn is_immutable(&self) -> bool {
-        !self.can_mutate()
-    }
-
-    /// Is this an array type that yields items when indexed,
-    /// or a scalar/vector that yields elems/slices when indexed?
-    pub fn is_array_like(&self) -> bool {
-        self.ty.is_array_like()
-    }
-
-    pub fn is_value(&self) -> bool {
-        self.ty.is_value()
-    }
-
-    /// Is this an value type that is contained in concrete memory,
-    /// or a local array/scalar/vector?
-    pub fn is_memory(&self) -> bool {
-        matches!(
-            self.address_space(),
-            AddressSpace::Global(_) | AddressSpace::Shared
-        )
-    }
-
-    pub fn has_buffer_length(&self) -> bool {
-        matches!(self.address_space(), AddressSpace::Global(_))
-    }
-
-    /// Determines if the value is a constant with the specified value (converted if necessary)
-    pub fn is_constant(&self, value: i64) -> bool {
-        match self.kind {
-            ValueKind::Constant(ConstantValue::Int(val)) => val == value,
-            ValueKind::Constant(ConstantValue::UInt(val)) => val as i64 == value,
-            ValueKind::Constant(ConstantValue::Float(val)) => val == value as f64,
-            _ => false,
-        }
-    }
-
-    /// Determines if the value is a boolean constant with the `true` value
-    pub fn is_true(&self) -> bool {
-        match self.kind {
-            ValueKind::Constant(ConstantValue::Bool(val)) => val,
-            _ => false,
-        }
-    }
-
-    /// Determines if the value is a boolean constant with the `false` value
-    pub fn is_false(&self) -> bool {
-        match self.kind {
-            ValueKind::Constant(ConstantValue::Bool(val)) => !val,
-            _ => false,
-        }
-    }
 }
 
 /// The scalars are stored with the highest precision possible, but they might get reduced during
@@ -421,47 +381,27 @@ impl Display for ConstantValue {
     }
 }
 
-impl Value {
-    pub fn vector_size(&self) -> usize {
-        self.ty.vector_size()
-    }
-
-    pub fn id(&self) -> Id {
-        match self.kind {
-            ValueKind::Value { id, .. } => id,
-            _ => panic!("Can't get ID of constant"),
-        }
-    }
-
+impl ExpandValue {
     pub fn as_const(&self) -> Option<ConstantValue> {
-        match self.kind {
-            ValueKind::Constant(constant) => Some(constant),
+        match self {
+            ExpandValue::Constant { value, .. } => Some(*value),
             _ => None,
         }
     }
 }
 
-impl Display for Value {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.kind {
-            ValueKind::Constant(constant) => write!(f, "{}({constant})", self.ty),
-            other => write!(f, "{other}"),
-        }
-    }
-}
-
-impl Display for ValueKind {
+impl Display for ExpandValue {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            ValueKind::Constant(constant) => write!(f, "{constant}"),
-            ValueKind::Value { id } => write!(f, "%{id}"),
+            ExpandValue::Constant { value, ty } => write!(f, "{ty}({value})"),
+            ExpandValue::Value(value) => write!(f, "{value:?}"),
         }
     }
 }
 
 // Useful with the cube_inline macro.
-impl From<&Value> for Value {
-    fn from(value: &Value) -> Self {
+impl From<&ExpandValue> for ExpandValue {
+    fn from(value: &ExpandValue) -> Self {
         *value
     }
 }

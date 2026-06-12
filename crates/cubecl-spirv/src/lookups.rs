@@ -307,7 +307,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn init_function_param(&mut self, param: ir::Value, param_id: Word) {
+    pub fn init_function_param(&mut self, param: ir::ExpandValue, param_id: Word) {
         let item = self.compile_type(param.ty);
         match param.kind {
             ValueKind::Constant(value) => {

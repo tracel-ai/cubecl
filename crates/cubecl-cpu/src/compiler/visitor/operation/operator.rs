@@ -17,7 +17,7 @@ use tracel_llvm::mlir_rs::{
 use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
-    pub fn visit_memory(&mut self, memory: &Memory, out: Option<cube::Value>) {
+    pub fn visit_memory(&mut self, memory: &Memory, out: Option<cube::ExpandValue>) {
         match memory {
             Memory::Index(index) => {
                 let out = out.unwrap();
@@ -66,7 +66,7 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    pub fn visit_operator_with_out(&mut self, operator: &Operator, out: cube::Value) {
+    pub fn visit_operator_with_out(&mut self, operator: &Operator, out: cube::ExpandValue) {
         match operator {
             Operator::And(and) => {
                 let lhs = self.get_value(and.lhs);
@@ -204,7 +204,7 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    fn visit_extract(&mut self, op: &BinaryOperands, out: cube::Value) -> Value<'a, 'a> {
+    fn visit_extract(&mut self, op: &BinaryOperands, out: cube::ExpandValue) -> Value<'a, 'a> {
         let mut index = self.get_value(op.rhs);
         let u32_int = IntegerType::new(self.context, 32).into();
         if index.r#type() != u32_int {
@@ -267,7 +267,7 @@ impl<'a> Visitor<'a> {
         self.append_operation_with_result(vector_insert)
     }
 
-    pub(crate) fn visit_cast(&mut self, to_cast: cube::Value, out: cube::Value) {
+    pub(crate) fn visit_cast(&mut self, to_cast: cube::ExpandValue, out: cube::ExpandValue) {
         let mut value = self.get_value(to_cast);
         let target = out.ty.to_type(self.context);
 

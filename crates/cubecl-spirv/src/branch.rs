@@ -67,7 +67,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn compile_if_else(
         &mut self,
-        cond: core::Value,
+        cond: core::ExpandValue,
         then: NodeIndex,
         or_else: NodeIndex,
         merge: Option<NodeIndex>,
@@ -88,7 +88,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn compile_switch(
         &mut self,
-        value: core::Value,
+        value: core::ExpandValue,
         default: NodeIndex,
         branches: Vec<(u32, NodeIndex)>,
         merge: Option<NodeIndex>,
@@ -126,7 +126,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn compile_loop_break(
         &mut self,
-        break_cond: core::Value,
+        break_cond: core::ExpandValue,
         body: NodeIndex,
         continue_target: NodeIndex,
         merge: NodeIndex,

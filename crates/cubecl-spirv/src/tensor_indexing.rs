@@ -4,7 +4,7 @@ use rspirv::spirv::Capability;
 use crate::{SpirvCompiler, SpirvTarget};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_tensor_indexing(&mut self, op: TensorIndexingOps, out: Option<core::Value>) {
+    pub fn compile_tensor_indexing(&mut self, op: TensorIndexingOps, out: Option<core::ExpandValue>) {
         self.capabilities.insert(Capability::TensorAddressingNV);
         let out = self.compile_value(out.unwrap());
         match op {

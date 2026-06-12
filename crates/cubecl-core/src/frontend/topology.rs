@@ -1,7 +1,9 @@
 //! In this file we use a trick where the constant has the same name as the module containing
 //! the expand function, so that a user implicitly imports the expand function when importing the constant.
 
-use cubecl_ir::{Instruction, Operator, Scope};
+use cubecl_ir::{
+    Scope, dialect::general::ReadBuiltinOp, pliron::builtin::op_interfaces::OneResultInterface,
+};
 
 use crate::prelude::CubePrimitive;
 
@@ -19,9 +21,10 @@ macro_rules! constant {
 
             /// Expansion of the constant value.
             pub fn expand(scope: &Scope) -> NativeExpand<u32> {
-                let out = scope.create_value(u32::__expand_as_type(scope));
-                scope.register(Instruction::new(Operator::ReadBuiltin($var), out));
-                out.into()
+                let ty = u32::__expand_as_type(scope);
+                let op = ReadBuiltinOp::new(&mut scope.ctx_mut(), ty, $var.into());
+                scope.register(&op);
+                op.get_result(&scope.ctx()).into()
             }
         }
     };
@@ -39,9 +42,10 @@ macro_rules! constant_usize {
 
             /// Expansion of the constant value.
             pub fn expand(scope: &Scope) -> NativeExpand<usize> {
-                let out = scope.create_value(usize::__expand_as_type(scope));
-                scope.register(Instruction::new(Operator::ReadBuiltin($var), out));
-                out.into()
+                let ty = usize::__expand_as_type(scope);
+                let op = ReadBuiltinOp::new(&mut scope.ctx_mut(), ty, $var.into());
+                scope.register(&op);
+                op.get_result(&scope.ctx()).into()
             }
         }
     };

@@ -30,7 +30,7 @@ pub const MAX_VECTOR_SIZE: usize = 4;
 pub struct WgslCompiler {
     kernel_name: String,
     info: Info,
-    ext_meta_pos: HashMap<cube::Value, u32>,
+    ext_meta_pos: HashMap<cube::ExpandValue, u32>,
     buffer_vis: Vec<Visibility>,
     local_invocation_index: bool,
     local_invocation_id: bool,
@@ -268,11 +268,11 @@ impl WgslCompiler {
         }
     }
 
-    fn ext_meta_pos(&self, val: &cube::Value) -> u32 {
+    fn ext_meta_pos(&self, val: &cube::ExpandValue) -> u32 {
         self.ext_meta_pos[val]
     }
 
-    pub(crate) fn compile_value(&mut self, value: cube::Value) -> wgsl::Value {
+    pub(crate) fn compile_value(&mut self, value: cube::ExpandValue) -> wgsl::Value {
         let item = value.ty;
         match value.kind {
             cube::ValueKind::Value { id } => wgsl::Value::Value {
@@ -286,7 +286,7 @@ impl WgslCompiler {
     }
 
     fn constant_var(&mut self, value: u32) -> wgsl::Value {
-        let val = cube::Value::constant(value.into(), UIntKind::U32);
+        let val = cube::ExpandValue::constant(value.into(), UIntKind::U32);
         self.compile_value(val)
     }
 
@@ -308,7 +308,7 @@ impl WgslCompiler {
         &mut self,
         instructions: &mut Vec<wgsl::Instruction>,
         operation: cube::Operation,
-        out: Option<cube::Value>,
+        out: Option<cube::ExpandValue>,
         scope: &cube::Scope,
     ) {
         match operation {
@@ -381,7 +381,7 @@ impl WgslCompiler {
         &mut self,
         instructions: &mut Vec<wgsl::Instruction>,
         subgroup: cube::Plane,
-        out: Option<cube::Value>,
+        out: Option<cube::ExpandValue>,
     ) {
         self.subgroup_instructions_used = true;
 
@@ -533,7 +533,7 @@ impl WgslCompiler {
     fn compile_metadata(
         &mut self,
         metadata: cube::Metadata,
-        out: Option<cube::Value>,
+        out: Option<cube::ExpandValue>,
     ) -> wgsl::Instruction {
         let out = out.unwrap();
         match metadata {
@@ -574,7 +574,7 @@ impl WgslCompiler {
     fn compile_memory(
         &mut self,
         value: cube::Memory,
-        out: Option<cube::Value>,
+        out: Option<cube::ExpandValue>,
         instructions: &mut Vec<wgsl::Instruction>,
     ) {
         match value {
@@ -604,7 +604,7 @@ impl WgslCompiler {
     fn compile_arithmetic(
         &mut self,
         value: cube::Arithmetic,
-        out: Option<cube::Value>,
+        out: Option<cube::ExpandValue>,
         instructions: &mut Vec<wgsl::Instruction>,
         scope: &Scope,
     ) {
@@ -838,7 +838,7 @@ impl WgslCompiler {
     fn compile_cmp(
         &mut self,
         value: cube::Comparison,
-        out: Option<cube::Value>,
+        out: Option<cube::ExpandValue>,
         instructions: &mut Vec<wgsl::Instruction>,
     ) {
         let out = out.unwrap();
@@ -889,7 +889,7 @@ impl WgslCompiler {
     fn compile_bitwise(
         &mut self,
         value: cube::Bitwise,
-        out: Option<cube::Value>,
+        out: Option<cube::ExpandValue>,
         instructions: &mut Vec<wgsl::Instruction>,
     ) {
         let out = out.unwrap();
@@ -951,7 +951,7 @@ impl WgslCompiler {
     fn compile_operator(
         &mut self,
         value: cube::Operator,
-        out: Option<cube::Value>,
+        out: Option<cube::ExpandValue>,
         instructions: &mut Vec<wgsl::Instruction>,
     ) {
         let out = out.unwrap();
@@ -1123,7 +1123,7 @@ impl WgslCompiler {
     fn compile_atomic(
         &mut self,
         atomic: cube::AtomicOp,
-        out: Option<cube::Value>,
+        out: Option<cube::ExpandValue>,
     ) -> wgsl::Instruction {
         match atomic {
             cube::AtomicOp::Add(op) => wgsl::Instruction::AtomicAdd {

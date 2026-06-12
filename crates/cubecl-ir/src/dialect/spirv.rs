@@ -1,0 +1,190 @@
+use cubecl_macros_internal::cube_op;
+
+use crate::{
+    attributes::IndexAttr, interfaces::Pure, pliron::prelude::*, types::{
+        matrix::MatrixType,
+        spirv::{ClampMode, TensorLayoutType},
+    }
+};
+
+#[pliron_op(
+    name = "matrix.spirv.load_tensor",
+    operands = (out_mat: MatrixType, buffer, layout: TensorLayoutType), 
+    format, 
+    verifier = "succ"
+)]
+pub struct LoadTensorOp;
+
+impl LoadTensorOp {
+    pub fn new(
+        ctx: &mut Context,
+        out_mat: Value,
+        buffer: Value,
+        layout: Value,
+        view: Option<Value>,
+    ) -> Self {
+        let mut operands = vec![out_mat, buffer, layout];
+        operands.extend(view);
+        let op = Operation::new(
+            ctx,
+            Self::get_concrete_op_info(),
+            vec![],
+            operands,
+            vec![],
+            0,
+        );
+        Self { op }
+    }
+
+    pub fn buffer(&self, ctx: &Context) -> Value {
+        self.get_operation().deref(ctx).get_operand(0)
+    }
+
+    pub fn layout(&self, ctx: &Context) -> Value {
+        self.get_operation().deref(ctx).get_operand(1)
+    }
+
+    pub fn view(&self, ctx: &Context) -> Option<Value> {
+        let op = self.get_operation().deref(ctx);
+        if op.get_num_operands() > 2 {
+            Some(op.get_operand(2))
+        } else {
+            None
+        }
+    }
+}
+
+#[pliron_op(name = "matrix.spirv.store_tensor", format, verifier = "succ")]
+pub struct StoreTensorOp;
+
+impl StoreTensorOp {
+    pub fn new(
+        ctx: &mut Context,
+        buffer: Value,
+        matrix: Value,
+        layout: Value,
+        view: Option<Value>,
+    ) -> Self {
+        let mut operands = vec![buffer, matrix, layout];
+        operands.extend(view);
+        let op = Operation::new(
+            ctx,
+            Self::get_concrete_op_info(),
+            vec![],
+            operands,
+            vec![],
+            0,
+        );
+        Self { op }
+    }
+
+    pub fn buffer(&self, ctx: &Context) -> Value {
+        self.get_operation().deref(ctx).get_operand(0)
+    }
+
+    pub fn matrix(&self, ctx: &Context) -> Value {
+        self.get_operation().deref(ctx).get_operand(1)
+    }
+
+    pub fn layout(&self, ctx: &Context) -> Value {
+        self.get_operation().deref(ctx).get_operand(2)
+    }
+
+    pub fn view(&self, ctx: &Context) -> Option<Value> {
+        let op = self.get_operation().deref(ctx);
+        if op.get_num_operands() > 3 {
+            Some(op.get_operand(3))
+        } else {
+            None
+        }
+    }
+}
+
+#[pliron_op(name = "matrix.spirv.create_layout", format, attributes = (rank: IndexAttr), verifier = "succ")]
+#[op_interfaces(Pure, NResultsInterface<1>, OneResultInterface)]
+pub struct CreateLayoutOp;
+
+impl CreateLayoutOp {
+    pub fn new(
+        ctx: &mut Context,
+        shape: Vec<Value>,
+        strides: Option<Vec<Value>>,
+        clamp_mode: ClampMode,
+    ) -> Self {
+        let rank = shape.len();
+        let out_ty = TensorLayoutType::get(ctx, rank, clamp_mode);
+        let mut operands = shape;
+        operands.extend(strides.into_iter().flatten());
+        let op = Self {
+            op: Operation::new(
+                ctx,
+                Self::get_concrete_op_info(),
+                vec![out_ty.into()],
+                operands,
+                vec![],
+                0,
+            ),
+        };
+        op.set_attr_rank(ctx, rank.into());
+        op
+    }
+
+    pub fn shape(&self, ctx: &Context) -> Vec<Value> {
+        let rank = self.get_attr_rank(ctx).unwrap().0;
+        let op = self.get_operation().deref(ctx);
+        op.operands().take(rank).collect()
+    }
+
+    pub fn strides(&self, ctx: &Context) -> Option<Vec<Value>> {
+        let rank = self.get_attr_rank(ctx).unwrap().0;
+        let op = self.get_operation().deref(ctx);
+        if op.get_num_operands() > rank {
+            Some(op.operands().skip(rank).collect())
+        } else {
+            None
+        }
+    }
+}
+
+#[cube_op(name = "cube.spirv.create_view")]
+#[result_ty(argument)]
+pub struct CreateViewOp {}
+
+#[pliron_op(name = "matrix.spirv.slice_layout", format, attributes = (rank: IndexAttr), verifier = "succ")]
+#[op_interfaces(Pure, NResultsInterface<1>, OneResultInterface)]
+pub struct SliceOp;
+
+impl SliceOp {
+    pub fn new(ctx: &mut Context, layout: Value, offsets: Vec<Value>, shape: Vec<Value>) -> Self {
+        let out_ty = layout.get_type(ctx);
+        let mut operands = offsets;
+        operands.extend(shape);
+        let op = Operation::new(
+            ctx,
+            Self::get_concrete_op_info(),
+            vec![out_ty],
+            operands,
+            vec![],
+            0,
+        );
+        Self { op }
+    }
+
+    pub fn layout(&self, ctx: &Context) -> Value {
+        self.get_operation().deref(ctx).get_operand(0)
+    }
+
+    pub fn offsets(&self, ctx: &Context) -> Vec<Value> {
+        let layout_ty = self.layout(ctx).get_type(ctx).deref(ctx);
+        let rank = layout_ty.downcast_ref::<TensorLayoutType>().unwrap().rank;
+        let op = self.get_operation().deref(ctx);
+        op.operands().skip(1).take(rank).collect()
+    }
+
+    pub fn shape(&self, ctx: &Context) -> Vec<Value> {
+        let layout_ty = self.layout(ctx).get_type(ctx).deref(ctx);
+        let rank = layout_ty.downcast_ref::<TensorLayoutType>().unwrap().rank;
+        let op = self.get_operation().deref(ctx);
+        op.operands().skip(1 + rank).take(rank).collect()
+    }
+}

@@ -1,11 +1,11 @@
-use cubecl_ir::{ConstantValue, Scope, StorageType, Type};
+use cubecl_ir::{
+    ConstantValue, Scope, StorageType,
+    pliron::{context::Ptr, r#type::TypeObj},
+    types::scalar::FloatType,
+};
 use half::{bf16, f16};
 
-use crate::{
-    self as cubecl,
-    ir::{ElemType, FloatKind},
-    prelude::*,
-};
+use crate::{self as cubecl, ir::FloatKind, prelude::*};
 
 use super::Numeric;
 
@@ -122,15 +122,19 @@ macro_rules! impl_float {
         }
 
         impl CubeDebug for $primitive {}
-        impl Scalar for $primitive {}
+        impl Scalar for $primitive {
+            fn storage_type_native() -> StorageType {
+                FloatKind::$kind.into()
+            }
+        }
         impl CubePrimitive for $primitive {
             type Scalar = Self;
             type Size = Const<1>;
             type WithScalar<S: Scalar> = S;
 
             /// Return the element type to use on GPU
-            fn as_type_native() -> Option<Type> {
-                Some(StorageType::Scalar(ElemType::Float(FloatKind::$kind)).into())
+            fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+                FloatType::get(&mut scope.ctx_mut(), FloatKind::$kind).into()
             }
 
             fn from_const_value(value: ConstantValue) -> Self {

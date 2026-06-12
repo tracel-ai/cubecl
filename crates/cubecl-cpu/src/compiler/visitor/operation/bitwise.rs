@@ -12,7 +12,7 @@ impl<'a> Visitor<'a> {
     fn convert_bit_count_to_u32(
         &mut self,
         value: Value<'a, 'a>,
-        input: cube::Value,
+        input: cube::ExpandValue,
     ) -> Value<'a, 'a> {
         match input.elem_type() {
             ElemType::Int(IntKind::I8)
@@ -47,8 +47,8 @@ impl<'a> Visitor<'a> {
     fn count_zeros_with_clamp(
         &mut self,
         value: Value<'a, 'a>,
-        input: cube::Value,
-        out: cube::Value,
+        input: cube::ExpandValue,
+        out: cube::ExpandValue,
     ) -> Value<'a, 'a> {
         match input.elem_type() {
             ElemType::Int(IntKind::I8)
@@ -79,7 +79,7 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    pub fn visit_bitwise(&mut self, bitwise: &Bitwise, out: cube::Value) {
+    pub fn visit_bitwise(&mut self, bitwise: &Bitwise, out: cube::ExpandValue) {
         let value = match bitwise {
             Bitwise::BitwiseAnd(bin_op) => {
                 let (lhs, rhs) = self.get_binary_op_values(bin_op.lhs, bin_op.rhs);

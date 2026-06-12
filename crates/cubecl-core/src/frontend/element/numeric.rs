@@ -1,16 +1,17 @@
-use cubecl_ir::{ConstantValue, Instruction, Operator, Value};
+use cubecl_ir::{
+    ConstantValue, ExpandValue,
+    dialect::general::ReadScalarOp,
+    pliron::builtin::{attributes::TypeAttr, op_interfaces::OneResultInterface},
+};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::{NumCast, One, Zero};
 
 use crate::compute::KernelLauncher;
 use crate::{IntoRuntime, ScalarArgType, compute::KernelBuilder};
+use crate::{frontend::CubeType, prelude::InputScalar};
 use crate::{
     frontend::{Abs, ModFloor, VectorSum},
     unexpanded,
-};
-use crate::{
-    frontend::{CubePrimitive, CubeType},
-    prelude::InputScalar,
 };
 use crate::{ir::Scope, prelude::Scalar};
 
@@ -38,13 +39,13 @@ pub trait Numeric:
     fn max_value() -> Self;
 
     fn __expand_min_value(scope: &Scope) -> <Self as CubeType>::ExpandType {
-        let elem = Self::__expand_as_type(scope).elem_type();
+        let elem = Self::storage_type(scope).elem_type();
         let val = elem.min_variable();
         val.into()
     }
 
     fn __expand_max_value(scope: &Scope) -> <Self as CubeType>::ExpandType {
-        let elem = Self::__expand_as_type(scope).elem_type();
+        let elem = Self::storage_type(scope).elem_type();
         let val = elem.max_variable();
         val.into()
     }
@@ -79,8 +80,8 @@ pub trait Numeric:
     }
 
     fn __expand_from_int(scope: &Scope, val: NativeExpand<i64>) -> <Self as CubeType>::ExpandType {
-        let elem = Self::__expand_as_type(scope).elem_type();
-        let val: Value = elem.constant(val.constant().unwrap());
+        let elem = Self::storage_type(scope).elem_type();
+        let val: ExpandValue = elem.constant(val.constant().unwrap());
 
         val.into()
     }
@@ -88,15 +89,16 @@ pub trait Numeric:
 
 /// Similar to [`ArgSettings`], however only for scalar types that don't depend on the [Runtime]
 /// trait.
-pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
+pub trait ScalarArgSettings: Send + Sync + Scalar {
     /// Register the information to the [`KernelLauncher`].
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
     fn expand_scalar(builder: &mut KernelBuilder) -> NativeExpand<Self> {
-        let ty = Self::__expand_as_type(&builder.scope);
-        let out = builder.create_value(ty);
-        let id = builder.scalar(ty.storage_type());
-        builder.register(Instruction::new(Operator::ReadScalar(id), out));
-        out.into()
+        let storage_ty = Self::storage_type(&builder.scope);
+        let id = builder.scalar(storage_ty);
+        let ty = storage_ty.to_type(&mut builder.ctx_mut());
+        let op = ReadScalarOp::new(&mut builder.ctx_mut(), TypeAttr::new(ty), id.into());
+        builder.register(&op);
+        op.get_result(&builder.ctx()).into()
     }
 }
 

@@ -5,7 +5,7 @@ use rspirv::spirv::{MemoryAccess, Word};
 use crate::{SpirvCompiler, SpirvTarget, item::Item, value::Value};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_meta(&mut self, meta: Metadata, out: Option<core::Value>, uniform: bool) {
+    pub fn compile_meta(&mut self, meta: Metadata, out: Option<core::ExpandValue>, uniform: bool) {
         let out = out.unwrap();
         match meta {
             Metadata::BufferLength { list } => {

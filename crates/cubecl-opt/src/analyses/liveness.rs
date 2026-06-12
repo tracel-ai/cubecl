@@ -214,7 +214,7 @@ impl Function {
 /// Shared memory liveness analysis and allocation
 pub mod shared {
     use alloc::vec::Vec;
-    use cubecl_ir::{AddressSpace, Marker, Operation, Type, Value, ValueKind};
+    use cubecl_ir::{AddressSpace, ExpandValue, Marker, Operation, Type, ValueKind};
 
     use crate::{MemoryBlock, Uniformity};
 
@@ -446,7 +446,7 @@ pub mod shared {
                     }
                 });
 
-                if let Operation::Marker(Marker::Free(Value {
+                if let Operation::Marker(Marker::Free(ExpandValue {
                     ty: Type::Pointer(_, AddressSpace::Shared),
                     kind: ValueKind::Value { id, .. },
                     ..
@@ -461,7 +461,7 @@ pub mod shared {
         }
     }
 
-    fn shared_memory(func: &Function, var: &Value) -> Option<(Id, MemoryBlock)> {
+    fn shared_memory(func: &Function, var: &ExpandValue) -> Option<(Id, MemoryBlock)> {
         match var.kind {
             ValueKind::Value { id } => {
                 if let Some(mem) = func.memories.get(&id)
@@ -478,18 +478,18 @@ pub mod shared {
 }
 
 mod captures {
-    use cubecl_ir::Value;
+    use cubecl_ir::ExpandValue;
 
     use super::*;
 
     pub struct Captures {
-        live_vars: HashMap<NodeIndex, HashSet<Value>>,
+        live_vars: HashMap<NodeIndex, HashSet<ExpandValue>>,
     }
 
     #[derive(Clone)]
     struct BlockSets {
-        generated: HashSet<Value>,
-        kill: HashSet<Value>,
+        generated: HashSet<ExpandValue>,
+        kill: HashSet<ExpandValue>,
     }
 
     struct State {
@@ -515,7 +515,7 @@ mod captures {
             Self { live_vars }
         }
 
-        pub fn at_block(&self, block: NodeIndex) -> &HashSet<Value> {
+        pub fn at_block(&self, block: NodeIndex) -> &HashSet<ExpandValue> {
             &self.live_vars[&block]
         }
 

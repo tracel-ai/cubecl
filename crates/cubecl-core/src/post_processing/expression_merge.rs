@@ -1,6 +1,8 @@
 use alloc::{vec, vec::Vec};
-use cubecl_environment::collections::HashMap;
-use cubecl_ir::{CoopMma, GlobalState, Instruction, Operation, Operator, UnaryOperands, Value};
+use cubecl_ir::{
+    CoopMma, ExpandValue, GlobalState, Instruction, Operation, Operator, UnaryOperands,
+};
+use hashbrown::HashMap;
 
 use crate::post_processing::{
     analysis_helper::GlobalAnalyses,
@@ -12,7 +14,7 @@ use crate::post_processing::{
 /// and makes it easier to find optimizable expressions.
 #[derive(Default, Debug)]
 pub struct InlineAssignments {
-    substitutions: HashMap<Value, Value>,
+    substitutions: HashMap<ExpandValue, ExpandValue>,
 }
 
 impl InstructionVisitor for InlineAssignments {

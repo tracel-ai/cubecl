@@ -1,8 +1,4 @@
-use crate::{
-    ir::{Metadata, Scope},
-    prelude::*,
-    unexpanded,
-};
+use crate::{ir::Scope, prelude::*, unexpanded};
 use alloc::boxed::Box;
 use core::ops::{Deref, DerefMut};
 use cubecl_ir::VectorSize;
@@ -63,32 +59,34 @@ impl<T: CubePrimitive> Tensor<T> {
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use cubecl_ir::Value;
+    use cubecl_ir::{
+        dialect::general::{ShapeOp, StrideOp},
+        pliron::builtin::op_interfaces::OneResultInterface,
+    };
 
     use super::*;
-    use crate::ir::{Arithmetic, BinaryOperands, Instruction};
 
     #[cube]
     impl<T: CubePrimitive> Tensor<T> {
         /// Obtain the stride of input at dimension dim
         pub fn stride(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
-                let dim: Value = dim.into();
+                let dim = dim.read_value(scope);
                 let list = self.__extract_list(scope);
-                let out = scope.create_value(usize::__expand_as_type(scope));
-                scope.register(Instruction::new(Metadata::Stride { dim, list }, out));
-                out.into()
+                let op = StrideOp::new(&mut scope.ctx_mut(), list, dim);
+                scope.register(&op);
+                op.get_result(&scope.ctx()).into()
             })
         }
 
         /// Obtain the shape of input at dimension dim
         pub fn shape(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
-                let dim: Value = dim.into();
+                let dim = dim.read_value(scope);
                 let list = self.__extract_list(scope);
-                let out = scope.create_value(usize::__expand_as_type(scope));
-                scope.register(Instruction::new(Metadata::Shape { dim, list }, out));
-                out.into()
+                let op = ShapeOp::new(&mut scope.ctx_mut(), list, dim);
+                scope.register(&op);
+                op.get_result(&scope.ctx()).into()
             })
         }
 
@@ -97,33 +95,9 @@ mod metadata {
         /// A coordinate is a list of indices corresponding to the multi-dimensional position of an element in the tensor.
         /// The `dim` element in a coordinate is the position along the `dim` dimension of the tensor.
         pub fn coordinate(&self, index: usize, dim: usize) -> usize {
-            intrinsic!(|scope| {
-                let index: Value = index.into();
-                let stride = self.__expand_stride_method(scope, dim.clone());
-                let shape = self.__expand_shape_method(scope, dim.clone());
-
-                // Compute `num_strides = index / stride`.
-                let num_strides = scope.create_value(usize::__expand_as_type(scope));
-                scope.register(Instruction::new(
-                    Arithmetic::Div(BinaryOperands {
-                        lhs: index,
-                        rhs: stride.expand.into(),
-                    }),
-                    num_strides.clone().into(),
-                ));
-
-                // Compute `coordinate = num_strides % shape `.
-                let coordinate = scope.create_value(usize::__expand_as_type(scope));
-                scope.register(Instruction::new(
-                    Arithmetic::Rem(BinaryOperands {
-                        lhs: num_strides,
-                        rhs: shape.expand.into(),
-                    }),
-                    coordinate.clone().into(),
-                ));
-
-                coordinate.into()
-            })
+            let stride = self.stride(dim);
+            let shape = self.shape(dim);
+            (index / stride) % shape
         }
 
         /// The number of vectorized elements in the tensor.
@@ -294,6 +268,10 @@ impl<T: CubePrimitive> ListExpand<T> for TensorExpand<T> {
 impl<T: CubePrimitive> Vectorized for Tensor<T> {}
 impl<T: CubePrimitive> VectorizedExpand for TensorExpand<T> {
     fn vector_size(&self) -> VectorSize {
-        self.buffer.expand.ty.vector_size()
+        self.buffer.vector_size()
+    }
+
+    fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
+        self.buffer.__expand_vector_size_method(scope)
     }
 }

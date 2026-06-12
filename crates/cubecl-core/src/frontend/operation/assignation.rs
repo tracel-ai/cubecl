@@ -2,19 +2,18 @@ use core::ops::{
     Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 
-use cubecl_ir::{Scope, Value};
+use cubecl_ir::{ExpandValue, Scope};
 
+use crate::unexpanded;
 use crate::{
     frontend::{Array, Tensor},
     prelude::*,
 };
-use crate::{ir, unexpanded};
 
 type ArrayExpand<E> = NativeExpand<Array<E>>;
 
 pub mod assign {
-    use cubecl_ir::{Memory, StoreOperands};
-    use ir::{Instruction, Operation};
+    use cubecl_ir::{dialect::memory::StoreOp, interfaces::TypedExt, pliron::r#type::Typed};
 
     use crate::prelude::NativeExpand;
 
@@ -29,7 +28,7 @@ pub mod assign {
         input: NativeExpand<C>,
         output: &mut NativeExpand<C>,
     ) {
-        if output.expand.is_immutable() {
+        if output.value(scope).is_immutable(&scope.ctx()) {
             panic!("Can't assign a value to a const variable. Try to use `RuntimeCell`.");
         }
 
@@ -49,28 +48,17 @@ pub mod assign {
         expand_element(scope, input, output);
     }
 
-    pub fn expand_element(scope: &Scope, mut input: Value, output: Value) {
-        if output.vector_size() > 1 && input.vector_size() == 1 {
-            input = cast_expand_elem(scope, input, output.ty);
+    pub fn expand_element(scope: &Scope, input: ExpandValue, output: ExpandValue) {
+        let mut input = input.read_value(scope);
+        let output = output.value(scope);
+
+        if output.vector_size(&scope.ctx()) > 1 && input.vector_size(&scope.ctx()) == 1 {
+            input = cast_value(scope, input, output.get_type(&scope.ctx()));
         }
 
-        match (input.ty.is_ptr(), output.ty.is_ptr()) {
-            (true, false) => {
-                // ptr -> value = load
-                scope.register(Instruction::new(Memory::Load(input), output));
-            }
-            (false, true) => {
-                // value -> ptr = store
-                scope.register(Instruction::no_out(Memory::Store(StoreOperands {
-                    ptr: output,
-                    value: input,
-                })));
-            }
-            _ => {
-                // same ty = copy
-                scope.register(Instruction::new(Operation::Copy(input), output));
-            }
-        }
+        // value -> ptr = store
+        let store = StoreOp::new(&mut scope.ctx_mut(), output, input);
+        scope.register(&store);
     }
 }
 

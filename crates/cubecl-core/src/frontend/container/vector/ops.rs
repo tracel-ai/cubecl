@@ -2,7 +2,10 @@ use core::{
     marker::PhantomData,
     ops::{Not, Rem},
 };
-use cubecl_ir::{Bitwise, ConstantValue, ElemType, Instruction, Type, UIntKind, UnaryOperands};
+use cubecl_ir::{
+    ConstantValue, dialect::bitwise::CountOnesOp,
+    pliron::builtin::op_interfaces::OneResultInterface,
+};
 use cubecl_macros::{cube, intrinsic};
 use num_traits::{NumCast, One, ToPrimitive, Zero};
 
@@ -294,14 +297,10 @@ impl<P: Scalar + Ord, N: Size> Ord for Vector<P, N> {
 impl<P: CountOnes + Scalar, N: Size> Vector<P, N> {
     pub fn count_ones(self) -> Vector<u32, N> {
         intrinsic!(|scope| {
-            let out_item = Type::scalar(ElemType::UInt(UIntKind::U32))
-                .with_vector_size(self.expand.ty.vector_size());
-            let out = scope.create_value(out_item);
-            scope.register(Instruction::new(
-                Bitwise::CountOnes(UnaryOperands { input: self.expand }),
-                out,
-            ));
-            out.into()
+            let input = self.read_value(scope);
+            let op = CountOnesOp::new(&mut scope.ctx_mut(), input);
+            scope.register(&op);
+            op.get_result(&scope.ctx()).into()
         })
     }
 }

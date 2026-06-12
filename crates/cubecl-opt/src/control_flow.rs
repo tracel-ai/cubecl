@@ -6,7 +6,7 @@ use crate::{BasicBlock, BlockUse, Function, GlobalState, NodeIndex};
 use alloc::{boxed::Box, vec::Vec};
 use cubecl_ir::{
     Arithmetic, BinaryOperands, Branch, Comparison, ConstantValue, ElemType, If, IfElse,
-    Instruction, Loop, Marker, Memory, Operation, RangeLoop, StoreOperands, Switch, Type, Value,
+    Instruction, Loop, Marker, Memory, Operation, RangeLoop, StoreOperands, Switch, Type, ExpandValue,
 };
 use petgraph::{Direction, graph::EdgeIndex, visit::EdgeRef};
 use stable_vec::StableVec;
@@ -16,14 +16,14 @@ use stable_vec::StableVec;
 pub enum ControlFlow {
     /// An if or if-else branch that should be structured if applicable.
     IfElse {
-        cond: Value,
+        cond: ExpandValue,
         then: NodeIndex,
         or_else: NodeIndex,
         merge: Option<NodeIndex>,
     },
     /// A switch branch that paths based on `value`
     Switch {
-        value: Value,
+        value: ExpandValue,
         default: NodeIndex,
         branches: Vec<(u32, NodeIndex)>,
         merge: Option<NodeIndex>,
@@ -39,14 +39,14 @@ pub enum ControlFlow {
     /// `merge` is the block that gets executed as soon as the loop terminates. The header contains
     /// the break condition.
     LoopBreak {
-        break_cond: Value,
+        break_cond: ExpandValue,
         body: NodeIndex,
         continue_target: NodeIndex,
         merge: NodeIndex,
     },
     /// A return statement. This should only occur once in the program and all other returns should
     /// instead branch to this single return block.
-    Return { value: Option<Value> },
+    Return { value: Option<ExpandValue> },
     /// Unreachable control flow
     Unreachable,
     /// No special control flow. The block must have exactly one edge that should be followed.
@@ -298,7 +298,7 @@ impl Function {
                 .push(Instruction::new(Memory::Load(i), tmp_i));
             tmp_i
         };
-        let store_i = |f: &Self, block: NodeIndex, value: Value| {
+        let store_i = |f: &Self, block: NodeIndex, value: ExpandValue| {
             f[block]
                 .ops
                 .borrow_mut()

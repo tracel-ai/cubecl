@@ -1,9 +1,10 @@
-use cubecl_ir::Value;
-
 use super::{CubePrimitive, Vector};
 use crate::prelude::*;
 use crate::{
-    ir::{ElemType, Instruction, Plane, Scope, Type, UnaryOperands},
+    ir::{
+        Scope, attributes::IndexAttr, dialect::plane::*,
+        pliron::builtin::op_interfaces::OneResultInterface,
+    },
     unexpanded,
 };
 
@@ -14,17 +15,13 @@ pub fn plane_elect() -> bool {
 
 /// Module containing the expand function for [`plane_elect()`].
 pub mod plane_elect {
-
     use super::*;
 
     /// Expand method of [`plane_elect()`].
     pub fn expand(scope: &Scope) -> NativeExpand<bool> {
-        let output = scope.create_value(Type::scalar(ElemType::Bool));
-        let out = output;
-
-        scope.register(Instruction::new(Plane::Elect, out));
-
-        output.into()
+        let op = ElectOp::new(&mut scope.ctx_mut());
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -38,7 +35,6 @@ pub fn plane_broadcast<E: CubePrimitive>(value: E, index: u32) -> E {
 
 /// Module containing the expand function for [`plane_broadcast()`].
 pub mod plane_broadcast {
-
     use super::*;
 
     /// Expand method of [`plane_broadcast()`].
@@ -47,17 +43,10 @@ pub mod plane_broadcast {
         value: NativeExpand<E>,
         id: u32,
     ) -> NativeExpand<E> {
-        let output = scope.create_value(value.expand.value_type());
-        let out = output;
-        let lhs = value.expand;
-        let rhs = id.into();
-
-        scope.register(Instruction::new(
-            Plane::Broadcast(crate::ir::BinaryOperands { lhs, rhs }),
-            out,
-        ));
-
-        output.into()
+        let value = value.read_value(scope);
+        let op = BroadcastOp::new(&mut scope.ctx_mut(), value, IndexAttr::new(id as usize));
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -74,7 +63,6 @@ pub fn plane_shuffle<E: CubePrimitive>(value: E, src_lane: u32) -> E {
 
 /// Module containing the expand function for [`plane_shuffle()`].
 pub mod plane_shuffle {
-
     use super::*;
 
     /// Expand method of [`plane_shuffle()`].
@@ -83,17 +71,11 @@ pub mod plane_shuffle {
         value: NativeExpand<E>,
         src_lane: NativeExpand<u32>,
     ) -> NativeExpand<E> {
-        let output = scope.create_value(value.expand.value_type());
-        let out = output;
-        let lhs = value.expand;
-        let rhs = src_lane.expand;
-
-        scope.register(Instruction::new(
-            Plane::Shuffle(crate::ir::BinaryOperands { lhs, rhs }),
-            out,
-        ));
-
-        output.into()
+        let value = value.read_value(scope);
+        let src_lane = src_lane.read_value(scope);
+        let op = ShuffleOp::new(&mut scope.ctx_mut(), value, src_lane);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -113,7 +95,6 @@ pub fn plane_shuffle_xor<E: CubePrimitive>(value: E, mask: u32) -> E {
 
 /// Module containing the expand function for [`plane_shuffle_xor()`].
 pub mod plane_shuffle_xor {
-
     use super::*;
 
     /// Expand method of [`plane_shuffle_xor()`].
@@ -122,17 +103,11 @@ pub mod plane_shuffle_xor {
         value: NativeExpand<E>,
         mask: NativeExpand<u32>,
     ) -> NativeExpand<E> {
-        let output = scope.create_value(value.expand.value_type());
-        let out = output;
-        let lhs = value.expand;
-        let rhs = mask.expand;
-
-        scope.register(Instruction::new(
-            Plane::ShuffleXor(crate::ir::BinaryOperands { lhs, rhs }),
-            out,
-        ));
-
-        output.into()
+        let value = value.read_value(scope);
+        let mask = mask.read_value(scope);
+        let op = ShuffleXorOp::new(&mut scope.ctx_mut(), value, mask);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -149,7 +124,6 @@ pub fn plane_shuffle_up<E: CubePrimitive>(value: E, delta: u32) -> E {
 
 /// Module containing the expand function for [`plane_shuffle_up()`].
 pub mod plane_shuffle_up {
-
     use super::*;
 
     /// Expand method of [`plane_shuffle_up()`].
@@ -158,17 +132,11 @@ pub mod plane_shuffle_up {
         value: NativeExpand<E>,
         delta: NativeExpand<u32>,
     ) -> NativeExpand<E> {
-        let output = scope.create_value(value.expand.value_type());
-        let out = output;
-        let lhs = value.expand;
-        let rhs = delta.expand;
-
-        scope.register(Instruction::new(
-            Plane::ShuffleUp(crate::ir::BinaryOperands { lhs, rhs }),
-            out,
-        ));
-
-        output.into()
+        let value = value.read_value(scope);
+        let delta = delta.read_value(scope);
+        let op = ShuffleUpOp::new(&mut scope.ctx_mut(), value, delta);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -185,7 +153,6 @@ pub fn plane_shuffle_down<E: CubePrimitive>(value: E, delta: u32) -> E {
 
 /// Module containing the expand function for [`plane_shuffle_down()`].
 pub mod plane_shuffle_down {
-
     use super::*;
 
     /// Expand method of [`plane_shuffle_down()`].
@@ -194,17 +161,11 @@ pub mod plane_shuffle_down {
         value: NativeExpand<E>,
         delta: NativeExpand<u32>,
     ) -> NativeExpand<E> {
-        let output = scope.create_value(value.expand.value_type());
-        let out = output;
-        let lhs = value.expand;
-        let rhs = delta.expand;
-
-        scope.register(Instruction::new(
-            Plane::ShuffleDown(crate::ir::BinaryOperands { lhs, rhs }),
-            out,
-        ));
-
-        output.into()
+        let value = value.read_value(scope);
+        let delta = delta.read_value(scope);
+        let op = ShuffleDownOp::new(&mut scope.ctx_mut(), value, delta);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -220,15 +181,10 @@ pub mod plane_sum {
 
     /// Expand method of [`plane_sum()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Value = elem.into();
-        let output = scope.create_value(elem.value_type());
-
-        let out = output;
-        let input = elem;
-
-        scope.register(Instruction::new(Plane::Sum(UnaryOperands { input }), out));
-
-        output.into()
+        let value = elem.read_value(scope);
+        let op = SumOp::new(&mut scope.ctx_mut(), value);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -249,17 +205,10 @@ pub mod plane_inclusive_sum {
 
     /// Expand method of [`plane_inclusive_sum()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Value = elem.into();
-        let output = scope.create_value(elem.value_type());
-
-        let input = elem;
-
-        scope.register(Instruction::new(
-            Plane::InclusiveSum(UnaryOperands { input }),
-            output,
-        ));
-
-        output.into()
+        let value = elem.read_value(scope);
+        let op = InclusiveSumOp::new(&mut scope.ctx_mut(), value);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -281,18 +230,10 @@ pub mod plane_exclusive_sum {
 
     /// Expand method of [`plane_exclusive_sum()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Value = elem.into();
-        let output = scope.create_value(elem.value_type());
-
-        let out = output;
-        let input = elem;
-
-        scope.register(Instruction::new(
-            Plane::ExclusiveSum(UnaryOperands { input }),
-            out,
-        ));
-
-        output.into()
+        let value = elem.read_value(scope);
+        let op = ExclusiveSumOp::new(&mut scope.ctx_mut(), value);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -307,15 +248,10 @@ pub mod plane_prod {
 
     /// Expand method of [`plane_prod()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Value = elem.into();
-        let output = scope.create_value(elem.value_type());
-
-        let out = output;
-        let input = elem;
-
-        scope.register(Instruction::new(Plane::Prod(UnaryOperands { input }), out));
-
-        output.into()
+        let value = elem.read_value(scope);
+        let op = ProdOp::new(&mut scope.ctx_mut(), value);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -336,18 +272,10 @@ pub mod plane_inclusive_prod {
 
     /// Expand method of [`plane_inclusive_prod()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Value = elem.into();
-        let output = scope.create_value(elem.value_type());
-
-        let out = output;
-        let input = elem;
-
-        scope.register(Instruction::new(
-            Plane::InclusiveProd(UnaryOperands { input }),
-            out,
-        ));
-
-        output.into()
+        let value = elem.read_value(scope);
+        let op = InclusiveProdOp::new(&mut scope.ctx_mut(), value);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -369,18 +297,10 @@ pub mod plane_exclusive_prod {
 
     /// Expand method of [`plane_exclusive_prod()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Value = elem.into();
-        let output = scope.create_value(elem.value_type());
-
-        let out = output;
-        let input = elem;
-
-        scope.register(Instruction::new(
-            Plane::ExclusiveProd(UnaryOperands { input }),
-            out,
-        ));
-
-        output.into()
+        let value = elem.read_value(scope);
+        let op = ExclusiveProdOp::new(&mut scope.ctx_mut(), value);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -395,15 +315,10 @@ pub mod plane_max {
 
     /// Expand method of [`plane_max()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Value = elem.into();
-        let output = scope.create_value(elem.value_type());
-
-        let out = output;
-        let input = elem;
-
-        scope.register(Instruction::new(Plane::Max(UnaryOperands { input }), out));
-
-        output.into()
+        let value = elem.read_value(scope);
+        let op = MaxOp::new(&mut scope.ctx_mut(), value);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -418,15 +333,10 @@ pub mod plane_min {
 
     /// Expand method of [`plane_min()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let elem: Value = elem.into();
-        let output = scope.create_value(elem.value_type());
-
-        let out = output;
-        let input = elem;
-
-        scope.register(Instruction::new(Plane::Min(UnaryOperands { input }), out));
-
-        output.into()
+        let value = elem.read_value(scope);
+        let op = MinOp::new(&mut scope.ctx_mut(), value);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -437,20 +347,14 @@ pub fn plane_all(_elem: bool) -> bool {
 
 /// Module containing the expand function for [`plane_all()`].
 pub mod plane_all {
-
     use super::*;
 
     /// Expand method of [`plane_all()`].
     pub fn expand(scope: &Scope, elem: NativeExpand<bool>) -> NativeExpand<bool> {
-        let elem: Value = elem.into();
-        let output = scope.create_value(elem.value_type());
-
-        let out = output;
-        let input = elem;
-
-        scope.register(Instruction::new(Plane::All(UnaryOperands { input }), out));
-
-        output.into()
+        let value = elem.read_value(scope);
+        let op = AllOp::new(&mut scope.ctx_mut(), value);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -461,20 +365,14 @@ pub fn plane_any(_elem: bool) -> bool {
 
 /// Module containing the expand function for [`plane_any()`].
 pub mod plane_any {
-
     use super::*;
 
     /// Expand method of [`plane_any()`].
     pub fn expand(scope: &Scope, elem: NativeExpand<bool>) -> NativeExpand<bool> {
-        let elem: Value = elem.into();
-        let output = scope.create_value(elem.value_type());
-
-        let out = output;
-        let input = elem;
-
-        scope.register(Instruction::new(Plane::Any(UnaryOperands { input }), out));
-
-        output.into()
+        let value = elem.read_value(scope);
+        let op = AnyOp::new(&mut scope.ctx_mut(), value);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }
 
@@ -489,24 +387,13 @@ pub fn plane_ballot(_elem: bool) -> Vector<u32, Const<4>> {
 
 /// Module containing the expand function for [`plane_ballot()`].
 pub mod plane_ballot {
-    use cubecl_ir::UIntKind;
-
     use super::*;
 
     /// Expand method of [`plane_ballot()`].
     pub fn expand(scope: &Scope, elem: NativeExpand<bool>) -> NativeExpand<Vector<u32, Const<4>>> {
-        let elem: Value = elem.into();
-        let out_item = Type::scalar(ElemType::UInt(UIntKind::U32)).with_vector_size(4);
-        let output = scope.create_value(out_item);
-
-        let out = output;
-        let input = elem;
-
-        scope.register(Instruction::new(
-            Plane::Ballot(UnaryOperands { input }),
-            out,
-        ));
-
-        output.into()
+        let value = elem.read_value(scope);
+        let op = BallotOp::new(&mut scope.ctx_mut(), value);
+        scope.register(&op);
+        op.get_result(&scope.ctx()).into()
     }
 }

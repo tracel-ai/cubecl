@@ -5,7 +5,7 @@ use derive_more::{Deref, DerefMut};
 
 use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_ir::{
-    AddressSpace, GlobalState, Id, Instruction, Memory, Operation, Scope, Value, ValueKind,
+    AddressSpace, GlobalState, Id, Instruction, Memory, Operation, Scope, ExpandValue, ValueKind,
 };
 
 use crate::post_processing::{
@@ -41,7 +41,7 @@ impl GlobalAnalyses {
 
 #[derive(Default, Debug, Deref, DerefMut)]
 pub struct UsedValues {
-    used: HashSet<Value>,
+    used: HashSet<ExpandValue>,
 }
 
 impl InstructionVisitor for UsedValues {
@@ -62,7 +62,7 @@ impl InstructionVisitor for UsedValues {
 
 #[derive(Debug, Default, Deref, DerefMut)]
 pub struct PointerSource {
-    sources: HashMap<ValueKind, Value>,
+    sources: HashMap<ValueKind, ExpandValue>,
 }
 
 impl PointerSource {
@@ -160,7 +160,7 @@ impl BufferVisibility {
     }
 }
 
-fn global_buffer_id(variable: &Value) -> Option<Id> {
+fn global_buffer_id(variable: &ExpandValue) -> Option<Id> {
     match variable.address_space() {
         AddressSpace::Global(id) => Some(id),
         _ => None,

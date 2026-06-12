@@ -1,10 +1,10 @@
 use core::cmp::Ordering;
 
-use cubecl_ir::{Arithmetic, ClampOperands};
+use cubecl_ir::dialect::cmp::*;
 
 use crate as cubecl;
 use crate::frontend::NativeExpand;
-use crate::ir::{Comparison, Scope};
+use crate::ir::Scope;
 use crate::prelude::*;
 
 // NOTE: Unary comparison tests are in the unary module
@@ -53,12 +53,12 @@ impl<T: PartialEq + CubePrimitive> PartialEqExpand for NativeExpand<T> {
     fn __expand_eq_method(&self, scope: &Scope, rhs: &Self) -> NativeExpand<bool> {
         let this = self.__expand_deref_method(scope);
         let rhs = rhs.__expand_deref_method(scope);
-        cmp_expand(scope, this.into(), rhs.into(), Comparison::Equal).into()
+        binary_expand(scope, this.into(), rhs.into(), EqualOp::new).into()
     }
     fn __expand_ne_method(&self, scope: &Scope, rhs: &Self) -> NativeExpand<bool> {
         let this = self.__expand_deref_method(scope);
         let rhs = rhs.__expand_deref_method(scope);
-        cmp_expand(scope, this.into(), rhs.into(), Comparison::NotEqual).into()
+        binary_expand(scope, this.into(), rhs.into(), NotEqualOp::new).into()
     }
 }
 
@@ -184,20 +184,13 @@ impl<T: Ord + CubePrimitive> OrdExpand for NativeExpand<T> {
         }
     }
     fn __expand_min_method(self, scope: &Scope, rhs: Self) -> Self {
-        binary_expand(scope, self.into(), rhs.into(), Arithmetic::Min).into()
+        binary_expand(scope, self.into(), rhs.into(), MinOp::new).into()
     }
     fn __expand_max_method(self, scope: &Scope, rhs: Self) -> Self {
-        binary_expand(scope, self.into(), rhs.into(), Arithmetic::Max).into()
+        binary_expand(scope, self.into(), rhs.into(), MaxOp::new).into()
     }
     fn __expand_clamp_method(self, scope: &Scope, min: Self, max: Self) -> Self {
-        unary_expand(scope, self.into(), |op| {
-            Arithmetic::Clamp(ClampOperands {
-                input: op.input,
-                min_value: min.expand,
-                max_value: max.expand,
-            })
-        })
-        .into()
+        clamp::expand(scope, self, min, max)
     }
 }
 
@@ -271,21 +264,21 @@ impl<T: PartialOrd + CubePrimitive> PartialOrdExpand for NativeExpand<T> {
     fn __expand_lt_method(&self, scope: &Scope, rhs: &Self) -> NativeExpand<bool> {
         let this = self.__expand_deref_method(scope);
         let rhs = rhs.__expand_deref_method(scope);
-        cmp_expand(scope, this.into(), rhs.into(), Comparison::Lower).into()
+        binary_expand(scope, this.into(), rhs.into(), LessThanOp::new).into()
     }
     fn __expand_le_method(&self, scope: &Scope, rhs: &Self) -> NativeExpand<bool> {
         let this = self.__expand_deref_method(scope);
         let rhs = rhs.__expand_deref_method(scope);
-        cmp_expand(scope, this.into(), rhs.into(), Comparison::LowerEqual).into()
+        binary_expand(scope, this.into(), rhs.into(), LessThanOrEqualOp::new).into()
     }
     fn __expand_gt_method(&self, scope: &Scope, rhs: &Self) -> NativeExpand<bool> {
         let this = self.__expand_deref_method(scope);
         let rhs = rhs.__expand_deref_method(scope);
-        cmp_expand(scope, this.into(), rhs.into(), Comparison::Greater).into()
+        binary_expand(scope, this.into(), rhs.into(), GreaterThanOp::new).into()
     }
     fn __expand_ge_method(&self, scope: &Scope, rhs: &Self) -> NativeExpand<bool> {
         let this = self.__expand_deref_method(scope);
         let rhs = rhs.__expand_deref_method(scope);
-        cmp_expand(scope, this.into(), rhs.into(), Comparison::GreaterEqual).into()
+        binary_expand(scope, this.into(), rhs.into(), GreaterThanOrEqualOp::new).into()
     }
 }
