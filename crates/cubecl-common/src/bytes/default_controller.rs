@@ -1,6 +1,6 @@
 //! Module that defines an allocation based on the [alloc crate](alloc).
 
-use crate::bytes::{AllocationController, AllocationError};
+use crate::bytes::{AccessError, AccessPolicy, AllocationController, AllocationError};
 use alloc::alloc::Layout;
 use alloc::vec::Vec;
 use bytemuck::Contiguous;
@@ -92,10 +92,10 @@ impl<'a> NativeAllocationController<'a> {
         // See also #![feature(maybe_uninit_write_slice)], which would replace this with safe code
         // SAFETY: reinterpreting the slice as a MaybeUninit<u8>, and only reading from it.
         unsafe {
-            controller.memory_mut()[..data.len()].copy_from_slice(core::slice::from_raw_parts(
-                data.as_ptr().cast(),
-                data.len(),
-            ));
+            controller
+                .memory_mut(AccessPolicy::default())
+                .expect("native allocation is always host-resident")[..data.len()]
+                .copy_from_slice(core::slice::from_raw_parts(data.as_ptr().cast(), data.len()));
         }
         Ok(controller)
     }
@@ -195,25 +195,29 @@ impl AllocationController for NativeAllocationController<'_> {
         self.allocation.align
     }
 
-    fn memory(&self) -> &[MaybeUninit<u8>] {
-        unsafe {
+    // Native memory is always host-resident: the policy never forces a copy here.
+    fn memory(&self, _policy: AccessPolicy) -> Result<&[MaybeUninit<u8>], AccessError> {
+        Ok(unsafe {
             core::slice::from_raw_parts(self.allocation.ptr.as_ptr().cast(), self.allocation.size)
-        }
+        })
     }
 
     /// # Safety
     /// - Only initialized memory must be written to this slice.
-    unsafe fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+    unsafe fn memory_mut(
+        &mut self,
+        _policy: AccessPolicy,
+    ) -> Result<&mut [MaybeUninit<u8>], AccessError> {
         // SAFETY:
         // - Ptr is valid per type invariants.
         // - Size is valid per type invariants.
         // - Caller promises that only initialized memory is written to this slice.
-        unsafe {
+        Ok(unsafe {
             core::slice::from_raw_parts_mut(
                 self.allocation.ptr.as_ptr().cast(),
                 self.allocation.size,
             )
-        }
+        })
     }
 }
 
@@ -369,14 +373,14 @@ pub fn alloc_overflow() -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bytes::AllocationController;
+    use crate::bytes::{AccessPolicy, AllocationController};
     use alloc::vec;
 
     #[test_log::test]
     fn test_core_allocation_controller_alloc_with_capacity() {
         let controller = NativeAllocationController::alloc_with_capacity(64, 8).unwrap();
         assert_eq!(controller.alloc_align(), 8);
-        assert_eq!(controller.memory().len(), 64);
+        assert_eq!(controller.memory(AccessPolicy::default()).unwrap().len(), 64);
     }
 
     #[test_log::test]
@@ -384,11 +388,11 @@ mod tests {
         let data = b"hello world test"; // 16 bytes to be multiple of 8
         let controller = NativeAllocationController::alloc_with_data(data, 8).unwrap();
         assert_eq!(controller.alloc_align(), 8);
-        assert!(controller.memory().len() >= data.len());
-        assert_eq!(controller.memory().len() % 8, 0); // Should be multiple of alignment
+        assert!(controller.memory(AccessPolicy::default()).unwrap().len() >= data.len());
+        assert_eq!(controller.memory(AccessPolicy::default()).unwrap().len() % 8, 0); // Should be multiple of alignment
 
         // Verify data was copied correctly
-        let memory = controller.memory();
+        let memory = controller.memory(AccessPolicy::default()).unwrap();
         let memory_slice =
             unsafe { core::slice::from_raw_parts(memory.as_ptr() as *const u8, data.len()) };
         assert_eq!(memory_slice, data);
@@ -401,19 +405,19 @@ mod tests {
 
         let controller = NativeAllocationController::from_elems(elems);
         assert_eq!(controller.alloc_align(), core::mem::align_of::<u32>());
-        assert_eq!(controller.memory().len(), expected_bytes);
+        assert_eq!(controller.memory(AccessPolicy::default()).unwrap().len(), expected_bytes);
     }
 
     #[test_log::test]
     fn test_core_allocation_controller_grow() {
         let mut controller = NativeAllocationController::alloc_with_capacity(32, 8).unwrap();
-        let old_memory_len = controller.memory().len();
+        let old_memory_len = controller.memory(AccessPolicy::default()).unwrap().len();
 
         controller.grow(64, 8).unwrap();
 
         assert_eq!(controller.alloc_align(), 8);
-        assert!(controller.memory().len() >= 64);
-        assert!(controller.memory().len() > old_memory_len);
+        assert!(controller.memory(AccessPolicy::default()).unwrap().len() >= 64);
+        assert!(controller.memory(AccessPolicy::default()).unwrap().len() > old_memory_len);
     }
 
     #[test_log::test]
@@ -440,7 +444,7 @@ mod tests {
         let data = b"test data"; // 9 bytes, will be rounded up to 16 for 8-byte alignment
         let controller = NativeAllocationController::alloc_with_data(data, 8).unwrap();
 
-        let memory = controller.memory();
+        let memory = controller.memory(AccessPolicy::default()).unwrap();
         assert!(memory.len() >= data.len());
         assert_eq!(memory.len() % 8, 0); // Should be multiple of alignment
         let memory_slice =
@@ -452,14 +456,14 @@ mod tests {
     fn test_memory_mut_access() {
         let mut controller = NativeAllocationController::alloc_with_capacity(16, 8).unwrap();
         unsafe {
-            let memory = controller.memory_mut();
+            let memory = controller.memory_mut(AccessPolicy::default()).unwrap();
             assert_eq!(memory.len(), 16);
             // Write some test data
             memory[0].write(42);
             memory[1].write(84);
         }
         // Verify the data was written
-        let memory = controller.memory();
+        let memory = controller.memory(AccessPolicy::default()).unwrap();
         unsafe {
             assert_eq!(memory[0].assume_init(), 42);
             assert_eq!(memory[1].assume_init(), 84);

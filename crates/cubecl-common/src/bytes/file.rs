@@ -1,6 +1,6 @@
 use super::AllocationProperty;
 use crate::bytes::{
-    AllocationController,
+    AccessError, AccessPolicy, AllocationController,
     default_controller::{MAX_ALIGN, NativeAllocationController},
 };
 use spin::Once;
@@ -9,6 +9,7 @@ use std::{
     fs::File,
     io::{Read, Seek, SeekFrom},
     path::PathBuf,
+    string::ToString,
     sync::Arc,
     vec,
 };
@@ -46,15 +47,32 @@ impl FileAllocationController {
 
     /// Materialize the file content into an in-memory buffer on first call, returning the cached
     /// controller afterwards.
-    fn ensure_init(&self) -> &dyn AllocationController {
-        &**self.controller.call_once(|| {
-            let mut file = File::open(self.file.as_ref()).unwrap();
-            let mut buf = vec![0u8; self.size as usize];
-            file.seek(SeekFrom::Start(self.offset)).unwrap();
-            file.read_exact(&mut buf).unwrap();
+    ///
+    /// Honors `policy`: if not yet materialized and the policy forbids copies, returns
+    /// [`AccessError::WouldCopy`]. A failed read returns [`AccessError::Read`] and leaves the
+    /// cell uninitialized (retryable).
+    fn ensure_init(&self, policy: AccessPolicy) -> Result<&dyn AllocationController, AccessError> {
+        if let Some(controller) = self.controller.get() {
+            return Ok(&**controller);
+        }
+        if !policy.copy_allowed() {
+            return Err(AccessError::WouldCopy);
+        }
 
-            Box::new(NativeAllocationController::from_elems(buf)) as Box<dyn AllocationController>
-        })
+        let controller = self.controller.try_call_once(
+            || -> Result<Box<dyn AllocationController>, AccessError> {
+                let mut file =
+                    File::open(self.file.as_ref()).map_err(|e| AccessError::Read(e.to_string()))?;
+                let mut buf = vec![0u8; self.size as usize];
+                file.seek(SeekFrom::Start(self.offset))
+                    .map_err(|e| AccessError::Read(e.to_string()))?;
+                file.read_exact(&mut buf)
+                    .map_err(|e| AccessError::Read(e.to_string()))?;
+
+                Ok(Box::new(NativeAllocationController::from_elems(buf)))
+            },
+        )?;
+        Ok(&**controller)
     }
 }
 
@@ -106,19 +124,27 @@ impl AllocationController for FileAllocationController {
         AllocationProperty::File
     }
 
-    unsafe fn memory_mut(&mut self) -> &mut [core::mem::MaybeUninit<u8>] {
-        self.ensure_init();
+    // The file region size, known without reading the file (never materializes).
+    fn capacity(&self) -> usize {
+        self.size as usize
+    }
+
+    unsafe fn memory_mut(
+        &mut self,
+        policy: AccessPolicy,
+    ) -> Result<&mut [core::mem::MaybeUninit<u8>], AccessError> {
+        self.ensure_init(policy)?;
 
         // SAFETY: `ensure_init` guarantees the controller is set, and `&mut self` is exclusive.
         let controller = self
             .controller
             .get_mut()
             .expect("controller must be set after init");
-        unsafe { controller.memory_mut() }
+        unsafe { controller.memory_mut(policy) }
     }
 
-    fn memory(&self) -> &[core::mem::MaybeUninit<u8>] {
-        self.ensure_init().memory()
+    fn memory(&self, policy: AccessPolicy) -> Result<&[core::mem::MaybeUninit<u8>], AccessError> {
+        self.ensure_init(policy)?.memory(policy)
     }
 
     fn duplicate(&self) -> Option<Box<dyn AllocationController>> {
@@ -133,7 +159,9 @@ impl AllocationController for FileAllocationController {
     unsafe fn copy_into(&self, buf: &mut [u8]) {
         if self.controller.is_completed() {
             let len = buf.len();
-            let memory = self.memory();
+            let memory = self
+                .memory(AccessPolicy::default())
+                .expect("file: host access failed");
             let memory_slice = &memory[0..len];
 
             // SAFETY: By construction, bytes up to len are initialized.
@@ -155,8 +183,38 @@ impl AllocationController for FileAllocationController {
 mod tests {
     use tempfile::TempDir;
 
-    use super::super::{Bytes, SplitPolicy};
+    use super::super::{AccessError, Bytes, Reader, SplitPolicy};
     use std::{io::Write, path::PathBuf, vec::Vec};
+
+    #[test_log::test]
+    fn test_no_copy_read_and_length_do_not_materialize() {
+        let elems = (0..120).collect();
+        let (path, bytes_expected, dir) = with_data(elems);
+        let bytes = Bytes::from_file(&path, bytes_expected.len() as u64, 0);
+
+        // Not materialized yet: a no-copy read must refuse rather than read the file.
+        assert_eq!(
+            bytes.read(Reader::new().no_copy()),
+            Err(AccessError::WouldCopy)
+        );
+
+        // `len()` and `capacity()` must NOT materialize, so a no-copy read still refuses.
+        assert_eq!(bytes.len(), bytes_expected.len());
+        assert_eq!(bytes.capacity(), bytes_expected.len());
+        assert_eq!(
+            bytes.read(Reader::new().no_copy()),
+            Err(AccessError::WouldCopy)
+        );
+
+        // A copy-allowed read materializes the file...
+        assert_eq!(bytes.read(Reader::new()).unwrap(), &bytes_expected[..]);
+        // ...after which a no-copy read succeeds.
+        assert_eq!(
+            bytes.read(Reader::new().no_copy()).unwrap(),
+            &bytes_expected[..]
+        );
+        core::mem::drop(dir);
+    }
 
     #[test_log::test]
     fn test_from_file() {

@@ -1,7 +1,7 @@
 use crate::{self as cubecl};
 use alloc::vec::Vec;
 use cubecl::prelude::*;
-use cubecl_common::bytes::AllocationProperty;
+use cubecl_common::bytes::{AccessError, AllocationProperty, Reader};
 use cubecl_runtime::server::MemoryLayout;
 use cubecl_zspace::shape;
 
@@ -24,11 +24,29 @@ pub fn test_read_lazy<R: Runtime>(client: ComputeClient<R>) {
     // Before any access the data is still on the device. On wasm `read_lazy` is eager, so the
     // property already reflects the materialized host allocation.
     #[cfg(not(target_family = "wasm"))]
-    assert!(
-        matches!(lazy.property(), AllocationProperty::Device),
-        "lazy bytes must report `Device` before the first access, got {:?}",
-        lazy.property()
-    );
+    {
+        assert!(
+            matches!(lazy.property(), AllocationProperty::Device),
+            "lazy bytes must report `Device` before the first access, got {:?}",
+            lazy.property()
+        );
+
+        // `len()` and `capacity()` must be no-copy: they must not pull the data off the device.
+        assert_eq!(lazy.len(), bytes_expected.len());
+        assert_eq!(lazy.capacity(), bytes_expected.len());
+
+        // A no-copy read must refuse rather than materialize.
+        assert!(
+            matches!(lazy.read(Reader::new().no_copy()), Err(AccessError::WouldCopy)),
+            "a no-copy read of an unmaterialized device buffer must refuse"
+        );
+
+        // None of the above triggered a device-to-host copy.
+        assert!(
+            matches!(lazy.property(), AllocationProperty::Device),
+            "len()/capacity()/no-copy read must not materialize the device buffer"
+        );
+    }
 
     // First access materializes through the regular read path and caches the result.
     let bytes_lazy: &[u8] = &lazy;

@@ -23,7 +23,7 @@
 //! ```
 
 use super::{
-    AllocationController, AllocationError, AllocationProperty, SplitError,
+    AccessError, AccessPolicy, AllocationController, AllocationError, AllocationProperty, SplitError,
     default_controller::{MAX_ALIGN, NativeAllocationController},
 };
 use alloc::boxed::Box;
@@ -126,21 +126,33 @@ impl AllocationController for SharedBytesAllocationController {
         self.property
     }
 
-    fn memory(&self) -> &[MaybeUninit<u8>] {
+    // The underlying bytes length, known without copy-on-write (never materializes).
+    fn capacity(&self) -> usize {
+        self.bytes.len()
+    }
+
+    fn memory(&self, policy: AccessPolicy) -> Result<&[MaybeUninit<u8>], AccessError> {
         match self.controller.get() {
             // Data has been copied to the mutable controller, use that.
-            Some(controller) => controller.memory(),
+            Some(controller) => controller.memory(policy),
             None => {
-                // Zero-copy access to original bytes
+                // Zero-copy access to original bytes (no policy check needed).
                 let slice: &[u8] = &self.bytes;
                 // SAFETY: &[u8] and &[MaybeUninit<u8>] have the same memory layout,
                 // and all bytes in the slice are initialized (coming from bytes::Bytes).
-                unsafe { core::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) }
+                Ok(unsafe { core::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) })
             }
         }
     }
 
-    unsafe fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+    unsafe fn memory_mut(
+        &mut self,
+        policy: AccessPolicy,
+    ) -> Result<&mut [MaybeUninit<u8>], AccessError> {
+        // Mutating still-shared data requires copying it into a private buffer first.
+        if !self.controller.is_completed() && !policy.copy_allowed() {
+            return Err(AccessError::WouldCopy);
+        }
         // Trigger copy-on-write if not already done
         self.init_mutable();
 
@@ -149,7 +161,7 @@ impl AllocationController for SharedBytesAllocationController {
             .controller
             .get_mut()
             .expect("controller must be set after init_mutable()");
-        unsafe { controller.memory_mut() }
+        unsafe { controller.memory_mut(policy) }
     }
 
     fn split(
@@ -210,7 +222,9 @@ impl AllocationController for SharedBytesAllocationController {
         match self.controller.get() {
             Some(controller) => {
                 // Use the mutable controller's data
-                let memory = controller.memory();
+                let memory = controller
+                    .memory(AccessPolicy::default())
+                    .expect("shared: host access failed");
                 let copy_len = buf.len().min(memory.len());
                 let memory_slice = &memory[..copy_len];
                 // SAFETY: By construction, bytes are initialized.
@@ -315,7 +329,7 @@ mod tests {
         let controller = SharedBytesAllocationController::new(shared, AllocationProperty::Other);
 
         let dup = controller.duplicate().expect("duplicate should succeed");
-        assert_eq!(dup.memory().len(), 3);
+        assert_eq!(dup.capacity(), 3);
     }
 
     #[test_log::test]

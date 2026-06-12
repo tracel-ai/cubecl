@@ -21,7 +21,7 @@
 //! ```
 
 use super::{
-    AllocationController, AllocationProperty, Bytes, SplitError,
+    AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes, SplitError,
     default_controller::{MAX_ALIGN, NativeAllocationController},
 };
 use alloc::boxed::Box;
@@ -92,20 +92,33 @@ impl AllocationController for SharedAllocationController {
         self.inner.property()
     }
 
-    fn memory(&self) -> &[MaybeUninit<u8>] {
+    // The view length, known without copy-on-write (never materializes).
+    fn capacity(&self) -> usize {
+        self.len
+    }
+
+    fn memory(&self, policy: AccessPolicy) -> Result<&[MaybeUninit<u8>], AccessError> {
         match self.controller.get() {
             // After copy-on-write, read from the private controller.
-            Some(controller) => controller.memory(),
+            Some(controller) => controller.memory(policy),
             None => {
+                // Reading the shared view is always zero-copy, so no policy check is needed.
                 let slice = self.view();
                 // SAFETY: `&[u8]` and `&[MaybeUninit<u8>]` share a layout, and every
                 // byte of the shared view is initialized.
-                unsafe { core::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) }
+                Ok(unsafe { core::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) })
             }
         }
     }
 
-    unsafe fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+    unsafe fn memory_mut(
+        &mut self,
+        policy: AccessPolicy,
+    ) -> Result<&mut [MaybeUninit<u8>], AccessError> {
+        // Mutating still-shared data requires copying it into a private buffer first.
+        if !self.controller.is_completed() && !policy.copy_allowed() {
+            return Err(AccessError::WouldCopy);
+        }
         // Trigger copy-on-write so we never mutate the shared allocation.
         self.init_mutable();
 
@@ -115,7 +128,7 @@ impl AllocationController for SharedAllocationController {
             .controller
             .get_mut()
             .expect("controller must be set after init_mutable");
-        unsafe { controller.memory_mut() }
+        unsafe { controller.memory_mut(policy) }
     }
 
     fn split(
@@ -173,7 +186,9 @@ impl AllocationController for SharedAllocationController {
     unsafe fn copy_into(&self, buf: &mut [u8]) {
         match self.controller.get() {
             Some(controller) => {
-                let memory = controller.memory();
+                let memory = controller
+                    .memory(AccessPolicy::default())
+                    .expect("shared: host access failed");
                 let copy_len = buf.len().min(memory.len());
                 // SAFETY: every byte of the private buffer up to its length is initialized.
                 let data =
@@ -191,8 +206,27 @@ impl AllocationController for SharedAllocationController {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{Bytes, SplitPolicy};
+    use super::super::{AccessError, Bytes, Reader, SplitPolicy, Writer};
     use alloc::vec;
+
+    #[test_log::test]
+    fn test_shared_no_copy_write_errors_until_cow() {
+        let mut shared = Bytes::from_elems(vec![1u8, 2, 3, 4]).shared();
+
+        // Still shared: a no-copy write must refuse (it would trigger copy-on-write).
+        assert_eq!(
+            shared.write(Writer::new().no_copy()).err(),
+            Some(AccessError::WouldCopy)
+        );
+        // A no-copy *read* of shared data is always fine (zero-copy view).
+        assert_eq!(shared.read(Reader::new().no_copy()).unwrap(), &[1, 2, 3, 4]);
+
+        // A copy-allowed write triggers copy-on-write...
+        shared.write(Writer::new()).unwrap()[0] = 9;
+        // ...after which the buffer is private and a no-copy write succeeds.
+        assert!(shared.write(Writer::new().no_copy()).is_ok());
+        assert_eq!(&shared[..], &[9, 2, 3, 4]);
+    }
 
     #[test_log::test]
     fn test_shared_is_zero_copy_view() {

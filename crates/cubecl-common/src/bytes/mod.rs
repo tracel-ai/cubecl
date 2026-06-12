@@ -5,8 +5,10 @@ pub(crate) mod file;
 mod shared;
 mod shared_arc;
 
+mod access;
 mod base;
 
+pub use access::*;
 pub use base::*;
 #[cfg(feature = "shared-bytes")]
 pub use shared::SharedBytesAllocationController;

@@ -3,9 +3,10 @@
 use super::ComputeClient;
 use crate::runtime::Runtime;
 use crate::server::CopyDescriptor;
+use alloc::format;
 use alloc::sync::Arc;
 use core::mem::MaybeUninit;
-use cubecl_common::bytes::{AllocationController, AllocationProperty, Bytes};
+use cubecl_common::bytes::{AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes};
 use spin::Once;
 
 /// Allocation controller that lazily copies a device resource into host memory on first access.
@@ -44,10 +45,21 @@ impl<R: Runtime> LazyDeviceController<R> {
 
     /// Materialize the device resource into host memory on first call, returning the cached
     /// [`Bytes`] afterwards. Thread-safe: concurrent first accesses read exactly once.
-    fn ensure_init(&self) -> &Bytes {
-        self.materialized.call_once(|| {
+    ///
+    /// Honors `policy`: if not yet materialized and the policy forbids copies, returns
+    /// [`AccessError::WouldCopy`]. A failed device read returns [`AccessError::Read`] and leaves
+    /// the cell uninitialized (retryable).
+    fn ensure_init(&self, policy: AccessPolicy) -> Result<&Bytes, AccessError> {
+        if let Some(bytes) = self.materialized.get() {
+            return Ok(bytes);
+        }
+        if !policy.copy_allowed() {
+            return Err(AccessError::WouldCopy);
+        }
+
+        self.materialized.try_call_once(|| -> Result<Bytes, AccessError> {
             let desc = self.descriptor.as_ref();
-            // `read_one_unchecked_tensor` consumes the descriptor by value; rebuild one from the
+            // `read_one_tensor_async` consumes the descriptor by value; rebuild one from the
             // shared fields. All clones are cheap (the binding is `Arc`-backed).
             let descriptor = CopyDescriptor::new(
                 desc.handle.clone(),
@@ -55,8 +67,15 @@ impl<R: Runtime> LazyDeviceController<R> {
                 desc.strides.clone(),
                 desc.elem_size,
             );
-            self.client.read_one_unchecked_tensor(descriptor)
+            cubecl_common::reader::read_sync(self.client.read_one_tensor_async(descriptor))
+                .map_err(|err| AccessError::Read(format!("{err:?}")))
         })
+    }
+
+    /// The host byte length, derived from the descriptor without materializing.
+    fn byte_len(&self) -> usize {
+        let desc = self.descriptor.as_ref();
+        desc.shape.iter().product::<usize>() * desc.elem_size
     }
 }
 
@@ -77,16 +96,24 @@ impl<R: Runtime> AllocationController for LazyDeviceController<R> {
         }
     }
 
-    fn memory(&self) -> &[MaybeUninit<u8>] {
-        let bytes = self.ensure_init();
+    // The host byte length, known from the descriptor without materializing.
+    fn capacity(&self) -> usize {
+        self.byte_len()
+    }
+
+    fn memory(&self, policy: AccessPolicy) -> Result<&[MaybeUninit<u8>], AccessError> {
+        let bytes = self.ensure_init(policy)?;
         let slice: &[u8] = bytes;
         // SAFETY: `&[u8]` and `&[MaybeUninit<u8>]` share a layout, and every byte read from the
         // device is initialized.
-        unsafe { core::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) }
+        Ok(unsafe { core::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) })
     }
 
-    unsafe fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {
-        self.ensure_init();
+    unsafe fn memory_mut(
+        &mut self,
+        policy: AccessPolicy,
+    ) -> Result<&mut [MaybeUninit<u8>], AccessError> {
+        self.ensure_init(policy)?;
 
         // SAFETY: `ensure_init` guarantees the cell is initialized, and `&mut self` is exclusive.
         let bytes = self
@@ -95,11 +122,13 @@ impl<R: Runtime> AllocationController for LazyDeviceController<R> {
             .expect("materialized must be set after init");
         let slice: &mut [u8] = bytes;
         // SAFETY: same layout as above; every byte is initialized.
-        unsafe { core::slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), slice.len()) }
+        Ok(unsafe { core::slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), slice.len()) })
     }
 
     unsafe fn copy_into(&self, buf: &mut [u8]) {
-        let bytes = self.ensure_init();
+        let bytes = self
+            .ensure_init(AccessPolicy::default())
+            .expect("device: host access failed");
         let len = buf.len().min(bytes.len());
         buf[..len].copy_from_slice(&bytes[..len]);
     }

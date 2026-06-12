@@ -2,6 +2,7 @@
 
 use crate::bytes::default_controller::{self, NativeAllocationController};
 use crate::bytes::shared_arc::SharedAllocationController;
+use crate::bytes::{AccessError, AccessPolicy, Reader, Writer};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -89,15 +90,37 @@ pub trait AllocationController {
     /// Returns memory property for the current allocation.
     fn property(&self) -> AllocationProperty;
 
-    /// Returns a mutable view of the memory of the whole allocation
+    /// Returns a mutable view of the memory of the whole allocation, subject to `policy`.
+    ///
+    /// Returns [`AccessError::WouldCopy`] if satisfying the access would require a copy
+    /// (e.g. copy-on-write of shared storage) that `policy` forbids, or [`AccessError::Read`]
+    /// if materializing lazy storage fails.
     ///
     /// # Safety
     ///
     /// Must only write initialized data to the buffer.
-    unsafe fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>];
+    unsafe fn memory_mut(
+        &mut self,
+        policy: AccessPolicy,
+    ) -> Result<&mut [MaybeUninit<u8>], AccessError>;
 
-    /// Returns a view of the memory of the whole allocation
-    fn memory(&self) -> &[MaybeUninit<u8>];
+    /// Returns a view of the memory of the whole allocation, subject to `policy`.
+    ///
+    /// Returns [`AccessError::WouldCopy`] if satisfying the access would require a copy
+    /// (e.g. materializing lazy storage) that `policy` forbids, or [`AccessError::Read`] if
+    /// materializing fails.
+    fn memory(&self, policy: AccessPolicy) -> Result<&[MaybeUninit<u8>], AccessError>;
+
+    /// The total byte capacity of the allocation, WITHOUT materializing lazy storage.
+    ///
+    /// The default is correct for already-resident controllers (where `memory()` is free);
+    /// lazy controllers must override it to report their size cheaply so that querying the
+    /// capacity never triggers a copy.
+    fn capacity(&self) -> usize {
+        self.memory(AccessPolicy::allow_copy())
+            .map(|memory| memory.len())
+            .unwrap_or(0)
+    }
 
     /// Splits the current allocation in multiple separate allocations.
     #[allow(clippy::type_complexity)]
@@ -129,7 +152,9 @@ pub trait AllocationController {
     /// Ensures the length provided reflect initialized values in the current allocation controller.
     unsafe fn copy_into(&self, buf: &mut [u8]) {
         let len = buf.len();
-        let memory = self.memory();
+        let memory = self
+            .memory(AccessPolicy::default())
+            .expect("copy_into: host access failed");
         let memory_slice = &memory[0..len];
 
         // SAFETY: By construction, bytes up to len are initialized.
@@ -379,6 +404,47 @@ impl Bytes {
         self.len
     }
 
+    /// Read the bytes, configured by `reader`. Returns the initialized `[0, len)` slice.
+    ///
+    /// Unlike [`Deref`], this is fallible: it surfaces an [`AccessError`] instead of
+    /// panicking, and a [`Reader::no_copy`] reader returns [`AccessError::WouldCopy`] rather
+    /// than silently materializing lazy storage.
+    pub fn read(&self, reader: Reader) -> Result<&[u8], AccessError> {
+        let memory = &self.controller.memory(reader.policy)?[0..self.len];
+        // SAFETY: bytes up to `len` are initialized by construction.
+        Ok(unsafe { core::slice::from_raw_parts(memory.as_ptr().cast(), memory.len()) })
+    }
+
+    /// Mutably access the bytes, configured by `writer`. Returns the initialized `[0, len)`
+    /// slice. A [`Writer::no_copy`] writer fails with [`AccessError::WouldCopy`] on
+    /// still-shared buffers instead of triggering copy-on-write.
+    pub fn write(&mut self, writer: Writer) -> Result<&mut [u8], AccessError> {
+        let len = self.len;
+        // SAFETY: we only ever expose initialized memory in `[0, len)`.
+        let memory = unsafe { self.controller.memory_mut(writer.policy) }?;
+        let memory = &mut memory[0..len];
+        // SAFETY: bytes up to `len` are initialized by construction.
+        Ok(unsafe { core::slice::from_raw_parts_mut(memory.as_mut_ptr().cast(), memory.len()) })
+    }
+
+    /// Default host access (allow copy), panicking on failure — backs [`Deref`].
+    fn memory_default(&self) -> &[MaybeUninit<u8>] {
+        self.controller
+            .memory(AccessPolicy::default())
+            .expect("bytes: host access failed")
+    }
+
+    /// Default mutable host access (allow copy-on-write), panicking on failure — backs
+    /// [`DerefMut`].
+    ///
+    /// # Safety
+    ///
+    /// Caller must only write initialized data into the returned slice.
+    unsafe fn memory_mut_default(&mut self) -> &mut [MaybeUninit<u8>] {
+        unsafe { self.controller.memory_mut(AccessPolicy::default()) }
+            .expect("bytes: host access failed")
+    }
+
     /// Copy the data from the current allocation to the provided [Bytes].
     pub fn copy_into(&self, other: &mut Self) {
         unsafe {
@@ -448,8 +514,10 @@ impl Bytes {
     }
 
     /// Get the total capacity, in bytes, of the wrapped allocation.
+    ///
+    /// This never materializes lazy storage (see [`AllocationController::capacity`]).
     pub fn capacity(&self) -> usize {
-        self.controller.memory().len()
+        self.controller.capacity()
     }
 
     /// Convert the bytes back into a vector. This requires that the type has the same alignment as the element
@@ -465,8 +533,9 @@ impl Bytes {
             return Err(self);
         };
         let length = data.len();
-        // If so, try to convert the allocation to a vec
-        let byte_capacity = self.controller.memory().len();
+        // If so, try to convert the allocation to a vec. The data is already host-resident
+        // here (the cast above went through `Deref`), so `capacity()` is free.
+        let byte_capacity = self.controller.capacity();
 
         let Some(capacity) = byte_capacity.checked_div(size_of::<E>()) else {
             return Err(self);
@@ -527,7 +596,7 @@ impl Bytes {
 
         unsafe {
             // SAFETY: Will only write initialized memory to this ptr.
-            let uninit_spare = &mut self.controller.memory_mut()[len..new_cap];
+            let uninit_spare = &mut self.memory_mut_default()[len..new_cap];
             // SAFETY: reinterpreting the slice as a MaybeUninit<u8>.
             // See also #![feature(maybe_uninit_write_slice)], which would replace this with safe code
             uninit_spare.copy_from_slice(core::slice::from_raw_parts(
@@ -599,7 +668,7 @@ impl Deref for Bytes {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        let memory = &self.controller.memory()[0..self.len];
+        let memory = &self.memory_default()[0..self.len];
         // SAFETY: By construction, bytes up to len are initialized.
         unsafe { core::slice::from_raw_parts(memory.as_ptr().cast(), memory.len()) }
     }
@@ -609,7 +678,7 @@ impl DerefMut for Bytes {
     fn deref_mut(&mut self) -> &mut Self::Target {
         let len = self.len;
         // SAFETY: We only expose this as initialized memory so cannot write uninitialized memory to this slice.
-        let slice = unsafe { &mut self.controller.memory_mut() };
+        let slice = unsafe { self.memory_mut_default() };
         // Get initialized part of this slice.
         let memory = &mut slice[0..len];
         // SAFETY: By construction, bytes up to len are initialized.
