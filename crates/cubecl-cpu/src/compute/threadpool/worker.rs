@@ -3,8 +3,7 @@ use std::thread;
 
 use crate::compute::{
     affinity::{CoreId, set_for_current},
-    threadpool::compute_task::ComputeTask,
-    threadpool::thread_buffer::ThreadBuffer,
+    threadpool::{compute_task::ComputeTask, scheduler::simple::SimpleScheduler},
 };
 
 pub const MAX_STACK_SIZE: usize = 16 * 1024 * 1024;
@@ -25,37 +24,29 @@ fn resolve_stack_size() -> usize {
 }
 
 pub struct Worker {
-    threads_buffer: Arc<[spin::Mutex<ThreadBuffer<ComputeTask>>]>,
-    thread_id: usize,
+    thread_buffer: Arc<spin::Mutex<SimpleScheduler<ComputeTask>>>,
 }
 
 impl Worker {
     pub fn spawn_thread(
         core_id: CoreId,
-        thread_id: usize,
-        threads_buffer: Arc<[spin::Mutex<ThreadBuffer<ComputeTask>>]>,
+        threads_buffer: Arc<spin::Mutex<SimpleScheduler<ComputeTask>>>,
     ) {
         thread::Builder::new()
             .stack_size(resolve_stack_size())
             .spawn(move || {
                 set_for_current(core_id);
-                let worker = Worker::new(threads_buffer, thread_id);
+                let worker = Worker::new(threads_buffer);
                 worker.work()
             })
             .unwrap();
     }
-    fn new(
-        threads_buffer: Arc<[spin::Mutex<ThreadBuffer<ComputeTask>>]>,
-        thread_id: usize,
-    ) -> Self {
-        Self {
-            threads_buffer,
-            thread_id,
-        }
+    fn new(thread_buffer: Arc<spin::Mutex<SimpleScheduler<ComputeTask>>>) -> Self {
+        Self { thread_buffer }
     }
     fn work(self) {
         loop {
-            if let Some(compute_task) = self.threads_buffer[self.thread_id].lock().pop() {
+            if let Some(compute_task) = self.thread_buffer.lock().pop() {
                 compute_task.compute();
             }
 

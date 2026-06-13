@@ -3,30 +3,55 @@ use std::{
     sync::Arc,
 };
 
-use super::circular_buffer::CircularBuffer;
+use cubecl_core::config::RuntimeConfig;
+use cubecl_runtime::config::CubeClRuntimeConfig;
 
-pub trait ThreadTask {
-    fn get_stream_id(&self) -> usize;
-    fn is_ready(&self) -> bool;
+use crate::compute::{
+    affinity::get_active_cores,
+    threadpool::{
+        circular_buffer::CircularBuffer, compute_task::ComputeTask, scheduler::ThreadTask,
+        worker::Worker,
+    },
+};
+
+pub struct SimpleSender<T: ThreadTask> {
+    threads_buffer: Vec<Arc<spin::Mutex<SimpleScheduler<T>>>>,
 }
 
-/// Local thread buffer used for pushing task to a worker for the scheduler and for getting/stealing task for the worker
-pub struct ThreadBuffer<T: ThreadTask> {
+impl SimpleSender<ComputeTask> {
+    pub fn new() -> Self {
+        let config = CubeClRuntimeConfig::get();
+        let max_streams = config.streaming.max_streams;
+
+        let threads_buffer = get_active_cores()
+            .map(|core_id| {
+                let thread_buffer =
+                    Arc::new(spin::Mutex::new(SimpleScheduler::new(max_streams as usize)));
+                Worker::spawn_thread(core_id, Arc::clone(&thread_buffer));
+                thread_buffer
+            })
+            .collect();
+
+        Self { threads_buffer }
+    }
+    pub fn send(&mut self, index: usize, task: ComputeTask) {
+        self.threads_buffer[index].lock().push(task)
+    }
+}
+
+/// Local thread buffer used for pushing task to a worker for the scheduler and for getting task for the worker
+pub struct SimpleScheduler<T: ThreadTask> {
     /// Main stream storage
     streams: CircularBuffer<VecDeque<T>>,
     /// Empty streams available to be reused to avoid reallocation
     empty_streams: Vec<VecDeque<T>>,
     /// Association of stream id to position in `streams`
     streams_id: HashMap<usize, usize>,
-    /// Reference to other thread buffer to be able to steal
-    threads_buffer: Arc<[spin::Mutex<ThreadBuffer<T>>]>,
-    /// Current thread id
-    _thread_id: usize,
 }
 
-impl<T: ThreadTask> ThreadBuffer<T> {
+impl<T: ThreadTask> SimpleScheduler<T> {
     /// Construct a ThreadBuffer with an empty reference to all thread_buffer
-    pub fn new(thread_id: usize, capacity: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         let streams = CircularBuffer::new(capacity);
         let streams_id = HashMap::new();
         let empty_streams = Vec::new();
@@ -34,13 +59,7 @@ impl<T: ThreadTask> ThreadBuffer<T> {
             streams,
             empty_streams,
             streams_id,
-            threads_buffer: Arc::new([]),
-            _thread_id: thread_id,
         }
-    }
-
-    pub fn set_threads_buffer(&mut self, threads_buffer: Arc<[spin::Mutex<ThreadBuffer<T>>]>) {
-        self.threads_buffer = threads_buffer;
     }
 
     /// This function assume that the fifo is not empty
@@ -78,7 +97,8 @@ impl<T: ThreadTask> ThreadBuffer<T> {
             let front = self.streams.front();
             let fifos = &mut self.streams[front];
             if fifos.is_empty() {
-                self.streams.pop_front();
+                let fifo = self.streams.pop_front().unwrap();
+                self.empty_streams.push(fifo);
                 continue;
             }
             if !fifos.front().unwrap().is_ready() {
@@ -95,43 +115,10 @@ impl<T: ThreadTask> ThreadBuffer<T> {
         return None;
     }
 
-    fn steal(&mut self) -> Option<T> {
-        // for i in 0..self.threads_buffer.len() {
-        //     if self.thread_id == i {
-        //         continue;
-        //     }
-        //     let mut thread = self.threads_buffer[i].lock();
-        //     if thread.streams.len() <= 1 {
-        //         continue;
-        //     }
-        //     let mut last_stream = thread.streams.pop_back().unwrap();
-        //     let stream_id = last_stream.front().unwrap().get_stream_id();
-
-        //     thread.streams_id.remove(&stream_id);
-        //     drop(thread);
-        //     if !last_stream.front().unwrap().is_ready() {
-        //         return None;
-        //     }
-        //     let elem = last_stream.pop_front().unwrap();
-        //     if last_stream.is_empty() {
-        //         self.empty_streams.push(last_stream);
-        //     } else {
-        //         self.push_fifo(last_stream);
-        //     }
-        //     return Some(elem);
-        // }
-        None
-    }
-
     /// Pop task for local execution
     pub fn pop(&mut self) -> Option<T> {
         if let Some(elem) = self.pop_local() {
             return Some(elem);
-        }
-        if self.streams.is_empty() {
-            if let Some(elem) = self.steal() {
-                return Some(elem);
-            }
         }
         None
     }
@@ -145,7 +132,7 @@ impl<T: ThreadTask> ThreadBuffer<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ThreadBuffer, ThreadTask};
+    use super::{SimpleScheduler, ThreadTask};
     use std::cell::RefCell;
     use std::sync::Arc;
 
@@ -196,20 +183,17 @@ mod tests {
     fn setup_buffers(
         thread_count: usize,
         capacity: usize,
-    ) -> Arc<[spin::Mutex<ThreadBuffer<TestTask>>]> {
+    ) -> Arc<[spin::Mutex<SimpleScheduler<TestTask>>]> {
         let buffers = (0..thread_count)
-            .map(|thread_id| spin::Mutex::new(ThreadBuffer::new(thread_id, capacity)))
+            .map(|_| spin::Mutex::new(SimpleScheduler::new(capacity)))
             .collect::<Vec<_>>();
-        let shared: Arc<[spin::Mutex<ThreadBuffer<TestTask>>]> = buffers.into();
-        for buffer in shared.iter() {
-            buffer.lock().set_threads_buffer(shared.clone());
-        }
+        let shared: Arc<[spin::Mutex<SimpleScheduler<TestTask>>]> = buffers.into();
         shared
     }
 
     #[test]
     fn test_pop_empty_returns_none() {
-        let mut buffer = ThreadBuffer::<TestTask>::new(0, 8);
+        let mut buffer = SimpleScheduler::<TestTask>::new(8);
         assert_eq!(None, buffer.pop());
         assert_eq!(None, buffer.pop());
     }
@@ -217,7 +201,7 @@ mod tests {
     #[test]
     fn test_single_stream_fifo_pop_order() {
         set_fake_time(0);
-        let mut buffer = ThreadBuffer::<TestTask>::new(0, 8);
+        let mut buffer = SimpleScheduler::<TestTask>::new(8);
 
         buffer.push(TestTask::new(1, 10, 0));
         buffer.push(TestTask::new(1, 11, 0));
@@ -230,56 +214,9 @@ mod tests {
     }
 
     #[test]
-    fn test_steal_requires_source_with_more_than_one_stream() {
-        set_fake_time(0);
-        let shared = setup_buffers(2, 8);
-
-        {
-            let mut source = shared[0].lock();
-            source.push(TestTask::new(10, 1, 0));
-        }
-
-        let stolen = shared[1].lock().pop();
-        assert_eq!(None, stolen);
-
-        {
-            let mut source = shared[0].lock();
-            source.push(TestTask::new(20, 2, 0));
-        }
-
-        let stolen = shared[1].lock().pop();
-        assert_eq!(Some(TestTask::new(20, 2, 0)), stolen);
-
-        let source_remaining = shared[0].lock().pop();
-        assert_eq!(Some(TestTask::new(10, 1, 0)), source_remaining);
-    }
-
-    #[test]
-    fn test_steal_from_other_thread_returns_work() {
-        set_fake_time(0);
-        let shared = setup_buffers(2, 8);
-
-        {
-            let mut source = shared[0].lock();
-            source.push(TestTask::new(10, 100, 0));
-            source.push(TestTask::new(20, 200, 0));
-            source.push(TestTask::new(20, 201, 0));
-        }
-
-        let stolen = shared[1].lock().pop();
-        assert_eq!(Some(TestTask::new(20, 200, 0)), stolen);
-
-        let thief_next = shared[1].lock().pop();
-        assert_eq!(Some(TestTask::new(20, 201, 0)), thief_next);
-
-        let source_next = shared[0].lock().pop();
-        assert_eq!(Some(TestTask::new(10, 100, 0)), source_next);
-    }
-
-    #[test]
     fn test_repush_same_stream_after_progress() {
         set_fake_time(0);
-        let mut buffer = ThreadBuffer::<TestTask>::new(0, 8);
+        let mut buffer = SimpleScheduler::<TestTask>::new(8);
 
         buffer.push(TestTask::new(7, 1, 0));
         buffer.push(TestTask::new(7, 2, 0));
@@ -322,7 +259,7 @@ mod tests {
     #[test]
     fn test_task_with_duration_not_ready_not_popped() {
         set_fake_time(0);
-        let mut buffer = ThreadBuffer::<TestTask>::new(0, 8);
+        let mut buffer = SimpleScheduler::<TestTask>::new(8);
 
         buffer.push(TestTask::new(1, 10, 100));
 
@@ -337,7 +274,7 @@ mod tests {
     #[test]
     fn test_task_with_duration_becomes_ready() {
         set_fake_time(0);
-        let mut buffer = ThreadBuffer::<TestTask>::new(0, 8);
+        let mut buffer = SimpleScheduler::<TestTask>::new(8);
 
         let task = TestTask::new(1, 10, 100);
         buffer.push(task.clone());
@@ -360,7 +297,7 @@ mod tests {
     #[test]
     fn test_multiple_tasks_with_different_durations() {
         set_fake_time(0);
-        let mut buffer = ThreadBuffer::<TestTask>::new(0, 8);
+        let mut buffer = SimpleScheduler::<TestTask>::new(8);
 
         // Push tasks on different streams with different durations
         // They will be tried in push order when popping
@@ -396,7 +333,7 @@ mod tests {
     #[test]
     fn test_multiple_tasks_same_stream_with_duration() {
         set_fake_time(0);
-        let mut buffer = ThreadBuffer::<TestTask>::new(0, 8);
+        let mut buffer = SimpleScheduler::<TestTask>::new(8);
 
         // Push multiple tasks on the same stream with different durations
         buffer.push(TestTask::new(1, 10, 50));
@@ -423,7 +360,7 @@ mod tests {
     #[test]
     fn test_skip_not_ready_tasks_in_same_stream() {
         set_fake_time(0);
-        let mut buffer = ThreadBuffer::<TestTask>::new(0, 8);
+        let mut buffer = SimpleScheduler::<TestTask>::new(8);
 
         // Push tasks with different durations on same stream
         // Since both tasks are on the same stream, if the front one isn't ready,
@@ -449,36 +386,9 @@ mod tests {
     }
 
     #[test]
-    fn test_steal_respects_ready_status() {
-        set_fake_time(0);
-        let shared = setup_buffers(2, 8);
-
-        {
-            let mut source = shared[0].lock();
-            // Add two immediately ready streams
-            source.push(TestTask::new(10, 100, 0)); // Ready immediately
-            source.push(TestTask::new(20, 200, 0)); // Ready immediately
-        }
-
-        // Thread 1 can steal the last stream from thread 0 (has >1 streams)
-        let stolen = shared[1].lock().pop();
-        assert!(stolen.is_some());
-        let task = stolen.unwrap();
-        assert_eq!(task.stream_id, 20);
-        assert_eq!(task.value, 200);
-
-        // Thread 0 can now pop its remaining stream
-        let remaining = shared[0].lock().pop();
-        assert!(remaining.is_some());
-        let task = remaining.unwrap();
-        assert_eq!(task.stream_id, 10);
-        assert_eq!(task.value, 100);
-    }
-
-    #[test]
     fn test_mixed_ready_and_not_ready_streams() {
         set_fake_time(0);
-        let mut buffer = ThreadBuffer::<TestTask>::new(0, 8);
+        let mut buffer = SimpleScheduler::<TestTask>::new(8);
 
         // Create multiple streams all with immediate readiness
         buffer.push(TestTask::new(1, 10, 0));

@@ -2,7 +2,7 @@ use std::sync::{Arc, atomic::AtomicU64};
 
 use crate::{
     compiler::{mlir_data::MlirData, mlir_engine::MlirEngine},
-    compute::{threadpool::thread_buffer::ThreadTask, utils::cache_padded::CachePadded},
+    compute::{threadpool::scheduler::ThreadTask, utils::cache_padded::CachePadded},
 };
 
 pub struct ComputeTask {

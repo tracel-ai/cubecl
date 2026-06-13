@@ -1,23 +1,22 @@
-use cubecl_core::{CubeDim, config::RuntimeConfig};
-use cubecl_runtime::{
-    config::CubeClRuntimeConfig, memory_management::MemoryManagement, storage::BytesStorage,
-};
+use cubecl_core::CubeDim;
+use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 use std::sync::{Arc, OnceLock, atomic::AtomicU64};
-use sysinfo::System;
 
 use crate::{
     compiler::{mlir_data::MlirData, mlir_engine::MlirEngine},
     compute::{
-        affinity::{CoreId, get_active_cores},
         schedule::BindingsResource,
-        threadpool::{compute_task::ComputeTask, thread_buffer::ThreadBuffer, worker::Worker},
+        threadpool::{
+            compute_task::ComputeTask,
+            scheduler::{SchedulerVariant, Sender},
+        },
         utils::cache_padded::CachePadded,
     },
 };
 
 pub mod circular_buffer;
 pub mod compute_task;
-pub mod thread_buffer;
+pub mod scheduler;
 pub mod worker;
 
 static INSTANCE: OnceLock<spin::Mutex<Threadpool>> = OnceLock::new();
@@ -27,34 +26,14 @@ static INSTANCE: OnceLock<spin::Mutex<Threadpool>> = OnceLock::new();
 /// A single kernel runner is currently used for all kernels.
 /// To register work, you have to use the execution queue.
 pub struct Threadpool {
-    threads_buffer: Arc<[spin::Mutex<ThreadBuffer<ComputeTask>>]>,
+    sender: Sender,
 }
 
 impl Threadpool {
     fn init() -> Self {
-        let config = CubeClRuntimeConfig::get();
-        let max_streams = config.streaming.max_streams;
+        let sender = Sender::new(SchedulerVariant::Simple);
 
-        let mut system = System::new();
-        system.refresh_memory();
-
-        let active_cores: Vec<CoreId> = get_active_cores().collect();
-
-        let buffers = (0..active_cores.len())
-            .into_iter()
-            .map(|i| spin::Mutex::new(ThreadBuffer::new(i, max_streams as usize)))
-            .collect::<Vec<_>>();
-        let threads_buffer: Arc<[_]> = buffers.into();
-        for buffer in threads_buffer.iter() {
-            buffer.lock().set_threads_buffer(threads_buffer.clone());
-        }
-
-        for (thread_id, core_id) in active_cores.into_iter().enumerate() {
-            let threads_buffer = Arc::clone(&threads_buffer);
-            Worker::spawn_thread(core_id, thread_id, threads_buffer);
-        }
-
-        Self { threads_buffer }
+        Self { sender }
     }
 
     /// Resolves the global execution queue instance.
@@ -81,12 +60,11 @@ impl Threadpool {
             cube_count,
         );
 
-        let mut workers = self.threads_buffer.iter();
+        let mut i = 0;
         for unit_pos_x in 0..cube_dim.x {
             for unit_pos_y in 0..cube_dim.y {
                 for unit_pos_z in 0..cube_dim.z {
                     let unit_pos = [unit_pos_x, unit_pos_y, unit_pos_z];
-                    let worker = workers.next().expect("The CubeDim are too large");
                     let mlir_engine = mlir_engine.clone();
                     let mut mlir_data = mlir_data.clone();
                     mlir_data.builtin.set_unit_pos(unit_pos);
@@ -99,7 +77,8 @@ impl Threadpool {
                         next_counter_step,
                         atomic_counter,
                     };
-                    worker.lock().push(compute_task);
+                    self.sender.send(i, compute_task);
+                    i += 1;
                 }
             }
         }
