@@ -43,7 +43,11 @@ pub trait FunctionFmt {
     }
     fn format_unary(ctx: &Context, input: Value) -> String {
         let in_name = input.name(ctx);
-        format!("{}({in_name})", Self::function_name(ctx, input))
+        if input.is_complex(ctx) {
+            format!("cubecl_{}({in_name})", Self::base_function_name())
+        } else {
+            format!("{}({in_name})", Self::function_name(ctx, input))
+        }
     }
 }
 
@@ -109,6 +113,37 @@ unrolling!(SAbsOp);
 promotes_int!(SAbsOp);
 
 shared_op!(FreeOp, |_, _| String::new());
+
+shared_op_with_out!(CAbsOp, |op, ctx| {
+    format!("cubecl_abs({})", op.input(ctx).name(ctx))
+});
+shared_op_with_out!(CConjOp, |op, ctx| {
+    let input = op.input(ctx);
+    let function = if input.size(ctx) == 8 {
+        "cuConjf"
+    } else {
+        "cuConj"
+    };
+    format!("{function}({})", input.name(ctx))
+});
+shared_op_with_out!(CRealOp, |op, ctx| {
+    let input = op.input(ctx);
+    let function = if input.size(ctx) == 8 {
+        "cuCrealf"
+    } else {
+        "cuCreal"
+    };
+    format!("{function}({})", input.name(ctx))
+});
+shared_op_with_out!(CImagOp, |op, ctx| {
+    let input = op.input(ctx);
+    let function = if input.size(ctx) == 8 {
+        "cuCimagf"
+    } else {
+        "cuCimag"
+    };
+    format!("{function}({})", input.name(ctx))
+});
 
 shared_op_with_out!(FAbsOp, |op, ctx| {
     let input = op.input(ctx);

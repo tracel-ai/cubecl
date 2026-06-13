@@ -326,6 +326,7 @@ pub fn ptx_mma_ty<T: Scalar>() -> comptime_type!(&'static str) {
                 UIntKind::U32 => "u32",
                 UIntKind::U64 => "u64",
             },
+            ElemType::Complex(_) => panic!("Complex values aren't supported by PTX MMA"),
             ElemType::Bool => "b1",
         }
     })
@@ -375,6 +376,7 @@ pub fn mma_ty(ctx: &Context, elem: &dyn Type) -> &'static str {
             UIntKind::U32 => "u32",
             UIntKind::U64 => "u64",
         },
+        ElemType::Complex(_) => panic!("Complex values aren't supported by PTX MMA"),
         ElemType::Bool => "b1",
     }
 }

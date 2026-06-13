@@ -90,6 +90,11 @@ pub trait TypedExtCPP: Typed {
         ty.is::<UniformPointerType>()
     }
 
+    fn is_complex(&self, ctx: &Context) -> bool {
+        let ty = self.scalar_ty(ctx).deref(ctx);
+        is_one_of!(ty; Complex32Type, Complex64Type)
+    }
+
     fn is_half(&self, ctx: &Context) -> bool {
         let ty = self.scalar_ty(ctx).deref(ctx);
         is_one_of!(ty; Float16Type, BFloat16Type)

@@ -1,6 +1,6 @@
 use cubecl_core::ir::{
-    attributes::{BoolAttr, FloatAttr, IndexAttr, ZeroAttr},
-    types::barrier::BarrierTokenType,
+    attributes::{BoolAttr, ComplexAttr, FloatAttr, IndexAttr, ZeroAttr},
+    types::{barrier::BarrierTokenType, scalar::Complex32Type},
     verify_attr_succ,
 };
 use pliron::{
@@ -80,6 +80,22 @@ impl CppConstantAttr for FloatAttr {
         // I would prefer to print the bits and use `bit_cast` but that's not well-supported. Keep
         // an eye on this to make sure it doesn't cause issues.
         self.float_type(ctx).value_to_string(self.val)
+    }
+}
+
+#[attr_interface_impl]
+impl CppConstantAttr for ComplexAttr {
+    fn as_f64(&self, _ctx: &Context) -> f64 {
+        f64::from_bits(self.re_bits)
+    }
+    fn to_cpp(&self, ctx: &Context) -> String {
+        let re = f64::from_bits(self.re_bits);
+        let im = f64::from_bits(self.im_bits);
+        if self.ty.deref(ctx).is::<Complex32Type>() {
+            format!("make_cuFloatComplex({:?}f, {:?}f)", re as f32, im as f32)
+        } else {
+            format!("make_cuDoubleComplex({re:?}, {im:?})")
+        }
     }
 }
 

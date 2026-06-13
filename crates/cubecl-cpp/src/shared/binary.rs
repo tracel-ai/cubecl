@@ -303,7 +303,11 @@ packable!(FClampOp);
 shared_op_with_out!(PowfOp, |op, ctx| {
     let lhs = op.lhs(ctx);
     let rhs = op.rhs(ctx).name(ctx);
-    format!("pow({}, {rhs})", lhs.name(ctx))
+    if lhs.is_complex(ctx) {
+        format!("cubecl_powf({}, {rhs})", lhs.name(ctx))
+    } else {
+        format!("pow({}, {rhs})", lhs.name(ctx))
+    }
 });
 unrolling!(PowfOp);
 no_half!(PowfOp);

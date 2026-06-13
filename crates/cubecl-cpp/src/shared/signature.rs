@@ -41,6 +41,9 @@ shared_op!(DeclareInfoTypeOp, |_, ctx| {
     let state = ctx.aux_ty::<CompilationState>();
     let mut out = String::new();
     type_info_definition_sized(&mut out, ctx, &state.info).unwrap();
+    if state.has_complex && ctx.target() == Target::Cuda {
+        out.push_str(crate::cuda::dialect::COMPLEX_HELPERS);
+    }
     out
 });
 

@@ -312,6 +312,39 @@ impl FloatAttr {
     }
 }
 
+#[pliron_attr(
+    name = "cube.complex",
+    format = "$ty `, ` $re_bits `, ` $im_bits",
+    verifier = "succ"
+)]
+#[derive(new, PartialEq, Eq, Clone, Copy, Debug, Hash)]
+pub struct ComplexAttr {
+    pub ty: TypeHandle,
+    pub re_bits: u64,
+    pub im_bits: u64,
+}
+materialize_const!(ComplexAttr);
+
+impl ComplexAttr {
+    pub fn from_f64(ty: TypeHandle, re: f64, im: f64) -> Self {
+        Self::new(ty, re.to_bits(), im.to_bits())
+    }
+}
+
+#[attr_interface_impl]
+impl TypedAttrInterface for ComplexAttr {
+    fn get_type(&self, _ctx: &Context) -> TypeHandle {
+        self.ty
+    }
+}
+
+#[attr_interface_impl]
+impl ConstantAttr for ComplexAttr {
+    fn as_const_val(&self, _ctx: &Context) -> ConstantValue {
+        ConstantValue::Complex(f64::from_bits(self.re_bits), f64::from_bits(self.im_bits))
+    }
+}
+
 #[pliron_attr(name = "cube.dim3", format, verifier = "succ")]
 #[derive(new, From, PartialEq, Clone, Debug, Hash)]
 pub struct Dim3Attr(pub Dim3);

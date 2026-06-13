@@ -29,6 +29,32 @@ const_eval!(FAbsOp, {
     [FloatAttr(f16, bf16, f32, f64)]: |inp| inp.abs(),
 });
 
+#[cube_op(name = "math.c_abs")]
+#[result_ty(argument)]
+#[op_interfaces(TriviallyUnrollable)]
+#[op_traits(Pure, CanMaterialize)]
+pub struct CAbsOp {
+    pub input: Value,
+}
+
+pure_unop!("math.c_conj", CConjOp);
+
+#[cube_op(name = "math.c_real")]
+#[result_ty(argument)]
+#[op_interfaces(TriviallyUnrollable)]
+#[op_traits(Pure, CanMaterialize)]
+pub struct CRealOp {
+    pub input: Value,
+}
+
+#[cube_op(name = "math.c_imag")]
+#[result_ty(argument)]
+#[op_interfaces(TriviallyUnrollable)]
+#[op_traits(Pure, CanMaterialize)]
+pub struct CImagOp {
+    pub input: Value,
+}
+
 pure_unop!("math.exp", ExpOp);
 const_eval!(ExpOp, {
     FloatAttr(f16, bf16, f32, f64): |inp| inp.exp(),

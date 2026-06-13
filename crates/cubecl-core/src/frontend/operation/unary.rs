@@ -15,6 +15,80 @@ use crate::{
 
 use super::base::unary_expand;
 
+pub trait Abs:
+    CubePrimitive<Scalar: AbsNativeExpand<AbsElem = Self::AbsElem>>
+    + CubeType<
+        ExpandType: AbsExpand<
+            AbsElem = Self::AbsElem,
+            AbsOut = NativeExpand<Self::WithScalar<Self::AbsElem>>,
+        >,
+    > + Sized
+{
+    type AbsElem: Scalar;
+
+    fn abs(self) -> Self::WithScalar<Self::AbsElem> {
+        unexpanded!()
+    }
+
+    fn __expand_abs(
+        scope: &Scope,
+        x: NativeExpand<Self>,
+    ) -> NativeExpand<Self::WithScalar<Self::AbsElem>> {
+        x.__expand_abs_method(scope)
+    }
+}
+
+pub trait AbsExpand {
+    type AbsElem: Scalar;
+    type AbsOut;
+    fn __expand_abs_method(self, scope: &Scope) -> Self::AbsOut;
+}
+
+pub trait AbsNativeExpand {
+    type AbsElem: Scalar;
+    fn __expand_native_abs(scope: &Scope, input: ExpandValue) -> ExpandValue;
+}
+
+pub trait ScalarAbs: Abs<AbsElem = Self> + AbsNativeExpand<AbsElem = Self> {}
+impl<T: Abs<AbsElem = Self> + AbsNativeExpand<AbsElem = Self>> ScalarAbs for T {}
+
+impl<T: Abs> AbsExpand for NativeExpand<T> {
+    type AbsElem = T::AbsElem;
+    type AbsOut = NativeExpand<T::WithScalar<T::AbsElem>>;
+
+    fn __expand_abs_method(self, scope: &Scope) -> Self::AbsOut {
+        T::Scalar::__expand_native_abs(scope, self.into()).into()
+    }
+}
+
+macro_rules! impl_abs {
+    ($($type:ty),*; $operator:expr) => {
+        $(
+            impl Abs for $type { type AbsElem = $type; }
+            impl AbsNativeExpand for $type {
+                type AbsElem = $type;
+                fn __expand_native_abs(scope: &Scope, input: ExpandValue) -> ExpandValue {
+                    unary_expand(scope, input, $operator)
+                }
+            }
+        )*
+    };
+}
+
+macro_rules! impl_abs_nop {
+    ($($type:ty),*) => {
+        $(
+            impl Abs for $type { type AbsElem = $type; }
+            impl AbsNativeExpand for $type {
+                type AbsElem = $type;
+                fn __expand_native_abs(_scope: &Scope, input: ExpandValue) -> ExpandValue {
+                    input
+                }
+            }
+        )*
+    };
+}
+
 pub mod not {
     use super::*;
 
@@ -69,32 +143,6 @@ macro_rules! define_unary_func {
     }
 }
 
-macro_rules! impl_unary_func {
-    ($($type:ty),*; $trait_name:ident, $method_name:ident, $operator:expr) => {
-        paste::paste! {
-            $(impl $trait_name for $type {})*
-            $(impl [<$trait_name NativeExpand>] for $type {
-                fn [<__expand_native_ $method_name>](scope: &Scope, input: ExpandValue) -> ExpandValue {
-                    unary_expand(scope, input, $operator::new)
-                }
-            })*
-        }
-    }
-}
-
-macro_rules! impl_unary_func_nop {
-    ($($type:ty),*; $trait_name:ident, $method_name:ident) => {
-        paste::paste! {
-            $(impl $trait_name for $type {})*
-            $(impl [<$trait_name NativeExpand>] for $type {
-                fn [<__expand_native_ $method_name>](_scope: &Scope, input: ExpandValue) -> ExpandValue {
-                    input
-                }
-            })*
-        }
-    }
-}
-
 // Special handling for scalars
 macro_rules! impl_normalize {
     ($trait_name:ident, $method_name:ident, $operator:expr, $($type:ty),*) => {
@@ -115,7 +163,7 @@ macro_rules! impl_normalize {
             }
 
             $(impl $trait_name for $type {})*
-            impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for NativeExpand<T> where NativeExpand<T>: DivExpand {
+            impl<T: $trait_name + CubePrimitive<WithScalar<<T as Abs>::AbsElem> = T>> [<$trait_name Expand>] for NativeExpand<T> where NativeExpand<T>: DivExpand {
                 fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self {
                     if self.__expand_vector_size_method(scope) == 1 {
                         // Sign might work, but dividing by `abs` preserves the NaN when normalizing 0.0
@@ -314,9 +362,9 @@ define_core_unop!(Neg, neg);
 impl_core_unop!(i8, i16, i32, i64, isize; Neg, neg, SNegOp);
 impl_core_unop!(f16, bf16, f32, flex32, tf32, f64; Neg, neg, FNegOp);
 
-define_unary_func!(Abs, abs, SAbsOp, i8, i16, i32, i64, isize);
-impl_unary_func_nop!(u8, u16, u32, u64, usize; Abs, abs);
-impl_unary_func!(e2m1, e4m3, e5m2, ue8m0, f16, bf16, flex32, tf32, f32, f64; Abs, abs, FAbsOp);
+impl_abs!(i8, i16, i32, i64, isize; SAbsOp::new);
+impl_abs!(e2m1, e4m3, e5m2, ue8m0, f16, bf16, flex32, tf32, f32, f64; FAbsOp::new);
+impl_abs_nop!(u8, u16, u32, u64, usize);
 
 define_unary_func!(Exp, exp, ExpOp, f16, bf16, flex32, tf32, f32, f64);
 define_unary_func!(Log, ln, LogOp, f16, bf16, flex32, tf32, f32, f64);

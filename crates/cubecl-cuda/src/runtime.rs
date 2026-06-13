@@ -11,10 +11,10 @@ use cubecl_core::{
     cmma::MatrixLayout,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
+        ComplexKind, ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
         HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, TargetProperties,
         Type, VectorSize,
-        features::{AtomicUsage, Plane, Tma, TypeUsage},
+        features::{AtomicUsage, ComplexUsage, Plane, Tma, TypeUsage},
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
@@ -191,6 +191,14 @@ impl DeviceService for CudaServer {
             },
         );
         register_supported_types(&mut device_props);
+        for kind in [ComplexKind::C32, ComplexKind::C64] {
+            let ty = ElemType::Complex(kind);
+            device_props.register_type_usage(ty, TypeUsage::Conversion | TypeUsage::Buffer);
+            device_props.register_complex_usage(
+                ty,
+                ComplexUsage::Core | ComplexUsage::Compare | ComplexUsage::Math,
+            );
+        }
         device_props.register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
         if arch_version >= 60 {
             device_props.register_atomic_type_usage(
