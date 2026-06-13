@@ -103,8 +103,15 @@ fn resolve_origin_resource(
 }
 
 impl MetalServer {
-    fn flush_errors(&mut self) -> Vec<ServerError> {
-        let errors = core::mem::take(&mut self.errors);
+    /// Collects synchronous failures buffered on the server together with asynchronous GPU
+    /// faults recorded by stream completion handlers (mirroring `cubecl-cuda`). Draining the
+    /// stream sink clears the poison so a recovered stream can serve new work.
+    fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
+        let mut errors = core::mem::take(&mut self.errors);
+
+        if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
+            errors.append(&mut resolved.current().take_errors());
+        }
 
         if !errors.is_empty() {
             self.timestamps.error(ProfileError::Unknown {
@@ -172,7 +179,7 @@ impl ComputeServer for MetalServer {
     ) -> DynFut<Result<Vec<Bytes>, ServerError>> {
         use objc2_metal::MTLBuffer;
 
-        let errors = self.flush_errors();
+        let errors = self.flush_errors(stream_id);
         if !errors.is_empty() {
             return Box::pin(async move {
                 Err(ServerError::ServerUnhealthy {
@@ -464,7 +471,7 @@ impl ComputeServer for MetalServer {
     }
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
-        let errors = self.flush_errors();
+        let errors = self.flush_errors(stream_id);
         if !errors.is_empty() {
             return Box::pin(async move {
                 Err(ServerError::ServerUnhealthy {
@@ -484,7 +491,7 @@ impl ComputeServer for MetalServer {
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
-        let errors = self.flush_errors();
+        let errors = self.flush_errors(stream_id);
         if !errors.is_empty() {
             return Err(ServerError::ServerUnhealthy {
                 errors,
