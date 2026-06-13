@@ -103,6 +103,14 @@ pub enum UIntKind {
     U64,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[allow(missing_docs)]
+pub enum ComplexKind {
+    C32,
+    C64,
+}
+
 impl UIntKind {
     pub fn to_type(&self, ctx: &Context) -> TypeHandle {
         IntegerType::get(ctx, self.size_bits() as u32, Signedness::Unsigned).into()
@@ -127,6 +135,7 @@ pub enum ElemType {
     Float(FloatKind),
     Int(IntKind),
     UInt(UIntKind),
+    Complex(ComplexKind),
     Bool,
 }
 
@@ -173,6 +182,8 @@ impl ElemType {
             ElemType::Float(float_kind) => float_kind.to_type(ctx),
             ElemType::Int(int_kind) => int_kind.to_type(ctx),
             ElemType::UInt(uint_kind) => uint_kind.to_type(ctx),
+            ElemType::Complex(ComplexKind::C32) => Complex32Type::get(ctx).into(),
+            ElemType::Complex(ComplexKind::C64) => Complex64Type::get(ctx).into(),
             ElemType::Bool => BoolType::get(ctx).into(),
         }
     }
@@ -231,6 +242,12 @@ impl ElemType {
                 UIntKind::U32 => core::mem::size_of::<u32>(),
                 UIntKind::U64 => core::mem::size_of::<u64>(),
             },
+            ElemType::Complex(ComplexKind::C32) => {
+                core::mem::size_of::<num_complex::Complex<f32>>()
+            }
+            ElemType::Complex(ComplexKind::C64) => {
+                core::mem::size_of::<num_complex::Complex<f64>>()
+            }
             ElemType::Bool => core::mem::size_of::<bool>(),
         }
     }
@@ -254,7 +271,9 @@ impl ElemType {
                 | FloatKind::TF32 => self.size() * 8,
                 FloatKind::E2M1 => 4,
             },
-            ElemType::Int(_) | ElemType::UInt(_) | ElemType::Bool => self.size() * 8,
+            ElemType::Int(_) | ElemType::UInt(_) | ElemType::Complex(_) | ElemType::Bool => {
+                self.size() * 8
+            }
         }
     }
 
@@ -283,6 +302,17 @@ impl ElemType {
 
     pub fn is_bool(&self) -> bool {
         matches!(self, ElemType::Bool)
+    }
+
+    pub fn is_complex(&self) -> bool {
+        matches!(self, ElemType::Complex(_))
+    }
+
+    pub fn as_complex(&self) -> Option<ComplexKind> {
+        match self {
+            ElemType::Complex(kind) => Some(*kind),
+            _ => None,
+        }
     }
 
     pub fn as_float(&self) -> Option<FloatKind> {
@@ -326,6 +356,7 @@ impl ElemType {
                 UIntKind::U64 => u64::MAX,
             }
             .into(),
+            ElemType::Complex(_) => panic!("Complex numbers have no maximum"),
             ElemType::Bool => true.into(),
         };
 
@@ -363,6 +394,7 @@ impl ElemType {
                 UIntKind::U64 => u64::MIN,
             }
             .into(),
+            ElemType::Complex(_) => panic!("Complex numbers have no minimum"),
             ElemType::Bool => false.into(),
         };
 
@@ -385,6 +417,8 @@ impl ElemType {
                 FloatKind::F64 => f64::EPSILON,
             },
             ElemType::Index | ElemType::Int(_) | ElemType::UInt(_) => 1.0, // step of 1
+            ElemType::Complex(ComplexKind::C32) => f32::EPSILON.into(),
+            ElemType::Complex(ComplexKind::C64) => f64::EPSILON,
             ElemType::Bool => 1.0,
         }
     }
@@ -564,6 +598,8 @@ impl Display for ElemType {
                 UIntKind::U32 => f.write_str("u32"),
                 UIntKind::U64 => f.write_str("u64"),
             },
+            Self::Complex(ComplexKind::C32) => f.write_str("c32"),
+            Self::Complex(ComplexKind::C64) => f.write_str("c64"),
             Self::Bool => f.write_str("bool"),
         }
     }
@@ -790,6 +826,24 @@ macro_rules! impl_into_value {
             }
         )*
     };
+}
+
+impl From<num_complex::Complex<f32>> for ExpandValue {
+    fn from(value: num_complex::Complex<f32>) -> Self {
+        ExpandValue::Constant {
+            value: ConstantValue::Complex(value.re as f64, value.im as f64),
+            ty: ElemType::Complex(ComplexKind::C32),
+        }
+    }
+}
+
+impl From<num_complex::Complex<f64>> for ExpandValue {
+    fn from(value: num_complex::Complex<f64>) -> Self {
+        ExpandValue::Constant {
+            value: ConstantValue::Complex(value.re, value.im),
+            ty: ElemType::Complex(ComplexKind::C64),
+        }
+    }
 }
 
 impl_into_value!(

@@ -38,6 +38,8 @@ pub struct Types {
     pub address: BTreeSet<AddressType>,
     /// Types supported by this runtime, and which usages they support.
     pub elem: BTreeMap<ElemType, EnumSet<TypeUsage>>,
+    /// Complex-specific capability families supported by this runtime.
+    pub complex: BTreeMap<ElemType, EnumSet<ComplexUsage>>,
     /// Semantic constructs supported by this runtime.
     pub semantic: BTreeSet<SemanticType>,
     /// Opaque types supported by this runtime.
@@ -85,6 +87,17 @@ pub enum TypeUsage {
     DotProduct,
     /// Whether this type can be stored in a buffer
     Buffer,
+}
+
+/// Complex capability families allowed for a complex element type.
+#[derive(Debug, Hash, PartialOrd, Ord, EnumSetType)]
+pub enum ComplexUsage {
+    /// Arithmetic, negation, conjugation, and real/imaginary extraction.
+    Core,
+    /// Equality and inequality comparisons.
+    Compare,
+    /// Higher-level complex math functions.
+    Math,
 }
 
 impl TypeUsage {
@@ -229,6 +242,20 @@ impl Features {
             .get(&ty)
             .cloned()
             .unwrap_or_else(EnumSet::empty)
+    }
+
+    /// Get the complex capability families for a type.
+    pub fn complex_usage(&self, ty: ElemType) -> EnumSet<ComplexUsage> {
+        self.types
+            .complex
+            .get(&ty)
+            .cloned()
+            .unwrap_or_else(EnumSet::empty)
+    }
+
+    /// Whether a complex type supports the requested capability family.
+    pub fn supports_complex_usage(&self, ty: ElemType, usage: ComplexUsage) -> bool {
+        self.complex_usage(ty).contains(usage)
     }
 
     /// Get the usages for an atomic type

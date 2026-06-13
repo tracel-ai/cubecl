@@ -301,9 +301,7 @@ unrolling!(FClampOp);
 packable!(FClampOp);
 
 shared_op_with_out!(PowfOp, |op, ctx| {
-    let lhs = op.lhs(ctx);
-    let rhs = op.rhs(ctx).name(ctx);
-    format!("pow({}, {rhs})", lhs.name(ctx))
+    format!("pow({}, {})", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
 });
 unrolling!(PowfOp);
 no_half!(PowfOp);

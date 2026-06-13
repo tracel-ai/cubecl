@@ -44,6 +44,14 @@ shared_op!(DeclareInfoTypeOp, |_, ctx| {
     out
 });
 
+#[cube_op(name = "cpp.declare_complex_helpers")]
+#[result_ty(none)]
+pub struct DeclareComplexHelpersOp {}
+
+shared_op!(DeclareComplexHelpersOp, |_, _| {
+    crate::cuda::dialect::COMPLEX_HELPERS.into()
+});
+
 #[cube_op(name = "cpp.load_info")]
 #[result_ty(fixed = InfoStructType::get(ctx).into())]
 pub struct LoadInfoOp {

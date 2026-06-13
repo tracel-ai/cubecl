@@ -148,6 +148,7 @@ sized!(Float6E2M3x2Type, size_of::<u16>());
 aligned!(Float6E2M3x2Type, align_of::<u16>());
 scalar!(Float6E2M3x2Type);
 
+ty_includes!(Cuda, [Complex32Type, Complex64Type] => "cuComplex.h");
 ty_includes!(Cuda, [MatrixType, TFloat32Type] => "mma.h");
 ty_includes!(Cuda, [Float16Type, Float16x2Type] => "cuda_fp16.h");
 ty_includes!(Cuda, [BFloat16Type, BFloat16x2Type] => "cuda_bf16.h");
@@ -156,6 +157,8 @@ ty_includes!(Cuda, [Float8E4M3x2Type, Float8E5M2x2Type, Float8E8M0x2Type] => "cu
 ty_includes!(Cuda, [Float6E3M2Type, Float6E2M3Type, Float6E3M2x2Type, Float6E2M3x2Type] => "cuda_fp6.h");
 ty_includes!(Cuda, [Float4E2M1Type, Float4E2M1x2Type] => "cuda_fp4.h");
 
+cuda_ty!(Complex32Type, |_, _| "cuFloatComplex".into());
+cuda_ty!(Complex64Type, |_, _| "cuDoubleComplex".into());
 cuda_ty!(TFloat32Type, |_, _| "float".into());
 
 cuda_ty!(Float16x2Type, |_, _| "__half2".into());
