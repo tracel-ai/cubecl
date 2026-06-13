@@ -652,6 +652,20 @@ pub trait DialectInstructions<D: Dialect> {
         }
     }
 
+    // exp
+    fn compile_instruction_expm1_scalar<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+    ) -> std::fmt::Result {
+        let elem = input.elem();
+        match elem {
+            Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
+                write!(f, "{elem}(expm1(float({input})))")
+            }
+            _ => write!(f, "expm1({input})"),
+        }
+    }
+
     // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;

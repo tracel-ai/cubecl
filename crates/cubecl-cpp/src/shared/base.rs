@@ -1249,10 +1249,14 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Powi(self.compile_binary(op, out)))
             }
             ir::Arithmetic::Hypot(op) => {
-                instructions.push(Instruction::Hypot(self.compile_binary(op, out)))
+                let instruction = Instruction::Hypot(self.compile_binary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
             }
             ir::Arithmetic::Rhypot(op) => {
-                instructions.push(Instruction::Rhypot(self.compile_binary(op, out)))
+                let instruction = Instruction::Rhypot(self.compile_binary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
             }
             ir::Arithmetic::Sqrt(op) => {
                 let op = self.compile_unary(op, out);

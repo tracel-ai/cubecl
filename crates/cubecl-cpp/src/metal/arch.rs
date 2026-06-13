@@ -31,7 +31,7 @@ impl MetalArchitecture {
 
 impl Architecture for MetalArchitecture {
     fn warp_size(&self) -> u32 {
-        64
+        32
     }
 
     fn is_wmma_capable(&self) -> bool {

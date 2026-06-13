@@ -19,6 +19,9 @@ pub use cubecl_std as std;
 #[cfg(feature = "cpu")]
 pub use cubecl_cpu as cpu;
 
+#[cfg(feature = "metal")]
+pub use cubecl_metal as metal;
+
 #[cfg(test_runtime_default)]
 pub type TestRuntime = cubecl_wgpu::WgpuRuntime;
 
@@ -33,3 +36,6 @@ pub type TestRuntime = cuda::CudaRuntime;
 
 #[cfg(test_runtime_hip)]
 pub type TestRuntime = hip::HipRuntime;
+
+#[cfg(test_runtime_metal)]
+pub type TestRuntime = metal::MetalRuntime;

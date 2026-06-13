@@ -7,6 +7,7 @@ fn main() {
     println!("cargo:rustc-check-cfg=cfg(test_runtime_cpu)");
     println!("cargo:rustc-check-cfg=cfg(test_runtime_cuda)");
     println!("cargo:rustc-check-cfg=cfg(test_runtime_hip)");
+    println!("cargo:rustc-check-cfg=cfg(test_runtime_metal)");
     println!("cargo:rustc-check-cfg=cfg(test_runtime_wgpu)");
 
     if enable_runtime {
@@ -14,6 +15,7 @@ fn main() {
             ("cpu", cfg!(feature = "cpu")),
             ("cuda", cfg!(feature = "cuda")),
             ("hip", cfg!(feature = "hip")),
+            ("metal", cfg!(feature = "metal")),
             ("wgpu", cfg!(feature = "wgpu")),
         ]);
 
