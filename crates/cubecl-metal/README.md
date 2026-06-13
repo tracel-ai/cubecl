@@ -6,8 +6,8 @@
 
 | Platform   | GPU |
 | :--------- | :-: |
-| macOS 13+  | Yes |
-| iOS 16+    | Yes |
+| macOS 14+  | Yes |
+| iOS 17+    | Yes |
 
 ## Limitations
 

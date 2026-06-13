@@ -271,17 +271,15 @@ impl EventStreamBackend for MetalStreamBackend {
             MemoryManagementOptions::new("Metal GPU Memory"),
         );
 
-        let device_name = (*self.device).name().to_string();
-        let (max_ops_per_batch, max_mb_per_batch, max_submitted_ops) =
-            if device_name.contains("Max") || device_name.contains("Ultra") {
-                (50, 50, 512)
-            } else if device_name.contains("Pro") {
-                (40, 40, 512)
-            } else if device_name.contains("iPhone") || device_name.contains("iPad") {
-                (20, 20, 256)
-            } else {
-                (40, 40, 512)
-            };
+        // Tier batch limits by GPU architecture. The architecture name's last
+        // character encodes the tier ('p' phone, 'g' base/pro, 's' max, 'd' ultra),
+        // which is more robust than matching the marketing device name.
+        let arch = (*self.device).architecture().name().to_string();
+        let (max_ops_per_batch, max_mb_per_batch, max_submitted_ops) = match arch.chars().last() {
+            Some('s' | 'd') => (50, 50, 512), // max, ultra
+            Some('p') => (20, 20, 256),       // phone
+            _ => (40, 40, 512),               // base, pro, and unrecognized
+        };
 
         MetalStream {
             device: self.device.clone(),
