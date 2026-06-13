@@ -1,8 +1,10 @@
-use crate::shared::FmtLeft;
+use cubecl_core::ir::Id;
+
+use crate::shared::{Builtin, FmtLeft};
 
 use super::{
-    Component, Dialect, Elem, Item, Variable, WarpInstruction, WmmaInstruction,
-    barrier::BarrierOps, binary::*, pipeline::PipelineOps, unary::*,
+    Component, Dialect, Elem, Item, Value, WarpInstruction, WmmaInstruction, barrier::BarrierOps,
+    binary::*, unary::*,
 };
 use std::{
     borrow::Cow,
@@ -16,54 +18,54 @@ pub(crate) const STATIC_META_NAME: &str = "info.static_meta";
 
 #[derive(Debug, Clone, Copy)]
 pub struct BinaryInstruction<D: Dialect> {
-    pub lhs: Variable<D>,
-    pub rhs: Variable<D>,
-    pub out: Variable<D>,
+    pub lhs: Value<D>,
+    pub rhs: Value<D>,
+    pub out: Value<D>,
 }
 
 #[derive(Debug, Clone)]
 pub struct IndexInstruction<D: Dialect> {
-    pub list: Variable<D>,
-    pub index: Variable<D>,
-    pub vector_size: u32,
-    pub out: Variable<D>,
+    pub list: Value<D>,
+    pub index: Value<D>,
+    pub out: Value<D>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct UnaryInstruction<D: Dialect> {
-    pub input: Variable<D>,
-    pub out: Variable<D>,
+    pub input: Value<D>,
+    pub out: Value<D>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Instruction<D: Dialect> {
     Metadata {
-        info_offset: Variable<D>,
-        out: Variable<D>,
+        info_offset: Value<D>,
+        out: Value<D>,
     },
     ExtendedMetadata {
-        info_offset: Variable<D>,
-        dim: Variable<D>,
-        out: Variable<D>,
+        info_offset: Value<D>,
+        dim: Value<D>,
+        out: Value<D>,
     },
     ConstLength {
         length: usize,
-        out: Variable<D>,
+        out: Value<D>,
     },
     SliceLength {
-        input: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        out: Value<D>,
     },
     DeclareVariable {
-        var: Variable<D>,
+        val: Value<D>,
+        value_ty: Item<D>,
     },
     Add(BinaryInstruction<D>),
     SaturatingAdd(BinaryInstruction<D>),
     Fma {
-        a: Variable<D>,
-        b: Variable<D>,
-        c: Variable<D>,
-        out: Variable<D>,
+        a: Value<D>,
+        b: Value<D>,
+        c: Value<D>,
+        out: Value<D>,
     },
     Div(BinaryInstruction<D>),
     Rem(BinaryInstruction<D>),
@@ -76,64 +78,76 @@ pub enum Instruction<D: Dialect> {
     HiMul(BinaryInstruction<D>),
     Index(IndexInstruction<D>),
     Assign(UnaryInstruction<D>),
+    ReadBuiltin {
+        builtin: Builtin<D>,
+        out: Value<D>,
+    },
+    ReadScalar {
+        id: Id,
+        out: Value<D>,
+    },
     Store(UnaryInstruction<D>),
-    Reference(UnaryInstruction<D>),
     Load(UnaryInstruction<D>),
     SpecialCast(UnaryInstruction<D>),
     RangeLoop {
-        i: Variable<D>,
-        start: Variable<D>,
-        end: Variable<D>,
-        step: Option<Variable<D>>,
+        i: Value<D>,
+        start: Value<D>,
+        end: Value<D>,
+        step: Option<Value<D>>,
         inclusive: bool,
         instructions: Vec<Self>,
     },
     VecInit {
-        inputs: Vec<Variable<D>>,
-        out: Variable<D>,
+        inputs: Vec<Value<D>>,
+        out: Value<D>,
     },
-    InsertComponent(BinaryInstruction<D>),
+    InsertComponent {
+        vector: Value<D>,
+        index: Value<D>,
+        value: Value<D>,
+        out: Value<D>,
+    },
     ExtractComponent(BinaryInstruction<D>),
     Loop {
         instructions: Vec<Self>,
     },
     If {
-        cond: Variable<D>,
+        cond: Value<D>,
         instructions: Vec<Self>,
     },
     IfElse {
-        cond: Variable<D>,
+        cond: Value<D>,
         instructions_if: Vec<Self>,
         instructions_else: Vec<Self>,
     },
     Select {
-        cond: Variable<D>,
-        then: Variable<D>,
-        or_else: Variable<D>,
-        out: Variable<D>,
+        cond: Value<D>,
+        then: Value<D>,
+        or_else: Value<D>,
+        out: Value<D>,
     },
     Switch {
-        value: Variable<D>,
+        value: Value<D>,
         instructions_default: Vec<Self>,
-        instructions_cases: Vec<(Variable<D>, Vec<Self>)>,
+        instructions_cases: Vec<(Value<D>, Vec<Self>)>,
     },
     Slice {
-        input: Variable<D>,
-        start: Variable<D>,
-        end: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        start: Value<D>,
+        end: Value<D>,
+        out: Value<D>,
     },
     CheckedSlice {
-        input: Variable<D>,
-        start: Variable<D>,
-        end: Variable<D>,
-        out: Variable<D>,
-        len: Variable<D>,
+        input: Value<D>,
+        start: Value<D>,
+        end: Value<D>,
+        out: Value<D>,
+        len: Value<D>,
     },
     ReinterpretSlice {
-        input: Variable<D>,
+        input: Value<D>,
         vector_size: u32,
-        out: Variable<D>,
+        out: Value<D>,
     },
     Return,
     Break,
@@ -162,6 +176,7 @@ pub enum Instruction<D: Dialect> {
     Log(UnaryInstruction<D>),
     FastLog(UnaryInstruction<D>),
     Log1p(UnaryInstruction<D>),
+    Expm1(UnaryInstruction<D>),
     Cos(UnaryInstruction<D>),
     Sin(UnaryInstruction<D>),
     Tan(UnaryInstruction<D>),
@@ -195,10 +210,10 @@ pub enum Instruction<D: Dialect> {
     Or(BinaryInstruction<D>),
     And(BinaryInstruction<D>),
     Clamp {
-        input: Variable<D>,
-        min_value: Variable<D>,
-        max_value: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        min_value: Value<D>,
+        max_value: Value<D>,
+        out: Value<D>,
     },
     IsNan(UnaryInstruction<D>),
     IsInf(UnaryInstruction<D>),
@@ -214,10 +229,10 @@ pub enum Instruction<D: Dialect> {
         max_pending: u32,
     },
     TmaReplacePointer {
-        buffer: Variable<D>,
-        offset: Variable<D>,
-        tensor_map: Variable<D>,
-        out: Variable<D>,
+        buffer: Value<D>,
+        offset: Value<D>,
+        tensor_map: Value<D>,
+        out: Value<D>,
     },
     Round(UnaryInstruction<D>),
     Ceil(UnaryInstruction<D>),
@@ -237,10 +252,10 @@ pub enum Instruction<D: Dialect> {
     AtomicOr(BinaryInstruction<D>),
     AtomicXor(BinaryInstruction<D>),
     AtomicCAS {
-        input: Variable<D>,
-        cmp: Variable<D>,
-        val: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        cmp: Value<D>,
+        val: Value<D>,
+        out: Value<D>,
     },
     Neg(UnaryInstruction<D>),
     Magnitude(UnaryInstruction<D>),
@@ -250,23 +265,22 @@ pub enum Instruction<D: Dialect> {
     Dot(BinaryInstruction<D>),
     VectorSum(UnaryInstruction<D>),
     Copy {
-        source: Variable<D>,
-        dest: Variable<D>,
+        source: Value<D>,
+        dest: Value<D>,
         len: u32,
     },
     Printf {
         format_string: String,
-        args: Vec<Variable<D>>,
+        args: Vec<Value<D>>,
     },
     Comment {
         content: String,
     },
-    Pipeline(PipelineOps<D>),
     Barrier(BarrierOps<D>),
     MemCopyAsyncTensorSharedToGlobal {
-        smem_buffer: Variable<D>,
-        tensor_map: Variable<D>,
-        indices: Vec<Variable<D>>,
+        smem_buffer: Value<D>,
+        tensor_map: Value<D>,
+        indices: Vec<Value<D>>,
     },
     Line {
         file: Cow<'static, str>,
@@ -280,10 +294,17 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Return => f.write_str("return;"),
             Instruction::Break => f.write_str("break;"),
             Instruction::Unreachable => D::compile_unreachable(f),
-            Instruction::DeclareVariable { var } => match var {
-                Variable::WmmaFragment { .. } => D::compile_wmma_fragment_declaration(f, var),
-                var => writeln!(f, "{} {var};", var.item()),
-            },
+            Instruction::DeclareVariable { val, value_ty } => {
+                match value_ty {
+                    Item::Fragment(_) => {
+                        D::compile_wmma_fragment_declaration(f, val, value_ty)?;
+                    }
+                    item => {
+                        writeln!(f, "{item} {val}_store;")?;
+                    }
+                };
+                writeln!(f, "{} {val} = &{val}_store;", val.item())
+            }
             Instruction::Add(it) => Add::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::SaturatingAdd(it) => SaturatingAdd::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Slice {
@@ -293,7 +314,7 @@ impl<D: Dialect> Display for Instruction<D> {
                 out,
             } => {
                 let item = out.item();
-                let addr_space = D::address_space_for_variable(input);
+                let addr_space = D::address_space_for_value(input);
                 writeln!(f, "const uint {out}_length = {end} - {start};")?;
                 writeln!(f, "{addr_space}{item} *{out} = {input} + {start};")
             }
@@ -305,7 +326,7 @@ impl<D: Dialect> Display for Instruction<D> {
                 len,
             } => {
                 let item = out.item();
-                let addr_space = D::address_space_for_variable(input);
+                let addr_space = D::address_space_for_value(input);
                 writeln!(f, "const uint {out}_length = min({len}, {end}) - {start};")?;
                 writeln!(f, "{addr_space}{item} *{out} = {input} + {start};")
             }
@@ -315,7 +336,7 @@ impl<D: Dialect> Display for Instruction<D> {
                 out,
             } => {
                 let item = Item::new(out.elem(), *vector_size as usize);
-                let addr_space = D::address_space_for_variable(input);
+                let addr_space = D::address_space_for_value(input);
 
                 writeln!(
                     f,
@@ -340,9 +361,7 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::FindFirstSet(it) => FindFirstSet::format(f, &it.input, &it.out),
             Instruction::ShiftLeft(it) => ShiftLeft::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::ShiftRight(it) => ShiftRight::format(f, &it.lhs, &it.rhs, &it.out),
-            Instruction::Index(it) => {
-                Index::format(f, &it.list, &it.index, &it.out, it.vector_size)
-            }
+            Instruction::Index(it) => Index::format(f, &it.list, &it.index, &it.out),
             Instruction::Copy { source, dest, len } => {
                 for i in 0..*len {
                     writeln!(f, "*({dest} + {i}) = *({source} + {i});")?;
@@ -352,11 +371,6 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Assign(it) => Assign::format(f, &it.input, &it.out),
             Instruction::Store(it) => {
                 writeln!(f, "*{} = {};", it.out, it.input)
-            }
-            Instruction::Reference(it) => {
-                let out_ty = it.out.item();
-                let out = it.out;
-                writeln!(f, "{out_ty} {out} = {};", it.input.fmt_ptr())
             }
             Instruction::Load(it) => {
                 let out = it.out.fmt_left();
@@ -371,15 +385,13 @@ impl<D: Dialect> Display for Instruction<D> {
                 instructions,
             } => {
                 let increment = step
-                    .map(|step| format!("{i} += {step}"))
-                    .unwrap_or_else(|| format!("++{i}"));
+                    .map(|step| format!("*{i} += {step}"))
+                    .unwrap_or_else(|| format!("++*{i}"));
                 let cmp = if *inclusive { "<=" } else { "<" };
-                let i_ty = i.item();
-
                 write!(
                     f,
                     "
-for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
+for (*{i} = {start}; *{i} {cmp} {end}; {increment}) {{
 "
                 )?;
                 for instruction in instructions {
@@ -457,7 +469,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                         let or_elsei = or_else.index(i);
                         let condi = cond.index(i);
                         let condi = EnsureBoolArg {
-                            var: &condi,
+                            val: &condi,
                             elem: &cond_elem,
                         };
 
@@ -467,7 +479,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     writeln!(f, "}};")
                 } else {
                     let cond = EnsureBoolArg {
-                        var: &cond,
+                        val: &cond,
                         elem: &cond_elem,
                     };
                     writeln!(f, "{out} = ({cond}) ? {then} : {or_else};")
@@ -520,6 +532,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Log(it) => Log::format(f, &it.input, &it.out),
             Instruction::FastLog(it) => FastLog::format(f, &it.input, &it.out),
             Instruction::Log1p(it) => Log1p::format(f, &it.input, &it.out),
+            Instruction::Expm1(it) => Expm1::format(f, &it.input, &it.out),
             Instruction::Cos(it) => Cos::format(f, &it.input, &it.out),
             Instruction::FastCos(it) => FastCos::format(f, &it.input, &it.out),
             Instruction::Sin(it) => Sin::format(f, &it.input, &it.out),
@@ -588,7 +601,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     panic!("Unsupported type for bitcasting {out_item:?} from {input_item:?}");
                 } else {
                     let out = out.fmt_left();
-                    let addr_space = D::address_space_for_variable(input);
+                    let addr_space = D::address_space_for_value(input);
                     writeln!(
                         f,
                         "{out} = reinterpret_cast<{addr_space}{out_item}{qualifier}&>({input});"
@@ -654,9 +667,12 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {item}{{{}}};", inputs.join(","))
             }
-            Instruction::InsertComponent(inst) => {
-                InsertComponent::format(f, &inst.lhs, &inst.rhs, &inst.out)
-            }
+            Instruction::InsertComponent {
+                vector,
+                index,
+                value,
+                out,
+            } => InsertComponent::format(f, vector, index, value, out),
             Instruction::ExtractComponent(inst) => {
                 ExtractComponent::format(f, &inst.lhs, &inst.rhs, &inst.out)
             }
@@ -671,7 +687,6 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                     writeln!(f, "// {content}")
                 }
             }
-            Instruction::Pipeline(pipeline_ops) => write!(f, "{pipeline_ops}"),
             Instruction::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Instruction::Line { file, line } => writeln!(f, "#line {line} \"{file}\""),
             Instruction::ProxyAsyncToSharedFence => {
@@ -698,7 +713,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 tensor_map,
                 out,
             } => {
-                let pos = Variable::<D>::UnitPos;
+                let pos = Builtin::<D>::UnitPos;
                 writeln!(f, "__shared__ alignas(128) CUtensorMap {out};")?;
                 writeln!(
                     f,
@@ -739,6 +754,13 @@ if({pos} == 0) {{
                 #[cfg(feature = "cuda")]
                 crate::cuda::convert::special_cast::<D>(f, input, out)
             }
+            Instruction::ReadBuiltin { builtin, out } => {
+                writeln!(f, "{} = {builtin};", out.fmt_left())
+            }
+            Instruction::ReadScalar { id, out } => {
+                let elem = *out.item().elem();
+                writeln!(f, "{} = info.scalars_{elem}[{id}];", out.fmt_left())
+            }
         }
     }
 }
@@ -750,10 +772,10 @@ struct Fma<D: Dialect> {
 impl<D: Dialect> Fma<D> {
     fn format(
         f: &mut core::fmt::Formatter<'_>,
-        a: &Variable<D>,
-        b: &Variable<D>,
-        c: &Variable<D>,
-        out: &Variable<D>,
+        a: &Value<D>,
+        b: &Value<D>,
+        c: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
         let out_item = out.item();
 
@@ -782,10 +804,10 @@ struct Clamp<D: Dialect> {
 impl<D: Dialect> Clamp<D> {
     fn format(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        min_value: &Variable<D>,
-        max_value: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        min_value: &Value<D>,
+        max_value: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
         let out_item = out.item();
         if let Item::Vector(..) = out_item {
@@ -813,12 +835,12 @@ impl<D: Dialect> Clamp<D> {
 
     fn unroll_vec(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        min_value: &Variable<D>,
-        max_value: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        min_value: &Value<D>,
+        max_value: &Value<D>,
+        out: &Value<D>,
     ) -> std::fmt::Result {
-        let optimized = Variable::optimized_args([*input, *min_value, *max_value, *out]);
+        let optimized = Value::optimized_args([*input, *min_value, *max_value, *out]);
         let [input, min_value, max_value, out_optimized] = optimized.args;
 
         let item_out_original = out.item();
@@ -829,10 +851,10 @@ impl<D: Dialect> Clamp<D> {
             _ => 1,
         };
 
-        let mut write_op = |input: &Variable<D>,
-                            min_value: &Variable<D>,
-                            max_value: &Variable<D>,
-                            out: &Variable<D>,
+        let mut write_op = |input: &Value<D>,
+                            min_value: &Value<D>,
+                            max_value: &Value<D>,
+                            out: &Value<D>,
                             item_out: Item<D>| {
             let out = out.fmt_left();
             writeln!(f, "{out} = {item_out}{{")?;
@@ -851,9 +873,9 @@ impl<D: Dialect> Clamp<D> {
         if item_out_original == item_out_optimized {
             write_op(&input, &min_value, &max_value, out, item_out_optimized)
         } else {
-            let out_tmp = Variable::tmp(item_out_optimized);
+            let out_tmp = Value::tmp(item_out_optimized);
             write_op(&input, &min_value, &max_value, &out_tmp, item_out_optimized)?;
-            let addr_space = D::address_space_for_variable(out);
+            let addr_space = D::address_space_for_value(out);
             let out = out.fmt_left();
 
             writeln!(
@@ -874,8 +896,8 @@ struct Magnitude<D: Dialect, S: FunctionFmt<D>> {
 impl<D: Dialect, S: FunctionFmt<D>> Magnitude<D, S> {
     fn format(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
         let num = match input.item() {
             Item::Vector(_, vectorization) => vectorization,
@@ -907,8 +929,8 @@ struct Normalize<D: Dialect, InvS: FunctionFmt<D>> {
 impl<D: Dialect, InvS: FunctionFmt<D>> Normalize<D, InvS> {
     fn format(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
         let num = match input.item() {
             Item::Vector(_, vectorization) => vectorization,
@@ -952,9 +974,9 @@ struct Dot<D: Dialect> {
 impl<D: Dialect> Dot<D> {
     fn format(
         f: &mut core::fmt::Formatter<'_>,
-        lhs: &Variable<D>,
-        rhs: &Variable<D>,
-        out: &Variable<D>,
+        lhs: &Value<D>,
+        rhs: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
         let num = match lhs.item() {
             Item::Vector(_, vectorization) => vectorization,
@@ -981,8 +1003,8 @@ struct VectorSumFmt<D: Dialect> {
 impl<D: Dialect> VectorSumFmt<D> {
     fn format(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<D>,
-        out: &Variable<D>,
+        input: &Value<D>,
+        out: &Value<D>,
     ) -> core::fmt::Result {
         let num = input.item().vectorization();
 
@@ -996,16 +1018,16 @@ impl<D: Dialect> VectorSumFmt<D> {
 }
 
 struct EnsureBoolArg<'a, V: Display, D: Dialect> {
-    var: &'a V,
+    val: &'a V,
     elem: &'a Elem<D>,
 }
 
 impl<V: Display, D: Dialect> Display for EnsureBoolArg<'_, V, D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.elem != &Elem::Bool {
-            write!(f, "bool({})", self.var)
+            write!(f, "bool({})", self.val)
         } else {
-            write!(f, "{}", self.var)
+            write!(f, "{}", self.val)
         }
     }
 }

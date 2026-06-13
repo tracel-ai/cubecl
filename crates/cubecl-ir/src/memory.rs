@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use crate::{CopyMemoryOperands, IndexOperands, StoreOperands, TypeHash, Variable};
+use crate::{CopyMemoryOperands, IndexOperands, StoreOperands, TypeHash, Value};
 
 use crate::OperationReflect;
 
@@ -10,10 +10,8 @@ use crate::OperationReflect;
 #[operation(opcode_name = MemoryOpCode)]
 pub enum Memory {
     #[operation(pure)]
-    Reference(Variable),
-    #[operation(pure)]
     Index(IndexOperands),
-    Load(#[args(allow_ptr, ptr_read)] Variable),
+    Load(#[args(allow_ptr, ptr_read)] Value),
     Store(StoreOperands),
     CopyMemory(CopyMemoryOperands),
 }
@@ -21,7 +19,6 @@ pub enum Memory {
 impl Display for Memory {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Memory::Reference(variable) => write!(f, "&{variable}"),
             Memory::Index(op) => write!(f, "&{}[{}]", op.list, op.index),
             Memory::Load(variable) => write!(f, "load({variable})"),
             Memory::Store(op) => write!(f, "store({}, {})", op.ptr, op.value),

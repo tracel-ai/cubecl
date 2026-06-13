@@ -13,7 +13,7 @@ use cubecl_core::{
     ir::{
         BarrierLevel, ContiguousElements, DeviceProperties, ElemType, FloatKind,
         HardwareProperties, MatrixLayout, MemoryDeviceProperties, MmaProperties, OpaqueType,
-        SemanticType, StorageType, TargetProperties, Type, VectorSize,
+        StorageType, TargetProperties, Type, VectorSize,
         features::{AtomicUsage, Plane, Tma, TypeUsage},
     },
     server::ServerUtilities,
@@ -190,11 +190,8 @@ impl DeviceService for CudaServer {
                 Type::atomic(Type::scalar(ElemType::Float(FloatKind::F16)).with_vector_size(2)),
                 AtomicUsage::Add | AtomicUsage::LoadStore,
             );
-            device_props.register_semantic_type(SemanticType::Pipeline);
-            device_props
-                .register_type_usage(OpaqueType::Barrier(BarrierLevel::Unit), TypeUsage::Buffer);
-            device_props
-                .register_type_usage(OpaqueType::Barrier(BarrierLevel::Cube), TypeUsage::Buffer);
+            device_props.register_opaque_type(OpaqueType::Barrier(BarrierLevel::Unit));
+            device_props.register_opaque_type(OpaqueType::Barrier(BarrierLevel::Cube));
             device_props.features.plane.insert(Plane::Sync);
             comp_opts.supports_features.grid_constants = true;
         }
@@ -234,7 +231,7 @@ impl DeviceService for CudaServer {
         }
         if arch_version >= 90 {
             device_props.features.tma.insert(Tma::Base);
-            device_props.register_semantic_type(SemanticType::TensorMap);
+            device_props.register_opaque_type(OpaqueType::TensorMap);
             device_props.features.cube_cluster = true;
             comp_opts.supports_features.clusters = true;
             comp_opts.supports_features.elect_sync = true;

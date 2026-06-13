@@ -1,27 +1,26 @@
 use core::mem::take;
 
 use alloc::vec::Vec;
-use cubecl_ir::{Id, Instruction, Type, Variable, VariableKind};
+use cubecl_ir::{Id, Instruction, Memory, Operation, Type, Value, ValueKind};
 use hashbrown::{HashMap, HashSet};
 use petgraph::visit::EdgeRef;
 
-use crate::{ControlFlow, EdgeIndex, Function, GlobalState, NodeIndex};
+use crate::{EdgeIndex, Function, GlobalState, NodeIndex};
 
 /// The state required by the SSA transform
 #[derive(Debug)]
 pub struct SsaState<'a> {
-    versions: HashMap<Id, u16>,
+    versions: HashMap<Id, Id>,
     visited_blocks: &'a mut HashSet<NodeIndex>,
     visited_edges: &'a mut HashSet<EdgeIndex>,
-    max_versions: &'a mut HashMap<Id, u16>,
 }
 
-/// An entry in the phi instruction. Contains the variable ID that should be used when coming from
+/// An entry in the phi instruction. Contains the value ID that should be used when coming from
 /// `block`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PhiEntry {
     pub block: NodeIndex,
-    pub value: Variable,
+    pub value: Value,
 }
 
 /// A phi node that picks its value based on the `BasicBlock` that came immediately before.
@@ -57,8 +56,8 @@ pub struct PhiEntry {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct PhiInstruction {
-    /// The out variable for the phi instruction
-    pub out: Variable,
+    /// The out value for the phi instruction
+    pub out: Value,
     /// The set of `block`-`value` pairs for the phi instruction
     pub entries: Vec<PhiEntry>,
 }
@@ -66,15 +65,14 @@ pub struct PhiInstruction {
 impl Function {
     /// Version all variables in the program so they are each assigned to exactly once.
     pub(crate) fn version_program(&mut self, global_state: &GlobalState) {
-        let versions: HashMap<_, _> = self.variables.keys().map(|key| (*key, 0)).collect();
+        let locals = self.destructurable_local_memories();
+        let versions: HashMap<_, _> = locals.keys().map(|key| (*key, 0)).collect();
         let mut visited_blocks = HashSet::new();
         let mut visited_edges = HashSet::new();
-        let mut max_versions = versions.clone();
         let initial_state = SsaState {
             versions,
             visited_blocks: &mut visited_blocks,
             visited_edges: &mut visited_edges,
-            max_versions: &mut max_versions,
         };
         self.version_block(global_state, self.root, initial_state);
     }
@@ -99,7 +97,6 @@ impl Function {
                 versions: state.versions.clone(),
                 visited_blocks: state.visited_blocks,
                 visited_edges: state.visited_edges,
-                max_versions: state.max_versions,
             };
 
             if !edge_visited {
@@ -120,11 +117,11 @@ impl Function {
                 .iter_mut()
                 .find(|it| it.block == source)
                 .unwrap();
-            if let Some((id, item, _)) = as_versioned(entry.value)
-                && self.variables.contains_key(&id)
+            if let Some((id, item)) = as_local(entry.value)
+                && self.destructurable_local_memories().contains_key(&id)
             {
-                let version = state.versions[&id];
-                entry.value = Variable::new(VariableKind::Versioned { id, version }, item);
+                let id = state.versions[&id];
+                entry.value = Value::new(id, item);
             }
         }
     }
@@ -137,97 +134,59 @@ impl Function {
         state: &mut SsaState<'_>,
     ) {
         for phi in self[block].phi_nodes.borrow_mut().iter_mut() {
-            if let Some((id, item, _)) = as_versioned(phi.out)
-                && self.variables.contains_key(&id)
+            if let Some((id, item)) = as_local(phi.out)
+                && self.destructurable_local_memories().contains_key(&id)
             {
                 let version = state.versions.get_mut(&id).unwrap();
-                let max_version = state.max_versions.get_mut(&id).unwrap();
-                *max_version += 1;
-                *version = *max_version;
-                phi.out = Variable::new(
-                    VariableKind::Versioned {
-                        id,
-                        version: *version,
-                    },
-                    item,
-                );
+                let out = global_state.root_scope.create_value(item);
+                *version = out.id();
+                phi.out = out;
             }
         }
 
-        let mut ops = take(&mut *self[block].ops.borrow_mut());
-        for operation in ops.values_mut() {
-            self.version_reads(global_state, operation, state);
-            self.version_writes(operation, state);
-        }
-        *self[block].ops.borrow_mut() = ops;
-        match &mut *self[block].control_flow.borrow_mut() {
-            ControlFlow::IfElse { cond, .. } => self.version_read(cond, state),
-            ControlFlow::LoopBreak { break_cond, .. } => self.version_read(break_cond, state),
-            ControlFlow::Switch { value, .. } => self.version_read(value, state),
-            ControlFlow::Loop { .. } => {}
-            ControlFlow::Return { value } => {
-                if let Some(value) = value {
-                    self.version_read(value, state);
-                }
+        let ops = take(&mut *self[block].ops.borrow_mut());
+        let ops = ops.into_iter().flat_map(|(_, mut instruction)| {
+            self.version_loads(&mut instruction, state);
+            self.version_stores(&mut instruction, state, global_state);
+            if let Operation::DeclareVariable { .. } = &instruction.operation
+                && state.versions.contains_key(&instruction.out().id())
+            {
+                None
+            } else {
+                Some(instruction)
             }
-            ControlFlow::Unreachable | ControlFlow::None => {}
+        });
+        *self[block].ops.borrow_mut() = ops.collect();
+    }
+
+    fn version_loads(&mut self, inst: &mut Instruction, state: &mut SsaState<'_>) {
+        if let Operation::Memory(Memory::Load(ptr)) = inst.operation
+            && let Some(id) = state.versions.get(&ptr.id())
+        {
+            let new_val = Value::new(*id, inst.out().ty);
+            *inst = Instruction::new(Operation::Copy(new_val), inst.out())
         }
     }
 
-    fn version_reads(
+    fn version_stores(
         &mut self,
-        global_state: &GlobalState,
-        op: &mut Instruction,
+        inst: &mut Instruction,
         state: &mut SsaState<'_>,
+        global_state: &GlobalState,
     ) {
-        self.visit_operation(global_state, &mut op.operation, |func, var| {
-            func.version_read(var, state)
-        });
-    }
-
-    fn version_writes(&mut self, op: &mut Instruction, state: &mut SsaState<'_>) {
-        self.visit_out(&mut op.out, |_, var| match var.kind {
-            VariableKind::LocalMut { id } | VariableKind::Versioned { id, .. } => {
-                if let Some(version) = state.versions.get_mut(&id) {
-                    let max_version = state.max_versions.get_mut(&id).unwrap();
-                    *max_version += 1;
-                    *version = *max_version;
-                    *var = Variable::new(
-                        VariableKind::Versioned {
-                            id,
-                            version: *version,
-                        },
-                        var.ty,
-                    )
-                }
-            }
-            _ => {}
-        });
-    }
-
-    fn version_read(&self, var: &mut Variable, state: &mut SsaState<'_>) {
-        match var.kind {
-            VariableKind::LocalMut { id } | VariableKind::Versioned { id, .. } => {
-                if self.variables.contains_key(&id)
-                    && let Some(version) = state.versions.get(&id)
-                {
-                    *var = Variable::new(
-                        VariableKind::Versioned {
-                            id,
-                            version: *version,
-                        },
-                        var.ty,
-                    )
-                }
-            }
-            _ => {}
+        if let Operation::Memory(Memory::Store(store)) = &mut inst.operation
+            && let Some(version) = state.versions.get_mut(&store.ptr.id())
+        {
+            let new_val = global_state.root_scope.create_value(store.value.ty);
+            *version = new_val.id();
+            *inst = Instruction::new(Operation::Copy(store.value), new_val);
         }
     }
 }
 
-fn as_versioned(var: Variable) -> Option<(Id, Type, u16)> {
-    match var.kind {
-        VariableKind::Versioned { id, version } => Some((id, var.ty, version)),
+fn as_local(val: Value) -> Option<(Id, Type)> {
+    match val.kind {
+        ValueKind::Value { id } => Some((id, val.ty)),
         _ => None,
     }
 }

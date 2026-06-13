@@ -7,11 +7,11 @@ use super::{
 use crate::{
     Dialect,
     shared::{
-        self, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins, DialectIncludes,
-        DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
-        DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout,
-        Instruction, Item, KernelArg, ManualMma, SharedMemory, SupportedMmaCombinations, Variable,
-        WarpInstruction, WmmaInstruction, wmma_api_base,
+        self, Builtin, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
+        DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
+        DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, FragmentIdent,
+        FragmentLayout, FragmentType, Instruction, Item, KernelArg, ManualMma, SharedMemory,
+        SupportedMmaCombinations, Value, WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
 use core::panic;
@@ -30,8 +30,8 @@ impl Dialect for MslDialect {
 impl MslDialect {
     fn warp_op_vectorized(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
         simd_op_prefix: &str,
         simd_op_suffix: &str,
     ) -> core::fmt::Result {
@@ -55,71 +55,71 @@ impl MslDialect {
 impl DialectWarpReduceCompiler<Self> for MslDialect {
     fn warp_reduce_sum(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_sum(", ")")
     }
     fn warp_reduce_prod(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_product(", ")")
     }
     fn warp_reduce_max(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_max(", ")")
     }
     fn warp_reduce_min(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_min(", ")")
     }
     fn warp_reduce_all(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_and(", "? 1u : 0u) != 0u")
     }
     fn warp_reduce_any(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_or(", "? 1u : 0u) != 0u")
     }
     fn warp_reduce_sum_inclusive(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_prefix_inclusive_sum(", ")")
     }
     fn warp_reduce_prod_inclusive(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_prefix_inclusive_product(", ")")
     }
     fn warp_reduce_sum_exclusive(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_prefix_exclusive_sum(", ")")
     }
     fn warp_reduce_prod_exclusive(
         f: &mut core::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> core::fmt::Result {
         Self::warp_op_vectorized(f, input, out, "simd_prefix_exclusive_product(", ")")
     }
@@ -280,7 +280,7 @@ struct alignas({alignment}) {item} {{"
             shared::Elem::U32 => f.write_str("uint"),
             shared::Elem::U64 => f.write_str("ulong"),
             shared::Elem::Bool => f.write_str("bool"),
-            shared::Elem::Barrier(_) => unimplemented!("metal doesn't support barrier object"),
+            shared::Elem::None => f.write_str("<none>"),
             shared::Elem::_Dialect(_) => Ok(()),
         }
     }
@@ -306,8 +306,10 @@ struct alignas({alignment}) {item} {{"
                     shared::PointerClass::Local => AddressSpace::Thread,
                 };
                 write!(f, "{address_space} ")?;
-                Self::compile_item(f, inner.as_ref())?;
-                f.write_str("*")
+                match inner.as_ref() {
+                    Item::DynamicArray(inner) => write!(f, "{inner}*"),
+                    other => write!(f, "{other}*"),
+                }
             }
             Item::Array(inner, size) => {
                 write!(f, "array<{inner}, {size}>")
@@ -315,11 +317,16 @@ struct alignas({alignment}) {item} {{"
             Item::DynamicArray(inner) => {
                 write!(f, "{inner}*")
             }
+            Item::Fragment(fragment_type) => write!(f, "{fragment_type}"),
+            Item::Barrier(_) | Item::BarrierToken(_) => {
+                unimplemented!("metal doesn't support barrier object")
+            }
+            Item::TensorMap => unimplemented!("TensorMap not supported on Metal"),
         }
     }
 
-    fn address_space_for_variable(variable: &Variable<Self>) -> String {
-        format!("{} ", AddressSpace::from(variable))
+    fn address_space_for_value(value: &Value<Self>) -> String {
+        format!("{} ", AddressSpace::from(value))
     }
 
     fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -330,25 +337,14 @@ struct alignas({alignment}) {item} {{"
         f: &mut std::fmt::Formatter<'_>,
         shared: &SharedMemory<Self>,
     ) -> std::fmt::Result {
-        let SharedMemory { index, offset, .. } = shared;
-        match shared.item {
-            Item::Array(item, length) => {
-                let size_bytes = length * item.size();
-                writeln!(f, "// Shared array size: {length}, {size_bytes} bytes")?;
-                writeln!(
-                    f,
-                    "threadgroup {item}* shared_memory_{index} = reinterpret_cast<threadgroup {item}*>(&dynamic_shared_mem[{offset}]);"
-                )
-            }
-            item => {
-                let size_bytes = item.size();
-                writeln!(f, "// Shared value size: {size_bytes} bytes")?;
-                writeln!(
-                    f,
-                    "threadgroup {item}& shared_memory_{index} = reinterpret_cast<threadgroup {item}&>(dynamic_shared_mem[{offset}]);"
-                )
-            }
-        }
+        let SharedMemory { ptr, offset, .. } = shared;
+        let ptr_ty = ptr.item();
+        let size_bytes = shared.size();
+        writeln!(f, "// Shared value size: {size_bytes} bytes")?;
+        writeln!(
+            f,
+            "{ptr_ty} {ptr} = reinterpret_cast<{ptr_ty}>(&dynamic_shared_mem[{offset}]);"
+        )
     }
 }
 
@@ -374,19 +370,19 @@ void {kernel_name}("
             tensor_maps.is_empty(),
             "Tensor maps aren't supported for metal"
         );
-        for (i, b) in buffers.iter().enumerate() {
-            format_global_binding_arg("buffer", b, Some(&i.to_string()), &mut buffer_idx, f)?;
+        for b in buffers.iter() {
+            format_global_binding_arg(b, &mut buffer_idx, f)?;
         }
 
         if flags.has_info {
             let comma = if buffer_idx > 0 { "," } else { "" };
-            let (address_space, var) = match flags.has_dynamic_meta {
+            let (address_space, val) = match flags.has_dynamic_meta {
                 true => (AddressSpace::ConstDevice, "info_st* info_ptr"),
                 false => (AddressSpace::Constant, "info_st& info"),
             };
             let attribute = address_space.attribute();
 
-            write!(f, "{comma}\n    {address_space} {var}",)?;
+            write!(f, "{comma}\n    {address_space} {val}",)?;
             // attribute
             attribute.indexed_fmt(buffer_idx, f)?;
             buffer_idx += 1;
@@ -396,34 +392,34 @@ void {kernel_name}("
         let builtins = vec![
             (
                 flags.indexes.absolute_pos_tuple,
-                Variable::<Self>::AbsolutePosBaseName,
+                Builtin::<Self>::AbsolutePosBaseName,
             ),
             (
                 flags.indexes.cube_dim_tuple,
-                Variable::<Self>::CubeDimBaseName,
+                Builtin::<Self>::CubeDimBaseName,
             ),
             (
                 flags.indexes.cube_count_tuple,
-                Variable::<Self>::CubeCountBaseName,
+                Builtin::<Self>::CubeCountBaseName,
             ),
-            (flags.indexes.unit_pos, Variable::<Self>::UnitPos),
+            (flags.indexes.unit_pos, Builtin::<Self>::UnitPos),
             (
                 flags.indexes.unit_pos_tuple,
-                Variable::<Self>::UnitPosBaseName,
+                Builtin::<Self>::UnitPosBaseName,
             ),
             (
                 flags.indexes.cube_pos_tuple,
-                Variable::<Self>::CubePosBaseName,
+                Builtin::<Self>::CubePosBaseName,
             ),
-            (flags.indexes.unit_pos_plane, Variable::<Self>::UnitPosPlane),
-            (flags.indexes.plane_dim, Variable::<Self>::PlaneDim),
-            (flags.indexes.plane_pos, Variable::<Self>::PlanePos),
+            (flags.indexes.unit_pos_plane, Builtin::<Self>::UnitPosPlane),
+            (flags.indexes.plane_dim, Builtin::<Self>::PlaneDim),
+            (flags.indexes.plane_pos, Builtin::<Self>::PlanePos),
         ];
         let comma = buffer_idx > 0;
         builtins
             .iter()
             .filter(|(cond, _)| *cond)
-            .try_for_each(|(_, var)| format_metal_builtin_binding_arg(f, var, comma))?;
+            .try_for_each(|(_, val)| format_metal_builtin_binding_arg(f, val, comma))?;
         f.write_str("\n)")
     }
 
@@ -460,7 +456,7 @@ void {kernel_name}("
 // Cube builtins dialect
 
 impl DialectCubeBuiltins<Self> for MslDialect {
-    /// Depending on the dialect available built-in variables the
+    /// Depending on the dialect available built-ins the
     /// inclusion rules might change.
     /// For instance in metal we have a built-in for the Unit plane position
     /// so we don't rely on other builtins.
@@ -649,9 +645,9 @@ impl DialectInstructions<Self> for MslDialect {
     // atomics
     fn compile_atomic_add(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -662,9 +658,9 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_and(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -675,10 +671,10 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_cas(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        cmp: &Variable<Self>,
-        val: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        cmp: &Value<Self>,
+        val: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -689,8 +685,8 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_load(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -701,9 +697,9 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_max(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -714,9 +710,9 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_min(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -727,9 +723,9 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_or(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -740,8 +736,8 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_store(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<Self>,
-        out: &Variable<Self>,
+        input: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         writeln!(
             f,
@@ -751,9 +747,9 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_sub(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -764,9 +760,9 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_swap(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -777,9 +773,9 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_atomic_xor(
         f: &mut std::fmt::Formatter<'_>,
-        lhs: &Variable<Self>,
-        rhs: &Variable<Self>,
-        out: &Variable<Self>,
+        lhs: &Value<Self>,
+        rhs: &Value<Self>,
+        out: &Value<Self>,
     ) -> std::fmt::Result {
         let out = out.fmt_left();
         writeln!(
@@ -810,7 +806,7 @@ impl DialectInstructions<Self> for MslDialect {
     fn compile_instruction_printf(
         f: &mut std::fmt::Formatter<'_>,
         format_string: &str,
-        args: &[Variable<Self>],
+        args: &[Value<Self>],
     ) -> std::fmt::Result {
         let args = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>();
         let args = match args.is_empty() {
@@ -975,35 +971,35 @@ impl DialectInstructions<Self> for MslDialect {
     // Warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         source: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle({var}, {source})")
+        write!(f, "simd_shuffle({val}, {source})")
     }
 
     fn compile_warp_shuffle_xor(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         _elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle_xor({var}, {offset})")
+        write!(f, "simd_shuffle_xor({val}, {offset})")
     }
 
     fn compile_warp_shuffle_up(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle_up({var}, {offset})")
+        write!(f, "simd_shuffle_up({val}, {offset})")
     }
 
     fn compile_warp_shuffle_down(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle_down({var}, {offset})")
+        write!(f, "simd_shuffle_down({val}, {offset})")
     }
 
     fn compile_warp_all<T: Component<Self>>(
@@ -1022,7 +1018,7 @@ impl DialectInstructions<Self> for MslDialect {
 
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<Self>,
+        input: &Value<Self>,
         out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
         write!(f, "{out_elem}(uint64_t(simd_ballot({input})))")
@@ -1050,9 +1046,10 @@ impl DialectWmmaCompiler<Self> for MslDialect {
 
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
-        var: &crate::shared::Variable<MslDialect>,
+        val: &crate::shared::Value<MslDialect>,
+        ty: &crate::shared::Item<MslDialect>,
     ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_declaration(f, var)
+        wmma_api_base::compile_fragment_declaration(f, val, ty)
     }
 
     fn compile_wwma_fragment_ident(
@@ -1073,7 +1070,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
 
     fn compile_wmma_fragment(
         f: &mut std::fmt::Formatter<'_>,
-        fragment: &Fragment<Self>,
+        fragment: &FragmentType<Self>,
     ) -> std::fmt::Result {
         let ty = fragment.elem;
         // currently as of Metal 3.2 only fragments of 8x8x8 are supported
@@ -1092,13 +1089,13 @@ impl DialectWmmaCompiler<Self> for MslDialect {
     ) -> std::fmt::Result {
         match instruction {
             WmmaInstruction::Fill { frag, value } => {
-                match frag {
-                    Variable::WmmaFragment { .. } => {
+                match *frag.item().value_ty() {
+                    Item::Fragment { .. } => {
                         let ty = frag.elem();
                         // Only 8x8x8 fragemts are supported. Check is done at fragment compilation time.
                         writeln!(
                             f,
-                            "{frag} = make_filled_simdgroup_matrix<{ty}, 8, 8>({value});"
+                            "*{frag} = make_filled_simdgroup_matrix<{ty}, 8, 8>({value});"
                         )
                     }
                     _ => panic!("should be a fragment"),
@@ -1110,8 +1107,8 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 stride,
                 layout: _layout,
             } => {
-                let transpose = match frag {
-                    Variable::WmmaFragment { frag: inner, .. } => match inner.layout {
+                let transpose = match *frag.item().value_ty() {
+                    Item::Fragment(inner) => match inner.layout {
                         Some(FragmentLayout::RowMajor) => false,
                         Some(FragmentLayout::ColMajor) => true,
                         _ => false,
@@ -1122,12 +1119,12 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                     let elem_ptr = ptr.item().as_scalar();
                     writeln!(
                         f,
-                        "simdgroup_load({frag}, ({elem_ptr})({ptr}), {stride}, 0, {transpose});"
+                        "simdgroup_load(*{frag}, ({elem_ptr})({ptr}), {stride}, 0, {transpose});"
                     )
                 } else {
                     writeln!(
                         f,
-                        "simdgroup_load({frag}, {ptr}, {stride}, 0, {transpose});"
+                        "simdgroup_load(*{frag}, {ptr}, {stride}, 0, {transpose});"
                     )
                 }
             }
@@ -1138,7 +1135,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 frag_d: d,
                 ..
             } => {
-                writeln!(f, "simdgroup_multiply_accumulate({d}, {a}, {b}, {c});")
+                writeln!(f, "simdgroup_multiply_accumulate(*{d}, {a}, {b}, {c});")
             }
             WmmaInstruction::Store {
                 frag,
@@ -1168,13 +1165,13 @@ impl DialectWmmaCompiler<Self> for MslDialect {
             }
             WmmaInstruction::Cast { input, output } => {
                 writeln!(f, "simdgroup_barrier(mem_flags::mem_none);")?;
-                let ty = match output {
-                    Variable::WmmaFragment { frag, .. } => frag.elem,
+                let ty = match *output.item().value_ty() {
+                    Item::Fragment(frag) => frag.elem,
                     _ => panic!("should be a fragment"),
                 };
                 match ty {
                     Elem::BF16 => {
-                        let addr_space = Self::address_space_for_variable(output);
+                        let addr_space = Self::address_space_for_value(output);
                         let elem = Elem::<Self>::F16;
                         // TODO: to test with benchmarks
 
@@ -1182,7 +1179,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                             f,
                             "for(int e=0; e<8; e++) {{
     {ty} elem = {ty}({input}.thread_elements()[e]);
-    {output}.thread_elements()[e] = *reinterpret_cast<{addr_space}{elem} *>(&elem);
+    {output}->thread_elements()[e] = *reinterpret_cast<{addr_space}{elem} *>(&elem);
 }}"
                         )
                     }
@@ -1190,7 +1187,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                         writeln!(
                             f,
                             "for(int e=0; e<8; e++) {{
-    {output}.thread_elements()[e] = {ty}({input}.thread_elements()[e]);
+    {output}->thread_elements()[e] = {ty}({input}.thread_elements()[e]);
 }}"
                         )
                     }
@@ -1237,8 +1234,8 @@ impl DialectWmmaCompiler<Self> for MslDialect {
     fn compile_scaled_mma(
         f: &mut std::fmt::Formatter<'_>,
         _mma: shared::ManualMma<Self>,
-        _scales_a: Variable<Self>,
-        _scales_b: Variable<Self>,
+        _scales_a: Value<Self>,
+        _scales_b: Value<Self>,
         _scales_factor: u32,
     ) -> std::fmt::Result {
         f.write_str("#error scaled mma not supported on Metal\n")

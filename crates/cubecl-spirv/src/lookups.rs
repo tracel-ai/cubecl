@@ -2,10 +2,10 @@ use core::ops::{Deref, DerefMut};
 use std::collections::VecDeque;
 
 use cubecl_core::{
-    ir::{self, Builtin, Id, Type, VariableKind},
+    ir::{self, Builtin, Id, ValueKind},
     prelude::KernelDefinition,
 };
-use cubecl_opt::{ConstArray, NodeIndex};
+use cubecl_opt::NodeIndex;
 use hashbrown::{HashMap, HashSet};
 use rspirv::{
     dr,
@@ -18,7 +18,7 @@ use rspirv::{
 use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
-    variable::{ConstVal, Variable},
+    value::ConstVal,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -60,36 +60,16 @@ impl DerefMut for CompilerState {
 #[derive(Clone, Debug, Default)]
 pub struct LookupTables {
     pub buffers: Vec<Buffer>,
+    pub shared: HashMap<Id, SharedVal>,
 
-    pub const_arrays: Vec<Array>,
-    pub shared: HashMap<Id, SharedVar>,
-
-    pub matrices: HashMap<Id, Matrix>,
     pub globals: HashMap<Builtin, Word>,
     pub loaded_builtins: HashMap<BuiltIn, Word>,
-
     pub used_builtins: HashMap<BuiltIn, (Word, Item)>,
 
-    pub scalars: HashMap<(Id, ir::StorageType), Word>,
     pub constants: HashMap<(ConstVal, Item), Word>,
-    pub bindings: HashMap<Id, Word>,
-    pub variables: HashMap<Id, Word>,
-    pub versioned: HashMap<(Id, u16), Word>,
+    pub values: HashMap<Id, Word>,
     pub labels: HashMap<NodeIndex, Word>,
     pub end_labels: HashMap<NodeIndex, Word>,
-
-    pub atomic_scopes: HashMap<Word, Scope>,
-
-    pub slices: HashMap<Id, Slice>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Slice {
-    pub ptr: Variable,
-    pub offset: Word,
-    pub end: Word,
-    pub const_len: Option<u32>,
-    pub item: Item,
 }
 
 #[derive(Clone, Debug)]
@@ -98,30 +78,10 @@ pub struct FuncDefinition {
     pub id: Word,
 }
 
-impl From<&Slice> for Variable {
-    fn from(value: &Slice) -> Self {
-        Variable::Slice {
-            ptr: Box::new(value.ptr.clone()),
-            offset: value.offset,
-            end: value.end,
-            const_len: value.const_len,
-            item: value.item.clone(),
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
-pub struct Array {
+pub struct SharedVal {
     pub id: Word,
-    pub item: Item,
-    pub len: u32,
-    pub var: ir::Variable,
-    pub alignment: Option<u32>,
-}
-
-#[derive(Clone, Debug)]
-pub struct SharedVar {
-    pub id: Word,
+    pub val_id: Word,
     pub ptr_ty_id: Word,
     pub item: Item,
     pub offset: u32,
@@ -153,6 +113,8 @@ pub struct Buffer {
     pub id: Word,
     pub struct_ty_id: Word,
     pub struct_ptr_ty_id: Word,
+    pub arr_ty_id: Word,
+    pub arr_ptr_ty_id: Word,
     pub storage_class: StorageClass,
 }
 
@@ -168,8 +130,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         for binding in &mut kernel.buffers {
             // This is safe when combined with the unroll transform that adjusts all indices.
             // Must not be used alone
-            if binding.ty.vector_size() > max_vector_size {
-                binding.ty = binding.ty.with_vector_size(max_vector_size);
+            if binding.value.ty.vector_size() > max_vector_size {
+                binding.value.ty = binding.value.ty.with_vector_size(max_vector_size);
             }
         }
 
@@ -185,15 +147,22 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let smem_id = self.id();
             let smem_ptr_ty_id = self.id();
 
-            let item = self.compile_type(alloc.smem.ty);
+            let smem_val_id = if self.compilation_options.vulkan.supports_explicit_smem {
+                self.id()
+            } else {
+                smem_id
+            };
+
+            let item = self.compile_type(alloc.smem.value_ty);
             self.state.base_lookups.shared.insert(
-                alloc.smem.id,
-                SharedVar {
+                alloc.id,
+                SharedVal {
                     id: smem_id,
+                    val_id: smem_val_id,
                     ptr_ty_id: smem_ptr_ty_id,
                     item,
                     offset: alloc.offset as u32,
-                    align: alloc.smem.align as u32,
+                    align: alloc.smem.alignment as u32,
                 },
             );
         }
@@ -208,8 +177,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             .enumerate()
             .map(|(i, arg)| (arg.ty, i as u32))
             .collect();
-        self.state.lookups.buffers = self.state.base_lookups.buffers.clone();
-        self.state.lookups.shared = self.state.base_lookups.shared.clone();
+        self.state.lookups = self.state.base_lookups.clone();
     }
 
     fn dedup_const(&mut self, inst: &dr::Instruction) -> Option<Word> {
@@ -303,52 +271,19 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         id
     }
 
-    pub fn get_local(&mut self, id: Id, item: &Item, var: ir::Variable) -> Word {
-        if let Some(existing) = self.state.variables.get(&id) {
-            *existing
-        } else {
-            let ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
-            let word = self.declare_function_variable(ty, None);
-            self.state.variables.insert(id, word);
-            self.debug_var_name(word, var);
-            word
-        }
-    }
-
-    fn init_local_from_param(&mut self, id: Id, item: &Item, var: ir::Variable, init: Word) {
-        let ty = Item::Pointer(StorageClass::Function, Box::new(item.clone())).id(self);
-        let word = self.declare_function_variable(ty, Some(init));
-        self.state.variables.insert(id, word);
-        self.debug_var_name(word, var);
-    }
-
-    pub fn get_binding(&mut self, id: Id, var: &ir::Variable) -> Word {
-        if let Some(existing) = self.state.bindings.get(&id) {
+    pub fn get_value(&mut self, id: Id) -> Word {
+        if let Some(existing) = self.state.values.get(&id) {
             *existing
         } else {
             let word = self.id();
-            self.state.bindings.insert(id, word);
-            self.debug_var_name(word, *var);
+            self.state.values.insert(id, word);
+            self.debug_val_name(word, id);
             word
         }
     }
 
-    pub fn merge_binding(&mut self, id: Id, word: Word) {
-        self.state.bindings.insert(id, word);
-    }
-
-    pub fn get_versioned(&mut self, id: (Id, u16), var: &ir::Variable) -> Word {
-        if let Some(existing) = self.state.versioned.get(&id) {
-            *existing
-        } else {
-            let word = self.id();
-            self.state.versioned.insert(id, word);
-            let mut debug_var = *var;
-            debug_var.kind = VariableKind::LocalMut { id: id.0 };
-            let name = self.name_of_var(debug_var);
-            self.debug_name(word, format!("{name}.v{}", id.1));
-            word
-        }
+    pub fn insert_value(&mut self, id: Id, word: Word) {
+        self.state.values.insert(id, word);
     }
 
     pub fn label(&mut self, block: NodeIndex) -> Word {
@@ -372,45 +307,15 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn init_function_param(&mut self, param: ir::Variable, param_id: Word) {
+    pub fn init_function_param(&mut self, param: ir::Value, param_id: Word) {
         let item = self.compile_type(param.ty);
         match param.kind {
-            VariableKind::GlobalBuffer(id) | VariableKind::TensorMap(id) => {
-                self.state.buffers[id as usize].id = param_id;
-            }
-            VariableKind::Shared { id, .. } => {
-                self.state.shared.get_mut(&id).unwrap().id = param_id;
-            }
-            VariableKind::Builtin(builtin) => {
-                self.state.globals.insert(builtin, param_id);
-            }
-            VariableKind::ConstantArray { .. }
-            | VariableKind::Pipeline { .. }
-            | VariableKind::BarrierToken { .. } => {
-                panic!("{param} not allowed as a function param")
-            }
-            VariableKind::Constant(value) => {
+            ValueKind::Constant(value) => {
                 let const_val = (value, item.clone()).into();
                 self.state.constants.insert((const_val, item), param_id);
             }
-            VariableKind::GlobalScalar(id) => {
-                self.state
-                    .scalars
-                    .insert((id, param.storage_type()), param_id);
-            }
-            VariableKind::LocalMut { id } => self.init_local_from_param(id, &item, param, param_id),
-            VariableKind::LocalConst { id } => {
-                self.state.bindings.insert(id, param_id);
-            }
-            VariableKind::Versioned { id, version } => {
-                self.state.versioned.insert((id, version), param_id);
-            }
-            VariableKind::Matrix { id, mat } => {
-                let matrix = self.init_coop_matrix(mat, param, Some(param_id));
-                self.state.matrices.insert(id, matrix);
-            }
-            VariableKind::Aggregate { .. } => {
-                unreachable!("Should be disaggregated at this point")
+            ValueKind::Value { id } => {
+                self.state.values.insert(id, param_id);
             }
         }
     }
@@ -420,82 +325,27 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.state.lookups = self.state.base_lookups.clone();
     }
 
-    pub fn global_scalar(&mut self, id: Id, ty: ir::StorageType) -> Variable {
-        if let Some(existing) = self.state.scalars.get(&(id, ty)).copied() {
-            let item = self.compile_type(ir::Type::new(ty));
-            Variable::GlobalScalar(existing, item.elem())
-        } else {
-            let ir_var = ir::Variable::new(VariableKind::GlobalScalar(id), Type::new(ty));
-            let current_block = self.selected_block();
-            let setup = self.setup_block;
-            self.select_block(Some(setup)).unwrap();
-            let field_id = self.const_u32(self.state.scalar_bindings[&ty]);
-            let offset = self.const_u32(id);
-            let item = self.compile_type(ir::Type::new(ty));
+    pub fn global_scalar(&mut self, id: Id, ty: ir::StorageType) -> Word {
+        self.insert_in_setup(|b| {
+            let field_id = b.const_u32(b.state.scalar_bindings[&ty]);
+            let offset = b.const_u32(id);
+            let item = b.compile_type(ir::Type::new(ty));
             let align = item.size();
-            let elem = item.elem();
-            let ty_id = item.id(self);
-            let storage_class = T::info_storage_class(self);
-            let ptr_ty = Item::Pointer(storage_class, Box::new(item)).id(self);
-            let info = self.state.info.unwrap().id;
-            let access = self
+            let ty_id = item.id(b);
+            let storage_class = T::info_storage_class(b);
+            let ptr_ty = Item::Pointer(storage_class, Box::new(item)).id(b);
+            let info = b.state.info.unwrap().id;
+            let access = b
                 .in_bounds_access_chain(ptr_ty, None, info, [field_id, offset])
                 .unwrap();
-            let read_id = self
-                .load(
-                    ty_id,
-                    None,
-                    access,
-                    Some(MemoryAccess::ALIGNED),
-                    [align.into()],
-                )
-                .unwrap();
-            let var = Variable::GlobalScalar(read_id, elem);
-            self.debug_var_name(read_id, ir_var);
-            self.select_block(current_block).unwrap();
-            self.state.scalars.insert((id, ty), read_id);
-            var
-        }
-    }
-
-    pub fn register_const_array(&mut self, arr: ConstArray) {
-        let var = ir::Variable::new(
-            VariableKind::ConstantArray {
-                id: arr.id,
-                length: arr.length,
-                unroll_factor: 1,
-            },
-            arr.item,
-        );
-
-        let item = self.compile_type(arr.item);
-        let item_id = item.id(self);
-        let array_ty = self.id();
-        let len_id = self.const_u32(arr.length as u32);
-
-        self.type_array_id(Some(array_ty), item_id, len_id);
-        let pointer_ty = self.type_pointer(None, StorageClass::Function, array_ty);
-
-        let values = arr
-            .values
-            .into_iter()
-            .map(|it| self.compile_variable(it))
-            .collect::<Vec<_>>()
-            .into_iter()
-            .map(|it| self.read_as(&it, &item))
-            .collect::<Vec<_>>();
-        let constant = self.constant_composite(array_ty, values);
-        let id = self.variable(pointer_ty, None, StorageClass::Function, Some(constant));
-        self.debug_var_name(id, var);
-        self.state.const_arrays.insert(
-            arr.id as usize,
-            Array {
-                id,
-                item,
-                len: arr.length as u32,
-                var,
-                alignment: None,
-            },
-        );
+            b.load(
+                ty_id,
+                None,
+                access,
+                Some(MemoryAccess::ALIGNED),
+                [align.into()],
+            )
+            .unwrap()
+        })
     }
 }

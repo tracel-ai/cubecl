@@ -78,13 +78,13 @@ impl<T: CubeType> Sequence<T> {
         self.values.len()
     }
 
-    /// Get the variable at the given position in the sequence.
+    /// Get the value at the given position in the sequence.
     #[allow(clippy::should_implement_trait)]
     pub fn index(&self, index: usize) -> &T {
         self.values.get(index).unwrap()
     }
 
-    /// Get the variable at the given position in the sequence.
+    /// Get the value at the given position in the sequence.
     #[allow(clippy::should_implement_trait)]
     pub fn index_mut(&mut self, index: usize) -> &mut T {
         self.values.get_mut(index).unwrap()

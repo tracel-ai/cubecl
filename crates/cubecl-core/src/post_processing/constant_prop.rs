@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 use cubecl_ir::{
     Arithmetic, Bitwise, Comparison, ConstantValue, GlobalState, Instruction, Operation, Operator,
-    Type, Variable,
+    Type, Value,
 };
 
 use crate::post_processing::{
@@ -139,7 +139,7 @@ impl InstructionVisitor for ConstEval {
         changes: &AtomicCounter,
     ) -> Vec<Instruction> {
         if let Some(const_eval) = try_const_eval(&mut inst) {
-            let input = Variable::constant(const_eval, inst.out().ty);
+            let input = Value::constant(const_eval, inst.out().ty);
             inst.operation = Operation::Copy(input);
             changes.inc();
         }
@@ -402,6 +402,7 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantValue> {
         Arithmetic::Exp(op) => const_eval_float!(op.input; num_traits::Float::exp),
         Arithmetic::Log(op) => const_eval_float!(op.input; num_traits::Float::ln),
         Arithmetic::Log1p(op) => const_eval_float!(op.input; num_traits::Float::ln_1p),
+        Arithmetic::Expm1(op) => const_eval_float!(op.input; num_traits::Float::exp_m1),
         Arithmetic::Cos(op) => const_eval_float!(op.input; num_traits::Float::cos),
         Arithmetic::Sin(op) => const_eval_float!(op.input; num_traits::Float::sin),
         Arithmetic::Tan(op) => const_eval_float!(op.input; num_traits::Float::tan),
@@ -569,6 +570,8 @@ fn try_const_eval_operator(op: &mut Operator, out_ty: Option<Type>) -> Option<Co
         | Operator::InsertComponent(_)
         | Operator::ExtractComponent(_)
         | Operator::Reinterpret(_)
-        | Operator::Select(_) => None,
+        | Operator::Select(_)
+        | Operator::ReadBuiltin(_)
+        | Operator::ReadScalar(_) => None,
     }
 }

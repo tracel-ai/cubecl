@@ -115,7 +115,7 @@ impl<T: CubePrimitive> TensorView<T> {
                 shape.len(),
                 "Offsets and shape must have same rank"
             );
-            let new_layout = scope.create_local(self.layout.expand.ty);
+            let new_layout = scope.create_value(self.layout.expand.ty);
             scope.register(Instruction::new(
                 TensorIndexingOps::Slice {
                     layout: self.layout.expand,
@@ -167,7 +167,7 @@ impl<T: CubePrimitive> TensorViewExpand<T> {
             .collect::<alloc::vec::Vec<_>>();
         let mut perm_dims = [0; 5];
         perm_dims[..dims].copy_from_slice(&permutation);
-        let view = scope.create_local(Type::semantic(SemanticType::TensorView(
+        let view = scope.create_value(Type::semantic(SemanticType::TensorView(
             dims, false, perm_dims,
         )));
         scope.register(Instruction::new(TensorIndexingOps::CreateView, view));
@@ -215,7 +215,7 @@ impl<T: CubePrimitive> TensorViewBuilderExpand<T> {
     }
 
     pub fn __expand_finish_method(self, scope: &Scope) -> TensorViewExpand<T> {
-        let layout = scope.create_local(Type::semantic(SemanticType::TensorLayout(
+        let layout = scope.create_value(Type::semantic(SemanticType::TensorLayout(
             self.shape.len(),
             self.clamp_mode.into(),
         )));

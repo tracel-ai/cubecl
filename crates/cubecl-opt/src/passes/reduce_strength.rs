@@ -2,7 +2,7 @@ use core::mem::take;
 
 use alloc::vec::Vec;
 use cubecl_ir::{
-    Arithmetic, BinaryOperands, Bitwise, ElemType, Instruction, Operation, UIntKind, Variable,
+    Arithmetic, BinaryOperands, Bitwise, ElemType, Instruction, Operation, UIntKind, Value,
 };
 
 use crate::{AtomicCounter, Function, GlobalState};
@@ -61,7 +61,7 @@ impl OptimizerPass for ReduceStrength {
                                 changes.inc();
                             }
                             val if (val + 1).is_power_of_two() => {
-                                let temp = state.allocator.create_local(inst.ty());
+                                let temp = state.allocator.create_value(inst.ty());
                                 new_ops.push(Instruction::new(
                                     Bitwise::ShiftLeft(BinaryOperands {
                                         lhs: dyn_val,
@@ -79,7 +79,7 @@ impl OptimizerPass for ReduceStrength {
                                 changes.inc();
                             }
                             val if (val - 1).is_power_of_two() => {
-                                let temp = state.allocator.create_local(inst.ty());
+                                let temp = state.allocator.create_value(inst.ty());
                                 new_ops.push(Instruction::new(
                                     Bitwise::ShiftLeft(BinaryOperands {
                                         lhs: dyn_val,
@@ -141,7 +141,7 @@ impl OptimizerPass for ReduceStrength {
     }
 }
 
-fn is_pow2(var: Variable) -> bool {
+fn is_pow2(var: Value) -> bool {
     var.ty.elem_type() == ElemType::UInt(UIntKind::U32)
         && var
             .as_const()

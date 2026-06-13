@@ -1,83 +1,28 @@
 use itertools::Itertools;
 
-use super::{Item, Variable};
+use super::{Item, Value};
 use std::fmt::Display;
 
 #[derive(Debug, Clone)]
 #[allow(dead_code, missing_docs)] // Some variants might not be used with different flags
 pub enum Subgroup {
-    Elect {
-        out: Variable,
-    },
-    All {
-        input: Variable,
-        out: Variable,
-    },
-    Any {
-        input: Variable,
-        out: Variable,
-    },
-    Ballot {
-        input: Variable,
-        out: Variable,
-    },
-    Broadcast {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
-    },
-    Sum {
-        input: Variable,
-        out: Variable,
-    },
-    ExclusiveSum {
-        input: Variable,
-        out: Variable,
-    },
-    InclusiveSum {
-        input: Variable,
-        out: Variable,
-    },
-    Prod {
-        input: Variable,
-        out: Variable,
-    },
-    ExclusiveProd {
-        input: Variable,
-        out: Variable,
-    },
-    InclusiveProd {
-        input: Variable,
-        out: Variable,
-    },
-    Min {
-        input: Variable,
-        out: Variable,
-    },
-    Max {
-        input: Variable,
-        out: Variable,
-    },
-    Shuffle {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
-    },
-    ShuffleXor {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
-    },
-    ShuffleUp {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
-    },
-    ShuffleDown {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
-    },
+    Elect { out: Value },
+    All { input: Value, out: Value },
+    Any { input: Value, out: Value },
+    Ballot { input: Value, out: Value },
+    Broadcast { lhs: Value, rhs: Value, out: Value },
+    Sum { input: Value, out: Value },
+    ExclusiveSum { input: Value, out: Value },
+    InclusiveSum { input: Value, out: Value },
+    Prod { input: Value, out: Value },
+    ExclusiveProd { input: Value, out: Value },
+    InclusiveProd { input: Value, out: Value },
+    Min { input: Value, out: Value },
+    Max { input: Value, out: Value },
+    Shuffle { lhs: Value, rhs: Value, out: Value },
+    ShuffleXor { lhs: Value, rhs: Value, out: Value },
+    ShuffleUp { lhs: Value, rhs: Value, out: Value },
+    ShuffleDown { lhs: Value, rhs: Value, out: Value },
 }
 
 impl Display for Subgroup {

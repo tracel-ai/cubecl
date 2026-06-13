@@ -2,7 +2,7 @@ use core::fmt::Display;
 
 use crate::TypeHash;
 
-use crate::{BinaryOperands, OperationArgs, OperationReflect, UnaryOperands, Variable};
+use crate::{BinaryOperands, OperationArgs, OperationReflect, UnaryOperands, Value};
 
 /// Arithmetic operations
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -23,6 +23,7 @@ pub enum Arithmetic {
     Exp(UnaryOperands),
     Log(UnaryOperands),
     Log1p(UnaryOperands),
+    Expm1(UnaryOperands),
     Cos(UnaryOperands),
     Sin(UnaryOperands),
     Tan(UnaryOperands),
@@ -83,6 +84,7 @@ impl Display for Arithmetic {
             Arithmetic::Exp(op) => write!(f, "{}.exp()", op.input),
             Arithmetic::Log(op) => write!(f, "{}.log()", op.input),
             Arithmetic::Log1p(op) => write!(f, "{}.log_1p()", op.input),
+            Arithmetic::Expm1(op) => write!(f, "{}.exp_m1()", op.input),
             Arithmetic::Cos(op) => write!(f, "{}.cos()", op.input),
             Arithmetic::Sin(op) => write!(f, "{}.sin()", op.input),
             Arithmetic::Tan(op) => write!(f, "{}.tan()", op.input),
@@ -131,16 +133,16 @@ impl Display for Arithmetic {
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct ClampOperands {
-    pub input: Variable,
-    pub min_value: Variable,
-    pub max_value: Variable,
+    pub input: Value,
+    pub min_value: Value,
+    pub max_value: Value,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationArgs)]
 #[allow(missing_docs)]
 pub struct FmaOperands {
-    pub a: Variable,
-    pub b: Variable,
-    pub c: Variable,
+    pub a: Value,
+    pub b: Value,
+    pub c: Value,
 }

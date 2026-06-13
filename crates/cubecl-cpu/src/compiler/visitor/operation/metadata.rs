@@ -1,10 +1,10 @@
-use cubecl_core::ir::Metadata;
+use cubecl_core::ir::{self as cube, Metadata};
 use tracel_llvm::mlir_rs::dialect::{arith, index, memref};
 
 use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
-    fn append_metadata(&mut self, offset: u32, out: Variable) {
+    fn append_metadata(&mut self, offset: u32, out: cube::Value) {
         let metadata_memref = self.args_manager.static_metadata_memref.unwrap();
         let offset = self
             .block
@@ -20,10 +20,10 @@ impl<'a> Visitor<'a> {
             &[offset],
             self.location,
         ));
-        self.insert_variable(out, result);
+        self.insert_value(out, result);
     }
 
-    fn append_extended_metadata(&mut self, offset: u32, dim: Variable, out: Variable) {
+    fn append_extended_metadata(&mut self, offset: u32, dim: cube::Value, out: cube::Value) {
         let static_metadata_memref = self.args_manager.static_metadata_memref.unwrap();
         let dynamic_metadata_memref = self.args_manager.dynamic_metadata_memref.unwrap();
         let offset = self
@@ -53,23 +53,23 @@ impl<'a> Visitor<'a> {
             &[offset],
             self.location,
         ));
-        self.insert_variable(out, result);
+        self.insert_value(out, result);
     }
 
-    pub fn visit_metadata(&mut self, metadata: &Metadata, out: Variable) {
+    pub fn visit_metadata(&mut self, metadata: &Metadata, out: cube::Value) {
         match metadata {
-            Metadata::BufferLength { var } => {
-                let position = self.args_manager.buffer_position(*var);
+            Metadata::BufferLength { list } => {
+                let position = self.args_manager.buffer_position(list);
                 let offset = self.args_manager.metadata.buffer_len_index(position);
                 self.append_metadata(offset, out);
             }
-            Metadata::Shape { dim, var } => {
-                let position = self.args_manager.ext_meta_position(*var);
+            Metadata::Shape { dim, list } => {
+                let position = self.args_manager.ext_meta_position(list);
                 let offset = self.args_manager.metadata.shape_offset_index(position);
                 self.append_extended_metadata(offset, *dim, out);
             }
-            Metadata::Stride { dim, var } => {
-                let position = self.args_manager.ext_meta_position(*var);
+            Metadata::Stride { dim, list } => {
+                let position = self.args_manager.ext_meta_position(list);
                 let offset = self.args_manager.metadata.stride_offset_index(position);
                 self.append_extended_metadata(offset, *dim, out);
             }

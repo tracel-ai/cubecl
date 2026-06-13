@@ -17,7 +17,7 @@ use crate::{
         self, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
         DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
         DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind, Flags, Instruction, Item, KernelArg,
-        ManualMma, PointerClass, Variable, WarpInstruction, unary,
+        ManualMma, PointerClass, Value, WarpInstruction, unary,
     },
 };
 
@@ -58,10 +58,6 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
             Self::compile_wmma_includes(f, flags)?;
         }
 
-        if flags.op_pipeline {
-            f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
-            f.write_str("#include <cuda/pipeline>\n")?;
-        }
         if flags.op_barrier || flags.inst_tma || flags.indexes.cluster_pos {
             f.write_str("#include <cooperative_groups.h>\n")?;
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
@@ -304,12 +300,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 shared::Elem::U32 => f.write_str("uint32"),
                 shared::Elem::U64 => f.write_str("uint64"),
                 shared::Elem::Bool => f.write_str("bool"),
-                shared::Elem::Barrier(BarrierLevel::Unit) => {
-                    f.write_str("cuda::barrier<cuda::thread_scope_thread>")
-                }
-                shared::Elem::Barrier(BarrierLevel::Cube) => {
-                    f.write_str("cuda::barrier<cuda::thread_scope_block>")
-                }
+                shared::Elem::None => f.write_str("<none>"),
                 shared::Elem::_Dialect(_) => Ok(()),
             }
         }
@@ -330,13 +321,30 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
                 if let PointerClass::Global(Visibility::Read | Visibility::Uniform) = class {
                     f.write_str("const ")?;
                 }
-                write!(f, "{inner}*")
+                match inner.as_ref() {
+                    Item::DynamicArray(inner) => write!(f, "{inner}*"),
+                    other => write!(f, "{other}*"),
+                }
             }
             Item::Array(inner, size) => {
                 write!(f, "array<{inner}, {size}>")
             }
             Item::DynamicArray(inner) => {
                 write!(f, "{inner}*")
+            }
+            Item::Fragment(fragment_type) => write!(f, "{fragment_type}"),
+            Item::BarrierToken(BarrierLevel::Cube) => {
+                write!(f, "cuda::barrier<cuda::thread_scope_block>::arrival_token")
+            }
+            Item::BarrierToken(BarrierLevel::Unit) => {
+                write!(f, "cuda::barrier<cuda::thread_scope_thread>::arrival_token")
+            }
+            Item::TensorMap => f.write_str("CUtensorMap"),
+            Item::Barrier(BarrierLevel::Unit) => {
+                f.write_str("cuda::barrier<cuda::thread_scope_thread>")
+            }
+            Item::Barrier(BarrierLevel::Cube) => {
+                f.write_str("cuda::barrier<cuda::thread_scope_block>")
             }
         }
     }
@@ -594,32 +602,32 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
     // warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         source: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_sync(-1, {var}, {source})")
+        write!(f, "__shfl_sync(-1, {val}, {source})")
     }
     fn compile_warp_shuffle_xor(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         _elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_xor_sync(-1, {var}, {offset})")
+        write!(f, "__shfl_xor_sync(-1, {val}, {offset})")
     }
     fn compile_warp_shuffle_up(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_up_sync(-1, {var}, {offset})")
+        write!(f, "__shfl_up_sync(-1, {val}, {offset})")
     }
     fn compile_warp_shuffle_down(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_down_sync(-1, {var}, {offset})")
+        write!(f, "__shfl_down_sync(-1, {val}, {offset})")
     }
     fn compile_warp_all<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,
@@ -636,7 +644,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
 
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<Self>,
+        input: &Value<Self>,
         _out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
         write!(f, "__ballot_sync(-1, {input})")
@@ -692,9 +700,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
 
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
-        var: &Variable<Self>,
+        val: &Value<Self>,
+        value_ty: &Item<Self>,
     ) -> std::fmt::Result {
-        M::compile_wmma_fragment_declaration(f, var)
+        M::compile_wmma_fragment_declaration(f, val, value_ty)
     }
 
     fn compile_wwma_fragment_ident(
@@ -713,7 +722,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
 
     fn compile_wmma_fragment(
         f: &mut std::fmt::Formatter<'_>,
-        fragment: &crate::shared::Fragment<Self>,
+        fragment: &crate::shared::FragmentType<Self>,
     ) -> std::fmt::Result {
         M::compile_wmma_fragment(f, fragment)
     }
@@ -735,8 +744,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
     fn compile_scaled_mma(
         f: &mut std::fmt::Formatter<'_>,
         mma: ManualMma<Self>,
-        scales_a: Variable<Self>,
-        scales_b: Variable<Self>,
+        scales_a: Value<Self>,
+        scales_b: Value<Self>,
         scales_factor: u32,
     ) -> std::fmt::Result {
         M::compile_scaled_mma(f, mma, scales_a, scales_b, scales_factor)

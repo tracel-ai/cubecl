@@ -7,7 +7,7 @@ use crate::{self as cubecl, unexpanded};
 use cubecl::prelude::*;
 use cubecl_ir::{
     AggregateKind, Branch, ElemType, FloatKind, Instruction, MetadataKind, Operation, RangeLoop,
-    SliceMetadata, Variable, VectorSize,
+    SliceMetadata, Value, VectorSize,
 };
 
 pub type SliceExpand<T> = NativeExpand<[T]>;
@@ -24,8 +24,11 @@ impl SliceVisibility for ReadOnly {}
 impl SliceVisibility for ReadWrite {}
 
 impl<E: CubePrimitive> SliceExpand<E> {
-    pub fn __extract_list(&self, scope: &Scope) -> Variable {
-        scope.extract_field(self.expand, self.expand.ty, SliceMetadata::LIST)
+    pub fn __extract_list(&self, scope: &Scope) -> Value {
+        let Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) = self.expand.ty else {
+            unreachable!("Should be slice aggregate")
+        };
+        scope.extract_field(self.expand, *inner_ty, SliceMetadata::LIST)
     }
 
     pub fn __extract_offset(&self, scope: &Scope) -> NativeExpand<usize> {
@@ -448,11 +451,12 @@ Expected types to be the same, got [{}, {}]",
 
 pub fn from_raw_parts<E: CubePrimitive>(
     scope: &Scope,
-    list: Variable,
+    list: Value,
     offset: NativeExpand<usize>,
     length: NativeExpand<usize>,
 ) -> SliceExpand<E> {
-    let out = scope.create_aggregate(list.ty, AggregateKind::Ptr(MetadataKind::Slice));
+    let ty = Type::Aggregate(AggregateKind::ptr(list.ty, MetadataKind::Slice));
+    let out = scope.create_value(ty);
     scope.register(Instruction::new(
         Operation::ConstructAggregate(vec![list, offset.expand, length.expand]),
         out,
@@ -545,7 +549,7 @@ impl<E: CubePrimitive> Iterable for SliceExpand<E> {
         let len = self.__extract_length(scope).expand;
 
         let child = scope.child();
-        let i = child.create_local_restricted(index_ty);
+        let i = scope.create_local_mut(index_ty);
 
         let index = NativeExpand::new(i);
         let item = self
@@ -576,7 +580,7 @@ impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E> {
         let len = self.__extract_length(scope).expand;
 
         let child = scope.child();
-        let i = child.create_local_restricted(index_ty);
+        let i = scope.create_local_mut(index_ty);
 
         let index = NativeExpand::new(i);
         let item = self.__expand_index_method(&child, index);
@@ -605,7 +609,7 @@ impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E> {
         let len = self.__extract_length(scope).expand;
 
         let child = scope.child();
-        let i = child.create_local_restricted(index_ty);
+        let i = scope.create_local_mut(index_ty);
 
         let index = NativeExpand::new(i);
         let item = self.__expand_index_mut_method(&child, index);
@@ -633,7 +637,7 @@ impl<E: CubePrimitive> SliceExpand<E> {
         scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &NativeExpand<E> {
-        read_offset::expand::<E>(scope, self, index, None, false)
+        read_offset::expand::<E>(scope, self, index, false)
     }
 
     #[doc(hidden)]
@@ -642,7 +646,7 @@ impl<E: CubePrimitive> SliceExpand<E> {
         scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &mut NativeExpand<E> {
-        write_offset::expand::<E>(scope, self, index, None, false)
+        write_offset::expand::<E>(scope, self, index, false)
     }
 }
 
@@ -650,7 +654,7 @@ impl<E: CubePrimitive> IndexExpand<NativeExpand<usize>> for SliceExpand<E> {
     type Output = E::ExpandType;
 
     fn __expand_index_method(&self, scope: &Scope, index: NativeExpand<usize>) -> &Self::Output {
-        read_offset::expand::<E>(scope, self, index, None, true)
+        read_offset::expand::<E>(scope, self, index, true)
     }
 }
 
@@ -660,7 +664,7 @@ impl<E: CubePrimitive> IndexMutExpand<NativeExpand<usize>> for SliceExpand<E> {
         scope: &Scope,
         index: NativeExpand<usize>,
     ) -> &mut Self::Output {
-        write_offset::expand::<E>(scope, self, index, None, true)
+        write_offset::expand::<E>(scope, self, index, true)
     }
 }
 
@@ -693,14 +697,13 @@ mod read_offset {
         scope: &Scope,
         slice: &SliceExpand<E>,
         index: NativeExpand<usize>,
-        vector_size: Option<VectorSize>,
         checked: bool,
     ) -> &'a <E as cubecl::prelude::CubeType>::ExpandType {
         let list = slice.__extract_list(scope);
         let offset = slice.__extract_offset(scope);
         let index = offset.__expand_add_method(scope, index);
 
-        expand_index_native(scope, list, index, vector_size, checked)
+        expand_index_native(scope, list, index, checked)
     }
 }
 
@@ -711,13 +714,12 @@ mod write_offset {
         scope: &Scope,
         slice: &SliceExpand<E>,
         index: <usize as CubeType>::ExpandType,
-        vector_size: Option<VectorSize>,
         checked: bool,
     ) -> &'a mut E::ExpandType {
         let list = slice.__extract_list(scope);
         let offset = slice.__extract_offset(scope);
         let index = offset.__expand_add_method(scope, index);
 
-        expand_index_mut_native(scope, list, index, vector_size, checked)
+        expand_index_mut_native(scope, list, index, checked)
     }
 }

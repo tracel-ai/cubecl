@@ -2,14 +2,14 @@ use core::fmt::Display;
 
 use crate::{AtomicBinaryOperands, StoreOperands, TypeHash};
 
-use crate::{OperationArgs, OperationReflect, Variable};
+use crate::{OperationArgs, OperationReflect, Value};
 
 /// Operations that operate on atomics
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, OperationReflect)]
 #[operation(opcode_name = AtomicOpCode)]
 pub enum AtomicOp {
-    Load(#[args(allow_ptr, ptr_read)] Variable),
+    Load(#[args(allow_ptr, ptr_read)] Value),
     Store(StoreOperands),
     Swap(AtomicBinaryOperands),
     Add(AtomicBinaryOperands),
@@ -25,7 +25,7 @@ pub enum AtomicOp {
 impl Display for AtomicOp {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            AtomicOp::Load(var) => write!(f, "atomic_load({var})"),
+            AtomicOp::Load(val) => write!(f, "atomic_load({val})"),
             AtomicOp::Store(op) => write!(f, "atomic_store({}, {})", op.ptr, op.value),
             AtomicOp::Swap(op) => {
                 write!(f, "atomic_swap({}, {})", op.ptr, op.value)
@@ -49,7 +49,7 @@ impl Display for AtomicOp {
 #[allow(missing_docs)]
 pub struct CompareAndSwapOperands {
     #[args(allow_ptr, ptr_read, ptr_write)]
-    pub ptr: Variable,
-    pub cmp: Variable,
-    pub val: Variable,
+    pub ptr: Value,
+    pub cmp: Value,
+    pub val: Value,
 }

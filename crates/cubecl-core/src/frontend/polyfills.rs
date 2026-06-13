@@ -1,4 +1,4 @@
-use cubecl_ir::{ElemType, Type, Variable};
+use cubecl_ir::{ElemType, Type, Value};
 
 use crate::prelude::*;
 use crate::{self as cubecl, unexpanded};
@@ -53,7 +53,7 @@ fn erf_positive<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
 }
 
 #[allow(missing_docs)]
-pub fn expand_erf(scope: &Scope, input: Variable, out: Variable) {
+pub fn expand_erf(scope: &Scope, input: Value, out: Value) {
     scope.register_type::<ElemA>(input.ty.storage_type());
     scope.register_size::<SizeA>(input.vector_size());
     let res = erf::expand::<ElemA, SizeA>(scope, input.into());
@@ -75,7 +75,7 @@ fn himul_u64<N: Size>(lhs: Vector<u32, N>, rhs: Vector<u32, N>) -> Vector<u32, N
 }
 
 #[allow(missing_docs)]
-pub fn expand_himul_64(scope: &Scope, lhs: Variable, rhs: Variable, out: Variable) {
+pub fn expand_himul_64(scope: &Scope, lhs: Value, rhs: Value, out: Value) {
     scope.register_size::<SizeA>(lhs.vector_size());
     match lhs.ty.elem_type() {
         ElemType::Int(_) => {
@@ -113,7 +113,7 @@ fn himul_sim<N: Size>(lhs: Vector<u32, N>, rhs: Vector<u32, N>) -> Vector<u32, N
 }
 
 #[allow(missing_docs)]
-pub fn expand_himul_sim(scope: &Scope, lhs: Variable, rhs: Variable, out: Variable) {
+pub fn expand_himul_sim(scope: &Scope, lhs: Value, rhs: Value, out: Value) {
     scope.register_size::<SizeA>(lhs.vector_size());
     let res = himul_sim::expand::<SizeA>(scope, lhs.into(), rhs.into());
     assign::expand_no_check(scope, res, &mut out.into());

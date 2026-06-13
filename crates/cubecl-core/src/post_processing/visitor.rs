@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 
 use cubecl_ir::{
     Branch, CoopMma, GlobalState, Instruction, Marker, NonSemantic, Operation, OperationReflect,
-    Scope, TensorIndexingOps, TmaOps, Variable,
+    Operator, Scope, TensorIndexingOps, TmaOps, Value,
 };
 use derive_more::{Deref, DerefMut};
 
@@ -82,8 +82,8 @@ impl<T> Visitor<T> {
         &mut self,
         inst: &mut Instruction,
         analyses: &GlobalAnalyses,
-        visit_read: impl FnMut(&mut T, &mut Variable),
-        mut visit_write: impl FnMut(&mut T, &mut Variable),
+        visit_read: impl FnMut(&mut T, &mut Value),
+        mut visit_write: impl FnMut(&mut T, &mut Value),
     ) {
         self.visit_operation(&mut inst.operation, analyses, visit_read);
 
@@ -98,8 +98,8 @@ impl<T> Visitor<T> {
 
     pub fn visit_out(
         &mut self,
-        out: &mut Option<Variable>,
-        mut visit_write: impl FnMut(&mut T, &mut Variable),
+        out: &mut Option<Value>,
+        mut visit_write: impl FnMut(&mut T, &mut Value),
     ) {
         if let Some(out) = out {
             visit_write(self, out)
@@ -112,7 +112,7 @@ impl<T> Visitor<T> {
         &mut self,
         op: &mut Operation,
         analyses: &GlobalAnalyses,
-        mut visit_read: impl FnMut(&mut T, &mut Variable),
+        mut visit_read: impl FnMut(&mut T, &mut Value),
     ) {
         for ptr in op.read_pointers() {
             if let Some(source) = analyses.ptr_source().get_mut(&ptr.kind) {
@@ -129,6 +129,8 @@ impl<T> Visitor<T> {
             Operation::NonSemantic(non_semantic) => {
                 self.visit_nonsemantic(non_semantic, visit_read)
             }
+            Operation::DeclareVariable { .. } => {}
+            Operation::Operator(Operator::ReadBuiltin(_)) => {}
             op => {
                 if let Some(args) = op.args_mut() {
                     for arg in args {
@@ -146,7 +148,7 @@ impl<T> Visitor<T> {
     pub fn visit_branch(
         &mut self,
         op: &mut Branch,
-        mut visit_read: impl FnMut(&mut T, &mut Variable),
+        mut visit_read: impl FnMut(&mut T, &mut Value),
     ) {
         match op {
             Branch::If(if_) => visit_read(self, &mut if_.cond),
@@ -160,11 +162,7 @@ impl<T> Visitor<T> {
         }
     }
 
-    fn visit_cmma(
-        &mut self,
-        cmma: &mut CoopMma,
-        mut visit_read: impl FnMut(&mut T, &mut Variable),
-    ) {
+    fn visit_cmma(&mut self, cmma: &mut CoopMma, mut visit_read: impl FnMut(&mut T, &mut Value)) {
         match cmma {
             CoopMma::Fill { value } => {
                 visit_read(self, value);
@@ -266,11 +264,7 @@ impl<T> Visitor<T> {
         }
     }
 
-    fn visit_tma(
-        &mut self,
-        tma_ops: &mut TmaOps,
-        mut visit_read: impl FnMut(&mut T, &mut Variable),
-    ) {
+    fn visit_tma(&mut self, tma_ops: &mut TmaOps, mut visit_read: impl FnMut(&mut T, &mut Value)) {
         match tma_ops {
             TmaOps::TmaStore {
                 source,
@@ -288,7 +282,7 @@ impl<T> Visitor<T> {
     fn visit_tensor_ops(
         &mut self,
         tensor_ops: &mut TensorIndexingOps,
-        mut visit_read: impl FnMut(&mut T, &mut Variable),
+        mut visit_read: impl FnMut(&mut T, &mut Value),
     ) {
         match tensor_ops {
             TensorIndexingOps::CreateLayout {
@@ -323,7 +317,7 @@ impl<T> Visitor<T> {
     fn visit_nonsemantic(
         &mut self,
         non_semantic: &mut NonSemantic,
-        mut visit_read: impl FnMut(&mut T, &mut Variable),
+        mut visit_read: impl FnMut(&mut T, &mut Value),
     ) {
         match non_semantic {
             NonSemantic::Comment { .. }

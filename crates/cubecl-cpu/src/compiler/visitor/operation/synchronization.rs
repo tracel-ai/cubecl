@@ -10,7 +10,7 @@ use tracel_llvm::mlir_rs::{
         memref,
     },
     ir::{
-        Block, BlockRef, Identifier, Location, Region,
+        Block, BlockRef, Identifier, Location, Region, Value,
         attribute::{FlatSymbolRefAttribute, IntegerAttribute, StringAttribute, TypeAttribute},
         r#type::{FunctionType, IntegerType, MemRefType},
     },

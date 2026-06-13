@@ -4,7 +4,7 @@ use core::{f32, f64};
 use crate as cubecl;
 use cubecl_ir::{
     Comparison, ElemType, FloatKind, Instruction, Operation, Processor, Scope, ScopeProcessing,
-    UIntKind, Variable,
+    UIntKind, Value,
 };
 use half::{bf16, f16};
 
@@ -54,8 +54,8 @@ impl Processor for PredicateProcessor {
 
 fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
     processing: &mut ScopeProcessing,
-    input: Variable,
-    out: Variable,
+    input: Value,
+    out: Value,
     mut polyfill: impl FnMut(&Scope, NativeExpand<T>, u32, u32) -> NativeExpand<O>,
 ) {
     let scope = Scope::root(false).with_global_state(processing.global_state.clone());
@@ -98,7 +98,6 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
     let tmp_processing = scope.process([]);
 
     processing.instructions.extend(tmp_processing.instructions);
-    processing.variables.extend(tmp_processing.variables);
 
     processing
         .instructions

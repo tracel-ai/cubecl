@@ -63,7 +63,7 @@ impl<T: CubePrimitive> Tensor<T> {
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use cubecl_ir::Variable;
+    use cubecl_ir::Value;
 
     use super::*;
     use crate::ir::{Arithmetic, BinaryOperands, Instruction};
@@ -73,16 +73,10 @@ mod metadata {
         /// Obtain the stride of input at dimension dim
         pub fn stride(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
-                let dim: Variable = dim.into();
+                let dim: Value = dim.into();
                 let list = self.__extract_list(scope);
-                let out = scope.create_local(usize::__expand_as_type(scope));
-                scope.register(Instruction::new(
-                    Metadata::Stride {
-                        dim: dim,
-                        var: list,
-                    },
-                    out,
-                ));
+                let out = scope.create_value(usize::__expand_as_type(scope));
+                scope.register(Instruction::new(Metadata::Stride { dim, list }, out));
                 out.into()
             })
         }
@@ -90,16 +84,10 @@ mod metadata {
         /// Obtain the shape of input at dimension dim
         pub fn shape(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
-                let dim: Variable = dim.into();
+                let dim: Value = dim.into();
                 let list = self.__extract_list(scope);
-                let out = scope.create_local(usize::__expand_as_type(scope));
-                scope.register(Instruction::new(
-                    Metadata::Shape {
-                        dim: dim,
-                        var: list,
-                    },
-                    out,
-                ));
+                let out = scope.create_value(usize::__expand_as_type(scope));
+                scope.register(Instruction::new(Metadata::Shape { dim, list }, out));
                 out.into()
             })
         }
@@ -110,12 +98,12 @@ mod metadata {
         /// The `dim` element in a coordinate is the position along the `dim` dimension of the tensor.
         pub fn coordinate(&self, index: usize, dim: usize) -> usize {
             intrinsic!(|scope| {
-                let index: Variable = index.into();
+                let index: Value = index.into();
                 let stride = self.__expand_stride_method(scope, dim.clone());
                 let shape = self.__expand_shape_method(scope, dim.clone());
 
                 // Compute `num_strides = index / stride`.
-                let num_strides = scope.create_local(usize::__expand_as_type(scope));
+                let num_strides = scope.create_value(usize::__expand_as_type(scope));
                 scope.register(Instruction::new(
                     Arithmetic::Div(BinaryOperands {
                         lhs: index,
@@ -125,7 +113,7 @@ mod metadata {
                 ));
 
                 // Compute `coordinate = num_strides % shape `.
-                let coordinate = scope.create_local(usize::__expand_as_type(scope));
+                let coordinate = scope.create_value(usize::__expand_as_type(scope));
                 scope.register(Instruction::new(
                     Arithmetic::Rem(BinaryOperands {
                         lhs: num_strides,

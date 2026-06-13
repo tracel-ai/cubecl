@@ -1,6 +1,6 @@
 use crate::{
     Dialect,
-    shared::{Component, Elem, FP4Kind, FP6Kind, FP8Kind, Variable},
+    shared::{Component, Elem, FP4Kind, FP6Kind, FP8Kind, Value},
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -237,16 +237,17 @@ fn mma_ty<D: Dialect>(elem: Elem<D>) -> &'static str {
 }
 
 pub fn ldmatrix_call<D: Dialect>(
-    output: &Variable<D>,
-    ptr: &Variable<D>,
+    output: &Value<D>,
+    ptr: &Value<D>,
     factor: &u32,
     transpose: &bool,
 ) -> String {
     let elem = output.elem();
     let width = 16 / output.elem().size();
     let is_transposed = if *transpose { "_trans" } else { "" };
-    let regs =
-        comma_separated((0..*factor).map(|i| format!("reinterpret_cast<uint32&>({output}[{i}])")));
+    let regs = comma_separated(
+        (0..*factor as usize).map(|i| format!("reinterpret_cast<uint32&>({})", output.index(i))),
+    );
     let ptr = ptr.fmt_ptr();
 
     format!("__ldmatrix_m{width}n8_{elem}_{factor}x{is_transposed}({regs}, {ptr});\n")
@@ -295,8 +296,8 @@ __ldmatrix_m{width}n8_{elem}_{factor}x{is_transposed}({args}) {{
 }
 
 pub fn stmatrix_call<D: Dialect>(
-    registers: &Variable<D>,
-    ptr: &Variable<D>,
+    registers: &Value<D>,
+    ptr: &Value<D>,
     factor: &u32,
     transpose: &bool,
 ) -> String {
@@ -304,7 +305,8 @@ pub fn stmatrix_call<D: Dialect>(
     let width = 16 / registers.elem().size();
     let is_transposed = if *transpose { "_trans" } else { "" };
     let regs = comma_separated(
-        (0..*factor).map(|i| format!("reinterpret_cast<uint32&>({registers}[{i}])")),
+        (0..*factor as usize)
+            .map(|i| format!("reinterpret_cast<const uint32&>({})", registers.index(i))),
     );
     let ptr = ptr.fmt_ptr();
 

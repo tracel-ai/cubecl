@@ -1,22 +1,18 @@
-mod composite;
 mod dead_code;
 mod disaggregate_array;
 mod expression_merge;
 mod index_merge;
-mod inline_ref;
 mod inlined_if_to_select;
 mod reduce_strength;
 
 use core::any::type_name;
 
-pub use composite::*;
 use cubecl_core::post_processing::{analysis_helper::GlobalAnalyses, visitor::InstructionVisitor};
 use cubecl_ir::{Instruction, Marker};
 pub use dead_code::*;
 pub use disaggregate_array::*;
 pub use expression_merge::*;
 pub use index_merge::*;
-pub use inline_ref::*;
 pub use inlined_if_to_select::*;
 pub use reduce_strength::*;
 use stable_vec::StableVec;

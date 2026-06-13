@@ -1,5 +1,6 @@
 use cubecl_core::ir::{
-    BinaryOperands, IndexOperands, Memory, Operator, StorageType, VectorInsertOperands,
+    self as cube, BinaryOperands, IndexOperands, Memory, Operator, StorageType,
+    VectorInsertOperands,
 };
 use tracel_llvm::mlir_rs::{
     dialect::{
@@ -7,7 +8,8 @@ use tracel_llvm::mlir_rs::{
         ods::{self, llvm, vector},
     },
     ir::{
-        Operation,
+        Operation, Value,
+        attribute::DenseI64ArrayAttribute,
         r#type::{IntegerType, MemRefType, StridedLayoutAttr},
     },
 };
@@ -15,19 +17,15 @@ use tracel_llvm::mlir_rs::{
 use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
-    pub fn visit_memory(&mut self, memory: &Memory, out: Option<Variable>) {
+    pub fn visit_memory(&mut self, memory: &Memory, out: Option<cube::Value>) {
         match memory {
-            Memory::Reference(variable) => {
-                let memref = self.get_memory(*variable);
-                self.insert_variable(out.unwrap(), memref);
-            }
             Memory::Index(index) => {
                 let value = self.visit_index(index);
-                self.insert_variable(out.unwrap(), value);
+                self.insert_value(out.unwrap(), value);
             }
             Memory::Load(variable) => {
                 let out = out.unwrap();
-                let memref = self.get_variable(*variable);
+                let memref = self.get_value(*variable);
                 let zero = self.create_constant_index(0);
                 let operation = if out.ty.is_vectorized() {
                     let vector_type = Type::vector(
@@ -39,11 +37,11 @@ impl<'a> Visitor<'a> {
                     memref::load(memref, &[zero], self.location)
                 };
                 let value = self.append_operation_with_result(operation);
-                self.insert_variable(out, value);
+                self.insert_value(out, value);
             }
             Memory::Store(op) => {
-                let memref = self.get_variable(op.ptr);
-                let value = self.get_variable(op.value);
+                let memref = self.get_value(op.ptr);
+                let value = self.get_value(op.value);
                 let zero = self.create_constant_index(0);
                 let operation = if op.value.ty.is_vectorized() {
                     vector::store(self.context, value, memref, &[zero], self.location).into()
@@ -54,21 +52,26 @@ impl<'a> Visitor<'a> {
             }
             Memory::CopyMemory(op) => {
                 assert_eq!(op.len, 1, "Bulk copy not supported on CPU");
-                let source = self.get_variable(op.source);
-                let target = self.get_variable(op.target);
+                let source = self.get_value(op.source);
+                let target = self.get_value(op.target);
+                let zero = self.create_constant_index(0);
+                // Note: this should use `memref.copy`, but that seems to be generating broken code.
+                // So keep it like this for now and hopefully I remember to report the bug upstream
+                let tmp =
+                    self.append_operation_with_result(memref::load(source, &[zero], self.location));
                 self.block
-                    .append_operation(memref::copy(source, target, self.location));
+                    .append_operation(memref::store(tmp, target, &[zero], self.location));
             }
         }
     }
 
-    pub fn visit_operator_with_out(&mut self, operator: &Operator, out: Variable) {
+    pub fn visit_operator_with_out(&mut self, operator: &Operator, out: cube::Value) {
         match operator {
             Operator::And(and) => {
-                let lhs = self.get_variable(and.lhs);
-                let rhs = self.get_variable(and.rhs);
+                let lhs = self.get_value(and.lhs);
+                let rhs = self.get_value(and.rhs);
                 let value = self.append_operation_with_result(arith::andi(lhs, rhs, self.location));
-                self.insert_variable(out, value);
+                self.insert_value(out, value);
             }
             Operator::Cast(cast) => {
                 self.visit_cast(cast.input, out);
@@ -77,7 +80,7 @@ impl<'a> Visitor<'a> {
                 let inputs: Vec<_> = init_vector
                     .inputs
                     .iter()
-                    .map(|input| self.get_variable(*input))
+                    .map(|input| self.get_value(*input))
                     .collect();
                 let result = out.ty.to_type(self.context);
                 let init_vector = self.append_operation_with_result(vector::from_elements(
@@ -86,41 +89,44 @@ impl<'a> Visitor<'a> {
                     &inputs,
                     self.location,
                 ));
-                self.insert_variable(out, init_vector);
+                self.insert_value(out, init_vector);
             }
             Operator::ExtractComponent(op) => {
                 let value = self.visit_extract(op, out);
-                self.insert_variable(out, value);
+                self.insert_value(out, value);
             }
-            Operator::InsertComponent(op) => self.visit_insert(op, out),
+            Operator::InsertComponent(op) => {
+                let value = self.visit_insert(op);
+                self.insert_value(out, value);
+            }
             Operator::Not(not) => {
-                let lhs = self.get_variable(not.input);
+                let lhs = self.get_value(not.input);
                 let mask = self.create_int_constant_from_item(not.input.ty, -1);
                 let value =
                     self.append_operation_with_result(arith::xori(lhs, mask, self.location));
-                self.insert_variable(out, value);
+                self.insert_value(out, value);
             }
             Operator::Or(or) => {
-                let lhs = self.get_variable(or.lhs);
-                let rhs = self.get_variable(or.rhs);
+                let lhs = self.get_value(or.lhs);
+                let rhs = self.get_value(or.rhs);
                 let value = self.append_operation_with_result(arith::ori(lhs, rhs, self.location));
-                self.insert_variable(out, value);
+                self.insert_value(out, value);
             }
             Operator::Reinterpret(reinterpret) => {
                 let target_type = out.ty.to_type(self.context);
-                let input = self.get_variable(reinterpret.input);
+                let input = self.get_value(reinterpret.input);
                 let value = self.append_operation_with_result(arith::bitcast(
                     input,
                     target_type,
                     self.location,
                 ));
-                self.insert_variable(out, value);
+                self.insert_value(out, value);
             }
             Operator::Select(select) => {
-                let condition = self.get_variable(select.cond);
+                let condition = self.get_value(select.cond);
                 let condition = self.cast_to_bool(condition, select.cond.ty);
-                let mut then = self.get_variable(select.then);
-                let mut or_else = self.get_variable(select.or_else);
+                let mut then = self.get_value(select.then);
+                let mut or_else = self.get_value(select.or_else);
                 if out.ty.is_vectorized() && !select.then.ty.is_vectorized() {
                     let vector = Type::vector(
                         &[out.vector_size() as u64],
@@ -151,18 +157,59 @@ impl<'a> Visitor<'a> {
                     or_else,
                     self.location,
                 ));
-                self.insert_variable(out, value);
+                self.insert_value(out, value);
+            }
+            Operator::ReadBuiltin(builtin) => {
+                let value = self.get_builtin(*builtin);
+                self.insert_value(out, value);
+            }
+            Operator::ReadScalar(id) => {
+                let memref = *self
+                    .args_manager
+                    .scalars_memref
+                    .get(&out.storage_type())
+                    .unwrap();
+                let index = self
+                    .block
+                    .const_int_from_type(
+                        self.context,
+                        self.location,
+                        *id as i64,
+                        Type::index(self.context),
+                    )
+                    .unwrap();
+                let value = self.append_operation_with_result(memref::load(
+                    memref,
+                    &[index],
+                    self.location,
+                ));
+                let value = match out.ty.is_vectorized() {
+                    true => {
+                        let vector = Type::vector(
+                            &[out.vector_size() as u64],
+                            out.storage_type().to_type(self.context),
+                        );
+                        self.append_operation_with_result(vector::broadcast(
+                            self.context,
+                            vector,
+                            value,
+                            self.location,
+                        ))
+                    }
+                    false => value,
+                };
+                self.insert_value(out, value);
             }
         }
     }
 
-    fn visit_extract(&mut self, op: &BinaryOperands, out: Variable) -> Value<'a, 'a> {
-        let mut index = self.get_variable(op.rhs);
+    fn visit_extract(&mut self, op: &BinaryOperands, out: cube::Value) -> Value<'a, 'a> {
+        let mut index = self.get_value(op.rhs);
         let u32_int = IntegerType::new(self.context, 32).into();
         if index.r#type() != u32_int {
             index = self.append_operation_with_result(index::casts(index, u32_int, self.location));
         }
-        let to_extract = self.get_variable(op.lhs);
+        let to_extract = self.get_value(op.lhs);
         let res = out.ty.to_type(self.context);
         let vector_extract =
             llvm::extractelement(self.context, res, to_extract, index, self.location);
@@ -170,12 +217,11 @@ impl<'a> Visitor<'a> {
     }
 
     fn visit_index(&mut self, index: &IndexOperands) -> Value<'a, 'a> {
-        assert!(index.vector_size == 0);
         let ty = index.list.ty;
         let index_value = self.get_index(index.index, ty, ty.is_vectorized());
-        let memref = self.get_memory(index.list);
+        let memref = self.get_value(index.list);
 
-        let value_ty = index.list.storage_type().to_type(self.context);
+        let value_ty = index.list.ty.scalar_value_type().to_type(self.context);
         let layout = StridedLayoutAttr::new(self.context, i64::MIN, &[1]);
         let memref_ty = MemRefType::new(
             value_ty,
@@ -199,20 +245,29 @@ impl<'a> Visitor<'a> {
         self.append_operation_with_result(view)
     }
 
-    fn visit_insert(&mut self, op: &VectorInsertOperands, out: Variable) {
-        let mut index = self.get_variable(op.index);
+    fn visit_insert(&mut self, op: &VectorInsertOperands) -> Value<'a, 'a> {
+        let mut index = self.get_value(op.index);
         let index_ty = Type::index(self.context);
         if index.r#type() != index_ty {
             index = self.append_operation_with_result(index::casts(index, index_ty, self.location));
         }
-        let memref = self.get_memory(out);
-        let to_insert = self.get_variable(op.value);
-        let vector_insert = memref::store(to_insert, memref, &[index], self.location);
-        self.block.append_operation(vector_insert);
+        let vector = self.get_value(op.vector);
+        let value = self.get_value(op.value);
+
+        let vector_insert = vector::insert(
+            self.context,
+            vector.r#type(),
+            value,
+            vector,
+            &[index],
+            DenseI64ArrayAttribute::new(self.context, &[i64::MIN]).into(),
+            self.location,
+        );
+        self.append_operation_with_result(vector_insert)
     }
 
-    pub(crate) fn visit_cast(&mut self, to_cast: Variable, out: Variable) {
-        let mut value = self.get_variable(to_cast);
+    pub(crate) fn visit_cast(&mut self, to_cast: cube::Value, out: cube::Value) {
+        let mut value = self.get_value(to_cast);
         let target = out.ty.to_type(self.context);
 
         if !to_cast.ty.is_vectorized() && out.ty.is_vectorized() {
@@ -241,7 +296,7 @@ impl<'a> Visitor<'a> {
                 value,
             )
         };
-        self.insert_variable(out, value);
+        self.insert_value(out, value);
     }
 
     pub(crate) fn get_cast_different_type_category(

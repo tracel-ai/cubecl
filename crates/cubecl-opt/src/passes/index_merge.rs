@@ -1,9 +1,11 @@
 use alloc::vec::Vec;
-use cubecl_ir::{CopyMemoryOperands, Id, Instruction, Memory, Operation, Variable, VariableKind};
+use cubecl_ir::{AddressSpace, CopyMemoryOperands, Instruction, Memory, Operation, Type, Value};
 use hashbrown::{HashMap, HashSet};
 
 use crate::{
-    AtomicCounter, Function, GlobalState, analyses::pointer_source::PointerSource, visit_noop,
+    AtomicCounter, Function, GlobalState,
+    analyses::{integer_range::val_id, pointer_source::PointerSource},
+    visit_noop,
 };
 
 use super::OptimizerPass;
@@ -24,22 +26,21 @@ impl OptimizerPass for CopyTransform {
                 let inst = ops.borrow()[idx].clone();
                 match &inst.operation {
                     Operation::Memory(Memory::Load(ptr))
-                        if ptr_source
-                            .get(ptr)
-                            .is_some_and(|it| it.ty == inst.ty() && it.is_memory())
+                        if can_copy(&ptr.ty)
+                            && let Some(source) = ptr_source.get(ptr)
+                            && source.value_ty == inst.ty()
                             && !is_reused(func, state, &inst.out) =>
                     {
-                        let source = ptr_source.get(ptr).unwrap();
-                        if let Some(id) = as_versioned(&inst.out()) {
-                            reads.insert(id, (idx, *ptr, source));
+                        if let Some(id) = val_id(&inst.out()) {
+                            reads.insert(id, (idx, *ptr, source.root_ptr));
                         }
                     }
                     Operation::Memory(Memory::Store(op))
-                        if ptr_source.get(&op.ptr).is_some_and(|it| it.is_memory()) =>
+                        if can_copy(&op.ptr.ty)
+                            && let Some(source) = ptr_source.get(&op.ptr) =>
                     {
-                        let source = ptr_source.get(&op.ptr).unwrap();
-                        if let Some(id) = as_versioned(&op.value) {
-                            writes.insert(id, (idx, op.ptr, source));
+                        if let Some(id) = val_id(&op.value) {
+                            writes.insert(id, (idx, op.ptr, source.root_ptr));
                         }
                     }
                     _ => {}
@@ -55,8 +56,8 @@ impl OptimizerPass for CopyTransform {
                 for mut inst in
                     (read_idx..write_idx).filter_map(|idx| ops.borrow().get(idx).cloned())
                 {
-                    func.visit_instruction(state, &mut inst, visit_noop, |_, var| {
-                        if *var == in_source || *var == out_source {
+                    func.visit_instruction(state, &mut inst, visit_noop, |_, val| {
+                        if *val == in_source || *val == out_source {
                             is_overwritten = true;
                         }
                     });
@@ -78,21 +79,22 @@ impl OptimizerPass for CopyTransform {
     }
 }
 
-fn as_versioned(var: &Variable) -> Option<(Id, u16)> {
-    match var.kind {
-        VariableKind::LocalConst { id } => Some((id, 0)),
-        VariableKind::Versioned { id, version } => Some((id, version)),
-        _ => None,
-    }
+/// Copy is only implemented in SPIR-V for global -> shared or shared -> global. So no point merging
+/// locals.
+fn can_copy(ty: &Type) -> bool {
+    matches!(
+        ty.address_space(),
+        Some(AddressSpace::Global(..)) | Some(AddressSpace::Shared)
+    )
 }
 
-fn is_reused(func: &mut Function, state: &GlobalState, var: &Option<Variable>) -> bool {
-    if let Some(var) = var.as_ref() {
+fn is_reused(func: &mut Function, state: &GlobalState, val: &Option<Value>) -> bool {
+    if let Some(val) = val.as_ref() {
         let count = AtomicCounter::new(0);
         func.visit_all(
             state,
             |_, other| {
-                if other == var {
+                if other == val {
                     count.inc();
                 }
             },

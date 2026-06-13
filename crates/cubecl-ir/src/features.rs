@@ -1,4 +1,4 @@
-use crate::{AddressType, SemanticType, StorageType, Type};
+use crate::{AddressType, OpaqueType, SemanticType, StorageType, Type};
 use alloc::collections::{BTreeMap, BTreeSet};
 
 use enumset::EnumSetType;
@@ -40,6 +40,8 @@ pub struct Types {
     pub storage: BTreeMap<StorageType, EnumSet<TypeUsage>>,
     /// Semantic constructs supported by this runtime.
     pub semantic: BTreeSet<SemanticType>,
+    /// Opaque types supported by this runtime.
+    pub opaque: BTreeSet<OpaqueType>,
     /// Supported vector types for atomic ops, only specific vectorizations for specific types are
     /// supported here. Not all vector types are supported as scalars, i.e. Vulkan on Nvidia only
     /// supports vectorized `f16`, not scalar. Only use the exact vectorizations registered here.
@@ -240,6 +242,7 @@ impl Features {
     pub fn supports_type(&self, ty: impl Into<Type>) -> bool {
         match ty.into() {
             Type::Semantic(semantic_type) => self.types.semantic.contains(&semantic_type),
+            Type::Opaque(opaque_type) => self.types.opaque.contains(&opaque_type),
             ty => self.types.storage.contains_key(&ty.storage_type()),
         }
     }

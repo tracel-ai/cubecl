@@ -17,7 +17,7 @@ pub mod fma {
         b: NativeExpand<C>,
         c: NativeExpand<C>,
     ) -> NativeExpand<C> {
-        let output = scope.create_local(a.expand.value_type());
+        let output = scope.create_value(a.expand.value_type());
         let a = a.expand;
         let b = b.expand;
         let c = c.expand;

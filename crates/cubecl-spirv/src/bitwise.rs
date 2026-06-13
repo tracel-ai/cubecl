@@ -8,7 +8,7 @@ use cubecl_core::{cube, ir::Bitwise};
 use crate::{SpirvCompiler, SpirvTarget, item::Elem};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_bitwise(&mut self, op: Bitwise, out: Option<core::Variable>, uniform: bool) {
+    pub fn compile_bitwise(&mut self, op: Bitwise, out: Option<core::Value>, uniform: bool) {
         if let Some(op) = bool_op(&op) {
             self.compile_operator(op, out, uniform);
             return;
