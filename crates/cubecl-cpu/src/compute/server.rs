@@ -77,10 +77,13 @@ impl CpuServer {
             .into_iter()
             .map(|binding| {
                 let stream = self.scheduler.stream(&binding.stream);
-                stream
+                let memory = binding.memory.clone();
+                let resource = stream
                     .memory_management
                     .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                    .unwrap()
+                    .unwrap();
+
+                ManagedResource::new(memory, resource)
             })
             .collect::<Vec<_>>();
 
@@ -257,10 +260,11 @@ impl ComputeServer for CpuServer {
                     return;
                 }
             };
+            let memory = desc.handle.memory.clone();
             let task = ScheduleTask::Write {
                 stream_id,
                 data,
-                buffer: resource,
+                buffer: ManagedResource::new(memory, resource),
             };
 
             self.scheduler.register(stream_id, task, &[]);

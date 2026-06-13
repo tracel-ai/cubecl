@@ -8,7 +8,10 @@ use crate::{
 };
 use cubecl_common::bytes::Bytes;
 use cubecl_core::{CubeDim, stream_id::StreamId};
-use cubecl_runtime::{logging::ServerLogger, storage::BytesResource};
+use cubecl_runtime::{
+    logging::ServerLogger,
+    storage::{BytesResource, ManagedResource},
+};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, mpsc::SyncSender};
 
@@ -118,8 +121,8 @@ impl CpuExecutionQueueServer {
         }
     }
 
-    fn write(&mut self, data: Bytes, mut buffer: BytesResource) {
-        buffer.write().copy_from_slice(&data);
+    fn write(&mut self, data: Bytes, mut buffer: ManagedResource<BytesResource>) {
+        buffer.resource_mut().write().copy_from_slice(&data);
     }
 
     fn kernel(
