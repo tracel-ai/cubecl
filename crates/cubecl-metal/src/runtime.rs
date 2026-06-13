@@ -208,22 +208,19 @@ fn register_types(props: &mut DeviceProperties) {
         ElemType::Bool,
     ];
 
-    let atomic_types = [
-        ElemType::Int(IntKind::I32),
-        ElemType::UInt(UIntKind::U32),
-        ElemType::Float(FloatKind::F32),
-    ];
-
     for ty in types {
         props.register_type_usage(ty, TypeUsage::all());
     }
 
-    for ty in atomic_types {
-        props.register_atomic_type_usage(
-            Type::atomic(ty),
-            AtomicUsage::Add | AtomicUsage::LoadStore,
-        );
+    // Metal natively supports the full integer atomic set; float atomics are
+    // limited to add + load/store (no native float min/max).
+    for ty in [ElemType::Int(IntKind::I32), ElemType::UInt(UIntKind::U32)] {
+        props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
     }
+    props.register_atomic_type_usage(
+        Type::atomic(ElemType::Float(FloatKind::F32)),
+        AtomicUsage::Add | AtomicUsage::LoadStore,
+    );
 }
 
 /// Register WMMA (`simdgroup_matrix`) features for Metal.
