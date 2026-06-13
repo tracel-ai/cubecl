@@ -1,6 +1,9 @@
 use tracel_xtask::prelude::*;
 
-const CI_EXCLUDED_CRATES: &[&str] = &["cubecl-cuda", "cubecl-hip", "cubecl-metal"];
+// `cubecl-metal` depends on `objc2`, which only compiles on Apple platforms, so it
+// can't be linted on non-Apple CI runners. `cubecl-cuda`/`cubecl-hip` compile there
+// (dynamic loading) and stay linted.
+const CI_EXCLUDED_CRATES: &[&str] = &["cubecl-metal"];
 
 #[macros::extend_command_args(CheckCmdArgs, Target, CheckSubCommand)]
 pub struct CubeCLCheckCmdArgs {
