@@ -46,12 +46,9 @@ impl MetalContext {
         compilation_options: cubecl_cpp::shared::CompilationOptions,
     ) -> Self {
         let msl_compile_options = MTLCompileOptions::new();
-        // We rely on Metal 3 features (e.g. atomic_float, simdgroup_matrix).
         msl_compile_options.setLanguageVersion(MTLLanguageVersion::Version3_0);
-        // Default `Fast` math lets the compiler reassociate/contract FP arithmetic
-        // (e.g. folding `log(exp(x))` back to `x`), breaking lowerings like `expm1`.
-        // Use IEEE-safe math. (Per-kernel fast-math isn't wired through yet; the
-        // `Fast*` codegen variants are CUDA-only, so all Metal math is precise.)
+        // Fast math (the default) reassociates/contracts FP arithmetic and breaks
+        // lowerings like `expm1`; force IEEE-safe math.
         msl_compile_options.setMathMode(MTLMathMode::Safe);
         // `mathMode` is only honored from MSL 3.1; on 3.0 the deprecated
         // `fastMathEnabled` flag governs and defaults to `true`, so disable it too.

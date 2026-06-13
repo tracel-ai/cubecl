@@ -11,9 +11,6 @@ pub fn format_global_binding_arg<D: Dialect>(
 ) -> core::fmt::Result {
     let comma = if *attr_idx > 0 { "," } else { "" };
     let address_space = AddressSpace::from(binding);
-    // The pointer type's `Display` already emits its address space, so use
-    // `address_space` only for the buffer attribute; prepending it would
-    // double-qualify (e.g. `device device float*`).
     let ty = binding.value.item();
     let name = binding.value;
     let attribute = address_space.attribute();

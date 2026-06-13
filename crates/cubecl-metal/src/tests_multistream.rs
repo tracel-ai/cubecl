@@ -30,8 +30,7 @@ fn client() -> ComputeClient<R> {
 }
 
 /// Allocate an input on a spawned thread (a different `StreamId`), then consume it on
-/// the main thread. Before the fix, the input lived only in the spawned stream's memory
-/// manager, so resolving it on the main stream panicked or silently dropped the launch.
+/// the main thread, where it must be resolved from the spawned stream's memory manager.
 #[test]
 fn cross_thread_binding_read_on_other_stream() {
     let client = client();

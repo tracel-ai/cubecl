@@ -13,8 +13,7 @@ pub(crate) fn handle_command(
     context: Context,
 ) -> anyhow::Result<()> {
     // `cubecl-metal` depends on `objc2`, which only compiles on Apple platforms, so
-    // exclude it from doc builds on non-Apple CI. `cubecl-cuda`/`cubecl-hip` compile
-    // there and stay documented.
+    // exclude it from doc builds on non-Apple CI.
     if args.ci {
         args.exclude.push("cubecl-metal".to_string());
     }

@@ -57,7 +57,7 @@ fn install_completion_handler(
                 });
 
                 // Metal leaves encoded events unsignaled on fault; signal manually
-                // so a dependent `wait_sync` fails fast instead of timing out.
+                // so a dependent `wait_sync` fails fast.
                 if let Some((event, value)) = &signal_event {
                     event.setSignaledValue(*value);
                 }
@@ -271,9 +271,8 @@ impl EventStreamBackend for MetalStreamBackend {
             MemoryManagementOptions::new("Metal GPU Memory"),
         );
 
-        // Tier batch limits by GPU architecture. The architecture name's last
-        // character encodes the tier ('p' phone, 'g' base/pro, 's' max, 'd' ultra),
-        // which is more robust than matching the marketing device name.
+        // Tier batch limits by GPU architecture: the architecture name's last
+        // character encodes the tier ('p' phone, 'g' base/pro, 's' max, 'd' ultra).
         let arch = (*self.device).architecture().name().to_string();
         let (max_ops_per_batch, max_mb_per_batch, max_submitted_ops) = match arch.chars().last() {
             Some('s' | 'd') => (50, 50, 512), // max, ultra
@@ -349,7 +348,7 @@ impl EventStreamBackend for MetalStreamBackend {
     fn handle_cursor(stream: &Self::Stream, handle: &Binding) -> u64 {
         // The slice cursor the sync logic compares against the origin stream's `last_synced`
         // to decide whether to wait. A freed/reallocated slice falls back to `u64::MAX`,
-        // conservatively forcing a wait rather than skipping one.
+        // which conservatively forces a wait.
         stream
             .memory_management
             .get_cursor(handle.memory.clone())
@@ -389,8 +388,6 @@ mod tests {
     }
 
     /// A populated error sink makes `is_healthy` false, and draining it clears the poison.
-    /// The real GPU-fault trigger in the completion handler can't be exercised without
-    /// faulting the GPU, so we inject directly into the sink.
     #[test]
     fn error_sink_poisons_is_healthy() {
         let stream = test_stream();

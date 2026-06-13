@@ -39,7 +39,7 @@ fn expm1_handles_large_and_extreme_inputs() {
 
     // Regimes: 0.0 (exact zero), 1e-7 (catastrophic cancellation), 10.0 (well-conditioned),
     // 88.0 (f32 `exp` overflow boundary ~88.72; Metal saturates early to +inf), 100.0 (past
-    // overflow: +inf, the exact case the old code returned NaN for), -100.0 (underflow to -1).
+    // overflow: +inf), -100.0 (underflow to -1).
     let input = [0.0f32, 1e-7, 10.0, 88.0, 100.0, -100.0];
     let n = input.len();
 
@@ -63,7 +63,7 @@ fn expm1_handles_large_and_extreme_inputs() {
         let a = actual[i];
         let expected = x.exp_m1();
 
-        // Core regression guard: the old expression produced NaN for x >= ~88.
+        // For x >= ~88, `exp(x)` overflows to `+inf`; the lowering must not yield `NaN`.
         assert!(!a.is_nan(), "expm1({x}) produced NaN; expected ~{expected}");
 
         if expected.is_infinite() {

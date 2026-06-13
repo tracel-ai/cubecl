@@ -79,7 +79,7 @@ unsafe impl Send for MetalServer {}
 
 /// Resolves a binding's GPU resource from its origin stream ([`Binding::stream`]),
 /// not the stream issuing work. Each stream owns its own `memory_management`, so a
-/// buffer only lives in its origin's manager. Mirrors `cubecl-cuda`'s `Command::resource`.
+/// buffer only lives in its origin's manager.
 fn resolve_origin_resource(
     resolved: &mut ResolvedStreams<'_, MetalStreamBackend>,
     binding: &Binding,
@@ -104,8 +104,8 @@ fn resolve_origin_resource(
 
 impl MetalServer {
     /// Collects synchronous failures buffered on the server together with asynchronous GPU
-    /// faults recorded by stream completion handlers (mirroring `cubecl-cuda`). Draining the
-    /// stream sink clears the poison so a recovered stream can serve new work.
+    /// faults recorded by stream completion handlers. Draining the stream sink clears the
+    /// poison so a recovered stream can serve new work.
     fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
         let mut errors = core::mem::take(&mut self.errors);
 

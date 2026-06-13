@@ -465,7 +465,6 @@ void {kernel_name}("
         if body.info_by_ptr && body.has_dynamic_meta {
             let address_space = AddressSpace::ConstDevice;
             writeln!(f, "const {address_space} info_st& info = *info_ptr;")?;
-            // Could use `info_ptr + 1` but that seems dirty, so use manual `sizeof` instead
             writeln!(
                 f,
                 "const {address_space} {addr}* dynamic_meta = reinterpret_cast<const {address_space} {addr}*>(
@@ -481,10 +480,7 @@ void {kernel_name}("
 // Cube builtins dialect
 
 impl DialectCubeBuiltins<Self> for MslDialect {
-    /// Depending on the dialect available built-ins the
-    /// inclusion rules might change.
-    /// For instance in metal we have a built-in for the Unit plane position
-    /// so we don't rely on other builtins.
+    /// Metal exposes the unit plane position as a native built-in.
     fn builtin_rules(flags: &CubeIndexFlags) -> CubeIndexFlags {
         let absolute_pos = flags.absolute_pos;
         let cube_count = flags.cube_count;
@@ -523,7 +519,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     fn compile_absolute_pos_tuple_computation(
         _f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        // no need to compute it on metal as there is y a built-in for it
+        // no need to compute it on metal as there is a built-in for it
         Ok(())
     }
 
@@ -620,7 +616,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     }
 
     fn compile_unit_pos_computation(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // no need to compute it on metal as there is y a built-in for it
+        // no need to compute it on metal as there is a built-in for it
         Ok(())
     }
 
@@ -1146,7 +1142,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 match *frag.item().value_ty() {
                     Item::Fragment { .. } => {
                         let ty = frag.elem();
-                        // Only 8x8x8 fragemts are supported. Check is done at fragment compilation time.
+                        // Only 8x8x8 fragments are supported. Check is done at fragment compilation time.
                         writeln!(
                             f,
                             "*{frag} = make_filled_simdgroup_matrix<{ty}, 8, 8>({value});"
