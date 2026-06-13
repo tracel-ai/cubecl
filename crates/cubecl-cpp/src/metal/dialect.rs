@@ -281,6 +281,9 @@ struct alignas({alignment}) {item} {{"
             shared::Elem::U64 => f.write_str("ulong"),
             shared::Elem::Bool => f.write_str("bool"),
             shared::Elem::None => f.write_str("<none>"),
+            shared::Elem::CF32 | shared::Elem::CF64 => {
+                f.write_str("#error Complex not supported in Metal\n")
+            }
             shared::Elem::_Dialect(_) => Ok(()),
         }
     }

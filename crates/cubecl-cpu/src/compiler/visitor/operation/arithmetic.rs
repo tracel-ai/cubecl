@@ -606,6 +606,7 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_value(out, output);
             }
+            Arithmetic::Conj(_) => unimplemented!("Conj not supported on CPU"),
             Arithmetic::VectorSum(vector_sum) => {
                 let value = self.get_value(vector_sum.input);
                 if vector_sum.input.ty.is_vectorized() {

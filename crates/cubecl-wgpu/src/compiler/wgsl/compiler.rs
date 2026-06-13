@@ -255,6 +255,7 @@ impl WgslCompiler {
                 kind => panic!("{kind:?} is not a valid WgpuElement"),
             },
             cube::ElemType::Bool => wgsl::Elem::Bool,
+            cube::ElemType::Complex(_) => unimplemented!("Complex not supported in WGSL"),
         }
     }
 
@@ -828,6 +829,7 @@ impl WgslCompiler {
                 rhs: self.compile_value(op.rhs),
                 out: self.compile_value(out),
             }),
+            cube::Arithmetic::Conj(_) => unimplemented!("Conj not supported in WGSL"),
             cube::Arithmetic::VectorSum(op) => instructions.push(wgsl::Instruction::VectorSum {
                 input: self.compile_value(op.input),
                 out: self.compile_value(out),
@@ -1117,6 +1119,9 @@ impl WgslCompiler {
                 id,
                 out: self.compile_value(out),
             }),
+            cube::Operator::Real(_) | cube::Operator::Imag(_) => {
+                unimplemented!("Real/Imag not supported in WGSL")
+            }
         }
     }
 

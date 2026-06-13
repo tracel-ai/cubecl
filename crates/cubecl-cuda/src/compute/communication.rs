@@ -102,5 +102,6 @@ pub(crate) fn get_nccl_dtype_count(
             ),
         },
         ElemType::Bool => panic!("NCCL doesn't support Bool format."),
+        ElemType::Complex(_) => panic!("NCCL doesn't support Complex format."),
     }
 }
