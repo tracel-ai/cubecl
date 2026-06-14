@@ -1316,7 +1316,7 @@ impl<D: Dialect> CppCompiler<D> {
                 });
                 let recip = Instruction::FastRecip(UnaryInstruction { input, out });
 
-                instructions.push(self.select_fast_float(
+                let instruction = self.select_fast_float(
                     elem.into(),
                     modes,
                     FastMath::AllowReciprocal
@@ -1325,7 +1325,9 @@ impl<D: Dialect> CppCompiler<D> {
                         | FastMath::NotInf,
                     div,
                     recip,
-                ))
+                );
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction);
             }
             ir::Arithmetic::Round(op) => {
                 instructions.push(Instruction::Round(self.compile_unary(op, out)))

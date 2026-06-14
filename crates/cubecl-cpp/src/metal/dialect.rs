@@ -1,7 +1,7 @@
 use super::{
     AddressSpace, Extension,
     arch::MetalArchitecture,
-    extension::{format_ffs, format_hypot, format_mulhi, format_rhypot},
+    extension::{format_fast_recip, format_ffs, format_hypot, format_mulhi, format_rhypot},
     format_erf, format_global_binding_arg, format_metal_builtin_binding_arg, format_safe_tanh,
 };
 use crate::{
@@ -153,6 +153,7 @@ using namespace metal;
                 Extension::SafeTanh(item) => format_safe_tanh::<Self>(f, item)?,
                 Extension::Hypot(elem) => format_hypot::<Self>(f, elem)?,
                 Extension::Rhypot(elem) => format_rhypot::<Self>(f, elem)?,
+                Extension::FastRecip => format_fast_recip(f)?,
                 Extension::NoExtension => {}
             }
         }
@@ -216,6 +217,9 @@ using namespace metal;
                     other => other,
                 };
                 register_extension(Extension::Rhypot(elem));
+            }
+            shared::Instruction::<Self>::FastRecip(_) => {
+                register_extension(Extension::FastRecip);
             }
             _ => {}
         }
@@ -1019,7 +1023,7 @@ impl DialectInstructions<Self> for MslDialect {
     }
 
     fn compile_fast_math_function_name(name: &'static str) -> &'static str {
-        // `__frcp_rn` has no `fast::` form, so it falls back to a precise reciprocal.
+        // `__frcp_rn` has no native `fast::` form, so it uses the `fast_recip` helper.
         match name {
             "__expf" => "fast::exp",
             "__logf" => "fast::log",
@@ -1030,7 +1034,7 @@ impl DialectInstructions<Self> for MslDialect {
             "__tanhf" => "fast::tanh",
             "__fdividef" => "fast::divide",
             "__powf" => "fast::pow",
-            "__frcp_rn" => "1.0f / ",
+            "__frcp_rn" => "fast_recip",
             other => other,
         }
     }

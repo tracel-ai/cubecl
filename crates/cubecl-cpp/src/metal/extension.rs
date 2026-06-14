@@ -12,6 +12,7 @@ pub enum Extension<D: Dialect> {
     SafeTanh(Item<D>),
     Hypot(Elem<D>),
     Rhypot(Elem<D>),
+    FastRecip,
     #[default]
     NoExtension,
 }
@@ -208,6 +209,18 @@ pub fn format_rhypot<D: Dialect>(
 // MSL has no rhypot built-in.
 inline {elem} rhypot({elem} x, {elem} y) {{
     return rsqrt(x * x + y * y);
+}}
+"
+    )
+}
+
+// MSL has no unary fast reciprocal.
+pub fn format_fast_recip(f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    write!(
+        f,
+        "
+inline float fast_recip(float x) {{
+    return fast::divide(1.0f, x);
 }}
 "
     )

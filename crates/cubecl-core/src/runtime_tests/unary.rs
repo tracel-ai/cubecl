@@ -289,6 +289,27 @@ test_unary_impl!(test_sin, F, Vector::sin, [
     }
 ]);
 
+test_unary_impl!(test_recip, F, Vector::recip, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 1., 2., 4., 0.5],
+        expected: as_type![F: 1., 0.5, 0.25, 2.]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 1., 2., 4., 0.5],
+        expected: as_type![F: 1., 0.5, 0.25, 2.]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 1., 2., 4., 0.5],
+        expected: as_type![F: 1., 0.5, 0.25, 2.]
+    }
+]);
+
 test_unary_impl!(test_cos, F, Vector::cos, [
     {
         input_vectorization: 1,
@@ -992,6 +1013,7 @@ macro_rules! testgen_unary {
             add_test!(test_vector_sum);
             add_test!(test_sqrt);
             add_test!(test_inverse_sqrt);
+            add_test!(test_recip);
             add_test!(test_abs);
             add_test!(test_trunc);
             add_test!(test_is_nan);
