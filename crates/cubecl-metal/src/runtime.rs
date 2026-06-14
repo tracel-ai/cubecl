@@ -37,7 +37,7 @@ impl DeviceService for MetalServer {
                     .into_iter()
                     .filter(
                         |d: &objc2::rc::Retained<ProtocolObject<dyn objc2_metal::MTLDevice>>| {
-                            !(**d).isLowPower()
+                            !(**d).hasUnifiedMemory()
                         },
                     )
                     .nth(idx)
@@ -49,7 +49,7 @@ impl DeviceService for MetalServer {
                     .into_iter()
                     .filter(
                         |d: &objc2::rc::Retained<ProtocolObject<dyn objc2_metal::MTLDevice>>| {
-                            (**d).isLowPower()
+                            (**d).hasUnifiedMemory()
                         },
                     )
                     .nth(idx)
@@ -148,7 +148,7 @@ impl Runtime for MetalRuntime {
         _info: &<Self::Server as cubecl_core::server::ComputeServer>::Info,
     ) -> Vec<DeviceId> {
         // type_id matches `device.rs`: 0=Default, 1=Discrete, 2=Integrated, where
-        // integrated == `isLowPower()`. index_id is the nth device of that class,
+        // integrated == `hasUnifiedMemory()`. index_id is the nth device of that class,
         // as resolved by `DeviceService::init`.
         match type_id {
             0 => vec![DeviceId {
@@ -157,7 +157,7 @@ impl Runtime for MetalRuntime {
             }],
             1 => crate::device::all_devices()
                 .into_iter()
-                .filter(|d| !(**d).isLowPower())
+                .filter(|d| !(**d).hasUnifiedMemory())
                 .enumerate()
                 .map(|(idx, _)| DeviceId {
                     type_id: 1,
@@ -166,7 +166,7 @@ impl Runtime for MetalRuntime {
                 .collect(),
             2 => crate::device::all_devices()
                 .into_iter()
-                .filter(|d| (**d).isLowPower())
+                .filter(|d| (**d).hasUnifiedMemory())
                 .enumerate()
                 .map(|(idx, _)| DeviceId {
                     type_id: 2,
