@@ -12,5 +12,4 @@
 ## Limitations
 
 - Metal 3+ required (atomic float and simdgroup matrix support)
-- bf16 plane operations (simd_shuffle) not supported by Metal hardware
 - f64 not supported by Metal

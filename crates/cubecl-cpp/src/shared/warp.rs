@@ -134,6 +134,7 @@ impl<D: Dialect> Display for WarpInstruction<D> {
                     D::compile_warp_shuffle(
                         f,
                         &format!("{}", input.index(i)),
+                        input.item().elem(),
                         &format!("{src_lane}"),
                     )?;
                 }
@@ -163,6 +164,7 @@ impl<D: Dialect> Display for WarpInstruction<D> {
                     D::compile_warp_shuffle_up(
                         f,
                         &format!("{}", input.index(i)),
+                        input.item().elem(),
                         &format!("{delta}"),
                     )?;
                 }
@@ -177,6 +179,7 @@ impl<D: Dialect> Display for WarpInstruction<D> {
                     D::compile_warp_shuffle_down(
                         f,
                         &format!("{}", input.index(i)),
+                        input.item().elem(),
                         &format!("{delta}"),
                     )?;
                 }
@@ -259,7 +262,7 @@ pub(crate) fn reduce_inclusive<D: Dialect>(
             "
 {tmp_left} = "
         )?;
-        D::compile_warp_shuffle_up(f, &acc_indexed, "offset")?;
+        D::compile_warp_shuffle_up(f, &acc_indexed, acc_item.elem(), "offset")?;
         write!(
             f,
             ";
@@ -289,7 +292,7 @@ pub(crate) fn reduce_exclusive<D: Dialect>(
         let inclusive_indexed = maybe_index(&inclusive, k);
         let comma = if k > 0 { ", " } else { "" };
         write!(f, "{comma}")?;
-        D::compile_warp_shuffle_up(f, &inclusive_indexed.to_string(), "1")?;
+        D::compile_warp_shuffle_up(f, &inclusive_indexed.to_string(), acc_item.elem(), "1")?;
     }
     writeln!(f, "}};")?;
     let lane_id = Builtin::<D>::UnitPosPlane;
@@ -317,7 +320,12 @@ pub(crate) fn reduce_broadcast<D: Dialect>(
     for i in 0..input.item().vectorization() {
         let comma = if i > 0 { ", " } else { "" };
         write!(f, "{comma}")?;
-        D::compile_warp_shuffle(f, &format!("{}", input.index(i)), &format!("{id}"))?;
+        D::compile_warp_shuffle(
+            f,
+            &format!("{}", input.index(i)),
+            input.item().elem(),
+            &format!("{id}"),
+        )?;
     }
     writeln!(f, " }};")
 }

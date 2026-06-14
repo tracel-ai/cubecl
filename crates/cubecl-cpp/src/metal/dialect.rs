@@ -36,18 +36,45 @@ impl MslDialect {
         simd_op_suffix: &str,
     ) -> core::fmt::Result {
         let out = out.fmt_left();
+        // No simd reduction for bfloat; reduce in float and cast back.
+        let (open, in_open, in_close, close) = if matches!(input.item().elem(), Elem::BF16) {
+            ("bfloat(", "float(", ")", ")")
+        } else {
+            ("", "", "", "")
+        };
 
         if let Item::Vector(_, vectorization) = input.item() {
             f.write_fmt(format_args!("{out} = {} {{", input.item()))?;
 
             for k in 0..vectorization {
                 let comma = if k + 1 < vectorization { "," } else { "" };
-                writeln!(f, "{simd_op_prefix}{input}.i_{k}{simd_op_suffix}{comma}")?;
+                writeln!(
+                    f,
+                    "{open}{simd_op_prefix}{in_open}{input}.i_{k}{in_close}{simd_op_suffix}{close}{comma}"
+                )?;
             }
 
             f.write_fmt(format_args!("}};\n"))
         } else {
-            writeln!(f, "{out} = {simd_op_prefix}{input}{simd_op_suffix};")
+            writeln!(
+                f,
+                "{out} = {open}{simd_op_prefix}{in_open}{input}{in_close}{simd_op_suffix}{close};"
+            )
+        }
+    }
+
+    fn warp_shuffle(
+        f: &mut core::fmt::Formatter<'_>,
+        op: &str,
+        val: &str,
+        elem: &Elem<Self>,
+        arg: &str,
+    ) -> core::fmt::Result {
+        // No simd_shuffle for bfloat; route it through a same-width ushort.
+        if matches!(elem, Elem::BF16) {
+            write!(f, "as_type<bfloat>({op}(as_type<ushort>({val}), {arg}))")
+        } else {
+            write!(f, "{op}({val}, {arg})")
         }
     }
 }
@@ -1043,34 +1070,37 @@ impl DialectInstructions<Self> for MslDialect {
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
         val: &str,
+        elem: &Elem<Self>,
         source: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle({val}, {source})")
+        Self::warp_shuffle(f, "simd_shuffle", val, elem, source)
     }
 
     fn compile_warp_shuffle_xor(
         f: &mut std::fmt::Formatter<'_>,
         val: &str,
-        _elem: &Elem<Self>,
+        elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle_xor({val}, {offset})")
+        Self::warp_shuffle(f, "simd_shuffle_xor", val, elem, offset)
     }
 
     fn compile_warp_shuffle_up(
         f: &mut std::fmt::Formatter<'_>,
         val: &str,
+        elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle_up({val}, {offset})")
+        Self::warp_shuffle(f, "simd_shuffle_up", val, elem, offset)
     }
 
     fn compile_warp_shuffle_down(
         f: &mut std::fmt::Formatter<'_>,
         val: &str,
+        elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle_down({val}, {offset})")
+        Self::warp_shuffle(f, "simd_shuffle_down", val, elem, offset)
     }
 
     fn compile_warp_all<T: Component<Self>>(

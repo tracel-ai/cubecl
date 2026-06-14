@@ -46,12 +46,12 @@ impl MetalContext {
         compilation_options: cubecl_cpp::shared::CompilationOptions,
     ) -> Self {
         let msl_compile_options = MTLCompileOptions::new();
-        msl_compile_options.setLanguageVersion(MTLLanguageVersion::Version3_0);
-        // Fast math (the default) reassociates/contracts FP arithmetic and breaks
-        // lowerings like `expm1`; force IEEE-safe math.
+        // MSL 3.1 for native `bfloat`.
+        msl_compile_options.setLanguageVersion(MTLLanguageVersion::Version3_1);
+        // Fast math reassociates/contracts FP arithmetic and breaks lowerings like
+        // `expm1`; force IEEE-safe math. `setMathMode(Safe)` does not fully disable it,
+        // so also clear `fastMathEnabled`.
         msl_compile_options.setMathMode(MTLMathMode::Safe);
-        // `mathMode` is only honored from MSL 3.1; on 3.0 the deprecated
-        // `fastMathEnabled` flag governs and defaults to `true`, so disable it too.
         #[allow(deprecated)]
         msl_compile_options.setFastMathEnabled(false);
 
