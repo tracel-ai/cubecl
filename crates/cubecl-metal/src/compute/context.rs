@@ -194,6 +194,21 @@ impl MetalContext {
                 backtrace: BackTrace::capture(),
             })?;
 
+        // A kernel's register and shared-memory use can cap its threadgroup size below the
+        // device limit; exceeding it fails the dispatch on the GPU, so reject it at compile time.
+        let max_units = pipeline.maxTotalThreadsPerThreadgroup();
+        let requested = (cube_dim.x as usize) * (cube_dim.y as usize) * (cube_dim.z as usize);
+        if requested > max_units {
+            return Err(cubecl_runtime::compiler::CompilationError::Generic {
+                reason: format!(
+                    "Cube dim {}x{}x{} ({requested} units) exceeds this kernel's limit of \
+                     {max_units} threads per threadgroup",
+                    cube_dim.x, cube_dim.y, cube_dim.z
+                ),
+                backtrace: BackTrace::capture(),
+            });
+        }
+
         Ok(CompiledKernel {
             pipeline,
             cube_dim,
