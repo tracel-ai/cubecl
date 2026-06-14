@@ -798,6 +798,12 @@ pub trait DialectInstructions<D: Dialect> {
         "h2"
     }
 
+    /// Remaps a math-function name for the dialect (default: unchanged), e.g. fast-math
+    /// intrinsics to each dialect's spelling (`__expf` -> `fast::exp`).
+    fn compile_fast_math_function_name(name: &'static str) -> &'static str {
+        name
+    }
+
     // warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,

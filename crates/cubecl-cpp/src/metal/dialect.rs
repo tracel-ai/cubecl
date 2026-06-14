@@ -1018,6 +1018,23 @@ impl DialectInstructions<Self> for MslDialect {
         ""
     }
 
+    fn compile_fast_math_function_name(name: &'static str) -> &'static str {
+        // `__frcp_rn` has no `fast::` form, so it falls back to a precise reciprocal.
+        match name {
+            "__expf" => "fast::exp",
+            "__logf" => "fast::log",
+            "__sinf" => "fast::sin",
+            "__cosf" => "fast::cos",
+            "__fsqrt_rn" => "fast::sqrt",
+            "__frsqrt_rn" => "fast::rsqrt",
+            "__tanhf" => "fast::tanh",
+            "__fdividef" => "fast::divide",
+            "__powf" => "fast::pow",
+            "__frcp_rn" => "1.0f / ",
+            other => other,
+        }
+    }
+
     // Warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,

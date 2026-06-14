@@ -91,9 +91,12 @@ pub trait FunctionFmt<D: Dialect> {
                 Elem::F16x2 | Elem::BF16x2 => D::compile_instruction_half2_function_name_prefix(),
                 _ => "",
             };
-            format!("{prefix}{}", Self::base_function_name())
+            format!(
+                "{prefix}{}",
+                D::compile_fast_math_function_name(Self::base_function_name())
+            )
         } else {
-            Self::base_function_name().into()
+            D::compile_fast_math_function_name(Self::base_function_name()).into()
         }
     }
     fn format_unary<Input: Display>(
