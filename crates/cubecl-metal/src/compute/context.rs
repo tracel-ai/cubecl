@@ -8,7 +8,7 @@ use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSString;
 use objc2_metal::{
     MTLCompileOptions, MTLComputePipelineState, MTLDevice, MTLLanguageVersion, MTLLibrary,
-    MTLMathMode,
+    MTLMathFloatingPointFunctions, MTLMathMode,
 };
 use std::sync::Arc;
 
@@ -48,12 +48,11 @@ impl MetalContext {
         let msl_compile_options = MTLCompileOptions::new();
         // MSL 3.1 for native `bfloat`.
         msl_compile_options.setLanguageVersion(MTLLanguageVersion::Version3_1);
-        // Fast math reassociates/contracts FP arithmetic and breaks lowerings like
-        // `expm1`; force IEEE-safe math. `setMathMode(Safe)` does not fully disable it,
-        // so also clear `fastMathEnabled`.
+        // Force IEEE-safe math: fast math reassociates/contracts FP and uses imprecise
+        // math functions, breaking lowerings like `expm1`. `mathMode` controls the former,
+        // `mathFloatingPointFunctions` the latter.
         msl_compile_options.setMathMode(MTLMathMode::Safe);
-        #[allow(deprecated)]
-        msl_compile_options.setFastMathEnabled(false);
+        msl_compile_options.setMathFloatingPointFunctions(MTLMathFloatingPointFunctions::Precise);
 
         Self {
             device,
