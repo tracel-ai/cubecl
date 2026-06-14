@@ -48,9 +48,9 @@ impl MetalContext {
         let msl_compile_options = MTLCompileOptions::new();
         // MSL 3.1 for native `bfloat`.
         msl_compile_options.setLanguageVersion(MTLLanguageVersion::Version3_1);
-        // Force IEEE-safe math: fast math reassociates/contracts FP and uses imprecise
-        // math functions, breaking lowerings like `expm1`. `mathMode` controls the former,
-        // `mathFloatingPointFunctions` the latter.
+        // Compile with IEEE-safe math by default; per-op fast math is opted into separately.
+        // `mathMode` disables FP reassociation/contraction, `mathFloatingPointFunctions`
+        // keeps math functions precise.
         msl_compile_options.setMathMode(MTLMathMode::Safe);
         msl_compile_options.setMathFloatingPointFunctions(MTLMathFloatingPointFunctions::Precise);
 
