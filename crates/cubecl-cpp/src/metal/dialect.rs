@@ -898,7 +898,7 @@ impl DialectInstructions<Self> for MslDialect {
         //   * `u == 1`   (x near 0)   → `x`     (avoids the `0/0` ratio)
         //   * `isinf(u)` (x large +)  → `u`     (else `(inf-1)*x/log(inf)` is NaN)
         //   * `u == 0`   (x large -)  → `u - 1` (else `x / log(0)` collapses it)
-        // fast-math is OFF, so the compiler may CSE the repeated `exp(x)`.
+        // `precise::` pins `exp`/`log` accurate regardless of the kernel's math mode.
         let elem = input.elem();
         match elem {
             // The Unary impl casts half/bfloat to float, so operate in float and
@@ -906,12 +906,12 @@ impl DialectInstructions<Self> for MslDialect {
             Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
                 write!(
                     f,
-                    "{elem}(exp(float({input})) == 1.0f ? float({input}) : (isinf(exp(float({input}))) ? exp(float({input})) : (exp(float({input})) == 0.0f ? exp(float({input})) - 1.0f : (exp(float({input})) - 1.0f) * float({input}) / log(exp(float({input}))))))"
+                    "{elem}(precise::exp(float({input})) == 1.0f ? float({input}) : (isinf(precise::exp(float({input}))) ? precise::exp(float({input})) : (precise::exp(float({input})) == 0.0f ? precise::exp(float({input})) - 1.0f : (precise::exp(float({input})) - 1.0f) * float({input}) / precise::log(precise::exp(float({input}))))))"
                 )
             }
             _ => write!(
                 f,
-                "(exp({input}) == 1.0f ? {input} : (isinf(exp({input})) ? exp({input}) : (exp({input}) == 0.0f ? exp({input}) - 1.0f : (exp({input}) - 1.0f) * {input} / log(exp({input})))))"
+                "(precise::exp({input}) == 1.0f ? {input} : (isinf(precise::exp({input})) ? precise::exp({input}) : (precise::exp({input}) == 0.0f ? precise::exp({input}) - 1.0f : (precise::exp({input}) - 1.0f) * {input} / precise::log(precise::exp({input})))))"
             ),
         }
     }
