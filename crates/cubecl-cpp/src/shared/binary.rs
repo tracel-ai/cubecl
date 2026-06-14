@@ -318,7 +318,11 @@ impl<D: Dialect> Binary<D> for FastPowf {
         rhs: Rhs,
         _item: Item<D>,
     ) -> std::fmt::Result {
-        write!(f, "{}({lhs}, {rhs})", D::compile_fast_math_function_name("__powf"))
+        write!(
+            f,
+            "{}({lhs}, {rhs})",
+            D::compile_fast_math_function_name("__powf")
+        )
     }
 }
 
