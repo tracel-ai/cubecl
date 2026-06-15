@@ -12,9 +12,10 @@ use pliron::{
     r#type::type_cast,
 };
 
+#[macro_export]
 macro_rules! verify_op_succ {
     () => {
-        fn verify(_op: &dyn Op, _ctx: &Context) -> Result<()>
+        fn verify(_op: &dyn pliron::op::Op, _ctx: &Context) -> Result<()>
         where
             Self: Sized,
         {
@@ -23,6 +24,7 @@ macro_rules! verify_op_succ {
     };
 }
 
+#[macro_export]
 macro_rules! verify_ty_succ {
     () => {
         fn verify(_op: &dyn Type, _ctx: &Context) -> Result<()>
@@ -53,6 +55,12 @@ macro_rules! synchronizes {
             #[allow(unused_variables)]
             fn scope(&self, ctx: &::pliron::context::Context) -> SyncScope {
                 $scope
+            }
+        }
+        #[pliron::derive::op_interface_impl]
+        impl pliron::opts::dce::SideEffects for $ty {
+            fn has_side_effects(&self, _ctx: &Context) -> bool {
+                true
             }
         }
     };
@@ -98,6 +106,18 @@ macro_rules! sized {
     };
 }
 pub(crate) use sized;
+
+macro_rules! erasable {
+    ($ty: ty) => {
+        #[::pliron::derive::op_interface_impl]
+        impl pliron::opts::dce::SideEffects for $ty {
+            fn has_side_effects(&self, _ctx: &Context) -> bool {
+                false
+            }
+        }
+    };
+}
+pub(crate) use erasable;
 
 #[type_interface]
 pub trait MaybeVectorizedType {
@@ -225,12 +245,12 @@ pub trait TypedExt: Typed {
     }
 
     fn is_int(&self, ctx: &Context) -> bool {
-        let ty = self.get_type(ctx).deref(ctx);
+        let ty = self.scalar_ty(ctx).deref(ctx);
         ty.downcast_ref::<IntType>().is_some()
     }
 
     fn is_uint(&self, ctx: &Context) -> bool {
-        let ty = self.get_type(ctx).deref(ctx);
+        let ty = self.scalar_ty(ctx).deref(ctx);
         ty.downcast_ref::<UIntType>().is_some()
     }
 }

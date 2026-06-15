@@ -1,12 +1,7 @@
 use alloc::{vec, vec::Vec};
-use cubecl_ir::{
-    Arithmetic, Bitwise, Comparison, ConstantValue, GlobalState, Instruction, Operation, Operator,
-    Type, ExpandValue,
-};
+use cubecl_ir::{ConstantValue, ExpandValue, GlobalState, Type};
 
-use crate::post_processing::{
-    analysis_helper::GlobalAnalyses, util::AtomicCounter, visitor::InstructionVisitor,
-};
+use crate::post_processing::util::AtomicCounter;
 
 /// Simplifies certain expressions where one operand is constant.
 /// For example: `out = x * 1` to `out = x`

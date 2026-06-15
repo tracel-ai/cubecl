@@ -2,6 +2,7 @@ use cubecl_macros_internal::cube_op;
 
 use crate::{
     dialect::{pure_binop, pure_unop},
+    interfaces::erasable,
     pliron::prelude::*,
 };
 
@@ -61,3 +62,4 @@ pub struct FmaOp {
     b: Value,
     c: Value,
 }
+erasable!(FmaOp);

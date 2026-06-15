@@ -2,7 +2,7 @@ use cubecl_macros_internal::cube_op;
 
 use crate::{
     dialect::base::pure_binop,
-    interfaces::{Pure, TypedExt},
+    interfaces::{Pure, TypedExt, erasable},
     pliron::prelude::*,
     types::{VectorType, scalar::BoolType},
 };
@@ -18,6 +18,7 @@ pub struct ClampOp {
     min: Value,
     max: Value,
 }
+erasable!(ClampOp);
 
 macro_rules! cmp_binop {
     ($name: literal, $ty: ident) => {
@@ -28,6 +29,8 @@ macro_rules! cmp_binop {
             lhs: Value,
             rhs: Value,
         }
+
+        $crate::interfaces::erasable!($ty);
     };
 }
 

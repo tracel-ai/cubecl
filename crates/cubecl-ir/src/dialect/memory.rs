@@ -7,7 +7,7 @@ use crate::{
     AddressSpace,
     attributes::{BoolAttr, IndexAttr},
     dialect::ptr_value_ty,
-    interfaces::{IndexableType, Pure},
+    interfaces::{IndexableType, Pure, erasable},
     pliron::prelude::*,
     types::PointerType,
 };
@@ -44,6 +44,7 @@ pub struct IndexOp {
     pub unroll_factor: IndexAttr, // Adjustment factor for bounds check
     pub checked: BoolAttr,
 }
+erasable!(IndexOp);
 
 fn indexed_ptr_ty(ctx: &mut Context, base: &Value) -> Ptr<TypeObj> {
     let (value_ty, address_space) = {
@@ -67,6 +68,7 @@ pub struct LoadOp {
     #[operand(ptr_read)]
     pub ptr: Value,
 }
+erasable!(LoadOp);
 
 #[cube_op(name = "memory.store")]
 #[result_ty(none)]
