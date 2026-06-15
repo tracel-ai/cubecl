@@ -545,8 +545,8 @@ impl<R: Runtime> ComputeClient<R> {
         let has_staging = |b: &Bytes| match b.property() {
             AllocationProperty::Pinned => false,
             AllocationProperty::File => true,
-            // A lazily device-backed buffer is materialized on access and copied device-to-device
-            // when uploaded; don't force it into a host staging buffer here.
+            // A lazily device-backed buffer materializes on access and is staged (if needed)
+            // by the backend write path, so don't force it into a host staging buffer here.
             AllocationProperty::Device => false,
             AllocationProperty::Native | AllocationProperty::Other => !file_only,
         };

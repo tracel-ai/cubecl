@@ -117,9 +117,15 @@ pub trait AllocationController {
     /// lazy controllers must override it to report their size cheaply so that querying the
     /// capacity never triggers a copy.
     fn capacity(&self) -> usize {
-        self.memory(AccessPolicy::allow_copy())
-            .map(|memory| memory.len())
-            .unwrap_or(0)
+        match self.memory(AccessPolicy::allow_copy()) {
+            Ok(memory) => memory.len(),
+            // A resident controller using this default must never error here; a lazy
+            // controller is expected to override `capacity` and not reach this path.
+            Err(err) => {
+                debug_assert!(false, "capacity(): resident host access failed: {err:?}");
+                0
+            }
+        }
     }
 
     /// Splits the current allocation in multiple separate allocations.
@@ -295,8 +301,11 @@ impl Bytes {
         }
     }
 
-    /// Returns the sub-range `[start, end)` as a zero-copy [`Bytes`] window,
-    /// borrowing `self`.
+    /// Returns the sub-range `[start, end)` as a zero-copy [`Bytes`] window.
+    ///
+    /// The returned [`Bytes`] is independently owned (it shares the backing
+    /// storage by reference count / re-opened file handle rather than borrowing
+    /// `self`), so it can outlive this reference.
     ///
     /// Returns [`ViewError::Unsupported`] when the backend can't produce a
     /// zero-copy window (e.g. a plain heap allocation); [`Self::shared`] it first

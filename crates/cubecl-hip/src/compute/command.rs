@@ -298,8 +298,16 @@ impl<'a> Command<'a> {
 
         let property = data.property();
 
-        let should_stage = size < 100 * MB || matches!(property, AllocationProperty::File);
-        let should_flush = size > 10 * MB || matches!(property, AllocationProperty::File);
+        // Transfers up to this size go through a pinned staging buffer (faster DMA).
+        const STAGE_MAX: usize = 100 * MB;
+        // Above this size we flush the drop queue so the source buffer is released promptly.
+        const FLUSH_MIN: usize = 10 * MB;
+
+        // Stage file-backed data, and small host data that isn't already pinned. Re-staging
+        // already-pinned memory would be a redundant pinned-to-pinned copy.
+        let should_stage = matches!(property, AllocationProperty::File)
+            || (size < STAGE_MAX && !matches!(property, AllocationProperty::Pinned));
+        let should_flush = size > FLUSH_MIN || matches!(property, AllocationProperty::File);
 
         let data = match should_stage {
             true => {

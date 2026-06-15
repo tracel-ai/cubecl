@@ -105,8 +105,9 @@ impl AllocationController for FileAllocationController {
 
     fn view(&self, start: usize, end: usize) -> Option<Box<dyn AllocationController>> {
         if self.controller.is_completed() {
-            // The in-memory buffer may diverge from the file after a
-            // copy-on-write, so fall back to sharing the current data instead.
+            // Once materialized, the in-memory buffer may diverge from the file
+            // (after a copy-on-write), so no zero-copy file window is offered.
+            // The caller can `Bytes::shared()` the current data to view it instead.
             return None;
         }
         if start > end || end as u64 > self.size {
