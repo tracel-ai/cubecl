@@ -47,6 +47,7 @@ internment = { workspace = true, features = ["intern", "serde"] }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true, optional = true, features = ["rc"] }
+spin = { workspace = true }
 thiserror = { workspace = true }
 variadics_please = { workspace = true }
 

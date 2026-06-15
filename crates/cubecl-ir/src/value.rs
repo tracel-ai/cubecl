@@ -32,10 +32,10 @@ impl ExpandValue {
 
     pub fn read_value(&self, scope: &Scope) -> Value {
         let val = self.value(scope);
-        if val.is_ptr(&scope.ctx()) {
-            let op = LoadOp::new(&mut scope.ctx_mut(), val);
+        if val.is_ptr(scope.ctx()) {
+            let op = LoadOp::new(scope.ctx_mut(), val);
             scope.register(&op);
-            op.get_result(&scope.ctx())
+            op.get_result(scope.ctx())
         } else {
             val
         }
@@ -45,24 +45,24 @@ impl ExpandValue {
         match self {
             ExpandValue::Value(value) => *value,
             ExpandValue::Constant { value, ty } => {
-                let mut ctx = scope.ctx_mut();
-                let ty = ty.to_type(&mut ctx);
+                let ctx = scope.ctx_mut();
+                let ty = ty.to_type(ctx);
                 let value = match value {
                     ConstantValue::Int(value) => {
-                        IntAttr::new(TypePtr::from_ptr(ty, &ctx).unwrap(), *value).into()
+                        IntAttr::new(TypePtr::from_ptr(ty, ctx).unwrap(), *value).into()
                     }
                     ConstantValue::UInt(value) => {
-                        UIntAttr::new(TypePtr::from_ptr(ty, &ctx).unwrap(), *value).into()
+                        UIntAttr::new(TypePtr::from_ptr(ty, ctx).unwrap(), *value).into()
                     }
                     ConstantValue::Float(value) => {
-                        FloatAttr::new(TypePtr::from_ptr(ty, &ctx).unwrap(), f64_to_double(*value))
+                        FloatAttr::new(TypePtr::from_ptr(ty, ctx).unwrap(), f64_to_double(*value))
                             .into()
                     }
                     ConstantValue::Bool(value) => BoolAttr::new(*value).into(),
                 };
-                let op = ConstantOp::new(&mut scope.ctx_mut(), value);
+                let op = ConstantOp::new(scope.ctx_mut(), value);
                 scope.register(&op);
-                op.get_result(&ctx)
+                op.get_result(ctx)
             }
         }
     }

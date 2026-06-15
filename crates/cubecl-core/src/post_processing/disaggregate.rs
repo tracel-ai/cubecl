@@ -1,81 +1,62 @@
-use alloc::{format, vec::Vec};
+use alloc::vec::Vec;
 
-use cubecl_ir::{GlobalState, Instruction, NonSemantic, Operation, Scope, ExpandValue, ValueKind};
+use cubecl_ir::{
+    dialect::{
+        base::OperationPtrExt,
+        general::{AggregateConstructOp, AggregateExtractOp},
+    },
+    pliron::{
+        builtin::op_interfaces::OneResultInterface,
+        graph::walkers::{
+            IRNode, WALKCONFIG_PREORDER_FORWARD, uninterruptible::immutable::walk_op,
+        },
+        pass_manager::{AnalysisManager, Pass, PassResult},
+        prelude::{Context, Operation, Ptr, Result},
+        value::Value,
+    },
+};
 use hashbrown::HashMap;
 
-use crate::post_processing::{
-    analysis_helper::GlobalAnalyses,
-    util::AtomicCounter,
-    visitor::{InstructionVisitor, Visitor},
-};
+type Aggregates = HashMap<Value, Vec<Value>>;
+type Extracted = HashMap<Value, Value>;
 
-type Substitutes = HashMap<ValueKind, Vec<ExpandValue>>;
-type Extracted = HashMap<ValueKind, ExpandValue>;
-
-/// Disaggregates compiler-internal aggregates like bounds checked pointers and slice pointers into
-/// individual variables.
-#[derive(Debug, Default)]
-pub struct DisaggregateVisitor {
-    substitutes: Substitutes,
-    extracted: Extracted,
+struct AggregateAnalysis {
+    pub aggregates: Aggregates,
 }
 
-impl DisaggregateVisitor {
-    pub fn apply(scope: &Scope) {
-        let mut this = Self::default();
-        let changes = AtomicCounter::new(0);
-        // We don't care about pointer sources or used variables at this point
-        let analyses = GlobalAnalyses::default();
-        this.visit_scope(scope, &analyses, &changes);
+pub struct DisaggregateTransform;
+
+impl Pass for DisaggregateTransform {
+    fn name(&self) -> &str {
+        "Disaggregate"
     }
-}
 
-impl InstructionVisitor for DisaggregateVisitor {
-    fn visit_instruction(
-        &mut self,
-        mut instruction: Instruction,
-        _global_state: &GlobalState,
-        analyses: &GlobalAnalyses,
-        _changes: &AtomicCounter,
-    ) -> Vec<Instruction> {
-        let mut visitor = Visitor(());
-
-        // This needs to run even for aggregates so extract -> construct will be properly replaced
-        visitor.visit_operation(&mut instruction.operation, analyses, |_, val| {
-            if let Some(replacement) = self.extracted.get(&val.kind).copied() {
-                *val = replacement;
-            }
-        });
-        visitor.visit_out(&mut instruction.out, |_, val| {
-            if let Some(replacement) = self.extracted.get(&val.kind) {
-                *val = *replacement;
-            }
-        });
-
-        let mut new_instructions = Vec::new();
-
-        match &mut instruction.operation {
-            Operation::ConstructAggregate(fields) => {
-                let fields = fields.clone();
-                self.substitutes.insert(instruction.out().kind, fields);
-            }
-            Operation::ExtractAggregateField(operands) => {
-                let substitutes = self.substitutes.get(&operands.aggregate.kind);
-                let substitutes =
-                    substitutes.expect("Should have aggregate registered before any extraction");
-                let substitute = substitutes[operands.field];
-                self.extracted.insert(instruction.out().kind, substitute);
-            }
-            // Fix validate prints
-            Operation::NonSemantic(NonSemantic::Print { format_string, .. }) => {
-                for (from, to) in self.extracted.iter() {
-                    *format_string = format_string.replace(&format!("{from}"), &format!("{to}"));
+    fn run(
+        &self,
+        op: Ptr<Operation>,
+        ctx: &mut Context,
+        analyses: &mut AnalysisManager,
+    ) -> Result<PassResult> {
+        let mut result = PassResult::default();
+        let mut aggregates = Aggregates::new();
+        walk_op(
+            ctx,
+            &mut aggregates,
+            &WALKCONFIG_PREORDER_FORWARD,
+            op,
+            |ctx, aggregates, node| {
+                if let IRNode::Operation(op) = node {
+                    if let Some(construct) = op.as_op::<AggregateConstructOp>(ctx) {
+                        aggregates.insert(construct.get_result(ctx), construct.values(ctx));
+                    }
+                    if let Some(extract) = op.as_op::<AggregateExtractOp>(ctx) {
+                        let field = extract.get_attr_field(ctx).unwrap().0;
+                        let value = aggregates[extract.aggregate(ctx)][field];
+                        extract.get_result(ctx).replace_all_uses_with(ctx, &value);
+                    }
                 }
-                new_instructions.push(instruction);
-            }
-            _ => new_instructions.push(instruction),
-        }
-
-        new_instructions
+            },
+        );
+        Ok(result)
     }
 }

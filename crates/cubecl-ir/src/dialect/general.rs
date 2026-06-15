@@ -13,7 +13,7 @@ use crate::{
     Builtin,
     attributes::IndexAttr,
     dialect::{pure_binop, pure_unop},
-    interfaces::{AggregateType, Pure},
+    interfaces::{AggregateType, Pure, erasable},
     pliron::prelude::*,
     types::scalar::IndexType,
 };
@@ -50,8 +50,8 @@ impl AggregateConstructOp {
 #[cube_op(name = "aggregate.extract")]
 #[result_ty(from_inputs = aggregate_extract_type)]
 pub struct AggregateExtractOp {
-    aggregate: Value,
-    field: IndexAttr,
+    pub aggregate: Value,
+    pub field: IndexAttr,
 }
 
 fn aggregate_extract_type(ctx: &Context, aggregate: &Value, field: &IndexAttr) -> Ptr<TypeObj> {
@@ -71,6 +71,7 @@ pure_unop!("cube.bool_not", BoolNotOp);
 pub struct CastOp {
     value: Value,
 }
+erasable!(CastOp);
 
 #[cube_op(name = "cube.reinterpret_cast")]
 #[result_ty(argument)]
@@ -78,6 +79,7 @@ pub struct CastOp {
 pub struct ReinterpretCastOp {
     value: Value,
 }
+erasable!(ReinterpretCastOp);
 
 #[cube_op(name = "cube.select")]
 #[result_ty(same_as = true_value)]
@@ -87,6 +89,7 @@ pub struct SelectOp {
     true_value: Value,
     false_value: Value,
 }
+erasable!(SelectOp);
 
 #[pliron_attr(name = "cube.builtin", format, verifier = "succ")]
 #[derive(new, From, PartialEq, Clone, Debug)]
@@ -98,6 +101,7 @@ pub struct BuiltinAttr(pub Builtin);
 pub struct ReadBuiltinOp {
     builtin: BuiltinAttr,
 }
+erasable!(ReadBuiltinOp);
 
 #[cube_op(name = "cube.read_scalar")]
 #[result_ty(from_inputs = |ctx, ty: &TypeAttr, _| ty.get_type(ctx))]
@@ -106,6 +110,7 @@ pub struct ReadScalarOp {
     ty: TypeAttr,
     id: IndexAttr,
 }
+erasable!(ReadScalarOp);
 
 #[cube_op(name = "cube.free")]
 #[result_ty(none)]
@@ -119,6 +124,7 @@ pub struct FreeOp {
 pub struct DummyReadOp {
     value: Value,
 }
+erasable!(DummyReadOp);
 
 #[cube_op(name = "cube.buffer_len")]
 #[result_ty(fixed = IndexType::get(ctx).into())]
@@ -126,6 +132,7 @@ pub struct DummyReadOp {
 pub struct BufferLenOp {
     buffer: Value,
 }
+erasable!(BufferLenOp);
 
 #[cube_op(name = "cube.shape")]
 #[result_ty(fixed = IndexType::get(ctx).into())]
@@ -134,6 +141,7 @@ pub struct ShapeOp {
     buffer: Value,
     dim: Value,
 }
+erasable!(ShapeOp);
 
 #[cube_op(name = "cube.stride")]
 #[result_ty(fixed = IndexType::get(ctx).into())]
@@ -142,6 +150,7 @@ pub struct StrideOp {
     buffer: Value,
     dim: Value,
 }
+erasable!(StrideOp);
 
 #[cube_op(name = "cube.comment")]
 #[result_ty(none)]

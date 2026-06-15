@@ -65,6 +65,8 @@ serde_json = { workspace = true }
 tempfile = { version = "3.20", optional = true }
 variadics_please = { workspace = true }
 
+pliron = { workspace = true }
+
 [dev-dependencies]
 pretty_assertions = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }

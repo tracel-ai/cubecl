@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
 use cubecl_core::{
-    ir::Processor, post_processing::saturating::SaturatingArithmeticProcessor, prelude::Visibility,
+    ir::Processor, post_processing::saturating::SaturatingArithmeticPolyfill, prelude::Visibility,
 };
 
 use crate::shared::{DialectWarpReduceCompiler, PointerClass};
@@ -687,7 +687,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectProcessors<Self> for HipDialect<M> {
     fn processors() -> Vec<Box<dyn Processor>> {
         vec![
             Box::new(HipMmaProcessor),
-            Box::new(SaturatingArithmeticProcessor::new(true)),
+            Box::new(SaturatingArithmeticPolyfill::new(true)),
         ]
     }
 }

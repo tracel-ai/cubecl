@@ -1,8 +1,23 @@
 use crate as cubecl;
-use alloc::vec::Vec;
+use alloc::vec;
 use cubecl_ir::{
-    Arithmetic, ElemType, Instruction, IntKind, Operation, Processor, Scope, ScopeProcessing,
-    StorageType, UIntKind, ExpandValue,
+    ElemType, Scope, UIntKind,
+    dialect::{
+        base::OperationPtrExt,
+        math::{SaturatingAddOp, SaturatingSubOp},
+    },
+    interfaces::TypedExt,
+    pliron::{
+        builtin::op_interfaces::OneResultInterface,
+        irbuild::{
+            dialect_conversion::{DialectConversion, DialectConversionRewriter, OperandsInfo},
+            rewriter::Rewriter,
+        },
+        op::op_cast,
+        prelude::{Context, Operation, Ptr, Result},
+        r#type::Typed,
+        value::Value,
+    },
 };
 
 use crate::prelude::*;
@@ -13,113 +28,89 @@ define_size!(SizeA);
 
 /// Replaces saturating arithmetic with a performant polyfill
 #[derive(new, Debug)]
-pub struct SaturatingArithmeticProcessor {
+pub struct SaturatingArithmeticPolyfill {
     /// Whether to replace i32 saturating sub. Used for CUDA, because there's a more performant
     /// PTX intrinsic for that specific type.
     replace_i32: bool,
 }
 
-impl Processor for SaturatingArithmeticProcessor {
-    fn transform(&self, mut processing: cubecl_ir::ScopeProcessing) -> cubecl_ir::ScopeProcessing {
-        let mut instructions = Vec::new();
-        core::mem::swap(&mut processing.instructions, &mut instructions);
+impl DialectConversion for SaturatingArithmeticPolyfill {
+    fn can_convert_op(&self, ctx: &Context, op: Ptr<Operation>) -> bool {
+        let dyn_op = Operation::get_op_dyn(op, ctx);
+        let should_replace = op_cast::<dyn OneResultInterface>(&*dyn_op)
+            .is_some_and(|it| self.should_replace(ctx, it.get_result(ctx)));
+        should_replace && (op.is_op::<SaturatingAddOp>(ctx) || op.is_op::<SaturatingSubOp>(ctx))
+    }
 
-        for instruction in instructions {
-            if let Operation::Arithmetic(arithmetic) = &instruction.operation {
-                match arithmetic {
-                    Arithmetic::SaturatingAdd(op) if op.lhs.elem_type().is_unsigned_int() => {
-                        run_polyfill(
-                            &mut processing,
-                            op.lhs,
-                            op.rhs,
-                            instruction.out(),
-                            saturating_add_unsigned::expand::<ElemA, SizeA>,
-                        );
-                        continue;
-                    }
-                    Arithmetic::SaturatingAdd(op)
-                        if op.lhs.elem_type().is_signed_int()
-                            && self.should_replace(op.lhs.storage_type()) =>
-                    {
-                        run_polyfill(
-                            &mut processing,
-                            op.lhs,
-                            op.rhs,
-                            instruction.out(),
-                            saturating_add_signed::expand::<ElemA, ElemB, SizeA>,
-                        );
-                        continue;
-                    }
-                    Arithmetic::SaturatingSub(op) if op.lhs.elem_type().is_unsigned_int() => {
-                        run_polyfill(
-                            &mut processing,
-                            op.lhs,
-                            op.rhs,
-                            instruction.out(),
-                            saturating_sub_unsigned::expand::<ElemA, SizeA>,
-                        );
-                        continue;
-                    }
-                    Arithmetic::SaturatingSub(op)
-                        if op.lhs.elem_type().is_signed_int()
-                            && self.should_replace(op.lhs.storage_type()) =>
-                    {
-                        run_polyfill(
-                            &mut processing,
-                            op.lhs,
-                            op.rhs,
-                            instruction.out(),
-                            saturating_sub_signed::expand::<ElemA, ElemB, SizeA>,
-                        );
-                        continue;
-                    }
-                    _ => {}
-                }
+    fn rewrite(
+        &mut self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        op: Ptr<Operation>,
+        operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let scope = Scope::from_context_and_inserter(ctx, rewriter);
+        let lhs = op.deref(ctx).get_operand(0);
+        let rhs = op.deref(ctx).get_operand(1);
+        let is_int = lhs.is_int(ctx);
+
+        let value = if let Some(add) = op.as_op::<SaturatingAddOp>(ctx) {
+            if is_int {
+                run_polyfill(
+                    (&scope, lhs, rhs),
+                    saturating_add_signed::expand::<ElemA, ElemB, SizeA>,
+                )
+            } else {
+                run_polyfill(
+                    (&scope, lhs, rhs),
+                    saturating_add_unsigned::expand::<ElemA, SizeA>,
+                )
             }
-
-            // When we have nothing to do.
-            processing.instructions.push(instruction);
-        }
-        processing
+        } else if let Some(sub) = op.as_op::<SaturatingSubOp>(ctx) {
+            if is_int {
+                run_polyfill(
+                    (&scope, lhs, rhs),
+                    saturating_sub_signed::expand::<ElemA, ElemB, SizeA>,
+                )
+            } else {
+                run_polyfill(
+                    (&scope, lhs, rhs),
+                    saturating_sub_unsigned::expand::<ElemA, SizeA>,
+                )
+            }
+        } else {
+            unreachable!()
+        };
+        rewriter.replace_operation_with_values(ctx, op, vec![value]);
+        Ok(())
     }
 }
 
-impl SaturatingArithmeticProcessor {
-    fn should_replace(&self, ty: StorageType) -> bool {
-        self.replace_i32 || !matches!(ty, StorageType::Scalar(ElemType::Int(IntKind::I32)))
+impl SaturatingArithmeticPolyfill {
+    fn should_replace(&self, ctx: &Context, ty: impl Typed) -> bool {
+        let ty = ty.get_type(ctx);
+        let is_i32 = ty.is_int(ctx) && ty.scalar_ty(ctx).size(ctx) == 4;
+        self.replace_i32 || !is_i32
     }
 }
 
 fn run_polyfill<T: CubePrimitive>(
-    processing: &mut ScopeProcessing,
-    lhs: ExpandValue,
-    rhs: ExpandValue,
-    out: ExpandValue,
+    (scope, lhs, rhs): (&Scope, Value, Value),
     mut polyfill: impl FnMut(&Scope, NativeExpand<T>, NativeExpand<T>) -> NativeExpand<T>,
-) {
-    let scope = Scope::root(false).with_global_state(processing.global_state.clone());
-    scope.register_type::<ElemA>(lhs.storage_type());
-    scope.register_size::<SizeA>(lhs.vector_size());
-    if let ElemType::Int(kind) = lhs.elem_type() {
-        let unsigned_ty = match kind {
-            IntKind::I8 => UIntKind::U8,
-            IntKind::I16 => UIntKind::U16,
-            IntKind::I32 => UIntKind::U32,
-            IntKind::I64 => UIntKind::U64,
+) -> Value {
+    scope.register_value_type::<ElemA, SizeA>(lhs);
+    if lhs.is_int(scope.ctx()) {
+        let unsigned_ty = match lhs.scalar_ty(scope.ctx()).size(scope.ctx()) {
+            1 => UIntKind::U8,
+            2 => UIntKind::U16,
+            4 => UIntKind::U32,
+            8 => UIntKind::U64,
+            _ => unreachable!("Unsupported width"),
         };
         scope.register_type::<ElemB>(ElemType::UInt(unsigned_ty).into())
     }
 
-    let out_poly = polyfill(&scope, lhs.into(), rhs.into()).expand;
-    let tmp_processing = scope.process([]);
-
-    for inst in tmp_processing.instructions {
-        processing.instructions.push(inst);
-    }
-
-    processing
-        .instructions
-        .push(Instruction::new(Operation::Copy(out_poly), out));
+    polyfill(&scope, lhs.into(), rhs.into()).value(&scope)
 }
 
 #[cube]

@@ -12,7 +12,7 @@ use cubecl_core::{
     ir::{self as core, ElemType, Id, InstructionModes, StorageType, UIntKind, features::EnumSet},
     post_processing::{
         checked_io::CheckedIoVisitor, disaggregate::DisaggregateVisitor,
-        saturating::SaturatingArithmeticProcessor, unroll::UnrollVisitor,
+        saturating::SaturatingArithmeticPolyfill, unroll::UnrollVisitor,
     },
     prelude::{FastMath, KernelDefinition, Visibility},
     server::ExecutionMode,
@@ -267,7 +267,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .with_visitor(UnrollVisitor::new(
                 self.compilation_options.vulkan.max_vector_size,
             ))
-            .with_processor(SaturatingArithmeticProcessor::new(true))
+            .with_processor(SaturatingArithmeticPolyfill::new(true))
             .optimize(kernel.body.clone(), kernel.cube_dim);
 
         self.uniformity = opt.main.analysis::<Uniformity>(&opt.global_state);

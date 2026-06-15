@@ -81,9 +81,9 @@ pub fn expand_checked_index(
     index: Value,
     unroll_factor: usize,
 ) -> Value {
-    let len = expand_buffer_length_native(scope, list);
-    let index = checked_index::expand(scope, index.into(), len.into(), unroll_factor);
-    index_expand(scope, list, index.value(scope), false)
+    let len = expand_buffer_length_native(&scope, list);
+    let index = checked_index::expand(&scope, index.into(), len.into(), unroll_factor);
+    index_expand(&scope, list, index.value(&scope), false)
 }
 
 #[allow(missing_docs)]
