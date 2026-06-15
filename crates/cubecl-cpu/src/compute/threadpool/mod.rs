@@ -1,22 +1,18 @@
-use super::{compute_task::ComputeTask, schedule::BindingsResource, threadpool::worker::Worker};
-use crate::{
-    compiler::{MlirCompiler, mlir_data::MlirData, mlir_engine::MlirEngine},
-    compute::{affinity::get_active_cores, notification::Notifications},
+use super::{
+    affinity::get_active_cores, compute_task::ComputeTask, notification::Notifications,
+    schedule::BindingsResource, threadpool::worker::Worker,
 };
-use cubecl_core::{
-    CubeDim, MemoryConfiguration, ir::MemoryDeviceProperties, prelude::CompiledKernel,
-};
-use cubecl_runtime::{
-    logging::ServerLogger,
-    memory_management::{MemoryManagement, MemoryManagementOptions},
-    storage::BytesStorage,
-};
-use std::{fmt::Debug, sync::Arc};
+use crate::compiler::{mlir_data::MlirData, mlir_engine::MlirEngine};
+use cubecl_core::CubeDim;
+use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
+use std::{fmt::Debug, sync::OnceLock};
 use sysinfo::System;
 
 pub mod circular_buffer;
 pub mod thread_buffer;
 pub mod worker;
+
+static INSTANCE: OnceLock<spin::Mutex<Threadpool>> = OnceLock::new();
 
 /// The kernel runner is responsible to manage shared memory as well as threads to execute kernels.
 ///
@@ -24,29 +20,6 @@ pub mod worker;
 /// To register work, you have to use the execution queue.
 pub struct Threadpool {
     workers: Vec<Worker>,
-    memory_management_shared_memory: MemoryManagement<BytesStorage>,
-}
-
-/// A compiled cpu kernel.
-pub struct CpuKernel {
-    pub(crate) mlir: Arc<CompiledKernel<MlirCompiler>>,
-}
-
-impl CpuKernel {
-    pub fn new(kernel: CompiledKernel<MlirCompiler>) -> Self {
-        Self {
-            mlir: Arc::new(kernel),
-        }
-    }
-}
-
-impl Debug for CpuKernel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CpuKernel")
-            .field("entrypoint_name", &self.mlir.entrypoint_name)
-            .field("debug_name", &self.mlir.debug_name)
-            .finish()
-    }
 }
 
 impl Debug for Threadpool {
@@ -56,48 +29,34 @@ impl Debug for Threadpool {
 }
 
 impl Threadpool {
-    pub fn new(logger: Arc<ServerLogger>) -> Self {
+    fn init() -> Self {
         let mut system = System::new();
         system.refresh_memory();
-        let max_page_size = system
-            .cgroup_limits()
-            .map(|g| g.total_memory)
-            .unwrap_or(system.total_memory());
-
-        const ALIGNMENT: u64 = 4;
-        let memory_properties = MemoryDeviceProperties {
-            max_page_size,
-            alignment: ALIGNMENT,
-        };
-
-        let memory_management_shared_memory = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &memory_properties,
-            MemoryConfiguration::ExclusivePages,
-            logger,
-            MemoryManagementOptions::new("Shared Memory"),
-        );
 
         let workers = get_active_cores().map(Worker::new_with_affinity).collect();
 
-        Self {
-            workers,
-            memory_management_shared_memory,
-        }
+        Self { workers }
     }
+
+    /// Resolves the global execution queue instance.
+    pub fn get() -> &'static spin::Mutex<Self> {
+        INSTANCE.get_or_init(|| spin::Mutex::new(Self::init()))
+    }
+
     pub fn execute_data(
         &mut self,
         mlir_engine: MlirEngine,
-        resources: BindingsResource,
+        bindings: BindingsResource,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
+        memory_management_shared_memory: &mut MemoryManagement<BytesStorage>,
     ) -> Notifications {
         let cube_dim_size = cube_dim.num_elems();
 
         let mlir_data = MlirData::new(
-            resources,
+            bindings,
             &mlir_engine.0.shared_memories,
-            &mut self.memory_management_shared_memory,
+            memory_management_shared_memory,
             cube_dim,
             cube_count,
         );

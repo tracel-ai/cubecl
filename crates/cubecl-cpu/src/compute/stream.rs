@@ -1,5 +1,6 @@
 use crate::compute::{
-    alloc_controller::CpuAllocController, queue::CpuExecutionQueue, schedule::ScheduleTask,
+    alloc_controller::CpuAllocController, notification::Notifications, schedule::ScheduleTask,
+    threadpool::Threadpool,
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
@@ -22,12 +23,13 @@ use cubecl_runtime::{
 use std::sync::Arc;
 
 pub struct CpuStream {
-    queue: CpuExecutionQueue,
     pub(crate) max_units_per_cube: u32,
     pub(crate) memory_management: MemoryManagement<BytesStorage>,
     pub(crate) timestamps: TimestampProfiler,
     errors: Vec<ServerError>,
-    index: usize,
+    threadpool: &'static spin::Mutex<Threadpool>,
+    last_notifications: Option<Notifications>,
+    _index: usize,
 }
 
 impl core::fmt::Debug for CpuStream {
@@ -51,18 +53,20 @@ impl CpuStream {
             logger.clone(),
             MemoryManagementOptions::new("Main CPU"),
         );
-
+        let threadpool = Threadpool::get();
+        let last_notifications = None;
         Self {
             max_units_per_cube,
             memory_management,
             timestamps: TimestampProfiler::default(),
-            queue: CpuExecutionQueue::get(logger),
             errors: Vec::new(),
-            index,
+            _index: index,
+            threadpool,
+            last_notifications,
         }
     }
 
-    pub fn enqueue_task(&mut self, task: ScheduleTask) {
+    fn validate_task(&mut self, task: &ScheduleTask) {
         if let ScheduleTask::Execute { cube_dim, .. } = task {
             let requested = cube_dim.num_elems();
             let max = self.max_units_per_cube;
@@ -77,12 +81,41 @@ impl CpuStream {
                 return;
             }
         }
-        self.queue.add(task);
+    }
+
+    pub fn enqueue_task(&mut self, task: ScheduleTask) {
+        self.validate_task(&task);
+        self.flush_uncheck();
+        match task {
+            ScheduleTask::Write { data, mut buffer } => {
+                buffer.write().copy_from_slice(&data);
+            }
+            ScheduleTask::Execute {
+                mlir_engine,
+                bindings,
+                cube_dim,
+                cube_count,
+            } => {
+                let notifications = self.threadpool.lock().execute_data(
+                    mlir_engine,
+                    bindings,
+                    cube_dim,
+                    cube_count,
+                    &mut self.memory_management,
+                );
+                self.last_notifications = Some(notifications);
+            }
+        }
+    }
+
+    fn flush_uncheck(&mut self) {
+        if let Some(notification) = self.last_notifications.take() {
+            notification.wait();
+        }
     }
 
     pub fn flush(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
-        self.queue.flush();
-
+        self.flush_uncheck();
         self.flush_errors(mode)
     }
 

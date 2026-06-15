@@ -25,11 +25,6 @@ pub struct CpuExecutionQueue {
     sender: SyncSender<QueueItem>,
 }
 
-enum QueueItem {
-    Task(ScheduleTask),
-    Flush(Notification),
-}
-
 impl CpuExecutionQueue {
     /// Adds a new task to the queue.
     pub fn add(&self, task: ScheduleTask) {
@@ -87,7 +82,6 @@ impl CpuExecutionQueueServer {
         match task {
             ScheduleTask::Write { data, buffer, .. } => self.write(data, buffer),
             ScheduleTask::Execute {
-                stream_id,
                 mlir_engine,
                 bindings,
                 cube_dim,
