@@ -295,14 +295,21 @@ impl<'a> Command<'a> {
 
         let resource = self.resource(binding)?;
         let size = data.len();
-        let data = match data.property() {
-            AllocationProperty::File => {
+
+        let property = data.property();
+
+        let should_stage = size < 100 * MB || matches!(property, AllocationProperty::File);
+        let should_flush = size > 10 * MB || matches!(property, AllocationProperty::File);
+
+        let data = match should_stage {
+            true => {
                 let mut buffer = self.reserve_pinned(size, None).unwrap();
                 data.copy_into(&mut buffer);
                 buffer
             }
-            _ => data,
+            false => data,
         };
+
         let current = self.streams.current();
 
         // SAFETY: `resource` is a valid GPU allocation, `data` is a valid host buffer,
@@ -312,14 +319,10 @@ impl<'a> Command<'a> {
             write_to_gpu(resource, &shape, &strides, elem_size, &data, current.sys)?;
         };
 
-        println!("Loaded data with size: {size:?} Bytes");
-        if size > 10 * MB || true {
-            println!("Too large, let's sync.");
-            let fence = Fence::new(current.sys);
-            fence.wait_sync().unwrap();
-            core::mem::drop(data);
-        } else {
-            current.drop_queue.push(data);
+        current.drop_queue.push(data);
+
+        if should_flush {
+            current.drop_queue.flush(|| Fence::new(current.sys));
         }
 
         Ok(())

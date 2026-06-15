@@ -294,10 +294,8 @@ impl<R: Runtime> ComputeClient<R> {
     fn do_create(
         &self,
         descriptors: Vec<MemoryLayoutDescriptor>,
-        mut data: Vec<Bytes>,
+        data: Vec<Bytes>,
     ) -> Result<Vec<MemoryLayout>, IoError> {
-        self.staging(data.iter_mut(), true);
-
         let stream_id = self.stream_id();
         let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
 
@@ -313,7 +311,7 @@ impl<R: Runtime> ComputeClient<R> {
                         layout.strides.clone(),
                         desc.elem_size,
                     ),
-                    Bytes::from_bytes_vec(data.to_vec()),
+                    data,
                 )
             })
             .collect::<Vec<_>>();
