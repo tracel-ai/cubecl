@@ -60,6 +60,7 @@ paste = { workspace = true }
 serde = { workspace = true }
 sysinfo = { workspace = true }
 tracel-llvm = { workspace = true }
+smallvec = { workspace = true }
 
 [target.'cfg(any(target_os = "android", target_os = "linux", target_os = "macos", target_os = "freebsd"))'.dependencies]
 libc = { workspace = true }
