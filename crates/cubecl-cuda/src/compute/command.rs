@@ -29,7 +29,7 @@ use cubecl_runtime::{
     stream::ResolvedStreams,
 };
 use cudarc::driver::sys::{
-    CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, CUtensorMap, cuMemcpy2DAsync_v2,
+    CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, cuMemcpy2DAsync_v2,
 };
 use std::{ffi::c_void, ops::DerefMut, sync::Arc};
 
