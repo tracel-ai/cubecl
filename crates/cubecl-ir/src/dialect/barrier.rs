@@ -2,6 +2,8 @@ use cubecl_macros_internal::cube_op;
 
 use crate::{
     attributes::{BoolAttr, IndexAttr},
+    dialect::synchronization::SyncScope,
+    interfaces::synchronizes,
     pliron::prelude::*,
     types::barrier::BarrierTokenType,
 };
@@ -81,6 +83,8 @@ pub struct WaitOp {
     barrier: Value,
     token: Value,
 }
+// Assume largest scope for now in lieu of detailed analysis. This is conservative but safe.
+synchronizes!(WaitOp, SyncScope::Cube);
 
 #[cube_op(name = "barrier.wait_parity")]
 #[result_ty(none)]
@@ -88,9 +92,13 @@ pub struct WaitParityOp {
     barrier: Value,
     phase: Value,
 }
+// Assume largest scope for now in lieu of detailed analysis. This is conservative but safe.
+synchronizes!(WaitParityOp, SyncScope::Cube);
 
 #[cube_op(name = "barrier.arrive_and_wait")]
 #[result_ty(none)]
 pub struct ArriveAndWaitOp {
     barrier: Value,
 }
+// Assume largest scope for now in lieu of detailed analysis. This is conservative but safe.
+synchronizes!(ArriveAndWaitOp, SyncScope::Cube);

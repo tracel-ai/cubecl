@@ -1,16 +1,8 @@
 use alloc::{vec, vec::Vec};
-use cubecl_ir::{
-    Allocator, Arithmetic, BinaryOperands, CoopMma, GlobalState, IndexOperands, Instruction,
-    MatrixLayout, Memory, Metadata, Operation, OperationReflect, Operator, Scope, Type, ExpandValue,
-    ValueKind, VectorInsertOperands, VectorSize,
-};
+use cubecl_ir::{ExpandValue, GlobalState, Scope, Type, VectorSize};
 use hashbrown::HashMap;
 
-use crate::post_processing::{
-    analysis_helper::GlobalAnalyses,
-    util::AtomicCounter,
-    visitor::{InstructionVisitor, visit_scope},
-};
+use crate::post_processing::util::AtomicCounter;
 
 /// The action that should be performed on an instruction, returned by ``IrTransformer::maybe_transform``
 pub enum TransformAction {
@@ -388,7 +380,12 @@ impl UnrollVisitor {
 
     /// Transforms metadata by just replacing the type of the buffer. The values are already
     /// properly calculated on the CPU.
-    fn transform_metadata(&self, out: ExpandValue, op: &Metadata, args: Vec<ExpandValue>) -> Vec<Instruction> {
+    fn transform_metadata(
+        &self,
+        out: ExpandValue,
+        op: &Metadata,
+        args: Vec<ExpandValue>,
+    ) -> Vec<Instruction> {
         let op_code = op.op_code();
         let args = args
             .into_iter()
@@ -487,7 +484,11 @@ fn add_index(alloc: &Allocator, idx: ExpandValue, i: usize) -> (Instruction, Exp
     (add, add_idx)
 }
 
-fn mul_index(alloc: &Allocator, idx: ExpandValue, unroll_factor: usize) -> (Instruction, ExpandValue) {
+fn mul_index(
+    alloc: &Allocator,
+    idx: ExpandValue,
+    unroll_factor: usize,
+) -> (Instruction, ExpandValue) {
     let mul_idx = alloc.create_value(idx.ty);
     let mul = Instruction::new(
         Arithmetic::Mul(BinaryOperands {

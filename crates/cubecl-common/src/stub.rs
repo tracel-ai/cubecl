@@ -6,9 +6,9 @@ use std::sync::{
 };
 
 #[cfg(not(feature = "std"))]
-pub use spin::{Lazy, RwLockReadGuard, RwLockWriteGuard};
+pub use spin::{LazyLock, RwLockReadGuard, RwLockWriteGuard};
 #[cfg(feature = "std")]
-pub use std::sync::{LazyLock as Lazy, RwLockReadGuard, RwLockWriteGuard};
+pub use std::sync::{LazyLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[cfg(target_has_atomic = "ptr")]
 pub use alloc::sync::Arc;

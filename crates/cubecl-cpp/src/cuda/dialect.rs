@@ -2,7 +2,7 @@ use std::{collections::HashSet, fmt::Display, marker::PhantomData};
 
 use cubecl_core::{
     ir::{BarrierLevel, Processor},
-    post_processing::saturating::SaturatingArithmeticProcessor,
+    post_processing::saturating::SaturatingArithmeticPolyfill,
     prelude::Visibility,
 };
 
@@ -772,7 +772,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectProcessors<Self> for CudaDialect<M> {
     fn processors() -> Vec<Box<dyn Processor>> {
         vec![
             Box::new(CudaMmaProcessor),
-            Box::new(SaturatingArithmeticProcessor::new(false)),
+            Box::new(SaturatingArithmeticPolyfill::new(false)),
         ]
     }
 }

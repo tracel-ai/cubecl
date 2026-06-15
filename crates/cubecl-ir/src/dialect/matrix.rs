@@ -8,7 +8,8 @@ use pliron::{
 
 use crate::{
     attributes::{BoolAttr, IndexAttr},
-    interfaces::ReadsMemory,
+    dialect::synchronization::SyncScope,
+    interfaces::{ReadsMemory, synchronizes},
     pliron::prelude::*,
     types::{
         MatrixShape,
@@ -29,6 +30,9 @@ pub struct MatrixTypeAttr(pub TypePtr<MatrixType>);
 #[derive(new, From, Debug, Clone, PartialEq, Eq)]
 pub struct MatrixShapeAttr(pub MatrixShape);
 
+/// Fill a matrix with a scalar value.
+/// Note: Unlike most matrix ops, this does not have implicit synchronization because there's no
+/// coordination between threads.
 #[cube_op(name = "matrix.fill")]
 #[result_ty(none)]
 pub struct FillOp {
@@ -48,6 +52,7 @@ pub struct LoadOp {
     #[attribute(optional)]
     layout: MatrixLayoutAttr,
 }
+synchronizes!(LoadOp, SyncScope::Plane);
 
 #[cube_op(name = "matrix.store")]
 #[result_ty(none)]
@@ -59,6 +64,7 @@ pub struct StoreOp {
     stride: Value,
     layout: MatrixLayoutAttr,
 }
+synchronizes!(StoreOp, SyncScope::Plane);
 
 #[cube_op(name = "matrix.multiply_accumulate")]
 #[result_ty(none)]
@@ -69,7 +75,11 @@ pub struct MultiplyAccumulateOp {
     #[operand(ptr_write)]
     mat_d: Value,
 }
+synchronizes!(MultiplyAccumulateOp, SyncScope::Plane);
 
+/// Cast a matrix from one type to another.
+/// Note: Unlike most matrix ops, this does not have implicit synchronization because there's no
+/// coordination between threads.
 #[cube_op(name = "matrix.cast")]
 #[result_ty(none)]
 pub struct CastOp {
@@ -103,6 +113,7 @@ pub struct LdMatrixOp {
     factor: IndexAttr,
     transpose: BoolAttr,
 }
+synchronizes!(LdMatrixOp, SyncScope::Plane);
 
 #[op_interface_impl]
 impl ReadsMemory for LdMatrixOp {
@@ -120,6 +131,7 @@ pub struct StMatrixOp {
     factor: IndexAttr,
     transpose: BoolAttr,
 }
+synchronizes!(StMatrixOp, SyncScope::Plane);
 
 #[cube_op(name = "matrix.mma_manual")]
 #[result_ty(none)]
@@ -130,6 +142,7 @@ pub struct MmaManualOp {
     registers_d: Value,
     shape: MatrixShapeAttr,
 }
+synchronizes!(MmaManualOp, SyncScope::Plane);
 
 #[cube_op(name = "matrix.mma_manual_scaled")]
 #[result_ty(none)]
@@ -143,7 +156,11 @@ pub struct MmaManualScaledOp {
     scales_factor: IndexAttr,
     shape: MatrixShapeAttr,
 }
+synchronizes!(MmaManualScaledOp, SyncScope::Plane);
 
+/// Executes a closure for each element in the matrix.
+/// Note: Unlike most matrix ops, this does not have implicit synchronization because there's no
+/// coordination between threads.
 #[cube_op(name = "matrix.elementwise")]
 #[result_ty(none)]
 pub struct ElementwiseOp {
