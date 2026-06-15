@@ -35,7 +35,7 @@ pub struct Threadpool {
 
 impl Threadpool {
     fn init() -> Self {
-        let scheduler = Scheduler::new(SchedulerVariant::Simple);
+        let scheduler = Scheduler::new(SchedulerVariant::Naive);
 
         Self { scheduler }
     }

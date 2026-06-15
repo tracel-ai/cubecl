@@ -5,11 +5,11 @@ use crate::compute::{
     threadpool::{ThreadTask, compute_task::ComputeTask, scheduler::Worker},
 };
 
-pub struct NaiveSender {
+pub struct NaiveScheduler {
     tx: Vec<mpsc::Sender<ComputeTask>>,
 }
 
-impl NaiveSender {
+impl NaiveScheduler {
     pub fn new() -> Self {
         let tx = get_active_cores()
             .map(|core_id| {
@@ -22,8 +22,8 @@ impl NaiveSender {
         Self { tx }
     }
 
-    pub fn send(&mut self, index: usize, elem: ComputeTask) {
-        let _ = self.tx[index].send(elem);
+    pub fn send(&mut self, index: usize, task: ComputeTask) {
+        let _ = self.tx[index].send(task);
     }
 }
 

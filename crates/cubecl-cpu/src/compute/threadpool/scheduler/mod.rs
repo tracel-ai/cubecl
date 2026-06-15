@@ -2,13 +2,17 @@ use std::thread;
 
 use crate::compute::{
     affinity::{CoreId, set_for_current},
-    threadpool::{compute_task::ComputeTask, scheduler::simple::SimpleScheduler},
+    threadpool::{
+        compute_task::ComputeTask,
+        scheduler::{naive::NaiveScheduler, simple::SimpleScheduler},
+    },
 };
 
 pub mod naive;
 pub mod simple;
 
 pub enum SchedulerVariant {
+    Naive,
     Simple,
 }
 
@@ -30,18 +34,21 @@ fn resolve_stack_size() -> usize {
 }
 
 pub enum Scheduler {
+    Naive(NaiveScheduler),
     Simple(SimpleScheduler),
 }
 
 impl Scheduler {
     pub fn new(option: SchedulerVariant) -> Self {
         match option {
+            SchedulerVariant::Naive => Scheduler::Naive(NaiveScheduler::new()),
             SchedulerVariant::Simple => Scheduler::Simple(SimpleScheduler::new()),
         }
     }
 
     pub fn send(&mut self, index: usize, task: ComputeTask) {
         match self {
+            Scheduler::Naive(naive) => naive.send(index, task),
             Scheduler::Simple(simple) => simple.send(index, task),
         }
     }
