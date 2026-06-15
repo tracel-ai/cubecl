@@ -8,7 +8,7 @@ use crate::{
         schedule::BindingsResource,
         threadpool::{
             compute_task::ComputeTask,
-            scheduler::{SchedulerVariant, Sender},
+            scheduler::{Scheduler, SchedulerVariant},
         },
         utils::cache_padded::CachePadded,
     },
@@ -17,7 +17,11 @@ use crate::{
 pub mod circular_buffer;
 pub mod compute_task;
 pub mod scheduler;
-pub mod worker;
+
+trait ThreadTask {
+    fn get_stream_id(&self) -> usize;
+    fn is_ready(&self) -> bool;
+}
 
 static INSTANCE: OnceLock<spin::Mutex<Threadpool>> = OnceLock::new();
 
@@ -26,14 +30,14 @@ static INSTANCE: OnceLock<spin::Mutex<Threadpool>> = OnceLock::new();
 /// A single kernel runner is currently used for all kernels.
 /// To register work, you have to use the execution queue.
 pub struct Threadpool {
-    sender: Sender,
+    scheduler: Scheduler,
 }
 
 impl Threadpool {
     fn init() -> Self {
-        let sender = Sender::new(SchedulerVariant::Simple);
+        let scheduler = Scheduler::new(SchedulerVariant::Simple);
 
-        Self { sender }
+        Self { scheduler }
     }
 
     /// Resolves the global execution queue instance.
@@ -77,7 +81,7 @@ impl Threadpool {
                         next_counter_step,
                         atomic_counter,
                     };
-                    self.sender.send(i, compute_task);
+                    self.scheduler.send(i, compute_task);
                     i += 1;
                 }
             }

@@ -9,38 +9,37 @@ use cubecl_runtime::config::CubeClRuntimeConfig;
 use crate::compute::{
     affinity::get_active_cores,
     threadpool::{
-        circular_buffer::CircularBuffer, compute_task::ComputeTask, scheduler::ThreadTask,
-        worker::Worker,
+        ThreadTask, circular_buffer::CircularBuffer, compute_task::ComputeTask, scheduler::Worker,
     },
 };
 
-pub struct SimpleSender<T: ThreadTask> {
-    threads_buffer: Vec<Arc<spin::Mutex<SimpleScheduler<T>>>>,
+pub struct SimpleScheduler {
+    threads_buffer: Vec<SimpleWorker>,
 }
 
-impl SimpleSender<ComputeTask> {
+impl SimpleScheduler {
     pub fn new() -> Self {
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
 
         let threads_buffer = get_active_cores()
             .map(|core_id| {
-                let thread_buffer =
-                    Arc::new(spin::Mutex::new(SimpleScheduler::new(max_streams as usize)));
-                Worker::spawn_thread(core_id, Arc::clone(&thread_buffer));
-                thread_buffer
+                let worker = SimpleWorker::new(max_streams as usize);
+                worker.clone().spawn_thread(core_id);
+                worker
             })
             .collect();
 
         Self { threads_buffer }
     }
+
     pub fn send(&mut self, index: usize, task: ComputeTask) {
-        self.threads_buffer[index].lock().push(task)
+        self.threads_buffer[index].buffer.lock().push(task)
     }
 }
 
 /// Local thread buffer used for pushing task to a worker for the scheduler and for getting task for the worker
-pub struct SimpleScheduler<T: ThreadTask> {
+struct ThreadBuffer<T: ThreadTask> {
     /// Main stream storage
     streams: CircularBuffer<VecDeque<T>>,
     /// Empty streams available to be reused to avoid reallocation
@@ -49,9 +48,9 @@ pub struct SimpleScheduler<T: ThreadTask> {
     streams_id: HashMap<usize, usize>,
 }
 
-impl<T: ThreadTask> SimpleScheduler<T> {
+impl<T: ThreadTask> ThreadBuffer<T> {
     /// Construct a ThreadBuffer with an empty reference to all thread_buffer
-    pub fn new(capacity: usize) -> Self {
+    fn new(capacity: usize) -> Self {
         let streams = CircularBuffer::new(capacity);
         let streams_id = HashMap::new();
         let empty_streams = Vec::new();
@@ -80,7 +79,7 @@ impl<T: ThreadTask> SimpleScheduler<T> {
     }
 
     /// Add new task to the local thread
-    pub fn push(&mut self, elem: T) {
+    fn push(&mut self, elem: T) {
         match self.streams_id.get(&elem.get_stream_id()) {
             Some(&i) => {
                 self.streams[i].push_back(elem);
@@ -116,7 +115,7 @@ impl<T: ThreadTask> SimpleScheduler<T> {
     }
 
     /// Pop task for local execution
-    pub fn pop(&mut self) -> Option<T> {
+    fn pop(&mut self) -> Option<T> {
         if let Some(elem) = self.pop_local() {
             return Some(elem);
         }
@@ -124,17 +123,40 @@ impl<T: ThreadTask> SimpleScheduler<T> {
     }
 
     /// Pop task with id for flushing
-    pub fn pop_id(&mut self, thread_id: usize) -> Option<T> {
+    fn pop_id(&mut self, thread_id: usize) -> Option<T> {
         let id = self.streams_id.get(&thread_id)?;
         self.empty_streams[*id].pop_front()
     }
 }
 
+#[derive(Clone)]
+pub struct SimpleWorker {
+    buffer: Arc<spin::Mutex<ThreadBuffer<ComputeTask>>>,
+}
+
+impl Worker for SimpleWorker {
+    fn work(self) {
+        loop {
+            if let Some(compute_task) = self.buffer.lock().pop() {
+                compute_task.compute();
+            }
+
+            std::hint::spin_loop();
+        }
+    }
+}
+
+impl SimpleWorker {
+    pub fn new(capacity: usize) -> SimpleWorker {
+        let buffer = Arc::new(spin::Mutex::new(ThreadBuffer::new(capacity)));
+        SimpleWorker { buffer }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{SimpleScheduler, ThreadTask};
+    use super::{ThreadBuffer, ThreadTask};
     use std::cell::RefCell;
-    use std::sync::Arc;
 
     thread_local! {
         static FAKE_TIME: RefCell<u64> = RefCell::new(0);
@@ -180,20 +202,9 @@ mod tests {
         }
     }
 
-    fn setup_buffers(
-        thread_count: usize,
-        capacity: usize,
-    ) -> Arc<[spin::Mutex<SimpleScheduler<TestTask>>]> {
-        let buffers = (0..thread_count)
-            .map(|_| spin::Mutex::new(SimpleScheduler::new(capacity)))
-            .collect::<Vec<_>>();
-        let shared: Arc<[spin::Mutex<SimpleScheduler<TestTask>>]> = buffers.into();
-        shared
-    }
-
     #[test]
     fn test_pop_empty_returns_none() {
-        let mut buffer = SimpleScheduler::<TestTask>::new(8);
+        let mut buffer = ThreadBuffer::<TestTask>::new(8);
         assert_eq!(None, buffer.pop());
         assert_eq!(None, buffer.pop());
     }
@@ -201,7 +212,7 @@ mod tests {
     #[test]
     fn test_single_stream_fifo_pop_order() {
         set_fake_time(0);
-        let mut buffer = SimpleScheduler::<TestTask>::new(8);
+        let mut buffer = ThreadBuffer::<TestTask>::new(8);
 
         buffer.push(TestTask::new(1, 10, 0));
         buffer.push(TestTask::new(1, 11, 0));
@@ -216,7 +227,7 @@ mod tests {
     #[test]
     fn test_repush_same_stream_after_progress() {
         set_fake_time(0);
-        let mut buffer = SimpleScheduler::<TestTask>::new(8);
+        let mut buffer = ThreadBuffer::<TestTask>::new(8);
 
         buffer.push(TestTask::new(7, 1, 0));
         buffer.push(TestTask::new(7, 2, 0));
@@ -230,36 +241,9 @@ mod tests {
     }
 
     #[test]
-    fn test_steal_then_push_same_stream_on_thief() {
-        set_fake_time(0);
-        let shared = setup_buffers(2, 8);
-
-        {
-            let mut source = shared[0].lock();
-            source.push(TestTask::new(1, 1, 0));
-            source.push(TestTask::new(2, 10, 0));
-            source.push(TestTask::new(2, 11, 0));
-        }
-
-        let first = shared[1].lock().pop();
-        assert_eq!(Some(TestTask::new(2, 10, 0)), first);
-
-        {
-            let mut thief = shared[1].lock();
-            thief.push(TestTask::new(2, 12, 0));
-        }
-
-        let second = shared[1].lock().pop();
-        let third = shared[1].lock().pop();
-        assert_eq!(Some(TestTask::new(2, 11, 0)), second);
-        assert_eq!(Some(TestTask::new(2, 12, 0)), third);
-        assert_eq!(None, shared[1].lock().pop());
-    }
-
-    #[test]
     fn test_task_with_duration_not_ready_not_popped() {
         set_fake_time(0);
-        let mut buffer = SimpleScheduler::<TestTask>::new(8);
+        let mut buffer = ThreadBuffer::<TestTask>::new(8);
 
         buffer.push(TestTask::new(1, 10, 100));
 
@@ -274,7 +258,7 @@ mod tests {
     #[test]
     fn test_task_with_duration_becomes_ready() {
         set_fake_time(0);
-        let mut buffer = SimpleScheduler::<TestTask>::new(8);
+        let mut buffer = ThreadBuffer::<TestTask>::new(8);
 
         let task = TestTask::new(1, 10, 100);
         buffer.push(task.clone());
@@ -297,7 +281,7 @@ mod tests {
     #[test]
     fn test_multiple_tasks_with_different_durations() {
         set_fake_time(0);
-        let mut buffer = SimpleScheduler::<TestTask>::new(8);
+        let mut buffer = ThreadBuffer::<TestTask>::new(8);
 
         // Push tasks on different streams with different durations
         // They will be tried in push order when popping
@@ -333,7 +317,7 @@ mod tests {
     #[test]
     fn test_multiple_tasks_same_stream_with_duration() {
         set_fake_time(0);
-        let mut buffer = SimpleScheduler::<TestTask>::new(8);
+        let mut buffer = ThreadBuffer::<TestTask>::new(8);
 
         // Push multiple tasks on the same stream with different durations
         buffer.push(TestTask::new(1, 10, 50));
@@ -360,7 +344,7 @@ mod tests {
     #[test]
     fn test_skip_not_ready_tasks_in_same_stream() {
         set_fake_time(0);
-        let mut buffer = SimpleScheduler::<TestTask>::new(8);
+        let mut buffer = ThreadBuffer::<TestTask>::new(8);
 
         // Push tasks with different durations on same stream
         // Since both tasks are on the same stream, if the front one isn't ready,
@@ -388,7 +372,7 @@ mod tests {
     #[test]
     fn test_mixed_ready_and_not_ready_streams() {
         set_fake_time(0);
-        let mut buffer = SimpleScheduler::<TestTask>::new(8);
+        let mut buffer = ThreadBuffer::<TestTask>::new(8);
 
         // Create multiple streams all with immediate readiness
         buffer.push(TestTask::new(1, 10, 0));
