@@ -73,7 +73,7 @@ impl CpuStream {
         self.flush_uncheck();
         match task {
             ScheduleTask::Write { data, mut buffer } => {
-                buffer.write().copy_from_slice(&data);
+                buffer.resource_mut().write().copy_from_slice(&data);
             }
             ScheduleTask::Execute {
                 mlir_engine,
