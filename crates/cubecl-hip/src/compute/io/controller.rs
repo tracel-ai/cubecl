@@ -1,5 +1,5 @@
 use crate::compute::storage::cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryResource};
-use cubecl_common::bytes::{AllocationController, AllocationProperty};
+use cubecl_common::bytes::{AccessError, AccessPolicy, AllocationController, AllocationProperty};
 use cubecl_runtime::memory_management::ManagedMemoryBinding;
 
 /// Controller for managing pinned (page-locked) host memory allocations.
@@ -41,30 +41,34 @@ impl AllocationController for PinnedMemoryManagedAllocController {
         AllocationProperty::Pinned
     }
 
-    unsafe fn memory_mut(&mut self) -> &mut [std::mem::MaybeUninit<u8>] {
+    // Pinned host memory is always host-resident: the policy never forces a copy here.
+    unsafe fn memory_mut(
+        &mut self,
+        _policy: AccessPolicy,
+    ) -> Result<&mut [std::mem::MaybeUninit<u8>], AccessError> {
         // SAFETY:
         // - The ptr is valid while the binding is alive.
         // - The resource is allocated with the size of size.
         // - MaybeUninit<u8> has the same layout as u8.
         // - Caller has to promise to only write initialized data to this slice.
-        unsafe {
+        Ok(unsafe {
             std::slice::from_raw_parts_mut(
                 self.resource.ptr as *mut std::mem::MaybeUninit<u8>,
                 self.resource.size,
             )
-        }
+        })
     }
 
-    fn memory(&self) -> &[std::mem::MaybeUninit<u8>] {
+    fn memory(&self, _policy: AccessPolicy) -> Result<&[std::mem::MaybeUninit<u8>], AccessError> {
         // SAFETY:
         // - The ptr is valid while the binding is alive.
         // - The resource is allocated with the size of size.
         // - MaybeUninit<u8> has the same layout as u8.
-        unsafe {
+        Ok(unsafe {
             std::slice::from_raw_parts(
                 self.resource.ptr as *mut std::mem::MaybeUninit<u8>,
                 self.resource.size,
             )
-        }
+        })
     }
 }
