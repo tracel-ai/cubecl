@@ -31,11 +31,9 @@ impl VectorInitOp {
 #[result_ty(same_as = vector)]
 #[op_interfaces(Pure)]
 pub struct VectorInsertOp {
-    vector: Value,
-    index: Value,
-    value: Value,
-    #[attribute(optional)]
-    const_index: IndexAttr,
+    pub vector: Value,
+    pub value: Value,
+    pub index: IndexAttr,
 }
 erasable!(VectorInsertOp);
 
@@ -43,12 +41,29 @@ erasable!(VectorInsertOp);
 #[result_ty(from_inputs = |ctx, vector, _| scalar_ty(ctx, vector))]
 #[op_interfaces(Pure)]
 pub struct VectorExtractOp {
-    vector: Value,
-    index: Value,
-    #[attribute(optional)]
-    const_index: IndexAttr,
+    pub vector: Value,
+    pub index: IndexAttr,
 }
 erasable!(VectorExtractOp);
+
+#[cube_op(name = "vector.insert")]
+#[result_ty(same_as = vector)]
+#[op_interfaces(Pure)]
+pub struct VectorInsertDynamicOp {
+    pub vector: Value,
+    pub value: Value,
+    pub index: Value,
+}
+erasable!(VectorInsertDynamicOp);
+
+#[cube_op(name = "vector.extract")]
+#[result_ty(from_inputs = |ctx, vector, _| scalar_ty(ctx, vector))]
+#[op_interfaces(Pure)]
+pub struct VectorExtractDynamicOp {
+    pub vector: Value,
+    pub index: Value,
+}
+erasable!(VectorExtractDynamicOp);
 
 #[cube_op(name = "vector.magnitude")]
 #[result_ty(from_inputs = scalar_ty)]

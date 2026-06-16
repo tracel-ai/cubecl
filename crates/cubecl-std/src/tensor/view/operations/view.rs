@@ -8,8 +8,8 @@ macro_rules! impl_base {
     ($ty: ident, $expand: ident) => {
         impl<'a, T: CubePrimitive, C: Coordinates + 'a> Vectorized for $ty<'a, T, C> {}
         impl<'a, T: CubePrimitive, C: Coordinates + 'a> VectorizedExpand for $expand<'a, T, C> {
-            fn vector_size(&self) -> VectorSize {
-                self.inner.vector_size()
+            fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
+                self.inner.__expand_vector_size_method(scope)
             }
         }
 

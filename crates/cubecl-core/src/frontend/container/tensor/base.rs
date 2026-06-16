@@ -267,10 +267,6 @@ impl<T: CubePrimitive> ListExpand<T> for TensorExpand<T> {
 
 impl<T: CubePrimitive> Vectorized for Tensor<T> {}
 impl<T: CubePrimitive> VectorizedExpand for TensorExpand<T> {
-    fn vector_size(&self) -> VectorSize {
-        self.buffer.vector_size()
-    }
-
     fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
         self.buffer.__expand_vector_size_method(scope)
     }

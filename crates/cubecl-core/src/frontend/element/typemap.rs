@@ -258,7 +258,7 @@ impl<Marker: 'static> CubePrimitive for DynamicScalar<Marker> {
         scope
             .resolve_type::<Self>()
             .expect("Type to be registered")
-            .to_type(&mut scope.ctx_mut())
+            .to_type(scope.ctx_mut())
     }
 
     fn from_const_value(value: ConstantValue) -> Self {

@@ -47,14 +47,14 @@ impl DialectConversion for SaturatingArithmeticPolyfill {
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
         op: Ptr<Operation>,
-        operands_info: &OperandsInfo,
+        _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
         let lhs = op.deref(ctx).get_operand(0);
         let rhs = op.deref(ctx).get_operand(1);
         let is_int = lhs.is_int(ctx);
 
-        let value = if let Some(add) = op.as_op::<SaturatingAddOp>(ctx) {
+        let value = if op.is_op::<SaturatingAddOp>(ctx) {
             if is_int {
                 run_polyfill(
                     (&scope, lhs, rhs),
@@ -66,7 +66,7 @@ impl DialectConversion for SaturatingArithmeticPolyfill {
                     saturating_add_unsigned::expand::<ElemA, SizeA>,
                 )
             }
-        } else if let Some(sub) = op.as_op::<SaturatingSubOp>(ctx) {
+        } else if op.is_op::<SaturatingSubOp>(ctx) {
             if is_int {
                 run_polyfill(
                     (&scope, lhs, rhs),
@@ -110,7 +110,7 @@ fn run_polyfill<T: CubePrimitive>(
         scope.register_type::<ElemB>(ElemType::UInt(unsigned_ty).into())
     }
 
-    polyfill(&scope, lhs.into(), rhs.into()).value(&scope)
+    polyfill(scope, lhs.into(), rhs.into()).value(scope)
 }
 
 #[cube]
@@ -132,7 +132,7 @@ fn saturating_add_signed<I: Int, U: Int, N: Size>(
     x: Vector<I, N>,
     y: Vector<I, N>,
 ) -> Vector<I, N> {
-    let bit_width = I::type_size_bits();
+    let bit_width = I::size_bits();
     let shift = Vector::<U, N>::new(U::new(comptime![(bit_width - 1) as i64]));
 
     let ux = Vector::<U, N>::cast_from(x);
@@ -151,7 +151,7 @@ fn saturating_sub_signed<I: Int, U: Int, N: Size>(
     x: Vector<I, N>,
     y: Vector<I, N>,
 ) -> Vector<I, N> {
-    let bit_width = I::type_size_bits();
+    let bit_width = I::size_bits();
     let shift = Vector::<U, N>::new(U::new(comptime![(bit_width - 1) as i64]));
 
     let ux = Vector::<U, N>::cast_from(x);

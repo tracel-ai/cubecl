@@ -25,7 +25,7 @@ impl CubePrimitive for flex32 {
     type WithScalar<S: Scalar> = S;
 
     fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
-        FloatType::get(&mut scope.ctx_mut(), FloatKind::Flex32).into()
+        FloatType::get(scope.ctx_mut(), FloatKind::Flex32).into()
     }
 
     fn from_const_value(value: ConstantValue) -> Self {

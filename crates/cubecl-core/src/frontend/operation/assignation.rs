@@ -28,7 +28,7 @@ pub mod assign {
         input: NativeExpand<C>,
         output: &mut NativeExpand<C>,
     ) {
-        if output.value(scope).is_immutable(&scope.ctx()) {
+        if output.value(scope).is_immutable(scope.ctx()) {
             panic!("Can't assign a value to a const variable. Try to use `RuntimeCell`.");
         }
 
@@ -52,12 +52,12 @@ pub mod assign {
         let mut input = input.read_value(scope);
         let output = output.value(scope);
 
-        if output.vector_size(&scope.ctx()) > 1 && input.vector_size(&scope.ctx()) == 1 {
-            input = cast_value(scope, input, output.get_type(&scope.ctx()));
+        if output.vector_size(scope.ctx()) > 1 && input.vector_size(scope.ctx()) == 1 {
+            input = cast_value(scope, input, output.get_type(scope.ctx()));
         }
 
         // value -> ptr = store
-        let store = StoreOp::new(&mut scope.ctx_mut(), output, input);
+        let store = StoreOp::new(scope.ctx_mut(), output, input);
         scope.register(&store);
     }
 }

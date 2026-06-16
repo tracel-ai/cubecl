@@ -95,10 +95,10 @@ pub trait ScalarArgSettings: Send + Sync + Scalar {
     fn expand_scalar(builder: &mut KernelBuilder) -> NativeExpand<Self> {
         let storage_ty = Self::storage_type(&builder.scope);
         let id = builder.scalar(storage_ty);
-        let ty = storage_ty.to_type(&mut builder.ctx_mut());
-        let op = ReadScalarOp::new(&mut builder.ctx_mut(), TypeAttr::new(ty), id.into());
+        let ty = storage_ty.to_type(builder.ctx_mut());
+        let op = ReadScalarOp::new(builder.ctx_mut(), TypeAttr::new(ty), id.into());
         builder.register(&op);
-        op.get_result(&builder.ctx()).into()
+        op.get_result(builder.ctx()).into()
     }
 }
 

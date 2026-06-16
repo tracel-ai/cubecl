@@ -25,8 +25,8 @@ pub mod fma {
 
         let [a, b, c] = normalize_same_vectorization(scope, [a, b, c]);
 
-        let op = FmaOp::new(&mut scope.ctx_mut(), a, b, c);
+        let op = FmaOp::new(scope.ctx_mut(), a, b, c);
         scope.register(&op);
-        op.get_result(&scope.ctx()).into()
+        op.get_result(scope.ctx()).into()
     }
 }

@@ -1,6 +1,8 @@
-use cubecl_macros_internal::cube_op;
+use cubecl_macros_internal::{const_eval, cube_op};
+use half::{bf16, f16};
 
 use crate::{
+    attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttr, UIntAttr},
     dialect::base::pure_binop,
     interfaces::{Pure, TypedExt, erasable},
     pliron::prelude::*,
@@ -8,7 +10,14 @@ use crate::{
 };
 
 pure_binop!("cmp.min", MinOp);
+const_eval!(MinOp, {
+    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64), FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| lhs.min(rhs)
+});
+
 pure_binop!("cmp.max", MaxOp);
+const_eval!(MaxOp, {
+    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64), FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| lhs.max(rhs)
+});
 
 #[cube_op(name = "cmp.clamp")]
 #[result_ty(same_as = input)]
@@ -19,6 +28,10 @@ pub struct ClampOp {
     max: Value,
 }
 erasable!(ClampOp);
+const_eval!(ClampOp, {
+    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64), FloatAttr(f16, bf16, f32, f64)]:
+    |inp, min, max| inp.clamp(min, max)
+});
 
 macro_rules! cmp_binop {
     ($name: literal, $ty: ident) => {
@@ -35,11 +48,52 @@ macro_rules! cmp_binop {
 }
 
 cmp_binop!("cmp.less_than", LessThanOp);
+const_eval!(LessThanOp, {
+    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64), FloatAttr(f16, bf16, f32, f64)]:
+    |lhs, rhs| -> BoolAttr {
+        (lhs < rhs).into()
+    }
+});
+
 cmp_binop!("cmp.greater_than", GreaterThanOp);
+const_eval!(GreaterThanOp, {
+    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64), FloatAttr(f16, bf16, f32, f64)]:
+    |lhs, rhs| -> BoolAttr {
+        (lhs > rhs).into()
+    }
+});
+
 cmp_binop!("cmp.less_than_or_equal", LessThanOrEqualOp);
+const_eval!(LessThanOrEqualOp, {
+    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64), FloatAttr(f16, bf16, f32, f64)]:
+    |lhs, rhs| -> BoolAttr {
+        (lhs <= rhs).into()
+    }
+});
+
 cmp_binop!("cmp.greater_than_or_equal", GreaterThanOrEqualOp);
+const_eval!(GreaterThanOrEqualOp, {
+    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64), FloatAttr(f16, bf16, f32, f64)]:
+    |lhs, rhs| -> BoolAttr {
+        (lhs >= rhs).into()
+    }
+});
+
 cmp_binop!("cmp.equal", EqualOp);
+const_eval!(EqualOp, {
+    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64), FloatAttr(f16, bf16, f32, f64)]:
+    |lhs, rhs| -> BoolAttr {
+        (lhs == rhs).into()
+    }
+});
+
 cmp_binop!("cmp.not_equal", NotEqualOp);
+const_eval!(NotEqualOp, {
+    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64), FloatAttr(f16, bf16, f32, f64)]:
+    |lhs, rhs| -> BoolAttr {
+        (lhs != rhs).into()
+    }
+});
 
 fn cmp_result_ty(ctx: &mut Context, lhs: &Value, _: &Value) -> Ptr<TypeObj> {
     let vectorization = lhs.vector_size(ctx);

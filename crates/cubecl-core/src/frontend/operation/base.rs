@@ -19,15 +19,15 @@ pub(crate) fn normalize_same_vectorization<const N: usize>(
     let max_vector_size = {
         let ctx = scope.ctx();
         vals.iter()
-            .map(|it| it.vector_size(&ctx))
+            .map(|it| it.vector_size(ctx))
             .max()
             .unwrap_or(1)
     };
     for val in vals.iter_mut() {
-        let vector_size = val.vector_size(&scope.ctx());
+        let vector_size = val.vector_size(scope.ctx());
         if vector_size == 1 && max_vector_size > 1 {
-            let scalar_ty = val.scalar_ty(&scope.ctx());
-            let out_ty = VectorType::get(&mut scope.ctx_mut(), scalar_ty, max_vector_size);
+            let scalar_ty = val.scalar_ty(scope.ctx());
+            let out_ty = VectorType::get(scope.ctx_mut(), scalar_ty, max_vector_size);
             *val = cast_value(scope, *val, out_ty.into());
         } else if vector_size != max_vector_size {
             panic!("Invalid vector size mismatch, expected same size or scalar")
@@ -48,15 +48,15 @@ where
 {
     let [lhs, rhs] =
         normalize_same_vectorization(scope, [lhs.read_value(scope), rhs.read_value(scope)]);
-    let op = func(&mut scope.ctx_mut(), lhs, rhs);
+    let op = func(scope.ctx_mut(), lhs, rhs);
     scope.register(&op);
-    op.get_result(&scope.ctx()).into()
+    op.get_result(scope.ctx()).into()
 }
 
 pub(crate) fn index_expand(scope: &Scope, list: Value, index: Value, checked: bool) -> Value {
-    let op = IndexOp::new(&mut scope.ctx_mut(), list, index, 1.into(), checked.into());
+    let op = IndexOp::new(scope.ctx_mut(), list, index, 1.into(), checked.into());
     scope.register(&op);
-    op.get_result(&scope.ctx())
+    op.get_result(scope.ctx())
 }
 
 pub(crate) fn assign_binop_expand<T: CubeType, O>(
@@ -73,9 +73,9 @@ pub(crate) fn assign_binop_expand<T: CubeType, O>(
 
     let [lhs_val, rhs] = normalize_same_vectorization(scope, [lhs_val, rhs]);
 
-    let op = func(&mut scope.ctx_mut(), lhs_val, rhs);
+    let op = func(scope.ctx_mut(), lhs_val, rhs);
     scope.register(&op);
-    assign::expand_element(scope, op.get_result(&scope.ctx()).into(), lhs.expand);
+    assign::expand_element(scope, op.get_result(scope.ctx()).into(), lhs.expand);
 }
 
 pub fn unary_expand<F, O>(scope: &Scope, input: ExpandValue, func: F) -> ExpandValue
@@ -84,23 +84,23 @@ where
     O: Op + OneResultInterface,
 {
     let input = input.read_value(scope);
-    let op = func(&mut scope.ctx_mut(), input);
+    let op = func(scope.ctx_mut(), input);
     scope.register(&op);
-    op.get_result(&scope.ctx()).into()
+    op.get_result(scope.ctx()).into()
 }
 
 pub fn init_expand(scope: &Scope, input: ExpandValue, mutable: bool) -> ExpandValue {
     let input = input.read_value(scope);
-    let ty = input.get_type(&scope.ctx());
+    let ty = input.get_type(scope.ctx());
 
     if mutable {
         let out = scope.create_local_mut(ty);
         assign::expand_element(scope, input.into(), out.into());
         out.into()
     } else {
-        let op = CopyOp::new(&mut scope.ctx_mut(), input);
+        let op = CopyOp::new(scope.ctx_mut(), input);
         scope.register(&op);
-        op.get_result(&scope.ctx()).into()
+        op.get_result(scope.ctx()).into()
     }
 }
 

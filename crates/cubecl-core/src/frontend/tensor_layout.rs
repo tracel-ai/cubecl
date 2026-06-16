@@ -148,9 +148,9 @@ impl<T: CubePrimitive> TensorView<T> {
 
 impl NativeExpand<TensorLayout> {
     fn rank(&self, scope: &Scope) -> usize {
-        let ty = self.read_value(scope).get_type(&scope.ctx());
+        let ty = self.read_value(scope).get_type(scope.ctx());
         let ctx = scope.ctx();
-        let ty = ty.deref(&ctx);
+        let ty = ty.deref(ctx);
         let TensorLayoutType { rank, .. } = ty.downcast_ref().unwrap();
         *rank
     }
@@ -178,10 +178,10 @@ impl<T: CubePrimitive> TensorViewExpand<T> {
                     .as_usize()
             })
             .collect::<alloc::vec::Vec<_>>();
-        let ty = TensorViewType::get(&mut scope.ctx_mut(), permutation.len(), false, permutation);
-        let op = CreateViewOp::new(&mut scope.ctx_mut(), ty.into());
+        let ty = TensorViewType::get(scope.ctx_mut(), permutation.len(), false, permutation);
+        let op = CreateViewOp::new(scope.ctx_mut(), ty.into());
         scope.register(&op);
-        let view = op.get_result(&scope.ctx());
+        let view = op.get_result(scope.ctx());
 
         TensorViewExpand {
             buffer: self.buffer,
@@ -236,9 +236,9 @@ impl<T: CubePrimitive> TensorViewBuilderExpand<T> {
         };
         let clamp_mode = ClampMode::from(self.clamp_mode);
 
-        let op = CreateLayoutOp::new(&mut scope.ctx_mut(), shape.collect(), strides, clamp_mode);
+        let op = CreateLayoutOp::new(scope.ctx_mut(), shape.collect(), strides, clamp_mode);
         scope.register(&op);
-        let layout = op.get_result(&scope.ctx());
+        let layout = op.get_result(scope.ctx());
 
         TensorViewExpand {
             buffer: self.buffer,

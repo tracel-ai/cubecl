@@ -81,9 +81,9 @@ pub fn expand_checked_index(
     index: Value,
     unroll_factor: usize,
 ) -> Value {
-    let len = expand_buffer_length_native(&scope, list);
-    let index = checked_index::expand(&scope, index.into(), len.into(), unroll_factor);
-    index_expand(&scope, list, index.value(&scope), false)
+    let len = expand_buffer_length_native(scope, list);
+    let index = checked_index::expand(scope, index.into(), len.into(), unroll_factor);
+    index_expand(scope, list, index.value(scope), false)
 }
 
 #[allow(missing_docs)]
@@ -95,7 +95,7 @@ pub fn expand_validate_index(
     kernel_name: &str,
 ) -> Value {
     let len = expand_buffer_length_native(scope, list);
-    let buffer_name = list.given_name(&scope.ctx());
+    let buffer_name = list.given_name(scope.ctx());
     let buffer_name = buffer_name
         .as_ref()
         .map(|it| it.as_str())
