@@ -15,7 +15,7 @@ fn main() {
             ("cpu", cfg!(feature = "cpu")),
             ("cuda", cfg!(feature = "cuda")),
             ("hip", cfg!(feature = "hip")),
-            ("metal", cfg!(feature = "metal")),
+            ("metal", cfg!(feature = "metal-native")),
             ("wgpu", cfg!(feature = "wgpu")),
         ]);
 

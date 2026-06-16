@@ -19,7 +19,7 @@ pub use cubecl_std as std;
 #[cfg(feature = "cpu")]
 pub use cubecl_cpu as cpu;
 
-#[cfg(feature = "metal")]
+#[cfg(feature = "metal-native")]
 pub use cubecl_metal as metal;
 
 #[cfg(test_runtime_default)]
