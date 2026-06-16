@@ -104,6 +104,45 @@ fn resolve_origin_resource(
     Ok((resource, offset))
 }
 
+/// Reads a pitched row-major buffer into packed bytes. `can_read_tensor` keeps the pitch at
+/// the row level, so the copy collapses to 2D: a contiguous inner row, `pitch` bytes apart.
+fn read_pitched(src: *const u8, shape: &[usize], strides: &[usize], elem_size: usize) -> Vec<u8> {
+    let rank = shape.len();
+    let total = shape.iter().product::<usize>() * elem_size;
+    if rank <= 1 {
+        return unsafe { std::slice::from_raw_parts(src, total) }.to_vec();
+    }
+
+    let width = shape[rank - 1] * elem_size;
+    let rows = shape[..rank - 1].iter().product::<usize>();
+    let pitch = strides[rank - 2] * elem_size;
+
+    let mut out = vec![0u8; rows * width];
+    for row in 0..rows {
+        let src_row = unsafe { std::slice::from_raw_parts(src.add(row * pitch), width) };
+        out[row * width..(row + 1) * width].copy_from_slice(src_row);
+    }
+    out
+}
+
+/// Writes packed bytes into a pitched row-major buffer — the inverse of [`read_pitched`].
+fn write_pitched(dst: *mut u8, data: &[u8], shape: &[usize], strides: &[usize], elem_size: usize) {
+    let rank = shape.len();
+    if rank <= 1 {
+        unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len()) };
+        return;
+    }
+
+    let width = shape[rank - 1] * elem_size;
+    let rows = shape[..rank - 1].iter().product::<usize>();
+    let pitch = strides[rank - 2] * elem_size;
+
+    for row in 0..rows {
+        let src_row = &data[row * width..(row + 1) * width];
+        unsafe { std::ptr::copy_nonoverlapping(src_row.as_ptr(), dst.add(row * pitch), width) };
+    }
+}
+
 impl MetalServer {
     /// Collects synchronous failures buffered on the server together with asynchronous GPU
     /// faults recorded by stream completion handlers. Draining the stream sink clears the
@@ -208,22 +247,29 @@ impl ComputeServer for MetalServer {
             return Box::pin(async move { Err(e) });
         }
 
+        // A faulted command buffer still signals completion, so surface any recorded fault.
+        if let Some(e) = resolved.current().take_errors().into_iter().next() {
+            return Box::pin(async move { Err(e) });
+        }
+
         let results: Result<Vec<_>, ServerError> = descriptors
             .iter()
             .map(|descriptor| {
                 let (resource, offset) = resolve_origin_resource(&mut resolved, &descriptor.handle)
                     .map_err(ServerError::from)?;
 
-                let size: usize = descriptor.shape.iter().product();
-                let size_bytes = size * descriptor.elem_size;
-
                 let buffer = resource.inner();
                 let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
                 let base_ptr = protocol_obj.contents().as_ptr() as *const u8;
-                let contents_ptr = unsafe { base_ptr.add(offset as usize) };
-                let data = unsafe { std::slice::from_raw_parts(contents_ptr, size_bytes) };
+                let src_ptr = unsafe { base_ptr.add(offset as usize) };
+                let bytes = read_pitched(
+                    src_ptr,
+                    &descriptor.shape,
+                    &descriptor.strides,
+                    descriptor.elem_size,
+                );
 
-                Ok(Bytes::from_bytes_vec(data.to_vec()))
+                Ok(Bytes::from_bytes_vec(bytes))
             })
             .collect();
 
@@ -262,17 +308,18 @@ impl ComputeServer for MetalServer {
                     }
                 };
 
-            let size: usize = descriptor.shape.iter().product();
-            let size_bytes = size * descriptor.elem_size;
-
             let buffer = resource.inner();
             let protocol_obj: &ProtocolObject<dyn MTLBuffer> = buffer.as_ref();
             let base_ptr = protocol_obj.contents().as_ptr() as *mut u8;
-            let write_ptr = unsafe { base_ptr.add(offset as usize) };
+            let dst_ptr = unsafe { base_ptr.add(offset as usize) };
 
-            unsafe {
-                std::ptr::copy_nonoverlapping(data.as_ptr(), write_ptr, size_bytes);
-            }
+            write_pitched(
+                dst_ptr,
+                &data,
+                &descriptor.shape,
+                &descriptor.strides,
+                descriptor.elem_size,
+            );
         }
     }
 
@@ -572,5 +619,26 @@ impl ComputeServer for MetalServer {
             let stream = resolved.current();
             stream.memory_management.mode(mode);
         }
+    }
+}
+
+#[cfg(test)]
+mod pitched_tests {
+    use super::{read_pitched, write_pitched};
+
+    #[test]
+    fn pitched_round_trip() {
+        // A [2, 3] tensor with a row pitch of 4 (one element of padding per row).
+        let shape = [2usize, 3];
+        let strides = [4usize, 1];
+        let packed = [10u8, 20, 30, 40, 50, 60];
+
+        let mut buffer = vec![0u8; 2 * 4];
+        write_pitched(buffer.as_mut_ptr(), &packed, &shape, &strides, 1);
+        // Rows land at offsets 0 and 4; the padding bytes (3, 7) stay zero.
+        assert_eq!(buffer, [10, 20, 30, 0, 40, 50, 60, 0]);
+
+        let read_back = read_pitched(buffer.as_ptr(), &shape, &strides, 1);
+        assert_eq!(read_back, packed);
     }
 }
