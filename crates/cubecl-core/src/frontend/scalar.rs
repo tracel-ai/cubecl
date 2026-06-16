@@ -156,10 +156,10 @@ impl LaunchArg for InputScalar {
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
         let id = builder.scalar(arg.ty);
-        let ty = arg.ty.to_type(&mut builder.ctx_mut());
-        let op = ReadScalarOp::new(&mut builder.ctx_mut(), TypeAttr::new(ty), id.into());
+        let ty = arg.ty.to_type(builder.ctx_mut());
+        let op = ReadScalarOp::new(builder.ctx_mut(), TypeAttr::new(ty), id.into());
         builder.register(&op);
-        let expand = op.get_result(&builder.ctx());
+        let expand = op.get_result(builder.ctx());
         InputScalarExpand { expand }
     }
 }

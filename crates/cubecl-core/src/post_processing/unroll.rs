@@ -1,511 +1,458 @@
-use alloc::{vec, vec::Vec};
-use cubecl_ir::{ExpandValue, GlobalState, Scope, Type, VectorSize};
+use core::any::type_name;
+
+use alloc::{boxed::Box, vec, vec::Vec};
+use cubecl_ir::{
+    VectorSize,
+    attributes::IndexAttr,
+    dialect::{
+        base::OperationPtrExt,
+        general::CopyOp,
+        math::{AddOp, MulOp},
+        matrix,
+        memory::{DeclareVariableOp, IndexOp},
+        vector::{VectorExtractOp, VectorInsertOp},
+    },
+    interfaces::{MaybeVectorizedType, RematerializeOp, TypedExt},
+    pliron::prelude::{Operation, Result},
+    types::{ArrayType, AtomicType, PointerType, RuntimeArrayType, VectorType},
+    verify_op_succ, verify_ty_succ,
+};
 use hashbrown::HashMap;
+use pliron::{
+    builtin::{
+        attributes::TypeAttr,
+        op_interfaces::OneResultInterface,
+        ops::{ConstantOp, FuncOp},
+        type_interfaces::FunctionTypeInterface,
+        types::FunctionType,
+    },
+    context::{Context, Ptr},
+    derive::{op_interface, op_interface_impl, type_interface, type_interface_impl},
+    graph::walkers::{IRNode, WALKCONFIG_PREORDER_FORWARD, uninterruptible::mutable::walk_op},
+    irbuild::IRStatus,
+    op::{Op, op_cast},
+    pass_manager::{AnalysisManager, Pass, PassResult},
+    r#type::{TypeObj, Typed, type_cast, type_impls},
+    value::Value,
+};
 
-use crate::post_processing::util::AtomicCounter;
+type Mappings = HashMap<Value, Vec<Value>>;
 
-/// The action that should be performed on an instruction, returned by ``IrTransformer::maybe_transform``
-pub enum TransformAction {
-    /// The transformer doesn't apply to this instruction
-    Ignore,
-    /// Replace this instruction with one or more other instructions
-    Replace(Vec<Instruction>),
-}
-
-#[derive(Debug)]
-pub struct UnrollVisitor {
+#[derive(Debug, new)]
+pub struct UnrollPass {
     max_vector_size: VectorSize,
-    mappings: Mappings,
 }
 
-#[derive(Default, Debug)]
-struct Mappings(HashMap<ExpandValue, Vec<ExpandValue>>);
+#[type_interface]
+pub trait UnrollableType: MaybeVectorizedType {
+    verify_ty_succ!();
+    fn with_vector_size(&self, ctx: &mut Context, vectorization: usize) -> Ptr<TypeObj>;
+}
 
-impl Mappings {
-    fn get(
-        &mut self,
-        alloc: &Allocator,
-        val: ExpandValue,
-        unroll_factor: usize,
-        vector_size: VectorSize,
-    ) -> Vec<ExpandValue> {
-        self.0
-            .entry(val)
-            .or_insert_with(|| create_unrolled(alloc, &val, vector_size, unroll_factor))
-            .to_vec()
+#[type_interface_impl]
+impl UnrollableType for VectorType {
+    fn with_vector_size(&self, ctx: &mut Context, vectorization: usize) -> Ptr<TypeObj> {
+        VectorType::get(ctx, self.inner, vectorization).into()
     }
 }
 
-impl UnrollVisitor {
-    pub fn new(max_vector_size: VectorSize) -> Self {
-        Self {
-            max_vector_size,
-            mappings: Default::default(),
-        }
-    }
-
-    pub fn apply(&mut self, scope: &Scope) {
-        let changes = AtomicCounter::new(0);
-        // We don't care about pointer sources or used variables at this point
-        let analyses = GlobalAnalyses::default();
-        self.visit_scope(scope, &analyses, &changes);
+#[type_interface_impl]
+impl UnrollableType for AtomicType {
+    fn with_vector_size(&self, ctx: &mut Context, vectorization: usize) -> Ptr<TypeObj> {
+        let ctx2 = dupe_ctx(ctx);
+        let inner = self.inner.deref(ctx);
+        let unrollable = type_cast::<dyn UnrollableType>(&**inner).expect("Should be implemented");
+        let new_inner = unrollable.with_vector_size(ctx2, vectorization);
+        AtomicType::get(ctx2, new_inner).into()
     }
 }
 
-impl InstructionVisitor for UnrollVisitor {
-    fn visit_instruction(
-        &mut self,
-        instruction: Instruction,
-        global_state: &GlobalState,
-        _analyses: &GlobalAnalyses,
-        _changes: &AtomicCounter,
-    ) -> Vec<Instruction> {
-        match self.maybe_transform(&global_state.borrow().allocator, &instruction) {
-            TransformAction::Ignore => {
-                vec![instruction]
-            }
-            TransformAction::Replace(replacement) => replacement,
-        }
-    }
-
-    fn visit_scope(&mut self, scope: &Scope, analyses: &GlobalAnalyses, changes: &AtomicCounter) {
-        visit_scope(self, scope, analyses, changes);
+#[type_interface_impl]
+impl UnrollableType for PointerType {
+    fn with_vector_size(&self, ctx: &mut Context, vectorization: usize) -> Ptr<TypeObj> {
+        let ctx2 = dupe_ctx(ctx);
+        let inner = self.inner.deref(ctx);
+        let unrollable = type_cast::<dyn UnrollableType>(&**inner).expect("Should be implemented");
+        let new_inner = unrollable.with_vector_size(ctx2, vectorization);
+        PointerType::get(ctx2, new_inner, self.address_space).into()
     }
 }
 
-impl UnrollVisitor {
-    fn maybe_transform(&mut self, alloc: &Allocator, inst: &Instruction) -> TransformAction {
-        if matches!(inst.operation, Operation::Marker(_)) {
-            return TransformAction::Ignore;
-        }
-
-        if inst.operation.args().is_none() {
-            // Detect unhandled ops that can't be reflected
-            match &inst.operation {
-                Operation::CoopMma(op) => match op {
-                    // Stride is in scalar elems
-                    CoopMma::Load {
-                        ptr,
-                        stride,
-                        layout,
-                    } if ptr.vector_size() > self.max_vector_size => {
-                        return TransformAction::Replace(self.transform_cmma_load(
-                            alloc,
-                            inst.out(),
-                            ptr,
-                            stride,
-                            layout,
-                        ));
-                    }
-                    CoopMma::Store {
-                        mat,
-                        stride,
-                        destination,
-                        layout,
-                    } if destination.vector_size() > self.max_vector_size => {
-                        return TransformAction::Replace(self.transform_cmma_store(
-                            alloc,
-                            mat,
-                            stride,
-                            destination,
-                            layout,
-                        ));
-                    }
-                    _ => return TransformAction::Ignore,
-                },
-                Operation::TensorIndexing(_) => return TransformAction::Ignore,
-                Operation::Branch(_) | Operation::NonSemantic(_) | Operation::Marker(_) => {
-                    return TransformAction::Ignore;
-                }
-                Operation::Operator(Operator::ReadBuiltin(_)) => {
-                    return TransformAction::Ignore;
-                }
-                Operation::DeclareVariable {
-                    value_ty: Type::Array(inner_ty, len),
-                    addr_space,
-                    alignment,
-                } => {
-                    if inner_ty.vector_size() > self.max_vector_size {
-                        let unroll_factor = inner_ty.vector_size() / self.max_vector_size;
-                        let vector_size = self.max_vector_size;
-                        let inner_ty = inner_ty.with_vector_size(vector_size);
-                        let new_ty = Type::Array(inner_ty.intern(), *len * unroll_factor);
-                        let new_ptr_ty = Type::Pointer(new_ty.intern(), *addr_space);
-                        let mut out = inst.out.unwrap();
-                        out.ty = new_ptr_ty;
-
-                        return TransformAction::Replace(vec![Instruction::new(
-                            Operation::DeclareVariable {
-                                value_ty: new_ty,
-                                addr_space: *addr_space,
-                                alignment: *alignment,
-                            },
-                            out,
-                        )]);
-                    } else {
-                        return TransformAction::Ignore;
-                    }
-                }
-                Operation::DeclareVariable {
-                    value_ty,
-                    addr_space,
-                    alignment,
-                } => {
-                    if value_ty.vector_size() > self.max_vector_size {
-                        let unroll_factor = value_ty.vector_size() / self.max_vector_size;
-                        let vector_size = self.max_vector_size;
-                        let value_ty = value_ty.with_vector_size(vector_size);
-                        let out = self
-                            .mappings
-                            .get(alloc, inst.out(), unroll_factor, vector_size);
-                        let declare = |out| {
-                            Instruction::new(
-                                Operation::DeclareVariable {
-                                    value_ty,
-                                    addr_space: *addr_space,
-                                    alignment: *alignment,
-                                },
-                                out,
-                            )
-                        };
-                        return TransformAction::Replace(out.into_iter().map(declare).collect());
-                    } else {
-                        return TransformAction::Ignore;
-                    }
-                }
-                other => {
-                    panic!(
-                        "Need special handling for unrolling non-reflectable operations.\nFound: {other}"
-                    )
-                }
-            }
-        }
-
-        let args = inst.operation.args().unwrap_or_default();
-        if (inst.out.is_some() && inst.ty().vector_size() > self.max_vector_size)
-            || args
-                .iter()
-                .any(|arg| arg.vector_size() > self.max_vector_size)
-        {
-            let vector_size = max_vector_size(&inst.out, &args);
-            let unroll_factor = vector_size / self.max_vector_size;
-
-            match &inst.operation {
-                Operation::Memory(Memory::Index(op)) => TransformAction::Replace(
-                    self.transform_array_index(alloc, inst.out(), op, Memory::Index, unroll_factor),
-                ),
-                Operation::Operator(Operator::ExtractComponent(op)) => TransformAction::Replace(
-                    self.transform_composite_extract(alloc, inst.out(), op, unroll_factor),
-                ),
-                Operation::Operator(Operator::InsertComponent(op)) => TransformAction::Replace(
-                    self.transform_composite_insert(alloc, inst.out(), op, unroll_factor),
-                ),
-                Operation::Metadata(op) => {
-                    TransformAction::Replace(self.transform_metadata(inst.out(), op, args))
-                }
-                _ => {
-                    TransformAction::Replace(self.transform_basic(alloc, inst, args, unroll_factor))
-                }
-            }
-        } else {
-            TransformAction::Ignore
-        }
+#[type_interface_impl]
+impl UnrollableType for ArrayType {
+    fn with_vector_size(&self, ctx: &mut Context, new_vec: usize) -> Ptr<TypeObj> {
+        let ctx2 = dupe_ctx(ctx);
+        let current_vec = self.vector_size(ctx);
+        let inner = self.inner.deref(ctx);
+        let unrollable = type_cast::<dyn UnrollableType>(&**inner).expect("Should be implemented");
+        let new_inner = unrollable.with_vector_size(ctx2, new_vec);
+        ArrayType::get(ctx2, new_inner, self.length * current_vec / new_vec).into()
     }
+}
 
-    /// Transform CMMA load offset and array
-    fn transform_cmma_load(
-        &mut self,
-        alloc: &Allocator,
-        out: ExpandValue,
-        ptr: &ExpandValue,
-        stride: &ExpandValue,
-        layout: &Option<MatrixLayout>,
-    ) -> Vec<Instruction> {
-        let vector_size = ptr.vector_size();
-        let unroll_factor = vector_size / self.max_vector_size;
-
-        let ptr = self
-            .mappings
-            .get(alloc, *ptr, unroll_factor, self.max_vector_size);
-        let out = unroll_array(out, self.max_vector_size, unroll_factor);
-
-        let load = Instruction::new(
-            Operation::CoopMma(CoopMma::Load {
-                ptr: ptr[0],
-                stride: *stride,
-                layout: *layout,
-            }),
-            out,
-        );
-        vec![load]
+#[type_interface_impl]
+impl UnrollableType for RuntimeArrayType {
+    fn with_vector_size(&self, ctx: &mut Context, new_vec: usize) -> Ptr<TypeObj> {
+        let ctx2 = dupe_ctx(ctx);
+        let inner = self.inner.deref(ctx);
+        let unrollable = type_cast::<dyn UnrollableType>(&**inner).expect("Should be implemented");
+        let new_inner = unrollable.with_vector_size(ctx2, new_vec);
+        RuntimeArrayType::get(ctx2, new_inner).into()
     }
+}
 
-    /// Transform CMMA store offset and array
-    fn transform_cmma_store(
-        &mut self,
-        alloc: &Allocator,
-        mat: &ExpandValue,
-        stride: &ExpandValue,
-        destination: &ExpandValue,
-        layout: &MatrixLayout,
-    ) -> Vec<Instruction> {
-        let vector_size = destination.vector_size();
-        let unroll_factor = vector_size / self.max_vector_size;
-
-        let destination =
-            self.mappings
-                .get(alloc, *destination, unroll_factor, self.max_vector_size);
-
-        let store = Instruction::no_out(Operation::CoopMma(CoopMma::Store {
-            mat: *mat,
-            stride: *stride,
-            destination: destination[0],
-            layout: *layout,
-        }));
-        vec![store]
-    }
-
-    /// Transforms indexing into multiple index operations, each offset by 1 from the base. The base
-    /// is also multiplied by the unroll factor to compensate for the lower actual vectorization.
-    fn transform_array_index(
-        &mut self,
-        alloc: &Allocator,
-        out: ExpandValue,
-        op: &IndexOperands,
-        operator: impl Fn(IndexOperands) -> Memory,
-        unroll_factor: usize,
-    ) -> Vec<Instruction> {
-        let (mul, start_idx) = mul_index(alloc, op.index, unroll_factor);
-        let mut indices = (0..unroll_factor).map(|i| add_index(alloc, start_idx, i));
-
-        let list = unroll_array(op.list, self.max_vector_size, unroll_factor);
-
-        let out = self
-            .mappings
-            .get(alloc, out, unroll_factor, self.max_vector_size);
-        let mut instructions = vec![mul];
-        instructions.extend((0..unroll_factor).flat_map(|i| {
-            let (add, idx) = indices.next().unwrap();
-            let index = Instruction::new(
-                operator(IndexOperands {
-                    list,
-                    index: idx,
-                    unroll_factor,
-                    checked: op.checked,
-                }),
-                out[i],
-            );
-            [add, index]
-        }));
-
-        instructions
-    }
-
-    /// Transforms a composite index (i.e. `Vector`) that always returns a scalar. Translates the index
-    /// to a local index and an unroll index, then indexes the proper variable. Note that this requires
-    /// the index to be constant - it needs to be decomposed at compile time, otherwise it wouldn't
-    /// work.
-    fn transform_composite_extract(
-        &mut self,
-        alloc: &Allocator,
-        out: ExpandValue,
-        op: &BinaryOperands,
-        unroll_factor: usize,
-    ) -> Vec<Instruction> {
-        let index = op
-            .rhs
-            .as_const()
-            .expect("Can't unroll non-constant vector index")
-            .as_usize();
-
-        let unroll_idx = index / self.max_vector_size;
-        let sub_idx = index % self.max_vector_size;
-
-        let value = self
-            .mappings
-            .get(alloc, op.lhs, unroll_factor, self.max_vector_size);
-
-        vec![Instruction::new(
-            Operator::ExtractComponent(BinaryOperands {
-                lhs: value[unroll_idx],
-                rhs: sub_idx.into(),
-            }),
-            out,
-        )]
-    }
-
-    /// Transforms a composite index assign (i.e. `Vector`) that always takes a scalar. Translates the index
-    /// to a local index and an unroll index, then indexes the proper variable. Note that this requires
-    /// the index to be constant - it needs to be decomposed at compile time, otherwise it wouldn't
-    /// work.
-    fn transform_composite_insert(
-        &mut self,
-        alloc: &Allocator,
-        out: ExpandValue,
-        op: &VectorInsertOperands,
-        unroll_factor: usize,
-    ) -> Vec<Instruction> {
-        let index = op
-            .index
-            .as_const()
-            .expect("Can't unroll non-constant vector index")
-            .as_usize();
-
-        let unroll_idx = index / self.max_vector_size;
-        let sub_idx = index % self.max_vector_size;
-
-        let vector = self
-            .mappings
-            .get(alloc, op.vector, unroll_factor, self.max_vector_size);
-        let out = self
-            .mappings
-            .get(alloc, out, unroll_factor, self.max_vector_size);
-        (0..unroll_factor)
-            .map(|i| {
-                if i == unroll_idx {
-                    Instruction::new(
-                        Operator::InsertComponent(VectorInsertOperands {
-                            vector: vector[i],
-                            index: sub_idx.into(),
-                            value: op.value,
-                        }),
-                        out[i],
-                    )
-                } else {
-                    Instruction::new(Operation::Copy(vector[i]), out[i])
-                }
-            })
-            .collect()
-    }
-
-    /// Transforms metadata by just replacing the type of the buffer. The values are already
-    /// properly calculated on the CPU.
-    fn transform_metadata(
+#[op_interface]
+pub trait CustomUnrollOp {
+    verify_op_succ!();
+    fn unroll(
         &self,
-        out: ExpandValue,
-        op: &Metadata,
-        args: Vec<ExpandValue>,
-    ) -> Vec<Instruction> {
-        let op_code = op.op_code();
-        let args = args
-            .into_iter()
-            .map(|mut val| {
-                if val.vector_size() > self.max_vector_size {
-                    val.ty = val.ty.with_vector_size(self.max_vector_size);
-                }
-                val
-            })
-            .collect::<Vec<_>>();
-        let operation = Metadata::from_code_and_args(op_code, &args).unwrap();
-        vec![Instruction::new(operation, out)]
-    }
+        ctx: &mut Context,
+        mappings: &mut Mappings,
+        vector_size: usize,
+        result: &mut IRStatus,
+    );
+}
 
-    /// Transforms generic instructions, i.e. comparison, arithmetic. Unrolls each vectorized variable
-    /// to `unroll_factor` replacements, and executes the operation `unroll_factor` times.
-    fn transform_basic(
-        &mut self,
-        alloc: &Allocator,
-        inst: &Instruction,
-        args: Vec<ExpandValue>,
-        unroll_factor: usize,
-    ) -> Vec<Instruction> {
-        let op_code = inst.operation.op_code();
-        let out = inst.out.map(|out| {
-            self.mappings
-                .get(alloc, out, unroll_factor, self.max_vector_size)
-        });
-        let args = args
-            .into_iter()
-            .map(|arg| {
-                if arg.vector_size() > 1 {
-                    self.mappings
-                        .get(alloc, arg, unroll_factor, self.max_vector_size)
+#[op_interface_impl]
+impl CustomUnrollOp for DeclareVariableOp {
+    fn unroll(
+        &self,
+        ctx: &mut Context,
+        mappings: &mut Mappings,
+        vector_size: usize,
+        result: &mut IRStatus,
+    ) {
+        let value_ty = self.get_attr_value_ty(ctx).unwrap().get_type(ctx);
+        let current_vec = value_ty.vector_size(ctx);
+        if current_vec <= vector_size {
+            return;
+        }
+
+        *result |= IRStatus::Changed;
+        let result = self.get_result(ctx);
+        let addr_space = *self.get_attr_addr_space(ctx).unwrap();
+        // Align isn't handled properly, but targets that unroll ignore this anyways
+        let align = *self.get_attr_alignment(ctx).unwrap();
+        let new_value_ty = unroll_ty(ctx, value_ty, vector_size);
+        let new_ptr_ty = PointerType::get(ctx, new_value_ty, addr_space.0);
+
+        // Array doesn't change size, so no need to duplicate the declaration
+        if new_value_ty.size(ctx) == value_ty.size(ctx) {
+            self.set_attr_value_ty(ctx, TypeAttr::new(new_value_ty));
+            self.get_result(ctx).set_type(ctx, new_ptr_ty.into());
+        } else {
+            let factor = current_vec / vector_size;
+            let mut results = vec![];
+            for _ in 0..factor {
+                let new_op =
+                    DeclareVariableOp::new(ctx, TypeAttr::new(new_value_ty), addr_space, align);
+                new_op
+                    .get_operation()
+                    .insert_before(ctx, self.get_operation());
+                results.push(new_op.get_result(ctx));
+            }
+            mappings.insert(result, results);
+            self.get_operation().unlink(ctx);
+        }
+    }
+}
+
+#[op_interface_impl]
+impl CustomUnrollOp for IndexOp {
+    fn unroll(
+        &self,
+        ctx: &mut Context,
+        mappings: &mut Mappings,
+        vector_size: usize,
+        result: &mut IRStatus,
+    ) {
+        let base = self.base(ctx);
+        let checked = *self.get_attr_checked(ctx).unwrap();
+        let current_vec = try_get_vec(ctx, base);
+        if current_vec > vector_size {
+            *result |= IRStatus::Changed;
+            let unroll_factor = current_vec / vector_size;
+            let unroll_const = const_usize(ctx, self, unroll_factor);
+
+            let mul = MulOp::new(ctx, self.index(ctx), unroll_const);
+            mul.get_operation().insert_before(ctx, self.get_operation());
+            let start_idx = mul.get_result(ctx);
+
+            let new_results = (0..unroll_factor)
+                .map(|i| {
+                    let i = const_usize(ctx, self, i);
+                    let add = AddOp::new(ctx, start_idx, i);
+                    add.get_operation().insert_before(ctx, self.get_operation());
+                    let idx = add.get_result(ctx);
+
+                    let op = IndexOp::new(ctx, base, idx, unroll_factor.into(), checked);
+                    op.get_operation().insert_before(ctx, self.get_operation());
+                    op.get_result(ctx)
+                })
+                .collect();
+
+            mappings.insert(self.get_result(ctx), new_results);
+            self.get_operation().unlink(ctx);
+        }
+    }
+}
+
+fn const_usize(ctx: &mut Context, anchor: &dyn Op, value: usize) -> Value {
+    let op = ConstantOp::new(ctx, Box::new(IndexAttr::new(value)));
+    op.get_operation()
+        .insert_before(ctx, anchor.get_operation());
+    op.get_result(ctx)
+}
+
+#[op_interface_impl]
+impl CustomUnrollOp for VectorExtractOp {
+    fn unroll(
+        &self,
+        ctx: &mut Context,
+        mappings: &mut Mappings,
+        vector_size: usize,
+        result: &mut IRStatus,
+    ) {
+        let vector = self.vector(ctx);
+        let current_vec = vector.vector_size(ctx);
+        if current_vec > vector_size {
+            *result |= IRStatus::Changed;
+            let index = self.get_attr_index(ctx).unwrap().0;
+
+            let unroll_idx = index / vector_size;
+            let sub_idx = index % vector_size;
+
+            let new_vector = mappings.get(&vector).expect("Should exist")[unroll_idx];
+            vector.replace_use_with(ctx, self.vector_as_use(ctx), &new_vector);
+            self.set_attr_index(ctx, sub_idx.into());
+        }
+    }
+}
+
+#[op_interface_impl]
+impl CustomUnrollOp for VectorInsertOp {
+    fn unroll(
+        &self,
+        ctx: &mut Context,
+        mappings: &mut Mappings,
+        vector_size: usize,
+        result: &mut IRStatus,
+    ) {
+        let vector = self.vector(ctx);
+        let value = self.value(ctx);
+        let current_vec = vector.vector_size(ctx);
+        if current_vec > vector_size {
+            *result |= IRStatus::Changed;
+            let index = self.get_attr_index(ctx).unwrap().0;
+
+            let unroll_idx = index / vector_size;
+            let sub_idx = index % vector_size;
+
+            let vectors = mappings.get(&vector).expect("Should exist");
+
+            let new_results = vectors.iter().enumerate().map(|(i, vector)| {
+                let op = if i == unroll_idx {
+                    VectorInsertOp::new(ctx, *vector, value, sub_idx.into()).get_operation()
                 } else {
-                    // Preserve scalars
-                    vec![arg]
-                }
-            })
-            .collect::<Vec<_>>();
-
-        (0..unroll_factor)
-            .map(|i| {
-                let out = out.as_ref().map(|out| out[i]);
-                let args = args
-                    .iter()
-                    .map(|arg| if arg.len() == 1 { arg[0] } else { arg[i] })
-                    .collect::<Vec<_>>();
-                let operation = Operation::from_code_and_args(op_code, &args)
-                    .expect("Failed to reconstruct operation");
-                Instruction {
-                    out,
-                    source_loc: inst.source_loc.clone(),
-                    modes: inst.modes,
-                    operation,
-                }
-            })
-            .collect()
+                    CopyOp::new(ctx, *vector).get_operation()
+                };
+                op.insert_before(ctx, self.get_operation());
+                op.deref(ctx).get_result(0)
+            });
+            let new_results = new_results.collect();
+            mappings.insert(self.get_result(ctx), new_results);
+            self.get_operation().unlink(ctx);
+        }
     }
 }
 
-fn max_vector_size(out: &Option<ExpandValue>, args: &[ExpandValue]) -> VectorSize {
-    let vector_size = args.iter().map(|it| it.vector_size()).max().unwrap();
-    vector_size.max(out.map(|out| out.vector_size()).unwrap_or(1))
+#[op_interface_impl]
+impl CustomUnrollOp for matrix::LoadOp {
+    fn unroll(
+        &self,
+        ctx: &mut Context,
+        mappings: &mut Mappings,
+        vector_size: usize,
+        result: &mut IRStatus,
+    ) {
+        let source = self.source(ctx);
+        if source.vector_size(ctx) > vector_size {
+            *result |= IRStatus::Changed;
+            let new_source = mappings.get(&source).expect("should exist")[0];
+            source.replace_use_with(ctx, self.source_as_use(ctx), &new_source);
+        }
+    }
 }
 
-fn create_unrolled(
-    allocator: &Allocator,
-    val: &ExpandValue,
+#[op_interface_impl]
+impl CustomUnrollOp for matrix::StoreOp {
+    fn unroll(
+        &self,
+        ctx: &mut Context,
+        mappings: &mut Mappings,
+        vector_size: usize,
+        result: &mut IRStatus,
+    ) {
+        let dest = self.destination(ctx);
+        if dest.vector_size(ctx) > vector_size {
+            *result |= IRStatus::Changed;
+            let new_dest = mappings.get(&dest).expect("should exist")[0];
+            dest.replace_use_with(ctx, self.destination_as_use(ctx), &new_dest);
+        }
+    }
+}
+
+struct UnrollState {
+    mappings: Mappings,
     max_vector_size: VectorSize,
-    unroll_factor: usize,
-) -> Vec<ExpandValue> {
-    // Preserve scalars
-    if val.vector_size() == 1 {
-        return vec![*val; unroll_factor];
+    result: PassResult,
+}
+
+impl Pass for UnrollPass {
+    fn name(&self) -> &str {
+        type_name::<UnrollPass>()
     }
 
-    let item = val.ty.with_vector_size(max_vector_size);
-    (0..unroll_factor)
-        .map(|_| match val.kind {
-            ValueKind::Value { .. } => allocator.create_value(item),
-            other => panic!("Out must be local, found {other:?}"),
-        })
-        .collect()
+    fn run(
+        &self,
+        op: Ptr<Operation>,
+        ctx: &mut Context,
+        _analyses: &mut AnalysisManager,
+    ) -> Result<PassResult> {
+        self.unroll_func(ctx, op);
+
+        let mut state = UnrollState {
+            mappings: Default::default(),
+            max_vector_size: self.max_vector_size,
+            result: Default::default(),
+        };
+
+        walk_op(
+            ctx,
+            &mut state,
+            &WALKCONFIG_PREORDER_FORWARD,
+            op,
+            |ctx, state, node| {
+                if let IRNode::Operation(op) = node {
+                    let ctx2 = dupe_ctx(ctx);
+                    let op_ref = op.deref(ctx);
+                    let mut opds = op_ref.results();
+                    let mut res = op_ref.results();
+                    let unroll_opds = opds.any(|it| should_unroll(ctx, it, state.max_vector_size));
+                    let unroll_res = res.any(|it| should_unroll(ctx, it, state.max_vector_size));
+
+                    if let Some(custom) = op_cast::<dyn CustomUnrollOp>(&*op.dyn_op(ctx)) {
+                        custom.unroll(
+                            ctx2,
+                            &mut state.mappings,
+                            state.max_vector_size,
+                            &mut state.result.ir_changed,
+                        );
+                    } else if unroll_opds || unroll_res {
+                        state.result.ir_changed |= IRStatus::Changed;
+                        unroll_default(ctx2, &mut state.mappings, op, state.max_vector_size);
+                    }
+                }
+            },
+        );
+        Ok(state.result)
+    }
 }
 
-fn add_index(alloc: &Allocator, idx: ExpandValue, i: usize) -> (Instruction, ExpandValue) {
-    let add_idx = alloc.create_value(idx.ty);
-    let add = Instruction::new(
-        Arithmetic::Add(BinaryOperands {
-            lhs: idx,
-            rhs: i.into(),
-        }),
-        add_idx,
-    );
-    (add, add_idx)
+impl UnrollPass {
+    fn unroll_func(&self, ctx: &mut Context, op: Ptr<Operation>) {
+        let ctx2 = dupe_ctx(ctx);
+        let func = op.as_op::<FuncOp>(ctx).expect("Should be func");
+        let entry_block = func.get_entry_block(ctx);
+        let func_ty = func.get_attr_func_type(ctx).unwrap();
+        let func_ty = func_ty.get_type(ctx).deref(ctx);
+        let func_ty = func_ty.downcast_ref::<FunctionType>().unwrap();
+
+        let mut new_func_inputs = vec![];
+
+        for (i, arg) in func_ty.arg_types().into_iter().enumerate() {
+            if should_unroll(ctx, arg, self.max_vector_size) {
+                let new_ty = unroll_ty(ctx2, arg, self.max_vector_size);
+                new_func_inputs.push(new_ty);
+                let block_arg = entry_block.deref(ctx).get_argument(i);
+                block_arg.set_type(ctx, new_ty);
+            } else {
+                new_func_inputs.push(arg);
+            }
+        }
+
+        let new_func_ty = FunctionType::get(ctx2, new_func_inputs, func_ty.res_types());
+        func.set_attr_func_type(ctx, TypeAttr::new(new_func_ty.into()));
+    }
 }
 
-fn mul_index(
-    alloc: &Allocator,
-    idx: ExpandValue,
-    unroll_factor: usize,
-) -> (Instruction, ExpandValue) {
-    let mul_idx = alloc.create_value(idx.ty);
-    let mul = Instruction::new(
-        Arithmetic::Mul(BinaryOperands {
-            lhs: idx,
-            rhs: unroll_factor.into(),
-        }),
-        mul_idx,
-    );
-    (mul, mul_idx)
-}
+fn unroll_default(
+    ctx: &mut Context,
+    mappings: &mut Mappings,
+    op: Ptr<Operation>,
+    max_vector_size: usize,
+) {
+    let ctx2 = dupe_ctx(ctx);
+    let op_ref = op.deref(ctx);
+    let values = op_ref.operands().chain(op_ref.results());
+    let current_vec = values.map(|it| try_get_vec(ctx, it)).max().unwrap();
+    let factor = current_vec / max_vector_size;
+    let dyn_op = op.dyn_op(ctx);
+    let rematerialize = op_cast::<dyn RematerializeOp>(&*dyn_op).expect("Should be materializable");
+    let new_out_ty = op_ref
+        .results()
+        .map(|it| unroll_ty(ctx2, it, max_vector_size))
+        .collect::<Vec<_>>();
+    let mut new_results = vec![];
 
-fn unroll_array(mut val: ExpandValue, max_vector_size: VectorSize, factor: usize) -> ExpandValue {
-    val.ty = val.ty.with_vector_size(max_vector_size);
-
-    if let Type::Array(_, size) = &mut val.ty {
-        *size *= factor;
+    for unroll_idx in 0..factor {
+        let opds = op_ref.operands().map(|opd| {
+            if should_unroll(ctx, opd, max_vector_size) {
+                mappings.get(&opd).expect("Should have mapping")[unroll_idx]
+            } else {
+                opd
+            }
+        });
+        let new_op = rematerialize.rematerialize(ctx2, new_out_ty.clone(), opds.collect());
+        new_results.extend(new_op.deref(ctx).results());
+        new_op.insert_before(ctx, op);
     }
 
-    val
+    if !new_results.is_empty() {
+        mappings.insert(op.deref(ctx).get_result(0), new_results);
+    }
+    op.unlink(ctx);
+}
+
+fn should_unroll(ctx: &Context, value: impl Typed, max_vector_size: usize) -> bool {
+    let ty = value.get_type(ctx).deref(ctx);
+    if !type_impls::<dyn UnrollableType>(&**ty) {
+        return false;
+    }
+    let Some(maybe_vec) = type_cast::<dyn MaybeVectorizedType>(&**ty) else {
+        return false;
+    };
+    maybe_vec.vector_size(ctx) > max_vector_size
+}
+
+fn try_get_vec(ctx: &Context, value: impl Typed) -> usize {
+    let ty = value.get_type(ctx).deref(ctx);
+    let Some(maybe_vec) = type_cast::<dyn MaybeVectorizedType>(&**ty) else {
+        return 1;
+    };
+    maybe_vec.vector_size(ctx)
+}
+
+fn unroll_ty(ctx: &mut Context, ty: impl Typed, vectorization: usize) -> Ptr<TypeObj> {
+    let ctx_2 = dupe_ctx(ctx);
+    let ty = ty.get_type(ctx).deref(ctx);
+    type_cast::<dyn UnrollableType>(&**ty)
+        .expect("Should be unrollable")
+        .with_vector_size(ctx_2, vectorization)
+}
+
+/// Unsafely duplicate the context ref because `with_vector_size` is uncallable otherwise
+fn dupe_ctx<'b>(ctx: &mut Context) -> &'b mut Context {
+    let tmp: *mut Context = ctx;
+    unsafe { &mut *tmp }
 }

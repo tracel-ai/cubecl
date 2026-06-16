@@ -13,7 +13,7 @@ use crate::{
 };
 
 #[pliron_attr(name = "memory.address_space", format = "$0", verifier = "succ")]
-#[derive(new, From, PartialEq, Eq, Clone, Debug, Hash)]
+#[derive(new, From, PartialEq, Eq, Clone, Copy, Debug, Hash)]
 pub struct AddressSpaceAttr(pub AddressSpace);
 
 #[cube_op(name = "memory.declare_variable")]

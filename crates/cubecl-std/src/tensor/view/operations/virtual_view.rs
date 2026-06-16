@@ -91,8 +91,8 @@ macro_rules! impl_virtual_read {
         where
             V: $trait<T, S>,
         {
-            fn vector_size(&self) -> VectorSize {
-                self.view.vector_size()
+            fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
+                self.view.__expand_vector_size_method(scope)
             }
         }
 

@@ -73,8 +73,8 @@ impl ScalarizableType for PackedType {
 )]
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 pub struct VectorType {
-    inner: Ptr<TypeObj>,
-    vectorization: usize,
+    pub inner: Ptr<TypeObj>,
+    pub vectorization: usize,
 }
 
 #[type_interface_impl]

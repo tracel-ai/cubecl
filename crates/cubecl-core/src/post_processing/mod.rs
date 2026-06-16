@@ -5,6 +5,3 @@ pub mod predicate;
 pub mod saturating;
 pub mod unroll;
 pub mod util;
-
-// Shared passes
-pub mod constant_prop;

@@ -44,7 +44,7 @@ impl CubePrimitive for Barrier {
     }
 
     fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
-        BarrierType::get(&scope.ctx()).into()
+        BarrierType::get(scope.ctx()).into()
     }
 }
 
@@ -433,7 +433,7 @@ pub mod copy_async {
         let scalar_size = C::Scalar::__expand_size(scope);
 
         let mem_copy = CopyAsyncOp::new(
-            &mut scope.ctx_mut(),
+            scope.ctx_mut(),
             source,
             destination,
             source_length,
@@ -482,7 +482,7 @@ pub mod copy_async_checked {
         let scalar_size = C::Scalar::__expand_size(scope);
 
         let mem_copy = CopyAsyncOp::new(
-            &mut scope.ctx_mut(),
+            scope.ctx_mut(),
             source,
             destination,
             source_length,
