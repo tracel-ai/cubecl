@@ -37,20 +37,20 @@ pub struct MatrixShapeAttr(pub MatrixShape);
 #[result_ty(none)]
 pub struct FillOp {
     #[operand(ptr_write)]
-    matrix: Value,
-    value: Value,
+    pub matrix: Value,
+    pub value: Value,
 }
 
 #[cube_op(name = "matrix.load")]
 #[result_ty(none)]
 pub struct LoadOp {
     #[operand(ptr_write)]
-    matrix: Value,
+    pub matrix: Value,
     #[operand(ptr_read)]
-    source: Value,
-    stride: Value,
+    pub source: Value,
+    pub stride: Value,
     #[attribute(optional)]
-    layout: MatrixLayoutAttr,
+    pub layout: MatrixLayoutAttr,
 }
 synchronizes!(LoadOp, SyncScope::Plane);
 
@@ -58,11 +58,11 @@ synchronizes!(LoadOp, SyncScope::Plane);
 #[result_ty(none)]
 pub struct StoreOp {
     #[operand(ptr_read)]
-    matrix: Value,
+    pub matrix: Value,
     #[operand(ptr_write)]
-    destination: Value,
-    stride: Value,
-    layout: MatrixLayoutAttr,
+    pub destination: Value,
+    pub stride: Value,
+    pub layout: MatrixLayoutAttr,
 }
 synchronizes!(StoreOp, SyncScope::Plane);
 

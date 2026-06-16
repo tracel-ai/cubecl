@@ -23,7 +23,7 @@ impl CubePrimitive for e2m3 {
     type WithScalar<S: Scalar> = S;
 
     fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
-        FloatType::get(&mut scope.ctx_mut(), FloatKind::E2M3).into()
+        FloatType::get(scope.ctx_mut(), FloatKind::E2M3).into()
     }
 
     fn from_const_value(_value: ConstantValue) -> Self {
@@ -61,7 +61,7 @@ impl CubePrimitive for e3m2 {
     type WithScalar<S: Scalar> = S;
 
     fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
-        FloatType::get(&mut scope.ctx_mut(), FloatKind::E3M2).into()
+        FloatType::get(scope.ctx_mut(), FloatKind::E3M2).into()
     }
 
     fn from_const_value(_value: ConstantValue) -> Self {

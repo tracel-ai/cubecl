@@ -359,8 +359,8 @@ fn iter_expand<I: Int>(
     let step = step.read_value(scope);
 
     let i = scope.create_local_mut(index_ty);
-    let range_loop = RangeLoopOp::new(&mut scope.ctx_mut(), i, start, end, step, inclusive);
-    let body_block = range_loop.loop_body(&scope.ctx());
+    let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step, inclusive);
+    let body_block = range_loop.loop_body(scope.ctx());
     let child = scope.child(OpInserter::new_at_block_end(body_block));
 
     body(&child, i.into());
@@ -386,8 +386,8 @@ impl<I: Int + Into<ExpandValue>> Iterable for SteppedRangeExpand<I> {
 
         let i = scope.create_local_mut(index_ty);
         let range_loop =
-            RangeLoopOp::new(&mut scope.ctx_mut(), i, start, end, step, self.inclusive);
-        let body_block = range_loop.loop_body(&scope.ctx());
+            RangeLoopOp::new(scope.ctx_mut(), i, start, end, step, self.inclusive);
+        let body_block = range_loop.loop_body(scope.ctx());
         let child = scope.child(OpInserter::new_at_block_end(body_block));
 
         body(&child, i.into());

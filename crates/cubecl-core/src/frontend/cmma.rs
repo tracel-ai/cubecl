@@ -202,7 +202,7 @@ impl<C: CubeType, S: MatrixScope> IntoMut for MatrixExpand<C, S> {
 impl<C: CubeType, S: MatrixScope> CubeDebug for MatrixExpand<C, S> {
     fn set_debug_name(&self, scope: &Scope, name: &'static str) {
         let op = self.elem.defining_op().unwrap();
-        set_operation_result_name(&scope.ctx(), op, 0, Some(ident(name)));
+        set_operation_result_name(scope.ctx(), op, 0, Some(ident(name)));
     }
 }
 
@@ -833,7 +833,7 @@ pub mod fill {
         value: NativeExpand<C>,
     ) {
         let value = value.read_value(scope);
-        scope.register(&FillOp::new(&mut scope.ctx_mut(), mat.elem, value));
+        scope.register(&FillOp::new(scope.ctx_mut(), mat.elem, value));
     }
 }
 
@@ -869,7 +869,7 @@ pub mod load {
 
         let ptr = unsafe { *value.__expand_as_ptr_method(scope) }.value(scope);
 
-        scope.register(&LoadOp::new(&mut scope.ctx_mut(), mat.elem, ptr, stride));
+        scope.register(&LoadOp::new(scope.ctx_mut(), mat.elem, ptr, stride));
     }
 }
 
@@ -907,7 +907,7 @@ pub mod load_tensor {
         };
 
         scope.register(&LoadTensorOp::new(
-            &mut scope.ctx_mut(),
+            scope.ctx_mut(),
             mat.elem,
             buffer,
             layout,
@@ -946,8 +946,8 @@ pub mod load_with_layout {
         let ptr = unsafe { *value.__expand_as_ptr_method(scope) }.value(scope);
         let stride = stride.read_value(scope);
 
-        let load = LoadOp::new(&mut scope.ctx_mut(), mat.elem, ptr, stride);
-        load.set_attr_layout(&scope.ctx(), layout.into());
+        let load = LoadOp::new(scope.ctx_mut(), mat.elem, ptr, stride);
+        load.set_attr_layout(scope.ctx(), layout.into());
 
         scope.register(&load);
     }
@@ -983,7 +983,7 @@ pub mod store {
         let destination = unsafe { *output.__expand_as_ptr_method(scope) }.value(scope);
 
         scope.register(&StoreOp::new(
-            &mut scope.ctx_mut(),
+            scope.ctx_mut(),
             mat.elem,
             destination,
             stride,
@@ -1021,7 +1021,7 @@ pub mod store_tensor {
         };
 
         scope.register(&StoreTensorOp::new(
-            &mut scope.ctx_mut(),
+            scope.ctx_mut(),
             buffer,
             mat.elem,
             layout,
@@ -1068,7 +1068,7 @@ pub mod execute {
         mat_d: &MatrixExpand<D, S>,
     ) {
         scope.register(&MultiplyAccumulateOp::new(
-            &mut scope.ctx_mut(),
+            scope.ctx_mut(),
             mat_a.elem,
             mat_b.elem,
             mat_c.elem,
@@ -1109,7 +1109,7 @@ pub mod cast {
         let input = input.elem;
         let input_shape = {
             let ctx = scope.ctx();
-            let input_mat = input.get_type(&ctx).deref(&ctx);
+            let input_mat = input.get_type(ctx).deref(ctx);
             input_mat.downcast_ref::<MatrixType>().unwrap().shape
         };
 
@@ -1122,7 +1122,7 @@ pub mod cast {
             MatrixLayout::Undefined,
         );
 
-        scope.register(&CastOp::new(&mut scope.ctx_mut(), input, output.elem));
+        scope.register(&CastOp::new(scope.ctx_mut(), input, output.elem));
 
         output
     }
@@ -1162,7 +1162,7 @@ pub mod cast_with_ident {
         let input = input.elem;
         let input_shape = {
             let ctx = scope.ctx();
-            let input_mat = input.get_type(&ctx).deref(&ctx);
+            let input_mat = input.get_type(ctx).deref(ctx);
             input_mat.downcast_ref::<MatrixType>().unwrap().shape
         };
 
@@ -1175,7 +1175,7 @@ pub mod cast_with_ident {
             MatrixLayout::Undefined,
         );
 
-        scope.register(&CastOp::new(&mut scope.ctx_mut(), input, output.elem));
+        scope.register(&CastOp::new(scope.ctx_mut(), input, output.elem));
 
         output
     }
@@ -1257,24 +1257,24 @@ pub mod execute_elementwise_op {
         let u32 = u32::__expand_as_type(scope);
         let elem = A::Scalar::__expand_as_type(scope);
 
-        let func_ty = FunctionType::get(&mut scope.ctx_mut(), vec![u32, u32, elem], vec![elem]);
-        let func = FuncOp::new(&mut scope.ctx_mut(), ident("execute_elemwise"), func_ty);
-        let func_body = func.get_entry_block(&scope.ctx());
+        let func_ty = FunctionType::get(scope.ctx_mut(), vec![u32, u32, elem], vec![elem]);
+        let func = FuncOp::new(scope.ctx_mut(), ident("execute_elemwise"), func_ty);
+        let func_body = func.get_entry_block(scope.ctx());
 
-        let row = func_body.deref(&scope.ctx()).get_argument(0);
-        let col = func_body.deref(&scope.ctx()).get_argument(1);
-        let elem = func_body.deref(&scope.ctx()).get_argument(2);
+        let row = func_body.deref(scope.ctx()).get_argument(0);
+        let col = func_body.deref(scope.ctx()).get_argument(1);
+        let elem = func_body.deref(scope.ctx()).get_argument(2);
 
         let mut closure_scope = scope.child(OpInserter::new_at_block_end(func_body));
         let return_value = op(&mut closure_scope, row.into(), col.into(), elem.into()).value(scope);
         closure_scope.register(&ReturnOp::new_with_result(
-            &mut scope.ctx_mut(),
+            scope.ctx_mut(),
             return_value,
         ));
 
         let id = scope.create_function(func);
         scope.register(&ElementwiseOp::new(
-            &mut scope.ctx_mut(),
+            scope.ctx_mut(),
             matrix_in.elem,
             matrix_out.elem,
             id.into(),

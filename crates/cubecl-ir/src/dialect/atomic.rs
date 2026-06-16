@@ -1,6 +1,6 @@
 use cubecl_macros_internal::cube_op;
 
-use crate::{dialect::ptr_value_ty, pliron::prelude::*};
+use crate::{dialect::ptr_value_ty, interfaces::rematerialize, pliron::prelude::*};
 
 macro_rules! atomic_binop {
     ($name: literal, $ty: ident) => {
@@ -11,6 +11,7 @@ macro_rules! atomic_binop {
             ptr: Value,
             value: Value,
         }
+        rematerialize!($ty);
     };
 }
 

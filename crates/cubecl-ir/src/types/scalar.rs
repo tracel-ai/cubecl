@@ -134,7 +134,7 @@ impl ScalarizableType for IndexType {
     generate_get = true,
     verifier = "succ"
 )]
-#[derive(Hash, PartialEq, Eq, Debug, Clone)]
+#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
 pub struct FloatType {
     pub encoding: FloatKind,
 }

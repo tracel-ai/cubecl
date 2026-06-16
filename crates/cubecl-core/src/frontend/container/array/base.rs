@@ -110,7 +110,7 @@ impl<C: CubePrimitive> Assign for ArrayExpand<C> {
 impl<C: CubePrimitive> RuntimeAssign for ArrayExpand<C> {
     fn init_mut(&self, scope: &Scope) -> Self::Expand {
         let ty = inner_array_ty(scope, self.value(scope));
-        let length = ty.deref(&scope.ctx()).length;
+        let length = ty.deref(scope.ctx()).length;
         Array::__expand_new(scope, length)
     }
 }
@@ -182,20 +182,17 @@ impl<T: CubePrimitive> ListExpand<T> for ArrayExpand<T> {
 
 impl<T: CubePrimitive> Vectorized for Array<T> {}
 impl<T: CubePrimitive> VectorizedExpand for ArrayExpand<T> {
-    fn vector_size(&self) -> VectorSize {
-        unexpanded!()
-    }
     fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
         let ty = inner_array_ty(scope, self.value(scope));
-        ty.deref(&scope.ctx()).vector_size(&scope.ctx())
+        ty.deref(scope.ctx()).vector_size(scope.ctx())
     }
 }
 
 pub(crate) fn inner_array_ty(scope: &Scope, value: Value) -> TypePtr<ArrayType> {
     let ctx = scope.ctx();
-    let ty = value.get_type(&ctx).deref(&ctx);
+    let ty = value.get_type(ctx).deref(ctx);
     let PtrAggregateType { base_ty, .. } = *ty.downcast_ref().unwrap();
-    let base_ty = base_ty.deref(&ctx);
+    let base_ty = base_ty.deref(ctx);
     let PointerType { inner, .. } = base_ty.downcast_ref().unwrap();
-    TypePtr::from_ptr(*inner, &ctx).unwrap()
+    TypePtr::from_ptr(*inner, ctx).unwrap()
 }

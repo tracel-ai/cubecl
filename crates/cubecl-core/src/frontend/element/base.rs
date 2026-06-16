@@ -769,7 +769,7 @@ all_tuples_enumerated!(tuple_assign, 1, 12, P);
 /// Trait for native types that can be assigned. For non-native composites, use the normal [`Assign`].
 pub trait NativeAssign: CubeType {
     fn elem_init_mut(scope: &Scope, elem: ExpandValue) -> ExpandValue {
-        init_mut_expand_element(scope, elem.value(scope).get_type(&scope.ctx()))
+        init_mut_expand_element(scope, elem.value(scope).get_type(scope.ctx()))
     }
 }
 
@@ -782,14 +782,14 @@ impl<T: NativeAssign> IntoMut for NativeExpand<T> {
 impl<T: ?Sized> CubeDebug for NativeExpand<T> {
     fn set_debug_name(&self, scope: &Scope, name: &'static str) {
         let op = self.value(scope).defining_op().unwrap();
-        set_operation_result_name(&scope.ctx(), op, 0, Some(ident(name)));
+        set_operation_result_name(scope.ctx(), op, 0, Some(ident(name)));
     }
 }
 
 impl<T> NativeExpand<T> {
     // Expanded version of vectorization factor.
     pub fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
-        self.value(scope).vector_size(&scope.ctx())
+        self.value(scope).vector_size(scope.ctx())
     }
 }
 
@@ -833,11 +833,11 @@ impl<T: Scalar + Into<ConstantValue>> NativeExpand<T> {
 
 pub(crate) fn init_mut_expand_element(scope: &Scope, mut ty: Ptr<TypeObj>) -> ExpandValue {
     let ctx = scope.ctx();
-    if let Some(PointerType { inner, .. }) = ty.deref(&ctx).downcast_ref() {
+    if let Some(PointerType { inner, .. }) = ty.deref(ctx).downcast_ref() {
         ty = *inner;
     }
-    if ty.is_ptr(&ctx) {
-        panic!("tried initializing mut for ptr {}", ty.disp(&ctx));
+    if ty.is_ptr(ctx) {
+        panic!("tried initializing mut for ptr {}", ty.disp(ctx));
     }
     scope.create_local_mut(ty).into()
 }

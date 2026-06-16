@@ -73,7 +73,9 @@ mod new {
 
 mod components {
     use cubecl_ir::{
-        dialect::vector::{VectorExtractOp, VectorInsertOp},
+        dialect::vector::{
+            VectorExtractDynamicOp, VectorExtractOp, VectorInsertDynamicOp, VectorInsertOp,
+        },
         interfaces::TypedExt,
         pliron::builtin::op_interfaces::OneResultInterface,
     };
@@ -82,17 +84,11 @@ mod components {
 
     #[cube]
     impl<P: Scalar, N: Size> Vector<P, N> {
-        #[allow(unused)]
-        pub fn extract(self, index: usize) -> P {
+        pub fn extract(self, #[comptime] index: usize) -> P {
             intrinsic!(|scope| {
                 let this = self.read_value(scope);
                 if this.vector_size(&scope.ctx()) > 1 {
-                    let const_val = index.expand.as_const();
-                    let index = index.read_value(scope);
-                    let op = VectorExtractOp::new(&mut scope.ctx_mut(), this, index);
-                    if let Some(const_val) = const_val {
-                        op.set_attr_const_index(&scope.ctx(), const_val.as_usize().into());
-                    }
+                    let op = VectorExtractOp::new(&mut scope.ctx_mut(), this, index.into());
                     scope.register(&op);
                     op.get_result(&scope.ctx()).into()
                 } else {
@@ -101,18 +97,46 @@ mod components {
             })
         }
 
-        #[allow(unused)]
-        pub fn insert(&mut self, index: usize, value: P) {
+        pub fn insert(&mut self, #[comptime] index: usize, value: P) {
             intrinsic!(|scope| {
                 let this = self.read_value(scope);
                 let value = value.read_value(scope);
                 if this.vector_size(&scope.ctx()) > 1 {
-                    let const_val = index.expand.as_const();
+                    let op = VectorInsertOp::new(&mut scope.ctx_mut(), this, value, index.into());
+                    scope.register(&op);
+                    let new_value = op.get_result(&scope.ctx());
+                    assign::expand_element(scope, new_value.into(), self.expand);
+                } else {
+                    assign::expand_element(scope, value.into(), self.expand);
+                }
+            })
+        }
+
+        /// Dynamically extract a value from the vector. **This is extremely slow and should only
+        /// be used when there is no other option**
+        pub fn extract_dynamic(self, index: usize) -> P {
+            intrinsic!(|scope| {
+                let this = self.read_value(scope);
+                if this.vector_size(&scope.ctx()) > 1 {
                     let index = index.read_value(scope);
-                    let op = VectorInsertOp::new(&mut scope.ctx_mut(), this, index, value);
-                    if let Some(const_val) = const_val {
-                        op.set_attr_const_index(&scope.ctx(), const_val.as_usize().into());
-                    }
+                    let op = VectorExtractDynamicOp::new(&mut scope.ctx_mut(), this, index);
+                    scope.register(&op);
+                    op.get_result(&scope.ctx()).into()
+                } else {
+                    this.into()
+                }
+            })
+        }
+
+        /// Dynamically inmsert a value to the vector. **This is extremely slow and should only
+        /// be used when there is no other option**
+        pub fn insert_dynamic(&mut self, index: usize, value: P) {
+            intrinsic!(|scope| {
+                let this = self.read_value(scope);
+                let value = value.read_value(scope);
+                if this.vector_size(&scope.ctx()) > 1 {
+                    let index = index.read_value(scope);
+                    let op = VectorInsertDynamicOp::new(&mut scope.ctx_mut(), this, value, index);
                     scope.register(&op);
                     let new_value = op.get_result(&scope.ctx());
                     assign::expand_element(scope, new_value.into(), self.expand);
@@ -236,7 +260,7 @@ mod size {
 
         /// Expand method of [size](Vector::size).
         pub fn __expand_size_method(&self, scope: &Scope) -> VectorSize {
-            self.value(scope).vector_size(&scope.ctx())
+            self.value(scope).vector_size(scope.ctx())
         }
     }
 }
@@ -345,7 +369,7 @@ impl<P: Scalar, N: Size> CubePrimitive for Vector<P, N> {
     fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
         let inner = P::__expand_as_type(scope);
         let vectorization = N::__expand_value(scope);
-        VectorType::get(&mut scope.ctx_mut(), inner, vectorization).into()
+        VectorType::get(scope.ctx_mut(), inner, vectorization).into()
     }
 
     fn from_const_value(value: ConstantValue) -> Self {

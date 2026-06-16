@@ -111,7 +111,7 @@ impl CubePrimitive for usize {
     }
 
     fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
-        IndexType::get(&scope.ctx()).into()
+        IndexType::get(scope.ctx()).into()
     }
 }
 
@@ -185,7 +185,7 @@ impl CubePrimitive for isize {
         scope
             .resolve_type::<Self>()
             .expect("Type to be registered")
-            .to_type(&mut scope.ctx_mut())
+            .to_type(scope.ctx_mut())
     }
 }
 

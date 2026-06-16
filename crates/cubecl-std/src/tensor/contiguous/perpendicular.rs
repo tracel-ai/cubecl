@@ -68,6 +68,7 @@ fn copy_perpendicular<T: Numeric, N: Size>(
         // --- STEP 1: GATHER ---
         // Load data from the input tensor. Since the data is "perpendicular",
         // we read across the stride-1 axis to fill the accumulators.
+        #[unroll]
         for i in 0..vector_size {
             let index = batch_offset + i * channel_input_stride;
             let batched = input[index];

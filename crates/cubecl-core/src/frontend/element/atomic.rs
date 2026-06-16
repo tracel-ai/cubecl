@@ -170,7 +170,7 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
 
     fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
         let inner = Inner::__expand_as_type(scope);
-        AtomicType::get(&mut scope.ctx_mut(), inner).into()
+        AtomicType::get(scope.ctx_mut(), inner).into()
     }
 
     fn from_expand_elem(elem: ExpandValue) -> Self::ExpandType {

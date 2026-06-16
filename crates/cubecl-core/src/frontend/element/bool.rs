@@ -47,7 +47,7 @@ impl CubePrimitive for bool {
     }
 
     fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
-        BoolType::get(&scope.ctx()).into()
+        BoolType::get(scope.ctx()).into()
     }
 }
 

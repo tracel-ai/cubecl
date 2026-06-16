@@ -52,8 +52,8 @@ pub mod select {
 
         let [condition, then, or_else] =
             normalize_same_vectorization(scope, [condition, then, or_else]);
-        let select = SelectOp::new(&mut scope.ctx_mut(), condition, then, or_else);
+        let select = SelectOp::new(scope.ctx_mut(), condition, then, or_else);
         scope.register(&select);
-        select.get_result(&scope.ctx()).into()
+        select.get_result(scope.ctx()).into()
     }
 }

@@ -136,9 +136,14 @@ impl CubeOp {
     fn generate_value_accessors(&self) -> impl Iterator<Item = TokenStream> {
         self.values().enumerate().map(|(idx, arg)| {
             let CubeOpArg { vis, ident, ty, .. } = arg;
+            let use_ident = format_ident!("{ident}_as_use");
             quote! {
                 #vis fn #ident(&self, ctx: &::pliron::context::Context) -> #ty {
                     self.get_operation().deref(ctx).get_operand(#idx)
+                }
+                
+                #vis fn #use_ident(&self, ctx: &::pliron::context::Context) -> ::pliron::value::Use<#ty> {
+                    self.get_operation().deref(ctx).get_operand_as_use(#idx)
                 }
             }
         })

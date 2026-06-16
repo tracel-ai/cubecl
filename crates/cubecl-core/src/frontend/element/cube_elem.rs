@@ -72,7 +72,7 @@ pub trait CubePrimitive:
     fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj>;
 
     fn __expand_size(scope: &Scope) -> usize {
-        Self::__expand_as_type(scope).size(&scope.ctx())
+        Self::__expand_as_type(scope).size(scope.ctx())
     }
 
     fn __expand_size_bits(scope: &Scope) -> usize {
@@ -80,11 +80,11 @@ pub trait CubePrimitive:
     }
 
     fn __expand_packing_factor(scope: &Scope) -> usize {
-        Self::__expand_as_type(scope).packing_factor(&scope.ctx())
+        Self::__expand_as_type(scope).packing_factor(scope.ctx())
     }
 
     fn __expand_vector_size(scope: &Scope) -> usize {
-        Self::__expand_as_type(scope).vector_size(&scope.ctx())
+        Self::__expand_as_type(scope).vector_size(scope.ctx())
     }
 }
 

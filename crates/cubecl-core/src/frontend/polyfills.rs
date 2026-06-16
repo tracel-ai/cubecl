@@ -74,10 +74,10 @@ fn himul_u64<N: Size>(lhs: Vector<u32, N>, rhs: Vector<u32, N>) -> Vector<u32, N
 
 #[allow(missing_docs)]
 pub fn expand_himul_64(scope: &Scope, lhs: Value, rhs: Value) -> Value {
-    scope.register_size::<SizeA>(lhs.vector_size(&scope.ctx()));
-    if lhs.is_int(&scope.ctx()) {
+    scope.register_size::<SizeA>(lhs.vector_size(scope.ctx()));
+    if lhs.is_int(scope.ctx()) {
         himul_i64::expand::<SizeA>(scope, lhs.into(), rhs.into()).value(scope)
-    } else if lhs.is_uint(&scope.ctx()) {
+    } else if lhs.is_uint(scope.ctx()) {
         himul_u64::expand::<SizeA>(scope, lhs.into(), rhs.into()).value(scope)
     } else {
         unreachable!()
@@ -108,6 +108,6 @@ fn himul_sim<N: Size>(lhs: Vector<u32, N>, rhs: Vector<u32, N>) -> Vector<u32, N
 
 #[allow(missing_docs)]
 pub fn expand_himul_sim(scope: &Scope, lhs: Value, rhs: Value) -> Value {
-    scope.register_size::<SizeA>(lhs.vector_size(&scope.ctx()));
+    scope.register_size::<SizeA>(lhs.vector_size(scope.ctx()));
     himul_sim::expand::<SizeA>(scope, lhs.into(), rhs.into()).value(scope)
 }

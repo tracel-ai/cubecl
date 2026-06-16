@@ -43,7 +43,7 @@ impl DialectConversion for RemoveTrivialOpsPass {
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
         op: Ptr<Operation>,
-        operands_info: &OperandsInfo,
+        _operands_info: &OperandsInfo,
     ) -> Result<()> {
         rewriter.replace_operation_with_values(ctx, op, vec![op.operand(ctx, 0)]);
         Ok(())

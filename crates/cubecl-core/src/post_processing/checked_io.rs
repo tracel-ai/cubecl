@@ -40,7 +40,7 @@ impl DialectConversion for ApplyCheckedIo {
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
         op: Ptr<Operation>,
-        operands_info: &OperandsInfo,
+        _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let index = Operation::get_op::<IndexOp>(op, ctx).unwrap();
 

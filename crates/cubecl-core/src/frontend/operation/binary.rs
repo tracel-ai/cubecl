@@ -55,9 +55,9 @@ pub mod clamp {
         let input = input.read_value(scope);
         let min = min.read_value(scope);
         let max = max.read_value(scope);
-        let op = ClampOp::new(&mut scope.ctx_mut(), input, min, max);
+        let op = ClampOp::new(scope.ctx_mut(), input, min, max);
         scope.register(&op);
-        op.get_result(&scope.ctx()).into()
+        op.get_result(scope.ctx()).into()
     }
 }
 

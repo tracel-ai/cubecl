@@ -147,10 +147,6 @@ impl<E: CubePrimitive, K: TensorMapKind> AsMutExpand for NativeExpand<TensorMap<
 
 impl<E: CubePrimitive, K: TensorMapKind> Vectorized for TensorMap<E, K> {}
 impl<E: CubePrimitive, K: TensorMapKind> VectorizedExpand for NativeExpand<TensorMap<E, K>> {
-    fn vector_size(&self) -> VectorSize {
-        1
-    }
-
     fn __expand_vector_size_method(&self, _scope: &Scope) -> VectorSize {
         1
     }
@@ -190,7 +186,7 @@ pub mod tma_group_commit {
     use super::*;
 
     pub fn expand(scope: &Scope) {
-        scope.register(&CommitGroupOp::new(&mut scope.ctx_mut()))
+        scope.register(&CommitGroupOp::new(scope.ctx_mut()))
     }
 }
 
@@ -205,7 +201,7 @@ pub mod tma_group_wait {
     use super::*;
 
     pub fn expand(scope: &Scope, max_pending: usize) {
-        scope.register(&WaitGroupOp::new(&mut scope.ctx_mut(), max_pending.into()));
+        scope.register(&WaitGroupOp::new(scope.ctx_mut(), max_pending.into()));
     }
 }
 
@@ -235,10 +231,7 @@ pub mod tma_group_wait_read {
     use super::*;
 
     pub fn expand(scope: &Scope, max_pending: usize) {
-        scope.register(&WaitGroupReadOp::new(
-            &mut scope.ctx_mut(),
-            max_pending.into(),
-        ))
+        scope.register(&WaitGroupReadOp::new(scope.ctx_mut(), max_pending.into()))
     }
 }
 
@@ -412,9 +405,9 @@ mod metadata {
         ) -> NativeExpand<usize> {
             let list = self.value(scope);
             let dim = dim.read_value(scope);
-            let op = StrideOp::new(&mut scope.ctx_mut(), list, dim);
+            let op = StrideOp::new(scope.ctx_mut(), list, dim);
             scope.register(&op);
-            op.get_result(&scope.ctx()).into()
+            op.get_result(scope.ctx()).into()
         }
 
         // Expand method of [shape](Tensor::shape).
@@ -425,9 +418,9 @@ mod metadata {
         ) -> NativeExpand<usize> {
             let list = self.value(scope);
             let dim = dim.read_value(scope);
-            let op = ShapeOp::new(&mut scope.ctx_mut(), list, dim);
+            let op = ShapeOp::new(scope.ctx_mut(), list, dim);
             scope.register(&op);
-            op.get_result(&scope.ctx()).into()
+            op.get_result(scope.ctx()).into()
         }
 
         // Expand method of [len](Tensor::len).

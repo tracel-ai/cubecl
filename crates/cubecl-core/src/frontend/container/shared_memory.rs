@@ -167,7 +167,7 @@ fn len_static<T: CubePrimitive>(
     shared: &NativeExpand<Shared<[T]>>,
 ) -> NativeExpand<usize> {
     let array_ty = inner_array_ty(scope, shared.value(scope));
-    array_ty.deref(&scope.ctx()).length.into()
+    array_ty.deref(scope.ctx()).length.into()
 }
 
 impl<T: CubePrimitive> List<T> for Shared<[T]> {}
@@ -180,7 +180,7 @@ impl<T: CubePrimitive> ListExpand<T> for NativeExpand<Shared<[T]>> {
 impl<T: CubePrimitive> Vectorized for Shared<[T]> {}
 impl<T: CubePrimitive> VectorizedExpand for NativeExpand<Shared<[T]>> {
     fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
-        self.value(scope).vector_size(&scope.ctx())
+        self.value(scope).vector_size(scope.ctx())
     }
 }
 

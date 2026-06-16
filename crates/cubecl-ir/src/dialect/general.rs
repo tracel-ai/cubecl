@@ -1,6 +1,6 @@
 use alloc::string::String;
 
-use cubecl_macros_internal::cube_op;
+use cubecl_macros_internal::{const_eval, cube_op};
 use derive_more::From;
 use derive_new::new;
 use pliron::{
@@ -11,7 +11,7 @@ use pliron::{
 
 use crate::{
     Builtin,
-    attributes::IndexAttr,
+    attributes::{BoolAttr, IndexAttr},
     dialect::{pure_binop, pure_unop},
     interfaces::{AggregateType, Pure, erasable},
     pliron::prelude::*,
@@ -62,8 +62,19 @@ fn aggregate_extract_type(ctx: &Context, aggregate: &Value, field: &IndexAttr) -
 }
 
 pure_binop!("cube.bool_and", BoolAndOp);
+const_eval!(BoolAndOp, {
+    BoolAttr: |lhs, rhs| lhs && rhs
+});
+
 pure_binop!("cube.bool_or", BoolOrOp);
+const_eval!(BoolOrOp, {
+    BoolAttr: |lhs, rhs| lhs || rhs
+});
+
 pure_unop!("cube.bool_not", BoolNotOp);
+const_eval!(BoolNotOp, {
+    BoolAttr: |inp| !inp
+});
 
 #[cube_op(name = "cube.cast")]
 #[result_ty(argument)]
@@ -72,6 +83,7 @@ pub struct CastOp {
     value: Value,
 }
 erasable!(CastOp);
+// TODO const_eval
 
 #[cube_op(name = "cube.reinterpret_cast")]
 #[result_ty(argument)]
@@ -80,6 +92,7 @@ pub struct ReinterpretCastOp {
     value: Value,
 }
 erasable!(ReinterpretCastOp);
+// TODO const_eval
 
 #[cube_op(name = "cube.select")]
 #[result_ty(same_as = true_value)]
@@ -90,6 +103,7 @@ pub struct SelectOp {
     false_value: Value,
 }
 erasable!(SelectOp);
+// TODO const_eval
 
 #[pliron_attr(name = "cube.builtin", format, verifier = "succ")]
 #[derive(new, From, PartialEq, Clone, Debug)]

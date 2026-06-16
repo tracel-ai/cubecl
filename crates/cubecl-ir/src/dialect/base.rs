@@ -15,6 +15,7 @@ pub trait OperationPtrExt: Sized {
     fn as_op<T: Op>(self, ctx: &Context) -> Option<T>;
     fn dyn_op(self, ctx: &Context) -> OpObj;
     fn operand(self, ctx: &Context, idx: usize) -> Value;
+    fn operand_as_use(self, ctx: &Context, idx: usize) -> Use<Value>;
     fn result(self, ctx: &Context) -> Value;
 }
 
@@ -27,6 +28,9 @@ impl OperationPtrExt for Ptr<Operation> {
     }
     fn operand(self, ctx: &Context, idx: usize) -> Value {
         Operation::get_operand(&self.deref(ctx), idx)
+    }
+    fn operand_as_use(self, ctx: &Context, idx: usize) -> Use<Value> {
+        Operation::get_operand_as_use(&self.deref(ctx), idx)
     }
     fn result(self, ctx: &Context) -> Value {
         Operation::get_result(&self.deref(ctx), 0)
@@ -45,7 +49,10 @@ macro_rules! pure_unop {
         $crate::interfaces::erasable!($ty);
     };
 }
-use pliron::op::{OpInterfaceMarker, OpObj, op_impls};
+use pliron::{
+    op::{OpInterfaceMarker, OpObj, op_impls},
+    value::Use,
+};
 pub(crate) use pure_unop;
 
 macro_rules! pure_binop {

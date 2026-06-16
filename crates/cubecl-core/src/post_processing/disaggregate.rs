@@ -16,13 +16,9 @@ use cubecl_ir::{
     },
 };
 use hashbrown::HashMap;
+use pliron::irbuild::IRStatus;
 
 type Aggregates = HashMap<Value, Vec<Value>>;
-type Extracted = HashMap<Value, Value>;
-
-struct AggregateAnalysis {
-    pub aggregates: Aggregates,
-}
 
 pub struct DisaggregateTransform;
 
@@ -35,9 +31,11 @@ impl Pass for DisaggregateTransform {
         &self,
         op: Ptr<Operation>,
         ctx: &mut Context,
-        analyses: &mut AnalysisManager,
+        _analyses: &mut AnalysisManager,
     ) -> Result<PassResult> {
         let mut result = PassResult::default();
+        result.ir_changed = IRStatus::Changed;
+
         let mut aggregates = Aggregates::new();
         walk_op(
             ctx,
@@ -51,7 +49,7 @@ impl Pass for DisaggregateTransform {
                     }
                     if let Some(extract) = op.as_op::<AggregateExtractOp>(ctx) {
                         let field = extract.get_attr_field(ctx).unwrap().0;
-                        let value = aggregates[extract.aggregate(ctx)][field];
+                        let value = aggregates[&extract.aggregate(ctx)][field];
                         extract.get_result(ctx).replace_all_uses_with(ctx, &value);
                     }
                 }

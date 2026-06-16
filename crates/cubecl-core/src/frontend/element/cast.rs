@@ -31,19 +31,19 @@ pub trait Cast: CubePrimitive {
 }
 
 pub(crate) fn cast_value(scope: &Scope, from: Value, to_ty: Ptr<TypeObj>) -> Value {
-    if from.get_type(&scope.ctx()) == to_ty {
+    if from.get_type(scope.ctx()) == to_ty {
         return from;
     }
 
-    let vec_in = from.vector_size(&scope.ctx());
-    let elems_in = vec_in * from.packing_factor(&scope.ctx());
-    let elems_out = to_ty.vector_size(&scope.ctx()) * to_ty.packing_factor(&scope.ctx());
+    let vec_in = from.vector_size(scope.ctx());
+    let elems_in = vec_in * from.packing_factor(scope.ctx());
+    let elems_out = to_ty.vector_size(scope.ctx()) * to_ty.packing_factor(scope.ctx());
     if vec_in > 1 && elems_in != elems_out {
         expand_error!("Cast element count must match if input is not scalar");
     }
-    let op = CastOp::new(&mut scope.ctx_mut(), to_ty, from);
+    let op = CastOp::new(scope.ctx_mut(), to_ty, from);
     scope.register(&op);
-    op.get_result(&scope.ctx())
+    op.get_result(scope.ctx())
 }
 
 impl<P: CubePrimitive> Cast for P {
@@ -70,14 +70,14 @@ pub trait Reinterpret: CubePrimitive {
         value: NativeExpand<From>,
     ) -> <Self as CubeType>::ExpandType {
         let value = value.read_value(scope);
-        let ty_in = value.get_type(&scope.ctx());
+        let ty_in = value.get_type(scope.ctx());
         let ty_out = Self::__expand_as_type(scope);
-        let size_in = ty_in.size(&scope.ctx());
-        let size_out = ty_out.size(&scope.ctx());
+        let size_in = ty_in.size(scope.ctx());
+        let size_out = ty_out.size(scope.ctx());
         expand_assert!(size_in == size_out, "Reinterpret type sizes must match");
-        let op = ReinterpretCastOp::new(&mut scope.ctx_mut(), ty_out, value);
+        let op = ReinterpretCastOp::new(scope.ctx_mut(), ty_out, value);
         scope.register(&op);
-        op.get_result(&scope.ctx()).into()
+        op.get_result(scope.ctx()).into()
     }
 
     fn __expand_reinterpret_vectorization<From: CubePrimitive>(scope: &Scope) -> usize {

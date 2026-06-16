@@ -43,7 +43,7 @@ impl DialectConversion for ReplacePredicates {
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
         op: Ptr<Operation>,
-        operands_info: &OperandsInfo,
+        _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
         let input = op.operand(ctx, 0);
@@ -96,7 +96,7 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
 
     let exp_bits = bit_width as u32 - mantissa_bits - 1;
 
-    polyfill(&scope, input.into(), mantissa_bits, exp_bits).value(scope)
+    polyfill(scope, input.into(), mantissa_bits, exp_bits).value(scope)
 }
 
 #[cube]

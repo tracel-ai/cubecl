@@ -16,7 +16,7 @@ where
     type Item = <T::Output as CubeType>::ExpandType;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
-        let index_ty = IndexType::get(&scope.ctx());
+        let index_ty = IndexType::get(scope.ctx());
         let len = self.__expand_len_method(scope);
 
         let start = scope.const_usize(0);
@@ -24,8 +24,8 @@ where
         let step = scope.const_usize(1);
 
         let i = scope.create_local_mut(index_ty);
-        let range_loop = RangeLoopOp::new(&mut scope.ctx_mut(), i, start, end, step, false);
-        let loop_body = range_loop.loop_body(&scope.ctx());
+        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step, false);
+        let loop_body = range_loop.loop_body(scope.ctx());
 
         let mut child = scope.child(OpInserter::new_at_block_end(loop_body));
 

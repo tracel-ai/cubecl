@@ -27,7 +27,7 @@ macro_rules! verify_op_succ {
 #[macro_export]
 macro_rules! verify_ty_succ {
     () => {
-        fn verify(_op: &dyn Type, _ctx: &Context) -> Result<()>
+        fn verify(_op: &dyn pliron::r#type::Type, _ctx: &Context) -> Result<()>
         where
             Self: Sized,
         {
@@ -40,6 +40,41 @@ macro_rules! verify_ty_succ {
 pub trait Pure {
     verify_op_succ!();
 }
+
+#[op_interface]
+pub trait RematerializeOp {
+    verify_op_succ!();
+    fn rematerialize(
+        &self,
+        ctx: &mut Context,
+        result_ty: Vec<Ptr<TypeObj>>,
+        operands: Vec<Value>,
+    ) -> Ptr<Operation>;
+}
+
+macro_rules! rematerialize {
+    ($ty: ty) => {
+        #[::pliron::derive::op_interface_impl]
+        impl crate::interfaces::RematerializeOp for $ty {
+            fn rematerialize(
+                &self,
+                ctx: &mut Context,
+                result_ty: Vec<Ptr<TypeObj>>,
+                operands: Vec<Value>,
+            ) -> Ptr<Operation> {
+                Operation::new(
+                    ctx,
+                    Self::get_concrete_op_info(),
+                    result_ty,
+                    operands,
+                    vec![],
+                    0,
+                )
+            }
+        }
+    };
+}
+pub(crate) use rematerialize;
 
 #[op_interface]
 pub trait Synchronizes {

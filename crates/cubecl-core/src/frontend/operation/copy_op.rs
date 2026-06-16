@@ -32,7 +32,7 @@ pub mod copy_bulk {
         let target = unsafe { *to.__expand_as_mut_ptr_method(scope) }.value(scope);
 
         scope.register(&CopyOp::new(
-            &mut scope.ctx_mut(),
+            scope.ctx_mut(),
             source,
             target,
             length.into(),
@@ -70,6 +70,6 @@ pub mod copy {
         let source = from.value(scope);
         let target = to.value(scope);
 
-        scope.register(&CopyOp::new(&mut scope.ctx_mut(), source, target, 1.into()));
+        scope.register(&CopyOp::new(scope.ctx_mut(), source, target, 1.into()));
     }
 }

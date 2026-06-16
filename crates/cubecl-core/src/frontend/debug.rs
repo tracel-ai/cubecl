@@ -53,7 +53,7 @@ pub fn debug_var_expand<E: CubeDebug>(scope: &Scope, name: &'static str, expand:
 /// Prints a formatted message using the print debug layer in Vulkan, or `printf` in CUDA.
 pub fn printf_expand(scope: &Scope, format_string: impl Into<String>, args: Vec<Value>) {
     scope.register(&PrintfOp::new(
-        &mut scope.ctx_mut(),
+        scope.ctx_mut(),
         format_string.into(),
         args,
     ));
@@ -96,7 +96,7 @@ pub mod cube_comment {
 
     pub fn expand(scope: &Scope, content: &str) {
         scope.register(&CommentOp::new(
-            &mut scope.ctx_mut(),
+            scope.ctx_mut(),
             content.to_string().into(),
         ));
     }

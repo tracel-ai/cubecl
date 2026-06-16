@@ -25,7 +25,7 @@ pub mod sync_cube {
     use super::*;
 
     pub fn expand(scope: &Scope) {
-        scope.register(&SyncOp::new(&mut scope.ctx_mut(), SyncScope::Cube.into()));
+        scope.register(&SyncOp::new(scope.ctx_mut(), SyncScope::Cube.into()));
     }
 }
 
@@ -40,7 +40,7 @@ pub mod sync_plane {
     use super::*;
 
     pub fn expand(scope: &Scope) {
-        scope.register(&SyncOp::new(&mut scope.ctx_mut(), SyncScope::Plane.into()));
+        scope.register(&SyncOp::new(scope.ctx_mut(), SyncScope::Plane.into()));
     }
 }
 
@@ -53,7 +53,7 @@ pub mod sync_storage {
     use super::*;
 
     pub fn expand(scope: &Scope) {
-        scope.register(&SyncOp::new(&mut scope.ctx_mut(), SyncScope::Device.into()));
+        scope.register(&SyncOp::new(scope.ctx_mut(), SyncScope::Device.into()));
     }
 }
 
@@ -70,7 +70,7 @@ pub mod sync_async_proxy_shared {
     use super::*;
 
     pub fn expand(scope: &Scope) {
-        scope.register(&SyncAsyncProxyOp::new(&mut scope.ctx_mut()))
+        scope.register(&SyncAsyncProxyOp::new(scope.ctx_mut()))
     }
 }
 
@@ -96,9 +96,9 @@ pub mod workgroup_uniform_load {
     /// Expand method of [`workgroup_uniform_load()`].
     pub fn expand<E: CubePrimitive>(scope: &Scope, reference: &NativeExpand<E>) -> NativeExpand<E> {
         let ptr = reference.value(scope);
-        let op = UniformLoadOp::new(&mut scope.ctx_mut(), ptr);
+        let op = UniformLoadOp::new(scope.ctx_mut(), ptr);
         scope.register(&op);
-        op.get_result(&scope.ctx()).into()
+        op.get_result(scope.ctx()).into()
     }
 }
 
@@ -126,8 +126,8 @@ pub mod workgroup_uniform_load_atomic {
         reference: &NativeExpand<Atomic<E>>,
     ) -> NativeExpand<E> {
         let ptr = reference.value(scope);
-        let op = UniformLoadOp::new(&mut scope.ctx_mut(), ptr);
+        let op = UniformLoadOp::new(scope.ctx_mut(), ptr);
         scope.register(&op);
-        op.get_result(&scope.ctx()).into()
+        op.get_result(scope.ctx()).into()
     }
 }
