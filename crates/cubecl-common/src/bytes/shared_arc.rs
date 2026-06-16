@@ -24,8 +24,8 @@ use super::{
     AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes, SplitError,
     default_controller::{MAX_ALIGN, NativeAllocationController},
 };
+use crate::stub::Arc;
 use alloc::boxed::Box;
-use alloc::sync::Arc;
 use core::mem::MaybeUninit;
 use spin::Once;
 

@@ -1,15 +1,20 @@
 //! A version of [`bytemuck::BoxBytes`] that is cloneable and allows trailing uninitialized elements.
 
-use crate::bytes::default_controller::{self, NativeAllocationController};
-use crate::bytes::shared_arc::SharedAllocationController;
-use crate::bytes::{AccessError, AccessPolicy, Reader, Writer};
-use alloc::boxed::Box;
-use alloc::sync::Arc;
-use alloc::vec::Vec;
-use core::alloc::LayoutError;
-use core::mem::MaybeUninit;
-use core::ops::{Deref, DerefMut};
-use core::ptr::NonNull;
+use crate::{
+    bytes::{
+        AccessError, AccessPolicy, Reader, Writer,
+        default_controller::{self, NativeAllocationController},
+        shared_arc::SharedAllocationController,
+    },
+    stub::Arc,
+};
+use alloc::{boxed::Box, vec::Vec};
+use core::{
+    alloc::LayoutError,
+    mem::MaybeUninit,
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+};
 
 /// A buffer similar to `Box<[u8]>` that supports custom memory alignment and allows trailing uninitialized bytes.
 ///
