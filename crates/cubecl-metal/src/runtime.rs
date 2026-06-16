@@ -72,7 +72,8 @@ impl DeviceService for MetalServer {
             load_width: 128,
             plane_size_min: 32,
             plane_size_max: 32,
-            max_bindings: 31,
+            // Metal allows 31 buffer bindings; one is reserved for the per-kernel info buffer.
+            max_bindings: 30,
             max_shared_memory_size: (*metal_device).maxThreadgroupMemoryLength(),
             max_cube_count: (u32::MAX, u32::MAX, u32::MAX),
             max_units_per_cube: (*metal_device).maxThreadsPerThreadgroup().width as u32,
