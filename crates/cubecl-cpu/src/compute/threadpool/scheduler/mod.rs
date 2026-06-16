@@ -46,6 +46,13 @@ impl Scheduler {
         }
     }
 
+    pub fn flush(&mut self, stream_index: usize) {
+        match self {
+            Scheduler::Naive(_) => (),
+            Scheduler::Simple(simple) => simple.flush(stream_index),
+        }
+    }
+
     pub fn send(&mut self, index: usize, task: ComputeTask) {
         match self {
             Scheduler::Naive(naive) => naive.send(index, task),

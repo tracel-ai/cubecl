@@ -45,6 +45,10 @@ impl Threadpool {
         INSTANCE.get_or_init(|| spin::Mutex::new(Self::init()))
     }
 
+    pub fn flush(&mut self, stream_index: usize) {
+        self.scheduler.flush(stream_index);
+    }
+
     pub fn execute_data(
         &mut self,
         mlir_engine: MlirEngine,

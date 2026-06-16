@@ -33,6 +33,12 @@ impl SimpleScheduler {
         Self { threads_buffer }
     }
 
+    pub fn flush(&mut self, stream_index: usize) {
+        for buffer in &mut self.threads_buffer {
+            buffer.buffer.lock().to_flush.push_back(stream_index);
+        }
+    }
+
     pub fn send(&mut self, index: usize, task: ComputeTask) {
         self.threads_buffer[index].buffer.lock().push(task)
     }
@@ -40,6 +46,8 @@ impl SimpleScheduler {
 
 /// Local thread buffer used for pushing task to a worker for the scheduler and for getting task for the worker
 struct ThreadBuffer<T: ThreadTask> {
+    /// Flush queue
+    to_flush: VecDeque<usize>,
     /// Main stream storage
     streams: CircularBuffer<VecDeque<T>>,
     /// Empty streams available to be reused to avoid reallocation
@@ -54,7 +62,9 @@ impl<T: ThreadTask> ThreadBuffer<T> {
         let streams = CircularBuffer::new(capacity);
         let streams_id = HashMap::new();
         let empty_streams = Vec::new();
+        let to_flush = VecDeque::new();
         Self {
+            to_flush,
             streams,
             empty_streams,
             streams_id,
@@ -116,6 +126,13 @@ impl<T: ThreadTask> ThreadBuffer<T> {
 
     /// Pop task for local execution
     fn pop(&mut self) -> Option<T> {
+        if let Some(stream_id) = self.to_flush.front() {
+            let elem = self.pop_id(*stream_id);
+            if let None = elem {
+                self.to_flush.pop_front();
+            }
+            return elem;
+        }
         if let Some(elem) = self.pop_local() {
             return Some(elem);
         }
