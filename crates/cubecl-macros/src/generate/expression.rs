@@ -423,7 +423,7 @@ impl Expression {
                     constant
                 } else {
                     let elements = elements.iter().map(|it| it.to_tokens(context));
-                    quote![(#(#elements),*)]
+                    quote![(#(#elements,)*)]
                 }
             }
             Expression::ArrayInit { init, len } => {

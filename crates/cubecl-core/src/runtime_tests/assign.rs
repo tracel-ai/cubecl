@@ -11,6 +11,14 @@ pub fn kernel_assign<F: Float>(output: &mut [F]) {
 }
 
 #[cube(launch)]
+pub fn kernel_assign_one_tuple<F: Float>(output: &mut [F]) {
+    if UNIT_POS == 0 {
+        let item = (F::new(5f32),);
+        output[0] = item.0;
+    }
+}
+
+#[cube(launch)]
 pub fn kernel_add_assign_array<F: Float, N: Size>(output: &mut [Vector<F, N>]) {
     if UNIT_POS == 0 {
         output[0] = Vector::new(F::new(5f32));
@@ -54,6 +62,22 @@ pub fn test_kernel_assign_scalar<R: Runtime, F: Float + CubeElement>(client: Com
         CubeCount::Static(1, 1, 1),
         CubeDim::new(&client, 1),
         unsafe { BufferArg::from_raw_parts(handle.clone(), 2) },
+    );
+
+    let actual = client.read_one(handle).unwrap();
+    let actual = F::from_bytes(&actual);
+
+    assert_eq!(actual[0], F::new(5.0));
+}
+
+pub fn test_kernel_assign_one_tuple<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    let handle = client.create_from_slice(F::as_bytes(&[F::new(0.0)]));
+
+    kernel_assign_one_tuple::launch::<F, R>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new(&client, 1),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
     );
 
     let actual = client.read_one(handle).unwrap();
@@ -129,6 +153,15 @@ macro_rules! testgen_assign {
             cubecl_core::runtime_tests::assign::test_kernel_assign_scalar::<TestRuntime, FloatType>(
                 client,
             );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_assign_one_tuple() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::assign::test_kernel_assign_one_tuple::<
+                TestRuntime,
+                FloatType,
+            >(client);
         }
 
         #[$crate::runtime_tests::test_log::test]
