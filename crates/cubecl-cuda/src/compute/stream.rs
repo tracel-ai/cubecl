@@ -148,10 +148,23 @@ impl EventStreamBackend for CudaStreamBackend {
     }
 
     fn handle_cursor(stream: &Self::Stream, binding: &Binding) -> u64 {
-        stream
-            .memory_management_gpu
-            .get_cursor(binding.memory.clone())
-            .unwrap()
+        match stream.memory_management_gpu.get_cursor(binding.memory.clone()) {
+            Ok(cursor) => cursor,
+            // This value only decides whether the current stream must wait for the
+            // one that owns the buffer. A cross-stream binding can name a buffer that
+            // stream has already retired or renumbered, and `.unwrap()`-ing that
+            // lookup miss is what surfaced as the `Memory page N doesn't exist` panic
+            // under batched serving. So on a miss, return `u64::MAX` instead: it
+            // always errs toward inserting the wait. The worst case is a redundant
+            // synchronization — never a skipped one that would let the GPU read a
+            // half-written buffer.
+            Err(err) => {
+                log::warn!(
+                    "handle_cursor: unresolved cross-stream binding ({err:?}); forcing sync"
+                );
+                u64::MAX
+            }
+        }
     }
 
     fn is_healthy(stream: &Self::Stream) -> bool {

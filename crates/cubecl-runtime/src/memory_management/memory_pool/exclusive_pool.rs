@@ -246,14 +246,24 @@ impl MemoryPool for ExclusiveMemoryPool {
         let binding_descriptor = binding.descriptor();
         let page_index = binding_descriptor.page();
 
-        let page = self
-            .pages
-            .get(page_index)
-            .ok_or_else(|| IoError::NotFound {
-                backtrace: BackTrace::capture(),
-                reason: alloc::format!("Memory page {} doesn't exist", page_index).into(),
-            })?;
+        // The cached page index is only a hint. `cleanup` renumbers surviving pages
+        // and writes the new index into each page's *current* `slice.handle`, so a
+        // binding that has since diverged from that handle (e.g. after a `bind`)
+        // carries a stale index. Trust the hint only when its page still holds this
+        // binding's id; otherwise report a clean miss rather than indexing blindly —
+        // that blind index, landing out of bounds or on the wrong survivor, is what
+        // aborted the CUDA dispatch thread. A diverged binding is not re-resolved by
+        // scanning for its id: a live binding always shares its page's handle, so
+        // that path is unreachable, and real repair belongs in an explicit API.
+        if let Some(page) = self.pages.get(page_index) {
+            if page.slice.handle.descriptor().id == binding_descriptor.id {
+                return Ok(&page.slice);
+            }
+        }
 
-        Ok(&page.slice)
+        Err(IoError::NotFound {
+            backtrace: BackTrace::capture(),
+            reason: alloc::format!("Memory page {} doesn't exist", page_index).into(),
+        })
     }
 }

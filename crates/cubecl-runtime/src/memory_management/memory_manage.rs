@@ -415,7 +415,21 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let slice = pool.find(&binding)?;
 
-        assert_eq!(slice.handle.descriptor(), binding.descriptor());
+        // Re-check what the pool handed back: a stale binding must never resolve to
+        // a *different* live buffer. This used to be an `assert_eq!` — which is how a
+        // renumbered page, pointing a binding at the wrong survivor, took down the
+        // dispatch thread — so return a graceful `NotFound` instead.
+        if slice.handle.descriptor() != binding.descriptor() {
+            return Err(IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: format!(
+                    "Resolved slice id {:?} does not match requested binding id {:?}",
+                    slice.handle.descriptor().id,
+                    binding.descriptor().id,
+                )
+                .into(),
+            });
+        }
 
         Ok(slice)
     }
@@ -1097,5 +1111,129 @@ mod tests {
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
         assert_eq!(usage_before.bytes_in_use, usage_after.bytes_in_use);
         assert_eq!(usage_before.bytes_reserved, usage_after.bytes_reserved);
+    }
+
+    /// Repro for the cubecl-cuda `DSD-0-0` panic
+    /// `couldn't find resource for that handle: Memory page N doesn't exist`
+    /// (cubecl-cuda/src/compute/stream.rs:154 -> `get_cursor(..).unwrap()`).
+    ///
+    /// The crash is a single-threaded stale-page-index bug, not a data race:
+    /// `bind` reassigns a page's `slice.handle` to a *new* descriptor and orphans
+    /// the previous one, then `ExclusiveMemoryPool::cleanup` renumbers the
+    /// surviving page by writing the new index into the *current* handle only.
+    /// A binding that still references the orphaned descriptor keeps a stale page
+    /// index; a later `get_cursor` indexes a page past `pages.len()`.
+    #[test_log::test]
+    fn repro_stale_page_after_bind_and_cleanup() {
+        let mut mm = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            // Force the exclusive pool: only `ExclusiveMemoryPool` renumbers pages
+            // in cleanup and only it mints the "Memory page N doesn't exist"
+            // message. The default `SubSlices`/`SlicedPool` cannot reproduce it.
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::ExclusivePages {
+                        max_alloc_size: 1024,
+                    },
+                    dealloc_period: Some(5),
+                }],
+            },
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        // Three live exclusive pages: 0, 1, 2 (each kept alive so every reserve
+        // allocates a fresh page rather than reusing one).
+        let h0 = mm.reserve(100).unwrap();
+        let h1 = mm.reserve(100).unwrap();
+        let reserved = mm.reserve(100).unwrap(); // page 2, descriptor R
+
+        // A binding that outlives `bind` and keeps the orphaned descriptor R alive.
+        let orphan = reserved.clone().binding();
+
+        // `bind` moves page 2's `slice.handle` to `assigned` (M) and copies R's
+        // location into M. R is now orphaned: still carrying page = 2, but no
+        // longer the page's handle.
+        let assigned = ManagedMemoryHandle::new();
+        mm.bind(reserved, assigned.clone(), 7).unwrap();
+
+        // Free pages 0 and 1 so the next cleanup deallocates them and renumbers
+        // the survivor (page 2 -> 0).
+        drop(h0);
+        drop(h1);
+
+        // Explicit cleanup: deallocs the two free pages, renumbers the survivor M
+        // (2 -> 0) via `update_page` on M's descriptor only; R is never updated.
+        // `assigned` (M) is still alive here, so page 2 survives the cleanup.
+        mm.cleanup(true);
+
+        // Looking the orphan up indexes `pages[2]` on a length-1 Vec -> NotFound.
+        let result = mm.get_cursor(orphan);
+        drop(assigned);
+
+        let err = result.expect_err("orphaned descriptor currently fails to resolve (the bug)");
+        let msg = alloc::format!("{err:?}");
+        assert!(
+            msg.contains("Memory page"),
+            "expected the stale-page NotFound, got: {msg}"
+        );
+    }
+
+    /// Companion to [`repro_stale_page_after_bind_and_cleanup`] for the *other*
+    /// panic shape. Here the orphaned descriptor's stale page index stays
+    /// **in bounds** after the cleanup renumber but points at a *different*
+    /// survivor. `find` then returns the wrong slice and the
+    /// `assert_eq!(slice.handle.descriptor(), binding.descriptor())` at the end
+    /// of `MemoryManagement::find` panics — a second crash shape, this one inside
+    /// cubecl-runtime itself rather than at the cuda `unwrap`.
+    ///
+    /// On clean `main` this test panics at that assert. After the fix it must
+    /// resolve gracefully (a clean `NotFound`, no panic).
+    #[test_log::test]
+    fn repro_stale_page_inbounds_wrong_survivor() {
+        let mut mm = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::ExclusivePages {
+                        max_alloc_size: 1024,
+                    },
+                    dealloc_period: Some(5),
+                }],
+            },
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        let h0 = mm.reserve(100).unwrap(); // page 0
+        let reserved1 = mm.reserve(100).unwrap(); // page 1, descriptor R
+        let orphan = reserved1.clone().binding();
+
+        // Orphan page 1: its handle becomes M1, R keeps page = 1.
+        let assigned1 = ManagedMemoryHandle::new();
+        mm.bind(reserved1, assigned1.clone(), 7).unwrap();
+
+        let h2 = mm.reserve(100).unwrap(); // page 2
+
+        // Free page 0 only; M1 and h2 stay alive and survive the cleanup.
+        drop(h0);
+
+        // cleanup deallocs page 0 and renumbers survivors: M1 (1 -> 0), h2 (2 -> 1).
+        // R still carries page = 1, which is now h2's slot (in bounds, wrong id).
+        mm.cleanup(true);
+
+        let result = mm.get_cursor(orphan);
+        drop(assigned1);
+        drop(h2);
+
+        // Post-fix expectation: a graceful error, never a panic.
+        let err = result.expect_err("a retired binding must not resolve to a different buffer");
+        let msg = alloc::format!("{err:?}");
+        assert!(
+            msg.contains("Memory page") || msg.contains("doesn't"),
+            "expected a graceful NotFound, got: {msg}"
+        );
     }
 }
