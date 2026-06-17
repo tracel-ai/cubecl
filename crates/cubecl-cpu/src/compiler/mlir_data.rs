@@ -105,7 +105,7 @@ impl MlirData {
         };
 
         for resource in resources {
-            let (ptr, len) = resource.get_write_ptr_and_length();
+            let (ptr, len) = resource.resource().get_write_ptr_and_length();
             let line_memref = LineMemRef::new(ptr, len);
             push_undirected(line_memref);
         }

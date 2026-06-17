@@ -295,14 +295,29 @@ impl<'a> Command<'a> {
 
         let resource = self.resource(binding)?;
         let size = data.len();
-        let data = match data.property() {
-            AllocationProperty::File => {
+
+        let property = data.property();
+
+        // Transfers up to this size go through a pinned staging buffer (faster DMA).
+        const STAGE_MAX: usize = 100 * MB;
+        // Above this size we flush the drop queue so the source buffer is released promptly.
+        const FLUSH_MIN: usize = 10 * MB;
+
+        // Stage file-backed data, and small host data that isn't already pinned. Re-staging
+        // already-pinned memory would be a redundant pinned-to-pinned copy.
+        let should_stage = matches!(property, AllocationProperty::File)
+            || (size < STAGE_MAX && !matches!(property, AllocationProperty::Pinned));
+        let should_flush = size > FLUSH_MIN || matches!(property, AllocationProperty::File);
+
+        let data = match should_stage {
+            true => {
                 let mut buffer = self.reserve_pinned(size, None).unwrap();
                 data.copy_into(&mut buffer);
                 buffer
             }
-            _ => data,
+            false => data,
         };
+
         let current = self.streams.current();
 
         // SAFETY: `resource` is a valid GPU allocation, `data` is a valid host buffer,
@@ -313,6 +328,10 @@ impl<'a> Command<'a> {
         };
 
         current.drop_queue.push(data);
+
+        if should_flush {
+            current.drop_queue.flush(|| Fence::new(current.sys));
+        }
 
         Ok(())
     }

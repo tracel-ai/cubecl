@@ -6,7 +6,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::{
     logging::ServerLogger,
-    storage::BytesResource,
+    storage::{BytesResource, ManagedResource},
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
 use std::sync::Arc;
@@ -17,7 +17,7 @@ pub enum ScheduleTask {
     Write {
         stream_id: StreamId,
         data: Bytes,
-        buffer: BytesResource,
+        buffer: ManagedResource<BytesResource>,
     },
     /// Represents a task to execute a kernel.
     Execute {
@@ -65,7 +65,7 @@ impl core::fmt::Debug for ScheduleTask {
 #[derive(Debug)]
 pub struct BindingsResource {
     /// List of cpu resources used in the task.
-    pub resources: Vec<BytesResource>,
+    pub resources: Vec<ManagedResource<BytesResource>>,
     /// Metadata for uniform bindings.
     pub info: MetadataBindingInfo,
 }

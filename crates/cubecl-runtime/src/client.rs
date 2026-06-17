@@ -13,6 +13,9 @@ use crate::{
     storage::{ComputeStorage, ManagedResource},
 };
 use alloc::{format, sync::Arc, vec, vec::Vec};
+
+#[cfg(not(target_family = "wasm"))]
+mod lazy;
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::{AllocationProperty, Bytes},
@@ -193,6 +196,51 @@ impl<R: Runtime> ComputeClient<R> {
         self.read_tensor(vec![descriptor]).remove(0)
     }
 
+    /// Reads the device resource described by `descriptor` lazily.
+    ///
+    /// The returned [`Bytes`] only performs the device-to-host copy on first access (e.g. during
+    /// serialization), keeping the source allocation alive until then. This lets a large number of
+    /// device tensors be serialized without materializing them all in host memory at once: drain
+    /// the [`Bytes`] sequentially rather than holding them all alive.
+    ///
+    /// The data reflects the device state at first access, so the buffer must not be mutated
+    /// between this call and the first read.
+    pub fn read_lazy(&self, descriptor: CopyDescriptor) -> Bytes {
+        let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
+        let controller = lazy::LazyDeviceController::new(self.clone(), Arc::new(descriptor));
+        // SAFETY: the controller materializes exactly `len` bytes on first access.
+        unsafe { Bytes::from_controller(alloc::boxed::Box::new(controller), len) }
+    }
+
+    /// Reads the device resource described by `descriptor` lazily, async variant.
+    ///
+    /// On native targets the returned future is immediately ready and yields a lazy [`Bytes`]
+    /// whose device-to-host copy is deferred to first access (see [`read_lazy`](Self::read_lazy)).
+    #[cfg(not(target_family = "wasm"))]
+    pub fn read_lazy_async(
+        &self,
+        descriptor: CopyDescriptor,
+    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
+        let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
+        let controller = lazy::LazyDeviceController::new(self.clone(), Arc::new(descriptor));
+        // SAFETY: the controller materializes exactly `len` bytes on first access.
+        let bytes = unsafe { Bytes::from_controller(alloc::boxed::Box::new(controller), len) };
+        core::future::ready(Ok(bytes))
+    }
+
+    /// Reads the device resource described by `descriptor` lazily, async variant.
+    ///
+    /// On `wasm` the deferred copy cannot run inside the synchronous access path, so awaiting
+    /// performs the read eagerly and yields a materialized [`Bytes`]. Awaiting one tensor at a
+    /// time still bounds peak host memory, which is the point of the lazy API.
+    #[cfg(target_family = "wasm")]
+    pub fn read_lazy_async(
+        &self,
+        descriptor: CopyDescriptor,
+    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
+        self.read_one_tensor_async(descriptor)
+    }
+
     /// Given a resource handle, returns the storage resource.
     pub fn get_resource(
         &self,
@@ -246,10 +294,8 @@ impl<R: Runtime> ComputeClient<R> {
     fn do_create(
         &self,
         descriptors: Vec<MemoryLayoutDescriptor>,
-        mut data: Vec<Bytes>,
+        data: Vec<Bytes>,
     ) -> Result<Vec<MemoryLayout>, IoError> {
-        self.staging(data.iter_mut(), true);
-
         let stream_id = self.stream_id();
         let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
 
@@ -265,7 +311,7 @@ impl<R: Runtime> ComputeClient<R> {
                         layout.strides.clone(),
                         desc.elem_size,
                     ),
-                    Bytes::from_bytes_vec(data.to_vec()),
+                    data,
                 )
             })
             .collect::<Vec<_>>();
@@ -499,6 +545,9 @@ impl<R: Runtime> ComputeClient<R> {
         let has_staging = |b: &Bytes| match b.property() {
             AllocationProperty::Pinned => false,
             AllocationProperty::File => true,
+            // A lazily device-backed buffer materializes on access and is staged (if needed)
+            // by the backend write path, so don't force it into a host staging buffer here.
+            AllocationProperty::Device => false,
             AllocationProperty::Native | AllocationProperty::Other => !file_only,
         };
 
