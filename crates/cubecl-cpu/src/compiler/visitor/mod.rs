@@ -61,6 +61,16 @@ pub struct Visitor<'a> {
     pub(self) args_manager: ArgsManager<'a>,
     pub liveness: Rc<MemoryLiveness>,
     pub mutable_variables: Vec<Id>,
+    pub(self) stack_saves: HashMap<Id, StackSave<'a>>,
+    pub(self) stack_save_counter: usize,
+    pub(self) current_node: NodeIndex,
+}
+
+#[derive(Clone, Copy)]
+pub(self) struct StackSave<'a> {
+    pub stack_pointer: Value<'a, 'a>,
+    pub seq: usize,
+    pub alloc_block: NodeIndex,
 }
 
 impl<'a> Visitor<'a> {
@@ -100,6 +110,9 @@ impl<'a> Visitor<'a> {
             values,
             liveness,
             mutable_variables,
+            stack_saves: HashMap::new(),
+            stack_save_counter: 0,
+            current_node: NodeIndex::new(0),
         }
     }
 

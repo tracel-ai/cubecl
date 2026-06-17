@@ -3,7 +3,10 @@ use std::ops::Deref;
 use cubecl_core::ir::Id;
 use cubecl_opt::{ControlFlow, Function, NodeIndex};
 use tracel_llvm::mlir_rs::{
-    dialect::{cf, memref, ods::llvm},
+    dialect::{
+        cf,
+        ods::llvm::{self, intr_stackrestore},
+    },
     ir::{Block, BlockLike, BlockRef, RegionLike, Value},
 };
 
@@ -16,33 +19,49 @@ impl<'a> Visitor<'a> {
             .any(|succ| !self.liveness.is_dead(*succ, var))
     }
 
-    fn free_memory_start_of_block(&mut self, func: &Function, block_id: NodeIndex) {
-        let to_free = self.mutable_variables.iter().filter(|&&var| {
-            self.liveness.is_dead(block_id, var)
-                && func
-                    .predecessors(block_id)
-                    .iter()
-                    .any(|pred| self.is_live_out(func, *pred, var))
-        });
-        for var in to_free {
-            let alloc = self.values.get(&var).unwrap();
-            self.block
-                .append_operation(memref::dealloc(*alloc, self.location));
-        }
-    }
-
-    fn free_memory_end_of_block(&mut self, func: &Function, current_block: NodeIndex) {
-        if !func.successors(current_block).is_empty() {
-            return;
-        }
-        let to_free = self
+    fn free_memory_start_of_block(&mut self, func: &Function) {
+        let dying = self
             .mutable_variables
             .iter()
-            .filter(|&&var| !self.liveness.is_dead(current_block, var));
-        for var in to_free {
-            let alloc = self.values.get(&var).unwrap();
-            self.block
-                .append_operation(memref::dealloc(*alloc, self.location));
+            .copied()
+            .filter(|&var| {
+                self.liveness.is_dead(self.current_node, var)
+                    && func
+                        .predecessors(self.current_node)
+                        .iter()
+                        .any(|pred| self.is_live_out(func, *pred, var))
+            })
+            .collect::<Vec<_>>();
+        self.restore_stack_for(&dying);
+    }
+
+    fn free_memory_end_of_block(&mut self, func: &Function) {
+        let dying = self
+            .mutable_variables
+            .iter()
+            .copied()
+            .filter(|&var| {
+                let allocated_here =
+                    self.stack_saves.get(&var).map(|s| s.alloc_block) == Some(self.current_node);
+                let live_in = !self.liveness.is_dead(self.current_node, var);
+                (allocated_here || live_in) && !self.is_live_out(func, self.current_node, var)
+            })
+            .collect::<Vec<_>>();
+        self.restore_stack_for(&dying);
+    }
+
+    /// Emit a single `stackrestore` to the earliest stack pointer saved among `dying`
+    fn restore_stack_for(&self, dying: &[Id]) {
+        let earliest = dying
+            .iter()
+            .filter_map(|var| self.stack_saves.get(var).copied())
+            .min_by_key(|save| save.seq);
+        if let Some(save) = earliest {
+            self.block.append_operation(intr_stackrestore(
+                self.context,
+                save.stack_pointer,
+                self.location,
+            ));
         }
     }
 
@@ -83,14 +102,15 @@ impl<'a> Visitor<'a> {
         self.block = this_block;
 
         self.blocks.insert(block_id, this_block);
+        self.current_node = block_id;
 
-        self.free_memory_start_of_block(func, block_id);
+        self.free_memory_start_of_block(func);
 
         for (_, instruction) in basic_block.ops.borrow().iter() {
             self.visit_instruction(instruction);
         }
 
-        self.free_memory_end_of_block(func, block_id);
+        self.free_memory_end_of_block(func);
 
         match basic_block.control_flow.borrow().deref() {
             ControlFlow::IfElse {
