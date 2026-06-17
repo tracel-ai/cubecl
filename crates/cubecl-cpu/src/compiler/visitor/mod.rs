@@ -14,7 +14,7 @@ use cubecl_core::{
     ir::{self as cube, Builtin, Id, StorageType},
     prelude::KernelDefinition,
 };
-use cubecl_opt::{Function, GlobalState, Liveness, NodeIndex};
+use cubecl_opt::{Function, GlobalState, MemoryLiveness, NodeIndex};
 use std::rc::Rc;
 use tracel_llvm::mlir_rs::{
     Context,
@@ -59,7 +59,7 @@ pub struct Visitor<'a> {
 
     pub(self) values: Values<'a>,
     pub(self) args_manager: ArgsManager<'a>,
-    pub liveness: Rc<Liveness>,
+    pub liveness: Rc<MemoryLiveness>,
     pub mutable_variables: Vec<Id>,
 }
 
@@ -73,7 +73,7 @@ impl<'a> Visitor<'a> {
         context: &'a Context,
         location: Location<'a>,
         args_manager: ArgsManager<'a>,
-        liveness: Rc<Liveness>,
+        liveness: Rc<MemoryLiveness>,
     ) -> Self {
         let blocks = HashMap::new();
         let blocks_args = HashMap::new();
@@ -188,7 +188,7 @@ impl<'a> Visitor<'a> {
 
         add_external_function_to_module(context, module);
         add_sync_cube_function(context, module).unwrap();
-        let liveness = func.analysis::<Liveness>(global_state);
+        let liveness = func.analysis::<MemoryLiveness>(global_state);
         module.body().append_operation(func::func(
             context,
             name,
@@ -217,7 +217,7 @@ impl<'a> Visitor<'a> {
         context: &'a Context,
         location: Location<'a>,
         mut args: ArgsManager<'a>,
-        liveness: Rc<Liveness>,
+        liveness: Rc<MemoryLiveness>,
     ) -> Result<(), Error> {
         let basic_block_id = func.root;
         let integer_type = IntegerType::new(context, 32).into();

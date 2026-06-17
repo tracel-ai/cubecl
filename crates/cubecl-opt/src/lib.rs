@@ -80,10 +80,14 @@ pub use petgraph::graph::{EdgeIndex, NodeIndex};
 pub use transformers::*;
 pub use version::PhiInstruction;
 
-pub use crate::analyses::liveness::Liveness;
+pub use crate::analyses::liveness::MemoryLiveness;
 pub use crate::analyses::liveness::shared::SharedLiveness;
 use crate::{
-    analyses::{dominance::Dominators, liveness::Captures, pointer_source::PointerSource},
+    analyses::{
+        dominance::Dominators,
+        liveness::{Captures, Liveness},
+        pointer_source::PointerSource,
+    },
     passes::{CopyTransform, DisaggregateArray},
 };
 

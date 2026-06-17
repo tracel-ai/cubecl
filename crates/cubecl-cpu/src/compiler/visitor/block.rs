@@ -1,5 +1,6 @@
 use std::ops::Deref;
 
+use cubecl_core::ir::Id;
 use cubecl_opt::{ControlFlow, Function, NodeIndex};
 use tracel_llvm::mlir_rs::{
     dialect::{cf, memref, ods::llvm},
@@ -9,18 +10,39 @@ use tracel_llvm::mlir_rs::{
 use super::prelude::*;
 
 impl<'a> Visitor<'a> {
-    fn free_memory_end_of_block(&mut self, current_block: NodeIndex, next_blocks: &[NodeIndex]) {
-        for &var in &self.mutable_variables {
-            let is_still_alive = !self.liveness.is_dead(current_block, var);
-            let will_die = next_blocks
-                .iter()
-                .all(|block| self.liveness.is_dead(*block, var));
-            println!("{} {}", is_still_alive, will_die);
-            if is_still_alive && will_die {
-                let alloc = self.values.get(&var).unwrap();
-                self.block
-                    .append_operation(memref::dealloc(*alloc, self.location));
-            }
+    fn is_live_out(&self, func: &Function, block: NodeIndex, var: Id) -> bool {
+        func.successors(block)
+            .iter()
+            .any(|succ| !self.liveness.is_dead(*succ, var))
+    }
+
+    fn free_memory_start_of_block(&mut self, func: &Function, block_id: NodeIndex) {
+        let to_free = self.mutable_variables.iter().filter(|&&var| {
+            self.liveness.is_dead(block_id, var)
+                && func
+                    .predecessors(block_id)
+                    .iter()
+                    .any(|pred| self.is_live_out(func, *pred, var))
+        });
+        for var in to_free {
+            let alloc = self.values.get(&var).unwrap();
+            self.block
+                .append_operation(memref::dealloc(*alloc, self.location));
+        }
+    }
+
+    fn free_memory_end_of_block(&mut self, func: &Function, current_block: NodeIndex) {
+        if !func.successors(current_block).is_empty() {
+            return;
+        }
+        let to_free = self
+            .mutable_variables
+            .iter()
+            .filter(|&&var| !self.liveness.is_dead(current_block, var));
+        for var in to_free {
+            let alloc = self.values.get(&var).unwrap();
+            self.block
+                .append_operation(memref::dealloc(*alloc, self.location));
         }
     }
 
@@ -62,11 +84,13 @@ impl<'a> Visitor<'a> {
 
         self.blocks.insert(block_id, this_block);
 
+        self.free_memory_start_of_block(func, block_id);
+
         for (_, instruction) in basic_block.ops.borrow().iter() {
             self.visit_instruction(instruction);
         }
 
-        self.free_memory_end_of_block(block_id, &func.successors(block_id));
+        self.free_memory_end_of_block(func, block_id);
 
         match basic_block.control_flow.borrow().deref() {
             ControlFlow::IfElse {
