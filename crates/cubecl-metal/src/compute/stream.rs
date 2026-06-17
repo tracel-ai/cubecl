@@ -99,6 +99,10 @@ pub struct MetalStream {
     /// GPU command-buffer faults recorded asynchronously by completion handlers; a
     /// non-empty sink poisons the stream (see [`MetalStreamBackend::is_healthy`]).
     pub errors: Arc<Mutex<Vec<ServerError>>>,
+    /// When `Some`, device profiling is active on this stream: each work-bearing command
+    /// buffer committed during the window is collected here so its GPU timestamps
+    /// (`GPUStartTime`/`GPUEndTime`) can be read after completion.
+    pub profiling: Option<Vec<Retained<ProtocolObject<dyn MTLCommandBuffer>>>>,
 }
 
 impl std::fmt::Debug for MetalStream {
@@ -295,6 +299,7 @@ impl EventStreamBackend for MetalStreamBackend {
             max_submitted_ops,
             last_command_buffer: None,
             errors: Arc::new(Mutex::new(Vec::new())),
+            profiling: None,
         }
     }
 
@@ -335,6 +340,15 @@ impl EventStreamBackend for MetalStreamBackend {
         };
 
         let ops_in_batch = stream.batch_ops;
+
+        // While profiling, collect command buffers that actually carried dispatches; skip
+        // empty signal-only buffers (ops_in_batch == 0) so they don't widen the measured span.
+        if ops_in_batch > 0 {
+            if let Some(buffers) = stream.profiling.as_mut() {
+                buffers.push(command_buffer.clone());
+            }
+        }
+
         stream.last_command_buffer = Some(command_buffer);
 
         stream.batch_ops = 0;

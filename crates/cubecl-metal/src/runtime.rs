@@ -93,7 +93,7 @@ impl DeviceService for MetalServer {
             Default::default(),
             mem_props.clone(),
             hardware_props,
-            TimingMethod::System,
+            TimingMethod::Device,
         );
 
         register_metal_features(&mut device_props);

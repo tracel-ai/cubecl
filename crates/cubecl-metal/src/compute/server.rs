@@ -4,7 +4,11 @@ use crate::{
     compute::stream::MetalStreamBackend,
     memory::{MetalBufferHandle, MetalStorage},
 };
-use cubecl_common::{bytes::Bytes, stream_id::StreamId};
+use cubecl_common::{
+    bytes::Bytes,
+    profile::{Duration, Instant, ProfileDuration, ProfileTicks},
+    stream_id::StreamId,
+};
 use cubecl_core::{
     MemoryConfiguration,
     future::DynFut,
@@ -26,7 +30,7 @@ use cubecl_runtime::{
 };
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2_metal::MTLDevice;
+use objc2_metal::{MTLCommandBuffer, MTLDevice};
 use std::sync::Arc;
 
 enum DispatchInfo {
@@ -554,8 +558,13 @@ impl ComputeServer for MetalServer {
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
+        // Drain prior work so the window only contains command buffers committed from here on.
         if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
             log::warn!("{err}");
+        }
+        // Begin collecting this window's work-bearing command buffers on the stream.
+        if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
+            resolved.current().profiling = Some(Vec::new());
         }
         Ok(self.timestamps.start())
     }
@@ -564,14 +573,60 @@ impl ComputeServer for MetalServer {
         &mut self,
         stream_id: StreamId,
         token: ProfilingToken,
-    ) -> Result<cubecl_common::profile::ProfileDuration, ProfileError> {
+    ) -> Result<ProfileDuration, ProfileError> {
+        // Flush the final encoder and wait for GPU completion so timestamps are valid.
         if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+            // Drop any collected buffers so a retry can't accumulate stale work.
+            if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
+                resolved.current().profiling = None;
+            }
             self.timestamps.error(ProfileError::Unknown {
                 reason: format!("{err}"),
                 backtrace: cubecl_common::backtrace::BackTrace::capture(),
             });
         }
-        self.timestamps.stop(token)
+
+        // Clear the token (propagates any recorded profiling error). Its system-time result
+        // is discarded in favor of GPU timestamps below.
+        self.timestamps.stop(token)?;
+
+        let buffers = self
+            .streams
+            .resolve(stream_id, std::iter::empty(), false)
+            .ok()
+            .and_then(|mut resolved| resolved.current().profiling.take())
+            .unwrap_or_default();
+
+        // `sync()` waits on the stream's shared event, which can be signaled slightly before
+        // a command buffer reaches `Completed` status. `GPUStartTime`/`GPUEndTime` are only
+        // valid once completed, so wait explicitly before reading them.
+        for buffer in &buffers {
+            buffer.waitUntilCompleted();
+        }
+
+        // GPU wall-time of the window: latest end minus earliest start across the
+        // work-bearing command buffers. Empty window => zero, still device-timed.
+        let mut start_s = f64::INFINITY;
+        let mut end_s = f64::NEG_INFINITY;
+        for buffer in &buffers {
+            start_s = start_s.min(buffer.GPUStartTime());
+            end_s = end_s.max(buffer.GPUEndTime());
+        }
+
+        let span = if buffers.is_empty() {
+            Duration::ZERO
+        } else if !start_s.is_finite() || !end_s.is_finite() {
+            log::warn!(
+                "Metal device profiling read non-finite GPU timestamps (start={start_s}, end={end_s}); reporting zero"
+            );
+            Duration::ZERO
+        } else {
+            Duration::from_secs_f64((end_s - start_s).max(0.0))
+        };
+
+        let base = Instant::now();
+        let ticks = ProfileTicks::from_start_end(base, base + span);
+        Ok(ProfileDuration::new_device_time(async move { ticks }))
     }
 
     fn get_resource(

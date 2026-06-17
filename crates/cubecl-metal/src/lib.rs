@@ -12,6 +12,8 @@ pub(crate) type MetalCompiler = cubecl_cpp::shared::CppCompiler<cubecl_cpp::meta
 mod tests_expm1;
 #[cfg(test)]
 mod tests_multistream;
+#[cfg(test)]
+mod tests_profiling;
 
 #[cfg(test)]
 mod tests {
