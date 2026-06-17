@@ -2,13 +2,28 @@ use std::ops::Deref;
 
 use cubecl_opt::{ControlFlow, Function, NodeIndex};
 use tracel_llvm::mlir_rs::{
-    dialect::{cf, ods::llvm},
+    dialect::{cf, memref, ods::llvm},
     ir::{Block, BlockLike, BlockRef, RegionLike, Value},
 };
 
 use super::prelude::*;
 
 impl<'a> Visitor<'a> {
+    fn free_memory_end_of_block(&mut self, current_block: NodeIndex, next_blocks: &[NodeIndex]) {
+        for &var in &self.mutable_variables {
+            let is_still_alive = !self.liveness.is_dead(current_block, var);
+            let will_die = next_blocks
+                .iter()
+                .all(|block| self.liveness.is_dead(*block, var));
+            println!("{} {}", is_still_alive, will_die);
+            if is_still_alive && will_die {
+                let alloc = self.values.get(&var).unwrap();
+                self.block
+                    .append_operation(memref::dealloc(*alloc, self.location));
+            }
+        }
+    }
+
     pub fn visit_basic_block(&mut self, block_id: NodeIndex, func: &Function) -> BlockRef<'a, 'a> {
         if let Some(block) = self.blocks.get(&block_id) {
             return *block;
@@ -46,9 +61,12 @@ impl<'a> Visitor<'a> {
         self.block = this_block;
 
         self.blocks.insert(block_id, this_block);
+
         for (_, instruction) in basic_block.ops.borrow().iter() {
             self.visit_instruction(instruction);
         }
+
+        self.free_memory_end_of_block(block_id, &func.successors(block_id));
 
         match basic_block.control_flow.borrow().deref() {
             ControlFlow::IfElse {

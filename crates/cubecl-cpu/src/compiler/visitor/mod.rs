@@ -11,10 +11,11 @@ use std::collections::HashMap;
 
 use args_manager::{ArgsManager, ArgsManagerBuilder};
 use cubecl_core::{
-    ir::{self as cube, Builtin, StorageType},
+    ir::{self as cube, Builtin, Id, StorageType},
     prelude::KernelDefinition,
 };
-use cubecl_opt::{Function, NodeIndex};
+use cubecl_opt::{Function, GlobalState, Liveness, NodeIndex};
+use std::rc::Rc;
 use tracel_llvm::mlir_rs::{
     Context,
     dialect::{
@@ -58,6 +59,8 @@ pub struct Visitor<'a> {
 
     pub(self) values: Values<'a>,
     pub(self) args_manager: ArgsManager<'a>,
+    pub liveness: Rc<Liveness>,
+    pub mutable_variables: Vec<Id>,
 }
 
 impl<'a> Visitor<'a> {
@@ -70,11 +73,13 @@ impl<'a> Visitor<'a> {
         context: &'a Context,
         location: Location<'a>,
         args_manager: ArgsManager<'a>,
+        liveness: Rc<Liveness>,
     ) -> Self {
         let blocks = HashMap::new();
         let blocks_args = HashMap::new();
         let str_counter = 0;
         let mut values = Values::new();
+        let mutable_variables = Vec::new();
 
         for (&id, &buffer) in args_manager.buffers.iter() {
             values.insert(id, buffer);
@@ -93,6 +98,8 @@ impl<'a> Visitor<'a> {
             str_counter,
             args_manager,
             values,
+            liveness,
+            mutable_variables,
         }
     }
 
@@ -163,7 +170,8 @@ impl<'a> Visitor<'a> {
         location: Location<'a>,
         kernel: &'b KernelDefinition,
         module: &tracel_llvm::mlir_rs::ir::Module<'a>,
-        func: &Function,
+        func: &mut Function,
+        global_state: &GlobalState,
         shared_memories: &SharedMemories,
         addr_type: StorageType,
     ) {
@@ -180,6 +188,7 @@ impl<'a> Visitor<'a> {
 
         add_external_function_to_module(context, module);
         add_sync_cube_function(context, module).unwrap();
+        let liveness = func.analysis::<Liveness>(global_state);
         module.body().append_operation(func::func(
             context,
             name,
@@ -189,7 +198,8 @@ impl<'a> Visitor<'a> {
                 let args = args.create_top_block(&region, context, location);
                 let block = region.first_block().unwrap();
 
-                Self::insert_builtin_loop(block, module, func, context, location, args).unwrap();
+                Self::insert_builtin_loop(block, module, func, context, location, args, liveness)
+                    .unwrap();
 
                 block.append_operation(func::r#return(&[], location));
 
@@ -207,6 +217,7 @@ impl<'a> Visitor<'a> {
         context: &'a Context,
         location: Location<'a>,
         mut args: ArgsManager<'a>,
+        liveness: Rc<Liveness>,
     ) -> Result<(), Error> {
         let basic_block_id = func.root;
         let integer_type = IntegerType::new(context, 32).into();
@@ -370,6 +381,7 @@ impl<'a> Visitor<'a> {
                                     context,
                                     location,
                                     args,
+                                    liveness.clone(),
                                 );
                                 visitor.visit_basic_block(basic_block_id, func);
 

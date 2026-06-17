@@ -37,7 +37,7 @@ use core::{
 };
 
 use alloc::{boxed::Box, collections::vec_deque::VecDeque, rc::Rc, vec, vec::Vec};
-use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::LocalStores};
+use analyses::{AnalysisCache, dominance::DomFrontiers, writes::LocalStores};
 use cubecl_core::{
     CubeDim,
     post_processing::{
@@ -80,6 +80,7 @@ pub use petgraph::graph::{EdgeIndex, NodeIndex};
 pub use transformers::*;
 pub use version::PhiInstruction;
 
+pub use crate::analyses::liveness::Liveness;
 pub use crate::analyses::liveness::shared::SharedLiveness;
 use crate::{
     analyses::{dominance::Dominators, liveness::Captures, pointer_source::PointerSource},

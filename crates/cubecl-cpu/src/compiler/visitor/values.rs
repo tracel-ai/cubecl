@@ -33,18 +33,15 @@ impl<'a> Visitor<'a> {
         let align_ty = IntegerType::new(self.context, 64);
         let alignment = IntegerAttribute::new(align_ty.into(), alignment as i64);
         let memref_type = MemRefType::new(r#type, &[length as i64], None, None);
-        let value = self
-            .first_block
-            .unwrap()
-            .append_op_result(memref::alloca(
-                self.context,
-                memref_type,
-                &[],
-                &[],
-                Some(alignment),
-                self.location,
-            ))
-            .unwrap();
+        let value = self.append_operation_with_result(memref::alloc(
+            self.context,
+            memref_type,
+            &[],
+            &[],
+            Some(alignment),
+            self.location,
+        ));
+        self.mutable_variables.push(cube_value.id());
         self.values.insert(cube_value.id(), value);
     }
 
