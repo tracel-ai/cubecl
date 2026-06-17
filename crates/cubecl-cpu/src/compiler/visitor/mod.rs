@@ -67,7 +67,7 @@ pub struct Visitor<'a> {
 }
 
 #[derive(Clone, Copy)]
-pub(self) struct StackSave<'a> {
+pub struct StackSave<'a> {
     pub stack_pointer: Value<'a, 'a>,
     pub seq: usize,
     pub alloc_block: NodeIndex,
@@ -75,7 +75,7 @@ pub(self) struct StackSave<'a> {
 
 impl<'a> Visitor<'a> {
     #[allow(clippy::too_many_arguments)]
-    pub(self) fn new(
+    pub fn new(
         current_block: BlockRef<'a, 'a>,
         last_block: BlockRef<'a, 'a>,
         module: &'a Module<'a>,
@@ -178,6 +178,7 @@ impl<'a> Visitor<'a> {
             .into()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn visit_kernel<'b: 'a>(
         context: &'a Context,
         location: Location<'a>,

@@ -255,7 +255,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
     }
 }
 
-pub(super) struct ArgsManager<'a> {
+pub struct ArgsManager<'a> {
     pub buffers: HashMap<Id, Value<'a, 'a>>,
     pub scalars_memref: HashMap<StorageType, Value<'a, 'a>>,
     pub static_metadata_memref: Option<Value<'a, 'a>>,
