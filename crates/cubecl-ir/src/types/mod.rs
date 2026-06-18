@@ -9,7 +9,7 @@ use crate::{
         AlignedType, IndexableType, MaybePackedType, MaybeVectorizedType, ScalarType,
         ScalarizableType, TypedExt, aligned, scalar,
     },
-    pliron::prelude::*,
+    prelude::*,
 };
 
 pub mod aggregate;
@@ -29,8 +29,8 @@ pub use matrix::{MatrixIdent, MatrixLayout, MatrixScope, MatrixShape};
 )]
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 pub struct PackedType {
-    inner: Ptr<TypeObj>,
-    packing_factor: usize,
+    pub inner: TypeHandle,
+    pub packing_factor: usize,
 }
 scalar!(PackedType);
 
@@ -38,7 +38,7 @@ scalar!(PackedType);
 impl ScalarType for PackedType {
     fn storage_type(&self, ctx: &Context) -> StorageType {
         let inner = self.inner.deref(ctx);
-        let inner_scalar = type_cast::<dyn ScalarType>(inner.as_ref()).unwrap();
+        let inner_scalar = type_cast::<dyn ScalarType>(&*inner).unwrap();
         let inner_ty = inner_scalar.storage_type(ctx).elem_type();
         StorageType::Packed(inner_ty, self.packing_factor)
     }
@@ -60,8 +60,8 @@ impl AlignedType for PackedType {
 
 #[type_interface_impl]
 impl ScalarizableType for PackedType {
-    fn scalar_type(&self, ctx: &Context) -> Ptr<TypeObj> {
-        self.get_self_ptr(ctx)
+    fn scalar_type(&self, ctx: &Context) -> TypeHandle {
+        self.get_self_handle(ctx)
     }
 }
 
@@ -73,7 +73,7 @@ impl ScalarizableType for PackedType {
 )]
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 pub struct VectorType {
-    pub inner: Ptr<TypeObj>,
+    pub inner: TypeHandle,
     pub vectorization: usize,
 }
 
@@ -100,7 +100,7 @@ impl AlignedType for VectorType {
 
 #[type_interface_impl]
 impl ScalarizableType for VectorType {
-    fn scalar_type(&self, _ctx: &Context) -> Ptr<TypeObj> {
+    fn scalar_type(&self, _ctx: &Context) -> TypeHandle {
         self.inner
     }
 }
@@ -113,7 +113,7 @@ impl ScalarizableType for VectorType {
 )]
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 pub struct AtomicType {
-    pub inner: Ptr<TypeObj>,
+    pub inner: TypeHandle,
 }
 
 #[type_interface_impl]
@@ -131,14 +131,14 @@ impl AlignedType for AtomicType {
 }
 
 #[pliron_type(
-    name = "cube.pointer",
-    format = "`ptr<` $inner `, ` $address_space `>`",
+    name = "cube.ptr",
+    format = "`<` $inner `, ` $address_space `>`",
     generate_get = true,
     verifier = "succ"
 )]
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
 pub struct PointerType {
-    pub inner: Ptr<TypeObj>,
+    pub inner: TypeHandle,
     pub address_space: AddressSpace,
 }
 aligned!(PointerType, align_of::<u64>());
@@ -165,7 +165,7 @@ impl MaybePackedType for PointerType {
 )]
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
 pub struct ArrayType {
-    pub inner: Ptr<TypeObj>,
+    pub inner: TypeHandle,
     pub length: usize,
 }
 
@@ -185,7 +185,7 @@ impl AlignedType for ArrayType {
 
 #[type_interface_impl]
 impl IndexableType for ArrayType {
-    fn indexed_type(&self, _ctx: &Context) -> Ptr<TypeObj> {
+    fn indexed_type(&self, _ctx: &Context) -> TypeHandle {
         self.inner
     }
 }
@@ -198,7 +198,7 @@ impl IndexableType for ArrayType {
 )]
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
 pub struct RuntimeArrayType {
-    pub inner: Ptr<TypeObj>,
+    pub inner: TypeHandle,
 }
 
 #[type_interface_impl]
@@ -217,7 +217,7 @@ impl AlignedType for RuntimeArrayType {
 
 #[type_interface_impl]
 impl IndexableType for RuntimeArrayType {
-    fn indexed_type(&self, _ctx: &Context) -> Ptr<TypeObj> {
+    fn indexed_type(&self, _ctx: &Context) -> TypeHandle {
         self.inner
     }
 }

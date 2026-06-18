@@ -1,4 +1,4 @@
-use pliron::r#type::TypePtr;
+use pliron::{context::Context, r#type::TypedHandle};
 
 use crate::{
     TypeHash, VectorSize,
@@ -40,25 +40,33 @@ pub struct MmaProperties {
 
 #[derive(Clone)]
 pub struct ContiguousElements {
-    inner: alloc::rc::Rc<dyn Fn(MatrixIdent, TypePtr<MatrixType>) -> VectorSize>,
+    #[allow(clippy::type_complexity)]
+    inner: alloc::rc::Rc<dyn Fn(&Context, MatrixIdent, TypedHandle<MatrixType>) -> VectorSize>,
 }
 
 impl ContiguousElements {
-    pub fn new(func: impl Fn(MatrixIdent, TypePtr<MatrixType>) -> VectorSize + 'static) -> Self {
+    pub fn new(
+        func: impl Fn(&Context, MatrixIdent, TypedHandle<MatrixType>) -> VectorSize + 'static,
+    ) -> Self {
         Self {
             inner: alloc::rc::Rc::new(func),
         }
     }
 
-    pub fn apply(&self, ident: MatrixIdent, matrix: TypePtr<MatrixType>) -> VectorSize {
-        (self.inner)(ident, matrix)
+    pub fn apply(
+        &self,
+        ctx: &Context,
+        ident: MatrixIdent,
+        matrix: TypedHandle<MatrixType>,
+    ) -> VectorSize {
+        (self.inner)(ctx, ident, matrix)
     }
 }
 
 impl Default for ContiguousElements {
     fn default() -> Self {
         Self {
-            inner: alloc::rc::Rc::new(|_, _| 2),
+            inner: alloc::rc::Rc::new(|_, _, _| 2),
         }
     }
 }

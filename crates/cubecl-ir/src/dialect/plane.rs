@@ -1,10 +1,11 @@
 use cubecl_macros_internal::cube_op;
+use pliron::r#type::TypeHandle;
 
 use crate::{
     attributes::IndexAttr,
     dialect::{ptr_value_ty, synchronization::SyncScope},
     interfaces::synchronizes,
-    pliron::prelude::*,
+    prelude::*,
     types::{
         VectorType,
         scalar::{BoolType, UIntType},
@@ -21,7 +22,7 @@ macro_rules! unary_plane_op {
         #[cube_op(name = $name)]
         #[result_ty(same_as = input)]
         pub struct $ty {
-            input: Value,
+            pub input: Value,
         }
         synchronizes!($ty, SyncScope::Plane);
     };
@@ -41,11 +42,11 @@ unary_plane_op!("plane.max", MaxOp);
 #[cube_op(name = "plane.ballot")]
 #[result_ty(fixed = ballot_ty(ctx))]
 pub struct BallotOp {
-    input: Value,
+    pub input: Value,
 }
 synchronizes!(BallotOp, SyncScope::Plane);
 
-fn ballot_ty(ctx: &mut Context) -> Ptr<TypeObj> {
+fn ballot_ty(ctx: &Context) -> TypeHandle {
     let u32 = UIntType::get(ctx, 32);
     VectorType::get(ctx, u32.into(), 4).into()
 }
@@ -53,40 +54,40 @@ fn ballot_ty(ctx: &mut Context) -> Ptr<TypeObj> {
 #[cube_op(name = "plane.broadcast")]
 #[result_ty(same_as = input)]
 pub struct BroadcastOp {
-    input: Value,
-    index: IndexAttr,
+    pub input: Value,
+    pub lane: IndexAttr,
 }
 synchronizes!(BroadcastOp, SyncScope::Plane);
 
 #[cube_op(name = "plane.shuffle")]
 #[result_ty(same_as = input)]
 pub struct ShuffleOp {
-    input: Value,
-    lane: Value,
+    pub input: Value,
+    pub lane: Value,
 }
 synchronizes!(ShuffleOp, SyncScope::Plane);
 
 #[cube_op(name = "plane.shuffle_xor")]
 #[result_ty(same_as = input)]
 pub struct ShuffleXorOp {
-    input: Value,
-    mask: Value,
+    pub input: Value,
+    pub mask: Value,
 }
 synchronizes!(ShuffleXorOp, SyncScope::Plane);
 
 #[cube_op(name = "plane.shuffle_up")]
 #[result_ty(same_as = input)]
 pub struct ShuffleUpOp {
-    input: Value,
-    delta: Value,
+    pub input: Value,
+    pub delta: Value,
 }
 synchronizes!(ShuffleUpOp, SyncScope::Plane);
 
 #[cube_op(name = "plane.shuffle_down")]
 #[result_ty(same_as = input)]
 pub struct ShuffleDownOp {
-    input: Value,
-    delta: Value,
+    pub input: Value,
+    pub delta: Value,
 }
 synchronizes!(ShuffleDownOp, SyncScope::Plane);
 
@@ -94,6 +95,6 @@ synchronizes!(ShuffleDownOp, SyncScope::Plane);
 #[result_ty(from_inputs = ptr_value_ty)]
 pub struct UniformLoadOp {
     #[operand(ptr_read)]
-    ptr: Value,
+    pub ptr: Value,
 }
 synchronizes!(UniformLoadOp, SyncScope::Plane);

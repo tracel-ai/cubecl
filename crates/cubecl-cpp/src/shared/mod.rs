@@ -1,28 +1,28 @@
-pub mod binary;
-pub mod unary;
-
-mod barrier;
+pub mod atomic;
 mod base;
-mod body;
+pub mod binary;
+pub mod branch;
+pub mod builtin;
 mod dialect;
-mod element;
-mod instruction;
-mod item;
-mod kernel;
-mod mma;
+pub mod kernel;
+pub mod lowering;
+pub mod metadata;
+pub mod mma;
+pub mod operation;
+pub mod plane;
+pub mod signature;
+pub mod ty;
+pub mod unary;
+pub mod unroll;
 mod value;
-mod warp;
+pub mod vector;
 
 pub use base::*;
-pub use body::*;
-pub use dialect::*;
-pub use element::*;
-pub use instruction::*;
-pub use item::*;
 pub use kernel::*;
 pub use mma::*;
+pub use operation::*;
+pub use plane::*;
 pub use value::*;
-pub use warp::*;
 
 #[cfg(feature = "metal")]
-pub type MslComputeKernel = ComputeKernel<crate::metal::MslDialect>;
+pub type MslComputeKernel = ComputeKernel;

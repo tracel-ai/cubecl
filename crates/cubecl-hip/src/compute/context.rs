@@ -96,7 +96,6 @@ impl HipContext {
         &mut self,
         kernel_id: &KernelId,
         cube_kernel: Box<dyn CubeTask<HipCompiler>>,
-        mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
         let definition = cube_kernel.define();
@@ -109,7 +108,7 @@ impl HipContext {
                     entry.binary,
                     kernel_id.clone(),
                     entry.entrypoint_name,
-                    kernel_id.cube_dim,
+                    kernel_id.cube_dim.into(),
                     entry.shared_mem_bytes,
                 )?;
                 return Ok(());
@@ -128,8 +127,6 @@ impl HipContext {
             definition,
             &mut Default::default(),
             &self.compilation_options,
-            mode,
-            cube_kernel.address_type(),
         )?;
 
         self.validate_shared(&jitc_kernel.repr)?;
@@ -272,7 +269,7 @@ impl HipContext {
                 key.unwrap(),
                 CompilationCacheEntry {
                     entrypoint_name: jitc_kernel.entrypoint_name.clone(),
-                    shared_mem_bytes: repr.shared_memory_size(),
+                    shared_mem_bytes: repr.shared_memory_size,
                     binary: code.clone(),
                 },
             );
@@ -283,7 +280,7 @@ impl HipContext {
             kernel_id.clone(),
             jitc_kernel.entrypoint_name,
             jitc_kernel.cube_dim,
-            repr.shared_memory_size(),
+            repr.shared_memory_size,
         )?;
         Ok(())
     }
@@ -397,7 +394,7 @@ impl HipContext {
     }
 
     fn validate_shared(&self, repr: &Option<HipComputeKernel>) -> Result<(), LaunchError> {
-        let requested = repr.as_ref().map(|repr| repr.shared_memory_size());
+        let requested = repr.as_ref().map(|repr| repr.shared_memory_size);
         let max = self.properties.hardware.max_shared_memory_size;
         if let Some(requested) = requested
             && requested > max

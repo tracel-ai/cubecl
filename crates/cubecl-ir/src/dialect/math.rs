@@ -9,7 +9,7 @@ use crate::{
     attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttr, UIntAttr},
     dialect::{pure_binop, pure_unop},
     interfaces::erasable,
-    pliron::prelude::*,
+    prelude::*,
 };
 
 use crate::interfaces::Pure;
@@ -248,9 +248,9 @@ const_eval!(MulHiOp, {
 #[result_ty(same_as = a)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
 pub struct FmaOp {
-    a: Value,
-    b: Value,
-    c: Value,
+    pub a: Value,
+    pub b: Value,
+    pub c: Value,
 }
 erasable!(FmaOp);
 const_eval!(FmaOp, {

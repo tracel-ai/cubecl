@@ -3,10 +3,10 @@ use core::marker::PhantomData;
 
 use crate::Runtime;
 use crate::prelude::{BufferArg, TensorArg, TensorMapArg, TensorMapKind};
-use crate::{InfoBuilder, KernelSettings, ScalarArgType};
+use crate::{InfoBuilder, ScalarArgType};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
-use cubecl_ir::{AddressType, Scope, StorageType};
+use cubecl_ir::{AddressType, Scope, StorageType, settings::KernelSettings};
 use cubecl_runtime::server::{Binding, CubeCount, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
@@ -18,7 +18,7 @@ use cubecl_runtime::{
 std::thread_local! {
     static INFO: RefCell<InfoBuilder> = RefCell::new(InfoBuilder::default());
     // Only used for resolving types
-    static SCOPE: RefCell<Scope> = RefCell::new(Scope::root(false));
+    static SCOPE: RefCell<Scope> = RefCell::new(Scope::dummy());
 }
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).

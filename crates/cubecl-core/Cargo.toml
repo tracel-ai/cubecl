@@ -22,7 +22,7 @@ workspace = true
 browser-cache = ["cubecl-runtime/browser-cache"]
 default = ["cubecl-runtime/default", "cubecl-ir/default"]
 export_tests = ["tempfile", "test-log/trace", "test-log/log", "std"]
-std = ["cubecl-runtime/std", "cubecl-ir/std", "cubecl-environment/std"]
+std = ["cubecl-runtime/std", "pliron/std", "cubecl-environment/std"]
 template = []
 tokio = ["cubecl-runtime/tokio"]
 

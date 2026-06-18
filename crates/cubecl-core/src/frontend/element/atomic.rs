@@ -4,10 +4,11 @@ use cubecl_ir::{
         AtomicAddOp, AtomicAndOp, AtomicCompareExchangeWeakOp, AtomicExchangeOp, AtomicLoadOp,
         AtomicMaxOp, AtomicMinOp, AtomicOrOp, AtomicStoreOp, AtomicSubOp, AtomicXorOp,
     },
-    pliron::{builtin::op_interfaces::OneResultInterface, context::Ptr, r#type::TypeObj},
+    pliron::builtin::op_interfaces::OneResultInterface,
     types::AtomicType,
 };
 use cubecl_macros::intrinsic;
+use pliron::r#type::TypeHandle;
 
 use super::{NativeAssign, NativeExpand, Numeric};
 use crate::{
@@ -33,9 +34,9 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
     pub fn load(&self) -> Inner {
         intrinsic!(|scope| {
             let ptr = self.value(scope);
-            let op = AtomicLoadOp::new(&mut scope.ctx_mut(), ptr);
+            let op = AtomicLoadOp::new(scope.ctx_mut(), ptr);
             scope.register(&op);
-            op.get_result(&scope.ctx()).into()
+            op.get_result(scope.ctx()).into()
         })
     }
 
@@ -44,7 +45,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
-            scope.register(&AtomicStoreOp::new(&mut scope.ctx_mut(), ptr, value));
+            scope.register(&AtomicStoreOp::new(scope.ctx_mut(), ptr, value));
         })
     }
 
@@ -53,9 +54,9 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
-            let op = AtomicExchangeOp::new(&mut scope.ctx_mut(), ptr, value);
+            let op = AtomicExchangeOp::new(scope.ctx_mut(), ptr, value);
             scope.register(&op);
-            op.get_result(&scope.ctx()).into()
+            op.get_result(scope.ctx()).into()
         })
     }
 
@@ -64,9 +65,9 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
-            let op = AtomicAddOp::new(&mut scope.ctx_mut(), ptr, value);
+            let op = AtomicAddOp::new(scope.ctx_mut(), ptr, value);
             scope.register(&op);
-            op.get_result(&scope.ctx()).into()
+            op.get_result(scope.ctx()).into()
         })
     }
 
@@ -75,9 +76,9 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
-            let op = AtomicSubOp::new(&mut scope.ctx_mut(), ptr, value);
+            let op = AtomicSubOp::new(scope.ctx_mut(), ptr, value);
             scope.register(&op);
-            op.get_result(&scope.ctx()).into()
+            op.get_result(scope.ctx()).into()
         })
     }
 
@@ -87,9 +88,9 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
-            let op = AtomicMaxOp::new(&mut scope.ctx_mut(), ptr, value);
+            let op = AtomicMaxOp::new(scope.ctx_mut(), ptr, value);
             scope.register(&op);
-            op.get_result(&scope.ctx()).into()
+            op.get_result(scope.ctx()).into()
         })
     }
 
@@ -99,9 +100,9 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
-            let op = AtomicMinOp::new(&mut scope.ctx_mut(), ptr, value);
+            let op = AtomicMinOp::new(scope.ctx_mut(), ptr, value);
             scope.register(&op);
-            op.get_result(&scope.ctx()).into()
+            op.get_result(scope.ctx()).into()
         })
     }
 }
@@ -118,9 +119,9 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
             let ptr = self.value(scope);
             let cmp = cmp.read_value(scope);
             let value = value.read_value(scope);
-            let op = AtomicCompareExchangeWeakOp::new(&mut scope.ctx_mut(), ptr, cmp, value);
+            let op = AtomicCompareExchangeWeakOp::new(scope.ctx_mut(), ptr, cmp, value);
             scope.register(&op);
-            op.get_result(&scope.ctx()).into()
+            op.get_result(scope.ctx()).into()
         })
     }
 
@@ -129,9 +130,9 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
-            let op = AtomicAndOp::new(&mut scope.ctx_mut(), ptr, value);
+            let op = AtomicAndOp::new(scope.ctx_mut(), ptr, value);
             scope.register(&op);
-            op.get_result(&scope.ctx()).into()
+            op.get_result(scope.ctx()).into()
         })
     }
 
@@ -140,9 +141,9 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
-            let op = AtomicOrOp::new(&mut scope.ctx_mut(), ptr, value);
+            let op = AtomicOrOp::new(scope.ctx_mut(), ptr, value);
             scope.register(&op);
-            op.get_result(&scope.ctx()).into()
+            op.get_result(scope.ctx()).into()
         })
     }
 
@@ -151,9 +152,9 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
-            let op = AtomicXorOp::new(&mut scope.ctx_mut(), ptr, value);
+            let op = AtomicXorOp::new(scope.ctx_mut(), ptr, value);
             scope.register(&op);
-            op.get_result(&scope.ctx()).into()
+            op.get_result(scope.ctx()).into()
         })
     }
 }
@@ -168,9 +169,9 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = Atomic<S>;
 
-    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
         let inner = Inner::__expand_as_type(scope);
-        AtomicType::get(scope.ctx_mut(), inner).into()
+        AtomicType::get(scope.ctx(), inner).into()
     }
 
     fn from_expand_elem(elem: ExpandValue) -> Self::ExpandType {

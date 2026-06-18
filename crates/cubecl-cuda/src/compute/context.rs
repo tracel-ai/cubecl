@@ -107,7 +107,6 @@ impl CudaContext {
         &mut self,
         kernel_id: &KernelId,
         kernel: Box<dyn CubeTask<CudaCompiler>>,
-        mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
         let definition = kernel.define();
@@ -122,7 +121,7 @@ impl CudaContext {
                     entry.ptx,
                     kernel_id.clone(),
                     entry.entrypoint_name,
-                    kernel_id.cube_dim,
+                    kernel_id.cube_dim.into(),
                     entry.shared_mem_bytes,
                 )?;
                 return Ok(());
@@ -141,8 +140,6 @@ impl CudaContext {
             definition,
             &mut Default::default(),
             &self.compilation_options,
-            mode,
-            kernel.address_type(),
         )?;
 
         self.validate_shared(&kernel_compiled.repr)?;
@@ -222,7 +219,7 @@ impl CudaContext {
                 key.unwrap(),
                 PtxCacheEntry {
                     entrypoint_name: kernel_compiled.entrypoint_name.clone(),
-                    shared_mem_bytes: repr.shared_memory_size(),
+                    shared_mem_bytes: repr.shared_memory_size,
                     ptx: ptx.clone(),
                 },
             );
@@ -233,7 +230,7 @@ impl CudaContext {
             kernel_id.clone(),
             kernel_compiled.entrypoint_name,
             cube_dim,
-            repr.shared_memory_size(),
+            repr.shared_memory_size,
         )?;
         Ok(())
     }
@@ -328,7 +325,7 @@ impl CudaContext {
     }
 
     fn validate_shared(&self, repr: &Option<CudaComputeKernel>) -> Result<(), LaunchError> {
-        let requested = repr.as_ref().map(|repr| repr.shared_memory_size());
+        let requested = repr.as_ref().map(|repr| repr.shared_memory_size);
         let max = self.properties.hardware.max_shared_memory_size;
         if let Some(requested) = requested
             && requested > max

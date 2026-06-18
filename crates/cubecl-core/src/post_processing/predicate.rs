@@ -8,19 +8,8 @@ use cubecl_ir::{
         base::OperationPtrExt,
         math::{IsInfOp, IsNanOp},
     },
-    interfaces::TypedExt,
-    pliron::{
-        irbuild::{
-            dialect_conversion::{DialectConversion, DialectConversionRewriter, OperandsInfo},
-            rewriter::Rewriter,
-        },
-        op::{op_cast, op_impls},
-        op_interface, op_interface_impl,
-        operation::Operation,
-        prelude::{Context, Ptr, Result},
-        value::Value,
-    },
-    types::scalar::FloatType,
+    interfaces::{ScalarType, TypedExt},
+    prelude::*,
     verify_op_succ,
 };
 use half::{bf16, f16};
@@ -83,9 +72,12 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
     scope.register_value_type::<ElemA, SizeA>(input);
 
     let ty = input.scalar_ty(scope.ctx()).deref(scope.ctx());
-    let ty = *ty.downcast_ref::<FloatType>().expect("Should be float");
+    let ty = type_cast::<dyn ScalarType>(&*ty).unwrap();
+    let StorageType::Scalar(ElemType::Float(kind)) = ty.storage_type(scope.ctx()) else {
+        unreachable!("Should be float")
+    };
 
-    let (unsigned_ty, bit_width, mantissa_bits) = match ty.encoding {
+    let (unsigned_ty, bit_width, mantissa_bits) = match kind {
         FloatKind::F64 => (UIntKind::U64, f64::size_bits(), f64::MANTISSA_DIGITS - 1),
         FloatKind::F32 => (UIntKind::U32, f32::size_bits(), f32::MANTISSA_DIGITS - 1),
         FloatKind::F16 => (UIntKind::U16, f16::size_bits(), f16::MANTISSA_DIGITS - 1),

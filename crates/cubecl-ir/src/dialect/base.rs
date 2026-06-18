@@ -1,5 +1,5 @@
 use crate::{
-    pliron::prelude::*,
+    prelude::*,
     types::{AtomicType, PointerType},
 };
 
@@ -16,6 +16,7 @@ pub trait OperationPtrExt: Sized {
     fn dyn_op(self, ctx: &Context) -> OpObj;
     fn operand(self, ctx: &Context, idx: usize) -> Value;
     fn operand_as_use(self, ctx: &Context, idx: usize) -> Use<Value>;
+    fn operands(self, ctx: &Context) -> Vec<Value>;
     fn result(self, ctx: &Context) -> Value;
 }
 
@@ -32,6 +33,9 @@ impl OperationPtrExt for Ptr<Operation> {
     fn operand_as_use(self, ctx: &Context, idx: usize) -> Use<Value> {
         Operation::get_operand_as_use(&self.deref(ctx), idx)
     }
+    fn operands(self, ctx: &Context) -> Vec<Value> {
+        self.deref(ctx).operands().collect()
+    }
     fn result(self, ctx: &Context) -> Value {
         Operation::get_result(&self.deref(ctx), 0)
     }
@@ -41,7 +45,7 @@ macro_rules! pure_unop {
     ($name: literal, $ty: ident) => {
         #[cubecl_macros_internal::cube_op(name = $name)]
         #[result_ty(same_as = input)]
-        #[$crate::pliron::prelude::op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
+        #[$crate::prelude::op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
         pub struct $ty {
             pub input: Value,
         }
@@ -51,6 +55,7 @@ macro_rules! pure_unop {
 }
 use pliron::{
     op::{OpInterfaceMarker, OpObj, op_impls},
+    r#type::TypeHandle,
     value::Use,
 };
 pub(crate) use pure_unop;
@@ -59,7 +64,7 @@ macro_rules! pure_binop {
     ($name: literal, $ty: ident) => {
         #[cubecl_macros_internal::cube_op(name = $name)]
         #[result_ty(same_as = lhs)]
-        #[$crate::pliron::prelude::op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
+        #[$crate::prelude::op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
         pub struct $ty {
             pub lhs: Value,
             pub rhs: Value,
@@ -70,7 +75,7 @@ macro_rules! pure_binop {
 }
 pub(crate) use pure_binop;
 
-pub(crate) fn ptr_value_ty(ctx: &Context, input: &Value) -> Ptr<TypeObj> {
+pub fn ptr_value_ty(ctx: &Context, input: &Value) -> TypeHandle {
     let in_ty = input.get_type(ctx).deref(ctx);
     let ptr_ty = in_ty.downcast_ref::<PointerType>();
     let mut inner = ptr_ty.expect("Should be a pointer").inner;

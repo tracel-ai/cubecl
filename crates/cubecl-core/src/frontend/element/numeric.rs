@@ -96,7 +96,7 @@ pub trait ScalarArgSettings: Send + Sync + Scalar {
         let storage_ty = Self::storage_type(&builder.scope);
         let id = builder.scalar(storage_ty);
         let ty = storage_ty.to_type(builder.ctx_mut());
-        let op = ReadScalarOp::new(builder.ctx_mut(), TypeAttr::new(ty), id.into());
+        let op = ReadScalarOp::new(builder.ctx_mut(), TypeAttr::new(ty), id);
         builder.register(&op);
         op.get_result(builder.ctx()).into()
     }

@@ -1,9 +1,9 @@
 use cubecl_ir::{
     ConstantValue, Scope, StorageType,
-    pliron::{context::Ptr, r#type::TypeObj},
-    types::scalar::FloatType,
+    types::scalar::{BFloat16Type, Float16Type, Float32Type, Float64Type},
 };
 use half::{bf16, f16};
+use pliron::r#type::TypeHandle;
 
 use crate::{self as cubecl, ir::FloatKind, prelude::*};
 
@@ -110,13 +110,13 @@ impl<T: FloatOps + CubePrimitive> FloatOpsExpand for NativeExpand<T> {
 }
 
 macro_rules! impl_float {
-    (half $primitive:ident, $kind:ident) => {
-        impl_float!($primitive, $kind, |val| $primitive::from_f64(val));
+    (half $primitive:ident, $ty: ty, $kind:ident) => {
+        impl_float!($primitive, $ty, $kind, |val| $primitive::from_f64(val));
     };
-    ($primitive:ident, $kind:ident) => {
-        impl_float!($primitive, $kind, |val| val as $primitive);
+    ($primitive:ident, $ty: ty, $kind:ident) => {
+        impl_float!($primitive, $ty, $kind, |val| val as $primitive);
     };
-    ($primitive:ident, $kind:ident, $new:expr) => {
+    ($primitive:ident, $ty: ty, $kind:ident, $new:expr) => {
         impl CubeType for $primitive {
             type ExpandType = NativeExpand<$primitive>;
         }
@@ -133,8 +133,8 @@ macro_rules! impl_float {
             type WithScalar<S: Scalar> = S;
 
             /// Return the element type to use on GPU
-            fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
-                FloatType::get(&mut scope.ctx_mut(), FloatKind::$kind).into()
+            fn __expand_as_type(scope: &Scope) -> TypeHandle {
+                <$ty>::get(scope.ctx()).into()
             }
 
             fn from_const_value(value: ConstantValue) -> Self {
@@ -199,7 +199,7 @@ macro_rules! impl_float {
     };
 }
 
-impl_float!(half f16, F16);
-impl_float!(half bf16, BF16);
-impl_float!(f32, F32);
-impl_float!(f64, F64);
+impl_float!(half f16, Float16Type, F16);
+impl_float!(half bf16,  BFloat16Type, BF16);
+impl_float!(f32, Float32Type, F32);
+impl_float!(f64, Float64Type, F64);

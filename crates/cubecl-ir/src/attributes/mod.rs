@@ -12,14 +12,15 @@ use pliron::{
     derive::{attr_interface_impl, pliron_attr},
     op::Op,
     operation::Operation,
-    r#type::{TypeObj, TypePtr},
+    r#type::{TypeHandle, TypedHandle},
     utils::apfloat::{Double, double_to_f64, f64_to_double},
 };
 
-use crate::{
-    FloatKind,
-    types::scalar::{BoolType, FloatType, IndexType, IntType, UIntType},
-};
+use crate::{settings::Dim3, types::scalar::*};
+
+mod entrypoint;
+
+pub use entrypoint::*;
 
 macro_rules! materialize_const {
     ($ty: ty) => {
@@ -28,6 +29,39 @@ macro_rules! materialize_const {
             fn materialize(&self, ctx: &mut Context) -> Ptr<Operation> {
                 let const_op = ConstantOp::new(ctx, Box::new(self.clone()));
                 const_op.get_operation()
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! ext_attribute {
+    ($name: ident: $ty: ty, $($implementors: ty),*) => {
+        paste::paste! {
+            dict_key!([<ATTR_KEY_ $name:upper>], stringify!($name));
+
+            #[op_interface]
+            pub trait [<$name:upper:camel> Interface] {
+                fn [<get_ $name>]<'a>(&self, ctx: &'a pliron::context::Context) -> Option<core::cell::Ref<'a, $ty>> {
+                    let self_op = self.get_operation().deref(ctx);
+                    Ref::filter_map(self_op, |self_op| {
+                        self_op
+                        .attributes
+                        .get::<$ty>(&[<ATTR_KEY_ $name:upper>])
+                    }).ok()
+                }
+
+                fn [<set_ $name>](&self, ctx: &mut Context, value: $ty) {
+                    let mut self_op = self.get_operation().deref_mut(ctx);
+                    self_op.attributes.set([<ATTR_KEY_ $name:upper>].clone(), value);
+                }
+
+                fn verify(_op: &dyn pliron::op::Op, _ctx: &pliron::context::Context) -> pliron::result::Result<()>
+                where
+                    Self: Sized,
+                {
+                    Ok(())
+                }
             }
         }
     };
@@ -56,7 +90,7 @@ impl From<IndexAttr> for usize {
 
 #[attr_interface_impl]
 impl TypedAttrInterface for IndexAttr {
-    fn get_type(&self, ctx: &Context) -> Ptr<TypeObj> {
+    fn get_type(&self, ctx: &Context) -> TypeHandle {
         IndexType::get(ctx).into()
     }
 }
@@ -91,15 +125,15 @@ impl From<bool> for BoolAttr {
 
 #[attr_interface_impl]
 impl TypedAttrInterface for BoolAttr {
-    fn get_type(&self, ctx: &Context) -> Ptr<TypeObj> {
+    fn get_type(&self, ctx: &Context) -> TypeHandle {
         BoolType::get(ctx).into()
     }
 }
 
 #[pliron_attr(name = "cube.int", format = "$val `: ` $ty", verifier = "succ")]
-#[derive(new, PartialEq, Eq, Clone, Debug, Hash)]
+#[derive(new, PartialEq, Eq, Clone, Copy, Debug, Hash)]
 pub struct IntAttr {
-    pub ty: TypePtr<IntType>,
+    pub ty: TypedHandle<IntType>,
     pub val: i64,
 }
 materialize_const!(IntAttr);
@@ -120,7 +154,7 @@ impl IntAttr {
 
 #[attr_interface_impl]
 impl TypedAttrInterface for IntAttr {
-    fn get_type(&self, _ctx: &Context) -> Ptr<TypeObj> {
+    fn get_type(&self, _ctx: &Context) -> TypeHandle {
         self.ty.into()
     }
 }
@@ -128,7 +162,7 @@ impl TypedAttrInterface for IntAttr {
 #[pliron_attr(name = "cube.uint", format = "$val `: ` $ty", verifier = "succ")]
 #[derive(new, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct UIntAttr {
-    pub ty: TypePtr<UIntType>,
+    pub ty: TypedHandle<UIntType>,
     pub val: u64,
 }
 materialize_const!(UIntAttr);
@@ -149,7 +183,7 @@ impl UIntAttr {
 
 #[attr_interface_impl]
 impl TypedAttrInterface for UIntAttr {
-    fn get_type(&self, _ctx: &Context) -> Ptr<TypeObj> {
+    fn get_type(&self, _ctx: &Context) -> TypeHandle {
         self.ty.into()
     }
 }
@@ -157,14 +191,14 @@ impl TypedAttrInterface for UIntAttr {
 #[pliron_attr(name = "cube.float", format = "$val `: ` $ty", verifier = "succ")]
 #[derive(new, PartialEq, Clone, Debug)]
 pub struct FloatAttr {
-    pub ty: TypePtr<FloatType>,
+    pub ty: TypeHandle,
     pub val: Double,
 }
 materialize_const!(FloatAttr);
 
 impl FloatAttr {
     pub fn value<T: NumCast + TypedLiteral>(&self, ctx: &Context) -> Option<T> {
-        if T::is_same_type(ctx, self.ty.into()) {
+        if T::is_same_type(ctx, self.ty) {
             Some(T::from(double_to_f64(self.val)).expect("Should succeed"))
         } else {
             None
@@ -179,21 +213,25 @@ impl FloatAttr {
     }
 }
 
+#[pliron_attr(name = "cube.dim3", format, verifier = "succ")]
+#[derive(new, From, PartialEq, Clone, Debug)]
+pub struct Dim3Attr(pub Dim3);
+
 #[attr_interface_impl]
 impl TypedAttrInterface for FloatAttr {
-    fn get_type(&self, _ctx: &Context) -> Ptr<TypeObj> {
-        self.ty.into()
+    fn get_type(&self, _ctx: &Context) -> TypeHandle {
+        self.ty
     }
 }
 
 pub trait TypedLiteral {
-    fn is_same_type(ctx: &Context, ty: Ptr<TypeObj>) -> bool;
+    fn is_same_type(ctx: &Context, ty: TypeHandle) -> bool;
 }
 
 macro_rules! literal {
     ($ty: ty, $ir_ty: ty, $pred: expr) => {
         impl TypedLiteral for $ty {
-            fn is_same_type(ctx: &Context, ty: Ptr<TypeObj>) -> bool {
+            fn is_same_type(ctx: &Context, ty: TypeHandle) -> bool {
                 ty.deref(ctx).downcast_ref::<$ir_ty>().is_some_and($pred)
             }
         }
@@ -215,7 +253,7 @@ literal!(u16, UIntType, |it| it.width == 16);
 literal!(u32, UIntType, |it| it.width == 32);
 literal!(u64, UIntType, |it| it.width == 64);
 
-literal!(half::f16, FloatType, |it| it.encoding == FloatKind::F16);
-literal!(half::bf16, FloatType, |it| it.encoding == FloatKind::BF16);
-literal!(f32, FloatType, |it| it.encoding == FloatKind::F32);
-literal!(f64, FloatType, |it| it.encoding == FloatKind::F64);
+literal!(half::f16, Float16Type);
+literal!(half::bf16, BFloat16Type);
+literal!(f32, Float32Type);
+literal!(f64, Float64Type);

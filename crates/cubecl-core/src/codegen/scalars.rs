@@ -1,8 +1,8 @@
 use alloc::vec::Vec;
 
-use cubecl_ir::StorageType;
+use cubecl_ir::{StorageType, metadata::INFO_ALIGN};
 
-use crate::{INFO_ALIGN, ScalarArgType};
+use crate::ScalarArgType;
 
 /// Stores the data and type for a scalar arg
 pub type ScalarValues = Vec<u8>;

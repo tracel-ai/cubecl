@@ -1,11 +1,12 @@
 use cubecl_macros_internal::{const_eval, cube_op};
 use half::{bf16, f16};
+use pliron::r#type::TypeHandle;
 
 use crate::{
     attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttr, UIntAttr},
     dialect::base::pure_binop,
     interfaces::{Pure, TypedExt, erasable},
-    pliron::prelude::*,
+    prelude::*,
     types::{VectorType, scalar::BoolType},
 };
 
@@ -23,9 +24,9 @@ const_eval!(MaxOp, {
 #[result_ty(same_as = input)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
 pub struct ClampOp {
-    input: Value,
-    min: Value,
-    max: Value,
+    pub input: Value,
+    pub min: Value,
+    pub max: Value,
 }
 erasable!(ClampOp);
 const_eval!(ClampOp, {
@@ -37,10 +38,10 @@ macro_rules! cmp_binop {
     ($name: literal, $ty: ident) => {
         #[cubecl_macros_internal::cube_op(name = $name)]
         #[result_ty(from_inputs = cmp_result_ty)]
-        #[$crate::pliron::prelude::op_interfaces(SameOperandsType, Pure)]
+        #[$crate::prelude::op_interfaces(SameOperandsType, Pure)]
         pub struct $ty {
-            lhs: Value,
-            rhs: Value,
+            pub lhs: Value,
+            pub rhs: Value,
         }
 
         $crate::interfaces::erasable!($ty);
@@ -95,7 +96,7 @@ const_eval!(NotEqualOp, {
     }
 });
 
-fn cmp_result_ty(ctx: &mut Context, lhs: &Value, _: &Value) -> Ptr<TypeObj> {
+fn cmp_result_ty(ctx: &Context, lhs: &Value, _: &Value) -> TypeHandle {
     let vectorization = lhs.vector_size(ctx);
     let bool = BoolType::get(ctx).into();
     if vectorization == 1 {

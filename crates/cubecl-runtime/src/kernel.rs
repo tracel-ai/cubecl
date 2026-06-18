@@ -14,14 +14,19 @@ use cubecl_common::{
     format::format_str,
     hash::{StableHash, StableHasher},
 };
-use cubecl_ir::{Scope, StorageType, pliron::value::Value};
+use cubecl_ir::{
+    AddressType, Scope, StorageType,
+    metadata::Info,
+    pliron::{format, value::Value},
+    settings::KernelSettings,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     compiler::{CompilationError, Compiler, CubeTask},
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel},
     id::KernelId,
-    server::{CubeDim, ExecutionMode},
+    server::CubeDim,
 };
 
 /// Implement this trait to create a [kernel definition](KernelDefinition).
@@ -40,63 +45,10 @@ pub trait KernelMetadata: Send + Sync + 'static {
 
 #[allow(missing_docs)]
 pub struct KernelDefinition {
-    pub buffers: Vec<KernelArg>,
-    pub tensor_maps: Vec<KernelArg>,
     pub scalars: Vec<ScalarKernelArg>,
-    pub cube_dim: CubeDim,
     pub body: Scope,
-    pub options: KernelOptions,
-}
-
-impl KernelDefinition {
-    /// Returns the total number of global buffers (including tensor maps)
-    pub fn num_global_buffers(&self) -> usize {
-        self.buffers.len() + self.tensor_maps.len()
-    }
-
-    /// Hash the content of the kernel in a stable way that can be used between runs.
-    ///
-    /// Two kernels with the same hash expand to the same IR, so a compiled artifact keyed on it
-    /// stays valid exactly as long as the code producing it is unchanged. This is what makes the
-    /// persistent compilation cache pick up edits to a kernel body, or to any `#[cube]` function it
-    /// reaches, without relying on a version bump.
-    ///
-    /// Debug information is deliberately left out: it holds absolute source paths, which would make
-    /// the hash differ between machines and checkouts, and it never changes what the compiler emits
-    /// beyond [`KernelOptions::debug_symbols`], which is hashed.
-    pub fn stable_hash(&self) -> StableHash {
-        let mut hasher = StableHasher::new();
-
-        self.buffers.hash(&mut hasher);
-        self.tensor_maps.hash(&mut hasher);
-        self.scalars.hash(&mut hasher);
-        self.cube_dim.hash(&mut hasher);
-        self.options.hash(&mut hasher);
-        self.body.hash(&mut hasher);
-
-        // `Scope` skips the global state when hashing, so outlined functions have to be hashed
-        // here. They aren't reachable from the body instructions, which only reference them by id,
-        // meaning a change confined to one of them would otherwise go unnoticed. The map is ordered
-        // by id, so the traversal is deterministic.
-        let state = self.body.state();
-        for (id, function) in state.functions.iter() {
-            id.hash(&mut hasher);
-            function.hash(&mut hasher);
-        }
-
-        hasher.finalize()
-    }
-}
-
-#[derive(Default, Clone, Debug, Hash, PartialEq, Eq)]
-/// Options for a specific kernel compilation
-pub struct KernelOptions {
-    /// The name of the kernel
-    pub kernel_name: String,
-    /// Whether to include debug symbols
-    pub debug_symbols: bool,
-    /// CUDA Cluster dim, if any
-    pub cluster_dim: Option<CubeDim>,
+    pub info: Info,
+    pub settings: KernelSettings,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -119,6 +71,7 @@ pub struct ScalarKernelArg {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Hash)]
 #[allow(missing_docs)]
+#[format]
 pub enum Visibility {
     Uniform,
     Read,
@@ -214,12 +167,11 @@ impl<C: Compiler, K: CubeKernel> CubeTask<C> for KernelTask<C, K> {
         gpu_ir: KernelDefinition,
         compiler: &mut C,
         compilation_options: &C::CompilationOptions,
-        mode: ExecutionMode,
-        addr_type: StorageType,
     ) -> Result<CompiledKernel<C>, CompilationError> {
-        let entrypoint_name = gpu_ir.options.kernel_name.clone();
-        let cube_dim = gpu_ir.cube_dim;
-        let lower_level_ir = compiler.compile(gpu_ir, compilation_options, mode, addr_type)?;
+        let gpu_ir = self.kernel_definition.define();
+        let entrypoint_name = gpu_ir.settings.kernel_name.clone();
+        let cube_dim = gpu_ir.settings.cube_dim.into();
+        let lower_level_ir = compiler.compile(gpu_ir, compilation_options)?;
 
         Ok(CompiledKernel {
             entrypoint_name,

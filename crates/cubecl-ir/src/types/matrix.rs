@@ -1,14 +1,15 @@
 use cubecl_macros_internal::TypeHash;
 use derive_more::Display;
+use derive_new::new;
 use pliron::derive::{format, pliron_type, type_interface_impl};
 
 use crate::{
     interfaces::{AlignedType, TypedExt},
-    pliron::prelude::*,
+    prelude::*,
 };
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(new, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[pliron_type(
     name = "cube.matrix",
     format = "`matrix` $ident `<` $scope `, ` $elem_ty `, ` $shape `, ` $layout `>`",
@@ -18,9 +19,17 @@ use crate::{
 pub struct MatrixType {
     pub ident: MatrixIdent,
     pub shape: MatrixShape,
-    pub elem_ty: Ptr<TypeObj>,
+    pub elem_ty: TypeHandle,
     pub layout: MatrixLayout,
     pub scope: MatrixScope,
+}
+
+impl MatrixType {
+    /// Size of the unpacked matrix elements, in bits
+    pub fn unpacked_elem_size_bits(&self, ctx: &Context) -> usize {
+        let size_bits = self.elem_ty.size(ctx) * 8;
+        size_bits / self.elem_ty.packing_factor(ctx)
+    }
 }
 
 #[type_interface_impl]
@@ -37,6 +46,16 @@ pub struct MatrixShape {
     pub m: usize,
     pub n: usize,
     pub k: usize,
+}
+
+impl MatrixShape {
+    pub fn num_elems(&self, ident: MatrixIdent) -> usize {
+        match ident {
+            MatrixIdent::A => self.m * self.k,
+            MatrixIdent::B => self.k * self.n,
+            MatrixIdent::Accumulator => self.m * self.n,
+        }
+    }
 }
 
 impl From<(usize, usize, usize)> for MatrixShape {

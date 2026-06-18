@@ -104,7 +104,7 @@ impl CpuServer {
         kernel: Box<dyn CubeTask<CpuCompiler>>,
         count: CubeCount,
         bindings: BindingsResource,
-        kind: ExecutionMode,
+        stream_id: StreamId,
     ) -> Result<ScheduleTask, CompilationError> {
         let cube_count = match count {
             CubeCount::Static(x, y, z) => [x, y, z],
@@ -130,7 +130,7 @@ impl CpuServer {
             }
         };
 
-        self.prepare_task_inner(kernel, cube_count, bindings, kind)
+        self.prepare_task_inner(kernel, cube_count, bindings, stream_id)
     }
 
     fn prepare_task_inner(
@@ -138,20 +138,16 @@ impl CpuServer {
         kernel: Box<dyn CubeTask<CpuCompiler>>,
         cube_count: [u32; 3],
         bindings: BindingsResource,
-        kind: ExecutionMode,
+        stream_id: StreamId,
     ) -> Result<ScheduleTask, CompilationError> {
         let kernel_id = kernel.id();
         let kernel = if let Some(kernel) = self.compilation_cache.get(&kernel_id) {
             kernel
         } else {
             let definition = kernel.define();
-            let kernel = kernel.compile(
+            let kernel =
                 definition,
-                &mut Default::default(),
-                &MlirCompilerOptions::default(),
-                kind,
-                kernel.address_type(),
-            )?;
+                kernel.compile(&mut Default::default(), &MlirCompilerOptions::default())?;
             self.compilation_cache
                 .insert(kernel_id.clone(), CpuKernel::new(kernel));
             self.compilation_cache
@@ -293,7 +289,6 @@ impl ComputeServer for CpuServer {
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: KernelArguments,
-        kind: ExecutionMode,
         stream_id: StreamId,
         launch_mode: LaunchMode,
     ) {
@@ -303,7 +298,9 @@ impl ComputeServer for CpuServer {
             .iter()
             .for_each(|b| self.streams_pool.push(b.stream));
         let bindings = self.prepare_bindings(bindings);
-        let task = self.prepare_task(kernel, count, bindings, kind).unwrap();
+        let task = self
+            .prepare_task(kernel, count, bindings, stream_id)
+            .unwrap();
 
         if launch_mode.is_skipped() {
             return;

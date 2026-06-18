@@ -7,17 +7,7 @@ use cubecl_ir::{
         math::{SaturatingAddOp, SaturatingSubOp},
     },
     interfaces::TypedExt,
-    pliron::{
-        builtin::op_interfaces::OneResultInterface,
-        irbuild::{
-            dialect_conversion::{DialectConversion, DialectConversionRewriter, OperandsInfo},
-            rewriter::Rewriter,
-        },
-        op::op_cast,
-        prelude::{Context, Operation, Ptr, Result},
-        r#type::Typed,
-        value::Value,
-    },
+    prelude::*,
 };
 
 use crate::prelude::*;
@@ -28,18 +18,11 @@ define_size!(SizeA);
 
 /// Replaces saturating arithmetic with a performant polyfill
 #[derive(new, Debug)]
-pub struct SaturatingArithmeticPolyfill {
-    /// Whether to replace i32 saturating sub. Used for CUDA, because there's a more performant
-    /// PTX intrinsic for that specific type.
-    replace_i32: bool,
-}
+pub struct SaturatingArithmeticPolyfill;
 
 impl DialectConversion for SaturatingArithmeticPolyfill {
     fn can_convert_op(&self, ctx: &Context, op: Ptr<Operation>) -> bool {
-        let dyn_op = Operation::get_op_dyn(op, ctx);
-        let should_replace = op_cast::<dyn OneResultInterface>(&*dyn_op)
-            .is_some_and(|it| self.should_replace(ctx, it.get_result(ctx)));
-        should_replace && (op.is_op::<SaturatingAddOp>(ctx) || op.is_op::<SaturatingSubOp>(ctx))
+        op.is_op::<SaturatingAddOp>(ctx) || op.is_op::<SaturatingSubOp>(ctx)
     }
 
     fn rewrite(
@@ -83,14 +66,6 @@ impl DialectConversion for SaturatingArithmeticPolyfill {
         };
         rewriter.replace_operation_with_values(ctx, op, vec![value]);
         Ok(())
-    }
-}
-
-impl SaturatingArithmeticPolyfill {
-    fn should_replace(&self, ctx: &Context, ty: impl Typed) -> bool {
-        let ty = ty.get_type(ctx);
-        let is_i32 = ty.is_int(ctx) && ty.scalar_ty(ctx).size(ctx) == 4;
-        self.replace_i32 || !is_i32
     }
 }
 

@@ -3,7 +3,7 @@ use derive_more::From;
 use derive_new::new;
 use pliron::derive::{format, op_interface_impl, pliron_attr};
 
-use crate::{interfaces::Synchronizes, pliron::prelude::*};
+use crate::{interfaces::Synchronizes, prelude::*};
 
 #[format]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
@@ -23,7 +23,7 @@ pub struct SyncScopeAttr(pub SyncScope);
 #[cube_op(name = "sync.sync")]
 #[result_ty(none)]
 pub struct SyncOp {
-    scope: SyncScopeAttr,
+    pub scope: SyncScopeAttr,
 }
 
 #[op_interface_impl]

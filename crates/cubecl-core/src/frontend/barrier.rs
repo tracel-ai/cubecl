@@ -1,13 +1,14 @@
 //! This module exposes barrier for asynchronous data transfer
 
 use alloc::vec;
+use pliron::r#type::TypeHandle;
 
 use crate as cubecl;
 use cubecl_ir::{
     ExpandValue,
     dialect::tma::*,
-    pliron::{builtin::op_interfaces::OneResultInterface, context::Ptr, r#type::TypeObj},
-    types::barrier::BarrierType,
+    pliron::builtin::op_interfaces::OneResultInterface,
+    types::barrier::{BarrierLevel, BarrierType},
 };
 use cubecl_macros::intrinsic;
 use paste::paste;
@@ -43,8 +44,8 @@ impl CubePrimitive for Barrier {
         unreachable!("Can't create from const value")
     }
 
-    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
-        BarrierType::get(scope.ctx()).into()
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        BarrierType::get(scope.ctx(), BarrierLevel::Cube).into()
     }
 }
 
@@ -112,7 +113,7 @@ macro_rules! tensor_map_load {
                     let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.value(scope);
                     let indices = vec![$($arg.read_value(scope)),*];
 
-                    let mem_copy = TmaLoadOp::new(&mut scope.ctx_mut(), barrier, source, destination, indices);
+                    let mem_copy = TmaLoadOp::new(scope.ctx_mut(), barrier, source, destination, indices);
                     scope.register(&mem_copy);
                 }
             }
@@ -166,7 +167,7 @@ macro_rules! tensor_map_load_im2col {
                     let indices = vec![$($arg.read_value(scope)),*];
                     let offsets = vec![$($offset.read_value(scope)),*];
 
-                    let mem_copy = TmaLoadIm2colOp::new(&mut scope.ctx_mut(), barrier, source, destination, indices, offsets);
+                    let mem_copy = TmaLoadIm2colOp::new(scope.ctx_mut(), barrier, source, destination, indices, offsets);
                     scope.register(&mem_copy);
                 }
             }
@@ -190,10 +191,10 @@ impl Barrier {
     /// arrival count of `1`.
     pub fn local() -> Self {
         intrinsic!(|scope| {
-            let value = scope.create_local_mut(BarrierType::get(&scope.ctx()));
+            let value = scope.create_local_mut(BarrierType::get(scope.ctx(), BarrierLevel::Unit));
             let arrival_count: ExpandValue = 1u32.into();
             let arrival_count = arrival_count.read_value(scope);
-            let op = InitOp::new(&mut scope.ctx_mut(), value, arrival_count);
+            let op = InitOp::new(scope.ctx_mut(), value, arrival_count);
             scope.register(&op);
             value.into()
         })
@@ -207,12 +208,14 @@ impl Barrier {
     /// other purposes, only a subset may need to arrive.
     pub fn shared(arrival_count: u32, is_elected: bool) -> Shared<Barrier> {
         intrinsic!(|scope| {
-            let value = scope.create_shared(BarrierType::get(&scope.ctx()), None);
+            let value =
+                scope.create_shared(BarrierType::get(scope.ctx(), BarrierLevel::Cube), None);
             if_expand(scope, is_elected, |scope| {
                 let arrival_count = arrival_count.read_value(scope);
-                let op = InitOp::new(&mut scope.ctx_mut(), value, arrival_count);
+                let op = InitOp::new(scope.ctx_mut(), value, arrival_count);
                 scope.register(&op);
             });
+            sync_cube::expand(scope);
             value.into()
         })
     }
@@ -221,7 +224,8 @@ impl Barrier {
     /// but not initialized.
     pub fn shared_uninit() -> Shared<Barrier> {
         intrinsic!(|scope| {
-            let value = scope.create_shared(BarrierType::get(&scope.ctx()), None);
+            let value =
+                scope.create_shared(BarrierType::get(scope.ctx(), BarrierLevel::Cube), None);
             value.into()
         })
     }
@@ -242,7 +246,7 @@ impl Barrier {
         intrinsic!(|scope| {
             let barrier = self.value(scope);
             let arrival_count = arrival_count.read_value(scope);
-            let op = InitOp::new(&mut scope.ctx_mut(), barrier, arrival_count);
+            let op = InitOp::new(scope.ctx_mut(), barrier, arrival_count);
             scope.register(&op);
         })
     }
@@ -266,12 +270,12 @@ impl Barrier {
             let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.value(scope);
 
             let mem_copy = MemCopyAsyncOp::new(
-                &mut scope.ctx_mut(),
+                scope.ctx_mut(),
                 barrier,
                 destination,
                 source,
                 source_length,
-                false.into(),
+                false,
             );
 
             scope.register(&mem_copy);
@@ -292,12 +296,12 @@ impl Barrier {
             let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.value(scope);
 
             let mem_copy = MemCopyAsyncOp::new(
-                &mut scope.ctx_mut(),
+                scope.ctx_mut(),
                 barrier,
                 destination,
                 source,
                 source_length,
-                true.into(),
+                true,
             );
 
             scope.register(&mem_copy);
@@ -318,13 +322,8 @@ impl Barrier {
             let source = unsafe { *source.__expand_as_ptr_method(scope) }.value(scope);
             let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.value(scope);
 
-            let mem_copy = MemCopyAsyncTxOp::new(
-                &mut scope.ctx_mut(),
-                barrier,
-                destination,
-                source,
-                source_length,
-            );
+            let mem_copy =
+                MemCopyAsyncTxOp::new(scope.ctx_mut(), barrier, destination, source, source_length);
 
             scope.register(&mem_copy);
         })
@@ -339,9 +338,9 @@ impl Barrier {
     pub fn arrive(&self) -> BarrierToken {
         intrinsic!(|scope| {
             let barrier = self.value(scope);
-            let arrive = ArriveOp::new(&mut scope.ctx_mut(), barrier);
+            let arrive = ArriveOp::new(scope.ctx_mut(), barrier);
             scope.register(&arrive);
-            arrive.get_result(&scope.ctx()).into()
+            arrive.get_result(scope.ctx()).into()
         })
     }
 
@@ -352,13 +351,13 @@ impl Barrier {
             let arrival_count = arrival_count.read_value(scope);
             let transaction_count = transaction_count.read_value(scope);
             let op = ArriveAndExpectTxOp::new(
-                &mut scope.ctx_mut(),
+                scope.ctx_mut(),
                 barrier,
                 arrival_count,
                 transaction_count,
             );
             scope.register(&op);
-            op.get_result(&scope.ctx()).into()
+            op.get_result(scope.ctx()).into()
         })
     }
 
@@ -368,7 +367,7 @@ impl Barrier {
             let barrier = self.value(scope);
             let transaction_count_update = transaction_count_update.value(scope);
             scope.register(&ExpectTxOp::new(
-                &mut scope.ctx_mut(),
+                scope.ctx_mut(),
                 barrier,
                 transaction_count_update,
             ));
@@ -379,7 +378,7 @@ impl Barrier {
     pub fn arrive_and_wait(&self) {
         intrinsic!(|scope| {
             let barrier = self.value(scope);
-            scope.register(&ArriveAndWaitOp::new(&mut scope.ctx_mut(), barrier));
+            scope.register(&ArriveAndWaitOp::new(scope.ctx_mut(), barrier));
         })
     }
 
@@ -388,7 +387,7 @@ impl Barrier {
         intrinsic!(|scope| {
             let barrier = self.value(scope);
             let token = token.value(scope);
-            scope.register(&WaitOp::new(&mut scope.ctx_mut(), barrier, token));
+            scope.register(&WaitOp::new(scope.ctx_mut(), barrier, token));
         })
     }
 
@@ -398,7 +397,7 @@ impl Barrier {
         intrinsic!(|scope| {
             let barrier = self.value(scope);
             let phase = phase.read_value(scope);
-            scope.register(&WaitParityOp::new(&mut scope.ctx_mut(), barrier, phase));
+            scope.register(&WaitParityOp::new(scope.ctx_mut(), barrier, phase));
         })
     }
 }
@@ -437,8 +436,8 @@ pub mod copy_async {
             source,
             destination,
             source_length,
-            (copy_length as usize * scalar_size).into(),
-            false.into(),
+            copy_length as usize * scalar_size,
+            false,
         );
 
         scope.register(&mem_copy);
@@ -486,8 +485,8 @@ pub mod copy_async_checked {
             source,
             destination,
             source_length,
-            (copy_length as usize * scalar_size).into(),
-            true.into(),
+            copy_length as usize * scalar_size,
+            true,
         );
 
         scope.register(&mem_copy);
@@ -505,7 +504,7 @@ impl Barrier {
     pub fn commit_copy_async(&self) {
         intrinsic!(|scope| {
             let barrier = self.value(scope);
-            scope.register(&CommitCopyAsyncOp::new(&mut scope.ctx_mut(), barrier));
+            scope.register(&CommitCopyAsyncOp::new(scope.ctx_mut(), barrier));
         })
     }
 }

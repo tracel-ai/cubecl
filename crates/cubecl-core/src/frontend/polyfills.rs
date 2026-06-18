@@ -66,7 +66,7 @@ fn himul_i64<N: Size>(lhs: Vector<i32, N>, rhs: Vector<i32, N>) -> Vector<i32, N
 }
 
 #[cube]
-fn himul_u64<N: Size>(lhs: Vector<u32, N>, rhs: Vector<u32, N>) -> Vector<u32, N> {
+pub fn himul_u64<N: Size>(lhs: Vector<u32, N>, rhs: Vector<u32, N>) -> Vector<u32, N> {
     let shift = Vector::new(32);
     let mul = (Vector::<u64, N>::cast_from(lhs) * Vector::<u64, N>::cast_from(rhs)) >> shift;
     Vector::cast_from(mul)
@@ -85,9 +85,10 @@ pub fn expand_himul_64(scope: &Scope, lhs: Value, rhs: Value) -> Value {
 }
 
 #[cube]
-fn himul_sim<N: Size>(lhs: Vector<u32, N>, rhs: Vector<u32, N>) -> Vector<u32, N> {
-    let low_mask = Vector::new(0xffff);
-    let shift = Vector::new(16);
+fn himul_sim<T: Int, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
+    let half_bits = comptime!(T::size_bits() / 2);
+    let low_mask = Vector::new(T::new(comptime!((1 << half_bits) - 1)));
+    let shift = Vector::new(T::new(half_bits as i64));
 
     let lhs_low = lhs & low_mask;
     let lhs_hi = (lhs >> shift) & low_mask;
@@ -109,5 +110,9 @@ fn himul_sim<N: Size>(lhs: Vector<u32, N>, rhs: Vector<u32, N>) -> Vector<u32, N
 #[allow(missing_docs)]
 pub fn expand_himul_sim(scope: &Scope, lhs: Value, rhs: Value) -> Value {
     scope.register_size::<SizeA>(lhs.vector_size(scope.ctx()));
-    himul_sim::expand::<SizeA>(scope, lhs.into(), rhs.into()).value(scope)
+    if lhs.is_int_of_width(scope.ctx(), 32) {
+        himul_sim::expand::<u32, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
+    } else {
+        himul_sim::expand::<u64, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
+    }
 }

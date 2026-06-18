@@ -4,7 +4,7 @@ use cubecl_ir::{
     Scope, VectorSize,
     interfaces::MaybeVectorizedType,
     pliron::{
-        r#type::{TypePtr, Typed},
+        r#type::{Typed, TypedHandle},
         value::Value,
     },
     types::{ArrayType, PointerType, aggregate::PtrAggregateType},
@@ -47,7 +47,7 @@ mod new {
                 // Unlike Rust, we can't construct fat pointers ad-hoc without access to the scope,
                 // so it needs to be prepared in advance.
                 let elem = T::__expand_as_type(scope);
-                let ty = ArrayType::get(&mut scope.ctx_mut(), elem, length);
+                let ty = ArrayType::get(scope.ctx(), elem, length);
                 let buffer = scope.create_local_mut(ty);
                 let slice = slice::from_raw_parts::<T>(
                     scope,
@@ -94,7 +94,7 @@ impl<E: CubePrimitive> Array<E> {
     pub fn len(&self) -> comptime_type!(usize) {
         intrinsic!(|scope| {
             let ty = inner_array_ty(scope, self.value(scope));
-            ty.deref(&scope.ctx()).length
+            ty.deref(scope.ctx()).length
         })
     }
 }
@@ -188,11 +188,11 @@ impl<T: CubePrimitive> VectorizedExpand for ArrayExpand<T> {
     }
 }
 
-pub(crate) fn inner_array_ty(scope: &Scope, value: Value) -> TypePtr<ArrayType> {
+pub(crate) fn inner_array_ty(scope: &Scope, value: Value) -> TypedHandle<ArrayType> {
     let ctx = scope.ctx();
     let ty = value.get_type(ctx).deref(ctx);
     let PtrAggregateType { base_ty, .. } = *ty.downcast_ref().unwrap();
     let base_ty = base_ty.deref(ctx);
     let PointerType { inner, .. } = base_ty.downcast_ref().unwrap();
-    TypePtr::from_ptr(*inner, ctx).unwrap()
+    TypedHandle::from_handle(*inner, ctx).unwrap()
 }

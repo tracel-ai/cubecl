@@ -1,6 +1,7 @@
 use cubecl_macros_internal::cube_op;
+use pliron::r#type::TypeHandle;
 
-use crate::{attributes::IndexAttr, interfaces::*, pliron::prelude::*, types::VectorType};
+use crate::{attributes::IndexAttr, interfaces::*, prelude::*, types::VectorType};
 
 #[pliron_op(name = "vector.init", format, verifier = "succ")]
 #[op_interfaces(NResultsInterface<1>, OneResultInterface, AtLeastNOpdsInterface<1>, SameOperandsType, Pure)]
@@ -69,7 +70,7 @@ erasable!(VectorExtractDynamicOp);
 #[result_ty(from_inputs = scalar_ty)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
 pub struct MagnitudeOp {
-    input: Value,
+    pub input: Value,
 }
 erasable!(MagnitudeOp);
 
@@ -77,7 +78,7 @@ erasable!(MagnitudeOp);
 #[result_ty(from_inputs = scalar_ty)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
 pub struct NormalizeOp {
-    input: Value,
+    pub input: Value,
 }
 erasable!(NormalizeOp);
 
@@ -85,7 +86,7 @@ erasable!(NormalizeOp);
 #[result_ty(from_inputs = scalar_ty)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
 pub struct SumOp {
-    input: Value,
+    pub input: Value,
 }
 erasable!(SumOp);
 
@@ -93,11 +94,11 @@ erasable!(SumOp);
 #[result_ty(from_inputs = |ctx, lhs, _| scalar_ty(ctx, lhs))]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
 pub struct DotOp {
-    lhs: Value,
-    rhs: Value,
+    pub lhs: Value,
+    pub rhs: Value,
 }
 erasable!(DotOp);
 
-fn scalar_ty(ctx: &Context, input: &Value) -> Ptr<TypeObj> {
+fn scalar_ty(ctx: &Context, input: &Value) -> TypeHandle {
     input.scalar_ty(ctx)
 }

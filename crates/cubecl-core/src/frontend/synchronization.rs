@@ -25,7 +25,7 @@ pub mod sync_cube {
     use super::*;
 
     pub fn expand(scope: &Scope) {
-        scope.register(&SyncOp::new(scope.ctx_mut(), SyncScope::Cube.into()));
+        scope.register(&SyncOp::new(scope.ctx_mut(), SyncScope::Cube));
     }
 }
 
@@ -40,7 +40,7 @@ pub mod sync_plane {
     use super::*;
 
     pub fn expand(scope: &Scope) {
-        scope.register(&SyncOp::new(scope.ctx_mut(), SyncScope::Plane.into()));
+        scope.register(&SyncOp::new(scope.ctx_mut(), SyncScope::Plane));
     }
 }
 
@@ -53,7 +53,7 @@ pub mod sync_storage {
     use super::*;
 
     pub fn expand(scope: &Scope) {
-        scope.register(&SyncOp::new(scope.ctx_mut(), SyncScope::Device.into()));
+        scope.register(&SyncOp::new(scope.ctx_mut(), SyncScope::Device));
     }
 }
 

@@ -40,6 +40,13 @@ pub(crate) struct KernelArgs {
     pub address_type: AddressType,
 }
 
+pub enum ExecutionMode {
+    /// Checked kernels are safe.
+    Checked,
+    /// Unchecked kernels are unsafe.
+    Unchecked,
+}
+
 #[derive(Default, FromMeta, PartialEq, Eq, Clone, Copy)]
 pub(crate) enum AddressType {
     #[default]

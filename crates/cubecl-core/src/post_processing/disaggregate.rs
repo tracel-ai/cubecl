@@ -5,24 +5,20 @@ use cubecl_ir::{
         base::OperationPtrExt,
         general::{AggregateConstructOp, AggregateExtractOp},
     },
-    pliron::{
-        builtin::op_interfaces::OneResultInterface,
-        graph::walkers::{
-            IRNode, WALKCONFIG_PREORDER_FORWARD, uninterruptible::immutable::walk_op,
-        },
-        pass_manager::{AnalysisManager, Pass, PassResult},
-        prelude::{Context, Operation, Ptr, Result},
-        value::Value,
-    },
+    prelude::*,
 };
 use hashbrown::HashMap;
-use pliron::irbuild::IRStatus;
+use pliron::{
+    graph::walkers::{WALKCONFIG_PREORDER_FORWARD, uninterruptible::mutable::walk_op},
+    opts::dce::dce,
+};
 
 type Aggregates = HashMap<Value, Vec<Value>>;
 
-pub struct DisaggregateTransform;
+#[derive(Default)]
+pub struct DisaggregatePass;
 
-impl Pass for DisaggregateTransform {
+impl Pass for DisaggregatePass {
     fn name(&self) -> &str {
         "Disaggregate"
     }
@@ -33,28 +29,28 @@ impl Pass for DisaggregateTransform {
         ctx: &mut Context,
         _analyses: &mut AnalysisManager,
     ) -> Result<PassResult> {
-        let mut result = PassResult::default();
-        result.ir_changed = IRStatus::Changed;
-
-        let mut aggregates = Aggregates::new();
+        let mut state = (Aggregates::new(), PassResult::default());
         walk_op(
             ctx,
-            &mut aggregates,
+            &mut state,
             &WALKCONFIG_PREORDER_FORWARD,
             op,
-            |ctx, aggregates, node| {
+            |ctx, (aggregates, res), node| {
                 if let IRNode::Operation(op) = node {
                     if let Some(construct) = op.as_op::<AggregateConstructOp>(ctx) {
                         aggregates.insert(construct.get_result(ctx), construct.values(ctx));
                     }
                     if let Some(extract) = op.as_op::<AggregateExtractOp>(ctx) {
-                        let field = extract.get_attr_field(ctx).unwrap().0;
+                        let field = extract.field(ctx).0;
                         let value = aggregates[&extract.aggregate(ctx)][field];
                         extract.get_result(ctx).replace_all_uses_with(ctx, &value);
+                        res.ir_changed |= IRStatus::Changed;
                     }
                 }
             },
         );
-        Ok(result)
+        let mut res = state.1;
+        res.ir_changed |= dce(op, ctx)?;
+        Ok(res)
     }
 }

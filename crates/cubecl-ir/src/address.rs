@@ -1,10 +1,13 @@
-use crate::{IntKind, Scope, StorageType, UIntKind};
+use pliron::derive::format;
+
+use crate::{GlobalState, IntKind, StorageType, UIntKind};
 
 /// The type used for addressing storage types in a kernel.
 /// This is the type `usize` maps to when used in a kernel, with `isize` being mapped to the signed
 /// equivalent.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Default, PartialOrd, Ord)]
+#[format]
 pub enum AddressType {
     // Discriminants are explicit to ensure correct ordering
     #[default]
@@ -41,9 +44,9 @@ impl AddressType {
         }
     }
 
-    pub fn register(&self, scope: &Scope) {
-        scope.register_type::<usize>(self.unsigned_type());
-        scope.register_type::<isize>(self.signed_type());
+    pub fn register(&self, state: &mut GlobalState) {
+        state.register_type::<usize>(self.unsigned_type());
+        state.register_type::<isize>(self.signed_type());
     }
 
     pub fn unsigned_type(&self) -> StorageType {

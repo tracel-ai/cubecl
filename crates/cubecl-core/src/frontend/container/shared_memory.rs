@@ -54,7 +54,7 @@ impl<T: CubePrimitive> Shared<[T]> {
     pub fn new_slice(#[comptime] len: usize) -> Self {
         intrinsic!(|scope| {
             let inner = T::__expand_as_type(scope);
-            let ty = ArrayType::get(&mut scope.ctx_mut(), inner, len);
+            let ty = ArrayType::get(scope.ctx(), inner, len);
             let buffer = scope.create_shared(ty, None);
             let slice = slice::from_raw_parts::<T>(
                 scope,
@@ -75,7 +75,7 @@ impl<T: CubePrimitive> Shared<[T]> {
     pub fn new_aligned_slice(#[comptime] len: usize, #[comptime] alignment: usize) -> Self {
         intrinsic!(|scope| {
             let inner = T::__expand_as_type(scope);
-            let ty = ArrayType::get(&mut scope.ctx_mut(), inner, len);
+            let ty = ArrayType::get(scope.ctx(), inner, len);
             let buffer = scope.create_shared(ty, Some(alignment));
             let slice = slice::from_raw_parts::<T>(
                 scope,
@@ -157,7 +157,7 @@ impl<T: NativeCubeType + ?Sized> Shared<T> {
     pub unsafe fn free(&self) {
         intrinsic!(|scope| {
             let val = scope.extract_field(self.value(scope), 0);
-            scope.register(&FreeOp::new(&mut scope.ctx_mut(), val))
+            scope.register(&FreeOp::new(scope.ctx_mut(), val))
         })
     }
 }

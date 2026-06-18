@@ -5,8 +5,8 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::future::DynFut;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::{
-    DeviceIdentity, DeviceProperties, ElemType, HardwareProperties, MemoryDeviceProperties,
-    StorageType, UIntKind, VectorSize, features::Features,
+    DeviceProperties, ElemType, HardwareProperties, MemoryDeviceProperties, UIntKind, VectorSize,
+    features::Features,
 };
 use cubecl_runtime::{
     allocator::ContiguousMemoryLayoutPolicy,
@@ -16,9 +16,8 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryUsage},
     server::{
-        Binding, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode, Handle,
-        KernelArguments, ProfileError, ProfilingToken, ServerCommunication, ServerError,
-        ServerUtilities,
+        Binding, ComputeServer, CopyDescriptor, CubeCount, CubeDim, Handle, KernelArguments,
+        ProfileError, ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
@@ -83,8 +82,6 @@ impl CubeTask<DummyCompiler> for KernelTask {
         _definition: cubecl_runtime::kernel::KernelDefinition,
         _compiler: &mut DummyCompiler,
         _compilation_options: &<DummyCompiler as cubecl_runtime::compiler::Compiler>::CompilationOptions,
-        _mode: ExecutionMode,
-        _addr_type: StorageType,
     ) -> Result<cubecl_runtime::kernel::CompiledKernel<DummyCompiler>, CompilationError> {
         if let Some(err) = self.kernel.compilation_error() {
             return Err(err);
@@ -206,7 +203,6 @@ impl ComputeServer for DummyServer {
         kernel: Self::Kernel,
         _count: CubeCount,
         bindings: KernelArguments,
-        mode: ExecutionMode,
         stream_id: StreamId,
         launch_mode: cubecl_runtime::dry_run::LaunchMode,
     ) {

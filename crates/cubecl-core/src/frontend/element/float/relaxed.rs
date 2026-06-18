@@ -1,9 +1,6 @@
 use cubecl_common::flex32;
-use cubecl_ir::{
-    ConstantValue, FloatKind, Scope,
-    pliron::{context::Ptr, r#type::TypeObj},
-    types::scalar::FloatType,
-};
+use cubecl_ir::{ConstantValue, FloatKind, Scope, types::scalar::FloatFlex32Type};
+use pliron::r#type::TypeHandle;
 
 use crate::prelude::*;
 
@@ -24,8 +21,8 @@ impl CubePrimitive for flex32 {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
-        FloatType::get(scope.ctx_mut(), FloatKind::Flex32).into()
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        FloatFlex32Type::get(scope.ctx()).into()
     }
 
     fn from_const_value(value: ConstantValue) -> Self {

@@ -1,8 +1,5 @@
-use cubecl_ir::{
-    ConstantValue,
-    pliron::{context::Ptr, r#type::TypeObj},
-    types::scalar::IntType,
-};
+use cubecl_ir::{ConstantValue, types::scalar::IntType};
+use pliron::r#type::TypeHandle;
 
 use crate::frontend::{CubeType, Numeric};
 use crate::ir::{IntKind, Scope};
@@ -63,9 +60,9 @@ macro_rules! impl_int {
             type Size = Const<1>;
             type WithScalar<S: Scalar> = S;
 
-            fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+            fn __expand_as_type(scope: &Scope) -> TypeHandle {
                 let width = IntKind::$kind.size_bits();
-                IntType::get(&mut scope.ctx_mut(), width).into()
+                IntType::get(scope.ctx(), width).into()
             }
 
             fn from_const_value(value: ConstantValue) -> Self {

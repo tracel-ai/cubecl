@@ -350,8 +350,12 @@ fn iter_expand<I: Int>(
     mut body: impl FnMut(&Scope, <I as CubeType>::ExpandType),
 ) {
     let start = I::__expand_cast_from(scope, start).expand;
-    let end = I::__expand_cast_from(scope, end).expand;
+    let mut end = I::__expand_cast_from(scope, end);
     let step: ExpandValue = I::new(1).into();
+
+    if inclusive {
+        end = end.__expand_add_method(scope, I::new(1).into());
+    }
 
     let index_ty = I::__expand_as_type(scope);
     let start = start.read_value(scope);
@@ -359,7 +363,7 @@ fn iter_expand<I: Int>(
     let step = step.read_value(scope);
 
     let i = scope.create_local_mut(index_ty);
-    let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step, inclusive);
+    let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
     let body_block = range_loop.loop_body(scope.ctx());
     let child = scope.child(OpInserter::new_at_block_end(body_block));
 
@@ -380,13 +384,18 @@ impl<I: Int + Into<ExpandValue>> Iterable for SteppedRangeExpand<I> {
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, <I as CubeType>::ExpandType)) {
         let index_ty = I::__expand_as_type(scope);
+
+        let mut end = self.end;
+        if self.inclusive {
+            end = end.__expand_add_method(scope, I::new(1).into());
+        }
+
         let start = self.start.read_value(scope);
-        let end = self.end.read_value(scope);
+        let end = end.read_value(scope);
         let step = self.step.read_value(scope);
 
         let i = scope.create_local_mut(index_ty);
-        let range_loop =
-            RangeLoopOp::new(scope.ctx_mut(), i, start, end, step, self.inclusive);
+        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
         let body_block = range_loop.loop_body(scope.ctx());
         let child = scope.child(OpInserter::new_at_block_end(body_block));
 

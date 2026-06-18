@@ -10,11 +10,7 @@ use cubecl_common::bytes::{AllocationProperty, Bytes};
 use cubecl_core::zspace::striding::try_check_pitched_row_major_strides;
 use cubecl_core::{
     MemoryConfiguration, MemoryUsage,
-    ir::MemoryDeviceProperties,
-    server::{
-        Binding, CopyDescriptor, ExecutionMode, Handle, IoError, LaunchError, ProfileError,
-        ServerError,
-    },
+    server::{Binding, CopyDescriptor, Handle, IoError, LaunchError, ProfileError, ServerError},
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -536,7 +532,6 @@ impl<'a> Command<'a> {
         &mut self,
         kernel_id: KernelId,
         kernel: Box<dyn CubeTask<CudaCompiler>>,
-        mode: ExecutionMode,
         dispatch_count: (u32, u32, u32),
         tensor_maps: &[CUtensorMap],
         resources: &[GpuResource],
@@ -545,7 +540,7 @@ impl<'a> Command<'a> {
         launch_mode: LaunchMode,
     ) -> Result<(), LaunchError> {
         if !self.ctx.is_loaded(&kernel_id) {
-            self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
+            self.ctx.compile_kernel(&kernel_id, kernel, logger)?;
         }
 
         if launch_mode.is_skipped() {

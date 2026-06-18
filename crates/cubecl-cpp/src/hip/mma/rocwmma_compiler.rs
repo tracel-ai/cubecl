@@ -1,450 +1,355 @@
-use crate::{
-    hip::{
-        HipDialect,
-        arch::AMDArchitecture,
-        mma::{compile_manual_mma, supported_mma_combinations},
-    },
-    shared::{
-        DialectWmmaCompiler, Flags, FragmentIdent, FragmentLayout, FragmentType, ManualMma,
-        SupportedMmaCombinations, Value, WmmaInstruction, wmma_api_base,
-    },
-};
-use cubecl_core::ir::{self as gpu, features::MmaConfig};
+use crate::{hip::arch::AMDArchitecture, shared::SupportedMmaCombinations};
+use cubecl_core::ir::{ElemType, FloatKind, IntKind, features::MmaConfig};
 
-const ROCWMMA_NAMESPACE: &str = "rocwmma";
+pub(super) fn compile_rocwmma_includes() -> String {
+    "#include <rocwmma/rocwmma.hpp>\n".into()
+}
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct RocWmmaCompiler {}
+pub(super) fn supported_wmma_combinations_rocwmma(
+    arch: &AMDArchitecture,
+) -> SupportedMmaCombinations {
+    let combinations = match arch {
+        AMDArchitecture::GFX12 => {
+            // Group types by their tile dimensions for readability
+            let tdims_16_16_32 = vec![(16, 16, 32)];
+            let types_16_16_32 = vec![
+                (
+                    ElemType::Float(FloatKind::E5M2), // bfloat8_t / bf8
+                    ElemType::Float(FloatKind::F32),
+                    ElemType::Float(FloatKind::F32),
+                ),
+                (
+                    ElemType::Float(FloatKind::E4M3), // float8_t / f8
+                    ElemType::Float(FloatKind::F32),
+                    ElemType::Float(FloatKind::F32),
+                ),
+            ];
 
-impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
-    fn compile_wmma_includes(
-        f: &mut std::fmt::Formatter<'_>,
-        _flags: &Flags<HipDialect<Self>>,
-    ) -> std::fmt::Result {
-        f.write_str("#include <rocwmma/rocwmma.hpp>\n")
-    }
+            let tdims_16_16_16 = vec![(16, 16, 16)];
+            let types_16_16_16 = vec![
+                (
+                    ElemType::Int(IntKind::I8),
+                    ElemType::Int(IntKind::I32),
+                    ElemType::Int(IntKind::I32),
+                ),
+                (
+                    ElemType::Int(IntKind::I8),
+                    ElemType::Int(IntKind::I8),
+                    ElemType::Int(IntKind::I32),
+                ),
+                (
+                    ElemType::Float(FloatKind::F16),
+                    ElemType::Float(FloatKind::F32),
+                    ElemType::Float(FloatKind::F32),
+                ),
+                (
+                    ElemType::Float(FloatKind::F16),
+                    ElemType::Float(FloatKind::F16),
+                    ElemType::Float(FloatKind::F32),
+                ),
+                (
+                    ElemType::Float(FloatKind::F16),
+                    ElemType::Float(FloatKind::F16),
+                    ElemType::Float(FloatKind::F16),
+                ),
+                (
+                    ElemType::Float(FloatKind::BF16),
+                    ElemType::Float(FloatKind::F32),
+                    ElemType::Float(FloatKind::F32),
+                ),
+                (
+                    ElemType::Float(FloatKind::BF16),
+                    ElemType::Float(FloatKind::BF16),
+                    ElemType::Float(FloatKind::F32),
+                ),
+                (
+                    ElemType::Float(FloatKind::BF16),
+                    ElemType::Float(FloatKind::BF16),
+                    ElemType::Float(FloatKind::BF16),
+                ),
+            ];
 
-    fn compile_wmma_type_definitions(
-        f: &mut std::fmt::Formatter<'_>,
-        flags: &Flags<HipDialect<Self>>,
-    ) -> std::fmt::Result {
-        // For manual MMA, maybe add a flag for this at some point
-        if flags.elem_bf16 {
-            f.write_str("typedef __bf16 bhalf8_t __attribute__((ext_vector_type(8)));\n")?;
-            f.write_str("typedef __bf16 bhalf16_t __attribute__((ext_vector_type(16)));\n")?;
+            // Combine all type-dimension pairs
+            types_16_16_32
+                .into_iter()
+                .map(|it| (it, tdims_16_16_32.clone()))
+                .chain(
+                    types_16_16_16
+                        .into_iter()
+                        .map(|it| (it, tdims_16_16_16.clone())),
+                )
+                .collect()
         }
-        if flags.elem_f16 {
-            f.write_str("typedef _Float16 half8_t __attribute__((ext_vector_type(8)));\n")?;
-            f.write_str("typedef _Float16 half16_t __attribute__((ext_vector_type(16)));\n")?;
+        AMDArchitecture::GFX10 | AMDArchitecture::GFX11 => {
+            // For gfx11 the supported tile dimensions are always the same
+            //                                   m   n   k
+            let tdims = vec![(16, 16, 16), (16, 16, 32)];
+            let types = vec![
+                (
+                    ElemType::Float(FloatKind::F16), // m / i
+                    ElemType::Float(FloatKind::F32), // n / o
+                    ElemType::Float(FloatKind::F32), // k / c
+                ),
+                (
+                    ElemType::Float(FloatKind::F16),
+                    ElemType::Float(FloatKind::F16),
+                    ElemType::Float(FloatKind::F32),
+                ),
+                (
+                    ElemType::Float(FloatKind::F16),
+                    ElemType::Float(FloatKind::F16),
+                    ElemType::Float(FloatKind::F16),
+                ),
+                (
+                    ElemType::Float(FloatKind::BF16),
+                    ElemType::Float(FloatKind::F32),
+                    ElemType::Float(FloatKind::F32),
+                ),
+                (
+                    ElemType::Float(FloatKind::BF16),
+                    ElemType::Float(FloatKind::BF16),
+                    ElemType::Float(FloatKind::F32),
+                ),
+                (
+                    ElemType::Float(FloatKind::BF16),
+                    ElemType::Float(FloatKind::BF16),
+                    ElemType::Float(FloatKind::BF16),
+                ),
+            ];
+            types.into_iter().map(|it| (it, tdims.clone())).collect()
         }
-        f.write_str("typedef float float8_t __attribute__((ext_vector_type(8)));\n")
-    }
-
-    fn compile_wmma_local_variables(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(())
-    }
-
-    fn compile_wmma_fragment_declaration(
-        f: &mut std::fmt::Formatter<'_>,
-        val: &crate::shared::Value<HipDialect<Self>>,
-        ty: &crate::shared::Item<HipDialect<Self>>,
-    ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_declaration(f, val, ty)
-    }
-
-    fn compile_wwma_fragment_ident(
-        f: &mut std::fmt::Formatter<'_>,
-        ident: &FragmentIdent<HipDialect<Self>>,
-    ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_ident(f, ROCWMMA_NAMESPACE, ident)
-    }
-
-    fn compile_wmma_fragment_layout(
-        f: &mut std::fmt::Formatter<'_>,
-        layout: &FragmentLayout<HipDialect<Self>>,
-    ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_layout(f, ROCWMMA_NAMESPACE, layout)
-    }
-
-    fn compile_wmma_fragment(
-        f: &mut std::fmt::Formatter<'_>,
-        fragment: &FragmentType<HipDialect<Self>>,
-    ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment(f, ROCWMMA_NAMESPACE, fragment)
-    }
-
-    fn compile_wmma_instruction(
-        f: &mut std::fmt::Formatter<'_>,
-        instruction: &WmmaInstruction<HipDialect<Self>>,
-    ) -> std::fmt::Result {
-        wmma_api_base::compile_instruction(f, ROCWMMA_NAMESPACE, instruction)
-    }
-
-    fn compile_manual_mma(
-        f: &mut std::fmt::Formatter<'_>,
-        mma: ManualMma<HipDialect<Self>>,
-    ) -> std::fmt::Result {
-        compile_manual_mma(f, mma.shape, mma.frag_a, mma.frag_b, mma.frag_c, mma.frag_d)
-    }
-
-    fn compile_scaled_mma(
-        f: &mut std::fmt::Formatter<'_>,
-        _mma: ManualMma<HipDialect<Self>>,
-        _scales_a: Value<HipDialect<Self>>,
-        _scales_b: Value<HipDialect<Self>>,
-        _scales_factor: u32,
-    ) -> std::fmt::Result {
-        f.write_str("#error Scaled MMA not supported on HIP\n")
-    }
-
-    fn supported_wmma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {
-        let combinations = match arch {
-            AMDArchitecture::GFX12 => {
-                // Group types by their tile dimensions for readability
-                let tdims_16_16_32 = vec![(16, 16, 32)];
-                let types_16_16_32 = vec![
+        AMDArchitecture::GFX908 => {
+            vec![
+                (
                     (
-                        gpu::ElemType::Float(gpu::FloatKind::E5M2), // bfloat8_t / bf8
-                        gpu::ElemType::Float(gpu::FloatKind::F32),
-                        gpu::ElemType::Float(gpu::FloatKind::F32),
-                    ),
+                        ElemType::Float(FloatKind::F32), // m / i
+                        ElemType::Float(FloatKind::F32), // n / o
+                        ElemType::Float(FloatKind::F32),
+                    ), // k / c
+                    vec![
+                        //m  n   k
+                        (16, 16, 4),
+                        (16, 16, 8),
+                        (16, 16, 16),
+                        (16, 16, 32),
+                        (32, 32, 2),
+                        (32, 32, 4),
+                        (32, 32, 8),
+                        (32, 32, 16),
+                        (32, 32, 32),
+                    ],
+                ),
+                (
                     (
-                        gpu::ElemType::Float(gpu::FloatKind::E4M3), // float8_t / f8
-                        gpu::ElemType::Float(gpu::FloatKind::F32),
-                        gpu::ElemType::Float(gpu::FloatKind::F32),
+                        ElemType::Float(FloatKind::F16),
+                        ElemType::Float(FloatKind::F32),
+                        ElemType::Float(FloatKind::F32),
                     ),
-                ];
-
-                let tdims_16_16_16 = vec![(16, 16, 16)];
-                let types_16_16_16 = vec![
+                    vec![
+                        (16, 16, 16),
+                        (16, 16, 32),
+                        (32, 32, 8),
+                        (32, 32, 16),
+                        (32, 32, 32),
+                    ],
+                ),
+                (
                     (
-                        gpu::ElemType::Int(gpu::IntKind::I8),
-                        gpu::ElemType::Int(gpu::IntKind::I32),
-                        gpu::ElemType::Int(gpu::IntKind::I32),
+                        ElemType::Float(FloatKind::F16),
+                        ElemType::Float(FloatKind::F16),
+                        ElemType::Float(FloatKind::F32),
                     ),
+                    vec![
+                        (16, 16, 16),
+                        (16, 16, 32),
+                        (32, 32, 8),
+                        (32, 32, 16),
+                        (32, 32, 32),
+                    ],
+                ),
+                (
                     (
-                        gpu::ElemType::Int(gpu::IntKind::I8),
-                        gpu::ElemType::Int(gpu::IntKind::I8),
-                        gpu::ElemType::Int(gpu::IntKind::I32),
+                        ElemType::Float(FloatKind::F16),
+                        ElemType::Float(FloatKind::F16),
+                        ElemType::Float(FloatKind::F16),
                     ),
+                    vec![
+                        (16, 16, 16),
+                        (16, 16, 32),
+                        (32, 32, 8),
+                        (32, 32, 16),
+                        (32, 32, 32),
+                    ],
+                ),
+                (
                     (
-                        gpu::ElemType::Float(gpu::FloatKind::F16),
-                        gpu::ElemType::Float(gpu::FloatKind::F32),
-                        gpu::ElemType::Float(gpu::FloatKind::F32),
+                        ElemType::Float(FloatKind::BF16),
+                        ElemType::Float(FloatKind::F32),
+                        ElemType::Float(FloatKind::F32),
                     ),
+                    vec![
+                        (16, 16, 8),
+                        (16, 16, 16),
+                        (16, 16, 32),
+                        (32, 32, 4),
+                        (32, 32, 8),
+                        (32, 32, 16),
+                        (32, 32, 32),
+                    ],
+                ),
+                (
                     (
-                        gpu::ElemType::Float(gpu::FloatKind::F16),
-                        gpu::ElemType::Float(gpu::FloatKind::F16),
-                        gpu::ElemType::Float(gpu::FloatKind::F32),
+                        ElemType::Float(FloatKind::BF16),
+                        ElemType::Float(FloatKind::BF16),
+                        ElemType::Float(FloatKind::F32),
                     ),
+                    vec![
+                        (16, 16, 8),
+                        (16, 16, 16),
+                        (16, 16, 32),
+                        (32, 32, 4),
+                        (32, 32, 8),
+                        (32, 32, 16),
+                        (32, 32, 32),
+                    ],
+                ),
+                (
                     (
-                        gpu::ElemType::Float(gpu::FloatKind::F16),
-                        gpu::ElemType::Float(gpu::FloatKind::F16),
-                        gpu::ElemType::Float(gpu::FloatKind::F16),
+                        ElemType::Float(FloatKind::BF16),
+                        ElemType::Float(FloatKind::BF16),
+                        ElemType::Float(FloatKind::BF16),
                     ),
+                    vec![
+                        (16, 16, 8),
+                        (16, 16, 16),
+                        (16, 16, 32),
+                        (32, 32, 4),
+                        (32, 32, 8),
+                        (32, 32, 16),
+                        (32, 32, 32),
+                    ],
+                ),
+            ]
+        }
+        AMDArchitecture::GFX90A | AMDArchitecture::GFX94 => {
+            vec![
+                (
                     (
-                        gpu::ElemType::Float(gpu::FloatKind::BF16),
-                        gpu::ElemType::Float(gpu::FloatKind::F32),
-                        gpu::ElemType::Float(gpu::FloatKind::F32),
-                    ),
+                        ElemType::Float(FloatKind::F32), // m / i
+                        ElemType::Float(FloatKind::F32), // n / o
+                        ElemType::Float(FloatKind::F32),
+                    ), // k / c
+                    vec![
+                        //m  n   k
+                        (16, 16, 4),
+                        (16, 16, 8),
+                        (16, 16, 16),
+                        (16, 16, 32),
+                        (32, 32, 2),
+                        (32, 32, 4),
+                        (32, 32, 8),
+                        (32, 32, 16),
+                        (32, 32, 32),
+                    ],
+                ),
+                (
                     (
-                        gpu::ElemType::Float(gpu::FloatKind::BF16),
-                        gpu::ElemType::Float(gpu::FloatKind::BF16),
-                        gpu::ElemType::Float(gpu::FloatKind::F32),
+                        ElemType::Float(FloatKind::F16),
+                        ElemType::Float(FloatKind::F32),
+                        ElemType::Float(FloatKind::F32),
                     ),
+                    vec![
+                        (16, 16, 16),
+                        (16, 16, 32),
+                        (32, 32, 8),
+                        (32, 32, 16),
+                        (32, 32, 32),
+                    ],
+                ),
+                (
                     (
-                        gpu::ElemType::Float(gpu::FloatKind::BF16),
-                        gpu::ElemType::Float(gpu::FloatKind::BF16),
-                        gpu::ElemType::Float(gpu::FloatKind::BF16),
+                        ElemType::Float(FloatKind::F16),
+                        ElemType::Float(FloatKind::F16),
+                        ElemType::Float(FloatKind::F32),
                     ),
-                ];
-
-                // Combine all type-dimension pairs
-                types_16_16_32
-                    .into_iter()
-                    .map(|it| (it, tdims_16_16_32.clone()))
-                    .chain(
-                        types_16_16_16
-                            .into_iter()
-                            .map(|it| (it, tdims_16_16_16.clone())),
-                    )
-                    .collect()
-            }
-            AMDArchitecture::GFX10 | AMDArchitecture::GFX11 => {
-                // For gfx11 the supported tile dimensions are always the same
-                //                                   m   n   k
-                let tdims = vec![(16, 16, 16), (16, 16, 32)];
-                let types = vec![
+                    vec![
+                        (16, 16, 16),
+                        (16, 16, 32),
+                        (32, 32, 8),
+                        (32, 32, 16),
+                        (32, 32, 32),
+                    ],
+                ),
+                (
                     (
-                        gpu::ElemType::Float(gpu::FloatKind::F16), // m / i
-                        gpu::ElemType::Float(gpu::FloatKind::F32), // n / o
-                        gpu::ElemType::Float(gpu::FloatKind::F32), // k / c
+                        ElemType::Float(FloatKind::F16),
+                        ElemType::Float(FloatKind::F16),
+                        ElemType::Float(FloatKind::F16),
                     ),
+                    vec![
+                        (16, 16, 16),
+                        (16, 16, 32),
+                        (32, 32, 8),
+                        (32, 32, 16),
+                        (32, 32, 32),
+                    ],
+                ),
+                (
                     (
-                        gpu::ElemType::Float(gpu::FloatKind::F16),
-                        gpu::ElemType::Float(gpu::FloatKind::F16),
-                        gpu::ElemType::Float(gpu::FloatKind::F32),
+                        ElemType::Float(FloatKind::BF16),
+                        ElemType::Float(FloatKind::F32),
+                        ElemType::Float(FloatKind::F32),
                     ),
+                    vec![
+                        (16, 16, 16),
+                        (16, 16, 32),
+                        (32, 32, 8),
+                        (32, 32, 16),
+                        (32, 32, 32),
+                    ],
+                ),
+                (
                     (
-                        gpu::ElemType::Float(gpu::FloatKind::F16),
-                        gpu::ElemType::Float(gpu::FloatKind::F16),
-                        gpu::ElemType::Float(gpu::FloatKind::F16),
+                        ElemType::Float(FloatKind::BF16),
+                        ElemType::Float(FloatKind::BF16),
+                        ElemType::Float(FloatKind::F32),
                     ),
+                    vec![
+                        (16, 16, 16),
+                        (16, 16, 32),
+                        (32, 32, 8),
+                        (32, 32, 16),
+                        (32, 32, 32),
+                    ],
+                ),
+                (
                     (
-                        gpu::ElemType::Float(gpu::FloatKind::BF16),
-                        gpu::ElemType::Float(gpu::FloatKind::F32),
-                        gpu::ElemType::Float(gpu::FloatKind::F32),
+                        ElemType::Float(FloatKind::BF16),
+                        ElemType::Float(FloatKind::BF16),
+                        ElemType::Float(FloatKind::BF16),
                     ),
-                    (
-                        gpu::ElemType::Float(gpu::FloatKind::BF16),
-                        gpu::ElemType::Float(gpu::FloatKind::BF16),
-                        gpu::ElemType::Float(gpu::FloatKind::F32),
-                    ),
-                    (
-                        gpu::ElemType::Float(gpu::FloatKind::BF16),
-                        gpu::ElemType::Float(gpu::FloatKind::BF16),
-                        gpu::ElemType::Float(gpu::FloatKind::BF16),
-                    ),
-                ];
-                types.into_iter().map(|it| (it, tdims.clone())).collect()
-            }
-            AMDArchitecture::GFX908 => {
-                vec![
-                    (
-                        (
-                            gpu::ElemType::Float(gpu::FloatKind::F32), // m / i
-                            gpu::ElemType::Float(gpu::FloatKind::F32), // n / o
-                            gpu::ElemType::Float(gpu::FloatKind::F32),
-                        ), // k / c
-                        vec![
-                            //m  n   k
-                            (16, 16, 4),
-                            (16, 16, 8),
-                            (16, 16, 16),
-                            (16, 16, 32),
-                            (32, 32, 2),
-                            (32, 32, 4),
-                            (32, 32, 8),
-                            (32, 32, 16),
-                            (32, 32, 32),
-                        ],
-                    ),
-                    (
-                        (
-                            gpu::ElemType::Float(gpu::FloatKind::F16),
-                            gpu::ElemType::Float(gpu::FloatKind::F32),
-                            gpu::ElemType::Float(gpu::FloatKind::F32),
-                        ),
-                        vec![
-                            (16, 16, 16),
-                            (16, 16, 32),
-                            (32, 32, 8),
-                            (32, 32, 16),
-                            (32, 32, 32),
-                        ],
-                    ),
-                    (
-                        (
-                            gpu::ElemType::Float(gpu::FloatKind::F16),
-                            gpu::ElemType::Float(gpu::FloatKind::F16),
-                            gpu::ElemType::Float(gpu::FloatKind::F32),
-                        ),
-                        vec![
-                            (16, 16, 16),
-                            (16, 16, 32),
-                            (32, 32, 8),
-                            (32, 32, 16),
-                            (32, 32, 32),
-                        ],
-                    ),
-                    (
-                        (
-                            gpu::ElemType::Float(gpu::FloatKind::F16),
-                            gpu::ElemType::Float(gpu::FloatKind::F16),
-                            gpu::ElemType::Float(gpu::FloatKind::F16),
-                        ),
-                        vec![
-                            (16, 16, 16),
-                            (16, 16, 32),
-                            (32, 32, 8),
-                            (32, 32, 16),
-                            (32, 32, 32),
-                        ],
-                    ),
-                    (
-                        (
-                            gpu::ElemType::Float(gpu::FloatKind::BF16),
-                            gpu::ElemType::Float(gpu::FloatKind::F32),
-                            gpu::ElemType::Float(gpu::FloatKind::F32),
-                        ),
-                        vec![
-                            (16, 16, 8),
-                            (16, 16, 16),
-                            (16, 16, 32),
-                            (32, 32, 4),
-                            (32, 32, 8),
-                            (32, 32, 16),
-                            (32, 32, 32),
-                        ],
-                    ),
-                    (
-                        (
-                            gpu::ElemType::Float(gpu::FloatKind::BF16),
-                            gpu::ElemType::Float(gpu::FloatKind::BF16),
-                            gpu::ElemType::Float(gpu::FloatKind::F32),
-                        ),
-                        vec![
-                            (16, 16, 8),
-                            (16, 16, 16),
-                            (16, 16, 32),
-                            (32, 32, 4),
-                            (32, 32, 8),
-                            (32, 32, 16),
-                            (32, 32, 32),
-                        ],
-                    ),
-                    (
-                        (
-                            gpu::ElemType::Float(gpu::FloatKind::BF16),
-                            gpu::ElemType::Float(gpu::FloatKind::BF16),
-                            gpu::ElemType::Float(gpu::FloatKind::BF16),
-                        ),
-                        vec![
-                            (16, 16, 8),
-                            (16, 16, 16),
-                            (16, 16, 32),
-                            (32, 32, 4),
-                            (32, 32, 8),
-                            (32, 32, 16),
-                            (32, 32, 32),
-                        ],
-                    ),
-                ]
-            }
-            AMDArchitecture::GFX90A | AMDArchitecture::GFX94 => {
-                vec![
-                    (
-                        (
-                            gpu::ElemType::Float(gpu::FloatKind::F32), // m / i
-                            gpu::ElemType::Float(gpu::FloatKind::F32), // n / o
-                            gpu::ElemType::Float(gpu::FloatKind::F32),
-                        ), // k / c
-                        vec![
-                            //m  n   k
-                            (16, 16, 4),
-                            (16, 16, 8),
-                            (16, 16, 16),
-                            (16, 16, 32),
-                            (32, 32, 2),
-                            (32, 32, 4),
-                            (32, 32, 8),
-                            (32, 32, 16),
-                            (32, 32, 32),
-                        ],
-                    ),
-                    (
-                        (
-                            gpu::ElemType::Float(gpu::FloatKind::F16),
-                            gpu::ElemType::Float(gpu::FloatKind::F32),
-                            gpu::ElemType::Float(gpu::FloatKind::F32),
-                        ),
-                        vec![
-                            (16, 16, 16),
-                            (16, 16, 32),
-                            (32, 32, 8),
-                            (32, 32, 16),
-                            (32, 32, 32),
-                        ],
-                    ),
-                    (
-                        (
-                            gpu::ElemType::Float(gpu::FloatKind::F16),
-                            gpu::ElemType::Float(gpu::FloatKind::F16),
-                            gpu::ElemType::Float(gpu::FloatKind::F32),
-                        ),
-                        vec![
-                            (16, 16, 16),
-                            (16, 16, 32),
-                            (32, 32, 8),
-                            (32, 32, 16),
-                            (32, 32, 32),
-                        ],
-                    ),
-                    (
-                        (
-                            gpu::ElemType::Float(gpu::FloatKind::F16),
-                            gpu::ElemType::Float(gpu::FloatKind::F16),
-                            gpu::ElemType::Float(gpu::FloatKind::F16),
-                        ),
-                        vec![
-                            (16, 16, 16),
-                            (16, 16, 32),
-                            (32, 32, 8),
-                            (32, 32, 16),
-                            (32, 32, 32),
-                        ],
-                    ),
-                    (
-                        (
-                            gpu::ElemType::Float(gpu::FloatKind::BF16),
-                            gpu::ElemType::Float(gpu::FloatKind::F32),
-                            gpu::ElemType::Float(gpu::FloatKind::F32),
-                        ),
-                        vec![
-                            (16, 16, 16),
-                            (16, 16, 32),
-                            (32, 32, 8),
-                            (32, 32, 16),
-                            (32, 32, 32),
-                        ],
-                    ),
-                    (
-                        (
-                            gpu::ElemType::Float(gpu::FloatKind::BF16),
-                            gpu::ElemType::Float(gpu::FloatKind::BF16),
-                            gpu::ElemType::Float(gpu::FloatKind::F32),
-                        ),
-                        vec![
-                            (16, 16, 16),
-                            (16, 16, 32),
-                            (32, 32, 8),
-                            (32, 32, 16),
-                            (32, 32, 32),
-                        ],
-                    ),
-                    (
-                        (
-                            gpu::ElemType::Float(gpu::FloatKind::BF16),
-                            gpu::ElemType::Float(gpu::FloatKind::BF16),
-                            gpu::ElemType::Float(gpu::FloatKind::BF16),
-                        ),
-                        vec![
-                            (16, 16, 16),
-                            (16, 16, 32),
-                            (32, 32, 8),
-                            (32, 32, 16),
-                            (32, 32, 32),
-                        ],
-                    ),
-                ]
-            }
-            AMDArchitecture::Other => vec![],
-        };
-        combinations
-            .into_iter()
-            .flat_map(|(ty, sizes)| sizes.into_iter().map(move |size| (ty, size)))
-            .map(|((i, o, c), (m, n, k))| MmaConfig {
-                a_type: i.into(),
-                b_type: o.into(),
-                cd_type: c.into(),
-                m,
-                n,
-                k,
-            })
-            .collect()
-    }
-
-    fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {
-        supported_mma_combinations(arch)
-    }
+                    vec![
+                        (16, 16, 16),
+                        (16, 16, 32),
+                        (32, 32, 8),
+                        (32, 32, 16),
+                        (32, 32, 32),
+                    ],
+                ),
+            ]
+        }
+        AMDArchitecture::Other => vec![],
+    };
+    combinations
+        .into_iter()
+        .flat_map(|(ty, sizes)| sizes.into_iter().map(move |size| (ty, size)))
+        .map(|((i, o, c), (m, n, k))| MmaConfig {
+            a_type: i.into(),
+            b_type: o.into(),
+            cd_type: c.into(),
+            m,
+            n,
+            k,
+        })
+        .collect()
 }
