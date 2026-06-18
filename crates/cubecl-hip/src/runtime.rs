@@ -1,5 +1,4 @@
 use crate::{
-    HipWmmaCompiler,
     compute::{HipServer, context::HipContext},
     device::AmdDevice,
 };
@@ -10,22 +9,28 @@ use cubecl_common::{
 };
 use cubecl_core::{
     MemoryConfiguration, Runtime,
+    cmma::MatrixLayout,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        ContiguousElements, DeviceProperties, HardwareProperties, MatrixLayout,
-        MemoryDeviceProperties, MmaProperties, TargetProperties, VectorSize, features::Plane,
+        ContiguousElements, DeviceProperties, HardwareProperties, MemoryDeviceProperties,
+        MmaProperties, TargetProperties, VectorSize, features::Plane,
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
     ComputeKernel,
-    hip::{HipDialect, arch::AMDArchitecture, mma::contiguous_elements_rdna3},
+    hip::{
+        self,
+        arch::AMDArchitecture,
+        mma::{HipCmmaCompiler, manual::contiguous_elements_rdna3},
+    },
     register_supported_types,
     shared::{
-        Architecture, CompilationOptions, CppCompiler, CppSupportedFeatures, DialectWmmaCompiler,
-        register_mma_features, register_scaled_mma_features, register_wmma_features,
+        Architecture, CompilationOptions, CppCompiler, CppSupportedFeatures, register_mma_features,
+        register_scaled_mma_features, register_wmma_features,
     },
+    target::Hip,
 };
 use cubecl_hip_sys::{HIP_SUCCESS, hipDeviceScheduleSpin, hipGetDeviceCount, hipSetDeviceFlags};
 use cubecl_runtime::{
@@ -43,8 +48,8 @@ pub struct RuntimeOptions {
 #[derive(Debug, Clone)]
 pub struct HipRuntime;
 
-pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
-pub type HipComputeKernel = ComputeKernel<HipDialect<HipWmmaCompiler>>;
+pub type HipCompiler = CppCompiler<Hip>;
+pub type HipComputeKernel = ComputeKernel;
 
 impl DeviceService for HipServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
@@ -130,10 +135,10 @@ impl DeviceService for HipServer {
             alignment: mem_alignment as u64,
         };
 
-        let supported_wmma_combinations = HipWmmaCompiler::supported_wmma_combinations(&arch);
-        let supported_mma_combinations = HipWmmaCompiler::supported_mma_combinations(&arch);
-        let supported_scaled_mma_combinations =
-            HipWmmaCompiler::supported_scaled_mma_combinations(&arch);
+        let supported_wmma_combinations =
+            HipCmmaCompiler::Intrinsics.supported_cmma_combinations(&arch);
+        let supported_mma_combinations = hip::supported_mma_combinations(&arch);
+        let supported_scaled_mma_combinations = hip::supported_scaled_mma_combinations(&arch);
 
         let topology = HardwareProperties {
             load_width: 128,
@@ -181,7 +186,7 @@ impl DeviceService for HipServer {
         register_scaled_mma_features(supported_scaled_mma_combinations, &mut device_props);
 
         let comp_opts = CompilationOptions {
-            warp_size: arch.warp_size(),
+            warp_size: arch.warp_size() as usize,
             supports_features: CppSupportedFeatures {
                 fast_math: true,
                 ..Default::default()

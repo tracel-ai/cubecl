@@ -13,7 +13,7 @@ use cubecl_ir::{
         vector::{VectorExtractOp, VectorInsertOp},
     },
     interfaces::{MaybeVectorizedType, RematerializeOp, TypedExt},
-    pliron::prelude::{Operation, Result},
+    prelude::*,
     types::{ArrayType, AtomicType, PointerType, RuntimeArrayType, VectorType},
     verify_op_succ, verify_ty_succ,
 };
@@ -21,19 +21,10 @@ use hashbrown::HashMap;
 use pliron::{
     builtin::{
         attributes::TypeAttr,
-        op_interfaces::OneResultInterface,
         ops::{ConstantOp, FuncOp},
-        type_interfaces::FunctionTypeInterface,
         types::FunctionType,
     },
-    context::{Context, Ptr},
-    derive::{op_interface, op_interface_impl, type_interface, type_interface_impl},
-    graph::walkers::{IRNode, WALKCONFIG_PREORDER_FORWARD, uninterruptible::mutable::walk_op},
-    irbuild::IRStatus,
-    op::{Op, op_cast},
-    pass_manager::{AnalysisManager, Pass, PassResult},
-    r#type::{TypeObj, Typed, type_cast, type_impls},
-    value::Value,
+    graph::walkers::{WALKCONFIG_PREORDER_FORWARD, uninterruptible::mutable::walk_op},
 };
 
 type Mappings = HashMap<Value, Vec<Value>>;
@@ -46,58 +37,54 @@ pub struct UnrollPass {
 #[type_interface]
 pub trait UnrollableType: MaybeVectorizedType {
     verify_ty_succ!();
-    fn with_vector_size(&self, ctx: &mut Context, vectorization: usize) -> Ptr<TypeObj>;
+    fn with_vector_size(&self, ctx: &Context, vectorization: usize) -> TypeHandle;
 }
 
 #[type_interface_impl]
 impl UnrollableType for VectorType {
-    fn with_vector_size(&self, ctx: &mut Context, vectorization: usize) -> Ptr<TypeObj> {
+    fn with_vector_size(&self, ctx: &Context, vectorization: usize) -> TypeHandle {
         VectorType::get(ctx, self.inner, vectorization).into()
     }
 }
 
 #[type_interface_impl]
 impl UnrollableType for AtomicType {
-    fn with_vector_size(&self, ctx: &mut Context, vectorization: usize) -> Ptr<TypeObj> {
-        let ctx2 = dupe_ctx(ctx);
+    fn with_vector_size(&self, ctx: &Context, vectorization: usize) -> TypeHandle {
         let inner = self.inner.deref(ctx);
-        let unrollable = type_cast::<dyn UnrollableType>(&**inner).expect("Should be implemented");
-        let new_inner = unrollable.with_vector_size(ctx2, vectorization);
-        AtomicType::get(ctx2, new_inner).into()
+        let unrollable = type_cast::<dyn UnrollableType>(&*inner).expect("Should be implemented");
+        let new_inner = unrollable.with_vector_size(ctx, vectorization);
+        AtomicType::get(ctx, new_inner).into()
     }
 }
 
 #[type_interface_impl]
 impl UnrollableType for PointerType {
-    fn with_vector_size(&self, ctx: &mut Context, vectorization: usize) -> Ptr<TypeObj> {
-        let ctx2 = dupe_ctx(ctx);
+    fn with_vector_size(&self, ctx: &Context, vectorization: usize) -> TypeHandle {
         let inner = self.inner.deref(ctx);
-        let unrollable = type_cast::<dyn UnrollableType>(&**inner).expect("Should be implemented");
-        let new_inner = unrollable.with_vector_size(ctx2, vectorization);
-        PointerType::get(ctx2, new_inner, self.address_space).into()
+        let unrollable = type_cast::<dyn UnrollableType>(&*inner).expect("Should be implemented");
+        let new_inner = unrollable.with_vector_size(ctx, vectorization);
+        PointerType::get(ctx, new_inner, self.address_space).into()
     }
 }
 
 #[type_interface_impl]
 impl UnrollableType for ArrayType {
-    fn with_vector_size(&self, ctx: &mut Context, new_vec: usize) -> Ptr<TypeObj> {
-        let ctx2 = dupe_ctx(ctx);
+    fn with_vector_size(&self, ctx: &Context, new_vec: usize) -> TypeHandle {
         let current_vec = self.vector_size(ctx);
         let inner = self.inner.deref(ctx);
-        let unrollable = type_cast::<dyn UnrollableType>(&**inner).expect("Should be implemented");
-        let new_inner = unrollable.with_vector_size(ctx2, new_vec);
-        ArrayType::get(ctx2, new_inner, self.length * current_vec / new_vec).into()
+        let unrollable = type_cast::<dyn UnrollableType>(&*inner).expect("Should be implemented");
+        let new_inner = unrollable.with_vector_size(ctx, new_vec);
+        ArrayType::get(ctx, new_inner, self.length * current_vec / new_vec).into()
     }
 }
 
 #[type_interface_impl]
 impl UnrollableType for RuntimeArrayType {
-    fn with_vector_size(&self, ctx: &mut Context, new_vec: usize) -> Ptr<TypeObj> {
-        let ctx2 = dupe_ctx(ctx);
+    fn with_vector_size(&self, ctx: &Context, new_vec: usize) -> TypeHandle {
         let inner = self.inner.deref(ctx);
-        let unrollable = type_cast::<dyn UnrollableType>(&**inner).expect("Should be implemented");
-        let new_inner = unrollable.with_vector_size(ctx2, new_vec);
-        RuntimeArrayType::get(ctx2, new_inner).into()
+        let unrollable = type_cast::<dyn UnrollableType>(&*inner).expect("Should be implemented");
+        let new_inner = unrollable.with_vector_size(ctx, new_vec);
+        RuntimeArrayType::get(ctx, new_inner).into()
     }
 }
 
@@ -108,6 +95,7 @@ pub trait CustomUnrollOp {
         &self,
         ctx: &mut Context,
         mappings: &mut Mappings,
+        rewriter: &mut PassRewriter,
         vector_size: usize,
         result: &mut IRStatus,
     );
@@ -119,6 +107,7 @@ impl CustomUnrollOp for DeclareVariableOp {
         &self,
         ctx: &mut Context,
         mappings: &mut Mappings,
+        rewriter: &mut PassRewriter,
         vector_size: usize,
         result: &mut IRStatus,
     ) {
@@ -152,7 +141,7 @@ impl CustomUnrollOp for DeclareVariableOp {
                 results.push(new_op.get_result(ctx));
             }
             mappings.insert(result, results);
-            self.get_operation().unlink(ctx);
+            rewriter.erase_operation(ctx, self.get_operation());
         }
     }
 }
@@ -163,6 +152,7 @@ impl CustomUnrollOp for IndexOp {
         &self,
         ctx: &mut Context,
         mappings: &mut Mappings,
+        rewriter: &mut PassRewriter,
         vector_size: usize,
         result: &mut IRStatus,
     ) {
@@ -185,14 +175,14 @@ impl CustomUnrollOp for IndexOp {
                     add.get_operation().insert_before(ctx, self.get_operation());
                     let idx = add.get_result(ctx);
 
-                    let op = IndexOp::new(ctx, base, idx, unroll_factor.into(), checked);
+                    let op = IndexOp::new(ctx, base, idx, unroll_factor, checked);
                     op.get_operation().insert_before(ctx, self.get_operation());
                     op.get_result(ctx)
                 })
                 .collect();
 
             mappings.insert(self.get_result(ctx), new_results);
-            self.get_operation().unlink(ctx);
+            rewriter.erase_operation(ctx, self.get_operation());
         }
     }
 }
@@ -210,6 +200,7 @@ impl CustomUnrollOp for VectorExtractOp {
         &self,
         ctx: &mut Context,
         mappings: &mut Mappings,
+        _rewriter: &mut PassRewriter,
         vector_size: usize,
         result: &mut IRStatus,
     ) {
@@ -235,6 +226,7 @@ impl CustomUnrollOp for VectorInsertOp {
         &self,
         ctx: &mut Context,
         mappings: &mut Mappings,
+        rewriter: &mut PassRewriter,
         vector_size: usize,
         result: &mut IRStatus,
     ) {
@@ -252,7 +244,7 @@ impl CustomUnrollOp for VectorInsertOp {
 
             let new_results = vectors.iter().enumerate().map(|(i, vector)| {
                 let op = if i == unroll_idx {
-                    VectorInsertOp::new(ctx, *vector, value, sub_idx.into()).get_operation()
+                    VectorInsertOp::new(ctx, *vector, value, sub_idx).get_operation()
                 } else {
                     CopyOp::new(ctx, *vector).get_operation()
                 };
@@ -261,7 +253,7 @@ impl CustomUnrollOp for VectorInsertOp {
             });
             let new_results = new_results.collect();
             mappings.insert(self.get_result(ctx), new_results);
-            self.get_operation().unlink(ctx);
+            rewriter.erase_operation(ctx, self.get_operation());
         }
     }
 }
@@ -272,6 +264,7 @@ impl CustomUnrollOp for matrix::LoadOp {
         &self,
         ctx: &mut Context,
         mappings: &mut Mappings,
+        _rewriter: &mut PassRewriter,
         vector_size: usize,
         result: &mut IRStatus,
     ) {
@@ -290,6 +283,7 @@ impl CustomUnrollOp for matrix::StoreOp {
         &self,
         ctx: &mut Context,
         mappings: &mut Mappings,
+        _rewriter: &mut PassRewriter,
         vector_size: usize,
         result: &mut IRStatus,
     ) {
@@ -306,6 +300,7 @@ struct UnrollState {
     mappings: Mappings,
     max_vector_size: VectorSize,
     result: PassResult,
+    rewriter: PassRewriter,
 }
 
 impl Pass for UnrollPass {
@@ -325,6 +320,7 @@ impl Pass for UnrollPass {
             mappings: Default::default(),
             max_vector_size: self.max_vector_size,
             result: Default::default(),
+            rewriter: PassRewriter::default(),
         };
 
         walk_op(
@@ -345,12 +341,19 @@ impl Pass for UnrollPass {
                         custom.unroll(
                             ctx2,
                             &mut state.mappings,
+                            &mut state.rewriter,
                             state.max_vector_size,
                             &mut state.result.ir_changed,
                         );
                     } else if unroll_opds || unroll_res {
                         state.result.ir_changed |= IRStatus::Changed;
-                        unroll_default(ctx2, &mut state.mappings, op, state.max_vector_size);
+                        unroll_default(
+                            ctx2,
+                            &mut state.mappings,
+                            &mut state.rewriter,
+                            op,
+                            state.max_vector_size,
+                        );
                     }
                 }
             },
@@ -381,7 +384,7 @@ impl UnrollPass {
             }
         }
 
-        let new_func_ty = FunctionType::get(ctx2, new_func_inputs, func_ty.res_types());
+        let new_func_ty = FunctionType::get(ctx, new_func_inputs, func_ty.res_types());
         func.set_attr_func_type(ctx, TypeAttr::new(new_func_ty.into()));
     }
 }
@@ -389,6 +392,7 @@ impl UnrollPass {
 fn unroll_default(
     ctx: &mut Context,
     mappings: &mut Mappings,
+    rewriter: &mut PassRewriter,
     op: Ptr<Operation>,
     max_vector_size: usize,
 ) {
@@ -421,15 +425,15 @@ fn unroll_default(
     if !new_results.is_empty() {
         mappings.insert(op.deref(ctx).get_result(0), new_results);
     }
-    op.unlink(ctx);
+    rewriter.erase_operation(ctx2, op);
 }
 
 fn should_unroll(ctx: &Context, value: impl Typed, max_vector_size: usize) -> bool {
     let ty = value.get_type(ctx).deref(ctx);
-    if !type_impls::<dyn UnrollableType>(&**ty) {
+    if !type_impls::<dyn UnrollableType>(&*ty) {
         return false;
     }
-    let Some(maybe_vec) = type_cast::<dyn MaybeVectorizedType>(&**ty) else {
+    let Some(maybe_vec) = type_cast::<dyn MaybeVectorizedType>(&*ty) else {
         return false;
     };
     maybe_vec.vector_size(ctx) > max_vector_size
@@ -437,18 +441,17 @@ fn should_unroll(ctx: &Context, value: impl Typed, max_vector_size: usize) -> bo
 
 fn try_get_vec(ctx: &Context, value: impl Typed) -> usize {
     let ty = value.get_type(ctx).deref(ctx);
-    let Some(maybe_vec) = type_cast::<dyn MaybeVectorizedType>(&**ty) else {
+    let Some(maybe_vec) = type_cast::<dyn MaybeVectorizedType>(&*ty) else {
         return 1;
     };
     maybe_vec.vector_size(ctx)
 }
 
-fn unroll_ty(ctx: &mut Context, ty: impl Typed, vectorization: usize) -> Ptr<TypeObj> {
-    let ctx_2 = dupe_ctx(ctx);
+fn unroll_ty(ctx: &mut Context, ty: impl Typed, vectorization: usize) -> TypeHandle {
     let ty = ty.get_type(ctx).deref(ctx);
-    type_cast::<dyn UnrollableType>(&**ty)
+    type_cast::<dyn UnrollableType>(&*ty)
         .expect("Should be unrollable")
-        .with_vector_size(ctx_2, vectorization)
+        .with_vector_size(ctx, vectorization)
 }
 
 /// Unsafely duplicate the context ref because `with_vector_size` is uncallable otherwise

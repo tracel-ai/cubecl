@@ -74,10 +74,17 @@ impl CubeOp {
             .iter()
             .filter(|it| !it.flags.optional.is_present())
             .map(|arg| {
-                let CubeOpArg { ident, ty, .. } = arg;
-                quote![#ident: #ty]
+                let CubeOpArg { ident, ty, kind, .. } = arg;
+                match kind {
+                    ArgKind::Value => quote![#ident: #ty],
+                    ArgKind::Attribute => quote![#ident: impl Into<#ty>]
+                }
             });
         let values = self.values().map(|arg| &arg.ident);
+        let attr_into = self.required_attributes().map(|it| {
+            let name = &it.ident;
+            quote![let #name = #name.into();]
+        });
         let attributes = self.required_attributes().map(|it| {
             let name = &it.ident;
             let setter = format_ident!("set_attr_{name}");
@@ -85,7 +92,7 @@ impl CubeOp {
         });
 
         let args: Vec<_> = match self.result_ty {
-            ResultTy::Argument => iter::once(quote![result_ty: Ptr<TypeObj>])
+            ResultTy::Argument => iter::once(quote![result_ty: ::pliron::r#type::TypeHandle])
                 .chain(args)
                 .collect(),
             _ => args.collect(),
@@ -95,6 +102,7 @@ impl CubeOp {
             #[allow(clippy::too_many_arguments)]
             pub fn new(ctx: &mut ::pliron::context::Context, #(#args),*) -> Self {
                 use ::pliron::{r#type::Typed, op::Op};
+                #(#attr_into)*
                 let result_ty = #result_ty;
                 let values = vec![#(#values),*];
                 let op = Self {
@@ -134,7 +142,7 @@ impl CubeOp {
     }
 
     fn generate_value_accessors(&self) -> impl Iterator<Item = TokenStream> {
-        self.values().enumerate().map(|(idx, arg)| {
+        let values = self.values().enumerate().map(|(idx, arg)| {
             let CubeOpArg { vis, ident, ty, .. } = arg;
             let use_ident = format_ident!("{ident}_as_use");
             quote! {
@@ -146,7 +154,17 @@ impl CubeOp {
                     self.get_operation().deref(ctx).get_operand_as_use(#idx)
                 }
             }
-        })
+        });
+        let attrs = self.required_attributes().map(|arg| {
+            let CubeOpArg { vis, ident, ty, .. } = arg;
+            let inner_accessor = format_ident!("get_attr_{}", ident);
+            quote! {
+                #vis fn #ident<'a>(&self, ctx: &'a ::pliron::context::Context) -> core::cell::Ref<'a, #ty> {
+                    self.#inner_accessor(ctx).unwrap()
+                }
+            }
+        });
+        values.chain(attrs)
     }
 
     fn auto_interfaces(&self) -> Vec<TokenStream> {

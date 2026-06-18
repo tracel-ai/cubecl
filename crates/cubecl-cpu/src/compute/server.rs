@@ -95,7 +95,6 @@ impl CpuServer {
         kernel: Box<dyn CubeTask<CpuCompiler>>,
         count: CubeCount,
         bindings: BindingsResource,
-        kind: ExecutionMode,
         stream_id: StreamId,
     ) -> Result<ScheduleTask, CompilationError> {
         let cube_count = match count {
@@ -122,7 +121,7 @@ impl CpuServer {
             }
         };
 
-        self.prepare_task_inner(kernel, cube_count, bindings, kind, stream_id)
+        self.prepare_task_inner(kernel, cube_count, bindings, stream_id)
     }
 
     fn prepare_task_inner(
@@ -130,19 +129,14 @@ impl CpuServer {
         kernel: Box<dyn CubeTask<CpuCompiler>>,
         cube_count: [u32; 3],
         bindings: BindingsResource,
-        kind: ExecutionMode,
         stream_id: StreamId,
     ) -> Result<ScheduleTask, CompilationError> {
         let kernel_id = kernel.id();
         let kernel = if let Some(kernel) = self.compilation_cache.get(&kernel_id) {
             kernel
         } else {
-            let kernel = kernel.compile(
-                &mut Default::default(),
-                &MlirCompilerOptions::default(),
-                kind,
-                kernel.address_type(),
-            )?;
+            let kernel =
+                kernel.compile(&mut Default::default(), &MlirCompilerOptions::default())?;
             self.compilation_cache
                 .insert(kernel_id.clone(), CpuKernel::new(kernel));
             self.compilation_cache
@@ -286,7 +280,6 @@ impl ComputeServer for CpuServer {
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: KernelArguments,
-        kind: ExecutionMode,
         stream_id: StreamId,
     ) {
         self.streams_pool.clear();
@@ -296,7 +289,7 @@ impl ComputeServer for CpuServer {
             .for_each(|b| self.streams_pool.push(b.stream));
         let bindings = self.prepare_bindings(bindings);
         let task = self
-            .prepare_task(kernel, count, bindings, kind, stream_id)
+            .prepare_task(kernel, count, bindings, stream_id)
             .unwrap();
 
         self.scheduler.register(stream_id, task, &self.streams_pool);

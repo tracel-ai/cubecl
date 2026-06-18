@@ -1,9 +1,6 @@
 use cubecl_core::prelude::Visibility;
 
-use crate::{
-    Dialect,
-    shared::{Component, Item, KernelArg, PointerClass, Value},
-};
+use crate::shared;
 
 use super::BufferAttribute;
 use std::fmt::Display;
@@ -52,12 +49,6 @@ impl From<AddressSpace> for Visibility {
     }
 }
 
-impl<D: Dialect> From<&KernelArg<D>> for AddressSpace {
-    fn from(value: &KernelArg<D>) -> Self {
-        value.vis.into()
-    }
-}
-
 impl From<Visibility> for AddressSpace {
     fn from(value: Visibility) -> Self {
         match value {
@@ -68,15 +59,12 @@ impl From<Visibility> for AddressSpace {
     }
 }
 
-impl<D: Dialect> From<&Value<D>> for AddressSpace {
-    fn from(value: &Value<D>) -> Self {
-        if let Item::Pointer(_, class) = value.item() {
-            return match class {
-                PointerClass::Global(visibility) => visibility.into(),
-                PointerClass::Shared => AddressSpace::ThreadGroup,
-                PointerClass::Local => AddressSpace::Thread,
-            };
+impl From<shared::ty::AddressSpace> for AddressSpace {
+    fn from(value: shared::ty::AddressSpace) -> Self {
+        match value {
+            shared::ty::AddressSpace::Global(visibility) => visibility.into(),
+            shared::ty::AddressSpace::Shared => AddressSpace::ThreadGroup,
+            shared::ty::AddressSpace::Local => AddressSpace::Thread,
         }
-        AddressSpace::Thread
     }
 }

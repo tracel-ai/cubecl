@@ -4,7 +4,7 @@ use pliron::derive::op_interface_impl;
 use crate::{
     attributes::IndexAttr,
     interfaces::{ReadsMemory, WritesMemory},
-    pliron::prelude::*,
+    prelude::*,
 };
 
 #[pliron_op(name = "tma.load", format, attributes = (rank: IndexAttr), verifier = "succ")]
@@ -19,17 +19,21 @@ impl TmaLoadOp {
         destination: Value,
         indices: Vec<Value>,
     ) -> Self {
+        let rank = indices.len();
         let mut operands = vec![barrier, tensor_map, destination];
         operands.extend(indices);
-        let op = Operation::new(
-            ctx,
-            Self::get_concrete_op_info(),
-            vec![],
-            operands,
-            vec![],
-            0,
-        );
-        Self { op }
+        let op = Self {
+            op: Operation::new(
+                ctx,
+                Self::get_concrete_op_info(),
+                vec![],
+                operands,
+                vec![],
+                0,
+            ),
+        };
+        op.set_attr_rank(ctx, rank.into());
+        op
     }
 
     pub fn barrier(&self, ctx: &Context) -> Value {
@@ -46,6 +50,10 @@ impl TmaLoadOp {
 
     pub fn indices(&self, ctx: &Context) -> Vec<Value> {
         self.get_operation().deref(ctx).operands().skip(3).collect()
+    }
+
+    pub fn rank(&self, ctx: &Context) -> usize {
+        self.get_attr_rank(ctx).unwrap().0
     }
 }
 
@@ -69,18 +77,22 @@ impl TmaLoadIm2colOp {
         indices: Vec<Value>,
         offsets: Vec<Value>,
     ) -> Self {
+        let rank = indices.len();
         let mut operands = vec![barrier, tensor_map, destination];
         operands.extend(indices);
         operands.extend(offsets);
-        let op = Operation::new(
-            ctx,
-            Self::get_concrete_op_info(),
-            vec![],
-            operands,
-            vec![],
-            0,
-        );
-        Self { op }
+        let op = Self {
+            op: Operation::new(
+                ctx,
+                Self::get_concrete_op_info(),
+                vec![],
+                operands,
+                vec![],
+                0,
+            ),
+        };
+        op.set_attr_rank(ctx, rank.into());
+        op
     }
 
     pub fn barrier(&self, ctx: &Context) -> Value {
@@ -113,6 +125,10 @@ impl TmaLoadIm2colOp {
             .skip(3 + rank)
             .collect()
     }
+
+    pub fn rank(&self, ctx: &Context) -> usize {
+        self.get_attr_rank(ctx).unwrap().0
+    }
 }
 
 #[op_interface_impl]
@@ -128,17 +144,21 @@ pub struct TmaStoreOp;
 
 impl TmaStoreOp {
     pub fn new(ctx: &mut Context, source: Value, tensor_map: Value, indices: Vec<Value>) -> Self {
+        let rank = indices.len();
         let mut operands = vec![source, tensor_map];
         operands.extend(indices);
-        let op = Operation::new(
-            ctx,
-            Self::get_concrete_op_info(),
-            vec![],
-            operands,
-            vec![],
-            0,
-        );
-        Self { op }
+        let op = Self {
+            op: Operation::new(
+                ctx,
+                Self::get_concrete_op_info(),
+                vec![],
+                operands,
+                vec![],
+                0,
+            ),
+        };
+        op.set_attr_rank(ctx, rank.into());
+        op
     }
 
     pub fn source(&self, ctx: &Context) -> Value {
@@ -151,6 +171,10 @@ impl TmaStoreOp {
 
     pub fn indices(&self, ctx: &Context) -> Vec<Value> {
         self.get_operation().deref(ctx).operands().skip(2).collect()
+    }
+
+    pub fn rank(&self, ctx: &Context) -> usize {
+        self.get_attr_rank(ctx).unwrap().0
     }
 }
 
@@ -168,11 +192,11 @@ pub struct CommitGroupOp {}
 #[cube_op(name = "tma.wait_group")]
 #[result_ty(none)]
 pub struct WaitGroupOp {
-    max_pending: IndexAttr,
+    pub max_pending: IndexAttr,
 }
 
 #[cube_op(name = "tma.wait_group_read")]
 #[result_ty(none)]
 pub struct WaitGroupReadOp {
-    max_pending: IndexAttr,
+    pub max_pending: IndexAttr,
 }

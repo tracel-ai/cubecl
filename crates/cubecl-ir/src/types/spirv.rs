@@ -22,7 +22,7 @@ pub enum ClampMode {
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[pliron_type(
-    name = "cube.spirv.tensor_layout",
+    name = "spirv.tensor_layout",
     format = "`tensor_layout<` $rank `d, clamp: ` $clamp_mode `>`",
     generate_get = true,
     verifier = "succ"
@@ -35,7 +35,7 @@ pub struct TensorLayoutType {
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[pliron_type(
-    name = "cube.spirv.tensor_view",
+    name = "spirv.tensor_view",
     format = "`tensor_view<` $rank `d, has_dims: ` $has_dims `[` vec($permutation, Char(`,`)) `]`",
     generate_get = true,
     verifier = "succ"

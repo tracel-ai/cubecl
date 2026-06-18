@@ -4,12 +4,11 @@ use crate::frontend::{CubePrimitive, CubeType, NativeAssign, NativeExpand};
 use crate::ir::Scope;
 use crate::{self as cubecl, prelude::*};
 use cubecl_ir::{
-    ConstantValue, ExpandValue,
-    dialect::cmp::*,
-    pliron::{builtin::op_interfaces::OneResultInterface, context::Ptr, r#type::TypeObj},
-    types::VectorType,
+    ConstantValue, ExpandValue, dialect::cmp::*,
+    pliron::builtin::op_interfaces::OneResultInterface, types::VectorType,
 };
 use cubecl_macros::{cube, intrinsic};
+use pliron::r#type::TypeHandle;
 
 /// A contiguous list of elements that supports auto-vectorized operations.
 #[derive(Debug)]
@@ -87,10 +86,10 @@ mod components {
         pub fn extract(self, #[comptime] index: usize) -> P {
             intrinsic!(|scope| {
                 let this = self.read_value(scope);
-                if this.vector_size(&scope.ctx()) > 1 {
-                    let op = VectorExtractOp::new(&mut scope.ctx_mut(), this, index.into());
+                if this.vector_size(scope.ctx()) > 1 {
+                    let op = VectorExtractOp::new(scope.ctx_mut(), this, index);
                     scope.register(&op);
-                    op.get_result(&scope.ctx()).into()
+                    op.get_result(scope.ctx()).into()
                 } else {
                     this.into()
                 }
@@ -101,10 +100,10 @@ mod components {
             intrinsic!(|scope| {
                 let this = self.read_value(scope);
                 let value = value.read_value(scope);
-                if this.vector_size(&scope.ctx()) > 1 {
-                    let op = VectorInsertOp::new(&mut scope.ctx_mut(), this, value, index.into());
+                if this.vector_size(scope.ctx()) > 1 {
+                    let op = VectorInsertOp::new(scope.ctx_mut(), this, value, index);
                     scope.register(&op);
-                    let new_value = op.get_result(&scope.ctx());
+                    let new_value = op.get_result(scope.ctx());
                     assign::expand_element(scope, new_value.into(), self.expand);
                 } else {
                     assign::expand_element(scope, value.into(), self.expand);
@@ -117,11 +116,11 @@ mod components {
         pub fn extract_dynamic(self, index: usize) -> P {
             intrinsic!(|scope| {
                 let this = self.read_value(scope);
-                if this.vector_size(&scope.ctx()) > 1 {
+                if this.vector_size(scope.ctx()) > 1 {
                     let index = index.read_value(scope);
-                    let op = VectorExtractDynamicOp::new(&mut scope.ctx_mut(), this, index);
+                    let op = VectorExtractDynamicOp::new(scope.ctx_mut(), this, index);
                     scope.register(&op);
-                    op.get_result(&scope.ctx()).into()
+                    op.get_result(scope.ctx()).into()
                 } else {
                     this.into()
                 }
@@ -134,11 +133,11 @@ mod components {
             intrinsic!(|scope| {
                 let this = self.read_value(scope);
                 let value = value.read_value(scope);
-                if this.vector_size(&scope.ctx()) > 1 {
+                if this.vector_size(scope.ctx()) > 1 {
                     let index = index.read_value(scope);
-                    let op = VectorInsertDynamicOp::new(&mut scope.ctx_mut(), this, value, index);
+                    let op = VectorInsertDynamicOp::new(scope.ctx_mut(), this, value, index);
                     scope.register(&op);
-                    let new_value = op.get_result(&scope.ctx());
+                    let new_value = op.get_result(scope.ctx());
                     assign::expand_element(scope, new_value.into(), self.expand);
                 } else {
                     assign::expand_element(scope, value.into(), self.expand);
@@ -290,9 +289,9 @@ macro_rules! impl_vector_comparison {
 
                             let [lhs, rhs] = normalize_same_vectorization(scope, [lhs, rhs]);
 
-                            let op = $operator::new(&mut scope.ctx_mut(), lhs, rhs);
+                            let op = $operator::new(scope.ctx_mut(), lhs, rhs);
                             scope.register(&op);
-                            op.get_result(&scope.ctx()).into()
+                            op.get_result(scope.ctx()).into()
                         })
                     }
                 }
@@ -366,10 +365,10 @@ impl<P: Scalar, N: Size> CubePrimitive for Vector<P, N> {
     type Size = N;
     type WithScalar<S: Scalar> = Vector<S, N>;
 
-    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
         let inner = P::__expand_as_type(scope);
         let vectorization = N::__expand_value(scope);
-        VectorType::get(scope.ctx_mut(), inner, vectorization).into()
+        VectorType::get(scope.ctx(), inner, vectorization).into()
     }
 
     fn from_const_value(value: ConstantValue) -> Self {

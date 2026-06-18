@@ -1,87 +1,93 @@
 use cubecl_macros_internal::cube_op;
+use pliron::r#type::{TypeHandle, TypedHandle};
 
 use crate::{
     attributes::{BoolAttr, IndexAttr},
     dialect::synchronization::SyncScope,
     interfaces::synchronizes,
-    pliron::prelude::*,
+    prelude::*,
     types::barrier::BarrierTokenType,
 };
 
 #[cube_op(name = "barrier.init")]
 #[result_ty(none)]
 pub struct InitOp {
-    barrier: Value,
-    arrival_count: Value,
+    pub barrier: Value,
+    pub arrival_count: Value,
 }
 
 #[cube_op(name = "barrier.memcpy_async")]
 #[result_ty(none)]
 pub struct MemCopyAsyncOp {
-    barrier: Value,
+    pub barrier: Value,
     #[operand(ptr_read)]
-    source: Value,
+    pub source: Value,
     #[operand(ptr_write)]
-    destination: Value,
-    source_length: Value,
-    cooperative: BoolAttr,
+    pub destination: Value,
+    pub source_length: Value,
+    pub cooperative: BoolAttr,
 }
 
 #[cube_op(name = "barrier.memcpy_async_tx")]
 #[result_ty(none)]
 pub struct MemCopyAsyncTxOp {
-    barrier: Value,
+    pub barrier: Value,
     #[operand(ptr_read)]
-    source: Value,
+    pub source: Value,
     #[operand(ptr_write)]
-    destination: Value,
-    source_length: Value,
+    pub destination: Value,
+    pub source_length: Value,
 }
 
 #[cube_op(name = "barrier.copy_async")]
 #[result_ty(none)]
 pub struct CopyAsyncOp {
     #[operand(ptr_read)]
-    source: Value,
+    pub source: Value,
     #[operand(ptr_write)]
-    destination: Value,
-    source_length: Value,
-    copy_length: IndexAttr,
-    checked: BoolAttr,
+    pub destination: Value,
+    pub source_length: Value,
+    pub copy_length: IndexAttr,
+    pub checked: BoolAttr,
 }
 
 #[cube_op(name = "barrier.arrive")]
-#[result_ty(fixed = BarrierTokenType::get(ctx).into())]
+#[result_ty(from_inputs = token_ty)]
 pub struct ArriveOp {
-    barrier: Value,
+    pub barrier: Value,
 }
 
 #[cube_op(name = "barrier.arrive_and_expect_tx")]
-#[result_ty(fixed = BarrierTokenType::get(ctx).into())]
+#[result_ty(from_inputs = |ctx, bar, _, _| token_ty(ctx, bar))]
 pub struct ArriveAndExpectTxOp {
-    barrier: Value,
-    arrive_count_update: Value,
-    transaction_count_update: Value,
+    pub barrier: Value,
+    pub arrive_count_update: Value,
+    pub transaction_count_update: Value,
+}
+
+fn token_ty(ctx: &Context, barrier: &Value) -> TypeHandle {
+    let bar = TypedHandle::from_handle(barrier.get_type(ctx), ctx).expect("Should be barrier");
+    BarrierTokenType::get(ctx, bar).into()
 }
 
 #[cube_op(name = "barrier.commit_copy_async")]
 #[result_ty(none)]
 pub struct CommitCopyAsyncOp {
-    barrier: Value,
+    pub barrier: Value,
 }
 
 #[cube_op(name = "barrier.expect_tx")]
 #[result_ty(none)]
 pub struct ExpectTxOp {
-    barrier: Value,
-    transaction_count_update: Value,
+    pub barrier: Value,
+    pub transaction_count_update: Value,
 }
 
 #[cube_op(name = "barrier.wait")]
 #[result_ty(none)]
 pub struct WaitOp {
-    barrier: Value,
-    token: Value,
+    pub barrier: Value,
+    pub token: Value,
 }
 // Assume largest scope for now in lieu of detailed analysis. This is conservative but safe.
 synchronizes!(WaitOp, SyncScope::Cube);
@@ -89,8 +95,8 @@ synchronizes!(WaitOp, SyncScope::Cube);
 #[cube_op(name = "barrier.wait_parity")]
 #[result_ty(none)]
 pub struct WaitParityOp {
-    barrier: Value,
-    phase: Value,
+    pub barrier: Value,
+    pub phase: Value,
 }
 // Assume largest scope for now in lieu of detailed analysis. This is conservative but safe.
 synchronizes!(WaitParityOp, SyncScope::Cube);
@@ -98,7 +104,7 @@ synchronizes!(WaitParityOp, SyncScope::Cube);
 #[cube_op(name = "barrier.arrive_and_wait")]
 #[result_ty(none)]
 pub struct ArriveAndWaitOp {
-    barrier: Value,
+    pub barrier: Value,
 }
 // Assume largest scope for now in lieu of detailed analysis. This is conservative but safe.
 synchronizes!(ArriveAndWaitOp, SyncScope::Cube);

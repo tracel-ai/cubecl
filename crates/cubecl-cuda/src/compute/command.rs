@@ -15,10 +15,7 @@ use cubecl_core::zspace::striding::try_check_pitched_row_major_strides;
 use cubecl_core::{
     MemoryUsage,
     future::DynFut,
-    server::{
-        Binding, CopyDescriptor, ExecutionMode, Handle, IoError, LaunchError, ProfileError,
-        ServerError,
-    },
+    server::{Binding, CopyDescriptor, Handle, IoError, LaunchError, ProfileError, ServerError},
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_runtime::{
@@ -456,7 +453,6 @@ impl<'a> Command<'a> {
         &mut self,
         kernel_id: KernelId,
         kernel: Box<dyn CubeTask<CudaCompiler>>,
-        mode: ExecutionMode,
         dispatch_count: (u32, u32, u32),
         tensor_maps: &[CUtensorMap],
         resources: &[GpuResource],
@@ -464,7 +460,7 @@ impl<'a> Command<'a> {
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
         if !self.ctx.module_names.contains_key(&kernel_id) {
-            self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
+            self.ctx.compile_kernel(&kernel_id, kernel, logger)?;
         }
 
         let stream = self.streams.current();

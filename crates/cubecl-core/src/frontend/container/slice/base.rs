@@ -1,25 +1,27 @@
 use alloc::vec;
 use core::ops::{Deref, DerefMut};
+use pliron::r#type::TypeHandle;
 
 use alloc::boxed::Box;
 
 use crate::{self as cubecl, unexpanded};
 use cubecl::prelude::*;
 use cubecl_ir::{
-    OpInserter, SliceMetadata, VectorSize,
+    AddressSpace, OpInserter, SliceMetadata, VectorSize,
     dialect::{
         branch::RangeLoopOp,
         general::{AggregateConstructOp, ReinterpretCastOp},
     },
     interfaces::TypedExt,
     pliron::{
-        builtin::op_interfaces::OneResultInterface,
-        context::{Context, Ptr},
-        printable::Printable,
-        r#type::{TypeObj, Typed},
-        value::Value,
+        builtin::op_interfaces::OneResultInterface, context::Context, printable::Printable,
+        r#type::Typed, value::Value,
     },
-    types::{ArrayType, PointerType, RuntimeArrayType, VectorType, scalar::IndexType},
+    types::{
+        ArrayType, PointerType, RuntimeArrayType, VectorType,
+        aggregate::{MetadataKind, PtrAggregateType},
+        scalar::IndexType,
+    },
 };
 
 pub type SliceExpand<T> = NativeExpand<[T]>;
@@ -49,6 +51,18 @@ impl<E: CubePrimitive> SliceExpand<E> {
         let field = scope.extract_field(self.value(scope), SliceMetadata::LENGTH);
         field.into()
     }
+}
+
+pub(crate) fn buffer_idx(scope: &Scope, list: Value) -> usize {
+    let ctx = scope.ctx();
+    let ty = list.get_type(ctx).deref(ctx);
+    let Some(PointerType { address_space, .. }) = ty.downcast_ref() else {
+        panic!("Tried reading buffer index of non-pointer");
+    };
+    let AddressSpace::Global(idx) = *address_space else {
+        panic!("Tried reading buffer index of non-global pointer");
+    };
+    idx
 }
 
 pub trait SliceVectorExt<E: Scalar, N: Size> {
@@ -125,7 +139,7 @@ impl<E: Scalar, N: Size> SliceExpand<Vector<E, N>> {
 }
 
 // This is really annoying but does have a lot more checks for invariants than before
-fn change_list_vectorization(ctx: &mut Context, list: Value, new_vec: usize) -> Ptr<TypeObj> {
+fn change_list_vectorization(ctx: &Context, list: Value, new_vec: usize) -> TypeHandle {
     let current_vec = list.vector_size(ctx);
     let ty = list.get_type(ctx);
     let PointerType {
@@ -497,9 +511,10 @@ pub fn from_raw_parts<E: CubePrimitive>(
     offset: NativeExpand<usize>,
     length: NativeExpand<usize>,
 ) -> SliceExpand<E> {
-    let ty = list.get_type(scope.ctx());
+    let list_ty = list.get_type(scope.ctx());
     let offset = offset.read_value(scope);
     let length = length.read_value(scope);
+    let ty = PtrAggregateType::get(scope.ctx(), list_ty, MetadataKind::Slice).to_handle();
     let op = AggregateConstructOp::new(scope.ctx_mut(), ty, vec![list, offset, length]);
     scope.register(&op);
     op.get_result(scope.ctx()).into()
@@ -593,7 +608,7 @@ impl<E: CubePrimitive> Iterable for SliceExpand<E> {
         let step = scope.const_usize(1);
 
         let i = scope.create_local_mut(index_ty);
-        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step, false);
+        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
         let loop_body = range_loop.loop_body(scope.ctx());
 
         let child = scope.child(OpInserter::new_at_block_end(loop_body));
@@ -623,7 +638,7 @@ impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E> {
         let step = scope.const_usize(1);
 
         let i = scope.create_local_mut(index_ty);
-        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step, false);
+        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
         let loop_body = range_loop.loop_body(scope.ctx());
 
         let child = scope.child(OpInserter::new_at_block_end(loop_body));
@@ -651,7 +666,7 @@ impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E> {
         let step = scope.const_usize(1);
 
         let i = scope.create_local_mut(index_ty);
-        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step, false);
+        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
         let loop_body = range_loop.loop_body(scope.ctx());
 
         let child = scope.child(OpInserter::new_at_block_end(loop_body));

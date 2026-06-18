@@ -1,9 +1,9 @@
 use cubecl_common::{e2m3, e3m2};
 use cubecl_ir::{
     ConstantValue, FloatKind, Scope,
-    pliron::{context::Ptr, r#type::TypeObj},
-    types::scalar::{ FloatType},
+    types::scalar::{Float6E2M3Type, Float6E3M2Type},
 };
+use pliron::r#type::TypeHandle;
 
 use crate::prelude::*;
 
@@ -22,8 +22,8 @@ impl CubePrimitive for e2m3 {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
-        FloatType::get(scope.ctx_mut(), FloatKind::E2M3).into()
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        Float6E2M3Type::get(scope.ctx()).into()
     }
 
     fn from_const_value(_value: ConstantValue) -> Self {
@@ -60,8 +60,8 @@ impl CubePrimitive for e3m2 {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
-        FloatType::get(scope.ctx_mut(), FloatKind::E3M2).into()
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        Float6E3M2Type::get(scope.ctx()).into()
     }
 
     fn from_const_value(_value: ConstantValue) -> Self {

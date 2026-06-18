@@ -31,12 +31,7 @@ pub mod copy_bulk {
         let source = unsafe { *from.__expand_as_ptr_method(scope) }.value(scope);
         let target = unsafe { *to.__expand_as_mut_ptr_method(scope) }.value(scope);
 
-        scope.register(&CopyOp::new(
-            scope.ctx_mut(),
-            source,
-            target,
-            length.into(),
-        ));
+        scope.register(&CopyOp::new(scope.ctx_mut(), source, target, length));
     }
 }
 
@@ -70,6 +65,6 @@ pub mod copy {
         let source = from.value(scope);
         let target = to.value(scope);
 
-        scope.register(&CopyOp::new(scope.ctx_mut(), source, target, 1.into()));
+        scope.register(&CopyOp::new(scope.ctx_mut(), source, target, 1));
     }
 }

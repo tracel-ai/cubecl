@@ -1,12 +1,8 @@
 use alloc::vec::Vec;
-use cubecl_ir::{AddressSpace, CopyMemoryOperands, Instruction, Memory, Operation, Type, ExpandValue};
+use cubecl_ir::{AddressSpace, ExpandValue, Type};
 use hashbrown::{HashMap, HashSet};
 
-use crate::{
-    AtomicCounter, Function, GlobalState,
-    analyses::{integer_range::val_id, pointer_source::PointerSource},
-    visit_noop,
-};
+use crate::{AtomicCounter, GlobalState, analyses::pointer_source::PointerSource, visit_noop};
 
 use super::OptimizerPass;
 

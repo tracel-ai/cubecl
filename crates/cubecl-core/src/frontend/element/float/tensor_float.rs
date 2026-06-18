@@ -1,10 +1,7 @@
 use cubecl_common::tf32;
-use cubecl_ir::{
-    ConstantValue, FloatKind, Scope,
-    pliron::{context::Ptr, r#type::TypeObj},
-    types::scalar::FloatType,
-};
+use cubecl_ir::{ConstantValue, FloatKind, Scope, types::scalar::TFloat32Type};
 use half::f16;
+use pliron::r#type::TypeHandle;
 
 use crate::prelude::*;
 
@@ -25,8 +22,8 @@ impl CubePrimitive for tf32 {
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
-        FloatType::get(scope.ctx_mut(), FloatKind::TF32).into()
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        TFloat32Type::get(scope.ctx()).into()
     }
 
     fn from_const_value(value: ConstantValue) -> Self {

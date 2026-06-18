@@ -60,13 +60,14 @@ use cubecl_ir::{
     ident,
     interfaces::TypedExt,
     pliron::{
-        builtin::op_interfaces::OneResultInterface, context::Ptr,
-        debug_info::set_operation_result_name, r#type::TypeObj, value::Value,
+        builtin::op_interfaces::OneResultInterface, debug_info::set_operation_result_name,
+        value::Value,
     },
     types,
 };
 
 pub use cubecl_ir::types::matrix::{MatrixIdent, MatrixLayout, MatrixShape, MatrixType};
+use pliron::r#type::TypeHandle;
 
 #[derive(Clone, Copy)]
 pub struct Plane;
@@ -115,11 +116,11 @@ pub struct MatrixExpand<C: CubeType, S: MatrixScope> {
 #[derive(Debug)]
 pub struct MmaDefinitionExpand<A: CubeType, B: CubeType, CD: CubeType> {
     pub shape: MatrixShape,
-    pub a_type: Ptr<TypeObj>,
-    pub b_type: Ptr<TypeObj>,
-    pub cd_type: Ptr<TypeObj>,
+    pub a_type: TypeHandle,
+    pub b_type: TypeHandle,
+    pub cd_type: TypeHandle,
     pub scales_factor: Option<usize>,
-    pub scales_type: Option<Ptr<TypeObj>>,
+    pub scales_type: Option<TypeHandle>,
     _a: PhantomData<A>,
     _b: PhantomData<B>,
     _cd: PhantomData<CD>,
@@ -251,7 +252,7 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
         intrinsic!(|scope| {
             let elem = C::Scalar::__expand_as_type(scope);
             let matrix_ty = MatrixType::get(
-                &mut scope.ctx_mut(),
+                scope.ctx_mut(),
                 ident,
                 (m, n, k).into(),
                 elem,
@@ -439,13 +440,13 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         intrinsic!(|scope| {
             match ident {
                 MatrixIdent::A => {
-                    (self.shape.m * self.shape.k) / self.a_type.packing_factor(&scope.ctx())
+                    (self.shape.m * self.shape.k) / self.a_type.packing_factor(scope.ctx())
                 }
                 MatrixIdent::B => {
-                    (self.shape.k * self.shape.n) / self.b_type.packing_factor(&scope.ctx())
+                    (self.shape.k * self.shape.n) / self.b_type.packing_factor(scope.ctx())
                 }
                 MatrixIdent::Accumulator => {
-                    (self.shape.m * self.shape.n) / self.cd_type.packing_factor(&scope.ctx())
+                    (self.shape.m * self.shape.n) / self.cd_type.packing_factor(scope.ctx())
                 }
             }
         })
@@ -509,7 +510,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 MatrixIdent::Accumulator => self.cd_type,
             };
             let matrix_ty = MatrixType::get(
-                &mut scope.ctx_mut(),
+                scope.ctx_mut(),
                 ident,
                 self.shape,
                 storage,
@@ -521,7 +522,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 .target_properties
                 .mma
                 .contiguous_elements
-                .apply(ident, matrix_ty)
+                .apply(scope.ctx(), ident, matrix_ty)
         })
     }
 
@@ -553,7 +554,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 MatrixIdent::Accumulator => scope.state().target_properties.mma.register_layout_acc,
             };
             let matrix_ty = MatrixType::get(
-                &mut scope.ctx_mut(),
+                scope.ctx_mut(),
                 ident,
                 self.shape,
                 ty,
@@ -561,16 +562,14 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 types::MatrixScope::Plane,
             );
 
-            let row_idx =
-                RowIndexOp::new(&mut scope.ctx_mut(), lane_id, elem_idx, matrix_ty.into());
-            let col_idx =
-                ColIndexOp::new(&mut scope.ctx_mut(), lane_id, elem_idx, matrix_ty.into());
+            let row_idx = RowIndexOp::new(scope.ctx_mut(), lane_id, elem_idx, matrix_ty);
+            let col_idx = ColIndexOp::new(scope.ctx_mut(), lane_id, elem_idx, matrix_ty);
 
             scope.register(&row_idx);
             scope.register(&col_idx);
 
-            let row = row_idx.get_result(&scope.ctx());
-            let col = col_idx.get_result(&scope.ctx());
+            let row = row_idx.get_result(scope.ctx());
+            let col = col_idx.get_result(scope.ctx());
 
             (row.into(), col.into())
         })
@@ -605,7 +604,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let elem = self
                 .scales_type
                 .expect("Can't retrieve scales vector size for matrix with no scales");
-            scope.state().target_properties.mma.register_size_bits / (elem.size(&scope.ctx()) * 8)
+            scope.state().target_properties.mma.register_size_bits / (elem.size(scope.ctx()) * 8)
         })
     }
 
@@ -628,15 +627,15 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
     ) -> Array<Vector<E::Scalar, NO>> {
         intrinsic!(|scope| {
             let ptr = unsafe { *row.__expand_as_ptr_method(scope) }.value(scope);
-            let slice_vector_size = ptr.vector_size(&scope.ctx());
+            let slice_vector_size = ptr.vector_size(scope.ctx());
             let out = Array::__expand_new(scope, num_matrices);
             let out_ptr = out.__extract_list(scope);
             scope.register(&LdMatrixOp::new(
-                &mut scope.ctx_mut(),
+                scope.ctx_mut(),
                 ptr,
                 out_ptr,
-                num_matrices.into(),
-                transpose.into(),
+                num_matrices,
+                transpose,
             ));
             out
         })
@@ -653,14 +652,14 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         intrinsic!(|scope| {
             let vector_size = self.__expand_vector_size_method(scope, ident);
             let ptr = unsafe { *row.__expand_as_ptr_method(scope) }.value(scope);
-            let slice_vector_size = ptr.vector_size(&scope.ctx());
+            let slice_vector_size = ptr.vector_size(scope.ctx());
             let fragment = fragment.__extract_list(scope);
             scope.register(&LdMatrixOp::new(
-                &mut scope.ctx_mut(),
+                scope.ctx_mut(),
                 ptr,
                 fragment,
-                num_matrices.into(),
-                transpose.into(),
+                num_matrices,
+                transpose,
             ));
         })
     }
@@ -690,11 +689,11 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let destination = unsafe { *row.__expand_as_ptr_method(scope) }.value(scope);
 
             scope.register(&StMatrixOp::new(
-                &mut scope.ctx_mut(),
+                scope.ctx_mut(),
                 registers,
                 destination,
-                num_matrices.into(),
-                transpose.into(),
+                num_matrices,
+                transpose,
             ));
         })
     }
@@ -725,12 +724,12 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let registers_d = registers_d_arr.__extract_list(scope);
 
             scope.register(&MmaManualOp::new(
-                &mut scope.ctx_mut(),
+                scope.ctx_mut(),
                 registers_a,
                 registers_b,
                 registers_c,
                 registers_d,
-                self.shape.into(),
+                self.shape,
             ));
 
             registers_d_arr
@@ -758,12 +757,12 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let registers_c = registers_c.__extract_list(scope);
 
             scope.register(&MmaManualOp::new(
-                &mut scope.ctx_mut(),
+                scope.ctx_mut(),
                 registers_a,
                 registers_b,
                 registers_c,
                 registers_c,
-                self.shape.into(),
+                self.shape,
             ));
         })
     }
@@ -798,15 +797,15 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
             let scales_b = scales_b.read_value(scope);
 
             scope.register(&MmaManualScaledOp::new(
-                &mut scope.ctx_mut(),
+                scope.ctx_mut(),
                 registers_a,
                 registers_b,
                 registers_c,
                 registers_d,
                 scales_a,
                 scales_b,
-                self.scales_factor.expect("Should have scales").into(),
-                self.shape.into(),
+                self.scales_factor.expect("Should have scales"),
+                self.shape,
             ));
 
             registers_d_arr
@@ -987,7 +986,7 @@ pub mod store {
             mat.elem,
             destination,
             stride,
-            layout.into(),
+            layout,
         ));
     }
 }
@@ -1257,7 +1256,7 @@ pub mod execute_elementwise_op {
         let u32 = u32::__expand_as_type(scope);
         let elem = A::Scalar::__expand_as_type(scope);
 
-        let func_ty = FunctionType::get(scope.ctx_mut(), vec![u32, u32, elem], vec![elem]);
+        let func_ty = FunctionType::get(scope.ctx(), vec![u32, u32, elem], vec![elem]);
         let func = FuncOp::new(scope.ctx_mut(), ident("execute_elemwise"), func_ty);
         let func_body = func.get_entry_block(scope.ctx());
 
@@ -1267,17 +1266,14 @@ pub mod execute_elementwise_op {
 
         let mut closure_scope = scope.child(OpInserter::new_at_block_end(func_body));
         let return_value = op(&mut closure_scope, row.into(), col.into(), elem.into()).value(scope);
-        closure_scope.register(&ReturnOp::new_with_result(
-            scope.ctx_mut(),
-            return_value,
-        ));
+        closure_scope.register(&ReturnOp::new_with_value(scope.ctx_mut(), return_value));
 
         let id = scope.create_function(func);
         scope.register(&ElementwiseOp::new(
             scope.ctx_mut(),
             matrix_in.elem,
             matrix_out.elem,
-            id.into(),
+            id,
         ));
     }
 }

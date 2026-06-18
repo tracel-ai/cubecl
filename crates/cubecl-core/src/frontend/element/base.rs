@@ -11,16 +11,13 @@ use cubecl_ir::{
     VectorSize, ident,
     interfaces::TypedExt,
     pliron::{
-        context::Ptr,
-        debug_info::set_operation_result_name,
-        printable::Printable,
-        r#type::{TypeObj, Typed},
-        value::Value,
+        debug_info::set_operation_result_name, printable::Printable, r#type::Typed, value::Value,
     },
     types::PointerType,
 };
 use cubecl_runtime::runtime::Runtime;
 use half::{bf16, f16};
+use pliron::r#type::TypeHandle;
 use variadics_please::{all_tuples, all_tuples_enumerated};
 
 /// Types used in a cube function must implement this trait
@@ -831,7 +828,7 @@ impl<T: Scalar + Into<ConstantValue>> NativeExpand<T> {
     }
 }
 
-pub(crate) fn init_mut_expand_element(scope: &Scope, mut ty: Ptr<TypeObj>) -> ExpandValue {
+pub(crate) fn init_mut_expand_element(scope: &Scope, mut ty: TypeHandle) -> ExpandValue {
     let ctx = scope.ctx();
     if let Some(PointerType { inner, .. }) = ty.deref(ctx).downcast_ref() {
         ty = *inner;

@@ -1,778 +1,427 @@
-use std::{collections::HashSet, fmt::Display, marker::PhantomData};
+use core::fmt::Display;
 
-use cubecl_core::{
-    ir::{BarrierLevel, Processor},
-    post_processing::saturating::SaturatingArithmeticPolyfill,
-    prelude::Visibility,
+use cubecl_core::ir::{
+    dialect::synchronization::SyncAsyncProxyOp, interfaces::TypedExt, prelude::*, types::VectorType,
+};
+use itertools::Itertools;
+use pliron::{
+    builtin::attributes::{StringAttr, UnitAttr},
+    printable::Printable,
 };
 
-use crate::{
-    Dialect,
-    cuda::{
-        extension::{Fragment, LdMatrix, MmaExecute, MmaExecuteScaled, MmaExtension, StMatrix},
-        processors::CudaMmaProcessor,
-        ptx::*,
-    },
-    shared::{
-        self, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
-        DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
-        DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind, Flags, Instruction, Item, KernelArg,
-        ManualMma, PointerClass, Value, WarpInstruction, unary,
-    },
+use crate::shared::{
+    CppValue, scoped_block,
+    ty::{AddressSpace, PointerType, TypeExtCPP},
 };
 
-use super::{Extension, arch::CudaArchitecture};
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct CudaDialect<M> {
-    _wmma_compiler: PhantomData<M>,
+macro_rules! cuda_op {
+    ($ty: ty, $impl: expr) => {
+        #[pliron::derive::op_interface_impl]
+        impl $crate::shared::operation::OpToCPP<$crate::target::Cuda> for $ty {
+            fn to_cpp(&self, ctx: &pliron::context::Context) -> String {
+                $crate::shared::closure_inference_hack::<$ty, String>(self, ctx, $impl)
+            }
+        }
+    };
 }
+pub(super) use cuda_op;
 
-impl<M: DialectWmmaCompiler<Self>> Dialect for CudaDialect<M> {
-    type Architecture = CudaArchitecture;
+macro_rules! cuda_op_with_out {
+    ($ty: ty, $impl: expr) => {
+        #[pliron::derive::op_interface_impl]
+        impl $crate::shared::operation::OpToCPP<$crate::target::Cuda> for $ty {
+            fn to_cpp(&self, ctx: &pliron::context::Context) -> String {
+                use cubecl_core::ir::prelude::*;
+                use $crate::shared::CppValue;
+                let op = $crate::shared::closure_inference_hack::<$ty, String>(self, ctx, $impl);
+                let out = self.get_result(ctx).fmt_left(ctx);
+                format!("{out} = {op};\n")
+            }
+        }
+    };
 }
+pub(super) use cuda_op_with_out;
 
-impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
-    type Extension = Extension<Self>;
+macro_rules! ptx_with_out {
+    ($ty: ty, $ptx: expr, $pred: expr) => {
+        #[op_interface_impl]
+        impl $crate::shared::lowering::LowerOp<$crate::target::Cuda> for $ty {
+            fn should_lower(&self, ctx: &pliron::context::Context) -> bool {
+                $crate::shared::closure_inference_hack::<$ty, bool>(self, ctx, $pred)
+            }
+            fn lower(&self, scope: &cubecl_core::ir::Scope) -> Vec<pliron::value::Value> {
+                use cubecl_core::ir::dialect::base::OperationPtrExt;
+                use pliron::{op::Op, r#type::Typed};
+                let ctx = scope.ctx_mut();
+                let ptx = $crate::shared::closure_inference_hack::<$ty, String>(self, ctx, $ptx);
+                let op = $crate::cuda::dialect::InlinePtxOp::new(
+                    ctx,
+                    Some(self.get_result(ctx).get_type(ctx)),
+                    ptx,
+                    self.get_operation().operands(ctx),
+                );
+                scope.register(&op);
+                vec![op.result(ctx).unwrap()]
+            }
+        }
+    };
+    ($ty: ty, $ptx: expr) => {
+        ptx_with_out!($ty, $ptx, |_, _| true);
+    };
+}
+pub(super) use ptx_with_out;
 
-    fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags<Self>) -> std::fmt::Result {
-        f.write_str("#include <cuda_runtime.h>\n")?;
-        if flags.elem_fp4 {
-            f.write_str("#include <cuda_fp4.h>\n")?;
-        }
-        if flags.elem_fp6 {
-            f.write_str("#include <cuda_fp6.h>\n")?;
-        }
-        if flags.elem_fp8 {
-            f.write_str("#include <cuda_fp8.h>\n")?;
-        }
-        if flags.elem_bf16 {
-            f.write_str("#include <cuda_bf16.h>\n")?;
-        }
-        if flags.elem_f16 {
-            f.write_str("#include <cuda_fp16.h>\n")?;
-        }
+cuda_op!(SyncAsyncProxyOp, |_, _| {
+    "cuda::device::experimental::fence_proxy_async_shared_cta();".into()
+});
 
-        // tf32 conversion function is in mma header
-        if flags.inst_wmma || flags.elem_tf32 {
-            Self::compile_wmma_includes(f, flags)?;
-        }
+/// Inline PTX. Restricted to zero or one results because C++ semantics are too hard otherwise.
+/// Note that this does not *directly* map to PTX, because it actually destructures vectors to PTX
+/// vector expressions automatically. This means more than one register can be returned if it's part
+/// of a vector expression. To denote the difference, the syntax uses `$0`, `$1` etc for Pliron
+/// values, as opposed to the usual `%0`, `%1` etc for the PTX registers.
+#[pliron_op(name = "cuda.inline_ptx", format, attributes = (ptx: StringAttr, volatile: UnitAttr), verifier = "succ")]
+pub struct InlinePtxOp;
 
-        if flags.op_barrier || flags.inst_tma || flags.indexes.cluster_pos {
-            f.write_str("#include <cooperative_groups.h>\n")?;
-            f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
-            f.write_str("#include <cuda/barrier>\n")?;
-        }
-        if flags.inst_ptx_wrappers {
-            f.write_str("#include <cuda/ptx>\n")?;
-        }
-        if flags.inst_tma {
-            f.write_str(
-                "typedef struct CUtensorMap_st {
-alignas(64) unsigned long long int opaque[16];
-} CUtensorMap;\n",
-            )?;
-        }
-        Ok(())
+impl InlinePtxOp {
+    pub fn new(
+        ctx: &mut Context,
+        result_ty: Option<TypeHandle>,
+        ptx: impl Display,
+        inputs: Vec<Value>,
+    ) -> Self {
+        let op = Operation::new(
+            ctx,
+            Self::get_concrete_op_info(),
+            result_ty.into_iter().collect(),
+            inputs,
+            vec![],
+            0,
+        );
+        let op = Self { op };
+        op.set_attr_ptx(ctx, ptx.to_string().into());
+        op
     }
 
-    fn compile_extensions(
-        f: &mut std::fmt::Formatter<'_>,
-        extensions: &[Self::Extension],
-    ) -> std::fmt::Result {
-        for extension in extensions {
-            match extension {
-                Extension::NoExtension => {}
-                Extension::Mma(mma) => mma.format_extension(f)?,
-            }
-        }
-        Ok(())
+    pub fn new_volatile(
+        ctx: &mut Context,
+        result_ty: Option<TypeHandle>,
+        ptx: impl Display,
+        inputs: Vec<Value>,
+    ) -> Self {
+        let op = Self::new(ctx, result_ty, ptx, inputs);
+        op.set_attr_volatile(ctx, UnitAttr::new());
+        op
     }
 
-    fn register_instruction_extension(
-        _extensions: &mut Vec<Self::Extension>,
-        _instruction: &Instruction<Self>,
-    ) {
+    pub fn raw_ptx(&self, ctx: &Context) -> String {
+        self.get_attr_ptx(ctx).unwrap().clone().into()
     }
 
-    fn register_warp_instruction_extension(
-        _extensions: &mut Vec<Self::Extension>,
-        _instruction: &WarpInstruction<Self>,
-    ) {
+    pub fn is_volatile(&self, ctx: &Context) -> bool {
+        self.get_attr_volatile(ctx).is_some()
     }
 
-    fn register_wmma_instruction_extension(
-        extensions: &mut Vec<Self::Extension>,
-        instruction: &shared::WmmaInstruction<Self>,
-    ) {
-        match instruction {
-            shared::WmmaInstruction::ExecuteManual {
-                shape,
-                frag_a,
-                frag_b,
-                frag_c,
-                frag_d,
-            } => {
-                let ext = Extension::Mma(MmaExtension::Execute(MmaExecute::new(
-                    *shape,
-                    Fragment(frag_a.elem()),
-                    Fragment(frag_b.elem()),
-                    Fragment(frag_c.elem()),
-                    Fragment(frag_d.elem()),
-                )));
-                if !extensions.contains(&ext) {
-                    extensions.push(ext);
-                }
-            }
-            shared::WmmaInstruction::ExecuteScaled {
-                shape,
-                frag_a,
-                frag_b,
-                frag_c,
-                frag_d,
-                scales_a,
-                scales_factor,
-                ..
-            } => {
-                let ext = Extension::Mma(MmaExtension::ExecuteScaled(MmaExecuteScaled::new(
-                    *shape,
-                    Fragment(frag_a.elem()),
-                    Fragment(frag_b.elem()),
-                    Fragment(frag_c.elem()),
-                    Fragment(frag_d.elem()),
-                    scales_a.elem(),
-                    *scales_factor,
-                )));
-                if !extensions.contains(&ext) {
-                    extensions.push(ext);
-                }
-            }
-            shared::WmmaInstruction::LdMatrix {
-                output,
-                factor,
-                transpose,
-                ..
-            } => {
-                let ext = Extension::Mma(MmaExtension::LdMatrix(LdMatrix::new(
-                    output.elem(),
-                    *factor,
-                    *transpose,
-                )));
-                if !extensions.contains(&ext) {
-                    extensions.push(ext);
-                }
-            }
-            shared::WmmaInstruction::StMatrix {
-                registers,
-                factor,
-                transpose,
-                ..
-            } => {
-                let ext = Extension::Mma(MmaExtension::StMatrix(StMatrix::new(
-                    registers.elem(),
-                    *factor,
-                    *transpose,
-                )));
-                if !extensions.contains(&ext) {
-                    extensions.push(ext);
-                }
-            }
-            _ => {}
-        }
+    pub fn inputs(&self, ctx: &Context) -> Vec<Value> {
+        self.get_operation().deref(ctx).operands().collect()
+    }
+
+    pub fn result(&self, ctx: &Context) -> Option<Value> {
+        self.get_operation().deref(ctx).results().next()
     }
 }
 
-// Types
+macro_rules! ptx_block {
+    ($($lines: expr)*) => {{
+        let mut out = String::from("{\n\t");
+        $(
+            out.push_str(&$lines);
+            out.push_str("\n\t");
+        )*
+        out.push_str("}");
+        out
+    }};
+}
+pub(crate) use ptx_block;
 
-impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
-    fn item_can_be_optimized() -> bool {
-        true
+cuda_op!(InlinePtxOp, |op, ctx| {
+    let mut ptx = op.raw_ptx(ctx);
+    let result = op.result(ctx);
+    let inputs = op.inputs(ctx);
+
+    let mut ptx_idx = 0;
+    let mut plir_idx = 0;
+
+    if let Some(result) = result {
+        ptx = insert_placeholders(ctx, &ptx, result.get_type(ctx), plir_idx, &mut ptx_idx);
+        plir_idx += 1;
     }
 
-    fn compile_type_definitions(
-        f: &mut std::fmt::Formatter<'_>,
-        items: &HashSet<Item<Self>>,
-        scalars: &[(Elem<Self>, usize)],
-        info: &cubecl_core::Info,
-        flags: &Flags<Self>,
-    ) -> std::fmt::Result {
-        // All FP4/FP6/FP8 elems map to the same type, so we need to deduplicate them
-        let mut items_deduplicated = HashSet::new();
-
-        for item in items {
-            let mut item = *item.value_ty();
-            match item {
-                Item::NativeVector(..) => {
-                    continue;
-                }
-                Item::Atomic(inner) => {
-                    item = *inner;
-                }
-                _ => {}
-            }
-            match item.elem() {
-                Elem::FP4(_) => {
-                    item = item.with_elem(Elem::FP4(FP4Kind::E2M1));
-                }
-                Elem::FP4x2(_) => {
-                    item = item.with_elem(Elem::FP4x2(FP4Kind::E2M1));
-                }
-                Elem::FP6(_) => {
-                    item = item.with_elem(Elem::FP6(FP6Kind::E2M3));
-                }
-                Elem::FP6x2(_) => {
-                    item = item.with_elem(Elem::FP6x2(FP6Kind::E2M3));
-                }
-                Elem::FP8(_) => {
-                    item = item.with_elem(Elem::FP8(FP8Kind::E4M3));
-                }
-                Elem::FP8x2(_) => {
-                    item = item.with_elem(Elem::FP8x2(FP8Kind::E4M3));
-                }
-                _ => {}
-            }
-            items_deduplicated.insert(item);
-        }
-
-        shared::type_definitions::<Self>(f)?;
-        shared::type_vectorized_definitions::<Self>(f, &items_deduplicated)?;
-
-        shared::type_info_definition_sized(f, info, scalars, flags.address_type)?;
-
-        if flags.inst_wmma {
-            Self::compile_wmma_type_definitions(f, flags)?;
-        }
-
-        Ok(())
+    for input in inputs.iter() {
+        ptx = insert_placeholders(ctx, &ptx, input.get_type(ctx), plir_idx, &mut ptx_idx);
+        plir_idx += 1;
     }
 
-    fn compile_polyfills(f: &mut std::fmt::Formatter<'_>, flags: &Flags<Self>) -> std::fmt::Result {
-        if flags.inst_tma_im2col {
-            writeln!(f, "{TMA_LOAD_IM2COL}")?;
-        }
-        if flags.inst_async_copy {
-            writeln!(f, "{COPY_ASYNC}")?;
-        }
-        Ok(())
-    }
+    let out_regs = result
+        .iter()
+        .flat_map(|val| flatten_operand(ctx, *val, "="))
+        .join(", ");
+    let input_regs = inputs
+        .iter()
+        .flat_map(|val| flatten_operand(ctx, *val, ""))
+        .join(", ");
 
-    fn compile_elem(
-        f: &mut std::fmt::Formatter<'_>,
-        elem: &shared::Elem<Self>,
-        words: bool,
-    ) -> std::fmt::Result {
-        if words {
-            match elem {
-                shared::Elem::F32 => f.write_str("float"),
-                shared::Elem::F64 => f.write_str("double"),
-                shared::Elem::TF32 => f.write_str("float"),
-                shared::Elem::I8 => f.write_str("char"),
-                shared::Elem::I16 => f.write_str("short"),
-                shared::Elem::I32 => f.write_str("int"),
-                shared::Elem::I64 => f.write_str("long"),
-                shared::Elem::U8 => f.write_str("uchar"),
-                shared::Elem::U16 => f.write_str("ushort"),
-                shared::Elem::U32 => f.write_str("uint"),
-                shared::Elem::U64 => f.write_str("ulong"),
-                _ => Self::compile_elem(f, elem, false),
-            }
+    let volatile = if op.is_volatile(ctx) { "volatile" } else { "" };
+    let asm = format!("asm {volatile}({ptx:?} : {out_regs} : {input_regs});",);
+
+    if let Some(result) = result {
+        let block = scoped_block!(
+            format!("{} result;", result.get_type(ctx).to_cpp(ctx))
+            asm
+            format!("return result;")
+        );
+        format!("{} = {block};", result.fmt_left(ctx))
+    } else {
+        asm
+    }
+});
+
+fn flatten_operand(ctx: &Context, val: Value, prefix: &str) -> Vec<String> {
+    if val.get_type(ctx).deref(ctx).is::<VectorType>() {
+        let vec = val.vector_size(ctx);
+        let constraint = infer_constraint_letter(ctx, val.scalar_ty(ctx));
+        (0..vec)
+            .map(|i| format!(r#""{prefix}{constraint}"({}.i_{i})"#, val.name(ctx)))
+            .collect()
+    } else {
+        let constraint = infer_constraint_letter(ctx, val.get_type(ctx));
+        vec![format!(r#""{prefix}{constraint}"({})"#, val.name(ctx))]
+    }
+}
+
+fn insert_placeholders(
+    ctx: &Context,
+    ptx: &str,
+    ty: TypeHandle,
+    plir_idx: usize,
+    ptx_idx: &mut usize,
+) -> String {
+    let pat = format!("${plir_idx}");
+    if !ptx.contains(&pat) {
+        panic!("Tried substituting argument {pat} in PTX, but it wasn't found.")
+    }
+    let substitute = if ty.deref(ctx).is::<VectorType>() {
+        let vec = ty.vector_size(ctx);
+        let mut placeholders = (0..vec).map(|i| format!("%{}", *ptx_idx + i));
+        let substitute = format!("{{{}}}", placeholders.join(", "));
+        *ptx_idx += vec;
+        substitute
+    } else {
+        let placeholder = format!("%{ptx_idx}");
+        *ptx_idx += 1;
+        placeholder
+    };
+    ptx.replace(&pat, &substitute)
+}
+
+fn infer_constraint_letter(ctx: &Context, ty: TypeHandle) -> char {
+    if ty.is_bool(ctx) {
+        'b'
+    } else if ty.is_int_of_width(ctx, 16) || ty.is_uint_of_width(ctx, 16) {
+        'h'
+    } else if ty.is_int_of_width(ctx, 32) || ty.is_uint_of_width(ctx, 32) {
+        'r'
+    } else if ty.is_int_of_width(ctx, 64) || ty.is_uint_of_width(ctx, 64) {
+        'l'
+    } else if ty.is_float32(ctx) {
+        'f'
+    } else if ty.is_float64(ctx) {
+        'd'
+    } else if let Some(ptr) = ty.deref(ctx).downcast_ref::<PointerType>() {
+        // Shared address spaces is addressed with 32-bit pointers.
+        if ptr.address_space == AddressSpace::Shared {
+            'r'
         } else {
-            match elem {
-                shared::Elem::FP4(_) => write!(f, "__nv_fp4_storage_t"),
-                shared::Elem::FP4x2(_) => write!(f, "__nv_fp4x2_storage_t"),
-                shared::Elem::FP6(_) => write!(f, "__nv_fp6_storage_t"),
-                shared::Elem::FP6x2(_) => write!(f, "__nv_fp6x2_storage_t"),
-                shared::Elem::FP8(_) => write!(f, "__nv_fp8_storage_t"),
-                shared::Elem::FP8x2(_) => write!(f, "__nv_fp8x2_storage_t"),
-                shared::Elem::F16 => f.write_str("__half"),
-                shared::Elem::F16x2 => f.write_str("__half2"),
-                shared::Elem::F32 => f.write_str("float"),
-                shared::Elem::F64 => f.write_str("double"),
-                shared::Elem::BF16 => f.write_str("__nv_bfloat16"),
-                shared::Elem::BF16x2 => f.write_str("__nv_bfloat162"),
-                shared::Elem::TF32 => f.write_str("float"),
-                shared::Elem::I8 => f.write_str("int8"),
-                shared::Elem::I16 => f.write_str("int16"),
-                shared::Elem::I32 => f.write_str("int32"),
-                shared::Elem::I64 => f.write_str("int64"),
-                shared::Elem::U8 => f.write_str("uint8"),
-                shared::Elem::U16 => f.write_str("uint16"),
-                shared::Elem::U32 => f.write_str("uint32"),
-                shared::Elem::U64 => f.write_str("uint64"),
-                shared::Elem::Bool => f.write_str("bool"),
-                shared::Elem::None => f.write_str("<none>"),
-                shared::Elem::_Dialect(_) => Ok(()),
-            }
+            'l'
         }
-    }
-
-    fn compile_item(f: &mut std::fmt::Formatter<'_>, item: &Item<Self>) -> std::fmt::Result {
-        match item {
-            Item::Scalar(elem) => write!(f, "{elem}"),
-            Item::Vector(inner, vectorization) => {
-                write!(f, "{inner}_{vectorization}")
-            }
-            Item::NativeVector(elem, vectorization) => {
-                Self::compile_elem(f, elem, true)?;
-                write!(f, "{vectorization}")
-            }
-            Item::Atomic(inner) => Self::compile_item(f, inner.as_ref()),
-            Item::Pointer(inner, class) => {
-                if let PointerClass::Global(Visibility::Read | Visibility::Uniform) = class {
-                    f.write_str("const ")?;
-                }
-                match inner.as_ref() {
-                    Item::DynamicArray(inner) => write!(f, "{inner}*"),
-                    other => write!(f, "{other}*"),
-                }
-            }
-            Item::Array(inner, size) => {
-                write!(f, "array<{inner}, {size}>")
-            }
-            Item::DynamicArray(inner) => {
-                write!(f, "{inner}*")
-            }
-            Item::Fragment(fragment_type) => write!(f, "{fragment_type}"),
-            Item::BarrierToken(BarrierLevel::Cube) => {
-                write!(f, "cuda::barrier<cuda::thread_scope_block>::arrival_token")
-            }
-            Item::BarrierToken(BarrierLevel::Unit) => {
-                write!(f, "cuda::barrier<cuda::thread_scope_thread>::arrival_token")
-            }
-            Item::TensorMap => f.write_str("CUtensorMap"),
-            Item::Barrier(BarrierLevel::Unit) => {
-                f.write_str("cuda::barrier<cuda::thread_scope_thread>")
-            }
-            Item::Barrier(BarrierLevel::Cube) => {
-                f.write_str("cuda::barrier<cuda::thread_scope_block>")
-            }
-        }
-    }
-
-    fn compile_local_memory_qualifier(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(())
+    } else {
+        panic!(
+         "The register type could not be deduced from Pliron type. The type {} is not supported. 
+Supported types are: bool, i16, i32, i64, f32, f64, pointers.
+Please use cube.reinterpret_cast if you have different type.
+See the constraints from here: https://docs.nvidia.com/cuda/inline-ptx-assembly/index.html#constraints",
+        ty.disp(ctx));
     }
 }
 
-// Kernel argument bindings
+// #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+// pub struct CudaDialect {}
 
-impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for CudaDialect<M> {
-    fn compile_kernel_signature(
-        f: &mut std::fmt::Formatter<'_>,
-        kernel_name: &str,
-        tensor_maps: &[KernelArg<Self>],
-        buffers: &[KernelArg<Self>],
-        flags: &Flags<Self>,
-    ) -> std::fmt::Result {
-        write!(
-            f,
-            "
+// impl Dialect for CudaDialect {
+//     type Architecture = CudaArchitecture;
+// }
 
-extern \"C\" __global__ void __launch_bounds__({})",
-            flags.cube_dim.num_elems()
-        )?;
-        if let Some(cluster_dim) = flags.cluster_dim {
-            write!(
-                f,
-                "__cluster_dims__({}, {}, {}) ",
-                cluster_dim.x, cluster_dim.y, cluster_dim.z
-            )?;
-        }
-        writeln!(f, "{kernel_name} (")?;
+// impl DialectIncludes<Self> for CudaDialect {
+//     type Extension = Extension;
 
-        shared::compile_bindings(f, tensor_maps, buffers, flags.has_info)?;
-        if flags.use_grid_constants {
-            shared::compile_info_static(f, flags)?;
-        } else {
-            shared::compile_info_dynamic(f, flags)?;
-        }
-        f.write_str("\n)")?;
-        //
-        Ok(())
-    }
+//     fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags<Self>) -> std::fmt::Result {
+//         f.write_str("#include <cuda_runtime.h>\n")?;
+//         if flags.elem_fp4 {
+//             f.write_str("#include <cuda_fp4.h>\n")?;
+//         }
+//         if flags.elem_fp6 {
+//             f.write_str("#include <cuda_fp6.h>\n")?;
+//         }
+//         if flags.elem_fp8 {
+//             f.write_str("#include <cuda_fp8.h>\n")?;
+//         }
+//         if flags.elem_bf16 {
+//             f.write_str("#include <cuda_bf16.h>\n")?;
+//         }
+//         if flags.elem_f16 {
+//             f.write_str("#include <cuda_fp16.h>\n")?;
+//         }
 
-    fn compile_bindings_body(
-        f: &mut std::fmt::Formatter<'_>,
-        body: &shared::Body<Self>,
-    ) -> std::fmt::Result {
-        if !body.shared_memories.is_empty() {
-            let max_align = body
-                .shared_memories
-                .iter()
-                .map(|smem| smem.align)
-                .max()
-                .unwrap();
-            // The `__align__` instead of `alignas` is on purpose - the compiler is currently bugged
-            // with `extern __shared__ alignas` and doesn't properly parse it.
-            writeln!(
-                f,
-                "extern __shared__ __align__({max_align}) uint8 dynamic_shared_mem[];"
-            )?;
-        }
-        if body.info_by_ptr {
-            f.write_str("const info_st& info = *info_ptr;\n")?;
-            // Could use `info_ptr + 1` but that seems dirty, so use manual `sizeof` instead
-            writeln!(
-                f,
-                "const {addr}* dynamic_meta = reinterpret_cast<const {addr}*>(
-                    reinterpret_cast<const char*>(info_ptr) + sizeof(info_st)
-                );\n",
-                addr = body.address_type,
-            )?;
-        }
-        Ok(())
-    }
-}
+//         // tf32 conversion function is in mma header
+//         if flags.inst_wmma || flags.elem_tf32 {
+//             Self::compile_wmma_includes(f, flags)?;
+//         }
 
-impl<M: DialectWmmaCompiler<Self>> DialectWarpReduceCompiler<Self> for CudaDialect<M> {}
+//         if flags.op_barrier || flags.inst_tma || flags.indexes.cluster_pos {
+//             f.write_str("#include <cooperative_groups.h>\n")?;
+//             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
+//             f.write_str("#include <cuda/barrier>\n")?;
+//         }
+//         if flags.inst_ptx_wrappers {
+//             f.write_str("#include <cuda/ptx>\n")?;
+//         }
+//         if flags.inst_tma {
+//             f.write_str(
+//                 "typedef struct CUtensorMap_st {
+// alignas(64) unsigned long long int opaque[16];
+// } CUtensorMap;\n",
+//             )?;
+//         }
+//         Ok(())
+//     }
 
-// Cube builtins dialect
+//     fn compile_extensions(
+//         f: &mut std::fmt::Formatter<'_>,
+//         extensions: &[Self::Extension],
+//     ) -> std::fmt::Result {
+//         for extension in extensions {
+//             match extension {
+//                 Extension::NoExtension => {}
+//                 Extension::Mma(mma) => write!(f, "{}", mma.format_extension(ctx))?,
+//             }
+//         }
+//         Ok(())
+//     }
+// }
 
-impl<M: DialectWmmaCompiler<Self>> DialectCubeBuiltins<Self> for CudaDialect<M> {
-    fn compile_cluster_pos(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "cluster.block_rank()")
-    }
+// // Types
 
-    fn compile_cluster_pos_x(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "cluster.block_index().x")
-    }
+// impl DialectTypes<Self> for CudaDialect {
+//     fn compile_type_definitions(
+//         f: &mut std::fmt::Formatter<'_>,
+//         items: &HashSet<Item<Self>>,
+//         scalars: &[(Elem<Self>, usize)],
+//         info: &cubecl_core::Info,
+//         flags: &Flags,
+//     ) -> std::fmt::Result {
+//         // All FP4/FP6/FP8 elems map to the same type, so we need to deduplicate them
+//         let mut items_deduplicated = HashSet::new();
 
-    fn compile_cluster_pos_y(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "cluster.block_index().y")
-    }
+//         for item in items {
+//             let mut item = *item.value_ty();
+//             match item {
+//                 Item::NativeVector(..) => {
+//                     continue;
+//                 }
+//                 Item::Atomic(inner) => {
+//                     item = *inner;
+//                 }
+//                 _ => {}
+//             }
+//             match item.elem() {
+//                 Elem::FP4(_) => {
+//                     item = item.with_elem(Elem::FP4(FP4Kind::E2M1));
+//                 }
+//                 Elem::FP4x2(_) => {
+//                     item = item.with_elem(Elem::FP4x2(FP4Kind::E2M1));
+//                 }
+//                 Elem::FP6(_) => {
+//                     item = item.with_elem(Elem::FP6(FP6Kind::E2M3));
+//                 }
+//                 Elem::FP6x2(_) => {
+//                     item = item.with_elem(Elem::FP6x2(FP6Kind::E2M3));
+//                 }
+//                 Elem::FP8(_) => {
+//                     item = item.with_elem(Elem::FP8(FP8Kind::E4M3));
+//                 }
+//                 Elem::FP8x2(_) => {
+//                     item = item.with_elem(Elem::FP8x2(FP8Kind::E4M3));
+//                 }
+//                 _ => {}
+//             }
+//             items_deduplicated.insert(item);
+//         }
 
-    fn compile_cluster_pos_z(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "cluster.block_index().z")
-    }
-}
+//         shared::type_definitions(f)?;
+//         shared::type_vectorized_definitions(f, &items_deduplicated)?;
 
-// Instructions
+//         shared::type_info_definition_sized(f, info, scalars, flags.address_type)?;
 
-impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> {
-    // sync
-    fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "__syncthreads();\n")
-    }
+//         if flags.inst_wmma {
+//             Self::compile_wmma_type_definitions(f, flags)?;
+//         }
 
-    fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "__syncwarp();\n")
-    }
+//         Ok(())
+//     }
 
-    fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "__threadfence();")
-    }
+//     fn compile_polyfills(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+//         if flags.inst_tma_im2col {
+//             writeln!(f, "{TMA_LOAD_IM2COL}")?;
+//         }
+//         if flags.inst_async_copy {
+//             writeln!(f, "{COPY_ASYNC}")?;
+//         }
+//         Ok(())
+//     }
+// }
 
-    // unary
-    fn compile_instruction_find_first_set<T: Component<Self>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: T,
-        out_elem: Elem<Self>,
-    ) -> std::fmt::Result {
-        write!(f, "{out_elem}(")?;
-        match input.elem() {
-            Elem::I32 => write!(f, "__ffs({input})"),
-            Elem::U32 => write!(f, "__ffs({}({input}))", Elem::<Self>::I32),
-            Elem::I64 => write!(f, "__ffsll({input})"),
-            Elem::U64 => write!(f, "__ffsll({}({input}))", Elem::<Self>::I64),
-            _ => write!(f, "__ffs({}({input}))", Elem::<Self>::I32),
-        }?;
-        write!(f, ")")
-    }
+// // Kernel argument bindings
 
-    fn compile_instruction_leading_zeros_scalar<T: Component<Self>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: T,
-        out_elem: Elem<Self>,
-    ) -> std::fmt::Result {
-        write!(f, "{out_elem}(")?;
-        match input.elem() {
-            Elem::I32 => write!(f, "__clz({input})"),
-            Elem::U32 => write!(f, "__clz({}({input}))", Elem::<Self>::I32),
-            Elem::I64 => write!(f, "__clzll({input})"),
-            Elem::U64 => write!(f, "__clzll({}({input}))", Elem::<Self>::I64),
-            in_elem => write!(
-                f,
-                "{out_elem}(__clz({}) - {})",
-                unary::zero_extend(input),
-                (size_of::<u32>() - in_elem.size()) * 8
-            ),
-        }?;
-        write!(f, ")")
-    }
-
-    fn compile_instruction_trailing_zeros_scalar<T: Component<Self>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: T,
-        out_elem: Elem<Self>,
-    ) -> std::fmt::Result {
-        // CUDA doesn't have a direct ctz intrinsic, but __ffs returns 1-indexed position
-        // of the first set bit from LSB (0 if no bit set).
-        // trailing_zeros(x) = x == 0 ? bitwidth : __ffs(x) - 1
-        write!(f, "{out_elem}(")?;
-        match input.elem() {
-            Elem::I32 | Elem::U32 => {
-                write!(f, "({input} == 0 ? 32 : __ffs({input}) - 1)")
-            }
-            Elem::I64 | Elem::U64 => {
-                write!(f, "({input} == 0 ? 64 : __ffsll({input}) - 1)")
-            }
-            in_elem => {
-                let bits = in_elem.size() * 8;
-                let extended = unary::zero_extend(input);
-                write!(f, "({extended} == 0 ? {bits} : __ffs({extended}) - 1)")
-            }
-        }?;
-        write!(f, ")")
-    }
-
-    fn compile_saturating_add(
-        f: &mut std::fmt::Formatter<'_>,
-        lhs: impl Display,
-        rhs: impl Display,
-        item: Item<Self>,
-    ) -> std::fmt::Result {
-        let elem = item.elem();
-        match elem {
-            Elem::I32 => {
-                write!(
-                    f,
-                    r#"[&]() -> {elem} {{
-    {elem} result;
-    asm("add.sat.s32 %0, %1, %2;"
-        : "=r"(result)
-        : "r"({lhs}), "r"({rhs}));
-    return result;
-        }}()"#
-                )
-            }
-            _ => unreachable!("Should be replaced by polyfill"),
-        }
-    }
-
-    fn compile_saturating_sub(
-        f: &mut std::fmt::Formatter<'_>,
-        lhs: impl Display,
-        rhs: impl Display,
-        item: Item<Self>,
-    ) -> std::fmt::Result {
-        let elem = item.elem();
-        // Native instruction only exists for signed int, unsigned should be removed in a preprocessor
-        match elem {
-            Elem::I32 => {
-                write!(
-                    f,
-                    r#"[&]() -> {elem} {{
-    {elem} result;
-    asm("sub.sat.s32 %0, %1, %2;"
-        : "=r"(result)
-        : "r"({lhs}), "r"({rhs}));
-    return result;
-        }}()"#
-                )
-            }
-            _ => unreachable!("Should be replaced by polyfill"),
-        }
-    }
-
-    // others
-    fn compile_instruction_max_function_name(
-        f: &mut std::fmt::Formatter<'_>,
-        item: Item<Self>,
-    ) -> std::fmt::Result {
-        let max = match item.elem() {
-            Elem::F16 | Elem::BF16 => "__hmax",
-            Elem::F16x2 | Elem::BF16x2 => "__hmax2",
-            _ => "max",
-        };
-        write!(f, "{max}")
-    }
-
-    fn compile_instruction_min_function_name(
-        f: &mut std::fmt::Formatter<'_>,
-        item: Item<Self>,
-    ) -> std::fmt::Result {
-        let min = match item.elem() {
-            Elem::F16 | Elem::BF16 => "__hmin",
-            Elem::F16x2 | Elem::BF16x2 => "__hmin2",
-            _ => "min",
-        };
-        write!(f, "{min}")
-    }
-
-    // warp
-    fn compile_warp_shuffle(
-        f: &mut std::fmt::Formatter<'_>,
-        val: &str,
-        source: &str,
-    ) -> std::fmt::Result {
-        write!(f, "__shfl_sync(-1, {val}, {source})")
-    }
-    fn compile_warp_shuffle_xor(
-        f: &mut std::fmt::Formatter<'_>,
-        val: &str,
-        _elem: &Elem<Self>,
-        offset: &str,
-    ) -> std::fmt::Result {
-        write!(f, "__shfl_xor_sync(-1, {val}, {offset})")
-    }
-    fn compile_warp_shuffle_up(
-        f: &mut std::fmt::Formatter<'_>,
-        val: &str,
-        offset: &str,
-    ) -> std::fmt::Result {
-        write!(f, "__shfl_up_sync(-1, {val}, {offset})")
-    }
-    fn compile_warp_shuffle_down(
-        f: &mut std::fmt::Formatter<'_>,
-        val: &str,
-        offset: &str,
-    ) -> std::fmt::Result {
-        write!(f, "__shfl_down_sync(-1, {val}, {offset})")
-    }
-    fn compile_warp_all<T: Component<Self>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: &T,
-    ) -> std::fmt::Result {
-        write!(f, "__all_sync(-1, {input})")
-    }
-    fn compile_warp_any<T: Component<Self>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: &T,
-    ) -> std::fmt::Result {
-        write!(f, "__any_sync(-1, {input})")
-    }
-
-    fn compile_warp_ballot(
-        f: &mut std::fmt::Formatter<'_>,
-        input: &Value<Self>,
-        _out_elem: &Elem<Self>,
-    ) -> std::fmt::Result {
-        write!(f, "__ballot_sync(-1, {input})")
-    }
-
-    fn compile_warp_elect(f: &mut std::fmt::Formatter<'_>, out: &str) -> std::fmt::Result {
-        let elem = Elem::<Self>::Bool;
-        let uint32 = Elem::<Self>::U32;
-        // Used to have a wrapper but it has been removed in newer version due to being
-        // "incomplete". We only need the predicate and have a fixed mask, so it's trivial to
-        // implement.
-        writeln!(
-            f,
-            r#"{out} = {elem}([&]() -> {uint32} {{
-    {uint32} pred = 0;
-    asm volatile(
-        "{{\n"
-        "     .reg .pred %%px;\n"
-        "     elect.sync _|%%px, 0xffffffff;\n"
-        "     selp.b32 %0, 1, 0, %%px;\n"
-        "}}\n"
-        : "+r"(pred));
-    return pred;
-        }}());"#
-        )
-    }
-
-    fn compile_unreachable(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "__builtin_unreachable();")
-    }
-}
-
-// Coop Matrices dialect
-
-impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> {
-    fn compile_wmma_includes(
-        f: &mut std::fmt::Formatter<'_>,
-        flags: &Flags<Self>,
-    ) -> std::fmt::Result {
-        M::compile_wmma_includes(f, flags)
-    }
-
-    fn compile_wmma_type_definitions(
-        f: &mut std::fmt::Formatter<'_>,
-        flags: &Flags<Self>,
-    ) -> std::fmt::Result {
-        M::compile_wmma_type_definitions(f, flags)
-    }
-
-    fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        M::compile_wmma_local_variables(f)
-    }
-
-    fn compile_wmma_fragment_declaration(
-        f: &mut std::fmt::Formatter<'_>,
-        val: &Value<Self>,
-        value_ty: &Item<Self>,
-    ) -> std::fmt::Result {
-        M::compile_wmma_fragment_declaration(f, val, value_ty)
-    }
-
-    fn compile_wwma_fragment_ident(
-        f: &mut std::fmt::Formatter<'_>,
-        ident: &crate::shared::FragmentIdent<Self>,
-    ) -> std::fmt::Result {
-        M::compile_wwma_fragment_ident(f, ident)
-    }
-
-    fn compile_wmma_fragment_layout(
-        f: &mut std::fmt::Formatter<'_>,
-        layout: &crate::shared::FragmentLayout<Self>,
-    ) -> std::fmt::Result {
-        M::compile_wmma_fragment_layout(f, layout)
-    }
-
-    fn compile_wmma_fragment(
-        f: &mut std::fmt::Formatter<'_>,
-        fragment: &crate::shared::FragmentType<Self>,
-    ) -> std::fmt::Result {
-        M::compile_wmma_fragment(f, fragment)
-    }
-
-    fn compile_wmma_instruction(
-        f: &mut std::fmt::Formatter<'_>,
-        instruction: &crate::shared::WmmaInstruction<Self>,
-    ) -> std::fmt::Result {
-        M::compile_wmma_instruction(f, instruction)
-    }
-
-    fn compile_manual_mma(
-        f: &mut std::fmt::Formatter<'_>,
-        mma: ManualMma<Self>,
-    ) -> std::fmt::Result {
-        M::compile_manual_mma(f, mma)
-    }
-
-    fn compile_scaled_mma(
-        f: &mut std::fmt::Formatter<'_>,
-        mma: ManualMma<Self>,
-        scales_a: Value<Self>,
-        scales_b: Value<Self>,
-        scales_factor: u32,
-    ) -> std::fmt::Result {
-        M::compile_scaled_mma(f, mma, scales_a, scales_b, scales_factor)
-    }
-
-    fn supported_wmma_combinations(
-        arch: &CudaArchitecture,
-    ) -> crate::shared::SupportedMmaCombinations {
-        M::supported_wmma_combinations(arch)
-    }
-
-    fn supported_mma_combinations(arch: &CudaArchitecture) -> shared::SupportedMmaCombinations {
-        M::supported_mma_combinations(arch)
-    }
-
-    fn supported_scaled_mma_combinations(
-        arch: &CudaArchitecture,
-    ) -> shared::SupportedScaledMmaCombinations {
-        M::supported_scaled_mma_combinations(arch)
-    }
-}
-
-impl<M: DialectWmmaCompiler<Self>> DialectProcessors<Self> for CudaDialect<M> {
-    fn processors() -> Vec<Box<dyn Processor>> {
-        vec![
-            Box::new(CudaMmaProcessor),
-            Box::new(SaturatingArithmeticPolyfill::new(false)),
-        ]
-    }
-}
+// impl DialectBindings<Self> for CudaDialect {
+//     fn compile_bindings_body(
+//         f: &mut std::fmt::Formatter<'_>,
+//         body: &shared::Body<Self>,
+//     ) -> std::fmt::Result {
+//         if !body.shared_memories.is_empty() {
+//             let max_align = body
+//                 .shared_memories
+//                 .iter()
+//                 .map(|smem| smem.align)
+//                 .max()
+//                 .unwrap();
+//             // The `__align__` instead of `alignas` is on purpose - the compiler is currently bugged
+//             // with `extern __shared__ alignas` and doesn't properly parse it.
+//             writeln!(
+//                 f,
+//                 "extern __shared__ __align__({max_align}) uint8 dynamic_shared_mem[];"
+//             )?;
+//         }
+//         if body.info_by_ptr {
+//             f.write_str("const info_st& info = *info_ptr;\n")?;
+//             // Could use `info_ptr + 1` but that seems dirty, so use manual `sizeof` instead
+//             writeln!(
+//                 f,
+//                 "const {addr}* dynamic_meta = reinterpret_cast<const {addr}*>(
+//                     reinterpret_cast<const char*>(info_ptr) + sizeof(info_st)
+//                 );\n",
+//                 addr = body.address_type,
+//             )?;
+//         }
+//         Ok(())
+//     }
+// }

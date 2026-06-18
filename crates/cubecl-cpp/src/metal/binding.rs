@@ -1,18 +1,26 @@
+use core::fmt::Display;
+
+use cubecl_runtime::kernel::KernelArg;
+use pliron::{context::Context, r#type::Typed};
+
 use crate::{
-    Dialect,
-    metal::AddressSpace,
-    shared::{Builtin, Component, KernelArg},
+    metal::{AddressSpace, BuiltInAttribute},
+    shared::{
+        CppValue,
+        ty::{TypeExtCPP, TypedExtCPP},
+    },
 };
 
-pub fn format_global_binding_arg<D: Dialect>(
-    binding: &KernelArg<D>,
+pub fn format_global_binding_arg(
+    ctx: &Context,
+    binding: &KernelArg,
     attr_idx: &mut usize,
     f: &mut core::fmt::Formatter<'_>,
 ) -> core::fmt::Result {
     let comma = if *attr_idx > 0 { "," } else { "" };
-    let address_space = AddressSpace::from(binding);
-    let ty = binding.value.item();
-    let name = binding.value;
+    let address_space = AddressSpace::from(binding.value.address_space_cpp(ctx));
+    let ty = binding.value.get_type(ctx).to_cpp(ctx);
+    let name = binding.value.name(ctx);
     let attribute = address_space.attribute();
 
     write!(f, "{comma}\n    {address_space} {ty} {name}",)?;
@@ -22,14 +30,14 @@ pub fn format_global_binding_arg<D: Dialect>(
     Ok(())
 }
 
-pub fn format_metal_builtin_binding_arg<D: Dialect>(
+pub fn format_metal_builtin_binding_arg(
     f: &mut core::fmt::Formatter<'_>,
-    builtin: &Builtin<D>,
+    name: impl Display,
+    attribute: &BuiltInAttribute,
     comma: bool,
 ) -> core::fmt::Result {
-    let ty = builtin.item();
-    let attribute = builtin.attribute();
+    let ty = attribute.cpp_ty();
     let comma = if comma { "," } else { "" };
-    write!(f, "{comma}\n    {ty} {builtin} {attribute}",)?;
+    write!(f, "{comma}\n    {ty} {name} {attribute}",)?;
     Ok(())
 }

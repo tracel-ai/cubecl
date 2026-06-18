@@ -1,8 +1,8 @@
 use cubecl_ir::{
     ConstantValue, Scope, UIntKind,
-    pliron::{context::Ptr, r#type::TypeObj},
     types::scalar::{IndexType, UIntType},
 };
+use pliron::r#type::TypeHandle;
 
 use crate::prelude::*;
 
@@ -25,9 +25,9 @@ macro_rules! declare_uint {
             type Size = Const<1>;
             type WithScalar<S: Scalar> = S;
 
-            fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+            fn __expand_as_type(scope: &Scope) -> TypeHandle {
                 let width = UIntKind::$kind.size_bits();
-                UIntType::get(&mut scope.ctx_mut(), width).into()
+                UIntType::get(scope.ctx(), width).into()
             }
 
             fn from_const_value(value: ConstantValue) -> Self {
@@ -110,7 +110,7 @@ impl CubePrimitive for usize {
         value as usize
     }
 
-    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
         IndexType::get(scope.ctx()).into()
     }
 }
@@ -181,7 +181,7 @@ impl CubePrimitive for isize {
         value as isize
     }
 
-    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
         scope
             .resolve_type::<Self>()
             .expect("Type to be registered")

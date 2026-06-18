@@ -98,7 +98,6 @@ impl CudaContext {
         &mut self,
         kernel_id: &KernelId,
         kernel: Box<dyn CubeTask<CudaCompiler>>,
-        mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
         let hash = if let Some(cache) = &self.ptx_cache {
@@ -111,7 +110,7 @@ impl CudaContext {
                     entry.ptx.clone(),
                     kernel_id.clone(),
                     entry.entrypoint_name.clone(),
-                    kernel_id.cube_dim,
+                    kernel_id.cube_dim.into(),
                     entry.shared_mem_bytes,
                 )?;
                 return Ok(());
@@ -126,12 +125,8 @@ impl CudaContext {
         validate_cube_dim(&self.properties, kernel_id)?;
         validate_units(&self.properties, kernel_id)?;
 
-        let mut kernel_compiled = kernel.compile(
-            &mut Default::default(),
-            &self.compilation_options,
-            mode,
-            kernel.address_type(),
-        )?;
+        let mut kernel_compiled =
+            kernel.compile(&mut Default::default(), &self.compilation_options)?;
 
         self.validate_shared(&kernel_compiled.repr)?;
 
@@ -192,12 +187,7 @@ impl CudaContext {
                     }
                 }
                 let source = kernel
-                    .compile(
-                        &mut Default::default(),
-                        &self.compilation_options,
-                        mode,
-                        kernel.address_type(),
-                    )?
+                    .compile(&mut Default::default(), &self.compilation_options)?
                     .source;
                 Err(CompilationError::Generic {
                     reason: format!("{message}\n[Source]  \n{source}"),
@@ -217,7 +207,7 @@ impl CudaContext {
                 hash.unwrap(),
                 PtxCacheEntry {
                     entrypoint_name: kernel_compiled.entrypoint_name.clone(),
-                    shared_mem_bytes: repr.shared_memory_size(),
+                    shared_mem_bytes: repr.shared_memory_size,
                     ptx: ptx.clone(),
                 },
             );
@@ -231,7 +221,7 @@ impl CudaContext {
             kernel_id.clone(),
             kernel_compiled.entrypoint_name,
             cube_dim,
-            repr.shared_memory_size(),
+            repr.shared_memory_size,
         )?;
         Ok(())
     }
@@ -326,7 +316,7 @@ impl CudaContext {
     }
 
     fn validate_shared(&self, repr: &Option<CudaComputeKernel>) -> Result<(), LaunchError> {
-        let requested = repr.as_ref().map(|repr| repr.shared_memory_size());
+        let requested = repr.as_ref().map(|repr| repr.shared_memory_size);
         let max = self.properties.hardware.max_shared_memory_size;
         if let Some(requested) = requested
             && requested > max

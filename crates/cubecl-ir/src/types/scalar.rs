@@ -1,7 +1,7 @@
 use pliron::{
-    context::{Context, Ptr},
+    context::Context,
     derive::{pliron_type, type_interface_impl},
-    r#type::{Type, TypeObj},
+    r#type::{Type, TypeHandle},
 };
 
 use crate::{
@@ -13,7 +13,7 @@ use crate::{
 
 #[pliron_type(
     name = "cube.int",
-    format = "`i` $width",
+    format = "$width",
     generate_get = true,
     verifier = "succ"
 )]
@@ -54,14 +54,14 @@ impl ScalarType for IntType {
 
 #[type_interface_impl]
 impl ScalarizableType for IntType {
-    fn scalar_type(&self, ctx: &Context) -> Ptr<TypeObj> {
-        self.get_self_ptr(ctx)
+    fn scalar_type(&self, ctx: &Context) -> TypeHandle {
+        self.get_self_handle(ctx)
     }
 }
 
 #[pliron_type(
     name = "cube.uint",
-    format = "`u` $width",
+    format = "$width",
     generate_get = true,
     verifier = "succ"
 )]
@@ -102,14 +102,14 @@ impl ScalarType for UIntType {
 
 #[type_interface_impl]
 impl ScalarizableType for UIntType {
-    fn scalar_type(&self, ctx: &Context) -> Ptr<TypeObj> {
-        self.get_self_ptr(ctx)
+    fn scalar_type(&self, ctx: &Context) -> TypeHandle {
+        self.get_self_handle(ctx)
     }
 }
 
 #[pliron_type(
     name = "cube.index",
-    format = "`usize`",
+    format = "",
     generate_get = true,
     verifier = "succ"
 )]
@@ -123,55 +123,53 @@ not_packed!(IndexType);
 
 #[type_interface_impl]
 impl ScalarizableType for IndexType {
-    fn scalar_type(&self, ctx: &Context) -> Ptr<TypeObj> {
-        self.get_self_ptr(ctx)
+    fn scalar_type(&self, ctx: &Context) -> TypeHandle {
+        self.get_self_handle(ctx)
     }
 }
 
-#[pliron_type(
-    name = "cube.float",
-    format = "$encoding",
-    generate_get = true,
-    verifier = "succ"
-)]
-#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
-pub struct FloatType {
-    pub encoding: FloatKind,
-}
-scalar!(FloatType);
-not_packed!(FloatType);
+macro_rules! float_type {
+    ($name: literal, $ty: ident, $kind: ident, $size: literal) => {
+        #[pliron_type(name = $name, format = "", generate_get = true, verifier = "succ")]
+        #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
+        pub struct $ty;
+        scalar!($ty);
+        not_packed!($ty);
+        sized!($ty, $size);
+        aligned!($ty, $size);
 
-#[type_interface_impl]
-impl AlignedType for FloatType {
-    fn align(&self, _ctx: &Context) -> usize {
-        self.encoding.size()
-    }
-}
+        #[type_interface_impl]
+        impl ScalarType for $ty {
+            fn storage_type(&self, _ctx: &Context) -> StorageType {
+                FloatKind::$kind.into()
+            }
+        }
 
-#[type_interface_impl]
-impl SizedType for FloatType {
-    fn size(&self, _ctx: &Context) -> usize {
-        self.encoding.size()
-    }
-}
-
-#[type_interface_impl]
-impl ScalarType for FloatType {
-    fn storage_type(&self, _ctx: &Context) -> StorageType {
-        self.encoding.into()
-    }
+        #[type_interface_impl]
+        impl ScalarizableType for $ty {
+            fn scalar_type(&self, ctx: &Context) -> TypeHandle {
+                self.get_self_handle(ctx)
+            }
+        }
+    };
 }
 
-#[type_interface_impl]
-impl ScalarizableType for FloatType {
-    fn scalar_type(&self, ctx: &Context) -> Ptr<TypeObj> {
-        self.get_self_ptr(ctx)
-    }
-}
+float_type!("cube.f64", Float64Type, F64, 8);
+float_type!("cube.f32", Float32Type, F32, 4);
+float_type!("cube.tf32", TFloat32Type, TF32, 4);
+float_type!("cube.flex32", FloatFlex32Type, Flex32, 4);
+float_type!("cube.f16", Float16Type, F16, 2);
+float_type!("cube.bf16", BFloat16Type, BF16, 2);
+float_type!("cube.ue8m0", Float8E8M0Type, UE8M0, 1);
+float_type!("cube.e5m2", Float8E5M2Type, E5M2, 1);
+float_type!("cube.e4m3", Float8E4M3Type, E4M3, 1);
+float_type!("cube.e3m2", Float6E3M2Type, E3M2, 1);
+float_type!("cube.e2m3", Float6E2M3Type, E2M3, 1);
+float_type!("cube.e2m1", Float4E2M1Type, E2M1, 1);
 
 #[pliron_type(
     name = "cube.bool",
-    format = "`bool`",
+    format = "",
     generate_get = true,
     verifier = "succ"
 )]
@@ -190,7 +188,7 @@ impl ScalarType for BoolType {
 
 #[type_interface_impl]
 impl ScalarizableType for BoolType {
-    fn scalar_type(&self, ctx: &Context) -> Ptr<TypeObj> {
-        self.get_self_ptr(ctx)
+    fn scalar_type(&self, ctx: &Context) -> TypeHandle {
+        self.get_self_handle(ctx)
     }
 }

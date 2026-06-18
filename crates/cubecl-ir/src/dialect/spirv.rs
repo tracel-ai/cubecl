@@ -1,7 +1,7 @@
 use cubecl_macros_internal::cube_op;
 
 use crate::{
-    attributes::IndexAttr, interfaces::Pure, pliron::prelude::*, types::{
+    attributes::IndexAttr, interfaces::Pure, prelude::*, types::{
         matrix::MatrixType,
         spirv::{ClampMode, TensorLayoutType},
     }

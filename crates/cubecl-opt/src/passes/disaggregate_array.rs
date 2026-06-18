@@ -1,16 +1,8 @@
 use alloc::vec::Vec;
-use cubecl_ir::{
-    AddressSpace, Id, Instruction, Memory, Operation, Operator, StoreOperands, Type, UnaryOperands,
-    ExpandValue, ValueKind,
-};
+use cubecl_ir::{AddressSpace, ExpandValue, Type};
 use hashbrown::HashMap;
 
-use crate::{
-    AtomicCounter, Function, GlobalState,
-    analyses::{pointer_source::PointerSource, writes::LocalStores},
-};
-
-use super::OptimizerPass;
+use crate::{AtomicCounter, GlobalState, analyses::pointer_source::PointerSource};
 
 /// Split arrays with only constant indices into a set of local intermediates. This allows the
 /// compiler to reorder them and optimize memory layout, along with enabling more inlining and

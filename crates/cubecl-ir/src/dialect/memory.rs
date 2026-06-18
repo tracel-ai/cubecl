@@ -1,14 +1,18 @@
 use cubecl_macros_internal::cube_op;
 use derive_more::From;
 use derive_new::new;
-use pliron::{builtin::attributes::TypeAttr, derive::pliron_attr, r#type::type_cast};
+use pliron::{
+    builtin::attributes::TypeAttr,
+    derive::pliron_attr,
+    r#type::{TypeHandle, type_cast},
+};
 
 use crate::{
     AddressSpace,
     attributes::{BoolAttr, IndexAttr},
     dialect::ptr_value_ty,
     interfaces::{IndexableType, Pure, erasable},
-    pliron::prelude::*,
+    prelude::*,
     types::PointerType,
 };
 
@@ -18,7 +22,6 @@ pub struct AddressSpaceAttr(pub AddressSpace);
 
 #[cube_op(name = "memory.declare_variable")]
 #[result_ty(from_inputs = variable_ptr_ty)]
-#[op_interfaces(Pure)]
 pub struct DeclareVariableOp {
     pub value_ty: TypeAttr,
     pub addr_space: AddressSpaceAttr,
@@ -26,11 +29,11 @@ pub struct DeclareVariableOp {
 }
 
 fn variable_ptr_ty(
-    ctx: &mut Context,
+    ctx: &Context,
     value_ty: &TypeAttr,
     addr_space: &AddressSpaceAttr,
     _align: &IndexAttr,
-) -> Ptr<TypeObj> {
+) -> TypeHandle {
     let value_ty = value_ty.get_type(ctx);
     PointerType::get(ctx, value_ty, addr_space.0).into()
 }
@@ -46,7 +49,7 @@ pub struct IndexOp {
 }
 erasable!(IndexOp);
 
-fn indexed_ptr_ty(ctx: &mut Context, base: &Value) -> Ptr<TypeObj> {
+fn indexed_ptr_ty(ctx: &Context, base: &Value) -> TypeHandle {
     let (value_ty, address_space) = {
         let base_ty = base.get_type(ctx).deref(ctx);
         let PointerType {
@@ -54,8 +57,7 @@ fn indexed_ptr_ty(ctx: &mut Context, base: &Value) -> Ptr<TypeObj> {
             address_space,
         } = base_ty.downcast_ref().expect("Should be pointer");
         let list_ty = inner.deref(ctx);
-        let indexable =
-            type_cast::<dyn IndexableType>(list_ty.as_ref()).expect("Should be indexable");
+        let indexable = type_cast::<dyn IndexableType>(&*list_ty).expect("Should be indexable");
         let value_ty = indexable.indexed_type(ctx);
         (value_ty, *address_space)
     };

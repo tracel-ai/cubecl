@@ -18,16 +18,13 @@ pub(crate) fn normalize_same_vectorization<const N: usize>(
 ) -> [Value; N] {
     let max_vector_size = {
         let ctx = scope.ctx();
-        vals.iter()
-            .map(|it| it.vector_size(ctx))
-            .max()
-            .unwrap_or(1)
+        vals.iter().map(|it| it.vector_size(ctx)).max().unwrap_or(1)
     };
     for val in vals.iter_mut() {
         let vector_size = val.vector_size(scope.ctx());
         if vector_size == 1 && max_vector_size > 1 {
             let scalar_ty = val.scalar_ty(scope.ctx());
-            let out_ty = VectorType::get(scope.ctx_mut(), scalar_ty, max_vector_size);
+            let out_ty = VectorType::get(scope.ctx(), scalar_ty, max_vector_size);
             *val = cast_value(scope, *val, out_ty.into());
         } else if vector_size != max_vector_size {
             panic!("Invalid vector size mismatch, expected same size or scalar")
@@ -54,7 +51,7 @@ where
 }
 
 pub(crate) fn index_expand(scope: &Scope, list: Value, index: Value, checked: bool) -> Value {
-    let op = IndexOp::new(scope.ctx_mut(), list, index, 1.into(), checked.into());
+    let op = IndexOp::new(scope.ctx_mut(), list, index, 1, checked);
     scope.register(&op);
     op.get_result(scope.ctx())
 }

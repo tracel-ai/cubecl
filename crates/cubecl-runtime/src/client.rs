@@ -5,7 +5,7 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
+        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle, IoError,
         KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
         MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
         ServerUtilities,
@@ -21,7 +21,9 @@ use cubecl_common::{
     future::DynFut,
     profile::ProfileDuration,
 };
-use cubecl_ir::{DeviceProperties, ElemType, VectorSize, features::Features};
+use cubecl_ir::{
+    DeviceProperties, ElemType, VectorSize, features::Features, settings::ExecutionMode,
+};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
@@ -710,7 +712,7 @@ impl<R: Runtime> ComputeClient<R> {
                 let utilities = self.utilities.clone();
                 self.device.submit(move |state| {
                     let name = kernel.name();
-                    unsafe { state.launch(kernel, count, bindings, mode, stream_id) };
+                    unsafe { state.launch(kernel, count, bindings, stream_id) };
 
                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                         let info = type_name_format(name, TypeNameFormatLevel::Balanced);
@@ -728,7 +730,7 @@ impl<R: Runtime> ComputeClient<R> {
                         move || {
                             context
                                 .submit_blocking(move |state| unsafe {
-                                    state.launch(kernel, count_moved, bindings, mode, stream_id)
+                                    state.launch(kernel, count_moved, bindings, stream_id)
                                 })
                                 .unwrap()
                         },

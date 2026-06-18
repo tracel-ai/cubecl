@@ -16,13 +16,11 @@ use core::{cmp::Ordering, ops::*};
 use core::{f32, marker::PhantomData};
 
 use bytemuck::Zeroable;
-use cubecl_ir::{
-    ConstantValue,
-    pliron::{context::Ptr, r#type::TypeObj},
-};
+use cubecl_ir::ConstantValue;
 use derive_more::derive::{Debug, Display};
 use float_ord::FloatOrd;
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
+use pliron::r#type::TypeHandle;
 use serde::Serialize;
 
 use crate::{
@@ -254,7 +252,7 @@ impl<Marker: 'static> CubePrimitive for DynamicScalar<Marker> {
     type WithScalar<S: Scalar> = S;
 
     /// Return the element type to use on GPU
-    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
         scope
             .resolve_type::<Self>()
             .expect("Type to be registered")

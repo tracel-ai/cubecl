@@ -10,14 +10,19 @@ use core::{
 };
 
 use cubecl_common::format::format_str;
-use cubecl_ir::{Scope, StorageType, pliron::value::Value};
+use cubecl_ir::{
+    AddressType, Scope, StorageType,
+    metadata::Info,
+    pliron::{format, value::Value},
+    settings::KernelSettings,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     compiler::{CompilationError, Compiler, CubeTask},
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel},
     id::KernelId,
-    server::{CubeDim, ExecutionMode},
+    server::CubeDim,
 };
 
 /// Implement this trait to create a [kernel definition](KernelDefinition).
@@ -36,30 +41,10 @@ pub trait KernelMetadata: Send + Sync + 'static {
 
 #[allow(missing_docs)]
 pub struct KernelDefinition {
-    pub buffers: Vec<KernelArg>,
-    pub tensor_maps: Vec<KernelArg>,
     pub scalars: Vec<ScalarKernelArg>,
-    pub cube_dim: CubeDim,
     pub body: Scope,
-    pub options: KernelOptions,
-}
-
-impl KernelDefinition {
-    /// Returns the total number of global buffers (including tensor maps)
-    pub fn num_global_buffers(&self) -> usize {
-        self.buffers.len() + self.tensor_maps.len()
-    }
-}
-
-#[derive(Default, Clone, Debug, Hash, PartialEq, Eq)]
-/// Options for a specific kernel compilation
-pub struct KernelOptions {
-    /// The name of the kernel
-    pub kernel_name: String,
-    /// Whether to include debug symbols
-    pub debug_symbols: bool,
-    /// CUDA Cluster dim, if any
-    pub cluster_dim: Option<CubeDim>,
+    pub info: Info,
+    pub settings: KernelSettings,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -82,6 +67,7 @@ pub struct ScalarKernelArg {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Hash)]
 #[allow(missing_docs)]
+#[format]
 pub enum Visibility {
     Uniform,
     Read,
@@ -172,13 +158,11 @@ impl<C: Compiler, K: CubeKernel> CubeTask<C> for KernelTask<C, K> {
         &self,
         compiler: &mut C,
         compilation_options: &C::CompilationOptions,
-        mode: ExecutionMode,
-        addr_type: StorageType,
     ) -> Result<CompiledKernel<C>, CompilationError> {
         let gpu_ir = self.kernel_definition.define();
-        let entrypoint_name = gpu_ir.options.kernel_name.clone();
-        let cube_dim = gpu_ir.cube_dim;
-        let lower_level_ir = compiler.compile(gpu_ir, compilation_options, mode, addr_type)?;
+        let entrypoint_name = gpu_ir.settings.kernel_name.clone();
+        let cube_dim = gpu_ir.settings.cube_dim.into();
+        let lower_level_ir = compiler.compile(gpu_ir, compilation_options)?;
 
         Ok(CompiledKernel {
             entrypoint_name,

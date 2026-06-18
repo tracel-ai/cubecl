@@ -22,9 +22,9 @@ macro_rules! constant {
             /// Expansion of the constant value.
             pub fn expand(scope: &Scope) -> NativeExpand<u32> {
                 let ty = u32::__expand_as_type(scope);
-                let op = ReadBuiltinOp::new(&mut scope.ctx_mut(), ty, $var.into());
+                let op = ReadBuiltinOp::new(scope.ctx_mut(), ty, $var);
                 scope.register(&op);
-                op.get_result(&scope.ctx()).into()
+                op.get_result(scope.ctx()).into()
             }
         }
     };
@@ -43,9 +43,9 @@ macro_rules! constant_usize {
             /// Expansion of the constant value.
             pub fn expand(scope: &Scope) -> NativeExpand<usize> {
                 let ty = usize::__expand_as_type(scope);
-                let op = ReadBuiltinOp::new(&mut scope.ctx_mut(), ty, $var.into());
+                let op = ReadBuiltinOp::new(scope.ctx_mut(), ty, $var);
                 scope.register(&op);
-                op.get_result(&scope.ctx()).into()
+                op.get_result(scope.ctx()).into()
             }
         }
     };

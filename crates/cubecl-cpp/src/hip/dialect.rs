@@ -1,690 +1,148 @@
-use core::any::TypeId;
-use std::fmt::Display;
-use std::{collections::HashSet, marker::PhantomData};
-
-use cubecl_core::{
-    ir::Processor, post_processing::saturating::SaturatingArithmeticPolyfill, prelude::Visibility,
-};
-
-use crate::shared::{DialectWarpReduceCompiler, PointerClass};
-use crate::{
-    Dialect,
-    shared::{
-        self, DialectBindings, DialectCubeBuiltins, DialectIncludes, DialectTypes,
-        DialectWmmaCompiler, Flags, Item, KernelArg, ManualMma,
-    },
-};
-use crate::{
-    hip::processors::HipMmaProcessor,
-    shared::{
-        Component, DialectInstructions, DialectProcessors, Elem, Instruction, Value, unary,
-        value_to_frag,
-    },
-};
-
-use super::Extension;
-use super::arch::AMDArchitecture;
-use super::extension::{WmmaExtension, format_f162bf16, format_max, format_min};
-use super::mma::{WmmaCast, WmmaExecute, WmmaFill, WmmaIntrinsicCompiler, WmmaLoad, WmmaStore};
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct HipDialect<M> {
-    _wmma_compiler: PhantomData<M>,
+macro_rules! hip_op {
+    ($ty: ty, $impl: expr) => {
+        #[pliron::derive::op_interface_impl]
+        impl $crate::shared::operation::OpToCPP<$crate::target::Hip> for $ty {
+            fn to_cpp(&self, ctx: &pliron::context::Context) -> String {
+                $crate::shared::closure_inference_hack::<$ty, String>(self, ctx, $impl)
+            }
+        }
+    };
 }
+pub(super) use hip_op;
 
-// Base dialect
-
-impl<M: DialectWmmaCompiler<Self>> Dialect for HipDialect<M> {
-    type Architecture = AMDArchitecture;
+macro_rules! hip_op_with_out {
+    ($ty: ty, $impl: expr) => {
+        #[pliron::derive::op_interface_impl]
+        impl $crate::shared::operation::OpToCPP<$crate::target::Hip> for $ty {
+            fn to_cpp(&self, ctx: &pliron::context::Context) -> String {
+                use cubecl_core::ir::prelude::*;
+                use $crate::shared::CppValue;
+                let op = $crate::shared::closure_inference_hack::<$ty, String>(self, ctx, $impl);
+                let out = self.get_result(ctx).fmt_left(ctx);
+                format!("{out} = {op};\n")
+            }
+        }
+    };
 }
+pub(super) use hip_op_with_out;
 
-impl<M: DialectWmmaCompiler<Self>> DialectWarpReduceCompiler<Self> for HipDialect<M> {}
+// #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+// pub struct HipDialect {}
 
-// Includes
+// // Base dialect
 
-impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
-    type Extension = Extension<Self>;
+// impl Dialect for HipDialect {
+//     type Architecture = AMDArchitecture;
+// }
 
-    fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags<Self>) -> std::fmt::Result {
-        f.write_str("#include <hip/hip_runtime.h>\n")?;
-        if flags.elem_bf16 {
-            f.write_str("#include <hip/hip_bf16.h>\n")?;
-        }
-        if flags.elem_f16 {
-            f.write_str("#include <hip/hip_fp16.h>\n")?;
-        }
-        if flags.inst_wmma {
-            Self::compile_wmma_includes(f, flags)?;
-        }
-        Ok(())
-    }
+// // Includes
 
-    fn compile_extensions(
-        f: &mut std::fmt::Formatter<'_>,
-        extensions: &[Self::Extension],
-    ) -> std::fmt::Result {
-        for extension in extensions {
-            match extension {
-                Extension::F162BF16 => format_f162bf16(f)?,
-                Extension::Max(val) => format_max::<Self>(f, val)?,
-                Extension::Min(val) => format_min::<Self>(f, val)?,
-                Extension::NoExtension => {}
-                Extension::Wmma(inst) => inst.format_wmma(f)?,
-            }
-        }
-        Ok(())
-    }
+// impl DialectIncludes<Self> for HipDialect {
+//     type Extension = Extension;
 
-    fn register_instruction_extension(
-        extensions: &mut Vec<Self::Extension>,
-        instruction: &Instruction<Self>,
-    ) {
-        let mut register_extension = |extension: Self::Extension| {
-            if !extensions.contains(&extension) {
-                extensions.push(extension);
-            }
-        };
-        #[allow(clippy::single_match)]
-        match instruction {
-            shared::Instruction::<Self>::Max(op) => {
-                register_extension(Extension::Max(*op.lhs.item().elem()));
-            }
-            shared::Instruction::<Self>::Min(op) => {
-                register_extension(Extension::Min(*op.lhs.item().elem()));
-            }
-            _ => {}
-        }
-    }
+//     fn compile_includes(f: &mut std::fmt::Formatter<'_>, flags: &Flags) -> std::fmt::Result {
+//         f.write_str("#include <hip/hip_runtime.h>\n")?;
+//         if flags.elem_bf16 {
+//             f.write_str("#include <hip/hip_bf16.h>\n")?;
+//         }
+//         if flags.elem_f16 {
+//             f.write_str("#include <hip/hip_fp16.h>\n")?;
+//         }
+//         if flags.inst_wmma {
+//             Self::compile_wmma_includes(f, flags)?;
+//         }
+//         Ok(())
+//     }
 
-    fn register_warp_instruction_extension(
-        extensions: &mut Vec<Self::Extension>,
-        instruction: &shared::WarpInstruction<Self>,
-    ) {
-        let mut register_extension = |extension: Self::Extension| {
-            if !extensions.contains(&extension) {
-                extensions.push(extension);
-            }
-        };
+//     fn compile_extensions(
+//         f: &mut std::fmt::Formatter<'_>,
+//         extensions: &[Self::Extension],
+//     ) -> std::fmt::Result {
+//         for extension in extensions {
+//             match extension {
+//                 Extension::NoExtension => {}
+//                 Extension::Wmma(inst) => inst.format_wmma(f)?,
+//             }
+//         }
+//         Ok(())
+//     }
+// }
 
-        #[allow(clippy::single_match)]
-        match instruction {
-            shared::WarpInstruction::<Self>::ReduceMax { input, .. } => {
-                let input_item = input.item();
-                let input_elem = input_item.elem();
-                if *input_elem == Elem::<Self>::BF16 {
-                    register_extension(Extension::F162BF16);
-                }
-                register_extension(Extension::Max(*input_elem));
-            }
-            shared::WarpInstruction::<Self>::ReduceMin { input, .. } => {
-                let input_item = input.item();
-                let input_elem = input_item.elem();
-                if *input_elem == Elem::<Self>::BF16 {
-                    register_extension(Extension::F162BF16);
-                }
-                register_extension(Extension::Min(*input_elem));
-            }
-            shared::WarpInstruction::<Self>::ReduceProd { input, .. } => {
-                let input_item = input.item();
-                let input_elem = input_item.elem();
-                if *input_elem == Elem::<Self>::BF16 {
-                    register_extension(Extension::F162BF16);
-                }
-            }
-            shared::WarpInstruction::<Self>::ReduceSum { input, .. } => {
-                let input_item = input.item();
-                let input_elem = input_item.elem();
-                if *input_elem == Elem::<Self>::BF16 {
-                    register_extension(Extension::F162BF16);
-                }
-            }
-            _ => {}
-        }
-    }
+// // Types
 
-    fn register_wmma_instruction_extension(
-        extensions: &mut Vec<Self::Extension>,
-        instruction: &shared::WmmaInstruction<Self>,
-    ) {
-        if TypeId::of::<M>() == TypeId::of::<WmmaIntrinsicCompiler>() {
-            let extension = match instruction {
-                shared::WmmaInstruction::Fill { frag, .. } => {
-                    Extension::Wmma(WmmaExtension::Fill(WmmaFill::new(value_to_frag(frag))))
-                }
-                shared::WmmaInstruction::Load { frag, layout, .. } => Extension::Wmma(
-                    WmmaExtension::Load(WmmaLoad::new(value_to_frag(frag), *layout)),
-                ),
-                shared::WmmaInstruction::LdMatrix { .. }
-                | shared::WmmaInstruction::StMatrix { .. } => {
-                    panic!("Invalid extension: StMatrix & LdMatrix not supported for HIP");
-                }
-                shared::WmmaInstruction::Execute {
-                    frag_a,
-                    frag_b,
-                    frag_c,
-                    frag_d,
-                    warp_size: _,
-                } => Extension::Wmma(WmmaExtension::Execute(WmmaExecute::new(
-                    value_to_frag(frag_a),
-                    value_to_frag(frag_b),
-                    value_to_frag(frag_c),
-                    value_to_frag(frag_d),
-                ))),
-                shared::WmmaInstruction::ExecuteManual {
-                    shape,
-                    frag_a,
-                    frag_c,
-                    ..
-                } => Extension::Wmma(WmmaExtension::Execute(WmmaExecute::from_manual(
-                    *shape,
-                    frag_a.elem(),
-                    frag_c.elem(),
-                ))),
-                shared::WmmaInstruction::ExecuteScaled { .. } => {
-                    panic!("Invalid extension: ExecuteScaled not supported for HIP");
-                }
-                shared::WmmaInstruction::Store { frag, layout, .. } => Extension::Wmma(
-                    WmmaExtension::Store(WmmaStore::new(value_to_frag(frag), *layout)),
-                ),
-                shared::WmmaInstruction::Cast { input, output } => Extension::Wmma(
-                    WmmaExtension::Cast(WmmaCast::new(value_to_frag(input), value_to_frag(output))),
-                ),
-            };
+// impl DialectTypes<Self> for HipDialect {
+//     fn compile_type_definitions(
+//         f: &mut std::fmt::Formatter<'_>,
+//         items: &HashSet<Item<Self>>,
+//         scalars: &[(Elem<Self>, usize)],
+//         info: &cubecl_core::Info,
+//         flags: &Flags,
+//     ) -> std::fmt::Result {
+//         let mut items_deduplicated = HashSet::new();
 
-            if !extensions.contains(&extension) {
-                extensions.push(extension);
-            }
-        } else if let shared::WmmaInstruction::ExecuteManual {
-            shape,
-            frag_a,
-            frag_c,
-            ..
-        } = instruction
-        {
-            let extension = Extension::Wmma(WmmaExtension::Execute(WmmaExecute::from_manual(
-                *shape,
-                frag_a.elem(),
-                frag_c.elem(),
-            )));
+//         for item in items {
+//             let mut item = *item.value_ty();
+//             match item {
+//                 Item::NativeVector(..) => {
+//                     continue;
+//                 }
+//                 Item::Atomic(inner) => {
+//                     item = *inner;
+//                 }
+//                 _ => {}
+//             }
+//             items_deduplicated.insert(item);
+//         }
 
-            if !extensions.contains(&extension) {
-                extensions.push(extension);
-            }
-        }
-    }
-}
+//         shared::type_definitions(f)?;
+//         shared::type_vectorized_definitions(f, &items_deduplicated)?;
 
-// Types
+//         shared::type_info_definition_sized(f, info, scalars, flags.address_type)?;
 
-impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
-    fn item_can_be_optimized() -> bool {
-        // for now deactivate support for half2 and bfloat162 because the HIP API lack support for it.
-        false
-    }
+//         if flags.inst_wmma {
+//             Self::compile_wmma_type_definitions(f, flags)?;
+//         }
 
-    fn compile_type_definitions(
-        f: &mut std::fmt::Formatter<'_>,
-        items: &HashSet<Item<Self>>,
-        scalars: &[(Elem<Self>, usize)],
-        info: &cubecl_core::Info,
-        flags: &Flags<Self>,
-    ) -> std::fmt::Result {
-        let mut items_deduplicated = HashSet::new();
+//         Ok(())
+//     }
+// }
 
-        for item in items {
-            let mut item = *item.value_ty();
-            match item {
-                Item::NativeVector(..) => {
-                    continue;
-                }
-                Item::Atomic(inner) => {
-                    item = *inner;
-                }
-                _ => {}
-            }
-            items_deduplicated.insert(item);
-        }
+// // Kernel argument bindings
 
-        shared::type_definitions::<Self>(f)?;
-        shared::type_vectorized_definitions::<Self>(f, &items_deduplicated)?;
+// impl DialectBindings<Self> for HipDialect {
+//     fn compile_bindings_body(
+//         f: &mut std::fmt::Formatter<'_>,
+//         body: &shared::Body<Self>,
+//     ) -> std::fmt::Result {
+//         if !body.shared_memories.is_empty() {
+//             let max_align = body
+//                 .shared_memories
+//                 .iter()
+//                 .map(|smem| smem.smem.alignment)
+//                 .max()
+//                 .unwrap();
+//             // The `__align__` instead of `alignas` is on purpose - the compiler is currently bugged
+//             // with `extern __shared__ alignas` and doesn't properly parse it.
+//             writeln!(
+//                 f,
+//                 "extern __shared__ __align__({max_align}) uchar dynamic_shared_mem[];"
+//             )?;
+//         }
+//         if body.info_by_ptr {
+//             f.write_str("const info_st& info = *info_ptr;\n")?;
+//             // Could use `info_ptr + 1` but that seems dirty, so use manual `sizeof` instead
+//             writeln!(
+//                 f,
+//                 "const {addr}* dynamic_meta = reinterpret_cast<const {addr}*>(
+//                     reinterpret_cast<const char*>(info_ptr) + sizeof(info_st)
+//                 );\n",
+//                 addr = body.address_type,
+//             )?;
+//         }
+//         Ok(())
+//     }
+// }
 
-        shared::type_info_definition_sized(f, info, scalars, flags.address_type)?;
+// // Cube builtins dialect
 
-        if flags.inst_wmma {
-            Self::compile_wmma_type_definitions(f, flags)?;
-        }
-
-        Ok(())
-    }
-
-    fn compile_elem(
-        f: &mut std::fmt::Formatter<'_>,
-        elem: &shared::Elem<Self>,
-        words: bool,
-    ) -> std::fmt::Result {
-        if words {
-            match elem {
-                shared::Elem::F32 => f.write_str("float"),
-                shared::Elem::F64 => f.write_str("double"),
-                shared::Elem::TF32 => f.write_str("float"),
-                shared::Elem::I8 => f.write_str("char"),
-                shared::Elem::I16 => f.write_str("short"),
-                shared::Elem::I32 => f.write_str("int"),
-                shared::Elem::I64 => f.write_str("long"),
-                shared::Elem::U8 => f.write_str("uchar"),
-                shared::Elem::U16 => f.write_str("ushort"),
-                shared::Elem::U32 => f.write_str("uint"),
-                shared::Elem::U64 => f.write_str("ulong"),
-                _ => Self::compile_elem(f, elem, false),
-            }
-        } else {
-            match elem {
-                shared::Elem::FP4(_)
-                | shared::Elem::FP4x2(_)
-                | shared::Elem::FP6(_)
-                | shared::Elem::FP6x2(_)
-                | shared::Elem::FP8(_)
-                | shared::Elem::FP8x2(_) => {
-                    f.write_str("#error FP4/FP6/FP8 not supported in HIP\n")
-                }
-                shared::Elem::F16 => f.write_str("__half"),
-                shared::Elem::F16x2 => f.write_str("__half2"),
-                shared::Elem::F32 => f.write_str("float"),
-                shared::Elem::F64 => f.write_str("double"),
-                shared::Elem::BF16 => f.write_str("__hip_bfloat16"),
-                shared::Elem::BF16x2 => f.write_str("__hip_bfloat162"),
-                shared::Elem::TF32 => f.write_str("float"),
-                shared::Elem::I8 => f.write_str("int8"),
-                shared::Elem::I16 => f.write_str("int16"),
-                shared::Elem::I32 => f.write_str("int32"),
-                shared::Elem::I64 => f.write_str("int64"),
-                shared::Elem::U8 => f.write_str("uint8"),
-                shared::Elem::U16 => f.write_str("uint16"),
-                shared::Elem::U32 => f.write_str("uint32"),
-                shared::Elem::U64 => f.write_str("uint64"),
-                shared::Elem::Bool => f.write_str("bool"),
-                shared::Elem::None => f.write_str("<none>"),
-                shared::Elem::_Dialect(_) => Ok(()),
-            }
-        }
-    }
-
-    fn compile_item(f: &mut std::fmt::Formatter<'_>, item: &Item<Self>) -> std::fmt::Result {
-        match item {
-            Item::Scalar(elem) => write!(f, "{elem}"),
-            Item::Vector(inner, vectorization) => {
-                write!(f, "{inner}_{vectorization}")
-            }
-            Item::NativeVector(elem, vectorization) => {
-                Self::compile_elem(f, elem, true)?;
-                write!(f, "{vectorization}")
-            }
-            Item::Atomic(inner) => Self::compile_item(f, inner.as_ref()),
-            Item::Pointer(inner, class) => {
-                if let PointerClass::Global(Visibility::Read | Visibility::Uniform) = class {
-                    f.write_str("const ")?;
-                }
-                match inner.as_ref() {
-                    Item::DynamicArray(inner) => write!(f, "{inner}*"),
-                    other => write!(f, "{other}*"),
-                }
-            }
-            Item::Array(inner, size) => {
-                write!(f, "array<{inner}, {size}>")
-            }
-            Item::DynamicArray(inner) => {
-                write!(f, "{inner}*")
-            }
-            Item::Fragment(fragment_type) => write!(f, "{fragment_type}"),
-            Item::Barrier(_) | Item::BarrierToken(_) => {
-                panic!("Barrier object not supported in HIP")
-            }
-            Item::TensorMap => panic!("TensorMap not supported on HIP"),
-        }
-    }
-
-    fn compile_local_memory_qualifier(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(())
-    }
-}
-
-// Kernel argument bindings
-
-impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for HipDialect<M> {
-    fn compile_kernel_signature(
-        f: &mut std::fmt::Formatter<'_>,
-        kernel_name: &str,
-        tensor_maps: &[KernelArg<Self>],
-        buffers: &[KernelArg<Self>],
-        flags: &Flags<Self>,
-    ) -> std::fmt::Result {
-        write!(
-            f,
-            "
-
-extern \"C\" __global__ void __launch_bounds__({}) {kernel_name}(
-",
-            flags.cube_dim.num_elems()
-        )?;
-        shared::compile_bindings::<Self>(f, tensor_maps, buffers, flags.has_info)?;
-        shared::compile_info_dynamic::<Self>(f, flags)?;
-        f.write_str("\n)")?;
-
-        Ok(())
-    }
-
-    fn compile_bindings_body(
-        f: &mut std::fmt::Formatter<'_>,
-        body: &shared::Body<Self>,
-    ) -> std::fmt::Result {
-        if !body.shared_memories.is_empty() {
-            let max_align = body
-                .shared_memories
-                .iter()
-                .map(|smem| smem.align)
-                .max()
-                .unwrap();
-            // The `__align__` instead of `alignas` is on purpose - the compiler is currently bugged
-            // with `extern __shared__ alignas` and doesn't properly parse it.
-            writeln!(
-                f,
-                "extern __shared__ __align__({max_align}) uchar dynamic_shared_mem[];"
-            )?;
-        }
-        if body.info_by_ptr {
-            f.write_str("const info_st& info = *info_ptr;\n")?;
-            // Could use `info_ptr + 1` but that seems dirty, so use manual `sizeof` instead
-            writeln!(
-                f,
-                "const {addr}* dynamic_meta = reinterpret_cast<const {addr}*>(
-                    reinterpret_cast<const char*>(info_ptr) + sizeof(info_st)
-                );\n",
-                addr = body.address_type,
-            )?;
-        }
-        Ok(())
-    }
-}
-
-// Cube builtins dialect
-
-impl<M: DialectWmmaCompiler<Self>> DialectCubeBuiltins<Self> for HipDialect<M> {}
-
-// Instructions
-
-impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
-    fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "__syncthreads();\n")
-    }
-
-    fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "#error Sync warp is unimplemented on hip\n")
-    }
-
-    fn compile_instruction_thread_fence(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "__threadfence();")
-    }
-
-    // unary
-    fn compile_instruction_find_first_set<T: Component<Self>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: T,
-        out_elem: Elem<Self>,
-    ) -> std::fmt::Result {
-        write!(f, "{out_elem}(")?;
-        match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "__ffs({input})"),
-            Elem::I64 | Elem::U64 => write!(f, "__ffsll({input})"),
-            _ => write!(f, "__ffs({}({input}))", Elem::<Self>::U32),
-        }?;
-        write!(f, ")")
-    }
-
-    fn compile_instruction_leading_zeros_scalar<T: Component<Self>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: T,
-        out_elem: Elem<Self>,
-    ) -> std::fmt::Result {
-        write!(f, "{out_elem}(")?;
-        match input.elem() {
-            Elem::I32 | Elem::U32 => write!(f, "__clz({input})"),
-            Elem::I64 | Elem::U64 => write!(f, "__clzll({input})"),
-            in_elem => write!(
-                f,
-                "__clz({}) - {}",
-                unary::zero_extend(input),
-                (size_of::<u32>() - in_elem.size()) * 8
-            ),
-        }?;
-        write!(f, ")")
-    }
-
-    fn compile_instruction_trailing_zeros_scalar<T: Component<Self>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: T,
-        out_elem: Elem<Self>,
-    ) -> std::fmt::Result {
-        // trailing_zeros = ffs - 1 for non-zero, or bit_width for zero
-        // __ffs returns 1-based index of least significant set bit, or 0 if input is 0
-        write!(f, "{out_elem}(")?;
-        match input.elem() {
-            Elem::I32 | Elem::U32 => {
-                write!(f, "({input} == 0 ? 32 : __ffs({input}) - 1)")
-            }
-            Elem::I64 | Elem::U64 => {
-                write!(f, "({input} == 0 ? 64 : __ffsll({input}) - 1)")
-            }
-            in_elem => {
-                let bits = in_elem.size() * 8;
-                let extended = unary::zero_extend(input);
-                write!(f, "({extended} == 0 ? {bits} : __ffs({extended}) - 1)")
-            }
-        }?;
-        write!(f, ")")
-    }
-
-    fn compile_saturating_add(
-        f: &mut std::fmt::Formatter<'_>,
-        _lhs: impl Display,
-        _rhs: impl Display,
-        _item: Item<Self>,
-    ) -> std::fmt::Result {
-        f.write_str(
-            "#error No native saturating add exists, TODO: Should be replaced in a preprocessor\n",
-        )
-    }
-
-    fn compile_saturating_sub(
-        f: &mut std::fmt::Formatter<'_>,
-        _lhs: impl Display,
-        _rhs: impl Display,
-        _item: Item<Self>,
-    ) -> std::fmt::Result {
-        f.write_str(
-            "#error No native saturating sub exists, TODO: Should be replaced in a preprocessor\n",
-        )
-    }
-
-    // others
-    fn compile_instruction_max_function_name(
-        f: &mut std::fmt::Formatter<'_>,
-        item: Item<Self>,
-    ) -> std::fmt::Result {
-        let max = match item.elem() {
-            Elem::F16 => "__hmax",
-            Elem::BF16 => "__hmax",
-            _ => "max",
-        };
-        write!(f, "{max}")
-    }
-
-    fn compile_instruction_min_function_name(
-        f: &mut std::fmt::Formatter<'_>,
-        item: Item<Self>,
-    ) -> std::fmt::Result {
-        let min = match item.elem() {
-            Elem::F16 => "__hmin",
-            Elem::BF16 => "__hmin",
-            _ => "min",
-        };
-        write!(f, "{min}")
-    }
-
-    // Warp
-    fn compile_warp_shuffle(
-        f: &mut std::fmt::Formatter<'_>,
-        val: &str,
-        source: &str,
-    ) -> std::fmt::Result {
-        write!(f, "__shfl({val}, {source})")
-    }
-    fn compile_warp_shuffle_xor(
-        f: &mut std::fmt::Formatter<'_>,
-        val: &str,
-        elem: &Elem<Self>,
-        offset: &str,
-    ) -> std::fmt::Result {
-        match elem {
-            Elem::BF16 => write!(
-                f,
-                "half_to_bfloat16(__shfl_xor(reinterpret_cast<__half&>({val}), {offset}))"
-            ),
-            _ => write!(f, "__shfl_xor({val}, {offset})"),
-        }
-    }
-    fn compile_warp_shuffle_up(
-        f: &mut std::fmt::Formatter<'_>,
-        val: &str,
-        offset: &str,
-    ) -> std::fmt::Result {
-        write!(f, "__shfl_up({val}, {offset})")
-    }
-    fn compile_warp_shuffle_down(
-        f: &mut std::fmt::Formatter<'_>,
-        val: &str,
-        offset: &str,
-    ) -> std::fmt::Result {
-        write!(f, "__shfl_down({val}, {offset})")
-    }
-    fn compile_warp_all<T: Component<Self>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: &T,
-    ) -> std::fmt::Result {
-        let item = input.item();
-        let elem = item.elem();
-        write!(f, "static_cast<{elem}>(__all({input}))")
-    }
-    fn compile_warp_any<T: Component<Self>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: &T,
-    ) -> std::fmt::Result {
-        let item = input.item();
-        let elem = item.elem();
-        write!(f, "static_cast<{elem}>(__any({input}))")
-    }
-    fn compile_warp_ballot(
-        f: &mut std::fmt::Formatter<'_>,
-        input: &Value<Self>,
-        out_elem: &Elem<Self>,
-    ) -> std::fmt::Result {
-        write!(f, "{out_elem}(__ballot({input}))")
-    }
-
-    fn compile_unreachable(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "__builtin_unreachable();")
-    }
-}
-
-// Coop Matrices dialect
-
-impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
-    fn compile_wmma_includes(
-        f: &mut std::fmt::Formatter<'_>,
-        flags: &Flags<Self>,
-    ) -> std::fmt::Result {
-        M::compile_wmma_includes(f, flags)
-    }
-
-    fn compile_wmma_type_definitions(
-        f: &mut std::fmt::Formatter<'_>,
-        flags: &Flags<Self>,
-    ) -> std::fmt::Result {
-        M::compile_wmma_type_definitions(f, flags)
-    }
-
-    fn compile_wmma_local_variables(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        M::compile_wmma_local_variables(f)
-    }
-
-    fn compile_wmma_fragment_declaration(
-        f: &mut std::fmt::Formatter<'_>,
-        val: &Value<Self>,
-        ty: &Item<Self>,
-    ) -> std::fmt::Result {
-        M::compile_wmma_fragment_declaration(f, val, ty)
-    }
-
-    fn compile_wwma_fragment_ident(
-        f: &mut std::fmt::Formatter<'_>,
-        ident: &crate::shared::FragmentIdent<Self>,
-    ) -> std::fmt::Result {
-        M::compile_wwma_fragment_ident(f, ident)
-    }
-
-    fn compile_wmma_fragment_layout(
-        f: &mut std::fmt::Formatter<'_>,
-        layout: &crate::shared::FragmentLayout<Self>,
-    ) -> std::fmt::Result {
-        M::compile_wmma_fragment_layout(f, layout)
-    }
-
-    fn compile_wmma_fragment(
-        f: &mut std::fmt::Formatter<'_>,
-        fragment: &crate::shared::FragmentType<Self>,
-    ) -> std::fmt::Result {
-        M::compile_wmma_fragment(f, fragment)
-    }
-
-    fn compile_wmma_instruction(
-        f: &mut std::fmt::Formatter<'_>,
-        instruction: &crate::shared::WmmaInstruction<Self>,
-    ) -> std::fmt::Result {
-        M::compile_wmma_instruction(f, instruction)
-    }
-
-    fn compile_manual_mma(
-        f: &mut std::fmt::Formatter<'_>,
-        mma: ManualMma<Self>,
-    ) -> std::fmt::Result {
-        M::compile_manual_mma(f, mma)
-    }
-
-    fn supported_wmma_combinations(
-        arch: &AMDArchitecture,
-    ) -> crate::shared::SupportedMmaCombinations {
-        M::supported_wmma_combinations(arch)
-    }
-
-    fn supported_mma_combinations(arch: &AMDArchitecture) -> shared::SupportedMmaCombinations {
-        M::supported_mma_combinations(arch)
-    }
-
-    fn compile_scaled_mma(
-        _f: &mut std::fmt::Formatter<'_>,
-        _mma: ManualMma<Self>,
-        _scales_a: Value<Self>,
-        _scales_b: Value<Self>,
-        _scales_factor: u32,
-    ) -> std::fmt::Result {
-        panic!("Scaled MMA not supporter in HIP")
-    }
-}
-
-impl<M: DialectWmmaCompiler<Self>> DialectProcessors<Self> for HipDialect<M> {
-    fn processors() -> Vec<Box<dyn Processor>> {
-        vec![
-            Box::new(HipMmaProcessor),
-            Box::new(SaturatingArithmeticPolyfill::new(true)),
-        ]
-    }
-}
+// impl DialectCubeBuiltins<Self> for HipDialect {}
