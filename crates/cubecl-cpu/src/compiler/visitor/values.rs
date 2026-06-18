@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use cubecl_core::ir::{self as cube, Builtin, ConstantValue, FloatKind, Id, ValueKind};
 use tracel_llvm::mlir_rs::{
     dialect::{
-        index, memref,
-        ods::{arith, vector},
+        index, llvm, memref,
+        ods::{arith, llvm::intr_stacksave, vector},
     },
     ir::{
         Value,
@@ -33,18 +33,30 @@ impl<'a> Visitor<'a> {
         let align_ty = IntegerType::new(self.context, 64);
         let alignment = IntegerAttribute::new(align_ty.into(), alignment as i64);
         let memref_type = MemRefType::new(r#type, &[length as i64], None, None);
-        let value = self
-            .first_block
-            .unwrap()
-            .append_op_result(memref::alloca(
-                self.context,
-                memref_type,
-                &[],
-                &[],
-                Some(alignment),
-                self.location,
-            ))
-            .unwrap();
+
+        let ptr_ty = llvm::r#type::pointer(self.context, 0);
+        let stack_pointer =
+            self.append_operation_with_result(intr_stacksave(self.context, ptr_ty, self.location));
+
+        let value = self.append_operation_with_result(memref::alloca(
+            self.context,
+            memref_type,
+            &[],
+            &[],
+            Some(alignment),
+            self.location,
+        ));
+        let seq = self.stack_save_counter;
+        self.stack_save_counter += 1;
+        self.stack_saves.insert(
+            cube_value.id(),
+            super::StackSave {
+                stack_pointer,
+                seq,
+                alloc_block: self.current_node,
+            },
+        );
+        self.mutable_variables.push(cube_value.id());
         self.values.insert(cube_value.id(), value);
     }
 

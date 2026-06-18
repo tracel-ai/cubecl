@@ -64,7 +64,7 @@ impl Compiler for MlirCompiler {
 
         #[cfg(feature = "mlir-dump")]
         dump_scope(&kernel.body, &kernel.options.kernel_name);
-        let opt = OptimizerBuilder::default()
+        let mut opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
             .with_transformer(HypotTransform)
             .with_transformer(RhypotTransform)
@@ -84,7 +84,8 @@ impl Compiler for MlirCompiler {
         dump_opt(&opt, &kernel.options.kernel_name);
         Ok(MlirEngine::from_cubecl_ir(
             kernel,
-            &opt.main,
+            &mut opt.main,
+            &opt.global_state,
             shared_memories,
             addr_type,
         ))

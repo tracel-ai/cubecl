@@ -1,5 +1,5 @@
 use alloc::collections::vec_deque::VecDeque;
-use cubecl_ir::{Id, Value, ValueKind};
+use cubecl_ir::{AddressSpace, Id, Value, ValueKind};
 use hashbrown::{HashMap, HashSet};
 use petgraph::graph::NodeIndex;
 
@@ -7,11 +7,13 @@ use crate::{Function, GlobalState, analyses::post_order::PostOrder};
 
 use super::Analysis;
 
+type LivePredicate = fn(&Function, &Value) -> Option<Id>;
+
 pub struct Liveness {
     live_vars: HashMap<NodeIndex, HashSet<Id>>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct BlockSets {
     generated: HashSet<Id>,
     kill: HashSet<Id>,
@@ -24,9 +26,9 @@ struct State {
 
 impl Analysis for Liveness {
     fn init(func: &mut Function, state: &GlobalState) -> Self {
-        let mut this = Self::empty(func);
-        this.analyze_liveness(func, state);
-        this
+        Self {
+            live_vars: compute_liveness(func, state, Function::local_variable_id),
+        }
     }
 }
 
@@ -47,38 +49,86 @@ impl Liveness {
     pub fn is_dead(&self, node: NodeIndex, var: Id) -> bool {
         !self.at_block(node).contains(&var)
     }
+}
 
-    /// Do a conservative block level liveness analysis
-    pub fn analyze_liveness(&mut self, func: &mut Function, global_state: &GlobalState) {
-        let mut state = State {
-            worklist: VecDeque::from(func.analysis::<PostOrder>(global_state).forward()),
-            block_sets: HashMap::new(),
-        };
-        while let Some(block) = state.worklist.pop_front() {
-            self.analyze_block(func, global_state, block, &mut state);
+/// Block level liveness over all non-atomic local memories, including non-destructurable ones such
+/// as arrays.
+///
+/// [`Liveness`] only tracks destructurable locals (those that get promoted to SSA registers and
+/// phi nodes). Backends that keep local memory as actual allocations and need to free it when it
+/// dies (e.g. the CPU backend) must also track non-destructurable locals, which this analysis does.
+pub struct MemoryLiveness {
+    live_vars: HashMap<NodeIndex, HashSet<Id>>,
+}
+
+impl Analysis for MemoryLiveness {
+    fn init(func: &mut Function, state: &GlobalState) -> Self {
+        Self {
+            live_vars: compute_liveness(func, state, Function::local_memory_id),
         }
     }
+}
 
-    fn analyze_block(
-        &mut self,
-        func: &mut Function,
-        global_state: &GlobalState,
-        block: NodeIndex,
-        state: &mut State,
-    ) {
-        let BlockSets { generated, kill } = block_sets(func, global_state, block, state);
+impl MemoryLiveness {
+    pub fn empty(func: &Function) -> Self {
+        let live_vars = func
+            .node_ids()
+            .iter()
+            .map(|it| (*it, HashSet::new()))
+            .collect();
+        Self { live_vars }
+    }
 
-        let mut live_vars = generated.clone();
+    pub fn at_block(&self, block: NodeIndex) -> &HashSet<Id> {
+        &self.live_vars[&block]
+    }
 
-        for successor in func.successors(block) {
-            let successor = &self.live_vars[&successor];
-            live_vars.extend(successor.difference(kill));
-        }
+    pub fn is_dead(&self, node: NodeIndex, var: Id) -> bool {
+        !self.at_block(node).contains(&var)
+    }
+}
 
-        if live_vars != self.live_vars[&block] {
-            state.worklist.extend(func.predecessors(block));
-            self.live_vars.insert(block, live_vars);
-        }
+/// Do a conservative block level liveness analysis, tracking the variables selected by `pred`.
+fn compute_liveness(
+    func: &mut Function,
+    global_state: &GlobalState,
+    pred: LivePredicate,
+) -> HashMap<NodeIndex, HashSet<Id>> {
+    let mut live_vars: HashMap<NodeIndex, HashSet<Id>> = func
+        .node_ids()
+        .iter()
+        .map(|it| (*it, HashSet::new()))
+        .collect();
+    let mut state = State {
+        worklist: VecDeque::from(func.analysis::<PostOrder>(global_state).forward()),
+        block_sets: HashMap::new(),
+    };
+    while let Some(block) = state.worklist.pop_front() {
+        analyze_block(func, global_state, block, &mut state, &mut live_vars, pred);
+    }
+    live_vars
+}
+
+fn analyze_block(
+    func: &mut Function,
+    global_state: &GlobalState,
+    block: NodeIndex,
+    state: &mut State,
+    live_vars: &mut HashMap<NodeIndex, HashSet<Id>>,
+    pred: LivePredicate,
+) {
+    let BlockSets { generated, kill } = block_sets(func, global_state, block, state, pred);
+
+    let mut block_live = generated.clone();
+
+    for successor in func.successors(block) {
+        let successor = &live_vars[&successor];
+        block_live.extend(successor.difference(kill));
+    }
+
+    if block_live != live_vars[&block] {
+        state.worklist.extend(func.predecessors(block));
+        live_vars.insert(block, block_live);
     }
 }
 
@@ -87,12 +137,18 @@ fn block_sets<'a>(
     global_state: &GlobalState,
     block: NodeIndex,
     state: &'a mut State,
+    pred: LivePredicate,
 ) -> &'a BlockSets {
     let block_sets = state.block_sets.entry(block);
-    block_sets.or_insert_with(|| calculate_block_sets(func, global_state, block))
+    block_sets.or_insert_with(|| calculate_block_sets(func, global_state, block, pred))
 }
 
-fn calculate_block_sets(func: &mut Function, state: &GlobalState, block: NodeIndex) -> BlockSets {
+fn calculate_block_sets(
+    func: &mut Function,
+    state: &GlobalState,
+    block: NodeIndex,
+    pred: LivePredicate,
+) -> BlockSets {
     let mut generated = HashSet::new();
     let mut kill = HashSet::new();
 
@@ -100,7 +156,7 @@ fn calculate_block_sets(func: &mut Function, state: &GlobalState, block: NodeInd
 
     let control_flow = func[block].control_flow.clone();
     func.visit_control_flow(&mut control_flow.borrow_mut(), |func, val| {
-        if let Some(id) = func.local_variable_id(val) {
+        if let Some(id) = pred(func, val) {
             generated.insert(id);
         }
     });
@@ -108,13 +164,13 @@ fn calculate_block_sets(func: &mut Function, state: &GlobalState, block: NodeInd
     for op in ops.values_mut().rev() {
         // Reads must be tracked after writes
         func.visit_out(&mut op.out, |func, val| {
-            if let Some(id) = func.local_variable_id(val) {
+            if let Some(id) = pred(func, val) {
                 kill.insert(id);
                 generated.remove(&id);
             }
         });
         func.visit_operation(state, &mut op.operation, |func, val| {
-            if let Some(id) = func.local_variable_id(val) {
+            if let Some(id) = pred(func, val) {
                 generated.insert(id);
             }
         });
@@ -124,12 +180,32 @@ fn calculate_block_sets(func: &mut Function, state: &GlobalState, block: NodeInd
 }
 
 impl Function {
-    /// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.
+    /// Gets the `id` of the variable if it's a destructurable `Local` and not atomic, `None`
+    /// otherwise.
     pub fn local_variable_id(&self, value: &Value) -> Option<Id> {
         match value.kind {
             ValueKind::Value { id } if self.destructurable_local_memories().contains_key(&id) => {
                 Some(id)
             }
+            _ => None,
+        }
+    }
+
+    /// Gets the `id` of the variable if it's a `Local` memory and not atomic, `None` otherwise.
+    ///
+    /// Unlike [`Function::local_variable_id`], this includes non-destructurable locals such as
+    /// arrays, so it can be used by backends that allocate and free those memories.
+    pub fn local_memory_id(&self, value: &Value) -> Option<Id> {
+        match value.kind {
+            ValueKind::Value { id } => match self.memories.get(&id) {
+                Some(mem)
+                    if matches!(mem.address_space, AddressSpace::Local)
+                        && !mem.value_ty.is_atomic() =>
+                {
+                    Some(id)
+                }
+                _ => None,
+            },
             _ => None,
         }
     }
