@@ -73,10 +73,6 @@ impl cubecl_core::Compiler for WgslCompiler {
         self.compile_shader(shader, mode, address_type)
     }
 
-    fn elem_size(&self, elem: cube::ElemType) -> usize {
-        elem.size()
-    }
-
     fn extension(&self) -> &'static str {
         "wgsl"
     }

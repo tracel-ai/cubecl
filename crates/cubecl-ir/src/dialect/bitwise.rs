@@ -1,9 +1,9 @@
 use cubecl_macros_internal::const_eval;
-use pliron::r#type::TypePtr;
+use pliron::r#type::TypedHandle;
 
 use crate::{
     attributes::{IndexAttr, IntAttr, UIntAttr},
-    pliron::prelude::*,
+    prelude::*,
     types::scalar::UIntType,
 };
 use crate::{
@@ -41,7 +41,7 @@ const_eval!(BitwiseNotOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |inp| !inp
 });
 
-fn u32_ty(ctx: &Context) -> TypePtr<UIntType> {
+fn u32_ty(ctx: &Context) -> TypedHandle<UIntType> {
     UIntType::get_instance(UIntType { width: 32 }, ctx).expect("Should be present")
 }
 

@@ -5,8 +5,8 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    attributes::BoolAttr,
-    pliron::prelude::*,
+    attributes::IntAttr,
+    prelude::*,
     types::{
         PointerType,
         scalar::{BoolType, IndexType},
@@ -68,7 +68,7 @@ impl ReturnOp {
         Self { op }
     }
 
-    pub fn new_with_result(ctx: &mut Context, value: Value) -> Self {
+    pub fn new_with_value(ctx: &mut Context, value: Value) -> Self {
         let op = Operation::new(
             ctx,
             Self::get_concrete_op_info(),
@@ -78,6 +78,10 @@ impl ReturnOp {
             0,
         );
         Self { op }
+    }
+
+    pub fn value(&self, ctx: &Context) -> Option<Value> {
+        self.get_operation().deref(ctx).results().next()
     }
 }
 
@@ -121,6 +125,15 @@ impl IfOp {
             vec![],
             2,
         );
+
+        let then_region = op.deref_mut(ctx).get_region(0);
+        let then_body = BasicBlock::new(ctx, Some("then".try_into().unwrap()), vec![]);
+        then_body.insert_at_front(then_region, ctx);
+
+        let else_region = op.deref_mut(ctx).get_region(1);
+        let else_body = BasicBlock::new(ctx, Some("else".try_into().unwrap()), vec![]);
+        else_body.insert_at_front(else_region, ctx);
+
         Self { op }
     }
 
@@ -164,6 +177,11 @@ impl SwitchOp {
             vec![],
             1,
         );
+
+        let default_region = op.deref_mut(ctx).get_region(0);
+        let default_body = BasicBlock::new(ctx, Some("default".try_into().unwrap()), vec![]);
+        default_body.insert_at_front(default_region, ctx);
+
         Self { op }
     }
 
@@ -181,40 +199,46 @@ impl SwitchOp {
 
     pub fn append_case_block(&self, ctx: &mut Context) -> Ptr<BasicBlock> {
         let region = Operation::add_region(self.get_operation(), ctx);
+        let body = BasicBlock::new(ctx, None, vec![]);
+        body.insert_at_front(region, ctx);
         region.deref(ctx).get_head().unwrap()
+    }
+
+    pub fn cases(&self, ctx: &Context) -> Vec<(IntAttr, Ptr<BasicBlock>)> {
+        let cases = self.get_attr_cases(ctx).unwrap().clone().0;
+        let out = (0..cases.len()).map(|i| {
+            let value = *cases[i].downcast_ref::<IntAttr>().unwrap();
+            let block = self.get_body(ctx, i);
+            (value, block)
+        });
+        out.collect()
     }
 }
 
 #[pliron_op(
     name = "branch.range_loop",
     format = "`for *`$0 ` = ` $1 ` to ` $2 ` step ` $3 ` do ` region($0)",
-    attributes = (inclusive: BoolAttr),
     verifier = "succ"
 )]
 #[op_interfaces(NResultsInterface<0>, NRegionsInterface<1>, SingleBlockRegionInterface)]
 pub struct RangeLoopOp;
 
 impl RangeLoopOp {
-    pub fn new(
-        ctx: &mut Context,
-        iter_var: Value,
-        start: Value,
-        end: Value,
-        step: Value,
-        inclusive: bool,
-    ) -> Self {
-        let op = Self {
-            op: Operation::new(
-                ctx,
-                Self::get_concrete_op_info(),
-                vec![],
-                vec![iter_var, start, end, step],
-                vec![],
-                1,
-            ),
-        };
-        op.set_attr_inclusive(ctx, inclusive.into());
-        op
+    pub fn new(ctx: &mut Context, iter_var: Value, start: Value, end: Value, step: Value) -> Self {
+        let op = Operation::new(
+            ctx,
+            Self::get_concrete_op_info(),
+            vec![],
+            vec![iter_var, start, end, step],
+            vec![],
+            1,
+        );
+
+        let body_region = op.deref_mut(ctx).get_region(0);
+        let body = BasicBlock::new(ctx, Some("body".try_into().unwrap()), vec![]);
+        body.insert_at_front(body_region, ctx);
+
+        Self { op }
     }
 
     pub fn iter_var(&self, ctx: &Context) -> Value {
@@ -265,6 +289,11 @@ impl WhileOp {
             vec![],
             1,
         );
+
+        let body_region = op.deref_mut(ctx).get_region(0);
+        let body = BasicBlock::new(ctx, Some("body".try_into().unwrap()), vec![]);
+        body.insert_at_front(body_region, ctx);
+
         Self { op }
     }
 
@@ -272,8 +301,8 @@ impl WhileOp {
         self.get_operation().deref(ctx).get_operand(0)
     }
 
-    pub fn loop_region(&self, ctx: &Context) -> Ptr<Region> {
-        self.get_operation().deref(ctx).get_region(0)
+    pub fn loop_body(&self, ctx: &Context) -> Ptr<BasicBlock> {
+        self.get_body(ctx, 0)
     }
 }
 
@@ -289,6 +318,11 @@ pub struct LoopOp;
 impl LoopOp {
     pub fn new(ctx: &mut Context) -> Self {
         let op = Operation::new(ctx, Self::get_concrete_op_info(), vec![], vec![], vec![], 1);
+
+        let body_region = op.deref_mut(ctx).get_region(0);
+        let body = BasicBlock::new(ctx, Some("body".try_into().unwrap()), vec![]);
+        body.insert_at_front(body_region, ctx);
+
         Self { op }
     }
 

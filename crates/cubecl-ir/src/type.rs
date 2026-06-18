@@ -1,11 +1,7 @@
 use super::{ConstantValue, ExpandValue};
 use crate::{
     TypeHash,
-    types::{
-        PackedType,
-        scalar::{BoolType, FloatType, IntType, UIntType},
-        spirv::ClampMode,
-    },
+    types::{PackedType, scalar::*, spirv::ClampMode},
 };
 use core::fmt::Display;
 use cubecl_common::{
@@ -17,70 +13,49 @@ use derive_more::{Display, From};
 use half::{bf16, f16};
 
 pub use internment::Intern;
-use pliron::{
-    context::{Context, Ptr},
-    derive::format,
-    r#type::TypeObj,
-};
+use pliron::{context::Context, derive::format, r#type::TypeHandle};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[format]
 #[allow(missing_docs)]
 pub enum FloatKind {
     /// FP4, 2 bit exponent, 1 bit mantissa
-    #[format("`e2m1`")]
     E2M1,
     /// FP6, 2 bit exponent, 3 bit mantissa
     /// Note: represented by an 8-bit value, with the upper two bits being insignificant
-    #[format("`e2m3`")]
     E2M3,
     /// FP6, 3 bit exponent, 2 bit mantissa
     /// Note: represented by an 8-bit value, with the upper two bits being insignificant
-    #[format("`e3m2`")]
     E3M2,
     /// FP8, 4 bit exponent, 3 bit mantissa
-    #[format("`e4m3`")]
     E4M3,
     /// FP8, 5 bit exponent, 2 bit mantissa
-    #[format("`e5m2`")]
     E5M2,
     /// FP8, unsigned, 8 bit exponent, 0 bit mantissa
-    #[format("`ue8m0`")]
     UE8M0,
-    #[format("`f16`")]
     F16,
-    #[format("`bf16`")]
     BF16,
-    #[format("`flex32`")]
     Flex32,
-    #[format("`f32`")]
     F32,
-    #[format("`tf32`")]
     TF32,
-    #[format("`f64`")]
     F64,
 }
 
 impl FloatKind {
-    pub fn to_type(&self, ctx: &mut Context) -> Ptr<TypeObj> {
-        FloatType::get(ctx, *self).into()
-    }
-
-    pub fn size(&self) -> usize {
+    pub fn to_type(&self, ctx: &Context) -> TypeHandle {
         match self {
-            FloatKind::E2M1 => 1,
-            FloatKind::E2M3 => 1,
-            FloatKind::E3M2 => 1,
-            FloatKind::E4M3 => 1,
-            FloatKind::E5M2 => 1,
-            FloatKind::UE8M0 => 1,
-            FloatKind::F16 => 2,
-            FloatKind::BF16 => 2,
-            FloatKind::Flex32 => 4,
-            FloatKind::F32 => 4,
-            FloatKind::TF32 => 4,
-            FloatKind::F64 => 8,
+            FloatKind::E2M1 => Float4E2M1Type::get(ctx).into(),
+            FloatKind::E2M3 => Float6E2M3Type::get(ctx).into(),
+            FloatKind::E3M2 => Float6E3M2Type::get(ctx).into(),
+            FloatKind::E4M3 => Float8E4M3Type::get(ctx).into(),
+            FloatKind::E5M2 => Float8E5M2Type::get(ctx).into(),
+            FloatKind::UE8M0 => Float8E8M0Type::get(ctx).into(),
+            FloatKind::F16 => Float16Type::get(ctx).into(),
+            FloatKind::BF16 => BFloat16Type::get(ctx).into(),
+            FloatKind::Flex32 => FloatFlex32Type::get(ctx).into(),
+            FloatKind::F32 => Float32Type::get(ctx).into(),
+            FloatKind::TF32 => TFloat32Type::get(ctx).into(),
+            FloatKind::F64 => Float64Type::get(ctx).into(),
         }
     }
 }
@@ -96,7 +71,7 @@ pub enum IntKind {
 }
 
 impl IntKind {
-    pub fn to_type(&self, ctx: &mut Context) -> Ptr<TypeObj> {
+    pub fn to_type(&self, ctx: &Context) -> TypeHandle {
         IntType::get(ctx, self.size_bits()).into()
     }
 
@@ -121,7 +96,7 @@ pub enum UIntKind {
 }
 
 impl UIntKind {
-    pub fn to_type(&self, ctx: &mut Context) -> Ptr<TypeObj> {
+    pub fn to_type(&self, ctx: &Context) -> TypeHandle {
         UIntType::get(ctx, self.size_bits()).into()
     }
 
@@ -214,7 +189,7 @@ impl ElemType {
         }
     }
 
-    pub fn to_type(&self, ctx: &mut Context) -> Ptr<TypeObj> {
+    pub fn to_type(&self, ctx: &Context) -> TypeHandle {
         match self {
             ElemType::Float(float_kind) => float_kind.to_type(ctx),
             ElemType::Int(int_kind) => int_kind.to_type(ctx),
@@ -415,7 +390,7 @@ impl ElemType {
 }
 
 impl StorageType {
-    pub fn to_type(&self, ctx: &mut Context) -> Ptr<TypeObj> {
+    pub fn to_type(&self, ctx: &Context) -> TypeHandle {
         match self {
             StorageType::Scalar(elem_type) => elem_type.to_type(ctx),
             StorageType::Packed(elem_type, packing_factor) => {
@@ -533,11 +508,9 @@ impl From<SemanticType> for Type {
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[format]
 pub enum AddressSpace {
-    #[format("`global<` $0 `>`")]
+    #[format("`<` $0 `>`")]
     Global(usize),
-    #[format("`shared`")]
     Shared,
-    #[format("`local`")]
     Local,
 }
 
@@ -589,8 +562,8 @@ impl Type {
         Type::Scalar(storage)
     }
 
-    pub fn scalar(elem: ElemType) -> Self {
-        Self::new(StorageType::Scalar(elem))
+    pub fn scalar(elem: impl Into<ElemType>) -> Self {
+        Self::new(StorageType::Scalar(elem.into()))
     }
 
     pub fn semantic(ty: SemanticType) -> Self {

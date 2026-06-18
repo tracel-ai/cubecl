@@ -1,13 +1,9 @@
 use cubecl_ir::{
     dialect::general::{CastOp, ReinterpretCastOp},
     interfaces::TypedExt,
-    pliron::{
-        builtin::op_interfaces::OneResultInterface,
-        context::Ptr,
-        r#type::{TypeObj, Typed},
-        value::Value,
-    },
+    pliron::{builtin::op_interfaces::OneResultInterface, r#type::Typed, value::Value},
 };
+use pliron::r#type::TypeHandle;
 
 use crate::unexpanded;
 use crate::{expand_assert, ir::Scope};
@@ -26,11 +22,16 @@ pub trait Cast: CubePrimitive {
         scope: &Scope,
         value: NativeExpand<From>,
     ) -> <Self as CubeType>::ExpandType {
-        cast_value(scope, value.value(scope), Self::__expand_as_type(scope)).into()
+        cast_value(
+            scope,
+            value.read_value(scope),
+            Self::__expand_as_type(scope),
+        )
+        .into()
     }
 }
 
-pub(crate) fn cast_value(scope: &Scope, from: Value, to_ty: Ptr<TypeObj>) -> Value {
+pub fn cast_value(scope: &Scope, from: Value, to_ty: TypeHandle) -> Value {
     if from.get_type(scope.ctx()) == to_ty {
         return from;
     }
@@ -69,15 +70,12 @@ pub trait Reinterpret: CubePrimitive {
         scope: &Scope,
         value: NativeExpand<From>,
     ) -> <Self as CubeType>::ExpandType {
-        let value = value.read_value(scope);
-        let ty_in = value.get_type(scope.ctx());
-        let ty_out = Self::__expand_as_type(scope);
-        let size_in = ty_in.size(scope.ctx());
-        let size_out = ty_out.size(scope.ctx());
-        expand_assert!(size_in == size_out, "Reinterpret type sizes must match");
-        let op = ReinterpretCastOp::new(scope.ctx_mut(), ty_out, value);
-        scope.register(&op);
-        op.get_result(scope.ctx()).into()
+        reinterpret_value(
+            scope,
+            value.read_value(scope),
+            Self::__expand_as_type(scope),
+        )
+        .into()
     }
 
     fn __expand_reinterpret_vectorization<From: CubePrimitive>(scope: &Scope) -> usize {
@@ -87,3 +85,17 @@ pub trait Reinterpret: CubePrimitive {
 }
 
 impl<P: CubePrimitive> Reinterpret for P {}
+
+pub fn reinterpret_value(scope: &Scope, from: Value, to_ty: TypeHandle) -> Value {
+    if from.get_type(scope.ctx()) == to_ty {
+        return from;
+    }
+
+    let ty_from = from.get_type(scope.ctx());
+    let size_in = ty_from.size(scope.ctx());
+    let size_out = to_ty.size(scope.ctx());
+    expand_assert!(size_in == size_out, "Reinterpret type sizes must match");
+    let op = ReinterpretCastOp::new(scope.ctx_mut(), to_ty, from);
+    scope.register(&op);
+    op.get_result(scope.ctx())
+}

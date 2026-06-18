@@ -104,6 +104,12 @@ pub fn type_name_short_sanitized<T>() -> String {
     name.replace(|c: char| !c.is_alphanumeric() && c != '_', "_")
 }
 
+/// Provide a long, sanitized type name for use in context identifiers
+pub fn type_name_sanitized<T>() -> String {
+    let name = core::any::type_name::<T>();
+    name.replace(|c: char| !c.is_alphanumeric() && c != '_', "_")
+}
+
 #[cfg(test)]
 #[cfg(feature = "std")]
 mod tests {

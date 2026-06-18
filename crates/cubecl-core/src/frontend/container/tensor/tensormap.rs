@@ -201,7 +201,7 @@ pub mod tma_group_wait {
     use super::*;
 
     pub fn expand(scope: &Scope, max_pending: usize) {
-        scope.register(&WaitGroupOp::new(scope.ctx_mut(), max_pending.into()));
+        scope.register(&WaitGroupOp::new(scope.ctx_mut(), max_pending));
     }
 }
 
@@ -231,7 +231,7 @@ pub mod tma_group_wait_read {
     use super::*;
 
     pub fn expand(scope: &Scope, max_pending: usize) {
-        scope.register(&WaitGroupReadOp::new(scope.ctx_mut(), max_pending.into()))
+        scope.register(&WaitGroupReadOp::new(scope.ctx_mut(), max_pending))
     }
 }
 
@@ -266,7 +266,7 @@ macro_rules! tma_store {
                     let dst = dst.value(scope);
                     let coordinates = vec![$($arg.read_value(scope)),*];
                     scope.register(&TmaStoreOp::new(
-                        &mut scope.ctx_mut(),
+                        scope.ctx_mut(),
                         source,
                         dst,
                         coordinates,
@@ -403,9 +403,9 @@ mod metadata {
             scope: &Scope,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let list = self.value(scope);
+            let buffer_idx = buffer_idx(scope, self.value(scope));
             let dim = dim.read_value(scope);
-            let op = StrideOp::new(scope.ctx_mut(), list, dim);
+            let op = StrideOp::new(scope.ctx_mut(), dim, buffer_idx);
             scope.register(&op);
             op.get_result(scope.ctx()).into()
         }
@@ -416,9 +416,9 @@ mod metadata {
             scope: &Scope,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let list = self.value(scope);
+            let buffer_idx = buffer_idx(scope, self.value(scope));
             let dim = dim.read_value(scope);
-            let op = ShapeOp::new(scope.ctx_mut(), list, dim);
+            let op = ShapeOp::new(scope.ctx_mut(), dim, buffer_idx);
             scope.register(&op);
             op.get_result(scope.ctx()).into()
         }

@@ -14,4 +14,4 @@ pub mod synchronization;
 pub mod tma;
 pub mod vector;
 
-pub(crate) use base::*;
+pub use base::*;

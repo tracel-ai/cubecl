@@ -1,38 +1,80 @@
-use super::{
-    BinaryInstruction, Body, Component, ComputeKernel, Dialect, Elem, FP4Kind, FP6Kind, FP8Kind,
-    FragmentIdent, FragmentLayout, FragmentType, IndexInstruction, Instruction, Item, KernelArg,
-    SharedMemory, UnaryInstruction, Value, WarpInstruction, WmmaInstruction, barrier::BarrierOps,
+use crate::{
+    shared::{
+        OpToCPP,
+        builtin::{LowerBuiltins, LowerBuiltinsPass},
+        lowering::LowerOpsCppPass,
+        signature::LowerInfoPass,
+        ty::ConvertPtrPass,
+    },
+    target::{CppTarget, Shared},
 };
-use crate::shared::{Builtin, MmaShape, PointerClass};
+
+use super::ComputeKernel;
+use core::marker::PhantomData;
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
-    CubeDim,
     ir::{
-        self as ir, AddressSpace, DeviceProperties, ElemType, FloatKind, InstructionModes,
-        OpaqueType, Operation, Processor, SourceLoc, StorageType, Type,
-        features::{AtomicUsage, EnumSet, TypeUsage},
+        AddressType, ContextExt, DeviceProperties, ElemType, FloatKind, IntKind, Type, UIntKind,
+        features::{AtomicUsage, TypeUsage},
+        metadata::Info,
+        settings::Dim3,
     },
-    post_processing::{self, checked_io::CheckedIoVisitor, disaggregate::DisaggregateVisitor},
-    prelude::{FastMath, KernelDefinition, Visibility},
-    server::ExecutionMode,
+    post_processing::disaggregate::DisaggregatePass,
+    prelude::KernelDefinition,
 };
-use cubecl_opt::{Optimizer, SharedLiveness};
 use cubecl_runtime::compiler::{CompilationError, Compiler};
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Debug,
+use pliron::{
+    builtin::ops::{FuncOp, ModuleOp},
+    common_traits::Verify,
+    context::Context,
+    irbuild::match_rewrite::MatchRewrite,
+    op::Op,
+    opts::constants::sccp::SCCPPass,
+    pass_manager::{AnalysisManager, OpPass, OpPassManager, Pass, PassGroup},
+    printable::Printable,
+    r#type::TypeHandle,
+    value::Value,
 };
+use std::{collections::HashMap, fmt::Debug};
 
-pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(0);
+pub(crate) fn closure_inference_hack<T, R>(
+    val: &T,
+    ctx: &Context,
+    func: impl FnOnce(&T, &Context) -> R,
+) -> R {
+    func(val, ctx)
+}
 
-#[derive(Clone, Debug)]
+macro_rules! scoped_block {
+    ($($lines: expr)*) => {{
+        let mut out = String::from("[&]{\n");
+        $(
+            out.push_str(&$lines);
+            out.push_str("\n");
+        )*
+        out.push_str("}()");
+        out
+    }};
+}
+pub(crate) use scoped_block;
+
+#[derive(Clone, Copy, Debug)]
 pub struct CompilationOptions {
-    pub warp_size: u32,
+    pub warp_size: usize,
     pub supports_features: CppSupportedFeatures,
 }
 
-#[derive(Clone, Debug, Default)]
+pub struct CompilationState {
+    pub cube_dim: Dim3,
+    pub cluster_dim: Dim3,
+    pub info: Info,
+    pub ext_meta_positions: HashMap<usize, usize>,
+    pub address_type: TypeHandle,
+    pub info_st: Option<Value>,
+    pub dynamic_meta: Option<Value>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
 pub struct CppSupportedFeatures {
     pub grid_constants: bool,
     pub clusters: bool,
@@ -63,7 +105,6 @@ pub struct CubeIndexFlags {
     pub cube_pos: bool,
     pub cube_pos_tuple: bool,
     pub plane_dim: bool,
-    pub plane_dim_checked: bool,
     pub plane_pos: bool,
     pub unit_pos: bool,
     pub unit_pos_tuple: bool,
@@ -72,8 +113,8 @@ pub struct CubeIndexFlags {
 }
 
 /// Flags gathered during Cube IR translation for the kernel compilation.
-#[derive(Debug, Clone)]
-pub struct Flags<D: Dialect> {
+#[derive(Debug, Clone, Default)]
+pub struct Flags {
     pub elem_fp4: bool,
     pub elem_fp6: bool,
     pub elem_fp8: bool,
@@ -92,87 +133,27 @@ pub struct Flags<D: Dialect> {
     pub static_meta_length: usize,
     pub has_dynamic_meta: bool,
     pub has_info: bool,
-    pub cube_dim: CubeDim,
-    pub cluster_dim: Option<CubeDim>,
-    pub address_type: Item<D>,
 }
 
 #[allow(clippy::too_many_arguments)]
-#[derive(Clone, Debug)]
-pub struct CppCompiler<D: Dialect> {
-    kernel_name: String,
-    buffer_vis: Vec<Visibility>,
-    barriers: Vec<BarrierOps<D>>,
+#[derive(Clone, Debug, Default)]
+pub struct CppCompiler<T: CppTarget> {
     compilation_options: CompilationOptions,
-    ext_meta_positions: HashMap<ir::ExpandValue, u32>,
-    cluster_dim: CubeDim,
-    extensions: Vec<D::Extension>,
-    flags: Flags<D>,
-    items: HashSet<Item<D>>,
-    info: cubecl_core::Info,
-    source_loc: Option<SourceLoc>,
-    strategy: ExecutionMode,
-    addr_type: Item<D>,
+    info: Info,
+    _target: PhantomData<T>,
 }
 
-impl<D: Dialect> Default for Flags<D> {
-    fn default() -> Self {
-        Self {
-            elem_fp4: Default::default(),
-            elem_fp6: Default::default(),
-            elem_fp8: Default::default(),
-            elem_bf16: Default::default(),
-            elem_f16: Default::default(),
-            elem_tf32: Default::default(),
-            indexes: Default::default(),
-            op_barrier: Default::default(),
-            thread_block: Default::default(),
-            inst_tma: Default::default(),
-            inst_tma_im2col: Default::default(),
-            inst_wmma: Default::default(),
-            inst_ptx_wrappers: Default::default(),
-            inst_async_copy: Default::default(),
-            use_grid_constants: Default::default(),
-            static_meta_length: Default::default(),
-            has_info: Default::default(),
-            has_dynamic_meta: Default::default(),
-            cube_dim: CubeDim::new_single(),
-            cluster_dim: Default::default(),
-            address_type: Item::Scalar(Elem::U32),
-        }
-    }
-}
-
-impl<D: Dialect> Default for CppCompiler<D> {
-    fn default() -> Self {
-        Self {
-            kernel_name: Default::default(),
-            buffer_vis: Default::default(),
-            barriers: Default::default(),
-            compilation_options: Default::default(),
-            ext_meta_positions: Default::default(),
-            cluster_dim: CubeDim::new_single(),
-            extensions: Default::default(),
-            flags: Flags::default(),
-            items: Default::default(),
-            info: Default::default(),
-            source_loc: Default::default(),
-            strategy: Default::default(),
-            addr_type: Item::Scalar(Elem::U32),
-        }
-    }
-}
-
-impl<D: Dialect> Compiler for CppCompiler<D> {
-    type Representation = ComputeKernel<D>;
+impl<T: CppTarget> Compiler for CppCompiler<T>
+where
+    LowerBuiltins<T>: MatchRewrite,
+{
+    type Representation = ComputeKernel;
     type CompilationOptions = CompilationOptions;
 
     fn compile(
         &mut self,
-        mut kernel: KernelDefinition,
+        kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
-        strategy: ExecutionMode,
-        addr_type: StorageType,
     ) -> Result<Self::Representation, CompilationError> {
         let errors = kernel.body.pop_errors();
         if !errors.is_empty() {
@@ -188,23 +169,10 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
             });
         }
 
-        self.addr_type = self.compile_type(addr_type.into());
-        self.compilation_options = compilation_options.clone();
-        self.strategy = strategy;
-        self.kernel_name = kernel.options.kernel_name.clone();
+        self.compilation_options = *compilation_options;
 
-        if !self.compilation_options.supports_features.clusters {
-            kernel.options.cluster_dim = None;
-        }
-        self.cluster_dim = kernel.options.cluster_dim.unwrap_or(CubeDim::new_single());
-
-        let ir = self.clone().compile_ir(kernel, addr_type);
-        COUNTER_TMP_VAR.store(0, std::sync::atomic::Ordering::Relaxed);
+        let ir = self.clone().compile_ir(kernel);
         Ok(ir)
-    }
-
-    fn elem_size(&self, elem: ir::ElemType) -> usize {
-        elem.size()
     }
 
     fn extension(&self) -> &'static str {
@@ -212,58 +180,44 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
     }
 }
 
-impl<D: Dialect> CppCompiler<D> {
-    fn compile_ir(
-        mut self,
-        value: KernelDefinition,
-        address_type: StorageType,
-    ) -> ComputeKernel<D> {
-        let metadata = self.build_metadata(&value);
-        self.info = cubecl_core::Info::new(&value.scalars, metadata, address_type);
+impl<T: CppTarget> CppCompiler<T>
+where
+    LowerBuiltins<T>: MatchRewrite,
+{
+    fn compile_ir(self, value: KernelDefinition) -> ComputeKernel {
+        // let mut opt = Optimizer::shared_only(value.body.clone(), value.cube_dim);
+        // let shared_allocs = opt.main.analysis::<SharedLiveness>(&opt.global_state);
 
-        let scope_state = value.body.state().clone_deep();
+        // *value.body.state_mut() = scope_state;
 
-        let mut opt = Optimizer::shared_only(value.body.clone(), value.cube_dim);
-        let shared_allocs = opt.main.analysis::<SharedLiveness>(&opt.global_state);
+        // CheckedIoVisitor::new(self.strategy, self.kernel_name.clone()).apply(&value.body);
+        // DisaggregateVisitor::apply(&value.body);
 
-        *value.body.state_mut() = scope_state;
+        // self.buffer_vis = post_processing::optimize_scope(&value.body).into();
+        // self.buffer_vis
+        //     .resize(value.num_global_buffers(), Visibility::Read);
 
-        CheckedIoVisitor::new(self.strategy, self.kernel_name.clone()).apply(&value.body);
-        DisaggregateVisitor::apply(&value.body);
+        // let address_type = address_type.to_type(ctx);
+        // let instructions = self.compile_scope(&value.body);
 
-        self.buffer_vis = post_processing::optimize_scope(&value.body).into();
-        self.buffer_vis
-            .resize(value.num_global_buffers(), Visibility::Read);
+        // let tensor_maps = value.tensor_maps.clone();
+        // let buffers = value.buffers.clone();
+        // let scalars = value
+        //     .scalars
+        //     .into_iter()
+        //     .map(|binding| (binding.ty.to_type(ctx), binding.count))
+        //     .collect::<Vec<_>>();
 
-        let address_type = self.compile_type(address_type.into());
-        let instructions = self.compile_scope(&value.body);
-
-        let tensor_maps = value
-            .tensor_maps
-            .into_iter()
-            .map(|b| self.compile_binding(b))
-            .collect();
-        let buffers = value
-            .buffers
-            .into_iter()
-            .map(|b| self.compile_binding(b))
-            .collect();
-        let scalars = value
-            .scalars
-            .into_iter()
-            .map(|binding| (self.compile_storage_type(binding.ty), binding.count))
-            .collect::<Vec<_>>();
-
-        let shared_memories = shared_allocs
-            .allocations
-            .values()
-            .map(|alloc| SharedMemory {
-                ptr: self.compile_value(ir::ExpandValue::new(alloc.id, alloc.smem.root_ptr.ty)),
-                value_ty: self.compile_type(alloc.smem.value_ty),
-                align: alloc.smem.alignment,
-                offset: alloc.offset,
-            })
-            .collect();
+        // let shared_memories = shared_allocs
+        //     .allocations
+        //     .values()
+        //     .map(|alloc| SharedMemory {
+        //         ptr: self.compile_value(ExpandValue::new(alloc.id, alloc.smem.root_ptr.ty)),
+        //         value_ty: self.compile_type(alloc.smem.value_ty),
+        //         align: alloc.smem.alignment,
+        //         offset: alloc.offset,
+        //     })
+        //     .collect();
 
         let body = Body {
             instructions,
@@ -1249,14 +1203,10 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Powi(self.compile_binary(op, out)))
             }
             ir::Arithmetic::Hypot(op) => {
-                let instruction = Instruction::Hypot(self.compile_binary(op, out));
-                D::register_instruction_extension(&mut self.extensions, &instruction);
-                instructions.push(instruction)
+                instructions.push(Instruction::Hypot(self.compile_binary(op, out)))
             }
             ir::Arithmetic::Rhypot(op) => {
-                let instruction = Instruction::Rhypot(self.compile_binary(op, out));
-                D::register_instruction_extension(&mut self.extensions, &instruction);
-                instructions.push(instruction)
+                instructions.push(Instruction::Rhypot(self.compile_binary(op, out)))
             }
             ir::Arithmetic::Sqrt(op) => {
                 let op = self.compile_unary(op, out);
@@ -1316,7 +1266,7 @@ impl<D: Dialect> CppCompiler<D> {
                 });
                 let recip = Instruction::FastRecip(UnaryInstruction { input, out });
 
-                let instruction = self.select_fast_float(
+                instructions.push(self.select_fast_float(
                     elem.into(),
                     modes,
                     FastMath::AllowReciprocal
@@ -1325,9 +1275,7 @@ impl<D: Dialect> CppCompiler<D> {
                         | FastMath::NotInf,
                     div,
                     recip,
-                );
-                D::register_instruction_extension(&mut self.extensions, &instruction);
-                instructions.push(instruction);
+                ))
             }
             ir::Arithmetic::Round(op) => {
                 instructions.push(Instruction::Round(self.compile_unary(op, out)))
@@ -1776,7 +1724,11 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_index(&mut self, value: ir::IndexOperands, out: ir::ExpandValue) -> IndexInstruction<D> {
+    fn compile_index(
+        &mut self,
+        value: ir::IndexOperands,
+        out: ir::ExpandValue,
+    ) -> IndexInstruction<D> {
         IndexInstruction {
             list: self.compile_value(value.list),
             index: self.compile_value(value.index),
@@ -1784,7 +1736,11 @@ impl<D: Dialect> CppCompiler<D> {
         }
     }
 
-    fn compile_unary(&mut self, value: ir::UnaryOperands, out: ir::ExpandValue) -> UnaryInstruction<D> {
+    fn compile_unary(
+        &mut self,
+        value: ir::UnaryOperands,
+        out: ir::ExpandValue,
+    ) -> UnaryInstruction<D> {
         UnaryInstruction {
             input: self.compile_value(value.input),
             out: self.compile_value(out),
@@ -2011,55 +1967,33 @@ impl<D: Dialect> CppCompiler<D> {
     }
 }
 
-fn is_fp4_fp6_fp8(elem: ir::ElemType) -> bool {
-    match elem {
-        ir::ElemType::Float(kind) => matches!(
-            kind,
-            FloatKind::E2M1
-                | FloatKind::E2M3
-                | FloatKind::E3M2
-                | FloatKind::E4M3
-                | FloatKind::E5M2
-                | FloatKind::UE8M0
-        ),
-        _ => false,
-    }
-}
-
-fn const_u32<D: Dialect>(value: u32) -> Value<D> {
-    Value::Constant(
-        ir::ConstantValue::UInt(value as u64),
-        Item::Scalar(Elem::U32),
-    )
-}
-
 pub fn register_supported_types(props: &mut DeviceProperties) {
-    props.register_address_type(ir::AddressType::U32);
-    props.register_address_type(ir::AddressType::U64);
+    props.register_address_type(AddressType::U32);
+    props.register_address_type(AddressType::U64);
 
     let supported_types = [
-        ir::ElemType::UInt(ir::UIntKind::U8),
-        ir::ElemType::UInt(ir::UIntKind::U16),
-        ir::ElemType::UInt(ir::UIntKind::U32),
-        ir::ElemType::UInt(ir::UIntKind::U64),
-        ir::ElemType::Int(ir::IntKind::I8),
-        ir::ElemType::Int(ir::IntKind::I16),
-        ir::ElemType::Int(ir::IntKind::I32),
-        ir::ElemType::Int(ir::IntKind::I64),
-        ir::ElemType::Float(ir::FloatKind::BF16),
-        ir::ElemType::Float(ir::FloatKind::F16),
-        ir::ElemType::Float(ir::FloatKind::F32),
-        ir::ElemType::Float(ir::FloatKind::Flex32),
-        ir::ElemType::Float(ir::FloatKind::F64),
-        ir::ElemType::Bool,
+        ElemType::UInt(UIntKind::U8),
+        ElemType::UInt(UIntKind::U16),
+        ElemType::UInt(UIntKind::U32),
+        ElemType::UInt(UIntKind::U64),
+        ElemType::Int(IntKind::I8),
+        ElemType::Int(IntKind::I16),
+        ElemType::Int(IntKind::I32),
+        ElemType::Int(IntKind::I64),
+        ElemType::Float(FloatKind::BF16),
+        ElemType::Float(FloatKind::F16),
+        ElemType::Float(FloatKind::F32),
+        ElemType::Float(FloatKind::Flex32),
+        ElemType::Float(FloatKind::F64),
+        ElemType::Bool,
     ];
 
     let supported_atomic_types = [
-        ir::ElemType::Int(ir::IntKind::I32),
-        ir::ElemType::Int(ir::IntKind::I64),
-        ir::ElemType::UInt(ir::UIntKind::U32),
-        ir::ElemType::UInt(ir::UIntKind::U64),
-        ir::ElemType::Float(ir::FloatKind::F32),
+        ElemType::Int(IntKind::I32),
+        ElemType::Int(IntKind::I64),
+        ElemType::UInt(UIntKind::U32),
+        ElemType::UInt(UIntKind::U64),
+        ElemType::Float(FloatKind::F32),
     ];
 
     for ty in supported_types {

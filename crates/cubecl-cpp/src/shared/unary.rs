@@ -1,132 +1,42 @@
-use super::{Component, Dialect, Elem, FmtLeft, Value};
-use std::fmt::Display;
+use cubecl_core::{
+    self as cubecl,
+    ir::{
+        dialect::{
+            atomic::AtomicLoadOp,
+            base::ptr_value_ty,
+            bitwise::{
+                BitwiseNotOp, CountOnesOp, FindFirstSetOp, LeadingZerosBitsOp, ReverseBitsOp,
+                TrailingZerosBitsOp,
+            },
+            general::{BoolNotOp, CastOp, ReinterpretCastOp},
+            math::*,
+            memory::{LoadOp, StoreOp},
+            plane::UniformLoadOp,
+        },
+        interfaces::TypedExt,
+        prelude::*,
+    },
+    prelude::*,
+};
+use half::bf16;
+use num_traits::{One, Zero};
 
-pub trait Unary<D: Dialect> {
-    fn format(
-        f: &mut std::fmt::Formatter<'_>,
-        input: &Value<D>,
-        out: &Value<D>,
-    ) -> std::fmt::Result {
-        let out_item = out.item();
+use crate::{
+    shared::{CppValue, OpToCPP, lowering::LowerOp, shared_op, shared_op_with_out, ty::TypeExtCPP},
+    target::{CtxTarget, Shared, Target},
+};
 
-        if out_item.vectorization() == 1 {
-            write!(f, "{} = ", out.fmt_left())?;
-            Self::format_scalar(f, *input, *out_item.elem())?;
-            f.write_str(";\n")
-        } else {
-            Self::unroll_vec(f, input, out, *out_item.elem(), out_item.vectorization())
-        }
-    }
+use core::f32::consts::PI;
 
-    fn format_scalar<Input: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        out_elem: Elem<D>,
-    ) -> std::fmt::Result;
-
-    fn unroll_vec(
-        f: &mut std::fmt::Formatter<'_>,
-        input: &Value<D>,
-        out: &Value<D>,
-        out_elem: Elem<D>,
-        index: usize,
-    ) -> std::fmt::Result {
-        let mut write_op = |index, out_elem, input: &Value<D>, out: &Value<D>| {
-            let out_item = out.item();
-            let out = out.fmt_left();
-            writeln!(f, "{out} = {out_item}{{")?;
-
-            for i in 0..index {
-                let inputi = input.index(i);
-
-                Self::format_scalar(f, inputi, out_elem)?;
-                f.write_str(",")?;
-            }
-
-            f.write_str("};\n")
-        };
-
-        if Self::can_optimize() {
-            let optimized = Value::optimized_args([*input, *out]);
-            let [input, out_optimized] = optimized.args;
-
-            let item_out_original = out.item();
-            let item_out_optimized = out_optimized.item();
-
-            let (index, out_elem) = match optimized.optimization_factor {
-                Some(factor) => (index / factor, out_optimized.elem()),
-                None => (index, out_elem),
-            };
-
-            if item_out_original != item_out_optimized {
-                let out_tmp = Value::tmp(item_out_optimized);
-
-                write_op(index, out_elem, &input, &out_tmp)?;
-                let qualifier = out.const_qualifier();
-                let addr_space = D::address_space_for_value(out);
-                let out_fmt = out.fmt_left();
-                writeln!(
-                    f,
-                    "{out_fmt} = reinterpret_cast<{addr_space}{item_out_original}{qualifier}&>({out_tmp});\n"
-                )
-            } else {
-                write_op(index, out_elem, &input, &out_optimized)
-            }
-        } else {
-            write_op(index, out_elem, input, out)
-        }
-    }
-
-    fn can_optimize() -> bool {
-        true
-    }
-}
-
-pub trait FunctionFmt<D: Dialect> {
+pub trait FunctionFmt {
     fn base_function_name() -> &'static str;
-    fn function_name(elem: Elem<D>) -> String {
-        if Self::half_support() {
-            let prefix = match elem {
-                Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
-                Elem::F16x2 | Elem::BF16x2 => D::compile_instruction_half2_function_name_prefix(),
-                _ => "",
-            };
-            format!(
-                "{prefix}{}",
-                D::compile_fast_math_function_name(Self::base_function_name())
-            )
-        } else {
-            D::compile_fast_math_function_name(Self::base_function_name()).into()
-        }
+    fn function_name(ctx: &Context, ty: impl Typed) -> String {
+        let prefix = ctx.target().ty_prefix(ctx, ty);
+        format!("{prefix}{}", Self::base_function_name())
     }
-    fn format_unary<Input: Display>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        elem: Elem<D>,
-    ) -> std::fmt::Result {
-        if Self::half_support() {
-            // Dialects without a half prefix (e.g. Metal) reuse the float-taking
-            // function and lack `bfloat` intrinsics, so bfloat must round-trip through
-            // float. Dialects with a prefix (e.g. CUDA's `h`) have native intrinsics.
-            let no_half_prefix = D::compile_instruction_half_function_name_prefix().is_empty();
-            match elem {
-                Elem::BF16 | Elem::BF16x2 if no_half_prefix => {
-                    write!(f, "{}({}(float({input})))", elem, Self::function_name(elem))
-                }
-                _ => write!(f, "{}({input})", Self::function_name(elem)),
-            }
-        } else {
-            match elem {
-                Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
-                    write!(f, "{}({}(float({input})))", elem, Self::function_name(elem))
-                }
-                // Small ints cause issues around auto-promotion on AMD, so use explicit cast on out
-                Elem::U16 | Elem::U8 | Elem::I16 | Elem::I8 => {
-                    write!(f, "{elem}({}({input}))", Self::function_name(elem))
-                }
-                _ => write!(f, "{}({input})", Self::function_name(elem)),
-            }
-        }
+    fn format_unary(ctx: &Context, input: Value) -> String {
+        let in_name = input.name(ctx);
+        format!("{}({in_name})", Self::function_name(ctx, input))
     }
 
     fn half_support() -> bool;
@@ -137,9 +47,7 @@ macro_rules! function {
         function!($name, $func, true);
     };
     ($name:ident, $func:expr, $half_support:expr) => {
-        pub struct $name;
-
-        impl<D: Dialect> FunctionFmt<D> for $name {
+        impl FunctionFmt for $name {
             fn base_function_name() -> &'static str {
                 $func
             }
@@ -148,311 +56,195 @@ macro_rules! function {
             }
         }
 
-        impl<D: Dialect> Unary<D> for $name {
-            fn format_scalar<Input: Display>(
-                f: &mut std::fmt::Formatter<'_>,
-                input: Input,
-                elem: Elem<D>,
-            ) -> std::fmt::Result {
-                Self::format_unary(f, input, elem)
-            }
-
-            fn can_optimize() -> bool {
-                $half_support
+        impl OpToCPP<Shared> for $name {
+            fn to_cpp(&self, ctx: &Context) -> String {
+                Self::format_unary(ctx, self.input(ctx))
             }
         }
     };
 }
 
-function!(Log, "log");
-function!(FastLog, "__logf", false);
-function!(Sin, "sin");
-function!(Cos, "cos");
-function!(Tan, "tan", false);
-function!(Sinh, "sinh", false);
-function!(Cosh, "cosh", false);
-function!(ArcCos, "acos", false);
-function!(ArcSin, "asin", false);
-function!(ArcTan, "atan", false);
-function!(ArcSinh, "asinh", false);
-function!(ArcCosh, "acosh", false);
-function!(ArcTanh, "atanh", false);
-function!(FastSin, "__sinf", false);
-function!(FastCos, "__cosf", false);
-function!(Sqrt, "sqrt");
-function!(InverseSqrt, "rsqrt");
-function!(FastSqrt, "__fsqrt_rn", false);
-function!(FastInverseSqrt, "__frsqrt_rn", false);
-function!(Exp, "exp");
-function!(FastExp, "__expf", false);
-function!(Ceil, "ceil");
-function!(Trunc, "trunc");
-function!(Floor, "floor");
-function!(Round, "rint");
-function!(FastRecip, "__frcp_rn", false);
-function!(FastTanh, "__tanhf", false);
+function!(LogOp, "log");
+// function!(FastLog, "__logf", false);
+function!(SinOp, "sin");
+function!(CosOp, "cos");
+function!(TanOp, "tan", false);
+function!(TanhOp, "tanh", false);
+function!(SinhOp, "sinh", false);
+function!(CoshOp, "cosh", false);
+function!(ArcCosOp, "acos", false);
+function!(ArcSinOp, "asin", false);
+function!(ArcTanOp, "atan", false);
+function!(ArcSinhOp, "asinh", false);
+function!(ArcCoshOp, "acosh", false);
+function!(ArcTanhOp, "atanh", false);
+// function!(FastSinOp, "__sinf", false);
+// function!(FastCosOp, "__cosf", false);
+function!(SqrtOp, "sqrt");
+function!(RsqrtOp, "rsqrt");
+// function!(FastSqrt, "__fsqrt_rn", false);
+// function!(FastInverseSqrt, "__frsqrt_rn", false);
+function!(ExpOp, "exp");
+// function!(FastExp, "__expf", false);
+function!(Expm1Op, "expm1", false);
+function!(CeilOp, "ceil");
+function!(TruncOp, "trunc");
+function!(FloorOp, "floor");
+function!(RoundOp, "rint");
+// function!(FastRecip, "__frcp_rn", false);
+// function!(FastTanhOp, "__tanhf", false);
 
-function!(Erf, "erf", false);
-function!(Abs, "abs", false);
+function!(ErfOp, "erf", false);
+function!(AbsOp, "abs", false);
 
-pub struct Neg;
+shared_op_with_out!(NegOp, |op, ctx| format!("-{}", op.input(ctx).name(ctx)));
+shared_op_with_out!(BoolNotOp, |op, ctx| format!("!{}", op.input(ctx).name(ctx)));
+shared_op_with_out!(BitwiseNotOp, |op, ctx| format!(
+    "~{}",
+    op.input(ctx).name(ctx)
+));
+shared_op_with_out!(Log1pOp, |op, ctx| {
+    let input = op.input(ctx);
+    let ty = input.get_type(ctx).to_cpp(ctx);
+    format!("log({ty}(1.0f) + {})", input.name(ctx))
+});
+shared_op_with_out!(DegreesOp, |op, ctx| {
+    let input = op.input(ctx);
+    let ty = input.get_type(ctx).to_cpp(ctx);
+    format!("{} * {ty}(1.0f)", input.name(ctx))
+});
 
-impl<D: Dialect> Unary<D> for Neg {
-    fn format_scalar<Input: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        _out_elem: Elem<D>,
-    ) -> std::fmt::Result {
-        writeln!(f, "-{}", input)
+shared_op_with_out!(CountOnesOp, |op, ctx| {
+    let input = op.input(ctx);
+    match input.size(ctx) {
+        4 => format!("__popc({})", input.name(ctx)),
+        8 => format!("__popcll({})", input.name(ctx)),
+        _ => unreachable!("Unsupported size"),
     }
-}
-
-pub struct Log1p;
-
-impl<D: Dialect> Unary<D> for Log1p {
-    fn format_scalar<Input: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        _out_elem: Elem<D>,
-    ) -> std::fmt::Result {
-        D::compile_instruction_log1p_scalar(f, input)
+});
+shared_op_with_out!(ReverseBitsOp, |op, ctx| {
+    let input = op.input(ctx);
+    match input.size(ctx) {
+        4 => format!("__brev({})", input.name(ctx)),
+        8 => format!("__brevll({})", input.name(ctx)),
+        _ => unreachable!("Unsupported size"),
     }
-
-    fn can_optimize() -> bool {
-        false
+});
+shared_op_with_out!(LeadingZerosBitsOp, |op, ctx| {
+    let input = op.input(ctx);
+    match input.size(ctx) {
+        4 => format!("__clz({})", input.name(ctx)),
+        8 => format!("__clzll({})", input.name(ctx)),
+        _ => unreachable!("Unsupported size"),
     }
-}
-
-pub struct Expm1;
-
-impl<D: Dialect> Unary<D> for Expm1 {
-    fn format_scalar<Input: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        _out_elem: Elem<D>,
-    ) -> std::fmt::Result {
-        D::compile_instruction_expm1_scalar(f, input)
+});
+shared_op_with_out!(FindFirstSetOp, |op, ctx| {
+    let input = op.input(ctx);
+    match input.size(ctx) {
+        4 => format!("__ffs({})", input.name(ctx)),
+        8 => format!("__ffsll({})", input.name(ctx)),
+        _ => unreachable!("Unsupported size"),
     }
+});
 
-    fn can_optimize() -> bool {
-        false
+shared_op_with_out!(CastOp, |op, ctx| {
+    let input = op.input(ctx);
+    let ty = input.get_type(ctx);
+    format!("{}({})", ty.to_cpp(ctx), input.name(ctx))
+});
+shared_op_with_out!(ReinterpretCastOp, |op, ctx| {
+    let input = op.value(ctx);
+    let ty = input.get_type(ctx).to_cpp(ctx);
+    if input.is_ptr(ctx) {
+        format!("reinterpret_cast<{ty}>({})", input.name(ctx))
+    } else {
+        format!("reinterpret_cast<{ty}&>({})", input.name(ctx))
     }
-}
+});
 
-pub struct Tanh;
+shared_op_with_out!(LoadOp, |op, ctx| format!("*{}", op.ptr(ctx).name(ctx)));
+shared_op!(StoreOp, |op, ctx| {
+    format!("*{} = {};", op.ptr(ctx).name(ctx), op.value(ctx).name(ctx))
+});
 
-impl<D: Dialect> Unary<D> for Tanh {
-    fn format_scalar<Input: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        _out_elem: Elem<D>,
-    ) -> std::fmt::Result {
-        D::compile_instruction_tanh_scalar(f, input)
-    }
-
-    fn can_optimize() -> bool {
-        false
-    }
-}
-
-pub struct Degrees;
-
-impl<D: Dialect> Unary<D> for Degrees {
-    fn format_scalar<Input: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        elem: Elem<D>,
-    ) -> std::fmt::Result {
-        write!(f, "{input}*{elem}(57.29577951308232f)")
-    }
-
-    fn can_optimize() -> bool {
-        false
-    }
-}
-
-pub struct Radians;
-
-impl<D: Dialect> Unary<D> for Radians {
-    fn format_scalar<Input: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        elem: Elem<D>,
-    ) -> std::fmt::Result {
-        write!(f, "{input}*{elem}(0.017453292519943295f)")
-    }
-
-    fn can_optimize() -> bool {
-        false
-    }
-}
-
-pub fn zero_extend<D: Dialect>(input: impl Component<D>) -> String {
-    match input.elem() {
-        Elem::I8 => format!("{}({}({input}))", Elem::<D>::U32, Elem::<D>::U8),
-        Elem::I16 => format!("{}({}({input}))", Elem::<D>::U32, Elem::<D>::U16),
-        Elem::U8 => format!("{}({input})", Elem::<D>::U32),
-        Elem::U16 => format!("{}({input})", Elem::<D>::U32),
-        _ => unreachable!("zero extend only supports integer < 32 bits"),
-    }
-}
-
-pub struct CountBits;
-
-impl<D: Dialect> Unary<D> for CountBits {
-    fn format_scalar<Input: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        elem: Elem<D>,
-    ) -> std::fmt::Result {
-        D::compile_instruction_popcount_scalar(f, input, elem)
-    }
-}
-
-pub struct ReverseBits;
-
-impl<D: Dialect> Unary<D> for ReverseBits {
-    fn format_scalar<Input: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        elem: Elem<D>,
-    ) -> std::fmt::Result {
-        D::compile_instruction_reverse_bits_scalar(f, input, elem)
-    }
-}
-
-pub struct LeadingZeros;
-
-impl<D: Dialect> Unary<D> for LeadingZeros {
-    fn format_scalar<Input: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        elem: Elem<D>,
-    ) -> std::fmt::Result {
-        D::compile_instruction_leading_zeros_scalar(f, input, elem)
-    }
-}
-
-pub struct TrailingZeros;
-
-impl<D: Dialect> Unary<D> for TrailingZeros {
-    fn format_scalar<Input: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        elem: Elem<D>,
-    ) -> std::fmt::Result {
-        D::compile_instruction_trailing_zeros_scalar(f, input, elem)
-    }
-}
-
-pub struct FindFirstSet;
-
-impl<D: Dialect> Unary<D> for FindFirstSet {
-    fn format_scalar<Input: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        out_elem: Elem<D>,
-    ) -> std::fmt::Result {
-        D::compile_instruction_find_first_set(f, input, out_elem)
-    }
-}
-
-pub struct BitwiseNot;
-
-impl<D: Dialect> Unary<D> for BitwiseNot {
-    fn format_scalar<Input>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        out_elem: Elem<D>,
-    ) -> std::fmt::Result
-    where
-        Input: Component<D>,
-    {
-        // Bitwise negation may widen, so use explicit cast
-        write!(f, "{out_elem}(~{input})")
-    }
-}
-
-pub struct Not;
-
-impl<D: Dialect> Unary<D> for Not {
-    fn format_scalar<Input>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        _out_elem: Elem<D>,
-    ) -> std::fmt::Result
-    where
-        Input: Component<D>,
-    {
-        write!(f, "!{input}")
-    }
-}
-
-pub struct Assign;
-
-impl<D: Dialect> Unary<D> for Assign {
-    fn format(
-        f: &mut std::fmt::Formatter<'_>,
-        input: &Value<D>,
-        out: &Value<D>,
-    ) -> std::fmt::Result {
-        let item = out.item();
-        let item = item.value_ty();
-
-        if item.vectorization() == 1 || input.item().value_ty() == item {
-            write!(f, "{} = ", out.fmt_left())?;
-            Self::format_scalar(f, *input, *item.elem())?;
-            f.write_str(";\n")
-        } else {
-            Self::unroll_vec(f, input, out, *item.elem(), item.vectorization())
-        }
-    }
-
-    fn format_scalar<Input>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        elem: Elem<D>,
-    ) -> std::fmt::Result
-    where
-        Input: Component<D>,
-    {
-        // Cast only when necessary.
-        if elem != input.elem() {
-            match elem {
-                Elem::TF32 => write!(f, "nvcuda::wmma::__float_to_tf32({input})"),
-                // A direct construction between the two half types is
-                // ambiguous on HIP — `__hip_bfloat16` exposes a dozen implicit
-                // conversion operators, so `__half(bf16)` (and the reverse)
-                // fails to compile. Route half<->half through `float`, which
-                // is a single unambiguous conversion on every dialect.
-                elem if is_half(elem) && is_half(input.elem()) => {
-                    write!(f, "{elem}(float({input}))")
-                }
-                elem => write!(f, "{elem}({input})"),
+macro_rules! lower_unop {
+    ($ty: ty, $name: ident, $pred: expr) => {
+        #[op_interface_impl]
+        impl $crate::shared::lowering::LowerOp for $ty {
+            fn should_lower(&self, ctx: &Context) -> bool {
+                $crate::shared::closure_inference_hack::<$ty, bool>(self, ctx, $pred)
             }
-        } else {
-            write!(f, "{input}")
+
+            fn lower(&self, scope: &Scope) -> Vec<Value> {
+                define_scalar!(T);
+                define_size!(S);
+                let input = self.get_operand(scope.ctx());
+                scope.register_value_type::<T, S>(input);
+                vec![$name::expand::<T, S>(scope, input.into()).value(scope)]
+            }
         }
-    }
+    };
+    ($ty: ty, $name: ident) => {
+        lower_unop!($ty, $name, |_, _| true);
+    };
+}
+pub(super) use lower_unop;
 
-    fn can_optimize() -> bool {
-        false
-    }
+#[cube]
+fn log1p<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    (input + Vector::new(T::new(1.0))).ln()
 }
 
-/// The two scalar half-precision float types, whose direct
-/// interconstruction is ambiguous on HIP.
-fn is_half<D: Dialect>(elem: Elem<D>) -> bool {
-    matches!(elem, Elem::F16 | Elem::BF16)
+#[cube]
+fn to_degrees<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    input * Vector::new(T::new(comptime!(180.0 / PI)))
 }
 
-fn elem_function_name<D: Dialect>(base_name: &'static str, elem: Elem<D>) -> String {
+#[cube]
+fn to_radians<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
+    input * Vector::new(T::new(comptime!(PI / 180.0)))
+}
+
+#[cube]
+fn find_first_set<T: Int, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
+    let bits = Vector::new(comptime!(T::size_bits() as u32));
+    let out = bits - (input & (!input - Vector::one())).leading_zeros();
+    select_many(input.equal(&Vector::zero()), Vector::zero(), out)
+}
+
+#[cube]
+fn trailing_zeros<T: Int, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
+    let bits = Vector::new(comptime!(T::size_bits() as u32));
+    let out = input.find_first_set() - Vector::one();
+    select_many(input.equal(&Vector::zero()), bits, out)
+}
+
+#[cube]
+fn cast_f16_bf16<T: Scalar, N: Size>(input: Vector<T, N>) -> Vector<bf16, N> {
+    Vector::<bf16, N>::cast_from(Vector::<f32, N>::cast_from(input))
+}
+
+lower_unop!(Log1pOp, log1p);
+lower_unop!(DegreesOp, to_degrees);
+lower_unop!(RadiansOp, to_radians);
+lower_unop!(FindFirstSetOp, find_first_set, |_, ctx| {
+    ctx.target() == Target::Metal
+});
+lower_unop!(TrailingZerosBitsOp, trailing_zeros, |_, ctx| {
+    matches!(ctx.target(), Target::Cuda | Target::Hip)
+});
+lower_unop!(ErfOp, erf, |_, ctx| ctx.target() == Target::Metal);
+lower_unop!(CastOp, cast_f16_bf16, |op, ctx| {
+    op.input(ctx).is_float16(ctx)
+        && op.get_result(ctx).is_bfloat16(ctx)
+        && matches!(ctx.target(), Target::Cuda | Target::Hip)
+});
+
+// `isnan` / `isinf` are defined for cuda/hip/metal with same prefixes for half/bf16 on cuda/hip
+
+fn elem_function_name(ctx: &Context, base_name: &'static str, ty: impl Typed) -> String {
     // Math functions prefix (no leading underscores)
-    let prefix = match elem {
-        Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
-        Elem::F16x2 | Elem::BF16x2 => D::compile_instruction_half2_function_name_prefix(),
-        _ => "",
-    };
+    let prefix = ctx.target().ty_prefix(ctx, ty);
     if prefix.is_empty() {
         base_name.to_string()
     } else if prefix == "h" || prefix == "h2" {
@@ -462,39 +254,31 @@ fn elem_function_name<D: Dialect>(base_name: &'static str, elem: Elem<D>) -> Str
     }
 }
 
-// `isnan` / `isinf` are defined for cuda/hip/metal with same prefixes for half/bf16 on cuda/hip
-pub struct IsNan;
+shared_op_with_out!(IsNanOp, |op, ctx| {
+    let input = op.input(ctx);
+    let func = elem_function_name(ctx, "isnan", input);
+    format!("{func}({})", input.name(ctx))
+});
 
-impl<D: Dialect> Unary<D> for IsNan {
-    fn format_scalar<Input: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        _elem: Elem<D>,
-    ) -> std::fmt::Result {
-        // Format unary function name based on *input* elem dtype
-        let elem = input.elem();
-        write!(f, "{}({input})", elem_function_name("isnan", elem))
-    }
+shared_op_with_out!(IsInfOp, |op, ctx| {
+    let input = op.input(ctx);
+    let func = elem_function_name(ctx, "isinf", input);
+    format!("{func}({})", input.name(ctx))
+});
 
-    fn can_optimize() -> bool {
-        true
-    }
-}
-
-pub struct IsInf;
-
-impl<D: Dialect> Unary<D> for IsInf {
-    fn format_scalar<Input: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: Input,
-        _elem: Elem<D>,
-    ) -> std::fmt::Result {
-        // Format unary function name based on *input* elem dtype
-        let elem = input.elem();
-        write!(f, "{}({input})", elem_function_name("isinf", elem))
-    }
-
-    fn can_optimize() -> bool {
-        true
+#[op_interface_impl]
+impl LowerOp for UniformLoadOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ptr = self.ptr(scope.ctx());
+        let val = if ptr_value_ty(scope.ctx(), &ptr).is_atomic(scope.ctx()) {
+            let op = AtomicLoadOp::new(scope.ctx_mut(), ptr);
+            scope.register(&op);
+            op.get_result(scope.ctx())
+        } else {
+            let op = LoadOp::new(scope.ctx_mut(), ptr);
+            scope.register(&op);
+            op.get_result(scope.ctx())
+        };
+        vec![val]
     }
 }

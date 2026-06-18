@@ -1,21 +1,23 @@
-use alloc::{rc::Rc, string::String, vec::Vec};
+use alloc::{boxed::Box, format, rc::Rc, string::String, vec, vec::Vec};
 use core::{
     any::{TypeId, type_name},
     cell::UnsafeCell,
     fmt::{Debug, Display},
 };
+use cubecl_common::{format::type_name_sanitized, stub::Mutex};
 use derive_more::{Eq, PartialEq};
 use enumset::EnumSet;
 use hashbrown::HashMap;
 use pliron::{
+    basic_block::BasicBlock,
     builtin::{
         attributes::TypeAttr,
         op_interfaces::{OneResultInterface, SingleBlockRegionInterface},
         ops::{ConstantOp, FuncOp, ModuleOp},
         type_interfaces::FunctionTypeInterface,
-        types::FunctionType,
+        types::{FunctionType, UnitType},
     },
-    context::{Context, Ptr},
+    context::{AuxDataIndex, Context},
     identifier::Identifier,
     irbuild::{
         inserter::{IRInserter, Inserter},
@@ -23,23 +25,26 @@ use pliron::{
     },
     op::Op,
     printable::Printable,
-    r#type::{TypeObj, Typed, type_cast},
+    r#type::{TypeHandle, Typed, type_cast},
     value::Value,
 };
 use spin::LazyLock;
-use std::{boxed::Box, vec};
 
 use crate::{
     AddressSpace, DeviceProperties, FastMath, StorageType, TargetProperties, TypeHash,
     arena::DropBump,
-    attributes::IndexAttr,
+    attributes::{
+        ATTR_BUFFER_BINDING, BufferBindingAttr, EntrypointAbiAttr, EntrypointInterface,
+        FuncInterface, IndexAttr,
+    },
     dialect::{general::AggregateExtractOp, memory::DeclareVariableOp},
     interfaces::{ScalarType, TypedExt},
+    settings::KernelSettings,
     types::{PointerType, RuntimeArrayType, cuda::TensorMapType},
 };
 
-pub type TypeMap = HashMap<TypeId, StorageType>;
-pub type SizeMap = HashMap<TypeId, usize>;
+pub type Types = HashMap<TypeId, StorageType>;
+pub type Sizes = HashMap<TypeId, usize>;
 
 pub type OpInserter = IRInserter<DummyListener>;
 
@@ -112,12 +117,6 @@ pub fn ident(name: impl Into<String>) -> Identifier {
     Identifier::try_new(name.into()).unwrap()
 }
 
-static GLOBAL_STATE_IDENT: LazyLock<Identifier> = LazyLock::new(|| {
-    let type_name = type_name::<GlobalState>();
-    let sanitized = type_name.replace(|c: char| !c.is_alphanumeric() && c != '_', "_");
-    Identifier::try_new(sanitized).expect("Global state ident should be valid")
-});
-
 pub struct GlobalState {
     pub reference_arena: DropBump,
     pub errors: Vec<String>,
@@ -126,40 +125,143 @@ pub struct GlobalState {
     pub module_inserter: OpInserter,
     pub entry_func: FuncOp,
     pub functions: Vec<FuncOp>,
-    pub typemap: TypeMap,
-    pub sizemap: SizeMap,
+    pub typemap: Types,
+    pub sizemap: Sizes,
     pub modes: InstructionModes,
     pub target_properties: TargetProperties,
     pub device_properties: Option<Rc<DeviceProperties>>,
 }
 
+impl GlobalState {
+    /// Register the element type for the given generic type.
+    pub fn register_type<T: 'static>(&mut self, elem: StorageType) {
+        self.typemap.insert(TypeId::of::<T>(), elem);
+    }
+}
+
+static TY_IDENTS: LazyLock<Mutex<HashMap<TypeId, Identifier>>> = LazyLock::new(Default::default);
+
+fn ty_ident<T: 'static>() -> Identifier {
+    let mut idents = TY_IDENTS.lock().unwrap();
+    let ident = idents
+        .entry(TypeId::of::<T>())
+        .or_insert_with(|| Identifier::try_from(type_name_sanitized::<T>()).unwrap());
+    ident.clone()
+}
+
+fn ty_key<T: 'static>(ctx: &Context) -> Option<AuxDataIndex> {
+    let mut idents = TY_IDENTS.lock().unwrap();
+    let ident = idents
+        .entry(TypeId::of::<T>())
+        .or_insert_with(|| Identifier::try_from(type_name_sanitized::<T>()).unwrap());
+    ctx.aux_data_map.get(ident).copied()
+}
+
 pub trait ContextExt {
-    fn global_state(&self) -> &GlobalState;
-    fn global_state_mut(&mut self) -> &mut GlobalState;
+    fn aux_ty<T: 'static>(&self) -> &T;
+    fn aux_ty_mut<T: 'static>(&mut self) -> &mut T;
+    fn set_aux_ty<T: 'static>(&mut self, value: T);
 }
 
 impl ContextExt for Context {
-    fn global_state(&self) -> &GlobalState {
-        let key = self.aux_data_map[&*GLOBAL_STATE_IDENT];
+    fn aux_ty<T: 'static>(&self) -> &T {
+        let key = ty_key::<T>(self)
+            .ok_or_else(|| format!("Key for {} should exist", type_name::<T>()))
+            .unwrap();
         self.aux_data[key].downcast_ref().unwrap()
     }
 
-    fn global_state_mut(&mut self) -> &mut GlobalState {
-        let key = self.aux_data_map[&*GLOBAL_STATE_IDENT];
+    fn aux_ty_mut<T: 'static>(&mut self) -> &mut T {
+        let key = ty_key::<T>(self)
+            .ok_or_else(|| format!("Key for {} should exist", type_name::<T>()))
+            .unwrap();
         self.aux_data[key].downcast_mut().unwrap()
+    }
+
+    fn set_aux_ty<T: 'static>(&mut self, value: T) {
+        if let Some(key) = ty_key::<T>(self) {
+            *self.aux_data.get_mut(key).unwrap() = Box::new(value);
+        } else {
+            let ident = ty_ident::<T>();
+            let key = self.aux_data.insert(Box::new(value));
+            self.aux_data_map.insert(ident, key);
+        }
     }
 }
 
-fn new_context() -> Rc<UnsafeCell<Context>> {
-    let mut context = Context::default();
+pub trait FuncOpExt {
+    fn push_argument(&self, ctx: &Context, ty: TypeHandle) -> usize;
+}
 
-    let module = ModuleOp::new(&mut context, ident("kernel"));
-    let module_block = module.get_body(&context, 0);
+impl FuncOpExt for FuncOp {
+    fn push_argument(&self, ctx: &Context, ty: TypeHandle) -> usize {
+        let id = BasicBlock::push_argument(self.get_entry_block(ctx), ctx, ty);
+
+        let (mut arg_types, res_types) = {
+            let current_func_ty = self.get_type(ctx).deref(ctx);
+            let current_func_ty = current_func_ty.downcast_ref::<FunctionType>().unwrap();
+            (current_func_ty.arg_types(), current_func_ty.res_types())
+        };
+
+        arg_types.insert(id, ty);
+        let new_func_ty = FunctionType::get(ctx, arg_types, res_types);
+        self.set_attr_func_type(ctx, TypeAttr::new(new_func_ty.into()));
+        id
+    }
+}
+
+fn new_context(settings: KernelSettings) -> Rc<UnsafeCell<Context>> {
+    let mut ctx = Context::default();
+
+    let module = ModuleOp::new(&mut ctx, ident("kernel"));
+    let module_block = module.get_body(&ctx, 0);
     let mut module_inserter = OpInserter::new_at_block_end(module_block);
 
-    let entry_func_ty = FunctionType::get(&mut context, vec![], vec![]);
-    let entry_func = FuncOp::new(&mut context, ident("main"), entry_func_ty);
-    module_inserter.append_op(&context, &entry_func);
+    // Start out empty and fill in once args register themselves
+    let entry_func_ty = FunctionType::get(&ctx, vec![], vec![UnitType::get(&ctx).into()]);
+    let entry_name = ident(settings.kernel_name);
+    let abi = EntrypointAbiAttr::new(
+        settings.cube_dim,
+        settings.cluster_dim,
+        settings.address_type,
+    );
+    let entry_func = FuncOp::new(&mut ctx, entry_name, entry_func_ty);
+    entry_func.set_entrypoint_abi(&mut ctx, abi);
+    module_inserter.append_op(&ctx, &entry_func);
+
+    let mut state = GlobalState {
+        reference_arena: Default::default(),
+        module,
+        module_inserter,
+        entry_func,
+        functions: Default::default(),
+        typemap: Default::default(),
+        sizemap: Default::default(),
+        modes: Default::default(),
+        target_properties: Default::default(),
+        device_properties: Default::default(),
+        errors: Default::default(),
+    };
+    settings.address_type.register(&mut state);
+
+    ctx.set_aux_ty(state);
+    Rc::new(UnsafeCell::new(ctx))
+}
+
+/// Create a dummy context that can't be used for actual codegen. Useful for registering and
+/// resolving types without making the interface for that overly complex.
+/// Maybe we can replace the `&Scope` with a type registration trait on that function only at some point.
+fn dummy_context() -> Rc<UnsafeCell<Context>> {
+    let mut ctx = Context::default();
+
+    let module = ModuleOp::new(&mut ctx, ident("dummy_module"));
+    let module_block = module.get_body(&ctx, 0);
+    let mut module_inserter = OpInserter::new_at_block_end(module_block);
+
+    let entry_func_ty = FunctionType::get(&ctx, vec![], vec![UnitType::get(&ctx).into()]);
+    let entry_name = ident("dummy_entry");
+    let entry_func = FuncOp::new(&mut ctx, entry_name, entry_func_ty);
+    module_inserter.append_op(&ctx, &entry_func);
 
     let state = GlobalState {
         reference_arena: Default::default(),
@@ -174,10 +276,9 @@ fn new_context() -> Rc<UnsafeCell<Context>> {
         device_properties: Default::default(),
         errors: Default::default(),
     };
-    let key = context.aux_data.insert(Box::new(state));
-    context.aux_data_map.insert(GLOBAL_STATE_IDENT.clone(), key);
 
-    Rc::new(UnsafeCell::new(context))
+    ctx.set_aux_ty(state);
+    Rc::new(UnsafeCell::new(ctx))
 }
 
 impl Debug for GlobalState {
@@ -207,11 +308,11 @@ impl Scope {
     }
 
     pub fn state(&self) -> &GlobalState {
-        self.ctx().global_state()
+        self.ctx().aux_ty()
     }
 
     pub fn state_mut(&self) -> &mut GlobalState {
-        self.ctx_mut().global_state_mut()
+        self.ctx_mut().aux_ty_mut()
     }
 
     pub fn ctx(&self) -> &Context {
@@ -230,11 +331,27 @@ impl Scope {
     /// Create a parse scope that is at the root of a kernel definition.
     ///
     /// A local scope can be created with the [child](Self::child) method.
-    pub fn root(_debug_enabled: bool) -> Self {
-        let ctx = new_context();
+    pub fn root(settings: KernelSettings) -> Self {
+        let ctx = new_context(settings);
         let inserter = {
             let ctx = unsafe { &*ctx.get() };
-            let state = ctx.global_state();
+            let state = ctx.aux_ty::<GlobalState>();
+            let entry_block = state.entry_func.get_entry_block(ctx);
+            OpInserter::new_at_block_end(entry_block)
+        };
+        Self {
+            ctx: CtxHandle::Rc(ctx),
+            inserter: InserterHandle::owned(inserter),
+        }
+    }
+
+    /// Create a parse scope that only exists for type registration in the kernel builder.
+    /// The state will be incomplete and should never be used for actual codegen.
+    pub fn dummy() -> Self {
+        let ctx = dummy_context();
+        let inserter = {
+            let ctx = unsafe { &*ctx.get() };
+            let state = ctx.aux_ty::<GlobalState>();
             let entry_block = state.entry_func.get_entry_block(ctx);
             OpInserter::new_at_block_end(entry_block)
         };
@@ -257,16 +374,11 @@ impl Scope {
     }
 
     /// Create a new mutable local variable of type specified by `value_ty`.
-    pub fn create_local_mut(&self, value_ty: impl Into<Ptr<TypeObj>>) -> Value {
+    pub fn create_local_mut(&self, value_ty: impl Into<TypeHandle>) -> Value {
         let value_ty = value_ty.into();
         let ctx = self.ctx_mut();
         let align = value_ty.align(ctx);
-        let op = DeclareVariableOp::new(
-            ctx,
-            TypeAttr::new(value_ty),
-            AddressSpace::Local.into(),
-            align.into(),
-        );
+        let op = DeclareVariableOp::new(ctx, TypeAttr::new(value_ty), AddressSpace::Local, align);
         let out = op.get_result(ctx);
         self.inserter().append_op(ctx, &op);
         out
@@ -275,18 +387,13 @@ impl Scope {
     /// Create a shared variable of the given item type.
     pub fn create_shared(
         &self,
-        value_ty: impl Into<Ptr<TypeObj>>,
+        value_ty: impl Into<TypeHandle>,
         alignment: Option<usize>,
     ) -> Value {
         let value_ty = value_ty.into();
         let ctx = self.ctx_mut();
         let align = alignment.unwrap_or_else(|| value_ty.align(ctx));
-        let op = DeclareVariableOp::new(
-            ctx,
-            TypeAttr::new(value_ty),
-            AddressSpace::Local.into(),
-            align.into(),
-        );
+        let op = DeclareVariableOp::new(ctx, TypeAttr::new(value_ty), AddressSpace::Local, align);
         let out = op.get_result(ctx);
         self.inserter().append_op(ctx, &op);
         out
@@ -296,7 +403,7 @@ impl Scope {
     pub fn create_function(&self, func: FuncOp) -> usize {
         // We know state doesn't overlap with the stuff that's used in `append_op` so this is safe
         let ctx = self.ctx();
-        let state = self.ctx_mut().global_state_mut();
+        let state = self.state_mut();
         let func_id = state.functions.len();
         state.module_inserter.append_op(ctx, &func);
         state.functions.push(func);
@@ -340,9 +447,7 @@ impl Scope {
 
     /// Register the element type for the given generic type.
     pub fn register_type<T: 'static>(&self, elem: StorageType) {
-        let state = self.state_mut();
-
-        state.typemap.insert(TypeId::of::<T>(), elem);
+        self.state_mut().register_type::<T>(elem);
     }
 
     /// Register the comptime size for the given generic size.
@@ -353,14 +458,14 @@ impl Scope {
     }
 
     /// Register the type and size of a scalarizable type
-    pub fn register_value_type<T: 'static, N: 'static>(&self, value: Value) {
+    pub fn register_value_type<T: 'static, N: 'static>(&self, value: impl Typed) {
         let ty = value.get_type(self.ctx());
         let scalar_ty = ty.scalar_ty(self.ctx());
         let vector_size = ty.vector_size(self.ctx());
         let storage_ty = {
             let ctx = self.ctx();
             let scalar_ty = scalar_ty.deref(ctx);
-            let scalar = type_cast::<dyn ScalarType>(scalar_ty.as_ref()).unwrap();
+            let scalar = type_cast::<dyn ScalarType>(&*scalar_ty).unwrap();
             scalar.storage_type(ctx)
         };
         self.register_type::<T>(storage_ty);
@@ -386,52 +491,47 @@ impl Scope {
     }
 
     /// Obtain the index-th buffer
-    pub fn global(&self, id: usize, value_ty: Ptr<TypeObj>) -> Value {
+    pub fn global(
+        &self,
+        buffer_pos: usize,
+        ext_meta_pos: Option<usize>,
+        value_ty: TypeHandle,
+    ) -> Value {
+        let entry_func = self.state().entry_func;
         let ctx = self.ctx_mut();
-        let state = self.state_mut();
 
         let ty_arr = RuntimeArrayType::get(ctx, value_ty);
-        let ty = PointerType::get(ctx, ty_arr.into(), AddressSpace::Global(id));
+        let ty = PointerType::get(ctx, ty_arr.into(), AddressSpace::Global(buffer_pos));
 
-        let mut arg_types = {
-            let current_func_ty = state.entry_func.get_type(ctx).deref(ctx);
-            let current_func_ty = current_func_ty.downcast_ref::<FunctionType>().unwrap();
-            current_func_ty.arg_types()
-        };
+        let id = entry_func.push_argument(ctx, ty.to_handle());
+        entry_func.set_arg_attr(
+            ctx,
+            id,
+            &ATTR_BUFFER_BINDING,
+            Box::new(BufferBindingAttr::new(buffer_pos, ext_meta_pos)),
+        );
 
-        arg_types.insert(id, ty.into());
-        let new_func_ty = FunctionType::get(ctx, arg_types, vec![]);
-        state
-            .entry_func
-            .set_attr_func_type(ctx, TypeAttr::new(new_func_ty.into()));
-
-        let entry_block = state.entry_func.get_entry_block(ctx).deref(ctx);
-        entry_block.get_argument(id)
+        entry_func.get_entry_block(ctx).deref(ctx).get_argument(id)
     }
 
     /// Obtain the index-th tensor map
-    pub fn tensor_map(&self, id: usize) -> Value {
-        let ctx = self.ctx_mut();
-        let state = self.state_mut();
+    pub fn tensor_map(&self) -> Value {
+        let entry_func = self.state().entry_func;
+        let ctx = self.ctx();
         let ty = TensorMapType::get(ctx);
-        let mut arg_types = {
-            let current_func_ty = state.entry_func.get_type(ctx).deref(ctx);
-            let current_func_ty = current_func_ty.downcast_ref::<FunctionType>().unwrap();
-            current_func_ty.arg_types()
-        };
 
-        arg_types.insert(id, ty.into());
-        let new_func_ty = FunctionType::get(ctx, arg_types, vec![]);
-        state
-            .entry_func
-            .set_attr_func_type(ctx, TypeAttr::new(new_func_ty.into()));
-        let entry_block = state.entry_func.get_entry_block(ctx).deref(ctx);
-        entry_block.get_argument(id)
+        let id = entry_func.push_argument(ctx, ty.to_handle());
+        entry_func.get_entry_block(ctx).deref(ctx).get_argument(id)
+    }
+
+    pub fn kernel_arg(&self, idx: usize) -> Value {
+        let entry_block = self.state().entry_func.get_entry_block(self.ctx());
+        entry_block.deref(self.ctx()).get_argument(idx)
     }
 
     pub fn extract_field(&self, aggregate: Value, field: usize) -> Value {
         let ctx = self.ctx_mut();
-        let op = AggregateExtractOp::new(ctx, aggregate, field.into());
+        let op = AggregateExtractOp::new(ctx, aggregate, field);
         self.register(&op);
         op.get_result(ctx)
     }
@@ -441,12 +541,19 @@ impl Scope {
         self.register(&op);
         op.get_result(self.ctx())
     }
+
+    pub fn into_context(self) -> Option<Context> {
+        match self.ctx {
+            CtxHandle::Rc(ctx) => Some(Rc::into_inner(ctx)?.into_inner()),
+            CtxHandle::Ref(_) => None,
+        }
+    }
 }
 
 impl Display for Scope {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let ctx = self.ctx();
-        let state = ctx.global_state();
+        let state = self.state();
         write!(f, "{}", state.module.disp(ctx))
     }
 }

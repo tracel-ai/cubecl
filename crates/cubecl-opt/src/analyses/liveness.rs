@@ -1,231 +1,162 @@
-use alloc::collections::vec_deque::VecDeque;
-use cubecl_ir::{AddressSpace, Id, Value, ValueKind};
-use hashbrown::{HashMap, HashSet};
-use petgraph::graph::NodeIndex;
+use hashbrown::HashMap;
 
-use crate::{Function, GlobalState, analyses::post_order::PostOrder};
+// pub struct Liveness {
+//     live_vars: HashMap<NodeIndex, HashSet<Id>>,
+// }
 
-use super::Analysis;
+// #[derive(Clone)]
+// struct BlockSets {
+//     generated: HashSet<Id>,
+//     kill: HashSet<Id>,
+// }
 
-type LivePredicate = fn(&Function, &Value) -> Option<Id>;
+// struct State {
+//     worklist: VecDeque<NodeIndex>,
+//     block_sets: HashMap<NodeIndex, BlockSets>,
+// }
 
-pub struct Liveness {
-    live_vars: HashMap<NodeIndex, HashSet<Id>>,
-}
+// impl Analysis for Liveness {
+//     fn init(func: &mut Function, state: &GlobalState) -> Self {
+//         let mut this = Self::empty(func);
+//         this.analyze_liveness(func, state);
+//         this
+//     }
+// }
 
-#[derive(Debug, Clone)]
-struct BlockSets {
-    generated: HashSet<Id>,
-    kill: HashSet<Id>,
-}
+// impl Liveness {
+//     pub fn empty(func: &Function) -> Self {
+//         let live_vars = func
+//             .node_ids()
+//             .iter()
+//             .map(|it| (*it, HashSet::new()))
+//             .collect();
+//         Self { live_vars }
+//     }
 
-struct State {
-    worklist: VecDeque<NodeIndex>,
-    block_sets: HashMap<NodeIndex, BlockSets>,
-}
+//     pub fn at_block(&self, block: NodeIndex) -> &HashSet<Id> {
+//         &self.live_vars[&block]
+//     }
 
-impl Analysis for Liveness {
-    fn init(func: &mut Function, state: &GlobalState) -> Self {
-        Self {
-            live_vars: compute_liveness(func, state, Function::local_variable_id),
-        }
-    }
-}
+//     pub fn is_dead(&self, node: NodeIndex, var: Id) -> bool {
+//         !self.at_block(node).contains(&var)
+//     }
 
-impl Liveness {
-    pub fn empty(func: &Function) -> Self {
-        let live_vars = func
-            .node_ids()
-            .iter()
-            .map(|it| (*it, HashSet::new()))
-            .collect();
-        Self { live_vars }
-    }
+//     /// Do a conservative block level liveness analysis
+//     pub fn analyze_liveness(&mut self, func: &mut Function, global_state: &GlobalState) {
+//         let mut state = State {
+//             worklist: VecDeque::from(func.analysis::<PostOrder>(global_state).forward()),
+//             block_sets: HashMap::new(),
+//         };
+//         while let Some(block) = state.worklist.pop_front() {
+//             self.analyze_block(func, global_state, block, &mut state);
+//         }
+//     }
 
-    pub fn at_block(&self, block: NodeIndex) -> &HashSet<Id> {
-        &self.live_vars[&block]
-    }
+//     fn analyze_block(
+//         &mut self,
+//         func: &mut Function,
+//         global_state: &GlobalState,
+//         block: NodeIndex,
+//         state: &mut State,
+//     ) {
+//         let BlockSets { generated, kill } = block_sets(func, global_state, block, state);
 
-    pub fn is_dead(&self, node: NodeIndex, var: Id) -> bool {
-        !self.at_block(node).contains(&var)
-    }
-}
+//         let mut live_vars = generated.clone();
 
-/// Block level liveness over all non-atomic local memories, including non-destructurable ones such
-/// as arrays.
-///
-/// [`Liveness`] only tracks destructurable locals (those that get promoted to SSA registers and
-/// phi nodes). Backends that keep local memory as actual allocations and need to free it when it
-/// dies (e.g. the CPU backend) must also track non-destructurable locals, which this analysis does.
-pub struct MemoryLiveness {
-    live_vars: HashMap<NodeIndex, HashSet<Id>>,
-}
+//         for successor in func.successors(block) {
+//             let successor = &self.live_vars[&successor];
+//             live_vars.extend(successor.difference(kill));
+//         }
 
-impl Analysis for MemoryLiveness {
-    fn init(func: &mut Function, state: &GlobalState) -> Self {
-        Self {
-            live_vars: compute_liveness(func, state, Function::local_memory_id),
-        }
-    }
-}
+//         if live_vars != self.live_vars[&block] {
+//             state.worklist.extend(func.predecessors(block));
+//             self.live_vars.insert(block, live_vars);
+//         }
+//     }
+// }
 
-impl MemoryLiveness {
-    pub fn empty(func: &Function) -> Self {
-        let live_vars = func
-            .node_ids()
-            .iter()
-            .map(|it| (*it, HashSet::new()))
-            .collect();
-        Self { live_vars }
-    }
+// fn block_sets<'a>(
+//     func: &mut Function,
+//     global_state: &GlobalState,
+//     block: NodeIndex,
+//     state: &'a mut State,
+// ) -> &'a BlockSets {
+//     let block_sets = state.block_sets.entry(block);
+//     block_sets.or_insert_with(|| calculate_block_sets(func, global_state, block))
+// }
 
-    pub fn at_block(&self, block: NodeIndex) -> &HashSet<Id> {
-        &self.live_vars[&block]
-    }
+// fn calculate_block_sets(func: &mut Function, state: &GlobalState, block: NodeIndex) -> BlockSets {
+//     let mut generated = HashSet::new();
+//     let mut kill = HashSet::new();
 
-    pub fn is_dead(&self, node: NodeIndex, var: Id) -> bool {
-        !self.at_block(node).contains(&var)
-    }
-}
+//     let ops = func[block].ops.clone();
 
-/// Do a conservative block level liveness analysis, tracking the variables selected by `pred`.
-fn compute_liveness(
-    func: &mut Function,
-    global_state: &GlobalState,
-    pred: LivePredicate,
-) -> HashMap<NodeIndex, HashSet<Id>> {
-    let mut live_vars: HashMap<NodeIndex, HashSet<Id>> = func
-        .node_ids()
-        .iter()
-        .map(|it| (*it, HashSet::new()))
-        .collect();
-    let mut state = State {
-        worklist: VecDeque::from(func.analysis::<PostOrder>(global_state).forward()),
-        block_sets: HashMap::new(),
-    };
-    while let Some(block) = state.worklist.pop_front() {
-        analyze_block(func, global_state, block, &mut state, &mut live_vars, pred);
-    }
-    live_vars
-}
+//     let control_flow = func[block].control_flow.clone();
+//     func.visit_control_flow(&mut control_flow.borrow_mut(), |func, val| {
+//         if let Some(id) = func.local_variable_id(val) {
+//             generated.insert(id);
+//         }
+//     });
+//     let mut ops = ops.borrow().clone();
+//     for op in ops.values_mut().rev() {
+//         // Reads must be tracked after writes
+//         func.visit_out(&mut op.out, |func, val| {
+//             if let Some(id) = func.local_variable_id(val) {
+//                 kill.insert(id);
+//                 generated.remove(&id);
+//             }
+//         });
+//         func.visit_operation(state, &mut op.operation, |func, val| {
+//             if let Some(id) = func.local_variable_id(val) {
+//                 generated.insert(id);
+//             }
+//         });
+//     }
 
-fn analyze_block(
-    func: &mut Function,
-    global_state: &GlobalState,
-    block: NodeIndex,
-    state: &mut State,
-    live_vars: &mut HashMap<NodeIndex, HashSet<Id>>,
-    pred: LivePredicate,
-) {
-    let BlockSets { generated, kill } = block_sets(func, global_state, block, state, pred);
+//     BlockSets { generated, kill }
+// }
 
-    let mut block_live = generated.clone();
-
-    for successor in func.successors(block) {
-        let successor = &live_vars[&successor];
-        block_live.extend(successor.difference(kill));
-    }
-
-    if block_live != live_vars[&block] {
-        state.worklist.extend(func.predecessors(block));
-        live_vars.insert(block, block_live);
-    }
-}
-
-fn block_sets<'a>(
-    func: &mut Function,
-    global_state: &GlobalState,
-    block: NodeIndex,
-    state: &'a mut State,
-    pred: LivePredicate,
-) -> &'a BlockSets {
-    let block_sets = state.block_sets.entry(block);
-    block_sets.or_insert_with(|| calculate_block_sets(func, global_state, block, pred))
-}
-
-fn calculate_block_sets(
-    func: &mut Function,
-    state: &GlobalState,
-    block: NodeIndex,
-    pred: LivePredicate,
-) -> BlockSets {
-    let mut generated = HashSet::new();
-    let mut kill = HashSet::new();
-
-    let ops = func[block].ops.clone();
-
-    let control_flow = func[block].control_flow.clone();
-    func.visit_control_flow(&mut control_flow.borrow_mut(), |func, val| {
-        if let Some(id) = pred(func, val) {
-            generated.insert(id);
-        }
-    });
-    let mut ops = ops.borrow().clone();
-    for op in ops.values_mut().rev() {
-        // Reads must be tracked after writes
-        func.visit_out(&mut op.out, |func, val| {
-            if let Some(id) = pred(func, val) {
-                kill.insert(id);
-                generated.remove(&id);
-            }
-        });
-        func.visit_operation(state, &mut op.operation, |func, val| {
-            if let Some(id) = pred(func, val) {
-                generated.insert(id);
-            }
-        });
-    }
-
-    BlockSets { generated, kill }
-}
-
-impl Function {
-    /// Gets the `id` of the variable if it's a destructurable `Local` and not atomic, `None`
-    /// otherwise.
-    pub fn local_variable_id(&self, value: &Value) -> Option<Id> {
-        match value.kind {
-            ValueKind::Value { id } if self.destructurable_local_memories().contains_key(&id) => {
-                Some(id)
-            }
-            _ => None,
-        }
-    }
-
-    /// Gets the `id` of the variable if it's a `Local` memory and not atomic, `None` otherwise.
-    ///
-    /// Unlike [`Function::local_variable_id`], this includes non-destructurable locals such as
-    /// arrays, so it can be used by backends that allocate and free those memories.
-    pub fn local_memory_id(&self, value: &Value) -> Option<Id> {
-        match value.kind {
-            ValueKind::Value { id } => match self.memories.get(&id) {
-                Some(mem)
-                    if matches!(mem.address_space, AddressSpace::Local)
-                        && !mem.value_ty.is_atomic() =>
-                {
-                    Some(id)
-                }
-                _ => None,
-            },
-            _ => None,
-        }
-    }
-}
+// impl Function {
+//     /// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.
+//     pub fn local_variable_id(&self, value: &ExpandValue) -> Option<Id> {
+//         match value.kind {
+//             ValueKind::Value { id } if self.destructurable_local_memories().contains_key(&id) => {
+//                 Some(id)
+//             }
+//             _ => None,
+//         }
+//     }
+// }
 
 /// Shared memory liveness analysis and allocation
 pub mod shared {
-    use alloc::vec::Vec;
-    use cubecl_ir::{AddressSpace, ExpandValue, Marker, Operation, Type, ValueKind};
+    use core::any::type_name;
 
-    use crate::{MemoryBlock, Uniformity};
+    use alloc::vec::Vec;
+    use cubecl_ir::{
+        AddressSpace,
+        dialect::memory::DeclareVariableOp,
+        prelude::{Context, OneResultInterface, Operation, Ptr, Result},
+    };
+    use pliron::{
+        builtin::attr_interfaces::TypedAttrInterface,
+        graph::walkers::{
+            IRNode, WALKCONFIG_PREORDER_FORWARD, uninterruptible::immutable::walk_op,
+        },
+        pass_manager::{Analysis, AnalysisManager},
+        value::Value,
+    };
+
+    use crate::MemoryResource;
 
     use super::*;
 
     /// A specific allocation of shared memory at some `offset`
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct SmemAllocation {
-        pub id: Id,
+        pub value: Value,
         /// The shared memory being allocated
-        pub smem: MemoryBlock,
+        pub smem: MemoryResource,
         /// The offset in the shared memory buffer
         pub offset: usize,
     }
@@ -239,90 +170,132 @@ pub mod shared {
     /// ensuring no shared memories that exist at the same time can overlap.
     #[derive(Default, Clone)]
     pub struct SharedLiveness {
-        live_vars: HashMap<NodeIndex, HashSet<Id>>,
         /// Map of all shared memories by their ID. Populated during the first pass with all
         /// accessed shared memories.
-        pub shared_memories: HashMap<Id, MemoryBlock>,
+        pub shared_memories: HashMap<Value, MemoryResource>,
         /// Map of allocations for each shared memory by its ID. Populated after the analysis, and
         /// should contain all memories from `shared_memories`.
-        pub allocations: HashMap<Id, SmemAllocation>,
+        pub allocations: HashMap<Value, SmemAllocation>,
     }
 
     impl Analysis for SharedLiveness {
-        fn init(func: &mut Function, state: &GlobalState) -> Self {
-            let mut this = Self::empty(func);
-            this.analyze_liveness(func, state);
-            this.uniformize_liveness(func, state);
-            this.allocate_slices(func);
-            this
+        fn name(&self) -> &str {
+            type_name::<Self>()
+        }
+
+        fn compute(
+            op: Ptr<Operation>,
+            ctx: &Context,
+            _analyses: &mut AnalysisManager,
+        ) -> Result<Self>
+        where
+            Self: Sized,
+        {
+            let mut state = Self::default();
+            walk_op(
+                ctx,
+                &mut state,
+                &WALKCONFIG_PREORDER_FORWARD,
+                op,
+                |ctx, state, node| {
+                    if let IRNode::Operation(op) = node {
+                        let op_dyn = Operation::get_op_dyn(op, ctx);
+                        if let Some(declare) = op_dyn.downcast_ref::<DeclareVariableOp>()
+                            && declare.get_attr_addr_space(ctx).unwrap().0 == AddressSpace::Shared
+                        {
+                            let root_ptr = declare.get_result(ctx);
+                            let smem = MemoryResource {
+                                address_space: AddressSpace::Shared,
+                                value_ty: declare.get_attr_value_ty(ctx).unwrap().get_type(ctx),
+                                alignment: declare.get_attr_alignment(ctx).unwrap().0,
+                                root_ptr,
+                            };
+                            state.shared_memories.insert(root_ptr, smem);
+                            if !state.allocations.contains_key(&root_ptr) {
+                                let offset =
+                                    state.allocate_slice(ctx, smem.size(ctx), smem.alignment);
+                                state.allocations.insert(
+                                    root_ptr,
+                                    SmemAllocation {
+                                        value: root_ptr,
+                                        smem,
+                                        offset,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                },
+            );
+            Ok(state)
         }
     }
 
     impl SharedLiveness {
-        pub fn empty(func: &Function) -> Self {
-            let live_vars = func
-                .node_ids()
-                .iter()
-                .map(|it| (*it, HashSet::new()))
-                .collect();
-            Self {
-                live_vars,
-                shared_memories: Default::default(),
-                allocations: Default::default(),
-            }
-        }
+        // pub fn empty(func: &Function) -> Self {
+        //     let live_vars = func
+        //         .node_ids()
+        //         .iter()
+        //         .map(|it| (*it, HashSet::new()))
+        //         .collect();
+        //     Self {
+        //         live_vars,
+        //         shared_memories: Default::default(),
+        //         allocations: Default::default(),
+        //     }
+        // }
 
-        pub fn at_block(&self, block: NodeIndex) -> &HashSet<Id> {
-            &self.live_vars[&block]
-        }
+        // pub fn at_block(&self, block: NodeIndex) -> &HashSet<Id> {
+        //     &self.live_vars[&block]
+        // }
 
-        fn is_live(&self, node: NodeIndex, var: Id) -> bool {
-            self.at_block(node).contains(&var)
-        }
+        // fn is_live(&self, _value: Value) -> bool {
+        //     true
+        // }
 
-        /// Do a conservative block level liveness analysis
-        fn analyze_liveness(&mut self, func: &mut Function, global_state: &GlobalState) {
-            let mut state = State {
-                worklist: VecDeque::from(func.analysis::<PostOrder>(global_state).reverse()),
-                block_sets: HashMap::new(),
-            };
-            while let Some(block) = state.worklist.pop_front() {
-                self.analyze_block(func, global_state, block, &mut state);
-            }
-        }
+        // /// Do a conservative block level liveness analysis
+        // fn analyze_liveness(&mut self, func: &mut Function, global_state: &GlobalState) {
+        //     let mut state = State {
+        //         worklist: VecDeque::from(func.analysis::<PostOrder>(global_state).reverse()),
+        //         block_sets: HashMap::new(),
+        //     };
+        //     while let Some(block) = state.worklist.pop_front() {
+        //         self.analyze_block(func, global_state, block, &mut state);
+        //     }
+        // }
 
-        /// Extend divergent liveness to the preceding uniform block. Shared memory is always
-        /// uniformly declared, so it must be allocated before the branch.
-        fn uniformize_liveness(&mut self, func: &mut Function, global_state: &GlobalState) {
-            let mut state = State {
-                worklist: VecDeque::from(func.analysis::<PostOrder>(global_state).forward()),
-                block_sets: HashMap::new(),
-            };
-            while let Some(block) = state.worklist.pop_front() {
-                self.uniformize_block(func, global_state, block, &mut state);
-            }
-        }
+        // /// Extend divergent liveness to the preceding uniform block. Shared memory is always
+        // /// uniformly declared, so it must be allocated before the branch.
+        // fn uniformize_liveness(&mut self, func: &mut Function, global_state: &GlobalState) {
+        //     let mut state = State {
+        //         worklist: VecDeque::from(func.analysis::<PostOrder>(global_state).forward()),
+        //         block_sets: HashMap::new(),
+        //     };
+        //     while let Some(block) = state.worklist.pop_front() {
+        //         self.uniformize_block(func, global_state, block, &mut state);
+        //     }
+        // }
 
-        /// Allocate slices while ensuring no concurrent shared memory slices overlap.
-        /// See also [`allocate_slice`]
-        fn allocate_slices(&mut self, func: &mut Function) {
-            for block in func.node_ids() {
-                for live_smem in self.at_block(block).clone() {
-                    if !self.allocations.contains_key(&live_smem) {
-                        let smem = self.shared_memories[&live_smem];
-                        let offset = self.allocate_slice(block, smem.size(), smem.alignment);
-                        self.allocations.insert(
-                            live_smem,
-                            SmemAllocation {
-                                id: live_smem,
-                                smem,
-                                offset,
-                            },
-                        );
-                    }
-                }
-            }
-        }
+        // /// Allocate slices while ensuring no concurrent shared memory slices overlap.
+        // /// See also [`allocate_slice`]
+        // fn allocate_slices(&mut self, func: &mut Function) {
+        //     for block in func.node_ids() {
+        //         for live_smem in self.at_block(block).clone() {
+        //             if !self.allocations.contains_key(&live_smem) {
+        //                 let smem = self.shared_memories[&live_smem];
+        //                 let offset = self.allocate_slice(block, smem.size(), smem.alignment);
+        //                 self.allocations.insert(
+        //                     live_smem,
+        //                     SmemAllocation {
+        //                         id: live_smem,
+        //                         smem,
+        //                         offset,
+        //                     },
+        //                 );
+        //             }
+        //         }
+        //     }
+        // }
 
         /// Finds a valid offset for a specific slice, taking into account ranges that are already
         /// in use.
@@ -332,8 +305,8 @@ pub mod shared {
         /// for offline allocations where we know all allocations beforehand, but should be good
         /// enough for our current purposes. It may produce larger-than-required allocations in
         /// some cases. Optimal allocation would require a far more complex algorithm.
-        fn allocate_slice(&mut self, block: NodeIndex, size: usize, align: usize) -> usize {
-            let live_slices = self.live_slices(block);
+        fn allocate_slice(&mut self, ctx: &Context, size: usize, align: usize) -> usize {
+            let live_slices = self.allocations.values().collect::<Vec<_>>();
             if live_slices.is_empty() {
                 return 0;
             }
@@ -341,255 +314,240 @@ pub mod shared {
             for i in 0..live_slices.len() - 1 {
                 let slice_0 = &live_slices[i];
                 let slice_1 = &live_slices[i + 1];
-                let end_0 = (slice_0.offset + slice_0.smem.size()).next_multiple_of(align);
+                let end_0 = (slice_0.offset + slice_0.smem.size(ctx)).next_multiple_of(align);
                 let gap = slice_1.offset.saturating_sub(end_0);
                 if gap >= size {
                     return end_0;
                 }
             }
             let last_slice = &live_slices[live_slices.len() - 1];
-            (last_slice.offset + last_slice.smem.size()).next_multiple_of(align)
+            (last_slice.offset + last_slice.smem.size(ctx)).next_multiple_of(align)
         }
 
-        /// List of allocations that are currently live
-        fn live_slices(&mut self, block: NodeIndex) -> Vec<SmemAllocation> {
-            let mut live_slices = self
-                .allocations
-                .iter()
-                .filter(|(k, _)| self.is_live(block, **k))
-                .map(|it| *it.1)
-                .collect::<Vec<_>>();
-            live_slices.sort_by_key(|it| it.offset);
-            live_slices
-        }
+        // /// List of allocations that are currently live
+        // fn live_slices(&mut self, block: NodeIndex) -> Vec<SmemAllocation> {
+        //     let mut live_slices = self
+        //         .allocations
+        //         .iter()
+        //         .filter(|(k, _)| self.is_live(block, **k))
+        //         .map(|it| *it.1)
+        //         .collect::<Vec<_>>();
+        //     live_slices.sort_by_key(|it| it.offset);
+        //     live_slices
+        // }
 
-        fn analyze_block(
-            &mut self,
-            func: &mut Function,
-            global_state: &GlobalState,
-            block: NodeIndex,
-            state: &mut State,
-        ) {
-            let BlockSets { generated, kill } = self.block_sets(func, global_state, block, state);
+        // fn analyze_block(
+        //     &mut self,
+        //     func: &mut Function,
+        //     global_state: &GlobalState,
+        //     block: NodeIndex,
+        //     state: &mut State,
+        // ) {
+        //     let BlockSets { generated, kill } = self.block_sets(func, global_state, block, state);
 
-            let mut live_vars = generated.clone();
+        //     let mut live_vars = generated.clone();
 
-            for predecessor in func.predecessors(block) {
-                let predecessor = &self.live_vars[&predecessor];
-                live_vars.extend(predecessor.difference(kill));
-            }
+        //     for predecessor in func.predecessors(block) {
+        //         let predecessor = &self.live_vars[&predecessor];
+        //         live_vars.extend(predecessor.difference(kill));
+        //     }
 
-            if live_vars != self.live_vars[&block] {
-                state.worklist.extend(func.successors(block));
-                self.live_vars.insert(block, live_vars);
-            }
-        }
+        //     if live_vars != self.live_vars[&block] {
+        //         state.worklist.extend(func.successors(block));
+        //         self.live_vars.insert(block, live_vars);
+        //     }
+        // }
 
-        fn uniformize_block(
-            &mut self,
-            func: &mut Function,
-            global_state: &GlobalState,
-            block: NodeIndex,
-            state: &mut State,
-        ) {
-            let mut live_vars = self.live_vars[&block].clone();
-            let uniformity = func.analysis::<Uniformity>(global_state);
+        // fn uniformize_block(
+        //     &mut self,
+        //     func: &mut Function,
+        //     global_state: &GlobalState,
+        //     block: NodeIndex,
+        //     state: &mut State,
+        // ) {
+        //     let mut live_vars = self.live_vars[&block].clone();
+        //     let uniformity = func.analysis::<Uniformity>(global_state);
 
-            for successor in func.successors(block) {
-                if !uniformity.is_block_uniform(successor) {
-                    let successor = &self.live_vars[&successor];
-                    live_vars.extend(successor);
-                }
-            }
+        //     for successor in func.successors(block) {
+        //         if !uniformity.is_block_uniform(successor) {
+        //             let successor = &self.live_vars[&successor];
+        //             live_vars.extend(successor);
+        //         }
+        //     }
 
-            if live_vars != self.live_vars[&block] {
-                state.worklist.extend(func.predecessors(block));
-                self.live_vars.insert(block, live_vars);
-            }
-        }
+        //     if live_vars != self.live_vars[&block] {
+        //         state.worklist.extend(func.predecessors(block));
+        //         self.live_vars.insert(block, live_vars);
+        //     }
+        // }
 
-        fn block_sets<'a>(
-            &mut self,
-            func: &mut Function,
-            global_state: &GlobalState,
-            block: NodeIndex,
-            state: &'a mut State,
-        ) -> &'a BlockSets {
-            let block_sets = state.block_sets.entry(block);
-            block_sets.or_insert_with(|| self.calculate_block_sets(func, global_state, block))
-        }
+        // fn block_sets<'a>(
+        //     &mut self,
+        //     func: &mut Function,
+        //     global_state: &GlobalState,
+        //     block: NodeIndex,
+        //     state: &'a mut State,
+        // ) -> &'a BlockSets {
+        //     let block_sets = state.block_sets.entry(block);
+        //     block_sets.or_insert_with(|| self.calculate_block_sets(func, global_state, block))
+        // }
 
-        /// Any use makes a shared memory live (`generated`), while `free` kills it (`kill`).
-        /// Also collects all shared memories into a map.
-        fn calculate_block_sets(
-            &mut self,
-            func: &mut Function,
-            state: &GlobalState,
-            block: NodeIndex,
-        ) -> BlockSets {
-            let mut generated = HashSet::new();
-            let mut kill = HashSet::new();
+        // /// Any use makes a shared memory live (`generated`), while `free` kills it (`kill`).
+        // /// Also collects all shared memories into a map.
+        // fn calculate_block_sets(
+        //     &mut self,
+        //     func: &mut Function,
+        //     state: &GlobalState,
+        //     block: NodeIndex,
+        // ) -> BlockSets {
+        //     let mut generated = HashSet::new();
+        //     let mut kill = HashSet::new();
 
-            let ops = func[block].ops.clone();
+        //     let ops = func[block].ops.clone();
 
-            for op in ops.borrow_mut().values_mut() {
-                func.visit_out(&mut op.out, |func, var| {
-                    if let Some((id, smem)) = shared_memory(func, var) {
-                        generated.insert(id);
-                        self.shared_memories.insert(id, smem);
-                    }
-                });
-                func.visit_operation(state, &mut op.operation, |func, var| {
-                    if let Some((id, smem)) = shared_memory(func, var) {
-                        generated.insert(id);
-                        self.shared_memories.insert(id, smem);
-                    }
-                });
+        //     for op in ops.borrow_mut().values_mut() {
+        //         func.visit_out(&mut op.out, |func, var| {
+        //             if let Some((id, smem)) = shared_memory(func, var) {
+        //                 generated.insert(id);
+        //                 self.shared_memories.insert(id, smem);
+        //             }
+        //         });
+        //         func.visit_operation(state, &mut op.operation, |func, var| {
+        //             if let Some((id, smem)) = shared_memory(func, var) {
+        //                 generated.insert(id);
+        //                 self.shared_memories.insert(id, smem);
+        //             }
+        //         });
 
-                if let Operation::Marker(Marker::Free(ExpandValue {
-                    ty: Type::Pointer(_, AddressSpace::Shared),
-                    kind: ValueKind::Value { id, .. },
-                    ..
-                })) = &op.operation
-                {
-                    kill.insert(*id);
-                    generated.remove(id);
-                }
-            }
+        //         if let Operation::Marker(Marker::Free(ExpandValue {
+        //             ty: Type::Pointer(_, AddressSpace::Shared),
+        //             kind: ValueKind::Value { id, .. },
+        //             ..
+        //         })) = &op.operation
+        //         {
+        //             kill.insert(*id);
+        //             generated.remove(id);
+        //         }
+        //     }
 
-            BlockSets { generated, kill }
-        }
-    }
-
-    fn shared_memory(func: &Function, var: &ExpandValue) -> Option<(Id, MemoryBlock)> {
-        match var.kind {
-            ValueKind::Value { id } => {
-                if let Some(mem) = func.memories.get(&id)
-                    && matches!(mem.address_space, AddressSpace::Shared)
-                {
-                    Some((id, *mem))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
+        //     BlockSets { generated, kill }
+        // }
     }
 }
 
-mod captures {
-    use cubecl_ir::ExpandValue;
+// mod captures {
+//     use cubecl_ir::ExpandValue;
 
-    use super::*;
+//     use super::*;
 
-    pub struct Captures {
-        live_vars: HashMap<NodeIndex, HashSet<ExpandValue>>,
-    }
+//     pub struct Captures {
+//         live_vars: HashMap<NodeIndex, HashSet<ExpandValue>>,
+//     }
 
-    #[derive(Clone)]
-    struct BlockSets {
-        generated: HashSet<ExpandValue>,
-        kill: HashSet<ExpandValue>,
-    }
+//     #[derive(Clone)]
+//     struct BlockSets {
+//         generated: HashSet<ExpandValue>,
+//         kill: HashSet<ExpandValue>,
+//     }
 
-    struct State {
-        worklist: VecDeque<NodeIndex>,
-        block_sets: HashMap<NodeIndex, BlockSets>,
-    }
+//     struct State {
+//         worklist: VecDeque<NodeIndex>,
+//         block_sets: HashMap<NodeIndex, BlockSets>,
+//     }
 
-    impl Analysis for Captures {
-        fn init(func: &mut Function, state: &GlobalState) -> Self {
-            let mut this = Self::empty(func);
-            this.analyze_liveness(func, state);
-            this
-        }
-    }
+//     impl Analysis for Captures {
+//         fn init(func: &mut Function, state: &GlobalState) -> Self {
+//             let mut this = Self::empty(func);
+//             this.analyze_liveness(func, state);
+//             this
+//         }
+//     }
 
-    impl Captures {
-        pub fn empty(func: &Function) -> Self {
-            let live_vars = func
-                .node_ids()
-                .iter()
-                .map(|it| (*it, HashSet::new()))
-                .collect();
-            Self { live_vars }
-        }
+//     impl Captures {
+//         pub fn empty(func: &Function) -> Self {
+//             let live_vars = func
+//                 .node_ids()
+//                 .iter()
+//                 .map(|it| (*it, HashSet::new()))
+//                 .collect();
+//             Self { live_vars }
+//         }
 
-        pub fn at_block(&self, block: NodeIndex) -> &HashSet<ExpandValue> {
-            &self.live_vars[&block]
-        }
+//         pub fn at_block(&self, block: NodeIndex) -> &HashSet<ExpandValue> {
+//             &self.live_vars[&block]
+//         }
 
-        /// Do a conservative block level liveness analysis
-        pub fn analyze_liveness(&mut self, func: &mut Function, global_state: &GlobalState) {
-            let mut state = State {
-                worklist: VecDeque::from(func.analysis::<PostOrder>(global_state).forward()),
-                block_sets: HashMap::new(),
-            };
-            while let Some(block) = state.worklist.pop_front() {
-                self.analyze_block(func, global_state, block, &mut state);
-            }
-        }
+//         /// Do a conservative block level liveness analysis
+//         pub fn analyze_liveness(&mut self, func: &mut Function, global_state: &GlobalState) {
+//             let mut state = State {
+//                 worklist: VecDeque::from(func.analysis::<PostOrder>(global_state).forward()),
+//                 block_sets: HashMap::new(),
+//             };
+//             while let Some(block) = state.worklist.pop_front() {
+//                 self.analyze_block(func, global_state, block, &mut state);
+//             }
+//         }
 
-        fn analyze_block(
-            &mut self,
-            func: &mut Function,
-            global_state: &GlobalState,
-            block: NodeIndex,
-            state: &mut State,
-        ) {
-            let BlockSets { generated, kill } = block_sets(func, global_state, block, state);
+//         fn analyze_block(
+//             &mut self,
+//             func: &mut Function,
+//             global_state: &GlobalState,
+//             block: NodeIndex,
+//             state: &mut State,
+//         ) {
+//             let BlockSets { generated, kill } = block_sets(func, global_state, block, state);
 
-            let mut live_vars = generated.clone();
+//             let mut live_vars = generated.clone();
 
-            for successor in func.successors(block) {
-                let successor = &self.live_vars[&successor];
-                live_vars.extend(successor.difference(kill));
-            }
+//             for successor in func.successors(block) {
+//                 let successor = &self.live_vars[&successor];
+//                 live_vars.extend(successor.difference(kill));
+//             }
 
-            if live_vars != self.live_vars[&block] {
-                state.worklist.extend(func.predecessors(block));
-                self.live_vars.insert(block, live_vars);
-            }
-        }
-    }
+//             if live_vars != self.live_vars[&block] {
+//                 state.worklist.extend(func.predecessors(block));
+//                 self.live_vars.insert(block, live_vars);
+//             }
+//         }
+//     }
 
-    fn block_sets<'a>(
-        func: &mut Function,
-        global_state: &GlobalState,
-        block: NodeIndex,
-        state: &'a mut State,
-    ) -> &'a BlockSets {
-        let block_sets = state.block_sets.entry(block);
-        block_sets.or_insert_with(|| calculate_block_sets(func, global_state, block))
-    }
+//     fn block_sets<'a>(
+//         func: &mut Function,
+//         global_state: &GlobalState,
+//         block: NodeIndex,
+//         state: &'a mut State,
+//     ) -> &'a BlockSets {
+//         let block_sets = state.block_sets.entry(block);
+//         block_sets.or_insert_with(|| calculate_block_sets(func, global_state, block))
+//     }
 
-    fn calculate_block_sets(
-        func: &mut Function,
-        state: &GlobalState,
-        block: NodeIndex,
-    ) -> BlockSets {
-        let mut generated = HashSet::new();
-        let mut kill = HashSet::new();
+//     fn calculate_block_sets(
+//         func: &mut Function,
+//         state: &GlobalState,
+//         block: NodeIndex,
+//     ) -> BlockSets {
+//         let mut generated = HashSet::new();
+//         let mut kill = HashSet::new();
 
-        let ops = func[block].ops.clone();
+//         let ops = func[block].ops.clone();
 
-        let control_flow = func[block].control_flow.clone();
-        func.visit_control_flow(&mut control_flow.borrow_mut(), |_, var| {
-            generated.insert(*var);
-        });
-        for inst in ops.borrow_mut().values_mut().rev() {
-            // Reads must be tracked after writes
-            func.visit_out(&mut inst.out, |_, var| {
-                kill.insert(*var);
-                generated.remove(var);
-            });
-            func.visit_operation(state, &mut inst.operation, |_, var| {
-                generated.insert(*var);
-            });
-        }
+//         let control_flow = func[block].control_flow.clone();
+//         func.visit_control_flow(&mut control_flow.borrow_mut(), |_, var| {
+//             generated.insert(*var);
+//         });
+//         for inst in ops.borrow_mut().values_mut().rev() {
+//             // Reads must be tracked after writes
+//             func.visit_out(&mut inst.out, |_, var| {
+//                 kill.insert(*var);
+//                 generated.remove(var);
+//             });
+//             func.visit_operation(state, &mut inst.operation, |_, var| {
+//                 generated.insert(*var);
+//             });
+//         }
 
-        BlockSets { generated, kill }
-    }
-}
+//         BlockSets { generated, kill }
+//     }
+// }
 
-pub use captures::Captures;
+// pub use captures::Captures;

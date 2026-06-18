@@ -1,16 +1,16 @@
 use cubecl_macros_internal::cube_op;
-use derive_more::From;
+use derive_more::{Deref, From};
 use derive_new::new;
 use pliron::{
     derive::{op_interface_impl, pliron_attr},
-    r#type::TypePtr,
+    r#type::TypedHandle,
 };
 
 use crate::{
     attributes::{BoolAttr, IndexAttr},
     dialect::synchronization::SyncScope,
     interfaces::{ReadsMemory, synchronizes},
-    pliron::prelude::*,
+    prelude::*,
     types::{
         MatrixShape,
         matrix::{MatrixLayout, MatrixType},
@@ -19,15 +19,15 @@ use crate::{
 };
 
 #[pliron_attr(name = "matrix.layout", format = "$0", verifier = "succ")]
-#[derive(new, From, PartialEq, Eq, Clone, Debug, Hash, PartialOrd, Ord)]
+#[derive(new, From, PartialEq, Eq, Clone, Debug, Hash, PartialOrd, Ord, Deref)]
 pub struct MatrixLayoutAttr(pub MatrixLayout);
 
 #[pliron_attr(name = "matrix.type", format = "$0", verifier = "succ")]
-#[derive(new, From, Debug, Clone, PartialEq, Eq)]
-pub struct MatrixTypeAttr(pub TypePtr<MatrixType>);
+#[derive(new, From, Debug, Clone, PartialEq, Eq, Deref)]
+pub struct MatrixTypeAttr(pub TypedHandle<MatrixType>);
 
 #[pliron_attr(name = "matrix.type", format = "$0", verifier = "succ")]
-#[derive(new, From, Debug, Clone, PartialEq, Eq)]
+#[derive(new, From, Debug, Clone, PartialEq, Eq, Deref)]
 pub struct MatrixShapeAttr(pub MatrixShape);
 
 /// Fill a matrix with a scalar value.
@@ -69,11 +69,11 @@ synchronizes!(StoreOp, SyncScope::Plane);
 #[cube_op(name = "matrix.multiply_accumulate")]
 #[result_ty(none)]
 pub struct MultiplyAccumulateOp {
-    mat_a: Value,
-    mat_b: Value,
-    mat_c: Value,
+    pub mat_a: Value,
+    pub mat_b: Value,
+    pub mat_c: Value,
     #[operand(ptr_write)]
-    mat_d: Value,
+    pub mat_d: Value,
 }
 synchronizes!(MultiplyAccumulateOp, SyncScope::Plane);
 
@@ -84,34 +84,34 @@ synchronizes!(MultiplyAccumulateOp, SyncScope::Plane);
 #[result_ty(none)]
 pub struct CastOp {
     #[operand(ptr_read)]
-    input: Value,
+    pub input: Value,
     #[operand(ptr_write)]
-    output: Value,
+    pub output: Value,
 }
 
 #[cube_op(name = "matrix.row_index")]
 #[result_ty(fixed = UIntType::get(ctx, 32).into())]
 pub struct RowIndexOp {
-    lane_id: Value,
-    i: Value,
-    matrix_ty: MatrixTypeAttr,
+    pub lane_id: Value,
+    pub i: Value,
+    pub matrix_ty: MatrixTypeAttr,
 }
 
 #[cube_op(name = "matrix.col_index")]
 #[result_ty(fixed = UIntType::get(ctx, 32).into())]
 pub struct ColIndexOp {
-    lane_id: Value,
-    i: Value,
-    matrix_ty: MatrixTypeAttr,
+    pub lane_id: Value,
+    pub i: Value,
+    pub matrix_ty: MatrixTypeAttr,
 }
 
 #[cube_op(name = "matrix.ldmatrix")]
 #[result_ty(none)]
 pub struct LdMatrixOp {
-    ptr: Value,
-    out_arr: Value,
-    factor: IndexAttr,
-    transpose: BoolAttr,
+    pub ptr: Value,
+    pub out_arr: Value,
+    pub factor: IndexAttr,
+    pub transpose: BoolAttr,
 }
 synchronizes!(LdMatrixOp, SyncScope::Plane);
 
@@ -125,36 +125,36 @@ impl ReadsMemory for LdMatrixOp {
 #[cube_op(name = "matrix.stmatrix")]
 #[result_ty(none)]
 pub struct StMatrixOp {
-    registers: Value,
+    pub registers: Value,
     #[operand(ptr_write)]
-    destination: Value,
-    factor: IndexAttr,
-    transpose: BoolAttr,
+    pub destination: Value,
+    pub factor: IndexAttr,
+    pub transpose: BoolAttr,
 }
 synchronizes!(StMatrixOp, SyncScope::Plane);
 
 #[cube_op(name = "matrix.mma_manual")]
 #[result_ty(none)]
 pub struct MmaManualOp {
-    registers_a: Value,
-    registers_b: Value,
-    registers_c: Value,
-    registers_d: Value,
-    shape: MatrixShapeAttr,
+    pub registers_a: Value,
+    pub registers_b: Value,
+    pub registers_c: Value,
+    pub registers_d: Value,
+    pub shape: MatrixShapeAttr,
 }
 synchronizes!(MmaManualOp, SyncScope::Plane);
 
 #[cube_op(name = "matrix.mma_manual_scaled")]
 #[result_ty(none)]
 pub struct MmaManualScaledOp {
-    registers_a: Value,
-    registers_b: Value,
-    registers_c: Value,
-    registers_d: Value,
-    scales_a: Value,
-    scales_b: Value,
-    scales_factor: IndexAttr,
-    shape: MatrixShapeAttr,
+    pub registers_a: Value,
+    pub registers_b: Value,
+    pub registers_c: Value,
+    pub registers_d: Value,
+    pub scales_a: Value,
+    pub scales_b: Value,
+    pub scales_factor: IndexAttr,
+    pub shape: MatrixShapeAttr,
 }
 synchronizes!(MmaManualScaledOp, SyncScope::Plane);
 
@@ -164,7 +164,7 @@ synchronizes!(MmaManualScaledOp, SyncScope::Plane);
 #[cube_op(name = "matrix.elementwise")]
 #[result_ty(none)]
 pub struct ElementwiseOp {
-    matrix_in: Value,
-    matrix_out: Value,
-    closure: IndexAttr,
+    pub matrix_in: Value,
+    pub matrix_out: Value,
+    pub closure: IndexAttr,
 }

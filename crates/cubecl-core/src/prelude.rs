@@ -1,6 +1,6 @@
 pub use crate::{
     CubeLaunch, CubeType, RuntimeArg,
-    codegen::{KernelExpansion, KernelIntegrator, KernelSettings},
+    codegen::{KernelExpansion, KernelIntegrator},
     comment, comptime, comptime_type,
     compute::{KernelBuilder, KernelLauncher},
     cube, derive_cube_comptime,
@@ -9,13 +9,16 @@ pub use crate::{
     terminate,
 };
 pub use cubecl_common::{flex32, format::type_name_short_sanitized, tf32};
-pub use cubecl_ir::{AddressType, FastMath, Scope, StorageType, Type, VectorSize};
+pub use cubecl_ir::{
+    AddressType, FastMath, Scope, StorageType, Type, VectorSize,
+    settings::{ExecutionMode, KernelSettings},
+};
 pub use cubecl_runtime::{
     client::ComputeClient,
     id::KernelId,
     kernel::*,
     runtime::Runtime,
-    server::{CubeCount, CubeDim, ExecutionMode, LaunchError},
+    server::{CubeCount, CubeDim, LaunchError},
 };
 
 pub use crate::io::{read_checked, write_checked};

@@ -19,10 +19,9 @@ workspace = true
 
 
 [features]
-default = ["serde", "std"]
+default = ["serde"]
 
 serde = ["dep:serde", "hashbrown/serde", "enumset/serde"]
-std = []
 
 tracing = ["cubecl-common/tracing"]
 

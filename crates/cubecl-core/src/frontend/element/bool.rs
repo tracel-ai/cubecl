@@ -1,8 +1,5 @@
-use cubecl_ir::{
-    ConstantValue, Scope, StorageType,
-    pliron::{context::Ptr, r#type::TypeObj},
-    types::scalar::BoolType,
-};
+use cubecl_ir::{ConstantValue, Scope, StorageType, types::scalar::BoolType};
+use pliron::r#type::TypeHandle;
 
 use crate::prelude::*;
 use crate::{ir::ElemType, prelude::Const};
@@ -46,7 +43,7 @@ impl CubePrimitive for bool {
         value
     }
 
-    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj> {
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
         BoolType::get(scope.ctx()).into()
     }
 }

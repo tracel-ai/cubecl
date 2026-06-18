@@ -34,8 +34,9 @@ use cubecl_common::{
     stream_id::StreamId,
     stub::RwLock,
 };
-use cubecl_ir::{DeviceProperties, ElemType, StorageType};
+use cubecl_ir::{DeviceProperties, ElemType, StorageType, settings::Dim3};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
+use derive_more::{Deref, DerefMut, From};
 use hashbrown::HashSet;
 use itertools::Itertools;
 use thiserror::Error;
@@ -423,7 +424,6 @@ where
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: KernelArguments,
-        kind: ExecutionMode,
         stream_id: StreamId,
     );
 
@@ -1133,18 +1133,11 @@ impl Clone for CubeCount {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, From, PartialEq, Eq, Clone, Copy, Hash, Deref, DerefMut)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 #[allow(missing_docs)]
 /// The number of units across all 3 axis totalling to the number of working units in a cube.
-pub struct CubeDim {
-    /// The number of units in the x axis.
-    pub x: u32,
-    /// The number of units in the y axis.
-    pub y: u32,
-    /// The number of units in the z axis.
-    pub z: u32,
-}
+pub struct CubeDim(pub Dim3);
 
 impl CubeDim {
     /// Creates a new [`CubeDim`] based on the maximum number of tasks that can be parellalized by units, in other words,
@@ -1192,33 +1185,33 @@ impl CubeDim {
 
     /// Create a new cube dim with x = y = z = 1.
     pub const fn new_single() -> Self {
-        Self { x: 1, y: 1, z: 1 }
+        Self(Dim3::new_single())
     }
 
     /// Create a new cube dim with the given x, and y = z = 1.
     pub const fn new_1d(x: u32) -> Self {
-        Self { x, y: 1, z: 1 }
+        Self(Dim3::new_1d(x))
     }
 
     /// Create a new cube dim with the given x and y, and z = 1.
     pub const fn new_2d(x: u32, y: u32) -> Self {
-        Self { x, y, z: 1 }
+        Self(Dim3::new_2d(x, y))
     }
 
     /// Create a new cube dim with the given x, y and z.
     /// This is equivalent to the [new](CubeDim::new) function.
     pub const fn new_3d(x: u32, y: u32, z: u32) -> Self {
-        Self { x, y, z }
+        Self(Dim3::new_3d(x, y, z))
     }
 
     /// Total numbers of units per cube
     pub const fn num_elems(&self) -> u32 {
-        self.x * self.y * self.z
+        self.0.num_elems()
     }
 
     /// Whether this `CubeDim` can fully contain `other`
     pub const fn can_contain(&self, other: CubeDim) -> bool {
-        self.x >= other.x && self.y >= other.y && self.z >= other.z
+        self.0.can_contain(other.0)
     }
 }
 
@@ -1234,17 +1227,10 @@ impl From<CubeDim> for (u32, u32, u32) {
     }
 }
 
-/// The kind of execution to be performed.
-#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
-pub enum ExecutionMode {
-    /// Checked kernels are safe.
-    #[default]
-    Checked,
-    /// Validate OOB and alert if OOB access occurs
-    Validate,
-    /// Unchecked kernels are unsafe.
-    Unchecked,
+impl From<CubeDim> for Dim3 {
+    fn from(value: CubeDim) -> Self {
+        value.0
+    }
 }
 
 fn cube_count_spread(max: &(u32, u32, u32), num_cubes: u32) -> [u32; 3] {

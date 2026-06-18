@@ -1,30 +1,46 @@
+use cubecl_core::ir::{
+    ElemType, FloatKind, IntKind, UIntKind,
+    interfaces::{ScalarType, TypedExt},
+    types::scalar::*,
+};
+use pliron::{
+    context::Context,
+    r#type::{Type, TypeHandle, type_cast},
+    value::Value,
+};
+
 use crate::{
-    Dialect,
-    shared::{Component, Elem, FP4Kind, FP6Kind, FP8Kind, Value},
+    cuda::mma::manual::frag_elem,
+    shared::{CppValue, ty::TypeExtCPP},
 };
 
 #[allow(clippy::too_many_arguments)]
-pub fn mma_template<D: Dialect>(
-    a_elem: Elem<D>,
-    b_elem: Elem<D>,
-    cd_elem: Elem<D>,
-    k: u32,
+pub fn mma_template(
+    ctx: &Context,
+    a_elem: TypeHandle,
+    b_elem: TypeHandle,
+    cd_elem: TypeHandle,
+    k: usize,
     n_a_registers: usize,
     n_b_registers: usize,
     n_c_registers: usize,
     n_d_registers: usize,
 ) -> String {
-    let a_ty = mma_ty(a_elem);
-    let b_ty = mma_ty(b_elem);
-    let cd_ty = mma_ty(cd_elem);
+    let a_elem = a_elem.deref(ctx);
+    let b_elem = b_elem.deref(ctx);
+    let cd_elem = cd_elem.deref(ctx);
 
-    let ab_arg_ty = match a_elem {
-        Elem::F32 => &format!("{}", Elem::<D>::F32),
-        _ => &format!("{}", Elem::<D>::U32),
+    let a_ty = mma_ty(ctx, &*a_elem);
+    let b_ty = mma_ty(ctx, &*b_elem);
+    let cd_ty = mma_ty(ctx, &*cd_elem);
+
+    let ab_arg_ty = match a_elem.is::<Float32Type>() {
+        true => "float",
+        false => "uint32_t",
     };
-    let cd_arg_ty = match cd_elem {
-        Elem::F32 => &format!("{}", Elem::<D>::F32),
-        _ => &format!("{}", Elem::<D>::U32),
+    let cd_arg_ty = match cd_elem.is::<Float32Type>() {
+        true => "float",
+        false => "uint32_t",
     };
 
     let args_a = (0..n_a_registers).map(|i| format!("{ab_arg_ty} const &reg_a_{i}"));
@@ -38,7 +54,7 @@ pub fn mma_template<D: Dialect>(
         .collect::<Vec<_>>()
         .join(", ");
 
-    let kind = if is_fp6_fp4(a_elem) || is_fp6_fp4(b_elem) {
+    let kind = if is_fp6_fp4(&*a_elem) || is_fp6_fp4(&*b_elem) {
         ".kind::f8f6f4"
     } else {
         ""
@@ -59,50 +75,61 @@ pub fn mma_template<D: Dialect>(
     let placeholders_c = format!("{{{placeholders_c}}}");
 
     let params_out =
-        comma_separated((0..n_d_registers).map(|i| as_reg(&format!("reg_d_{i}"), cd_elem, true)));
-    let params_a = (0..n_a_registers).map(|i| as_reg(&format!("reg_a_{i}"), a_elem, false));
-    let params_b = (0..n_b_registers).map(|i| as_reg(&format!("reg_b_{i}"), b_elem, false));
-    let params_c = (0..n_c_registers).map(|i| as_reg(&format!("reg_c_{i}"), cd_elem, false));
+        comma_separated((0..n_d_registers).map(|i| as_reg(&format!("reg_d_{i}"), &*cd_elem, true)));
+    let params_a = (0..n_a_registers).map(|i| as_reg(&format!("reg_a_{i}"), &*a_elem, false));
+    let params_b = (0..n_b_registers).map(|i| as_reg(&format!("reg_b_{i}"), &*b_elem, false));
+    let params_c = (0..n_c_registers).map(|i| as_reg(&format!("reg_c_{i}"), &*cd_elem, false));
     let params_in = comma_separated(params_a.chain(params_b).chain(params_c));
 
     format!(
         r#"
 inline __device__ void
-__mma_m16n8k{k}_{a_elem}_{b_elem}_{cd_elem}({args}) {{
+__mma_m16n8k{k}_{}_{}_{}({args}) {{
   asm volatile("mma.sync.aligned.m16n8k{k}.row.col{kind}.{cd_ty}.{a_ty}.{b_ty}.{cd_ty}"
                " {placeholders_d}, {placeholders_a}, {placeholders_b}, {placeholders_c};"
                : {params_out}
                : {params_in});
     }}
-    "#
+    "#,
+        a_elem.to_cpp(ctx),
+        b_elem.to_cpp(ctx),
+        cd_elem.to_cpp(ctx)
     )
 }
 
-fn is_fp6_fp4<D: Dialect>(elem: Elem<D>) -> bool {
-    matches!(elem, Elem::<D>::FP4(_) | Elem::<D>::FP6(_))
+fn is_fp6_fp4(elem: &dyn Type) -> bool {
+    elem.is::<Float6E2M3Type>() || elem.is::<Float6E3M2Type>() || elem.is::<Float4E2M1Type>()
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn mma_scaled_template<D: Dialect>(
-    a_elem: Elem<D>,
-    b_elem: Elem<D>,
-    cd_elem: Elem<D>,
-    k: u32,
+pub fn mma_scaled_template(
+    ctx: &Context,
+    a_elem: TypeHandle,
+    b_elem: TypeHandle,
+    cd_elem: TypeHandle,
+    k: usize,
     n_a_registers: usize,
     n_b_registers: usize,
     n_c_registers: usize,
     n_d_registers: usize,
-    scales_elem: Elem<D>,
-    scales_factor: u32,
+    scales_elem: TypeHandle,
+    scales_factor: usize,
 ) -> String {
-    let a_ty = mma_ty(a_elem);
-    let b_ty = mma_ty(b_elem);
-    let cd_ty = mma_ty(cd_elem);
+    let a_elem = a_elem.deref(ctx);
+    let b_elem = b_elem.deref(ctx);
+    let cd_elem = cd_elem.deref(ctx);
+    let scales_elem = scales_elem.deref(ctx);
+
+    let a_ty = mma_ty(ctx, &*a_elem);
+    let b_ty = mma_ty(ctx, &*b_elem);
+    let cd_ty = mma_ty(ctx, &*cd_elem);
     // Needs custom mapping because of the ignored sign bit
-    let s_ty = match scales_elem {
-        Elem::FP8(FP8Kind::UE8M0) => "ue8m0",
-        Elem::FP8(FP8Kind::E4M3) => "ue4m3",
-        _ => panic!("Unsupported scales type"),
+    let s_ty = if scales_elem.is::<Float8E8M0Type>() {
+        "ue8m0"
+    } else if scales_elem.is::<Float8E4M3Type>() {
+        "ue4m3"
+    } else {
+        panic!("Unsupported scales type")
     };
 
     let kind = match scales_factor {
@@ -111,13 +138,13 @@ pub fn mma_scaled_template<D: Dialect>(
         _ => panic!("Unsupported scales factor"),
     };
 
-    let ab_arg_ty = match a_elem {
-        Elem::F32 => &format!("{}", Elem::<D>::F32),
-        _ => &format!("{}", Elem::<D>::U32),
+    let ab_arg_ty = match a_elem.is::<Float32Type>() {
+        true => "float",
+        false => "uint32_t",
     };
-    let cd_arg_ty = match cd_elem {
-        Elem::F32 => &format!("{}", Elem::<D>::F32),
-        _ => &format!("{}", Elem::<D>::U32),
+    let cd_arg_ty = match cd_elem.is::<Float32Type>() {
+        true => "float",
+        false => "uint32_t",
     };
 
     // Note: Scaled MMA actually requires float registers for C/D, unlike normal MMA
@@ -160,16 +187,16 @@ pub fn mma_scaled_template<D: Dialect>(
     );
 
     let params_out =
-        comma_separated((0..n_d_registers).map(|i| as_reg(&format!("reg_d_{i}"), cd_elem, true)));
-    let params_a = (0..n_a_registers).map(|i| as_reg(&format!("reg_a_{i}"), a_elem, false));
-    let params_b = (0..n_b_registers).map(|i| as_reg(&format!("reg_b_{i}"), b_elem, false));
-    let params_c = (0..n_c_registers).map(|i| as_reg(&format!("reg_c_{i}"), cd_elem, false));
+        comma_separated((0..n_d_registers).map(|i| as_reg(&format!("reg_d_{i}"), &*cd_elem, true)));
+    let params_a = (0..n_a_registers).map(|i| as_reg(&format!("reg_a_{i}"), &*a_elem, false));
+    let params_b = (0..n_b_registers).map(|i| as_reg(&format!("reg_b_{i}"), &*b_elem, false));
+    let params_c = (0..n_c_registers).map(|i| as_reg(&format!("reg_c_{i}"), &*cd_elem, false));
     let params_in = comma_separated(params_a.chain(params_b).chain(params_c));
 
     format!(
         r#"
 inline __device__ void
-__mma_scaled_{scales_factor}x_m16n8k{k}_{a_elem}_{b_elem}_{cd_elem}({args}, uint32 const &scales_a, uint32 const &scales_b) {{
+__mma_scaled_{scales_factor}x_m16n8k{k}_{}_{}_{}({args}, uint32 const &scales_a, uint32 const &scales_b) {{
     static constexpr uint16 tidA = 0;
     static constexpr uint16 bidA = 0;
     static constexpr uint16 tidB = 0;
@@ -180,7 +207,10 @@ __mma_scaled_{scales_factor}x_m16n8k{k}_{a_elem}_{b_elem}_{cd_elem}({args}, uint
                : {params_out}
                : {params_in}, "r"(scales_a), "h"(bidA), "h"(tidA), "r"(scales_b), "h"(bidB), "h"(tidB));
     }}
-    "#
+    "#,
+        a_elem.to_cpp(ctx),
+        b_elem.to_cpp(ctx),
+        cd_elem.to_cpp(ctx)
     )
 }
 
@@ -194,12 +224,17 @@ fn placeholder(idx: &mut usize) -> String {
     placeholder
 }
 
-fn as_reg<D: Dialect>(ident: &str, ty: Elem<D>, output: bool) -> String {
-    let ty = match ty {
-        Elem::F32 => "f",
-        Elem::F64 => "d",
-        Elem::U64 => "l",
-        _ => "r",
+fn as_reg(ident: &str, ty: &dyn Type, output: bool) -> String {
+    let ty = if ty.is::<Float32Type>() {
+        "f"
+    } else if ty.is::<Float64Type>() {
+        "d"
+    } else if let Some(uint) = ty.downcast_ref::<UIntType>()
+        && uint.width == 64
+    {
+        "l"
+    } else {
+        "r"
     };
     if output {
         format!(r#""={ty}"({ident})"#)
@@ -208,54 +243,67 @@ fn as_reg<D: Dialect>(ident: &str, ty: Elem<D>, output: bool) -> String {
     }
 }
 
-fn mma_ty<D: Dialect>(elem: Elem<D>) -> &'static str {
-    match elem {
-        Elem::TF32 => "tf32",
-        Elem::F32 => "f32",
-        Elem::F64 => "f64",
-        Elem::F16 => "f16",
-        Elem::BF16 => "bf16",
-        Elem::FP4(FP4Kind::E2M1) => "e2m1",
-        // For packed MMA this will always exist as fp4x2, since 4-bit values can't exist
-        Elem::FP4x2(FP4Kind::E2M1) => "e2m1",
-        Elem::FP6(FP6Kind::E2M3) => "e2m3",
-        Elem::FP6(FP6Kind::E3M2) => "e3m2",
-        Elem::FP8(FP8Kind::E4M3) => "e4m3",
-        Elem::FP8(FP8Kind::E5M2) => "e5m2",
-        Elem::FP8(FP8Kind::UE8M0) => "ue8m0",
-        Elem::I8 => "s8",
-        Elem::I16 => "s16",
-        Elem::I32 => "s32",
-        Elem::I64 => "s64",
-        Elem::U8 => "u8",
-        Elem::U16 => "u16",
-        Elem::U32 => "u32",
-        Elem::U64 => "u64",
-        Elem::Bool => "b1",
-        other => panic!("{other} not supported for MMA"),
+pub fn mma_ty(ctx: &Context, elem: &dyn Type) -> &'static str {
+    let elem = type_cast::<dyn ScalarType>(elem).unwrap();
+    let elem = elem.storage_type(ctx);
+    match elem.elem_type() {
+        ElemType::Float(kind) => match kind {
+            FloatKind::E2M1 => "e2m1",
+            FloatKind::E2M3 => "e2m3",
+            FloatKind::E3M2 => "e3m2",
+            FloatKind::E4M3 => "e4m3",
+            FloatKind::E5M2 => "e5m2",
+            FloatKind::UE8M0 => "ue8m0",
+            FloatKind::F16 => "f16",
+            FloatKind::BF16 => "bf16",
+            FloatKind::Flex32 | FloatKind::F32 => "f32",
+            FloatKind::TF32 => "tf32",
+            FloatKind::F64 => "f64",
+        },
+        ElemType::Int(kind) => match kind {
+            IntKind::I8 => "s8",
+            IntKind::I16 => "s16",
+            IntKind::I32 => "s32",
+            IntKind::I64 => "s64",
+        },
+        ElemType::UInt(kind) => match kind {
+            UIntKind::U8 => "u8",
+            UIntKind::U16 => "u16",
+            UIntKind::U32 => "u32",
+            UIntKind::U64 => "u64",
+        },
+        ElemType::Bool => "b1",
     }
 }
 
-pub fn ldmatrix_call<D: Dialect>(
-    output: &Value<D>,
-    ptr: &Value<D>,
-    factor: &u32,
-    transpose: &bool,
+pub fn ldmatrix_call(
+    ctx: &Context,
+    output: Value,
+    ptr: Value,
+    factor: usize,
+    transpose: bool,
 ) -> String {
-    let elem = output.elem();
-    let width = 16 / output.elem().size();
-    let is_transposed = if *transpose { "_trans" } else { "" };
+    let elem = frag_elem(ctx, output);
+    let width = 16 / elem.size(ctx);
+    let output = output.name(ctx);
+    let ptr = ptr.name(ctx);
+    let elem = elem.to_cpp(ctx);
+    let is_transposed = if transpose { "_trans" } else { "" };
     let regs = comma_separated(
-        (0..*factor as usize).map(|i| format!("reinterpret_cast<uint32&>({})", output.index(i))),
+        (0..factor).map(|i| format!("reinterpret_cast<uint32&>({output}->data[{i}])")),
     );
-    let ptr = ptr.fmt_ptr();
 
     format!("__ldmatrix_m{width}n8_{elem}_{factor}x{is_transposed}({regs}, {ptr});\n")
 }
 
-pub fn ldmatrix_template<D: Dialect>(elem: Elem<D>, factor: u32, transpose: bool) -> String {
-    let width = 16 / elem.size();
-    let arg_ty = Elem::<D>::U32;
+pub fn ldmatrix_template(
+    ctx: &Context,
+    elem: TypeHandle,
+    factor: usize,
+    transpose: bool,
+) -> String {
+    let width = 16 / elem.size(ctx);
+    let arg_ty = "uint32_t";
 
     let args_regs = (0..factor).map(|i| format!("{arg_ty} &reg_{i}"));
     let arg_addr = ["void const *row_addr".to_string()];
@@ -275,11 +323,12 @@ pub fn ldmatrix_template<D: Dialect>(elem: Elem<D>, factor: u32, transpose: bool
     let transposed_arg = if transpose { ".trans" } else { "" };
     let num = format!("x{factor}");
 
-    let ty = match elem.size() {
+    let ty = match elem.size(ctx) {
         2 => "b16",
         1 => "b8",
         _ => unreachable!(),
     };
+    let elem = elem.to_cpp(ctx);
 
     format!(
         r#"
@@ -295,27 +344,34 @@ __ldmatrix_m{width}n8_{elem}_{factor}x{is_transposed}({args}) {{
     )
 }
 
-pub fn stmatrix_call<D: Dialect>(
-    registers: &Value<D>,
-    ptr: &Value<D>,
-    factor: &u32,
-    transpose: &bool,
+pub fn stmatrix_call(
+    ctx: &Context,
+    registers: Value,
+    ptr: Value,
+    factor: usize,
+    transpose: bool,
 ) -> String {
-    let elem = registers.elem();
-    let width = 16 / registers.elem().size();
-    let is_transposed = if *transpose { "_trans" } else { "" };
+    let elem = frag_elem(ctx, registers);
+    let width = 16 / elem.size(ctx);
+    let is_transposed = if transpose { "_trans" } else { "" };
+    let ptr = ptr.name(ctx);
+    let registers = registers.name(ctx);
+    let elem = elem.to_cpp(ctx);
     let regs = comma_separated(
-        (0..*factor as usize)
-            .map(|i| format!("reinterpret_cast<const uint32&>({})", registers.index(i))),
+        (0..factor).map(|i| format!("reinterpret_cast<const uint32&>({registers}->data[{i}])")),
     );
-    let ptr = ptr.fmt_ptr();
 
     format!("__stmatrix_m{width}n8_{elem}_{factor}x{is_transposed}({regs}, {ptr});\n")
 }
 
-pub fn stmatrix_template<D: Dialect>(elem: Elem<D>, factor: u32, transpose: bool) -> String {
-    let width = 16 / elem.size();
-    let arg_ty = Elem::<D>::U32;
+pub fn stmatrix_template(
+    ctx: &Context,
+    elem: TypeHandle,
+    factor: usize,
+    transpose: bool,
+) -> String {
+    let width = 16 / elem.size(ctx);
+    let arg_ty = "uint32_t";
 
     let args_regs = (0..factor).map(|i| format!("{arg_ty} const &reg_{i}"));
     let arg_addr = ["void *row_addr".to_string()];
@@ -335,11 +391,12 @@ pub fn stmatrix_template<D: Dialect>(elem: Elem<D>, factor: u32, transpose: bool
     let transposed_arg = if transpose { ".trans" } else { "" };
     let num = format!("x{factor}");
 
-    let ty = match elem.size() {
+    let ty = match elem.size(ctx) {
         2 => "b16",
         1 => "b8",
         _ => unreachable!(),
     };
+    let elem = elem.to_cpp(ctx);
 
     // Note: smem technically an input
     format!(

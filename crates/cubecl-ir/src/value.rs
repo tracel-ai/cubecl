@@ -14,7 +14,7 @@ use float_ord::FloatOrd;
 use pliron::{
     builtin::{op_interfaces::OneResultInterface, ops::ConstantOp},
     derive::format,
-    r#type::TypePtr,
+    r#type::TypedHandle,
     utils::apfloat::f64_to_double,
     value::Value,
 };
@@ -49,15 +49,12 @@ impl ExpandValue {
                 let ty = ty.to_type(ctx);
                 let value = match value {
                     ConstantValue::Int(value) => {
-                        IntAttr::new(TypePtr::from_ptr(ty, ctx).unwrap(), *value).into()
+                        IntAttr::new(TypedHandle::from_handle(ty, ctx).unwrap(), *value).into()
                     }
                     ConstantValue::UInt(value) => {
-                        UIntAttr::new(TypePtr::from_ptr(ty, ctx).unwrap(), *value).into()
+                        UIntAttr::new(TypedHandle::from_handle(ty, ctx).unwrap(), *value).into()
                     }
-                    ConstantValue::Float(value) => {
-                        FloatAttr::new(TypePtr::from_ptr(ty, ctx).unwrap(), f64_to_double(*value))
-                            .into()
-                    }
+                    ConstantValue::Float(value) => FloatAttr::new(ty, f64_to_double(*value)).into(),
                     ConstantValue::Bool(value) => BoolAttr::new(*value).into(),
                 };
                 let op = ConstantOp::new(scope.ctx_mut(), value);

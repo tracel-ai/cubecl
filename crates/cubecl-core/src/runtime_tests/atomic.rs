@@ -332,7 +332,7 @@ macro_rules! testgen_atomic_int {
         );
         test_numeric_op!(
             test_atomic_swap_int,
-            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Swap
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Exchange
         );
         test_numeric_op!(
             test_atomic_add_int,
@@ -421,7 +421,7 @@ macro_rules! testgen_atomic_uint {
         );
         test_numeric_op!(
             test_atomic_swap_uint,
-            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Swap
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Exchange
         );
         test_numeric_op!(
             test_atomic_add_uint,
@@ -499,7 +499,7 @@ macro_rules! testgen_atomic_float {
 
         test_numeric_op!(
             test_atomic_swap_float,
-            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Swap
+            cubecl_core::runtime_tests::atomic::NumericAtomicOp::Exchange
         );
 
         test_numeric_op!(

@@ -3,7 +3,7 @@ use cubecl_ir::{
     OpInserter,
     attributes::IntAttr,
     dialect::branch::{BreakOp, IfOp, LoopOp, ReturnOp, SwitchOp, UnreachableOp},
-    pliron::{builtin::attributes::VecAttr, irbuild::inserter::Inserter, r#type::TypePtr},
+    pliron::{builtin::attributes::VecAttr, irbuild::inserter::Inserter, r#type::TypedHandle},
     types::scalar::IntType,
 };
 
@@ -209,7 +209,7 @@ impl<I: Int> SwitchExpand<I> {
         let cases = self.cases.into_iter().map(|case| {
             let ty = I::__expand_as_type(scope);
             IntAttr::new(
-                TypePtr::from_ptr(ty, scope.ctx()).unwrap(),
+                TypedHandle::from_handle(ty, scope.ctx()).unwrap(),
                 case.to_i64().unwrap(),
             )
             .into()
@@ -265,7 +265,7 @@ impl<I: Int, C: Assign> SwitchExpandExpr<I, C> {
         let cases = self.cases.into_iter().map(|case| {
             let ty = I::__expand_as_type(scope);
             IntAttr::new(
-                TypePtr::from_ptr(ty, scope.ctx()).unwrap(),
+                TypedHandle::from_handle(ty, scope.ctx()).unwrap(),
                 case.to_i64().unwrap(),
             )
             .into()
@@ -390,7 +390,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 }
 
                 let cases = cases.into_iter().map(|case| {
-                    let ty = IntType::get(scope.ctx_mut(), 32);
+                    let ty = IntType::get(scope.ctx(), 32);
                     IntAttr::new(ty, case as i64).into()
                 });
                 switch_op.set_attr_cases(scope.ctx(), VecAttr::new(cases.collect()));
@@ -550,7 +550,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 }
 
                 let cases = cases.into_iter().map(|case| {
-                    let ty = IntType::get(scope.ctx_mut(), 32);
+                    let ty = IntType::get(scope.ctx(), 32);
                     IntAttr::new(ty, case as i64).into()
                 });
                 switch_op.set_attr_cases(scope.ctx(), VecAttr::new(cases.collect()));

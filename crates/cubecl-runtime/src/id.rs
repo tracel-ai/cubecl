@@ -10,10 +10,11 @@ use cubecl_common::{
     format::{DebugRaw, format_str},
     hash::{StableHash, StableHasher},
 };
-use cubecl_ir::AddressType;
+use cubecl_ir::{
+    AddressType,
+    settings::{Dim3, ExecutionMode},
+};
 use derive_more::{Eq, PartialEq};
-
-use crate::server::{CubeDim, ExecutionMode};
 
 #[macro_export(local_inner_macros)]
 /// Create a new storage ID type.
@@ -92,7 +93,7 @@ pub struct KernelId {
     pub(crate) type_id: core::any::TypeId,
     pub(crate) address_type: AddressType,
     /// The [`CubeDim`] for this kernel
-    pub cube_dim: CubeDim,
+    pub cube_dim: Dim3,
     pub(crate) mode: ExecutionMode,
     pub(crate) info: Option<Info>,
 }
@@ -146,7 +147,7 @@ impl KernelId {
             type_id: core::any::TypeId::of::<T>(),
             type_name: core::any::type_name::<T>(),
             info: None,
-            cube_dim: CubeDim::new_single(),
+            cube_dim: Dim3::new_single(),
             mode: ExecutionMode::Checked,
             address_type: Default::default(),
         }
@@ -189,12 +190,13 @@ impl KernelId {
     }
 
     /// Set the [execution mode](ExecutionMode).
-    pub fn mode(&mut self, mode: ExecutionMode) {
+    pub fn mode(mut self, mode: ExecutionMode) -> Self {
         self.mode = mode;
+        self
     }
 
     /// Set the [cube dim](CubeDim).
-    pub fn cube_dim(mut self, cube_dim: CubeDim) -> Self {
+    pub fn cube_dim(mut self, cube_dim: Dim3) -> Self {
         self.cube_dim = cube_dim;
         self
     }

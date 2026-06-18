@@ -6,14 +6,12 @@ use crate::{
     unexpanded,
 };
 use cubecl_ir::{
-    ConstantValue, ExpandValue, StorageType,
-    features::TypeUsage,
-    interfaces::TypedExt,
-    pliron::{context::Ptr, r#type::TypeObj},
+    ConstantValue, ExpandValue, StorageType, features::TypeUsage, interfaces::TypedExt,
 };
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use cubecl_runtime::{client::ComputeClient, runtime::Runtime};
 use enumset::EnumSet;
+use pliron::r#type::TypeHandle;
 
 use crate::frontend::CubeType;
 use crate::ir::Scope;
@@ -37,7 +35,7 @@ pub trait CubePrimitive:
     type WithScalar<S: Scalar>: CubePrimitive;
 
     /// Return the element type to use on GPU.
-    fn as_type() -> Ptr<TypeObj> {
+    fn as_type() -> TypeHandle {
         unexpanded!()
     }
 
@@ -69,7 +67,7 @@ pub trait CubePrimitive:
         unexpanded!()
     }
 
-    fn __expand_as_type(scope: &Scope) -> Ptr<TypeObj>;
+    fn __expand_as_type(scope: &Scope) -> TypeHandle;
 
     fn __expand_size(scope: &Scope) -> usize {
         Self::__expand_as_type(scope).size(scope.ctx())

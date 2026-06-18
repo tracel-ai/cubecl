@@ -153,16 +153,6 @@ impl Compiler for AutoCompiler {
         Ok(kernel)
     }
 
-    fn elem_size(&self, elem: cubecl_core::ir::ElemType) -> usize {
-        match self {
-            AutoCompiler::Wgsl(wgsl_compiler) => wgsl_compiler.elem_size(elem),
-            #[cfg(feature = "spirv")]
-            AutoCompiler::SpirV(spirv_compiler) => spirv_compiler.elem_size(elem),
-            #[cfg(feature = "msl")]
-            AutoCompiler::Msl(msl_compiler) => msl_compiler.elem_size(elem),
-        }
-    }
-
     fn extension(&self) -> &'static str {
         match self {
             AutoCompiler::Wgsl(_) => "wgsl",

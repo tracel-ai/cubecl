@@ -51,5 +51,10 @@ itertools = { version = "0.14.0", default-features = false }
 
 bytemuck = { workspace = true }
 derive-new = { workspace = true }
+derive_more = { workspace = true }
 half = { workspace = true }
 log = { workspace = true }
+num-traits = { workspace = true }
+paste = { workspace = true }
+pliron = { workspace = true }
+thiserror = { workspace = true }

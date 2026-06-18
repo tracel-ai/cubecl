@@ -2,7 +2,7 @@ use cubecl_macros_internal::TypeHash;
 use derive_more::Display;
 use pliron::derive::{format, pliron_type, type_interface_impl};
 
-use crate::{interfaces::AggregateType, pliron::prelude::*, types::scalar::IndexType};
+use crate::{interfaces::AggregateType, prelude::*, types::scalar::IndexType};
 
 #[pliron_type(
     name = "cube.ptr_aggregate",
@@ -12,13 +12,13 @@ use crate::{interfaces::AggregateType, pliron::prelude::*, types::scalar::IndexT
 )]
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 pub struct PtrAggregateType {
-    pub base_ty: Ptr<TypeObj>,
+    pub base_ty: TypeHandle,
     pub meta: MetadataKind,
 }
 
 #[type_interface_impl]
 impl AggregateType for PtrAggregateType {
-    fn field_ty(&self, ctx: &Context, field_idx: usize) -> Ptr<TypeObj> {
+    fn field_ty(&self, ctx: &Context, field_idx: usize) -> TypeHandle {
         match self.meta {
             MetadataKind::Slice => match field_idx {
                 0 => self.base_ty,
@@ -40,11 +40,9 @@ impl AggregateType for PtrAggregateType {
 pub enum MetadataKind {
     /// Slice metadata (offset and length)
     #[display("slice")]
-    #[format("`slice`")]
     Slice,
     /// Bounds check (in bounds)
     #[display("bounds_checked")]
-    #[format("`checked`")]
     BoundsCheck,
 }
 

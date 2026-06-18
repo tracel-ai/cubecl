@@ -298,9 +298,9 @@ impl<P: CountOnes + Scalar, N: Size> Vector<P, N> {
     pub fn count_ones(self) -> Vector<u32, N> {
         intrinsic!(|scope| {
             let input = self.read_value(scope);
-            let op = CountOnesOp::new(&mut scope.ctx_mut(), input);
+            let op = CountOnesOp::new(scope.ctx_mut(), input);
             scope.register(&op);
-            op.get_result(&scope.ctx()).into()
+            op.get_result(scope.ctx()).into()
         })
     }
 }

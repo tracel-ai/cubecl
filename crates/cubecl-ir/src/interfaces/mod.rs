@@ -1,21 +1,21 @@
 use crate::{
     StorageType,
     dialect::synchronization::SyncScope,
-    pliron::prelude::*,
-    types::{
-        PointerType,
-        scalar::{IntType, UIntType},
-    },
+    prelude::*,
+    types::{AtomicType, PointerType, VectorType, scalar::*},
 };
 use pliron::{
     derive::{op_interface, type_interface},
-    r#type::type_cast,
+    r#type::{TypeHandle, type_cast},
 };
 
 #[macro_export]
 macro_rules! verify_op_succ {
     () => {
-        fn verify(_op: &dyn pliron::op::Op, _ctx: &Context) -> Result<()>
+        fn verify(
+            _op: &dyn pliron::op::Op,
+            _ctx: &pliron::context::Context,
+        ) -> pliron::result::Result<()>
         where
             Self: Sized,
         {
@@ -27,7 +27,25 @@ macro_rules! verify_op_succ {
 #[macro_export]
 macro_rules! verify_ty_succ {
     () => {
-        fn verify(_op: &dyn pliron::r#type::Type, _ctx: &Context) -> Result<()>
+        fn verify(
+            _op: &dyn pliron::r#type::Type,
+            _ctx: &pliron::context::Context,
+        ) -> pliron::result::Result<()>
+        where
+            Self: Sized,
+        {
+            Ok(())
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! verify_attr_succ {
+    () => {
+        fn verify(
+            _op: &dyn pliron::attribute::Attribute,
+            _ctx: &pliron::context::Context,
+        ) -> pliron::result::Result<()>
         where
             Self: Sized,
         {
@@ -47,7 +65,7 @@ pub trait RematerializeOp {
     fn rematerialize(
         &self,
         ctx: &mut Context,
-        result_ty: Vec<Ptr<TypeObj>>,
+        result_ty: Vec<TypeHandle>,
         operands: Vec<Value>,
     ) -> Ptr<Operation>;
 }
@@ -59,7 +77,7 @@ macro_rules! rematerialize {
             fn rematerialize(
                 &self,
                 ctx: &mut Context,
-                result_ty: Vec<Ptr<TypeObj>>,
+                result_ty: Vec<TypeHandle>,
                 operands: Vec<Value>,
             ) -> Ptr<Operation> {
                 Operation::new(
@@ -196,7 +214,7 @@ pub(crate) use not_packed;
 pub trait ScalarizableType {
     verify_ty_succ!();
 
-    fn scalar_type(&self, ctx: &Context) -> Ptr<TypeObj>;
+    fn scalar_type(&self, ctx: &Context) -> TypeHandle;
 }
 
 #[type_interface]
@@ -210,14 +228,14 @@ pub trait ScalarType {
 pub trait AggregateType {
     verify_ty_succ!();
 
-    fn field_ty(&self, ctx: &Context, field_idx: usize) -> Ptr<TypeObj>;
+    fn field_ty(&self, ctx: &Context, field_idx: usize) -> TypeHandle;
 }
 
 #[type_interface]
 pub trait IndexableType {
     verify_ty_succ!();
 
-    fn indexed_type(&self, ctx: &Context) -> Ptr<TypeObj>;
+    fn indexed_type(&self, ctx: &Context) -> TypeHandle;
 }
 
 #[op_interface]
@@ -237,21 +255,31 @@ pub trait WritesMemory {
 pub trait TypedExt: Typed {
     fn size(&self, ctx: &Context) -> usize {
         let ty = self.get_type(ctx).deref(ctx);
-        let sized =
-            type_cast::<dyn SizedType>(ty.as_ref()).expect("Can't get size of non-sized type");
+        let sized = type_cast::<dyn SizedType>(&*ty).expect("Can't get size of non-sized type");
         sized.size(ctx)
     }
 
     fn align(&self, ctx: &Context) -> usize {
         let ty = self.get_type(ctx).deref(ctx);
         let aligned =
-            type_cast::<dyn AlignedType>(ty.as_ref()).expect("Can't get align of non-aligned type");
+            type_cast::<dyn AlignedType>(&*ty).expect("Can't get align of non-aligned type");
         aligned.align(ctx)
     }
 
     fn is_ptr(&self, ctx: &Context) -> bool {
         let ty = self.get_type(ctx).deref(ctx);
-        ty.downcast_ref::<PointerType>().is_some()
+        ty.is::<PointerType>()
+    }
+
+    fn is_atomic(&self, ctx: &Context) -> bool {
+        let ty = self.get_type(ctx).deref(ctx);
+        ty.is::<AtomicType>()
+    }
+
+    fn is_vector(&self, ctx: &Context, size: usize) -> bool {
+        let ty = self.get_type(ctx).deref(ctx);
+        ty.downcast_ref::<VectorType>()
+            .is_some_and(|it| it.vectorization == size)
     }
 
     fn is_immutable(&self, ctx: &Context) -> bool {
@@ -259,34 +287,74 @@ pub trait TypedExt: Typed {
     }
 
     fn vector_size(&self, ctx: &Context) -> usize {
+        self.try_get_vector_size(ctx)
+            .expect("Can't get vector size of non-vectorizable type")
+    }
+
+    fn try_get_vector_size(&self, ctx: &Context) -> Option<usize> {
         let ty = self.get_type(ctx).deref(ctx);
-        let maybe_vec = type_cast::<dyn MaybeVectorizedType>(ty.as_ref())
-            .expect("Can't get vector size of non-vectorizable type");
-        maybe_vec.vector_size(ctx)
+        let maybe_vec = type_cast::<dyn MaybeVectorizedType>(&*ty)?;
+        Some(maybe_vec.vector_size(ctx))
     }
 
     fn packing_factor(&self, ctx: &Context) -> usize {
         let ty = self.get_type(ctx).deref(ctx);
-        let maybe_vec = type_cast::<dyn MaybeVectorizedType>(ty.as_ref())
+        let maybe_vec = type_cast::<dyn MaybeVectorizedType>(&*ty)
             .expect("Can't get vector size of non-vectorizable type");
         maybe_vec.vector_size(ctx)
     }
 
-    fn scalar_ty(&self, ctx: &Context) -> Ptr<TypeObj> {
+    fn scalar_ty(&self, ctx: &Context) -> TypeHandle {
         let ty = self.get_type(ctx).deref(ctx);
-        let scalarizable = type_cast::<dyn ScalarizableType>(ty.as_ref())
+        let scalarizable = type_cast::<dyn ScalarizableType>(&*ty)
             .expect("Can't get scalar type of non-scalarizable type");
         scalarizable.scalar_type(ctx)
     }
 
     fn is_int(&self, ctx: &Context) -> bool {
         let ty = self.scalar_ty(ctx).deref(ctx);
-        ty.downcast_ref::<IntType>().is_some()
+        ty.is::<IntType>()
+    }
+
+    fn is_int_of_width(&self, ctx: &Context, width: usize) -> bool {
+        let ty = self.scalar_ty(ctx).deref(ctx);
+        ty.downcast_ref::<IntType>()
+            .is_some_and(|it| it.width == width)
     }
 
     fn is_uint(&self, ctx: &Context) -> bool {
         let ty = self.scalar_ty(ctx).deref(ctx);
-        ty.downcast_ref::<UIntType>().is_some()
+        ty.is::<UIntType>()
+    }
+
+    fn is_uint_of_width(&self, ctx: &Context, width: usize) -> bool {
+        let ty = self.scalar_ty(ctx).deref(ctx);
+        ty.downcast_ref::<UIntType>()
+            .is_some_and(|it| it.width == width)
+    }
+
+    fn is_float64(&self, ctx: &Context) -> bool {
+        self.get_type(ctx).deref(ctx).is::<Float64Type>()
+    }
+
+    fn is_float32(&self, ctx: &Context) -> bool {
+        self.get_type(ctx).deref(ctx).is::<Float32Type>()
+    }
+
+    fn is_tfloat32(&self, ctx: &Context) -> bool {
+        self.get_type(ctx).deref(ctx).is::<TFloat32Type>()
+    }
+
+    fn is_float16(&self, ctx: &Context) -> bool {
+        self.get_type(ctx).deref(ctx).is::<Float16Type>()
+    }
+
+    fn is_bfloat16(&self, ctx: &Context) -> bool {
+        self.get_type(ctx).deref(ctx).is::<BFloat16Type>()
+    }
+
+    fn is_bool(&self, ctx: &Context) -> bool {
+        self.get_type(ctx).deref(ctx).is::<BoolType>()
     }
 }
 

@@ -226,10 +226,6 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         })
     }
 
-    fn elem_size(&self, elem: core::ElemType) -> usize {
-        elem.size()
-    }
-
     fn extension(&self) -> &'static str {
         "spv"
     }

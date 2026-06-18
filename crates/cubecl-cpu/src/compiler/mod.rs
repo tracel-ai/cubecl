@@ -91,10 +91,6 @@ impl Compiler for MlirCompiler {
         ))
     }
 
-    fn elem_size(&self, elem: ir::ElemType) -> usize {
-        elem.size()
-    }
-
     fn extension(&self) -> &'static str {
         "mlir"
     }

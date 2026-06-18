@@ -24,7 +24,7 @@ where
         let step = scope.const_usize(1);
 
         let i = scope.create_local_mut(index_ty);
-        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step, false);
+        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
         let loop_body = range_loop.loop_body(scope.ctx());
 
         let mut child = scope.child(OpInserter::new_at_block_end(loop_body));

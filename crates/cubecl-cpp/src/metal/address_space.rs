@@ -1,9 +1,6 @@
 use cubecl_core::prelude::Visibility;
 
-use crate::{
-    Dialect,
-    shared::{Component, Item, KernelArg, PointerClass, Value},
-};
+use crate::shared;
 
 use super::BufferAttribute;
 use std::fmt::Display;
@@ -52,15 +49,6 @@ impl From<AddressSpace> for Visibility {
     }
 }
 
-impl<D: Dialect> From<&KernelArg<D>> for AddressSpace {
-    fn from(value: &KernelArg<D>) -> Self {
-        // No atomic guard needed: this only feeds `.attribute()`, which maps every
-        // device space to `BufferAttribute::Buffer`. The atomic mutability constraint
-        // is enforced in `From<&Value>` and `compile_item` where it's observable.
-        value.vis.into()
-    }
-}
-
 impl From<Visibility> for AddressSpace {
     fn from(value: Visibility) -> Self {
         match value {
@@ -71,22 +59,12 @@ impl From<Visibility> for AddressSpace {
     }
 }
 
-impl<D: Dialect> From<&Value<D>> for AddressSpace {
-    fn from(value: &Value<D>) -> Self {
-        if let Item::Pointer(inner, class) = value.item() {
-            // Atomics always need mutable (device) access, even on read-only
-            // bindings, because MSL forbids `const`-qualified `atomic<T>` pointers.
-            if matches!(inner.value_ty(), Item::Atomic(_))
-                && let PointerClass::Global(_) = class
-            {
-                return AddressSpace::Device;
-            }
-            return match class {
-                PointerClass::Global(visibility) => visibility.into(),
-                PointerClass::Shared => AddressSpace::ThreadGroup,
-                PointerClass::Local => AddressSpace::Thread,
-            };
+impl From<shared::ty::AddressSpace> for AddressSpace {
+    fn from(value: shared::ty::AddressSpace) -> Self {
+        match value {
+            shared::ty::AddressSpace::Global(visibility) => visibility.into(),
+            shared::ty::AddressSpace::Shared => AddressSpace::ThreadGroup,
+            shared::ty::AddressSpace::Local => AddressSpace::Thread,
         }
-        AddressSpace::Thread
     }
 }

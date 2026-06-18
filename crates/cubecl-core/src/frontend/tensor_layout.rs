@@ -2,13 +2,10 @@ use alloc::boxed::Box;
 
 use cubecl_ir::{
     dialect::spirv::{CreateLayoutOp, CreateViewOp, SliceOp},
-    pliron::{
-        builtin::op_interfaces::OneResultInterface,
-        context::Ptr,
-        r#type::{TypeObj, Typed},
-    },
+    pliron::{builtin::op_interfaces::OneResultInterface, r#type::Typed},
     types::spirv::{ClampMode, TensorLayoutType, TensorViewType},
 };
+use pliron::r#type::TypeHandle;
 
 use crate::{self as cubecl, unexpanded};
 
@@ -66,7 +63,7 @@ impl CubePrimitive for TensorLayout {
         panic!("Can't construct tensor layout from constant")
     }
 
-    fn __expand_as_type(_scope: &Scope) -> Ptr<TypeObj> {
+    fn __expand_as_type(_scope: &Scope) -> TypeHandle {
         unimplemented!()
     }
 }
@@ -87,7 +84,7 @@ impl CubePrimitive for TensorReinterpret {
         panic!("Can't construct tensor layout from constant")
     }
 
-    fn __expand_as_type(_scope: &Scope) -> Ptr<TypeObj> {
+    fn __expand_as_type(_scope: &Scope) -> TypeHandle {
         unimplemented!()
     }
 }
@@ -134,9 +131,9 @@ impl<T: CubePrimitive> TensorView<T> {
             let layout = self.layout.value(scope);
             let offs = offs.iter_cloned().map(|it| it.read_value(scope)).collect();
             let shape = shape.iter_cloned().map(|it| it.read_value(scope)).collect();
-            let slice_op = SliceOp::new(&mut scope.ctx_mut(), layout, offs, shape);
+            let slice_op = SliceOp::new(scope.ctx_mut(), layout, offs, shape);
             scope.register(&slice_op);
-            let new_layout = slice_op.get_result(&scope.ctx());
+            let new_layout = slice_op.get_result(scope.ctx());
             TensorViewExpand {
                 buffer: self.buffer.clone(),
                 layout: new_layout.into(),
@@ -178,7 +175,7 @@ impl<T: CubePrimitive> TensorViewExpand<T> {
                     .as_usize()
             })
             .collect::<alloc::vec::Vec<_>>();
-        let ty = TensorViewType::get(scope.ctx_mut(), permutation.len(), false, permutation);
+        let ty = TensorViewType::get(scope.ctx(), permutation.len(), false, permutation);
         let op = CreateViewOp::new(scope.ctx_mut(), ty.into());
         scope.register(&op);
         let view = op.get_result(scope.ctx());
