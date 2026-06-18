@@ -233,11 +233,27 @@ impl MemoryPool for ExclusiveMemoryPool {
         cursor: u64,
     ) -> Result<(), IoError> {
         let id_old = old.descriptor();
-        let page = &mut self.pages[id_old.page()];
-        new.descriptor().update_location(id_old.location());
+        let old_page = id_old.page();
+        let old_location = id_old.location();
+        let page = &mut self.pages[old_page];
+        new.descriptor().update_location(old_location);
 
         page.slice.handle = new;
         page.slice.cursor = cursor;
+
+        // The page no longer references `old`'s descriptor. If anything other
+        // than the `old` handle below still does, those are live bindings we are
+        // stranding — exactly the invariant break behind the stale-page crash.
+        // This predicate is false for every well-behaved bind (`old` is a fresh
+        // throwaway), so the capture only ever runs on the pathological case.
+        #[cfg(feature = "debug-mem")]
+        {
+            let strong_count = old.descriptor_strong_count();
+            if strong_count > 1 {
+                old.descriptor()
+                    .record_orphan_bind(cursor, old_page as u16, strong_count);
+            }
+        }
 
         Ok(())
     }

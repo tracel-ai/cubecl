@@ -23,6 +23,10 @@ default = [
     "cubecl-core/default",
 ]
 ptx-wmma = []
+# Forwards to `cubecl-runtime/debug-mem`; diagnostic builds only. See that
+# feature for details. Enable on the Modal/burn-lm patch build to capture the
+# orphaning-bind backtrace behind the "Memory page N doesn't exist" crash.
+debug-mem = ["cubecl-runtime/debug-mem"]
 std = [
     "cubecl-runtime/std",
     "cubecl-common/std",

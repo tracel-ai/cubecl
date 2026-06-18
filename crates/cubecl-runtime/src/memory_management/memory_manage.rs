@@ -23,6 +23,27 @@ use cubecl_ir::MemoryDeviceProperties;
 
 pub use super::memory_pool::{ManagedMemoryBinding, handle::*};
 
+/// Diagnostic build only: a binding failed to resolve. Logs the binding's
+/// identity/location, the current (consumer/lookup) backtrace, and — if this
+/// descriptor was ever stranded by a `bind` — the producer backtrace of that
+/// orphaning bind, so the root cause can be traced across cubecl/burn/burn-lm.
+#[cfg(feature = "debug-mem")]
+fn log_stale_binding(binding: &ManagedMemoryBinding, context: &str) {
+    let desc = binding.descriptor();
+    let consumer = BackTrace::capture();
+    let producer = desc.orphan_bind_report();
+    log::error!(
+        "stale memory binding ({context}): id={:?} location={:?}\n\
+         --- consumer (lookup) backtrace ---\n{consumer}\n\
+         --- producer (orphaning bind) ---\n{}",
+        desc.id,
+        desc.location(),
+        producer
+            .as_deref()
+            .unwrap_or("no orphaning bind recorded — stale state came from elsewhere (cleanup renumber / cross-pool lookup)"),
+    );
+}
+
 // These are 288 bytes vs 64 bytes. Adding boxing isn't really worth
 // saving the 200 bytes.
 #[allow(clippy::large_enum_variant)]
@@ -413,13 +434,24 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     reason: format!("Pool {} doesn't exist", id.location().pool).into(),
                 })?;
 
-        let slice = pool.find(&binding)?;
+        let slice = match pool.find(&binding) {
+            Ok(slice) => slice,
+            Err(err) => {
+                // Diagnostic build: dump where this binding was minted (the
+                // orphaning bind, if any) alongside this lookup stack.
+                #[cfg(feature = "debug-mem")]
+                log_stale_binding(&binding, "pool lookup miss");
+                return Err(err);
+            }
+        };
 
         // Re-check what the pool handed back: a stale binding must never resolve to
         // a *different* live buffer. This used to be an `assert_eq!` — which is how a
         // renumbered page, pointing a binding at the wrong survivor, took down the
         // dispatch thread — so return a graceful `NotFound` instead.
         if slice.handle.descriptor() != binding.descriptor() {
+            #[cfg(feature = "debug-mem")]
+            log_stale_binding(&binding, "resolved to a different live buffer");
             return Err(IoError::NotFound {
                 backtrace: BackTrace::capture(),
                 reason: format!(
@@ -1235,5 +1267,58 @@ mod tests {
             msg.contains("Memory page") || msg.contains("doesn't"),
             "expected a graceful NotFound, got: {msg}"
         );
+    }
+
+    /// `debug-mem` instrumentation: a `bind` that strands a still-referenced
+    /// descriptor must record the producer (orphaning-bind) backtrace on it,
+    /// while a plain reserve/handle that was never orphaned records nothing.
+    /// This is the probe that, in the field, names where the stale binding was
+    /// minted across cubecl/burn/burn-lm.
+    #[cfg(feature = "debug-mem")]
+    #[test_log::test]
+    fn debug_mem_records_only_the_orphaning_bind() {
+        let mut mm = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::ExclusivePages {
+                        max_alloc_size: 1024,
+                    },
+                    dealloc_period: Some(5),
+                }],
+            },
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        // A plain reserve that is never bound records nothing.
+        let untouched = mm.reserve(100).unwrap();
+        assert!(
+            untouched.descriptor().orphan_bind_report().is_none(),
+            "a descriptor that was never orphaned must have no record"
+        );
+
+        // Reserve, then keep a binding alive across the bind so the descriptor
+        // is stranded — the predicate in `bind` must fire and capture.
+        let reserved = mm.reserve(100).unwrap();
+        let orphan = reserved.clone().binding();
+        let assigned = ManagedMemoryHandle::new();
+        mm.bind(reserved, assigned.clone(), 42).unwrap();
+
+        let report = orphan
+            .descriptor()
+            .orphan_bind_report()
+            .expect("orphaning bind must be recorded under debug-mem");
+        assert!(
+            report.contains("cursor=42"),
+            "report missing cursor: {report}"
+        );
+        assert!(
+            report.contains("stranded 1 live binding"),
+            "report should count the single stranded binding: {report}"
+        );
+
+        drop(assigned);
     }
 }

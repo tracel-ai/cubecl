@@ -1,6 +1,8 @@
 use crate::memory_management::MemoryHandle;
 use alloc::sync::Arc;
 use core::cell::Cell;
+#[cfg(feature = "debug-mem")]
+use core::cell::RefCell;
 
 /// Managed Memory handle
 #[derive(Debug)]
@@ -39,6 +41,26 @@ impl Clone for ManagedMemoryHandle {
 pub(crate) struct ManagedMemoryDescriptor {
     pub(crate) id: ManagedMemoryId,
     location: Cell<MemoryLocation>,
+    /// Diagnostic record of the last `bind` that orphaned this descriptor while
+    /// it still had live bindings — the producer of a stale binding. Captured
+    /// lazily (only when the invariant breaks) and read back at the lookup miss.
+    #[cfg(feature = "debug-mem")]
+    orphan_bind: RefCell<Option<OrphanBind>>,
+}
+
+/// The forensic record stored on a descriptor when a `bind` strands it while
+/// bindings to it are still alive. See [`ManagedMemoryDescriptor::record_orphan_bind`].
+#[cfg(feature = "debug-mem")]
+struct OrphanBind {
+    /// Backtrace of the `bind` call that did the orphaning (the producer stack).
+    backtrace: cubecl_common::backtrace::BackTrace,
+    /// Stream cursor passed to that `bind`.
+    cursor: u64,
+    /// Page index the descriptor was sitting on at the time of the orphaning.
+    old_page: u16,
+    /// `Arc` strong count of the descriptor right after the orphaning bind.
+    /// `strong_count - 1` is the number of still-live bindings that were stranded.
+    strong_count: usize,
 }
 
 // SAFETY: The channel requires ManagedMemoryHandle to be Send + Sync.
@@ -118,6 +140,36 @@ impl ManagedMemoryDescriptor {
     pub(crate) fn page(&self) -> usize {
         self.location.get().page as usize
     }
+
+    /// Records that a `bind` just orphaned this descriptor while `strong_count`
+    /// references (one being the `bind`'s own `old` handle, the rest live
+    /// bindings) still pointed at it. Captures the producer backtrace so the
+    /// eventual lookup miss can name where the stale binding was minted.
+    #[cfg(feature = "debug-mem")]
+    pub(crate) fn record_orphan_bind(&self, cursor: u64, old_page: u16, strong_count: usize) {
+        *self.orphan_bind.borrow_mut() = Some(OrphanBind {
+            backtrace: cubecl_common::backtrace::BackTrace::capture(),
+            cursor,
+            old_page,
+            strong_count,
+        });
+    }
+
+    /// Renders the recorded orphaning-bind backtrace, if any. `None` means no
+    /// `bind` ever stranded this descriptor — so the stale state came from
+    /// elsewhere (e.g. a `cleanup` renumber or a cross-pool lookup).
+    #[cfg(feature = "debug-mem")]
+    pub(crate) fn orphan_bind_report(&self) -> Option<alloc::string::String> {
+        self.orphan_bind.borrow().as_ref().map(|o| {
+            alloc::format!(
+                "orphaning bind stranded {} live binding(s) (cursor={}, old_page={}):\n{}",
+                o.strong_count.saturating_sub(1),
+                o.cursor,
+                o.old_page,
+                o.backtrace
+            )
+        })
+    }
 }
 
 impl MemoryLocation {
@@ -151,6 +203,8 @@ impl ManagedMemoryHandle {
             descriptor: Arc::new(ManagedMemoryDescriptor {
                 id: ManagedMemoryId { value },
                 location: Cell::new(MemoryLocation::uninit()),
+                #[cfg(feature = "debug-mem")]
+                orphan_bind: RefCell::new(None),
             }),
             handle_count: Arc::new(()),
         }
@@ -169,6 +223,14 @@ impl ManagedMemoryHandle {
     /// Return whether the current handle is free.
     pub fn is_free(&self) -> bool {
         Arc::strong_count(&self.descriptor) <= 1
+    }
+
+    /// Strong count of the shared descriptor. Used by `bind` (under `debug-mem`)
+    /// to detect when it is about to orphan a descriptor that still has live
+    /// bindings.
+    #[cfg(feature = "debug-mem")]
+    pub(crate) fn descriptor_strong_count(&self) -> usize {
+        Arc::strong_count(&self.descriptor)
     }
 
     /// Returns the binding for the current handle.

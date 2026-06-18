@@ -12,6 +12,7 @@ fn main() {
         // Filesystem and environment access for config loading and caching.
         std_io: { all(feature = "std", any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android")) },
         // TODO: We can't yet activate it for everything because of how error handling is done in matmul.
-        backtrace: { all(test, feature="std") },
+        // `backtrace-capture` widens this to non-test diagnostic builds (e.g. `debug-mem`).
+        backtrace: { all(feature="std", any(test, feature="backtrace-capture")) },
     }
 }

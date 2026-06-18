@@ -19,6 +19,11 @@ workspace = true
 
 
 [features]
+# Enables runtime backtrace capture outside of `cfg(test)` (see build.rs).
+# Implies `std` since the `backtrace` crate rides on it. Used by diagnostic
+# builds (e.g. cubecl-runtime's `debug-mem`) that need real producer/consumer
+# stacks in a non-test binary.
+backtrace-capture = ["std"]
 cache = ["std", "serde_json", "dirs", "sanitize-filename"]
 compilation-cache = ["cache", "dep:ciborium"]
 default = ["std"]

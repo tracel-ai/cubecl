@@ -18,6 +18,13 @@ workspace = true
 [features]
 autotune-checks = []
 channel-cell = []
+# Diagnostic build only: records the backtrace of any `bind` that orphans a
+# descriptor still referenced by live bindings, and dumps it (alongside the
+# consumer/lookup backtrace) when that stale binding later fails to resolve.
+# Used to hunt the "Memory page N doesn't exist" root cause. Adds per-`bind`
+# overhead and is never enabled in release. Pulls in real backtrace capture so
+# the producer/consumer stacks resolve in a non-test binary.
+debug-mem = ["std", "cubecl-common/backtrace-capture"]
 channel-mpsc = []
 channel-mutex = []
 default = [
