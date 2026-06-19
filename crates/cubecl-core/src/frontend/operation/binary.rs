@@ -10,6 +10,7 @@ use crate::{
     unexpanded,
 };
 use core::ops::*;
+use cubecl_common::{e4m3, e5m2};
 use cubecl_ir::{ClampOperands, Operator};
 use half::{bf16, f16};
 
@@ -359,6 +360,8 @@ impl_binary_func!(
     Arithmetic::Powf,
     f16,
     bf16,
+    e4m3,
+    e5m2,
     flex32,
     tf32,
     f32,
@@ -371,6 +374,8 @@ impl_binary_func!(
     Arithmetic::Hypot,
     f16,
     bf16,
+    e4m3,
+    e5m2,
     flex32,
     tf32,
     f32,
@@ -383,6 +388,8 @@ impl_binary_func!(
     Arithmetic::Rhypot,
     f16,
     bf16,
+    e4m3,
+    e5m2,
     flex32,
     tf32,
     f32,
@@ -395,6 +402,8 @@ impl_binary_func!(
     Arithmetic::ArcTan2,
     f16,
     bf16,
+    e4m3,
+    e5m2,
     flex32,
     tf32,
     f32,
@@ -406,6 +415,8 @@ impl_binary_func!(
     Arithmetic::ModFloor,
     f16,
     bf16,
+    e4m3,
+    e5m2,
     flex32,
     tf32,
     f32,
@@ -458,6 +469,8 @@ impl_binary_func_scalar_out!(
     Arithmetic::Dot,
     f16,
     bf16,
+    e4m3,
+    e5m2,
     flex32,
     tf32,
     f32,
@@ -481,6 +494,8 @@ impl_binary_func_mixed_types!(
     Arithmetic::Powi,
     f16,
     bf16,
+    e4m3,
+    e5m2,
     flex32,
     tf32,
     f32,

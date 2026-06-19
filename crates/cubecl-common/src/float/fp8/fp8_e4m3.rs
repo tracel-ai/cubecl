@@ -1,13 +1,13 @@
 use core::{
     cmp::Ordering,
     fmt::{Debug, Display},
-    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+    num::ParseFloatError,
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign},
 };
 
 use bytemuck::{Pod, Zeroable};
 use float8::F8E4M3;
-use num_traits::{NumCast, ToPrimitive};
-use rand::distr::uniform::{UniformFloat, UniformSampler};
+use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 
 /// A 8-bit floating point type with 4 exponent bits and 3 mantissa bits.
 ///
@@ -24,6 +24,34 @@ impl e4m3 {
     /// Minimum representable value
     pub const MIN: Self = Self::from_bits(F8E4M3::MIN.to_bits());
 
+    /// the difference between 1.0 and the next largest representable number.
+    pub const EPSILON: Self = Self::from_bits(F8E4M3::EPSILON.to_bits());
+
+    /// Minimum representable value
+    pub const MIN_POSITIVE: Self = Self::from_bits(F8E4M3::MIN_POSITIVE.to_bits());
+
+    ///Approximate number of significant digits in base 10
+    pub const DIGITS: u32 = F8E4M3::DIGITS;
+
+    ///Number of mantissa digits
+    pub const MANTISSA_DIGITS: u32 = F8E4M3::MANTISSA_DIGITS;
+
+    ///Positive infinity ∞
+    pub const INFINITY: Self = Self::from_bits(F8E4M3::INFINITY.to_bits());
+    ///Negative infinity -∞
+    pub const NEG_INFINITY: Self = Self::from_bits(F8E4M3::NEG_INFINITY.to_bits());
+    /// Maximum possible normal power of 10 exponent
+    pub const MAX_10_EXP: i32 = F8E4M3::MAX_10_EXP;
+    /// Maximum possible normal power of 2 exponent
+    pub const MAX_EXP: i32 = F8E4M3::MAX_EXP;
+    /// Minimum possible normal power of 10 exponent
+    pub const MIN_10_EXP: i32 = F8E4M3::MIN_10_EXP;
+    /// Minimum possible normal power of 2 exponent
+    pub const MIN_EXP: i32 = F8E4M3::MIN_EXP;
+    /// The radix, or base, of the floating-point representation.
+    pub const RADIX: u32 = 2;
+    /// nan
+    pub const NAN: Self = Self::from_bits(0xFFu8);
     /// Constructs a [`e4m3`] value from the raw bits.
     #[inline]
     #[must_use]
@@ -90,44 +118,39 @@ impl e4m3 {
         F8E4M3::total_cmp(&self.into(), &other.into())
     }
 }
-
-/// Sampler for [`e4m3`]
-#[derive(Clone, Copy, Debug)]
-pub struct E4M3Sampler(UniformFloat<f32>);
-
-impl UniformSampler for E4M3Sampler {
-    type X = e4m3;
-
-    fn new<B1, B2>(low: B1, high: B2) -> Result<Self, rand::distr::uniform::Error>
-    where
-        B1: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
-        B2: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
-    {
-        let l = *low.borrow();
-        let h = *high.borrow();
-
-        if l.is_nan() || h.is_nan() {
-            return Err(rand::distr::uniform::Error::EmptyRange);
-        }
-        Ok(Self(UniformFloat::new(l.to_f32(), h.to_f32())?))
+impl Zero for e4m3 {
+    fn zero() -> Self {
+        Self::from_bits(F8E4M3::ZERO.to_bits())
     }
 
-    fn new_inclusive<B1, B2>(low: B1, high: B2) -> Result<Self, rand::distr::uniform::Error>
-    where
-        B1: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
-        B2: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
-    {
-        let l = *low.borrow();
-        let h = *high.borrow();
-
-        if l.is_nan() || h.is_nan() {
-            return Err(rand::distr::uniform::Error::EmptyRange);
-        }
-        Ok(Self(UniformFloat::new_inclusive(l.to_f32(), h.to_f32())?))
+    fn is_zero(&self) -> bool {
+        self == &Self::zero()
+    }
+}
+impl One for e4m3 {
+    fn one() -> Self {
+        Self::from_bits(F8E4M3::ONE.to_bits())
     }
 
-    fn sample<R: rand::prelude::Rng + ?Sized>(&self, rng: &mut R) -> Self::X {
-        e4m3::from_f32(self.0.sample(rng))
+    fn is_one(&self) -> bool {
+        self == &Self::one()
+    }
+}
+impl Num for e4m3 {
+    // You can use the standard library's ParseFloatError
+    // or create a custom enum if you want to handle RadixMismatch explicitly.
+    type FromStrRadixErr = ParseFloatError;
+
+    fn from_str_radix(src: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
+        if radix != 10 {
+            return "".parse::<f32>().map(|_| unreachable!());
+        }
+
+        // 2. Parse the string into a temporary f32
+        let val_f32 = src.parse::<f32>()?;
+
+        // 3. Convert the f32 down into your e4m3 variant
+        Ok(Self::from_f32(val_f32))
     }
 }
 
@@ -176,6 +199,20 @@ impl Div for e4m3 {
 impl DivAssign for e4m3 {
     fn div_assign(&mut self, rhs: Self) {
         *self = *self / rhs;
+    }
+}
+
+impl Rem for e4m3 {
+    type Output = Self;
+
+    fn rem(self, rhs: Self) -> Self::Output {
+        Self::from_f32(self.to_f32() % rhs.to_f32())
+    }
+}
+
+impl RemAssign for e4m3 {
+    fn rem_assign(&mut self, rhs: Self) {
+        *self = *self % rhs;
     }
 }
 
