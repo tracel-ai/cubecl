@@ -80,7 +80,7 @@ impl GraphicsApi for AutoGraphicsApi {
                 "webgpu" => return Backend::BrowserWebGpu,
                 _ => {
                     eprintln!(
-                        "Invalid graphics backend specified in GRAPHICS_BACKEND environment \
+                        "Invalid graphics backend specified in AUTO_GRAPHICS_BACKEND environment \
                          variable"
                     );
                     std::process::exit(1);
