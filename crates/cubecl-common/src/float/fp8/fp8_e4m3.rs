@@ -1,11 +1,13 @@
 use core::{
-    cmp::Ordering, fmt::{Debug, Display}, ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign}
+    cmp::Ordering,
+    fmt::{Debug, Display},
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 
 use bytemuck::{Pod, Zeroable};
 use float8::F8E4M3;
 use num_traits::{NumCast, ToPrimitive};
-use rand::distr::uniform::UniformSampler;
+use rand::distr::uniform::{UniformFloat, UniformSampler};
 
 /// A 8-bit floating point type with 4 exponent bits and 3 mantissa bits.
 ///
@@ -68,6 +70,12 @@ impl e4m3 {
         self.to_f64() as f32
     }
 
+    /// check if an [`e4m3`] value is Nan
+    #[inline]
+    pub fn is_nan(self) -> bool {
+        self.0 == 0x7Fu8 || self.0 == 0xFFu8
+    }
+
     /// Converts a [`e4m3`] value into an [`f64`] value.
     ///
     /// This conversion is lossless as all values can be represented exactly in [`f64`].
@@ -76,36 +84,50 @@ impl e4m3 {
     pub const fn to_f64(self) -> f64 {
         F8E4M3::from_bits(self.0).to_f64()
     }
+
     /// Compares [`e4m3`] values
     pub fn total_cmp(self, other: Self) -> Ordering {
         F8E4M3::total_cmp(&self.into(), &other.into())
     }
 }
 
-impl UniformSampler for e4m3 {
+/// Sampler for [`e4m3`]
+#[derive(Clone, Copy, Debug)]
+pub struct E4M3Sampler(UniformFloat<f32>);
+
+impl UniformSampler for E4M3Sampler {
     type X = e4m3;
 
-    fn new<B1, B2>(_low: B1, _high: B2) -> Result<Self, rand::distr::uniform::Error>
+    fn new<B1, B2>(low: B1, high: B2) -> Result<Self, rand::distr::uniform::Error>
     where
         B1: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
-        B2: rand::distr::uniform::SampleBorrow<Self::X> + Sized {
-        // Ok(Self(UniformFloat::new(
-        //     low.borrow().to_f32(),
-        //     high.borrow().to_f32(),
-        // )?))
-        todo!()
+        B2: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
+    {
+        let l = *low.borrow();
+        let h = *high.borrow();
+
+        if l.is_nan() || h.is_nan() {
+            return Err(rand::distr::uniform::Error::EmptyRange);
+        }
+        Ok(Self(UniformFloat::new(l.to_f32(), h.to_f32())?))
     }
 
-    fn new_inclusive<B1, B2>(_low: B1, _high: B2) -> Result<Self, rand::distr::uniform::Error>
+    fn new_inclusive<B1, B2>(low: B1, high: B2) -> Result<Self, rand::distr::uniform::Error>
     where
         B1: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
-        B2: rand::distr::uniform::SampleBorrow<Self::X> + Sized {
-        todo!()
+        B2: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
+    {
+        let l = *low.borrow();
+        let h = *high.borrow();
+
+        if l.is_nan() || h.is_nan() {
+            return Err(rand::distr::uniform::Error::EmptyRange);
+        }
+        Ok(Self(UniformFloat::new_inclusive(l.to_f32(), h.to_f32())?))
     }
 
-    fn sample<R: rand::prelude::Rng + ?Sized>(&self, _rng: &mut R) -> Self::X {
-        //Self::from_f32(self.0.sample(rng))
-        todo!()
+    fn sample<R: rand::prelude::Rng + ?Sized>(&self, rng: &mut R) -> Self::X {
+        e4m3::from_f32(self.0.sample(rng))
     }
 }
 
@@ -115,10 +137,9 @@ impl From<F8E4M3> for e4m3 {
     }
 }
 
-
-impl Into<F8E4M3> for e4m3 {
-    fn into(self) -> F8E4M3 {
-        F8E4M3::from_bits(self.to_bits())
+impl From<e4m3> for F8E4M3 {
+    fn from(value: e4m3) -> Self {
+        Self::from_bits(value.to_bits())
     }
 }
 

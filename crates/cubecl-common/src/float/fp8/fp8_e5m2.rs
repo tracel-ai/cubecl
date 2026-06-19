@@ -1,13 +1,13 @@
 use core::{
-    cmp::Ordering, fmt::{Debug, Display}, ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign}
+    cmp::Ordering,
+    fmt::{Debug, Display},
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
 
 use bytemuck::{Pod, Zeroable};
 use float8::F8E5M2;
 use num_traits::{NumCast, ToPrimitive};
-use rand::{distr::uniform::{UniformFloat, UniformSampler}};
-
-use crate::quant::scheme::QuantValue::E5M2;
+use rand::distr::uniform::{UniformFloat, UniformSampler};
 
 /// A 8-bit floating point type with 5 exponent bits and 2 mantissa bits.
 ///
@@ -61,6 +61,12 @@ impl e5m2 {
         self.0
     }
 
+    /// check if an [`e4m3`] value is Nan
+    #[inline]
+    pub fn is_nan(self) -> bool {
+        [0x7D, 0x7E, 0x7F, 0xFD, 0xFE, 0xFF].contains(&self.0)
+    }
+
     /// Converts a [`e5m2`] value into an [`f32`] value.
     ///
     /// This conversion is lossless as all values can be represented exactly in [`f32`].
@@ -78,12 +84,13 @@ impl e5m2 {
     pub const fn to_f64(self) -> f64 {
         F8E5M2::from_bits(self.0).to_f64()
     }
+
+    /// Compares [`e4m3`] values
     #[inline]
     pub fn total_cmp(self, other: Self) -> Ordering {
         F8E5M2::total_cmp(&self.into(), &other.into())
     }
 }
-
 
 impl From<F8E5M2> for e5m2 {
     fn from(value: F8E5M2) -> Self {
@@ -91,38 +98,52 @@ impl From<F8E5M2> for e5m2 {
     }
 }
 
-
-impl Into<F8E5M2> for e5m2 {
-    fn into(self) -> F8E5M2 {
-        F8E5M2::from_bits(self.to_bits())
+impl From<e5m2> for F8E5M2 {
+    fn from(value: e5m2) -> Self {
+        Self::from_bits(value.to_bits())
     }
 }
-impl UniformSampler for e5m2 {
+
+/// Sampler for [`e4m3`]
+#[derive(Clone, Copy, Debug)]
+pub struct E5M2Sampler(UniformFloat<f32>);
+
+impl UniformSampler for E5M2Sampler {
     type X = e5m2;
 
     fn new<B1, B2>(low: B1, high: B2) -> Result<Self, rand::distr::uniform::Error>
     where
         B1: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
-        B2: rand::distr::uniform::SampleBorrow<Self::X> + Sized {
-        // Ok(Self(UniformFloat::new(
-        //     low.borrow().to_f32(),
-        //     high.borrow().to_f32(),
-        // )?))
-        todo!()
+        B2: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
+    {
+        let l = *low.borrow();
+        let h = *high.borrow();
+
+        if l.is_nan() || h.is_nan() {
+            return Err(rand::distr::uniform::Error::EmptyRange);
+        }
+        Ok(Self(UniformFloat::new(l.to_f32(), h.to_f32())?))
     }
 
     fn new_inclusive<B1, B2>(low: B1, high: B2) -> Result<Self, rand::distr::uniform::Error>
     where
         B1: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
-        B2: rand::distr::uniform::SampleBorrow<Self::X> + Sized {
-        todo!()
+        B2: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
+    {
+        let l = *low.borrow();
+        let h = *high.borrow();
+
+        if l.is_nan() || h.is_nan() {
+            return Err(rand::distr::uniform::Error::EmptyRange);
+        }
+        Ok(Self(UniformFloat::new_inclusive(l.to_f32(), h.to_f32())?))
     }
 
     fn sample<R: rand::prelude::Rng + ?Sized>(&self, rng: &mut R) -> Self::X {
-        //Self::from_f32(self.0.sample(rng))
-        todo!()
+        e5m2::from_f32(self.0.sample(rng))
     }
 }
+
 impl Neg for e5m2 {
     type Output = Self;
 
