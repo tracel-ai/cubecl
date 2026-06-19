@@ -116,7 +116,9 @@ impl MemoryLayoutPolicy for ContiguousMemoryLayoutPolicy {
 pub(crate) fn contiguous_strides(shape: &Shape) -> Strides {
     let rank = shape.len();
     let mut strides = strides![1; rank];
-    for i in (0..rank - 1).rev() {
+    // `saturating_sub` keeps the bound at 0 for rank-0 (scalar) shapes, where
+    // `rank - 1` would otherwise underflow and panic.
+    for i in (0..rank.saturating_sub(1)).rev() {
         strides[i] = strides[i + 1] * shape[i + 1];
     }
     strides
@@ -143,4 +145,25 @@ pub fn offset_handles(
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contiguous_strides_handles_rank_0() {
+        // Rank-0 (scalar) shapes must not underflow the `rank - 1` loop bound.
+        let strides = contiguous_strides(&Shape::new([]));
+        assert!(strides.is_empty());
+    }
+
+    #[test]
+    fn contiguous_strides_are_row_major() {
+        assert_eq!(contiguous_strides(&Shape::new([5])), strides![1]);
+        assert_eq!(
+            contiguous_strides(&Shape::new([2, 3, 4])),
+            strides![12, 4, 1]
+        );
+    }
 }
