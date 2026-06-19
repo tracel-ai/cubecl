@@ -20,9 +20,9 @@ pub struct e5m2(u8);
 
 impl e5m2 {
     /// Maximum representable value
-    pub const MAX: f64 = F8E5M2::MAX.to_f64();
+    pub const MAX: e5m2 = Self::from_bits(F8E5M2::MAX.to_bits());
     /// Minimum representable value
-    pub const MIN: f64 = F8E5M2::MIN.to_f64();
+    pub const MIN: e5m2 = Self::from_bits(F8E5M2::MIN.to_bits());
 
     /// Constructs a [`e5m2`] value from the raw bits.
     #[inline]
@@ -83,6 +83,8 @@ impl e5m2 {
         F8E5M2::total_cmp(&self.into(), &other.into())
     }
 }
+
+
 impl From<F8E5M2> for e5m2 {
     fn from(value: F8E5M2) -> Self {
         e5m2(value.to_bits())

@@ -18,9 +18,9 @@ pub struct e4m3(u8);
 
 impl e4m3 {
     /// Maximum representable value
-    pub const MAX: f64 = F8E4M3::MAX.to_f64();
+    pub const MAX: Self = Self::from_bits(F8E4M3::MAX.to_bits());
     /// Minimum representable value
-    pub const MIN: f64 = F8E4M3::MIN.to_f64();
+    pub const MIN: Self = Self::from_bits(F8E4M3::MIN.to_bits());
 
     /// Constructs a [`e4m3`] value from the raw bits.
     #[inline]
