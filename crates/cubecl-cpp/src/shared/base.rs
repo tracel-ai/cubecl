@@ -2061,9 +2061,14 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
     }
 
     for ty in supported_atomic_types {
-        props.register_atomic_type_usage(
-            Type::atomic(ty),
-            AtomicUsage::Add | AtomicUsage::LoadStore,
-        );
+        // Restricted to 32-bit integers because not every min/max/bitwise/CAS overload
+        // exists for 64-bit and float atomics across the C++ dialects (CUDA, HIP, Metal).
+        let usage = match ty {
+            ir::ElemType::Int(ir::IntKind::I32) | ir::ElemType::UInt(ir::UIntKind::U32) => {
+                AtomicUsage::all()
+            }
+            _ => AtomicUsage::Add | AtomicUsage::LoadStore,
+        };
+        props.register_atomic_type_usage(Type::atomic(ty), usage);
     }
 }
