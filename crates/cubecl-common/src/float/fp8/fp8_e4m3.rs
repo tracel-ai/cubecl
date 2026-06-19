@@ -1,11 +1,11 @@
 use core::{
-    fmt::{Debug, Display},
-    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+    cmp::Ordering, fmt::{Debug, Display}, ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign}
 };
 
 use bytemuck::{Pod, Zeroable};
 use float8::F8E4M3;
 use num_traits::{NumCast, ToPrimitive};
+use rand::distr::uniform::UniformSampler;
 
 /// A 8-bit floating point type with 4 exponent bits and 3 mantissa bits.
 ///
@@ -75,6 +75,50 @@ impl e4m3 {
     #[must_use]
     pub const fn to_f64(self) -> f64 {
         F8E4M3::from_bits(self.0).to_f64()
+    }
+    /// Compares [`e4m3`] values
+    pub fn total_cmp(self, other: Self) -> Ordering {
+        F8E4M3::total_cmp(&self.into(), &other.into())
+    }
+}
+
+impl UniformSampler for e4m3 {
+    type X = e4m3;
+
+    fn new<B1, B2>(_low: B1, _high: B2) -> Result<Self, rand::distr::uniform::Error>
+    where
+        B1: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
+        B2: rand::distr::uniform::SampleBorrow<Self::X> + Sized {
+        // Ok(Self(UniformFloat::new(
+        //     low.borrow().to_f32(),
+        //     high.borrow().to_f32(),
+        // )?))
+        todo!()
+    }
+
+    fn new_inclusive<B1, B2>(_low: B1, _high: B2) -> Result<Self, rand::distr::uniform::Error>
+    where
+        B1: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
+        B2: rand::distr::uniform::SampleBorrow<Self::X> + Sized {
+        todo!()
+    }
+
+    fn sample<R: rand::prelude::Rng + ?Sized>(&self, _rng: &mut R) -> Self::X {
+        //Self::from_f32(self.0.sample(rng))
+        todo!()
+    }
+}
+
+impl From<F8E4M3> for e4m3 {
+    fn from(value: F8E4M3) -> Self {
+        e4m3(value.to_bits())
+    }
+}
+
+
+impl Into<F8E4M3> for e4m3 {
+    fn into(self) -> F8E4M3 {
+        F8E4M3::from_bits(self.to_bits())
     }
 }
 

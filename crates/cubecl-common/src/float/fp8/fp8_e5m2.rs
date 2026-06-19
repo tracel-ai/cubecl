@@ -1,11 +1,13 @@
 use core::{
-    fmt::{Debug, Display},
-    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+    cmp::Ordering, fmt::{Debug, Display}, ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign}
 };
 
 use bytemuck::{Pod, Zeroable};
 use float8::F8E5M2;
 use num_traits::{NumCast, ToPrimitive};
+use rand::{distr::uniform::{UniformFloat, UniformSampler}};
+
+use crate::quant::scheme::QuantValue::E5M2;
 
 /// A 8-bit floating point type with 5 exponent bits and 2 mantissa bits.
 ///
@@ -76,8 +78,49 @@ impl e5m2 {
     pub const fn to_f64(self) -> f64 {
         F8E5M2::from_bits(self.0).to_f64()
     }
+    #[inline]
+    pub fn total_cmp(self, other: Self) -> Ordering {
+        F8E5M2::total_cmp(&self.into(), &other.into())
+    }
+}
+impl From<F8E5M2> for e5m2 {
+    fn from(value: F8E5M2) -> Self {
+        e5m2(value.to_bits())
+    }
 }
 
+
+impl Into<F8E5M2> for e5m2 {
+    fn into(self) -> F8E5M2 {
+        F8E5M2::from_bits(self.to_bits())
+    }
+}
+impl UniformSampler for e5m2 {
+    type X = e5m2;
+
+    fn new<B1, B2>(low: B1, high: B2) -> Result<Self, rand::distr::uniform::Error>
+    where
+        B1: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
+        B2: rand::distr::uniform::SampleBorrow<Self::X> + Sized {
+        // Ok(Self(UniformFloat::new(
+        //     low.borrow().to_f32(),
+        //     high.borrow().to_f32(),
+        // )?))
+        todo!()
+    }
+
+    fn new_inclusive<B1, B2>(low: B1, high: B2) -> Result<Self, rand::distr::uniform::Error>
+    where
+        B1: rand::distr::uniform::SampleBorrow<Self::X> + Sized,
+        B2: rand::distr::uniform::SampleBorrow<Self::X> + Sized {
+        todo!()
+    }
+
+    fn sample<R: rand::prelude::Rng + ?Sized>(&self, rng: &mut R) -> Self::X {
+        //Self::from_f32(self.0.sample(rng))
+        todo!()
+    }
+}
 impl Neg for e5m2 {
     type Output = Self;
 
