@@ -1226,6 +1226,229 @@ mod tests {
         assert_eq!(ok, 7);
     }
 
+    /// A.1 — A `String` payload produced by a formatting `panic!` is preserved and
+    /// readable through `message()` (exercises the `String` downcast branch, distinct
+    /// from the `&'static str` branch covered above).
+    #[test]
+    fn test_submit_blocking_preserves_formatted_string_payload() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 14,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let result = handle.submit_blocking(|_state| {
+            panic!("value {}", 99);
+        });
+
+        let err = result.expect_err("panicking task must return Err");
+        assert_eq!(err.message(), Some("value 99"));
+    }
+
+    /// A.2 — A non-string custom payload survives end to end: `message()` is `None`,
+    /// but the original object is recoverable via `into_panic()`.
+    #[test]
+    fn test_submit_blocking_preserves_non_string_payload() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 15,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        #[derive(Debug, PartialEq)]
+        struct Boom {
+            code: u32,
+            what: &'static str,
+        }
+
+        let result = handle.submit_blocking(|_state| {
+            std::panic::panic_any(Boom {
+                code: 7,
+                what: "kaboom",
+            });
+        });
+
+        let err = result.expect_err("panicking task must return Err");
+        assert_eq!(err.message(), None, "a non-string payload has no message");
+        let payload = err.into_panic().expect("the payload must be preserved");
+        let boom = *payload
+            .downcast::<Boom>()
+            .expect("payload must downcast to the original type");
+        assert_eq!(
+            boom,
+            Boom {
+                code: 7,
+                what: "kaboom",
+            }
+        );
+    }
+
+    /// A.3 — A scalar (non-string) payload is preserved and recoverable.
+    #[test]
+    fn test_submit_blocking_preserves_scalar_payload() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 16,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let result = handle.submit_blocking(|_state| {
+            std::panic::panic_any(42i32);
+        });
+
+        let err = result.expect_err("panicking task must return Err");
+        assert_eq!(err.message(), None);
+        let payload = err.into_panic().expect("the payload must be preserved");
+        assert_eq!(
+            *payload.downcast::<i32>().expect("payload must be an i32"),
+            42
+        );
+    }
+
+    /// B.1 — A real index-out-of-bounds panic (the symptom from the issue) keeps its
+    /// message instead of being erased into a generic error.
+    #[test]
+    fn test_submit_blocking_preserves_index_out_of_bounds_message() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 17,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let result = handle.submit_blocking(|_state| {
+            let data = [10u8, 20u8];
+            // `black_box` hides the index so the access happens at runtime rather than
+            // tripping the const-eval `unconditional_panic` lint.
+            let idx = core::hint::black_box(5usize);
+            let _ = data[idx];
+        });
+
+        let err = result.expect_err("panicking task must return Err");
+        let message = err
+            .message()
+            .expect("an index panic carries a string message");
+        assert!(
+            message.contains("index out of bounds"),
+            "unexpected message: {message}"
+        );
+    }
+
+    /// B.2 — A real `unwrap()` panic keeps its message (the autotune symptom).
+    #[test]
+    fn test_submit_blocking_preserves_unwrap_message() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 18,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let result = handle.submit_blocking(|_state| {
+            let value: Result<(), &str> = Err("nope");
+            value.unwrap();
+        });
+
+        let err = result.expect_err("panicking task must return Err");
+        let message = err
+            .message()
+            .expect("an unwrap panic carries a string message");
+        assert!(message.contains("unwrap"), "unexpected message: {message}");
+    }
+
+    /// C.1 — The captured payload can re-raise the original panic via `resume_unwind`,
+    /// proving it is the genuine payload and not a lossy copy.
+    #[test]
+    fn test_into_panic_can_be_resumed() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 19,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let result = handle.submit_blocking(|_state| {
+            panic!("re-raise me");
+        });
+
+        let err = result.expect_err("panicking task must return Err");
+        assert_eq!(err.message(), Some("re-raise me"));
+
+        let payload = err.into_panic().expect("the payload must be preserved");
+        // Re-raise on this thread and catch it again: the round-tripped payload must
+        // still hold the original message.
+        let recaught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            std::panic::resume_unwind(payload);
+        }));
+        let payload = recaught.expect_err("resume_unwind must re-panic");
+        assert_eq!(
+            payload.downcast_ref::<&str>().copied(),
+            Some("re-raise me"),
+            "the re-raised panic must carry the original message"
+        );
+    }
+
+    /// E.1 — `exclusive` preserves a non-string payload just like `submit_blocking`.
+    #[test]
+    fn test_exclusive_preserves_non_string_payload() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 20,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        #[derive(Debug, PartialEq)]
+        struct Boom {
+            code: u32,
+            what: &'static str,
+        }
+
+        let result: Result<(), _> = handle.exclusive(|| {
+            std::panic::panic_any(Boom {
+                code: 9,
+                what: "exclusive",
+            });
+        });
+
+        let err = result.expect_err("panicking task must return Err");
+        assert_eq!(err.message(), None);
+        let payload = err.into_panic().expect("the payload must be preserved");
+        let boom = *payload
+            .downcast::<Boom>()
+            .expect("payload must downcast to the original type");
+        assert_eq!(
+            boom,
+            Boom {
+                code: 9,
+                what: "exclusive",
+            }
+        );
+    }
+
+    /// E.3 — The runner thread survives repeated panics, each call surfaces its own
+    /// payload, and a later normal task still succeeds.
+    #[test]
+    fn test_channel_survives_repeated_panics_each_preserved() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 21,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let first = handle.submit_blocking(|_state| panic!("first"));
+        assert_eq!(
+            first.expect_err("first panic must return Err").message(),
+            Some("first")
+        );
+
+        let second = handle.submit_blocking(|_state| panic!("second"));
+        assert_eq!(
+            second.expect_err("second panic must return Err").message(),
+            Some("second")
+        );
+
+        // The runner thread is still alive: a normal task runs and returns Ok.
+        let counter = handle.submit_blocking(|state| state.counter).unwrap();
+        assert_eq!(counter, 0);
+    }
+
     /// A closure that spills to the arena (size > 48) and carries the maximum arena
     /// alignment (64) must be stored and executed soundly.
     #[test]

@@ -125,3 +125,44 @@ pub(crate) trait DeviceHandleSpec<S: DeviceService>: Sized {
     /// TODO: Docs.
     fn exclusive<R: Send, T: FnOnce() -> R + Send>(&self, task: T) -> Result<R, CallError>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::CallError;
+    use alloc::boxed::Box;
+    use core::any::Any;
+
+    /// D.1 — A disconnected error carries neither a message nor a payload, which is
+    /// what distinguishes it from a non-string panic (both have `message() == None`).
+    #[test]
+    fn test_disconnected_has_no_message_or_payload() {
+        let err = CallError::disconnected();
+        assert_eq!(err.message(), None);
+        assert!(err.into_panic().is_none());
+    }
+
+    /// D.2 — Debug of a string payload includes the panic message.
+    #[test]
+    fn test_debug_string_payload_includes_message() {
+        let err = CallError::from_panic(Box::new("oops") as Box<dyn Any + Send>);
+        let debug = alloc::format!("{err:?}");
+        assert!(debug.contains("task panicked on device runner thread"));
+        assert!(debug.contains("oops"));
+    }
+
+    /// D.3 — Debug of a non-string payload reports it as such.
+    #[test]
+    fn test_debug_non_string_payload() {
+        let err = CallError::from_panic(Box::new(123u8) as Box<dyn Any + Send>);
+        let debug = alloc::format!("{err:?}");
+        assert!(debug.contains("non-string payload"), "got: {debug}");
+    }
+
+    /// D.4 — Debug of a disconnected error mentions the disconnection.
+    #[test]
+    fn test_debug_disconnected() {
+        let err = CallError::disconnected();
+        let debug = alloc::format!("{err:?}");
+        assert!(debug.contains("disconnected"), "got: {debug}");
+    }
+}
