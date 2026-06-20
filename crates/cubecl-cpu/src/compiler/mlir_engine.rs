@@ -11,7 +11,7 @@ use std::{
 
 use super::module::Module;
 use cubecl_core::{ir::StorageType, prelude::KernelDefinition};
-use cubecl_opt::Function;
+use cubecl_opt::{Function, GlobalState};
 use tracel_llvm::mlir_rs::{
     Context, ExecutionEngine,
     dialect::DialectRegistry,
@@ -41,7 +41,8 @@ impl Display for MlirEngine {
 impl MlirEngine {
     pub fn from_cubecl_ir(
         kernel: KernelDefinition,
-        func: &Function,
+        func: &mut Function,
+        global_state: &GlobalState,
         shared_memories: SharedMemories,
         addr_type: StorageType,
     ) -> Self {
@@ -57,7 +58,7 @@ impl MlirEngine {
 
         let mut module = Module::new(&context, kernel.options.kernel_name.clone());
 
-        module.visit_kernel(&kernel, func, &shared_memories, addr_type);
+        module.visit_kernel(&kernel, func, global_state, &shared_memories, addr_type);
 
         module.run_pass();
 

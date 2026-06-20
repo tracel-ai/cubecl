@@ -29,7 +29,7 @@ pub fn select_many<C: Scalar, N: Size>(
 }
 
 pub mod select {
-    use cubecl_ir::VariableKind;
+    use cubecl_ir::ValueKind;
 
     use crate::ir::Instruction;
 
@@ -43,7 +43,7 @@ pub mod select {
     ) -> NativeExpand<C> {
         let cond = condition.expand;
 
-        if let VariableKind::Constant(value) = cond.kind {
+        if let ValueKind::Constant(value) = cond.kind {
             if value.as_bool() {
                 return then;
             } else {
@@ -58,7 +58,7 @@ pub mod select {
         let vf = Ord::max(vf, then.vector_size());
         let vf = Ord::max(vf, or_else.vector_size());
 
-        let output = scope.create_local(then.value_type().with_vector_size(vf));
+        let output = scope.create_value(then.value_type().with_vector_size(vf));
 
         let select = Operator::Select(SelectOperands {
             cond,

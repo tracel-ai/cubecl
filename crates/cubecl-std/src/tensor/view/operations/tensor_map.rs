@@ -5,7 +5,7 @@ use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 
 // We don't know the linear layout, so only implement TMA loads/stores
 macro_rules! impl_tensor_map {
-    ($dim: literal, $coords: ty, $($var: ident),*) => {
+    ($dim: literal, $coords: ty, $($val: ident),*) => {
         paste::paste! {
             impl<T: CubePrimitive> ViewOperations<T, $coords> for TensorMap<T, Tiled> {}
             impl<T: CubePrimitive> ViewOperationsExpand<T, $coords> for NativeExpand<TensorMap<T, Tiled>> {
@@ -73,9 +73,9 @@ macro_rules! impl_tensor_map {
                     pos: <$coords as CubeType>::ExpandType,
                 ) {
                     let shared = shared_memory.__expand_downcast_mut_method(scope);
-                    let ($($var),*) = pos;
-                    let ($($var),*) = ($(i32::__expand_cast_from(scope, $var)),*);
-                    barrier.[<__expand_tma_load_ $dim d_method>]::<T, T>(scope, self, shared, $($var),*);
+                    let ($($val),*) = pos;
+                    let ($($val),*) = ($(i32::__expand_cast_from(scope, $val)),*);
+                    barrier.[<__expand_tma_load_ $dim d_method>]::<T, T>(scope, self, shared, $($val),*);
                 }
             }
 
@@ -116,10 +116,10 @@ macro_rules! impl_tensor_map {
                     pos: <$coords as CubeType>::ExpandType,
                 ) {
                     let shared = shared_memory.__expand_downcast_method(scope);
-                    let ($($var),*) = pos;
-                    let ($($var),*) = ($(i32::__expand_cast_from(scope, $var)),*);
+                    let ($($val),*) = pos;
+                    let ($($val),*) = ($(i32::__expand_cast_from(scope, $val)),*);
                     let mut this = self.clone();
-                    [<tma_store_ $dim d>]::expand::<T, T>(scope, &shared, &mut this, $($var),*);
+                    [<tma_store_ $dim d>]::expand::<T, T>(scope, &shared, &mut this, $($val),*);
                 }
             }
         }

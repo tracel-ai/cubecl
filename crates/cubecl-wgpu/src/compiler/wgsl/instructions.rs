@@ -1,6 +1,10 @@
+use cubecl_ir::Id;
+
+use crate::compiler::wgsl::Builtin;
+
 use super::{
     Elem, Subgroup,
-    base::{Item, Variable},
+    base::{Item, Value},
 };
 use std::fmt::Display;
 
@@ -9,48 +13,49 @@ use std::fmt::Display;
 #[allow(dead_code)] // Some variants might not be used with different flags
 pub enum Instruction {
     DeclareVariable {
-        var: Variable,
+        val: Value,
+        value_ty: Item,
     },
     Max {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     Min {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     Add {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     Fma {
-        a: Variable,
-        b: Variable,
-        c: Variable,
-        out: Variable,
+        a: Value,
+        b: Value,
+        c: Value,
+        out: Value,
     },
     If {
-        cond: Variable,
+        cond: Value,
         instructions: Vec<Instruction>,
     },
     IfElse {
-        cond: Variable,
+        cond: Value,
         instructions_if: Vec<Instruction>,
         instructions_else: Vec<Instruction>,
     },
     Select {
-        cond: Variable,
-        then: Variable,
-        or_else: Variable,
-        out: Variable,
+        cond: Value,
+        then: Value,
+        or_else: Value,
+        out: Value,
     },
     Switch {
-        value: Variable,
+        value: Value,
         instructions_default: Vec<Instruction>,
-        cases: Vec<(Variable, Vec<Instruction>)>,
+        cases: Vec<(Value, Vec<Instruction>)>,
     },
     Return,
     Break,
@@ -58,408 +63,415 @@ pub enum Instruction {
     WorkgroupBarrier,
     StorageBarrier,
     WorkgroupUniformLoad {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
-    // Index handles casting to correct local variable.
     Index {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
-    // Index handles casting to correct local variable.
     Assign {
-        input: Variable,
-        out: Variable,
-    },
-    Reference {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Load {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Store {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
+    },
+    ReadBuiltin {
+        builtin: Builtin,
+        out: Value,
+    },
+    ReadScalar {
+        id: Id,
+        out: Value,
     },
     ModFloor {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     Sub {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     Mul {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     Div {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     Abs {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Exp {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Log {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Log1p {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
+    },
+    Expm1 {
+        input: Value,
+        out: Value,
     },
     Cos {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Sin {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Tan {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Tanh {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Sinh {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Cosh {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     ArcCos {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     ArcSin {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     ArcTan {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     ArcSinh {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     ArcCosh {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     ArcTanh {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Degrees {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Radians {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     ArcTan2 {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     Powf {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     Sqrt {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     InverseSqrt {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Recip {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Equal {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     Lower {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     Clamp {
-        input: Variable,
-        min_value: Variable,
-        max_value: Variable,
-        out: Variable,
+        input: Value,
+        min_value: Value,
+        max_value: Value,
+        out: Value,
     },
     Greater {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     LowerEqual {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     GreaterEqual {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     NotEqual {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     Length {
-        var: Variable,
-        out: Variable,
+        list: Value,
+        out: Value,
     },
     Metadata {
-        info_offset: Variable,
-        out: Variable,
+        info_offset: Value,
+        out: Value,
     },
     ExtendedMeta {
-        info_offset: Variable,
-        dim: Variable,
-        out: Variable,
+        info_offset: Value,
+        dim: Value,
+        out: Value,
     },
     RangeLoop {
-        i: Variable,
-        start: Variable,
-        end: Variable,
-        step: Option<Variable>,
+        i: Value,
+        start: Value,
+        end: Value,
+        step: Option<Value>,
         inclusive: bool,
         instructions: Vec<Instruction>,
     },
     And {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     Or {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     Not {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Loop {
         instructions: Vec<Instruction>,
     },
     BitwiseOr {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     BitwiseAnd {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     BitwiseXor {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     CountBits {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     ReverseBits {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     ShiftLeft {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     ShiftRight {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     BitwiseNot {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     LeadingZeros {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     TrailingZeros {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     FindFirstSet {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Round {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Floor {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Ceil {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Trunc {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Remainder {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     Slice {
-        input: Variable,
-        start: Variable,
-        end: Variable,
-        out: Variable,
+        input: Value,
+        start: Value,
+        end: Value,
+        out: Value,
     },
     CheckedSlice {
-        input: Variable,
-        start: Variable,
-        end: Variable,
-        out: Variable,
-        len: Variable, // The length of the input.
+        input: Value,
+        start: Value,
+        end: Value,
+        out: Value,
+        len: Value, // The length of the input.
     },
     Bitcast {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     AtomicLoad {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     AtomicStore {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     AtomicSwap {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     AtomicCompareExchangeWeak {
-        ptr: Variable,
-        cmp: Variable,
-        value: Variable,
-        out: Variable,
+        ptr: Value,
+        cmp: Value,
+        value: Value,
+        out: Value,
     },
     AtomicAdd {
-        ptr: Variable,
-        value: Variable,
-        out: Variable,
+        ptr: Value,
+        value: Value,
+        out: Value,
     },
     AtomicSub {
-        ptr: Variable,
-        value: Variable,
-        out: Variable,
+        ptr: Value,
+        value: Value,
+        out: Value,
     },
     AtomicMax {
-        ptr: Variable,
-        value: Variable,
-        out: Variable,
+        ptr: Value,
+        value: Value,
+        out: Value,
     },
     AtomicMin {
-        ptr: Variable,
-        value: Variable,
-        out: Variable,
+        ptr: Value,
+        value: Value,
+        out: Value,
     },
     AtomicAnd {
-        ptr: Variable,
-        value: Variable,
-        out: Variable,
+        ptr: Value,
+        value: Value,
+        out: Value,
     },
     AtomicOr {
-        ptr: Variable,
-        value: Variable,
-        out: Variable,
+        ptr: Value,
+        value: Value,
+        out: Value,
     },
     AtomicXor {
-        ptr: Variable,
-        value: Variable,
-        out: Variable,
+        ptr: Value,
+        value: Value,
+        out: Value,
     },
     Subgroup(Subgroup),
     Negate {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Magnitude {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Normalize {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     Dot {
-        lhs: Variable,
-        rhs: Variable,
-        out: Variable,
+        lhs: Value,
+        rhs: Value,
+        out: Value,
     },
     VectorSum {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     IsNan {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     IsInf {
-        input: Variable,
-        out: Variable,
+        input: Value,
+        out: Value,
     },
     VecInit {
-        inputs: Vec<Variable>,
-        out: Variable,
+        inputs: Vec<Value>,
+        out: Value,
     },
     Extract {
-        vector: Variable,
-        index: Variable,
-        out: Variable,
+        vector: Value,
+        index: Value,
+        out: Value,
     },
     Insert {
-        vector: Variable,
-        index: Variable,
-        value: Variable,
+        vector: Value,
+        index: Value,
+        value: Value,
+        out: Value,
     },
     CopyBulk {
-        source: Variable,
-        target: Variable,
+        source: Value,
+        target: Value,
         len: u32,
     },
     Comment {
@@ -470,9 +482,9 @@ pub enum Instruction {
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Instruction::DeclareVariable { var } => {
-                let item = var.item();
-                writeln!(f, "var {var}: {item};")
+            Instruction::DeclareVariable { val, value_ty } => {
+                writeln!(f, "var {val}_store: {value_ty};")?;
+                writeln!(f, "let {val} = &{val}_store;")
             }
             Instruction::Add { lhs, rhs, out } => {
                 let lhs = lhs.fmt_cast_to(out.item());
@@ -644,6 +656,7 @@ impl Display for Instruction {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = log({input} + 1.0);")
             }
+            Instruction::Expm1 { input, out } => expm1(f, input, out),
             Instruction::Cos { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = cos({input});")
@@ -745,9 +758,6 @@ impl Display for Instruction {
                     writeln!(f, "{out} = {input};")
                 }
             }
-            Instruction::Reference { input, out } => {
-                writeln!(f, "let {out} = &{input};")
-            }
             Instruction::Load { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = *{input};")
@@ -780,15 +790,14 @@ impl Display for Instruction {
             } => {
                 let increment = step
                     .as_ref()
-                    .map(|step| format!("{i} += {step}"))
-                    .unwrap_or_else(|| format!("{i}++"));
+                    .map(|step| format!("*{i} += {step}"))
+                    .unwrap_or_else(|| format!("*{i}++"));
                 let cmp = if *inclusive { "<=" } else { "<" };
-                let i_ty = i.item();
 
                 write!(
                     f,
                     "
-for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
+for (*{i} = {start}; *{i} {cmp} {end}; {increment}) {{
 "
                 )?;
                 for instruction in instructions {
@@ -861,15 +870,15 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 writeln!(f, "{out} = workgroupUniformLoad({input});")
             }
-            Instruction::Length { var, out } => {
+            Instruction::Length { list, out } => {
                 let out = out.fmt_left();
 
-                match var.item() {
+                match list.item() {
                     Item::Array(_, length) => {
                         writeln!(f, "{out} = {length}u;")
                     }
                     _ => {
-                        writeln!(f, "{out} = arrayLength({var});")
+                        writeln!(f, "{out} = arrayLength({list});")
                     }
                 }
             }
@@ -1100,7 +1109,7 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             Instruction::VecInit { inputs, out } => {
                 let item = out.item();
-                let inputs = inputs.iter().map(|var| var.to_string()).collect::<Vec<_>>();
+                let inputs = inputs.iter().map(|val| val.to_string()).collect::<Vec<_>>();
                 let out = out.fmt_left();
                 writeln!(f, "{out} = {item}({});", inputs.join(", "))
             }
@@ -1112,8 +1121,11 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 vector,
                 index,
                 value,
+                out,
             } => {
-                writeln!(f, "{vector}[{index}] = {value};")
+                writeln!(f, "var {out}_tmp: {} = {vector};", vector.item())?;
+                writeln!(f, "{out}_tmp[{index}] = {value};")?;
+                writeln!(f, "{} = {out}_tmp;", out.fmt_left())
             }
             Instruction::Comment { content } => {
                 if content.contains('\n') {
@@ -1124,14 +1136,40 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             }
             // WGSL as usual has no lower level intrinsics
             Instruction::Unreachable => writeln!(f, "return;"),
+            Instruction::ReadBuiltin { builtin, out } => {
+                writeln!(f, "{} = {builtin};", out.fmt_left())
+            }
+            Instruction::ReadScalar { id, out } => {
+                let elem = out.elem();
+                writeln!(f, "{} = info.scalars_{elem}[{id}];", out.fmt_left())
+            }
         }
     }
 }
 
+fn expm1(f: &mut std::fmt::Formatter<'_>, input: &Value, out: &Value) -> std::fmt::Result {
+    let item = out.item();
+    let scalar = Item::Scalar(*item.elem());
+    let input = input.fmt_cast_to(item);
+    let one = scalar.fmt_cast_to(item, "1.0".to_string());
+    let half = scalar.fmt_cast_to(item, "0.5".to_string());
+    let sixth = scalar.fmt_cast_to(item, "(1.0 / 6.0)".to_string());
+    let threshold = scalar.fmt_cast_to(item, "1.0e-5".to_string());
+    let squared = format!("({input} * {input})");
+    let cubed = format!("({squared} * {input})");
+    let taylor = format!("({input} + {squared} * {half} + {cubed} * {sixth})");
+    let native = format!("(exp({input}) - {one})");
+    let out = out.fmt_left();
+    writeln!(
+        f,
+        "{out} = select({native}, {taylor}, abs({input}) < {threshold});"
+    )
+}
+
 fn comparison(
-    lhs: &Variable,
-    rhs: &Variable,
-    out: &Variable,
+    lhs: &Value,
+    rhs: &Value,
+    out: &Value,
     op: &str,
     f: &mut std::fmt::Formatter<'_>,
 ) -> std::fmt::Result {

@@ -1,7 +1,7 @@
 use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
-    variable::ConstVal,
+    value::ConstVal,
 };
 use cubecl_core::ir::{self as core, Arithmetic, InstructionModes};
 use rspirv::spirv::{Capability, Decoration, FPEncoding};
@@ -10,7 +10,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_arithmetic(
         &mut self,
         op: Arithmetic,
-        out: Option<core::Variable>,
+        out: Option<core::Value>,
         modes: InstructionModes,
         uniform: bool,
     ) {
@@ -170,9 +170,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         };
                     });
                 } else {
-                    let lhs = self.compile_variable(op.lhs);
-                    let rhs = self.compile_variable(op.rhs);
-                    let out = self.compile_variable(out);
+                    let lhs = self.compile_value(op.lhs);
+                    let rhs = self.compile_value(op.rhs);
+                    let out = self.compile_value(out);
                     let ty = out.item().id(self);
 
                     let lhs_id = self.read(&lhs);
@@ -216,10 +216,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
             }
             Arithmetic::Fma(op) => {
-                let a = self.compile_variable(op.a);
-                let b = self.compile_variable(op.b);
-                let c = self.compile_variable(op.c);
-                let out = self.compile_variable(out);
+                let a = self.compile_value(op.a);
+                let b = self.compile_value(op.b);
+                let c = self.compile_value(op.c);
+                let out = self.compile_value(out);
                 let out_ty = out.item();
                 let relaxed = matches!(
                     (a.item().elem(), b.item().elem(), c.item().elem()),
@@ -287,8 +287,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             Arithmetic::VectorSum(op) => {
                 let input_ir = op.input;
-                let input = self.compile_variable(input_ir);
-                let out = self.compile_variable(out);
+                let input = self.compile_value(input_ir);
+                let out = self.compile_value(out);
                 let in_item = input.item();
                 let out_ty = out.item();
                 let vec_size = in_item.vectorization();
@@ -396,6 +396,82 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                     b.declare_math_mode(modes, out);
                     T::log(b, ty, add, out)
+                });
+            }
+            Arithmetic::Expm1(op) => {
+                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    let relaxed = matches!(out_ty.elem(), Elem::Relaxed);
+                    let bool = out_ty.same_vectorization(Elem::Bool).id(b);
+                    let one = b
+                        .static_cast(
+                            ConstVal::from_float(1.0, 32, None),
+                            &Elem::Float(32, None),
+                            &out_ty,
+                        )
+                        .0;
+                    let half = b
+                        .static_cast(
+                            ConstVal::from_float(0.5, 32, None),
+                            &Elem::Float(32, None),
+                            &out_ty,
+                        )
+                        .0;
+                    let sixth = b
+                        .static_cast(
+                            ConstVal::from_float(1.0 / 6.0, 32, None),
+                            &Elem::Float(32, None),
+                            &out_ty,
+                        )
+                        .0;
+                    let threshold = b
+                        .static_cast(
+                            ConstVal::from_float(1.0e-5, 32, None),
+                            &Elem::Float(32, None),
+                            &out_ty,
+                        )
+                        .0;
+                    let abs = b.id();
+                    b.declare_math_mode(modes, abs);
+                    T::f_abs(b, ty, input, abs);
+                    let is_small = b.f_ord_less_than(bool, None, abs, threshold).unwrap();
+                    b.declare_math_mode(modes, is_small);
+                    let squared = b.f_mul(ty, None, input, input).unwrap();
+                    b.declare_math_mode(modes, squared);
+                    let cubed = b.f_mul(ty, None, squared, input).unwrap();
+                    b.declare_math_mode(modes, cubed);
+                    let half_squared = b.f_mul(ty, None, squared, half).unwrap();
+                    b.declare_math_mode(modes, half_squared);
+                    let sixth_cubed = b.f_mul(ty, None, cubed, sixth).unwrap();
+                    b.declare_math_mode(modes, sixth_cubed);
+                    let linear_plus_quad = b.f_add(ty, None, input, half_squared).unwrap();
+                    b.declare_math_mode(modes, linear_plus_quad);
+                    let taylor = b.f_add(ty, None, linear_plus_quad, sixth_cubed).unwrap();
+                    b.declare_math_mode(modes, taylor);
+                    let exp = b.id();
+                    b.declare_math_mode(modes, exp);
+                    T::exp(b, ty, input, exp);
+                    let native = b.f_sub(ty, None, exp, one).unwrap();
+                    b.declare_math_mode(modes, native);
+                    for id in [
+                        abs,
+                        squared,
+                        cubed,
+                        half_squared,
+                        sixth_cubed,
+                        linear_plus_quad,
+                        taylor,
+                        exp,
+                        native,
+                    ] {
+                        b.mark_uniformity(id, uniform);
+                        if relaxed {
+                            b.decorate(id, Decoration::RelaxedPrecision, []);
+                        }
+                    }
+                    if relaxed {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                    b.select(ty, Some(out), is_small, taylor, native).unwrap();
                 });
             }
             Arithmetic::Cos(op) => {
@@ -645,10 +721,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 })
             }
             Arithmetic::Clamp(op) => {
-                let input = self.compile_variable(op.input);
-                let min = self.compile_variable(op.min_value);
-                let max = self.compile_variable(op.max_value);
-                let out = self.compile_variable(out);
+                let input = self.compile_value(op.input);
+                let min = self.compile_value(op.min_value);
+                let max = self.compile_value(op.max_value);
+                let out = self.compile_value(out);
                 let out_ty = out.item();
 
                 let input = self.read_as(&input, &out_ty);

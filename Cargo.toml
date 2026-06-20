@@ -10,7 +10,7 @@ members = ["crates/*", "examples/*", "xtask"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-rust-version = "1.92"
+rust-version = "1.95"
 version = "0.11.0-pre.1"
 
 [workspace.lints.rust]
@@ -129,7 +129,9 @@ futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
 sysinfo = "0.38"
-tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm", rev = "82401e3c00a35a3fb7d5e2b415e79692e09e1079", features = ["mlir-helpers"] }
+tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm", rev = "82401e3c00a35a3fb7d5e2b415e79692e09e1079", features = [
+    "mlir-helpers",
+] }
 tracel-llvm-bundler = { git = "https://github.com/tracel-ai/tracel-llvm", rev = "82401e3c00a35a3fb7d5e2b415e79692e09e1079" }
 ### For development
 # tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = [

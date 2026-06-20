@@ -5,7 +5,7 @@ use half::{bf16, f16};
 
 use crate::{
     flex32,
-    ir::{Arithmetic, Scope, Variable},
+    ir::{Arithmetic, Scope, Value},
     prelude::{
         CubePrimitive, CubePrimitiveExpand, CubeType, IntoExpand, NativeExpand, Reinterpret,
     },
@@ -68,7 +68,7 @@ macro_rules! impl_unary_func_scalar_out {
                 + CubePrimitiveExpand<Scalar = NativeExpand<Self::Scalar>>>
                 + Sized {
                 #[allow(unused_variables)]
-                fn $method_name(self) -> Self {
+                fn $method_name(self) -> Self::Scalar {
                     unexpanded!()
                 }
 
@@ -115,7 +115,7 @@ macro_rules! impl_unary_func_fixed_out_ty {
             $(impl $trait_name for $type {})*
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for NativeExpand<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self::WithScalar<$out_ty> {
-                    let expand_element: Variable = self.into();
+                    let expand_element: Value = self.into();
                     let item = <$out_ty as CubePrimitive>::__expand_as_type(scope).with_vector_size(expand_element.ty.vector_size());
                     unary_expand_fixed_output(scope, expand_element, item, $operator).into()
                 }
@@ -160,9 +160,9 @@ macro_rules! impl_not {
 macro_rules! impl_core_unop {
     ($trait: ident, $method: ident, $op: expr) => {
         paste::paste! {
-            pub trait [<Cube $trait>]: $trait<Output = Self> + CubePrimitive + Into<Variable> + CubeType<ExpandType: [<$trait Expand>]> + Sized {
+            pub trait [<Cube $trait>]: $trait<Output = Self> + CubePrimitive + Into<Value> + CubeType<ExpandType: [<$trait Expand>]> + Sized {
                 fn [<__expand_ $method _method>](self, scope: &Scope) -> NativeExpand<Self> {
-                    let this: Variable = self.into();
+                    let this: Value = self.into();
                     let this: NativeExpand<Self> = this.into();
                     this.[<__expand_ $method _method>](scope)
                 }
@@ -179,7 +179,7 @@ macro_rules! impl_core_unop {
                 fn [<__expand_ $method _method>](self, scope: &Scope) -> Self;
             }
 
-            impl<T: $trait<Output = T> + CubePrimitive + Into<Variable>> [<Cube $trait>] for T {}
+            impl<T: $trait<Output = T> + CubePrimitive + Into<Value>> [<Cube $trait>] for T {}
             impl<T: $trait<Output = T> + CubePrimitive> [<$trait Expand>] for NativeExpand<T> {
                 fn [<__expand_ $method _method>](self, scope: &Scope) -> Self {
                     unary_expand(scope, self.into(), $op).into()
@@ -236,6 +236,17 @@ impl_unary_func!(
     Log1p,
     log1p,
     Arithmetic::Log1p,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    Expm1,
+    exp_m1,
+    Arithmetic::Expm1,
     f16,
     bf16,
     flex32,

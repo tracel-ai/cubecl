@@ -2,7 +2,7 @@ use core::ops::{
     Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 
-use cubecl_ir::{Operator, Scope, Variable};
+use cubecl_ir::{Scope, Value};
 
 use crate::{
     frontend::{Array, Tensor},
@@ -11,29 +11,6 @@ use crate::{
 use crate::{ir, unexpanded};
 
 type ArrayExpand<E> = NativeExpand<Array<E>>;
-
-pub mod cast {
-    use ir::Instruction;
-
-    use crate::prelude::NativeExpand;
-
-    use self::ir::UnaryOperands;
-
-    use super::*;
-
-    pub fn expand<From: CubeType, To: CubeType>(
-        scope: &Scope,
-        input: NativeExpand<From>,
-        output: NativeExpand<To>,
-    ) {
-        scope.register(Instruction::new(
-            Operator::Cast(UnaryOperands {
-                input: input.expand,
-            }),
-            output.expand,
-        ));
-    }
-}
 
 pub mod assign {
     use cubecl_ir::{Memory, StoreOperands};
@@ -72,7 +49,11 @@ pub mod assign {
         expand_element(scope, input, output);
     }
 
-    pub fn expand_element(scope: &Scope, input: Variable, output: Variable) {
+    pub fn expand_element(scope: &Scope, mut input: Value, output: Value) {
+        if output.vector_size() > 1 && input.vector_size() == 1 {
+            input = cast_expand_elem(scope, input, output.ty);
+        }
+
         match (input.ty.is_ptr(), output.ty.is_ptr()) {
             (true, false) => {
                 // ptr -> value = load

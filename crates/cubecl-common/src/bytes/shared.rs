@@ -23,42 +23,34 @@
 //! ```
 
 use super::{
-    AllocationController, AllocationError, AllocationProperty, SplitError,
+    AccessError, AccessPolicy, AllocationController, AllocationError, AllocationProperty,
+    SplitError,
     default_controller::{MAX_ALIGN, NativeAllocationController},
 };
 use alloc::boxed::Box;
-use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicBool, Ordering};
+use spin::Once;
 
 /// Allocation controller backed by [`bytes::Bytes`] for zero-copy access.
 ///
 /// This enables zero-copy tensor loading by referencing data directly from
 /// the source buffer without copying into heap-allocated memory.
 ///
-/// # Safety
-///
-/// This implementation uses an [`UnsafeCell`] to lazily copy the content into an in-memory
-/// buffer using [`NativeAllocationController`] when mutable access is requested. It is safe
-/// because the controller can't be cloned or synced between multiple threads. You can
-/// duplicate the shared bytes allocator, but every version of it will have its own buffer.
-///
 /// # Notes
 ///
 /// - Read access via [`memory()`](AllocationController::memory) is zero-copy as long as no
 ///   mutable access has been requested.
 /// - Mutable access via [`memory_mut()`](AllocationController::memory_mut) triggers a copy
-///   of the data into heap memory (copy-on-write semantics).
+///   of the data into heap memory (copy-on-write semantics), behind a [`Once`] so the copy
+///   happens exactly once even under concurrent access.
 /// - The underlying [`bytes::Bytes`] remains valid for the lifetime of this controller.
 ///   This is ensured by [`bytes::Bytes`] using reference counting internally.
 pub struct SharedBytesAllocationController {
     /// The backing bytes buffer.
     bytes: bytes::Bytes,
     /// Lazily initialized mutable controller (copy-on-write).
-    controller: UnsafeCell<Option<Box<dyn AllocationController>>>,
-    /// Whether the controller has been initialized (data copied to heap).
-    init: AtomicBool,
+    controller: Once<Box<dyn AllocationController>>,
     /// The allocation property (used to optimize GPU transfers).
     property: AllocationProperty,
 }
@@ -89,43 +81,33 @@ impl SharedBytesAllocationController {
     pub fn new(bytes: bytes::Bytes, property: AllocationProperty) -> Self {
         Self {
             bytes,
-            controller: UnsafeCell::new(None),
-            init: AtomicBool::new(false),
+            controller: Once::new(),
             property,
         }
     }
 
-    /// Copy the shared bytes into a mutable native allocation controller.
+    /// Copy the shared bytes into a mutable native allocation controller on first call.
     /// This is called lazily on first mutable access (copy-on-write).
     ///
     /// The allocation uses `MAX_ALIGN` alignment to ensure `try_into_vec` works
     /// for all tensor element types (f16, f32, f64, etc.).
-    fn init_mutable(&self) {
-        if self.init.load(Ordering::Relaxed) {
-            return;
-        }
+    fn init_mutable(&self) -> &dyn AllocationController {
+        &**self.controller.call_once(|| {
+            let data: &[u8] = &self.bytes;
 
-        let data: &[u8] = &self.bytes;
+            // Allocate with `MAX_ALIGN` to support all tensor element types in try_into_vec.
+            // This ensures alignment is sufficient for f64, u128, SIMD types, etc.
+            let controller = NativeAllocationController::alloc_with_data(data, MAX_ALIGN)
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "failed to allocate MAX_ALIGN buffer for copy-on-write (len: {}, error: {:?})",
+                        data.len(),
+                        e
+                    )
+                });
 
-        // Allocate with `MAX_ALIGN` to support all tensor element types in try_into_vec.
-        // This ensures alignment is sufficient for f64, u128, SIMD types, etc.
-        let controller = NativeAllocationController::alloc_with_data(data, MAX_ALIGN)
-            .unwrap_or_else(|e| {
-                panic!(
-                    "failed to allocate MAX_ALIGN buffer for copy-on-write (len: {}, error: {:?})",
-                    data.len(),
-                    e
-                )
-            });
-
-        // SAFETY: We only write to the UnsafeCell when init is false,
-        // and set init to true immediately after. This is safe because
-        // UnsafeCell makes this type !Sync, preventing concurrent access.
-        // The atomic bool provides an efficient check without locking.
-        unsafe {
-            *self.controller.get() = Some(Box::new(controller));
-        }
-        self.init.store(true, Ordering::Relaxed);
+            Box::new(controller) as Box<dyn AllocationController>
+        })
     }
 }
 
@@ -145,43 +127,49 @@ impl AllocationController for SharedBytesAllocationController {
         self.property
     }
 
-    fn memory(&self) -> &[MaybeUninit<u8>] {
-        if self.init.load(Ordering::Relaxed) {
-            // Data has been copied to mutable controller, use that.
-            // SAFETY: init is true, so controller is guaranteed to be Some.
-            unsafe {
-                (*self.controller.get())
-                    .as_ref()
-                    .expect("controller must be Some when init is true")
-                    .memory()
+    // The underlying bytes length, known without copy-on-write (never materializes).
+    fn capacity(&self) -> usize {
+        self.bytes.len()
+    }
+
+    fn memory(&self, policy: AccessPolicy) -> Result<&[MaybeUninit<u8>], AccessError> {
+        match self.controller.get() {
+            // Data has been copied to the mutable controller, use that.
+            Some(controller) => controller.memory(policy),
+            None => {
+                // Zero-copy access to original bytes (no policy check needed).
+                let slice: &[u8] = &self.bytes;
+                // SAFETY: &[u8] and &[MaybeUninit<u8>] have the same memory layout,
+                // and all bytes in the slice are initialized (coming from bytes::Bytes).
+                Ok(unsafe { core::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) })
             }
-        } else {
-            // Zero-copy access to original bytes
-            let slice: &[u8] = &self.bytes;
-            // SAFETY: &[u8] and &[MaybeUninit<u8>] have the same memory layout,
-            // and all bytes in the slice are initialized (coming from bytes::Bytes).
-            unsafe { core::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) }
         }
     }
 
-    unsafe fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+    unsafe fn memory_mut(
+        &mut self,
+        policy: AccessPolicy,
+    ) -> Result<&mut [MaybeUninit<u8>], AccessError> {
+        // Mutating still-shared data requires copying it into a private buffer first.
+        if !self.controller.is_completed() && !policy.copy_allowed() {
+            return Err(AccessError::WouldCopy);
+        }
         // Trigger copy-on-write if not already done
         self.init_mutable();
 
-        // SAFETY: init_mutable() guarantees the controller is Some.
-        unsafe {
-            (*self.controller.get())
-                .as_mut()
-                .expect("controller must be Some after init_mutable()")
-                .memory_mut()
-        }
+        // SAFETY: init_mutable() guarantees the controller is set, and `&mut self` is exclusive.
+        let controller = self
+            .controller
+            .get_mut()
+            .expect("controller must be set after init_mutable()");
+        unsafe { controller.memory_mut(policy) }
     }
 
     fn split(
         &mut self,
         offset: usize,
     ) -> Result<(Box<dyn AllocationController>, Box<dyn AllocationController>), SplitError> {
-        if self.init.load(Ordering::Relaxed) {
+        if self.controller.is_completed() {
             // Already copied to heap, can't split the original bytes anymore
             return Err(SplitError::Unsupported);
         }
@@ -202,8 +190,24 @@ impl AllocationController for SharedBytesAllocationController {
         ))
     }
 
+    fn view(&self, start: usize, end: usize) -> Option<Box<dyn AllocationController>> {
+        if self.controller.is_completed() {
+            // Already copied to heap, can't view the original bytes anymore.
+            return None;
+        }
+        if start > end || end > self.bytes.len() {
+            return None;
+        }
+
+        // bytes::Bytes supports efficient slicing (reference counted, no copy).
+        Some(Box::new(SharedBytesAllocationController::new(
+            self.bytes.slice(start..end),
+            self.property,
+        )))
+    }
+
     fn duplicate(&self) -> Option<Box<dyn AllocationController>> {
-        if self.init.load(Ordering::Relaxed) {
+        if self.controller.is_completed() {
             // After mutation, can't duplicate (forces full copy in Clone)
             return None;
         }
@@ -216,21 +220,26 @@ impl AllocationController for SharedBytesAllocationController {
     }
 
     unsafe fn copy_into(&self, buf: &mut [u8]) {
-        if self.init.load(Ordering::Relaxed) {
-            // Use the mutable controller's data
-            let memory = self.memory();
-            let copy_len = buf.len().min(memory.len());
-            let memory_slice = &memory[..copy_len];
-            // SAFETY: By construction, bytes are initialized.
-            let data = unsafe {
-                core::slice::from_raw_parts(memory_slice.as_ptr().cast(), memory_slice.len())
-            };
-            buf[..copy_len].copy_from_slice(data);
-        } else {
-            // Copy directly from shared bytes
-            let src: &[u8] = &self.bytes;
-            let copy_len = buf.len().min(src.len());
-            buf[..copy_len].copy_from_slice(&src[..copy_len]);
+        match self.controller.get() {
+            Some(controller) => {
+                // Use the mutable controller's data
+                let memory = controller
+                    .memory(AccessPolicy::default())
+                    .expect("shared: host access failed");
+                let copy_len = buf.len().min(memory.len());
+                let memory_slice = &memory[..copy_len];
+                // SAFETY: By construction, bytes are initialized.
+                let data = unsafe {
+                    core::slice::from_raw_parts(memory_slice.as_ptr().cast(), memory_slice.len())
+                };
+                buf[..copy_len].copy_from_slice(data);
+            }
+            None => {
+                // Copy directly from shared bytes
+                let src: &[u8] = &self.bytes;
+                let copy_len = buf.len().min(src.len());
+                buf[..copy_len].copy_from_slice(&src[..copy_len]);
+            }
         }
     }
 
@@ -247,19 +256,17 @@ impl AllocationController for SharedBytesAllocationController {
         self.init_mutable();
 
         // Now we have a NativeAllocationController that CAN be detached.
-        // SAFETY: init_mutable guarantees controller is Some.
-        unsafe {
-            (*self.controller.get())
-                .as_mut()
-                .expect("controller must be Some after init_mutable()")
-                .try_detach()
-        }
+        // SAFETY: init_mutable guarantees the controller is set, and `&mut self` is exclusive.
+        self.controller
+            .get_mut()
+            .expect("controller must be set after init_mutable()")
+            .try_detach()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::Bytes;
+    use super::super::{Bytes, SplitPolicy};
     use super::*;
 
     #[test_log::test]
@@ -286,7 +293,7 @@ mod tests {
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4, 5, 6]);
         let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
 
-        let (left, right) = bytes.split(3).unwrap();
+        let (left, right) = bytes.split(3, SplitPolicy::Shared).unwrap();
 
         assert_eq!(&left[..], &[1, 2, 3]);
         assert_eq!(&right[..], &[4, 5, 6]);
@@ -298,7 +305,7 @@ mod tests {
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4]);
         let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
 
-        let (left, right) = bytes.split(0).unwrap();
+        let (left, right) = bytes.split(0, SplitPolicy::Shared).unwrap();
 
         assert_eq!(left.len(), 0);
         assert_eq!(&right[..], &[1, 2, 3, 4]);
@@ -311,7 +318,7 @@ mod tests {
         let bytes = Bytes::from_shared(shared, AllocationProperty::Other);
         let len = bytes.len();
 
-        let (left, right) = bytes.split(len).unwrap();
+        let (left, right) = bytes.split(len, SplitPolicy::Shared).unwrap();
 
         assert_eq!(&left[..], &[1, 2, 3, 4]);
         assert_eq!(right.len(), 0);
@@ -323,7 +330,7 @@ mod tests {
         let controller = SharedBytesAllocationController::new(shared, AllocationProperty::Other);
 
         let dup = controller.duplicate().expect("duplicate should succeed");
-        assert_eq!(dup.memory().len(), 3);
+        assert_eq!(dup.capacity(), 3);
     }
 
     #[test_log::test]
@@ -359,7 +366,7 @@ mod tests {
         let shared = bytes::Bytes::from_static(&[1, 2, 3, 4, 5, 6]);
         let bytes = Bytes::from_shared(shared, AllocationProperty::File);
 
-        let (left, right) = bytes.split(3).unwrap();
+        let (left, right) = bytes.split(3, SplitPolicy::Shared).unwrap();
 
         assert!(matches!(left.property(), AllocationProperty::File));
         assert!(matches!(right.property(), AllocationProperty::File));

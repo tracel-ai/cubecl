@@ -11,19 +11,17 @@ use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
 
 use crate::{
-    AggregateExtractOperands, AggregateKind, BarrierLevel, CubeFnSource, DeviceProperties,
-    FastMath, Function, Matrix, Operation, OperationReflect, Processor, SemanticType, SourceLoc,
-    StorageType, TargetProperties, TypeHash, arena::DropBump,
+    AddressSpace, AggregateExtractOperands, CubeFnSource, DeviceProperties, FastMath, Function,
+    OpaqueType, Operation, OperationReflect, Processor, SourceLoc, StorageType, TargetProperties,
+    TypeHash, arena::DropBump,
 };
 
-use super::{
-    Allocator, Id, Instruction, Type, Variable, VariableKind, processing::ScopeProcessing,
-};
+use super::{Allocator, Id, Instruction, Type, Value, processing::ScopeProcessing};
 
 pub type TypeMap = HashMap<TypeId, StorageType>;
 pub type SizeMap = HashMap<TypeId, usize>;
 
-/// The scope is the main [`crate::Operation`] and [`crate::Variable`] container that simplify
+/// The scope is the main [`crate::Operation`] and [`crate::Value`] container that simplify
 /// the process of reading inputs, creating local variables and adding new operations.
 ///
 /// Notes:
@@ -37,9 +35,8 @@ pub struct Scope {
     validation_errors: ValidationErrors,
     pub depth: u8,
     pub instructions: RefCell<Vec<Instruction>>,
-    pub return_value: Option<Variable>,
-    pub locals: RefCell<Vec<Variable>>,
-    pub const_arrays: RefCell<Vec<(Variable, Vec<Variable>)>>,
+    pub return_value: Option<Value>,
+    pub locals: RefCell<Vec<Value>>,
     pub debug: DebugInfo,
 
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -55,6 +52,7 @@ pub struct GlobalStateInner {
     pub reference_arena: DropBump,
     pub allocator: Allocator,
 
+    pub global_args: Vec<Value>,
     pub functions: BTreeMap<Id, Function>,
     pub typemap: TypeMap,
     pub sizemap: SizeMap,
@@ -68,6 +66,7 @@ impl GlobalStateInner {
         Self {
             reference_arena: DropBump::new(),
             allocator: self.allocator.clone_deep(),
+            global_args: self.global_args.clone(),
             functions: self.functions.clone(),
             typemap: self.typemap.clone(),
             sizemap: self.sizemap.clone(),
@@ -90,7 +89,7 @@ pub struct ValidationErrors {
 pub struct DebugInfo {
     pub enabled: bool,
     pub sources: Rc<RefCell<HashSet<CubeFnSource>>>,
-    pub variable_names: Rc<RefCell<HashMap<Variable, Cow<'static, str>>>>,
+    pub value_names: Rc<RefCell<HashMap<Value, Cow<'static, str>>>>,
     pub source_loc: RefCell<Option<SourceLoc>>,
     pub entry_loc: RefCell<Option<SourceLoc>>,
 }
@@ -107,7 +106,6 @@ impl core::hash::Hash for Scope {
         self.depth.hash(ra_expand_state);
         self.instructions.borrow().hash(ra_expand_state);
         self.locals.borrow().hash(ra_expand_state);
-        self.const_arrays.borrow().hash(ra_expand_state);
     }
 }
 
@@ -147,11 +145,10 @@ impl Scope {
             instructions: Default::default(),
             return_value: None,
             locals: Default::default(),
-            const_arrays: Default::default(),
             debug: DebugInfo {
                 enabled: debug_enabled,
                 sources: Default::default(),
-                variable_names: Default::default(),
+                value_names: Default::default(),
                 source_loc: Default::default(),
                 entry_loc: Default::default(),
             },
@@ -165,60 +162,46 @@ impl Scope {
         self
     }
 
-    /// Create a new matrix element.
-    pub fn create_matrix(&self, matrix: Matrix) -> Variable {
-        let matrix = self.state().allocator.create_matrix(matrix);
-        self.add_matrix(matrix);
-        matrix
+    /// Create a new immutable value of type specified by `ty`.
+    pub fn create_value(&self, ty: Type) -> Value {
+        let id = self.new_local_index();
+        Value::new(id, ty)
     }
 
-    pub fn add_matrix(&self, variable: Variable) {
-        self.locals.borrow_mut().push(variable);
-    }
-
-    /// Create a new pipeline element.
-    pub fn create_pipeline(&self, num_stages: u8) -> Variable {
-        self.state().allocator.create_pipeline(num_stages)
-    }
-
-    /// Create a new barrier element.
-    pub fn create_barrier_token(&self, id: Id, level: BarrierLevel) -> Variable {
-        Variable::new(
-            VariableKind::BarrierToken { id, level },
-            Type::semantic(SemanticType::BarrierToken),
-        )
-    }
-
-    /// Create a mutable variable of the given item type.
-    pub fn create_local_mut<I: Into<Type>>(&self, item: I) -> Variable {
-        self.state().allocator.create_local_mut(item.into())
-    }
-
-    /// Create a new restricted variable. The variable is
-    /// Useful for _for loops_ and other algorithms that require the control over initialization.
-    pub fn create_local_restricted(&self, ty: Type) -> Variable {
-        self.state().allocator.create_local_restricted(ty)
-    }
-
-    /// Create a new immutable variable.
-    pub fn create_local(&self, ty: Type) -> Variable {
-        self.state().allocator.create_local(ty)
-    }
-
-    /// Create a new immutable variable of aggregate type.
-    pub fn create_aggregate(&self, ty: Type, kind: AggregateKind) -> Variable {
-        let id = self.state().allocator.new_local_index();
-        Variable::new(
-            VariableKind::Aggregate {
-                id,
-                aggregate_kind: kind,
+    /// Create a new mutable local variable of type specified by `value_ty`.
+    pub fn create_local_mut(&self, value_ty: impl Into<Type>) -> Value {
+        let value_ty = value_ty.into();
+        let ty = Type::Pointer(value_ty.intern(), AddressSpace::Local);
+        let out = self.create_value(ty);
+        self.register(Instruction::new(
+            Operation::DeclareVariable {
+                value_ty,
+                addr_space: AddressSpace::Local,
+                alignment: value_ty.align(),
             },
-            ty,
-        )
+            out,
+        ));
+        out
+    }
+
+    /// Create a shared variable of the given item type.
+    pub fn create_shared(&self, value_ty: impl Into<Type>, alignment: Option<usize>) -> Value {
+        let value_ty = value_ty.into();
+        let ty = Type::Pointer(value_ty.intern(), AddressSpace::Shared);
+        let out = self.create_value(ty);
+        self.register(Instruction::new(
+            Operation::DeclareVariable {
+                value_ty,
+                addr_space: AddressSpace::Shared,
+                alignment: alignment.unwrap_or_else(|| value_ty.align()),
+            },
+            out,
+        ));
+        out
     }
 
     /// Create a new function.
-    pub fn create_function(&self, explicit_params: Vec<Variable>, scope: Scope) -> Id {
+    pub fn create_function(&self, explicit_params: Vec<Value>, scope: Scope) -> Id {
         let id = self.state().allocator.new_local_index();
         self.state_mut().functions.insert(
             id,
@@ -243,12 +226,12 @@ impl Scope {
     /// The reference is the same as the type for simplicity, but is only valid for the duration of
     /// the root scope. Ensure the reference lifetime is shortened to the lifetime of the underlying
     /// variable being referenced.
-    pub fn create_kernel_ref<'a, T>(&self, var: T) -> &'a mut T
+    pub fn create_kernel_ref<'a, T>(&self, value: T) -> &'a mut T
     where
         T: 'a,
     {
         let mut state = self.state_mut();
-        let reference = state.reference_arena.alloc(var);
+        let reference = state.reference_arena.alloc(value);
         unsafe { core::mem::transmute(reference) }
     }
 
@@ -290,7 +273,6 @@ impl Scope {
             instructions: Default::default(),
             return_value: None,
             locals: Default::default(),
-            const_arrays: Default::default(),
             debug: self.debug.clone(),
             global_state: self.global_state.clone(),
         }
@@ -306,18 +288,17 @@ impl Scope {
         self.validation_errors.errors.replace_with(|_| Vec::new())
     }
 
-    /// Returns the variables and operations to be declared and executed.
+    /// Returns the operations to be declared and executed.
     ///
     /// Notes:
     ///
-    /// New operations and variables can be created within the same scope without having name
+    /// New operations can be created within the same scope without having name
     /// conflicts.
     pub fn process<'a>(
         &self,
         processors: impl IntoIterator<Item = &'a dyn Processor>,
     ) -> ScopeProcessing {
         self.global_state.borrow_mut().reference_arena.reset();
-        let mut variables = core::mem::take(&mut *self.locals.borrow_mut());
 
         let mut instructions = Vec::new();
 
@@ -325,10 +306,7 @@ impl Scope {
             instructions.push(inst);
         }
 
-        variables.extend(self.state().allocator.take_variables());
-
         let mut processing = ScopeProcessing {
-            variables,
             instructions,
             global_state: self.global_state.clone(),
         };
@@ -337,11 +315,6 @@ impl Scope {
             processing = p.transform(processing);
         }
 
-        // Add variables added from processors
-        processing
-            .variables
-            .extend(self.state().allocator.take_variables());
-
         processing
     }
 
@@ -349,46 +322,21 @@ impl Scope {
         self.state().allocator.new_local_index()
     }
 
-    /// Create a shared variable of the given item type.
-    pub fn create_shared<I: Into<Type>>(&self, item: I, alignment: Option<usize>) -> Variable {
-        let item = item.into();
-        let index = self.new_local_index();
-        Variable::new(
-            VariableKind::Shared {
-                id: index,
-                alignment,
-            },
-            item,
-        )
-    }
-
-    /// Create a shared variable of the given item type.
-    pub fn create_const_array<I: Into<Type>>(&self, item: I, data: Vec<Variable>) -> Variable {
-        let item = item.into();
-        let index = self.new_local_index();
-        let const_array = Variable::new(
-            VariableKind::ConstantArray {
-                id: index,
-                length: data.len(),
-                unroll_factor: 1,
-            },
-            item,
-        );
-        self.const_arrays.borrow_mut().push((const_array, data));
-        const_array
-    }
-
     /// Obtain the index-th buffer
-    pub fn global(&self, id: Id, item: Type) -> Variable {
-        Variable::new(
-            VariableKind::GlobalBuffer(id),
-            Type::DynamicArray(item.intern(), crate::AddressSpace::Global(id)),
-        )
+    pub fn global(&self, id: Id, value_ty: Type) -> Value {
+        let ty_arr = Type::DynamicArray(value_ty.intern());
+        let ty = Type::Pointer(ty_arr.intern(), AddressSpace::Global(id));
+        let value = self.create_value(ty);
+        self.state_mut().global_args.insert(id as usize, value);
+        value
     }
 
-    /// Obtain the index-th scalar
-    pub fn scalar(&self, id: Id, storage: StorageType) -> Variable {
-        Variable::new(VariableKind::GlobalScalar(id), Type::new(storage))
+    /// Obtain the index-th tensor map
+    pub fn tensor_map(&self, id: Id) -> Value {
+        let ty = Type::Opaque(OpaqueType::TensorMap);
+        let value = self.create_value(ty);
+        self.state_mut().global_args.insert(id as usize, value);
+        value
     }
 
     pub fn update_source(&self, source: CubeFnSource) {
@@ -420,23 +368,23 @@ impl Scope {
         }
     }
 
-    pub fn update_variable_name(&self, variable: Variable, name: impl Into<Cow<'static, str>>) {
+    pub fn update_value_name(&self, value: Value, name: impl Into<Cow<'static, str>>) {
         if self.debug.enabled {
             self.debug
-                .variable_names
+                .value_names
                 .borrow_mut()
-                .insert(variable, name.into());
+                .insert(value, name.into());
         }
     }
 
-    pub fn extract_field(&self, aggregate: Variable, ty: Type, field: usize) -> Variable {
-        if !matches!(aggregate.kind, VariableKind::Aggregate { .. }) {
+    pub fn extract_field(&self, aggregate: Value, ty: Type, field: usize) -> Value {
+        if !matches!(aggregate.ty, Type::Aggregate(..)) {
             panic!(
                 "Tried extracting field from non-aggregate {aggregate}.\nCurrent state:\n{}",
                 self.instructions.borrow().iter().join("\n")
             )
         }
-        let out = self.create_local(ty);
+        let out = self.create_value(ty);
         self.register(Instruction::new(
             Operation::ExtractAggregateField(AggregateExtractOperands { aggregate, field }),
             out,

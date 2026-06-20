@@ -2,20 +2,34 @@ use crate::{
     SpirvCompiler, SpirvTarget,
     item::{Elem, Item},
     lookups::Matrix,
-    variable::Variable,
+    value::Value,
 };
 use cubecl_core::ir::{self as core, CoopMma, ElemType, Id, MatrixLayout, MatrixScope};
 use rspirv::{
     dr::Operand,
     spirv::{
         self, Capability, CooperativeMatrixLayout, CooperativeMatrixOperands, CooperativeMatrixUse,
-        MemoryAccess, StorageClass, TensorAddressingOperands,
+        MemoryAccess, TensorAddressingOperands,
     },
 };
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_cmma(&mut self, cmma: CoopMma, out: Option<core::Variable>) {
+    pub fn compile_cmma(&mut self, cmma: CoopMma, out: Option<core::Value>) {
         self.capabilities.insert(Capability::CooperativeMatrixKHR);
+
+        if let Some(out) = out {
+            if out.elem_type() == ElemType::Float(core::FloatKind::BF16) {
+                self.capabilities
+                    .insert(Capability::BFloat16CooperativeMatrixKHR);
+            }
+            if matches!(
+                out.elem_type(),
+                ElemType::Float(core::FloatKind::E5M2 | core::FloatKind::E4M3)
+            ) {
+                self.capabilities
+                    .insert(Capability::Float8CooperativeMatrixEXT);
+            }
+        }
 
         match cmma {
             CoopMma::Fill { value } => self.compile_fill(out.unwrap(), value),
@@ -60,16 +74,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn compile_load(
         &mut self,
-        mat: core::Variable,
-        ptr: core::Variable,
-        stride: core::Variable,
+        mat: core::Value,
+        ptr: core::Value,
+        stride: core::Value,
         layout: Option<MatrixLayout>,
     ) {
-        let mat = self.compile_variable(mat);
-        let mat = self.matrix_var(&mat).1;
+        let mat = self.compile_value(mat);
+        let write_id = self.write_id_cmma(&mat);
 
-        let ptr = self.compile_variable(ptr);
-        let stride = self.compile_variable(stride);
+        let ptr = self.compile_value(ptr);
+        let stride = self.compile_value(stride);
         let stride_item = stride.item();
         let mut stride = self.read(&stride);
 
@@ -86,18 +100,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
         let layout = layout
             .and_then(compile_layout)
-            .or(mat.layout)
+            .or(matrix_layout(&mat))
             .unwrap_or(CooperativeMatrixLayout::RowMajorKHR);
         let memory_layout = self.const_u32(layout as u32);
 
         let ptr = self.read(&ptr);
-        let out_ty = self.item(&mat);
+        let out_ty = mat.item().unwrap_ptr();
         let ty = out_ty.id(self);
 
         let mat_id = self
             .cooperative_matrix_load_khr(
                 ty,
-                None,
+                Some(write_id),
                 ptr,
                 memory_layout,
                 Some(stride),
@@ -106,34 +120,34 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             )
             .unwrap();
 
-        self.store(mat.id, mat_id, None, vec![]).unwrap();
+        self.write_cmma(&mat, mat_id);
     }
 
     fn compile_load_tensor(
         &mut self,
-        mat: core::Variable,
-        buffer: core::Variable,
-        layout: core::Variable,
-        view: Option<core::Variable>,
+        mat: core::Value,
+        buffer: core::Value,
+        layout: core::Value,
+        view: Option<core::Value>,
     ) {
         self.capabilities
             .insert(Capability::CooperativeMatrixTensorAddressingNV);
 
-        let mat = self.compile_variable(mat);
-        let mat = self.matrix_var(&mat).1;
+        let mat = self.compile_value(mat);
+        let write_id = self.write_id_cmma(&mat);
 
-        let buffer = self.compile_variable(buffer);
-        let layout = self.compile_variable(layout);
-        let view = view.map(|view| self.compile_variable(view));
+        let buffer = self.compile_value(buffer);
+        let layout = self.compile_value(layout);
+        let view = view.map(|view| self.compile_value(view));
         let layout = self.read(&layout);
         let view = view.map(|view| self.read(&view));
 
         let ptr = buffer.id(self);
-        let out_ty = self.item(&mat);
-        let align = buffer.item().size();
+        let out_ty = mat.item().unwrap_ptr();
+        let align = buffer.item().value_type().size();
         let ty = out_ty.id(self);
 
-        let zero = Item::Scalar(mat.elem).const_u32(self, 0);
+        let zero = Item::Scalar(mat.elem()).const_u32(self, 0);
         let clipped_fallback = self.composite_construct(ty, None, [zero]).unwrap();
 
         let (operands, extra_args) = match view {
@@ -147,7 +161,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let mat_id = self
             .cooperative_matrix_load_tensor_nv(
                 ty,
-                None,
+                Some(write_id),
                 ptr,
                 clipped_fallback,
                 layout,
@@ -158,42 +172,41 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             )
             .unwrap();
 
-        self.store(mat.id, mat_id, None, vec![]).unwrap();
+        self.write_cmma(&mat, mat_id);
     }
 
-    fn compile_fill(&mut self, mat: core::Variable, value: core::Variable) {
-        let mat = self.compile_variable(mat);
-        let value = self.compile_variable(value);
-        let mat = self.matrix_var(&mat).1;
-        let item = self.item(&mat);
+    fn compile_fill(&mut self, mat: core::Value, value: core::Value) {
+        let mat = self.compile_value(mat);
+        let value = self.compile_value(value);
+        let mat_id = self.write_id_cmma(&mat);
+
+        let item = mat.item().unwrap_ptr();
         let ty = item.id(self);
         let mat_id = match value {
-            Variable::Constant(id, _, _) => self.constant_composite(ty, vec![id]),
-            var => {
-                let var = self.read(&var);
-                self.composite_construct(ty, None, vec![var]).unwrap()
+            Value::Constant(id, _, _) => self.constant_composite(ty, vec![id]),
+            val => {
+                let val = self.read(&val);
+                self.composite_construct(ty, Some(mat_id), vec![val])
+                    .unwrap()
             }
         };
 
-        self.store(mat.id, mat_id, None, vec![]).unwrap();
+        self.write_cmma(&mat, mat_id);
     }
 
     fn compile_store(
         &mut self,
-        mat: core::Variable,
-        stride: core::Variable,
-        destination: core::Variable,
+        mat: core::Value,
+        stride: core::Value,
+        destination: core::Value,
         layout: MatrixLayout,
     ) {
-        let mat = self.compile_variable(mat);
-        let mat = self.matrix_var(&mat).1;
-        let item = self.item(&mat);
-        let ty = item.id(self);
-        let mat_obj = self.load(ty, None, mat.id, None, vec![]).unwrap();
+        let mat = self.compile_value(mat);
+        let mat_obj = self.read(&mat);
         //assert_ne!(mat_obj, 0, "Can't store uninitialized matrix");
 
-        let ptr = self.compile_variable(destination);
-        let stride = self.compile_variable(stride);
+        let ptr = self.compile_value(destination);
+        let stride = self.compile_value(stride);
         let value_ty = ptr.item().value_type();
 
         let stride_item = stride.item();
@@ -226,29 +239,26 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn compile_store_tensor(
         &mut self,
-        mat: core::Variable,
-        out: core::Variable,
-        layout: core::Variable,
-        view: Option<core::Variable>,
+        mat: core::Value,
+        out: core::Value,
+        layout: core::Value,
+        view: Option<core::Value>,
     ) {
         self.capabilities
             .insert(Capability::CooperativeMatrixTensorAddressingNV);
 
-        let mat = self.compile_variable(mat);
-        let mat = self.matrix_var(&mat).1;
-        let item = self.item(&mat);
-        let ty = item.id(self);
-        let mat_obj = self.load(ty, None, mat.id, None, vec![]).unwrap();
+        let mat = self.compile_value(mat);
+        let mat_obj = self.read(&mat);
         //assert_ne!(mat_obj, 0, "Can't store uninitialized matrix");
 
-        let out = self.compile_variable(out);
-        let layout = self.compile_variable(layout);
-        let view = view.map(|view| self.compile_variable(view));
+        let out = self.compile_value(out);
+        let layout = self.compile_value(layout);
+        let view = view.map(|view| self.compile_value(view));
 
         let layout = self.read(&layout);
         let view = view.map(|view| self.read(&view));
 
-        let align = out.item().size();
+        let align = out.item().value_type().size();
         let ptr = out.id(self);
 
         let (operands, extra_args) = match view {
@@ -273,126 +283,117 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     fn compile_execute(
         &mut self,
-        mat_a: core::Variable,
-        mat_b: core::Variable,
-        mat_c: core::Variable,
-        mat_d: core::Variable,
+        mat_a: core::Value,
+        mat_b: core::Value,
+        mat_c: core::Value,
+        mat_d: core::Value,
     ) {
-        let mat_a = self.compile_variable(mat_a);
-        let mat_b = self.compile_variable(mat_b);
-        let mat_c = self.compile_variable(mat_c);
-        let mat_d = self.compile_variable(mat_d);
+        let mat_a = self.compile_value(mat_a);
+        let mat_b = self.compile_value(mat_b);
+        let mat_c = self.compile_value(mat_c);
+        let mat_d = self.compile_value(mat_d);
 
-        let mat_a = self.matrix_var(&mat_a).1;
-        let mat_b = self.matrix_var(&mat_b).1;
-        let mat_c = self.matrix_var(&mat_c).1;
-        let mat_d = self.matrix_var(&mat_d).1;
+        let mat_a_id = self.read(&mat_a);
+        let mat_b_id = self.read(&mat_b);
+        let mat_c_id = self.read(&mat_c);
+        let mat_d_id = self.write_id_cmma(&mat_d);
 
-        let mat_a_ty = self.item(&mat_a).id(self);
-        let mat_b_ty = self.item(&mat_b).id(self);
-        let mat_c_ty = self.item(&mat_c).id(self);
-
-        let mat_a_id = self.load(mat_a_ty, None, mat_a.id, None, vec![]).unwrap();
-        let mat_b_id = self.load(mat_b_ty, None, mat_b.id, None, vec![]).unwrap();
-        let mat_c_id = self.load(mat_c_ty, None, mat_c.id, None, vec![]).unwrap();
-
-        let ty = self.item(&mat_d).id(self);
+        let ty = mat_d.item().unwrap_ptr().id(self);
 
         let mut operands = CooperativeMatrixOperands::NONE_KHR;
-        if matches!(mat_a.elem, Elem::Int(_, true)) {
+        if matches!(mat_a.elem(), Elem::Int(_, true)) {
             operands |= CooperativeMatrixOperands::MATRIX_A_SIGNED_COMPONENTS_KHR;
         }
-        if matches!(mat_b.elem, Elem::Int(_, true)) {
+        if matches!(mat_b.elem(), Elem::Int(_, true)) {
             operands |= CooperativeMatrixOperands::MATRIX_B_SIGNED_COMPONENTS_KHR;
         }
-        if matches!(mat_c.elem, Elem::Int(_, true)) {
+        if matches!(mat_c.elem(), Elem::Int(_, true)) {
             operands |= CooperativeMatrixOperands::MATRIX_C_SIGNED_COMPONENTS_KHR;
         }
-        if matches!(mat_d.elem, Elem::Int(_, true)) {
+        if matches!(mat_d.elem(), Elem::Int(_, true)) {
             operands |= CooperativeMatrixOperands::MATRIX_RESULT_SIGNED_COMPONENTS_KHR;
         }
 
-        let mat_d_id = self
-            .cooperative_matrix_mul_add_khr(ty, None, mat_a_id, mat_b_id, mat_c_id, Some(operands))
-            .unwrap();
+        self.cooperative_matrix_mul_add_khr(
+            ty,
+            Some(mat_d_id),
+            mat_a_id,
+            mat_b_id,
+            mat_c_id,
+            Some(operands),
+        )
+        .unwrap();
 
-        self.store(mat_d.id, mat_d_id, None, vec![]).unwrap();
+        self.write_cmma(&mat_d, mat_d_id);
     }
 
-    fn compile_elementwise_op(&mut self, matrix: core::Variable, op: Id, output: core::Variable) {
+    fn compile_elementwise_op(&mut self, matrix: core::Value, op: Id, output: core::Value) {
         self.capabilities
             .insert(Capability::CooperativeMatrixPerElementOperationsNV);
 
-        let matrix = self.compile_variable(matrix);
-        let output = self.compile_variable(output);
-        let matrix = self.matrix_var(&matrix).1;
-        let output = self.matrix_var(&output).1;
+        let matrix = self.compile_value(matrix);
+        let output = self.compile_value(output);
 
-        let matrix_ty = self.item(&matrix).id(self);
-        let matrix_id = self.load(matrix_ty, None, matrix.id, None, vec![]).unwrap();
+        let matrix_ty = matrix.item().unwrap_ptr().id(self);
+        let matrix_id = self.read(&matrix);
+        let output_id = self.write_id_cmma(&output);
 
         let captures = self.opt.global_state.extra_functions[&op]
             .implicit_params
             .clone();
         let captures = captures
             .into_iter()
-            .map(|var| self.compile_variable(var))
+            .map(|val| self.compile_value(val))
             .collect::<Vec<_>>();
         let captures = captures
             .iter()
-            .map(|var| self.read(var))
+            .map(|val| self.read(val))
             .collect::<Vec<_>>();
         let func = self.state.extra_funcs[&op].id;
 
-        let mat_out_id = self
-            .cooperative_matrix_per_element_op_nv(matrix_ty, None, matrix_id, func, captures)
-            .unwrap();
+        self.cooperative_matrix_per_element_op_nv(
+            matrix_ty,
+            Some(output_id),
+            matrix_id,
+            func,
+            captures,
+        )
+        .unwrap();
 
-        self.store(output.id, mat_out_id, None, vec![]).unwrap();
+        self.write_cmma(&output, output_id);
     }
 
-    fn compile_cast(&mut self, input: core::Variable, output: core::Variable) {
-        let input = self.compile_variable(input);
-        let output = self.compile_variable(output);
+    fn compile_cast(&mut self, input: core::Value, output: core::Value) {
+        let input = self.compile_value(input);
+        let output = self.compile_value(output);
 
-        let input = self.matrix_var(&input).1;
-        let output = self.matrix_var(&output).1;
+        let input_ident = matrix_ident(&input);
+        let output_ident = matrix_ident(&output);
 
-        if input.ident != output.ident {
+        if input_ident != output_ident {
             self.capabilities
                 .insert(Capability::CooperativeMatrixConversionsNV);
         }
 
-        let input_ty = self.item(&input);
-        let output_ty = self.item(&output);
+        let input_ty = input.item();
+        let output_ty = output.item().unwrap_ptr();
 
-        let input_ty_id = input_ty.id(self);
         let output_ty_id = output_ty.id(self);
 
-        let fragment_id = self
-            .load(input_ty_id, None, input.id, None, vec![])
-            .unwrap();
+        let input_id = self.read(&input);
+        let output_id = self.write_id_cmma(&output);
 
-        let frag_new = if input_ty == output_ty && input.ident != output.ident {
-            self.cooperative_matrix_convert_nv(output_ty_id, None, fragment_id)
+        if input_ty == output_ty && input_ident != output_ident {
+            self.cooperative_matrix_convert_nv(output_ty_id, Some(output_id), input_id)
                 .unwrap()
         } else {
-            input_ty.cast_to(self, None, fragment_id, &output_ty)
+            input_ty.cast_to(self, Some(output_id), input_id, &output_ty)
         };
 
-        self.store(output.id, frag_new, None, vec![]).unwrap();
+        self.write_cmma(&output, output_id);
     }
 
-    fn matrix_var(&mut self, var: &Variable) -> (Id, Matrix) {
-        let id = match var {
-            Variable::CoopMatrix(id, _) => *id,
-            _ => unreachable!(),
-        };
-        let mat = self.state.matrices[&id];
-        (id, mat)
-    }
-
-    fn rows(&mut self, mat: &Matrix) -> u32 {
+    pub fn matrix_rows(&mut self, mat: &Matrix) -> u32 {
         let rows = match mat.ident {
             CooperativeMatrixUse::MatrixAKHR => mat.m,
             CooperativeMatrixUse::MatrixBKHR => mat.k,
@@ -401,7 +402,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.const_u32(rows)
     }
 
-    fn columns(&mut self, mat: &Matrix) -> u32 {
+    pub fn matrix_columns(&mut self, mat: &Matrix) -> u32 {
         let columns = match mat.ident {
             CooperativeMatrixUse::MatrixAKHR => mat.k,
             CooperativeMatrixUse::MatrixBKHR => mat.n,
@@ -410,17 +411,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         self.const_u32(columns)
     }
 
-    pub fn item(&mut self, mat: &Matrix) -> Item {
-        Item::CoopMatrix {
-            ty: mat.elem,
-            rows: self.rows(mat),
-            columns: self.columns(mat),
-            ident: mat.ident,
-            scope: mat.scope,
-        }
-    }
-
-    pub fn compile_matrix(&mut self, mat: &core::Matrix) -> Matrix {
+    pub fn compile_matrix(&mut self, mat: &core::MatrixType) -> Matrix {
         let elem = self.compile_type(core::Type::new(mat.storage)).elem();
         let ident = match mat.ident {
             core::MatrixIdent::A => CooperativeMatrixUse::MatrixAKHR,
@@ -441,34 +432,20 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             scope,
         }
     }
+}
 
-    pub fn init_coop_matrix(
-        &mut self,
-        mat: core::Matrix,
-        var: core::Variable,
-        init: Option<Id>,
-    ) -> Matrix {
-        if mat.storage.elem_type() == ElemType::Float(core::FloatKind::BF16) {
-            self.capabilities
-                .insert(Capability::BFloat16CooperativeMatrixKHR);
-        }
-        if matches!(
-            mat.storage.elem_type(),
-            ElemType::Float(core::FloatKind::E5M2 | core::FloatKind::E4M3)
-        ) {
-            self.capabilities
-                .insert(Capability::Float8CooperativeMatrixEXT);
-        }
+fn matrix_ident(val: &Value) -> CooperativeMatrixUse {
+    let Item::CoopMatrix { ident, .. } = val.item().unwrap_ptr() else {
+        unreachable!()
+    };
+    ident
+}
 
-        let mut mat = self.compile_matrix(&mat);
-
-        let item = Item::Pointer(StorageClass::Function, Box::new(self.item(&mat)));
-        let ty = item.id(self);
-        mat.id = self.declare_function_variable(ty, init);
-        self.debug_var_name(mat.id, var);
-
-        mat
-    }
+fn matrix_layout(val: &Value) -> Option<CooperativeMatrixLayout> {
+    let Item::CoopMatrix { layout, .. } = val.item().unwrap_ptr() else {
+        unreachable!()
+    };
+    layout
 }
 
 fn compile_layout(layout: MatrixLayout) -> Option<CooperativeMatrixLayout> {

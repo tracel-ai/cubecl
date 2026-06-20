@@ -12,7 +12,6 @@ pub mod cmma;
 pub mod cmma2;
 pub mod comparison;
 pub mod const_match;
-pub mod constants;
 pub mod debug;
 pub mod different_rank;
 pub mod enums;
@@ -24,6 +23,7 @@ pub mod minifloat;
 pub mod numeric;
 pub mod plane;
 pub mod properties;
+pub mod read_lazy;
 pub mod saturating;
 pub mod sequence;
 pub mod short_circuit;
@@ -144,11 +144,11 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_cmma2!();
         cubecl_core::testgen_numeric!();
         cubecl_core::testgen_file!();
+        cubecl_core::testgen_read_lazy!();
         cubecl_core::testgen_metadata!();
         cubecl_core::testgen_topology!();
         cubecl_core::testgen_properties!();
 
-        cubecl_core::testgen_constants!();
         cubecl_core::testgen_sync_plane!();
         cubecl_core::testgen_tensor_indexing!();
         cubecl_core::testgen_debug!();

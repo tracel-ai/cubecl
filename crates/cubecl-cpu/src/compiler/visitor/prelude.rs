@@ -1,9 +1,8 @@
 pub use super::Visitor;
-pub use cubecl_core::ir::Variable;
 pub use tracel_llvm::mlir_rs::{
     Context, Error,
     helpers::{ArithBlockExt, BuiltinBlockExt},
-    ir::{BlockLike, RegionLike, Type, TypeLike, Value, ValueLike, operation::OperationLike},
+    ir::{BlockLike, RegionLike, Type, TypeLike, ValueLike, operation::OperationLike},
 };
 
 pub trait IntoType {

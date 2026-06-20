@@ -6,7 +6,7 @@ use core::{
 };
 
 use alloc::{rc::Rc, vec::Vec};
-use cubecl_ir::{ConstantValue, Instruction, Operation, OperationReflect, VariableKind};
+use cubecl_ir::{AddressSpace, ConstantValue, Instruction, Operation, OperationReflect};
 use hashbrown::HashSet;
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
@@ -69,7 +69,7 @@ fn search_loop(func: &mut Function, state: &GlobalState) -> bool {
                 continue;
             }
             let Some(out) = op.out else { continue };
-            if !matches!(out.kind, VariableKind::GlobalBuffer(_))
+            if !matches!(out.address_space(), AddressSpace::Global(_))
                 && !var_used.borrow().contains(&out)
             {
                 func[node].ops.borrow_mut().remove(idx);

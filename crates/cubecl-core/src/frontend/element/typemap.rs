@@ -23,7 +23,7 @@ use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
 
 use crate::{
-    ir::{FloatKind, Scope, Variable},
+    ir::{FloatKind, Scope, Value},
     prelude::*,
 };
 
@@ -262,17 +262,17 @@ impl<Marker: 'static> From<DynamicScalar<Marker>> for ConstantValue {
     }
 }
 
-impl<Marker: 'static> From<DynamicScalar<Marker>> for Variable {
+impl<Marker: 'static> From<DynamicScalar<Marker>> for Value {
     fn from(val: DynamicScalar<Marker>) -> Self {
         // TODO: Fix how we create literal.
-        Variable::constant(val.val, FloatKind::F32)
+        Value::constant(val.val, FloatKind::F32)
     }
 }
 
 impl<Marker: 'static> From<DynamicScalar<Marker>> for NativeExpand<DynamicScalar<Marker>> {
     fn from(value: DynamicScalar<Marker>) -> Self {
-        let var: Variable = value.into();
-        NativeExpand::new(var)
+        let val: Value = value.into();
+        NativeExpand::new(val)
     }
 }
 
@@ -318,6 +318,7 @@ impl<Marker: 'static> ModFloor for DynamicScalar<Marker> {}
 impl<Marker: 'static> Abs for DynamicScalar<Marker> {}
 impl<Marker: 'static> Log for DynamicScalar<Marker> {}
 impl<Marker: 'static> Log1p for DynamicScalar<Marker> {}
+impl<Marker: 'static> Expm1 for DynamicScalar<Marker> {}
 impl<Marker: 'static> Cos for DynamicScalar<Marker> {}
 impl<Marker: 'static> Sin for DynamicScalar<Marker> {}
 impl<Marker: 'static> Tan for DynamicScalar<Marker> {}

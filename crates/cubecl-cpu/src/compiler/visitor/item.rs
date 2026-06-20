@@ -1,9 +1,9 @@
-use cubecl_core::ir::{self, ConstantValue, VariableKind};
+use cubecl_core::ir::{self};
 use tracel_llvm::mlir_rs::{
     Context,
     dialect::{arith, ods::vector},
     ir::{
-        Attribute, Type, Value,
+        Type, Value,
         attribute::{FloatAttribute, IntegerAttribute},
         r#type::IntegerType,
     },
@@ -13,57 +13,22 @@ use super::prelude::*;
 
 impl IntoType for ir::Type {
     fn to_type<'a>(self, context: &'a Context) -> Type<'a> {
-        let inner_type = self.storage_type().to_type(context);
+        let inner_type = match self {
+            ir::Type::Opaque(ir::OpaqueType::Barrier(..)) => IntegerType::new(context, 32).into(),
+            other => other.storage_type().to_type(context),
+        };
         match self.vector_size() {
             size if size > 1 => Type::vector(&[size as u64], inner_type),
             _ => inner_type,
         }
     }
+
     fn is_vectorized(&self) -> bool {
         self.vector_size() > 1
     }
 }
 
 impl<'a> Visitor<'a> {
-    pub fn into_attribute(
-        context: &'a Context,
-        var: Variable,
-        item: ir::Type,
-    ) -> Option<Attribute<'a>> {
-        let r#type = item.storage_type().to_type(context);
-        match var.kind {
-            VariableKind::Constant(ConstantValue::Float(float)) => {
-                if item.is_float() {
-                    Some(FloatAttribute::new(context, r#type, float).into())
-                } else {
-                    Some(IntegerAttribute::new(r#type, float as i64).into())
-                }
-            }
-            VariableKind::Constant(ConstantValue::Bool(bool)) => {
-                if item.is_float() {
-                    Some(FloatAttribute::new(context, r#type, bool as i64 as f64).into())
-                } else {
-                    Some(IntegerAttribute::new(r#type, bool as i64).into())
-                }
-            }
-            VariableKind::Constant(ConstantValue::Int(int)) => {
-                if item.is_float() {
-                    Some(FloatAttribute::new(context, r#type, int as f64).into())
-                } else {
-                    Some(IntegerAttribute::new(r#type, int).into())
-                }
-            }
-            VariableKind::Constant(ConstantValue::UInt(u_int)) => {
-                if item.is_float() {
-                    Some(FloatAttribute::new(context, r#type, u_int as f64).into())
-                } else {
-                    Some(IntegerAttribute::new(r#type, u_int as i64).into())
-                }
-            }
-            _ => None,
-        }
-    }
-
     pub fn create_float_constant_from_item(&self, item: ir::Type, constant: f64) -> Value<'a, 'a> {
         let float = item.storage_type().to_type(self.context);
         let constant = FloatAttribute::new(self.context, float, constant);

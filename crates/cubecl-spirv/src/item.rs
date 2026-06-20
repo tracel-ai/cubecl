@@ -1,10 +1,11 @@
 use cubecl_core::ir::{self as core, AddressSpace, ClampMode, FloatKind, IntKind, UIntKind};
 use rspirv::spirv::{
-    Capability, CooperativeMatrixUse, FPEncoding, Scope, StorageClass, TensorClampMode, Word,
+    Capability, CooperativeMatrixLayout, CooperativeMatrixUse, FPEncoding, Scope, StorageClass,
+    TensorClampMode, Word,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{compiler::SpirvCompiler, target::SpirvTarget, variable::ConstVal};
+use crate::{compiler::SpirvCompiler, target::SpirvTarget, value::ConstVal};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Item {
@@ -19,6 +20,7 @@ pub enum Item {
         rows: u32,
         columns: u32,
         ident: CooperativeMatrixUse,
+        layout: Option<CooperativeMatrixLayout>,
         scope: Scope,
     },
     TensorLayout {
@@ -66,6 +68,7 @@ impl Item {
                 columns,
                 ident,
                 scope,
+                ..
             } => {
                 let ty = ty.id(b);
                 let scope = b.const_u32(*scope as u32);
@@ -112,6 +115,13 @@ impl Item {
             Item::Pointer(_, item) => item.value_type(),
             Item::Array(item, _) => item.value_type(),
             Item::DynamicArray(item) => item.value_type(),
+            other => other.clone(),
+        }
+    }
+
+    pub fn unwrap_ptr(&self) -> Item {
+        match self {
+            Item::Pointer(_, item) => item.as_ref().clone(),
             other => other.clone(),
         }
     }
@@ -165,7 +175,7 @@ impl Item {
             Item::Vector(_, vec) => b.constant_composite(ty, (0..*vec).map(|_| scalar)),
             Item::Pointer(_, _) => unimplemented!("Can't create constant pointer"),
             Item::Array(_, _) => unimplemented!("Can't create constant pointer"),
-            Item::DynamicArray(_) => unimplemented!("Can't create constant pointer"),
+            Item::DynamicArray(..) => unimplemented!("Can't create constant pointer"),
             Item::CoopMatrix { .. } => unimplemented!("Can't create constant cmma matrix"),
             Item::TensorLayout { .. } => unimplemented!("Can't create constant cmma matrix"),
             Item::TensorView { .. } => unimplemented!("Can't create constant cmma matrix"),
@@ -304,8 +314,12 @@ impl Item {
         }
     }
 
+    pub fn is_ptr(&self) -> bool {
+        matches!(self, Item::Pointer(..))
+    }
+
     pub fn is_array(&self) -> bool {
-        matches!(self, Item::Array(..))
+        matches!(self, Item::Array(..) | Item::DynamicArray(..))
     }
 }
 
@@ -376,18 +390,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             core::Type::Vector(inner, size) => {
                 Item::Vector(self.compile_storage_type(inner.storage_type()), size as u32)
             }
-            core::Type::Atomic(inner) => self.compile_type(*inner),
+            core::Type::Atomic(inner) => {
+                if let core::Type::Vector(ty, _) = inner.value_type()
+                    && ty.is_float()
+                    && ty.size() == 2
+                {
+                    self.capabilities.insert(Capability::AtomicFloat16VectorNV);
+                }
+                self.compile_type(*inner)
+            }
             core::Type::Pointer(inner, class) => {
                 let storage_class = compile_pointer_class(class);
                 let item = self.compile_type(*inner);
                 Item::Pointer(storage_class, Box::new(item))
             }
             core::Type::Semantic(semantic) => match semantic {
-                core::SemanticType::BarrierToken
-                | core::SemanticType::Pipeline
-                | core::SemanticType::TensorMap => {
-                    unimplemented!("Unsupported semantic type")
-                }
                 core::SemanticType::TensorLayout(dims, clamp_mode) => Item::TensorLayout {
                     dims,
                     clamp_mode: compile_clamp_mode(clamp_mode),
@@ -398,13 +415,33 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     permutation: permutation[..dims].to_vec(),
                 },
             },
-            core::Type::Array(inner, size, _) => {
+            core::Type::Array(inner, size) => {
                 let item = self.compile_type(*inner);
                 Item::Array(Box::new(item), size as u32)
             }
-            core::Type::DynamicArray(inner, _) => {
+            core::Type::DynamicArray(inner) => {
                 let item = self.compile_type(*inner);
                 Item::DynamicArray(Box::new(item))
+            }
+            core::Type::Matrix(ty) => {
+                let mat = self.compile_matrix(&ty);
+                Item::CoopMatrix {
+                    ty: mat.elem,
+                    rows: self.matrix_rows(&mat),
+                    columns: self.matrix_columns(&mat),
+                    ident: mat.ident,
+                    layout: mat.layout,
+                    scope: mat.scope,
+                }
+            }
+            core::Type::Opaque(opaque_type) => match opaque_type {
+                core::OpaqueType::Barrier(..) | core::OpaqueType::BarrierToken(..) => {
+                    panic!("Barrier not supported in SPIR-V")
+                }
+                core::OpaqueType::TensorMap => panic!("Tensor map not supported in SPIR-V"),
+            },
+            core::Type::Aggregate(_) => {
+                unreachable!("Should be disaggregated at this point")
             }
         }
     }
@@ -412,11 +449,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_storage_type(&mut self, ty: core::StorageType) -> Elem {
         match ty {
             core::StorageType::Scalar(ty) => self.compile_elem(ty),
-            core::StorageType::Opaque(ty) => match ty {
-                core::OpaqueType::Barrier(_) => {
-                    unimplemented!("Barrier type not supported in SPIR-V")
-                }
-            },
             core::StorageType::Packed(_, _) => {
                 unimplemented!("Packed types not yet supported in SPIR-V")
             }
@@ -484,36 +516,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn compile_function_param_type(&mut self, var: core::Variable) -> Word {
-        match var.kind {
-            core::VariableKind::GlobalBuffer(id) => {
-                self.state.base_lookups.buffers[id as usize].struct_ptr_ty_id
-            }
-            core::VariableKind::TensorMap(_) => {
-                unimplemented!("Tensor maps not supported")
-            }
-            core::VariableKind::LocalMut { .. }
-            | core::VariableKind::LocalConst { .. }
-            | core::VariableKind::Versioned { .. }
-            | core::VariableKind::Constant(..)
-            | core::VariableKind::GlobalScalar(_)
-            | core::VariableKind::Builtin(..) => self.compile_type(var.ty).id(self),
-            core::VariableKind::ConstantArray { .. } => {
-                todo!("Constant arrays not yet supported for args")
-            }
-            core::VariableKind::Shared { id, .. } => self.state.base_lookups.shared[&id].ptr_ty_id,
-            core::VariableKind::Matrix { mat, .. } => {
-                let mat = self.compile_matrix(&mat);
-                self.item(&mat).id(self)
-            }
-            core::VariableKind::Pipeline { .. } => {
-                unimplemented!("Pipelines not supported")
-            }
-            core::VariableKind::BarrierToken { .. } => {
-                unimplemented!("Barrier tokens not supported")
-            }
-            core::VariableKind::Aggregate { .. } => {
-                unreachable!("Should be disaggregated at this point")
+    pub fn compile_function_param_type(&mut self, val: core::Value) -> Word {
+        match val.kind {
+            core::ValueKind::Value { .. } | core::ValueKind::Constant(..) => {
+                self.compile_type(val.ty).id(self)
             }
         }
     }

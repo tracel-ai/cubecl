@@ -1,22 +1,22 @@
 use cubecl_ir::{
     Arithmetic, BinaryOperands, Comparison, ElemType, IndexOperands, Instruction, Memory,
-    Operation, Scope, Type, UnaryOperands, Variable, VectorSize,
+    Operation, Scope, Type, UnaryOperands, Value, VectorSize,
 };
 use cubecl_macros::cube;
 
 use crate::{self as cubecl, prelude::*};
 
-pub(crate) fn read_variable(scope: &Scope, var: Variable) -> Variable {
-    if let Type::Pointer(inner, _) = var.ty {
-        let out = scope.create_local(*inner);
-        scope.register(Instruction::new(Memory::Load(var), out));
+pub(crate) fn read_value(scope: &Scope, val: Value) -> Value {
+    if let Type::Pointer(inner, _) = val.ty {
+        let out = scope.create_value(*inner);
+        scope.register(Instruction::new(Memory::Load(val), out));
         out
     } else {
-        var
+        val
     }
 }
 
-pub(crate) fn binary_expand<F, Op>(scope: &Scope, lhs: Variable, rhs: Variable, func: F) -> Variable
+pub(crate) fn binary_expand<F, Op>(scope: &Scope, lhs: Value, rhs: Value, func: F) -> Value
 where
     F: Fn(BinaryOperands) -> Op,
     Op: Into<Operation>,
@@ -28,7 +28,7 @@ where
 
     let item = item_lhs.with_vector_size(vector_size);
 
-    let output = scope.create_local(item);
+    let output = scope.create_value(item);
 
     let op = func(BinaryOperands { lhs, rhs });
 
@@ -37,28 +37,15 @@ where
     output
 }
 
-pub(crate) fn index_expand(
-    scope: &Scope,
-    list: Variable,
-    index: Variable,
-    vector_size: Option<VectorSize>,
-    checked: bool,
-) -> Variable {
-    let item_lhs = list.value_type();
-
-    let ty = if let Some(vector_size) = vector_size {
-        item_lhs.with_vector_size(vector_size)
-    } else {
-        item_lhs
-    };
+pub(crate) fn index_expand(scope: &Scope, list: Value, index: Value, checked: bool) -> Value {
+    let ty = list.value_type();
 
     let class = list.address_space();
-    let output = scope.create_local(Type::pointer(ty, class));
+    let output = scope.create_value(Type::pointer(ty, class));
 
     let op = Memory::Index(IndexOperands {
         list,
         index,
-        vector_size: vector_size.unwrap_or(0),
         unroll_factor: 1,
         checked,
     });
@@ -70,15 +57,15 @@ pub(crate) fn index_expand(
 
 pub(crate) fn binary_expand_fixed_output<F>(
     scope: &Scope,
-    lhs: Variable,
-    rhs: Variable,
+    lhs: Value,
+    rhs: Value,
     out_item: Type,
     func: F,
-) -> Variable
+) -> Value
 where
     F: Fn(BinaryOperands) -> Arithmetic,
 {
-    let out = scope.create_local(out_item);
+    let out = scope.create_value(out_item);
     let op = func(BinaryOperands { lhs, rhs });
 
     scope.register(Instruction::new(op, out));
@@ -86,7 +73,7 @@ where
     out
 }
 
-pub(crate) fn cmp_expand<F>(scope: &Scope, lhs: Variable, rhs: Variable, func: F) -> Variable
+pub(crate) fn cmp_expand<F>(scope: &Scope, lhs: Value, rhs: Value, func: F) -> Value
 where
     F: Fn(BinaryOperands) -> Comparison,
 {
@@ -97,7 +84,7 @@ where
 
     let out_item = Type::scalar(ElemType::Bool).with_vector_size(vector_size);
 
-    let out = scope.create_local(out_item);
+    let out = scope.create_value(out_item);
 
     let op = func(BinaryOperands { lhs, rhs });
 
@@ -123,7 +110,7 @@ pub(crate) fn assign_op_expand<T: CubeType, Op>(
         panic!("Can't have a mutable operation on a const variable. Try to use `RuntimeCell`.");
     }
 
-    let tmp = scope.create_local(lhs.value_type());
+    let tmp = scope.create_value(lhs.value_type());
     let op = func(BinaryOperands {
         lhs: lhs_value,
         rhs,
@@ -133,14 +120,14 @@ pub(crate) fn assign_op_expand<T: CubeType, Op>(
     assign::expand_element(scope, tmp, lhs);
 }
 
-pub fn unary_expand<F, Op>(scope: &Scope, input: Variable, func: F) -> Variable
+pub fn unary_expand<F, Op>(scope: &Scope, input: Value, func: F) -> Value
 where
     F: Fn(UnaryOperands) -> Op,
     Op: Into<Operation>,
 {
     let item = input.value_type();
 
-    let out = scope.create_local(item);
+    let out = scope.create_value(item);
 
     let op = func(UnaryOperands { input });
 
@@ -151,15 +138,15 @@ where
 
 pub fn unary_expand_fixed_output<F, Op>(
     scope: &Scope,
-    input: Variable,
+    input: Value,
     out_item: Type,
     func: F,
-) -> Variable
+) -> Value
 where
     F: Fn(UnaryOperands) -> Op,
     Op: Into<Operation>,
 {
-    let output = scope.create_local(out_item);
+    let output = scope.create_value(out_item);
 
     let op = func(UnaryOperands { input });
 
@@ -168,20 +155,17 @@ where
     output
 }
 
-pub fn init_expand<F>(scope: &Scope, input: Variable, mutable: bool, func: F) -> Variable
-where
-    F: Fn(Variable) -> Operation,
-{
-    let item = input.ty;
+pub fn init_expand(scope: &Scope, input: Value, mutable: bool) -> Value {
+    let input = read_value(scope, input);
+    let ty = input.ty;
 
     let out = if mutable {
-        scope.create_local_mut(item)
+        scope.create_local_mut(ty)
     } else {
-        scope.create_local(item)
+        scope.create_value(ty)
     };
 
-    let op = func(input);
-    scope.register(Instruction::new(op, out));
+    assign::expand_element(scope, input, out);
 
     out
 }
@@ -205,19 +189,20 @@ pub fn assign_binary_op_expand<
     rhs: NativeExpand<V>,
     func: F,
 ) where
-    NativeExpand<A>: DerefExpand<Target = NativeExpand<A>>,
+    NativeExpand<A>: DerefExpand<Target = NativeExpand<A>> + Assign,
 {
     let lhs_value = lhs.__expand_deref_method(scope).expand;
-    let lhs: Variable = lhs.expand;
-    let rhs: Variable = rhs.into();
+    let rhs: Value = rhs.into();
+    let out = scope.create_value(lhs.expand.ty);
 
     scope.register(Instruction::new(
         func(BinaryOperands {
             lhs: lhs_value,
             rhs,
         }),
-        lhs,
+        out,
     ));
+    lhs.__expand_assign_method(scope, out.into());
 }
 
 pub trait DivCeil: Int + CubeType<ExpandType: DivCeilExpand<Self>> {

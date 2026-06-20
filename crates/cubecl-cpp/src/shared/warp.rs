@@ -1,85 +1,85 @@
 use std::fmt::Display;
 
-use crate::shared::{Component, FmtLeft};
+use crate::shared::{Builtin, Component, FmtLeft};
 
-use super::{Dialect, IndexedVariable, Item, Variable};
+use super::{Dialect, IndexedValue, Item, Value};
 
 #[derive(Clone, Debug)]
 pub enum WarpInstruction<D: Dialect> {
     ReduceSum {
-        input: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        out: Value<D>,
     },
     InclusiveSum {
-        input: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        out: Value<D>,
     },
     ExclusiveSum {
-        input: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        out: Value<D>,
     },
     ReduceProd {
-        input: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        out: Value<D>,
     },
     InclusiveProd {
-        input: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        out: Value<D>,
     },
     ExclusiveProd {
-        input: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        out: Value<D>,
     },
     ReduceMax {
-        input: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        out: Value<D>,
     },
     ReduceMin {
-        input: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        out: Value<D>,
     },
     ElectFallback {
-        out: Variable<D>,
+        out: Value<D>,
     },
     Elect {
-        out: Variable<D>,
+        out: Value<D>,
     },
     All {
-        input: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        out: Value<D>,
     },
     Any {
-        input: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        out: Value<D>,
     },
     Ballot {
-        input: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        out: Value<D>,
     },
     Broadcast {
-        input: Variable<D>,
-        id: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        id: Value<D>,
+        out: Value<D>,
     },
     Shuffle {
-        input: Variable<D>,
-        src_lane: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        src_lane: Value<D>,
+        out: Value<D>,
     },
     ShuffleXor {
-        input: Variable<D>,
-        mask: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        mask: Value<D>,
+        out: Value<D>,
     },
     ShuffleUp {
-        input: Variable<D>,
-        delta: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        delta: Value<D>,
+        out: Value<D>,
     },
     ShuffleDown {
-        input: Variable<D>,
-        delta: Variable<D>,
-        out: Variable<D>,
+        input: Value<D>,
+        delta: Value<D>,
+        out: Value<D>,
     },
 }
 
@@ -203,8 +203,8 @@ unsigned int leader = __ffs(mask) - 1;
 
 pub(crate) fn reduce_operator<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
-    input: &Variable<D>,
-    out: &Variable<D>,
+    input: &Value<D>,
+    out: &Value<D>,
     op: &str,
 ) -> core::fmt::Result {
     let in_optimized = input.optimized();
@@ -223,8 +223,8 @@ pub(crate) fn reduce_comparison<
     I: Fn(&mut core::fmt::Formatter<'_>, Item<D>) -> std::fmt::Result,
 >(
     f: &mut core::fmt::Formatter<'_>,
-    input: &Variable<D>,
-    out: &Variable<D>,
+    input: &Value<D>,
+    out: &Value<D>,
     instruction: I,
 ) -> core::fmt::Result {
     let in_optimized = input.optimized();
@@ -242,8 +242,8 @@ pub(crate) fn reduce_comparison<
 
 pub(crate) fn reduce_inclusive<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
-    input: &Variable<D>,
-    out: &Variable<D>,
+    input: &Value<D>,
+    out: &Value<D>,
     op: &str,
 ) -> core::fmt::Result {
     let in_optimized = input.optimized();
@@ -251,9 +251,9 @@ pub(crate) fn reduce_inclusive<D: Dialect>(
 
     reduce_with_loop(f, input, out, acc_item, |f, acc, index| {
         let acc_indexed = maybe_index(acc, index);
-        let tmp = Variable::tmp(Item::Scalar(*acc_item.elem()));
+        let tmp = Value::tmp(Item::Scalar(*acc_item.elem()));
         let tmp_left = tmp.fmt_left();
-        let lane_id = Variable::<D>::UnitPosPlane;
+        let lane_id = Builtin::<D>::UnitPosPlane;
         write!(
             f,
             "
@@ -273,17 +273,17 @@ if({lane_id} >= offset) {{
 
 pub(crate) fn reduce_exclusive<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
-    input: &Variable<D>,
-    out: &Variable<D>,
+    input: &Value<D>,
+    out: &Value<D>,
     op: &str,
     default: &str,
 ) -> core::fmt::Result {
     let in_optimized = input.optimized();
     let acc_item = in_optimized.item();
 
-    let inclusive = Variable::tmp(acc_item);
+    let inclusive = Value::tmp(acc_item);
     reduce_inclusive(f, input, &inclusive, op)?;
-    let shfl = Variable::tmp(acc_item);
+    let shfl = Value::tmp(acc_item);
     writeln!(f, "{} = {{", shfl.fmt_left())?;
     for k in 0..acc_item.vectorization() {
         let inclusive_indexed = maybe_index(&inclusive, k);
@@ -292,7 +292,7 @@ pub(crate) fn reduce_exclusive<D: Dialect>(
         D::compile_warp_shuffle_up(f, &inclusive_indexed.to_string(), "1")?;
     }
     writeln!(f, "}};")?;
-    let lane_id = Variable::<D>::UnitPosPlane;
+    let lane_id = Builtin::<D>::UnitPosPlane;
 
     write!(
         f,
@@ -308,9 +308,9 @@ pub(crate) fn reduce_exclusive<D: Dialect>(
 
 pub(crate) fn reduce_broadcast<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
-    input: &Variable<D>,
-    out: &Variable<D>,
-    id: &Variable<D>,
+    input: &Value<D>,
+    out: &Value<D>,
+    id: &Value<D>,
 ) -> core::fmt::Result {
     let out_fmt = out.fmt_left();
     write!(f, "{out_fmt} = {{ ")?;
@@ -324,18 +324,15 @@ pub(crate) fn reduce_broadcast<D: Dialect>(
 
 fn reduce_with_loop<
     D: Dialect,
-    I: Fn(&mut core::fmt::Formatter<'_>, &Variable<D>, usize) -> std::fmt::Result,
+    I: Fn(&mut core::fmt::Formatter<'_>, &Value<D>, usize) -> std::fmt::Result,
 >(
     f: &mut core::fmt::Formatter<'_>,
-    input: &Variable<D>,
-    out: &Variable<D>,
+    input: &Value<D>,
+    out: &Value<D>,
     acc_item: Item<D>,
     instruction: I,
 ) -> core::fmt::Result {
-    let acc = Variable::Named {
-        name: "acc",
-        item: acc_item,
-    };
+    let acc = Value::tmp(acc_item);
     let vectorization = acc_item.vectorization();
 
     writeln!(f, "auto plane_{out} = [&]() -> {} {{", out.item())?;
@@ -354,11 +351,11 @@ fn reduce_with_loop<
 
 pub(crate) fn reduce_quantifier<
     D: Dialect,
-    Q: Fn(&mut core::fmt::Formatter<'_>, &IndexedVariable<D>) -> std::fmt::Result,
+    Q: Fn(&mut core::fmt::Formatter<'_>, &IndexedValue<D>) -> std::fmt::Result,
 >(
     f: &mut core::fmt::Formatter<'_>,
-    input: &Variable<D>,
-    out: &Variable<D>,
+    input: &Value<D>,
+    out: &Value<D>,
     quantifier: Q,
 ) -> core::fmt::Result {
     let out_fmt = out.fmt_left();
@@ -371,9 +368,9 @@ pub(crate) fn reduce_quantifier<
     writeln!(f, "}};")
 }
 
-fn cast<D: Dialect>(input: &Variable<D>, target: Item<D>) -> String {
+fn cast<D: Dialect>(input: &Value<D>, target: Item<D>) -> String {
     if target != input.item() {
-        let addr_space = D::address_space_for_variable(input);
+        let addr_space = D::address_space_for_value(input);
         let qualifier = input.const_qualifier();
         format!("reinterpret_cast<{addr_space}{target}{qualifier}&>({input})")
     } else {
@@ -381,10 +378,10 @@ fn cast<D: Dialect>(input: &Variable<D>, target: Item<D>) -> String {
     }
 }
 
-fn maybe_index<D: Dialect>(var: &Variable<D>, k: usize) -> String {
-    if var.item().vectorization() > 1 {
-        format!("{var}.i_{k}")
+fn maybe_index<D: Dialect>(val: &Value<D>, k: usize) -> String {
+    if val.item().vectorization() > 1 {
+        format!("{val}.i_{k}")
     } else {
-        format!("{var}")
+        format!("{val}")
     }
 }

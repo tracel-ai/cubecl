@@ -32,6 +32,7 @@ pub type Coords4i = (i32, i32, i32, i32);
 pub type Coords5d = (u32, u32, u32, u32, u32);
 pub type Coords5i = (i32, i32, i32, i32, i32);
 pub type CoordsDyn = Sequence<u32>;
+pub type CoordsDynI = Sequence<i32>;
 
 macro_rules! impl_coordinates_tuple {
     ($(($T:ident, $t:ident, $o: ident)),*) => {

@@ -1,8 +1,6 @@
 use alloc::{format, vec::Vec};
 
-use cubecl_ir::{
-    GlobalState, Instruction, Memory, NonSemantic, Operation, Scope, Variable, VariableKind,
-};
+use cubecl_ir::{GlobalState, Instruction, NonSemantic, Operation, Scope, Value, ValueKind};
 use hashbrown::HashMap;
 
 use crate::post_processing::{
@@ -11,8 +9,8 @@ use crate::post_processing::{
     visitor::{InstructionVisitor, Visitor},
 };
 
-type Substitutes = HashMap<VariableKind, Vec<Variable>>;
-type Extracted = HashMap<VariableKind, Variable>;
+type Substitutes = HashMap<ValueKind, Vec<Value>>;
+type Extracted = HashMap<ValueKind, Value>;
 
 /// Disaggregates compiler-internal aggregates like bounds checked pointers and slice pointers into
 /// individual variables.
@@ -36,23 +34,21 @@ impl InstructionVisitor for DisaggregateVisitor {
     fn visit_instruction(
         &mut self,
         mut instruction: Instruction,
-        global_state: &GlobalState,
+        _global_state: &GlobalState,
         analyses: &GlobalAnalyses,
         _changes: &AtomicCounter,
     ) -> Vec<Instruction> {
         let mut visitor = Visitor(());
-        let state = global_state.borrow();
-        let allocator = &state.allocator;
 
         // This needs to run even for aggregates so extract -> construct will be properly replaced
-        visitor.visit_operation(&mut instruction.operation, analyses, |_, var| {
-            if let Some(replacement) = self.extracted.get(&var.kind).copied() {
-                *var = replacement;
+        visitor.visit_operation(&mut instruction.operation, analyses, |_, val| {
+            if let Some(replacement) = self.extracted.get(&val.kind).copied() {
+                *val = replacement;
             }
         });
-        visitor.visit_out(&mut instruction.out, |_, var| {
-            if let Some(replacement) = self.extracted.get(&var.kind) {
-                *var = *replacement;
+        visitor.visit_out(&mut instruction.out, |_, val| {
+            if let Some(replacement) = self.extracted.get(&val.kind) {
+                *val = *replacement;
             }
         });
 
@@ -60,19 +56,7 @@ impl InstructionVisitor for DisaggregateVisitor {
 
         match &mut instruction.operation {
             Operation::ConstructAggregate(fields) => {
-                let mut fields = fields.clone();
-                // Make an immutable copy if the value is mutable
-                for field in fields.iter_mut().filter(|it| it.can_mutate()) {
-                    if field.is_value() {
-                        let new_field = allocator.create_local(field.ty);
-                        new_instructions.push(Instruction::new(Operation::Copy(*field), new_field));
-                        *field = new_field;
-                    } else if !field.is_array() {
-                        let new_field = allocator.create_local(field.ty);
-                        new_instructions.push(Instruction::new(Memory::Load(*field), new_field));
-                        *field = new_field;
-                    }
-                }
+                let fields = fields.clone();
                 self.substitutes.insert(instruction.out().kind, fields);
             }
             Operation::ExtractAggregateField(operands) => {

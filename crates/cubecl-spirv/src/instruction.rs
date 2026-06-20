@@ -1,6 +1,6 @@
 use cubecl_core::ir::{
-    self as core, BinaryOperands, Comparison, Instruction, InstructionModes, Memory, Operation,
-    Operator, UnaryOperands,
+    self as core, AddressSpace, BinaryOperands, Comparison, Instruction, InstructionModes, Memory,
+    Operation, Operator, UnaryOperands,
 };
 use rspirv::spirv::{Decoration, MemoryAccess, Word};
 
@@ -17,11 +17,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
         let uniform = inst
             .out
-            .is_some_and(|out| self.uniformity.is_var_uniform(out));
+            .is_some_and(|out| self.uniformity.is_val_uniform(out));
         match inst.operation {
-            Operation::Copy(var) => {
-                let input = self.compile_variable(var);
-                let out = self.compile_variable(inst.out());
+            Operation::Copy(val) => {
+                let input = self.compile_value(val);
+                let out = self.compile_value(inst.out());
                 let ty = out.item().id(self);
                 let in_id = self.read(&input);
                 let in_id = input.item().broadcast(self, in_id, None, &out.item());
@@ -30,6 +30,27 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.copy_object(ty, Some(out_id), in_id).unwrap();
                 self.mark_uniformity(out_id, uniform);
                 self.write(&out, out_id);
+            }
+            Operation::DeclareVariable {
+                addr_space: AddressSpace::Local,
+                ..
+            } => {
+                let out = self.compile_value(inst.out());
+                let ty = out.item().id(self);
+                let id = self.declare_function_variable(ty, None);
+                self.write(&out, id);
+            }
+            Operation::DeclareVariable {
+                addr_space: AddressSpace::Shared,
+                ..
+            } => {
+                // These are already collected by the optimizer and declared as a single block
+                let out = inst.out().id();
+                let id = self.state.lookups.shared[&out].id;
+                self.insert_value(out, id);
+            }
+            Operation::DeclareVariable { addr_space, .. } => {
+                unimplemented!("Unsupported declare address space {addr_space}")
             }
             Operation::Memory(mem) => self.compile_memory(mem, inst.out),
             Operation::Arithmetic(operator) => {
@@ -68,7 +89,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_cmp(
         &mut self,
         op: Comparison,
-        out: Option<core::Variable>,
+        out: Option<core::Value>,
         modes: InstructionModes,
         uniform: bool,
     ) {
@@ -201,40 +222,33 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn compile_memory(&mut self, mem: Memory, out: Option<core::Variable>) {
+    pub fn compile_memory(&mut self, mem: Memory, out: Option<core::Value>) {
         match mem {
             Memory::Index(op) => {
-                let list = self.compile_variable(op.list);
-                let index = self.compile_variable(op.index);
-                let out = self.compile_variable(out.unwrap());
+                let list = self.compile_value(op.list);
+                let index = self.compile_value(op.index);
+                let out = self.compile_value(out.unwrap());
 
                 let ptr = self.index(&list, &index, &out);
 
                 self.write(&out, ptr);
             }
-            // In SPIR-V, variables are already pointers. So for reference we just treat the out
-            // var as an alias for the input.
-            Memory::Reference(variable) => {
-                let var = self.compile_variable(variable).id(self);
-                let out_id = out.unwrap().index().unwrap();
-                self.state.lookups.bindings.insert(out_id, var);
-            }
-            Memory::Load(variable) => {
-                let ptr = self.compile_variable(variable);
-                let out = self.compile_variable(out.unwrap());
+            Memory::Load(value) => {
+                let ptr = self.compile_value(value);
+                let out = self.compile_value(out.unwrap());
 
                 let id = self.load_aligned(&ptr, &out);
                 self.write(&out, id);
             }
             Memory::Store(op) => {
-                let ptr = self.compile_variable(op.ptr);
-                let value = self.compile_variable(op.value);
+                let ptr = self.compile_value(op.ptr);
+                let value = self.compile_value(op.value);
 
                 self.store_aligned(&ptr, &value);
             }
             Memory::CopyMemory(op) => {
-                let source = self.compile_variable(op.source);
-                let target = self.compile_variable(op.target);
+                let source = self.compile_value(op.source);
+                let target = self.compile_value(op.target);
 
                 let out_ty = target.item();
                 let align = source.item().size().max(target.item().size());
@@ -271,12 +285,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         }
     }
 
-    pub fn compile_operator(&mut self, op: Operator, out: Option<core::Variable>, uniform: bool) {
+    pub fn compile_operator(&mut self, op: Operator, out: Option<core::Value>, uniform: bool) {
         let out = out.unwrap();
         match op {
             Operator::Cast(op) => {
-                let input = self.compile_variable(op.input);
-                let out = self.compile_variable(out);
+                let input = self.compile_value(op.input);
+                let out = self.compile_value(out);
                 let ty = out.item().id(self);
                 let in_id = self.read(&input);
                 let out_id = self.write_id(&out);
@@ -315,13 +329,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let values = op
                     .inputs
                     .into_iter()
-                    .map(|input| self.compile_variable(input))
+                    .map(|input| self.compile_value(input))
                     .collect::<Vec<_>>()
                     .into_iter()
                     .map(|it| self.read(&it))
                     .collect::<Vec<_>>();
                 let item = self.compile_type(out.ty);
-                let out = self.compile_variable(out);
+                let out = self.compile_value(out);
                 let out_id = self.write_id(&out);
                 self.mark_uniformity(out_id, uniform);
                 let ty = item.id(self);
@@ -329,9 +343,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&out, out_id);
             }
             Operator::InsertComponent(op) => {
-                let vector = self.compile_variable(op.vector);
-                let value = self.compile_variable(op.value);
-                let output = self.compile_variable(out);
+                let vector = self.compile_value(op.vector);
+                let value = self.compile_value(op.value);
+                let output = self.compile_value(out);
 
                 let vector = self.read(&vector);
                 let value = self.read(&value);
@@ -343,7 +357,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.composite_insert(out_ty, Some(write_id), value, vector, [index])
                         .unwrap();
                 } else {
-                    let index = self.compile_variable(op.index);
+                    let index = self.compile_value(op.index);
                     let index = self.read(&index);
 
                     self.vector_insert_dynamic(out_ty, Some(write_id), vector, value, index)
@@ -353,8 +367,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&output, write_id);
             }
             Operator::ExtractComponent(op) => {
-                let vector = self.compile_variable(op.lhs);
-                let output = self.compile_variable(out);
+                let vector = self.compile_value(op.lhs);
+                let output = self.compile_value(out);
 
                 let vector = self.read(&vector);
                 let out_ty = output.item().id(self);
@@ -365,7 +379,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.composite_extract(out_ty, Some(write_id), vector, [index])
                         .unwrap();
                 } else {
-                    let index = self.compile_variable(op.rhs);
+                    let index = self.compile_value(op.rhs);
                     let index = self.read(&index);
 
                     self.vector_extract_dynamic(out_ty, Some(write_id), vector, index)
@@ -375,18 +389,28 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.write(&output, write_id);
             }
             Operator::Select(op) => self.compile_select(op.cond, op.then, op.or_else, out, uniform),
+            Operator::ReadBuiltin(builtin) => {
+                let out = self.compile_value(out);
+                let value = self.compile_builtin(builtin, &out.item());
+                self.write(&out, value);
+            }
+            Operator::ReadScalar(id) => {
+                let value = self.global_scalar(id, out.storage_type());
+                let out = self.compile_value(out);
+                self.write(&out, value);
+            }
         }
     }
 
     pub fn compile_unary_op_cast(
         &mut self,
         op: UnaryOperands,
-        out: core::Variable,
+        out: core::Value,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
     ) {
-        let input = self.compile_variable(op.input);
-        let out = self.compile_variable(out);
+        let input = self.compile_value(op.input);
+        let out = self.compile_value(out);
         let out_ty = out.item();
 
         let input_id = self.read_as(&input, &out_ty);
@@ -402,12 +426,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_unary_op(
         &mut self,
         op: UnaryOperands,
-        out: core::Variable,
+        out: core::Value,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
     ) {
-        let input = self.compile_variable(op.input);
-        let out = self.compile_variable(out);
+        let input = self.compile_value(op.input);
+        let out = self.compile_value(out);
         let out_ty = out.item();
 
         let input_id = self.read(&input);
@@ -423,12 +447,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_unary_op_bool(
         &mut self,
         op: UnaryOperands,
-        out: core::Variable,
+        out: core::Value,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word),
     ) {
-        let input = self.compile_variable(op.input);
-        let out = self.compile_variable(out);
+        let input = self.compile_value(op.input);
+        let out = self.compile_value(out);
         let in_ty = input.item();
 
         let input_id = self.read(&input);
@@ -444,13 +468,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_binary_op(
         &mut self,
         op: BinaryOperands,
-        out: core::Variable,
+        out: core::Value,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
     ) {
-        let lhs = self.compile_variable(op.lhs);
-        let rhs = self.compile_variable(op.rhs);
-        let out = self.compile_variable(out);
+        let lhs = self.compile_value(op.lhs);
+        let rhs = self.compile_value(op.rhs);
+        let out = self.compile_value(out);
         let out_ty = out.item();
 
         let lhs_id = self.read_as(&lhs, &out_ty);
@@ -467,13 +491,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_binary_op_no_cast(
         &mut self,
         op: BinaryOperands,
-        out: core::Variable,
+        out: core::Value,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
     ) {
-        let lhs = self.compile_variable(op.lhs);
-        let rhs = self.compile_variable(op.rhs);
-        let out = self.compile_variable(out);
+        let lhs = self.compile_value(op.lhs);
+        let rhs = self.compile_value(op.rhs);
+        let out = self.compile_value(out);
         let out_ty = out.item();
 
         let lhs_id = self.read(&lhs);
@@ -490,13 +514,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_binary_op_bool(
         &mut self,
         op: BinaryOperands,
-        out: core::Variable,
+        out: core::Value,
         uniform: bool,
         exec: impl FnOnce(&mut Self, Item, Word, Word, Word, Word),
     ) {
-        let lhs = self.compile_variable(op.lhs);
-        let rhs = self.compile_variable(op.rhs);
-        let out = self.compile_variable(out);
+        let lhs = self.compile_value(op.lhs);
+        let rhs = self.compile_value(op.rhs);
+        let out = self.compile_value(out);
 
         let in_ty = out.item().same_vectorization(lhs.elem());
 
@@ -513,16 +537,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
     pub fn compile_select(
         &mut self,
-        cond: core::Variable,
-        then: core::Variable,
-        or_else: core::Variable,
-        out: core::Variable,
+        cond: core::Value,
+        then: core::Value,
+        or_else: core::Value,
+        out: core::Value,
         uniform: bool,
     ) {
-        let cond = self.compile_variable(cond);
-        let then = self.compile_variable(then);
-        let or_else = self.compile_variable(or_else);
-        let out = self.compile_variable(out);
+        let cond = self.compile_value(cond);
+        let then = self.compile_value(then);
+        let or_else = self.compile_value(or_else);
+        let out = self.compile_value(out);
 
         let out_ty = out.item();
         let ty = out_ty.id(self);

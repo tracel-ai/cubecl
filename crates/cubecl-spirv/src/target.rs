@@ -64,7 +64,7 @@ impl SpirvTarget for GLCompute {
         let interface: Vec<u32> = builtins
             .into_iter()
             .chain(iter::once(b.state.params))
-            .chain(b.state.shared.values().map(|it| it.id))
+            .chain(b.state.shared.values().map(|it| it.val_id))
             .collect();
 
         let version = b.compilation_options.vulkan.max_spirv_version;
@@ -199,7 +199,14 @@ impl SpirvTarget for GLCompute {
 
         let buffers = bindings
             .iter()
-            .map(|binding| self.generate_storage_buffer(b, binding))
+            .map(|binding| {
+                let buffer = self.generate_storage_buffer(b, binding);
+                b.state
+                    .base_lookups
+                    .values
+                    .insert(binding.value.id(), buffer.id);
+                buffer
+            })
             .collect::<Vec<_>>();
         let info = b.info.has_info().then(|| self.generate_info_binding(b));
 
@@ -261,6 +268,7 @@ impl SpirvTarget for GLCompute {
     fn load_params(b: &mut SpirvCompiler<Self>) {
         let params = b.state.params;
         let params_class = Self::params_storage_class(b, b.state.buffers.len());
+        let zero = b.const_u32(0);
 
         for (i, buffer) in b.state.buffers.clone().into_iter().enumerate() {
             // uniform/push constant pointer to physical storage buffer pointer
@@ -270,10 +278,13 @@ impl SpirvTarget for GLCompute {
                 .in_bounds_access_chain(field_ptr_ty, None, params, [field_idx])
                 .unwrap();
             b.insert_in_setup(|b| {
-                b.load(buffer.struct_ptr_ty_id, Some(buffer.id), ptr, None, [])
+                let st_ptr = b
+                    .load(buffer.struct_ptr_ty_id, None, ptr, None, [])
+                    .unwrap();
+                b.in_bounds_access_chain(buffer.arr_ptr_ty_id, Some(buffer.id), st_ptr, [zero])
                     .unwrap()
             });
-            b.name(buffer.id, "buffers");
+            b.name(buffer.id, format!("global_{i}"));
         }
 
         if let Some(info) = b.state.info {
@@ -320,8 +331,7 @@ impl GLCompute {
         b: &mut SpirvCompiler<Self>,
         binding: &KernelArg,
     ) -> Buffer {
-        let item = b.compile_type(binding.ty);
-        let item_id = item.id(b);
+        let item = b.compile_type(binding.value.ty.unwrap_ptr());
         match item.elem().size() {
             1 => {
                 b.capabilities.insert(Capability::StorageBuffer8BitAccess);
@@ -332,25 +342,27 @@ impl GLCompute {
             _ => {}
         }
 
-        let ty_size = item.size();
+        let value_size = item.value_type().size();
 
-        let arr_ty_id = b.id();
+        let arr_ty_id = item.id(b);
         let struct_ty_id = b.id();
         let storage_class = StorageClass::PhysicalStorageBuffer;
 
-        b.type_runtime_array_id(Some(arr_ty_id), item_id);
-        b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
+        b.decorate(arr_ty_id, Decoration::ArrayStride, [value_size.into()]);
 
         b.type_struct_id(Some(struct_ty_id), [arr_ty_id]);
         b.decorate(struct_ty_id, Decoration::Block, []);
         b.member_decorate(struct_ty_id, 0, Decoration::Offset, [0u32.into()]);
 
+        let arr_ptr_ty_id = b.type_pointer(None, storage_class, arr_ty_id);
         let struct_ptr_ty_id = b.type_pointer(None, storage_class, struct_ty_id);
 
         Buffer {
             id: b.id(),
             struct_ty_id,
             struct_ptr_ty_id,
+            arr_ty_id,
+            arr_ptr_ty_id,
             storage_class,
         }
     }
@@ -452,6 +464,8 @@ impl GLCompute {
             id: b.id(),
             struct_ty_id,
             struct_ptr_ty_id,
+            arr_ty_id: 0,
+            arr_ptr_ty_id: 0,
             storage_class,
         }
     }

@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use core::ops::{Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
 
-use cubecl_ir::{Branch, RangeLoop, Variable};
+use cubecl_ir::{Branch, RangeLoop, Value};
 use num_traits::NumCast;
 
 use crate as cubecl;
@@ -331,13 +331,13 @@ fn iter_expand_unroll<I: Int>(
 
     if inclusive {
         for i in start..=end {
-            let var = I::from_int(i);
-            body(scope, var.into())
+            let val = I::from_int(i);
+            body(scope, val.into())
         }
     } else {
         for i in start..end {
-            let var = I::from_int(i);
-            body(scope, var.into())
+            let val = I::from_int(i);
+            body(scope, val.into())
         }
     }
 }
@@ -351,16 +351,12 @@ fn iter_expand<I: Int>(
 ) {
     let mut child = scope.child();
     let index_ty = I::__expand_as_type(scope);
-    let i = child.create_local_restricted(index_ty);
+    let i = scope.create_local_mut(index_ty);
 
     body(&mut child, i.into());
 
-    let mut start = start.expand;
-    let mut end = end.expand;
-
-    // Normalize usize constants. Gotta fix this properly at some point.
-    start.ty = I::__expand_as_type(scope);
-    end.ty = I::__expand_as_type(scope);
+    let start = I::__expand_cast_from(scope, start).expand;
+    let end = I::__expand_cast_from(scope, end).expand;
 
     scope.register(Branch::RangeLoop(Box::new(RangeLoop {
         i,
@@ -379,13 +375,13 @@ pub struct SteppedRangeExpand<I: Int> {
     inclusive: bool,
 }
 
-impl<I: Int + Into<Variable>> Iterable for SteppedRangeExpand<I> {
+impl<I: Int + Into<Value>> Iterable for SteppedRangeExpand<I> {
     type Item = NativeExpand<I>;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, <I as CubeType>::ExpandType)) {
         let child = scope.child();
         let index_ty = I::__expand_as_type(scope);
-        let i = child.create_local_restricted(index_ty);
+        let i = scope.create_local_mut(index_ty);
 
         body(&child, i.into());
 
@@ -426,26 +422,26 @@ impl<I: Int + Into<Variable>> Iterable for SteppedRangeExpand<I> {
         match (self.inclusive, step.is_negative()) {
             (true, true) => {
                 for i in (end..=start).rev().step_by(step.unsigned_abs() as usize) {
-                    let var = I::from_int_128(i);
-                    body(scope, var.into())
+                    let val = I::from_int_128(i);
+                    body(scope, val.into())
                 }
             }
             (true, false) => {
                 for i in (start..=end).step_by(step.unsigned_abs() as usize) {
-                    let var = I::from_int_128(i);
-                    body(scope, var.into())
+                    let val = I::from_int_128(i);
+                    body(scope, val.into())
                 }
             }
             (false, true) => {
                 for i in (end..start).rev().step_by(step.unsigned_abs() as usize) {
-                    let var = I::from_int_128(i);
-                    body(scope, var.into())
+                    let val = I::from_int_128(i);
+                    body(scope, val.into())
                 }
             }
             (false, false) => {
                 for i in (start..end).step_by(step.unsigned_abs() as usize) {
-                    let var = I::from_int_128(i);
-                    body(scope, var.into())
+                    let val = I::from_int_128(i);
+                    body(scope, val.into())
                 }
             }
         }

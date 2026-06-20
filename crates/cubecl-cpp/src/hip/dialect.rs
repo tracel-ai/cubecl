@@ -17,8 +17,8 @@ use crate::{
 use crate::{
     hip::processors::HipMmaProcessor,
     shared::{
-        Component, DialectInstructions, DialectProcessors, Elem, Instruction, Variable, unary,
-        variable_to_frag,
+        Component, DialectInstructions, DialectProcessors, Elem, Instruction, Value, unary,
+        value_to_frag,
     },
 };
 
@@ -66,8 +66,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
         for extension in extensions {
             match extension {
                 Extension::F162BF16 => format_f162bf16(f)?,
-                Extension::Max(var) => format_max::<Self>(f, var)?,
-                Extension::Min(var) => format_min::<Self>(f, var)?,
+                Extension::Max(val) => format_max::<Self>(f, val)?,
+                Extension::Min(val) => format_min::<Self>(f, val)?,
                 Extension::NoExtension => {}
                 Extension::Wmma(inst) => inst.format_wmma(f)?,
             }
@@ -149,10 +149,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
         if TypeId::of::<M>() == TypeId::of::<WmmaIntrinsicCompiler>() {
             let extension = match instruction {
                 shared::WmmaInstruction::Fill { frag, .. } => {
-                    Extension::Wmma(WmmaExtension::Fill(WmmaFill::new(variable_to_frag(frag))))
+                    Extension::Wmma(WmmaExtension::Fill(WmmaFill::new(value_to_frag(frag))))
                 }
                 shared::WmmaInstruction::Load { frag, layout, .. } => Extension::Wmma(
-                    WmmaExtension::Load(WmmaLoad::new(variable_to_frag(frag), *layout)),
+                    WmmaExtension::Load(WmmaLoad::new(value_to_frag(frag), *layout)),
                 ),
                 shared::WmmaInstruction::LdMatrix { .. }
                 | shared::WmmaInstruction::StMatrix { .. } => {
@@ -165,10 +165,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                     frag_d,
                     warp_size: _,
                 } => Extension::Wmma(WmmaExtension::Execute(WmmaExecute::new(
-                    variable_to_frag(frag_a),
-                    variable_to_frag(frag_b),
-                    variable_to_frag(frag_c),
-                    variable_to_frag(frag_d),
+                    value_to_frag(frag_a),
+                    value_to_frag(frag_b),
+                    value_to_frag(frag_c),
+                    value_to_frag(frag_d),
                 ))),
                 shared::WmmaInstruction::ExecuteManual {
                     shape,
@@ -184,14 +184,11 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                     panic!("Invalid extension: ExecuteScaled not supported for HIP");
                 }
                 shared::WmmaInstruction::Store { frag, layout, .. } => Extension::Wmma(
-                    WmmaExtension::Store(WmmaStore::new(variable_to_frag(frag), *layout)),
+                    WmmaExtension::Store(WmmaStore::new(value_to_frag(frag), *layout)),
                 ),
-                shared::WmmaInstruction::Cast { input, output } => {
-                    Extension::Wmma(WmmaExtension::Cast(WmmaCast::new(
-                        variable_to_frag(input),
-                        variable_to_frag(output),
-                    )))
-                }
+                shared::WmmaInstruction::Cast { input, output } => Extension::Wmma(
+                    WmmaExtension::Cast(WmmaCast::new(value_to_frag(input), value_to_frag(output))),
+                ),
             };
 
             if !extensions.contains(&extension) {
@@ -232,8 +229,24 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
         info: &cubecl_core::Info,
         flags: &Flags<Self>,
     ) -> std::fmt::Result {
+        let mut items_deduplicated = HashSet::new();
+
+        for item in items {
+            let mut item = *item.value_ty();
+            match item {
+                Item::NativeVector(..) => {
+                    continue;
+                }
+                Item::Atomic(inner) => {
+                    item = *inner;
+                }
+                _ => {}
+            }
+            items_deduplicated.insert(item);
+        }
+
         shared::type_definitions::<Self>(f)?;
-        shared::type_vectorized_definitions::<Self>(f, items)?;
+        shared::type_vectorized_definitions::<Self>(f, &items_deduplicated)?;
 
         shared::type_info_definition_sized(f, info, scalars, flags.address_type)?;
 
@@ -290,7 +303,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
                 shared::Elem::U32 => f.write_str("uint32"),
                 shared::Elem::U64 => f.write_str("uint64"),
                 shared::Elem::Bool => f.write_str("bool"),
-                shared::Elem::Barrier(_) => panic!("Barrier object not supported in HIP"),
+                shared::Elem::None => f.write_str("<none>"),
                 shared::Elem::_Dialect(_) => Ok(()),
             }
         }
@@ -311,7 +324,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
                 if let PointerClass::Global(Visibility::Read | Visibility::Uniform) = class {
                     f.write_str("const ")?;
                 }
-                write!(f, "{inner}*")
+                match inner.as_ref() {
+                    Item::DynamicArray(inner) => write!(f, "{inner}*"),
+                    other => write!(f, "{other}*"),
+                }
             }
             Item::Array(inner, size) => {
                 write!(f, "array<{inner}, {size}>")
@@ -319,6 +335,11 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
             Item::DynamicArray(inner) => {
                 write!(f, "{inner}*")
             }
+            Item::Fragment(fragment_type) => write!(f, "{fragment_type}"),
+            Item::Barrier(_) | Item::BarrierToken(_) => {
+                panic!("Barrier object not supported in HIP")
+            }
+            Item::TensorMap => panic!("TensorMap not supported on HIP"),
         }
     }
 
@@ -512,38 +533,38 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     // Warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         source: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl({var}, {source})")
+        write!(f, "__shfl({val}, {source})")
     }
     fn compile_warp_shuffle_xor(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
         match elem {
             Elem::BF16 => write!(
                 f,
-                "half_to_bfloat16(__shfl_xor(reinterpret_cast<__half&>({var}), {offset}))"
+                "half_to_bfloat16(__shfl_xor(reinterpret_cast<__half&>({val}), {offset}))"
             ),
-            _ => write!(f, "__shfl_xor({var}, {offset})"),
+            _ => write!(f, "__shfl_xor({val}, {offset})"),
         }
     }
     fn compile_warp_shuffle_up(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_up({var}, {offset})")
+        write!(f, "__shfl_up({val}, {offset})")
     }
     fn compile_warp_shuffle_down(
         f: &mut std::fmt::Formatter<'_>,
-        var: &str,
+        val: &str,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_down({var}, {offset})")
+        write!(f, "__shfl_down({val}, {offset})")
     }
     fn compile_warp_all<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,
@@ -563,7 +584,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     }
     fn compile_warp_ballot(
         f: &mut std::fmt::Formatter<'_>,
-        input: &Variable<Self>,
+        input: &Value<Self>,
         out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
         write!(f, "{out_elem}(__ballot({input}))")
@@ -597,9 +618,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
 
     fn compile_wmma_fragment_declaration(
         f: &mut std::fmt::Formatter<'_>,
-        var: &Variable<Self>,
+        val: &Value<Self>,
+        ty: &Item<Self>,
     ) -> std::fmt::Result {
-        M::compile_wmma_fragment_declaration(f, var)
+        M::compile_wmma_fragment_declaration(f, val, ty)
     }
 
     fn compile_wwma_fragment_ident(
@@ -618,7 +640,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
 
     fn compile_wmma_fragment(
         f: &mut std::fmt::Formatter<'_>,
-        fragment: &crate::shared::Fragment<Self>,
+        fragment: &crate::shared::FragmentType<Self>,
     ) -> std::fmt::Result {
         M::compile_wmma_fragment(f, fragment)
     }
@@ -650,8 +672,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
     fn compile_scaled_mma(
         _f: &mut std::fmt::Formatter<'_>,
         _mma: ManualMma<Self>,
-        _scales_a: Variable<Self>,
-        _scales_b: Variable<Self>,
+        _scales_a: Value<Self>,
+        _scales_b: Value<Self>,
         _scales_factor: u32,
     ) -> std::fmt::Result {
         panic!("Scaled MMA not supporter in HIP")

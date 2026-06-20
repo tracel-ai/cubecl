@@ -1,33 +1,35 @@
 use core::{fmt::Display, hash::Hash};
 
-use crate::{AddressSpace, BarrierLevel, FloatKind, IntKind, StorageType, TypeHash};
+use crate::{AddressSpace, FloatKind, IntKind, StorageType, TypeHash};
 
-use super::{ElemType, Matrix, Type, UIntKind};
+use super::{ElemType, Type, UIntKind};
 use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
-use derive_more::{Display, From};
+use derive_more::From;
 use float_ord::FloatOrd;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, TypeHash, Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(missing_docs)]
-pub struct Variable {
-    pub kind: VariableKind,
+pub struct Value {
+    pub kind: ValueKind,
     pub ty: Type,
 }
 
-impl Variable {
-    pub fn new(kind: VariableKind, ty: Type) -> Self {
-        Self { kind, ty }
-    }
-
-    pub fn builtin(builtin: Builtin, ty: StorageType) -> Self {
-        Self::new(VariableKind::Builtin(builtin), Type::new(ty))
+impl Value {
+    pub fn new(id: Id, ty: Type) -> Self {
+        Self {
+            kind: ValueKind::Value { id },
+            ty,
+        }
     }
 
     pub fn constant(value: ConstantValue, ty: impl Into<Type>) -> Self {
         let ty = ty.into();
         let value = value.cast_to(ty);
-        Self::new(VariableKind::Constant(value), ty)
+        Self {
+            kind: ValueKind::Constant(value),
+            ty,
+        }
     }
 
     pub fn elem_type(&self) -> ElemType {
@@ -38,64 +40,15 @@ impl Variable {
         self.ty.storage_type()
     }
 
-    pub fn is_rvalue(&self) -> bool {
-        // Constant variables are just aliases to values in the IR, so are actually rvalues at least
-        // in WGSL, SPIR-V and LLVM.
-        matches!(
-            self.kind,
-            VariableKind::Constant(..)
-                | VariableKind::Builtin(..)
-                | VariableKind::LocalConst { .. }
-                | VariableKind::Versioned { .. }
-        )
-    }
-
-    pub fn has_location(&self) -> bool {
-        !self.is_rvalue()
-    }
-
     pub fn can_mutate(&self) -> bool {
-        match self.kind {
-            VariableKind::GlobalScalar(_)
-            | VariableKind::LocalConst { .. }
-            | VariableKind::Versioned { .. }
-            | VariableKind::Constant(..)
-            | VariableKind::ConstantArray { .. }
-            | VariableKind::Builtin(..)
-            | VariableKind::Pipeline { .. }
-            | VariableKind::BarrierToken { .. }
-            | VariableKind::Aggregate { .. } => false,
-            VariableKind::GlobalBuffer(_)
-            | VariableKind::TensorMap(_)
-            | VariableKind::LocalMut { .. }
-            | VariableKind::Shared { .. }
-            | VariableKind::Matrix { .. } => true,
-        }
+        self.ty.is_ptr()
     }
 
     pub fn address_space(&self) -> AddressSpace {
         match self.ty {
-            Type::Array(_, _, addr_space) => addr_space,
-            Type::DynamicArray(_, addr_space) => addr_space,
             Type::Pointer(_, addr_space) => addr_space,
             _ => match self.kind {
-                VariableKind::GlobalBuffer(id) | VariableKind::TensorMap(id) => {
-                    AddressSpace::Global(id)
-                }
-                VariableKind::Shared { .. } => AddressSpace::Shared,
-                VariableKind::GlobalScalar(_)
-                | VariableKind::LocalMut { .. }
-                | VariableKind::LocalConst { .. }
-                | VariableKind::Versioned { .. }
-                | VariableKind::ConstantArray { .. }
-                | VariableKind::Matrix { .. }
-                | VariableKind::Builtin(..)
-                | VariableKind::Pipeline { .. }
-                | VariableKind::BarrierToken { .. } => AddressSpace::Local,
-                VariableKind::Aggregate { .. } => {
-                    unimplemented!("Can't create reference to compiler internal aggregate")
-                }
-                VariableKind::Constant(..) => unimplemented!("Can't create reference to constant"),
+                ValueKind::Value { .. } | ValueKind::Constant(..) => AddressSpace::Local,
             },
         }
     }
@@ -108,84 +61,15 @@ impl Variable {
 pub type Id = u32;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash)]
-pub enum VariableKind {
-    GlobalBuffer(Id),
-    GlobalScalar(Id),
-    TensorMap(Id),
-    LocalMut {
-        id: Id,
-    },
-    LocalConst {
-        id: Id,
-    },
-    Versioned {
-        id: Id,
-        version: u16,
-    },
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ValueKind {
+    Value { id: Id },
     Constant(ConstantValue),
-    ConstantArray {
-        id: Id,
-        length: usize,
-        unroll_factor: usize,
-    },
-    Shared {
-        id: Id,
-        alignment: Option<usize>,
-    },
-    Matrix {
-        id: Id,
-        mat: Matrix,
-    },
-    Builtin(Builtin),
-    Pipeline {
-        id: Id,
-        num_stages: u8,
-    },
-    BarrierToken {
-        id: Id,
-        level: BarrierLevel,
-    },
-    Aggregate {
-        id: Id,
-        aggregate_kind: AggregateKind,
-    },
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, PartialOrd, Ord, Display)]
-pub enum AggregateKind {
-    #[display("ptr<{_0}>")]
-    Ptr(MetadataKind),
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, PartialOrd, Ord, Display)]
-pub enum MetadataKind {
-    /// Slice metadata (offset and length)
-    #[display("slice")]
-    Slice,
-    /// Bounds check (in bounds)
-    #[display("bounds_checked")]
-    BoundsCheck,
-}
-
-pub struct BoundsCheckMetadata;
-impl BoundsCheckMetadata {
-    pub const POINTER: usize = 0;
-    pub const IS_IN_BOUNDS: usize = 1;
-}
-
-pub struct SliceMetadata;
-impl SliceMetadata {
-    pub const LIST: usize = 0;
-    pub const OFFSET: usize = 1;
-    pub const LENGTH: usize = 2;
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, PartialOrd, Ord)]
-#[repr(u8)]
+#[repr(u32)]
 pub enum Builtin {
     UnitPos,
     UnitPosX,
@@ -220,48 +104,29 @@ pub enum Builtin {
     AbsolutePosZ,
 }
 
-impl Variable {
-    /// Whether a variable is always immutable. Used for optimizations to determine whether it's
+impl Value {
+    /// Whether a value is always immutable. Used for optimizations to determine whether it's
     /// safe to inline/merge
     pub fn is_immutable(&self) -> bool {
-        // Treat pointers as always mutable, Rust enforces the proper checks here already
-        if self.ty.is_ptr() {
-            return false;
-        }
-        match self.kind {
-            VariableKind::GlobalBuffer { .. } => false,
-            VariableKind::TensorMap(_) => false,
-            VariableKind::LocalMut { .. } => false,
-            VariableKind::Shared { .. } => false,
-            VariableKind::Matrix { .. } => false,
-            VariableKind::GlobalScalar { .. } => true,
-            VariableKind::Versioned { .. } => true,
-            VariableKind::LocalConst { .. } => true,
-            VariableKind::Constant(_) => true,
-            VariableKind::ConstantArray { .. } => true,
-            VariableKind::Builtin(_) => true,
-            VariableKind::Pipeline { .. } => false,
-            VariableKind::BarrierToken { .. } => false,
-            VariableKind::Aggregate { .. } => false,
-        }
+        !self.can_mutate()
     }
 
     /// Is this an array type that yields items when indexed,
     /// or a scalar/vector that yields elems/slices when indexed?
-    pub fn is_array(&self) -> bool {
-        self.ty.is_array()
+    pub fn is_array_like(&self) -> bool {
+        self.ty.is_array_like()
     }
 
     pub fn is_value(&self) -> bool {
         self.ty.is_value()
     }
 
-    /// Is this an array type that is contained in concrete memory,
+    /// Is this an value type that is contained in concrete memory,
     /// or a local array/scalar/vector?
     pub fn is_memory(&self) -> bool {
         matches!(
-            self.kind,
-            VariableKind::GlobalBuffer { .. } | VariableKind::Shared { .. }
+            self.address_space(),
+            AddressSpace::Global(_) | AddressSpace::Shared
         )
     }
 
@@ -272,9 +137,9 @@ impl Variable {
     /// Determines if the value is a constant with the specified value (converted if necessary)
     pub fn is_constant(&self, value: i64) -> bool {
         match self.kind {
-            VariableKind::Constant(ConstantValue::Int(val)) => val == value,
-            VariableKind::Constant(ConstantValue::UInt(val)) => val as i64 == value,
-            VariableKind::Constant(ConstantValue::Float(val)) => val == value as f64,
+            ValueKind::Constant(ConstantValue::Int(val)) => val == value,
+            ValueKind::Constant(ConstantValue::UInt(val)) => val as i64 == value,
+            ValueKind::Constant(ConstantValue::Float(val)) => val == value as f64,
             _ => false,
         }
     }
@@ -282,7 +147,7 @@ impl Variable {
     /// Determines if the value is a boolean constant with the `true` value
     pub fn is_true(&self) -> bool {
         match self.kind {
-            VariableKind::Constant(ConstantValue::Bool(val)) => val,
+            ValueKind::Constant(ConstantValue::Bool(val)) => val,
             _ => false,
         }
     }
@@ -290,7 +155,7 @@ impl Variable {
     /// Determines if the value is a boolean constant with the `false` value
     pub fn is_false(&self) -> bool {
         match self.kind {
-            VariableKind::Constant(ConstantValue::Bool(val)) => !val,
+            ValueKind::Constant(ConstantValue::Bool(val)) => !val,
             _ => false,
         }
     }
@@ -541,7 +406,6 @@ impl ConstantValue {
                 e2m1::from_f64(self.as_f64()).to_f64().into()
             }
             StorageType::Packed(..) => unimplemented!("Unsupported packed type"),
-            StorageType::Opaque(_) => unimplemented!("Opaque constants aren't supported"),
         }
     }
 }
@@ -557,70 +421,47 @@ impl Display for ConstantValue {
     }
 }
 
-impl Variable {
+impl Value {
     pub fn vector_size(&self) -> usize {
         self.ty.vector_size()
     }
 
-    pub fn index(&self) -> Option<Id> {
+    pub fn id(&self) -> Id {
         match self.kind {
-            VariableKind::GlobalBuffer(id)
-            | VariableKind::TensorMap(id)
-            | VariableKind::GlobalScalar(id)
-            | VariableKind::LocalMut { id, .. }
-            | VariableKind::Versioned { id, .. }
-            | VariableKind::LocalConst { id, .. }
-            | VariableKind::ConstantArray { id, .. }
-            | VariableKind::Shared { id, .. }
-            | VariableKind::Matrix { id, .. } => Some(id),
-            _ => None,
+            ValueKind::Value { id, .. } => id,
+            _ => panic!("Can't get ID of constant"),
         }
     }
 
     pub fn as_const(&self) -> Option<ConstantValue> {
         match self.kind {
-            VariableKind::Constant(constant) => Some(constant),
+            ValueKind::Constant(constant) => Some(constant),
             _ => None,
         }
     }
 }
 
-impl Display for Variable {
+impl Display for Value {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.kind {
-            VariableKind::GlobalScalar(id) => write!(f, "scalar<{}>({id})", self.ty),
-            VariableKind::Constant(constant) => write!(f, "{}({constant})", self.ty),
+            ValueKind::Constant(constant) => write!(f, "{}({constant})", self.ty),
             other => write!(f, "{other}"),
         }
     }
 }
 
-impl Display for VariableKind {
+impl Display for ValueKind {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            VariableKind::GlobalBuffer(id) => write!(f, "global({id})"),
-            VariableKind::GlobalScalar(id) => write!(f, "scalar({id})"),
-            VariableKind::TensorMap(id) => write!(f, "tensor_map({id})"),
-            VariableKind::Constant(constant) => write!(f, "{constant}"),
-            VariableKind::LocalMut { id } => write!(f, "local({id})"),
-            VariableKind::Versioned { id, version } => {
-                write!(f, "local({id}).v{version}")
-            }
-            VariableKind::LocalConst { id } => write!(f, "binding({id})"),
-            VariableKind::ConstantArray { id, .. } => write!(f, "const_array({id})"),
-            VariableKind::Shared { id, .. } => write!(f, "shared({id})"),
-            VariableKind::Matrix { id, .. } => write!(f, "matrix({id})"),
-            VariableKind::Builtin(builtin) => write!(f, "{builtin:?}"),
-            VariableKind::Pipeline { id, .. } => write!(f, "pipeline({id})"),
-            VariableKind::BarrierToken { id, .. } => write!(f, "barrier_token({id})"),
-            VariableKind::Aggregate { id, aggregate_kind } => write!(f, "{aggregate_kind}({id})"),
+            ValueKind::Constant(constant) => write!(f, "{constant}"),
+            ValueKind::Value { id } => write!(f, "%{id}"),
         }
     }
 }
 
 // Useful with the cube_inline macro.
-impl From<&Variable> for Variable {
-    fn from(value: &Variable) -> Self {
+impl From<&Value> for Value {
+    fn from(value: &Value) -> Self {
         *value
     }
 }

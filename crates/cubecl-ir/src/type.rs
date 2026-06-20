@@ -1,12 +1,12 @@
-use super::{ConstantValue, Variable, VariableKind};
-use crate::{BarrierLevel, ClampMode, Id, TypeHash};
+use super::{ConstantValue, Value, ValueKind};
+use crate::{BarrierLevel, ClampMode, Id, MatrixType, TypeHash};
 use core::fmt::Display;
 use cubecl_common::{
     e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32,
     quant::scheme::{QuantParam, QuantValue},
     tf32, ue8m0,
 };
-use derive_more::From;
+use derive_more::{Display, From};
 use half::{bf16, f16};
 
 pub use internment::Intern;
@@ -72,14 +72,13 @@ pub enum ElemType {
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum OpaqueType {
     Barrier(BarrierLevel),
+    BarrierToken(BarrierLevel),
+    TensorMap,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SemanticType {
-    BarrierToken,
-    Pipeline,
-    TensorMap,
     TensorLayout(usize, ClampMode),
     TensorView(usize, bool, [u32; 5]),
 }
@@ -92,9 +91,6 @@ pub enum StorageType {
     Scalar(ElemType),
     /// Packed values of type `ElemType`
     Packed(ElemType, usize),
-    /// Opaque types that can be stored but not interacted with normally. Currently only barrier,
-    /// but may be used for arrival tokens and tensor map descriptors, for example.
-    Opaque(OpaqueType),
 }
 
 impl core::fmt::Debug for StorageType {
@@ -110,7 +106,6 @@ impl core::fmt::Debug for StorageType {
                     StorageType::Packed(f0, f1) => {
                         f.debug_tuple("Packed").field(&f0).field(&f1).finish()
                     }
-                    StorageType::Opaque(f0) => f.debug_tuple("Opaque").field(&f0).finish(),
                 }
             }
         }
@@ -145,8 +140,8 @@ impl ElemType {
     /// Create a constant from a constant value.
     ///
     /// The output will have the same type as the element.
-    pub fn constant(&self, val: ConstantValue) -> Variable {
-        Variable::constant(val, Type::scalar(*self))
+    pub fn constant(&self, val: ConstantValue) -> Value {
+        Value::constant(val, Type::scalar(*self))
     }
 
     /// Get the size in bytes.
@@ -237,7 +232,7 @@ impl ElemType {
         }
     }
 
-    pub fn max_variable(&self) -> Variable {
+    pub fn max_variable(&self) -> Value {
         let value = match self {
             ElemType::Float(kind) => match kind {
                 FloatKind::E2M1 => e2m1::MAX,
@@ -269,10 +264,13 @@ impl ElemType {
             ElemType::Bool => true.into(),
         };
 
-        Variable::new(VariableKind::Constant(value), Type::scalar(*self))
+        Value {
+            kind: ValueKind::Constant(value),
+            ty: Type::scalar(*self),
+        }
     }
 
-    pub fn min_variable(&self) -> Variable {
+    pub fn min_variable(&self) -> Value {
         let value = match self {
             ElemType::Float(kind) => match kind {
                 FloatKind::E2M1 => e2m1::MIN,
@@ -304,7 +302,10 @@ impl ElemType {
             ElemType::Bool => false.into(),
         };
 
-        Variable::new(VariableKind::Constant(value), Type::scalar(*self))
+        Value {
+            kind: ValueKind::Constant(value),
+            ty: Type::scalar(*self),
+        }
     }
 
     pub fn epsilon(&self) -> f64 {
@@ -332,14 +333,14 @@ impl OpaqueType {
     pub const fn size(&self) -> usize {
         match self {
             OpaqueType::Barrier(_) => 8,
+            OpaqueType::BarrierToken(_) => 8,
+            OpaqueType::TensorMap => 128,
         }
     }
 
     /// Get the size in bits.
     pub const fn size_bits(&self) -> usize {
-        match self {
-            OpaqueType::Barrier(_) => 64,
-        }
+        self.size() * 8
     }
 }
 
@@ -347,7 +348,6 @@ impl StorageType {
     pub fn elem_type(&self) -> ElemType {
         match self {
             StorageType::Scalar(ty) | StorageType::Packed(ty, _) => *ty,
-            StorageType::Opaque(_) => unimplemented!("Can't get elem type for opaque type"),
         }
     }
 
@@ -366,7 +366,6 @@ impl StorageType {
         match self {
             StorageType::Packed(ty, factor) => ty.size_bits() * *factor,
             StorageType::Scalar(ty) => ty.size_bits(),
-            StorageType::Opaque(ty) => ty.size_bits(),
         }
     }
 
@@ -398,12 +397,11 @@ impl StorageType {
                 // For packed types, we can conservatively scale epsilon by the number of packed elements
                 ty.epsilon() * (*factor as f64)
             }
-            StorageType::Opaque(_) => panic!("Opaque type does not have an epsilon"),
         }
     }
 
-    pub fn constant(&self, value: ConstantValue) -> Variable {
-        Variable::constant(value, Type::new(*self))
+    pub fn constant(&self, value: ConstantValue) -> Value {
+        Value::constant(value, Type::new(*self))
     }
 }
 
@@ -419,9 +417,9 @@ macro_rules! storage_from_elem {
 
 storage_from_elem!(FloatKind, IntKind, UIntKind, ElemType);
 
-impl From<OpaqueType> for StorageType {
+impl From<OpaqueType> for Type {
     fn from(val: OpaqueType) -> Self {
-        StorageType::Opaque(val)
+        Type::Opaque(val)
     }
 }
 
@@ -455,6 +453,9 @@ pub enum AddressSpace {
 pub enum Type {
     /// Scalar type containing a single storage element
     Scalar(StorageType),
+    /// Opaque types that can be stored but not interacted with normally. i.e. barrier,
+    /// arrival tokens and tensor map descriptor.
+    Opaque(OpaqueType),
     /// Vector wrapping `n` storage elements
     Vector(Intern<Type>, VectorSize),
     /// No defined physical representation, purely semantic. i.e. barrier, pipeline
@@ -464,9 +465,12 @@ pub enum Type {
     /// Pointer of `Type` into a `PointerClass`
     Pointer(Intern<Type>, AddressSpace),
     /// Statically sized array of `Type`s
-    Array(Intern<Type>, usize, AddressSpace),
+    Array(Intern<Type>, usize),
     /// Dynamically sized array of `Type`s
-    DynamicArray(Intern<Type>, AddressSpace),
+    DynamicArray(Intern<Type>),
+    /// Cooperative Matrix
+    Matrix(MatrixType),
+    Aggregate(AggregateKind),
 }
 
 /// `Intern` hashes the pointer, not the values, leading to unstable hashes across runs.
@@ -476,6 +480,7 @@ impl core::hash::Hash for Type {
         core::mem::discriminant(self).hash(state);
         match self {
             Type::Scalar(storage_type) => storage_type.hash(state),
+            Type::Opaque(opaque) => opaque.hash(state),
             Type::Vector(intern, _) => intern.as_ref().hash(state),
             Type::Semantic(semantic_type) => semantic_type.hash(state),
             Type::Atomic(intern) => intern.as_ref().hash(state),
@@ -483,14 +488,18 @@ impl core::hash::Hash for Type {
                 intern.as_ref().hash(state);
                 addr_space.hash(state);
             }
-            Type::Array(intern, size, addr_space) => {
+            Type::Array(intern, size) => {
                 intern.as_ref().hash(state);
-                addr_space.hash(state);
                 size.hash(state);
             }
-            Type::DynamicArray(intern, addr_space) => {
+            Type::DynamicArray(intern) => {
                 intern.as_ref().hash(state);
-                addr_space.hash(state);
+            }
+            Type::Matrix(matrix_type) => {
+                matrix_type.hash(state);
+            }
+            Type::Aggregate(aggregate_kind) => {
+                aggregate_kind.hash(state);
             }
         }
     }
@@ -530,21 +539,26 @@ impl Type {
             Type::Scalar(inner) if vector_size > 1 => {
                 Type::Vector(Type::new(inner).intern(), vector_size)
             }
+            Type::Opaque(opaque) => Type::Opaque(opaque),
             Type::Vector(inner, _) if vector_size <= 1 => *inner,
             Type::Vector(inner, _) => Type::Vector(inner, vector_size),
             Type::Atomic(inner) => Type::Atomic(inner.with_vector_size(vector_size).intern()),
             Type::Pointer(inner, class) => {
                 Type::Pointer(inner.with_vector_size(vector_size).intern(), class)
             }
-            Type::Array(inner, size, addr_space) => Type::Array(
-                inner.with_vector_size(vector_size).intern(),
-                size,
-                addr_space,
-            ),
-            Type::DynamicArray(inner, addr_space) => {
-                Type::DynamicArray(inner.with_vector_size(vector_size).intern(), addr_space)
+            Type::Array(inner, size) => {
+                Type::Array(inner.with_vector_size(vector_size).intern(), size)
             }
-            this @ (Type::Scalar(_) | Type::Semantic(_)) => this,
+            Type::DynamicArray(inner) => {
+                Type::DynamicArray(inner.with_vector_size(vector_size).intern())
+            }
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, meta }) => {
+                Type::Aggregate(AggregateKind::Ptr {
+                    inner_ty: inner_ty.with_vector_size(vector_size).intern(),
+                    meta,
+                })
+            }
+            this @ (Type::Scalar(_) | Type::Semantic(_) | Type::Matrix(_)) => this,
         }
     }
 
@@ -552,49 +566,75 @@ impl Type {
         Self::Pointer(ty.into().intern(), class)
     }
 
-    pub fn array(ty: impl Into<Type>, size: usize, addr_space: AddressSpace) -> Self {
-        Self::Array(ty.into().intern(), size, addr_space)
+    pub fn array(ty: impl Into<Type>, size: usize) -> Self {
+        Self::Array(ty.into().intern(), size)
     }
 
     pub fn vector_size(&self) -> VectorSize {
         match self {
             Type::Scalar(_) => 1,
+            Type::Opaque(_) => 1,
             Type::Vector(inner, vector_size) => inner.vector_size() * *vector_size,
             Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..)
             | Type::Atomic(inner)
             | Type::Pointer(inner, _) => inner.vector_size(),
             Type::Semantic(_) => 0,
+            Type::Matrix(_) => 1,
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.vector_size(),
         }
     }
 
     pub fn array_size(&self) -> usize {
         match self {
-            Type::Array(_, size, _) => *size,
+            Type::Array(_, size) => *size,
             Type::Scalar(_) => 1,
+            Type::Opaque(_) => 1,
             Type::Vector(inner, _) | Type::Atomic(inner) | Type::Pointer(inner, _) => {
                 inner.array_size()
             }
             Type::Semantic(_) | Type::DynamicArray(..) => 0,
+            Type::Matrix(_) => 1,
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.array_size(),
+        }
+    }
+
+    pub fn align(&self) -> usize {
+        match self {
+            Type::Scalar(ty) => ty.size(),
+            Type::Opaque(opaque) => opaque.size(),
+            Type::Vector(ty, vector_size) => ty.size() * *vector_size,
+            Type::Atomic(inner) => inner.align(),
+            Type::Array(inner, _) => inner.align(),
+            Type::DynamicArray(inner, ..) => inner.align(),
+            // All platforms use at least conceptually 64-bit pointers
+            Type::Pointer(..) => align_of::<u64>(),
+            Type::Semantic(_) => 0,
+            Type::Matrix(mat) => mat.storage.size(),
+            Type::Aggregate(..) => panic!("Can't get size of opaque type `Aggregate`"),
         }
     }
 
     pub fn size(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.size(),
+            Type::Opaque(opaque) => opaque.size(),
             Type::Vector(ty, vector_size) => ty.size() * *vector_size,
             Type::Atomic(inner) => inner.size(),
-            Type::Array(inner, size, _) => inner.size() * *size,
+            Type::Array(inner, size) => inner.size() * *size,
             Type::DynamicArray(inner, ..) => inner.size(),
             // All platforms use at least conceptually 64-bit pointers
             Type::Pointer(..) => size_of::<u64>(),
             Type::Semantic(_) => 0,
+            Type::Matrix(..) => panic!("Can't get size of opaque type `Matrix`"),
+            Type::Aggregate(..) => panic!("Can't get size of opaque type `Aggregate`"),
         }
     }
 
     pub fn size_bits(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.size_bits(),
+            Type::Opaque(opaque) => opaque.size_bits(),
             Type::Vector(ty, vector_size) => ty.size_bits() * *vector_size,
             Type::Atomic(inner) => inner.size_bits(),
             Type::Array(inner, ..) => inner.size_bits(),
@@ -602,29 +642,35 @@ impl Type {
             // All platforms use at least conceptually 64-bit pointers
             Type::Pointer(..) => u64::BITS as usize,
             Type::Semantic(_) => 0,
+            Type::Matrix(..) => panic!("Can't get size of opaque type `Matrix`"),
+            Type::Aggregate(..) => panic!("Can't get size of opaque type `Aggregate`"),
         }
     }
 
     pub fn packing_factor(&self) -> usize {
         match self {
             Type::Scalar(ty) => ty.packing_factor(),
+            Type::Opaque(_) => 1,
             Type::Vector(ty, _)
             | Type::Atomic(ty)
             | Type::Pointer(ty, _)
             | Type::Array(ty, ..)
             | Type::DynamicArray(ty, ..) => ty.packing_factor(),
             Type::Semantic(_) => 1,
+            Type::Matrix(mat) => mat.storage.packing_factor(),
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.packing_factor(),
         }
     }
 
     pub fn is_atomic(&self) -> bool {
         match self {
-            Type::Semantic(_) | Type::Scalar(_) => false,
+            Type::Semantic(_) | Type::Scalar(_) | Type::Matrix(_) | Type::Opaque(_) => false,
             Type::Atomic(_) => true,
             Type::Pointer(inner, _)
             | Type::Vector(inner, _)
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_atomic(),
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.is_atomic(),
         }
     }
 
@@ -635,94 +681,179 @@ impl Type {
     pub fn is_int(&self) -> bool {
         match self {
             Type::Scalar(ty) => ty.is_int(),
-            Type::Semantic(_) => false,
+            Type::Semantic(_) | Type::Opaque(_) => false,
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_int(),
+            Type::Matrix(matrix_type) => matrix_type.storage.is_int(),
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.is_int(),
         }
     }
 
     pub fn is_signed_int(&self) -> bool {
         match self {
             Type::Scalar(ty) => ty.is_signed_int(),
-            Type::Semantic(_) => false,
+            Type::Semantic(_) | Type::Opaque(_) => false,
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_signed_int(),
+            Type::Matrix(matrix_type) => matrix_type.storage.is_signed_int(),
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.is_signed_int(),
         }
     }
 
     pub fn is_unsigned_int(&self) -> bool {
         match self {
             Type::Scalar(ty) => ty.is_unsigned_int(),
-            Type::Semantic(_) => false,
+            Type::Semantic(_) | Type::Opaque(_) => false,
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_unsigned_int(),
+            Type::Matrix(matrix_type) => matrix_type.storage.is_unsigned_int(),
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.is_unsigned_int(),
         }
     }
 
     pub fn is_float(&self) -> bool {
         match self {
             Type::Scalar(ty) => ty.is_float(),
-            Type::Semantic(_) => false,
+            Type::Semantic(_) | Type::Opaque(_) => false,
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_float(),
+            Type::Matrix(matrix_type) => matrix_type.storage.is_float(),
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.is_float(),
         }
     }
 
     pub fn is_bool(&self) -> bool {
         match self {
             Type::Scalar(ty) => ty.is_bool(),
-            Type::Semantic(_) => false,
+            Type::Semantic(_) | Type::Opaque(_) => false,
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.is_bool(),
+            Type::Matrix(matrix_type) => matrix_type.storage.is_bool(),
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.is_bool(),
         }
     }
 
     pub fn storage_type(&self) -> StorageType {
         match self {
             Type::Scalar(ty) => *ty,
-            Type::Semantic(_) => unimplemented!("Can't get storage for semantic type"),
+            Type::Semantic(_) | Type::Opaque(_) => {
+                unimplemented!("Can't get storage for semantic type")
+            }
             Type::Atomic(inner)
             | Type::Pointer(inner, _)
             | Type::Vector(inner, _)
             | Type::Array(inner, ..)
             | Type::DynamicArray(inner, ..) => inner.storage_type(),
+            Type::Matrix(matrix_type) => matrix_type.storage,
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.storage_type(),
         }
+    }
+
+    pub fn as_scalar(&self) -> Self {
+        match self {
+            Type::Scalar(_) => *self,
+            Type::Vector(inner, _) => inner.as_scalar(),
+            Type::Atomic(inner) => Type::Atomic(inner.as_scalar().intern()),
+            Type::Pointer(inner, class) => Type::Pointer(inner.as_scalar().intern(), *class),
+            Type::Array(inner, size) => Type::Array(inner.as_scalar().intern(), *size),
+            Type::Opaque(opaque_type) => Type::Opaque(*opaque_type),
+            Type::Semantic(semantic_type) => Type::Semantic(*semantic_type),
+            Type::DynamicArray(inner) => Type::DynamicArray(inner.as_scalar().intern()),
+            Type::Matrix(matrix_type) => Type::Matrix(*matrix_type),
+            Type::Aggregate(aggregate_kind) => Type::Aggregate(*aggregate_kind),
+        }
+    }
+
+    /// Utility mainly for use in `cubecl-cpu`
+    pub fn scalar_value_type(&self) -> Self {
+        self.value_type().as_scalar()
     }
 
     pub fn is_semantic(&self) -> bool {
         matches!(self, Type::Semantic(_))
     }
 
-    pub fn constant(&self, value: ConstantValue) -> Variable {
-        Variable::constant(value, *self)
+    pub fn constant(&self, value: ConstantValue) -> Value {
+        Value::constant(value, *self)
+    }
+
+    pub fn unwrap_ptr(&self) -> Type {
+        match self {
+            Type::Pointer(inner, _) => **inner,
+            other => *other,
+        }
+    }
+
+    pub fn address_space(&self) -> Option<AddressSpace> {
+        match self {
+            Type::Scalar(..)
+            | Type::Opaque(..)
+            | Type::Vector(..)
+            | Type::Semantic(..)
+            | Type::Atomic(..)
+            | Type::Matrix(..)
+            | Type::Array(..)
+            | Type::DynamicArray(..)
+            | Type::Aggregate(..) => None,
+            Type::Pointer(.., address_space) => Some(*address_space),
+        }
     }
 
     pub fn value_type(&self) -> Type {
         match self {
             Type::Pointer(inner, _) | Type::Array(inner, ..) | Type::DynamicArray(inner, ..) => {
-                **inner
+                inner.value_type()
             }
-            other => *other,
+            this @ (Type::Scalar(..)
+            | Type::Vector(..)
+            | Type::Semantic(..)
+            | Type::Atomic(..)
+            | Type::Matrix(..)
+            | Type::Opaque(_)) => *this,
+            Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) => inner_ty.value_type(),
         }
     }
 
-    pub fn is_array(&self) -> bool {
+    pub fn is_array_like(&self) -> bool {
         matches!(self, Type::Array(..) | Type::DynamicArray(..))
+    }
+
+    /// Whether a type is destructurable. This implies that
+    /// * it does not have dynamic field offsets (i.e. `Array`)
+    /// * it can exist in registers (i.e. no `Barrier` or `Atomic`)
+    pub fn is_destructurable(&self) -> bool {
+        match self {
+            Type::Scalar(..) | Type::Vector(..) => true,
+            // Should be `true`, but semantics are too dodgy right now. They're registers, but CUDA
+            // wmma uses pointers for all matrix ops. So we need to keep them in memory for now.
+            Type::Matrix(..) => false,
+            Type::Pointer(..)
+            | Type::Array(..)
+            | Type::DynamicArray(..)
+            | Type::Semantic(..)
+            | Type::Atomic(..)
+            | Type::Aggregate(..) => false,
+            Type::Opaque(opaque) => match opaque {
+                // Can only exist in memory
+                OpaqueType::Barrier(..) | OpaqueType::TensorMap => false,
+                OpaqueType::BarrierToken(..) => true,
+            },
+        }
     }
 
     pub fn is_value(&self) -> bool {
@@ -734,12 +865,19 @@ impl Display for Type {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Type::Semantic(ty) => write!(f, "{ty}"),
+            Type::Opaque(ty) => write!(f, "{ty}"),
             Type::Scalar(ty) => write!(f, "{ty}"),
             Type::Vector(ty, vector_size) => write!(f, "vector<{ty}, {vector_size}>"),
             Type::Atomic(ty) => write!(f, "atomic<{ty}>"),
             Type::Pointer(ty, addr_space) => write!(f, "ptr<{ty}, {addr_space}>"),
-            Type::Array(ty, size, addr_space) => write!(f, "array<{ty}, {addr_space}, {size}>"),
-            Type::DynamicArray(ty, addr_space) => write!(f, "array<{ty}, {addr_space}>"),
+            Type::Array(ty, size) => write!(f, "array<{ty}, {size}>"),
+            Type::DynamicArray(ty) => write!(f, "array<{ty}>"),
+            Type::Matrix(mat) => write!(
+                f,
+                "matrix<{}, m{}xn{}xk{}x{}, {}, {}>",
+                mat.ident, mat.m, mat.n, mat.k, mat.storage, mat.layout, mat.storage
+            ),
+            Type::Aggregate(aggregate_kind) => write!(f, "{aggregate_kind}"),
         }
     }
 }
@@ -749,7 +887,6 @@ impl Display for StorageType {
         match self {
             StorageType::Scalar(ty) => write!(f, "{ty}"),
             StorageType::Packed(ty, factor) => write!(f, "packed<{ty}, {factor}>"),
-            StorageType::Opaque(ty) => write!(f, "{ty}"),
         }
     }
 }
@@ -791,9 +928,6 @@ impl Display for ElemType {
 impl Display for SemanticType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SemanticType::BarrierToken => f.write_str("barrier_token"),
-            SemanticType::Pipeline => f.write_str("pipeline"),
-            SemanticType::TensorMap => f.write_str("tensor_map"),
             SemanticType::TensorLayout(dims, _) => write!(f, "tensor_layout<{dims}>"),
             SemanticType::TensorView(dims, has_dims, permutation) => {
                 write!(
@@ -810,6 +944,8 @@ impl Display for OpaqueType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             OpaqueType::Barrier(level) => write!(f, "barrier<{level}>"),
+            OpaqueType::BarrierToken(level) => write!(f, "barrier_token<{level}>"),
+            OpaqueType::TensorMap => f.write_str("tensor_map"),
         }
     }
 }
@@ -824,19 +960,62 @@ impl Display for AddressSpace {
     }
 }
 
-impl From<e2m1x2> for Variable {
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, PartialOrd, Ord, Display)]
+pub enum AggregateKind {
+    #[display("ptr<{meta}, {inner_ty}>")]
+    Ptr {
+        inner_ty: Intern<Type>,
+        meta: MetadataKind,
+    },
+}
+
+impl AggregateKind {
+    pub fn ptr(inner_ty: Type, meta: MetadataKind) -> Self {
+        AggregateKind::Ptr {
+            inner_ty: inner_ty.intern(),
+            meta,
+        }
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeHash, PartialOrd, Ord, Display)]
+pub enum MetadataKind {
+    /// Slice metadata (offset and length)
+    #[display("slice")]
+    Slice,
+    /// Bounds check (in bounds)
+    #[display("bounds_checked")]
+    BoundsCheck,
+}
+
+pub struct BoundsCheckMetadata;
+impl BoundsCheckMetadata {
+    pub const POINTER: usize = 0;
+    pub const IS_IN_BOUNDS: usize = 1;
+}
+
+pub struct SliceMetadata;
+impl SliceMetadata {
+    pub const LIST: usize = 0;
+    pub const OFFSET: usize = 1;
+    pub const LENGTH: usize = 2;
+}
+
+impl From<e2m1x2> for Value {
     fn from(_value: e2m1x2) -> Self {
         unimplemented!("Can't currently construct e2m1x2")
     }
 }
 
-impl From<e2m3> for Variable {
+impl From<e2m3> for Value {
     fn from(_value: e2m3) -> Self {
         unimplemented!("Can't currently construct fp6")
     }
 }
 
-impl From<e3m2> for Variable {
+impl From<e3m2> for Value {
     fn from(_value: e3m2) -> Self {
         unimplemented!("Can't currently construct fp6")
     }
@@ -944,19 +1123,19 @@ impl From<f32> for ConstantValue {
     }
 }
 
-macro_rules! impl_into_variable {
+macro_rules! impl_into_value {
     ($($ty: ty => $kind: path,)*) => {
         $(
-            impl From<$ty> for Variable {
+            impl From<$ty> for Value {
                 fn from(value: $ty) -> Self {
-                    Variable::new(VariableKind::Constant(value.into()), $kind.into())
+                    Value {kind: ValueKind::Constant(value.into()), ty: $kind.into()}
                 }
             }
         )*
     };
 }
 
-impl_into_variable!(
+impl_into_value!(
     bool => ElemType::Bool,
 
     i8 => IntKind::I8,

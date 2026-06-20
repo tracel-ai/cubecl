@@ -1,5 +1,5 @@
 use core::mem::MaybeUninit;
-use cubecl_common::bytes::{AllocationController, AllocationProperty};
+use cubecl_common::bytes::{AccessError, AccessPolicy, AllocationController, AllocationProperty};
 use cubecl_runtime::memory_management::ManagedMemoryBinding;
 use wgpu::BufferView;
 
@@ -29,21 +29,27 @@ impl AllocationController for WgpuAllocController {
         AllocationProperty::Pinned
     }
 
-    unsafe fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+    // A mapped wgpu staging buffer is always host-resident: the policy never forces a copy here.
+    unsafe fn memory_mut(
+        &mut self,
+        _policy: AccessPolicy,
+    ) -> Result<&mut [MaybeUninit<u8>], AccessError> {
         let bytes: &[u8] = self.view.as_ref().unwrap();
         // SAFETY:
         // - MaybeUninit<u8> has the same layout as u8
         // - Caller promises not to write uninitialized values.
-        unsafe {
+        Ok(unsafe {
             std::slice::from_raw_parts_mut(bytes.as_ptr() as *mut MaybeUninit<u8>, bytes.len())
-        }
+        })
     }
 
-    fn memory(&self) -> &[std::mem::MaybeUninit<u8>] {
+    fn memory(&self, _policy: AccessPolicy) -> Result<&[std::mem::MaybeUninit<u8>], AccessError> {
         let bytes: &[u8] = self.view.as_ref().unwrap();
         // SAFETY:
         // - MaybeUninit<u8> has the same layout as u8
-        unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const MaybeUninit<u8>, bytes.len()) }
+        Ok(unsafe {
+            std::slice::from_raw_parts(bytes.as_ptr() as *const MaybeUninit<u8>, bytes.len())
+        })
     }
 }
 

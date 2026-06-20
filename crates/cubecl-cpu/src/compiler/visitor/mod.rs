@@ -5,16 +5,17 @@ pub(super) mod instruction;
 pub(super) mod item;
 pub(super) mod operation;
 pub(super) mod prelude;
-pub(super) mod variables;
+pub(super) mod values;
 
 use std::collections::HashMap;
 
 use args_manager::{ArgsManager, ArgsManagerBuilder};
 use cubecl_core::{
-    ir::{Builtin, StorageType},
+    ir::{self as cube, Builtin, Id, StorageType},
     prelude::KernelDefinition,
 };
-use cubecl_opt::{Function, NodeIndex};
+use cubecl_opt::{Function, GlobalState, MemoryLiveness, NodeIndex};
+use std::rc::Rc;
 use tracel_llvm::mlir_rs::{
     Context,
     dialect::{
@@ -23,19 +24,19 @@ use tracel_llvm::mlir_rs::{
             self,
             attributes::{Linkage, linkage},
         },
-        memref,
         ods::llvm as llvm_ods,
         scf,
     },
     ir::{
         Attribute, Block, BlockRef, Identifier, Location, Module, Operation, Region, RegionRef,
-        attribute::{DenseElementsAttribute, StringAttribute, TypeAttribute},
-        r#type::{IntegerType, MemRefType, RankedTensorType},
+        Value,
+        attribute::{StringAttribute, TypeAttribute},
+        r#type::IntegerType,
     },
 };
 
 use prelude::*;
-use variables::Variables;
+use values::Values;
 
 use crate::compiler::visitor::operation::synchronization::add_sync_cube_function;
 
@@ -49,20 +50,32 @@ pub struct Visitor<'a> {
     pub last_block: BlockRef<'a, 'a>,
     pub module: &'a Module<'a>,
     pub blocks: HashMap<NodeIndex, BlockRef<'a, 'a>>,
-    pub blocks_args: HashMap<(NodeIndex, NodeIndex), Vec<Variable>>,
+    pub blocks_args: HashMap<(NodeIndex, NodeIndex), Vec<cube::Value>>,
     pub current_region: RegionRef<'a, 'a>,
     pub context: &'a Context,
     pub location: Location<'a>,
 
     pub str_counter: usize,
 
-    pub(self) variables: Variables<'a>,
+    pub(self) values: Values<'a>,
     pub(self) args_manager: ArgsManager<'a>,
+    pub liveness: Rc<MemoryLiveness>,
+    pub mutable_variables: Vec<Id>,
+    pub(self) stack_saves: HashMap<Id, StackSave<'a>>,
+    pub(self) stack_save_counter: usize,
+    pub(self) current_node: NodeIndex,
+}
+
+#[derive(Clone, Copy)]
+pub struct StackSave<'a> {
+    pub stack_pointer: Value<'a, 'a>,
+    pub seq: usize,
+    pub alloc_block: NodeIndex,
 }
 
 impl<'a> Visitor<'a> {
     #[allow(clippy::too_many_arguments)]
-    pub(self) fn new(
+    pub fn new(
         current_block: BlockRef<'a, 'a>,
         last_block: BlockRef<'a, 'a>,
         module: &'a Module<'a>,
@@ -70,12 +83,18 @@ impl<'a> Visitor<'a> {
         context: &'a Context,
         location: Location<'a>,
         args_manager: ArgsManager<'a>,
-        func: &Function,
+        liveness: Rc<MemoryLiveness>,
     ) -> Self {
         let blocks = HashMap::new();
         let blocks_args = HashMap::new();
         let str_counter = 0;
-        let variables = Variables::new(func);
+        let mut values = Values::new();
+        let mutable_variables = Vec::new();
+
+        for (&id, &buffer) in args_manager.buffers.iter() {
+            values.insert(id, buffer);
+        }
+
         Self {
             first_block: None,
             block: current_block,
@@ -88,7 +107,12 @@ impl<'a> Visitor<'a> {
             location,
             str_counter,
             args_manager,
-            variables,
+            values,
+            liveness,
+            mutable_variables,
+            stack_saves: HashMap::new(),
+            stack_save_counter: 0,
+            current_node: NodeIndex::new(0),
         }
     }
 
@@ -104,7 +128,7 @@ impl<'a> Visitor<'a> {
             .get(&(block_id, destination))
             .unwrap_or(&vec![])
             .iter()
-            .map(|v| self.get_variable(*v))
+            .map(|v| self.get_value(*v))
             .collect();
         self.block = current_block;
         args
@@ -154,12 +178,14 @@ impl<'a> Visitor<'a> {
             .into()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn visit_kernel<'b: 'a>(
         context: &'a Context,
         location: Location<'a>,
         kernel: &'b KernelDefinition,
         module: &tracel_llvm::mlir_rs::ir::Module<'a>,
-        func: &Function,
+        func: &mut Function,
+        global_state: &GlobalState,
         shared_memories: &SharedMemories,
         addr_type: StorageType,
     ) {
@@ -173,36 +199,10 @@ impl<'a> Visitor<'a> {
         let args = ArgsManagerBuilder::new(kernel, context, location, shared_memories, addr_type);
 
         let func_type = TypeAttribute::new(args.get_fn_type(context).into());
-        for const_array in func.const_arrays() {
-            let global = const_array.id;
-            let name = global.to_string();
-            let r#type = const_array.item.to_type(context);
-            let memref = MemRefType::new(r#type, &[const_array.length as i64], None, None);
-            let values: Vec<Attribute<'a>> = const_array
-                .values
-                .iter()
-                .filter_map(|var| Visitor::into_attribute(context, *var, const_array.item))
-                .collect();
-            module.body().append_operation(memref::global(
-                context,
-                &name,
-                None,
-                memref,
-                Some(
-                    DenseElementsAttribute::new(
-                        RankedTensorType::new(&[const_array.length as u64], r#type, None).into(),
-                        &values,
-                    )
-                    .unwrap()
-                    .into(),
-                ),
-                true,
-                None,
-                location,
-            ));
-        }
+
         add_external_function_to_module(context, module);
         add_sync_cube_function(context, module).unwrap();
+        let liveness = func.analysis::<MemoryLiveness>(global_state);
         module.body().append_operation(func::func(
             context,
             name,
@@ -212,7 +212,8 @@ impl<'a> Visitor<'a> {
                 let args = args.create_top_block(&region, context, location);
                 let block = region.first_block().unwrap();
 
-                Self::insert_builtin_loop(block, module, func, context, location, args).unwrap();
+                Self::insert_builtin_loop(block, module, func, context, location, args, liveness)
+                    .unwrap();
 
                 block.append_operation(func::r#return(&[], location));
 
@@ -230,6 +231,7 @@ impl<'a> Visitor<'a> {
         context: &'a Context,
         location: Location<'a>,
         mut args: ArgsManager<'a>,
+        liveness: Rc<MemoryLiveness>,
     ) -> Result<(), Error> {
         let basic_block_id = func.root;
         let integer_type = IntegerType::new(context, 32).into();
@@ -393,7 +395,7 @@ impl<'a> Visitor<'a> {
                                     context,
                                     location,
                                     args,
-                                    func,
+                                    liveness.clone(),
                                 );
                                 visitor.visit_basic_block(basic_block_id, func);
 

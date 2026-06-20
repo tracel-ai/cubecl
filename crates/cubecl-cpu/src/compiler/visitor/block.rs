@@ -1,14 +1,70 @@
 use std::ops::Deref;
 
+use cubecl_core::ir::Id;
 use cubecl_opt::{ControlFlow, Function, NodeIndex};
 use tracel_llvm::mlir_rs::{
-    dialect::{cf, ods::llvm},
-    ir::{Block, BlockLike, BlockRef, RegionLike},
+    dialect::{
+        cf,
+        ods::llvm::{self, intr_stackrestore},
+    },
+    ir::{Block, BlockLike, BlockRef, RegionLike, Value},
 };
 
 use super::prelude::*;
 
 impl<'a> Visitor<'a> {
+    fn is_live_out(&self, func: &Function, block: NodeIndex, var: Id) -> bool {
+        func.successors(block)
+            .iter()
+            .any(|succ| !self.liveness.is_dead(*succ, var))
+    }
+
+    fn free_memory_start_of_block(&mut self, func: &Function) {
+        let dying = self
+            .mutable_variables
+            .iter()
+            .copied()
+            .filter(|&var| {
+                self.liveness.is_dead(self.current_node, var)
+                    && func
+                        .predecessors(self.current_node)
+                        .iter()
+                        .any(|pred| self.is_live_out(func, *pred, var))
+            })
+            .collect::<Vec<_>>();
+        self.restore_stack_for(&dying);
+    }
+
+    fn free_memory_end_of_block(&mut self, func: &Function) {
+        let dying = self
+            .mutable_variables
+            .iter()
+            .copied()
+            .filter(|&var| {
+                let allocated_here =
+                    self.stack_saves.get(&var).map(|s| s.alloc_block) == Some(self.current_node);
+                let live_in = !self.liveness.is_dead(self.current_node, var);
+                (allocated_here || live_in) && !self.is_live_out(func, self.current_node, var)
+            })
+            .collect::<Vec<_>>();
+        self.restore_stack_for(&dying);
+    }
+
+    /// Emit a single `stackrestore` to the earliest stack pointer saved among `dying`
+    fn restore_stack_for(&self, dying: &[Id]) {
+        let earliest = dying
+            .iter()
+            .filter_map(|var| self.stack_saves.get(var).copied())
+            .min_by_key(|save| save.seq);
+        if let Some(save) = earliest {
+            self.block.append_operation(intr_stackrestore(
+                self.context,
+                save.stack_pointer,
+                self.location,
+            ));
+        }
+    }
+
     pub fn visit_basic_block(&mut self, block_id: NodeIndex, func: &Function) -> BlockRef<'a, 'a> {
         if let Some(block) = self.blocks.get(&block_id) {
             return *block;
@@ -34,7 +90,7 @@ impl<'a> Visitor<'a> {
 
         let block = Block::new(&arguments);
         for (i, phi_node) in basic_block.phi_nodes.borrow().iter().enumerate() {
-            self.insert_variable(phi_node.out, block.argument(i).unwrap().into());
+            self.insert_value(phi_node.out, block.argument(i).unwrap().into());
         }
         let this_block = self
             .current_region
@@ -46,9 +102,15 @@ impl<'a> Visitor<'a> {
         self.block = this_block;
 
         self.blocks.insert(block_id, this_block);
+        self.current_node = block_id;
+
+        self.free_memory_start_of_block(func);
+
         for (_, instruction) in basic_block.ops.borrow().iter() {
             self.visit_instruction(instruction);
         }
+
+        self.free_memory_end_of_block(func);
 
         match basic_block.control_flow.borrow().deref() {
             ControlFlow::IfElse {
@@ -57,7 +119,7 @@ impl<'a> Visitor<'a> {
                 or_else,
                 merge,
             } => {
-                let condition = self.get_variable(*cond);
+                let condition = self.get_value(*cond);
                 let condition = self.cast_to_bool(condition, cond.ty);
                 if let Some(merge) = merge {
                     self.visit_basic_block(*merge, func);
@@ -83,7 +145,7 @@ impl<'a> Visitor<'a> {
                 merge,
             } => {
                 let case_values: Vec<_> = branches.iter().map(|(n, _)| *n as i64).collect();
-                let operand = self.get_variable(*value);
+                let operand = self.get_value(*value);
                 let operand_type = value.ty.to_type(self.context);
                 if let Some(merge) = merge {
                     self.visit_basic_block(*merge, func);
@@ -136,7 +198,7 @@ impl<'a> Visitor<'a> {
                 continue_target,
                 merge,
             } => {
-                let condition = self.get_variable(*break_cond);
+                let condition = self.get_value(*break_cond);
                 let condition = self.cast_to_bool(condition, break_cond.ty);
                 let body_block = self.visit_basic_block(*body, func);
                 self.visit_basic_block(*continue_target, func);

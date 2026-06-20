@@ -1,4 +1,4 @@
-use cubecl_common::bytes::{AllocationController, AllocationProperty};
+use cubecl_common::bytes::{AccessError, AccessPolicy, AllocationController, AllocationProperty};
 use cubecl_core::server::IoError;
 use cubecl_runtime::{
     memory_management::{ManagedMemoryBinding, MemoryManagement},
@@ -22,31 +22,35 @@ impl AllocationController for CpuAllocController {
 
     /// SAFETY:
     /// - The caller must ensure only initialized memory is written.
-    unsafe fn memory_mut(&mut self) -> &mut [std::mem::MaybeUninit<u8>] {
+    // CPU memory is always host-resident: the policy never forces a copy here.
+    unsafe fn memory_mut(
+        &mut self,
+        _policy: AccessPolicy,
+    ) -> Result<&mut [std::mem::MaybeUninit<u8>], AccessError> {
         let slice = self.resource.write();
 
         // SAFETY:
         // - MaybeUninit has the same layout as u8.
         // - Caller upholds only writing initialized memory.
-        unsafe {
+        Ok(unsafe {
             std::slice::from_raw_parts_mut(
                 slice.as_mut_ptr() as *mut std::mem::MaybeUninit<u8>,
                 slice.len(),
             )
-        }
+        })
     }
 
-    fn memory(&self) -> &[std::mem::MaybeUninit<u8>] {
+    fn memory(&self, _policy: AccessPolicy) -> Result<&[std::mem::MaybeUninit<u8>], AccessError> {
         let slice = self.resource.read();
 
         // SAFETY:
         // - MaybeUninit has the same layout as u8.
-        unsafe {
+        Ok(unsafe {
             std::slice::from_raw_parts(
                 slice.as_ptr() as *const std::mem::MaybeUninit<u8>,
                 slice.len(),
             )
-        }
+        })
     }
 }
 

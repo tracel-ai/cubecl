@@ -4,9 +4,9 @@ use rspirv::spirv::Capability;
 use crate::{SpirvCompiler, SpirvTarget};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_tensor_indexing(&mut self, op: TensorIndexingOps, out: Option<core::Variable>) {
+    pub fn compile_tensor_indexing(&mut self, op: TensorIndexingOps, out: Option<core::Value>) {
         self.capabilities.insert(Capability::TensorAddressingNV);
-        let out = self.compile_variable(out.unwrap());
+        let out = self.compile_value(out.unwrap());
         match op {
             TensorIndexingOps::CreateLayout {
                 shape,
@@ -18,13 +18,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 let shape = shape
                     .into_iter()
-                    .map(|it| self.compile_variable(it))
+                    .map(|it| self.compile_value(it))
                     .collect::<Vec<_>>();
                 let shape = shape.iter().map(|it| self.read(it)).collect::<Vec<_>>();
 
                 let strides = strides.map(|s| {
                     s.into_iter()
-                        .map(|it| self.compile_variable(it))
+                        .map(|it| self.compile_value(it))
                         .collect::<Vec<_>>()
                 });
                 let strides = strides
@@ -80,14 +80,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let out_id = self.write_id(&out);
                 let ty = out.item().id(self);
 
-                let layout = self.compile_variable(layout);
+                let layout = self.compile_value(layout);
                 let layout = self.read(&layout);
                 let args = offsets
                     .into_iter()
                     .zip(shape)
                     .flat_map(|(offset, shape)| {
-                        let offset = self.compile_variable(offset);
-                        let shape = self.compile_variable(shape);
+                        let offset = self.compile_value(offset);
+                        let shape = self.compile_value(shape);
                         [offset, shape]
                     })
                     .collect::<Vec<_>>();

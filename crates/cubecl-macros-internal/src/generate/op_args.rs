@@ -39,7 +39,7 @@ impl OpArgs {
             tokens.extend(quote![#ident: crate::FromArgList::from_arg_list(&mut args),]);
         }
         quote! {
-            let mut args: alloc::collections::VecDeque<crate::Variable> = args.iter().cloned().collect();
+            let mut args: alloc::collections::VecDeque<crate::Value> = args.iter().cloned().collect();
             Self {
                 #tokens
             }
@@ -94,15 +94,15 @@ impl OpArgs {
         let write_ptrs = self.generate_write_ptrs();
 
         quote![impl #generics crate::OperationArgs for #name #generic_names #where_clause {
-            fn from_args(args: &[Variable]) -> Option<Self> {
+            fn from_args(args: &[Value]) -> Option<Self> {
                 Some({#from})
             }
 
-            fn as_args(&self) -> Option<alloc::vec::Vec<crate::Variable>> {
+            fn as_args(&self) -> Option<alloc::vec::Vec<crate::Value>> {
                 Some({#into})
             }
 
-            fn as_args_mut(&mut self) -> Option<alloc::vec::Vec<&mut crate::Variable>> {
+            fn as_args_mut(&mut self) -> Option<alloc::vec::Vec<&mut crate::Value>> {
                 Some({#into_mut})
             }
 
@@ -110,11 +110,11 @@ impl OpArgs {
                 #sanitize_ptr
             }
 
-            fn read_pointers(&self) -> alloc::vec::Vec<crate::Variable> {
+            fn read_pointers(&self) -> alloc::vec::Vec<crate::Value> {
                 #read_ptrs
             }
 
-            fn write_pointers(&self) -> alloc::vec::Vec<crate::Variable> {
+            fn write_pointers(&self) -> alloc::vec::Vec<crate::Value> {
                 #write_ptrs
             }
         }]

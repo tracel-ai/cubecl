@@ -6,7 +6,7 @@ use crate::{Instruction, Operation, TypeHash};
 
 use crate::{OperationCode, OperationReflect};
 
-use super::Variable;
+use super::Value;
 
 /// Operations that don't change the semantics of the kernel. In other words, operations that do not
 /// perform any computation, if they run at all. i.e. `println`, comments and debug symbols.
@@ -17,9 +17,9 @@ use super::Variable;
 #[operation(opcode_name = MarkerOpCode)]
 pub enum Marker {
     /// Frees a shared memory, allowing reuse in later blocks.
-    Free(Variable),
+    Free(Value),
     #[operation(pure)]
-    DummyRead(Variable),
+    DummyRead(Value),
 }
 
 impl OperationReflect for Marker {
@@ -35,8 +35,8 @@ impl OperationReflect for Marker {
 impl Display for Marker {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Marker::Free(var) => write!(f, "free({var})"),
-            Marker::DummyRead(variable) => write!(f, "mark_read({variable})"),
+            Marker::Free(val) => write!(f, "free({val})"),
+            Marker::DummyRead(value) => write!(f, "mark_read({value})"),
         }
     }
 }

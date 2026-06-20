@@ -2,7 +2,6 @@ use crate as cubecl;
 use crate::prelude::CubePrimitive;
 use cubecl::frontend::assign::expand_no_check;
 use cubecl::prelude::*;
-use cubecl_ir::Operation;
 use cubecl_macros::intrinsic;
 
 #[derive(Clone, Copy)]
@@ -55,7 +54,7 @@ impl<T: CubePrimitive> RuntimeCell<T> {
     /// Create a new runtime cell with the given initial value.
     pub fn new(init: T) -> Self {
         intrinsic!(|scope| {
-            let value = init_expand(scope, init.expand, true, Operation::Copy);
+            let value = init_expand(scope, init.expand, true);
             RuntimeCellExpand {
                 value: value.into(),
             }
@@ -73,7 +72,7 @@ impl<T: CubePrimitive> RuntimeCell<T> {
     /// Get the value from the call
     pub fn read(&self) -> T {
         intrinsic!(|scope| {
-            let value = init_expand(scope, self.value.clone().expand, false, Operation::Copy);
+            let value = init_expand(scope, self.value.clone().expand, false);
             value.into()
         })
     }

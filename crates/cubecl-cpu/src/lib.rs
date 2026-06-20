@@ -10,8 +10,10 @@ mod tests {
 
     pub use half::f16;
 
+    use cubecl_common::{config::RuntimeConfig, stream_id::StreamId};
     use cubecl_core as cubecl;
     use cubecl_core::prelude::*;
+    use cubecl_runtime::config::CubeClRuntimeConfig;
 
     cubecl_core::testgen_all!(f32: [f16, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
     cubecl_std::testgen!();
@@ -68,6 +70,17 @@ mod tests {
             sum += mem[i];
         }
         out[idx] = sum;
+    }
+
+    #[cube(launch_unchecked)]
+    fn delayed_copy(input: &[u32], output: &mut [u32], num_loop: usize) {
+        if UNIT_POS == 0 {
+            let mut pos = 0usize;
+            for i in 0..num_loop {
+                pos = (pos + i) % input.len();
+            }
+            output[0] = input[pos];
+        }
     }
 
     #[test]
@@ -144,6 +157,47 @@ mod tests {
         let bytes = client.read_one_unchecked(out);
         let actual = u32::from_bytes(&bytes);
         assert_eq!(actual, &[28u32; 8]);
+    }
+
+    #[test]
+    fn queued_cpu_kernel_keeps_buffer_bindings_alive_until_execution() {
+        let client = TestRuntime::client(&Default::default());
+        let max_streams = CubeClRuntimeConfig::get().streaming.max_streams as u64;
+
+        let stream_a = StreamId { value: 0 };
+        let stream_b = StreamId { value: max_streams };
+
+        let client_a = unsafe {
+            let mut client = client.clone();
+            client.set_stream(stream_a);
+            client
+        };
+        let client_b = unsafe {
+            let mut client = client.clone();
+            client.set_stream(stream_b);
+            client
+        };
+
+        let input = client_a.create_from_slice(u32::as_bytes(&[7, 7]));
+        let output = client_a.empty(core::mem::size_of::<u32>());
+
+        unsafe {
+            delayed_copy::launch_unchecked::<TestRuntime>(
+                &client_a,
+                CubeCount::new_single(),
+                CubeDim::new_1d(1),
+                BufferArg::from_raw_parts(input, 2),
+                BufferArg::from_raw_parts(output.clone(), 1),
+                5_000_001,
+            )
+        }
+
+        let replacement = client_b.create_from_slice(u32::as_bytes(&[99, 99]));
+        drop(replacement);
+
+        let bytes = client_a.read_one_unchecked(output);
+        let actual = u32::from_bytes(&bytes);
+        assert_eq!(actual, &[7]);
     }
 }
 

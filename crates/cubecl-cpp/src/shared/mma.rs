@@ -1,6 +1,6 @@
 use crate::shared::Item;
 
-use super::{Component, Dialect, Elem, Variable};
+use super::{Component, Dialect, Elem, Value};
 use cubecl_core::ir::{
     DeviceProperties,
     features::{MmaConfig, ScaledMmaConfig},
@@ -49,7 +49,7 @@ pub fn register_scaled_mma_features(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
 pub enum FragmentIdent<D: Dialect> {
     A,
     B,
@@ -57,15 +57,15 @@ pub enum FragmentIdent<D: Dialect> {
     _Dialect(PhantomData<D>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
 pub enum FragmentLayout<D: Dialect> {
     ColMajor,
     RowMajor,
     _Dialect(PhantomData<D>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
-pub struct Fragment<D: Dialect> {
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
+pub struct FragmentType<D: Dialect> {
     pub ident: FragmentIdent<D>,
     pub m: u32,
     pub n: u32,
@@ -97,25 +97,22 @@ impl<D: Dialect> MmaShape<D> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum WmmaInstruction<D: Dialect> {
     /// Fill the fragment with the value.
-    Fill {
-        frag: Variable<D>,
-        value: Variable<D>,
-    },
+    Fill { frag: Value<D>, value: Value<D> },
     /// Load the value into the fragment given the stride.
     Load {
-        frag: Variable<D>,
-        ptr: Variable<D>,
-        stride: Variable<D>,
+        frag: Value<D>,
+        ptr: Value<D>,
+        stride: Value<D>,
         layout: Option<FragmentLayout<D>>,
     },
     /// Executes D=A*B+C;
     ///
     /// For implementing a matmul, `D=C` : `C+=A*B`
     Execute {
-        frag_a: Variable<D>,
-        frag_b: Variable<D>,
-        frag_c: Variable<D>,
-        frag_d: Variable<D>,
+        frag_a: Value<D>,
+        frag_b: Value<D>,
+        frag_c: Value<D>,
+        frag_d: Value<D>,
         warp_size: u32,
     },
     /// Executes D=A*B+C using manually managed registers;
@@ -126,10 +123,10 @@ pub enum WmmaInstruction<D: Dialect> {
     /// and handle potentially destructuring it internally.
     ExecuteManual {
         shape: MmaShape<D>,
-        frag_a: Variable<D>,
-        frag_b: Variable<D>,
-        frag_c: Variable<D>,
-        frag_d: Variable<D>,
+        frag_a: Value<D>,
+        frag_b: Value<D>,
+        frag_c: Value<D>,
+        frag_d: Value<D>,
     },
     /// Executes D=A*B+C using manually managed registers;
     ///
@@ -139,41 +136,38 @@ pub enum WmmaInstruction<D: Dialect> {
     /// and handle potentially destructuring it internally.
     ExecuteScaled {
         shape: MmaShape<D>,
-        frag_a: Variable<D>,
-        frag_b: Variable<D>,
-        frag_c: Variable<D>,
-        frag_d: Variable<D>,
+        frag_a: Value<D>,
+        frag_b: Value<D>,
+        frag_c: Value<D>,
+        frag_d: Value<D>,
 
-        scales_a: Variable<D>,
-        scales_b: Variable<D>,
+        scales_a: Value<D>,
+        scales_b: Value<D>,
         scales_factor: u32,
     },
     /// Store the fragment in an output variable following the stride and the layout.
     Store {
-        frag: Variable<D>,
-        stride: Variable<D>,
-        destination: Variable<D>,
+        frag: Value<D>,
+        stride: Value<D>,
+        destination: Value<D>,
         layout: FragmentLayout<D>,
     },
     /// Load a part of a fragment into registers, either 1, 2, or 4 at once.
     LdMatrix {
-        output: Variable<D>,
-        ptr: Variable<D>,
+        output: Value<D>,
+        ptr: Value<D>,
         factor: u32,
         transpose: bool,
     },
     /// Store a part of a fragment into smem, either 1, 2, or 4 at once.
     StMatrix {
-        registers: Variable<D>,
-        ptr: Variable<D>,
+        registers: Value<D>,
+        ptr: Value<D>,
         factor: u32,
         transpose: bool,
     },
     /// Cast
-    Cast {
-        input: Variable<D>,
-        output: Variable<D>,
-    },
+    Cast { input: Value<D>, output: Value<D> },
 }
 
 impl<D: Dialect> Display for FragmentLayout<D> {
@@ -188,7 +182,7 @@ impl<D: Dialect> Display for FragmentIdent<D> {
     }
 }
 
-impl<D: Dialect> Display for Fragment<D> {
+impl<D: Dialect> Display for FragmentType<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         D::compile_wmma_fragment(f, self)
     }
@@ -210,11 +204,12 @@ pub mod wmma_api_base {
 
     pub fn compile_fragment_declaration<D: Dialect>(
         f: &mut std::fmt::Formatter<'_>,
-        var: &Variable<D>,
+        val: &Value<D>,
+        ty: &Item<D>,
     ) -> std::fmt::Result {
-        match var {
-            Variable::WmmaFragment { frag, .. } => writeln!(f, "{frag} {var};"),
-            _ => panic!("variable must be a fragment"),
+        match ty {
+            Item::Fragment(frag) => writeln!(f, "{frag} {val}_store;"),
+            _ => panic!("value must be a fragment"),
         }
     }
 
@@ -246,7 +241,7 @@ pub mod wmma_api_base {
     pub fn compile_fragment<D: Dialect>(
         f: &mut std::fmt::Formatter<'_>,
         namespace: &str,
-        fragment: &Fragment<D>,
+        fragment: &FragmentType<D>,
     ) -> std::fmt::Result {
         let elem = match fragment.elem {
             Elem::TF32 => format!("{namespace}::precision::tf32"),
@@ -280,6 +275,7 @@ pub mod wmma_api_base {
     ) -> std::fmt::Result {
         match instruction {
             WmmaInstruction::Fill { frag, value } => {
+                let frag = frag.fmt_ref();
                 writeln!(f, "{namespace}::fill_fragment({frag}, {value});")
             }
             WmmaInstruction::Load {
@@ -289,6 +285,7 @@ pub mod wmma_api_base {
                 layout: None,
             } => {
                 let item = *ptr.item().value_ty();
+                let frag = frag.fmt_ref();
                 if item.vectorization() > 1 {
                     let elem = item.elem();
                     let qualifier = ptr.const_qualifier();
@@ -306,6 +303,7 @@ pub mod wmma_api_base {
                 stride,
                 layout: Some(layout),
             } => {
+                let frag = frag.fmt_ref();
                 let layout = match layout {
                     FragmentLayout::ColMajor => format!("{namespace}::mem_col_major"),
                     FragmentLayout::RowMajor => format!("{namespace}::mem_row_major"),
@@ -343,16 +341,23 @@ pub mod wmma_api_base {
                 frag_c,
                 frag_d,
                 ..
-            } => writeln!(
-                f,
-                "{namespace}::mma_sync({frag_d}, {frag_a}, {frag_b}, {frag_c});"
-            ),
+            } => {
+                let frag_a = frag_a.fmt_ref();
+                let frag_b = frag_b.fmt_ref();
+                let frag_c = frag_c.fmt_ref();
+                let frag_d = frag_d.fmt_ref();
+                writeln!(
+                    f,
+                    "{namespace}::mma_sync({frag_d}, {frag_a}, {frag_b}, {frag_c});"
+                )
+            }
             WmmaInstruction::Store {
                 frag,
                 stride,
                 destination,
                 layout,
             } => {
+                let frag = frag.fmt_ref();
                 let layout = match layout {
                     FragmentLayout::ColMajor => format!("{namespace}::mem_col_major"),
                     FragmentLayout::RowMajor => format!("{namespace}::mem_row_major"),
@@ -381,8 +386,10 @@ pub mod wmma_api_base {
                 }
             }
             WmmaInstruction::Cast { input, output } => {
-                let ty = match output {
-                    Variable::WmmaFragment { frag, .. } => frag.elem,
+                let input = input.ensure_lvalue(f)?;
+                let output = output.ensure_lvalue(f)?;
+                let ty = match *output.item().value_ty() {
+                    Item::Fragment(frag) => frag.elem,
                     _ => panic!("Should be a fragment"),
                 };
                 match ty {
@@ -435,10 +442,10 @@ for(int t=0; t<{input}.num_elements; t++) {{ {output}.x[t] = {ty}({input}.x[t]);
     }
 }
 
-pub fn frag_as_ptr<D: Dialect>(f: &mut Formatter<'_>, ptr: &Variable<D>) -> Variable<D> {
+pub fn frag_as_ptr<D: Dialect>(f: &mut Formatter<'_>, ptr: &Value<D>) -> Value<D> {
     let item = ptr.item();
     if item.vectorization() > 1 {
-        let item_value = Item::Scalar(*item.elem());
+        let item_value = item.as_scalar();
         ptr.reinterpret_ptr(f, item_value)
     } else {
         *ptr
@@ -465,9 +472,9 @@ pub fn frag_layout_str<D: Dialect>(frag: &Option<FragmentLayout<D>>) -> &str {
     }
 }
 
-pub fn variable_to_frag<D: Dialect>(frag: &Variable<D>) -> Fragment<D> {
-    match frag {
-        Variable::WmmaFragment { frag, .. } => *frag,
+pub fn value_to_frag<D: Dialect>(frag: &Value<D>) -> FragmentType<D> {
+    match frag.item().unwrap_ptr() {
+        Item::Fragment(frag) => frag,
         _ => panic!(),
     }
 }

@@ -3,7 +3,9 @@ use core::cell::{RefCell, RefMut};
 use cubecl_runtime::kernel::Visibility;
 use derive_more::{Deref, DerefMut};
 
-use cubecl_ir::{GlobalState, Id, Instruction, Memory, Operation, Scope, Variable, VariableKind};
+use cubecl_ir::{
+    AddressSpace, GlobalState, Id, Instruction, Memory, Operation, Scope, Value, ValueKind,
+};
 use hashbrown::{HashMap, HashSet};
 
 use crate::post_processing::{
@@ -39,7 +41,7 @@ impl GlobalAnalyses {
 
 #[derive(Default, Debug, Deref, DerefMut)]
 pub struct UsedValues {
-    used: HashSet<Variable>,
+    used: HashSet<Value>,
 }
 
 impl InstructionVisitor for UsedValues {
@@ -51,8 +53,8 @@ impl InstructionVisitor for UsedValues {
         _changes: &AtomicCounter,
     ) -> Vec<Instruction> {
         let mut visitor = Visitor(self);
-        visitor.visit_operation(&mut inst.operation, analyses, |this, var| {
-            this.used.insert(*var);
+        visitor.visit_operation(&mut inst.operation, analyses, |this, val| {
+            this.used.insert(*val);
         });
         vec![inst]
     }
@@ -60,7 +62,7 @@ impl InstructionVisitor for UsedValues {
 
 #[derive(Debug, Default, Deref, DerefMut)]
 pub struct PointerSource {
-    sources: HashMap<VariableKind, Variable>,
+    sources: HashMap<ValueKind, Value>,
 }
 
 impl PointerSource {
@@ -80,19 +82,14 @@ impl InstructionVisitor for PointerSource {
         _changes: &AtomicCounter,
     ) -> Vec<Instruction> {
         match &inst.operation {
-            Operation::Copy(var) if var.ty.is_ptr() && inst.out().ty.is_ptr() => {
-                let source = self.sources[&var.kind];
-                self.sources.insert(inst.out().kind, source);
+            Operation::Copy(val) if val.ty.is_ptr() && inst.out().ty.is_ptr() => {
+                if let Some(source) = self.sources.get(&val.kind) {
+                    self.sources.insert(inst.out().kind, *source);
+                }
             }
-            Operation::Memory(memory) => match memory {
-                Memory::Reference(variable) => {
-                    self.sources.insert(inst.out().kind, *variable);
-                }
-                Memory::Index(index_operands) => {
-                    self.sources.insert(inst.out().kind, index_operands.list);
-                }
-                _ => {}
-            },
+            Operation::Memory(Memory::Index(index_operands)) => {
+                self.sources.insert(inst.out().kind, index_operands.list);
+            }
             _ => {}
         }
         vec![inst]
@@ -131,13 +128,13 @@ impl InstructionVisitor for BufferVisibility {
         visitor.visit_instruction(
             &mut inst,
             analyses,
-            |this, var| {
-                if let Some(id) = global_buffer_id(var) {
+            |this, val| {
+                if let Some(id) = global_buffer_id(val) {
                     this.set_readable(id as usize);
                 }
             },
-            |this, var| {
-                if let Some(id) = global_buffer_id(var) {
+            |this, val| {
+                if let Some(id) = global_buffer_id(val) {
                     this.set_writable(id as usize);
                 }
             },
@@ -163,9 +160,9 @@ impl BufferVisibility {
     }
 }
 
-fn global_buffer_id(variable: &Variable) -> Option<Id> {
-    match variable.kind {
-        VariableKind::GlobalBuffer(id) | VariableKind::TensorMap(id) => Some(id),
+fn global_buffer_id(variable: &Value) -> Option<Id> {
+    match variable.address_space() {
+        AddressSpace::Global(id) => Some(id),
         _ => None,
     }
 }

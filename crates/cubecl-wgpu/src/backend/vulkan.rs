@@ -758,10 +758,7 @@ where
 
 #[cfg(feature = "spirv-dump")]
 pub(crate) fn dump_spirv(repr: &SpirvKernel, name: &str, id: cubecl_runtime::id::KernelId) {
-    use std::{
-        fs,
-        hash::{DefaultHasher, Hash, Hasher},
-    };
+    use std::fs;
 
     if let Ok(dir) = std::env::var("CUBECL_DEBUG_SPIRV") {
         std::fs::create_dir_all(&dir).unwrap();
@@ -772,9 +769,7 @@ pub(crate) fn dump_spirv(repr: &SpirvKernel, name: &str, id: cubecl_runtime::id:
             .map(|it| it.split("::").last().unwrap())
             .collect::<Vec<_>>()
             .join("_");
-        let mut hash = DefaultHasher::new();
-        id.hash(&mut hash);
-        let id = hash.finish();
+        let id = id.stable_hash();
         let name = sanitize_filename::sanitize_with_options(
             format!("{name}_{id:#x}"),
             sanitize_filename::Options {
