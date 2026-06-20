@@ -861,6 +861,7 @@ mod custom_channel {
 
 #[cfg(test)]
 mod tests {
+    use crate::device::handle::CallResultExt;
     use crate::device::handle::channel::custom_channel::CHANNEL_MAX_TASK;
 
     use super::*;
@@ -1447,6 +1448,76 @@ mod tests {
         // The runner thread is still alive: a normal task runs and returns Ok.
         let counter = handle.submit_blocking(|state| state.counter).unwrap();
         assert_eq!(counter, 0);
+    }
+
+    /// 2-E1 — `unwrap_or_resume` re-raises a runner-thread panic as the *original*
+    /// panic on the caller (faithful message), and the runner thread survives.
+    #[test]
+    fn test_unwrap_or_resume_reraises_submit_blocking_panic() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 22,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let reraised = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            handle
+                .submit_blocking(|_state| {
+                    panic!("device boom");
+                })
+                .unwrap_or_resume()
+        }));
+
+        let payload = reraised.expect_err("the original panic must be re-raised at the caller");
+        assert_eq!(
+            payload.downcast_ref::<&str>().copied(),
+            Some("device boom"),
+            "the re-raised panic must carry the original message"
+        );
+
+        // The runner thread survived the captured-and-re-raised panic.
+        let counter = handle.submit_blocking(|state| state.counter).unwrap();
+        assert_eq!(counter, 0);
+    }
+
+    /// 2-E2 — `unwrap_or_resume` re-raises a non-string payload from `exclusive`
+    /// end to end, preserving the exact payload object.
+    #[test]
+    fn test_unwrap_or_resume_reraises_exclusive_non_string_payload() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 23,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        #[derive(Debug, PartialEq)]
+        struct Boom {
+            code: u32,
+            what: &'static str,
+        }
+
+        let reraised = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            handle
+                .exclusive(|| {
+                    std::panic::panic_any(Boom {
+                        code: 9,
+                        what: "exclusive",
+                    });
+                })
+                .unwrap_or_resume()
+        }));
+
+        let payload = reraised.expect_err("the original panic must be re-raised at the caller");
+        let boom = *payload
+            .downcast::<Boom>()
+            .expect("the re-raised payload must be the original object");
+        assert_eq!(
+            boom,
+            Boom {
+                code: 9,
+                what: "exclusive",
+            }
+        );
     }
 
     /// A closure that spills to the arena (size > 48) and carries the maximum arena

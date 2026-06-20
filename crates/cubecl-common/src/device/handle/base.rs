@@ -55,6 +55,50 @@ impl CallError {
     pub fn into_panic(self) -> Option<Box<dyn Any + Send>> {
         self.payload
     }
+
+    /// Re-raises the failure on the current thread, diverging.
+    ///
+    /// If a panic payload was captured (the task panicked on the device runner
+    /// thread), the original panic is resumed via [`std::panic::resume_unwind`],
+    /// preserving the exact payload (and, for the common string case, the
+    /// original message). If no payload is available (the runner channel
+    /// disconnected), this panics with a descriptive message.
+    #[track_caller]
+    pub fn resume(self) -> ! {
+        match self.into_panic() {
+            #[cfg(feature = "std")]
+            Some(payload) => std::panic::resume_unwind(payload),
+            // Without `std` there is no unwinding runtime to resume into. This
+            // path is unreachable in practice: only the channel backend (which
+            // requires `std`) ever captures a payload.
+            #[cfg(not(feature = "std"))]
+            Some(_payload) => {
+                panic!("a device task panicked but its payload cannot be re-raised without `std`")
+            }
+            None => panic!("device runner channel disconnected before producing a result"),
+        }
+    }
+}
+
+/// Extension trait for re-raising a [`CallError`] on the caller's thread.
+pub trait CallResultExt<R> {
+    /// Returns the success value, or re-raises the original panic captured in the
+    /// [`CallError`] via [`CallError::resume`].
+    ///
+    /// Use this instead of [`Result::unwrap`] on the result of a blocking device
+    /// call (`submit_blocking`, `exclusive`) so a task panic surfaces with its
+    /// original payload/message instead of an opaque [`CallError`].
+    fn unwrap_or_resume(self) -> R;
+}
+
+impl<R> CallResultExt<R> for Result<R, CallError> {
+    #[track_caller]
+    fn unwrap_or_resume(self) -> R {
+        match self {
+            Ok(value) => value,
+            Err(err) => err.resume(),
+        }
+    }
 }
 
 impl core::fmt::Debug for CallError {

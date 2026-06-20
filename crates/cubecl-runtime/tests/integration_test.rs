@@ -100,3 +100,61 @@ fn autotune_basic_multiplication_execution() {
     // If slow kernel was selected it would output [0, 1, 2]
     assert_eq!(obtained_resource, Vec::from([0, 4, 8]));
 }
+
+/// 2-I1 — A panic inside a profiled closure surfaces at the `ComputeClient` caller as
+/// the *original* panic (the issue's symptom), instead of an opaque `CallError`.
+#[test_log::test]
+#[cfg(feature = "std")]
+fn profile_reraises_panic_from_profiled_closure() {
+    let client = test_client(&DummyDevice);
+
+    let reraised = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.profile(|| panic!("kernel boom"), "test")
+    }));
+
+    let payload = match reraised {
+        Ok(_) => panic!("a panic in the profiled closure must surface at the caller"),
+        Err(payload) => payload,
+    };
+    assert_eq!(
+        payload.downcast_ref::<&str>().copied(),
+        Some("kernel boom"),
+        "the re-raised panic must carry the original message"
+    );
+}
+
+/// 2-I2 — The success path through `profile` still returns `Ok` (guards against the
+/// `unwrap_or_resume` swap turning a normal result into a panic).
+#[test_log::test]
+#[cfg(feature = "std")]
+fn profile_returns_ok_on_success() {
+    let client = test_client(&DummyDevice);
+
+    let (value, _duration) = client
+        .profile(|| 123u32, "ok")
+        .expect("a successful profiled closure must return Ok");
+    assert_eq!(value, 123);
+}
+
+/// 2-I3 — Design guard: the public `ComputeClient::exclusive` stays *recoverable* — a
+/// task panic becomes `Err(ServerError::Generic)` (so autotune can skip a failing
+/// candidate) rather than re-raising. The original message is still preserved in the
+/// error string thanks to the `CallError` payload.
+#[test_log::test]
+#[cfg(feature = "std")]
+fn exclusive_stays_recoverable_on_task_panic() {
+    use cubecl_runtime::server::ServerError;
+
+    let client = test_client(&DummyDevice);
+
+    let result = client.exclusive(|| panic!("exclusive boom"));
+
+    match result {
+        Err(ServerError::Generic { reason, .. }) => assert!(
+            reason.contains("exclusive boom"),
+            "the recoverable error must carry the original message, got: {reason}"
+        ),
+        Err(other) => panic!("expected a recoverable ServerError::Generic, got: {other}"),
+        Ok(()) => panic!("expected exclusive to return Err on a task panic, not Ok"),
+    }
+}
