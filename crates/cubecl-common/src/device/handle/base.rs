@@ -11,15 +11,13 @@ use core::any::Any;
 /// before the task could produce a result.
 pub struct CallError {
     /// The captured panic payload, or `None` if the call failed because the
-    /// runner channel disconnected rather than because the task panicked.
+    /// runner channel disconnected
     payload: Option<Box<dyn Any + Send>>,
 }
 
 impl CallError {
     // Only the `channel` backend (active when `multi_threading` is set) calls these
-    // constructors. In `no_std` builds `mod channel` isn't compiled, and on wasm+std
-    // the channel handle isn't the selected `Inner`, so the callers are dead — allow
-    // the dead-code lint there while keeping it active in the multi-threaded build.
+    // constructors.
     /// Builds an error from a panic payload captured by `catch_unwind`.
     #[cfg_attr(not(multi_threading), allow(dead_code))]
     pub(crate) fn from_panic(payload: Box<dyn Any + Send>) -> Self {
@@ -57,20 +55,12 @@ impl CallError {
     }
 
     /// Re-raises the failure on the current thread, diverging.
-    ///
-    /// If a panic payload was captured (the task panicked on the device runner
-    /// thread), the original panic is resumed via [`std::panic::resume_unwind`],
-    /// preserving the exact payload (and, for the common string case, the
-    /// original message). If no payload is available (the runner channel
-    /// disconnected), this panics with a descriptive message.
     #[track_caller]
     pub fn resume(self) -> ! {
         match self.into_panic() {
             #[cfg(feature = "std")]
             Some(payload) => std::panic::resume_unwind(payload),
-            // Without `std` there is no unwinding runtime to resume into. This
-            // path is unreachable in practice: only the channel backend (which
-            // requires `std`) ever captures a payload.
+            // std::panic::resume_unwind doesn't exist in a no_std build
             #[cfg(not(feature = "std"))]
             Some(_payload) => {
                 panic!("a device task panicked but its payload cannot be re-raised without `std`")
@@ -85,9 +75,7 @@ pub trait CallResultExt<R> {
     /// Returns the success value, or re-raises the original panic captured in the
     /// [`CallError`] via [`CallError::resume`].
     ///
-    /// Use this instead of [`Result::unwrap`] on the result of a blocking device
-    /// call (`submit_blocking`, `exclusive`) so a task panic surfaces with its
-    /// original payload/message instead of an opaque [`CallError`].
+    /// Use this instead of [`Result::unwrap`] to panics with the original payload itself.
     fn unwrap_or_resume(self) -> R;
 }
 

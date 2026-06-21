@@ -165,12 +165,8 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
 
         let (sender, recv) = oneshot::channel();
         // Run `task` under `catch_unwind` inside the slot so a panic on the
-        // runner thread is captured and threaded back here through the channel,
-        // instead of being logged and dropped by `Task`/`send`'s catch_unwind.
+        // runner thread is captured and sent back here through the channel.
         let mut slot = Some(move || {
-            // `sender.send` only fails if the receiver hung up, which cannot
-            // happen here: `run_scoped` blocks on `recv.recv()` below until this
-            // runs. Ignore the result so a stray failure can't panic the runner.
             let _ = sender.send(catch_unwind(AssertUnwindSafe(task)));
         });
         // Send the erased shim to the device thread.
@@ -178,8 +174,8 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         match recv.recv() {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(payload)) => Err(CallError::from_panic(payload)),
-            // The sender was dropped without sending: the shim never ran (e.g.
-            // the runner thread died), so no panic payload is available.
+            // The sender was dropped without sending (e.g. the runner thread died)
+            // so no panic payload is available.
             Err(_) => Err(CallError::disconnected()),
         }
     }
@@ -193,10 +189,11 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         task: T,
     ) -> Result<(), CallError> {
         if is_device_runner_thread(self.state.client.runner_id()) {
-            // Reentrant fast path: run inline. Capture the panic payload so it
-            // surfaces in the returned `CallError` instead of being dropped.
+            // Capture the panic payload so it surfaces in the returned `CallError`.
             if let Err(payload) = catch_unwind(AssertUnwindSafe(task)) {
-                return Err(CallError::from_panic(payload));
+                let err = CallError::from_panic(payload);
+                log::warn!("Task failed: {err:?}");
+                return Err(err);
             }
         } else {
             self.state.client.enqueue(task)?;
@@ -1227,9 +1224,7 @@ mod tests {
         assert_eq!(ok, 7);
     }
 
-    /// A.1 — A `String` payload produced by a formatting `panic!` is preserved and
-    /// readable through `message()` (exercises the `String` downcast branch, distinct
-    /// from the `&'static str` branch covered above).
+    /// A.1 — Submit a panic payload as task, capture the payload and return to caller.
     #[test]
     fn test_submit_blocking_preserves_formatted_string_payload() {
         let device_id = DeviceId {
@@ -1246,8 +1241,7 @@ mod tests {
         assert_eq!(err.message(), Some("value 99"));
     }
 
-    /// A.2 — A non-string custom payload survives end to end: `message()` is `None`,
-    /// but the original object is recoverable via `into_panic()`.
+    /// A.2 — Submit a custom panic payload, capture the payload and return to caller.
     #[test]
     fn test_submit_blocking_preserves_non_string_payload() {
         let device_id = DeviceId {
@@ -1284,7 +1278,6 @@ mod tests {
         );
     }
 
-    /// A.3 — A scalar (non-string) payload is preserved and recoverable.
     #[test]
     fn test_submit_blocking_preserves_scalar_payload() {
         let device_id = DeviceId {
