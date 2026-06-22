@@ -14,10 +14,6 @@ pub struct ComputeTask {
 }
 
 impl ThreadTask for ComputeTask {
-    fn get_stream_id(&self) -> usize {
-        self.stream_id
-    }
-
     fn is_ready(&self) -> bool {
         self.atomic_counter
             .load(std::sync::atomic::Ordering::Acquire)
@@ -26,7 +22,7 @@ impl ThreadTask for ComputeTask {
 }
 
 impl ComputeTask {
-    pub fn compute(mut self) {
+    pub fn compute(&mut self) {
         self.mlir_data.push_builtin();
         unsafe {
             self.mlir_engine.run_kernel(&mut self.mlir_data);

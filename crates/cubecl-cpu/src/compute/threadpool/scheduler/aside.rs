@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use std::{collections::VecDeque, sync::mpsc};
 
 use crate::compute::{
     affinity::get_active_cores,
@@ -29,26 +29,36 @@ impl AsideScheduler {
 
 pub struct AsideWorker {
     rx: mpsc::Receiver<ComputeTask>,
-    aside: Option<ComputeTask>,
+    aside: VecDeque<ComputeTask>,
 }
 
 impl AsideWorker {
     fn new() -> (Self, mpsc::Sender<ComputeTask>) {
         let (tx, rx) = mpsc::channel();
-        let aside = None;
+        let aside = VecDeque::with_capacity(4);
         let rx = Self { rx, aside };
         (rx, tx)
     }
 }
 
 impl Worker for AsideWorker {
-    fn work(self) {
+    fn work(mut self) {
         loop {
-            let task = self.rx.recv().unwrap();
-            while !task.is_ready() {
-                std::hint::spin_loop();
+            if self.aside.len() < 4 {
+                let task = self.rx.try_recv();
+                if let Ok(task) = task {
+                    self.aside.push_back(task);
+                }
             }
-            task.compute();
+            self.aside.retain_mut(|elem| {
+                if elem.is_ready() {
+                    elem.compute();
+                    false
+                } else {
+                    std::hint::spin_loop();
+                    true
+                }
+            });
         }
     }
 }

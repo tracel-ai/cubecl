@@ -42,7 +42,7 @@ impl NaiveWorker {
 impl Worker for NaiveWorker {
     fn work(self) {
         loop {
-            let task = self.rx.recv().unwrap();
+            let mut task = self.rx.recv().unwrap();
             while !task.is_ready() {
                 std::hint::spin_loop();
             }

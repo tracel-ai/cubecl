@@ -19,7 +19,6 @@ pub mod compute_task;
 pub mod scheduler;
 
 trait ThreadTask {
-    fn get_stream_id(&self) -> usize;
     fn is_ready(&self) -> bool;
 }
 
@@ -35,7 +34,7 @@ pub struct Threadpool {
 
 impl Threadpool {
     fn init() -> Self {
-        let scheduler = Scheduler::new(SchedulerVariant::Simple);
+        let scheduler = Scheduler::new(SchedulerVariant::Naive);
 
         Self { scheduler }
     }

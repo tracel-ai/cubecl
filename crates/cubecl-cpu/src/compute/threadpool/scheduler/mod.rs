@@ -4,17 +4,15 @@ use crate::compute::{
     affinity::{CoreId, set_for_current},
     threadpool::{
         compute_task::ComputeTask,
-        scheduler::{aside::AsideScheduler, naive::NaiveScheduler, simple::SimpleScheduler},
+        scheduler::{aside::AsideScheduler, naive::NaiveScheduler},
     },
 };
 
 pub mod aside;
 pub mod naive;
-pub mod simple;
 
 pub enum SchedulerVariant {
     Naive,
-    Simple,
     Aside,
 }
 
@@ -37,7 +35,6 @@ fn resolve_stack_size() -> usize {
 
 pub enum Scheduler {
     Naive(NaiveScheduler),
-    Simple(SimpleScheduler),
     Crossbeam(AsideScheduler),
 }
 
@@ -45,7 +42,6 @@ impl Scheduler {
     pub fn new(option: SchedulerVariant) -> Self {
         match option {
             SchedulerVariant::Naive => Scheduler::Naive(NaiveScheduler::new()),
-            SchedulerVariant::Simple => Scheduler::Simple(SimpleScheduler::new()),
             SchedulerVariant::Aside => Scheduler::Crossbeam(AsideScheduler::new()),
         }
     }
@@ -53,7 +49,6 @@ impl Scheduler {
     pub fn send(&mut self, index: usize, task: ComputeTask) {
         match self {
             Scheduler::Naive(naive) => naive.send(index, task),
-            Scheduler::Simple(simple) => simple.send(index, task),
             Scheduler::Crossbeam(crossbeam) => crossbeam.send(index, task),
         }
     }
