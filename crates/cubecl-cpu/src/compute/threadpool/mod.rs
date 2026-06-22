@@ -35,7 +35,7 @@ pub struct Threadpool {
 
 impl Threadpool {
     fn init() -> Self {
-        let scheduler = Scheduler::new(SchedulerVariant::Naive);
+        let scheduler = Scheduler::new(SchedulerVariant::Simple);
 
         Self { scheduler }
     }
@@ -43,10 +43,6 @@ impl Threadpool {
     /// Resolves the global execution queue instance.
     pub fn get() -> &'static spin::Mutex<Self> {
         INSTANCE.get_or_init(|| spin::Mutex::new(Self::init()))
-    }
-
-    pub fn flush(&mut self, stream_index: usize) {
-        self.scheduler.flush(stream_index);
     }
 
     pub fn execute_data(
