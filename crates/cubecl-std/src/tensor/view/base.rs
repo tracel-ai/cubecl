@@ -312,6 +312,26 @@ macro_rules! impl_read {
 impl_read!(View, ViewExpand);
 impl_read!(ViewMut, ViewMutExpand);
 
+impl<'a, E: CubePrimitive, C: Coordinates + 'a> ViewMut<'a, E, C> {
+    /// Reborrow this mutable view as a read-only [`View`] over the same storage. Lets a single
+    /// `ViewMut` carrier serve both read and write paths without a second handle.
+    #[allow(unused_variables)]
+    pub fn as_read(self) -> View<'a, E, C> {
+        unexpanded!()
+    }
+
+    pub fn __expand_as_read(scope: &Scope, this: ViewMutExpand<'a, E, C>) -> ViewExpand<'a, E, C> {
+        this.__expand_as_read_method(scope)
+    }
+}
+
+impl<'a, E: CubePrimitive, C: Coordinates + 'a> ViewMutExpand<'a, E, C> {
+    pub fn __expand_as_read_method(self, _scope: &Scope) -> ViewExpand<'a, E, C> {
+        let inner: &'a (dyn ViewOperationsExpand<E, C> + 'a) = self.inner;
+        ViewExpand { inner }
+    }
+}
+
 impl<'a, E: CubePrimitive, C: Coordinates> ViewExpand<'a, E, C> {
     pub fn new<V: ViewOperationsExpand<E, C> + 'a>(scope: &Scope, view: V) -> Self {
         let inner: &dyn ViewOperationsExpand<E, C> = scope.create_kernel_ref(view);
