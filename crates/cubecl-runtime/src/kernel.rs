@@ -15,7 +15,7 @@ use cubecl_common::{
     hash::{StableHash, StableHasher},
 };
 use cubecl_ir::{
-    AddressType, Scope, StorageType,
+    Scope, StorageType,
     metadata::Info,
     pliron::{format, value::Value},
     settings::KernelSettings,

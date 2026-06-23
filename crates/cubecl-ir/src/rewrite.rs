@@ -2,11 +2,13 @@ use core::{any::type_name, cell::RefCell};
 
 use derive_more::From;
 use derive_new::new;
-use pliron::irbuild::{
-    dialect_conversion::apply_dialect_conversion, match_rewrite::apply_match_rewrite,
+use pliron::{
+    attribute::AttrObj,
+    builtin::ops::ConstantOp,
+    irbuild::{dialect_conversion::apply_dialect_conversion, match_rewrite::apply_match_rewrite},
 };
 
-use crate::prelude::*;
+use crate::{interfaces::SimplifyInterface, prelude::*};
 
 #[derive(new, From, Clone, Debug)]
 pub struct DialectConversionPass<T: DialectConversion>(pub RefCell<T>);
@@ -35,7 +37,7 @@ impl<T: DialectConversion> Pass for DialectConversionPass<T> {
     }
 }
 
-#[derive(new, From, Clone, Debug)]
+#[derive(new, From, Clone, Debug, Default)]
 pub struct MatchRewritePass<T: MatchRewrite>(pub T);
 
 impl<T: MatchRewrite + Clone> Pass for MatchRewritePass<T> {
@@ -77,4 +79,37 @@ impl<P1: Pass, P2: Pass> Pass for CombinedPass<P1, P2> {
         res.ir_changed |= self.pass_2.run(op, ctx, analyses)?.ir_changed;
         Ok(res)
     }
+}
+
+pub type SimplifyOpsPass = MatchRewritePass<SimplifyOps>;
+
+#[derive(Default, Clone, Copy)]
+pub struct SimplifyOps;
+
+impl MatchRewrite for SimplifyOps {
+    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
+        op.impls::<dyn SimplifyInterface>(ctx)
+    }
+
+    fn rewrite(
+        &mut self,
+        ctx: &mut Context,
+        rewriter: &mut MatchRewriter,
+        op: Ptr<Operation>,
+    ) -> Result<()> {
+        let dyn_op = op.dyn_op(ctx);
+        let operand_attrs = const_operands(ctx, op);
+        let simplify = op_cast::<dyn SimplifyInterface>(&*dyn_op).unwrap();
+        if let Some(value) = simplify.check_fold(ctx, &operand_attrs) {
+            rewriter.replace_operation_with_values(ctx, op, vec![value]);
+        }
+        Ok(())
+    }
+}
+
+fn const_operands(ctx: &Context, op: Ptr<Operation>) -> Vec<Option<AttrObj>> {
+    op.deref(ctx)
+        .operands()
+        .map(|opd| Some(opd.defining_op()?.as_op::<ConstantOp>(ctx)?.get_value(ctx)))
+        .collect()
 }

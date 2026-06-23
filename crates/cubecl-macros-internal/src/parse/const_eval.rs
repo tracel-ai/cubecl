@@ -1,5 +1,5 @@
 use syn::{
-    ExprClosure, Token, Type,
+    ExprClosure, Ident, Token, Type,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     token,
@@ -9,11 +9,22 @@ pub struct ConstEval {
     pub op_type: Type,
     _comma: Token![,],
     _brace: token::Brace,
-    pub arms: Punctuated<ConstEvalArm, Token![,]>,
+    pub arms: Punctuated<FoldArm, Token![,]>,
+}
+
+pub enum FoldArm {
+    ConstEval(ConstEvalArm),
+    Custom(CustomArm),
 }
 
 pub struct ConstEvalArm {
     pub attr_types: TypeList,
+    _colon: Token![:],
+    pub closure: ExprClosure,
+}
+
+pub struct CustomArm {
+    _custom: Ident,
     _colon: Token![:],
     pub closure: ExprClosure,
 }
@@ -32,8 +43,21 @@ impl Parse for ConstEval {
             op_type: input.parse()?,
             _comma: input.parse()?,
             _brace: syn::braced!(content in input),
-            arms: content.parse_terminated(ConstEvalArm::parse, Token![,])?,
+            arms: content.parse_terminated(FoldArm::parse, Token![,])?,
         })
+    }
+}
+
+impl Parse for FoldArm {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let fork = input.fork();
+        if let Ok(ident) = fork.parse::<Ident>()
+            && ident == "custom"
+        {
+            Ok(FoldArm::Custom(CustomArm::parse(input)?))
+        } else {
+            Ok(FoldArm::ConstEval(ConstEvalArm::parse(input)?))
+        }
     }
 }
 
@@ -41,6 +65,16 @@ impl Parse for ConstEvalArm {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         Ok(ConstEvalArm {
             attr_types: input.parse()?,
+            _colon: input.parse()?,
+            closure: input.parse()?,
+        })
+    }
+}
+
+impl Parse for CustomArm {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(CustomArm {
+            _custom: input.parse()?,
             _colon: input.parse()?,
             closure: input.parse()?,
         })

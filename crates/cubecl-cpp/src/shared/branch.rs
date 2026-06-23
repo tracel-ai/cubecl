@@ -20,7 +20,7 @@ shared_op!(IfOp, |op, ctx| {
     let else_block = op.else_block(ctx);
     let mut out = format!("if({cond}) {{\n");
     out.push_str(&block_to_cpp(ctx, op.then_block(ctx)));
-    if else_block.deref(ctx).iter(ctx).count() > 0 {
+    if else_block.deref(ctx).iter(ctx).count() > 1 {
         out.push_str("}\n else {\n");
         out.push_str(&block_to_cpp(ctx, else_block));
     }
@@ -41,6 +41,9 @@ shared_op!(SwitchOp, |op, ctx| {
     out.push_str("}\n}\n");
     out
 });
+
+// Only relevant for IR structure
+shared_op!(YieldOp, |_, _| String::new());
 
 shared_op!(ReturnOp, |op, ctx| {
     if let Some(value) = op.value(ctx) {

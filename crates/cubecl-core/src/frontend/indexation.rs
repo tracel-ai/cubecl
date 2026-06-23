@@ -95,7 +95,7 @@ where
 {
     let index = index.read_value(scope);
 
-    let index_op = IndexOp::new(scope.ctx_mut(), list, index, 1, checked);
+    let index_op = IndexOp::maybe_checked(scope.ctx_mut(), list, index, checked);
     scope.register(&index_op);
     let out: ExpandValue = index_op.get_result(scope.ctx()).into();
 

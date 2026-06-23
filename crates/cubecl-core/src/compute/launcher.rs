@@ -79,29 +79,6 @@ impl<R: Runtime> KernelLauncher<R> {
         client.launch(kernel, cube_count, bindings)
     }
 
-    /// Launch the kernel without check bounds.
-    ///
-    /// # Safety
-    ///
-    /// The kernel must not:
-    /// - Contain any out of bounds reads or writes. Doing so is immediate UB.
-    /// - Contain any loops that never terminate. These may be optimized away entirely or cause
-    ///   other unpredictable behaviour.
-    #[track_caller]
-    pub unsafe fn launch_unchecked<K: CubeKernel>(
-        self,
-        cube_count: CubeCount,
-        kernel: K,
-        client: &ComputeClient<R>,
-    ) {
-        unsafe {
-            let bindings = self.into_bindings();
-            let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
-
-            client.launch_unchecked(kernel, cube_count, bindings)
-        }
-    }
-
     /// We need to create the bindings in the same order they are defined in the compilation step.
     ///
     /// The function [`crate::KernelIntegrator::integrate`] stars by registering the input tensors followed

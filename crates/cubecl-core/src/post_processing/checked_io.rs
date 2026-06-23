@@ -15,7 +15,7 @@ pub struct ApplyCheckedIo {
 impl DialectConversion for ApplyCheckedIo {
     fn can_convert_op(&self, ctx: &Context, op: Ptr<Operation>) -> bool {
         Operation::get_op::<IndexOp>(op, ctx).is_some_and(|it| {
-            it.get_attr_checked(ctx).unwrap().0 && is_runtime_array(ctx, it.base(ctx))
+            it.get_attr_checked(ctx).is_some() && is_runtime_array(ctx, it.base(ctx))
         })
     }
 
@@ -29,19 +29,14 @@ impl DialectConversion for ApplyCheckedIo {
         let index = Operation::get_op::<IndexOp>(op, ctx).unwrap();
 
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
-        let unroll_factor = index.get_attr_unroll_factor(ctx).unwrap().0;
 
         let new_value = match self.mode {
             ExecutionMode::Checked => {
-                expand_checked_index(&scope, index.base(ctx), index.index(ctx), unroll_factor)
+                expand_checked_index(&scope, index.base(ctx), index.index(ctx))
             }
-            ExecutionMode::Validate => expand_validate_index(
-                &scope,
-                index.base(ctx),
-                index.index(ctx),
-                unroll_factor,
-                &self.kernel_name,
-            ),
+            ExecutionMode::Validate => {
+                expand_validate_index(&scope, index.base(ctx), index.index(ctx), &self.kernel_name)
+            }
             ExecutionMode::Unchecked => index.get_result(ctx),
         };
         rewriter.replace_operation_with_values(ctx, index.get_operation(), vec![new_value]);

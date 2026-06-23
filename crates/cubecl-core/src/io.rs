@@ -31,9 +31,8 @@ pub fn write_checked<C: CubePrimitive>(list: &mut [C], index: usize, value: C) {
 
 /// Returns the value at `index` in tensor within bounds.
 #[cube]
-pub fn checked_index(index: usize, buffer_len: usize, #[comptime] unroll_factor: usize) -> usize {
-    let len = buffer_len * unroll_factor;
-    index.min(len - 1)
+pub fn checked_index(index: usize, buffer_len: usize) -> usize {
+    index.min(buffer_len - 1)
 }
 
 /// Returns the value at `index` in tensor within bounds.
@@ -41,11 +40,9 @@ pub fn checked_index(index: usize, buffer_len: usize, #[comptime] unroll_factor:
 pub fn validate_index(
     #[comptime] buffer_name: &str,
     index: usize,
-    buffer_len: usize,
-    #[comptime] unroll_factor: usize,
+    len: usize,
     #[comptime] kernel_name: &str,
 ) -> usize {
-    let len = buffer_len * unroll_factor;
     let in_bounds = index < len;
     if !in_bounds {
         print_oob(kernel_name, index, len, buffer_name);
@@ -75,38 +72,20 @@ fn print_oob(
 }
 
 #[allow(missing_docs)]
-pub fn expand_checked_index(
-    scope: &Scope,
-    list: Value,
-    index: Value,
-    unroll_factor: usize,
-) -> Value {
+pub fn expand_checked_index(scope: &Scope, list: Value, index: Value) -> Value {
     let len = expand_buffer_length_native(scope, list);
-    let index = checked_index::expand(scope, index.into(), len.into(), unroll_factor);
+    let index = checked_index::expand(scope, index.into(), len.into());
     index_expand(scope, list, index.value(scope), false)
 }
 
 #[allow(missing_docs)]
-pub fn expand_validate_index(
-    scope: &Scope,
-    list: Value,
-    index: Value,
-    unroll_factor: usize,
-    kernel_name: &str,
-) -> Value {
+pub fn expand_validate_index(scope: &Scope, list: Value, index: Value, kernel_name: &str) -> Value {
     let len = expand_buffer_length_native(scope, list);
     let buffer_name = list.given_name(scope.ctx());
     let buffer_name = buffer_name
         .as_ref()
         .map(|it| it.as_str())
         .unwrap_or("buffer");
-    let index = validate_index::expand(
-        scope,
-        buffer_name,
-        index.into(),
-        len.into(),
-        unroll_factor,
-        kernel_name,
-    );
+    let index = validate_index::expand(scope, buffer_name, index.into(), len.into(), kernel_name);
     index_expand(scope, list, index.value(scope), false)
 }

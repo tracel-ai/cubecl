@@ -2,14 +2,14 @@ use cubecl_macros_internal::cube_op;
 use derive_more::From;
 use derive_new::new;
 use pliron::{
-    builtin::attributes::TypeAttr,
+    builtin::attributes::{TypeAttr, UnitAttr},
     derive::pliron_attr,
     r#type::{TypeHandle, type_cast},
 };
 
 use crate::{
     AddressSpace,
-    attributes::{BoolAttr, IndexAttr},
+    attributes::IndexAttr,
     dialect::ptr_value_ty,
     interfaces::{IndexableType, Pure, erasable},
     prelude::*,
@@ -38,16 +38,29 @@ fn variable_ptr_ty(
     PointerType::get(ctx, value_ty, addr_space.0).into()
 }
 
-#[cube_op(name = "memory.index")]
-#[result_ty(from_inputs = |ctx, base, _, _, _| indexed_ptr_ty(ctx, base))]
+#[cube_op(
+    name = "memory.index",
+    format = "$0 `[` $1 `]` opt_attr($checked, $UnitAttr) : type($0)"
+)]
+#[result_ty(from_inputs = |ctx, base, _| indexed_ptr_ty(ctx, base))]
 #[op_interfaces(Pure)]
 pub struct IndexOp {
     pub base: Value,
     pub index: Value,
-    pub unroll_factor: IndexAttr, // Adjustment factor for bounds check
-    pub checked: BoolAttr,
+    #[attribute(optional)]
+    pub checked: UnitAttr,
 }
 erasable!(IndexOp);
+
+impl IndexOp {
+    pub fn maybe_checked(ctx: &mut Context, base: Value, index: Value, checked: bool) -> Self {
+        let op = Self::new(ctx, base, index);
+        if checked {
+            op.set_attr_checked(ctx, UnitAttr::new());
+        }
+        op
+    }
+}
 
 fn indexed_ptr_ty(ctx: &Context, base: &Value) -> TypeHandle {
     let (value_ty, address_space) = {

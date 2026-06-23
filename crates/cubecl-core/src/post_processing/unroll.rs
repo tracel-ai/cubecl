@@ -157,7 +157,7 @@ impl CustomUnrollOp for IndexOp {
         result: &mut IRStatus,
     ) {
         let base = self.base(ctx);
-        let checked = *self.get_attr_checked(ctx).unwrap();
+        let checked = self.get_attr_checked(ctx).is_some();
         let current_vec = try_get_vec(ctx, base);
         if current_vec > vector_size {
             *result |= IRStatus::Changed;
@@ -175,7 +175,7 @@ impl CustomUnrollOp for IndexOp {
                     add.get_operation().insert_before(ctx, self.get_operation());
                     let idx = add.get_result(ctx);
 
-                    let op = IndexOp::new(ctx, base, idx, unroll_factor, checked);
+                    let op = IndexOp::maybe_checked(ctx, base, idx, checked);
                     op.get_operation().insert_before(ctx, self.get_operation());
                     op.get_result(ctx)
                 })

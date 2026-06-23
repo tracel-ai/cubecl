@@ -2,7 +2,7 @@ use core::cell::Ref;
 
 use alloc::string::String;
 
-use cubecl_macros_internal::{const_eval, cube_op};
+use cubecl_macros_internal::{const_eval, cube_op, simplify};
 use derive_more::From;
 use derive_new::new;
 use pliron::{
@@ -12,10 +12,13 @@ use pliron::{
 };
 
 use crate::{
-    Builtin,
+    Builtin, ConstantValue,
     attributes::{BoolAttr, IndexAttr},
-    dialect::{pure_binop, pure_unop},
-    interfaces::{AggregateType, Pure, erasable},
+    dialect::{
+        math::{int_attr, uint_attr},
+        pure_binop, pure_unop,
+    },
+    interfaces::{AggregateType, Pure, TypedExt, erasable},
     prelude::*,
     types::scalar::IndexType,
 };
@@ -66,12 +69,66 @@ fn aggregate_extract_type(ctx: &Context, aggregate: &Value, field: &IndexAttr) -
 
 pure_binop!("cube.bool_and", BoolAndOp);
 const_eval!(BoolAndOp, {
-    BoolAttr: |lhs, rhs| lhs && rhs
+    BoolAttr: |lhs, rhs| lhs && rhs,
+    // false && x -> false
+    custom: |lhs, _| match lhs?.as_const_val() {
+        ConstantValue::Bool(false) => Some(BoolAttr::new(false)),
+        _ => None
+    },
+    // x && false -> false
+    custom: |_, rhs| match rhs?.as_const_val() {
+        ConstantValue::Bool(false) => Some(BoolAttr::new(false)),
+        _ => None
+    }
+});
+simplify!(BoolAndOp, {
+    // true && x -> x
+    |lhs, _| match lhs?.as_const_val() {
+        ConstantValue::Bool(true) => Some(self.rhs(ctx)),
+        _ => None,
+    },
+    // x && true -> x
+    |_, rhs| match rhs?.as_const_val() {
+        ConstantValue::Bool(true) => Some(self.lhs(ctx)),
+        _ => None,
+    },
+    // x && x -> x
+    |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => Some(self.lhs(ctx)),
+        false => None
+    }
 });
 
 pure_binop!("cube.bool_or", BoolOrOp);
 const_eval!(BoolOrOp, {
-    BoolAttr: |lhs, rhs| lhs || rhs
+    BoolAttr: |lhs, rhs| lhs || rhs,
+    // true || x -> true
+    custom: |lhs, _| match lhs?.as_const_val() {
+        ConstantValue::Bool(true) => Some(BoolAttr::new(true)),
+        _ => None
+    },
+    // x || true -> true
+    custom: |_, rhs| match rhs?.as_const_val() {
+        ConstantValue::Bool(true) => Some(BoolAttr::new(true)),
+        _ => None
+    }
+});
+simplify!(BoolOrOp, {
+    // false || x -> x
+    |lhs, _| match lhs?.as_const_val() {
+        ConstantValue::Bool(false) => Some(self.rhs(ctx)),
+        _ => None,
+    },
+    // false || x -> x
+    |_, rhs| match rhs?.as_const_val() {
+        ConstantValue::Bool(false) => Some(self.lhs(ctx)),
+        _ => None,
+    },
+    // x || x -> x
+    |_, _| match self.lhs(ctx) == self.rhs(ctx) {
+        true => Some(self.lhs(ctx)),
+        false => None
+    }
 });
 
 pure_unop!("cube.bool_not", BoolNotOp);
@@ -95,7 +152,24 @@ pub struct ReinterpretCastOp {
     pub value: Value,
 }
 erasable!(ReinterpretCastOp);
-// TODO const_eval
+const_eval!(ReinterpretCastOp, {
+    custom: |inp| {
+        let val = match inp?.as_const_val() {
+            ConstantValue::Int(val) => val as u64,
+            ConstantValue::Float(val) => val.to_bits(),
+            ConstantValue::UInt(val) => val,
+            ConstantValue::Bool(_) => None?,
+        };
+        let out_ty = self.get_result(ctx).get_type(ctx);
+        if out_ty.is_int(ctx) {
+            Some(int_attr(ctx, out_ty, val as i64))
+        } else if out_ty.is_uint(ctx) {
+            Some(uint_attr(ctx, out_ty, val))
+        } else { // Too much weirdness around floats, don't risk it
+            None
+        }
+    }
+});
 
 #[cube_op(name = "cube.select")]
 #[result_ty(same_as = true_value)]
@@ -106,7 +180,18 @@ pub struct SelectOp {
     pub false_value: Value,
 }
 erasable!(SelectOp);
-// TODO const_eval
+simplify!(SelectOp, {
+    |cond, _, _| match cond?.as_const_val() {
+        ConstantValue::Bool(true) => Some(self.true_value(ctx)),
+        ConstantValue::Bool(false) => Some(self.false_value(ctx)),
+        _ => None,
+    },
+    // select(cond, x, x) -> x
+    |_, _, _| match self.true_value(ctx) == self.false_value(ctx) {
+        true => Some(self.true_value(ctx)),
+        false => None
+    }
+});
 
 #[pliron_attr(name = "cube.builtin", format, verifier = "succ")]
 #[derive(new, From, PartialEq, Clone, Debug)]
