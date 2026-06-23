@@ -41,45 +41,6 @@ impl IntoExpand for e4m3 {
 
 impl NativeAssign for e4m3 {}
 
-impl Numeric for e4m3 {
-    fn min_value() -> Self {
-        Self::MIN
-    }
-
-    fn max_value() -> Self {
-        Self::MAX
-    }
-}
-
-impl Numeric for e5m2 {
-    fn min_value() -> Self {
-        Self::MIN
-    }
-
-    fn max_value() -> Self {
-        Self::MAX
-    }
-}
-
-impl Float for e4m3 {
-    const DIGITS: u32 = e4m3::DIGITS;
-    const EPSILON: Self = e4m3::EPSILON;
-    const INFINITY: Self = e4m3::INFINITY;
-    const MANTISSA_DIGITS: u32 = e4m3::MANTISSA_DIGITS;
-    const MAX_10_EXP: i32 = e4m3::MAX_10_EXP;
-    const MAX_EXP: i32 = e4m3::MAX_EXP;
-    const MIN_10_EXP: i32 = e4m3::MIN_10_EXP;
-    const MIN_EXP: i32 = e4m3::MIN_EXP;
-    const MIN_POSITIVE: Self = e4m3::MIN_POSITIVE;
-    const NAN: Self = e4m3::NAN;
-    const NEG_INFINITY: Self = e4m3::NEG_INFINITY;
-    const RADIX: u32 = e4m3::RADIX;
-
-    fn new(val: f32) -> Self {
-        Self::from_f32(val)
-    }
-}
-
 impl CubeType for e5m2 {
     type ExpandType = NativeExpand<e5m2>;
 }
@@ -117,24 +78,7 @@ impl IntoExpand for e5m2 {
 }
 
 impl NativeAssign for e5m2 {}
-impl Float for e5m2 {
-    const DIGITS: u32 = e5m2::DIGITS;
-    const EPSILON: Self = e5m2::EPSILON;
-    const INFINITY: Self = e5m2::INFINITY;
-    const MANTISSA_DIGITS: u32 = e5m2::MANTISSA_DIGITS;
-    const MAX_10_EXP: i32 = e5m2::MAX_10_EXP;
-    const MAX_EXP: i32 = e5m2::MAX_EXP;
-    const MIN_10_EXP: i32 = e5m2::MIN_10_EXP;
-    const MIN_EXP: i32 = e5m2::MIN_EXP;
-    const MIN_POSITIVE: Self = e5m2::MIN_POSITIVE;
-    const NAN: Self = e5m2::NAN;
-    const NEG_INFINITY: Self = e5m2::NEG_INFINITY;
-    const RADIX: u32 = e5m2::RADIX;
 
-    fn new(val: f32) -> Self {
-        Self::from_f32(val)
-    }
-}
 impl CubeType for ue8m0 {
     type ExpandType = NativeExpand<ue8m0>;
 }
