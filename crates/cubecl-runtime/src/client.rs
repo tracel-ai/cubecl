@@ -356,7 +356,7 @@ impl<R: Runtime> ComputeClient<R> {
         self.device
             .exclusive(task)
             .map_err(|err| ServerError::Generic {
-                reason: format!("Communication channel with the server is down: {err:?}"),
+                reason: format!("{err:?}"),
                 backtrace: BackTrace::capture(),
             })
     }
