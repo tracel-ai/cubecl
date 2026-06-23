@@ -205,6 +205,7 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// The data reflects the device state at first access, so the buffer must not be mutated
     /// between this call and the first read.
+    #[cfg(not(target_family = "wasm"))]
     pub fn read_lazy(&self, descriptor: CopyDescriptor) -> Bytes {
         let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
         let controller = lazy::LazyDeviceController::new(self.clone(), Arc::new(descriptor));

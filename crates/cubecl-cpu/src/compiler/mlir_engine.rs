@@ -64,12 +64,16 @@ impl MlirEngine {
 
         let execution_engine = module.into_execution_engine();
         register_external_function(&execution_engine);
-        let kernel = MlirKernel {
+        let mlir_kernel = MlirKernel {
             execution_engine,
             shared_memories,
         };
-        let mlir_kernel = Arc::new(kernel);
-        Self(mlir_kernel)
+
+        let mlir_kernel = Arc::new(mlir_kernel);
+        let mlir_kernel = Self(mlir_kernel);
+        #[cfg(feature = "mlir-dump")]
+        mlir_kernel.dump_debug_shared_library(&kernel.options.kernel_name);
+        mlir_kernel
     }
 
     pub fn dump_object(&self, path: &str) {
@@ -88,6 +92,13 @@ impl MlirEngine {
                     log::error!("MLIR kernel invocation failed: {err}");
                     panic!("{err}");
                 });
+        }
+    }
+
+    #[cfg(feature = "mlir-dump")]
+    fn dump_debug_shared_library(&self, name: &str) {
+        if let Some(path) = super::get_dump_name(name) {
+            self.dump_object(path.join("mlir_output.so").to_str().unwrap());
         }
     }
 }
