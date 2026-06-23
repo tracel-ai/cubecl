@@ -23,23 +23,14 @@ impl e5m2 {
     pub const MAX: e5m2 = Self::from_bits(F8E5M2::MAX.to_bits());
     /// Minimum representable value
     pub const MIN: e5m2 = Self::from_bits(F8E5M2::MIN.to_bits());
-
     /// the difference between 1.0 and the next largest representable number.
     pub const EPSILON: Self = Self::from_bits(F8E5M2::EPSILON.to_bits());
-
     /// Minimum representable value
     pub const MIN_POSITIVE: Self = Self::from_bits(F8E5M2::MIN_POSITIVE.to_bits());
-
     ///Approximate number of significant digits in base 10
     pub const DIGITS: u32 = F8E5M2::DIGITS;
-
     ///Number of mantissa digits
     pub const MANTISSA_DIGITS: u32 = F8E5M2::MANTISSA_DIGITS;
-
-    ///Positive infinity ∞
-    pub const INFINITY: Self = Self::from_bits(F8E5M2::INFINITY.to_bits());
-    ///Negative infinity -∞
-    pub const NEG_INFINITY: Self = Self::from_bits(F8E5M2::NEG_INFINITY.to_bits());
     /// Maximum possible normal power of 10 exponent
     pub const MAX_10_EXP: i32 = F8E5M2::MAX_10_EXP;
     /// Maximum possible normal power of 2 exponent
@@ -52,6 +43,12 @@ impl e5m2 {
     pub const RADIX: u32 = 2;
     /// nan
     pub const NAN: Self = Self::from_bits(0xFFu8);
+    /// Zero
+    pub const ZERO: e5m2 = Self::from_bits(F8E5M2::ZERO.to_bits());
+    /// Negative Zero
+    pub const NEG_ZERO: e5m2 = Self::from_bits(F8E5M2::NEG_ZERO.to_bits());
+    /// One
+    pub const ONE: e5m2 = Self::from_bits(F8E5M2::ONE.to_bits());
     /// Constructs a [`e5m2`] value from the raw bits.
     #[inline]
     #[must_use]
@@ -89,7 +86,7 @@ impl e5m2 {
         self.0
     }
 
-    /// check if an [`e4m3`] value is Nan
+    /// check if an [`e5m2`] value is Nan
     #[inline]
     pub fn is_nan(self) -> bool {
         [0x7D, 0x7E, 0x7F, 0xFD, 0xFE, 0xFF].contains(&self.0)
@@ -113,7 +110,7 @@ impl e5m2 {
         F8E5M2::from_bits(self.0).to_f64()
     }
 
-    /// Compares [`e4m3`] values
+    /// Compares [`e5m2`] values
     #[inline]
     pub fn total_cmp(self, other: Self) -> Ordering {
         F8E5M2::total_cmp(&self.into(), &other.into())
@@ -134,13 +131,14 @@ impl From<e5m2> for F8E5M2 {
 
 impl Zero for e5m2 {
     fn zero() -> Self {
-        Self::from_bits(F8E5M2::ZERO.to_bits())
+        Self::ZERO
     }
 
     fn is_zero(&self) -> bool {
-        self == &Self::zero()
+        [Self::ZERO, Self::NEG_ZERO].contains(self)
     }
 }
+
 impl One for e5m2 {
     fn one() -> Self {
         Self::from_bits(F8E5M2::ONE.to_bits())
@@ -150,20 +148,15 @@ impl One for e5m2 {
         self == &Self::one()
     }
 }
+
 impl Num for e5m2 {
-    // You can use the standard library's ParseFloatError
-    // or create a custom enum if you want to handle RadixMismatch explicitly.
     type FromStrRadixErr = ParseFloatError;
 
     fn from_str_radix(src: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
         if radix != 10 {
             return "".parse::<f32>().map(|_| unreachable!());
         }
-
-        // 2. Parse the string into a temporary f32
         let val_f32 = src.parse::<f32>()?;
-
-        // 3. Convert the f32 down into your e4m3 variant
         Ok(Self::from_f32(val_f32))
     }
 }
