@@ -101,23 +101,29 @@ impl Compiler for MlirCompiler {
 }
 
 #[cfg(feature = "mlir-dump")]
-fn dump_scope(scope: &cubecl_core::prelude::Scope, name: &str) {
+pub fn get_dump_name(name: &str) -> Option<std::path::PathBuf> {
     use std::fs;
 
     if let Ok(dir) = std::env::var("CUBECL_DEBUG_MLIR") {
         let path = format!("{dir}/{name}");
-        let _ = fs::create_dir(&path);
-        fs::write(format!("{path}/cubecl.ir.txt"), format!("{}", scope)).unwrap();
+        let _ = fs::create_dir_all(&path);
+        Some(path.into())
+    } else {
+        None
+    }
+}
+
+#[cfg(feature = "mlir-dump")]
+fn dump_scope(scope: &cubecl_core::prelude::Scope, name: &str) {
+    if let Some(path) = get_dump_name(name) {
+        std::fs::write(path.join("cubecl.ir.txt"), format!("{}", scope)).unwrap();
     }
 }
 
 #[cfg(feature = "mlir-dump")]
 fn dump_opt(opt: &cubecl_opt::Optimizer, name: &str) {
-    if let Ok(dir) = std::env::var("CUBECL_DEBUG_MLIR") {
-        use std::fs;
-        let path = format!("{dir}/{name}");
-        let _ = fs::create_dir(&path);
-        fs::write(format!("{path}/cubecl-opt.ir.txt"), format!("{}", opt)).unwrap();
-        fs::write(format!("{path}/cubecl-opt.ir.dot"), opt.main.dot_viz()).unwrap();
+    if let Some(path) = get_dump_name(name) {
+        std::fs::write(path.join("cubecl-opt.ir.txt"), format!("{}", opt)).unwrap();
+        std::fs::write(path.join("cubecl-opt.ir.dot"), opt.main.dot_viz()).unwrap();
     }
 }
