@@ -17,6 +17,7 @@ use cubecl_core::{
         AddressType, ContextExt, DeviceProperties, ElemType, FloatKind, IntKind, Type, UIntKind,
         features::{AtomicUsage, TypeUsage},
         metadata::Info,
+        rewrite::SimplifyOpsPass,
         settings::Dim3,
     },
     post_processing::disaggregate::DisaggregatePass,
@@ -25,11 +26,11 @@ use cubecl_core::{
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use pliron::{
     builtin::ops::{FuncOp, ModuleOp},
-    common_traits::Verify,
     context::Context,
     irbuild::match_rewrite::MatchRewrite,
     op::Op,
-    opts::constants::sccp::SCCPPass,
+    operation::verify_operation,
+    opts::{constants::sccp::SCCPPass, dce::DCEPass},
     pass_manager::{AnalysisManager, OpPass, OpPassManager, Pass, PassGroup},
     printable::Printable,
     r#type::TypeHandle,
@@ -90,49 +91,6 @@ impl Default for CompilationOptions {
             supports_features: Default::default(),
         }
     }
-}
-
-/// Cube indexes flags.
-/// When true the corresponding index is declared and computed as needed in the kernel.
-#[derive(Debug, Clone, Default)]
-pub struct CubeIndexFlags {
-    pub absolute_pos: bool,
-    pub absolute_pos_tuple: bool,
-    pub cube_count: bool,
-    pub cube_count_tuple: bool,
-    pub cube_dim: bool,
-    pub cube_dim_tuple: bool,
-    pub cube_pos: bool,
-    pub cube_pos_tuple: bool,
-    pub plane_dim: bool,
-    pub plane_pos: bool,
-    pub unit_pos: bool,
-    pub unit_pos_tuple: bool,
-    pub unit_pos_plane: bool,
-    pub cluster_pos: bool,
-}
-
-/// Flags gathered during Cube IR translation for the kernel compilation.
-#[derive(Debug, Clone, Default)]
-pub struct Flags {
-    pub elem_fp4: bool,
-    pub elem_fp6: bool,
-    pub elem_fp8: bool,
-    pub elem_bf16: bool,
-    pub elem_f16: bool,
-    pub elem_tf32: bool,
-    pub indexes: CubeIndexFlags,
-    pub op_barrier: bool,
-    pub thread_block: bool,
-    pub inst_tma: bool,
-    pub inst_tma_im2col: bool,
-    pub inst_wmma: bool,
-    pub inst_ptx_wrappers: bool,
-    pub inst_async_copy: bool,
-    pub use_grid_constants: bool,
-    pub static_meta_length: usize,
-    pub has_dynamic_meta: bool,
-    pub has_info: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -245,6 +203,8 @@ where
         pass_manager.add_pass(OpPass::<LowerBuiltinsPass<T>, FuncOp>::default());
         pass_manager.add_pass(OpPass::<DisaggregatePass, FuncOp>::default());
         pass_manager.add_pass(OpPass::<SCCPPass, FuncOp>::default());
+        pass_manager.add_pass(OpPass::<SimplifyOpsPass, FuncOp>::default());
+        pass_manager.add_pass(OpPass::<DCEPass, FuncOp>::default());
         pass_manager.add_pass(OpPass::<ConvertPtrPass, FuncOp>::default());
         pass_manager.add_pass(OpPass::<LowerOpsCppPass<T>, FuncOp>::default());
         pass_manager.add_pass(OpPass::<LowerOpsCppPass<Shared>, FuncOp>::default());
@@ -258,7 +218,7 @@ where
         )
         .unwrap();
 
-        module.verify(&ctx).unwrap();
+        verify_operation(module.get_operation(), &ctx).unwrap();
         module.to_cpp(&ctx);
 
         ComputeKernel {

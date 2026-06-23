@@ -16,7 +16,7 @@ use pliron::{
     utils::apfloat::{Double, double_to_f64, f64_to_double},
 };
 
-use crate::{settings::Dim3, types::scalar::*};
+use crate::{ConstantValue, interfaces::ConstantAttr, settings::Dim3, types::scalar::*};
 
 mod entrypoint;
 
@@ -82,6 +82,13 @@ impl IndexAttr {
     }
 }
 
+#[attr_interface_impl]
+impl ConstantAttr for IndexAttr {
+    fn as_const_val(&self) -> ConstantValue {
+        ConstantValue::UInt(self.0 as u64)
+    }
+}
+
 impl From<IndexAttr> for usize {
     fn from(value: IndexAttr) -> Self {
         value.0
@@ -130,6 +137,13 @@ impl TypedAttrInterface for BoolAttr {
     }
 }
 
+#[attr_interface_impl]
+impl ConstantAttr for BoolAttr {
+    fn as_const_val(&self) -> ConstantValue {
+        ConstantValue::Bool(self.0)
+    }
+}
+
 #[pliron_attr(name = "cube.int", format = "$val `: ` $ty", verifier = "succ")]
 #[derive(new, PartialEq, Eq, Clone, Copy, Debug, Hash)]
 pub struct IntAttr {
@@ -159,6 +173,13 @@ impl TypedAttrInterface for IntAttr {
     }
 }
 
+#[attr_interface_impl]
+impl ConstantAttr for IntAttr {
+    fn as_const_val(&self) -> ConstantValue {
+        ConstantValue::Int(self.val)
+    }
+}
+
 #[pliron_attr(name = "cube.uint", format = "$val `: ` $ty", verifier = "succ")]
 #[derive(new, PartialEq, Eq, Clone, Debug, Hash)]
 pub struct UIntAttr {
@@ -185,6 +206,13 @@ impl UIntAttr {
 impl TypedAttrInterface for UIntAttr {
     fn get_type(&self, _ctx: &Context) -> TypeHandle {
         self.ty.into()
+    }
+}
+
+#[attr_interface_impl]
+impl ConstantAttr for UIntAttr {
+    fn as_const_val(&self) -> ConstantValue {
+        ConstantValue::UInt(self.val)
     }
 }
 
@@ -221,6 +249,13 @@ pub struct Dim3Attr(pub Dim3);
 impl TypedAttrInterface for FloatAttr {
     fn get_type(&self, _ctx: &Context) -> TypeHandle {
         self.ty
+    }
+}
+
+#[attr_interface_impl]
+impl ConstantAttr for FloatAttr {
+    fn as_const_val(&self) -> ConstantValue {
+        ConstantValue::Float(double_to_f64(self.val))
     }
 }
 

@@ -3,6 +3,7 @@ use proc_macro2::TokenStream;
 
 pub mod const_eval;
 pub mod cube_op;
+pub mod simplify;
 
 pub fn from_meta_tokens<T: FromMeta>(tokens: TokenStream) -> syn::Result<T> {
     let meta = NestedMeta::parse_meta_list(tokens)?;

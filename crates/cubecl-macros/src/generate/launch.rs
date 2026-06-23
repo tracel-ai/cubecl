@@ -128,7 +128,7 @@ impl Launch {
                     #(#args),*
                 ) {
                     #body
-                    launcher.launch_unchecked(__cube_count, __kernel, __client)
+                    launcher.launch(__cube_count, __kernel, __client)
                 }
             }
         } else {

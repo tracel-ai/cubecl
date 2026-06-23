@@ -1,22 +1,11 @@
-use core::{any::type_name, marker::PhantomData};
+use core::marker::PhantomData;
 
 use cubecl_core::{
     self as cubecl,
-    ir::{
-        Builtin, ContextExt,
-        dialect::general::ReadBuiltinOp,
-        prelude::{AnalysisManager, Context, Operation, PassResult, Ptr, Result},
-    },
+    ir::{Builtin, ContextExt, dialect::general::ReadBuiltinOp, rewrite::MatchRewritePass},
     prelude::*,
 };
-use pliron::{
-    irbuild::{
-        IRStatus,
-        match_rewrite::{MatchRewrite, apply_match_rewrite},
-    },
-    pass_manager::Pass,
-    value::Value,
-};
+use pliron::value::Value;
 
 use crate::shared::{CompilationState, shared_op_with_out};
 
@@ -87,32 +76,14 @@ pub struct LowerBuiltins<T> {
     _target: PhantomData<T>,
 }
 
-#[derive(Default)]
-pub struct LowerBuiltinsPass<T> {
-    _ty: PhantomData<T>,
-}
-
-impl<T: Default> Pass for LowerBuiltinsPass<T>
-where
-    LowerBuiltins<T>: MatchRewrite,
-{
-    fn name(&self) -> &str {
-        type_name::<Self>()
-    }
-
-    fn run(
-        &self,
-        op: Ptr<Operation>,
-        ctx: &mut Context,
-        _analyses: &mut AnalysisManager,
-    ) -> Result<PassResult> {
-        let mut res = PassResult::default();
-        while apply_match_rewrite(ctx, LowerBuiltins::<T>::default(), op)? == IRStatus::Changed {
-            res.ir_changed |= IRStatus::Changed
-        }
-        Ok(res)
+impl<T> Copy for LowerBuiltins<T> {}
+impl<T> Clone for LowerBuiltins<T> {
+    fn clone(&self) -> Self {
+        *self
     }
 }
+
+pub type LowerBuiltinsPass<T> = MatchRewritePass<LowerBuiltins<T>>;
 
 pub(crate) trait SharedBuiltin {
     fn display(&self) -> &'static str;

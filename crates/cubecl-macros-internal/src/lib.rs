@@ -2,7 +2,9 @@ use proc_macro::TokenStream;
 use type_hash::type_hash_impl;
 
 use crate::{
-    generate::{const_eval::generate_const_eval, cube_op::generate_cube_op},
+    generate::{
+        const_eval::generate_const_eval, cube_op::generate_cube_op, simplify::generate_simplify,
+    },
     parse::{
         cube_op::{CubeOp, CubeOpArgs},
         from_meta_tokens,
@@ -41,4 +43,9 @@ pub fn cube_op(args: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn const_eval(input: TokenStream) -> TokenStream {
     macro_try!(generate_const_eval(input.into())).into()
+}
+
+#[proc_macro]
+pub fn simplify(input: TokenStream) -> TokenStream {
+    macro_try!(generate_simplify(input.into())).into()
 }
