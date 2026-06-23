@@ -1,7 +1,7 @@
 use crate::compute::{
     alloc_controller::CpuAllocController, schedule::ScheduleTask, threadpool::Threadpool,
-    utils::cache_padded::CachePadded,
 };
+use crossbeam_utils::CachePadded;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
     MemoryConfiguration,

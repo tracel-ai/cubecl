@@ -44,7 +44,16 @@ impl AsideWorker {
 impl Worker for AsideWorker {
     fn work(mut self) {
         loop {
-            if self.aside.len() < 4 {
+            if self.aside.is_empty() {
+                let task = self.rx.recv();
+                if let Ok(mut task) = task {
+                    if task.is_ready() {
+                        task.compute();
+                    } else {
+                        self.aside.push_back(task);
+                    }
+                }
+            } else if self.aside.len() < 4 {
                 let task = self.rx.try_recv();
                 if let Ok(task) = task {
                     self.aside.push_back(task);

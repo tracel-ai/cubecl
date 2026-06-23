@@ -1,8 +1,10 @@
 use std::sync::{Arc, atomic::AtomicU64};
 
+use crossbeam_utils::CachePadded;
+
 use crate::{
     compiler::{mlir_data::MlirData, mlir_engine::MlirEngine},
-    compute::{threadpool::ThreadTask, utils::cache_padded::CachePadded},
+    compute::threadpool::ThreadTask,
 };
 
 pub struct ComputeTask {

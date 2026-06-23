@@ -63,6 +63,7 @@ tracel-llvm = { workspace = true }
 smallvec = { workspace = true }
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 crossbeam-deque = "0.8"
+crossbeam-utils = "0.8.21"
 
 [target.'cfg(any(target_os = "android", target_os = "linux", target_os = "macos", target_os = "freebsd"))'.dependencies]
 libc = { workspace = true }

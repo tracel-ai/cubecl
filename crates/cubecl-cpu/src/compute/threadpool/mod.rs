@@ -1,3 +1,4 @@
+use crossbeam_utils::CachePadded;
 use cubecl_core::CubeDim;
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 use std::sync::{Arc, OnceLock, atomic::AtomicU64};
@@ -10,7 +11,6 @@ use crate::{
             compute_task::ComputeTask,
             scheduler::{Scheduler, SchedulerVariant},
         },
-        utils::cache_padded::CachePadded,
     },
 };
 
