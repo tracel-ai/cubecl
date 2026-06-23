@@ -11,7 +11,7 @@ use core::{
 
 use cubecl_common::format::format_str;
 use cubecl_ir::{
-    AddressType, Scope, StorageType,
+    Scope, StorageType,
     metadata::Info,
     pliron::{format, value::Value},
     settings::KernelSettings,

@@ -1,14 +1,16 @@
 use core::ops::Neg;
 
-use cubecl_macros_internal::{const_eval, cube_op};
+use cubecl_macros_internal::{const_eval, cube_op, simplify};
 use half::{bf16, f16};
 use num::Integer;
 use num_traits::Float;
+use pliron::{attribute::AttrObj, utils::apfloat::f64_to_double};
 
 use crate::{
+    ConstantValue,
     attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttr, UIntAttr},
     dialect::{pure_binop, pure_unop},
-    interfaces::erasable,
+    interfaces::{TypedExt, erasable},
     prelude::*,
 };
 
@@ -171,33 +173,141 @@ const_eval!(AddOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.wrapping_add(rhs),
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs + rhs
 });
+simplify!(AddOp, {
+    |lhs, _| match lhs?.as_const_val() {
+        ConstantValue::Int(0) | ConstantValue::Float(0.0) | ConstantValue::UInt(0) => {
+            Some(self.rhs(ctx))
+        }
+        _ => None?,
+    },
+    |_, rhs| match rhs?.as_const_val() {
+        ConstantValue::Int(0) | ConstantValue::Float(0.0) | ConstantValue::UInt(0) => {
+            Some(self.lhs(ctx))
+        }
+        _ => None?,
+    }
+});
 
 pure_binop!("math.saturating_add", SaturatingAddOp);
 const_eval!(SaturatingAddOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.saturating_add(rhs)
 });
+simplify!(SaturatingAddOp, {
+    |lhs, _| match lhs?.as_const_val() {
+        ConstantValue::Int(0) | ConstantValue::Float(0.0) | ConstantValue::UInt(0) => {
+            Some(self.rhs(ctx))
+        }
+        _ => None?,
+    },
+    |_, rhs| match rhs?.as_const_val() {
+        ConstantValue::Int(0) | ConstantValue::Float(0.0) | ConstantValue::UInt(0) => {
+            Some(self.lhs(ctx))
+        }
+        _ => None?,
+    }
+});
 
 pure_binop!("math.sub", SubOp);
 const_eval!(SubOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.wrapping_sub(rhs),
-    FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs - rhs
+    FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs - rhs,
+    // x - x -> 0
+    custom: |_, _| {
+        if self.lhs(ctx) == self.rhs(ctx) {
+            Some(if self.get_type(ctx).is_int(ctx) {
+                int_attr(ctx, self.get_type(ctx), 0)
+            } else if self.get_type(ctx).is_uint(ctx) {
+                uint_attr(ctx, self.get_type(ctx), 0)
+            } else {
+                float_attr(self.get_type(ctx), 0.0)
+            })
+        } else {
+            None
+        }
+    }
+});
+simplify!(SubOp, {
+    |_, rhs| match rhs?.as_const_val() {
+        ConstantValue::Int(0) | ConstantValue::Float(0.0) | ConstantValue::UInt(0) => {
+            Some(self.lhs(ctx))
+        }
+        _ => None?,
+    }
 });
 
 pure_binop!("math.saturating_sub", SaturatingSubOp);
 const_eval!(SaturatingSubOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.saturating_sub(rhs)
 });
+simplify!(SaturatingSubOp, {
+    |_, rhs| match rhs?.as_const_val() {
+        ConstantValue::Int(0) | ConstantValue::Float(0.0) | ConstantValue::UInt(0) => {
+            Some(self.lhs(ctx))
+        }
+        _ => None?,
+    }
+});
 
 pure_binop!("math.mul", MulOp);
 const_eval!(MulOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.wrapping_mul(rhs),
-    FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs * rhs
+    FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs * rhs,
+    // 0 * x -> 0; x * 0 -> 0
+    custom: |lhs, rhs| {
+        let const_val = lhs.or(rhs)?;
+        Some(match const_val.as_const_val() {
+            ConstantValue::Int(0) => int_attr(ctx, const_val.get_type(ctx), 0),
+            ConstantValue::Float(0.0) => float_attr( const_val.get_type(ctx), 0.0),
+            ConstantValue::UInt(0) => uint_attr(ctx, const_val.get_type(ctx), 0),
+            _ => None?
+        })
+    }
+});
+simplify!(MulOp, {
+    |lhs, _| match lhs?.as_const_val() {
+        ConstantValue::Int(1) | ConstantValue::Float(1.0) | ConstantValue::UInt(1) => {
+            Some(self.rhs(ctx))
+        }
+        _ => None?,
+    },
+    |_, rhs| match rhs?.as_const_val() {
+        ConstantValue::Int(1) | ConstantValue::Float(1.0) | ConstantValue::UInt(1) => {
+            Some(self.lhs(ctx))
+        }
+        _ => None?,
+    }
 });
 
 pure_binop!("math.div", DivOp);
 const_eval!(DivOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.wrapping_div(rhs),
-    FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs / rhs
+    FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs / rhs,
+    // 0 / x -> 0
+    custom: |lhs, _| {
+        Some(match lhs?.as_const_val() {
+            ConstantValue::Int(0) => int_attr(ctx, lhs?.get_type(ctx), 0),
+            ConstantValue::Float(0.0) => float_attr( lhs?.get_type(ctx), 0.0),
+            ConstantValue::UInt(0) => uint_attr(ctx, lhs?.get_type(ctx), 0),
+            _ => None?
+        })
+    },
+    // x / x -> 1; exclude float
+    custom: |_, _| {
+        let lhs = self.lhs(ctx);
+        if lhs == self.rhs(ctx) && (lhs.is_int(ctx) || lhs.is_uint(ctx)) {
+            Some(BoolAttr::new(false))
+        } else {
+            None
+        }
+    }
+});
+simplify!(DivOp, {
+    |_, rhs| match rhs?.as_const_val() {
+        ConstantValue::Int(1) | ConstantValue::Float(1.0) | ConstantValue::UInt(1) => {
+            Some(self.lhs(ctx))
+        }
+        _ => None?,
+    }
 });
 
 pure_binop!("math.arc_tan2", ArcTan2Op);
@@ -226,13 +336,55 @@ const_eval!(RhypotOp, {
 pure_binop!("math.rem", RemOp);
 const_eval!(RemOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64), FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| lhs % rhs,
+    // 0 % x -> 0
+    custom: |lhs, _| {
+        Some(match lhs?.as_const_val() {
+            ConstantValue::Int(0) => int_attr(ctx, lhs?.get_type(ctx), 0),
+            ConstantValue::Float(0.0) => float_attr( lhs?.get_type(ctx), 0.0),
+            ConstantValue::UInt(0) => uint_attr(ctx, lhs?.get_type(ctx), 0),
+            _ => None?
+        })
+    },
+    // x % 1 -> 0
+    custom: |_, rhs| {
+        Some(match rhs?.as_const_val() {
+            ConstantValue::Int(1) => int_attr(ctx, rhs?.get_type(ctx), 0),
+            ConstantValue::UInt(1) => uint_attr(ctx, rhs?.get_type(ctx), 0),
+            _ => None?
+        })
+    }
+});
+simplify!(RemOp, {
+    |_, rhs| match rhs?.as_const_val() {
+        ConstantValue::Int(1) | ConstantValue::Float(1.0) | ConstantValue::UInt(1) => {
+            Some(self.lhs(ctx))
+        }
+        _ => None?,
+    }
 });
 
 pure_binop!("math.mod_floor", ModFloorOp);
 const_eval!(ModFloorOp, {
     [IndexAttr, UIntAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs % rhs,
     IntAttr(i8, i16, i32, i64): |lhs, rhs| lhs.mod_floor(&rhs),
-    FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs - (lhs / rhs).floor() * rhs
+    FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs - (lhs / rhs).floor() * rhs,
+    // 0 % x -> 0
+    custom: |lhs, _| {
+        Some(match lhs?.as_const_val() {
+            ConstantValue::Int(0) => int_attr(ctx, lhs?.get_type(ctx), 0),
+            ConstantValue::Float(0.0) => float_attr( lhs?.get_type(ctx), 0.0),
+            ConstantValue::UInt(0) => uint_attr(ctx, lhs?.get_type(ctx), 0),
+            _ => None?
+        })
+    },
+    // x % 1 -> 0
+    custom: |_, rhs| {
+        Some(match rhs?.as_const_val() {
+            ConstantValue::Int(1) => int_attr(ctx, rhs?.get_type(ctx), 0),
+            ConstantValue::UInt(1) => uint_attr(ctx, rhs?.get_type(ctx), 0),
+            _ => None?
+        })
+    }
 });
 
 pure_binop!("math.mul_hi", MulHiOp);
@@ -242,7 +394,45 @@ const_eval!(MulHiOp, {
     IntAttr(i64): |lhs, rhs| ((lhs as i128 * rhs as i128) >> 64) as i64,
     UIntAttr(u32): |lhs, rhs| ((lhs as u64 * rhs as u64) >> 32) as u32,
     IntAttr(i32): |lhs, rhs| ((lhs as i64 * rhs as i64) >> 32) as i32,
+    // 0 * x -> 0; x * 0 -> 0
+    custom: |lhs, rhs| {
+        let const_val = lhs.or(rhs)?;
+        Some(match const_val.as_const_val() {
+            ConstantValue::Int(0) => int_attr(ctx, const_val.get_type(ctx), 0),
+            ConstantValue::Float(0.0) => float_attr( const_val.get_type(ctx), 0.0),
+            ConstantValue::UInt(0) => uint_attr(ctx, const_val.get_type(ctx), 0),
+            _ => None?
+        })
+    }
 });
+simplify!(MulHiOp, {
+    |lhs, _| match lhs?.as_const_val() {
+        ConstantValue::Int(1) | ConstantValue::Float(1.0) | ConstantValue::UInt(1) => {
+            Some(self.rhs(ctx))
+        }
+        _ => None?,
+    },
+    |_, rhs| match rhs?.as_const_val() {
+        ConstantValue::Int(1) | ConstantValue::Float(1.0) | ConstantValue::UInt(1) => {
+            Some(self.lhs(ctx))
+        }
+        _ => None?,
+    }
+});
+
+pub(super) fn int_attr(ctx: &Context, ty: TypeHandle, val: i64) -> AttrObj {
+    let ty = TypedHandle::from_handle(ty, ctx).unwrap();
+    AttrObj::from(IntAttr::new(ty, val))
+}
+
+pub(super) fn uint_attr(ctx: &Context, ty: TypeHandle, val: u64) -> AttrObj {
+    let ty = TypedHandle::from_handle(ty, ctx).unwrap();
+    AttrObj::from(UIntAttr::new(ty, val))
+}
+
+pub(super) fn float_attr(ty: TypeHandle, val: f64) -> AttrObj {
+    AttrObj::from(FloatAttr::new(ty, f64_to_double(val)))
+}
 
 #[cube_op(name = "math.fma")]
 #[result_ty(same_as = a)]

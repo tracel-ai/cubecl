@@ -51,7 +51,7 @@ where
 }
 
 pub(crate) fn index_expand(scope: &Scope, list: Value, index: Value, checked: bool) -> Value {
-    let op = IndexOp::new(scope.ctx_mut(), list, index, 1, checked);
+    let op = IndexOp::maybe_checked(scope.ctx_mut(), list, index, checked);
     scope.register(&op);
     op.get_result(scope.ctx())
 }

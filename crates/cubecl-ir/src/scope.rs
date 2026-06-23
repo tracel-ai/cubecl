@@ -37,7 +37,7 @@ use crate::{
         ATTR_BUFFER_BINDING, BufferBindingAttr, EntrypointAbiAttr, EntrypointInterface,
         FuncInterface, IndexAttr,
     },
-    dialect::{general::AggregateExtractOp, memory::DeclareVariableOp},
+    dialect::{branch::ReturnOp, general::AggregateExtractOp, memory::DeclareVariableOp},
     interfaces::{ScalarType, TypedExt},
     settings::KernelSettings,
     types::{PointerType, RuntimeArrayType, cuda::TensorMapType},
@@ -543,6 +543,10 @@ impl Scope {
     }
 
     pub fn into_context(self) -> Option<Context> {
+        let entry = self.state().entry_func.get_entry_block(self.ctx());
+        if entry.deref(self.ctx()).get_terminator(self.ctx()).is_none() {
+            self.register(&ReturnOp::new(self.ctx_mut()));
+        }
         match self.ctx {
             CtxHandle::Rc(ctx) => Some(Rc::into_inner(ctx)?.into_inner()),
             CtxHandle::Ref(_) => None,

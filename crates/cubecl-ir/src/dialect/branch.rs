@@ -21,7 +21,7 @@ pub enum YieldOpVerifyErr {
     MissingParentOp,
 }
 
-#[pliron_op(name = "branch.yield", format)]
+#[pliron_op(name = "branch.yield", format = "")]
 #[op_interfaces(IsTerminatorInterface)]
 pub struct YieldOp;
 
@@ -58,7 +58,11 @@ impl Verify for YieldOp {
     }
 }
 
-#[pliron_op(name = "branch.return", format, verifier = "succ")]
+#[pliron_op(
+    name = "branch.return",
+    format = "operands(CharSpace(`,`))",
+    verifier = "succ"
+)]
 #[op_interfaces(IsTerminatorInterface)]
 pub struct ReturnOp;
 

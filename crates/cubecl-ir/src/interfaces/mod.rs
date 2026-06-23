@@ -1,10 +1,14 @@
 use crate::{
-    StorageType,
+    ConstantValue, StorageType,
     dialect::synchronization::SyncScope,
     prelude::*,
     types::{AtomicType, PointerType, VectorType, scalar::*},
 };
 use pliron::{
+    alloc::vec::Vec,
+    attribute::AttrObj,
+    builtin::attr_interfaces::TypedAttrInterface,
+    context::Context,
     derive::{op_interface, type_interface},
     r#type::{TypeHandle, type_cast},
 };
@@ -250,6 +254,18 @@ pub trait WritesMemory {
     verify_op_succ!();
 
     fn writes_through_values(&self, ctx: &Context) -> Vec<Value>;
+}
+
+#[op_interface]
+pub trait SimplifyInterface {
+    verify_op_succ!();
+    fn check_fold(&self, ctx: &Context, operand_attrs: &[Option<AttrObj>]) -> Option<Value>;
+}
+
+#[attr_interface]
+pub trait ConstantAttr: TypedAttrInterface {
+    verify_attr_succ!();
+    fn as_const_val(&self) -> ConstantValue;
 }
 
 pub trait TypedExt: Typed {

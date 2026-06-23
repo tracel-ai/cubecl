@@ -2,7 +2,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{ExprClosure, Type};
 
-use crate::parse::const_eval::{ConstEval, ConstEvalArm};
+use crate::parse::const_eval::{ConstEval, ConstEvalArm, CustomArm, FoldArm};
 
 impl ConstEvalArm {
     pub fn generate_arm(&self) -> syn::Result<Vec<TokenStream>> {
@@ -71,6 +71,39 @@ impl ConstEvalArm {
     }
 }
 
+impl CustomArm {
+    pub fn generate_arm(&self) -> syn::Result<TokenStream> {
+        let closure = &self.closure;
+        if closure.inputs.is_empty() {
+            return Err(syn::Error::new_spanned(
+                closure.inputs.clone(),
+                "Expected at least one input for constant folding",
+            ));
+        }
+        let attr_defs = closure.inputs.iter().enumerate().map(|(i, name)| {
+            quote! {
+                let #name = if let Some(attr) = operand_attrs[#i].as_ref() {
+                    Some(attr_cast::<dyn crate::interfaces::ConstantAttr>(&**attr)?)
+                } else {
+                    None
+                };
+            }
+        });
+
+        let body = &closure.body;
+
+        Ok(quote! {
+            (|| {
+                #(#attr_defs)*
+                #[allow(unused_braces)]
+                Some(pliron::attribute::AttrObj::from({
+                    #body
+                }?))
+            })()
+        })
+    }
+}
+
 impl ConstEval {
     pub fn generate_arms(&self) -> syn::Result<TokenStream> {
         if self.arms.is_empty() {
@@ -79,7 +112,10 @@ impl ConstEval {
                 "Expected at least one attribute arm for constant folding",
             ));
         }
-        let arms = self.arms.iter().map(|it| it.generate_arm());
+        let arms = self.arms.iter().map(|it| match it {
+            FoldArm::ConstEval(it) => it.generate_arm(),
+            FoldArm::Custom(it) => Ok(vec![it.generate_arm()?]),
+        });
         let mut arms = arms.collect::<Result<Vec<_>, _>>()?.into_iter().flatten();
         let first = arms.next().unwrap();
         Ok(arms.fold(first, |acc, arm| quote![#acc.or(#arm)]))
@@ -93,12 +129,16 @@ pub fn generate_const_eval(input: TokenStream) -> syn::Result<TokenStream> {
     let arms = const_eval.generate_arms()?;
 
     Ok(quote! {
+        #[pliron::derive::op_interface_impl]
         impl pliron::opts::constants::ConstFoldInterface for #ty {
             fn check_fold(
                 &self,
                 ctx: &pliron::context::Context,
                 operand_attrs: &[Option<pliron::attribute::AttrObj>],
             ) -> alloc::vec::Vec<Option<pliron::attribute::AttrObj>> {
+                use crate::interfaces::ConstantAttr;
+                use pliron::builtin::attr_interfaces::TypedAttrInterface;
+                use pliron::attribute::attr_cast;
                 alloc::vec![#arms]
             }
 

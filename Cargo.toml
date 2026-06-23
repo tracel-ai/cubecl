@@ -171,5 +171,8 @@ renderdoc = "0.12"
 # Build deps
 cfg_aliases = "0.2.1"
 
+# CubeCL-Macros-Internal
+chumsky = "0.13"
+
 [profile.dev.build-override]
 opt-level = 3
