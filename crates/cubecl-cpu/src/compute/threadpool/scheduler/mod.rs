@@ -35,21 +35,21 @@ fn resolve_stack_size() -> usize {
 
 pub enum Scheduler {
     Naive(NaiveScheduler),
-    Crossbeam(AsideScheduler),
+    Aside(AsideScheduler),
 }
 
 impl Scheduler {
     pub fn new(option: SchedulerVariant) -> Self {
         match option {
             SchedulerVariant::Naive => Scheduler::Naive(NaiveScheduler::new()),
-            SchedulerVariant::Aside => Scheduler::Crossbeam(AsideScheduler::new()),
+            SchedulerVariant::Aside => Scheduler::Aside(AsideScheduler::new()),
         }
     }
 
     pub fn send(&mut self, index: usize, task: ComputeTask) {
         match self {
             Scheduler::Naive(naive) => naive.send(index, task),
-            Scheduler::Crossbeam(crossbeam) => crossbeam.send(index, task),
+            Scheduler::Aside(aside) => aside.send(index, task),
         }
     }
 }
