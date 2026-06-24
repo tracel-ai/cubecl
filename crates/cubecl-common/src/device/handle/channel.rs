@@ -164,11 +164,20 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         }
 
         let (sender, recv) = oneshot::channel();
-        // Create a slot on the stack that will hold our pointer.
-        let mut slot = Some(move || sender.send(task()).unwrap());
+        // Run `task` under `catch_unwind` inside the slot so a panic on the
+        // runner thread is captured and sent back here through the channel.
+        let mut slot = Some(move || {
+            let _ = sender.send(catch_unwind(AssertUnwindSafe(task)));
+        });
         // Send the erased shim to the device thread.
         self.send::<_, SEND_FLUSH>(create_shim(&mut slot))?;
-        recv.recv().map_err(|_| CallError)
+        match recv.recv() {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(payload)) => Err(CallError::from_panic(payload)),
+            // The sender was dropped without sending (e.g. the runner thread died)
+            // so no panic payload is available.
+            Err(_) => Err(CallError::disconnected()),
+        }
     }
 
     /// Dispatches a task to the runner.
@@ -180,9 +189,11 @@ impl<S: DeviceService + 'static> ChannelDeviceHandle<S> {
         task: T,
     ) -> Result<(), CallError> {
         if is_device_runner_thread(self.state.client.runner_id()) {
-            if let Err(err) = catch_unwind(AssertUnwindSafe(task)) {
+            // Capture the panic payload so it surfaces in the returned `CallError`.
+            if let Err(payload) = catch_unwind(AssertUnwindSafe(task)) {
+                let err = CallError::from_panic(payload);
                 log::warn!("Task failed: {err:?}");
-                return Err(CallError);
+                return Err(err);
             }
         } else {
             self.state.client.enqueue(task)?;
@@ -463,8 +474,8 @@ mod task {
                 self.fn_ptr = |task| {
                     // SAFETY: Paired with the ptr::write to data above.
                     let f = unsafe { std::ptr::read(task.data.as_mut_ptr() as *mut F) };
-                    if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
-                        log::warn!("Task failed: {err:?}");
+                    if let Err(payload) = catch_unwind(AssertUnwindSafe(f)) {
+                        log::warn!("{:?}", CallError::from_panic(payload));
                     }
                 };
             } else if fits_arena {
@@ -477,8 +488,8 @@ mod task {
                     let f = unsafe {
                         std::ptr::read(task.data_large_ptr.load(Ordering::Relaxed) as *mut F)
                     };
-                    if let Err(err) = catch_unwind(AssertUnwindSafe(f)) {
-                        log::warn!("Task failed: {err:?}");
+                    if let Err(payload) = catch_unwind(AssertUnwindSafe(f)) {
+                        log::warn!("{:?}", CallError::from_panic(payload));
                     }
                 };
             } else {
@@ -555,7 +566,9 @@ mod normal_channel {
 
         /// Atomically reserves a slot in the buffer and writes the task.
         pub fn enqueue<F: FnOnce() + Send + 'static>(&self, func: F) -> Result<(), CallError> {
-            self.state.send(Box::new(func)).map_err(|_| CallError)
+            self.state
+                .send(Box::new(func))
+                .map_err(|_| CallError::disconnected())
         }
 
         /// Forces a flush by filling the remaining buffer with no-op tasks.
@@ -845,6 +858,7 @@ mod custom_channel {
 
 #[cfg(test)]
 mod tests {
+    use crate::device::handle::CallResultExt;
     use crate::device::handle::channel::custom_channel::CHANNEL_MAX_TASK;
 
     use super::*;
@@ -1159,7 +1173,12 @@ mod tests {
             panic!("boom");
         });
 
-        assert!(result.is_err(), "panicking task must return Err");
+        let err = result.expect_err("panicking task must return Err");
+        assert_eq!(
+            err.message(),
+            Some("boom"),
+            "the panic message must be preserved in the CallError"
+        );
         assert_eq!(
             drop_count.load(Ordering::SeqCst),
             1,
@@ -1194,10 +1213,304 @@ mod tests {
             panic!("boom");
         });
 
-        assert!(result.is_err());
+        let err = result.expect_err("panicking task must return Err");
+        assert_eq!(
+            err.message(),
+            Some("boom"),
+            "the panic message must be preserved in the CallError"
+        );
         assert_eq!(drop_count.load(Ordering::SeqCst), 1);
         let ok = handle.exclusive(|| 7).unwrap();
         assert_eq!(ok, 7);
+    }
+
+    /// A.1 — Submit a panic payload as task, capture the payload and return to caller.
+    #[test]
+    fn test_submit_blocking_preserves_formatted_string_payload() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 14,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let result = handle.submit_blocking(|_state| {
+            panic!("value {}", 99);
+        });
+
+        let err = result.expect_err("panicking task must return Err");
+        assert_eq!(err.message(), Some("value 99"));
+    }
+
+    /// A.2 — Submit a custom panic payload, capture the payload and return to caller.
+    #[test]
+    fn test_submit_blocking_preserves_non_string_payload() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 15,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        #[derive(Debug, PartialEq)]
+        struct Boom {
+            code: u32,
+            what: &'static str,
+        }
+
+        let result = handle.submit_blocking(|_state| {
+            std::panic::panic_any(Boom {
+                code: 7,
+                what: "kaboom",
+            });
+        });
+
+        let err = result.expect_err("panicking task must return Err");
+        assert_eq!(err.message(), None, "a non-string payload has no message");
+        let payload = err.into_panic().expect("the payload must be preserved");
+        let boom = *payload
+            .downcast::<Boom>()
+            .expect("payload must downcast to the original type");
+        assert_eq!(
+            boom,
+            Boom {
+                code: 7,
+                what: "kaboom",
+            }
+        );
+    }
+
+    #[test]
+    fn test_submit_blocking_preserves_scalar_payload() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 16,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let result = handle.submit_blocking(|_state| {
+            std::panic::panic_any(42i32);
+        });
+
+        let err = result.expect_err("panicking task must return Err");
+        assert_eq!(err.message(), None);
+        let payload = err.into_panic().expect("the payload must be preserved");
+        assert_eq!(
+            *payload.downcast::<i32>().expect("payload must be an i32"),
+            42
+        );
+    }
+
+    /// B.1 — A real index-out-of-bounds panic (the symptom from the issue) keeps its
+    /// message instead of being erased into a generic error.
+    #[test]
+    fn test_submit_blocking_preserves_index_out_of_bounds_message() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 17,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let result = handle.submit_blocking(|_state| {
+            let data = [10u8, 20u8];
+            // `black_box` hides the index so the access happens at runtime rather than
+            // tripping the const-eval `unconditional_panic` lint.
+            let idx = core::hint::black_box(5usize);
+            let _ = data[idx];
+        });
+
+        let err = result.expect_err("panicking task must return Err");
+        let message = err
+            .message()
+            .expect("an index panic carries a string message");
+        assert!(
+            message.contains("index out of bounds"),
+            "unexpected message: {message}"
+        );
+    }
+
+    /// B.2 — A real `unwrap()` panic keeps its message (the autotune symptom).
+    #[test]
+    fn test_submit_blocking_preserves_unwrap_message() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 18,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let result = handle.submit_blocking(|_state| {
+            let value: Result<(), &str> = Err("nope");
+            value.unwrap();
+        });
+
+        let err = result.expect_err("panicking task must return Err");
+        let message = err
+            .message()
+            .expect("an unwrap panic carries a string message");
+        assert!(message.contains("unwrap"), "unexpected message: {message}");
+    }
+
+    /// C.1 — The captured payload can re-raise the original panic via `resume_unwind`,
+    /// proving it is the genuine payload and not a lossy copy.
+    #[test]
+    fn test_into_panic_can_be_resumed() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 19,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let result = handle.submit_blocking(|_state| {
+            panic!("re-raise me");
+        });
+
+        let err = result.expect_err("panicking task must return Err");
+        assert_eq!(err.message(), Some("re-raise me"));
+
+        let payload = err.into_panic().expect("the payload must be preserved");
+        // Re-raise on this thread and catch it again: the round-tripped payload must
+        // still hold the original message.
+        let recaught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            std::panic::resume_unwind(payload);
+        }));
+        let payload = recaught.expect_err("resume_unwind must re-panic");
+        assert_eq!(
+            payload.downcast_ref::<&str>().copied(),
+            Some("re-raise me"),
+            "the re-raised panic must carry the original message"
+        );
+    }
+
+    /// E.1 — `exclusive` preserves a non-string payload just like `submit_blocking`.
+    #[test]
+    fn test_exclusive_preserves_non_string_payload() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 20,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        #[derive(Debug, PartialEq)]
+        struct Boom {
+            code: u32,
+            what: &'static str,
+        }
+
+        let result: Result<(), _> = handle.exclusive(|| {
+            std::panic::panic_any(Boom {
+                code: 9,
+                what: "exclusive",
+            });
+        });
+
+        let err = result.expect_err("panicking task must return Err");
+        assert_eq!(err.message(), None);
+        let payload = err.into_panic().expect("the payload must be preserved");
+        let boom = *payload
+            .downcast::<Boom>()
+            .expect("payload must downcast to the original type");
+        assert_eq!(
+            boom,
+            Boom {
+                code: 9,
+                what: "exclusive",
+            }
+        );
+    }
+
+    /// E.3 — The runner thread survives repeated panics, each call surfaces its own
+    /// payload, and a later normal task still succeeds.
+    #[test]
+    fn test_channel_survives_repeated_panics_each_preserved() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 21,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let first = handle.submit_blocking(|_state| panic!("first"));
+        assert_eq!(
+            first.expect_err("first panic must return Err").message(),
+            Some("first")
+        );
+
+        let second = handle.submit_blocking(|_state| panic!("second"));
+        assert_eq!(
+            second.expect_err("second panic must return Err").message(),
+            Some("second")
+        );
+
+        // The runner thread is still alive: a normal task runs and returns Ok.
+        let counter = handle.submit_blocking(|state| state.counter).unwrap();
+        assert_eq!(counter, 0);
+    }
+
+    /// 2-E1 — `unwrap_or_resume` re-raises a runner-thread panic as the *original*
+    /// panic on the caller (faithful message), and the runner thread survives.
+    #[test]
+    fn test_unwrap_or_resume_reraises_submit_blocking_panic() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 22,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        let reraised = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            handle
+                .submit_blocking(|_state| {
+                    panic!("device boom");
+                })
+                .unwrap_or_resume()
+        }));
+
+        let payload = reraised.expect_err("the original panic must be re-raised at the caller");
+        assert_eq!(
+            payload.downcast_ref::<&str>().copied(),
+            Some("device boom"),
+            "the re-raised panic must carry the original message"
+        );
+
+        // The runner thread survived the captured-and-re-raised panic.
+        let counter = handle.submit_blocking(|state| state.counter).unwrap();
+        assert_eq!(counter, 0);
+    }
+
+    /// 2-E2 — `unwrap_or_resume` re-raises a non-string payload from `exclusive`
+    /// end to end, preserving the exact payload object.
+    #[test]
+    fn test_unwrap_or_resume_reraises_exclusive_non_string_payload() {
+        let device_id = DeviceId {
+            type_id: 0,
+            index_id: 23,
+        };
+        let handle = ChannelDeviceHandle::<MockService>::new(device_id);
+
+        #[derive(Debug, PartialEq)]
+        struct Boom {
+            code: u32,
+            what: &'static str,
+        }
+
+        let reraised = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            handle
+                .exclusive(|| {
+                    std::panic::panic_any(Boom {
+                        code: 9,
+                        what: "exclusive",
+                    });
+                })
+                .unwrap_or_resume()
+        }));
+
+        let payload = reraised.expect_err("the original panic must be re-raised at the caller");
+        let boom = *payload
+            .downcast::<Boom>()
+            .expect("the re-raised payload must be the original object");
+        assert_eq!(
+            boom,
+            Boom {
+                code: 9,
+                what: "exclusive",
+            }
+        );
     }
 
     /// A closure that spills to the arena (size > 48) and carries the maximum arena
