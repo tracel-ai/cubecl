@@ -40,7 +40,16 @@ impl DispatcherScheduler {
         Self { tx, lens }
     }
 
-    pub fn send(&mut self, index: usize, task: ComputeTask) {
+    pub fn send(&mut self, mut index: usize, task: ComputeTask) {
+        let mut min_value = self.lens[index].load(atomic::Ordering::Relaxed);
+        for i in 0..self.lens.len() {
+            let len = self.lens[i].load(atomic::Ordering::Relaxed);
+            if len < min_value {
+                index = i;
+                min_value = len;
+            }
+        }
+
         let _ = self.tx[index].send(task);
         self.lens[index].fetch_add(1, atomic::Ordering::Relaxed);
     }
