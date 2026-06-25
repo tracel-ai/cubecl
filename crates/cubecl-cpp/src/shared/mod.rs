@@ -16,6 +16,7 @@ pub mod unary;
 pub mod unroll;
 mod value;
 pub mod vector;
+pub mod convert;
 
 pub use base::*;
 pub use kernel::*;

@@ -17,7 +17,9 @@ pub trait OperationPtrExt: Sized {
     fn operand(self, ctx: &Context, idx: usize) -> Value;
     fn operand_as_use(self, ctx: &Context, idx: usize) -> Use<Value>;
     fn operands(self, ctx: &Context) -> Vec<Value>;
+    fn operands_as_uses(self, ctx: &Context) -> Vec<Use<Value>>;
     fn result(self, ctx: &Context) -> Value;
+    fn opt_result(self, ctx: &Context) -> Option<Value>;
 }
 
 impl OperationPtrExt for Ptr<Operation> {
@@ -36,8 +38,14 @@ impl OperationPtrExt for Ptr<Operation> {
     fn operands(self, ctx: &Context) -> Vec<Value> {
         self.deref(ctx).operands().collect()
     }
+    fn operands_as_uses(self, ctx: &Context) -> Vec<Use<Value>> {
+        self.deref(ctx).operands_as_uses().collect()
+    }
     fn result(self, ctx: &Context) -> Value {
         Operation::get_result(&self.deref(ctx), 0)
+    }
+    fn opt_result(self, ctx: &Context) -> Option<Value> {
+        self.deref(ctx).results().next()
     }
 }
 
@@ -51,6 +59,7 @@ macro_rules! pure_unop {
         }
 
         $crate::interfaces::erasable!($ty);
+        $crate::interfaces::rematerialize!($ty);
     };
 }
 use pliron::{
@@ -71,6 +80,7 @@ macro_rules! pure_binop {
         }
 
         $crate::interfaces::erasable!($ty);
+        $crate::interfaces::rematerialize!($ty);
     };
 }
 pub(crate) use pure_binop;

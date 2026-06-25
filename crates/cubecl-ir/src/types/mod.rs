@@ -7,7 +7,7 @@ use crate::{
     AddressSpace, StorageType,
     interfaces::{
         AlignedType, IndexableType, MaybePackedType, MaybeVectorizedType, ScalarType,
-        ScalarizableType, TypedExt, aligned, scalar,
+        ScalarizableType, SizedType, TypedExt, aligned, scalar, sized,
     },
     prelude::*,
 };
@@ -67,11 +67,11 @@ impl ScalarizableType for PackedType {
 
 #[pliron_type(
     name = "cube.vector",
-    format = "`vector<` $inner `, ` $vectorization `>`",
+    format = "`<` $inner `, ` $vectorization `>`",
     generate_get = true,
     verifier = "succ"
 )]
-#[derive(Hash, PartialEq, Eq, Debug, Clone)]
+#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
 pub struct VectorType {
     pub inner: TypeHandle,
     pub vectorization: usize,
@@ -95,6 +95,13 @@ impl MaybePackedType for VectorType {
 impl AlignedType for VectorType {
     fn align(&self, ctx: &Context) -> usize {
         self.inner.align(ctx) * self.vectorization
+    }
+}
+
+#[type_interface_impl]
+impl SizedType for VectorType {
+    fn size(&self, ctx: &Context) -> usize {
+        self.inner.size(ctx) * self.vectorization
     }
 }
 
@@ -142,6 +149,7 @@ pub struct PointerType {
     pub address_space: AddressSpace,
 }
 aligned!(PointerType, align_of::<u64>());
+sized!(PointerType, size_of::<u64>());
 
 #[type_interface_impl]
 impl MaybeVectorizedType for PointerType {
@@ -180,6 +188,13 @@ impl MaybeVectorizedType for ArrayType {
 impl AlignedType for ArrayType {
     fn align(&self, ctx: &Context) -> usize {
         self.inner.align(ctx)
+    }
+}
+
+#[type_interface_impl]
+impl SizedType for ArrayType {
+    fn size(&self, ctx: &Context) -> usize {
+        self.inner.size(ctx) * self.length
     }
 }
 

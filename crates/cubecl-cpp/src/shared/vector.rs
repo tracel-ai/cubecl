@@ -2,8 +2,8 @@ use cubecl_core::{
     self as cubecl,
     ir::{
         dialect::vector::{
-            DotOp, MagnitudeOp, NormalizeOp, SumOp, VectorExtractDynamicOp, VectorExtractOp,
-            VectorInitOp, VectorInsertDynamicOp, VectorInsertOp,
+            DotOp, MagnitudeOp, NormalizeOp, SumOp, VectorBroadcastOp, VectorExtractDynamicOp,
+            VectorExtractOp, VectorInitOp, VectorInsertDynamicOp, VectorInsertOp,
         },
         interfaces::TypedExt,
         prelude::*,
@@ -21,6 +21,13 @@ use crate::{
 
 shared_op_with_out!(VectorInitOp, |op, ctx| {
     let values = op.values(ctx).iter().map(|it| it.name(ctx)).join(", ");
+    let ty = op.get_result(ctx).get_type(ctx).to_cpp(ctx);
+    format!("{ty}{{{values}}};")
+});
+
+shared_op_with_out!(VectorBroadcastOp, |op, ctx| {
+    let vec = op.get_result(ctx).vector_size(ctx);
+    let values = (0..vec).map(|_| op.input(ctx).name(ctx)).join(", ");
     let ty = op.get_result(ctx).get_type(ctx).to_cpp(ctx);
     format!("{ty}{{{values}}};")
 });
