@@ -4,16 +4,20 @@ use crate::compute::{
     affinity::{CoreId, set_for_current},
     threadpool::{
         compute_task::ComputeTask,
-        scheduler::{aside::AsideScheduler, naive::NaiveScheduler},
+        scheduler::{
+            aside::AsideScheduler, dispatcher::DispatcherScheduler, naive::NaiveScheduler,
+        },
     },
 };
 
 pub mod aside;
+pub mod dispatcher;
 pub mod naive;
 
 pub enum SchedulerVariant {
     Naive,
     Aside,
+    Dispatcher,
 }
 
 pub const MAX_STACK_SIZE: usize = 16 * 1024 * 1024;
@@ -36,6 +40,7 @@ fn resolve_stack_size() -> usize {
 pub enum Scheduler {
     Naive(NaiveScheduler),
     Aside(AsideScheduler),
+    Dispatcher(DispatcherScheduler),
 }
 
 impl Scheduler {
@@ -43,6 +48,7 @@ impl Scheduler {
         match option {
             SchedulerVariant::Naive => Scheduler::Naive(NaiveScheduler::new()),
             SchedulerVariant::Aside => Scheduler::Aside(AsideScheduler::new()),
+            SchedulerVariant::Dispatcher => Scheduler::Dispatcher(DispatcherScheduler::new()),
         }
     }
 
@@ -50,6 +56,7 @@ impl Scheduler {
         match self {
             Scheduler::Naive(naive) => naive.send(index, task),
             Scheduler::Aside(aside) => aside.send(index, task),
+            Scheduler::Dispatcher(dispatcher) => dispatcher.send(index, task),
         }
     }
 }
