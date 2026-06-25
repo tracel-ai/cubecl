@@ -22,7 +22,15 @@ use half::bf16;
 use num_traits::{One, Zero};
 
 use crate::{
-    shared::{CppValue, OpToCPP, lowering::LowerOp, shared_op, shared_op_with_out, ty::TypeExtCPP},
+    cuda::packed_ops::{PackableOp, packable},
+    shared::{
+        CppValue, OpToCPP,
+        convert::{no_half, promotes_int},
+        lowering::LowerOp,
+        shared_op, shared_op_with_out,
+        ty::{TypeExtCPP, TypedExtCPP},
+        unroll::unrolling,
+    },
     target::{CtxTarget, Shared, Target},
 };
 
@@ -38,81 +46,93 @@ pub trait FunctionFmt {
         let in_name = input.name(ctx);
         format!("{}({in_name})", Self::function_name(ctx, input))
     }
-
-    fn half_support() -> bool;
 }
 
 macro_rules! function {
-    ($name:ident, $func:expr) => {
-        function!($name, $func, true);
-    };
-    ($name:ident, $func:expr, $half_support:expr) => {
+    ($name:ident, $func:expr, $($flags: ident),*) => {
         impl FunctionFmt for $name {
             fn base_function_name() -> &'static str {
                 $func
             }
-            fn half_support() -> bool {
-                $half_support
-            }
         }
 
+        #[op_interface_impl]
         impl OpToCPP<Shared> for $name {
             fn to_cpp(&self, ctx: &Context) -> String {
-                Self::format_unary(ctx, self.input(ctx))
+                format!(
+                    "{} = {};",
+                    self.get_result(ctx).fmt_left(ctx),
+                    Self::format_unary(ctx, self.input(ctx))
+                )
             }
         }
+        unrolling!($name);
+        $($flags!($name);)*
     };
 }
 
-function!(LogOp, "log");
-// function!(FastLog, "__logf", false);
-function!(SinOp, "sin");
-function!(CosOp, "cos");
-function!(TanOp, "tan", false);
-function!(TanhOp, "tanh", false);
-function!(SinhOp, "sinh", false);
-function!(CoshOp, "cosh", false);
-function!(ArcCosOp, "acos", false);
-function!(ArcSinOp, "asin", false);
-function!(ArcTanOp, "atan", false);
-function!(ArcSinhOp, "asinh", false);
-function!(ArcCoshOp, "acosh", false);
-function!(ArcTanhOp, "atanh", false);
+function!(LogOp, "log", packable);
+// function!(FastLog, "__logf", no_half);
+function!(SinOp, "sin", packable);
+function!(CosOp, "cos", packable);
+function!(TanOp, "tan", no_half);
+function!(TanhOp, "tanh", packable);
+function!(SinhOp, "sinh", no_half);
+function!(CoshOp, "cosh", no_half);
+function!(ArcCosOp, "acos", no_half);
+function!(ArcSinOp, "asin", no_half);
+function!(ArcTanOp, "atan", no_half);
+function!(ArcSinhOp, "asinh", no_half);
+function!(ArcCoshOp, "acosh", no_half);
+function!(ArcTanhOp, "atanh", no_half);
 // function!(FastSinOp, "__sinf", false);
 // function!(FastCosOp, "__cosf", false);
-function!(SqrtOp, "sqrt");
-function!(RsqrtOp, "rsqrt");
+function!(SqrtOp, "sqrt", packable);
+function!(RsqrtOp, "rsqrt", packable);
 // function!(FastSqrt, "__fsqrt_rn", false);
 // function!(FastInverseSqrt, "__frsqrt_rn", false);
-function!(ExpOp, "exp");
+function!(ExpOp, "exp", packable);
 // function!(FastExp, "__expf", false);
-function!(Expm1Op, "expm1", false);
-function!(CeilOp, "ceil");
-function!(TruncOp, "trunc");
-function!(FloorOp, "floor");
-function!(RoundOp, "rint");
+function!(Expm1Op, "expm1", no_half);
+function!(CeilOp, "ceil", packable);
+function!(TruncOp, "trunc", packable);
+function!(FloorOp, "floor", packable);
+function!(RoundOp, "rint", packable);
 // function!(FastRecip, "__frcp_rn", false);
 // function!(FastTanhOp, "__tanhf", false);
 
-function!(ErfOp, "erf", false);
-function!(AbsOp, "abs", false);
+function!(ErfOp, "erf", no_half);
+
+shared_op_with_out!(AbsOp, |op, ctx| {
+    let input = op.input(ctx);
+    if input.is_half(ctx) {
+        format!("__habs({})", input.name(ctx))
+    } else if input.is_half2(ctx) {
+        format!("__habs2({})", input.name(ctx))
+    } else {
+        format!("abs({})", input.name(ctx))
+    }
+});
+unrolling!(AbsOp);
+packable!(AbsOp);
+promotes_int!(AbsOp);
 
 shared_op_with_out!(NegOp, |op, ctx| format!("-{}", op.input(ctx).name(ctx)));
+unrolling!(NegOp);
+packable!(NegOp);
+promotes_int!(NegOp);
+
 shared_op_with_out!(BoolNotOp, |op, ctx| format!("!{}", op.input(ctx).name(ctx)));
+unrolling!(BoolNotOp);
+
 shared_op_with_out!(BitwiseNotOp, |op, ctx| format!(
     "~{}",
     op.input(ctx).name(ctx)
 ));
-shared_op_with_out!(Log1pOp, |op, ctx| {
-    let input = op.input(ctx);
-    let ty = input.get_type(ctx).to_cpp(ctx);
-    format!("log({ty}(1.0f) + {})", input.name(ctx))
-});
-shared_op_with_out!(DegreesOp, |op, ctx| {
-    let input = op.input(ctx);
-    let ty = input.get_type(ctx).to_cpp(ctx);
-    format!("{} * {ty}(1.0f)", input.name(ctx))
-});
+unrolling!(BitwiseNotOp);
+promotes_int!(BitwiseNotOp);
+
+// Handle bitcount stuff
 
 shared_op_with_out!(CountOnesOp, |op, ctx| {
     let input = op.input(ctx);
@@ -122,6 +142,8 @@ shared_op_with_out!(CountOnesOp, |op, ctx| {
         _ => unreachable!("Unsupported size"),
     }
 });
+unrolling!(CountOnesOp);
+
 shared_op_with_out!(ReverseBitsOp, |op, ctx| {
     let input = op.input(ctx);
     match input.size(ctx) {
@@ -130,6 +152,8 @@ shared_op_with_out!(ReverseBitsOp, |op, ctx| {
         _ => unreachable!("Unsupported size"),
     }
 });
+unrolling!(ReverseBitsOp);
+
 shared_op_with_out!(LeadingZerosBitsOp, |op, ctx| {
     let input = op.input(ctx);
     match input.size(ctx) {
@@ -138,6 +162,8 @@ shared_op_with_out!(LeadingZerosBitsOp, |op, ctx| {
         _ => unreachable!("Unsupported size"),
     }
 });
+unrolling!(LeadingZerosBitsOp);
+
 shared_op_with_out!(FindFirstSetOp, |op, ctx| {
     let input = op.input(ctx);
     match input.size(ctx) {
@@ -146,12 +172,23 @@ shared_op_with_out!(FindFirstSetOp, |op, ctx| {
         _ => unreachable!("Unsupported size"),
     }
 });
+unrolling!(FindFirstSetOp);
 
 shared_op_with_out!(CastOp, |op, ctx| {
     let input = op.input(ctx);
     let ty = input.get_type(ctx);
     format!("{}({})", ty.to_cpp(ctx), input.name(ctx))
 });
+unrolling!(CastOp);
+
+// In and out packability might differ for cast
+#[op_interface_impl]
+impl PackableOp for CastOp {
+    fn should_pack(&self, ctx: &Context) -> bool {
+        self.input(ctx).can_pack(ctx) && self.get_result(ctx).can_pack(ctx)
+    }
+}
+
 shared_op_with_out!(ReinterpretCastOp, |op, ctx| {
     let input = op.value(ctx);
     let ty = input.get_type(ctx).to_cpp(ctx);
@@ -180,7 +217,7 @@ macro_rules! lower_unop {
                 define_size!(S);
                 let input = self.get_operand(scope.ctx());
                 scope.register_value_type::<T, S>(input);
-                vec![$name::expand::<T, S>(scope, input.into()).value(scope)]
+                vec![$name::expand::<T, S>(scope, input.into()).read_value(scope)]
             }
         }
     };
@@ -259,12 +296,14 @@ shared_op_with_out!(IsNanOp, |op, ctx| {
     let func = elem_function_name(ctx, "isnan", input);
     format!("{func}({})", input.name(ctx))
 });
+unrolling!(IsNanOp);
 
 shared_op_with_out!(IsInfOp, |op, ctx| {
     let input = op.input(ctx);
     let func = elem_function_name(ctx, "isinf", input);
     format!("{func}({})", input.name(ctx))
 });
+unrolling!(IsInfOp);
 
 #[op_interface_impl]
 impl LowerOp for UniformLoadOp {

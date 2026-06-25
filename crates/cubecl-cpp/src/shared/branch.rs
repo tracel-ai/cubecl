@@ -4,7 +4,7 @@ use cubecl_core::ir::{
 };
 use pliron::{basic_block::BasicBlock, linked_list::ContainsLinkedList};
 
-use crate::shared::{CppValue, OpExtCPP, shared_op, shared_op_with_out};
+use crate::shared::{CppValue, OpExtCPP, shared_op, shared_op_with_out, unroll::unrolling};
 
 pub fn block_to_cpp(ctx: &Context, block: Ptr<BasicBlock>) -> String {
     let mut out = String::new();
@@ -88,3 +88,4 @@ shared_op_with_out!(SelectOp, |op, ctx| {
     let or_else = op.false_value(ctx).name(ctx);
     format!("{} ? {} : {}", cond, then, or_else)
 });
+unrolling!(SelectOp);

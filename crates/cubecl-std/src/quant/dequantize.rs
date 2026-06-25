@@ -37,7 +37,7 @@ pub fn unpack_cast_u32<F: Numeric, NQ: Size, NF: Size>(
     let mut out = Vector::<F, NF>::empty();
 
     #[unroll]
-    for vector_idx in 0..value.size() {
+    for vector_idx in 0..value.vector_size() {
         let packed_val = value.extract(vector_idx);
         let out_offset = vector_idx * num_quants;
         #[unroll]

@@ -1,10 +1,12 @@
 use crate::{
+    cuda::packed_ops::PackOpsPass,
     shared::{
         OpToCPP,
         builtin::{LowerBuiltins, LowerBuiltinsPass},
         lowering::LowerOpsCppPass,
-        signature::LowerInfoPass,
+        signature::{DeclareVectorTypesPass, LowerInfoPass},
         ty::ConvertPtrPass,
+        unroll::CppUnrollPass,
     },
     target::{CppTarget, Shared},
 };
@@ -158,14 +160,6 @@ where
         // let address_type = address_type.to_type(ctx);
         // let instructions = self.compile_scope(&value.body);
 
-        // let tensor_maps = value.tensor_maps.clone();
-        // let buffers = value.buffers.clone();
-        // let scalars = value
-        //     .scalars
-        //     .into_iter()
-        //     .map(|binding| (binding.ty.to_type(ctx), binding.count))
-        //     .collect::<Vec<_>>();
-
         // let shared_memories = shared_allocs
         //     .allocations
         //     .values()
@@ -178,6 +172,7 @@ where
         //     .collect();
 
         let module = value.body.state().module;
+        let module_op = module.get_operation();
         let mut ctx = value.body.into_context().expect("Should be owned scope");
 
         let state = CompilationState {
@@ -195,6 +190,7 @@ where
         ctx.set_aux_ty(T::target());
 
         std::fs::write("target/initial.plir", format!("{}", module.disp(&ctx))).unwrap();
+        verify_operation(module.get_operation(), &ctx).unwrap();
 
         let mut analyses = AnalysisManager::default();
         let mut pass_manager = OpPassManager::<ModuleOp>::default();
@@ -208,10 +204,18 @@ where
         pass_manager.add_pass(OpPass::<ConvertPtrPass, FuncOp>::default());
         pass_manager.add_pass(OpPass::<LowerOpsCppPass<T>, FuncOp>::default());
         pass_manager.add_pass(OpPass::<LowerOpsCppPass<Shared>, FuncOp>::default());
+        pass_manager.add_pass(OpPass::<PackOpsPass, FuncOp>::default());
+        pass_manager.add_pass(OpPass::<CppUnrollPass, FuncOp>::default());
+        pass_manager.add_pass(OpPass::<DCEPass, FuncOp>::default());
 
         pass_manager
-            .run(module.get_operation(), &mut ctx, &mut analyses)
+            .run(module_op, &mut ctx, &mut analyses)
             .unwrap();
+
+        DeclareVectorTypesPass
+            .run(module_op, &mut ctx, &mut analyses)
+            .unwrap();
+
         std::fs::write(
             "target/after_lower_shared.plir",
             format!("{}", module.disp(&ctx)),

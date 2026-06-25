@@ -7,6 +7,7 @@ pub mod convert;
 pub mod dialect;
 mod extension;
 pub mod mma;
+pub mod packed_ops;
 pub mod plane;
 pub mod ptx;
 pub mod signature;

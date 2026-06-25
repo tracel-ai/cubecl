@@ -3,7 +3,11 @@ use pliron::r#type::TypeHandle;
 
 use crate::{attributes::IndexAttr, interfaces::*, prelude::*, types::VectorType};
 
-#[pliron_op(name = "vector.init", format, verifier = "succ")]
+#[pliron_op(
+    name = "vector.init",
+    format = "operands(CharSpace(`,`)) ` : ` type($0)",
+    verifier = "succ"
+)]
 #[op_interfaces(NResultsInterface<1>, OneResultInterface, AtLeastNOpdsInterface<1>, SameOperandsType, Pure)]
 pub struct VectorInitOp;
 erasable!(VectorInitOp);
@@ -28,7 +32,19 @@ impl VectorInitOp {
     }
 }
 
-#[cube_op(name = "vector.insert")]
+#[cube_op(name = "vector.broadcast", format = "$0 ` : ` type($0)")]
+#[result_ty(argument)]
+#[op_interfaces(Pure)]
+pub struct VectorBroadcastOp {
+    pub input: Value,
+}
+erasable!(VectorBroadcastOp);
+rematerialize!(VectorBroadcastOp);
+
+#[cube_op(
+    name = "vector.insert",
+    format = "$1 ` -> ` $0 `[` attr($index, $IndexAttr) `] : ` type($0)"
+)]
 #[result_ty(same_as = vector)]
 #[op_interfaces(Pure)]
 pub struct VectorInsertOp {
@@ -38,7 +54,10 @@ pub struct VectorInsertOp {
 }
 erasable!(VectorInsertOp);
 
-#[cube_op(name = "vector.extract")]
+#[cube_op(
+    name = "vector.extract",
+    format = "$0 `[` attr($index, $IndexAttr) `] : ` type($0)"
+)]
 #[result_ty(from_inputs = |ctx, vector, _| scalar_ty(ctx, vector))]
 #[op_interfaces(Pure)]
 pub struct VectorExtractOp {
@@ -47,7 +66,10 @@ pub struct VectorExtractOp {
 }
 erasable!(VectorExtractOp);
 
-#[cube_op(name = "vector.insert")]
+#[cube_op(
+    name = "vector.insert_dynamic",
+    format = "$1 ` -> ` $0 `[` $2 `] : ` type($0)"
+)]
 #[result_ty(same_as = vector)]
 #[op_interfaces(Pure)]
 pub struct VectorInsertDynamicOp {
@@ -57,7 +79,7 @@ pub struct VectorInsertDynamicOp {
 }
 erasable!(VectorInsertDynamicOp);
 
-#[cube_op(name = "vector.extract")]
+#[cube_op(name = "vector.extract_dynamic", format = "$0 `[` $1 `] : ` type($0)")]
 #[result_ty(from_inputs = |ctx, vector, _| scalar_ty(ctx, vector))]
 #[op_interfaces(Pure)]
 pub struct VectorExtractDynamicOp {
@@ -68,14 +90,14 @@ erasable!(VectorExtractDynamicOp);
 
 #[cube_op(name = "vector.magnitude")]
 #[result_ty(from_inputs = scalar_ty)]
-#[op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
+#[op_interfaces(SameOperandsType, Pure)]
 pub struct MagnitudeOp {
     pub input: Value,
 }
 erasable!(MagnitudeOp);
 
 #[cube_op(name = "vector.normalize")]
-#[result_ty(from_inputs = scalar_ty)]
+#[result_ty(same_as = input)]
 #[op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
 pub struct NormalizeOp {
     pub input: Value,
@@ -84,7 +106,7 @@ erasable!(NormalizeOp);
 
 #[cube_op(name = "vector.sum")]
 #[result_ty(from_inputs = scalar_ty)]
-#[op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
+#[op_interfaces(SameOperandsType, Pure)]
 pub struct SumOp {
     pub input: Value,
 }
@@ -92,7 +114,7 @@ erasable!(SumOp);
 
 #[cube_op(name = "vector.dot")]
 #[result_ty(from_inputs = |ctx, lhs, _| scalar_ty(ctx, lhs))]
-#[op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
+#[op_interfaces(SameOperandsType, Pure)]
 pub struct DotOp {
     pub lhs: Value,
     pub rhs: Value,
