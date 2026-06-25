@@ -65,8 +65,12 @@ impl fmt::Display for MetalDevice {
 }
 
 /// Get the default Metal device
+///
+/// `MTLCreateSystemDefaultDevice` can return `nil` on some configurations (e.g.
+/// certain macOS versions/headless contexts) even when a valid GPU exists, so we
+/// fall back to the first device reported by `MTLCopyAllDevices`.
 pub fn default_device() -> Option<objc2::rc::Retained<ProtocolObject<dyn MTLDevice>>> {
-    objc2_metal::MTLCreateSystemDefaultDevice()
+    objc2_metal::MTLCreateSystemDefaultDevice().or_else(|| all_devices().into_iter().next())
 }
 
 /// Get all available Metal devices
