@@ -63,6 +63,9 @@ pub trait Pure {
     verify_op_succ!();
 }
 
+/// Op that can be rematerialized from a set of operands.
+/// Should be implemented for anything that doesn't have regions or successors.
+/// We can't auto-implement it though so gotta just use the macro where necessary.
 #[op_interface]
 pub trait RematerializeOp {
     verify_op_succ!();
@@ -268,10 +271,38 @@ pub trait ConstantAttr: TypedAttrInterface {
     fn as_const_val(&self) -> ConstantValue;
 }
 
+macro_rules! try_cast {
+    ($ty: expr, $ctx: expr, $interface: ty) => {
+        type_cast::<$interface>(&*$ty)
+            .ok_or_else(|| {
+                alloc::format!(
+                    "Expected type {} {} to implement {}",
+                    $ty.get_type_id(),
+                    $ty.disp($ctx),
+                    stringify!($interface)
+                )
+            })
+            .unwrap()
+    };
+}
+
+#[macro_export]
+macro_rules! match_ty {
+    (($handle: expr, $ctx: expr) { $($ty: ty => $body: expr,)* $(_ => $default: expr)* }) => {
+        (|| {
+            $(if $handle.is::<$ty>() {
+                return $body;
+            })*
+            $($default)*
+            unreachable!()
+        })()
+    };
+}
+
 pub trait TypedExt: Typed {
     fn size(&self, ctx: &Context) -> usize {
         let ty = self.get_type(ctx).deref(ctx);
-        let sized = type_cast::<dyn SizedType>(&*ty).expect("Can't get size of non-sized type");
+        let sized = try_cast!(ty, ctx, dyn SizedType);
         sized.size(ctx)
     }
 
@@ -292,7 +323,12 @@ pub trait TypedExt: Typed {
         ty.is::<AtomicType>()
     }
 
-    fn is_vector(&self, ctx: &Context, size: usize) -> bool {
+    fn is_vector(&self, ctx: &Context) -> bool {
+        let ty = self.get_type(ctx).deref(ctx);
+        ty.is::<VectorType>()
+    }
+
+    fn is_vector_of_size(&self, ctx: &Context, size: usize) -> bool {
         let ty = self.get_type(ctx).deref(ctx);
         ty.downcast_ref::<VectorType>()
             .is_some_and(|it| it.vectorization == size)
@@ -315,9 +351,9 @@ pub trait TypedExt: Typed {
 
     fn packing_factor(&self, ctx: &Context) -> usize {
         let ty = self.get_type(ctx).deref(ctx);
-        let maybe_vec = type_cast::<dyn MaybeVectorizedType>(&*ty)
+        let maybe_vec = type_cast::<dyn MaybePackedType>(&*ty)
             .expect("Can't get vector size of non-vectorizable type");
-        maybe_vec.vector_size(ctx)
+        maybe_vec.packing_factor(ctx)
     }
 
     fn scalar_ty(&self, ctx: &Context) -> TypeHandle {

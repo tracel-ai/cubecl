@@ -17,9 +17,13 @@ use cubecl_core::{
 use itertools::Itertools;
 
 use crate::{
+    cuda::packed_ops::packable,
     shared::{
-        CppValue, shared_op, shared_op_with_out,
+        CppValue,
+        convert::{no_half, promotes_int},
+        shared_op, shared_op_with_out,
         ty::{PointerType, TypeExtCPP, TypedExtCPP},
+        unroll::unrolling,
     },
     target::{CtxTarget, Hip},
 };
@@ -29,14 +33,10 @@ macro_rules! operator {
         shared_op_with_out!($name, |op, ctx| {
             let lhs = op.lhs(ctx).name(ctx);
             let rhs = op.rhs(ctx).name(ctx);
-            let out_ty = op.get_result(ctx).get_type(ctx);
-            if out_ty.is_small_int(ctx) {
-                let out_ty = out_ty.to_cpp(ctx);
-                format!("{out_ty}({lhs} {} {rhs})", $op)
-            } else {
-                format!("{lhs} {} {rhs}", $op)
-            }
+            format!("{lhs} {} {rhs}", $op)
         });
+        unrolling!($name);
+        promotes_int!($name);
     };
 }
 
@@ -62,14 +62,15 @@ shared_op_with_out!(RemOp, |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);
     let rhs = op.rhs(ctx).name(ctx);
     let out = op.get_result(ctx);
-    if out.is_float32(ctx) {
-        format!("fmodf({lhs}, {rhs})")
-    } else if out.is_float64(ctx) {
+    if out.is_float32(ctx) | out.is_float64(ctx) {
         format!("fmod({lhs}, {rhs})")
     } else {
         format!("{lhs} % {rhs}")
     }
 });
+unrolling!(RemOp);
+no_half!(RemOp);
+promotes_int!(RemOp);
 
 shared_op_with_out!(ModFloorOp, |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);
@@ -84,6 +85,8 @@ shared_op_with_out!(ModFloorOp, |op, ctx| {
         format!("{lhs} - {rhs} * {floor}({lhs} / {rhs})")
     }
 });
+unrolling!(ModFloorOp);
+packable!(ModFloorOp);
 
 // pub struct FastDiv;
 
@@ -110,6 +113,7 @@ shared_op_with_out!(MulHiOp, |op, ctx| {
         _ => unreachable!("HiMul only supports 32 and 64 bit ints"),
     }
 });
+unrolling!(MulHiOp);
 
 macro_rules! lower_binop {
     ($ty: ty, $name: ident, $pred: expr) => {
@@ -136,7 +140,7 @@ macro_rules! lower_target_binop {
                 let lhs = self.get_operation().operand(scope.ctx(), 0);
                 let rhs = self.get_operation().operand(scope.ctx(), 1);
                 scope.register_value_type::<T, S>(rhs);
-                vec![$name::expand::<T, S>(scope, lhs.into(), rhs.into()).value(scope)]
+                vec![$name::expand::<T, S>(scope, lhs.into(), rhs.into()).read_value(scope)]
             }
         }
     };
@@ -178,6 +182,9 @@ shared_op_with_out!(MinOp, |op, ctx| {
         format!("min({}, {rhs})", lhs.name(ctx))
     }
 });
+unrolling!(MinOp);
+packable!(MinOp);
+promotes_int!(MinOp);
 
 shared_op_with_out!(MaxOp, |op, ctx| {
     let lhs = op.lhs(ctx);
@@ -190,6 +197,9 @@ shared_op_with_out!(MaxOp, |op, ctx| {
         format!("max({}, {rhs})", lhs.name(ctx))
     }
 });
+unrolling!(MaxOp);
+packable!(MaxOp);
+promotes_int!(MaxOp);
 
 shared_op_with_out!(ClampOp, |op, ctx| {
     let input = op.input(ctx);
@@ -203,26 +213,25 @@ shared_op_with_out!(ClampOp, |op, ctx| {
         format!("max(min({}, {max}), {min})", input.name(ctx))
     }
 });
+unrolling!(ClampOp);
+packable!(ClampOp);
+promotes_int!(ClampOp);
 
 shared_op_with_out!(PowfOp, |op, ctx| {
     let lhs = op.lhs(ctx);
     let rhs = op.rhs(ctx).name(ctx);
-    if lhs.is_float32(ctx) {
-        format!("powf({}, {rhs})", lhs.name(ctx))
-    } else {
-        format!("pow({}, {rhs})", lhs.name(ctx))
-    }
+    format!("pow({}, {rhs})", lhs.name(ctx))
 });
+unrolling!(PowfOp);
+no_half!(PowfOp);
 
 shared_op_with_out!(PowiOp, |op, ctx| {
     let lhs = op.lhs(ctx);
     let rhs = op.rhs(ctx).name(ctx);
-    if lhs.is_float32(ctx) {
-        format!("powf({}, {rhs})", lhs.name(ctx))
-    } else {
-        format!("pow({}, {rhs})", lhs.name(ctx))
-    }
+    format!("pow({}, {rhs})", lhs.name(ctx))
 });
+unrolling!(PowiOp);
+no_half!(PowiOp);
 
 // pub struct FastPowf;
 
@@ -243,16 +252,16 @@ shared_op_with_out!(ArcTan2Op, |op, ctx| {
     let rhs = op.rhs(ctx).name(ctx);
     format!("atan2({lhs}, {rhs})")
 });
+unrolling!(ArcTan2Op);
+no_half!(ArcTan2Op);
 
 shared_op_with_out!(HypotOp, |op, ctx| {
     let lhs = op.lhs(ctx);
     let rhs = op.rhs(ctx).name(ctx);
-    if lhs.is_float32(ctx) {
-        format!("hypotf({}, {rhs})", lhs.name(ctx))
-    } else {
-        format!("hypot({}, {rhs})", lhs.name(ctx))
-    }
+    format!("hypot({}, {rhs})", lhs.name(ctx))
 });
+unrolling!(HypotOp);
+no_half!(HypotOp);
 
 shared_op_with_out!(RhypotOp, |op, ctx| {
     let lhs = op.lhs(ctx);
@@ -263,6 +272,8 @@ shared_op_with_out!(RhypotOp, |op, ctx| {
         format!("rhypot({}, {rhs})", lhs.name(ctx))
     }
 });
+unrolling!(RhypotOp);
+no_half!(RhypotOp);
 
 shared_op_with_out!(IndexOp, |op, ctx| {
     format!("&{}", fmt_index(ctx, op.base(ctx), op.index(ctx)))

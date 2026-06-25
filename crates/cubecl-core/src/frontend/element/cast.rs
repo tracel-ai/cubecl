@@ -1,7 +1,11 @@
 use cubecl_ir::{
-    dialect::general::{CastOp, ReinterpretCastOp},
+    dialect::{
+        general::{CastOp, ReinterpretCastOp},
+        vector::VectorBroadcastOp,
+    },
     interfaces::TypedExt,
     pliron::{builtin::op_interfaces::OneResultInterface, r#type::Typed, value::Value},
+    types::VectorType,
 };
 use pliron::r#type::TypeHandle;
 
@@ -32,19 +36,36 @@ pub trait Cast: CubePrimitive {
 }
 
 pub fn cast_value(scope: &Scope, from: Value, to_ty: TypeHandle) -> Value {
-    if from.get_type(scope.ctx()) == to_ty {
+    let ctx = scope.ctx_mut();
+    if from.get_type(ctx) == to_ty {
         return from;
     }
 
-    let vec_in = from.vector_size(scope.ctx());
-    let elems_in = vec_in * from.packing_factor(scope.ctx());
-    let elems_out = to_ty.vector_size(scope.ctx()) * to_ty.packing_factor(scope.ctx());
-    if vec_in > 1 && elems_in != elems_out {
+    let elems_in = from.vector_size(ctx) * from.packing_factor(ctx);
+    let elems_out = to_ty.vector_size(ctx) * to_ty.packing_factor(ctx);
+    if elems_in == 1 && elems_out > 1 {
+        let value = broadcast_value(scope, from, elems_out);
+        return cast_value(scope, value, to_ty);
+    }
+
+    if elems_in != elems_out {
         expand_error!("Cast element count must match if input is not scalar");
     }
-    let op = CastOp::new(scope.ctx_mut(), to_ty, from);
+    let op = CastOp::new(ctx, to_ty, from);
     scope.register(&op);
-    op.get_result(scope.ctx())
+    op.get_result(ctx)
+}
+
+pub fn broadcast_value(scope: &Scope, value: Value, vector_size: usize) -> Value {
+    if vector_size == 1 {
+        return value;
+    }
+    let ctx = scope.ctx_mut();
+    assert_eq!(value.vector_size(ctx), 1, "Can't broadcast vector");
+    let vec_ty = VectorType::get(ctx, value.get_type(ctx), vector_size).to_handle();
+    let op = VectorBroadcastOp::new(ctx, vec_ty, value);
+    scope.register(&op);
+    op.get_result(ctx)
 }
 
 impl<P: CubePrimitive> Cast for P {

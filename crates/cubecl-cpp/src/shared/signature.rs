@@ -1,17 +1,26 @@
 use core::any::type_name;
 
 use cubecl_core::ir::{
-    ContextExt, attributes::FuncInterface, cube_op, dialect::OperationPtrExt, ident, prelude::*,
-    types::scalar::IndexType,
+    ContextExt,
+    attributes::FuncInterface,
+    cube_op,
+    dialect::OperationPtrExt,
+    ident,
+    interfaces::AlignedType,
+    prelude::*,
+    types::{VectorType, scalar::IndexType},
 };
 use cubecl_runtime::kernel::Visibility;
+use itertools::Itertools;
 use pliron::{
     builtin::{
-        attributes::UnitAttr,
+        attributes::{TypeAttr, UnitAttr},
         op_interfaces::SingleBlockRegionInterface,
         ops::{FuncOp, ModuleOp},
     },
     debug_info::{insert_block_arg_name, insert_operation_result_name},
+    deps::hash::FxHashMap,
+    graph::walkers::uninterruptible::immutable::walk_op,
     pass_manager::Pass,
 };
 
@@ -62,6 +71,22 @@ shared_op_with_out!(LoadDynMetaOp, |op, ctx| {
     let ptr = op.ptr(ctx).name(ctx);
     let out_ty = op.get_result(ctx).get_type(ctx).to_cpp(ctx);
     format!("reinterpret_cast<{out_ty}>({ptr} + 1)")
+});
+
+#[cube_op(name = "cpp.declare_vector")]
+#[result_ty(none)]
+pub struct DeclareVectorOp {
+    vector_ty: TypeAttr,
+}
+
+shared_op!(DeclareVectorOp, |op, ctx| {
+    let vector = op.vector_ty(ctx).get_type(ctx).deref(ctx);
+    let vector = vector.downcast_ref::<VectorType>().unwrap();
+    let align = vector.align(ctx);
+    let inner_ty = vector.inner.to_cpp(ctx);
+    let vec = vector.vectorization;
+    let fields = (0..vec).map(|i| format!("{inner_ty} i_{i};")).join(" ");
+    format!("struct __align__({align}) {inner_ty}_{vec} {{ {fields} }};\n")
 });
 
 #[derive(Default)]
@@ -131,6 +156,60 @@ impl Pass for LowerInfoPass {
 
         let mut res = PassResult::default();
         res.ir_changed |= IRStatus::Changed;
+        Ok(res)
+    }
+}
+
+/// Run on module
+#[derive(Default)]
+pub struct DeclareVectorTypesPass;
+
+impl Pass for DeclareVectorTypesPass {
+    fn name(&self) -> &str {
+        type_name::<Self>()
+    }
+
+    fn run(
+        &self,
+        op: Ptr<Operation>,
+        ctx: &mut Context,
+        _analyses: &mut AnalysisManager,
+    ) -> Result<PassResult> {
+        let module = op.as_op::<ModuleOp>(ctx).expect("Should be run on module");
+        // Deduplicate by type name because some types are semantic only (i.e. tf32 is the same as f32)
+        let mut vectors = FxHashMap::default();
+
+        walk_op(
+            ctx,
+            &mut vectors,
+            &WALKCONFIG_PREORDER_FORWARD,
+            op,
+            |ctx, vectors, node| {
+                let mut ins = |val: Value| {
+                    let ty = val.get_type(ctx).deref(ctx);
+                    if let Some(vector) = ty.downcast_ref::<VectorType>() {
+                        vectors.insert((vector.inner.to_cpp(ctx), vector.vectorization), *vector);
+                    }
+                };
+                match node {
+                    IRNode::Operation(op) if let Some(res) = op.opt_result(ctx) => ins(res),
+                    IRNode::BasicBlock(ptr) => {
+                        for arg in ptr.deref(ctx).arguments() {
+                            ins(arg);
+                        }
+                    }
+                    _ => {}
+                }
+            },
+        );
+
+        let mut res = PassResult::default();
+        for &vector in vectors.values() {
+            let decl = DeclareVectorOp::new(ctx, TypeAttr::new(vector.get_self_handle(ctx)));
+            decl.get_operation()
+                .insert_at_front(module.get_body(ctx, 0), ctx);
+            res.ir_changed |= IRStatus::Changed;
+        }
         Ok(res)
     }
 }

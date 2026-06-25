@@ -85,7 +85,14 @@ pub struct DeclareLocalOp {
     pub value_ty: TypeAttr,
 }
 
-#[cube_op(name = "cpp.declare_local")]
+shared_op!(DeclareLocalOp, |op, ctx| {
+    let name = op.get_result(ctx).name(ctx);
+    let value_ty = op.value_ty(ctx).get_type(ctx).to_cpp(ctx);
+    let out_ty = op.get_result(ctx).get_type(ctx).to_cpp(ctx);
+    format!("{value_ty} {name}_store;\n{out_ty} {name} = &{name}_store;")
+});
+
+#[cube_op(name = "cpp.declare_matrix")]
 #[result_ty(from_inputs = variable_ptr_ty)]
 pub struct DeclareMatrixOp {
     pub value_ty: TypeAttr,

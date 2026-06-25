@@ -163,7 +163,8 @@ impl<'a, S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<'a, S, T> {
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
-                let vector_size = comptime!(reinterpreted.size() / amount);
+                let reinterpreted_vec = reinterpreted.vector_size();
+                let vector_size = comptime!(reinterpreted_vec / amount);
 
                 #[unroll]
                 for k in 0..amount {

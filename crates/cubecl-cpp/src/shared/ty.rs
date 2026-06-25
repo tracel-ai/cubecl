@@ -9,6 +9,7 @@ use cubecl_core::ir::{
         memory::{DeclareVariableOp, IndexOp},
     },
     interfaces::TypedExt,
+    match_ty,
     prelude::*,
     types::{
         ArrayType, AtomicType, PointerType as CubePointerType, RuntimeArrayType, VectorType,
@@ -129,6 +130,31 @@ pub trait TypedExtCPP: Typed {
 
     fn is_packed_fp6_fp8_fp4(&self, ctx: &Context) -> bool {
         self.is_float8x2(ctx) || self.is_float6x2(ctx) || self.is_float4x2(ctx)
+    }
+
+    fn can_pack(&self, ctx: &Context) -> bool {
+        if !self.is_vector(ctx) {
+            return false;
+        }
+        let scalar = self.scalar_ty(ctx);
+        scalar.is_float16(ctx) || scalar.is_bfloat16(ctx) || scalar.is_fp6_fp8_fp4(ctx)
+    }
+
+    fn packed_type(&self, ctx: &Context) -> TypeHandle {
+        assert!(self.can_pack(ctx), "Should be packable");
+        let ty = self.get_type(ctx).deref(ctx);
+        let vec = ty.downcast_ref::<VectorType>().unwrap();
+        let scalar = match_ty!((ty, ctx) {
+            Float16Type => Float16x2Type::get(ctx).into(),
+            BFloat16Type => BFloat16x2Type::get(ctx).into(),
+            Float8E8M0Type => Float8E8M0x2Type::get(ctx).into(),
+            Float8E5M2Type => Float8E5M2x2Type::get(ctx).into(),
+            Float8E5M2Type => Float8E5M2x2Type::get(ctx).into(),
+            Float6E2M3Type => Float6E2M3x2Type::get(ctx).into(),
+            Float6E3M2Type => Float6E3M2x2Type::get(ctx).into(),
+            Float4E2M1Type => Float4E2M1x2Type::get(ctx).into(),
+        });
+        VectorType::get(ctx, scalar, vec.vectorization / 2).to_handle()
     }
 
     /// Whether the type is an integer that may be auto-promoted by C++

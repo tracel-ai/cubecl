@@ -18,7 +18,7 @@ use crate::{
         math::{int_attr, uint_attr},
         pure_binop, pure_unop,
     },
-    interfaces::{AggregateType, Pure, TypedExt, erasable},
+    interfaces::{AggregateType, Pure, TypedExt, erasable, rematerialize},
     prelude::*,
     types::scalar::IndexType,
 };
@@ -143,6 +143,7 @@ pub struct CastOp {
     pub input: Value,
 }
 erasable!(CastOp);
+rematerialize!(CastOp);
 // TODO const_eval
 
 #[cube_op(name = "cube.reinterpret_cast")]
@@ -152,6 +153,7 @@ pub struct ReinterpretCastOp {
     pub value: Value,
 }
 erasable!(ReinterpretCastOp);
+rematerialize!(ReinterpretCastOp);
 const_eval!(ReinterpretCastOp, {
     custom: |inp| {
         let val = match inp?.as_const_val() {
@@ -180,6 +182,7 @@ pub struct SelectOp {
     pub false_value: Value,
 }
 erasable!(SelectOp);
+rematerialize!(SelectOp);
 simplify!(SelectOp, {
     |cond, _, _| match cond?.as_const_val() {
         ConstantValue::Bool(true) => Some(self.true_value(ctx)),

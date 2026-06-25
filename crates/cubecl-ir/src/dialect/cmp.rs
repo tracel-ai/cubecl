@@ -9,7 +9,7 @@ use crate::{
         base::pure_binop,
         math::{int_attr, uint_attr},
     },
-    interfaces::{Pure, TypedExt, erasable},
+    interfaces::{Pure, TypedExt, erasable, rematerialize},
     prelude::*,
     types::{
         VectorType,
@@ -106,6 +106,7 @@ pub struct ClampOp {
     pub max: Value,
 }
 erasable!(ClampOp);
+rematerialize!(ClampOp);
 const_eval!(ClampOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64), FloatAttr(f16, bf16, f32, f64)]:
     |inp, min, max| inp.clamp(min, max),
@@ -140,6 +141,7 @@ macro_rules! cmp_binop {
         }
 
         $crate::interfaces::erasable!($ty);
+        $crate::interfaces::rematerialize!($ty);
     };
 }
 

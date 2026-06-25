@@ -43,8 +43,6 @@ mod new {
     use cubecl_ir::VectorSize;
     use cubecl_macros::comptime_type;
 
-    use crate::prelude::Cast;
-
     use super::*;
 
     impl<P: Scalar, N: Size> Vector<P, N> {
@@ -58,7 +56,14 @@ mod new {
         }
 
         pub fn __expand_new(scope: &Scope, val: NativeExpand<P>) -> VectorExpand<P, N> {
-            Vector::<P, N>::__expand_cast_from(scope, val)
+            broadcast_value(scope, val.read_value(scope), N::__expand_value(scope)).into()
+        }
+    }
+
+    #[cube]
+    impl<P: Scalar, N: Size> Vector<P, N> {
+        pub fn broadcast(value: P) -> Vector<P, N> {
+            Self::new(value)
         }
     }
 
@@ -222,48 +227,6 @@ mod empty {
     }
 }
 
-/// Module that contains the implementation details of the size function.
-mod size {
-    use cubecl_ir::{VectorSize, interfaces::TypedExt};
-
-    use crate::unexpanded;
-
-    use super::*;
-
-    impl<P: Scalar, N: Size> Vector<P, N> {
-        /// Get the number of individual elements a vector contains.
-        ///
-        /// The size is available at comptime and may be used in combination with the comptime
-        /// macro.
-        ///
-        /// ```rust, ignore
-        /// // The if statement is going to be executed at comptime.
-        /// if comptime!(vector.size() == 1) {
-        /// }
-        /// ```
-        pub fn size(&self) -> VectorSize {
-            N::value()
-        }
-
-        /// Expand function of [size](Self::size).
-        pub fn __expand_size(scope: &Scope, element: NativeExpand<Vector<P, N>>) -> VectorSize {
-            element.__expand_vector_size_method(scope)
-        }
-    }
-
-    impl<P: Scalar, N: Size> NativeExpand<Vector<P, N>> {
-        /// Comptime version of [size](Vector::size).
-        pub fn size(&self) -> VectorSize {
-            unexpanded!()
-        }
-
-        /// Expand method of [size](Vector::size).
-        pub fn __expand_size_method(&self, scope: &Scope) -> VectorSize {
-            self.value(scope).vector_size(scope.ctx())
-        }
-    }
-}
-
 // Implement a comparison operator define in
 macro_rules! impl_vector_comparison {
     ($name:ident, $operator:ident, $comment:literal) => {
@@ -368,7 +331,11 @@ impl<P: Scalar, N: Size> CubePrimitive for Vector<P, N> {
     fn __expand_as_type(scope: &Scope) -> TypeHandle {
         let inner = P::__expand_as_type(scope);
         let vectorization = N::__expand_value(scope);
-        VectorType::get(scope.ctx(), inner, vectorization).into()
+        if vectorization > 1 {
+            VectorType::get(scope.ctx(), inner, vectorization).into()
+        } else {
+            inner
+        }
     }
 
     fn from_const_value(value: ConstantValue) -> Self {
