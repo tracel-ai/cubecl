@@ -15,7 +15,6 @@ use crate::compute::{
 };
 
 pub struct DispatcherScheduler {
-    waiting_queue: VecDeque<(usize, ComputeTask)>,
     tx: Vec<mpsc::Sender<ComputeTask>>,
     lens: Arc<[CachePadded<AtomicUsize>]>,
 }
@@ -38,13 +37,7 @@ impl DispatcherScheduler {
             })
             .collect();
 
-        let waiting_queue = VecDeque::with_capacity(cores.len() * 3);
-
-        Self {
-            waiting_queue,
-            tx,
-            lens,
-        }
+        Self { tx, lens }
     }
 
     pub fn send(&mut self, mut index: usize, task: ComputeTask) {
@@ -55,10 +48,6 @@ impl DispatcherScheduler {
                 index = i;
                 min_value = len;
             }
-        }
-        if min_value > 3 {
-            self.waiting_queue.push_back((index, task));
-            return;
         }
         let _ = self.tx[index].send(task);
         self.lens[index].fetch_add(1, atomic::Ordering::Relaxed);
