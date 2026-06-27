@@ -1,26 +1,20 @@
 use core::{any::type_name, cell::Ref, ops::Deref};
 
 use ::pliron::{
-    derive::{op_interface, op_interface_impl},
     graph::walkers::{WALKCONFIG_PREORDER_FORWARD, uninterruptible::immutable::walk_op},
     op::op_cast,
     r#type::Typed,
 };
 use cubecl_ir::{
     AddressSpace,
-    dialect::{
-        base::OperationPtrExt,
-        general::CopyOp,
-        memory::{DeclareVariableOp, IndexOp},
-    },
-    interfaces::{ReadsMemory, TypedExt, WritesMemory},
+    dialect::{base::OperationPtrExt, memory::DeclareVariableOp},
+    interfaces::{MemoryEffect, MemoryEffects, TypedExt, aliasing::AliasingOp},
     prelude::*,
     types::PointerType,
-    verify_op_succ,
 };
 use derive_new::new;
 use hashbrown::{HashMap, HashSet};
-use pliron::{pass_manager::Analysis, value::Value};
+use pliron::{pass::Analysis, value::Value};
 
 use crate::{BufferVisibility, MemoryResource};
 
@@ -108,30 +102,6 @@ impl Deref for PointerSource {
     }
 }
 
-#[op_interface]
-pub trait AliasingOp: OneResultInterface {
-    verify_op_succ!();
-    fn source_ptr(&self, ctx: &Context) -> Option<Value>;
-}
-
-#[op_interface_impl]
-impl AliasingOp for CopyOp {
-    fn source_ptr(&self, ctx: &Context) -> Option<Value> {
-        if self.get_result(ctx).is_ptr(ctx) {
-            Some(self.value(ctx))
-        } else {
-            None
-        }
-    }
-}
-
-#[op_interface_impl]
-impl AliasingOp for IndexOp {
-    fn source_ptr(&self, ctx: &Context) -> Option<Value> {
-        Some(self.base(ctx))
-    }
-}
-
 impl Analysis for PointerSource {
     fn name(&self) -> &str {
         type_name::<Self>()
@@ -168,12 +138,12 @@ impl Analysis for PointerSource {
 
 #[derive(new)]
 pub struct GlobalVisibility {
-    pub visibility: HashMap<Value, BufferVisibility>,
+    pub visibility: HashMap<usize, BufferVisibility>,
 }
 
 struct GlobalVisibilityState<'a> {
     ptr_source: Ref<'a, PointerSource>,
-    visibility: HashMap<Value, BufferVisibility>,
+    visibility: HashMap<usize, BufferVisibility>,
 }
 
 impl Analysis for GlobalVisibility {
@@ -188,11 +158,11 @@ impl Analysis for GlobalVisibility {
         let visibility = {
             let resources = analyses.get_analysis::<Resources>(op, ctx)?;
             let mem_resources = resources.memory_resources.iter();
-            let globals =
-                mem_resources.filter(|it| matches!(it.address_space, AddressSpace::Global(_)));
-            globals
-                .map(|it| (it.root_ptr, Default::default()))
-                .collect()
+            let globals = mem_resources.filter_map(|res| match res.address_space {
+                AddressSpace::Global(id) => Some((id, Default::default())),
+                _ => None,
+            });
+            globals.collect()
         };
 
         let ptr_source = analyses.get_analysis::<PointerSource>(op, ctx)?;
@@ -209,14 +179,15 @@ impl Analysis for GlobalVisibility {
             |ctx, state, node| {
                 if let IRNode::Operation(op) = node {
                     let op_dyn = op.dyn_op(ctx);
-                    if let Some(reads) = op_cast::<dyn ReadsMemory>(op_dyn.as_ref()) {
-                        for ptr in reads.reads_through_values(ctx) {
-                            state.check_read(ptr);
-                        }
-                    }
-                    if let Some(writes) = op_cast::<dyn WritesMemory>(op_dyn.as_ref()) {
-                        for ptr in writes.writes_through_values(ctx) {
-                            state.check_write(ptr);
+                    if let Some(effects) = op_cast::<dyn MemoryEffects>(op_dyn.as_ref()) {
+                        for effect in effects.memory_effects(ctx) {
+                            match effect {
+                                MemoryEffect::Read(affects) => state.check_read(affects),
+                                MemoryEffect::Write(affects) => state.check_write(affects),
+                                MemoryEffect::ReadAll | MemoryEffect::WriteAll => {
+                                    // Technically need to handle it, but let's leave it for now
+                                }
+                            }
                         }
                     }
                 }
@@ -229,7 +200,8 @@ impl Analysis for GlobalVisibility {
 impl GlobalVisibilityState<'_> {
     fn check_read(&mut self, ptr: Value) {
         if let Some(resource) = self.ptr_source.get(&ptr)
-            && let Some(visibility) = self.visibility.get_mut(&resource.root_ptr)
+            && let AddressSpace::Global(idx) = resource.address_space
+            && let Some(visibility) = self.visibility.get_mut(&idx)
         {
             visibility.readable = true;
         }
@@ -237,7 +209,8 @@ impl GlobalVisibilityState<'_> {
 
     fn check_write(&mut self, ptr: Value) {
         if let Some(resource) = self.ptr_source.get(&ptr)
-            && let Some(visibility) = self.visibility.get_mut(&resource.root_ptr)
+            && let AddressSpace::Global(idx) = resource.address_space
+            && let Some(visibility) = self.visibility.get_mut(&idx)
         {
             visibility.writable = true;
         }

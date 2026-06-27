@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantValue, Scope, StorageType, types::scalar::BoolType};
+use cubecl_ir::{ConstantValue, Scope, types::scalar::BoolType};
 use pliron::r#type::TypeHandle;
 
 use crate::prelude::*;
@@ -27,8 +27,8 @@ impl CubeType for bool {
 
 impl CubeDebug for bool {}
 impl Scalar for bool {
-    fn storage_type_native() -> StorageType {
-        ElemType::Bool.into()
+    fn elem_type_native() -> ElemType {
+        ElemType::Bool
     }
 }
 impl CubePrimitive for bool {

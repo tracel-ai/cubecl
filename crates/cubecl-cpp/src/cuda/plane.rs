@@ -9,7 +9,8 @@ use cubecl_core::{
 use pliron::{context::Context, derive::op_interface_impl, value::Value};
 
 use crate::{
-    cuda::{InlinePtxOp, cuda_op_with_out, ptx_block},
+    cuda::{cuda_op_with_out, ptx::InlinePtxOp},
+    ptx_block,
     shared::{CompilationOptions, lowering::LowerOp},
     target::Cuda,
 };

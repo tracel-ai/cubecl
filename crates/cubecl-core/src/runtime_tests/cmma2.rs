@@ -33,7 +33,7 @@ pub fn kernel_simple_f16_workgroup_gmem(
 }
 
 pub fn test_elemwise_cube<R: Runtime>(client: ComputeClient<R>, cube_dimensions: u32) {
-    let cd_ty = ElemType::Float(FloatKind::F32).into();
+    let cd_ty = ElemType::Float(FloatKind::F32);
     let config = client.features().matmul.cube_mma.iter().find(|cfg| {
         cfg.cd_type == cd_ty
             && cfg

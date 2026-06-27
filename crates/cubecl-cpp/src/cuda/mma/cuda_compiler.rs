@@ -44,9 +44,9 @@ pub(super) fn supported_cmma_combinations_wmma(
             .into_iter()
             .cartesian_product(tdims)
             .map(|((a, b, c), (m, n, k))| MmaConfig {
-                a_type: a.into(),
-                b_type: b.into(),
-                cd_type: c.into(),
+                a_type: a,
+                b_type: b,
+                cd_type: c,
                 m,
                 n,
                 k,
@@ -55,9 +55,9 @@ pub(super) fn supported_cmma_combinations_wmma(
         result.extend(combinations);
         if arch.get_version() >= 80 {
             result.push(MmaConfig {
-                a_type: ElemType::Float(FloatKind::TF32).into(),
-                b_type: ElemType::Float(FloatKind::TF32).into(),
-                cd_type: ElemType::Float(FloatKind::F32).into(),
+                a_type: ElemType::Float(FloatKind::TF32),
+                b_type: ElemType::Float(FloatKind::TF32),
+                cd_type: ElemType::Float(FloatKind::F32),
                 m: 16,
                 n: 16,
                 k: 8,

@@ -1,18 +1,20 @@
 use alloc::vec;
 use core::ops::{Deref, DerefMut};
-use pliron::r#type::TypeHandle;
+use pliron::{builtin::ops::FuncOp, r#type::TypeHandle, value::DefiningEntity};
 
 use alloc::boxed::Box;
 
 use crate::{self as cubecl, unexpanded};
 use cubecl::prelude::*;
 use cubecl_ir::{
-    AddressSpace, OpInserter, SliceMetadata, VectorSize,
+    OpInserter, SliceMetadata, VectorSize,
+    attributes::{ATTR_BUFFER_BINDING, BufferBindingAttr, FuncInterface},
     dialect::{
+        OperationPtrExt,
         branch::RangeLoopOp,
         general::{AggregateConstructOp, ReinterpretCastOp},
     },
-    interfaces::TypedExt,
+    interfaces::{TypedExt, aliasing::PointerExt},
     pliron::{
         builtin::op_interfaces::OneResultInterface, context::Context, printable::Printable,
         r#type::Typed, value::Value,
@@ -54,15 +56,34 @@ impl<E: CubePrimitive> SliceExpand<E> {
 }
 
 pub(crate) fn buffer_idx(scope: &Scope, list: Value) -> usize {
+    buffer_binding(scope, list).buffer_pos
+}
+
+pub(crate) fn ext_meta_idx(scope: &Scope, list: Value) -> usize {
+    buffer_binding(scope, list)
+        .ext_meta_pos
+        .expect("Should have ext meta")
+}
+
+fn buffer_binding(scope: &Scope, list: Value) -> BufferBindingAttr {
     let ctx = scope.ctx();
-    let ty = list.get_type(ctx).deref(ctx);
-    let Some(PointerType { address_space, .. }) = ty.downcast_ref() else {
-        panic!("Tried reading buffer index of non-pointer");
+    let (entry_block, idx) = match list.defining_entity() {
+        // Op is only allowed as a source for pointers (i.e. slice), so chase the pointer to its root
+        DefiningEntity::Op(_) => {
+            let block = list
+                .get_root_defining_block(ctx)
+                .expect("Should be block arg");
+            let idx = list.find_root_index(ctx);
+            (block, idx)
+        }
+        DefiningEntity::Block(block) => (block, list.find_index(ctx)),
     };
-    let AddressSpace::Global(idx) = *address_space else {
-        panic!("Tried reading buffer index of non-global pointer");
-    };
-    idx
+    let func = entry_block.deref(ctx).get_parent_op(ctx).unwrap();
+    let func = func.as_op::<FuncOp>(ctx).expect("Should be function");
+    let binding = func
+        .get_arg_attr(scope.ctx(), idx, &ATTR_BUFFER_BINDING)
+        .expect("Should be buffer binding");
+    *binding.downcast_ref::<BufferBindingAttr>().unwrap()
 }
 
 pub trait SliceVectorExt<E: Scalar, N: Size> {
@@ -618,6 +639,7 @@ impl<E: CubePrimitive> Iterable for SliceExpand<E> {
             .__expand_index_method(&child, index)
             .__expand_deref_method(&child);
         body(&child, item);
+        child.terminate_yield();
 
         scope.register(&range_loop);
     }
@@ -646,6 +668,7 @@ impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E> {
         let index = NativeExpand::new(i.into());
         let item = self.__expand_index_method(&child, index);
         body(&child, item);
+        child.terminate_yield();
 
         scope.register(&range_loop);
     }
@@ -674,6 +697,7 @@ impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E> {
         let index = NativeExpand::new(i.into());
         let item = self.__expand_index_mut_method(&child, index);
         body(&child, item);
+        child.terminate_yield();
 
         scope.register(&range_loop);
     }
@@ -734,12 +758,12 @@ impl<E: CubePrimitive> Vectorized for Box<[E]> {}
 impl<E: CubePrimitive> Vectorized for [E] {}
 impl<E: CubePrimitive> VectorizedExpand for SliceExpand<E> {
     fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
-        self.value(scope).vector_size(scope.ctx())
+        self.__extract_list(scope).vector_size(scope.ctx())
     }
 }
 impl<E: CubePrimitive> VectorizedExpand for NativeExpand<Box<[E]>> {
     fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
-        self.value(scope).vector_size(scope.ctx())
+        self.__extract_list(scope).vector_size(scope.ctx())
     }
 }
 

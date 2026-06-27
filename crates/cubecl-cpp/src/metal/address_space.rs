@@ -1,7 +1,5 @@
 use cubecl_core::prelude::Visibility;
 
-use crate::shared;
-
 use super::BufferAttribute;
 use std::fmt::Display;
 
@@ -55,16 +53,6 @@ impl From<Visibility> for AddressSpace {
             Visibility::Read => AddressSpace::ConstDevice,
             Visibility::ReadWrite => AddressSpace::Device,
             Visibility::Uniform => AddressSpace::Constant,
-        }
-    }
-}
-
-impl From<shared::ty::AddressSpace> for AddressSpace {
-    fn from(value: shared::ty::AddressSpace) -> Self {
-        match value {
-            shared::ty::AddressSpace::Global(visibility) => visibility.into(),
-            shared::ty::AddressSpace::Shared => AddressSpace::ThreadGroup,
-            shared::ty::AddressSpace::Local => AddressSpace::Thread,
         }
     }
 }

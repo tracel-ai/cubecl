@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use cubecl_ir::{StorageType, metadata::INFO_ALIGN};
+use cubecl_ir::{ElemType, metadata::INFO_ALIGN};
 
 use crate::ScalarArgType;
 
@@ -10,7 +10,7 @@ pub type ScalarValues = Vec<u8>;
 #[derive(Default)]
 pub struct ScalarBuilder {
     /// Sorted list of scalars, should be faster than `BTreeMap` for this purpose. Benchmark later.
-    scalars: Vec<(StorageType, ScalarValues)>,
+    scalars: Vec<(ElemType, ScalarValues)>,
 }
 
 impl ScalarBuilder {
@@ -23,11 +23,11 @@ impl ScalarBuilder {
     }
 
     /// Add a new raw value to the state.
-    pub fn push_raw(&mut self, bytes: &[u8], dtype: StorageType) {
+    pub fn push_raw(&mut self, bytes: &[u8], dtype: ElemType) {
         self.get_or_insert_mut(dtype).extend(bytes.iter().copied());
     }
 
-    fn get_or_insert_mut(&mut self, ty: StorageType) -> &mut ScalarValues {
+    fn get_or_insert_mut(&mut self, ty: ElemType) -> &mut ScalarValues {
         let pos = self.scalars.iter().position(|(k, _)| *k >= ty);
 
         match pos {

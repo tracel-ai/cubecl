@@ -56,7 +56,7 @@ pub(crate) fn index_expand(scope: &Scope, list: Value, index: Value, checked: bo
     op.get_result(scope.ctx())
 }
 
-pub(crate) fn assign_binop_expand<T: CubeType, O>(
+pub(crate) fn assign_binop_expand<T: NativeCubeType + CanReadValue, O>(
     scope: &Scope,
     lhs: &mut NativeExpand<T>,
     rhs: NativeExpand<T>,

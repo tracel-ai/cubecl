@@ -143,7 +143,7 @@ pub mod shared {
         graph::walkers::{
             IRNode, WALKCONFIG_PREORDER_FORWARD, uninterruptible::immutable::walk_op,
         },
-        pass_manager::{Analysis, AnalysisManager},
+        pass::{Analysis, AnalysisManager},
         value::Value,
     };
 
@@ -159,6 +159,12 @@ pub mod shared {
         pub smem: MemoryResource,
         /// The offset in the shared memory buffer
         pub offset: usize,
+    }
+
+    impl SmemAllocation {
+        pub fn end(&self, ctx: &Context) -> usize {
+            self.offset + self.smem.size(ctx)
+        }
     }
 
     /// Shared liveness works the other way around from normal liveness, since shared memory lives
@@ -201,13 +207,13 @@ pub mod shared {
                     if let IRNode::Operation(op) = node {
                         let op_dyn = Operation::get_op_dyn(op, ctx);
                         if let Some(declare) = op_dyn.downcast_ref::<DeclareVariableOp>()
-                            && declare.get_attr_addr_space(ctx).unwrap().0 == AddressSpace::Shared
+                            && declare.addr_space(ctx).0 == AddressSpace::Shared
                         {
                             let root_ptr = declare.get_result(ctx);
                             let smem = MemoryResource {
                                 address_space: AddressSpace::Shared,
-                                value_ty: declare.get_attr_value_ty(ctx).unwrap().get_type(ctx),
-                                alignment: declare.get_attr_alignment(ctx).unwrap().0,
+                                value_ty: declare.value_ty(ctx).get_type(ctx),
+                                alignment: declare.alignment(ctx).0,
                                 root_ptr,
                             };
                             state.shared_memories.insert(root_ptr, smem);
@@ -306,7 +312,8 @@ pub mod shared {
         /// enough for our current purposes. It may produce larger-than-required allocations in
         /// some cases. Optimal allocation would require a far more complex algorithm.
         fn allocate_slice(&mut self, ctx: &Context, size: usize, align: usize) -> usize {
-            let live_slices = self.allocations.values().collect::<Vec<_>>();
+            let mut live_slices = self.allocations.values().collect::<Vec<_>>();
+            live_slices.sort_by_key(|it| it.offset);
             if live_slices.is_empty() {
                 return 0;
             }

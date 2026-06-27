@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
+use pliron::context::Context;
 
-use crate::StorageType;
+use crate::{ContextExt, ElemType};
 
 pub const INFO_ALIGN: usize = size_of::<u64>();
 
@@ -77,14 +78,14 @@ pub struct Info {
 
 #[derive(Clone, Copy, Debug)]
 pub struct SizedInfoField {
-    pub ty: StorageType,
+    pub ty: ElemType,
     pub count: usize,
     pub offset: usize,
 }
 
 impl SizedInfoField {
-    pub fn padded_size(&self) -> usize {
-        let padding_factor = INFO_ALIGN / self.ty.size();
+    pub fn padded_size(&self, ctx: &Context) -> usize {
+        let padding_factor = INFO_ALIGN / self.ty.expand_size(ctx.address_type());
         self.count.next_multiple_of(padding_factor)
     }
 }

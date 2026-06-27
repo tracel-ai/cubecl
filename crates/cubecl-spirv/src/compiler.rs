@@ -8,18 +8,12 @@ use crate::{
 };
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
-    Compiler, CubeDim, Info, Metadata, WgpuCompilationOptions,
-    ir::{self as core, ElemType, Id, InstructionModes, StorageType, UIntKind, features::EnumSet},
-    post_processing::{
-        checked_io::CheckedIoVisitor, disaggregate::DisaggregateVisitor,
-        saturating::SaturatingArithmeticPolyfill, unroll::UnrollVisitor,
-    },
+    Compiler, CubeDim, WgpuCompilationOptions,
+    ir::{self as core, ElemType, InstructionModes, UIntKind, features::EnumSet},
+    post_processing::saturating::LowerSaturatingArithmetic,
     prelude::{FastMath, KernelDefinition, Visibility},
-    server::ExecutionMode,
 };
-use cubecl_opt::{
-    BasicBlock, Function, NodeIndex, Optimizer, OptimizerBuilder, SharedLiveness, Uniformity,
-};
+use cubecl_opt::{SharedLiveness, Uniformity};
 use cubecl_runtime::{
     compiler::CompilationError,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel},
@@ -263,7 +257,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .with_visitor(UnrollVisitor::new(
                 self.compilation_options.vulkan.max_vector_size,
             ))
-            .with_processor(SaturatingArithmeticPolyfill::new(true))
+            .with_processor(LowerSaturatingArithmetic::new(true))
             .optimize(kernel.body.clone(), kernel.cube_dim);
 
         self.uniformity = opt.main.analysis::<Uniformity>(&opt.global_state);

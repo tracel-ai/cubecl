@@ -10,7 +10,7 @@ use cubecl_core::{
         },
         interfaces::TypedExt,
         prelude::*,
-        types::ArrayType,
+        types::{ArrayType, PointerType},
     },
     prelude::*,
 };
@@ -22,7 +22,7 @@ use crate::{
         CppValue,
         convert::{no_half, promotes_int},
         shared_op, shared_op_with_out,
-        ty::{PointerType, TypeExtCPP, TypedExtCPP},
+        ty::{TypeExtCPP, TypedExtCPP},
         unroll::unrolling,
     },
     target::{CtxTarget, Hip},

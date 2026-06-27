@@ -11,13 +11,13 @@ use hashbrown::HashMap;
 use pliron::{
     basic_block::BasicBlock,
     builtin::{
-        attributes::TypeAttr,
         op_interfaces::{OneResultInterface, SingleBlockRegionInterface},
         ops::{ConstantOp, FuncOp, ModuleOp},
         type_interfaces::FunctionTypeInterface,
         types::{FunctionType, UnitType},
     },
     context::{AuxDataIndex, Context},
+    dict_key,
     identifier::Identifier,
     irbuild::{
         inserter::{IRInserter, Inserter},
@@ -31,19 +31,23 @@ use pliron::{
 use spin::LazyLock;
 
 use crate::{
-    AddressSpace, DeviceProperties, FastMath, StorageType, TargetProperties, TypeHash,
+    AddressSpace, AddressType, DeviceProperties, ElemType, FastMath, TargetProperties, TypeHash,
     arena::DropBump,
     attributes::{
-        ATTR_BUFFER_BINDING, BufferBindingAttr, EntrypointAbiAttr, EntrypointInterface,
-        FuncInterface, IndexAttr,
+        ATTR_BUFFER_BINDING, ATTR_TENSOR_MAP_BINDING, BufferBindingAttr, EntrypointAbiAttr,
+        EntrypointInterface, FuncInterface, IndexAttr,
     },
-    dialect::{branch::ReturnOp, general::AggregateExtractOp, memory::DeclareVariableOp},
+    dialect::{
+        branch::{ReturnOp, YieldOp},
+        general::AggregateExtractOp,
+        memory::DeclareVariableOp,
+    },
     interfaces::{ScalarType, TypedExt},
     settings::KernelSettings,
     types::{PointerType, RuntimeArrayType, cuda::TensorMapType},
 };
 
-pub type Types = HashMap<TypeId, StorageType>;
+pub type Types = HashMap<TypeId, ElemType>;
 pub type Sizes = HashMap<TypeId, usize>;
 
 pub type OpInserter = IRInserter<DummyListener>;
@@ -134,10 +138,12 @@ pub struct GlobalState {
 
 impl GlobalState {
     /// Register the element type for the given generic type.
-    pub fn register_type<T: 'static>(&mut self, elem: StorageType) {
+    pub fn register_type<T: 'static>(&mut self, elem: ElemType) {
         self.typemap.insert(TypeId::of::<T>(), elem);
     }
 }
+
+dict_key!(ADDRESS_TYPE_KEY, "kernel_address_type");
 
 static TY_IDENTS: LazyLock<Mutex<HashMap<TypeId, Identifier>>> = LazyLock::new(Default::default);
 
@@ -161,6 +167,8 @@ pub trait ContextExt {
     fn aux_ty<T: 'static>(&self) -> &T;
     fn aux_ty_mut<T: 'static>(&mut self) -> &mut T;
     fn set_aux_ty<T: 'static>(&mut self, value: T);
+    fn set_address_type(&mut self, addr: AddressType);
+    fn address_type(&self) -> AddressType;
 }
 
 impl ContextExt for Context {
@@ -187,6 +195,20 @@ impl ContextExt for Context {
             self.aux_data_map.insert(ident, key);
         }
     }
+
+    fn set_address_type(&mut self, addr: AddressType) {
+        if let Some(key) = self.aux_data_map.get(&*ADDRESS_TYPE_KEY).copied() {
+            *self.aux_data.get_mut(key).unwrap() = Box::new(addr);
+        } else {
+            let key = self.aux_data.insert(Box::new(addr));
+            self.aux_data_map.insert(ADDRESS_TYPE_KEY.clone(), key);
+        }
+    }
+
+    fn address_type(&self) -> AddressType {
+        let key = self.aux_data_map[&*ADDRESS_TYPE_KEY];
+        *self.aux_data[key].downcast_ref::<AddressType>().unwrap()
+    }
 }
 
 pub trait FuncOpExt {
@@ -204,14 +226,15 @@ impl FuncOpExt for FuncOp {
         };
 
         arg_types.insert(id, ty);
-        let new_func_ty = FunctionType::get(ctx, arg_types, res_types);
-        self.set_attr_func_type(ctx, TypeAttr::new(new_func_ty.into()));
+        let new_func_ty = FunctionType::get(ctx, arg_types, res_types).to_handle();
+        self.set_attr_func_type(ctx, new_func_ty.into());
         id
     }
 }
 
 fn new_context(settings: KernelSettings) -> Rc<UnsafeCell<Context>> {
     let mut ctx = Context::default();
+    ctx.set_address_type(settings.address_type);
 
     let module = ModuleOp::new(&mut ctx, ident("kernel"));
     let module_block = module.get_body(&ctx, 0);
@@ -220,11 +243,7 @@ fn new_context(settings: KernelSettings) -> Rc<UnsafeCell<Context>> {
     // Start out empty and fill in once args register themselves
     let entry_func_ty = FunctionType::get(&ctx, vec![], vec![UnitType::get(&ctx).into()]);
     let entry_name = ident(settings.kernel_name);
-    let abi = EntrypointAbiAttr::new(
-        settings.cube_dim,
-        settings.cluster_dim,
-        settings.address_type,
-    );
+    let abi = EntrypointAbiAttr::new(settings.cube_dim, settings.cluster_dim);
     let entry_func = FuncOp::new(&mut ctx, entry_name, entry_func_ty);
     entry_func.set_entrypoint_abi(&mut ctx, abi);
     module_inserter.append_op(&ctx, &entry_func);
@@ -378,7 +397,7 @@ impl Scope {
         let value_ty = value_ty.into();
         let ctx = self.ctx_mut();
         let align = value_ty.align(ctx);
-        let op = DeclareVariableOp::new(ctx, TypeAttr::new(value_ty), AddressSpace::Local, align);
+        let op = DeclareVariableOp::new(ctx, value_ty, AddressSpace::Local, align);
         let out = op.get_result(ctx);
         self.inserter().append_op(ctx, &op);
         out
@@ -393,7 +412,7 @@ impl Scope {
         let value_ty = value_ty.into();
         let ctx = self.ctx_mut();
         let align = alignment.unwrap_or_else(|| value_ty.align(ctx));
-        let op = DeclareVariableOp::new(ctx, TypeAttr::new(value_ty), AddressSpace::Local, align);
+        let op = DeclareVariableOp::new(ctx, value_ty, AddressSpace::Shared, align);
         let out = op.get_result(ctx);
         self.inserter().append_op(ctx, &op);
         out
@@ -416,6 +435,15 @@ impl Scope {
         self.inserter().append_op(ctx, op);
     }
 
+    /// Terminate block with a `cube.yield` if not already terminated
+    pub fn terminate_yield(&self) {
+        let block = self.inserter().get_insertion_block(self.ctx());
+        let block = block.expect("Should have insertion block");
+        if block.deref(self.ctx()).get_terminator(self.ctx()).is_none() {
+            self.register(&YieldOp::new(self.ctx_mut()));
+        }
+    }
+
     /// Add a value to the global arena so we can create a kernel-wide reference to it.
     /// The reference is the same as the type for simplicity, but is only valid for the duration of
     /// the root scope. Ensure the reference lifetime is shortened to the lifetime of the underlying
@@ -430,7 +458,7 @@ impl Scope {
     }
 
     /// Resolve the element type of the given generic type.
-    pub fn resolve_type<T: 'static>(&self) -> Option<StorageType> {
+    pub fn resolve_type<T: 'static>(&self) -> Option<ElemType> {
         let state = self.state();
         let result = state.typemap.get(&TypeId::of::<T>());
 
@@ -446,7 +474,7 @@ impl Scope {
     }
 
     /// Register the element type for the given generic type.
-    pub fn register_type<T: 'static>(&self, elem: StorageType) {
+    pub fn register_type<T: 'static>(&self, elem: ElemType) {
         self.state_mut().register_type::<T>(elem);
     }
 
@@ -466,7 +494,7 @@ impl Scope {
             let ctx = self.ctx();
             let scalar_ty = scalar_ty.deref(ctx);
             let scalar = type_cast::<dyn ScalarType>(&*scalar_ty).unwrap();
-            scalar.storage_type(ctx)
+            scalar.elem_type(ctx)
         };
         self.register_type::<T>(storage_ty);
         self.register_size::<N>(vector_size);
@@ -515,12 +543,19 @@ impl Scope {
     }
 
     /// Obtain the index-th tensor map
-    pub fn tensor_map(&self) -> Value {
+    pub fn tensor_map(&self, buffer_pos: usize, ext_meta_pos: usize) -> Value {
         let entry_func = self.state().entry_func;
         let ctx = self.ctx();
         let ty = TensorMapType::get(ctx);
 
         let id = entry_func.push_argument(ctx, ty.to_handle());
+        entry_func.set_arg_attr_unit(ctx, id, &ATTR_TENSOR_MAP_BINDING);
+        entry_func.set_arg_attr(
+            ctx,
+            id,
+            &ATTR_BUFFER_BINDING,
+            Box::new(BufferBindingAttr::new(buffer_pos, Some(ext_meta_pos))),
+        );
         entry_func.get_entry_block(ctx).deref(ctx).get_argument(id)
     }
 

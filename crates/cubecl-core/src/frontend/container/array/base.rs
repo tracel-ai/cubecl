@@ -7,6 +7,7 @@ use cubecl_ir::{
         r#type::{Typed, TypedHandle},
         value::Value,
     },
+    read_value,
     types::{ArrayType, PointerType, aggregate::PtrAggregateType},
 };
 
@@ -63,6 +64,8 @@ mod new {
 
 /// Module that contains the implementation details of the `vector_size` function.
 mod vector {
+    use cubecl_ir::{interfaces::TypedExt, read_value};
+
     use super::*;
 
     impl<P: CubePrimitive> Array<P> {
@@ -83,6 +86,28 @@ mod vector {
             scope: &Scope,
         ) -> VectorSize {
             expand.__expand_vector_size_method(scope)
+        }
+    }
+
+    #[cube]
+    impl<P: CubePrimitive> Array<P> {
+        pub fn into_vector<N: Size>(self) -> Vector<P::Scalar, N> {
+            intrinsic!(|scope| {
+                let arr = read_value(scope, self.__extract_list(scope));
+                let vec_ty = Vector::<P::Scalar, N>::__expand_as_type(scope);
+                reinterpret_value(scope, arr, vec_ty).into()
+            })
+        }
+
+        pub fn from_vector<S: Scalar, N: Size>(vector: Vector<S, N>) -> Array<P> {
+            intrinsic!(|scope| {
+                let vec = vector.read_value(scope);
+                let vec_p = P::__expand_vector_size(scope);
+                let len = vec.vector_size(scope.ctx()) / vec_p;
+                let arr_ty =
+                    ArrayType::get(scope.ctx(), P::__expand_as_type(scope), len).to_handle();
+                reinterpret_value(scope, vec, arr_ty).into()
+            })
         }
     }
 }
@@ -117,6 +142,12 @@ impl<C: CubePrimitive> RuntimeAssign for ArrayExpand<C> {
 
 impl<C: CubeType> CubeType for Array<C> {
     type ExpandType = NativeExpand<Array<C>>;
+}
+
+impl<T: CubePrimitive> ReadValue for NativeExpand<Array<T>> {
+    fn read_value(&self, scope: &Scope) -> Value {
+        read_value(scope, self.__extract_list(scope))
+    }
 }
 
 impl<C: CubeType> IntoMut for ArrayExpand<C> {

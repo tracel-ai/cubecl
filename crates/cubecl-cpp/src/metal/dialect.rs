@@ -162,18 +162,6 @@ metal_op!(SyncOp, |op, ctx| {
 
 //             writeln!(f, "threadgroup uchar dynamic_shared_mem[{size}];",)?;
 //         }
-//         if body.info_by_ptr && body.has_dynamic_meta {
-//             let address_space = AddressSpace::ConstDevice;
-//             writeln!(f, "const {address_space} info_st& info = *info_ptr;")?;
-//             // Could use `info_ptr + 1` but that seems dirty, so use manual `sizeof` instead
-//             writeln!(
-//                 f,
-//                 "const {address_space} {addr}* dynamic_meta = reinterpret_cast<const {address_space} {addr}*>(
-//                     reinterpret_cast<const {address_space} char*>(info_ptr) + sizeof(info_st)
-//                 );\n",
-//                 addr = body.address_type,
-//             )?;
-//         }
 //         Ok(())
 //     }
 // }
@@ -236,24 +224,24 @@ metal_op!(SyncOp, |op, ctx| {
 pub fn supported_cmma_combinations_metal(_arch: &MetalArchitecture) -> SupportedMmaCombinations {
     let types = vec![
         (
-            ElemType::Float(FloatKind::F16).into(),
-            ElemType::Float(FloatKind::F16).into(),
-            ElemType::Float(FloatKind::F16).into(),
+            ElemType::Float(FloatKind::F16),
+            ElemType::Float(FloatKind::F16),
+            ElemType::Float(FloatKind::F16),
         ),
         (
-            ElemType::Float(FloatKind::F16).into(),
-            ElemType::Float(FloatKind::F16).into(),
-            ElemType::Float(FloatKind::F32).into(),
+            ElemType::Float(FloatKind::F16),
+            ElemType::Float(FloatKind::F16),
+            ElemType::Float(FloatKind::F32),
         ),
         (
-            ElemType::Float(FloatKind::BF16).into(),
-            ElemType::Float(FloatKind::BF16).into(),
-            ElemType::Float(FloatKind::BF16).into(),
+            ElemType::Float(FloatKind::BF16),
+            ElemType::Float(FloatKind::BF16),
+            ElemType::Float(FloatKind::BF16),
         ),
         (
-            ElemType::Float(FloatKind::F32).into(),
-            ElemType::Float(FloatKind::F32).into(),
-            ElemType::Float(FloatKind::F32).into(),
+            ElemType::Float(FloatKind::F32),
+            ElemType::Float(FloatKind::F32),
+            ElemType::Float(FloatKind::F32),
         ),
     ];
     types

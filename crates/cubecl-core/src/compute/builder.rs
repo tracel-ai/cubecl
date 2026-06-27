@@ -6,7 +6,7 @@ use std::vec::Vec;
 use crate::{KernelExpansion, KernelIntegrator, prelude::KernelDefinition};
 use alloc::collections::BTreeMap;
 use cubecl_ir::{
-    DeviceProperties, Scope, StorageType, TargetProperties,
+    DeviceProperties, ElemType, Scope, TargetProperties,
     metadata::{INFO_ALIGN, Info, Metadata, SizedInfoField},
     pliron::value::Value,
     settings::KernelSettings,
@@ -21,7 +21,7 @@ pub struct KernelBuilder {
     /// Cube [scope](Scope).
     #[deref]
     pub scope: Scope,
-    scalars: BTreeMap<StorageType, usize>,
+    scalars: BTreeMap<ElemType, usize>,
     buffer_idx: usize,
     ext_meta_idx: usize,
     settings: KernelSettings,
@@ -31,7 +31,7 @@ static DEBUG: AtomicI8 = AtomicI8::new(-1);
 
 impl KernelBuilder {
     /// Register a scalar and return the [element](Value) to be used for kernel expansion.
-    pub fn scalar(&mut self, storage: StorageType) -> usize {
+    pub fn scalar(&mut self, storage: ElemType) -> usize {
         let current_id = self.scalars.entry(storage).or_default();
         let id = *current_id;
         *current_id += 1;
@@ -65,7 +65,9 @@ impl KernelBuilder {
 
     /// Register a tensor map and return the [element](Value) to be used for kernel expansion.
     pub fn tensor_map(&mut self) -> Value {
-        self.scope.tensor_map()
+        let id = self.inc_buffer_id();
+        let ext_id = self.inc_ext_meta_id();
+        self.scope.tensor_map(id, ext_id)
     }
 
     /// Register an output that uses the same resource as the input as the given position.
@@ -101,7 +103,7 @@ impl KernelBuilder {
 
         for (&ty, &count) in self.scalars.iter() {
             scalar_fields.push(SizedInfoField { ty, count, offset });
-            offset += (ty.size() * count).next_multiple_of(INFO_ALIGN);
+            offset += (ty.expand_size(address_type) * count).next_multiple_of(INFO_ALIGN);
         }
 
         if metadata.static_len() > 0 {

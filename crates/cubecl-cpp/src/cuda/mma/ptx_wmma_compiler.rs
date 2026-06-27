@@ -1,9 +1,7 @@
 use super::WMMA_MINIMUM_VERSION;
 use crate::{
     cuda::{arch::CudaArchitecture, ptx::mma_ty},
-    shared::{
-        Architecture, CompilationOptions, CppValue, SupportedMmaCombinations, ty::TypedExtCPP,
-    },
+    shared::{Architecture, CompilationOptions, CppValue, SupportedMmaCombinations},
 };
 use core::cell::Ref;
 use cubecl_core::{
@@ -83,7 +81,7 @@ pub(super) fn load_ptx(ctx: &Context, op: &LoadOp) -> String {
     // CUDA wmma which is not optimal in the case of PTX wmma and mma
     // We choose here to use the layout defined in the fragment first,
     // if it is unknown and we look into the layout passed to the instruction.
-    let layout = if let Some(layout) = op.get_attr_layout(ctx) {
+    let layout = if let Some(layout) = op.layout(ctx) {
         get_qualifier_from_layout(&layout.0)
     } else {
         get_fragment_layout_qualifier(ctx, matrix)
@@ -355,9 +353,9 @@ pub(super) fn supported_cmma_combinations_ptx(arch: &CudaArchitecture) -> Suppor
         let combinations: SupportedMmaCombinations = types
             .into_iter()
             .map(|(a, b, cd)| MmaConfig {
-                a_type: a.into(),
-                b_type: b.into(),
-                cd_type: cd.into(),
+                a_type: a,
+                b_type: b,
+                cd_type: cd,
                 m: 16,
                 n: 16,
                 k: 16,
@@ -367,17 +365,17 @@ pub(super) fn supported_cmma_combinations_ptx(arch: &CudaArchitecture) -> Suppor
         if arch.get_version() >= 72 {
             result.extend([
                 MmaConfig {
-                    a_type: gpu::ElemType::UInt(gpu::UIntKind::U8).into(),
-                    b_type: gpu::ElemType::UInt(gpu::UIntKind::U8).into(),
-                    cd_type: gpu::ElemType::Int(gpu::IntKind::I32).into(),
+                    a_type: gpu::ElemType::UInt(gpu::UIntKind::U8),
+                    b_type: gpu::ElemType::UInt(gpu::UIntKind::U8),
+                    cd_type: gpu::ElemType::Int(gpu::IntKind::I32),
                     m: 16,
                     n: 16,
                     k: 16,
                 },
                 MmaConfig {
-                    a_type: gpu::ElemType::Int(gpu::IntKind::I8).into(),
-                    b_type: gpu::ElemType::Int(gpu::IntKind::I8).into(),
-                    cd_type: gpu::ElemType::Int(gpu::IntKind::I32).into(),
+                    a_type: gpu::ElemType::Int(gpu::IntKind::I8),
+                    b_type: gpu::ElemType::Int(gpu::IntKind::I8),
+                    cd_type: gpu::ElemType::Int(gpu::IntKind::I32),
                     m: 16,
                     n: 16,
                     k: 16,
@@ -386,9 +384,9 @@ pub(super) fn supported_cmma_combinations_ptx(arch: &CudaArchitecture) -> Suppor
         }
         if arch.get_version() >= 80 {
             result.push(MmaConfig {
-                a_type: gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
-                b_type: gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
-                cd_type: gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                a_type: gpu::ElemType::Float(gpu::FloatKind::TF32),
+                b_type: gpu::ElemType::Float(gpu::FloatKind::TF32),
+                cd_type: gpu::ElemType::Float(gpu::FloatKind::F32),
                 m: 16,
                 n: 16,
                 k: 8,

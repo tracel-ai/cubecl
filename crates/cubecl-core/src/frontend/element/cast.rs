@@ -9,12 +9,12 @@ use cubecl_ir::{
 };
 use pliron::r#type::TypeHandle;
 
-use crate::unexpanded;
 use crate::{expand_assert, ir::Scope};
 use crate::{
     expand_error,
     frontend::{CubePrimitive, CubeType},
 };
+use crate::{frontend::ReadValue, unexpanded};
 
 use super::NativeExpand;
 

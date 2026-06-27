@@ -40,7 +40,7 @@ pub enum TensorArg<R: Runtime> {
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle),
 /// the strides and the shape.
 pub struct TensorBinding<R: Runtime> {
-    pub handle: cubecl_runtime::server::Binding,
+    pub handle: cubecl_runtime::server::BufferBinding,
     pub strides: Strides,
     pub shape: Shape,
     pub runtime: PhantomData<R>,
@@ -158,7 +158,7 @@ impl<R: Runtime> TensorArg<R> {
     }
 
     pub(crate) unsafe fn from_raw_parts_binding(
-        handle: cubecl_runtime::server::Binding,
+        handle: cubecl_runtime::server::BufferBinding,
         strides: Strides,
         shape: Shape,
     ) -> Self {
@@ -266,7 +266,7 @@ impl<R: Runtime> TensorBinding<R> {
     /// If you provide wrong strides or shapes, it might create undefined behavior caused by
     /// out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts_binding(
-        handle: cubecl_runtime::server::Binding,
+        handle: cubecl_runtime::server::BufferBinding,
         strides: Strides,
         shape: Shape,
     ) -> Self {

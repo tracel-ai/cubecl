@@ -1,5 +1,5 @@
 use cubecl_ir::{
-    ConstantValue, Scope, UIntKind,
+    ConstantValue, ElemType, Scope, UIntKind,
     types::scalar::{IndexType, UIntType},
 };
 use pliron::r#type::TypeHandle;
@@ -15,7 +15,7 @@ macro_rules! declare_uint {
         }
 
         impl Scalar for $primitive {
-            fn storage_type_native() -> StorageType {
+            fn elem_type_native() -> ElemType {
                 UIntKind::$kind.into()
             }
         }
@@ -92,10 +92,8 @@ impl CubeType for usize {
 
 impl CubeDebug for usize {}
 impl Scalar for usize {
-    fn storage_type(scope: &Scope) -> StorageType {
-        scope
-            .resolve_type::<Self>()
-            .expect("Type should be registered")
+    fn elem_type(_scope: &Scope) -> ElemType {
+        ElemType::Index
     }
 }
 impl CubePrimitive for usize {
@@ -163,7 +161,7 @@ impl CubeType for isize {
 
 impl CubeDebug for isize {}
 impl Scalar for isize {
-    fn storage_type(scope: &Scope) -> StorageType {
+    fn elem_type(scope: &Scope) -> ElemType {
         scope
             .resolve_type::<Self>()
             .expect("Type should be registered")

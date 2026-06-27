@@ -23,6 +23,7 @@ workspace = true
 
 [dependencies]
 darling = { workspace = true }
+inflections = { workspace = true }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn = { workspace = true }

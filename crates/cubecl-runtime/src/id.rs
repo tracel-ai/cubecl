@@ -55,9 +55,10 @@ pub struct KernelId {
     #[eq(skip)]
     type_name: &'static str,
     pub(crate) type_id: core::any::TypeId,
-    pub(crate) address_type: AddressType,
     /// The [`CubeDim`] for this kernel
     pub cube_dim: Dim3,
+    /// The address type for this kernel
+    pub address_type: AddressType,
     pub(crate) mode: ExecutionMode,
     pub(crate) info: Option<Info>,
 }

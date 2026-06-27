@@ -75,7 +75,9 @@ impl Statement {
 
                     quote![let #mutable #name #ty = #init;]
                 } else {
-                    quote![let #mutable #name #ty;]
+                    let uninit_local = prelude_type("uninit_local");
+
+                    quote![let mut #name #ty = #uninit_local(scope);]
                 }
             }
             Statement::Define { name, kind, init } => {

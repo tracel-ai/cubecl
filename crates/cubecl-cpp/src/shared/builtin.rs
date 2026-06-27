@@ -117,6 +117,11 @@ impl SharedBuiltin for Builtin {
         let cluster = scope.ctx().aux_ty::<CompilationState>().cluster_dim;
         match self {
             Builtin::UnitPos => Some(unit_pos::expand(scope).value(scope)),
+            // This is common enough to be worth replacing. Z is almost always 1, and Y is often 1.
+            // Replacing it with a constant allows simplifying the positional math
+            Builtin::UnitPosX if cube_dim.x == 1 => Some(constant::expand(scope, 0).value(scope)),
+            Builtin::UnitPosY if cube_dim.y == 1 => Some(constant::expand(scope, 0).value(scope)),
+            Builtin::UnitPosZ if cube_dim.z == 1 => Some(constant::expand(scope, 0).value(scope)),
             Builtin::UnitPosX | Builtin::UnitPosY | Builtin::UnitPosZ => None,
             Builtin::CubePosCluster => None,
             Builtin::CubePosClusterX | Builtin::CubePosClusterY | Builtin::CubePosClusterZ => None,

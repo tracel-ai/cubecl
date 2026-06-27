@@ -12,7 +12,7 @@ pub struct BufferCompilationArg {
 
 /// Buffer representation with a reference to the [server handle](cubecl_runtime::server::Handle).
 pub struct BufferBinding<R: Runtime> {
-    pub handle: cubecl_runtime::server::Binding,
+    pub handle: cubecl_runtime::server::BufferBinding,
     pub(crate) length: [usize; 1],
     runtime: PhantomData<R>,
 }
@@ -51,7 +51,7 @@ impl<R: Runtime> BufferArg<R> {
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts_binding(
-        binding: cubecl_runtime::server::Binding,
+        binding: cubecl_runtime::server::BufferBinding,
         length: usize,
     ) -> Self {
         unsafe {
@@ -99,7 +99,7 @@ impl<R: Runtime> BufferBinding<R> {
     ///
     /// Specifying the wrong length or size, may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts_binding(
-        handle: cubecl_runtime::server::Binding,
+        handle: cubecl_runtime::server::BufferBinding,
         length: usize,
     ) -> Self {
         Self {

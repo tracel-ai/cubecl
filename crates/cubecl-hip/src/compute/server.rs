@@ -11,8 +11,8 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        Binding, CopyDescriptor, KernelArguments, ProfileError, ProfilingToken,
-        ServerCommunication, ServerError, ServerUtilities, StreamErrorMode,
+        BufferBinding, CopyDescriptor, KernelArguments, KernelResource, ProfileError,
+        ProfilingToken, ServerCommunication, ServerError, ServerUtilities, StreamErrorMode,
     },
 };
 use cubecl_runtime::{
@@ -191,7 +191,7 @@ impl ComputeServer for HipServer {
 
     fn get_resource(
         &mut self,
-        binding: Binding,
+        binding: BufferBinding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<GpuResource>, ServerError> {
         let mut command = self.command(
@@ -298,7 +298,7 @@ impl HipServer {
     fn command<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a Binding>,
+        handles: impl Iterator<Item = &'a BufferBinding>,
         mode: StreamErrorMode,
     ) -> Result<Command<'_>, ServerError> {
         if mode.flush {
@@ -345,9 +345,13 @@ impl HipServer {
     ) -> Result<(), ServerError> {
         let kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
+        let buffers = bindings.resources.iter().map(|resource| match resource {
+            KernelResource::Buffer(binding) => binding,
+            KernelResource::TensorMap(tensor_map) => &tensor_map.binding,
+        });
         let mut command = self.command(
             stream_id,
-            bindings.buffers.iter(),
+            buffers,
             StreamErrorMode {
                 ignore: true,
                 flush: false,
@@ -381,22 +385,17 @@ impl HipServer {
             return Ok(());
         }
 
-        let KernelArguments {
-            buffers,
-            info,
-            tensor_maps,
-        } = bindings;
-
-        debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
+        let KernelArguments { resources, info } = bindings;
 
         let info = command
             .create_with_data(bytemuck::cast_slice(&info.data))
             .unwrap();
 
-        let mut resources: Vec<_> = buffers
-            .into_iter()
-            .map(|b| command.resource(b).expect("Resource to exist."))
-            .collect();
+        let resources = resources.into_iter().map(|res| match res {
+            KernelResource::Buffer(b) => command.resource(b).expect("Resource to exist."),
+            KernelResource::TensorMap(_) => panic!("Can't use tensor maps on HIP"),
+        });
+        let mut resources = resources.collect::<Vec<_>>();
 
         resources.push(
             command

@@ -15,6 +15,10 @@ pub fn block_to_cpp(ctx: &Context, block: Ptr<BasicBlock>) -> String {
     out
 }
 
+shared_op!(ExecuteRegionOp, |op, ctx| {
+    format!("{{{}}}", block_to_cpp(ctx, op.block(ctx)))
+});
+
 shared_op!(IfOp, |op, ctx| {
     let cond = op.condition(ctx).name(ctx);
     let else_block = op.else_block(ctx);
@@ -32,13 +36,13 @@ shared_op!(SwitchOp, |op, ctx| {
     let value = op.value(ctx).name(ctx);
     let mut out = format!("switch({value}) {{\n");
     for (value, block) in op.cases(ctx) {
-        out.push_str(&format!("case {}: {{\n", value.val));
-        out.push_str(&block_to_cpp(ctx, block));
-        out.push_str("}\n")
+        let block = block_to_cpp(ctx, block);
+        let case = format!("case {}: {{ {block} break; }}\n", value.as_i128());
+        out.push_str(&case);
     }
-    out.push_str("default: {\n");
-    out.push_str(&block_to_cpp(ctx, op.default_block(ctx)));
-    out.push_str("}\n}\n");
+    let block = block_to_cpp(ctx, op.default_block(ctx));
+    out.push_str(&format!("default: {{ {block} break; }}\n"));
+    out.push_str("}\n");
     out
 });
 

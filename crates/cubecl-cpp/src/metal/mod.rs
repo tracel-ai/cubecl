@@ -3,7 +3,6 @@ pub mod arch;
 pub mod atomic;
 pub mod attribute;
 pub mod binary;
-pub mod binding;
 pub mod builtin;
 pub mod dialect;
 pub mod extension;
@@ -17,5 +16,4 @@ pub mod vector;
 
 pub use address_space::*;
 pub use attribute::*;
-pub use binding::*;
 pub use dialect::*;

@@ -12,7 +12,7 @@ impl CubeType for flex32 {
 
 impl CubeDebug for flex32 {}
 impl Scalar for flex32 {
-    fn storage_type_native() -> StorageType {
+    fn elem_type_native() -> ElemType {
         FloatKind::Flex32.into()
     }
 }

@@ -1,7 +1,7 @@
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
-    server::{Binding, ServerError},
+    server::{BufferBinding, ServerError},
 };
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
@@ -120,7 +120,7 @@ impl EventStreamBackend for HipStreamBackend {
         event.wait_sync()
     }
 
-    fn handle_cursor(stream: &Self::Stream, binding: &Binding) -> u64 {
+    fn handle_cursor(stream: &Self::Stream, binding: &BufferBinding) -> u64 {
         stream
             .memory_management_gpu
             .get_cursor(binding.memory.clone())

@@ -2,7 +2,7 @@ use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
     memory_management::ManagedMemoryId,
-    server::{Binding, ServerError},
+    server::{BufferBinding, ServerError},
     stream::{StreamFactory, StreamPool},
 };
 use core::any::Any;
@@ -28,7 +28,7 @@ pub trait EventStreamBackend: 'static {
     /// Initializes and returns a new stream associated with the given stream ID.
     fn create_stream(&self) -> Self::Stream;
     /// Returns the cursor of the given handle on the given stream.
-    fn handle_cursor(stream: &Self::Stream, handle: &Binding) -> u64;
+    fn handle_cursor(stream: &Self::Stream, handle: &BufferBinding) -> u64;
     /// Returns whether the stream can access new tasks.
     fn is_healthy(stream: &Self::Stream) -> bool;
 
@@ -217,7 +217,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
     pub fn resolve<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a Binding>,
+        handles: impl Iterator<Item = &'a BufferBinding>,
         enforce_healthy: bool,
     ) -> Result<ResolvedStreams<'_, B>, ServerError> {
         let analysis = self.align_streams(stream_id, handles);
@@ -248,7 +248,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
     fn align_streams<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a Binding>,
+        handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> SharedBindingAnalysis {
         let analysis = self.update_shared_bindings(stream_id, handles);
 
@@ -262,7 +262,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
     pub(crate) fn update_shared_bindings<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a Binding>,
+        handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> SharedBindingAnalysis {
         // We reset the memory pool for the info.
         self.shared_bindings_pool.clear();
@@ -493,7 +493,7 @@ mod tests {
         assert_eq!(stream2.cursor, 1);
     }
 
-    fn handle(stream: StreamId) -> Binding {
+    fn handle(stream: StreamId) -> BufferBinding {
         Handle::new(stream, 10).binding()
     }
 
@@ -523,7 +523,7 @@ mod tests {
             Ok(())
         }
 
-        fn handle_cursor(_stream: &Self::Stream, _handle: &Binding) -> u64 {
+        fn handle_cursor(_stream: &Self::Stream, _handle: &BufferBinding) -> u64 {
             0
         }
 

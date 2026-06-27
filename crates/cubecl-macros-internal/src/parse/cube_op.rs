@@ -1,5 +1,8 @@
 use darling::{FromDeriveInput, FromField, FromMeta, ast::Data, util::Flag};
-use syn::{Attribute, Expr, Generics, Ident, LitStr, Type, Visibility};
+use syn::{
+    Attribute, Expr, Generics, Ident, LitStr, Path, Token, Type, Visibility, parse::Parse,
+    punctuated::Punctuated,
+};
 
 #[derive(FromMeta)]
 pub struct CubeOpArgs {
@@ -116,4 +119,17 @@ fn unwrap_fields(data: &syn::Data) -> darling::Result<Vec<CubeOpArg>> {
     let fields = data.take_struct().unwrap().fields;
     let args = fields.into_iter().map(|it| it.into()).collect();
     Ok(args)
+}
+
+pub struct PathList {
+    pub paths: Vec<Path>,
+}
+
+impl Parse for PathList {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let paths = Punctuated::<Path, Token![,]>::parse_terminated(input)?;
+        Ok(PathList {
+            paths: paths.into_iter().collect(),
+        })
+    }
 }

@@ -1,14 +1,14 @@
 use alloc::vec::Vec;
 use cubecl_ir::{
     OpInserter,
-    attributes::IntAttr,
-    dialect::branch::{BreakOp, IfOp, LoopOp, ReturnOp, SwitchOp, UnreachableOp, YieldOp},
-    pliron::{builtin::attributes::VecAttr, irbuild::inserter::Inserter, r#type::TypedHandle},
-    types::scalar::IntType,
+    attributes::{IntAttr, UIntAttr},
+    dialect::branch::{BreakOp, IfOp, LoopOp, ReturnOp, SwitchOp, UnreachableOp},
+    pliron::{irbuild::inserter::Inserter, r#type::TypedHandle},
+    types::scalar::UIntType,
 };
 
 use crate::{
-    frontend::RuntimeAssign,
+    frontend::{ReadValue, RuntimeAssign},
     prelude::{CubeEnum, ExpandTypeClone},
 };
 use crate::{ir::Scope, prelude::Assign};
@@ -68,11 +68,11 @@ pub fn if_expand(scope: &Scope, condition: NativeExpand<bool>, block: impl FnOnc
             let then_block = if_op.then_block(scope.ctx());
             let then_child = scope.child(OpInserter::new_at_block_end(then_block));
             block(&then_child);
-            then_child.register(&YieldOp::new(scope.ctx_mut()));
+            then_child.terminate_yield();
 
             let else_block = if_op.else_block(scope.ctx());
             let else_child = scope.child(OpInserter::new_at_block_end(else_block));
-            else_child.register(&YieldOp::new(scope.ctx_mut()));
+            else_child.terminate_yield();
 
             scope.register(&if_op);
         }
@@ -96,7 +96,7 @@ impl IfElseExpand {
                 let else_body = if_op.else_block(scope.ctx());
                 let else_child = scope.child(OpInserter::new_at_block_end(else_body));
                 else_block(&else_child);
-                else_child.register(&YieldOp::new(scope.ctx_mut()));
+                else_child.terminate_yield();
 
                 scope.register(&if_op);
             }
@@ -124,7 +124,7 @@ pub fn if_else_expand(
             let if_block = if_op.then_block(scope.ctx());
             let then_child = scope.child(OpInserter::new_at_block_end(if_block));
             then_block(&then_child);
-            then_child.register(&YieldOp::new(scope.ctx_mut()));
+            then_child.terminate_yield();
 
             IfElseExpand::Runtime {
                 runtime_cond: condition,
@@ -157,7 +157,7 @@ impl<C: Assign> IfElseExprExpand<C> {
                 let else_child = scope.child(OpInserter::new_at_block_end(else_body));
                 let ret = else_block(&else_child);
                 out.__expand_assign_method(&else_child, ret.into_expand(scope));
-                else_child.register(&YieldOp::new(scope.ctx_mut()));
+                else_child.terminate_yield();
 
                 scope.register(&if_op);
                 out
@@ -188,7 +188,7 @@ pub fn if_else_expr_expand<C: RuntimeAssign>(
             let ret = then_block(&then_child);
             let mut out = ret.init_mut(scope);
             out.__expand_assign_method(&then_child, ret.into_expand(scope));
-            then_child.register(&YieldOp::new(scope.ctx_mut()));
+            then_child.terminate_yield();
 
             IfElseExprExpand::Runtime {
                 runtime_cond: condition,
@@ -211,21 +211,27 @@ impl<I: Int> SwitchExpand<I> {
         let body = self.switch_op.append_case_block(scope.ctx_mut());
         let case_child = scope.child(OpInserter::new_at_block_end(body));
         block(&case_child);
-        case_child.register(&YieldOp::new(scope.ctx_mut()));
+        case_child.terminate_yield();
         self
     }
 
     pub fn finish(self, scope: &Scope) {
         let cases = self.cases.into_iter().map(|case| {
             let ty = I::__expand_as_type(scope);
-            IntAttr::new(
-                TypedHandle::from_handle(ty, scope.ctx()).unwrap(),
-                case.to_i64().unwrap(),
-            )
-            .into()
+            match I::is_signed(scope) {
+                true => IntAttr::new(
+                    TypedHandle::from_handle(ty, scope.ctx()).unwrap(),
+                    case.to_i64().unwrap(),
+                )
+                .into(),
+                false => UIntAttr::new(
+                    TypedHandle::from_handle(ty, scope.ctx()).unwrap(),
+                    case.to_u64().unwrap(),
+                )
+                .into(),
+            }
         });
-        self.switch_op
-            .set_attr_cases(scope.ctx(), VecAttr::new(cases.collect()));
+        self.switch_op.set_attr_cases(scope.ctx(), cases);
         scope.register(&self.switch_op);
     }
 }
@@ -241,7 +247,7 @@ pub fn switch_expand<I: Int>(
     let default_body = switch_op.default_block(scope.ctx());
     let default_child = scope.child(OpInserter::new_at_block_end(default_body));
     default_block(&default_child);
-    default_child.register(&YieldOp::new(scope.ctx_mut()));
+    default_child.terminate_yield();
 
     SwitchExpand {
         switch_op,
@@ -267,23 +273,29 @@ impl<I: Int, C: Assign> SwitchExpandExpr<I, C> {
         let body = self.switch_op.append_case_block(scope.ctx_mut());
         let case_child = scope.child(OpInserter::new_at_block_end(body));
         let ret = block(&case_child);
-        case_child.register(&YieldOp::new(scope.ctx_mut()));
         self.out
             .__expand_assign_method(&case_child, ret.into_expand(scope));
+        case_child.terminate_yield();
         self
     }
 
     pub fn finish(self, scope: &Scope) -> C {
         let cases = self.cases.into_iter().map(|case| {
             let ty = I::__expand_as_type(scope);
-            IntAttr::new(
-                TypedHandle::from_handle(ty, scope.ctx()).unwrap(),
-                case.to_i64().unwrap(),
-            )
-            .into()
+            match I::is_signed(scope) {
+                true => IntAttr::new(
+                    TypedHandle::from_handle(ty, scope.ctx()).unwrap(),
+                    case.to_i64().unwrap(),
+                )
+                .into(),
+                false => UIntAttr::new(
+                    TypedHandle::from_handle(ty, scope.ctx()).unwrap(),
+                    case.to_u64().unwrap(),
+                )
+                .into(),
+            }
         });
-        self.switch_op
-            .set_attr_cases(scope.ctx(), VecAttr::new(cases.collect()));
+        self.switch_op.set_attr_cases(scope.ctx(), cases);
         scope.register(&self.switch_op);
         self.out
     }
@@ -302,7 +314,7 @@ pub fn switch_expand_expr<I: Int, C: RuntimeAssign>(
     let default = default_block(&default_child);
     let mut out = default.init_mut(scope);
     out.__expand_assign_method(&default_child, default.into_expand(scope));
-    default_child.register(&YieldOp::new(scope.ctx_mut()));
+    default_child.terminate_yield();
 
     SwitchExpandExpr {
         switch_op,
@@ -344,7 +356,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 let body = switch_op.append_case_block(scope.ctx_mut());
                 let case_child = scope.child(OpInserter::new_at_block_end(body));
                 block(&case_child, (*runtime_value).clone_unchecked());
-                case_child.register(&YieldOp::new(scope.ctx_mut()));
+                case_child.terminate_yield();
             }
             Self::ComptimeVariant {
                 variant,
@@ -371,7 +383,7 @@ impl<T: CubeEnum> MatchExpand<T> {
                 let body = switch_op.default_block(scope.ctx());
                 let case_child = scope.child(OpInserter::new_at_block_end(body));
                 block(&case_child, (*runtime_value).clone_unchecked());
-                case_child.register(&YieldOp::new(scope.ctx_mut()));
+                case_child.terminate_yield();
                 *has_default = true;
             }
             Self::ComptimeVariant {
@@ -405,10 +417,10 @@ impl<T: CubeEnum> MatchExpand<T> {
                 }
 
                 let cases = cases.into_iter().map(|case| {
-                    let ty = IntType::get(scope.ctx(), 32);
-                    IntAttr::new(ty, case as i64).into()
+                    let ty = UIntType::get(scope.ctx(), 32);
+                    UIntAttr::new(ty, case as u64).into()
                 });
-                switch_op.set_attr_cases(scope.ctx(), VecAttr::new(cases.collect()));
+                switch_op.set_attr_cases(scope.ctx(), cases);
                 scope.register(&switch_op);
             }
         }
@@ -445,7 +457,7 @@ pub fn match_expand<T: CubeEnum>(
             let body = switch_op.append_case_block(scope.ctx_mut());
             let case_child = scope.child(OpInserter::new_at_block_end(body));
             arm0(&case_child, runtime_value.clone_unchecked());
-            case_child.register(&YieldOp::new(scope.ctx_mut()));
+            case_child.terminate_yield();
 
             MatchExpand::RuntimeVariant {
                 switch_op,
@@ -494,7 +506,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 let case_child = scope.child(OpInserter::new_at_block_end(body));
                 let ret_val = block(&case_child, (*runtime_value).clone_unchecked());
                 out.__expand_assign_method(&case_child, ret_val.into_expand(scope));
-                case_child.register(&YieldOp::new(scope.ctx_mut()));
+                case_child.terminate_yield();
             }
             Self::ComptimeVariant {
                 variant,
@@ -529,7 +541,7 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 let case_child = scope.child(OpInserter::new_at_block_end(body));
                 let ret_val = block(&case_child, (*runtime_value).clone_unchecked());
                 out.__expand_assign_method(&case_child, ret_val.into_expand(scope));
-                case_child.register(&YieldOp::new(scope.ctx_mut()));
+                case_child.terminate_yield();
                 *has_default = true;
             }
             Self::ComptimeVariant {
@@ -568,10 +580,10 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 }
 
                 let cases = cases.into_iter().map(|case| {
-                    let ty = IntType::get(scope.ctx(), 32);
-                    IntAttr::new(ty, case as i64).into()
+                    let ty = UIntType::get(scope.ctx(), 32);
+                    UIntAttr::new(ty, case as u64).into()
                 });
-                switch_op.set_attr_cases(scope.ctx(), VecAttr::new(cases.collect()));
+                switch_op.set_attr_cases(scope.ctx(), cases);
                 scope.register(&switch_op);
 
                 out
@@ -615,7 +627,7 @@ pub fn match_expand_expr<T: CubeEnum, C: RuntimeAssign>(
 
             let mut out = ret_val.init_mut(scope);
             out.__expand_assign_method(&case_child, ret_val.into_expand(scope));
-            case_child.register(&YieldOp::new(scope.ctx_mut()));
+            case_child.terminate_yield();
 
             MatchExpandExpr::RuntimeVariant {
                 switch_op,
@@ -651,6 +663,6 @@ pub fn loop_expand(scope: &Scope, mut block: impl FnMut(&Scope)) {
     let inside_loop = scope.child(OpInserter::new_at_block_end(body));
 
     block(&inside_loop);
-    inside_loop.register(&YieldOp::new(scope.ctx_mut()));
+    inside_loop.terminate_yield();
     scope.register(&loop_op);
 }

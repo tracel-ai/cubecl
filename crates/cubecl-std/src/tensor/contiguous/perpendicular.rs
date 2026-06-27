@@ -17,7 +17,7 @@ fn copy_perpendicular<T: Numeric, N: Size>(
     input: &Tensor<Vector<T, N>>,
     output: &mut Tensor<Vector<T, N>>,
     axis_vectorized: usize,
-    #[define(T)] _elem: StorageType,
+    #[define(T)] _elem: ElemType,
 ) {
     let vector_size = input.vector_size();
     let last_axis = input.rank() - 1;
@@ -102,7 +102,7 @@ fn copy_perpendicular<T: Numeric, N: Size>(
 pub fn launch_into_contiguous_perpendicular<R: Runtime>(
     client: &ComputeClient<R>,
     input: TensorBinding<R>,
-    dtype: StorageType,
+    dtype: ElemType,
 ) -> TensorHandle<R> {
     // Fallback for 1D tensors where perpendicularity doesn't apply.
     if input.shape.len() <= 1 {
@@ -124,7 +124,7 @@ pub fn launch_copy_perpendicular_ref<R: Runtime>(
     client: &ComputeClient<R>,
     input: TensorBinding<R>,
     output: TensorBinding<R>,
-    dtype: StorageType,
+    dtype: ElemType,
 ) {
     let mut axis = 0;
 

@@ -16,13 +16,14 @@ use cubecl_core::{
     MemoryConfiguration,
     device::DeviceId,
     future::{self, DynFut},
-    ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
+    ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, UIntKind},
     prelude::*,
     server::{
-        Binding, CommunicationId, CopyDescriptor, Handle, KernelArguments, LaunchError,
-        ProfileError, ProfilingToken, ReduceOperation, ServerCommunication, ServerError,
-        ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
+        BufferBinding, CommunicationId, CopyDescriptor, Handle, KernelArguments, KernelResource,
+        LaunchError, ProfileError, ProfilingToken, ReduceOperation, ServerCommunication,
+        ServerError, ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
     },
+    zspace::SmallVec,
 };
 use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy,
@@ -35,7 +36,7 @@ use cubecl_runtime::{
     stream::MultiStream,
 };
 use cudarc::driver::sys::{
-    CUstream_st, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
+    CUstream_st, CUtensorMap, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
     CUtensorMapL2promotion, CUtensorMapSwizzle, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
 use std::{
@@ -213,7 +214,7 @@ impl ComputeServer for CudaServer {
 
     fn get_resource(
         &mut self,
-        binding: Binding,
+        binding: BufferBinding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<GpuResource>, ServerError> {
         let mut command = self.command(
@@ -315,8 +316,8 @@ impl ServerCommunication for CudaServer {
 
     fn all_reduce(
         &mut self,
-        src: Binding,
-        dst: Binding,
+        src: BufferBinding,
+        dst: BufferBinding,
         dtype: ElemType,
         stream_id: StreamId,
         op: ReduceOperation,
@@ -591,7 +592,7 @@ impl CudaServer {
     fn command<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a Binding>,
+        handles: impl Iterator<Item = &'a BufferBinding>,
         mode: StreamErrorMode,
     ) -> Result<Command<'_>, ServerError> {
         self.unsafe_set_current();
@@ -639,15 +640,20 @@ impl CudaServer {
         stream_id: StreamId,
     ) -> Result<(), ServerError> {
         let kernel_id = kernel.id();
+        let address_type = kernel_id.address_type;
         let logger = self.streams.logger.clone();
         let grid_constants = self
             .ctx
             .compilation_options
             .supports_features
             .grid_constants;
+        let buffers = bindings.resources.iter().map(|resource| match resource {
+            KernelResource::Buffer(binding) => binding,
+            KernelResource::TensorMap(tensor_map) => &tensor_map.binding,
+        });
         let mut command = self.command(
             stream_id,
-            bindings.buffers.iter(),
+            buffers,
             StreamErrorMode {
                 ignore: true,
                 flush: false,
@@ -698,187 +704,38 @@ impl CudaServer {
             (None, handle)
         };
 
-        let mut resources = bindings
-            .buffers
-            .into_iter()
-            .map(|binding| command.resource(binding).expect("Resource to exist."))
-            .collect::<Vec<_>>();
+        let mut resources = SmallVec::<[_; 5]>::with_capacity(bindings.resources.len());
+        // Tensor maps are owned by the launch function, so they need to be kept around until CUDA
+        // has read them. They're individually boxed to keep pointers stable, but we may need to
+        // refine this to minimize allocations.
+        let mut tensor_maps = Vec::new();
 
-        let mut tensor_maps = Vec::with_capacity(bindings.tensor_maps.len());
-
-        for TensorMapBinding { map, binding } in bindings.tensor_maps.into_iter() {
-            let resource = command
-                .resource(binding)
-                .expect("Tensor map resource exists.");
-            let device_ptr = resource.ptr as *mut c_void;
-
-            let mut map_ptr = MaybeUninit::zeroed();
-
-            let shape: Vec<_> = map
-                .metadata
-                .shape()
-                .iter()
-                .rev()
-                .map(|s| *s as u64)
-                .collect();
-            let strides: Vec<_> = map
-                .metadata
-                .strides()
-                .iter()
-                .rev()
-                .skip(1)
-                .map(|s| *s as u64 * map.storage_ty.size() as u64)
-                .collect();
-            let elem_stride: Vec<_> = map.elem_stride.iter().rev().map(|s| *s as u32).collect();
-
-            match &map.format {
-                // SAFETY: `map_ptr` is a zeroed `MaybeUninit<CUtensorMap>`. `device_ptr` is a
-                // valid device pointer. Shape, strides, tile_size, and elem_stride vectors
-                // are constructed from validated metadata and outlive this call.
-                TensorMapFormat::Tiled(TiledArgs { tile_size }) => unsafe {
-                    let tile_size: Vec<_> =
-                        tile_size.iter().rev().copied().map(|s| s as u32).collect();
-
-                    cuTensorMapEncodeTiled(
-                        map_ptr.as_mut_ptr(),
-                        elem_to_tensor_map_type(map.storage_ty),
-                        map.metadata.rank() as u32,
-                        device_ptr,
-                        shape.as_ptr(),
-                        strides.as_ptr(),
-                        tile_size.as_ptr(),
-                        elem_stride.as_ptr(),
-                        interleave_to_cuda(map.interleave),
-                        swizzle_to_cuda(map.swizzle),
-                        prefetch_to_cuda(map.prefetch),
-                        oob_to_cuda(map.oob_fill),
-                    )
-                    .result()
-                    .map_err(|err| {
-                        let generic_err =
-                            check_tma_generic(&map, device_ptr, &shape, &strides, &elem_stride)
-                                .err();
-                        let tiled_err = check_tma_tiled(&map, &tile_size).err();
-                        generic_err
-                            .or(tiled_err)
-                            .unwrap_or_else(|| LaunchError::Unknown {
-                                reason: format!("{err}"),
-                                backtrace: BackTrace::capture(),
-                            })
-                    })?;
-                },
-                // SAFETY: Same invariants as `Tiled` above. Additionally, `lower_corner` and
-                // `upper_corner` are valid pixel box bounds derived from the tensor map args.
-                TensorMapFormat::Im2col(args) => unsafe {
-                    let lower_corner: Vec<_> =
-                        args.pixel_box_lower_corner.iter().rev().copied().collect();
-                    let upper_corner: Vec<_> =
-                        args.pixel_box_upper_corner.iter().rev().copied().collect();
-
-                    cuTensorMapEncodeIm2col(
-                        map_ptr.as_mut_ptr(),
-                        elem_to_tensor_map_type(map.storage_ty),
-                        map.metadata.rank() as u32,
-                        device_ptr,
-                        shape.as_ptr(),
-                        strides.as_ptr(),
-                        lower_corner.as_ptr(),
-                        upper_corner.as_ptr(),
-                        args.channels_per_pixel,
-                        args.pixels_per_column,
-                        elem_stride.as_ptr(),
-                        interleave_to_cuda(map.interleave),
-                        swizzle_to_cuda(map.swizzle),
-                        prefetch_to_cuda(map.prefetch),
-                        oob_to_cuda(map.oob_fill),
-                    )
-                    .result()
-                    .map_err(|err| {
-                        let generic_err =
-                            check_tma_generic(&map, device_ptr, &shape, &strides, &elem_stride)
-                                .err();
-                        let tiled_err = check_tma_im2col(
-                            &map,
-                            &lower_corner,
-                            &upper_corner,
-                            args.channels_per_pixel,
-                            args.pixels_per_column,
-                        )
-                        .err();
-                        generic_err
-                            .or(tiled_err)
-                            .unwrap_or_else(|| LaunchError::Unknown {
-                                reason: format!("{err}"),
-                                backtrace: BackTrace::capture(),
-                            })
-                    })?;
-                },
-                // SAFETY: Same invariants as `Im2col` above. Requires CUDA 12.8+.
-                #[cfg(cuda_12080)]
-                TensorMapFormat::Im2colWide(args) => unsafe {
-                    use cudarc::driver::sys::{
-                        CUtensorMapIm2ColWideMode, cuTensorMapEncodeIm2colWide,
-                    };
-                    cuTensorMapEncodeIm2colWide(
-                        map_ptr.as_mut_ptr(),
-                        elem_to_tensor_map_type(map.storage_ty),
-                        map.metadata.rank() as u32,
-                        device_ptr,
-                        shape.as_ptr(),
-                        strides.as_ptr(),
-                        args.pixel_box_lower_corner_width,
-                        args.pixel_box_upper_corner_width,
-                        args.channels_per_pixel,
-                        args.pixels_per_column,
-                        elem_stride.as_ptr(),
-                        interleave_to_cuda(map.interleave),
-                        CUtensorMapIm2ColWideMode::CU_TENSOR_MAP_IM2COL_WIDE_MODE_W,
-                        swizzle_to_cuda(map.swizzle),
-                        prefetch_to_cuda(map.prefetch),
-                        oob_to_cuda(map.oob_fill),
-                    )
-                    .result()
-                    .map_err(|err| {
-                        let generic_err =
-                            check_tma_generic(&map, device_ptr, &shape, &strides, &elem_stride)
-                                .err();
-                        generic_err.unwrap_or_else(|| LaunchError::Unknown {
-                            reason: format!("{err}"),
-                            backtrace: BackTrace::capture(),
-                        })
-                    })?;
-                },
-                #[cfg(not(cuda_12080))]
-                TensorMapFormat::Im2colWide(_) => {
-                    return Err(LaunchError::Unknown {
-                        reason: "CUDA version 12.8 required for tensor map format Im2colWide"
-                            .into(),
-                        backtrace: BackTrace::capture(),
-                    }
-                    .into());
+        for resource in bindings.resources.into_iter() {
+            match resource {
+                KernelResource::Buffer(binding) => {
+                    let resource = command.resource(binding).expect("Resource to exist.");
+                    resources.push(resource.binding);
                 }
-            };
-            // SAFETY: `map_ptr` was fully initialized by one of the `cuTensorMapEncode*`
-            // calls above, which all succeeded (errors are propagated before reaching here).
-            let binding = unsafe { map_ptr.assume_init() };
-            tensor_maps.push(binding);
+                KernelResource::TensorMap(TensorMapBinding { map, binding }) => {
+                    let resource = command.resource(binding).expect("Resource exists.");
+                    let device_ptr = resource.ptr as *mut c_void;
+
+                    let tensor_map = create_tensor_map(map, device_ptr, address_type)?;
+                    resources.push(&*tensor_map as *const _ as *mut c_void);
+                    tensor_maps.push(tensor_map);
+                }
+            }
         }
 
-        resources.extend(
-            info_binding
-                .into_iter()
-                .map(|s| command.resource(s.binding()).expect("Resource to exist")),
-        );
+        resources.extend(info_binding.into_iter().map(|s| {
+            command
+                .resource(s.binding())
+                .expect("Resource to exist")
+                .binding
+        }));
+        resources.extend(info_const);
 
-        command.kernel(
-            kernel_id,
-            kernel,
-            count,
-            &tensor_maps,
-            &resources,
-            info_const,
-            logger,
-        )?;
+        command.kernel(kernel_id, kernel, count, &mut resources, logger)?;
 
         Ok(())
     }
@@ -888,18 +745,164 @@ impl CudaServer {
     }
 }
 
-fn elem_to_tensor_map_type(ty: StorageType) -> CUtensorMapDataType {
+fn create_tensor_map(
+    map: TensorMapMeta,
+    device_ptr: *mut c_void,
+    address_type: AddressType,
+) -> Result<Box<CUtensorMap>, ServerError> {
+    let mut map_ptr = Box::new_uninit();
+
+    let shape: Vec<_> = map
+        .metadata
+        .shape()
+        .iter()
+        .rev()
+        .map(|s| *s as u64)
+        .collect();
+    let strides: Vec<_> = map
+        .metadata
+        .strides()
+        .iter()
+        .rev()
+        .skip(1)
+        .map(|s| *s as u64 * map.elem_ty.expand_size(address_type) as u64)
+        .collect();
+    let elem_stride: Vec<_> = map.elem_stride.iter().rev().map(|s| *s as u32).collect();
+
+    match &map.format {
+        // SAFETY: `map_ptr` is a zeroed `MaybeUninit<CUtensorMap>`. `device_ptr` is a
+        // valid device pointer. Shape, strides, tile_size, and elem_stride vectors
+        // are constructed from validated metadata and outlive this call.
+        TensorMapFormat::Tiled(TiledArgs { tile_size }) => unsafe {
+            let tile_size: Vec<_> = tile_size.iter().rev().copied().map(|s| s as u32).collect();
+
+            cuTensorMapEncodeTiled(
+                map_ptr.as_mut_ptr(),
+                elem_to_tensor_map_type(map.elem_ty),
+                map.metadata.rank() as u32,
+                device_ptr,
+                shape.as_ptr(),
+                strides.as_ptr(),
+                tile_size.as_ptr(),
+                elem_stride.as_ptr(),
+                interleave_to_cuda(map.interleave),
+                swizzle_to_cuda(map.swizzle),
+                prefetch_to_cuda(map.prefetch),
+                oob_to_cuda(map.oob_fill),
+            )
+            .result()
+            .map_err(|err| {
+                let generic_err =
+                    check_tma_generic(&map, device_ptr, &shape, &strides, &elem_stride).err();
+                let tiled_err = check_tma_tiled(&map, &tile_size).err();
+                generic_err
+                    .or(tiled_err)
+                    .unwrap_or_else(|| LaunchError::Unknown {
+                        reason: format!("{err}"),
+                        backtrace: BackTrace::capture(),
+                    })
+            })?;
+        },
+        // SAFETY: Same invariants as `Tiled` above. Additionally, `lower_corner` and
+        // `upper_corner` are valid pixel box bounds derived from the tensor map args.
+        TensorMapFormat::Im2col(args) => unsafe {
+            let lower_corner: Vec<_> = args.pixel_box_lower_corner.iter().rev().copied().collect();
+            let upper_corner: Vec<_> = args.pixel_box_upper_corner.iter().rev().copied().collect();
+
+            cuTensorMapEncodeIm2col(
+                map_ptr.as_mut_ptr(),
+                elem_to_tensor_map_type(map.elem_ty),
+                map.metadata.rank() as u32,
+                device_ptr,
+                shape.as_ptr(),
+                strides.as_ptr(),
+                lower_corner.as_ptr(),
+                upper_corner.as_ptr(),
+                args.channels_per_pixel,
+                args.pixels_per_column,
+                elem_stride.as_ptr(),
+                interleave_to_cuda(map.interleave),
+                swizzle_to_cuda(map.swizzle),
+                prefetch_to_cuda(map.prefetch),
+                oob_to_cuda(map.oob_fill),
+            )
+            .result()
+            .map_err(|err| {
+                let generic_err =
+                    check_tma_generic(&map, device_ptr, &shape, &strides, &elem_stride).err();
+                let tiled_err = check_tma_im2col(
+                    &map,
+                    &lower_corner,
+                    &upper_corner,
+                    args.channels_per_pixel,
+                    args.pixels_per_column,
+                )
+                .err();
+                generic_err
+                    .or(tiled_err)
+                    .unwrap_or_else(|| LaunchError::Unknown {
+                        reason: format!("{err}"),
+                        backtrace: BackTrace::capture(),
+                    })
+            })?;
+        },
+        // SAFETY: Same invariants as `Im2col` above. Requires CUDA 12.8+.
+        #[cfg(cuda_12080)]
+        TensorMapFormat::Im2colWide(args) => unsafe {
+            use cudarc::driver::sys::{CUtensorMapIm2ColWideMode, cuTensorMapEncodeIm2colWide};
+            cuTensorMapEncodeIm2colWide(
+                map_ptr.as_mut_ptr(),
+                elem_to_tensor_map_type(map.elem_ty),
+                map.metadata.rank() as u32,
+                device_ptr,
+                shape.as_ptr(),
+                strides.as_ptr(),
+                args.pixel_box_lower_corner_width,
+                args.pixel_box_upper_corner_width,
+                args.channels_per_pixel,
+                args.pixels_per_column,
+                elem_stride.as_ptr(),
+                interleave_to_cuda(map.interleave),
+                CUtensorMapIm2ColWideMode::CU_TENSOR_MAP_IM2COL_WIDE_MODE_W,
+                swizzle_to_cuda(map.swizzle),
+                prefetch_to_cuda(map.prefetch),
+                oob_to_cuda(map.oob_fill),
+            )
+            .result()
+            .map_err(|err| {
+                let generic_err =
+                    check_tma_generic(&map, device_ptr, &shape, &strides, &elem_stride).err();
+                generic_err.unwrap_or_else(|| LaunchError::Unknown {
+                    reason: format!("{err}"),
+                    backtrace: BackTrace::capture(),
+                })
+            })?;
+        },
+        #[cfg(not(cuda_12080))]
+        TensorMapFormat::Im2colWide(_) => {
+            return Err(LaunchError::Unknown {
+                reason: "CUDA version 12.8 required for tensor map format Im2colWide".into(),
+                backtrace: BackTrace::capture(),
+            }
+            .into());
+        }
+    };
+    // SAFETY: `map_ptr` was fully initialized by one of the `cuTensorMapEncode*`
+    // calls above, which all succeeded (errors are propagated before reaching here).
+    Ok(unsafe { map_ptr.assume_init() })
+}
+
+fn elem_to_tensor_map_type(ty: ElemType) -> CUtensorMapDataType {
     use cudarc::driver::sys::CUtensorMapDataType::*;
     match ty {
         // packed fp4 should be treated as single 4-bit values to simplify indexing/shape handling
         // So a tile of width 16 with fp4 elements is 8 x fp4x2 elements wide.
         #[cfg(cuda_12080)]
-        StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2) => {
-            CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN8B
-        }
-        StorageType::Scalar(ElemType::Float(kind)) => match kind {
+        ElemType::Float(FloatKind::E2M1x2) => CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN8B,
+        ElemType::Float(kind) => match kind {
             // There's no special handling for FP8, so load as u8. `0u8 == 0.0` when reinterpreting.
             FloatKind::E2M1 // single fp4s are padded to a full byte
+            | FloatKind::E2M1x2
             | FloatKind::E4M3
             | FloatKind::E5M2
             | FloatKind::UE8M0
@@ -911,14 +914,14 @@ fn elem_to_tensor_map_type(ty: StorageType) -> CUtensorMapDataType {
             FloatKind::TF32 => CU_TENSOR_MAP_DATA_TYPE_TFLOAT32,
             FloatKind::F64 => CU_TENSOR_MAP_DATA_TYPE_FLOAT64,
         },
-        StorageType::Scalar(ElemType::Int(kind)) => match kind {
+        ElemType::Int(kind) => match kind {
             // UInt is fine because zero bits and size is the same between both
             IntKind::I8 => CU_TENSOR_MAP_DATA_TYPE_UINT8,
             IntKind::I16 => CU_TENSOR_MAP_DATA_TYPE_UINT16,
             IntKind::I32 => CU_TENSOR_MAP_DATA_TYPE_INT32,
             IntKind::I64 => CU_TENSOR_MAP_DATA_TYPE_INT64,
         },
-        StorageType::Scalar(ElemType::UInt(kind)) => match kind {
+        ElemType::UInt(kind) => match kind {
             UIntKind::U8 => CU_TENSOR_MAP_DATA_TYPE_UINT8,
             UIntKind::U16 => CU_TENSOR_MAP_DATA_TYPE_UINT16,
             UIntKind::U32 => CU_TENSOR_MAP_DATA_TYPE_UINT32,
@@ -1021,10 +1024,7 @@ fn check_tma_generic(
         "Shape must be <= u32::MAX"
     )?;
     #[cfg(cuda_12080)]
-    if matches!(
-        map.storage_ty,
-        StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2)
-    ) {
+    if matches!(map.elem_ty, ElemType::Float(FloatKind::E2M1x2)) {
         launch_check!(
             shape[0].is_multiple_of(2),
             "Packed tensor map must have multiple of 2 for the innermost dimension"
@@ -1058,7 +1058,7 @@ fn check_tma_generic(
     // oobFill invariants
     if matches!(map.oob_fill, OobFill::NaN) {
         launch_check!(
-            map.storage_ty.is_float(),
+            map.elem_ty.is_float(),
             "NaN fill is only supported for float types"
         )?;
     }
@@ -1075,7 +1075,7 @@ fn check_tma_tiled(map: &TensorMapMeta, tile_size: &[u32]) -> Result<(), LaunchE
         tile_size.iter().all(|it| *it > 0 && *it <= 256),
         "Tile shape must be non-zero and <= 256"
     )?;
-    let tile_size_0_bytes = tile_size[0] as usize * map.storage_ty.size();
+    let tile_size_0_bytes = tile_size[0] as usize * map.elem_ty.size();
     if matches!(map.interleave, TensorMapInterleave::None) {
         let max_tile_bytes = match map.swizzle {
             TensorMapSwizzle::None => usize::MAX,

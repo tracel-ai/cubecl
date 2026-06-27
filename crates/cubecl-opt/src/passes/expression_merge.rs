@@ -23,8 +23,8 @@ impl TrivialOp for ReinterpretCastOp {}
 
 pub struct RemoveTrivialOpsPass;
 
-impl DialectConversion for RemoveTrivialOpsPass {
-    fn can_convert_op(&self, ctx: &Context, op: Ptr<Operation>) -> bool {
+impl MatchRewrite for RemoveTrivialOpsPass {
+    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
         op.impls::<dyn TrivialOp>(ctx)
             && op.operand(ctx, 0).get_type(ctx) == op.result(ctx).get_type(ctx)
     }
@@ -34,7 +34,6 @@ impl DialectConversion for RemoveTrivialOpsPass {
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
         op: Ptr<Operation>,
-        _operands_info: &OperandsInfo,
     ) -> Result<()> {
         rewriter.replace_operation_with_values(ctx, op, vec![op.operand(ctx, 0)]);
         Ok(())

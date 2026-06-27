@@ -1,3 +1,4 @@
+pub mod asm;
 pub mod atomic;
 pub mod barrier;
 pub mod base;
@@ -15,3 +16,4 @@ pub mod tma;
 pub mod vector;
 
 pub use base::*;
+pub use asm::*;

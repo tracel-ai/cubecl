@@ -266,18 +266,18 @@ impl<T: CubePrimitive> Assign for T {
 
 impl<T: CubePrimitive + IntoExpand<Expand = NativeExpand<T>>> RuntimeAssign for T {
     fn init_mut(&self, scope: &Scope) -> NativeExpand<T> {
-        init_mut_expand_element(scope, T::__expand_as_type(scope)).into()
+        init_mut_of_type(scope, T::__expand_as_type(scope)).into()
     }
 }
 
-impl<T: NativeAssign> Assign for NativeExpand<T> {
+impl<T: NativeAssign + NativeCubeType + CanReadValue> Assign for NativeExpand<T> {
     fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
         let value = value.read_value(scope);
         assign::expand(scope, value.into(), self);
     }
 }
 
-impl<T: NativeAssign> RuntimeAssign for NativeExpand<T> {
+impl<T: NativeAssign + NativeCubeType + CanReadValue> RuntimeAssign for NativeExpand<T> {
     fn init_mut(&self, scope: &Scope) -> Self::Expand {
         T::elem_init_mut(scope, self.expand).into()
     }
@@ -599,13 +599,53 @@ impl<T: ?Sized> NativeExpand<T> {
     }
 }
 
-impl<T: ?Sized> NativeExpand<T> {
-    pub fn read_value(&self, scope: &Scope) -> Value {
+/// Read a value into registers. Should only be implemented for types that can exist outside of
+/// memory like primitives or `Array`, but not for things like `Barrier` that must exist behind a
+/// pointer.
+pub trait ReadValue {
+    fn read_value(&self, scope: &Scope) -> Value;
+}
+
+impl<T: CubePrimitive> ReadValue for NativeExpand<T> {
+    fn read_value(&self, scope: &Scope) -> Value {
         self.expand.read_value(scope)
     }
+}
 
-    pub fn value(&self, scope: &Scope) -> Value {
+pub trait CanReadValue: CubeType<ExpandType: ReadValue> {}
+impl<T: CubeType<ExpandType: ReadValue>> CanReadValue for T {}
+
+pub trait HasValue {
+    fn value(&self, scope: &Scope) -> Value;
+}
+
+impl<T: ?Sized> HasValue for NativeExpand<T> {
+    fn value(&self, scope: &Scope) -> Value {
         self.expand.value(scope)
+    }
+}
+
+impl<T: ?Sized> HasValue for &NativeExpand<T> {
+    fn value(&self, scope: &Scope) -> Value {
+        self.expand.value(scope)
+    }
+}
+
+impl<T: ?Sized> HasValue for &mut NativeExpand<T> {
+    fn value(&self, scope: &Scope) -> Value {
+        self.expand.value(scope)
+    }
+}
+
+impl<T: ?Sized> HasValue for *const NativeExpand<T> {
+    fn value(&self, scope: &Scope) -> Value {
+        unsafe { &**self }.value(scope)
+    }
+}
+
+impl<T: ?Sized> HasValue for *mut NativeExpand<T> {
+    fn value(&self, scope: &Scope) -> Value {
+        unsafe { &**self }.value(scope)
     }
 }
 
@@ -641,7 +681,6 @@ macro_rules! from_const {
         impl From<$lit> for NativeExpand<$lit> {
             fn from(value: $lit) -> Self {
                 let variable: ExpandValue = value.into();
-
                 variable.into()
             }
         }
@@ -766,11 +805,11 @@ all_tuples_enumerated!(tuple_assign, 2, 12, P);
 /// Trait for native types that can be assigned. For non-native composites, use the normal [`Assign`].
 pub trait NativeAssign: CubeType {
     fn elem_init_mut(scope: &Scope, elem: ExpandValue) -> ExpandValue {
-        init_mut_expand_element(scope, elem.value(scope).get_type(scope.ctx()))
+        init_mut_of_type(scope, elem.value(scope).get_type(scope.ctx()))
     }
 }
 
-impl<T: NativeAssign> IntoMut for NativeExpand<T> {
+impl<T: NativeAssign + NativeCubeType + CanReadValue> IntoMut for NativeExpand<T> {
     fn into_mut(self, scope: &Scope) -> Self {
         into_mut_assign(self, scope)
     }
@@ -811,7 +850,7 @@ impl<T: ?Sized> From<Value> for NativeExpand<T> {
 impl<T: Scalar + Into<ConstantValue>> NativeExpand<T> {
     /// Create an [`NativeExpand`] from a value that is normally a literal.
     pub fn from_lit(scope: &Scope, lit: T) -> Self {
-        T::storage_type(scope).constant(lit.into()).into()
+        T::elem_type(scope).constant(lit.into()).into()
     }
 
     /// Get the [`ConstantValue`] from the variable.
@@ -828,7 +867,7 @@ impl<T: Scalar + Into<ConstantValue>> NativeExpand<T> {
     }
 }
 
-pub(crate) fn init_mut_expand_element(scope: &Scope, mut ty: TypeHandle) -> ExpandValue {
+pub(crate) fn init_mut_of_type(scope: &Scope, mut ty: TypeHandle) -> ExpandValue {
     let ctx = scope.ctx();
     if let Some(PointerType { inner, .. }) = ty.deref(ctx).downcast_ref() {
         ty = *inner;
@@ -884,7 +923,7 @@ impl<T: AsMutExpand> AsMutExpand for Vec<T> {
 /// Create a constant element of the correct type during expansion.
 pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(scope: &Scope, val: C) -> NativeExpand<Out> {
     let input: ConstantValue = val.into();
-    Out::storage_type(scope).constant(input).into()
+    Out::elem_type(scope).constant(input).into()
 }
 
 impl CubeType for () {

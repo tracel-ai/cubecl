@@ -1,12 +1,8 @@
-use alloc::vec::Vec;
 use cubecl::prelude::*;
 use cubecl_common::{e4m3, e5m2, ue8m0};
 use cubecl_ir::{
     dialect::general::ReadScalarOp,
-    pliron::{
-        builtin::{attributes::TypeAttr, op_interfaces::OneResultInterface},
-        value::Value,
-    },
+    pliron::{builtin::op_interfaces::OneResultInterface, value::Value},
 };
 use serde::{Deserialize, Serialize};
 
@@ -21,7 +17,7 @@ use crate::{
 /// It uses comptime enum with zero-cost runtime abstraction for kernel generation.
 pub struct InputScalar {
     data: [u8; 8],
-    dtype: StorageType,
+    dtype: ElemType,
 }
 
 #[derive(Clone)]
@@ -72,8 +68,8 @@ impl InputScalar {
     /// # Panics
     ///
     /// If the given numeric element can't be transformed into the passed [`ElemType`].
-    pub fn new<E: num_traits::ToPrimitive>(val: E, dtype: impl Into<StorageType>) -> Self {
-        let dtype: StorageType = dtype.into();
+    pub fn new<E: num_traits::ToPrimitive>(val: E, dtype: impl Into<ElemType>) -> Self {
+        let dtype: ElemType = dtype.into();
         let mut out = InputScalar {
             data: Default::default(),
             dtype,
@@ -84,36 +80,36 @@ impl InputScalar {
             out[..bytes.len()].copy_from_slice(bytes);
         }
         match dtype {
-            StorageType::Scalar(elem) => match elem {
-                ElemType::Float(float_kind) => match float_kind {
-                    FloatKind::F16 => write::<half::f16>(val, &mut out.data),
-                    FloatKind::BF16 => write::<half::bf16>(val, &mut out.data),
-                    FloatKind::Flex32 | FloatKind::F32 | FloatKind::TF32 => {
-                        write::<f32>(val, &mut out.data)
-                    }
-                    FloatKind::F64 => write::<f64>(val, &mut out.data),
-                    FloatKind::E2M1 | FloatKind::E2M3 | FloatKind::E3M2 => {
-                        unimplemented!("fp6 CPU conversion not yet implemented")
-                    }
-                    FloatKind::E4M3 => write::<e4m3>(val, &mut out.data),
-                    FloatKind::E5M2 => write::<e5m2>(val, &mut out.data),
-                    FloatKind::UE8M0 => write::<ue8m0>(val, &mut out.data),
-                },
-                ElemType::Int(int_kind) => match int_kind {
-                    IntKind::I8 => write::<i8>(val, &mut out.data),
-                    IntKind::I16 => write::<i16>(val, &mut out.data),
-                    IntKind::I32 => write::<i32>(val, &mut out.data),
-                    IntKind::I64 => write::<i64>(val, &mut out.data),
-                },
-                ElemType::UInt(uint_kind) => match uint_kind {
-                    UIntKind::U8 => write::<u8>(val, &mut out.data),
-                    UIntKind::U16 => write::<u16>(val, &mut out.data),
-                    UIntKind::U32 => write::<u32>(val, &mut out.data),
-                    UIntKind::U64 => write::<u64>(val, &mut out.data),
-                },
-                ElemType::Bool => panic!("Bool isn't a scalar"),
+            ElemType::Index => panic!(
+                "Index is not supported as a scalar storage type. Use the address type's `unsigned_type()` instead."
+            ),
+            ElemType::Float(float_kind) => match float_kind {
+                FloatKind::F16 => write::<half::f16>(val, &mut out.data),
+                FloatKind::BF16 => write::<half::bf16>(val, &mut out.data),
+                FloatKind::Flex32 | FloatKind::F32 | FloatKind::TF32 => {
+                    write::<f32>(val, &mut out.data)
+                }
+                FloatKind::F64 => write::<f64>(val, &mut out.data),
+                FloatKind::E2M1 | FloatKind::E2M1x2 | FloatKind::E2M3 | FloatKind::E3M2 => {
+                    unimplemented!("fp6 CPU conversion not yet implemented")
+                }
+                FloatKind::E4M3 => write::<e4m3>(val, &mut out.data),
+                FloatKind::E5M2 => write::<e5m2>(val, &mut out.data),
+                FloatKind::UE8M0 => write::<ue8m0>(val, &mut out.data),
             },
-            other => unimplemented!("{other} not supported for scalars"),
+            ElemType::Int(int_kind) => match int_kind {
+                IntKind::I8 => write::<i8>(val, &mut out.data),
+                IntKind::I16 => write::<i16>(val, &mut out.data),
+                IntKind::I32 => write::<i32>(val, &mut out.data),
+                IntKind::I64 => write::<i64>(val, &mut out.data),
+            },
+            ElemType::UInt(uint_kind) => match uint_kind {
+                UIntKind::U8 => write::<u8>(val, &mut out.data),
+                UIntKind::U16 => write::<u16>(val, &mut out.data),
+                UIntKind::U32 => write::<u32>(val, &mut out.data),
+                UIntKind::U64 => write::<u64>(val, &mut out.data),
+            },
+            ElemType::Bool => panic!("Bool isn't a scalar"),
         };
         out
     }
@@ -133,8 +129,9 @@ impl InputScalar {
 }
 
 impl InputScalar {
-    pub fn as_bytes(&self) -> Vec<u8> {
-        self.data[..self.dtype.size()].to_vec()
+    pub fn as_bytes(&self) -> &[u8] {
+        // Address type is irrelevant since we don't allow it as a dtype
+        &self.data[..self.dtype.size()]
     }
 }
 
@@ -147,7 +144,8 @@ impl LaunchArg for InputScalar {
         launcher: &mut KernelLauncher<R>,
     ) -> Self::CompilationArg {
         let dtype = arg.dtype;
-        launcher.register_scalar_raw(&arg.data[..dtype.size()], dtype);
+
+        launcher.register_scalar_raw(arg.as_bytes(), dtype);
         InputScalarCompilationArg::new(arg.dtype)
     }
 
@@ -157,7 +155,7 @@ impl LaunchArg for InputScalar {
     ) -> <Self as CubeType>::ExpandType {
         let id = builder.scalar(arg.ty);
         let ty = arg.ty.to_type(builder.ctx_mut());
-        let op = ReadScalarOp::new(builder.ctx_mut(), TypeAttr::new(ty), id);
+        let op = ReadScalarOp::new(builder.ctx_mut(), ty, id);
         builder.register(&op);
         let expand = op.get_result(builder.ctx());
         InputScalarExpand { expand }
@@ -166,11 +164,11 @@ impl LaunchArg for InputScalar {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct InputScalarCompilationArg {
-    ty: StorageType,
+    ty: ElemType,
 }
 
 impl InputScalarCompilationArg {
-    pub fn new(ty: StorageType) -> Self {
+    pub fn new(ty: ElemType) -> Self {
         Self { ty }
     }
 }

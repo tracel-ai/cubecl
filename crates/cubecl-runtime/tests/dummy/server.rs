@@ -13,8 +13,9 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryUsage},
     server::{
-        Binding, ComputeServer, CopyDescriptor, CubeCount, CubeDim, Handle, KernelArguments,
-        ProfileError, ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
+        BufferBinding, ComputeServer, CopyDescriptor, CubeCount, CubeDim, Handle, KernelArguments,
+        KernelResource, ProfileError, ProfilingToken, ServerCommunication, ServerError,
+        ServerUtilities,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
@@ -45,8 +46,8 @@ impl KernelMetadata for KernelTask {
         self.kernel.id()
     }
 
-    fn address_type(&self) -> cubecl_ir::StorageType {
-        ElemType::UInt(UIntKind::U32).into()
+    fn address_type(&self) -> cubecl_ir::ElemType {
+        ElemType::UInt(UIntKind::U32)
     }
 }
 
@@ -160,7 +161,7 @@ impl ComputeServer for DummyServer {
 
     fn get_resource(
         &mut self,
-        binding: Binding,
+        binding: BufferBinding,
         _stream_id: StreamId,
     ) -> Result<ManagedResource<BytesResource>, ServerError> {
         let resource = self.memory_management.get_resource(
@@ -180,8 +181,12 @@ impl ComputeServer for DummyServer {
         stream_id: StreamId,
     ) {
         let mut resources: Vec<_> = bindings
-            .buffers
+            .resources
             .into_iter()
+            .map(|res| match res {
+                KernelResource::Buffer(binding) => binding,
+                KernelResource::TensorMap(tensor_map) => tensor_map.binding,
+            })
             .map(|b| {
                 self.memory_management
                     .get_resource(b.memory, b.offset_start, b.offset_end)
