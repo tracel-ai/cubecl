@@ -1,14 +1,41 @@
+use core::ops::RangeInclusive;
+
+use alloc::format;
 use cubecl_macros_internal::cube_op;
-use pliron::derive::op_interface_impl;
+use pliron::{derive::op_interface_impl, printable::Printable, verify_err};
+use thiserror::Error;
 
 use crate::{
+    AddressSpace,
     attributes::IndexAttr,
-    interfaces::{ReadsMemory, WritesMemory},
+    interfaces::{MemoryEffect, MemoryEffects, TypeExt},
     prelude::*,
+    types::{
+        PointerType,
+        barrier::{BarrierLevel, BarrierType},
+        cuda::TensorMapType,
+    },
 };
 
-#[pliron_op(name = "tma.load", format, attributes = (rank: IndexAttr), verifier = "succ")]
-#[op_interfaces(AtLeastNOpdsInterface<4>)]
+#[derive(Error, Debug)]
+pub enum TmaOpError {
+    #[error("Invalid address space for {_0}. Expected {_1}, got {_2}.")]
+    InvalidAddressSpace(&'static str, &'static str, AddressSpace),
+    #[error("Unsupported rank {_0}, expected rank to be in range {_1:?}.")]
+    UnsupportedRank(usize, RangeInclusive<usize>),
+}
+
+fn expected_barrier_ty(ctx: &Context) -> TypeHandle {
+    PointerType::get(
+        ctx,
+        BarrierType::get(ctx, BarrierLevel::Cube).into(),
+        AddressSpace::Shared,
+    )
+    .to_handle()
+}
+
+#[pliron_op(name = "tma.load", format, attributes = (tma_load_rank: IndexAttr))]
+#[op_interfaces(AtLeastNOpdsInterface<4>, OperandNOfType<0, PointerType>, OperandNOfType<1, TensorMapType>, OperandNOfType<2, PointerType>)]
 pub struct TmaLoadOp;
 
 impl TmaLoadOp {
@@ -32,7 +59,7 @@ impl TmaLoadOp {
                 0,
             ),
         };
-        op.set_attr_rank(ctx, rank.into());
+        op.set_attr_tma_load_rank(ctx, rank.into());
         op
     }
 
@@ -53,19 +80,51 @@ impl TmaLoadOp {
     }
 
     pub fn rank(&self, ctx: &Context) -> usize {
-        self.get_attr_rank(ctx).unwrap().0
+        self.get_attr_tma_load_rank(ctx).unwrap().0
     }
 }
 
 #[op_interface_impl]
-impl WritesMemory for TmaLoadOp {
-    fn writes_through_values(&self, ctx: &Context) -> Vec<Value> {
-        vec![self.destination(ctx)]
+impl MemoryEffects for TmaLoadOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        vec![MemoryEffect::Write(self.destination(ctx))]
     }
 }
 
-#[pliron_op(name = "tma.load_im2col", format, attributes = (rank: IndexAttr), verifier = "succ")]
-#[op_interfaces(AtLeastNOpdsInterface<5>)]
+impl Verify for TmaLoadOp {
+    fn verify(&self, ctx: &Context) -> Result<()> {
+        let loc = self.loc(ctx);
+        let barrier_ty = self.barrier(ctx).get_type(ctx).as_ptr(ctx);
+        let dest_ty = self.barrier(ctx).get_type(ctx).as_ptr(ctx);
+
+        if !barrier_ty.inner.deref(ctx).is::<BarrierType>() {
+            let expected = expected_barrier_ty(ctx).deref(ctx);
+            return verify_err!(
+                loc,
+                OperandNOfTypeError::AllOperandsOfTypeVerifyErr(
+                    format!("{} {}", expected.get_type_id(), expected.disp(ctx)),
+                    format!("{} {}", barrier_ty.get_type_id(), barrier_ty.disp(ctx))
+                )
+            )?;
+        }
+
+        if dest_ty.address_space != AddressSpace::Shared {
+            return verify_err!(
+                loc,
+                TmaOpError::InvalidAddressSpace("destination", "Shared", dest_ty.address_space)
+            )?;
+        }
+
+        if !(1..=5).contains(&self.rank(ctx)) {
+            return verify_err!(loc, TmaOpError::UnsupportedRank(self.rank(ctx), 1..=5))?;
+        }
+
+        Ok(())
+    }
+}
+
+#[pliron_op(name = "tma.load_im2col", format, attributes = (tma_load_im2col_rank: IndexAttr))]
+#[op_interfaces(AtLeastNOpdsInterface<5>, OperandNOfType<0, PointerType>, OperandNOfType<1, TensorMapType>, OperandNOfType<2, PointerType>)]
 pub struct TmaLoadIm2colOp;
 
 impl TmaLoadIm2colOp {
@@ -91,7 +150,7 @@ impl TmaLoadIm2colOp {
                 0,
             ),
         };
-        op.set_attr_rank(ctx, rank.into());
+        op.set_attr_tma_load_im2col_rank(ctx, rank.into());
         op
     }
 
@@ -108,7 +167,7 @@ impl TmaLoadIm2colOp {
     }
 
     pub fn indices(&self, ctx: &Context) -> Vec<Value> {
-        let rank = self.get_attr_rank(ctx).unwrap().0;
+        let rank = self.get_attr_tma_load_im2col_rank(ctx).unwrap().0;
         self.get_operation()
             .deref(ctx)
             .operands()
@@ -118,7 +177,7 @@ impl TmaLoadIm2colOp {
     }
 
     pub fn offsets(&self, ctx: &Context) -> Vec<Value> {
-        let rank = self.get_attr_rank(ctx).unwrap().0;
+        let rank = self.get_attr_tma_load_im2col_rank(ctx).unwrap().0;
         self.get_operation()
             .deref(ctx)
             .operands()
@@ -127,19 +186,51 @@ impl TmaLoadIm2colOp {
     }
 
     pub fn rank(&self, ctx: &Context) -> usize {
-        self.get_attr_rank(ctx).unwrap().0
+        self.get_attr_tma_load_im2col_rank(ctx).unwrap().0
     }
 }
 
 #[op_interface_impl]
-impl WritesMemory for TmaLoadIm2colOp {
-    fn writes_through_values(&self, ctx: &Context) -> Vec<Value> {
-        vec![self.destination(ctx)]
+impl MemoryEffects for TmaLoadIm2colOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        vec![MemoryEffect::Write(self.destination(ctx))]
     }
 }
 
-#[pliron_op(name = "tma.store", format, attributes = (rank: IndexAttr), verifier = "succ")]
-#[op_interfaces(AtLeastNOpdsInterface<4>)]
+impl Verify for TmaLoadIm2colOp {
+    fn verify(&self, ctx: &Context) -> Result<()> {
+        let loc = self.loc(ctx);
+        let barrier_ty = self.barrier(ctx).get_type(ctx).as_ptr(ctx);
+        let dest_ty = self.barrier(ctx).get_type(ctx).as_ptr(ctx);
+
+        if !barrier_ty.inner.deref(ctx).is::<BarrierType>() {
+            let expected = expected_barrier_ty(ctx).deref(ctx);
+            return verify_err!(
+                loc,
+                OperandNOfTypeError::AllOperandsOfTypeVerifyErr(
+                    format!("{} {}", expected.get_type_id(), expected.disp(ctx)),
+                    format!("{} {}", barrier_ty.get_type_id(), barrier_ty.disp(ctx))
+                )
+            )?;
+        }
+
+        if dest_ty.address_space != AddressSpace::Shared {
+            return verify_err!(
+                loc,
+                TmaOpError::InvalidAddressSpace("destination", "Shared", dest_ty.address_space)
+            )?;
+        }
+
+        if !(3..=5).contains(&self.rank(ctx)) {
+            return verify_err!(loc, TmaOpError::UnsupportedRank(self.rank(ctx), 3..=5))?;
+        }
+
+        Ok(())
+    }
+}
+
+#[pliron_op(name = "tma.store", format, attributes = (tma_store_rank: IndexAttr))]
+#[op_interfaces(AtLeastNOpdsInterface<4>, OperandNOfType<0, PointerType>, OperandNOfType<1, TensorMapType>)]
 pub struct TmaStoreOp;
 
 impl TmaStoreOp {
@@ -157,7 +248,7 @@ impl TmaStoreOp {
                 0,
             ),
         };
-        op.set_attr_rank(ctx, rank.into());
+        op.set_attr_tma_store_rank(ctx, rank.into());
         op
     }
 
@@ -174,14 +265,34 @@ impl TmaStoreOp {
     }
 
     pub fn rank(&self, ctx: &Context) -> usize {
-        self.get_attr_rank(ctx).unwrap().0
+        self.get_attr_tma_store_rank(ctx).unwrap().0
     }
 }
 
 #[op_interface_impl]
-impl ReadsMemory for TmaStoreOp {
-    fn reads_through_values(&self, ctx: &Context) -> Vec<Value> {
-        vec![self.source(ctx)]
+impl MemoryEffects for TmaStoreOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        vec![MemoryEffect::Read(self.source(ctx))]
+    }
+}
+
+impl Verify for TmaStoreOp {
+    fn verify(&self, ctx: &Context) -> Result<()> {
+        let loc = self.loc(ctx);
+        let src_ty = self.source(ctx).get_type(ctx).as_ptr(ctx);
+
+        if src_ty.address_space != AddressSpace::Shared {
+            return verify_err!(
+                loc,
+                TmaOpError::InvalidAddressSpace("source", "Shared", src_ty.address_space)
+            )?;
+        }
+
+        if !(1..=5).contains(&self.rank(ctx)) {
+            return verify_err!(loc, TmaOpError::UnsupportedRank(self.rank(ctx), 1..=5))?;
+        }
+
+        Ok(())
     }
 }
 

@@ -21,7 +21,7 @@ pub mod set_polyfill {
 
     /// Expand function of [`set_polyfill()`].
     pub fn expand<E: Scalar, N: Size>(scope: &Scope, ty: Type) {
-        scope.register_type::<E>(ty.storage_type());
+        scope.register_type::<E>(ty.elem_type());
         scope.register_size::<N>(ty.vector_size());
     }
 }

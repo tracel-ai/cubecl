@@ -1,13 +1,13 @@
 use cubecl_core::ir::{
     dialect::vector::{VectorExtractOp, VectorInitOp},
-    interfaces::{RematerializeOp, TypedExt},
+    interfaces::{MaterializableOp, TypedExt},
     prelude::*,
     rewrite::MatchRewritePass,
     types::VectorType,
 };
 
 #[op_interface]
-pub trait UnrollingOp: RematerializeOp + OneResultInterface {
+pub trait UnrollingOp: MaterializableOp + OneResultInterface {
     verify_op_succ!();
 }
 
@@ -40,6 +40,7 @@ impl MatchRewrite for CppUnroll {
         let dyn_op = op.dyn_op(ctx);
         let unroll_op = op_cast::<dyn UnrollingOp>(&*dyn_op).unwrap();
         let opds = op.operands(ctx);
+        let attributes = op.deref(ctx).attributes.clone();
         let res = unroll_op.get_result(ctx);
 
         let vec_ty = {
@@ -48,13 +49,20 @@ impl MatchRewrite for CppUnroll {
         };
 
         let extract = |ctx: &mut Context, opd: &Value, i: usize| {
-            let extract = VectorExtractOp::new(ctx, *opd, i);
-            extract.get_operation().insert_before(ctx, op);
-            extract.get_result(ctx)
+            if opd.vector_size(ctx) == 1 {
+                // Scalar arg for things like lane index in plane ops. SameOperandTypes should
+                // validate other args for equality so we don't get implicit broadcasts
+                *opd
+            } else {
+                let extract = VectorExtractOp::new(ctx, *opd, i);
+                extract.get_operation().insert_before(ctx, op);
+                extract.get_result(ctx)
+            }
         };
         let run_one = |ctx: &mut Context, i: usize| {
             let opds = opds.iter().map(|opd| extract(ctx, opd, i)).collect();
-            let new_op = unroll_op.rematerialize(ctx, vec![vec_ty.inner], opds);
+            let attrs = attributes.clone();
+            let new_op = unroll_op.materialize(ctx, vec![vec_ty.inner], opds, attrs);
             new_op.insert_before(ctx, op);
             new_op.result(ctx)
         };

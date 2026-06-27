@@ -128,17 +128,6 @@ pub(super) use hip_op_with_out;
 //                 "extern __shared__ __align__({max_align}) uchar dynamic_shared_mem[];"
 //             )?;
 //         }
-//         if body.info_by_ptr {
-//             f.write_str("const info_st& info = *info_ptr;\n")?;
-//             // Could use `info_ptr + 1` but that seems dirty, so use manual `sizeof` instead
-//             writeln!(
-//                 f,
-//                 "const {addr}* dynamic_meta = reinterpret_cast<const {addr}*>(
-//                     reinterpret_cast<const char*>(info_ptr) + sizeof(info_st)
-//                 );\n",
-//                 addr = body.address_type,
-//             )?;
-//         }
 //         Ok(())
 //     }
 // }

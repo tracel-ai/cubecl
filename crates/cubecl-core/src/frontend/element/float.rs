@@ -1,5 +1,5 @@
 use cubecl_ir::{
-    ConstantValue, Scope, StorageType,
+    ConstantValue, ElemType, Scope,
     types::scalar::{BFloat16Type, Float16Type, Float32Type, Float64Type},
 };
 use half::{bf16, f16};
@@ -123,7 +123,7 @@ macro_rules! impl_float {
 
         impl CubeDebug for $primitive {}
         impl Scalar for $primitive {
-            fn storage_type_native() -> StorageType {
+            fn elem_type_native() -> ElemType {
                 FloatKind::$kind.into()
             }
         }

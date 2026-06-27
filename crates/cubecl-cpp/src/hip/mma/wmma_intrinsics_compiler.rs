@@ -385,7 +385,7 @@ pub(super) fn compile_load_intrinsic(ctx: &Context, op: &LoadOp) -> String {
     let value_ptr = op.source(ctx).name(ctx);
     let stride = op.stride(ctx).name(ctx);
     let mat_ty = *mat.get_type(ctx).deref(ctx).downcast_ref().unwrap();
-    let layout = op.get_attr_layout(ctx).map(|it| it.0);
+    let layout = op.layout(ctx).map(|it| it.0);
     let extension = WmmaLoad::new(mat_ty, layout);
     let name = extension.fn_name(ctx);
     format!("{name}(*{}, {value_ptr}, {stride});", mat.name(ctx))
@@ -396,8 +396,8 @@ pub(super) fn compile_store_intrinsic(ctx: &Context, op: &StoreOp) -> String {
     let output_ptr = op.destination(ctx).name(ctx);
     let stride = op.stride(ctx).name(ctx);
     let mat_ty = *mat.get_type(ctx).deref(ctx).downcast_ref().unwrap();
-    let layout = op.get_attr_layout(ctx).map(|it| it.0);
-    let extension = WmmaStore::new(mat_ty, layout.unwrap_or(mat_ty.layout));
+    let layout = op.layout(ctx).0;
+    let extension = WmmaStore::new(mat_ty, layout);
     let name = extension.fn_name(ctx);
     format!("{name}(*{}, {output_ptr}, {stride});", mat.name(ctx))
 }
@@ -470,9 +470,9 @@ pub(super) fn supported_wmma_combinations_intrinsic(
         let combinations: SupportedMmaCombinations = types
             .into_iter()
             .map(|(a, b, c)| MmaConfig {
-                a_type: a.into(),
-                b_type: b.into(),
-                cd_type: c.into(),
+                a_type: a,
+                b_type: b,
+                cd_type: c,
                 m: 16,
                 n: 16,
                 k: 16,

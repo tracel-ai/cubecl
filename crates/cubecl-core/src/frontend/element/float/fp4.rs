@@ -1,7 +1,7 @@
 use cubecl_common::{e2m1, e2m1x2};
 use cubecl_ir::{
-    ConstantValue, FloatKind, Scope, StorageType,
-    types::{PackedType, scalar::Float4E2M1Type},
+    ConstantValue, ElemType, FloatKind, Scope,
+    types::scalar::{Float4E2M1Type, Float4E2M1x2Type},
 };
 use pliron::r#type::TypeHandle;
 
@@ -13,7 +13,7 @@ impl CubeType for e2m1 {
 
 impl CubeDebug for e2m1 {}
 impl Scalar for e2m1 {
-    fn storage_type_native() -> StorageType {
+    fn elem_type_native() -> ElemType {
         FloatKind::E2M1.into()
     }
 }
@@ -56,8 +56,8 @@ impl CubeDebug for e2m1x2 {}
 // Considered a scalar because it's really just a `u8` in a trenchcoat, and should be possible to
 // store in a `Vector`.
 impl Scalar for e2m1x2 {
-    fn storage_type_native() -> StorageType {
-        StorageType::Packed(FloatKind::E2M1.into(), 2)
+    fn elem_type_native() -> ElemType {
+        FloatKind::E2M1x2.into()
     }
 }
 impl CubePrimitive for e2m1x2 {
@@ -66,8 +66,7 @@ impl CubePrimitive for e2m1x2 {
     type WithScalar<S: Scalar> = S;
 
     fn __expand_as_type(scope: &Scope) -> TypeHandle {
-        let inner = Float4E2M1Type::get(scope.ctx());
-        PackedType::get(scope.ctx(), inner.into(), 2).into()
+        Float4E2M1x2Type::get(scope.ctx()).into()
     }
 
     fn from_const_value(value: ConstantValue) -> Self {

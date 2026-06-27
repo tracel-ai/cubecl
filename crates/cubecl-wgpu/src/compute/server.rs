@@ -9,7 +9,7 @@ use cubecl_common::{
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
 };
-use cubecl_core::server::{Binding, StreamErrorMode};
+use cubecl_core::server::{BufferBinding, StreamErrorMode};
 use cubecl_core::zspace::Shape;
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
@@ -362,7 +362,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
     fn get_resource(
         &mut self,
-        binding: Binding,
+        binding: BufferBinding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<WgpuResource>, ServerError> {
         let mut streams = vec![stream_id];

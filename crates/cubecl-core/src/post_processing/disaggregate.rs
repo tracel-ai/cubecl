@@ -24,7 +24,7 @@ impl Pass for DisaggregatePass {
     }
 
     fn run(
-        &self,
+        &mut self,
         op: Ptr<Operation>,
         ctx: &mut Context,
         _analyses: &mut AnalysisManager,

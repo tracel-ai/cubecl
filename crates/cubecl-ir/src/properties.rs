@@ -2,7 +2,7 @@ use alloc::string::String;
 use core::hash::{BuildHasher, Hash, Hasher};
 
 use crate::{
-    AddressType, OpaqueType, SemanticType, StorageType, Type, TypeHash, VectorSize,
+    AddressType, ElemType, OpaqueType, SemanticType, Type, TypeHash, VectorSize,
     features::{AtomicUsage, Features, TypeUsage},
 };
 use cubecl_common::profile::TimingMethod;
@@ -138,7 +138,7 @@ impl DeviceProperties {
     }
 
     /// Get the usages for a type
-    pub fn type_usage(&self, ty: StorageType) -> EnumSet<TypeUsage> {
+    pub fn type_usage(&self, ty: ElemType) -> EnumSet<TypeUsage> {
         self.features.type_usage(ty)
     }
 
@@ -170,10 +170,10 @@ impl DeviceProperties {
     /// Register a storage type to the features
     pub fn register_type_usage(
         &mut self,
-        ty: impl Into<StorageType>,
+        ty: impl Into<ElemType>,
         uses: impl Into<EnumSet<TypeUsage>>,
     ) {
-        *self.features.types.storage.entry(ty.into()).or_default() |= uses.into();
+        *self.features.types.elem.entry(ty.into()).or_default() |= uses.into();
     }
 
     /// Register a semantic type to the features

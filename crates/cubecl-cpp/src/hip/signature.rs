@@ -1,13 +1,14 @@
-use cubecl_core::ir::{
-    attributes::{EntrypointInterface, FuncInterface},
-    prelude::*,
-};
+use cubecl_core::ir::{attributes::EntrypointInterface, interfaces::TypedExt, prelude::*};
 use itertools::Itertools;
 use pliron::builtin::{ops::FuncOp, types::FunctionType};
 
 use crate::{
     hip::hip_op,
-    shared::{ATTR_CONST, ATTR_RESTRICT, CppValue, branch::block_to_cpp, ty::TypeExtCPP},
+    shared::{
+        CppValue,
+        branch::block_to_cpp,
+        ty::{TypeExtCPP, TypedExtCPP},
+    },
 };
 
 hip_op!(FuncOp, |op, ctx| {
@@ -27,21 +28,19 @@ hip_op!(FuncOp, |op, ctx| {
     let entry_block = op.get_entry_block(ctx);
 
     let block = entry_block.deref(ctx);
-    let params = block.arguments().enumerate();
-    let params = params.map(|(i, arg)| gen_param(ctx, op, i, arg)).join(", ");
+    let params = block.arguments();
+    let params = params.map(|arg| gen_param(ctx, arg)).join(", ");
 
     let body = block_to_cpp(ctx, entry_block);
 
     format!("{attributes} {func_name}({params}) {{\n{body}\n}}\n")
 });
 
-fn gen_param(ctx: &Context, func: &FuncOp, i: usize, arg: Value) -> String {
+fn gen_param(ctx: &Context, arg: Value) -> String {
     let mut segments = vec![];
-    if func.get_arg_attr(ctx, i, &ATTR_CONST).is_some() {
-        segments.push("const".into());
-    }
     segments.push(arg.get_type(ctx).to_cpp(ctx));
-    if func.get_arg_attr(ctx, i, &ATTR_RESTRICT).is_some() {
+    segments.push("const".into());
+    if arg.is_ptr(ctx) || arg.is_uniform_ptr(ctx) {
         segments.push("__restrict__".into());
     }
     segments.push(arg.name(ctx).to_string());

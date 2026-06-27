@@ -59,9 +59,9 @@ shared_op_with_out!(AtomicLoadOp, |op, ctx| {
         _ => unreachable!(),
     };
     scoped_block! {
-        format!("volatile {uint_ty}* tmp = reinterpret_cast<volatile {uint_ty}*>({ptr});")
-        format!("const {uint_ty} = *tmp;")
-        format!("return reinterpret_cast<{}&>(tmp);", out_ty.to_cpp(ctx))
+        format!("volatile {uint_ty} const* tmp = reinterpret_cast<volatile {uint_ty} const*>({ptr});")
+        format!("const {uint_ty} tmp_2 = *tmp;")
+        format!("return reinterpret_cast<const {}&>(tmp_2);", out_ty.to_cpp(ctx))
     }
 });
 
@@ -80,10 +80,10 @@ shared_op_with_out!(AtomicExchangeOp, |op, ctx| {
         _ => unreachable!(),
     };
     let ptr = format!("reinterpret_cast<{uint_ty}*>({ptr})");
-    let value = format!("reinterpret_cast<{uint_ty}&>({value})");
+    let value = format!("reinterpret_cast<const {uint_ty}&>({value})");
     scoped_block! {
         format!("const {uint_ty} tmp = atomicExch({ptr}, {value});")
-        format!("return reinterpret_cast<{}&>(tmp);", out_ty.to_cpp(ctx))
+        format!("return reinterpret_cast<const {}&>(tmp);", out_ty.to_cpp(ctx))
     }
 });
 
@@ -103,11 +103,11 @@ shared_op_with_out!(AtomicCompareExchangeWeakOp, |op, ctx| {
         _ => unreachable!(),
     };
     let ptr = format!("reinterpret_cast<{uint_ty}*>({ptr})");
-    let cmp = format!("reinterpret_cast<{uint_ty}&>({cmp})");
-    let value = format!("reinterpret_cast<{uint_ty}&>({value})");
+    let cmp = format!("reinterpret_cast<const {uint_ty}&>({cmp})");
+    let value = format!("reinterpret_cast<const {uint_ty}&>({value})");
     scoped_block! {
         format!("const {uint_ty} tmp = atomicCAS({ptr}, {cmp}, {value});")
-        format!("return reinterpret_cast<{}&>(tmp);", out_ty.to_cpp(ctx))
+        format!("return reinterpret_cast<const {}&>(tmp);", out_ty.to_cpp(ctx))
     }
 });
 

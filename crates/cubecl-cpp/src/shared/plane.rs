@@ -5,7 +5,8 @@ use cubecl_core::{
 };
 
 use crate::{
-    shared::lowering::LowerOp,
+    cuda::packed_ops::packable,
+    shared::{lowering::LowerOp, unroll::unrolling},
     target::{CtxTarget, Target},
 };
 
@@ -99,7 +100,7 @@ macro_rules! lower_unop {
             fn lower(&self, scope: &Scope) -> Vec<Value> {
                 let input = self.input(scope.ctx());
                 scope.register_value_type::<T, S>(input);
-                vec![$reduce::expand::<T, S, $op>(scope, input.into(), $($args),*).value(scope)]
+                vec![$reduce::expand::<T, S, $op>(scope, input.into(), $($args),*).read_value(scope)]
             }
         }
     };
@@ -115,3 +116,21 @@ lower_unop!(plane::InclusiveProdOp, plane_reduce_inclusive, OpMul);
 
 lower_unop!(plane::ExclusiveSumOp, plane_reduce_exclusive, OpAdd, 0);
 lower_unop!(plane::ExclusiveProdOp, plane_reduce_exclusive, OpMul, 1);
+
+unrolling!(plane::BroadcastOp);
+packable!(plane::BroadcastOp);
+
+unrolling!(plane::ShuffleOp);
+packable!(plane::ShuffleOp);
+
+unrolling!(plane::ShuffleXorOp);
+packable!(plane::ShuffleXorOp);
+
+unrolling!(plane::ShuffleUpOp);
+packable!(plane::ShuffleUpOp);
+
+unrolling!(plane::ShuffleDownOp);
+packable!(plane::ShuffleDownOp);
+
+unrolling!(plane::AllOp);
+unrolling!(plane::AnyOp);

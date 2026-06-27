@@ -1,5 +1,6 @@
 use syn::{GenericParam, TypeParam, visit_mut::VisitMut};
 
+pub mod asm;
 pub mod assign;
 pub mod autotune;
 pub mod branch;

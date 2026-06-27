@@ -1,3 +1,4 @@
+pub mod asm;
 pub mod barrier;
 pub mod branch;
 pub mod cmma;
@@ -27,6 +28,8 @@ mod topology;
 mod trigonometry;
 mod validation;
 
+pub use asm::*;
+pub use base::*;
 pub use branch::*;
 pub use comptime_option::*;
 pub use const_expand::*;

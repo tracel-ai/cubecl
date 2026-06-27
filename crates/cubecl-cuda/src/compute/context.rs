@@ -6,7 +6,6 @@ use cubecl_runtime::{
     validation::{validate_cube_dim, validate_units},
 };
 
-use super::storage::gpu::GpuResource;
 use crate::{CudaCompiler, compute::stream::Stream};
 use crate::{
     CudaComputeKernel,
@@ -24,7 +23,7 @@ use cubecl_runtime::{
 };
 use cudarc::driver::DriverError;
 use cudarc::driver::sys::CUfunc_st;
-use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUtensorMap};
+use cudarc::driver::sys::{CUctx_st, CUfunction_attribute};
 use std::ffi::CString;
 use std::ffi::c_char;
 use std::str::FromStr;
@@ -278,18 +277,9 @@ impl CudaContext {
         stream: &mut Stream,
         kernel_id: KernelId,
         dispatch_count: (u32, u32, u32),
-        tensor_maps: &[CUtensorMap],
-        resources: &[GpuResource],
-        const_info: Option<*mut c_void>,
+        resources: &mut [*mut c_void],
     ) -> Result<(), LaunchError> {
-        let mut bindings = tensor_maps
-            .iter()
-            .map(|map| map as *const _ as *mut c_void)
-            .collect::<Vec<_>>();
-        bindings.extend(resources.iter().map(|memory| memory.binding));
-        bindings.extend(const_info);
-
-        let kernel = self.modules.get(&kernel_id).unwrap();
+        let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
         // SAFETY: `kernel.func` is a valid function handle from a loaded module.
         // `stream.sys` is a valid CUDA stream. `bindings` contains valid device pointers
@@ -313,7 +303,7 @@ impl CudaContext {
                 // an offset pointer
                 kernel.shared_mem_bytes as u32,
                 stream.sys,
-                &mut bindings,
+                resources,
             )
             .map_err(|err| LaunchError::Unknown {
                 reason: format!("{err}"),

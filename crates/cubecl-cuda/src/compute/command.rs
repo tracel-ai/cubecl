@@ -10,7 +10,9 @@ use cubecl_common::bytes::{AllocationProperty, Bytes};
 use cubecl_core::zspace::striding::try_check_pitched_row_major_strides;
 use cubecl_core::{
     MemoryConfiguration, MemoryUsage,
-    server::{Binding, CopyDescriptor, Handle, IoError, LaunchError, ProfileError, ServerError},
+    server::{
+        BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ProfileError, ServerError,
+    },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -24,9 +26,7 @@ use cubecl_runtime::{
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryHandle},
     stream::ResolvedStreams,
 };
-use cudarc::driver::sys::{
-    CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, CUtensorMap, cuMemcpy2DAsync_v2,
-};
+use cudarc::driver::sys::{CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, cuMemcpy2DAsync_v2};
 use std::{ffi::c_void, ops::DerefMut, sync::Arc};
 
 #[derive(new)]
@@ -49,7 +49,7 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(GpuResource)` - The GPU resource associated with the binding.
     /// * `Err(IoError::InvalidHandle)` - If the binding does not correspond to a valid resource.
-    pub fn resource(&mut self, binding: Binding) -> Result<GpuResource, IoError> {
+    pub fn resource(&mut self, binding: BufferBinding) -> Result<GpuResource, IoError> {
         self.streams
             .get(&binding.stream)
             .memory_management_gpu
@@ -533,9 +533,7 @@ impl<'a> Command<'a> {
         kernel_id: KernelId,
         kernel: Box<dyn CubeTask<CudaCompiler>>,
         dispatch_count: (u32, u32, u32),
-        tensor_maps: &[CUtensorMap],
-        resources: &[GpuResource],
-        const_info: Option<*mut c_void>,
+        resources: &mut [*mut c_void],
         logger: Arc<ServerLogger>,
         launch_mode: LaunchMode,
     ) -> Result<(), LaunchError> {
@@ -549,14 +547,9 @@ impl<'a> Command<'a> {
 
         let stream = self.streams.current();
 
-        let result = self.ctx.execute_task(
-            stream,
-            kernel_id,
-            dispatch_count,
-            tensor_maps,
-            resources,
-            const_info,
-        );
+        let result =
+            self.ctx
+                .execute_task(stream, kernel_id, dispatch_count, resources, const_info);
 
         // A fenced flush during capture would abort it; defer until the capture
         // ends (the deferred staging buffers are reclaimed then). Not deferred

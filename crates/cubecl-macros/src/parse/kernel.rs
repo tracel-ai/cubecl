@@ -134,7 +134,7 @@ impl GenericAnalysis {
                     continue;
                 }
                 None => match kind {
-                    DefineKind::Type => quote![#ident::storage_type(&#scope)],
+                    DefineKind::Type => quote![#ident::elem_type(&#scope)],
                     DefineKind::Size => quote![#ident::value()],
                 },
             };

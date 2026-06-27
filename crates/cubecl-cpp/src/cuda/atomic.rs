@@ -17,7 +17,7 @@ use pliron::value::Value;
 
 use crate::{
     cuda::{
-        InlinePtxOp,
+        ptx::InlinePtxOp,
         ty::{BFloat16x2Type, Float16x2Type},
     },
     shared::{lowering::LowerOp, ty::TypedExtCPP},
@@ -27,9 +27,9 @@ use crate::{
 fn atom_vec(ctx: &Context, val: impl Typed) -> &'static str {
     match val.vector_size(ctx) {
         1 => "",
-        2 => "v2",
-        4 => "v4",
-        8 => "v8",
+        2 => ".v2",
+        4 => ".v4",
+        8 => ".v8",
         _ => unreachable!(),
     }
 }
@@ -42,6 +42,7 @@ fn atom_ftz(ctx: &Context, val: impl Typed) -> &'static str {
     }
 }
 
+// Signed only matters for cmp, addition is signless. And it's not supported for `s64`, only `u64`
 fn atom_ty(ctx: &Context, val: impl Typed) -> &'static str {
     let scalar_ty = val.scalar_ty(ctx);
     if scalar_ty.is_float64(ctx) {
@@ -56,16 +57,23 @@ fn atom_ty(ctx: &Context, val: impl Typed) -> &'static str {
         "bf16"
     } else if scalar_ty.deref(ctx).is::<BFloat16x2Type>() {
         "bf16x2"
-    } else if scalar_ty.is_int_of_width(ctx, 64) {
+    } else if scalar_ty.is_int_of_width(ctx, 64) || scalar_ty.is_uint_of_width(ctx, 64) {
+        "u64"
+    } else if scalar_ty.is_int_of_width(ctx, 32) || scalar_ty.is_uint_of_width(ctx, 32) {
+        "u32"
+    } else {
+        panic!("Unsupported type")
+    }
+}
+
+fn atom_ty_cmp(ctx: &Context, val: impl Typed) -> &'static str {
+    let scalar_ty = val.scalar_ty(ctx);
+    if scalar_ty.is_int_of_width(ctx, 64) {
         "s64"
     } else if scalar_ty.is_int_of_width(ctx, 32) {
         "s32"
-    } else if scalar_ty.is_uint_of_width(ctx, 64) {
-        "u64"
-    } else if scalar_ty.is_uint_of_width(ctx, 32) {
-        "b32"
     } else {
-        panic!("Unsupported type")
+        atom_ty(ctx, val)
     }
 }
 
@@ -90,7 +98,7 @@ fn as_registers(scope: &Scope, val: Value) -> Value {
 }
 
 macro_rules! atomic_binop {
-    ($ty: ty, $op: literal) => {
+    ($ty: ty, $op: literal, $atom_ty: ident) => {
         #[op_interface_impl]
         impl LowerOp<Cuda> for $ty {
             fn lower(&self, scope: &Scope) -> Vec<Value> {
@@ -101,7 +109,7 @@ macro_rules! atomic_binop {
 
                 let vec = atom_vec(ctx, value);
                 let ftz = atom_ftz(ctx, value);
-                let ty = atom_ty(ctx, value);
+                let ty = $atom_ty(ctx, value);
                 let value = as_registers(scope, value);
 
                 let ptx = format!("atom.relaxed.{}{ftz}{vec}.{ty} $0, [$1], $2;", $op);
@@ -118,6 +126,6 @@ macro_rules! atomic_binop {
     };
 }
 
-atomic_binop!(AtomicAddOp, "add");
-atomic_binop!(AtomicMinOp, "min");
-atomic_binop!(AtomicMaxOp, "max");
+atomic_binop!(AtomicAddOp, "add", atom_ty);
+atomic_binop!(AtomicMinOp, "min", atom_ty_cmp);
+atomic_binop!(AtomicMaxOp, "max", atom_ty_cmp);

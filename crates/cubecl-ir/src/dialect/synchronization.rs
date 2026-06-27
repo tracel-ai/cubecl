@@ -1,9 +1,12 @@
 use cubecl_macros_internal::cube_op;
 use derive_more::From;
 use derive_new::new;
-use pliron::derive::{format, op_interface_impl, pliron_attr};
+use pliron::{
+    derive::{format, op_interface_impl, pliron_attr},
+    opts::dce::SideEffects,
+};
 
-use crate::{interfaces::Synchronizes, prelude::*};
+use crate::{CanMaterialize, NoMemoryEffect, interfaces::Synchronizes, prelude::*};
 
 #[format]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
@@ -22,6 +25,7 @@ pub struct SyncScopeAttr(pub SyncScope);
 
 #[cube_op(name = "sync.sync")]
 #[result_ty(none)]
+#[op_traits(CanMaterialize, NoMemoryEffect)]
 pub struct SyncOp {
     pub scope: SyncScopeAttr,
 }
@@ -29,7 +33,14 @@ pub struct SyncOp {
 #[op_interface_impl]
 impl Synchronizes for SyncOp {
     fn scope(&self, ctx: &Context) -> SyncScope {
-        self.get_attr_scope(ctx).unwrap().0
+        self.scope(ctx).0
+    }
+}
+
+#[op_interface_impl]
+impl SideEffects for SyncOp {
+    fn has_side_effects(&self, _ctx: &Context) -> bool {
+        true
     }
 }
 
@@ -38,4 +49,5 @@ impl Synchronizes for SyncOp {
 /// It does not synchronize the actual threads, and is typically called only by the TMA leader.
 #[cube_op(name = "sync.sync_async_proxy")]
 #[result_ty(none)]
+#[op_traits(CanMaterialize, NoMemoryEffect)]
 pub struct SyncAsyncProxyOp {}

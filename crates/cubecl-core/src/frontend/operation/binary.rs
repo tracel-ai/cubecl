@@ -158,7 +158,7 @@ macro_rules! impl_binary_func {
 }
 
 macro_rules! impl_binary_func_scalar_out {
-    ($trait_name:ident, $method_name:ident, $operator:expr, $($type:ty),*) => {
+    ($trait_name:ident, $method_name:ident, $operator:expr, $scalar_op:expr, $($type:ty),*) => {
         paste::paste! {
             pub trait $trait_name: CubePrimitive
                 + CubeType<ExpandType: [<$trait_name Expand>]
@@ -184,7 +184,13 @@ macro_rules! impl_binary_func_scalar_out {
             $(impl $trait_name for $type {})*
             impl<T: CubePrimitive + $trait_name> [<$trait_name Expand>] for NativeExpand<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &Scope, rhs: Self) -> Self::Scalar {
-                    binary_expand(scope, self.into(), rhs.into(), $operator::new).into()
+                    // A lot of backends can't deal with 1-sized vectors, and we want to validate
+                    // that the input is a vector
+                    if self.__expand_vector_size_method(scope) == 1 {
+                        binary_expand(scope, self.into(), rhs.into(), $scalar_op::new).into()
+                    } else {
+                        binary_expand(scope, self.into(), rhs.into(), $operator::new).into()
+                    }
                 }
             }
         }
@@ -403,8 +409,8 @@ impl_binary_func!(
     isize
 );
 impl_binary_func_scalar_out!(
-    Dot, dot, DotOp, f16, bf16, flex32, tf32, f32, f64, i8, i16, i32, i64, u8, u16, u32, u64,
-    usize, isize
+    Dot, dot, DotOp, MulOp, f16, bf16, flex32, tf32, f32, f64, i8, i16, i32, i64, u8, u16, u32,
+    u64, usize, isize
 );
 
 impl_binary_func_mixed_types!(

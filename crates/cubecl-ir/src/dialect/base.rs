@@ -8,6 +8,9 @@ pub trait OperationPtrExt: Sized {
     fn is_op<T: Op>(self, ctx: &Context) -> bool {
         self.as_op::<T>(ctx).is_some()
     }
+    fn is_terminator(self, ctx: &Context) -> bool {
+        self.impls::<dyn IsTerminatorInterface>(ctx)
+    }
     fn impls<T: ?Sized + OpInterfaceMarker + 'static>(self, ctx: &Context) -> bool {
         op_impls::<T>(&*self.dyn_op(ctx))
     }
@@ -19,6 +22,7 @@ pub trait OperationPtrExt: Sized {
     fn operands(self, ctx: &Context) -> Vec<Value>;
     fn operands_as_uses(self, ctx: &Context) -> Vec<Use<Value>>;
     fn result(self, ctx: &Context) -> Value;
+    fn results(self, ctx: &Context) -> Vec<Value>;
     fn opt_result(self, ctx: &Context) -> Option<Value>;
 }
 
@@ -44,6 +48,9 @@ impl OperationPtrExt for Ptr<Operation> {
     fn result(self, ctx: &Context) -> Value {
         Operation::get_result(&self.deref(ctx), 0)
     }
+    fn results(self, ctx: &Context) -> Vec<Value> {
+        self.deref(ctx).results().collect()
+    }
     fn opt_result(self, ctx: &Context) -> Option<Value> {
         self.deref(ctx).results().next()
     }
@@ -53,13 +60,15 @@ macro_rules! pure_unop {
     ($name: literal, $ty: ident) => {
         #[cubecl_macros_internal::cube_op(name = $name)]
         #[result_ty(same_as = input)]
-        #[$crate::prelude::op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
+        #[$crate::prelude::op_interfaces(
+            SameOperandsType,
+            SameOperandsAndResultType,
+            $crate::interfaces::TriviallyUnrollable
+        )]
+        #[$crate::prelude::op_traits($crate::CanMaterialize, $crate::Pure)]
         pub struct $ty {
             pub input: Value,
         }
-
-        $crate::interfaces::erasable!($ty);
-        $crate::interfaces::rematerialize!($ty);
     };
 }
 use pliron::{
@@ -73,14 +82,16 @@ macro_rules! pure_binop {
     ($name: literal, $ty: ident) => {
         #[cubecl_macros_internal::cube_op(name = $name)]
         #[result_ty(same_as = lhs)]
-        #[$crate::prelude::op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
+        #[$crate::prelude::op_interfaces(
+            SameOperandsType,
+            SameOperandsAndResultType,
+            $crate::interfaces::TriviallyUnrollable
+        )]
+        #[$crate::prelude::op_traits($crate::CanMaterialize, $crate::Pure)]
         pub struct $ty {
             pub lhs: Value,
             pub rhs: Value,
         }
-
-        $crate::interfaces::erasable!($ty);
-        $crate::interfaces::rematerialize!($ty);
     };
 }
 pub(crate) use pure_binop;

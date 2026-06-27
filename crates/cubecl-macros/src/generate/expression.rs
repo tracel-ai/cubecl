@@ -726,6 +726,10 @@ impl Expression {
                     }
                 }
             }
+            Expression::Asm(asm) => asm.to_tokens(context),
+            Expression::RawMacro { path, args } => {
+                quote! {{#path!(scope, #args)}}
+            }
         }
     }
 }

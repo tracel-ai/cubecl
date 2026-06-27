@@ -4,7 +4,7 @@ use derive_new::new;
 use pliron::derive::{format, pliron_type, type_interface_impl};
 
 use crate::{
-    interfaces::{AlignedType, TypedExt},
+    interfaces::{AlignedType, HasElementType, TypedExt},
     prelude::*,
 };
 
@@ -36,6 +36,13 @@ impl MatrixType {
 impl AlignedType for MatrixType {
     fn align(&self, ctx: &Context) -> usize {
         self.elem_ty.align(ctx)
+    }
+}
+
+#[type_interface_impl]
+impl HasElementType for MatrixType {
+    fn element_type(&self, ctx: &Context) -> Option<TypeHandle> {
+        type_cast::<dyn HasElementType>(&*self.elem_ty.deref(ctx))?.element_type(ctx)
     }
 }
 
@@ -74,7 +81,6 @@ pub enum MatrixIdent {
     #[display("IdentB")]
     B,
     #[display("IdentAcc")]
-    #[format("`Acc`")]
     Accumulator,
 }
 
@@ -84,11 +90,8 @@ pub enum MatrixIdent {
 #[format]
 #[allow(missing_docs)]
 pub enum MatrixLayout {
-    #[format("`col_major`")]
     ColMajor,
-    #[format("`row_major`")]
     RowMajor,
-    #[format("`undefined`")]
     Undefined,
 }
 
@@ -98,8 +101,6 @@ pub enum MatrixLayout {
 #[format]
 #[allow(missing_docs)]
 pub enum MatrixScope {
-    #[format("`plane`")]
     Plane,
-    #[format("`cube`")]
     Cube,
 }

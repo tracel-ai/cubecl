@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 
 use crate as cubecl;
 use crate::{prelude::*, unexpanded};
-use cubecl_ir::VectorSize;
+use cubecl_ir::{ElemType, VectorSize};
 use cubecl_runtime::server::TensorMapMeta;
 use cubecl_zspace::{Strides, metadata::Metadata, strides};
 use paste::paste;
@@ -66,7 +66,7 @@ pub struct TensorMapArg<R: Runtime, K: TensorMapKind> {
 }
 
 impl<R: Runtime, K: TensorMapKind> TensorMapArg<R, K> {
-    pub fn new(args: K::Args, tensor: TensorArg<R>, storage_ty: impl Into<StorageType>) -> Self {
+    pub fn new(args: K::Args, tensor: TensorArg<R>, storage_ty: impl Into<ElemType>) -> Self {
         let storage_ty = storage_ty.into();
         let TensorArg::Handle { handle, .. } = &tensor else {
             panic!("Can't use alias for TensorMap")
@@ -81,7 +81,7 @@ impl<R: Runtime, K: TensorMapKind> TensorMapArg<R, K> {
                 swizzle: TensorMapSwizzle::None,
                 prefetch: TensorMapPrefetch::None,
                 oob_fill: OobFill::Zero,
-                storage_ty,
+                elem_ty: storage_ty,
             },
             tensor,
             _kind: PhantomData,
@@ -403,7 +403,7 @@ mod metadata {
             scope: &Scope,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let buffer_idx = buffer_idx(scope, self.value(scope));
+            let buffer_idx = ext_meta_idx(scope, self.value(scope));
             let dim = dim.read_value(scope);
             let op = StrideOp::new(scope.ctx_mut(), dim, buffer_idx);
             scope.register(&op);
@@ -416,7 +416,7 @@ mod metadata {
             scope: &Scope,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let buffer_idx = buffer_idx(scope, self.value(scope));
+            let buffer_idx = ext_meta_idx(scope, self.value(scope));
             let dim = dim.read_value(scope);
             let op = ShapeOp::new(scope.ctx_mut(), dim, buffer_idx);
             scope.register(&op);

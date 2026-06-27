@@ -1,11 +1,11 @@
-use core::ops::{Neg, Not};
+use core::ops::{Div, Neg, Not};
 use cubecl_common::{e2m1, e2m1x2, e4m3, e5m2, ue8m0};
 use cubecl_ir::dialect::{bitwise::*, general::BoolNotOp, math::*, vector::*};
 use half::{bf16, f16};
 
 use crate::{
     flex32,
-    frontend::Scalar,
+    frontend::{DivExpand, Scalar},
     ir::{ExpandValue, Scope},
     prelude::{
         CubePrimitive, CubePrimitiveExpand, CubeType, IntoExpand, NativeExpand, Reinterpret,
@@ -19,7 +19,7 @@ pub mod not {
     use super::*;
 
     pub fn expand<T: CubeNot>(scope: &Scope, x: NativeExpand<T>) -> NativeExpand<T> {
-        if T::Scalar::storage_type(scope).is_bool() {
+        if T::Scalar::elem_type(scope).is_bool() {
             unary_expand(scope, x.into(), BoolNotOp::new).into()
         } else {
             unary_expand(scope, x.into(), BitwiseNotOp::new).into()
@@ -55,6 +55,41 @@ macro_rules! impl_unary_func {
     }
 }
 
+// Special handling for scalars
+macro_rules! impl_normalize {
+    ($trait_name:ident, $method_name:ident, $operator:expr, $($type:ty),*) => {
+        paste::paste! {
+            pub trait $trait_name: CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]> + Sized + Abs + Div<Output = Self> {
+                #[allow(unused_variables)]
+                fn $method_name(self) -> Self {
+                    unexpanded!()
+                }
+
+                fn [<__expand_ $method_name>](scope: &Scope, x: NativeExpand<Self>) -> NativeExpand<Self> {
+                    x.[<__expand_ $method_name _method>](scope)
+                }
+            }
+
+            pub trait [<$trait_name Expand>] {
+                fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self;
+            }
+
+            $(impl $trait_name for $type {})*
+            impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for NativeExpand<T> where NativeExpand<T>: DivExpand {
+                fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self {
+                    if self.__expand_vector_size_method(scope) == 1 {
+                        // Sign might work, but dividing by `abs` preserves the NaN when normalizing 0.0
+                        let abs = self.__expand_abs_method(scope);
+                        self.__expand_div_method(scope, abs)
+                    } else {
+                        unary_expand(scope, self.into(), $operator::new).into()
+                    }
+                }
+            }
+        }
+    }
+}
+
 impl Exp for f32 {
     fn exp(self) -> Self {
         self.exp()
@@ -62,7 +97,7 @@ impl Exp for f32 {
 }
 
 macro_rules! impl_unary_func_scalar_out {
-    ($trait_name:ident, $method_name:ident, $operator:expr, $($type:ty),*) => {
+    ($trait_name:ident, $method_name:ident, $operator:expr, $scalar_op: expr, $($type:ty),*) => {
         paste::paste! {
             pub trait $trait_name: CubePrimitive
                 + CubeType<ExpandType: [<$trait_name Expand>]
@@ -85,7 +120,13 @@ macro_rules! impl_unary_func_scalar_out {
             $(impl $trait_name for $type {})*
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for NativeExpand<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self::Scalar {
-                    unary_expand(scope, self.into(), $operator::new).into()
+                    // A lot of backends can't deal with 1-sized vectors, and we don't want to deal
+                    // with the scalar edge case.
+                    if self.__expand_vector_size_method(scope) == 1 {
+                        ($scalar_op)(scope, self).into()
+                    } else {
+                        unary_expand(scope, self.into(), $operator::new).into()
+                    }
                 }
             }
         }
@@ -243,6 +284,7 @@ impl_unary_func_scalar_out!(
     Magnitude,
     magnitude,
     MagnitudeOp,
+    |scope, input: NativeExpand<_>| unary_expand(scope, input.expand, AbsOp::new),
     f16,
     bf16,
     flex32,
@@ -251,10 +293,32 @@ impl_unary_func_scalar_out!(
     f64
 );
 impl_unary_func_scalar_out!(
-    VectorSum, vector_sum, SumOp, e2m1, e4m3, e5m2, ue8m0, f16, bf16, flex32, tf32, f32, f64, i8,
-    i16, i32, i64, u8, u16, u32, u64, usize, isize
+    VectorSum,
+    vector_sum,
+    SumOp,
+    |_, input: NativeExpand<_>| input.expand,
+    e2m1,
+    e4m3,
+    e5m2,
+    ue8m0,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64,
+    i8,
+    i16,
+    i32,
+    i64,
+    u8,
+    u16,
+    u32,
+    u64,
+    usize,
+    isize
 );
-impl_unary_func!(
+impl_normalize!(
     Normalize,
     normalize,
     NormalizeOp,

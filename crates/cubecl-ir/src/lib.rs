@@ -1,6 +1,7 @@
 #![no_std]
 
-extern crate alloc;
+pub extern crate alloc;
+extern crate std;
 
 pub mod features;
 
@@ -33,11 +34,14 @@ pub use type_hash::TypeHash;
 
 pub mod prelude {
     pub use crate::{
-        ContextExt, dialect::OperationPtrExt, scope::FuncOpExt, verify_op_succ, verify_ty_succ,
+        ContextExt, dialect::OperationPtrExt, rewrite::*, scope::FuncOpExt, verify_op_succ,
+        verify_ty_succ,
     };
     pub use alloc::{vec, vec::Vec};
+    pub use cubecl_macros_internal::{cube_op, op_traits};
     pub use pliron::derive::derive_op_interface_impl as op_interfaces;
     pub use pliron::{
+        attribute::AttributeDict,
         builtin::{op_interfaces::*, type_interfaces::*},
         common_traits::Verify,
         context::{Context, Ptr},
@@ -53,9 +57,10 @@ pub mod prelude {
             match_rewrite::{MatchRewrite, MatchRewriter},
             rewriter::{IRRewriter, Rewriter},
         },
+        location::Located,
         op::{Op, op_cast, op_impls},
         operation::Operation,
-        pass_manager::*,
+        pass::*,
         result::Result,
         r#type::{Type, TypeHandle, Typed, TypedHandle, type_cast, type_impls},
         value::Value,

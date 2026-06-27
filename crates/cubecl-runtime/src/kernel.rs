@@ -15,7 +15,7 @@ use cubecl_common::{
     hash::{StableHash, StableHasher},
 };
 use cubecl_ir::{
-    Scope, StorageType,
+    ElemType, Scope,
     metadata::Info,
     pliron::{format, value::Value},
     settings::KernelSettings,
@@ -40,7 +40,7 @@ pub trait KernelMetadata: Send + Sync + 'static {
     fn id(&self) -> KernelId;
 
     /// Type of addresses in this kernel
-    fn address_type(&self) -> StorageType;
+    fn address_type(&self) -> ElemType;
 }
 
 #[allow(missing_docs)]
@@ -65,7 +65,7 @@ pub struct KernelArg {
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 #[allow(missing_docs)]
 pub struct ScalarKernelArg {
-    pub ty: StorageType,
+    pub ty: ElemType,
     pub count: usize,
 }
 
@@ -195,7 +195,7 @@ impl<C: Compiler, K: CubeKernel> KernelMetadata for KernelTask<C, K> {
         self.kernel_definition.name()
     }
 
-    fn address_type(&self) -> StorageType {
+    fn address_type(&self) -> ElemType {
         self.kernel_definition.address_type()
     }
 }
@@ -211,7 +211,7 @@ impl<C: Compiler> KernelMetadata for Box<dyn CubeTask<C>> {
         self.as_ref().name()
     }
 
-    fn address_type(&self) -> StorageType {
+    fn address_type(&self) -> ElemType {
         self.as_ref().address_type()
     }
 }

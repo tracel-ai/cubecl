@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use cubecl_ir::{Scope, StorageType, metadata::Info, settings::KernelSettings};
+use cubecl_ir::{ElemType, Scope, metadata::Info, settings::KernelSettings};
 use cubecl_runtime::kernel::{KernelDefinition, ScalarKernelArg};
 
 /// The kernel integrator allows you to create a [kernel definition](KernelDefinition) based on
@@ -20,7 +20,7 @@ pub struct KernelExpansion {
 /// Information related to a scalar input.
 #[derive(Clone, Debug)]
 pub struct ScalarInfo {
-    pub ty: StorageType,
+    pub ty: ElemType,
     pub count: usize,
 }
 

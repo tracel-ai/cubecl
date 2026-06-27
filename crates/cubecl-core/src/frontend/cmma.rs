@@ -685,7 +685,7 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
         intrinsic!(|scope| {
             let vector_size = self.__expand_vector_size_method(scope, ident);
 
-            let registers = registers.__extract_list(scope);
+            let registers = registers.read_value(scope);
             let destination = unsafe { *row.__expand_as_ptr_method(scope) }.value(scope);
 
             scope.register(&StMatrixOp::new(
@@ -718,9 +718,9 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
 
             let registers_d_arr = Array::__expand_new(scope, num_registers);
 
-            let registers_a = registers_a.__extract_list(scope);
-            let registers_b = registers_b.__extract_list(scope);
-            let registers_c = registers_c.__extract_list(scope);
+            let registers_a = registers_a.read_value(scope);
+            let registers_b = registers_b.read_value(scope);
+            let registers_c = registers_c.read_value(scope);
             let registers_d = registers_d_arr.__extract_list(scope);
 
             scope.register(&MmaManualOp::new(
@@ -752,16 +752,17 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
                 .__expand_vector_size_method(scope, MatrixIdent::Accumulator);
             let num_registers = acc_elems / acc_vector_size;
 
-            let registers_a = registers_a.__extract_list(scope);
-            let registers_b = registers_b.__extract_list(scope);
-            let registers_c = registers_c.__extract_list(scope);
+            let registers_d = registers_c.__extract_list(scope);
+            let registers_a = registers_a.read_value(scope);
+            let registers_b = registers_b.read_value(scope);
+            let registers_c = registers_c.read_value(scope);
 
             scope.register(&MmaManualOp::new(
                 scope.ctx_mut(),
                 registers_a,
                 registers_b,
                 registers_c,
-                registers_c,
+                registers_d,
                 self.shape,
             ));
         })
@@ -789,9 +790,9 @@ impl<A: Scalar, B: Scalar, CD: Scalar> MmaDefinition<A, B, CD> {
 
             let registers_d_arr = Array::__expand_new(scope, num_registers);
 
-            let registers_a = registers_a.__extract_list(scope);
-            let registers_b = registers_b.__extract_list(scope);
-            let registers_c = registers_c.__extract_list(scope);
+            let registers_a = registers_a.read_value(scope);
+            let registers_b = registers_b.read_value(scope);
+            let registers_c = registers_c.read_value(scope);
             let registers_d = registers_d_arr.__extract_list(scope);
             let scales_a = scales_a.read_value(scope);
             let scales_b = scales_b.read_value(scope);
@@ -946,7 +947,7 @@ pub mod load_with_layout {
         let stride = stride.read_value(scope);
 
         let load = LoadOp::new(scope.ctx_mut(), mat.elem, ptr, stride);
-        load.set_attr_layout(scope.ctx(), layout.into());
+        load.set_layout(scope.ctx(), layout);
 
         scope.register(&load);
     }
@@ -1086,7 +1087,7 @@ pub fn cast<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
 
 /// Module containing the expand function for [`cast()`].
 pub mod cast {
-    use cubecl_ir::{dialect::matrix::CastOp, pliron::r#type::Typed};
+    use cubecl_ir::dialect::matrix::CastOp;
 
     use super::*;
 
@@ -1108,7 +1109,7 @@ pub mod cast {
         let input = input.elem;
         let input_shape = {
             let ctx = scope.ctx();
-            let input_mat = input.get_type(ctx).deref(ctx);
+            let input_mat = input.unwrap_ptr(ctx).deref(ctx);
             input_mat.downcast_ref::<MatrixType>().unwrap().shape
         };
 
@@ -1140,7 +1141,7 @@ pub fn cast_with_ident<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
 
 /// Module containing the expand function for [`cast()`].
 pub mod cast_with_ident {
-    use cubecl_ir::{dialect::matrix::CastOp, pliron::r#type::Typed};
+    use cubecl_ir::dialect::matrix::CastOp;
 
     use super::*;
 
@@ -1161,7 +1162,7 @@ pub mod cast_with_ident {
         let input = input.elem;
         let input_shape = {
             let ctx = scope.ctx();
-            let input_mat = input.get_type(ctx).deref(ctx);
+            let input_mat = input.unwrap_ptr(ctx).deref(ctx);
             input_mat.downcast_ref::<MatrixType>().unwrap().shape
         };
 

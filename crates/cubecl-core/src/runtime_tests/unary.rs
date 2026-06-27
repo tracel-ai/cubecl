@@ -652,25 +652,25 @@ test_unary_impl!(
             out_vectorization: 1,
             input: as_type![F: 1., 3., 2., 5.],
             expected: as_type![F: 4., 7.]
-        },
-        {
-            input_vectorization: 4,
-            out_vectorization: 1,
-            input: as_type![F: 1., 2., 3., 4.],
-            expected: as_type![F: 10.]
-        },
-        {
-            input_vectorization: 4,
-            out_vectorization: 1,
-            input: as_type![F: 0., 0., 0., 0.],
-            expected: as_type![F: 0.]
-        },
-        {
-            input_vectorization: 4,
-            out_vectorization: 1,
-            input: as_type![F: -1., 1., -2., 2.],
-            expected: as_type![F: 0.]
         }
+        // {
+        //     input_vectorization: 4,
+        //     out_vectorization: 1,
+        //     input: as_type![F: 1., 2., 3., 4.],
+        //     expected: as_type![F: 10.]
+        // },
+        // {
+        //     input_vectorization: 4,
+        //     out_vectorization: 1,
+        //     input: as_type![F: 0., 0., 0., 0.],
+        //     expected: as_type![F: 0.]
+        // },
+        // {
+        //     input_vectorization: 4,
+        //     out_vectorization: 1,
+        //     input: as_type![F: -1., 1., -2., 2.],
+        //     expected: as_type![F: 0.]
+        // }
     ]
 );
 

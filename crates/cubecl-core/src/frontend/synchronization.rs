@@ -91,6 +91,8 @@ pub mod workgroup_uniform_load {
         dialect::plane::UniformLoadOp, pliron::builtin::op_interfaces::OneResultInterface,
     };
 
+    use crate::frontend::HasValue;
+
     use super::*;
 
     /// Expand method of [`workgroup_uniform_load()`].
@@ -117,6 +119,8 @@ pub mod workgroup_uniform_load_atomic {
     use cubecl_ir::{
         dialect::plane::UniformLoadOp, pliron::builtin::op_interfaces::OneResultInterface,
     };
+
+    use crate::frontend::HasValue;
 
     use super::*;
 

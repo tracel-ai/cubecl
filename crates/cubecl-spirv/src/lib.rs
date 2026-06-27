@@ -6,7 +6,6 @@ use std::{
 };
 
 use cubecl_core::prelude::Visibility;
-use cubecl_opt::Optimizer;
 use rspirv::{binary::Disassemble, dr::Module};
 
 mod arithmetic;
@@ -21,6 +20,7 @@ mod globals;
 mod instruction;
 mod item;
 mod lookups;
+pub mod lower;
 mod metadata;
 mod subgroup;
 mod sync;
@@ -37,8 +37,6 @@ pub use target::*;
 pub struct SpirvKernel {
     #[serde(skip)]
     pub module: Option<Arc<Module>>,
-    #[serde(skip)]
-    pub optimizer: Option<Arc<Optimizer>>,
 
     pub assembled_module: Vec<u32>,
     pub bindings: Vec<Visibility>,

@@ -34,6 +34,7 @@ where
             .__expand_index_method(&child, index)
             .__expand_deref_method(&child);
         body(&mut child, item);
+        child.terminate_yield();
 
         scope.register(&range_loop);
     }

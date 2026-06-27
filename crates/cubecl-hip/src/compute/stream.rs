@@ -1,7 +1,7 @@
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
-    server::{Binding, Handle, ServerError},
+    server::{BufferBinding, ServerError},
 };
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
@@ -204,7 +204,7 @@ impl EventStreamBackend for HipStreamBackend {
         event.wait_sync()
     }
 
-    fn handle_cursor(stream: &Self::Stream, binding: &Binding) -> u64 {
+    fn handle_cursor(stream: &Self::Stream, binding: &BufferBinding) -> u64 {
         // The slice cursor the sync logic compares against the origin stream's `last_synced`
         // to decide whether to wait. A freed/reallocated slice falls back to `u64::MAX`,
         // which conservatively forces a wait.

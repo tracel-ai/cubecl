@@ -1,15 +1,13 @@
-use pliron::{
-    derive::{pliron_type, type_interface_impl},
-    r#type::type_cast,
-};
+use pliron::derive::{pliron_type, type_interface_impl};
 
 use crate::{
-    AddressSpace, StorageType,
+    AddressSpace, aligned,
     interfaces::{
-        AlignedType, IndexableType, MaybePackedType, MaybeVectorizedType, ScalarType,
-        ScalarizableType, SizedType, TypedExt, aligned, scalar, sized,
+        AlignedType, HasElementType, IndexableType, MaybePackedType, MaybeVectorizedType,
+        ScalarizableType, SizedType, TypedExt,
     },
     prelude::*,
+    sized,
 };
 
 pub mod aggregate;
@@ -22,52 +20,8 @@ pub mod spirv;
 pub use matrix::{MatrixIdent, MatrixLayout, MatrixScope, MatrixShape};
 
 #[pliron_type(
-    name = "cube.packed",
-    format = "$inner `x` $packing_factor",
-    generate_get = true,
-    verifier = "succ"
-)]
-#[derive(Hash, PartialEq, Eq, Debug, Clone)]
-pub struct PackedType {
-    pub inner: TypeHandle,
-    pub packing_factor: usize,
-}
-scalar!(PackedType);
-
-#[type_interface_impl]
-impl ScalarType for PackedType {
-    fn storage_type(&self, ctx: &Context) -> StorageType {
-        let inner = self.inner.deref(ctx);
-        let inner_scalar = type_cast::<dyn ScalarType>(&*inner).unwrap();
-        let inner_ty = inner_scalar.storage_type(ctx).elem_type();
-        StorageType::Packed(inner_ty, self.packing_factor)
-    }
-}
-
-#[type_interface_impl]
-impl MaybePackedType for PackedType {
-    fn packing_factor(&self, _ctx: &Context) -> usize {
-        self.packing_factor
-    }
-}
-
-#[type_interface_impl]
-impl AlignedType for PackedType {
-    fn align(&self, ctx: &Context) -> usize {
-        self.inner.align(ctx) * self.packing_factor
-    }
-}
-
-#[type_interface_impl]
-impl ScalarizableType for PackedType {
-    fn scalar_type(&self, ctx: &Context) -> TypeHandle {
-        self.get_self_handle(ctx)
-    }
-}
-
-#[pliron_type(
-    name = "cube.vector",
-    format = "`<` $inner `, ` $vectorization `>`",
+    name = "vector.vector",
+    format = "`<` $vectorization ` x ` $inner `>`",
     generate_get = true,
     verifier = "succ"
 )]
@@ -112,9 +66,16 @@ impl ScalarizableType for VectorType {
     }
 }
 
+#[type_interface_impl]
+impl HasElementType for VectorType {
+    fn element_type(&self, ctx: &Context) -> Option<TypeHandle> {
+        Some(self.get_self_handle(ctx))
+    }
+}
+
 #[pliron_type(
-    name = "cube.atomic",
-    format = "`atomic<` $inner `>`",
+    name = "atomic.atomic",
+    format = "`<` $inner `>`",
     generate_get = true,
     verifier = "succ"
 )]
@@ -134,6 +95,20 @@ impl MaybeVectorizedType for AtomicType {
 impl AlignedType for AtomicType {
     fn align(&self, ctx: &Context) -> usize {
         self.inner.align(ctx)
+    }
+}
+
+#[type_interface_impl]
+impl SizedType for AtomicType {
+    fn size(&self, ctx: &Context) -> usize {
+        self.inner.size(ctx)
+    }
+}
+
+#[type_interface_impl]
+impl HasElementType for AtomicType {
+    fn element_type(&self, ctx: &Context) -> Option<TypeHandle> {
+        type_cast::<dyn HasElementType>(&*self.inner.deref(ctx))?.element_type(ctx)
     }
 }
 
@@ -162,6 +137,13 @@ impl MaybeVectorizedType for PointerType {
 impl MaybePackedType for PointerType {
     fn packing_factor(&self, ctx: &Context) -> usize {
         self.inner.packing_factor(ctx)
+    }
+}
+
+#[type_interface_impl]
+impl HasElementType for PointerType {
+    fn element_type(&self, ctx: &Context) -> Option<TypeHandle> {
+        type_cast::<dyn HasElementType>(&*self.inner.deref(ctx))?.element_type(ctx)
     }
 }
 
@@ -205,6 +187,33 @@ impl IndexableType for ArrayType {
     }
 }
 
+#[type_interface_impl]
+impl MaybePackedType for ArrayType {
+    fn packing_factor(&self, ctx: &Context) -> usize {
+        self.inner.packing_factor(ctx)
+    }
+}
+
+#[type_interface_impl]
+impl HasElementType for ArrayType {
+    fn element_type(&self, ctx: &Context) -> Option<TypeHandle> {
+        type_cast::<dyn HasElementType>(&*self.inner.deref(ctx))?.element_type(ctx)
+    }
+}
+
+/// Raw byte array.
+/// Separate to mark it as semantically opaque and not valid as an input to ops that take a normal
+/// array.
+#[pliron_type(
+    name = "cube.bytes",
+    format = "",
+    generate_get = true,
+    verifier = "succ"
+)]
+#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
+pub struct BytesType;
+aligned!(BytesType, align_of::<u8>());
+
 #[pliron_type(
     name = "cube.runtime_array",
     format = "`[` $inner `]`",
@@ -234,5 +243,19 @@ impl AlignedType for RuntimeArrayType {
 impl IndexableType for RuntimeArrayType {
     fn indexed_type(&self, _ctx: &Context) -> TypeHandle {
         self.inner
+    }
+}
+
+#[type_interface_impl]
+impl MaybePackedType for RuntimeArrayType {
+    fn packing_factor(&self, ctx: &Context) -> usize {
+        self.inner.packing_factor(ctx)
+    }
+}
+
+#[type_interface_impl]
+impl HasElementType for RuntimeArrayType {
+    fn element_type(&self, ctx: &Context) -> Option<TypeHandle> {
+        type_cast::<dyn HasElementType>(&*self.inner.deref(ctx))?.element_type(ctx)
     }
 }

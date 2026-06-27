@@ -16,12 +16,14 @@ define_scalar!(ElemA);
 define_scalar!(ElemB);
 define_size!(SizeA);
 
-/// Replaces saturating arithmetic with a performant polyfill
-#[derive(new, Debug)]
-pub struct SaturatingArithmeticPolyfill;
+pub type LowerSaturatingArithmeticPass = MatchRewritePass<LowerSaturatingArithmetic>;
 
-impl DialectConversion for SaturatingArithmeticPolyfill {
-    fn can_convert_op(&self, ctx: &Context, op: Ptr<Operation>) -> bool {
+/// Replaces saturating arithmetic with a performant polyfill
+#[derive(new, Debug, Default)]
+pub struct LowerSaturatingArithmetic;
+
+impl MatchRewrite for LowerSaturatingArithmetic {
+    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
         op.is_op::<SaturatingAddOp>(ctx) || op.is_op::<SaturatingSubOp>(ctx)
     }
 
@@ -30,36 +32,38 @@ impl DialectConversion for SaturatingArithmeticPolyfill {
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
         op: Ptr<Operation>,
-        _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
         let lhs = op.deref(ctx).get_operand(0);
         let rhs = op.deref(ctx).get_operand(1);
-        let is_int = lhs.is_int(ctx);
 
         let value = if op.is_op::<SaturatingAddOp>(ctx) {
-            if is_int {
+            if lhs.scalar_ty(ctx).is_int(ctx) {
                 run_polyfill(
                     (&scope, lhs, rhs),
                     saturating_add_signed::expand::<ElemA, ElemB, SizeA>,
                 )
-            } else {
+            } else if lhs.scalar_ty(ctx).is_uint(ctx) {
                 run_polyfill(
                     (&scope, lhs, rhs),
                     saturating_add_unsigned::expand::<ElemA, SizeA>,
                 )
+            } else {
+                unreachable!("Should be int or uint")
             }
         } else if op.is_op::<SaturatingSubOp>(ctx) {
-            if is_int {
+            if lhs.scalar_ty(ctx).is_int(ctx) {
                 run_polyfill(
                     (&scope, lhs, rhs),
                     saturating_sub_signed::expand::<ElemA, ElemB, SizeA>,
                 )
-            } else {
+            } else if lhs.scalar_ty(ctx).is_uint(ctx) {
                 run_polyfill(
                     (&scope, lhs, rhs),
                     saturating_sub_unsigned::expand::<ElemA, SizeA>,
                 )
+            } else {
+                unreachable!("Should be int or uint")
             }
         } else {
             unreachable!()
@@ -74,7 +78,7 @@ fn run_polyfill<T: CubePrimitive>(
     mut polyfill: impl FnMut(&Scope, NativeExpand<T>, NativeExpand<T>) -> NativeExpand<T>,
 ) -> Value {
     scope.register_value_type::<ElemA, SizeA>(lhs);
-    if lhs.is_int(scope.ctx()) {
+    if lhs.scalar_ty(scope.ctx()).is_int(scope.ctx()) {
         let unsigned_ty = match lhs.scalar_ty(scope.ctx()).size(scope.ctx()) {
             1 => UIntKind::U8,
             2 => UIntKind::U16,
@@ -82,7 +86,7 @@ fn run_polyfill<T: CubePrimitive>(
             8 => UIntKind::U64,
             _ => unreachable!("Unsupported width"),
         };
-        scope.register_type::<ElemB>(ElemType::UInt(unsigned_ty).into())
+        scope.register_type::<ElemB>(ElemType::UInt(unsigned_ty))
     }
 
     polyfill(scope, lhs.into(), rhs.into()).value(scope)

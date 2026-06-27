@@ -203,7 +203,7 @@ fn kernel_test_workgroup_uniform_load_atomic(out: &mut [u32]) {
 }
 
 pub fn test_workgroup_uniform_load_atomic<R: Runtime>(client: ComputeClient<R>) {
-    let ty = Type::atomic(u32::storage_type_native());
+    let ty = Type::atomic(u32::elem_type_native());
     if !client
         .properties()
         .atomic_type_usage(ty)

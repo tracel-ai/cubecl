@@ -6,6 +6,8 @@ use cubecl_ir::{
     pliron::{builtin::op_interfaces::OneResultInterface, value::Value},
 };
 
+use crate::frontend::ReadValue;
+
 use super::{CubeType, NativeExpand, index_expand};
 
 /// Trait bound that can be used to guarantee the expand also implements `IndexExpand`

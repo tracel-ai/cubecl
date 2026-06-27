@@ -56,7 +56,7 @@ impl AllocationController for CpuAllocController {
 
 impl CpuAllocController {
     pub fn init(
-        binding: cubecl_core::server::Binding,
+        binding: cubecl_core::server::BufferBinding,
         memory_management: &mut MemoryManagement<BytesStorage>,
     ) -> Result<Self, IoError> {
         let memory = binding.memory.clone();

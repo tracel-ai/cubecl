@@ -3,13 +3,13 @@ use half::{bf16, f16};
 use pliron::r#type::TypeHandle;
 
 use crate::{
-    ConstantValue,
+    CanMaterialize, ConstantValue, Pure,
     attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttr, UIntAttr},
     dialect::{
         base::pure_binop,
         math::{int_attr, uint_attr},
     },
-    interfaces::{Pure, TypedExt, erasable, rematerialize},
+    interfaces::{TriviallyUnrollable, TypedExt},
     prelude::*,
     types::{
         VectorType,
@@ -99,14 +99,13 @@ simplify!(MaxOp, {
 
 #[cube_op(name = "cmp.clamp")]
 #[result_ty(same_as = input)]
-#[op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
+#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct ClampOp {
     pub input: Value,
     pub min: Value,
     pub max: Value,
 }
-erasable!(ClampOp);
-rematerialize!(ClampOp);
 const_eval!(ClampOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64), FloatAttr(f16, bf16, f32, f64)]:
     |inp, min, max| inp.clamp(min, max),
@@ -134,14 +133,12 @@ macro_rules! cmp_binop {
     ($name: literal, $ty: ident) => {
         #[cubecl_macros_internal::cube_op(name = $name)]
         #[result_ty(from_inputs = cmp_result_ty)]
-        #[$crate::prelude::op_interfaces(SameOperandsType, Pure)]
+        #[$crate::prelude::op_interfaces(SameOperandsType, TriviallyUnrollable)]
+        #[op_traits(Pure, CanMaterialize)]
         pub struct $ty {
             pub lhs: Value,
             pub rhs: Value,
         }
-
-        $crate::interfaces::erasable!($ty);
-        $crate::interfaces::rematerialize!($ty);
     };
 }
 
@@ -344,8 +341,7 @@ pub(super) fn is_max_int(ctx: &Context, ty: TypeHandle, val: i64) -> bool {
 }
 
 pub(super) fn is_max_uint(ctx: &Context, ty: TypeHandle, val: u64) -> bool {
-    let ty = TypedHandle::<IntType>::from_handle(ty, ctx).unwrap();
-    val == max_uint(ty.deref(ctx).width)
+    val == max_uint(ty.size_bits(ctx))
 }
 
 fn min_int(width: usize) -> i64 {

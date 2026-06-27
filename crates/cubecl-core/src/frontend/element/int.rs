@@ -1,4 +1,4 @@
-use cubecl_ir::{ConstantValue, types::scalar::IntType};
+use cubecl_ir::{ConstantValue, ElemType, types::scalar::IntType};
 use pliron::r#type::TypeHandle;
 
 use crate::frontend::{CubeType, Numeric};
@@ -41,6 +41,10 @@ pub trait Int:
     fn __expand_new(scope: &Scope, val: i64) -> <Self as CubeType>::ExpandType {
         __expand_new(scope, val)
     }
+
+    fn is_signed(scope: &Scope) -> bool {
+        Self::elem_type(scope).is_signed_int()
+    }
 }
 
 macro_rules! impl_int {
@@ -51,7 +55,7 @@ macro_rules! impl_int {
 
         impl CubeDebug for $type {}
         impl Scalar for $type {
-            fn storage_type_native() -> StorageType {
+            fn elem_type_native() -> ElemType {
                 IntKind::$kind.into()
             }
         }

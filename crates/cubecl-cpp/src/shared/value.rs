@@ -1,7 +1,7 @@
 use cubecl_core::{
     e2m1, e4m3, e5m2,
     ir::{
-        attributes::{FloatAttr, IndexAttr, IntAttr, UIntAttr},
+        attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttr, UIntAttr},
         types::{barrier::BarrierTokenType, scalar::*},
         verify_attr_succ,
     },
@@ -21,7 +21,7 @@ use pliron::{
 
 use crate::shared::{
     shared_op_with_out,
-    ty::{PointerType, TypeExtCPP, TypedExtCPP},
+    ty::{TypeExtCPP, TypedExtCPP},
 };
 
 pub trait CppValue {
@@ -40,10 +40,10 @@ impl CppValue for Value {
         // C++ has weird semantics so this needs to be mutable for use with `std::move`.
         // `std::move` preserves constness for the moved value, and the API requires
         // a non-const `BarrierToken&&`.
-        if ty.is::<BarrierTokenType>() || ty.is::<PointerType>() {
+        if ty.is::<BarrierTokenType>() {
             format!("{} {}", ty.to_cpp(ctx), name)
         } else {
-            format!("const {} {}", ty.to_cpp(ctx), name)
+            format!("{} const {}", ty.to_cpp(ctx), name)
         }
     }
 }
@@ -74,6 +74,16 @@ const_attr!(IntAttr, |attr, _| attr.val);
 const_attr!(UIntAttr, |attr, _| attr.val);
 const_attr!(FloatAttr, |attr, _| double_to_f64(attr.val));
 const_attr!(IndexAttr, |attr, _| attr.0);
+
+#[attr_interface_impl]
+impl CppConstantAttr for BoolAttr {
+    fn as_f64(&self, _ctx: &Context) -> f64 {
+        self.0 as u8 as f64
+    }
+    fn to_cpp(&self, _ctx: &Context) -> String {
+        self.0.to_string()
+    }
+}
 
 shared_op_with_out!(ConstantOp, |op, ctx| {
     format_const(ctx, op.get_value(ctx), op.get_result(ctx).get_type(ctx))

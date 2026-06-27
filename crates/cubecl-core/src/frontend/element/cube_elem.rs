@@ -2,12 +2,11 @@ use core::fmt::Debug;
 
 use crate::{
     self as cubecl, Assign, IntoRuntime,
+    frontend::CanReadValue,
     prelude::{Const, CubeDebug, IntoMut, Size},
     unexpanded,
 };
-use cubecl_ir::{
-    ConstantValue, ExpandValue, StorageType, features::TypeUsage, interfaces::TypedExt,
-};
+use cubecl_ir::{ConstantValue, ElemType, ExpandValue, features::TypeUsage, interfaces::TypedExt};
 use cubecl_macros::{comptime_type, cube, intrinsic};
 use cubecl_runtime::{client::ComputeClient, runtime::Runtime};
 use enumset::EnumSet;
@@ -23,6 +22,7 @@ use super::{NativeAssign, NativeExpand};
 pub trait CubePrimitive:
     CubeType<ExpandType = NativeExpand<Self>>
     + NativeAssign
+    + CanReadValue
     + CubeDebug
     + Send
     + Sync
@@ -107,20 +107,23 @@ pub trait Scalar:
     + core::cmp::PartialEq
     + Into<ExpandValue>
 {
-    fn storage_type(_scope: &Scope) -> StorageType {
-        Self::storage_type_native()
+    fn elem_type(_scope: &Scope) -> ElemType {
+        Self::elem_type_native()
     }
-    fn storage_type_native() -> StorageType {
+    fn elem_type_native() -> ElemType {
         unexpanded!()
     }
 
     fn supported_uses<R: Runtime>(client: &ComputeClient<R>) -> EnumSet<TypeUsage> {
-        let ty = Self::storage_type_native();
+        let ty = Self::elem_type_native();
         client.features().type_usage(ty)
     }
 }
 
+impl CubeDebug for TypeHandle {}
+impl CubeDebug for ElemType {}
+
 #[cube]
-pub fn storage_type_of<E: CubePrimitive>() -> comptime_type!(StorageType) {
-    intrinsic!(|scope| { E::Scalar::storage_type(scope) })
+pub fn elem_type_of<E: CubePrimitive>() -> comptime_type!(ElemType) {
+    intrinsic!(|scope| { E::Scalar::elem_type(scope) })
 }

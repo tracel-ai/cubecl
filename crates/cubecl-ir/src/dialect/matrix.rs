@@ -1,18 +1,16 @@
 use cubecl_macros_internal::cube_op;
 use derive_more::{Deref, From};
 use derive_new::new;
-use pliron::{
-    derive::{op_interface_impl, pliron_attr},
-    r#type::TypedHandle,
-};
+use pliron::{derive::pliron_attr, r#type::TypedHandle};
 
 use crate::{
+    CanMaterialize, Pure,
     attributes::{BoolAttr, IndexAttr},
     dialect::synchronization::SyncScope,
-    interfaces::{ReadsMemory, synchronizes},
+    interfaces::{MemoryEffect, MemoryEffects, synchronizes},
     prelude::*,
     types::{
-        MatrixShape,
+        ArrayType, MatrixShape, PointerType, VectorType,
         matrix::{MatrixLayout, MatrixType},
         scalar::UIntType,
     },
@@ -35,6 +33,7 @@ pub struct MatrixShapeAttr(pub MatrixShape);
 /// coordination between threads.
 #[cube_op(name = "matrix.fill")]
 #[result_ty(none)]
+#[op_traits(CanMaterialize)]
 pub struct FillOp {
     #[operand(ptr_write)]
     pub matrix: Value,
@@ -43,6 +42,7 @@ pub struct FillOp {
 
 #[cube_op(name = "matrix.load")]
 #[result_ty(none)]
+#[op_traits(CanMaterialize)]
 pub struct LoadOp {
     #[operand(ptr_write)]
     pub matrix: Value,
@@ -56,6 +56,7 @@ synchronizes!(LoadOp, SyncScope::Plane);
 
 #[cube_op(name = "matrix.store")]
 #[result_ty(none)]
+#[op_traits(CanMaterialize)]
 pub struct StoreOp {
     #[operand(ptr_read)]
     pub matrix: Value,
@@ -68,6 +69,7 @@ synchronizes!(StoreOp, SyncScope::Plane);
 
 #[cube_op(name = "matrix.multiply_accumulate")]
 #[result_ty(none)]
+#[op_traits(CanMaterialize)]
 pub struct MultiplyAccumulateOp {
     pub mat_a: Value,
     pub mat_b: Value,
@@ -82,6 +84,7 @@ synchronizes!(MultiplyAccumulateOp, SyncScope::Plane);
 /// coordination between threads.
 #[cube_op(name = "matrix.cast")]
 #[result_ty(none)]
+#[op_traits(CanMaterialize)]
 pub struct CastOp {
     #[operand(ptr_read)]
     pub input: Value,
@@ -91,6 +94,7 @@ pub struct CastOp {
 
 #[cube_op(name = "matrix.row_index")]
 #[result_ty(fixed = UIntType::get(ctx, 32).into())]
+#[op_traits(CanMaterialize, Pure)]
 pub struct RowIndexOp {
     pub lane_id: Value,
     pub i: Value,
@@ -99,6 +103,7 @@ pub struct RowIndexOp {
 
 #[cube_op(name = "matrix.col_index")]
 #[result_ty(fixed = UIntType::get(ctx, 32).into())]
+#[op_traits(CanMaterialize, Pure)]
 pub struct ColIndexOp {
     pub lane_id: Value,
     pub i: Value,
@@ -107,6 +112,7 @@ pub struct ColIndexOp {
 
 #[cube_op(name = "matrix.ldmatrix")]
 #[result_ty(none)]
+#[op_traits(CanMaterialize)]
 pub struct LdMatrixOp {
     pub ptr: Value,
     pub out_arr: Value,
@@ -115,15 +121,16 @@ pub struct LdMatrixOp {
 }
 synchronizes!(LdMatrixOp, SyncScope::Plane);
 
-#[op_interface_impl]
-impl ReadsMemory for LdMatrixOp {
-    fn reads_through_values(&self, ctx: &Context) -> Vec<Value> {
-        vec![self.ptr(ctx)]
+impl MemoryEffects for LdMatrixOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        vec![MemoryEffect::Read(self.ptr(ctx))]
     }
 }
 
 #[cube_op(name = "matrix.stmatrix")]
 #[result_ty(none)]
+#[op_traits(CanMaterialize)]
+#[op_interfaces(OperandNOfType<0, ArrayType>, OperandNOfType<1, PointerType>)]
 pub struct StMatrixOp {
     pub registers: Value,
     #[operand(ptr_write)]
@@ -135,6 +142,11 @@ synchronizes!(StMatrixOp, SyncScope::Plane);
 
 #[cube_op(name = "matrix.mma_manual")]
 #[result_ty(none)]
+#[op_traits(CanMaterialize)]
+#[op_interfaces(
+    OperandNOfType<0, ArrayType>, OperandNOfType<1, ArrayType>, OperandNOfType<2, ArrayType>,
+    OperandNOfType<3, PointerType>,
+)]
 pub struct MmaManualOp {
     pub registers_a: Value,
     pub registers_b: Value,
@@ -146,6 +158,11 @@ synchronizes!(MmaManualOp, SyncScope::Plane);
 
 #[cube_op(name = "matrix.mma_manual_scaled")]
 #[result_ty(none)]
+#[op_traits(CanMaterialize)]
+#[op_interfaces(
+    OperandNOfType<0, ArrayType>, OperandNOfType<1, ArrayType>, OperandNOfType<2, ArrayType>,
+    OperandNOfType<3, PointerType>, OperandNOfType<4, VectorType>, OperandNOfType<5, VectorType>,
+)]
 pub struct MmaManualScaledOp {
     pub registers_a: Value,
     pub registers_b: Value,
@@ -163,6 +180,7 @@ synchronizes!(MmaManualScaledOp, SyncScope::Plane);
 /// coordination between threads.
 #[cube_op(name = "matrix.elementwise")]
 #[result_ty(none)]
+#[op_traits(CanMaterialize)]
 pub struct ElementwiseOp {
     pub matrix_in: Value,
     pub matrix_out: Value,

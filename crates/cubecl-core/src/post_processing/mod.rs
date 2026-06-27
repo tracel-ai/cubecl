@@ -1,3 +1,4 @@
+pub mod bitwise;
 pub mod checked_io;
 pub mod disaggregate;
 pub mod expression_merge;

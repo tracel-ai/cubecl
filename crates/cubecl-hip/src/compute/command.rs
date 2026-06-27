@@ -9,7 +9,9 @@ use cubecl_common::bytes::Bytes;
 use cubecl_core::{
     MemoryConfiguration, MemoryUsage,
     bytes::AllocationProperty,
-    server::{Binding, CopyDescriptor, Handle, IoError, LaunchError, ProfileError, ServerError},
+    server::{
+        BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ProfileError, ServerError,
+    },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_environment::backtrace::BackTrace;
@@ -49,7 +51,7 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(GpuResource)` - The GPU resource associated with the binding.
     /// * `Err(IoError::InvalidHandle)` - If the binding does not correspond to a valid resource.
-    pub fn resource(&mut self, binding: Binding) -> Result<GpuResource, IoError> {
+    pub fn resource(&mut self, binding: BufferBinding) -> Result<GpuResource, IoError> {
         self.streams
             .get(&binding.stream)
             .memory_management_gpu

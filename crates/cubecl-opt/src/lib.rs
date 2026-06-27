@@ -35,6 +35,7 @@ use cubecl_ir::{AddressSpace, interfaces::TypedExt};
 
 pub mod analyses;
 pub mod passes;
+pub mod scoped_map;
 
 pub use analyses::uniformity::Uniformity;
 use pliron::{context::Context, r#type::TypeHandle, value::Value};

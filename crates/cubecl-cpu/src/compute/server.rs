@@ -11,7 +11,7 @@ use cubecl_core::{
     CompilationError, CubeCount, ExecutionMode, MemoryConfiguration, MemoryUsage,
     ir::MemoryDeviceProperties,
     server::{
-        Binding, ComputeServer, CopyDescriptor, IoError, KernelArguments, ProfileError,
+        BufferBinding, ComputeServer, CopyDescriptor, IoError, KernelArguments, ProfileError,
         ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
@@ -344,7 +344,7 @@ impl ComputeServer for CpuServer {
 
     fn get_resource(
         &mut self,
-        binding: Binding,
+        binding: BufferBinding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError> {
         let mut streams = vec![stream_id];

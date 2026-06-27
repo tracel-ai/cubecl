@@ -1,6 +1,6 @@
 use cubecl_common::{e2m3, e3m2};
 use cubecl_ir::{
-    ConstantValue, FloatKind, Scope,
+    ConstantValue, ElemType, FloatKind, Scope,
     types::scalar::{Float6E2M3Type, Float6E3M2Type},
 };
 use pliron::r#type::TypeHandle;
@@ -13,7 +13,7 @@ impl CubeType for e2m3 {
 
 impl CubeDebug for e2m3 {}
 impl Scalar for e2m3 {
-    fn storage_type_native() -> StorageType {
+    fn elem_type_native() -> ElemType {
         FloatKind::E2M3.into()
     }
 }
@@ -51,7 +51,7 @@ impl CubeType for e3m2 {
 
 impl CubeDebug for e3m2 {}
 impl Scalar for e3m2 {
-    fn storage_type_native() -> StorageType {
+    fn elem_type_native() -> ElemType {
         FloatKind::E3M2.into()
     }
 }

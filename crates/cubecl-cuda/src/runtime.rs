@@ -11,9 +11,8 @@ use cubecl_core::{
     cmma::MatrixLayout,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        ContiguousElements, DeviceIdentity, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, MemoryDeviceProperties, MmaProperties, OpaqueType, StorageType,
-        TargetProperties, Type, VectorSize,
+        ContiguousElements, DeviceProperties, ElemType, FloatKind, HardwareProperties,
+        MemoryDeviceProperties, MmaProperties, OpaqueType, TargetProperties, Type, VectorSize,
         features::{AtomicUsage, Plane, Tma, TypeUsage},
     },
     server::ServerUtilities,
@@ -204,7 +203,7 @@ impl DeviceService for CudaServer {
                 AtomicUsage::Add,
             );
             device_props.register_atomic_type_usage(
-                Type::atomic(Type::scalar(ElemType::Float(FloatKind::F16)).with_vector_size(2)),
+                Type::atomic(Type::new(ElemType::Float(FloatKind::F16)).with_vector_size(2)),
                 AtomicUsage::Add | AtomicUsage::LoadStore,
             );
             device_props.register_opaque_type(OpaqueType::Barrier);
@@ -217,12 +216,12 @@ impl DeviceService for CudaServer {
                 .features
                 .matmul
                 .ldmatrix
-                .insert(ElemType::Float(FloatKind::F16).into());
+                .insert(ElemType::Float(FloatKind::F16));
             device_props
                 .features
                 .matmul
                 .ldmatrix
-                .insert(ElemType::Float(FloatKind::BF16).into());
+                .insert(ElemType::Float(FloatKind::BF16));
             comp_opts.supports_features.fast_tanh = CUDA_VERSION >= 12080;
         }
 
@@ -250,23 +249,23 @@ impl DeviceService for CudaServer {
                 .features
                 .matmul
                 .stmatrix
-                .insert(ElemType::Float(FloatKind::F16).into());
+                .insert(ElemType::Float(FloatKind::F16));
             device_props
                 .features
                 .matmul
                 .stmatrix
-                .insert(ElemType::Float(FloatKind::BF16).into());
+                .insert(ElemType::Float(FloatKind::BF16));
 
             // bf16 add is only properly supported in sm_90+, even though most bf16 ops are supported
             // earlier. It's technically supported earlier but is missing the now-required `.noftz`
             // modifier, so the behavior is broken.
-            for vec in [1, 2, 4, 8] {
+            for vec in [2, 4, 8] {
                 device_props.register_atomic_type_usage(
-                    Type::atomic(Type::scalar(FloatKind::BF16).with_vector_size(vec)),
+                    Type::atomic(Type::new(FloatKind::BF16).with_vector_size(vec)),
                     AtomicUsage::Add | AtomicUsage::LoadStore,
                 );
                 device_props.register_atomic_type_usage(
-                    Type::atomic(Type::scalar(FloatKind::F16).with_vector_size(vec)),
+                    Type::atomic(Type::new(FloatKind::F16).with_vector_size(vec)),
                     AtomicUsage::Add | AtomicUsage::LoadStore,
                 );
             }
@@ -275,22 +274,22 @@ impl DeviceService for CudaServer {
             // `f16x2`. Don't add vectorization of 2 to prevent accidents with optimization code.
             for vec in [4, 8] {
                 device_props.register_atomic_type_usage(
-                    Type::atomic(Type::scalar(FloatKind::BF16).with_vector_size(vec)),
+                    Type::atomic(Type::new(FloatKind::BF16).with_vector_size(vec)),
                     AtomicUsage::MinMax,
                 );
                 device_props.register_atomic_type_usage(
-                    Type::atomic(Type::scalar(FloatKind::F16).with_vector_size(vec)),
+                    Type::atomic(Type::new(FloatKind::F16).with_vector_size(vec)),
                     AtomicUsage::MinMax,
                 );
             }
 
             if CUDA_VERSION > 12080 {
                 device_props.register_atomic_type_usage(
-                    Type::atomic(Type::scalar(ElemType::Float(FloatKind::F32)).with_vector_size(2)),
+                    Type::atomic(Type::new(ElemType::Float(FloatKind::F32)).with_vector_size(2)),
                     AtomicUsage::LoadStore | AtomicUsage::Add,
                 );
                 device_props.register_atomic_type_usage(
-                    Type::atomic(Type::scalar(ElemType::Float(FloatKind::F32)).with_vector_size(4)),
+                    Type::atomic(Type::new(ElemType::Float(FloatKind::F32)).with_vector_size(4)),
                     AtomicUsage::LoadStore | AtomicUsage::Add,
                 );
             }
@@ -311,7 +310,7 @@ impl DeviceService for CudaServer {
             device_props
                 .register_type_usage(ElemType::Float(FloatKind::E2M1), TypeUsage::Conversion);
             device_props.register_type_usage(
-                StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2),
+                ElemType::Float(FloatKind::E2M1x2),
                 TypeUsage::Conversion | TypeUsage::Buffer,
             );
             device_props.register_type_usage(

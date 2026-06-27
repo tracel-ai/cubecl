@@ -2,7 +2,7 @@ use core::any::type_name;
 
 use cubecl_environment::collections::HashMap;
 use cubecl_ir::{ExpandValue, prelude::*};
-use pliron::pass_manager::{Analysis, AnalysisManager};
+use pliron::pass::{Analysis, AnalysisManager};
 
 #[derive(Default, Clone)]
 pub struct Uniformity {

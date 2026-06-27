@@ -22,8 +22,8 @@ define_size!(SizeA);
 
 pub struct ReplacePredicates;
 
-impl DialectConversion for ReplacePredicates {
-    fn can_convert_op(&self, ctx: &Context, op: Ptr<Operation>) -> bool {
+impl MatchRewrite for ReplacePredicates {
+    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
         op_impls::<dyn PredicateOp>(&*op.dyn_op(ctx))
     }
 
@@ -32,7 +32,6 @@ impl DialectConversion for ReplacePredicates {
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
         op: Ptr<Operation>,
-        _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
         let input = op.operand(ctx, 0);
@@ -73,7 +72,7 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
 
     let ty = input.scalar_ty(scope.ctx()).deref(scope.ctx());
     let ty = type_cast::<dyn ScalarType>(&*ty).unwrap();
-    let StorageType::Scalar(ElemType::Float(kind)) = ty.storage_type(scope.ctx()) else {
+    let ElemType::Float(kind) = ty.elem_type(scope.ctx()) else {
         unreachable!("Should be float")
     };
 
@@ -84,7 +83,7 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
         FloatKind::BF16 => (UIntKind::U16, bf16::size_bits(), bf16::MANTISSA_DIGITS - 1),
         _ => unreachable!(),
     };
-    scope.register_type::<IntB>(ElemType::UInt(unsigned_ty).into());
+    scope.register_type::<IntB>(ElemType::UInt(unsigned_ty));
 
     let exp_bits = bit_width as u32 - mantissa_bits - 1;
 

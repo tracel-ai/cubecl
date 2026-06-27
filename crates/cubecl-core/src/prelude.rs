@@ -10,7 +10,7 @@ pub use crate::{
 };
 pub use cubecl_common::{flex32, format::type_name_short_sanitized, tf32};
 pub use cubecl_ir::{
-    AddressType, FastMath, Scope, StorageType, Type, VectorSize,
+    AddressType, ElemType, FastMath, Scope, Type, VectorSize,
     settings::{ExecutionMode, KernelSettings},
 };
 pub use cubecl_runtime::{

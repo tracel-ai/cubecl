@@ -29,7 +29,7 @@ fn supports_feature<R: Runtime, F: Numeric>(
     feat: AtomicUsage,
     vector_size: usize,
 ) -> bool {
-    let ty = Type::atomic(F::storage_type_native().with_vector_size(vector_size));
+    let ty = Type::atomic(F::elem_type_native().with_vector_size(vector_size));
     client.properties().atomic_type_usage(ty).contains(feat)
 }
 
@@ -39,7 +39,7 @@ fn require_feature<R: Runtime, F: Numeric>(
     vector_size: usize,
     operation: &str,
 ) -> bool {
-    let ty = Type::atomic(F::storage_type_native().with_vector_size(vector_size));
+    let ty = Type::atomic(F::elem_type_native().with_vector_size(vector_size));
 
     if supports_feature::<R, F>(client, feat, vector_size) {
         println!("{ty} {operation} supported - running");

@@ -50,7 +50,8 @@ pub mod wmma_api_base {
         cmma::{MatrixIdent, MatrixLayout, MatrixType},
         ir::{
             dialect::matrix::{CastOp, FillOp, LoadOp, MultiplyAccumulateOp, StoreOp},
-            types::scalar::TFloat32Type,
+            interfaces::{TypeExt, TypedExt},
+            types::{PointerType, scalar::TFloat32Type},
         },
     };
     use pliron::{
@@ -102,14 +103,19 @@ pub mod wmma_api_base {
     pub fn load(ctx: &Context, op: &LoadOp, namespace: &str) -> String {
         let mat = op.matrix(ctx).name(ctx);
         let stride = op.stride(ctx).name(ctx);
-        let ptr = op.source(ctx).name(ctx);
-        format!("{namespace}::load_matrix_sync(*{mat}, {ptr}, {stride});")
+        let ptr = as_scalar_ptr(ctx, op.source(ctx));
+        let layout = match op.layout(ctx).map(|it| it.0) {
+            Some(MatrixLayout::RowMajor) => format!(", {namespace}::mem_row_major"),
+            Some(MatrixLayout::ColMajor) => format!(", {namespace}::mem_col_major"),
+            _ => String::new(),
+        };
+        format!("{namespace}::load_matrix_sync(*{mat}, {ptr}, {stride}{layout});")
     }
 
     pub fn store(ctx: &Context, op: &StoreOp, namespace: &str) -> String {
         let mat = op.matrix(ctx).name(ctx);
         let stride = op.stride(ctx).name(ctx);
-        let destination = op.destination(ctx).name(ctx);
+        let destination = as_scalar_ptr(ctx, op.destination(ctx));
         let layout = op.layout(ctx).0;
         let layout = match layout {
             MatrixLayout::ColMajor => format!("{namespace}::mem_col_major"),
@@ -132,11 +138,24 @@ pub mod wmma_api_base {
     pub fn cast(ctx: &Context, op: &CastOp) -> String {
         let input = op.input(ctx).name(ctx);
         let output = op.output(ctx).name(ctx);
-        let out_ty = op.output(ctx).get_type(ctx).deref(ctx);
+        let out_ty = op.output(ctx).unwrap_ptr(ctx).deref(ctx);
         let mat_ty = out_ty.downcast_ref::<MatrixType>().unwrap();
         let out_elem = mat_ty.elem_ty.to_cpp(ctx);
         format!(
-            "for(int t=0; t<{input}.num_elements; t++) {{ {output}.x[t] = {out_elem}({input}.x[t]); }}"
+            "for(int t=0; t<{input}->num_elements; t++) {{ {output}->x[t] = {out_elem}({input}->x[t]); }}"
+        )
+    }
+
+    fn as_scalar_ptr(ctx: &Context, value: Value) -> String {
+        let PointerType {
+            inner,
+            address_space,
+        } = value.get_type(ctx).as_ptr(ctx);
+        let new_ty = PointerType::get(ctx, inner.scalar_ty(ctx), address_space).to_handle();
+        format!(
+            "reinterpret_cast<{}>({})",
+            new_ty.to_cpp(ctx),
+            value.name(ctx)
         )
     }
 }
