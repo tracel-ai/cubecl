@@ -77,6 +77,7 @@ pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
     props.register_address_type(AddressType::U32);
 
     let supported_types = [
+        ElemType::Index,
         ElemType::UInt(UIntKind::U32),
         ElemType::Int(IntKind::I32),
         ElemType::Float(FloatKind::F32),

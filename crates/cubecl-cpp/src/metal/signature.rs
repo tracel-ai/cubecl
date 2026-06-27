@@ -2,6 +2,7 @@ use cubecl_core::ir::{
     attributes::{ATTR_BUFFER_BINDING, BufferBindingAttr, EntrypointInterface, FuncInterface},
     prelude::*,
 };
+use cubecl_opt::passes::alloc_shared_memory::AllocSharedOp;
 use derive_more::From;
 use itertools::Itertools;
 use pliron::{
@@ -11,7 +12,7 @@ use pliron::{
 
 use crate::{
     metal::{BuiltInAttribute, metal_op},
-    shared::{ATTR_CONST, CppValue, branch::block_to_cpp, ty::TypeExtCPP},
+    shared::{CppValue, branch::block_to_cpp, ty::TypeExtCPP},
 };
 
 #[pliron_attr(name = "msl.builtin", format, verifier = "succ")]
@@ -47,10 +48,8 @@ metal_op!(FuncOp, |op, ctx| {
 
 fn gen_param(ctx: &Context, func: &FuncOp, i: usize, arg: Value) -> String {
     let mut segments = vec![];
-    if func.get_arg_attr(ctx, i, &ATTR_CONST).is_some() {
-        segments.push("const".into());
-    }
     segments.push(arg.get_type(ctx).to_cpp(ctx));
+    segments.push("const".into());
     segments.push(arg.name(ctx).to_string());
     if let Some(binding) = func.get_arg_attr(ctx, i, &ATTR_BUFFER_BINDING) {
         let binding = binding.downcast_ref::<BufferBindingAttr>().unwrap();
@@ -62,3 +61,12 @@ fn gen_param(ctx: &Context, func: &FuncOp, i: usize, arg: Value) -> String {
     }
     segments.join(" ")
 }
+
+// Metal does support dynamically sized shared memory, but it can't be used from WGPU. Metal allows
+// allocating the full size statically, unlike CUDA, so it should be fine.
+metal_op!(AllocSharedOp, |op, ctx| {
+    let name = op.get_result(ctx).name(ctx);
+    let align = op.alignment(ctx).0;
+    let size = op.size(ctx).0;
+    format!("threadgroup __align__({align}) char {name}[{size}];")
+});

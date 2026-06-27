@@ -12,28 +12,40 @@ use pliron::{
 };
 
 use crate::{
-    Builtin, ConstantValue,
+    Builtin, CanMaterialize, ConstantValue, Pure,
     attributes::{BoolAttr, IndexAttr},
     dialect::{
-        math::{int_attr, uint_attr},
+        math::{index_attr, int_attr, uint_attr},
         pure_binop, pure_unop,
     },
-    interfaces::{AggregateType, Pure, TypedExt, erasable, rematerialize},
+    interfaces::{AggregateType, ScalarType, TypedExt, aliasing::AliasingOp},
     prelude::*,
+    try_cast_ty,
     types::scalar::IndexType,
 };
 
 #[cube_op(name = "cube.copy")]
 #[result_ty(same_as = value)]
-#[op_interfaces(Pure)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct CopyOp {
     pub value: Value,
 }
 
+#[op_interface_impl]
+impl AliasingOp for CopyOp {
+    fn source_ptr(&self, ctx: &Context) -> Option<Value> {
+        if self.get_result(ctx).is_ptr(ctx) {
+            Some(self.value(ctx))
+        } else {
+            None
+        }
+    }
+}
+
 #[pliron_op(name = "aggregate.construct", format, verifier = "succ")]
 #[op_interfaces(NResultsInterface<1>, OneResultInterface)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct AggregateConstructOp;
-erasable!(AggregateConstructOp);
 
 impl AggregateConstructOp {
     pub fn new(ctx: &mut Context, ty: TypeHandle, values: Vec<Value>) -> Self {
@@ -53,13 +65,29 @@ impl AggregateConstructOp {
     }
 }
 
+#[op_interface_impl]
+impl AliasingOp for AggregateExtractOp {
+    fn source_ptr(&self, ctx: &Context) -> Option<Value> {
+        let aggregate = self.aggregate(ctx);
+        let field = self.field(ctx).0;
+        let aggregate_ty = aggregate.get_type(ctx).deref(ctx);
+        let aggregate_ty = try_cast_ty!(aggregate_ty, ctx, dyn AggregateType);
+        if aggregate_ty.field_ty(ctx, field).is_ptr(ctx) {
+            let construct = aggregate.defining_op().expect("Should be construct");
+            Some(construct.operand(ctx, field))
+        } else {
+            None
+        }
+    }
+}
+
 #[cube_op(name = "aggregate.extract")]
 #[result_ty(from_inputs = aggregate_extract_type)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct AggregateExtractOp {
     pub aggregate: Value,
     pub field: IndexAttr,
 }
-erasable!(AggregateExtractOp);
 
 fn aggregate_extract_type(ctx: &Context, aggregate: &Value, field: &IndexAttr) -> TypeHandle {
     let aggregate_ty = aggregate.get_type(ctx).deref(ctx);
@@ -138,36 +166,41 @@ const_eval!(BoolNotOp, {
 
 #[cube_op(name = "cube.cast")]
 #[result_ty(argument)]
-#[op_interfaces(Pure)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct CastOp {
     pub input: Value,
 }
-erasable!(CastOp);
-rematerialize!(CastOp);
-// TODO const_eval
+const_eval!(CastOp, {
+    custom: |inp| {
+        let val = inp?.as_const_val();
+        let out_ty = self.get_result(ctx).get_type(ctx).deref(ctx);
+        let elem = type_cast::<dyn ScalarType>(&*out_ty)?.elem_type(ctx);
+        Some(val.cast_to(elem).as_attribute(ctx, elem))
+    }
+});
 
 #[cube_op(name = "cube.reinterpret_cast")]
 #[result_ty(argument)]
-#[op_interfaces(Pure)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct ReinterpretCastOp {
-    pub value: Value,
+    pub input: Value,
 }
-erasable!(ReinterpretCastOp);
-rematerialize!(ReinterpretCastOp);
 const_eval!(ReinterpretCastOp, {
     custom: |inp| {
+        // Too much weirdness around floats, don't bother dealing with it
         let val = match inp?.as_const_val() {
             ConstantValue::Int(val) => val as u64,
-            ConstantValue::Float(val) => val.to_bits(),
             ConstantValue::UInt(val) => val,
-            ConstantValue::Bool(_) => None?,
+            _ => None?,
         };
         let out_ty = self.get_result(ctx).get_type(ctx);
         if out_ty.is_int(ctx) {
             Some(int_attr(ctx, out_ty, val as i64))
         } else if out_ty.is_uint(ctx) {
             Some(uint_attr(ctx, out_ty, val))
-        } else { // Too much weirdness around floats, don't risk it
+        } else if out_ty.is_index(ctx) {
+            Some(index_attr(val as usize))
+        } else {
             None
         }
     }
@@ -175,14 +208,12 @@ const_eval!(ReinterpretCastOp, {
 
 #[cube_op(name = "cube.select")]
 #[result_ty(same_as = true_value)]
-#[op_interfaces(Pure)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct SelectOp {
     pub condition: Value,
     pub true_value: Value,
     pub false_value: Value,
 }
-erasable!(SelectOp);
-rematerialize!(SelectOp);
 simplify!(SelectOp, {
     |cond, _, _| match cond?.as_const_val() {
         ConstantValue::Bool(true) => Some(self.true_value(ctx)),
@@ -205,20 +236,18 @@ pub struct BuiltinAttr(pub Builtin);
     format = "attr($builtin, $BuiltinAttr) ` : ` type($0)"
 )]
 #[result_ty(argument)]
-#[op_interfaces(Pure)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct ReadBuiltinOp {
     pub builtin: BuiltinAttr,
 }
-erasable!(ReadBuiltinOp);
 
 #[cube_op(name = "cube.read_scalar")]
 #[result_ty(from_inputs = |ctx, ty: &TypeAttr, _| ty.get_type(ctx))]
-#[op_interfaces(Pure)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct ReadScalarOp {
     pub ty: TypeAttr,
     pub id: IndexAttr,
 }
-erasable!(ReadScalarOp);
 
 #[cube_op(name = "cube.free")]
 #[result_ty(none)]
@@ -226,39 +255,28 @@ pub struct FreeOp {
     pub memory: Value,
 }
 
-#[cube_op(name = "cube.read")]
-#[result_ty(none)]
-#[op_interfaces(Pure)]
-pub struct DummyReadOp {
-    pub value: Value,
-}
-erasable!(DummyReadOp);
-
 #[cube_op(name = "cube.buffer_len")]
 #[result_ty(fixed = IndexType::get(ctx).into())]
-#[op_interfaces(Pure)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct BufferLenOp {
     pub buffer_idx: IndexAttr,
 }
-erasable!(BufferLenOp);
 
 #[cube_op(name = "cube.shape")]
 #[result_ty(fixed = IndexType::get(ctx).into())]
-#[op_interfaces(Pure)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct ShapeOp {
     pub dim: Value,
     pub buffer_idx: IndexAttr,
 }
-erasable!(ShapeOp);
 
 #[cube_op(name = "cube.stride")]
 #[result_ty(fixed = IndexType::get(ctx).into())]
-#[op_interfaces(Pure)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct StrideOp {
     pub dim: Value,
     pub buffer_idx: IndexAttr,
 }
-erasable!(StrideOp);
 
 #[cube_op(name = "cube.comment")]
 #[result_ty(none)]
@@ -266,7 +284,7 @@ pub struct CommentOp {
     pub comment: StringAttr,
 }
 
-#[pliron_op(name = "cube.printf", format, attributes = (format_string: StringAttr), verifier = "succ")]
+#[pliron_op(name = "cube.printf", format, attributes = (cube_printf_format_string: StringAttr), verifier = "succ")]
 pub struct PrintfOp;
 
 impl PrintfOp {
@@ -274,12 +292,12 @@ impl PrintfOp {
         let op = Self {
             op: Operation::new(ctx, Self::get_concrete_op_info(), vec![], values, vec![], 0),
         };
-        op.set_attr_format_string(ctx, StringAttr::new(format_string));
+        op.set_attr_cube_printf_format_string(ctx, StringAttr::new(format_string));
         op
     }
 
     pub fn format_string<'a>(&self, ctx: &'a Context) -> Ref<'a, StringAttr> {
-        self.get_attr_format_string(ctx).unwrap()
+        self.get_attr_cube_printf_format_string(ctx).unwrap()
     }
 
     pub fn args(&self, ctx: &Context) -> Vec<Value> {

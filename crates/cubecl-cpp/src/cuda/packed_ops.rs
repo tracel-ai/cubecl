@@ -1,4 +1,9 @@
-use cubecl_core::ir::{dialect::general::ReinterpretCastOp, prelude::*, rewrite::MatchRewritePass};
+use cubecl_core::ir::{
+    dialect::general::ReinterpretCastOp,
+    interfaces::{TypedExt, ValueExt},
+    prelude::*,
+    rewrite::MatchRewritePass,
+};
 
 #[op_interface]
 pub trait PackableOp: OneResultInterface {
@@ -44,15 +49,20 @@ impl MatchRewrite for PackOps {
 
         for r#use in op.operands_as_uses(ctx) {
             let value = r#use.get_def(ctx);
-            let reinterpret = ReinterpretCastOp::new(ctx, value.packed_type(ctx), value);
-            reinterpret.get_operation().insert_before(ctx, op);
-            value.replace_use_with(ctx, r#use, &reinterpret.get_result(ctx));
+            // Skip scalar arg in plane ops
+            if value.vector_size(ctx) > 1 {
+                let reinterpret = ReinterpretCastOp::new(ctx, value.packed_type(ctx), value);
+                value.replace_use_with(ctx, r#use, &reinterpret.get_result(ctx));
+                reinterpret.get_operation().insert_before(ctx, op);
+            }
         }
 
         res.set_type(ctx, res_ty.packed_type(ctx));
         let reinterpret_res = ReinterpretCastOp::new(ctx, res_ty, res);
+        let new_res = reinterpret_res.get_result(ctx);
         reinterpret_res.get_operation().insert_after(ctx, op);
-        res.replace_all_uses_with(ctx, &reinterpret_res.get_result(ctx));
+
+        res.replace_all_uses_except_with(ctx, reinterpret_res.input_as_use(ctx), &new_res);
 
         Ok(())
     }

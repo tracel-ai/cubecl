@@ -1,16 +1,20 @@
 use pliron::{
-    basic_block::BasicBlock, builtin::attributes::VecAttr, linked_list::ContainsLinkedList,
-    region::Region, verify_err,
+    attribute::{AttrObj, attr_cast},
+    basic_block::BasicBlock,
+    builtin::attributes::VecAttr,
+    linked_list::ContainsLinkedList,
+    opts::{constants::ConstFoldInterface, dce::SideEffects},
+    region::Region,
+    verify_err,
 };
 use thiserror::Error;
 
 use crate::{
-    attributes::IntAttr,
+    CanMaterialize, ConstantValue, NoMemoryEffect,
+    attributes::BoolAttr,
+    interfaces::ConstantAttr,
     prelude::*,
-    types::{
-        PointerType,
-        scalar::{BoolType, IndexType},
-    },
+    types::{PointerType, scalar::BoolType},
 };
 
 #[derive(Error, Debug)]
@@ -23,6 +27,7 @@ pub enum YieldOpVerifyErr {
 
 #[pliron_op(name = "branch.yield", format = "")]
 #[op_interfaces(IsTerminatorInterface)]
+#[op_traits(CanMaterialize, NoMemoryEffect)]
 pub struct YieldOp;
 
 impl YieldOp {
@@ -64,6 +69,7 @@ impl Verify for YieldOp {
     verifier = "succ"
 )]
 #[op_interfaces(IsTerminatorInterface)]
+#[op_traits(CanMaterialize, NoMemoryEffect)]
 pub struct ReturnOp;
 
 impl ReturnOp {
@@ -89,8 +95,9 @@ impl ReturnOp {
     }
 }
 
-#[pliron_op(name = "branch.break", format = "$0", verifier = "succ")]
+#[pliron_op(name = "branch.break", format = "", verifier = "succ")]
 #[op_interfaces(IsTerminatorInterface)]
+#[op_traits(CanMaterialize, NoMemoryEffect)]
 pub struct BreakOp;
 
 impl BreakOp {
@@ -100,8 +107,9 @@ impl BreakOp {
     }
 }
 
-#[pliron_op(name = "branch.unreachable", format = "$0", verifier = "succ")]
+#[pliron_op(name = "branch.unreachable", format = "", verifier = "succ")]
 #[op_interfaces(IsTerminatorInterface)]
+#[op_traits(CanMaterialize, NoMemoryEffect)]
 pub struct UnreachableOp;
 
 impl UnreachableOp {
@@ -109,6 +117,54 @@ impl UnreachableOp {
         let op = Operation::new(ctx, Self::get_concrete_op_info(), vec![], vec![], vec![], 0);
         Self { op }
     }
+}
+
+#[pliron_op(
+    name = "branch.execute_region",
+    format = "region($0)",
+    verifier = "succ"
+)]
+#[op_interfaces(NOpdsInterface<0>, NResultsInterface<0>, NRegionsInterface<1>, SingleBlockRegionInterface)]
+pub struct ExecuteRegionOp;
+
+impl ExecuteRegionOp {
+    pub fn new(ctx: &mut Context, body: Ptr<BasicBlock>) -> Self {
+        let op = Operation::new(ctx, Self::get_concrete_op_info(), vec![], vec![], vec![], 1);
+
+        let region = op.deref_mut(ctx).get_region(0);
+        body.insert_at_front(region, ctx);
+
+        Self { op }
+    }
+
+    pub fn region(&self, ctx: &Context) -> Ptr<Region> {
+        self.get_operation().deref(ctx).get_region(0)
+    }
+
+    pub fn block(&self, ctx: &Context) -> Ptr<BasicBlock> {
+        self.get_body(ctx, 0)
+    }
+}
+
+#[op_interface_impl]
+impl SideEffects for ExecuteRegionOp {
+    fn has_side_effects(&self, ctx: &Context) -> bool {
+        block_side_effects(ctx, self.block(ctx))
+    }
+}
+
+fn block_side_effects(ctx: &Context, block: Ptr<BasicBlock>) -> bool {
+    block.deref(ctx).iter(ctx).any(|op| {
+        // Yield should not count as an effect in a region, but also can't implement
+        // `SideEffects = true` because then it would immediately get eliminated
+        if op.is_op::<YieldOp>(ctx) {
+            return false;
+        }
+        match op_cast::<dyn SideEffects>(&*op.dyn_op(ctx)) {
+            Some(side_effects) => side_effects.has_side_effects(ctx),
+            None => true,
+        }
+    })
 }
 
 #[pliron_op(
@@ -162,13 +218,65 @@ impl IfOp {
     }
 }
 
+#[op_interface_impl]
+impl ConstFoldInterface for IfOp {
+    fn check_fold(
+        &self,
+        _ctx: &Context,
+        operand_attrs: &[Option<AttrObj>],
+    ) -> Vec<Option<AttrObj>> {
+        operand_attrs.to_vec()
+    }
+
+    fn fold_in_place(
+        &self,
+        ctx: &mut Context,
+        operand_attrs: &[Option<AttrObj>],
+        rewriter: &mut dyn Rewriter,
+    ) -> IRStatus {
+        let Some(attr) = operand_attrs[0].as_ref() else {
+            return IRStatus::Unchanged;
+        };
+        let Some(attr) = attr.downcast_ref::<BoolAttr>() else {
+            return IRStatus::Unchanged;
+        };
+        let (taken, not_taken) = match attr.0 {
+            true => (self.then_block(ctx), self.else_block(ctx)),
+            false => (self.else_block(ctx), self.then_block(ctx)),
+        };
+
+        rewriter.erase_block(ctx, not_taken);
+        taken.unlink(ctx);
+        let new_op = ExecuteRegionOp::new(ctx, taken);
+        rewriter.append_op(ctx, &new_op);
+
+        let then_region = self.then_region(ctx);
+        let then_body = BasicBlock::new(ctx, Some("then".try_into().unwrap()), vec![]);
+        then_body.insert_at_front(then_region, ctx);
+
+        let else_region = self.else_region(ctx);
+        let else_body = BasicBlock::new(ctx, Some("else".try_into().unwrap()), vec![]);
+        else_body.insert_at_front(else_region, ctx);
+
+        IRStatus::Changed
+    }
+}
+
+#[op_interface_impl]
+impl SideEffects for IfOp {
+    fn has_side_effects(&self, ctx: &Context) -> bool {
+        block_side_effects(ctx, self.then_block(ctx))
+            || block_side_effects(ctx, self.else_block(ctx))
+    }
+}
+
 #[pliron_op(
     name = "branch.switch",
     format,
-    attributes = (cases: VecAttr),
+    attributes = (branch_switch_cases: VecAttr),
     verifier = "succ"
 )]
-#[op_interfaces(NOpdsInterface<1>, NResultsInterface<0>, NRegionsInterface<2>, SingleBlockRegionInterface, OperandNOfType<0, IndexType>)]
+#[op_interfaces(NOpdsInterface<1>, NResultsInterface<0>, SingleBlockRegionInterface)]
 pub struct SwitchOp;
 
 impl SwitchOp {
@@ -208,20 +316,24 @@ impl SwitchOp {
         region.deref(ctx).get_head().unwrap()
     }
 
-    pub fn cases(&self, ctx: &Context) -> Vec<(IntAttr, Ptr<BasicBlock>)> {
-        let cases = self.get_attr_cases(ctx).unwrap().clone().0;
+    pub fn cases(&self, ctx: &Context) -> Vec<(ConstantValue, Ptr<BasicBlock>)> {
+        let cases = self.get_attr_branch_switch_cases(ctx).unwrap().clone().0;
         let out = (0..cases.len()).map(|i| {
-            let value = *cases[i].downcast_ref::<IntAttr>().unwrap();
-            let block = self.get_body(ctx, i);
-            (value, block)
+            let value = attr_cast::<dyn ConstantAttr>(&*cases[i]).unwrap();
+            let block = self.get_body(ctx, i + 1);
+            (value.as_const_val(), block)
         });
         out.collect()
+    }
+
+    pub fn set_attr_cases(&self, ctx: &Context, cases: impl IntoIterator<Item = AttrObj>) {
+        self.set_attr_branch_switch_cases(ctx, VecAttr(cases.into_iter().collect()));
     }
 }
 
 #[pliron_op(
     name = "branch.range_loop",
-    format = "`for *`$0 ` = ` $1 ` to ` $2 ` step ` $3 ` do ` region($0)",
+    format = "`for *` $0 ` = ` $1 ` to ` $2 ` step ` $3 ` do ` region($0)",
     verifier = "succ"
 )]
 #[op_interfaces(NResultsInterface<0>, NRegionsInterface<1>, SingleBlockRegionInterface)]
@@ -312,7 +424,7 @@ impl WhileOp {
 
 #[pliron_op(name = "branch.loop", format = "`loop ` region($0)", verifier = "succ")]
 #[op_interfaces(
-    NOpdsInterface<1>,
+    NOpdsInterface<0>,
     NResultsInterface<0>,
     NRegionsInterface<1>,
     SingleBlockRegionInterface,

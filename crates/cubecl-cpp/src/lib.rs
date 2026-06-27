@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate derive_new;
 
+extern crate alloc;
+
 pub mod error;
 pub mod shared;
 

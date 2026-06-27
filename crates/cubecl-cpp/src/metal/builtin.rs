@@ -1,4 +1,7 @@
-use cubecl_core::ir::{Builtin, Scope, dialect::general::ReadBuiltinOp, prelude::*};
+use cubecl_core::{
+    frontend::HasValue,
+    ir::{Builtin, Scope, dialect::general::ReadBuiltinOp, prelude::*},
+};
 use pliron::{irbuild::match_rewrite::MatchRewrite, value::Value};
 
 use crate::{
@@ -69,6 +72,11 @@ impl MetalBuiltin for Builtin {
         let cube_dim = scope.ctx().aux_ty::<CompilationState>().cube_dim;
         match self {
             Builtin::UnitPos => None,
+            // This is common enough to be worth replacing. Z is almost always 1, and Y is often 1.
+            // Replacing it with a constant allows simplifying the positional math
+            Builtin::UnitPosX if cube_dim.x == 1 => Some(constant::expand(scope, 0).value(scope)),
+            Builtin::UnitPosY if cube_dim.y == 1 => Some(constant::expand(scope, 0).value(scope)),
+            Builtin::UnitPosZ if cube_dim.z == 1 => Some(constant::expand(scope, 0).value(scope)),
             Builtin::UnitPosX | Builtin::UnitPosY | Builtin::UnitPosZ => None,
             Builtin::CubePosCluster => Some(constant::expand(scope, 0).value(scope)),
             Builtin::CubePosClusterX => Some(constant::expand(scope, 0).value(scope)),

@@ -7,14 +7,13 @@ use num_traits::Float;
 use pliron::{attribute::AttrObj, utils::apfloat::f64_to_double};
 
 use crate::{
-    ConstantValue,
+    CanMaterialize, ConstantValue, NoMemoryEffect, NoSideEffects, Pure,
     attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttr, UIntAttr},
     dialect::{pure_binop, pure_unop},
-    interfaces::{TypedExt, erasable},
+    interfaces::{TriviallyUnrollable, TypedExt},
     prelude::*,
+    types::{VectorType, scalar::BoolType},
 };
-
-use crate::interfaces::Pure;
 
 pure_unop!("math.abs", AbsOp);
 const_eval!(AbsOp, {
@@ -158,15 +157,37 @@ const_eval!(NegOp, {
     [IntAttr(i8, i16, i32, i64), FloatAttr(f16, bf16, f32, f64)]: |inp| inp.neg(),
 });
 
-pure_unop!("math.is_nan", IsNanOp);
+#[cube_op(name = "math.is_nan")]
+#[result_ty(from_inputs = pred_result_ty)]
+#[op_interfaces(TriviallyUnrollable)]
+#[op_traits(Pure, CanMaterialize)]
+pub struct IsNanOp {
+    pub input: Value,
+}
 const_eval!(IsNanOp, {
     FloatAttr(f16, bf16, f32, f64): |inp| -> BoolAttr { inp.is_nan().into() }
 });
 
-pure_unop!("math.is_inf", IsInfOp);
+#[cube_op(name = "math.is_inf")]
+#[result_ty(from_inputs = pred_result_ty)]
+#[op_interfaces(TriviallyUnrollable)]
+#[op_traits(Pure, CanMaterialize)]
+pub struct IsInfOp {
+    pub input: Value,
+}
 const_eval!(IsInfOp, {
     FloatAttr(f16, bf16, f32, f64): |inp| -> BoolAttr { inp.is_infinite().into() }
 });
+
+fn pred_result_ty(ctx: &Context, input: &Value) -> TypeHandle {
+    let vectorization = input.vector_size(ctx);
+    let bool = BoolType::get(ctx).into();
+    if vectorization == 1 {
+        bool
+    } else {
+        VectorType::get(ctx, bool, vectorization).into()
+    }
+}
 
 pure_binop!("math.add", AddOp);
 const_eval!(AddOp, {
@@ -278,7 +299,14 @@ simplify!(MulOp, {
     }
 });
 
-pure_binop!("math.div", DivOp);
+#[cube_op(name = "math.div")]
+#[result_ty(same_as = lhs)]
+#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect)] // Not pure because divide by zero
+pub struct DivOp {
+    pub lhs: Value,
+    pub rhs: Value,
+}
 const_eval!(DivOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs.wrapping_div(rhs),
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs / rhs,
@@ -320,7 +348,14 @@ const_eval!(PowfOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs.powf(rhs),
 });
 
-pure_binop!("math.powi", PowiOp);
+#[cube_op(name = "math.powi")]
+#[result_ty(same_as = lhs)]
+#[op_traits(Pure, CanMaterialize)]
+pub struct PowiOp {
+    pub lhs: Value,
+    pub rhs: Value,
+}
+
 // TODO const_eval
 
 pure_binop!("math.hypot", HypotOp);
@@ -333,7 +368,14 @@ const_eval!(RhypotOp, {
     FloatAttr(f16, bf16, f32, f64): |lhs, rhs| lhs.hypot(rhs).recip(),
 });
 
-pure_binop!("math.rem", RemOp);
+#[cube_op(name = "math.rem")]
+#[result_ty(same_as = lhs)]
+#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect)] // Not pure because divide by zero
+pub struct RemOp {
+    pub lhs: Value,
+    pub rhs: Value,
+}
 const_eval!(RemOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64), FloatAttr(f16, bf16, f32, f64)]: |lhs, rhs| lhs % rhs,
     // 0 % x -> 0
@@ -363,7 +405,14 @@ simplify!(RemOp, {
     }
 });
 
-pure_binop!("math.mod_floor", ModFloorOp);
+#[cube_op(name = "math.mod_floor")]
+#[result_ty(same_as = lhs)]
+#[op_interfaces(SameOperandsType, SameOperandsAndResultType, TriviallyUnrollable)]
+#[op_traits(CanMaterialize, NoSideEffects, NoMemoryEffect)] // Not pure because divide by zero
+pub struct ModFloorOp {
+    pub lhs: Value,
+    pub rhs: Value,
+}
 const_eval!(ModFloorOp, {
     [IndexAttr, UIntAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs % rhs,
     IntAttr(i8, i16, i32, i64): |lhs, rhs| lhs.mod_floor(&rhs),
@@ -420,14 +469,22 @@ simplify!(MulHiOp, {
     }
 });
 
+pub(super) fn index_attr(val: usize) -> AttrObj {
+    AttrObj::from(IndexAttr::new(val))
+}
+
 pub(super) fn int_attr(ctx: &Context, ty: TypeHandle, val: i64) -> AttrObj {
     let ty = TypedHandle::from_handle(ty, ctx).unwrap();
     AttrObj::from(IntAttr::new(ty, val))
 }
 
 pub(super) fn uint_attr(ctx: &Context, ty: TypeHandle, val: u64) -> AttrObj {
-    let ty = TypedHandle::from_handle(ty, ctx).unwrap();
-    AttrObj::from(UIntAttr::new(ty, val))
+    if ty.is_index(ctx) {
+        IndexAttr::new(val as usize).into()
+    } else {
+        let ty = TypedHandle::from_handle(ty, ctx).unwrap();
+        AttrObj::from(UIntAttr::new(ty, val))
+    }
 }
 
 pub(super) fn float_attr(ty: TypeHandle, val: f64) -> AttrObj {
@@ -436,13 +493,13 @@ pub(super) fn float_attr(ty: TypeHandle, val: f64) -> AttrObj {
 
 #[cube_op(name = "math.fma")]
 #[result_ty(same_as = a)]
-#[op_interfaces(SameOperandsType, SameOperandsAndResultType, Pure)]
+#[op_interfaces(SameOperandsType, SameOperandsAndResultType)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct FmaOp {
     pub a: Value,
     pub b: Value,
     pub c: Value,
 }
-erasable!(FmaOp);
 const_eval!(FmaOp, {
     FloatAttr(f16, bf16, f32, f64): |a, b, c| a * b + c,
 });

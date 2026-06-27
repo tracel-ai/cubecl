@@ -1,5 +1,6 @@
 use cubecl_core::ir::{
-    attributes::{EntrypointInterface, FuncInterface},
+    attributes::{ATTR_TENSOR_MAP_BINDING, EntrypointInterface, FuncInterface},
+    interfaces::TypedExt,
     settings::Dim3,
 };
 use itertools::Itertools;
@@ -16,10 +17,14 @@ use pliron::{
 
 use crate::{
     cuda::cuda_op,
-    shared::{ATTR_CONST, CppValue, branch::block_to_cpp, kernel::ATTR_RESTRICT, ty::TypeExtCPP},
+    shared::{
+        CppValue,
+        branch::block_to_cpp,
+        ty::{TypeExtCPP, TypedExtCPP},
+    },
 };
 
-dict_key!(ATTR_GRID_CONST, "grid_const");
+dict_key!(ATTR_GRID_CONSTANT, "grid_constant");
 
 cuda_op!(FuncOp, |op, ctx| {
     let func_name = op.get_symbol_name(ctx);
@@ -28,7 +33,7 @@ cuda_op!(FuncOp, |op, ctx| {
     let return_ty = func_ty.res_types()[0].to_cpp(ctx);
     let attributes = if let Some(abi) = op.get_entrypoint_abi(ctx) {
         let cluster_dim = match abi.cluster_dim {
-            Some(Dim3 { x, y, z }) => format!("__cluster_dims__(({x}, {y}, {z}))"),
+            Some(Dim3 { x, y, z }) => format!("__cluster_dims__({x}, {y}, {z})"),
             None => "".into(),
         };
         format!(
@@ -52,14 +57,16 @@ cuda_op!(FuncOp, |op, ctx| {
 
 fn gen_param(ctx: &Context, func: &FuncOp, i: usize, arg: Value) -> String {
     let mut segments = vec![];
-    if func.get_arg_attr(ctx, i, &ATTR_CONST).is_some() {
-        segments.push("const".into());
-    }
-    if func.get_arg_attr(ctx, i, &ATTR_GRID_CONST).is_some() {
+
+    if func.has_arg_attr(ctx, i, &ATTR_GRID_CONSTANT) {
         segments.push("__grid_constant__".into());
     }
+    if func.has_arg_attr(ctx, i, &ATTR_TENSOR_MAP_BINDING) {
+        segments.extend(["__grid_constant__".into()]);
+    }
     segments.push(arg.get_type(ctx).to_cpp(ctx));
-    if func.get_arg_attr(ctx, i, &ATTR_RESTRICT).is_some() {
+    segments.push("const".into());
+    if arg.is_ptr(ctx) || arg.is_uniform_ptr(ctx) {
         segments.push("__restrict__".into());
     }
     segments.push(arg.name(ctx).to_string());

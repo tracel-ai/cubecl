@@ -1,7 +1,6 @@
 use cubecl_ir::{
-    ConstantValue, ExpandValue,
-    dialect::general::ReadScalarOp,
-    pliron::builtin::{attributes::TypeAttr, op_interfaces::OneResultInterface},
+    ConstantValue, ExpandValue, dialect::general::ReadScalarOp,
+    pliron::builtin::op_interfaces::OneResultInterface,
 };
 use cubecl_runtime::runtime::Runtime;
 use num_traits::{NumCast, One, Zero};
@@ -39,14 +38,14 @@ pub trait Numeric:
     fn max_value() -> Self;
 
     fn __expand_min_value(scope: &Scope) -> <Self as CubeType>::ExpandType {
-        let elem = Self::storage_type(scope).elem_type();
+        let elem = Self::elem_type(scope);
         let val = elem.min_variable();
         val.into()
     }
 
     fn __expand_max_value(scope: &Scope) -> <Self as CubeType>::ExpandType {
-        let elem = Self::storage_type(scope).elem_type();
-        let val = elem.max_variable();
+        let elem = Self::elem_type(scope);
+        let val = elem.max_variable(scope);
         val.into()
     }
 
@@ -80,7 +79,7 @@ pub trait Numeric:
     }
 
     fn __expand_from_int(scope: &Scope, val: NativeExpand<i64>) -> <Self as CubeType>::ExpandType {
-        let elem = Self::storage_type(scope).elem_type();
+        let elem = Self::elem_type(scope);
         let val: ExpandValue = elem.constant(val.constant().unwrap());
 
         val.into()
@@ -93,10 +92,10 @@ pub trait ScalarArgSettings: Send + Sync + Scalar {
     /// Register the information to the [`KernelLauncher`].
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
     fn expand_scalar(builder: &mut KernelBuilder) -> NativeExpand<Self> {
-        let storage_ty = Self::storage_type(&builder.scope);
+        let storage_ty = Self::elem_type(&builder.scope);
         let id = builder.scalar(storage_ty);
         let ty = storage_ty.to_type(builder.ctx_mut());
-        let op = ReadScalarOp::new(builder.ctx_mut(), TypeAttr::new(ty), id);
+        let op = ReadScalarOp::new(builder.ctx_mut(), ty, id);
         builder.register(&op);
         op.get_result(builder.ctx()).into()
     }

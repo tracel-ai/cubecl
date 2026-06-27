@@ -138,7 +138,7 @@ where
                 tile_size: shape![16, 32],
             },
             input,
-            F::storage_type_native(),
+            F::elem_type_native(),
         ),
         unsafe { BufferArg::from_raw_parts(out.clone(), 32 * 16) },
     );
@@ -184,7 +184,7 @@ where
             unsafe {
                 TensorArg::from_raw_parts(out.memory.clone(), out.strides.clone(), [64, 64].into())
             },
-            F::storage_type_native(),
+            F::elem_type_native(),
         ),
     );
 
@@ -264,7 +264,7 @@ where
                 pixels_per_column: tile_m as u32,
             },
             input,
-            F::storage_type_native(),
+            F::elem_type_native(),
         ),
         unsafe { TensorArg::from_raw_parts(out.clone(), out_strides.into(), out_shape.into()) },
         tile_m,
@@ -331,14 +331,14 @@ where
                 tile_size: shape![16, 16],
             },
             output_1,
-            F::storage_type_native(),
+            F::elem_type_native(),
         ),
         TensorMapArg::new(
             TiledArgs {
                 tile_size: shape![16, 32],
             },
             input_2,
-            F::storage_type_native(),
+            F::elem_type_native(),
         ),
         output_2,
     );

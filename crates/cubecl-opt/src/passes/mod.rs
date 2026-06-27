@@ -3,6 +3,9 @@ mod expression_merge;
 // mod index_merge;
 // mod inlined_if_to_select;
 // mod reduce_strength;
+pub mod alloc_shared_memory;
+pub mod annotate_buffer_visibility;
+pub mod simple_cse;
 
 // pub use disaggregate_array::*;
 pub use expression_merge::*;

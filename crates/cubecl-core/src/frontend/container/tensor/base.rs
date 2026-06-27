@@ -72,7 +72,7 @@ mod metadata {
         pub fn stride(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let dim = dim.read_value(scope);
-                let buffer_idx = buffer_idx(scope, self.__extract_list(scope));
+                let buffer_idx = ext_meta_idx(scope, self.__extract_list(scope));
                 let op = StrideOp::new(scope.ctx_mut(), dim, buffer_idx);
                 scope.register(&op);
                 op.get_result(scope.ctx()).into()
@@ -83,7 +83,7 @@ mod metadata {
         pub fn shape(&self, dim: usize) -> usize {
             intrinsic!(|scope| {
                 let dim = dim.read_value(scope);
-                let buffer_idx = buffer_idx(scope, self.__extract_list(scope));
+                let buffer_idx = ext_meta_idx(scope, self.__extract_list(scope));
                 let op = ShapeOp::new(scope.ctx_mut(), dim, buffer_idx);
                 scope.register(&op);
                 op.get_result(scope.ctx()).into()

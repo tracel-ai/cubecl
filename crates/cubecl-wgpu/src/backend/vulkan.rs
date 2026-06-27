@@ -436,6 +436,7 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
     }
 
     let default_types = [
+        ElemType::Index,
         ElemType::UInt(UIntKind::U32),
         ElemType::Int(IntKind::I32),
         ElemType::Float(FloatKind::F32),

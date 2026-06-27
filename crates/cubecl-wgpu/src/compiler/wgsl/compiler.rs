@@ -8,7 +8,7 @@ use cubecl_core::ir::{Processor, UIntKind};
 use cubecl_core::{
     Info,
     post_processing::{
-        checked_io::CheckedIoVisitor, optimize_scope, saturating::SaturatingArithmeticPolyfill,
+        checked_io::CheckedIoVisitor, optimize_scope, saturating::LowerSaturatingArithmetic,
         unroll::UnrollVisitor,
     },
 };
@@ -289,7 +289,7 @@ impl WgslCompiler {
     fn compile_scope(&mut self, scope: &cube::Scope) -> Vec<wgsl::Instruction> {
         let mut instructions = Vec::new();
 
-        let saturating: Box<dyn Processor> = Box::new(SaturatingArithmeticPolyfill::new(true));
+        let saturating: Box<dyn Processor> = Box::new(LowerSaturatingArithmetic::new(true));
         let processing = scope.process([&*saturating]);
 
         processing

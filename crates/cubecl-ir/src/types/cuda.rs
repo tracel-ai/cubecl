@@ -1,6 +1,6 @@
 use pliron::derive::pliron_type;
 
-use crate::interfaces::{aligned, sized};
+use crate::{aligned, sized};
 
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

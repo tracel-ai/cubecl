@@ -1,14 +1,12 @@
 use pliron::{
     context::Context,
     derive::{pliron_type, type_interface_impl},
-    r#type::{Type, TypeHandle},
 };
 
 use crate::{
-    ElemType, FloatKind, IntKind, StorageType, UIntKind,
-    interfaces::{
-        AlignedType, ScalarType, ScalarizableType, SizedType, aligned, not_packed, scalar, sized,
-    },
+    ElemType, FloatKind, IntKind, UIntKind, aligned,
+    interfaces::{AlignedType, MaybePackedType, ScalarType, SizedType, not_packed},
+    scalar, sized,
 };
 
 #[pliron_type(
@@ -40,7 +38,7 @@ impl SizedType for IntType {
 
 #[type_interface_impl]
 impl ScalarType for IntType {
-    fn storage_type(&self, _ctx: &Context) -> StorageType {
+    fn elem_type(&self, _ctx: &Context) -> ElemType {
         match self.width {
             8 => IntKind::I8,
             16 => IntKind::I16,
@@ -49,13 +47,6 @@ impl ScalarType for IntType {
             _ => unreachable!("Unsupported bit width"),
         }
         .into()
-    }
-}
-
-#[type_interface_impl]
-impl ScalarizableType for IntType {
-    fn scalar_type(&self, ctx: &Context) -> TypeHandle {
-        self.get_self_handle(ctx)
     }
 }
 
@@ -88,7 +79,7 @@ impl SizedType for UIntType {
 
 #[type_interface_impl]
 impl ScalarType for UIntType {
-    fn storage_type(&self, _ctx: &Context) -> StorageType {
+    fn elem_type(&self, _ctx: &Context) -> ElemType {
         match self.width {
             8 => UIntKind::U8,
             16 => UIntKind::U16,
@@ -97,13 +88,6 @@ impl ScalarType for UIntType {
             _ => unreachable!("Unsupported bit width"),
         }
         .into()
-    }
-}
-
-#[type_interface_impl]
-impl ScalarizableType for UIntType {
-    fn scalar_type(&self, ctx: &Context) -> TypeHandle {
-        self.get_self_handle(ctx)
     }
 }
 
@@ -122,35 +106,41 @@ scalar!(IndexType);
 not_packed!(IndexType);
 
 #[type_interface_impl]
-impl ScalarizableType for IndexType {
-    fn scalar_type(&self, ctx: &Context) -> TypeHandle {
-        self.get_self_handle(ctx)
+impl ScalarType for IndexType {
+    fn elem_type(&self, _ctx: &Context) -> ElemType {
+        ElemType::Index
     }
 }
 
 macro_rules! float_type {
-    ($name: literal, $ty: ident, $kind: ident, $size: literal) => {
+    ($name: literal, $ty: ident, $kind: ident, $size: literal, $size_bits: expr) => {
         #[pliron_type(name = $name, format = "", generate_get = true, verifier = "succ")]
         #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
         pub struct $ty;
         scalar!($ty);
         not_packed!($ty);
-        sized!($ty, $size);
         aligned!($ty, $size);
 
         #[type_interface_impl]
         impl ScalarType for $ty {
-            fn storage_type(&self, _ctx: &Context) -> StorageType {
+            fn elem_type(&self, _ctx: &Context) -> ElemType {
                 FloatKind::$kind.into()
             }
         }
 
         #[type_interface_impl]
-        impl ScalarizableType for $ty {
-            fn scalar_type(&self, ctx: &Context) -> TypeHandle {
-                self.get_self_handle(ctx)
+        impl SizedType for $ty {
+            fn size(&self, _ctx: &Context) -> usize {
+                $size
+            }
+
+            fn size_bits(&self, _ctx: &Context) -> usize {
+                $size_bits
             }
         }
+    };
+    ($name: literal, $ty: ident, $kind: ident, $size: literal) => {
+        float_type!($name, $ty, $kind, $size, $size * 8);
     };
 }
 
@@ -165,7 +155,33 @@ float_type!("cube.e5m2", Float8E5M2Type, E5M2, 1);
 float_type!("cube.e4m3", Float8E4M3Type, E4M3, 1);
 float_type!("cube.e3m2", Float6E3M2Type, E3M2, 1);
 float_type!("cube.e2m3", Float6E2M3Type, E2M3, 1);
-float_type!("cube.e2m1", Float4E2M1Type, E2M1, 1);
+float_type!("cube.e2m1", Float4E2M1Type, E2M1, 1, 4);
+
+#[pliron_type(
+    name = "cube.e2m1x2",
+    format = "",
+    generate_get = true,
+    verifier = "succ"
+)]
+#[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
+pub struct Float4E2M1x2Type;
+scalar!(Float4E2M1x2Type);
+aligned!(Float4E2M1x2Type, 1);
+sized!(Float4E2M1x2Type, 1);
+
+#[type_interface_impl]
+impl MaybePackedType for Float4E2M1x2Type {
+    fn packing_factor(&self, _ctx: &Context) -> usize {
+        2
+    }
+}
+
+#[type_interface_impl]
+impl ScalarType for Float4E2M1x2Type {
+    fn elem_type(&self, _ctx: &Context) -> ElemType {
+        FloatKind::E2M1x2.into()
+    }
+}
 
 #[pliron_type(
     name = "cube.bool",
@@ -181,14 +197,7 @@ not_packed!(BoolType);
 
 #[type_interface_impl]
 impl ScalarType for BoolType {
-    fn storage_type(&self, _ctx: &Context) -> StorageType {
-        ElemType::Bool.into()
-    }
-}
-
-#[type_interface_impl]
-impl ScalarizableType for BoolType {
-    fn scalar_type(&self, ctx: &Context) -> TypeHandle {
-        self.get_self_handle(ctx)
+    fn elem_type(&self, _ctx: &Context) -> ElemType {
+        ElemType::Bool
     }
 }

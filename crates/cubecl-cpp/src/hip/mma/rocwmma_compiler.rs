@@ -344,9 +344,9 @@ pub(super) fn supported_wmma_combinations_rocwmma(
         .into_iter()
         .flat_map(|(ty, sizes)| sizes.into_iter().map(move |size| (ty, size)))
         .map(|((i, o, c), (m, n, k))| MmaConfig {
-            a_type: i.into(),
-            b_type: o.into(),
-            cd_type: c.into(),
+            a_type: i,
+            b_type: o,
+            cd_type: c,
             m,
             n,
             k,

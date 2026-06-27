@@ -368,6 +368,7 @@ fn iter_expand<I: Int>(
     let child = scope.child(OpInserter::new_at_block_end(body_block));
 
     body(&child, i.into());
+    child.terminate_yield();
 
     scope.register(&range_loop);
 }
@@ -400,6 +401,7 @@ impl<I: Int + Into<ExpandValue>> Iterable for SteppedRangeExpand<I> {
         let child = scope.child(OpInserter::new_at_block_end(body_block));
 
         body(&child, i.into());
+        child.terminate_yield();
 
         scope.register(&range_loop);
     }

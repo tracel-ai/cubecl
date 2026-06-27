@@ -8,7 +8,7 @@ use cubecl_core::{
     backtrace::BackTrace,
     ir::MemoryDeviceProperties,
     server::{
-        Binding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError,
+        BufferBinding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError,
         StreamErrorMode,
     },
 };
@@ -247,7 +247,7 @@ impl CpuStream {
         self.memory_management.mode(mode);
     }
 
-    pub fn get_resource(&mut self, binding: Binding) -> Result<BytesResource, IoError> {
+    pub fn get_resource(&mut self, binding: BufferBinding) -> Result<BytesResource, IoError> {
         self.memory_management.get_resource(
             binding.memory,
             binding.offset_start,

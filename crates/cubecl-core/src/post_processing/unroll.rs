@@ -12,7 +12,7 @@ use cubecl_ir::{
         memory::{DeclareVariableOp, IndexOp},
         vector::{VectorExtractOp, VectorInsertOp},
     },
-    interfaces::{MaybeVectorizedType, RematerializeOp, TypedExt},
+    interfaces::{MaybeVectorizedType, TriviallyUnrollable, TypedExt},
     prelude::*,
     types::{ArrayType, AtomicType, PointerType, RuntimeArrayType, VectorType},
     verify_op_succ, verify_ty_succ,
@@ -20,7 +20,6 @@ use cubecl_ir::{
 use hashbrown::HashMap;
 use pliron::{
     builtin::{
-        attributes::TypeAttr,
         ops::{ConstantOp, FuncOp},
         types::FunctionType,
     },
@@ -111,7 +110,7 @@ impl CustomUnrollOp for DeclareVariableOp {
         vector_size: usize,
         result: &mut IRStatus,
     ) {
-        let value_ty = self.get_attr_value_ty(ctx).unwrap().get_type(ctx);
+        let value_ty = self.value_ty(ctx).get_type(ctx);
         let current_vec = value_ty.vector_size(ctx);
         if current_vec <= vector_size {
             return;
@@ -119,22 +118,21 @@ impl CustomUnrollOp for DeclareVariableOp {
 
         *result |= IRStatus::Changed;
         let result = self.get_result(ctx);
-        let addr_space = *self.get_attr_addr_space(ctx).unwrap();
+        let addr_space = *self.addr_space(ctx);
         // Align isn't handled properly, but targets that unroll ignore this anyways
-        let align = *self.get_attr_alignment(ctx).unwrap();
+        let align = *self.alignment(ctx);
         let new_value_ty = unroll_ty(ctx, value_ty, vector_size);
         let new_ptr_ty = PointerType::get(ctx, new_value_ty, addr_space.0);
 
         // Array doesn't change size, so no need to duplicate the declaration
         if new_value_ty.size(ctx) == value_ty.size(ctx) {
-            self.set_attr_value_ty(ctx, TypeAttr::new(new_value_ty));
+            self.set_value_ty(ctx, new_value_ty);
             self.get_result(ctx).set_type(ctx, new_ptr_ty.into());
         } else {
             let factor = current_vec / vector_size;
             let mut results = vec![];
             for _ in 0..factor {
-                let new_op =
-                    DeclareVariableOp::new(ctx, TypeAttr::new(new_value_ty), addr_space, align);
+                let new_op = DeclareVariableOp::new(ctx, new_value_ty, addr_space, align);
                 new_op
                     .get_operation()
                     .insert_before(ctx, self.get_operation());
@@ -157,7 +155,7 @@ impl CustomUnrollOp for IndexOp {
         result: &mut IRStatus,
     ) {
         let base = self.base(ctx);
-        let checked = self.get_attr_checked(ctx).is_some();
+        let checked = self.checked(ctx);
         let current_vec = try_get_vec(ctx, base);
         if current_vec > vector_size {
             *result |= IRStatus::Changed;
@@ -208,14 +206,14 @@ impl CustomUnrollOp for VectorExtractOp {
         let current_vec = vector.vector_size(ctx);
         if current_vec > vector_size {
             *result |= IRStatus::Changed;
-            let index = self.get_attr_index(ctx).unwrap().0;
+            let index = self.index(ctx).0;
 
             let unroll_idx = index / vector_size;
             let sub_idx = index % vector_size;
 
             let new_vector = mappings.get(&vector).expect("Should exist")[unroll_idx];
             vector.replace_use_with(ctx, self.vector_as_use(ctx), &new_vector);
-            self.set_attr_index(ctx, sub_idx.into());
+            self.set_index(ctx, sub_idx);
         }
     }
 }
@@ -235,7 +233,7 @@ impl CustomUnrollOp for VectorInsertOp {
         let current_vec = vector.vector_size(ctx);
         if current_vec > vector_size {
             *result |= IRStatus::Changed;
-            let index = self.get_attr_index(ctx).unwrap().0;
+            let index = self.index(ctx).0;
 
             let unroll_idx = index / vector_size;
             let sub_idx = index % vector_size;
@@ -309,7 +307,7 @@ impl Pass for UnrollPass {
     }
 
     fn run(
-        &self,
+        &mut self,
         op: Ptr<Operation>,
         ctx: &mut Context,
         _analyses: &mut AnalysisManager,
@@ -384,8 +382,8 @@ impl UnrollPass {
             }
         }
 
-        let new_func_ty = FunctionType::get(ctx, new_func_inputs, func_ty.res_types());
-        func.set_attr_func_type(ctx, TypeAttr::new(new_func_ty.into()));
+        let new_func_ty = FunctionType::get(ctx, new_func_inputs, func_ty.res_types()).to_handle();
+        func.set_attr_func_type(ctx, new_func_ty.into());
     }
 }
 
@@ -402,7 +400,7 @@ fn unroll_default(
     let current_vec = values.map(|it| try_get_vec(ctx, it)).max().unwrap();
     let factor = current_vec / max_vector_size;
     let dyn_op = op.dyn_op(ctx);
-    let rematerialize = op_cast::<dyn RematerializeOp>(&*dyn_op).expect("Should be materializable");
+    let rematerialize = op_cast::<dyn TriviallyUnrollable>(&*dyn_op).expect("Should be unrollable");
     let new_out_ty = op_ref
         .results()
         .map(|it| unroll_ty(ctx2, it, max_vector_size))
@@ -417,7 +415,8 @@ fn unroll_default(
                 opd
             }
         });
-        let new_op = rematerialize.rematerialize(ctx2, new_out_ty.clone(), opds.collect());
+        let attrs = op_ref.attributes.clone();
+        let new_op = rematerialize.materialize(ctx2, new_out_ty.clone(), opds.collect(), attrs);
         new_results.extend(new_op.deref(ctx).results());
         new_op.insert_before(ctx, op);
     }

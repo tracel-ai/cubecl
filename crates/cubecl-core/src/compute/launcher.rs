@@ -6,8 +6,8 @@ use crate::prelude::{BufferArg, TensorArg, TensorMapArg, TensorMapKind};
 use crate::{InfoBuilder, ScalarArgType};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
-use cubecl_ir::{AddressType, Scope, StorageType, settings::KernelSettings};
-use cubecl_runtime::server::{Binding, CubeCount, TensorMapBinding};
+use cubecl_ir::{AddressType, ElemType, Scope, settings::KernelSettings};
+use cubecl_runtime::server::{BufferBinding, CubeCount, KernelResource, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
     kernel::{CubeKernel, KernelTask},
@@ -23,8 +23,7 @@ std::thread_local! {
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).
 pub struct KernelLauncher<R: Runtime> {
-    buffers: Vec<Binding>,
-    tensor_maps: Vec<TensorMapBinding>,
+    resources: Vec<KernelResource>,
     address_type: AddressType,
     pub settings: KernelSettings,
     #[cfg(not(feature = "std"))]
@@ -61,7 +60,7 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 
     /// Register a scalar to be launched from raw data.
-    pub fn register_scalar_raw(&mut self, bytes: &[u8], dtype: StorageType) {
+    pub fn register_scalar_raw(&mut self, bytes: &[u8], dtype: ElemType) {
         self.with_info(|info| info.scalars.push_raw(bytes, dtype));
     }
 
@@ -93,8 +92,7 @@ impl<R: Runtime> KernelLauncher<R> {
         let address_type = self.address_type;
         let info = self.with_info(|info| info.finish(address_type));
 
-        bindings.buffers = self.buffers;
-        bindings.tensor_maps = self.tensor_maps;
+        bindings.resources = self.resources;
         bindings.info = info;
 
         bindings
@@ -106,11 +104,11 @@ impl<R: Runtime> KernelLauncher<R> {
     /// Push a new input tensor to the state.
     pub fn register_tensor(&mut self, tensor: TensorArg<R>, elem_size: usize) {
         if let Some(tensor) = self.process_tensor(tensor, elem_size) {
-            self.buffers.push(tensor);
+            self.resources.push(KernelResource::Buffer(tensor));
         }
     }
 
-    fn process_tensor(&mut self, tensor: TensorArg<R>, elem_size: usize) -> Option<Binding> {
+    fn process_tensor(&mut self, tensor: TensorArg<R>, elem_size: usize) -> Option<BufferBinding> {
         let tensor = match tensor {
             TensorArg::Handle { handle, .. } => handle,
             TensorArg::Alias { .. } => return None,
@@ -133,11 +131,11 @@ impl<R: Runtime> KernelLauncher<R> {
     /// Push a new input array to the state.
     pub fn register_buffer(&mut self, array: BufferArg<R>, elem_size: usize) {
         if let Some(tensor) = self.process_buffer(array, elem_size) {
-            self.buffers.push(tensor);
+            self.resources.push(KernelResource::Buffer(tensor));
         }
     }
 
-    fn process_buffer(&mut self, array: BufferArg<R>, elem_size: usize) -> Option<Binding> {
+    fn process_buffer(&mut self, array: BufferArg<R>, elem_size: usize) -> Option<BufferBinding> {
         let array = match array {
             BufferArg::Handle { handle, .. } => handle,
             BufferArg::Alias { .. } => return None,
@@ -160,7 +158,8 @@ impl<R: Runtime> KernelLauncher<R> {
             .expect("Can't use alias for TensorMap");
 
         let map = map.metadata.clone();
-        self.tensor_maps.push(TensorMapBinding { binding, map });
+        self.resources
+            .push(KernelResource::TensorMap(TensorMapBinding { binding, map }));
     }
 }
 
@@ -169,8 +168,7 @@ impl<R: Runtime> KernelLauncher<R> {
         Self {
             address_type: settings.address_type,
             settings,
-            buffers: Vec::new(),
-            tensor_maps: Vec::new(),
+            resources: Vec::new(),
             _runtime: PhantomData,
             #[cfg(not(feature = "std"))]
             info: InfoBuilder::default(),

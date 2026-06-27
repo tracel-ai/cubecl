@@ -1,8 +1,8 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryId, SharedMemoryBindings},
-    server::{Binding, ServerError},
+    memory_management::ManagedMemoryId,
+    server::{BufferBinding, ServerError},
     stream::{StreamFactory, StreamPool},
 };
 use core::any::Any;
@@ -28,7 +28,7 @@ pub trait EventStreamBackend: 'static {
     /// Initializes and returns a new stream associated with the given stream ID.
     fn create_stream(&self) -> Self::Stream;
     /// Returns the cursor of the given handle on the given stream.
-    fn handle_cursor(stream: &Self::Stream, handle: &Binding) -> u64;
+    fn handle_cursor(stream: &Self::Stream, handle: &BufferBinding) -> u64;
     /// Returns whether the stream can access new tasks.
     fn is_healthy(stream: &Self::Stream) -> bool;
 
@@ -219,7 +219,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
     pub fn resolve<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a Binding>,
+        handles: impl Iterator<Item = &'a BufferBinding>,
         enforce_healthy: bool,
     ) -> Result<ResolvedStreams<'_, B>, ServerError> {
         let analysis = self.align_streams(stream_id, handles);
@@ -250,7 +250,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
     fn align_streams<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a Binding>,
+        handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> SharedBindingAnalysis {
         let analysis = self.update_shared_bindings(stream_id, handles);
 
@@ -264,7 +264,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
     pub(crate) fn update_shared_bindings<'a>(
         &mut self,
         stream_id: StreamId,
-        handles: impl Iterator<Item = &'a Binding>,
+        handles: impl Iterator<Item = &'a BufferBinding>,
     ) -> SharedBindingAnalysis {
         // We reset the memory pool for the info.
         self.shared_bindings_pool.clear();
@@ -607,7 +607,95 @@ mod tests {
         }
     }
 
-    fn handle(stream: StreamId) -> Binding {
+    #[test_log::test]
+    fn test_cross_stream_binding_pinned_until_gc_event() {
+        let logger = Arc::new(ServerLogger::default());
+        let stream_1 = StreamId { value: 1 };
+        let stream_2 = StreamId { value: 2 };
+
+        let gate = Arc::new(AtomicBool::new(false));
+        let mut ms = MultiStream::new(logger, GatedBackend { gate: gate.clone() }, MAX_STREAMS);
+        ms.resolve(stream_1, [].into_iter(), false).unwrap();
+        ms.resolve(stream_2, [].into_iter(), false).unwrap();
+
+        let handle = Handle::new(stream_1, 10);
+        let observer = handle.memory.clone();
+        let binding = handle.binding();
+
+        drop(ms.resolve(stream_2, [&binding].into_iter(), false).unwrap());
+        drop(binding);
+
+        // The GC thread is blocked on the (gated) consumer event, so the pinned
+        // binding must keep the memory non-free even though every user-side
+        // handle/binding is gone.
+        assert!(
+            !observer.is_free(),
+            "cross-stream binding must stay pinned while the consumer event is pending"
+        );
+
+        gate.store(true, Ordering::Release);
+        wait_until_free(&observer);
+    }
+
+    #[test_log::test]
+    fn test_already_synced_cross_stream_binding_still_pinned() {
+        let logger = Arc::new(ServerLogger::default());
+        let stream_1 = StreamId { value: 1 };
+        let stream_2 = StreamId { value: 2 };
+
+        let gate = Arc::new(AtomicBool::new(true));
+        let mut ms = MultiStream::new(logger, GatedBackend { gate: gate.clone() }, MAX_STREAMS);
+        ms.resolve(stream_1, [].into_iter(), false).unwrap();
+        ms.resolve(stream_2, [].into_iter(), false).unwrap();
+
+        // First resolve records stream_1 as synced on stream_2.
+        let handle_1 = Handle::new(stream_1, 10);
+        let binding_1 = handle_1.binding();
+        drop(
+            ms.resolve(stream_2, [&binding_1].into_iter(), false)
+                .unwrap(),
+        );
+        drop(binding_1);
+
+        // Close the gate for the second round.
+        gate.store(false, Ordering::Release);
+
+        let handle_2 = Handle::new(stream_1, 10);
+        let observer = handle_2.memory.clone();
+        let binding_2 = handle_2.binding();
+
+        // stream_2 already synced past this binding's cursor, so the sync
+        // analysis is empty — but the binding must still be pinned: the origin
+        // stream could otherwise free/reuse the memory under the in-flight
+        // consumer.
+        let resolved = ms
+            .resolve(stream_2, [&binding_2].into_iter(), false)
+            .unwrap();
+        assert!(resolved.analysis.slices.is_empty());
+        drop(resolved);
+        drop(binding_2);
+
+        assert!(
+            !observer.is_free(),
+            "already-synced cross-stream binding must still be pinned"
+        );
+
+        gate.store(true, Ordering::Release);
+        wait_until_free(&observer);
+    }
+
+    fn wait_until_free(observer: &crate::memory_management::ManagedMemoryHandle) {
+        let start = std::time::Instant::now();
+        while !observer.is_free() {
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(10),
+                "pinned binding was never released"
+            );
+            std::thread::yield_now();
+        }
+    }
+
+    fn handle(stream: StreamId) -> BufferBinding {
         Handle::new(stream, 10).binding()
     }
 
@@ -687,7 +775,7 @@ mod tests {
             Ok(())
         }
 
-        fn handle_cursor(_stream: &Self::Stream, _handle: &Binding) -> u64 {
+        fn handle_cursor(_stream: &Self::Stream, _handle: &BufferBinding) -> u64 {
             0
         }
 

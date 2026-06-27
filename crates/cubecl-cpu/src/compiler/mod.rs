@@ -17,7 +17,7 @@ use cubecl_core::{
     ir::{self, StorageType},
     post_processing::{
         checked_io::CheckedIoVisitor, disaggregate::DisaggregateVisitor,
-        predicate::PredicateProcessor, saturating::SaturatingArithmeticPolyfill,
+        predicate::PredicateProcessor, saturating::LowerSaturatingArithmetic,
     },
     prelude::KernelDefinition,
     server::ExecutionMode,
@@ -73,7 +73,7 @@ impl Compiler for MlirCompiler {
                 kernel.options.kernel_name.clone(),
             ))
             .with_visitor(DisaggregateVisitor::default())
-            .with_processor(SaturatingArithmeticPolyfill::new(true))
+            .with_processor(LowerSaturatingArithmetic::new(true))
             .with_processor(PredicateProcessor)
             .optimize(kernel.body.clone(), kernel.cube_dim);
 

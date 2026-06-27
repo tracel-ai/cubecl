@@ -32,10 +32,12 @@ pliron = { workspace = true }
 derive-new = { workspace = true }
 float-ord = "0.3"
 hashbrown = { workspace = true }
+itertools = { workspace = true }
 log = "0.4"
 num = { workspace = true }
 smallvec = { workspace = true }
 stable-vec = { version = "0.4" }
+thiserror = { workspace = true }
 type-map = { version = "0.5" }
 
 [dev-dependencies]

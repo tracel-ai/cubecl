@@ -162,9 +162,9 @@ pub fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombina
             ),
         ];
         let combinations = types.into_iter().map(|(ab_elem, cd_elem)| MmaConfig {
-            a_type: ab_elem.into(),
-            b_type: ab_elem.into(),
-            cd_type: cd_elem.into(),
+            a_type: ab_elem,
+            b_type: ab_elem,
+            cd_type: cd_elem,
             m: 16,
             n: 16,
             k: 16,

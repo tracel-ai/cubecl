@@ -363,7 +363,7 @@ impl Launch {
             let compute_client = prelude_type("ComputeClient");
             let kernel_definition: syn::Path = prelude_type("KernelDefinition");
             let kernel_id = prelude_type("KernelId");
-            let storage_ty = prelude_type("StorageType");
+            let elem_ty = prelude_type("ElemType");
 
             let kernel_name = self.kernel_name();
             let define = self.define_body();
@@ -441,7 +441,7 @@ impl Launch {
                             })
                     }
 
-                    fn address_type(&self) -> #storage_ty {
+                    fn address_type(&self) -> #elem_ty {
                         self.settings.address_type.unsigned_type()
                     }
                 }

@@ -177,7 +177,7 @@ pub fn linear_layout<R: Runtime>(
     LinearLayoutLaunch::from_handle(
         handle,
         // Don't care about type size, only vector size
-        Type::new(UIntKind::U32.into()).with_vector_size(vector_size),
+        Type::new(UIntKind::U32).with_vector_size(vector_size),
         LinearViewLayoutLaunch::new(),
     )
 }

@@ -1,23 +1,21 @@
-use core::{any::type_name, cell::RefCell};
+use core::{any::type_name, marker::PhantomData};
 
-use derive_more::From;
+use derive_more::{Deref, DerefMut, From};
 use derive_new::new;
 use pliron::{
     attribute::AttrObj,
     builtin::ops::ConstantOp,
-    irbuild::{dialect_conversion::apply_dialect_conversion, match_rewrite::apply_match_rewrite},
+    graph::walkers::uninterruptible::immutable::walk_op,
+    irbuild::{
+        dialect_conversion::apply_dialect_conversion,
+        match_rewrite::{RewriterOrder, apply_match_rewrite},
+    },
 };
 
 use crate::{interfaces::SimplifyInterface, prelude::*};
 
-#[derive(new, From, Clone, Debug)]
-pub struct DialectConversionPass<T: DialectConversion>(pub RefCell<T>);
-
-impl<T: DialectConversion + Default> Default for DialectConversionPass<T> {
-    fn default() -> Self {
-        Self(RefCell::new(Default::default()))
-    }
-}
+#[derive(new, From, Clone, Debug, Default)]
+pub struct DialectConversionPass<T: DialectConversion>(T);
 
 impl<T: DialectConversion> Pass for DialectConversionPass<T> {
     fn name(&self) -> &str {
@@ -25,14 +23,13 @@ impl<T: DialectConversion> Pass for DialectConversionPass<T> {
     }
 
     fn run(
-        &self,
+        &mut self,
         op: Ptr<Operation>,
         ctx: &mut Context,
         _analyses: &mut AnalysisManager,
     ) -> Result<PassResult> {
         let mut res = PassResult::default();
-        let mut convert = self.0.borrow_mut();
-        res.ir_changed = apply_dialect_conversion(ctx, &mut *convert, op)?;
+        res.ir_changed = apply_dialect_conversion(ctx, &mut self.0, op)?;
         Ok(res)
     }
 }
@@ -40,19 +37,19 @@ impl<T: DialectConversion> Pass for DialectConversionPass<T> {
 #[derive(new, From, Clone, Debug, Default)]
 pub struct MatchRewritePass<T: MatchRewrite>(pub T);
 
-impl<T: MatchRewrite + Clone> Pass for MatchRewritePass<T> {
+impl<T: MatchRewrite> Pass for MatchRewritePass<T> {
     fn name(&self) -> &str {
         type_name::<Self>()
     }
 
     fn run(
-        &self,
+        &mut self,
         op: Ptr<Operation>,
         ctx: &mut Context,
         _analyses: &mut AnalysisManager,
     ) -> Result<PassResult> {
         let mut res = PassResult::default();
-        res.ir_changed = apply_match_rewrite(ctx, self.0.clone(), op)?;
+        res.ir_changed = apply_match_rewrite(ctx, &mut self.0, RewriterOrder::default(), op)?;
         Ok(res)
     }
 }
@@ -69,7 +66,7 @@ impl<P1: Pass, P2: Pass> Pass for CombinedPass<P1, P2> {
     }
 
     fn run(
-        &self,
+        &mut self,
         op: Ptr<Operation>,
         ctx: &mut Context,
         analyses: &mut AnalysisManager,
@@ -113,3 +110,74 @@ fn const_operands(ctx: &Context, op: Ptr<Operation>) -> Vec<Option<AttrObj>> {
         .map(|opd| Some(opd.defining_op()?.as_op::<ConstantOp>(ctx)?.get_value(ctx)))
         .collect()
 }
+
+pub type VisitOpsCallback<T, State> = fn(&Context, &mut State, T);
+
+pub fn visit_all_ops_of_type<T: Op, State>(
+    ctx: &Context,
+    state: &mut State,
+    root: Ptr<Operation>,
+    callback: VisitOpsCallback<T, State>,
+) {
+    walk_op(
+        ctx,
+        &mut (state, callback),
+        &WALKCONFIG_PREORDER_FORWARD,
+        root,
+        |ctx, (state, callback), node| {
+            if let IRNode::Operation(op) = node
+                && let Some(op) = op.as_op::<T>(ctx)
+            {
+                callback(ctx, state, op)
+            }
+        },
+    );
+}
+
+pub trait RewriteOp<T: Op> {
+    fn should_rewrite(&self, _ctx: &Context, _op: T) -> bool {
+        true
+    }
+
+    fn rewrite(&mut self, ctx: &mut Context, rewriter: &mut MatchRewriter, op: T);
+}
+
+#[derive(new, Deref, DerefMut)]
+pub struct MatchRewriteOp<T: Op, R: RewriteOp<T>> {
+    #[deref]
+    #[deref_mut]
+    pub inner: R,
+    _t: PhantomData<T>,
+}
+
+impl<T: Op, R: RewriteOp<T>> From<R> for MatchRewriteOp<T, R> {
+    fn from(value: R) -> Self {
+        Self::new(value)
+    }
+}
+
+impl<T: Op, R: RewriteOp<T>> MatchRewrite for MatchRewriteOp<T, R> {
+    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
+        op.as_op::<T>(ctx)
+            .is_some_and(|op| self.should_rewrite(ctx, op))
+    }
+
+    fn rewrite(
+        &mut self,
+        ctx: &mut Context,
+        rewriter: &mut MatchRewriter,
+        op: Ptr<Operation>,
+    ) -> Result<()> {
+        let op = op.as_op::<T>(ctx).unwrap();
+        RewriteOp::rewrite(&mut self.inner, ctx, rewriter, op);
+        Ok(())
+    }
+}
+
+pub trait RewriterExt: Rewriter {
+    fn replace_op_with(&mut self, ctx: &mut Context, op: Ptr<Operation>, new_op: Ptr<Operation>) {
+        new_op.insert_before(ctx, op);
+        self.replace_operation(ctx, op, new_op);
+    }
+}
+impl<R: Rewriter> RewriterExt for R {}

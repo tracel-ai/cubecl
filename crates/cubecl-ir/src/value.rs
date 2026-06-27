@@ -1,8 +1,8 @@
 use core::{fmt::Display, hash::Hash};
 
 use crate::{
-    FloatKind, IntKind, Scope, StorageType, TypeHash,
-    attributes::{BoolAttr, FloatAttr, IntAttr, UIntAttr},
+    FloatKind, IntKind, Scope, TypeHash,
+    attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttr, UIntAttr},
     dialect::memory::LoadOp,
     interfaces::TypedExt,
 };
@@ -12,19 +12,31 @@ use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
 use derive_more::From;
 use float_ord::FloatOrd;
 use pliron::{
+    attribute::AttrObj,
     builtin::{op_interfaces::OneResultInterface, ops::ConstantOp},
+    context::Context,
     derive::format,
     r#type::TypedHandle,
     utils::apfloat::f64_to_double,
     value::Value,
 };
 
+pub fn read_value(scope: &Scope, val: Value) -> Value {
+    if val.is_ptr(scope.ctx()) {
+        let op = LoadOp::new(scope.ctx_mut(), val);
+        scope.register(&op);
+        op.get_result(scope.ctx())
+    } else {
+        val
+    }
+}
+
 impl ExpandValue {
     pub fn new(value: Value) -> Self {
         Self::Value(value)
     }
 
-    pub fn constant(value: ConstantValue, ty: impl Into<StorageType>) -> Self {
+    pub fn constant(value: ConstantValue, ty: impl Into<ElemType>) -> Self {
         let ty = ty.into();
         let value = value.cast_to(ty);
         Self::Constant { value, ty }
@@ -32,13 +44,7 @@ impl ExpandValue {
 
     pub fn read_value(&self, scope: &Scope) -> Value {
         let val = self.value(scope);
-        if val.is_ptr(scope.ctx()) {
-            let op = LoadOp::new(scope.ctx_mut(), val);
-            scope.register(&op);
-            op.get_result(scope.ctx())
-        } else {
-            val
-        }
+        read_value(scope, val)
     }
 
     pub fn value(&self, scope: &Scope) -> Value {
@@ -46,17 +52,7 @@ impl ExpandValue {
             ExpandValue::Value(value) => *value,
             ExpandValue::Constant { value, ty } => {
                 let ctx = scope.ctx_mut();
-                let ty = ty.to_type(ctx);
-                let value = match value {
-                    ConstantValue::Int(value) => {
-                        IntAttr::new(TypedHandle::from_handle(ty, ctx).unwrap(), *value).into()
-                    }
-                    ConstantValue::UInt(value) => {
-                        UIntAttr::new(TypedHandle::from_handle(ty, ctx).unwrap(), *value).into()
-                    }
-                    ConstantValue::Float(value) => FloatAttr::new(ty, f64_to_double(*value)).into(),
-                    ConstantValue::Bool(value) => BoolAttr::new(*value).into(),
-                };
+                let value = value.as_attribute(ctx, *ty);
                 let op = ConstantOp::new(scope.ctx_mut(), value);
                 scope.register(&op);
                 op.get_result(ctx)
@@ -68,10 +64,7 @@ impl ExpandValue {
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash)]
 pub enum ExpandValue {
     Value(Value),
-    Constant {
-        value: ConstantValue,
-        ty: StorageType,
-    },
+    Constant { value: ConstantValue, ty: ElemType },
 }
 
 impl From<Value> for ExpandValue {
@@ -306,6 +299,23 @@ impl ConstantValue {
         }
     }
 
+    pub fn as_attribute(&self, ctx: &Context, elem: ElemType) -> AttrObj {
+        let ty = elem.to_type(ctx);
+        match self {
+            ConstantValue::Int(value) => {
+                IntAttr::new(TypedHandle::from_handle(ty, ctx).unwrap(), *value).into()
+            }
+            ConstantValue::UInt(value) if elem == ElemType::Index => {
+                IndexAttr::new(*value as usize).into()
+            }
+            ConstantValue::UInt(value) => {
+                UIntAttr::new(TypedHandle::from_handle(ty, ctx).unwrap(), *value).into()
+            }
+            ConstantValue::Float(value) => FloatAttr::new(ty, f64_to_double(*value)).into(),
+            ConstantValue::Bool(value) => BoolAttr::new(*value).into(),
+        }
+    }
+
     pub fn is_zero(&self) -> bool {
         match self {
             ConstantValue::Int(val) => *val == 0,
@@ -325,44 +335,38 @@ impl ConstantValue {
     }
 
     pub fn cast_to(&self, other: impl Into<Type>) -> ConstantValue {
-        match other.into().storage_type() {
-            StorageType::Scalar(elem_type) => match elem_type {
-                ElemType::Float(kind) => match kind {
-                    FloatKind::E2M1 => e2m1::from_f64(self.as_f64()).to_f64(),
-                    FloatKind::E2M3 | FloatKind::E3M2 => {
-                        unimplemented!("FP6 constants not yet supported")
-                    }
-                    FloatKind::E4M3 => e4m3::from_f64(self.as_f64()).to_f64(),
-                    FloatKind::E5M2 => e5m2::from_f64(self.as_f64()).to_f64(),
-                    FloatKind::UE8M0 => ue8m0::from_f64(self.as_f64()).to_f64(),
-                    FloatKind::F16 => half::f16::from_f64(self.as_f64()).to_f64(),
-                    FloatKind::BF16 => half::bf16::from_f64(self.as_f64()).to_f64(),
-                    FloatKind::Flex32 | FloatKind::TF32 | FloatKind::F32 => {
-                        self.as_f64() as f32 as f64
-                    }
-                    FloatKind::F64 => self.as_f64(),
+        match other.into().elem_type() {
+            ElemType::Index => self.as_u64().into(),
+            ElemType::Float(kind) => match kind {
+                FloatKind::E2M1 => e2m1::from_f64(self.as_f64()).to_f64(),
+                FloatKind::E2M1x2 => e2m1::from_f64(self.as_f64()).to_f64(),
+                FloatKind::E2M3 | FloatKind::E3M2 => {
+                    unimplemented!("FP6 constants not yet supported")
                 }
-                .into(),
-                ElemType::Int(kind) => match kind {
-                    IntKind::I8 => self.as_i64() as i8 as i64,
-                    IntKind::I16 => self.as_i64() as i16 as i64,
-                    IntKind::I32 => self.as_i64() as i32 as i64,
-                    IntKind::I64 => self.as_i64(),
-                }
-                .into(),
-                ElemType::UInt(kind) => match kind {
-                    UIntKind::U8 => self.as_u64() as u8 as u64,
-                    UIntKind::U16 => self.as_u64() as u16 as u64,
-                    UIntKind::U32 => self.as_u64() as u32 as u64,
-                    UIntKind::U64 => self.as_u64(),
-                }
-                .into(),
-                ElemType::Bool => self.as_bool().into(),
-            },
-            StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2) => {
-                e2m1::from_f64(self.as_f64()).to_f64().into()
+                FloatKind::E4M3 => e4m3::from_f64(self.as_f64()).to_f64(),
+                FloatKind::E5M2 => e5m2::from_f64(self.as_f64()).to_f64(),
+                FloatKind::UE8M0 => ue8m0::from_f64(self.as_f64()).to_f64(),
+                FloatKind::F16 => half::f16::from_f64(self.as_f64()).to_f64(),
+                FloatKind::BF16 => half::bf16::from_f64(self.as_f64()).to_f64(),
+                FloatKind::Flex32 | FloatKind::TF32 | FloatKind::F32 => self.as_f64() as f32 as f64,
+                FloatKind::F64 => self.as_f64(),
             }
-            StorageType::Packed(..) => unimplemented!("Unsupported packed type"),
+            .into(),
+            ElemType::Int(kind) => match kind {
+                IntKind::I8 => self.as_i64() as i8 as i64,
+                IntKind::I16 => self.as_i64() as i16 as i64,
+                IntKind::I32 => self.as_i64() as i32 as i64,
+                IntKind::I64 => self.as_i64(),
+            }
+            .into(),
+            ElemType::UInt(kind) => match kind {
+                UIntKind::U8 => self.as_u64() as u8 as u64,
+                UIntKind::U16 => self.as_u64() as u16 as u64,
+                UIntKind::U32 => self.as_u64() as u32 as u64,
+                UIntKind::U64 => self.as_u64(),
+            }
+            .into(),
+            ElemType::Bool => self.as_bool().into(),
         }
     }
 }

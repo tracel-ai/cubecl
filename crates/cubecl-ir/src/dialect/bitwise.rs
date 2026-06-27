@@ -16,7 +16,7 @@ use crate::{
 };
 use crate::{
     dialect::{pure_binop, pure_unop},
-    interfaces::Pure,
+    types::VectorType,
 };
 
 pure_binop!("bitwise.and", BitwiseAndOp);
@@ -180,11 +180,32 @@ const_eval!(BitwiseNotOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |inp| !inp
 });
 
-fn u32_ty(ctx: &Context) -> TypedHandle<UIntType> {
-    UIntType::get_instance(UIntType { width: 32 }, ctx).expect("Should be present")
+macro_rules! pure_unop_u32 {
+    ($name: literal, $ty: ident) => {
+        #[cubecl_macros_internal::cube_op(name = $name)]
+        #[result_ty(from_inputs = |ctx, input| u32_maybe_vec(ctx, input))]
+        #[$crate::prelude::op_interfaces(SameOperandsType, $crate::interfaces::TriviallyUnrollable)]
+        #[$crate::prelude::op_traits($crate::CanMaterialize, $crate::Pure)]
+        pub struct $ty {
+            pub input: Value,
+        }
+    };
 }
 
-pure_unop!("bitwise.count_ones", CountOnesOp);
+fn u32_maybe_vec(ctx: &Context, value: &Value) -> TypeHandle {
+    let u32 = UIntType::get(ctx, 32).to_handle();
+    if value.vector_size(ctx) > 1 {
+        VectorType::get(ctx, u32, value.vector_size(ctx)).to_handle()
+    } else {
+        u32
+    }
+}
+
+fn u32_ty(ctx: &Context) -> TypedHandle<UIntType> {
+    UIntType::get(ctx, 32)
+}
+
+pure_unop_u32!("bitwise.count_ones", CountOnesOp);
 const_eval!(CountOnesOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |inp| -> UIntAttr {
         UIntAttr::new(u32_ty(ctx), inp.count_ones() as u64)
@@ -196,21 +217,21 @@ const_eval!(ReverseBitsOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |inp| inp.reverse_bits()
 });
 
-pure_unop!("bitwise.leading_zeros", LeadingZerosBitsOp);
+pure_unop_u32!("bitwise.leading_zeros", LeadingZerosBitsOp);
 const_eval!(LeadingZerosBitsOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |inp| -> UIntAttr {
         UIntAttr::new(u32_ty(ctx), inp.leading_zeros() as u64)
     },
 });
 
-pure_unop!("bitwise.trailing_zeros", TrailingZerosBitsOp);
+pure_unop_u32!("bitwise.trailing_zeros", TrailingZerosBitsOp);
 const_eval!(TrailingZerosBitsOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |inp| -> UIntAttr {
         UIntAttr::new(u32_ty(ctx), inp.trailing_zeros() as u64)
     },
 });
 
-pure_unop!("bitwise.find_first_set", FindFirstSetOp);
+pure_unop_u32!("bitwise.find_first_set", FindFirstSetOp);
 const_eval!(FindFirstSetOp, {
     [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |inp| -> UIntAttr {
         let out = if inp == 0 { 0 } else { inp.trailing_zeros() + 1 };

@@ -5,15 +5,13 @@ use pliron::{
     r#type::TypedHandle,
 };
 
-use crate::interfaces::{aligned, sized};
+use crate::{aligned, sized};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, Copy, PartialOrd, Ord)]
 #[format]
 pub enum BarrierLevel {
-    #[format("`unit`")]
     Unit,
-    #[format("`cube`")]
     Cube,
 }
 

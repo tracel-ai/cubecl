@@ -10,7 +10,7 @@ use crate::{
         ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration, MemoryUsage,
     },
     runtime::Runtime,
-    server::Binding,
+    server::{BufferBinding, KernelResource},
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
@@ -34,7 +34,7 @@ use cubecl_common::{
     stream_id::StreamId,
     stub::RwLock,
 };
-use cubecl_ir::{DeviceProperties, ElemType, StorageType, settings::Dim3};
+use cubecl_ir::{DeviceProperties, ElemType, settings::Dim3};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use derive_more::{Deref, DerefMut, From};
 use hashbrown::HashSet;
@@ -407,7 +407,7 @@ where
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
         &mut self,
-        binding: Binding,
+        binding: BufferBinding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError>;
 
@@ -623,8 +623,8 @@ pub trait ServerCommunication {
     #[allow(unused_variables)]
     fn all_reduce(
         &mut self,
-        src: Binding,
-        dst: Binding,
+        src: BufferBinding,
+        dst: BufferBinding,
         dtype: ElemType,
         stream_id: StreamId,
         op: ReduceOperation,
@@ -916,19 +916,17 @@ impl core::fmt::Debug for IoError {
 /// Arguments to execute a kernel.
 #[derive(Debug, Default)]
 pub struct KernelArguments {
-    /// Buffer bindings
-    pub buffers: Vec<Binding>,
+    /// Kernel bindings
+    pub resources: Vec<KernelResource>,
     /// Packed scalars and metadata. First scalars sorted by type, then static metadata,
     /// then dynamic metadata.
     pub info: MetadataBindingInfo,
-    /// Tensor map bindings
-    pub tensor_maps: Vec<TensorMapBinding>,
 }
 
 impl core::fmt::Display for KernelArguments {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("KernelArguments")?;
-        for b in self.buffers.iter() {
+        for b in self.resources.iter() {
             f.write_fmt(format_args!("\n - buffer: {b:?}\n"))?;
         }
 
@@ -943,14 +941,15 @@ impl KernelArguments {
     }
 
     /// Add a buffer binding
-    pub fn with_buffer(mut self, binding: Binding) -> Self {
-        self.buffers.push(binding);
+    pub fn with_buffer(mut self, binding: BufferBinding) -> Self {
+        self.resources.push(KernelResource::Buffer(binding));
         self
     }
 
     /// Extend the buffers with `bindings`
-    pub fn with_buffers(mut self, bindings: Vec<Binding>) -> Self {
-        self.buffers.extend(bindings);
+    pub fn with_buffers(mut self, bindings: Vec<BufferBinding>) -> Self {
+        let bindings = bindings.into_iter().map(KernelResource::Buffer);
+        self.resources.extend(bindings);
         self
     }
 
@@ -962,7 +961,8 @@ impl KernelArguments {
 
     /// Extend the tensor maps with `bindings`
     pub fn with_tensor_maps(mut self, bindings: Vec<TensorMapBinding>) -> Self {
-        self.tensor_maps.extend(bindings);
+        let bindings = bindings.into_iter().map(KernelResource::TensorMap);
+        self.resources.extend(bindings);
         self
     }
 }
@@ -990,7 +990,7 @@ impl MetadataBindingInfo {
 #[derive(new, Debug)]
 pub struct CopyDescriptor {
     /// Binding for the memory resource
-    pub handle: Binding,
+    pub handle: BufferBinding,
     /// Shape of the resource
     pub shape: Shape,
     /// Strides of the resource
@@ -1000,10 +1000,10 @@ pub struct CopyDescriptor {
 }
 
 /// A tensor map used with TMA ops
-#[derive(new, Debug)]
+#[derive(new, Clone, Debug)]
 pub struct TensorMapBinding {
     /// The binding for the backing tensor
-    pub binding: Binding,
+    pub binding: BufferBinding,
     /// The tensormap metadata
     pub map: TensorMapMeta,
 }
@@ -1026,8 +1026,8 @@ pub struct TensorMapMeta {
     pub prefetch: TensorMapPrefetch,
     /// OOB fill value
     pub oob_fill: OobFill,
-    /// Storage type
-    pub storage_ty: StorageType,
+    /// Element type
+    pub elem_ty: ElemType,
 }
 
 /// Specifieds the number of cubes to be dispatched for a kernel.
@@ -1038,7 +1038,7 @@ pub enum CubeCount {
     /// Dispatch a known count of x, y, z cubes.
     Static(u32, u32, u32),
     /// Dispatch an amount based on the values in this buffer. The buffer should contain a u32 array [x, y, z].
-    Dynamic(Binding),
+    Dynamic(BufferBinding),
 }
 
 /// Defines how to select cube count based on the number of cubes required.

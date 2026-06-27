@@ -1,14 +1,14 @@
 use crate::{
-    cuda::packed_ops::PackOpsPass,
+    cuda::{mma::CudaCmmaCompiler, packed_ops::PackOpsPass},
     shared::{
-        OpToCPP,
         builtin::{LowerBuiltins, LowerBuiltinsPass},
+        convert::PromoteUnsupportedTypesPass,
         lowering::LowerOpsCppPass,
-        signature::{DeclareVectorTypesPass, LowerInfoPass},
-        ty::ConvertPtrPass,
+        metadata::LowerInfoPass,
+        signature::{CollectIncludesPass, DeclareVectorTypesPass, shared_memory_size},
         unroll::CppUnrollPass,
     },
-    target::{CppTarget, Shared},
+    target::{CppTarget, Shared, Target},
 };
 
 use super::ComputeKernel;
@@ -22,8 +22,15 @@ use cubecl_core::{
         rewrite::SimplifyOpsPass,
         settings::Dim3,
     },
-    post_processing::disaggregate::DisaggregatePass,
+    post_processing::{
+        bitwise::PromoteBitwisePass, disaggregate::DisaggregatePass,
+        saturating::LowerSaturatingArithmeticPass,
+    },
     prelude::KernelDefinition,
+};
+use cubecl_opt::passes::{
+    alloc_shared_memory::AllocateSharedMemoryBlockPass,
+    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, simple_cse::SimpleCSEPass,
 };
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use pliron::{
@@ -33,12 +40,10 @@ use pliron::{
     op::Op,
     operation::verify_operation,
     opts::{constants::sccp::SCCPPass, dce::DCEPass},
-    pass_manager::{AnalysisManager, OpPass, OpPassManager, Pass, PassGroup},
+    pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
     printable::Printable,
-    r#type::TypeHandle,
-    value::Value,
 };
-use std::{collections::HashMap, fmt::Debug};
+use std::fmt::Debug;
 
 pub(crate) fn closure_inference_hack<T, R>(
     val: &T,
@@ -71,10 +76,6 @@ pub struct CompilationState {
     pub cube_dim: Dim3,
     pub cluster_dim: Dim3,
     pub info: Info,
-    pub ext_meta_positions: HashMap<usize, usize>,
-    pub address_type: TypeHandle,
-    pub info_st: Option<Value>,
-    pub dynamic_meta: Option<Value>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -99,7 +100,6 @@ impl Default for CompilationOptions {
 #[derive(Clone, Debug, Default)]
 pub struct CppCompiler<T: CppTarget> {
     compilation_options: CompilationOptions,
-    info: Info,
     _target: PhantomData<T>,
 }
 
@@ -145,32 +145,6 @@ where
     LowerBuiltins<T>: MatchRewrite,
 {
     fn compile_ir(self, value: KernelDefinition) -> ComputeKernel {
-        // let mut opt = Optimizer::shared_only(value.body.clone(), value.cube_dim);
-        // let shared_allocs = opt.main.analysis::<SharedLiveness>(&opt.global_state);
-
-        // *value.body.state_mut() = scope_state;
-
-        // CheckedIoVisitor::new(self.strategy, self.kernel_name.clone()).apply(&value.body);
-        // DisaggregateVisitor::apply(&value.body);
-
-        // self.buffer_vis = post_processing::optimize_scope(&value.body).into();
-        // self.buffer_vis
-        //     .resize(value.num_global_buffers(), Visibility::Read);
-
-        // let address_type = address_type.to_type(ctx);
-        // let instructions = self.compile_scope(&value.body);
-
-        // let shared_memories = shared_allocs
-        //     .allocations
-        //     .values()
-        //     .map(|alloc| SharedMemory {
-        //         ptr: self.compile_value(ExpandValue::new(alloc.id, alloc.smem.root_ptr.ty)),
-        //         value_ty: self.compile_type(alloc.smem.value_ty),
-        //         align: alloc.smem.alignment,
-        //         offset: alloc.offset,
-        //     })
-        //     .collect();
-
         let module = value.body.state().module;
         let module_op = module.get_operation();
         let mut ctx = value.body.into_context().expect("Should be owned scope");
@@ -179,42 +153,58 @@ where
             cube_dim: value.settings.cube_dim,
             cluster_dim: value.settings.cluster_dim.unwrap_or(Dim3::new_single()),
             info: value.info,
-            ext_meta_positions: Default::default(),
-            address_type: value.settings.address_type.unsigned_type().to_type(&ctx),
-            info_st: Default::default(),
-            dynamic_meta: Default::default(),
         };
 
         ctx.set_aux_ty(self.compilation_options);
         ctx.set_aux_ty(state);
         ctx.set_aux_ty(T::target());
 
+        ctx.set_aux_ty(CudaCmmaCompiler::Cpp);
+
         std::fs::write("target/initial.plir", format!("{}", module.disp(&ctx))).unwrap();
-        verify_operation(module.get_operation(), &ctx).unwrap();
+        verify_operation(module.get_operation(), &ctx).expect("Failed to verify before passes");
+
+        let config = PMConfig {
+            print_after_all: true,
+            ..Default::default()
+        };
 
         let mut analyses = AnalysisManager::default();
-        let mut pass_manager = OpPassManager::<ModuleOp>::default();
+        analyses.set_config(config);
 
-        pass_manager.add_pass(OpPass::<LowerInfoPass, FuncOp>::default());
-        pass_manager.add_pass(OpPass::<LowerBuiltinsPass<T>, FuncOp>::default());
-        pass_manager.add_pass(OpPass::<DisaggregatePass, FuncOp>::default());
-        pass_manager.add_pass(OpPass::<SCCPPass, FuncOp>::default());
-        pass_manager.add_pass(OpPass::<SimplifyOpsPass, FuncOp>::default());
-        pass_manager.add_pass(OpPass::<DCEPass, FuncOp>::default());
-        pass_manager.add_pass(OpPass::<ConvertPtrPass, FuncOp>::default());
-        pass_manager.add_pass(OpPass::<LowerOpsCppPass<T>, FuncOp>::default());
-        pass_manager.add_pass(OpPass::<LowerOpsCppPass<Shared>, FuncOp>::default());
-        pass_manager.add_pass(OpPass::<PackOpsPass, FuncOp>::default());
-        pass_manager.add_pass(OpPass::<CppUnrollPass, FuncOp>::default());
-        pass_manager.add_pass(OpPass::<DCEPass, FuncOp>::default());
+        let mut passes = OpPass::<ModuleOp, Passes>::default();
+        let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
-        pass_manager
-            .run(module_op, &mut ctx, &mut analyses)
-            .unwrap();
+        func_passes.add_pass(LowerInfoPass);
+        func_passes.add_pass(DisaggregatePass);
+        func_passes.add_pass(AllocateSharedMemoryBlockPass);
 
-        DeclareVectorTypesPass
-            .run(module_op, &mut ctx, &mut analyses)
-            .unwrap();
+        // Shared lowerings can create ops that need target-specific lowerings, but target-specific
+        // lowerings should take priority. So we just run the target-specific lowerings twice.
+        func_passes.add_pass(LowerOpsCppPass::<T>::default());
+        func_passes.add_pass(LowerOpsCppPass::<Shared>::default());
+        func_passes.add_pass(LowerOpsCppPass::<T>::default());
+
+        if T::target() != Target::Metal {
+            func_passes.add_pass(LowerSaturatingArithmeticPass::default());
+        }
+
+        func_passes.add_pass(PackOpsPass::default());
+        func_passes.add_pass(CppUnrollPass::default());
+        func_passes.add_pass(LowerBuiltinsPass::<T>::default());
+        func_passes.add_pass(SCCPPass);
+        func_passes.add_pass(SimpleCSEPass);
+        func_passes.add_pass(SimplifyOpsPass::default());
+        func_passes.add_pass(PromoteBitwisePass);
+        func_passes.add_pass(PromoteUnsupportedTypesPass::default());
+        func_passes.add_pass(DCEPass);
+
+        passes.add_pass(NestedOpsPass::new(func_passes));
+        passes.add_pass(AnnotateGlobalVisibilityPass);
+        passes.add_pass(DeclareVectorTypesPass);
+        passes.add_pass(CollectIncludesPass::<T>::default());
+
+        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
 
         std::fs::write(
             "target/after_lower_shared.plir",
@@ -222,16 +212,13 @@ where
         )
         .unwrap();
 
-        verify_operation(module.get_operation(), &ctx).unwrap();
-        module.to_cpp(&ctx);
+        verify_operation(module.get_operation(), &ctx).expect("Failed to verify after passes");
+
+        let shared_memory_size = shared_memory_size(&ctx, module_op);
 
         ComputeKernel {
             ctx,
-            module,
-            shared_memories: vec![],
-            shared_memory_size: 0,
-            info_by_ptr: !self.compilation_options.supports_features.grid_constants,
-            has_dynamic_meta: self.info.has_dynamic_meta,
+            shared_memory_size,
         }
     }
 }
@@ -241,6 +228,7 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
     props.register_address_type(AddressType::U64);
 
     let supported_types = [
+        ElemType::Index,
         ElemType::UInt(UIntKind::U8),
         ElemType::UInt(UIntKind::U16),
         ElemType::UInt(UIntKind::U32),

@@ -1,13 +1,13 @@
 use core::iter;
 
-use darling::FromDeriveInput;
+use darling::{FromDeriveInput};
+use inflections::case::{to_constant_case, to_snake_case};
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
-use syn::DeriveInput;
+use syn::{DeriveInput, Ident, Type};
 
 use crate::{
-    CubeOp, CubeOpArgs,
-    parse::cube_op::{ArgKind, CubeOpArg, ResultTy, Verifier},
+    CubeOp, CubeOpArgs, PathList, parse::cube_op::{ArgKind, CubeOpArg, ResultTy, Verifier},
 };
 
 impl ToTokens for Verifier {
@@ -23,13 +23,16 @@ impl ToTokens for Verifier {
 
 impl CubeOp {
     pub fn generate_op_impl(&self, args: CubeOpArgs) -> syn::Result<TokenStream> {
-        let name = &args.name;
-        let format = args.format.as_ref().map(|fmt| quote![format = #fmt]);
+        let name = args.name.value();
+        let format = self.qualified_format_string(&args).map(|fmt| quote![format = #fmt]);
         let format = format.unwrap_or_else(|| quote![format]);
         let verifier = &args.verifier;
         let attributes = self
             .attributes()
-            .map(|CubeOpArg { ident, ty, .. }| quote![#ident: #ty])
+            .map(|CubeOpArg { ident, ty, .. }| {
+                let ident = args.qualified_name(ident);
+                quote![#ident: #ty]
+            })
             .collect::<Vec<_>>();
         let attributes = if attributes.is_empty() {
             quote![]
@@ -38,8 +41,9 @@ impl CubeOp {
         };
 
         let interfaces = self.auto_interfaces();
-        let constructor = self.generate_constructor();
-        let accessors = self.generate_value_accessors();
+        let constructor = self.generate_constructor(&args);
+        let accessors = self.generate_value_accessors(&args);
+        let setters = self.generate_attribute_setters(&args);
         let memory_interfaces = self.generate_memory_interfaces();
 
         let Self {
@@ -61,13 +65,14 @@ impl CubeOp {
             impl #impl_generics #ident #type_generics #where_clause {
                 #constructor
                 #(#accessors)*
+                #(#setters)*
             }
 
             #(#memory_interfaces)*
         })
     }
 
-    fn generate_constructor(&self) -> TokenStream {
+    fn generate_constructor(&self, op_args: &CubeOpArgs) -> TokenStream {
         let result_ty = self.generate_result_ty();
         let args = self
             .data
@@ -87,7 +92,7 @@ impl CubeOp {
         });
         let attributes = self.required_attributes().map(|it| {
             let name = &it.ident;
-            let setter = format_ident!("set_attr_{name}");
+            let setter = format_ident!("set_attr_{}", op_args.qualified_name(name));
             quote![op.#setter(ctx, #name);]
         });
 
@@ -141,7 +146,7 @@ impl CubeOp {
         quote!(vec![#ty])
     }
 
-    fn generate_value_accessors(&self) -> impl Iterator<Item = TokenStream> {
+    fn generate_value_accessors(&self, args: &CubeOpArgs) -> impl Iterator<Item = TokenStream> {
         let values = self.values().enumerate().map(|(idx, arg)| {
             let CubeOpArg { vis, ident, ty, .. } = arg;
             let use_ident = format_ident!("{ident}_as_use");
@@ -155,16 +160,65 @@ impl CubeOp {
                 }
             }
         });
-        let attrs = self.required_attributes().map(|arg| {
+        let attrs_req = self.required_attributes().map(|arg| {
             let CubeOpArg { vis, ident, ty, .. } = arg;
-            let inner_accessor = format_ident!("get_attr_{}", ident);
+            let inner_accessor = format_ident!("get_attr_{}", args.qualified_name(ident));
             quote! {
                 #vis fn #ident<'a>(&self, ctx: &'a ::pliron::context::Context) -> core::cell::Ref<'a, #ty> {
                     self.#inner_accessor(ctx).unwrap()
                 }
             }
         });
-        values.chain(attrs)
+        let attrs_opt = self.optional_attributes().map(|arg| {
+            let CubeOpArg { vis, ident, ty, .. } = arg;
+            let inner_accessor = format_ident!("get_attr_{}", args.qualified_name(ident));
+            if let Type::Path(path) = ty && path.path.segments.last().unwrap().ident == "UnitAttr" {
+                quote! {
+                    #vis fn #ident<'a>(&self, ctx: &'a ::pliron::context::Context) -> bool {
+                        self.#inner_accessor(ctx).is_some()
+                    }
+                }
+            } else {
+                quote! {
+                    #vis fn #ident<'a>(&self, ctx: &'a ::pliron::context::Context) -> Option<core::cell::Ref<'a, #ty>> {
+                        self.#inner_accessor(ctx)
+                    }
+                }
+            }
+        });
+        values.chain(attrs_req).chain(attrs_opt)
+    }
+
+    fn generate_attribute_setters(&self, args: &CubeOpArgs) -> impl Iterator<Item = TokenStream> {
+        let attrs_set = self.attributes().map(|arg| {
+            let CubeOpArg { vis, ident, ty, .. } = arg;
+            let setter = format_ident!("set_{ident}");
+            let inner_accessor = format_ident!("set_attr_{}", args.qualified_name(ident));
+            if let Type::Path(path) = ty && path.path.segments.last().unwrap().ident == "UnitAttr" {
+                quote! {
+                    #vis fn #setter(&self, ctx: &::pliron::context::Context) {
+                        self.#inner_accessor(ctx, #ty::new())
+                    }
+                }
+            } else {
+                quote! {
+                    #vis fn #setter(&self, ctx: &::pliron::context::Context, value: impl Into<#ty>) {
+                        self.#inner_accessor(ctx, value.into())
+                    }
+                }
+            }
+        });
+        let attrs_remove = self.optional_attributes().map(|arg| {
+            let CubeOpArg { vis, ident, .. } = arg;
+            let remove = format_ident!("remove_{ident}");
+            let attr_key = self.qualified_attribute_key(ident, args);
+            quote! {
+                #vis fn #remove(&self, ctx: &::pliron::context::Context) {
+                    self.get_operation().deref_mut(ctx).attributes.0.remove(&*#attr_key);
+                }
+            }
+        });
+        attrs_set.chain(attrs_remove)
     }
 
     fn auto_interfaces(&self) -> Vec<TokenStream> {
@@ -201,31 +255,22 @@ impl CubeOp {
         let (impl_generics, type_generics, where_clause) = self.generics.split_for_impl();
         let args = &self.data;
 
-        if args.iter().any(|arg| arg.flags.ptr_read.is_present()) {
-            let values = args
-                .iter()
-                .filter(|arg| arg.flags.ptr_read.is_present())
-                .map(|CubeOpArg { ident, .. }| quote![self.#ident(ctx)]);
-            interfaces.push(quote! {
-                #[::pliron::derive::op_interface_impl]
-                impl #impl_generics crate::interfaces::ReadsMemory for #ty_name #type_generics #where_clause {
-                    fn reads_through_values(&self, ctx: &Context) -> ::alloc::vec::Vec<Value> {
-                        ::alloc::vec![#(#values),*]
-                    }
-                }
-            });
-        }
+        let ptr_reads = args.iter().filter(|arg| arg.flags.ptr_read.is_present()).map(|arg| {
+            let ident = &arg.ident;
+            quote![crate::interfaces::MemoryEffect::Read(self.#ident(ctx))]
+        });
+        let ptr_writes = args.iter().filter(|arg| arg.flags.ptr_write.is_present()).map(|arg| {
+            let ident = &arg.ident;
+            quote![crate::interfaces::MemoryEffect::Write(self.#ident(ctx))]
+        });
+        let memory_effects = ptr_reads.chain(ptr_writes).collect::<Vec<_>>();
 
-        if args.iter().any(|arg| arg.flags.ptr_write.is_present()) {
-            let values = args
-                .iter()
-                .filter(|arg| arg.flags.ptr_write.is_present())
-                .map(|CubeOpArg { ident, .. }| quote![self.#ident(ctx)]);
+        if !memory_effects.is_empty() {
             interfaces.push(quote! {
                 #[::pliron::derive::op_interface_impl]
-                impl #impl_generics crate::interfaces::WritesMemory for #ty_name #type_generics #where_clause {
-                    fn writes_through_values(&self, ctx: &Context) -> ::alloc::vec::Vec<Value> {
-                        ::alloc::vec![#(#values),*]
+                impl #impl_generics crate::interfaces::MemoryEffects for #ty_name #type_generics #where_clause {
+                    fn memory_effects(&self, ctx: &Context) -> ::alloc::vec::Vec<crate::interfaces::MemoryEffect> {
+                        ::alloc::vec![#(#memory_effects),*]
                     }
                 }
             });
@@ -250,6 +295,38 @@ impl CubeOp {
         self.attributes()
             .filter(|it| !it.flags.optional.is_present())
     }
+
+    fn optional_attributes(&self) -> impl Iterator<Item = &CubeOpArg> {
+        self.attributes()
+            .filter(|it| it.flags.optional.is_present())
+    }
+
+    fn qualified_format_string(&self, args: &CubeOpArgs) -> Option<String> {
+        let mut format = args.format.as_ref()?.value();
+        for attr in self.attributes() {
+            let attr_name_ref = format!("attr(${}", attr.ident);
+            let qualified = format!("attr(${}", args.qualified_name(&attr.ident));
+            format = format.replace(&attr_name_ref, &qualified);
+        }
+        Some(format)
+    }
+
+    fn qualified_attribute_key(&self, ident: &Ident, args: &CubeOpArgs) -> TokenStream {
+        let op_name = self.ident.clone();
+        let module_name = format_ident!("{}_attr_names", to_snake_case(&op_name.to_string()));
+        let attr_name_uppercase = to_constant_case(&args.qualified_name(ident).to_string());
+        let attr_name_const = format_ident!("ATTR_KEY_{}", attr_name_uppercase);
+
+        quote![#module_name::#attr_name_const]
+    }
+}
+
+impl CubeOpArgs {
+    fn qualified_name(&self, ident: &Ident) -> Ident {
+        let name = self.name.value();
+        let qualification = name.replace(".", "_");
+        format_ident!("{qualification}_{ident}")
+    }
 }
 
 fn op_interf(name: TokenStream) -> TokenStream {
@@ -259,4 +336,13 @@ fn op_interf(name: TokenStream) -> TokenStream {
 pub fn generate_cube_op(input: DeriveInput, args: CubeOpArgs) -> syn::Result<TokenStream> {
     let op = CubeOp::from_derive_input(&input)?;
     op.generate_op_impl(args)
+}
+
+pub fn generate_op_traits(input: DeriveInput, traits: PathList) -> syn::Result<TokenStream> {
+    let traits = &traits.paths;
+    let struct_name = &input.ident;
+    Ok(quote::quote! {
+        #input
+        #(#traits !(#struct_name);)*
+    })
 }

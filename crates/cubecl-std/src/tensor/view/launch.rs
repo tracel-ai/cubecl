@@ -615,8 +615,8 @@ mod dynamic {
             launcher: &mut KernelLauncher<R>,
         ) -> Self::CompilationArg {
             let ty = launcher.with_scope(|scope| {
-                let storage = E::Scalar::storage_type(scope);
-                let vector_size = E::vector_size();
+                let storage = E::Scalar::elem_type(scope);
+                let vector_size = E::__expand_vector_size(scope);
                 Type::new(storage).with_vector_size(vector_size)
             });
             match arg {
@@ -656,8 +656,8 @@ mod dynamic {
             arg: &Self::CompilationArg,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
-            let storage = E::Scalar::storage_type(builder);
-            let vector_size = E::vector_size();
+            let storage = E::Scalar::elem_type(builder);
+            let vector_size = E::__expand_vector_size(builder);
             let ty = Type::new(storage).with_vector_size(vector_size);
             match arg {
                 ViewCompilationArg::Array { buffer, layout } => {
@@ -711,7 +711,7 @@ mod dynamic {
             arg: &Self::CompilationArg,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
-            let storage = E::Scalar::storage_type(builder);
+            let storage = E::Scalar::elem_type(builder);
             let vector_size = E::vector_size();
             let ty = Type::new(storage).with_vector_size(vector_size);
             match arg {

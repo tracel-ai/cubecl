@@ -1,33 +1,31 @@
 use cubecl_core::ir::dialect::tma::*;
 use itertools::Itertools;
 
-use crate::{cuda::cuda_op, shared::CppValue};
+use crate::{
+    cuda::cuda_op,
+    shared::{CppValue, signature::op_includes},
+    target::Cuda,
+};
+
+op_includes!(Cuda, [TmaStoreOp, CommitGroupOp, WaitGroupOp, WaitGroupReadOp] => "cuda/barrier");
 
 cuda_op!(TmaLoadOp, |op, ctx| {
     let barrier = op.barrier(ctx).name(ctx);
     let tensor_map = op.tensor_map(ctx).name(ctx);
     let smem_ptr = op.destination(ctx).name(ctx);
-    let indices = op.indices(ctx).iter().map(|it| it.name(ctx)).join(", ");
+    let indices = op.indices(ctx);
+    let indices = indices.iter().map(|it| it.name(ctx)).rev().join(", ");
     let rank = op.rank(ctx);
     format!(
-        "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_global_to_shared({smem_ptr}, &{tensor_map}, {indices}, {barrier});"
+        "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_global_to_shared({smem_ptr}, &{tensor_map}, {indices}, *{barrier});"
     )
-});
-
-cuda_op!(TmaLoadIm2colOp, |op, ctx| {
-    let barrier = op.barrier(ctx).name(ctx);
-    let tensor_map = op.tensor_map(ctx).name(ctx);
-    let smem_ptr = op.destination(ctx).name(ctx);
-    let indices = op.indices(ctx).iter().map(|it| it.name(ctx)).join(", ");
-    let offsets = op.offsets(ctx).iter().map(|it| it.name(ctx)).join(", ");
-    let rank = op.rank(ctx);
-    format!("tma_load_im2col_{rank}d(&{tensor_map}, {barrier}, {smem_ptr}, {indices}, {offsets});")
 });
 
 cuda_op!(TmaStoreOp, |op, ctx| {
     let tensor_map = op.tensor_map(ctx).name(ctx);
     let smem_ptr = op.source(ctx).name(ctx);
-    let indices = op.indices(ctx).iter().map(|it| it.name(ctx)).join(", ");
+    let indices = op.indices(ctx);
+    let indices = indices.iter().map(|it| it.name(ctx)).rev().join(", ");
     let rank = op.rank(ctx);
     format!(
         "cuda::device::experimental::cp_async_bulk_tensor_{rank}d_shared_to_global(&{tensor_map}, {indices}, {smem_ptr});"

@@ -181,21 +181,35 @@ shared_op_with_out!(CastOp, |op, ctx| {
 });
 unrolling!(CastOp);
 
-// In and out packability might differ for cast
+// In and out packability might differ for cast. Also need to exempt bf16<->f16 because CUDA for some
+// reason omits this cast in packed form, even though it allows packed casts to and from minifloats.
 #[op_interface_impl]
 impl PackableOp for CastOp {
     fn should_pack(&self, ctx: &Context) -> bool {
-        self.input(ctx).can_pack(ctx) && self.get_result(ctx).can_pack(ctx)
+        let is_bf16_to_half = is_bf16(ctx, self.input(ctx)) && is_f16(ctx, self.get_result(ctx));
+        let is_half_to_bf16 = is_f16(ctx, self.input(ctx)) && is_bf16(ctx, self.get_result(ctx));
+        let can_pack_both = self.input(ctx).can_pack(ctx) && self.get_result(ctx).can_pack(ctx);
+        !is_bf16_to_half && !is_half_to_bf16 && can_pack_both
     }
 }
 
+fn is_f16(ctx: &Context, val: Value) -> bool {
+    val.try_get_scalar_ty(ctx)
+        .is_some_and(|scalar| scalar.is_float16(ctx))
+}
+
+fn is_bf16(ctx: &Context, val: Value) -> bool {
+    val.try_get_scalar_ty(ctx)
+        .is_some_and(|scalar| scalar.is_bfloat16(ctx))
+}
+
 shared_op_with_out!(ReinterpretCastOp, |op, ctx| {
-    let input = op.value(ctx);
-    let ty = input.get_type(ctx).to_cpp(ctx);
+    let input = op.input(ctx);
+    let ty = op.get_result(ctx).get_type(ctx).to_cpp(ctx);
     if input.is_ptr(ctx) {
         format!("reinterpret_cast<{ty}>({})", input.name(ctx))
     } else {
-        format!("reinterpret_cast<{ty}&>({})", input.name(ctx))
+        format!("reinterpret_cast<const {ty}&>({})", input.name(ctx))
     }
 });
 
@@ -251,7 +265,7 @@ fn find_first_set<T: Int, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
 
 #[cube]
 fn trailing_zeros<T: Int, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
-    let bits = Vector::new(comptime!(T::size_bits() as u32));
+    let bits = Vector::new(T::size_bits().comptime() as u32);
     let out = input.find_first_set() - Vector::one();
     select_many(input.equal(&Vector::zero()), bits, out)
 }
@@ -259,6 +273,11 @@ fn trailing_zeros<T: Int, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
 #[cube]
 fn cast_f16_bf16<T: Scalar, N: Size>(input: Vector<T, N>) -> Vector<bf16, N> {
     Vector::<bf16, N>::cast_from(Vector::<f32, N>::cast_from(input))
+}
+
+#[cube]
+fn count_ones<T: Scalar, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
+    Vector::<u32, N>::cast_from(Vector::<u32, N>::cast_from(input).count_ones())
 }
 
 lower_unop!(Log1pOp, log1p);

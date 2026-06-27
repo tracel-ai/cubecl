@@ -1,7 +1,7 @@
 //! This module exposes barrier for asynchronous data transfer
 
 use alloc::vec;
-use pliron::r#type::TypeHandle;
+use pliron::{r#type::TypeHandle, value::Value};
 
 use crate as cubecl;
 use cubecl_ir::{
@@ -57,6 +57,12 @@ impl NativeAssign for Barrier {
 
 impl CubeType for BarrierToken {
     type ExpandType = NativeExpand<BarrierToken>;
+}
+
+impl ReadValue for NativeExpand<BarrierToken> {
+    fn read_value(&self, scope: &Scope) -> Value {
+        self.expand.read_value(scope)
+    }
 }
 
 impl NativeAssign for BarrierToken {
@@ -272,8 +278,8 @@ impl Barrier {
             let mem_copy = MemCopyAsyncOp::new(
                 scope.ctx_mut(),
                 barrier,
-                destination,
                 source,
+                destination,
                 source_length,
                 false,
             );
@@ -298,8 +304,8 @@ impl Barrier {
             let mem_copy = MemCopyAsyncOp::new(
                 scope.ctx_mut(),
                 barrier,
-                destination,
                 source,
+                destination,
                 source_length,
                 true,
             );
@@ -323,7 +329,7 @@ impl Barrier {
             let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.value(scope);
 
             let mem_copy =
-                MemCopyAsyncTxOp::new(scope.ctx_mut(), barrier, destination, source, source_length);
+                MemCopyAsyncTxOp::new(scope.ctx_mut(), barrier, source, destination, source_length);
 
             scope.register(&mem_copy);
         })
@@ -426,17 +432,18 @@ pub mod copy_async {
         destination: &mut SliceExpand<C>,
         copy_length: u32,
     ) {
-        let source_length = ExpandValue::from(copy_length).read_value(scope);
         let source = unsafe { *source.__expand_as_ptr_method(scope) }.value(scope);
         let destination = unsafe { *destination.__expand_as_ptr_method(scope) }.value(scope);
         let scalar_size = C::Scalar::__expand_size(scope);
+        let copy_length_bytes = copy_length as usize * scalar_size;
+        let source_length = ExpandValue::from(copy_length_bytes).read_value(scope);
 
         let mem_copy = CopyAsyncOp::new(
             scope.ctx_mut(),
             source,
             destination,
             source_length,
-            copy_length as usize * scalar_size,
+            copy_length_bytes,
             false,
         );
 
@@ -472,19 +479,20 @@ pub mod copy_async_checked {
         destination: &mut SliceExpand<C>,
         copy_length: u32,
     ) {
-        let source_length = source.__extract_length(scope).value(scope);
+        let source_length = source.__extract_length(scope);
 
-        // OOB pointer is allowed as long as length is 0
         let source = unsafe { *source.__expand_as_ptr_unchecked_method(scope) }.value(scope);
         let destination =
             unsafe { *destination.__expand_as_ptr_unchecked_method(scope) }.value(scope);
         let scalar_size = C::Scalar::__expand_size(scope);
+        let vector_size = C::__expand_size(scope).__expand_runtime_method(scope);
+        let source_length_bytes = source_length.__expand_mul_method(scope, vector_size);
 
         let mem_copy = CopyAsyncOp::new(
             scope.ctx_mut(),
             source,
             destination,
-            source_length,
+            source_length_bytes.read_value(scope),
             copy_length as usize * scalar_size,
             true,
         );

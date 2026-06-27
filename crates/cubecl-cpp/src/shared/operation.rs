@@ -4,24 +4,22 @@ use cubecl_core::{
         AddressSpace, Scope, cube_op,
         dialect::{
             base::OperationPtrExt,
-            general::{CommentOp, PrintfOp, ReadScalarOp},
+            general::{CommentOp, PrintfOp},
             math::FmaOp,
             memory::DeclareVariableOp,
             synchronization::{SyncOp, SyncScope},
         },
         prelude::*,
+        types::PointerType,
     },
 };
+use cubecl_opt::passes::alloc_shared_memory::SliceSharedOp;
 use itertools::Itertools;
 use pliron::builtin::attributes::TypeAttr;
 
 use crate::{
     error::{CompileError, Result},
-    shared::{
-        CppValue,
-        lowering::LowerOp,
-        ty::{PointerType, TypeExtCPP},
-    },
+    shared::{CppValue, lowering::LowerOp, ty::TypeExtCPP},
     target::{Shared, dispatch_target},
 };
 
@@ -100,45 +98,44 @@ pub struct DeclareMatrixOp {
 
 fn variable_ptr_ty(ctx: &Context, value_ty: &TypeAttr) -> TypeHandle {
     let value_ty = value_ty.get_type(ctx);
-    PointerType::get(ctx, value_ty, crate::shared::ty::AddressSpace::Local).into()
+    PointerType::get(ctx, value_ty, AddressSpace::Local).into()
 }
 
+shared_op_with_out!(SliceSharedOp, |op, ctx| {
+    let ptr_ty = op.get_result(ctx).get_type(ctx).to_cpp(ctx);
+    let block = op.block(ctx).name(ctx);
+    let offset = op.offset(ctx).0;
+    format!("reinterpret_cast<{ptr_ty}>(&{block}[{offset}])")
+});
+
+// These are the same in IR semantics, but have very different codegen in C++. So split them up.
 #[op_interface_impl]
 impl LowerOp for DeclareVariableOp {
-    fn should_lower(&self, ctx: &Context) -> bool {
-        self.addr_space(ctx).0 == AddressSpace::Local
+    fn should_lower(&self, _ctx: &Context) -> bool {
+        true
     }
 
     fn lower(&self, scope: &Scope) -> Vec<Value> {
         let ctx = scope.ctx_mut();
         let value_ty = self.value_ty(ctx).clone();
-        vec![if value_ty.get_type(ctx).deref(ctx).is::<MatrixType>() {
-            let op = DeclareMatrixOp::new(scope.ctx_mut(), value_ty);
-            scope.register(&op);
-            op.get_result(scope.ctx())
-        } else {
-            let op = DeclareLocalOp::new(scope.ctx_mut(), value_ty);
-            scope.register(&op);
-            op.get_result(scope.ctx())
+        let addr_space = self.addr_space(ctx).0;
+        vec![match addr_space {
+            AddressSpace::Global(_) => panic!("Unsupported address space for declaration"),
+            AddressSpace::Shared => panic!("Should be lowered to block allocation"),
+            AddressSpace::Local => {
+                if value_ty.get_type(ctx).deref(ctx).is::<MatrixType>() {
+                    let op = DeclareMatrixOp::new(scope.ctx_mut(), value_ty);
+                    scope.register(&op);
+                    op.get_result(scope.ctx())
+                } else {
+                    let op = DeclareLocalOp::new(scope.ctx_mut(), value_ty);
+                    scope.register(&op);
+                    op.get_result(scope.ctx())
+                }
+            }
         }]
     }
 }
-
-shared_op!(DeclareVariableOp, |op, ctx| {
-    let val = op.get_result(ctx);
-    let ptr_ty = val.get_type(ctx).to_cpp(ctx);
-    let value_ty = op.value_ty(ctx).to_cpp(ctx);
-    format!(
-        "{value_ty} {id}_store; {ptr_ty} {id} = &{id}_store;",
-        id = val.name(ctx)
-    )
-});
-
-shared_op_with_out!(ReadScalarOp, |op, ctx| {
-    let elem = op.ty(ctx).to_cpp(ctx);
-    let idx = op.id(ctx).0;
-    format!("info.scalars_{elem}[{idx}];")
-});
 
 shared_op_with_out!(FmaOp, |op, ctx| {
     let a = op.a(ctx).name(ctx);
@@ -150,17 +147,17 @@ shared_op_with_out!(FmaOp, |op, ctx| {
 shared_op!(CommentOp, |op, ctx| {
     let content = String::from(op.comment(ctx).clone());
     if content.contains("\n") {
-        format!("/* {content} */")
+        format!("/* {content} */\n")
     } else {
-        format!("// {content}")
+        format!("// {content}\n")
     }
 });
 
 shared_op!(PrintfOp, |op, ctx| {
-    let format_string = String::from(op.format_string(ctx).clone());
+    let format_string = op.format_string(ctx);
     let args = op.args(ctx);
     let args = args.iter().map(|it| format!(", {}", it.name(ctx))).join("");
-    format!("printf({format_string}{args})")
+    format!("printf({:?}{args});", format_string.as_str())
 });
 
 shared_op!(SyncOp, |op, ctx| {

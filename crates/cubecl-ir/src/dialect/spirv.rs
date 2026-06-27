@@ -1,7 +1,7 @@
 use cubecl_macros_internal::cube_op;
 
 use crate::{
-    attributes::IndexAttr, interfaces::Pure, prelude::*, types::{
+    CanMaterialize, Pure, attributes::IndexAttr, prelude::*, types::{
         matrix::MatrixType,
         spirv::{ClampMode, TensorLayoutType},
     }
@@ -13,6 +13,7 @@ use crate::{
     format, 
     verifier = "succ"
 )]
+#[op_traits(CanMaterialize)]
 pub struct LoadTensorOp;
 
 impl LoadTensorOp {
@@ -55,6 +56,7 @@ impl LoadTensorOp {
 }
 
 #[pliron_op(name = "matrix.spirv.store_tensor", format, verifier = "succ")]
+#[op_traits(CanMaterialize)]
 pub struct StoreTensorOp;
 
 impl StoreTensorOp {
@@ -100,8 +102,9 @@ impl StoreTensorOp {
     }
 }
 
-#[pliron_op(name = "matrix.spirv.create_layout", format, attributes = (rank: IndexAttr), verifier = "succ")]
-#[op_interfaces(Pure, NResultsInterface<1>, OneResultInterface)]
+#[pliron_op(name = "spirv.create_layout", format, attributes = (spirv_create_layout_rank: IndexAttr), verifier = "succ")]
+#[op_interfaces(NResultsInterface<1>, OneResultInterface)]
+#[op_traits(CanMaterialize, Pure)]
 pub struct CreateLayoutOp;
 
 impl CreateLayoutOp {
@@ -125,18 +128,18 @@ impl CreateLayoutOp {
                 0,
             ),
         };
-        op.set_attr_rank(ctx, rank.into());
+        op.set_attr_spirv_create_layout_rank(ctx, rank.into());
         op
     }
 
     pub fn shape(&self, ctx: &Context) -> Vec<Value> {
-        let rank = self.get_attr_rank(ctx).unwrap().0;
+        let rank = self.rank(ctx);
         let op = self.get_operation().deref(ctx);
         op.operands().take(rank).collect()
     }
 
     pub fn strides(&self, ctx: &Context) -> Option<Vec<Value>> {
-        let rank = self.get_attr_rank(ctx).unwrap().0;
+        let rank = self.rank(ctx);
         let op = self.get_operation().deref(ctx);
         if op.get_num_operands() > rank {
             Some(op.operands().skip(rank).collect())
@@ -144,14 +147,20 @@ impl CreateLayoutOp {
             None
         }
     }
+    
+    pub fn rank(&self, ctx: &Context) -> usize {
+        self.get_attr_spirv_create_layout_rank(ctx).unwrap().0
+    }
 }
 
 #[cube_op(name = "cube.spirv.create_view")]
 #[result_ty(argument)]
+#[op_traits(CanMaterialize, Pure)]
 pub struct CreateViewOp {}
 
-#[pliron_op(name = "matrix.spirv.slice_layout", format, attributes = (rank: IndexAttr), verifier = "succ")]
-#[op_interfaces(Pure, NResultsInterface<1>, OneResultInterface)]
+#[pliron_op(name = "spirv.slice_layout", format, attributes = (spirv_slice_layout_rank: IndexAttr), verifier = "succ")]
+#[op_interfaces(NResultsInterface<1>, OneResultInterface)]
+#[op_traits(CanMaterialize, Pure)]
 pub struct SliceOp;
 
 impl SliceOp {

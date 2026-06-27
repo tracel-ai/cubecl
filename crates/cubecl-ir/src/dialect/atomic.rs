@@ -1,17 +1,17 @@
-use cubecl_macros_internal::cube_op;
+use cubecl_macros_internal::{cube_op, op_traits};
 
-use crate::{dialect::ptr_value_ty, interfaces::rematerialize, prelude::*};
+use crate::{CanMaterialize, dialect::ptr_value_ty, prelude::*};
 
 macro_rules! atomic_binop {
     ($name: literal, $ty: ident) => {
         #[cube_op(name = $name)]
         #[result_ty(same_as = value)]
+        #[op_traits(CanMaterialize)]
         pub struct $ty {
             #[operand(ptr_read, ptr_write)]
             pub ptr: Value,
             pub value: Value,
         }
-        rematerialize!($ty);
     };
 }
 
@@ -26,6 +26,7 @@ atomic_binop!("atomic.xor", AtomicXorOp);
 
 #[cube_op(name = "atomic.load")]
 #[result_ty(from_inputs = ptr_value_ty)]
+#[op_traits(CanMaterialize)]
 pub struct AtomicLoadOp {
     #[operand(ptr_read)]
     pub ptr: Value,
@@ -33,6 +34,7 @@ pub struct AtomicLoadOp {
 
 #[cube_op(name = "atomic.store")]
 #[result_ty(none)]
+#[op_traits(CanMaterialize)]
 pub struct AtomicStoreOp {
     #[operand(ptr_write)]
     pub ptr: Value,
@@ -41,6 +43,7 @@ pub struct AtomicStoreOp {
 
 #[cube_op(name = "atomic.compare_exchange_weak")]
 #[result_ty(same_as = value)]
+#[op_traits(CanMaterialize)]
 pub struct AtomicCompareExchangeWeakOp {
     pub ptr: Value,
     pub cmp: Value,

@@ -12,11 +12,10 @@ pub struct ApplyCheckedIo {
     kernel_name: String,
 }
 
-impl DialectConversion for ApplyCheckedIo {
-    fn can_convert_op(&self, ctx: &Context, op: Ptr<Operation>) -> bool {
-        Operation::get_op::<IndexOp>(op, ctx).is_some_and(|it| {
-            it.get_attr_checked(ctx).is_some() && is_runtime_array(ctx, it.base(ctx))
-        })
+impl MatchRewrite for ApplyCheckedIo {
+    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
+        Operation::get_op::<IndexOp>(op, ctx)
+            .is_some_and(|it| it.checked(ctx) && is_runtime_array(ctx, it.base(ctx)))
     }
 
     fn rewrite(
@@ -24,7 +23,6 @@ impl DialectConversion for ApplyCheckedIo {
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
         op: Ptr<Operation>,
-        _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let index = Operation::get_op::<IndexOp>(op, ctx).unwrap();
 
