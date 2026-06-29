@@ -6,8 +6,9 @@ use crate::prelude::{BufferArg, TensorArg, TensorMapArg, TensorMapKind};
 use crate::{InfoBuilder, KernelSettings, ScalarArgType};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
-use cubecl_ir::{AddressType, Scope, StorageType, Type};
-use cubecl_runtime::server::{Binding, CubeCount, TensorMapBinding};
+use cubecl_ir::{AddressType, FlopCountProcessor, Scope, StorageType, Type};
+use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+use cubecl_runtime::server::{Binding, CubeCount, Handle, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
     kernel::{CubeKernel, KernelTask},
@@ -18,7 +19,7 @@ use cubecl_runtime::{
 std::thread_local! {
     static INFO: RefCell<InfoBuilder> = RefCell::new(InfoBuilder::default());
     // Only used for resolving types
-    static SCOPE: RefCell<Scope> = RefCell::new(Scope::root(false));
+    static SCOPE: RefCell<Scope> = RefCell::new(Scope::root(false, false));
 }
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).
@@ -65,18 +66,45 @@ impl<R: Runtime> KernelLauncher<R> {
         self.with_info(|info| info.scalars.push_raw(bytes, dtype));
     }
 
+    /// Injects profiling buffers into the bindings before execution.
+    fn inject_profiling(&mut self, client: &ComputeClient<R>) -> Option<Handle> {
+        if !CubeClRuntimeConfig::get().profiling.hardware_metrics {
+            return None;
+        }
+
+        let handle = client.create_from_slice(&[0u8; 4]);
+        let arg = unsafe { BufferArg::from_raw_parts(handle.clone(), 1) };
+        self.register_buffer(arg, FlopCountProcessor::flop_counter_type());
+        Some(handle)
+    }
+
+    /// Read back the FLOP counter buffer and report it.
+    fn report_flop_counter(client: &ComputeClient<R>, handle: Handle) {
+        let bytes = client.read_one_unchecked(handle);
+        let count = u32::from_le_bytes(bytes[..4].try_into().expect("Counter should be 4 bytes"));
+        #[cfg(feature = "std")]
+        std::eprintln!("[cubecl flop-profile] add count = {count}");
+        #[cfg(not(feature = "std"))]
+        let _ = count;
+    }
+
     /// Launch the kernel.
     #[track_caller]
     pub fn launch<K: CubeKernel>(
-        self,
+        mut self,
         cube_count: CubeCount,
         kernel: K,
         client: &ComputeClient<R>,
     ) {
+        let flop_counter = self.inject_profiling(client);
         let bindings = self.into_bindings();
         let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
 
-        client.launch(kernel, cube_count, bindings)
+        client.launch(kernel, cube_count, bindings);
+
+        if let Some(handle) = flop_counter {
+            Self::report_flop_counter(client, handle);
+        }
     }
 
     /// Launch the kernel without check bounds.
@@ -89,16 +117,21 @@ impl<R: Runtime> KernelLauncher<R> {
     ///   other unpredictable behaviour.
     #[track_caller]
     pub unsafe fn launch_unchecked<K: CubeKernel>(
-        self,
+        mut self,
         cube_count: CubeCount,
         kernel: K,
         client: &ComputeClient<R>,
     ) {
+        let flop_counter = self.inject_profiling(client);
         unsafe {
             let bindings = self.into_bindings();
             let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
 
             client.launch_unchecked(kernel, cube_count, bindings)
+        }
+
+        if let Some(handle) = flop_counter {
+            Self::report_flop_counter(client, handle);
         }
     }
 
@@ -196,7 +229,7 @@ impl<R: Runtime> KernelLauncher<R> {
             #[cfg(not(feature = "std"))]
             info: InfoBuilder::default(),
             #[cfg(not(feature = "std"))]
-            scope: Scope::root(false),
+            scope: Scope::root(false, false),
         }
     }
 }

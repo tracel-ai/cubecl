@@ -96,6 +96,8 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub layout_policy: Server::MemoryLayoutPolicy,
     /// How to enforce bounds checking on kernels.
     pub check_mode: BoundsCheckMode,
+    /// Whether to collect hardware metrics.
+    pub hardware_metrics: bool,
     /// A set containing the ids for which the inter-device communication has already been initialized.
     pub initialized_comms: RwLock<HashSet<CommunicationId>>,
 }
@@ -135,6 +137,8 @@ impl<S: ComputeServer> ServerUtilities<S> {
         info: S::Info,
         allocator: S::MemoryLayoutPolicy,
     ) -> Self {
+        let config = CubeClRuntimeConfig::get();
+
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
         let client = tracy_client::Client::start();
@@ -159,7 +163,8 @@ impl<S: ComputeServer> ServerUtilities<S> {
             epoch_time: web_time::Instant::now(),
             info,
             layout_policy: allocator,
-            check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
+            check_mode: config.compilation.check_mode,
+            hardware_metrics: config.profiling.hardware_metrics,
             initialized_comms: RwLock::new(HashSet::default()),
         }
     }

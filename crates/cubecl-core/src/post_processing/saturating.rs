@@ -97,7 +97,7 @@ fn run_polyfill<T: CubePrimitive>(
     out: Value,
     mut polyfill: impl FnMut(&Scope, NativeExpand<T>, NativeExpand<T>) -> NativeExpand<T>,
 ) {
-    let scope = Scope::root(false).with_global_state(processing.global_state.clone());
+    let scope = Scope::root(false, false).with_global_state(processing.global_state.clone());
     scope.register_type::<ElemA>(lhs.storage_type());
     scope.register_size::<SizeA>(lhs.vector_size());
     if let ElemType::Int(kind) = lhs.elem_type() {

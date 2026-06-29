@@ -15,8 +15,8 @@ impl Processor for HipMmaProcessor {
         for instruction in instructions {
             match instruction.operation {
                 Operation::CoopMma(CoopMma::RowIndex { lane_id, i, matrix }) => {
-                    let scope =
-                        Scope::root(false).with_global_state(processing.global_state.clone());
+                    let scope = Scope::root(false, false)
+                        .with_global_state(processing.global_state.clone());
                     let row_idx: Value =
                         row_index::expand(&scope, lane_id.into(), i.into(), matrix.ident).into();
                     let tmp_processing = scope.process([]);
@@ -30,8 +30,8 @@ impl Processor for HipMmaProcessor {
                     ));
                 }
                 Operation::CoopMma(CoopMma::ColIndex { lane_id, i, matrix }) => {
-                    let scope =
-                        Scope::root(false).with_global_state(processing.global_state.clone());
+                    let scope = Scope::root(false, false)
+                        .with_global_state(processing.global_state.clone());
                     let row_idx: Value =
                         col_index::expand(&scope, lane_id.into(), i.into(), matrix.ident).into();
                     let tmp_processing = scope.process([]);

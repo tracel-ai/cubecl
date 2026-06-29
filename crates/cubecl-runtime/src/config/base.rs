@@ -133,6 +133,12 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             }
         }
 
+        if let Ok(val) = std::env::var("CUBECL_PROFILE_FLOPS") {
+            if val == "1" || val.eq_ignore_ascii_case("true") {
+                self.profiling.hardware_metrics = true;
+            }
+        }
+
         self
     }
 }

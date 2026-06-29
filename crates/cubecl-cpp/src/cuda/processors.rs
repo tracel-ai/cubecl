@@ -16,8 +16,8 @@ impl Processor for CudaMmaProcessor {
             match instruction.operation {
                 Operation::CoopMma(CoopMma::RowIndex { lane_id, i, matrix }) => {
                     let elems_per_reg = 32 / matrix.storage.elem_type().size_bits();
-                    let scope =
-                        Scope::root(false).with_global_state(processing.global_state.clone());
+                    let scope = Scope::root(false, false)
+                        .with_global_state(processing.global_state.clone());
                     let row_idx: Value = row_index::expand(
                         &scope,
                         lane_id.into(),
@@ -38,8 +38,8 @@ impl Processor for CudaMmaProcessor {
                 }
                 Operation::CoopMma(CoopMma::ColIndex { lane_id, i, matrix }) => {
                     let elems_per_reg = 32 / matrix.storage.elem_type().size_bits();
-                    let scope =
-                        Scope::root(false).with_global_state(processing.global_state.clone());
+                    let scope = Scope::root(false, false)
+                        .with_global_state(processing.global_state.clone());
                     let col_idx: Value = col_index::expand(
                         &scope,
                         lane_id.into(),
