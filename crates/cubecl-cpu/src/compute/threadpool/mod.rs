@@ -51,7 +51,6 @@ impl Threadpool {
         cube_dim: CubeDim,
         cube_count: [u32; 3],
         memory: &mut MemoryManagement<BytesStorage>,
-        stream_id: usize,
         next_counter_step: u64,
         atomic_counter: &Arc<CachePadded<AtomicU64>>,
     ) {
@@ -76,7 +75,6 @@ impl Threadpool {
                     let compute_task = ComputeTask {
                         mlir_engine,
                         mlir_data,
-                        stream_id,
                         next_counter_step,
                         atomic_counter,
                     };

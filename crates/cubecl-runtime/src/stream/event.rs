@@ -108,7 +108,7 @@ struct EventStreamBackendWrapper<B: EventStreamBackend> {
 impl<B: EventStreamBackend> StreamFactory for EventStreamBackendWrapper<B> {
     type Stream = StreamWrapper<B>;
 
-    fn create(&mut self, _index: usize) -> Self::Stream {
+    fn create(&mut self) -> Self::Stream {
         StreamWrapper {
             stream: self.backend.create_stream(),
             cursor: 0,

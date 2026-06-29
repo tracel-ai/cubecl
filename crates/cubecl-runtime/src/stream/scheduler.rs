@@ -73,11 +73,11 @@ impl<B: SchedulerStreamBackend> StreamFactory for SchedulerPoolMarker<B> {
     type Stream = Stream<B>;
 
     // Creates a new stream with an empty task list and a backend stream.
-    fn create(&mut self, index: usize) -> Self::Stream {
+    fn create(&mut self) -> Self::Stream {
         Stream {
             tasks: Vec::new(),
             // Uses the backend's factory to create a new stream.
-            stream: self.backend.factory().create(index),
+            stream: self.backend.factory().create(),
         }
     }
 }

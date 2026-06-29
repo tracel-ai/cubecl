@@ -28,7 +28,6 @@ pub struct CpuStream {
     pub(crate) timestamps: TimestampProfiler,
     errors: Vec<ServerError>,
     threadpool: &'static spin::Mutex<Threadpool>,
-    stream_id: usize,
     next_counter_step: u64,
     atomic_counter: Arc<CachePadded<AtomicU64>>,
 }
@@ -45,7 +44,6 @@ impl CpuStream {
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         logger: Arc<ServerLogger>,
-        stream_id: usize,
     ) -> Self {
         let memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -62,7 +60,6 @@ impl CpuStream {
             memory_management,
             timestamps: TimestampProfiler::default(),
             errors: Vec::new(),
-            stream_id,
             threadpool,
             next_counter_step,
             atomic_counter,
@@ -100,7 +97,6 @@ impl CpuStream {
                     cube_dim,
                     cube_count,
                     &mut self.memory_management,
-                    self.stream_id,
                     self.next_counter_step,
                     &self.atomic_counter,
                 );

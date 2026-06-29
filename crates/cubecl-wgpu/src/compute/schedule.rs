@@ -87,7 +87,7 @@ pub struct WgpuStreamFactory {
 impl StreamFactory for WgpuStreamFactory {
     type Stream = WgpuStream;
 
-    fn create(&mut self, _index: usize) -> Self::Stream {
+    fn create(&mut self) -> Self::Stream {
         self.count += 1;
 
         WgpuStream::new(

@@ -6,7 +6,7 @@ pub trait StreamFactory {
     /// The type of stream produced by this factory.
     type Stream;
     /// Creates a new stream instance.
-    fn create(&mut self, index: usize) -> Self::Stream;
+    fn create(&mut self) -> Self::Stream;
 }
 
 /// Represents a pool of streams, managing a collection of streams created by a factory.
@@ -83,7 +83,7 @@ impl<F: StreamFactory> StreamPool<F> {
                 Some(val) => val,
                 // If the stream is None, create a new one using the factory.
                 None => {
-                    let stream = self.factory.create(index);
+                    let stream = self.factory.create();
                     // Store the new stream in the vector.
                     *entry = Some(stream);
 

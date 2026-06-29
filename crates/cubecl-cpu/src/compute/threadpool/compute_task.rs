@@ -10,7 +10,6 @@ use crate::{
 pub struct ComputeTask {
     pub mlir_engine: MlirEngine,
     pub mlir_data: MlirData,
-    pub stream_id: usize,
     pub next_counter_step: u64,
     pub atomic_counter: Arc<CachePadded<AtomicU64>>,
 }

@@ -76,13 +76,12 @@ pub struct CpuStreamFactory {
 impl StreamFactory for CpuStreamFactory {
     type Stream = CpuStream;
 
-    fn create(&mut self, index: usize) -> Self::Stream {
+    fn create(&mut self) -> Self::Stream {
         CpuStream::new(
             self.max_units_per_cube,
             self.memory_properties.clone(),
             self.memory_config.clone(),
             self.logger.clone(),
-            index,
         )
     }
 }
