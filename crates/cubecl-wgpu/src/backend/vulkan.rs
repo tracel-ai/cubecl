@@ -448,8 +448,8 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         .buf_16
         .is_some_and(|it| it.uniform_and_storage_buffer16_bit_access == TRUE);
     let storage8 = ext_feat
-        .buf_16
-        .is_some_and(|it| it.uniform_and_storage_buffer16_bit_access == TRUE);
+        .buf_8
+        .is_some_and(|it| it.uniform_and_storage_buffer8_bit_access == TRUE);
 
     for ty in default_types {
         props.register_type_usage(ty, TypeUsage::all());

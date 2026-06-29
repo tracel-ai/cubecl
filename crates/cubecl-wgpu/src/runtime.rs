@@ -283,6 +283,20 @@ pub async fn init_setup_async<G: GraphicsApi>(
     return_setup
 }
 
+/// Clamp an adapter-reported `max_compute_workgroups_per_dimension` to the
+/// per-dimension cube-count limit the GPU actually enforces at dispatch time.
+///
+/// Some adapters — notably the Vulkan backend on NVIDIA hardware — advertise a
+/// `max_compute_workgroups_per_dimension` larger than the value the driver
+/// validates against when a dispatch is recorded. Propagating that inflated
+/// number into `HardwareProperties::max_cube_count` lets an oversized
+/// `[N, 1, 1]` cube count reach wgpu and trip a validation error once `N`
+/// exceeds the real cap of `u16::MAX`. Clamping keeps the launch bookkeeping
+/// consistent with the limit reported by `WgpuRuntime::max_cube_count`.
+fn clamp_max_cube_count(reported: u32) -> u32 {
+    reported.min(u16::MAX as u32)
+}
+
 pub(crate) fn create_server<C: WgpuCompiler>(
     setup: WgpuSetup,
     options: RuntimeOptions,
@@ -305,7 +319,7 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         max_page_size: limits.max_storage_buffer_binding_size,
         alignment: limits.min_uniform_buffer_offset_alignment as u64,
     };
-    let max_count = adapter_limits.max_compute_workgroups_per_dimension;
+    let max_count = clamp_max_cube_count(adapter_limits.max_compute_workgroups_per_dimension);
     let hardware_props = HardwareProperties {
         load_width: 128,
         // On Apple Silicon, the plane size is 32,
@@ -618,4 +632,34 @@ fn get_device_override() -> Option<WgpuDevice> {
             }
             override_device
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_max_cube_count_caps_inflated_adapter_limits() {
+        // NVIDIA's Vulkan adapter reports a per-dimension workgroup limit far
+        // above the value the driver actually enforces at dispatch time.
+        assert_eq!(clamp_max_cube_count(u32::MAX), u16::MAX as u32);
+        assert_eq!(clamp_max_cube_count(1 << 20), u16::MAX as u32);
+    }
+
+    #[test]
+    fn clamp_max_cube_count_preserves_honest_adapter_limits() {
+        assert_eq!(clamp_max_cube_count(0), 0);
+        assert_eq!(clamp_max_cube_count(1024), 1024);
+        assert_eq!(clamp_max_cube_count(u16::MAX as u32), u16::MAX as u32);
+    }
+
+    #[test]
+    fn clamp_max_cube_count_matches_runtime_advertised_limit() {
+        // The clamp must agree with the limit `WgpuRuntime` advertises so the
+        // launch logic never produces a cube count the GPU will reject.
+        assert_eq!(
+            clamp_max_cube_count(u32::MAX),
+            WgpuRuntime::<AutoCompiler>::max_cube_count().0
+        );
+    }
 }
