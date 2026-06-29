@@ -31,6 +31,8 @@ use cubecl_zspace::Shape;
 use cubecl_common::profile::TimingMethod;
 use cubecl_common::stream_id::StreamId;
 
+use crate::stream::Stream;
+
 /// The `ComputeClient` is the entry point to require tasks from the `ComputeServer`.
 /// It should be obtained for a specific device via the Compute struct.
 pub struct ComputeClient<R: Runtime> {
@@ -99,6 +101,22 @@ impl<R: Runtime> ComputeClient<R> {
     /// This is highly unsafe and should probably only be used by the CubeCL/Burn projects for now.
     pub unsafe fn set_stream(&mut self, stream_id: StreamId) {
         self.stream_id = Some(stream_id);
+    }
+
+    /// Returns a clone of this client pinned to `stream`.
+    ///
+    /// Every operation on the returned client runs on `stream`'s id (and hence
+    /// its memory pool), regardless of which thread issues it. This is the safe,
+    /// ergonomic replacement for the unsafe [`set_stream`](Self::set_stream)
+    /// dance: route many threads through clients sharing one [`Stream`] to bound
+    /// resident memory to a single pool.
+    pub fn with_stream(&self, stream: &Stream) -> Self {
+        let mut client = self.clone();
+        // SAFETY: pinning a client to an explicit, externally-owned stream id is
+        // the supported safe path — `set_stream` is only `unsafe` because raw ids
+        // can otherwise be forged.
+        unsafe { client.set_stream(stream.id()) };
+        client
     }
 
     fn do_read(&self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, ServerError>> {
@@ -372,7 +390,9 @@ impl<R: Runtime> ComputeClient<R> {
         input: Input,
         task: F,
     ) -> Result<Re, ServerError> {
-        let stream_id = StreamId::current();
+        // Use the client's resolved stream so a stream-pinned client stays on its
+        // own stream instead of falling back to the ambient thread id.
+        let stream_id = self.stream_id();
 
         self.device.submit(move |server| {
             server.allocation_mode(MemoryAllocationMode::Persistent, stream_id);
