@@ -11,11 +11,10 @@ pub fn handle_command(
     let exclude = vec![];
     let only = vec![];
 
-    // checks
+    // checks (lint is handled separately below)
     [
         CheckSubCommand::Audit,
         CheckSubCommand::Format,
-        CheckSubCommand::Lint,
         CheckSubCommand::Typos,
     ]
     .iter()
@@ -35,6 +34,28 @@ pub fn handle_command(
             context.clone(),
         )
     })?;
+
+    // Lint. The base check command silently ignores `--exclude` for `--target workspace`,
+    // so the Apple-only `cubecl-metal` (which pulls in `objc2`) can't be dropped that way.
+    // On non-Apple hosts, reuse check.rs's `run_ci_lint`, which builds the clippy command
+    // by hand with `--exclude`; on macOS, lint the full workspace as before.
+    #[cfg(target_os = "macos")]
+    base_commands::check::handle_command(
+        CheckCmdArgs {
+            command: Some(CheckSubCommand::Lint),
+            exclude: exclude.clone(),
+            ignore_audit: args.ignore_audit,
+            only: only.clone(),
+            target: target.clone(),
+            ignore_typos: args.ignore_typos,
+            features: args.features.clone(),
+            no_default_features: args.no_default_features,
+        },
+        env.clone(),
+        context.clone(),
+    )?;
+    #[cfg(not(target_os = "macos"))]
+    crate::commands::check::run_ci_lint()?;
 
     // build
     super::build::handle_command(
