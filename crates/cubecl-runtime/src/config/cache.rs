@@ -1,3 +1,5 @@
+use etcetera::BaseStrategy;
+
 /// Cache location options.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum CacheConfig {
@@ -49,12 +51,14 @@ impl CacheConfig {
                 // on Linux) and cascaded a `CacheFile::new` directory
                 // failure into the whole autotune pipeline. Use the
                 // platform-appropriate user cache directory instead.
-                if let Some(cache) = dirs::cache_dir() {
-                    return cache.join("cubecl");
+                if let Ok(strategy) = etcetera::choose_base_strategy() {
+                    return strategy.cache_dir().join("cubecl");
                 }
                 dir_original.join("target")
             }
-            Self::Global => dirs::config_local_dir().unwrap(),
+            Self::Global => etcetera::choose_base_strategy()
+                .expect("a configuration directory should exist")
+                .config_dir(),
             Self::File(path_buf) => path_buf.clone(),
         }
     }
