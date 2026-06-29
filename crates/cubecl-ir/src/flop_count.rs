@@ -37,7 +37,7 @@ impl FlopCountProcessor {
     }
 
     /// Append `counter[0] += 1` to the processing instruction stream.
-    fn emit_increment(&self, processing: &mut ScopeProcessing) {
+    fn emit_increment(&self, processing: &mut ScopeProcessing, vector_size: usize) {
         // Build the increment in a throwaway scope that shares the global state (allocator, type
         // maps, ...) so the freshly created values don't collide with existing ones. Profiling is
         // disabled on this scope so its own `process` call doesn't recurse into FLOP counting.
@@ -65,7 +65,7 @@ impl FlopCountProcessor {
         scope.register(Instruction::new(
             AtomicOp::Add(AtomicBinaryOperands {
                 ptr: elem_ptr,
-                value: Value::constant(1u32.into(), u32_ty),
+                value: Value::constant(vector_size.into(), u32_ty),
             }),
             old,
         ));
@@ -81,15 +81,15 @@ impl Processor for FlopCountProcessor {
         core::mem::swap(&mut processing.instructions, &mut instructions);
 
         for instruction in instructions {
-            let is_profiled = matches!(
-                &instruction.operation,
-                Operation::Arithmetic(Arithmetic::Add(_))
-            );
+            let (is_profiled, vector_size) = match &instruction.operation {
+                Operation::Arithmetic(Arithmetic::Add(ops)) => (true, ops.lhs.vector_size()),
+                _ => (false, 1),
+            };
 
             processing.instructions.push(instruction);
 
             if is_profiled {
-                self.emit_increment(&mut processing);
+                self.emit_increment(&mut processing, vector_size);
             }
         }
 

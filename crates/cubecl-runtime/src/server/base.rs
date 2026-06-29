@@ -3,6 +3,7 @@ use crate::{
     client::ComputeClient,
     compiler::CompilationError,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::BoundsCheckMode},
+    id::KernelId,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
@@ -33,7 +34,7 @@ use cubecl_common::{
 };
 use cubecl_ir::{DeviceProperties, ElemType, StorageType};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
-use hashbrown::HashSet;
+use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
 use thiserror::Error;
 
@@ -76,6 +77,16 @@ impl core::fmt::Debug for ProfileError {
     }
 }
 
+/// Profiling metrics recorded for a single kernel, keyed by [`KernelId`] in
+/// [`ServerUtilities::metrics`]. Populated when `hardware_metrics` profiling is enabled.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FlopRecord {
+    /// Most recently recorded FLOP count for the kernel.
+    pub last: u64,
+    /// Number of launches recorded for the kernel.
+    pub samples: u64,
+}
+
 /// Contains many different types that are useful for server implementations and compute clients.
 pub struct ServerUtilities<Server: ComputeServer> {
     /// The time when `profile-tracy` is activated.
@@ -96,10 +107,10 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub layout_policy: Server::MemoryLayoutPolicy,
     /// How to enforce bounds checking on kernels.
     pub check_mode: BoundsCheckMode,
-    /// Whether to collect hardware metrics.
-    pub hardware_metrics: bool,
     /// A set containing the ids for which the inter-device communication has already been initialized.
     pub initialized_comms: RwLock<HashSet<CommunicationId>>,
+    /// FLOP-profiling metrics recorded per kernel. Populated when `hardware_metrics` is enabled.
+    pub metrics: RwLock<HashMap<KernelId, FlopRecord>>,
 }
 
 /// Defines how the memory layout is determined.
@@ -164,8 +175,8 @@ impl<S: ComputeServer> ServerUtilities<S> {
             info,
             layout_policy: allocator,
             check_mode: config.compilation.check_mode,
-            hardware_metrics: config.profiling.hardware_metrics,
             initialized_comms: RwLock::new(HashSet::default()),
+            metrics: RwLock::new(HashMap::default()),
         }
     }
 }

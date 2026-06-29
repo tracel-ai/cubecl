@@ -8,6 +8,7 @@ use crate::{InfoBuilder, KernelSettings, ScalarArgType};
 use core::cell::RefCell;
 use cubecl_ir::{AddressType, FlopCountProcessor, Scope, StorageType, Type};
 use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
+use cubecl_runtime::id::KernelId;
 use cubecl_runtime::server::{Binding, CubeCount, Handle, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
@@ -78,14 +79,11 @@ impl<R: Runtime> KernelLauncher<R> {
         Some(handle)
     }
 
-    /// Read back the FLOP counter buffer and report it.
-    fn report_flop_counter(client: &ComputeClient<R>, handle: Handle) {
+    /// Read back the FLOP counter buffer and record it on the client, keyed by kernel id.
+    fn report_flop_counter(client: &ComputeClient<R>, id: KernelId, handle: Handle) {
         let bytes = client.read_one_unchecked(handle);
         let count = u32::from_le_bytes(bytes[..4].try_into().expect("Counter should be 4 bytes"));
-        #[cfg(feature = "std")]
-        std::eprintln!("[cubecl flop-profile] add count = {count}");
-        #[cfg(not(feature = "std"))]
-        let _ = count;
+        client.record_flop_count(id.clone(), count as u64);
     }
 
     /// Launch the kernel.
@@ -97,13 +95,15 @@ impl<R: Runtime> KernelLauncher<R> {
         client: &ComputeClient<R>,
     ) {
         let flop_counter = self.inject_profiling(client);
+
+        let kernel_id = kernel.id();
         let bindings = self.into_bindings();
         let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
 
         client.launch(kernel, cube_count, bindings);
 
         if let Some(handle) = flop_counter {
-            Self::report_flop_counter(client, handle);
+            Self::report_flop_counter(client, kernel_id, handle);
         }
     }
 
@@ -123,6 +123,8 @@ impl<R: Runtime> KernelLauncher<R> {
         client: &ComputeClient<R>,
     ) {
         let flop_counter = self.inject_profiling(client);
+
+        let kernel_id = kernel.id();
         unsafe {
             let bindings = self.into_bindings();
             let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
@@ -131,7 +133,7 @@ impl<R: Runtime> KernelLauncher<R> {
         }
 
         if let Some(handle) = flop_counter {
-            Self::report_flop_counter(client, handle);
+            Self::report_flop_counter(client, kernel_id, handle);
         }
     }
 
