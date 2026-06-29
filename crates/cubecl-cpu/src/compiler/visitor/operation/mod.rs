@@ -61,6 +61,7 @@ impl<'a> Visitor<'a> {
             // These operation are not needed in MLIR
             Operation::NonSemantic(_) => {}
             Operation::Barrier(barrier) => {
+                *self.needs_parallelism = true;
                 let barrier_level = match barrier {
                     BarrierOps::Init { barrier, .. }
                     | BarrierOps::InitManual { barrier, .. }
