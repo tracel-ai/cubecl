@@ -31,8 +31,6 @@ use cubecl_zspace::Shape;
 use cubecl_common::profile::TimingMethod;
 use cubecl_common::stream_id::StreamId;
 
-use crate::stream::Stream;
-
 /// The `ComputeClient` is the entry point to require tasks from the `ComputeServer`.
 /// It should be obtained for a specific device via the Compute struct.
 pub struct ComputeClient<R: Runtime> {
@@ -103,19 +101,19 @@ impl<R: Runtime> ComputeClient<R> {
         self.stream_id = Some(stream_id);
     }
 
-    /// Returns a clone of this client pinned to `stream`.
+    /// Returns a clone of this client pinned to `stream_id`.
     ///
-    /// Every operation on the returned client runs on `stream`'s id (and hence
-    /// its memory pool), regardless of which thread issues it. This is the safe,
+    /// Every operation on the returned client runs on `stream_id` (and hence its
+    /// memory pool), regardless of which thread issues it. This is the safe,
     /// ergonomic replacement for the unsafe [`set_stream`](Self::set_stream)
-    /// dance: route many threads through clients sharing one [`Stream`] to bound
-    /// resident memory to a single pool.
-    pub fn with_stream(&self, stream: &Stream) -> Self {
+    /// dance: route many threads through clients sharing one explicit
+    /// [`StreamId`] to bound resident memory to a single pool.
+    pub fn with_stream(&self, stream_id: StreamId) -> Self {
         let mut client = self.clone();
         // SAFETY: pinning a client to an explicit, externally-owned stream id is
         // the supported safe path — `set_stream` is only `unsafe` because raw ids
         // can otherwise be forged.
-        unsafe { client.set_stream(stream.id()) };
+        unsafe { client.set_stream(stream_id) };
         client
     }
 
