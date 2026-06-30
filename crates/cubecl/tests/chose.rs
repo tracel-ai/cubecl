@@ -29,7 +29,17 @@ fn test_chose_1() {
     let bytes = client.read_one(output).unwrap();
     let result = f32::from_bytes(&bytes);
 
-    println!("{:#?}", client.metrics().read().unwrap());
+    println!(
+        "{:#}",
+        client
+            .metrics()
+            .read()
+            .unwrap()
+            .iter()
+            .take(1)
+            .collect::<Vec<_>>()[0]
+            .1
+    );
 
     assert_eq!(result[0], lhs + rhs);
 }
@@ -93,7 +103,7 @@ fn test_chose_shape() {
     assert_eq!(result, &[3, 4]);
 }
 
-#[cube(launch)]
+#[cube(launch_unchecked)]
 fn test_chose_vectorized<F: Float, N: Size>(
     input: &Tensor<Vector<F, N>>,
     scalar: f32,
@@ -101,6 +111,10 @@ fn test_chose_vectorized<F: Float, N: Size>(
 ) {
     if ABSOLUTE_POS < out.len() {
         out[ABSOLUTE_POS] = input[ABSOLUTE_POS] + Vector::cast_from(scalar);
+        out[ABSOLUTE_POS] = input[ABSOLUTE_POS] - Vector::cast_from(scalar);
+        out[ABSOLUTE_POS] = input[ABSOLUTE_POS] * Vector::cast_from(scalar);
+        out[ABSOLUTE_POS] = input[ABSOLUTE_POS] / Vector::cast_from(scalar);
+        out[ABSOLUTE_POS] = input[ABSOLUTE_POS].sin();
     }
 }
 
@@ -109,28 +123,43 @@ fn test_chose_cube_vectorized() {
     let client = TestRuntime::client(&Default::default());
 
     let vectorization = 2;
-    let input = client.create_from_slice(f32::as_bytes(&[
-        1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12.,
-    ]));
+    let input_values = [1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12.];
+    let input = client.create_from_slice(f32::as_bytes(&input_values));
+    let scale = 10.0;
     let output = client.empty(12 * core::mem::size_of::<f32>());
 
-    test_chose_vectorized::launch::<f32, TestRuntime>(
-        &client,
-        CubeCount::Static(1, 1, 1),
-        CubeDim::new_1d(6),
-        vectorization,
-        unsafe { TensorArg::from_raw_parts(input, [4, 1].into(), [3, 4].into()) },
-        10.0,
-        unsafe { TensorArg::from_raw_parts(output.clone(), [4, 1].into(), [3, 4].into()) },
-    );
+    unsafe {
+        test_chose_vectorized::launch_unchecked::<f32, TestRuntime>(
+            &client,
+            CubeCount::Static(2, 1, 1),
+            CubeDim::new_1d((input_values.len() / vectorization) as u32),
+            vectorization,
+            unsafe { TensorArg::from_raw_parts(input, [4, 1].into(), [3, 4].into()) },
+            scale,
+            unsafe { TensorArg::from_raw_parts(output.clone(), [4, 1].into(), [3, 4].into()) },
+        );
+    }
 
     let bytes = client.read_one(output).unwrap();
     let result = f32::from_bytes(&bytes);
 
-    println!("{:#?}", client.metrics().read().unwrap());
+    println!(
+        "{:#}",
+        client
+            .metrics()
+            .read()
+            .unwrap()
+            .iter()
+            .take(1)
+            .collect::<Vec<_>>()[0]
+            .1
+    );
 
     assert_eq!(
         result,
-        &[11., 12., 13., 14., 15., 16., 17., 18., 19., 20., 21., 22.]
+        input_values
+            .into_iter()
+            .map(|v| v * scale)
+            .collect::<Vec<_>>()
     );
 }

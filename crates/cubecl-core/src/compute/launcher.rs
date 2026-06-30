@@ -1,4 +1,5 @@
 use alloc::{boxed::Box, vec::Vec};
+use bytemuck::Zeroable;
 use core::marker::PhantomData;
 
 use crate::Runtime;
@@ -6,7 +7,7 @@ use crate::prelude::{BufferArg, TensorArg, TensorMapArg, TensorMapKind};
 use crate::{InfoBuilder, KernelSettings, ScalarArgType};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
-use cubecl_ir::{AddressType, FlopCountProcessor, Scope, StorageType, Type};
+use cubecl_ir::{AddressType, OpsCounts, Scope, StorageType, Type};
 use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
 use cubecl_runtime::id::KernelId;
 use cubecl_runtime::server::{Binding, CubeCount, Handle, TensorMapBinding};
@@ -67,23 +68,25 @@ impl<R: Runtime> KernelLauncher<R> {
         self.with_info(|info| info.scalars.push_raw(bytes, dtype));
     }
 
-    /// Injects profiling buffers into the bindings before execution.
+    /// Injects the profiling counters buffer into the bindings before execution.
     fn inject_profiling(&mut self, client: &ComputeClient<R>) -> Option<Handle> {
         if !CubeClRuntimeConfig::get().profiling.hardware_metrics {
             return None;
         }
 
-        let handle = client.create_from_slice(&[0u8; 4]);
-        let arg = unsafe { BufferArg::from_raw_parts(handle.clone(), 1) };
-        self.register_buffer(arg, FlopCountProcessor::flop_counter_type());
+        let handle = client.create_from_slice(bytemuck::bytes_of(&OpsCounts::zeroed()));
+        let arg = unsafe { BufferArg::from_raw_parts(handle.clone(), OpsCounts::LEN) };
+        self.register_buffer(arg, OpsCounts::stored_type());
         Some(handle)
     }
 
-    /// Read back the FLOP counter buffer and record it on the client, keyed by kernel id.
-    fn report_flop_counter(client: &ComputeClient<R>, id: KernelId, handle: Handle) {
+    /// Read back the per-op FLOP counters and record them on the client, keyed by kernel id. The
+    /// dense slot buffer is turned into a sparse, name-keyed map here so storage stays legible.
+    fn report_profiling(client: &ComputeClient<R>, id: KernelId, handle: Handle) {
         let bytes = client.read_one_unchecked(handle);
-        let count = u32::from_le_bytes(bytes[..4].try_into().expect("Counter should be 4 bytes"));
-        client.record_flop_count(id.clone(), count as u64);
+        let ops_counts: OpsCounts = bytemuck::pod_read_unaligned(&bytes);
+
+        client.record_flop_count(id, ops_counts);
     }
 
     /// Launch the kernel.
@@ -103,7 +106,7 @@ impl<R: Runtime> KernelLauncher<R> {
         client.launch(kernel, cube_count, bindings);
 
         if let Some(handle) = flop_counter {
-            Self::report_flop_counter(client, kernel_id, handle);
+            Self::report_profiling(client, kernel_id, handle);
         }
     }
 
@@ -122,7 +125,7 @@ impl<R: Runtime> KernelLauncher<R> {
         kernel: K,
         client: &ComputeClient<R>,
     ) {
-        let flop_counter = self.inject_profiling(client);
+        let profile = self.inject_profiling(client);
 
         let kernel_id = kernel.id();
         unsafe {
@@ -132,8 +135,8 @@ impl<R: Runtime> KernelLauncher<R> {
             client.launch_unchecked(kernel, cube_count, bindings)
         }
 
-        if let Some(handle) = flop_counter {
-            Self::report_flop_counter(client, kernel_id, handle);
+        if let Some(handle) = profile {
+            Self::report_profiling(client, kernel_id, handle);
         }
     }
 

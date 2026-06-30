@@ -8,9 +8,7 @@ use crate::{
     prelude::KernelDefinition,
 };
 use alloc::collections::BTreeMap;
-use cubecl_ir::{
-    DeviceProperties, FlopCountProcessor, Scope, StorageType, TargetProperties, Value,
-};
+use cubecl_ir::{DeviceProperties, OpsCounts, Scope, StorageType, TargetProperties, Value};
 use cubecl_runtime::config::{
     CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel,
 };
@@ -94,7 +92,7 @@ impl KernelBuilder {
     /// Build the [kernel definition](KernelDefinition).
     pub fn build(mut self, settings: KernelSettings) -> KernelDefinition {
         if self.profile.enabled {
-            self.buffer(FlopCountProcessor::flop_counter_type());
+            self.buffer(OpsCounts::stored_type());
         }
 
         let scalars = self

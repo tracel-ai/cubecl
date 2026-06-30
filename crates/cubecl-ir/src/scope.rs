@@ -11,9 +11,9 @@ use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
 
 use crate::{
-    AddressSpace, AggregateExtractOperands, CubeFnSource, DeviceProperties, FastMath,
-    FlopCountProcessor, Function, OpaqueType, Operation, OperationReflect, Processor, SourceLoc,
-    StorageType, TargetProperties, TypeHash, arena::DropBump,
+    AddressSpace, AggregateExtractOperands, CubeFnSource, DeviceProperties, FastMath, Function,
+    OpaqueType, Operation, OperationReflect, OpsCountsProcessor, Processor, SourceLoc, StorageType,
+    TargetProperties, TypeHash, arena::DropBump,
 };
 
 use super::{Allocator, Id, Instruction, Type, Value, processing::ScopeProcessing};
@@ -323,15 +323,15 @@ impl Scope {
             global_state: self.global_state.clone(),
         };
 
+        for p in processors {
+            processing = p.transform(processing);
+        }
+
         if self.profile.enabled {
             let counter = self.global_state.borrow().global_args.last().copied();
             if let Some(counter) = counter {
-                processing = FlopCountProcessor::new(counter).transform(processing);
+                processing = OpsCountsProcessor::new(counter).transform(processing);
             }
-        }
-
-        for p in processors {
-            processing = p.transform(processing);
         }
 
         processing

@@ -32,7 +32,7 @@ use cubecl_common::{
     stream_id::StreamId,
     stub::RwLock,
 };
-use cubecl_ir::{DeviceProperties, ElemType, StorageType};
+use cubecl_ir::{DeviceProperties, ElemType, OpsCounts, StorageType};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
@@ -79,12 +79,23 @@ impl core::fmt::Debug for ProfileError {
 
 /// Profiling metrics recorded for a single kernel, keyed by [`KernelId`] in
 /// [`ServerUtilities::metrics`]. Populated when `hardware_metrics` profiling is enabled.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct FlopRecord {
-    /// Most recently recorded FLOP count for the kernel.
-    pub last: u64,
+    /// Most recent per-operation counts, keyed by op name (e.g. `"Add"`). Only operations that
+    /// actually executed appear. Sorted for deterministic, serialization-friendly output.
+    pub last: OpsCounts,
     /// Number of launches recorded for the kernel.
-    pub samples: u64,
+    pub samples: u32,
+}
+
+impl std::fmt::Display for FlopRecord {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        writeln!(f, "FlopRecord:")?;
+        writeln!(f, "  samples: {}", self.samples)?;
+        writeln!(f, "  last:")?;
+        write!(f, "{}", self.last)?;
+        Ok(())
+    }
 }
 
 /// Contains many different types that are useful for server implementations and compute clients.

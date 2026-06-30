@@ -34,6 +34,7 @@ cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-
 cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "=0.11.0-pre.1" }
 
 bumpalo = { workspace = true }
+bytemuck = { workspace = true, features = ["derive"] }
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = ["from", "eq"] }
 enumset = { workspace = true }
@@ -49,3 +50,5 @@ variadics_please = { workspace = true }
 
 hashbrown = { workspace = true }
 portable-atomic = { workspace = true }
+
+paste = { workspace = true }
