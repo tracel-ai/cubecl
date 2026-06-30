@@ -15,7 +15,7 @@ pub fn format_global_binding_arg<D: Dialect>(
     let name = binding.value;
     let attribute = address_space.attribute();
 
-    write!(f, "{comma}\n    {address_space} {ty} {name}",)?;
+    write!(f, "{comma}\n    {ty} {name}",)?;
     // attribute
     attribute.indexed_fmt(*attr_idx, f)?;
     *attr_idx += 1;
