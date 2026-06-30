@@ -5,8 +5,6 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use core::hash::Hash;
 
-use alloc::format;
-
 use super::{
     AutotuneError, input_generator::InputGenerator, key_generator::KeyGenerator,
     tune_inputs::TuneInputs,
@@ -93,12 +91,21 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
 
     /// Compute a checksum that invalidates outdated cached auto-tune results when the
     /// set of tunable names changes.
+    #[cfg(std_io)]
     pub fn compute_checksum(&self) -> String {
         let mut checksum = String::new();
         for tune in &self.tunables {
             checksum += &tune.function.name;
         }
-        format!("{:x}", md5::compute(checksum))
+        alloc::format!(
+            "{:x}",
+            cubecl_common::hash::StableHasher::hash_one(&checksum)
+        )
+    }
+
+    #[cfg(not(std_io))]
+    pub fn compute_checksum(&self) -> String {
+        String::new()
     }
 
     /// Generate a key from a set of inputs
