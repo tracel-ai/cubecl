@@ -4,43 +4,64 @@ use alloc::string::ToString;
 use alloc::vec::Vec;
 use paste::paste;
 
+use crate::AddressSpace;
 use crate::{
     ArithmeticOpCode, AtomicBinaryOperands, AtomicOp, ElemType, FloatKind, IndexOperands,
-    Instruction, IntKind, Memory, Operation, OperationReflect, Processor, Scope, ScopeProcessing,
-    Type, UIntKind, Value,
+    Instruction, IntKind, Memory, MemoryOpCode, Operation, OperationReflect, Processor, Scope,
+    ScopeProcessing, Type, UIntKind, Value,
 };
 
-macro_rules! arith_ops_count {
-    ($($op:ident),*) => {
+fn display_u32(value: u32) -> String {
+    let s = value.to_string();
+    s.as_bytes()
+        .rchunks(3)
+        .rev()
+        .map(|chunk| std::str::from_utf8(chunk).unwrap())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+macro_rules! ops_count {
+    ({$($op:ident),*}, $name:ident, $unit:literal) => {
         paste! {
             #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
             #[repr(C)]
-            pub struct ArithOpsCount {
+            pub struct [< $name OpsCount >] {
                 $(pub [< $op:lower >]: u32),*
             }
 
-            impl ArithOpsCount {
+            impl [< $name OpsCount >] {
                 pub const LEN: usize = size_of::<Self>() / size_of::<u32>();
 
-                pub fn offset(op_code: &ArithmeticOpCode) -> Option<usize> {
+                pub fn offset(op_code: &[< $name OpCode >]) -> Option<usize> {
                     enum OpIndex {
                         $($op),*
                     }
 
                     Some(match op_code {
-                        $(ArithmeticOpCode::$op => OpIndex::$op as usize),*
+                        $([< $name OpCode >]::$op => OpIndex::$op as usize),*
                     })
                 }
 
-                /// Whether every counter in this block is zero.
                 pub fn is_empty(&self) -> bool {
                     true $(&& self.[< $op:lower >] == 0)*
                 }
+
+                pub const KIND: &'static str = stringify!($name);
+                pub const UNIT: &'static str = $unit;
+
+                pub fn entries(&self) -> Vec<(&'static str, u32)> {
+                    let mut entries = Vec::new();
+                    $(
+                        if self.[< $op:lower >] != 0 {
+                            entries.push((stringify!($op), self.[< $op:lower >]));
+                        }
+                    )*
+                    entries
+                }
             }
 
-            impl core::fmt::Display for ArithOpsCount {
-                /// Prints each non-zero op as `Name: count`, comma separated. Zero counts are
-                /// omitted, so an all-zero block prints nothing.
+            impl core::fmt::Display for [< $name OpsCount >] {
                 fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                     let mut first = true;
                     $(
@@ -48,7 +69,7 @@ macro_rules! arith_ops_count {
                             if !first {
                                 write!(f, ", ")?;
                             }
-                            write!(f, "{}: {}", stringify!($op), self.[< $op:lower >])?;
+                            write!(f, "{}: {}{}", stringify!($op), display_u32(self.[< $op:lower >]), $unit)?;
                             first = false;
                         }
                     )*
@@ -62,15 +83,18 @@ macro_rules! arith_ops_count {
 macro_rules! ops_counts {
     (
        ariths  : [$($arith:ident),*],
+       memories  : [$($memory:ident),*],
        elems: [$($elems:ty),*]
     ) => {
     paste! {
-            arith_ops_count!($($arith),*);
+            ops_count!({$($arith),*}, Arithmetic, "ops");
+            ops_count!({$($memory),*}, Memory, "bytes");
 
             #[derive(Debug, Clone, Copy, PartialEq, Eq, bytemuck::Zeroable, bytemuck::Pod)]
             #[repr(C)]
             pub struct OpsCount {
-                pub arith: ArithOpsCount,
+                pub arith: ArithmeticOpsCount,
+                pub memory: MemoryOpsCount,
             }
 
             impl OpsCount {
@@ -80,21 +104,37 @@ macro_rules! ops_counts {
                     match op {
                         Operation::Arithmetic(arith) => {
                             let base = core::mem::offset_of!(OpsCount, arith) / size_of::<u32>();
-                            ArithOpsCount::offset(&arith.op_code()).map(|o| base + o)
+                            ArithmeticOpsCount::offset(&arith.op_code()).map(|o| base + o)
+                        }
+                        Operation::Memory(memory) => {
+                            let base = core::mem::offset_of!(OpsCount, memory) / size_of::<u32>();
+                            MemoryOpsCount::offset(&memory.op_code()).map(|o| base + o)
                         }
                         _ => None,
                     }
                 }
 
-                /// Whether every counter in this block is zero.
                 pub fn is_empty(&self) -> bool {
-                    self.arith.is_empty()
+                    self.arith.is_empty() && self.memory.is_empty()
+                }
+
+                pub fn entries(&self) -> Vec<(&'static str, &'static str, &'static str, u32)> {
+                    let mut entries = Vec::new();
+                    for (op, count) in self.arith.entries() {
+                        entries.push((ArithmeticOpsCount::KIND, ArithmeticOpsCount::UNIT, op, count));
+                    }
+                    for (op, count) in self.memory.entries() {
+                        entries.push((MemoryOpsCount::KIND, MemoryOpsCount::UNIT, op, count));
+                    }
+                    entries
                 }
             }
 
             impl core::fmt::Display for OpsCount {
                 fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                    write!(f, "{}", self.arith)
+                    write!(f, "{}", self.arith)?;
+                    write!(f, ", {}", self.memory)?;
+                    Ok(())
                 }
             }
 
@@ -106,16 +146,69 @@ macro_rules! ops_counts {
 
             impl core::fmt::Display for OpsCounts {
                 fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                    let mut any = false;
+                    let mut entries = Vec::new();
                     $(
-                        if !self.[< $elems:lower >].is_empty() {
-                            writeln!(f, "    {}: {}", stringify!($elems), self.[< $elems:lower >])?;
-                            any = true;
+                        for (kind, unit, op, count) in self.[< $elems:lower >].entries() {
+                            entries.push((
+                                stringify!($elems),
+                                kind,
+                                op,
+                                display_u32(count),
+                                unit
+                            ));
                         }
                     )*
-                    if !any {
-                        writeln!(f, "    (none)")?;
+
+                    if entries.is_empty() {
+                        return writeln!(f, "    (none)");
                     }
+
+                    let max_op_len = entries.iter().map(|e| e.2.len()).max().unwrap_or(0);
+                    let max_count_len = entries.iter().map(|e| e.3.len()).max().unwrap_or(0);
+
+                    let mut current_elem = "";
+                    let mut current_kind = "";
+                    let mut is_last_kind = false;
+
+                    for i in 0..entries.len() {
+                        let (elem, kind, op, ref count_str, unit) = entries[i];
+
+                        if elem != current_elem {
+                            writeln!(f, "{}", elem)?;
+                            current_elem = elem;
+                            current_kind = "";
+                        }
+
+                        if kind != current_kind {
+                            is_last_kind = !entries[i + 1..]
+                                .iter()
+                                .any(|e| e.0 == elem && e.1 != kind);
+
+                            let kind_prefix = if is_last_kind { "└── " } else { "├── " };
+                            writeln!(f, "{}{}", kind_prefix, kind)?;
+                            current_kind = kind;
+                        }
+
+                        let is_last_op = i + 1 == entries.len()
+                            || entries[i + 1].0 != elem
+                            || entries[i + 1].1 != kind;
+
+                        let kind_indent = if is_last_kind { "    " } else { "│   " };
+                        let op_prefix = if is_last_op { "└── " } else { "├── " };
+
+                        writeln!(
+                            f,
+                            "{}{}{:<width$} {:>count_width$} {}",
+                            kind_indent,
+                            op_prefix,
+                            format!("{}:", op),
+                            count_str,
+                            unit,
+                            width = max_op_len + 1,
+                            count_width = max_count_len
+                        )?;
+                    }
+
                     Ok(())
                 }
             }
@@ -125,6 +218,7 @@ macro_rules! ops_counts {
 
 ops_counts!(
     ariths: [Add, SaturatingAdd, Fma, Sub, SaturatingSub, Mul, Div, Abs, Exp, Log, Log1p, Expm1, Cos, Sin, Tan, Tanh, Sinh, Cosh, ArcCos, ArcSin, ArcTan, ArcSinh, ArcCosh, ArcTanh, Degrees, Radians, ArcTan2, Powf, Powi, Hypot, Rhypot, Sqrt, InverseSqrt, Round, Floor, Ceil, Trunc, Erf, Recip, Clamp, Neg, Max, Min, Rem, ModFloor, Magnitude, Normalize, Dot, MulHi, VectorSum],
+    memories: [Index, Load, Store, CopyMemory],
     elems: [Bool, E2M1, E2M3, E3M2, E4M3, E5M2, UE8M0, F16, BF16, Flex32, F32, TF32, F64, Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64]
 );
 
@@ -176,21 +270,15 @@ pub struct OpsCountsProcessor {
 }
 
 impl OpsCountsProcessor {
-    /// Create a processor that increments the given global atomic `counter` array.
     pub fn new(ops_counts: Value) -> Self {
         Self { ops_counts }
     }
 
-    /// Append `counter[slot] += amount` to the processing instruction stream.
-    fn emit_increment(&self, processing: &mut ScopeProcessing, slot: u32, amount: u32) {
-        // Build the increment in a throwaway scope that shares the global state (allocator, type
-        // maps, ...) so the freshly created values don't collide with existing ones. Profiling is
-        // disabled on this scope so its own `process` call doesn't recurse into FLOP counting.
+    fn emit_increment(&self, processing: &mut ScopeProcessing, index: u32, amount: u32) {
         let scope = Scope::root(false, false).with_global_state(processing.global_state.clone());
 
         let u32_ty = Type::scalar(ElemType::UInt(UIntKind::U32));
 
-        // `&counter[slot]` -> pointer to the atomic element for this op.
         let elem_ptr = scope.create_value(Type::pointer(
             self.ops_counts.value_type(),
             self.ops_counts.address_space(),
@@ -198,14 +286,13 @@ impl OpsCountsProcessor {
         scope.register(Instruction::new(
             Memory::Index(IndexOperands {
                 list: self.ops_counts,
-                index: Value::constant(slot.into(), u32_ty),
+                index: Value::constant(index.into(), u32_ty),
                 unroll_factor: 1,
                 checked: false,
             }),
             elem_ptr,
         ));
 
-        // `atomicAdd(&counter[slot], amount)`. The returned old value is unused.
         let old = scope.create_value(u32_ty);
         scope.register(Instruction::new(
             AtomicOp::Add(AtomicBinaryOperands {
@@ -229,7 +316,34 @@ impl Processor for OpsCountsProcessor {
             let metric = match &instruction.operation {
                 Operation::Arithmetic(_) => {
                     OpsCounts::offset(&instruction.out().elem_type(), &instruction.operation)
-                        .map(|slot| (slot as u32, instruction.out().vector_size() as u32))
+                        .map(|index| (index as u32, instruction.out().vector_size() as u32))
+                }
+                Operation::Memory(memory) => {
+                    let (value, target_address_spaces) = match memory {
+                        Memory::Index(_) => (
+                            instruction.out(),
+                            std::vec![instruction.out().address_space()],
+                        ),
+                        Memory::Load(variable) => (*variable, std::vec![variable.address_space()]),
+                        Memory::Store(op) => (op.value, std::vec![op.ptr.address_space()]),
+                        Memory::CopyMemory(op) => (
+                            op.source,
+                            std::vec![op.source.address_space(), op.target.address_space()],
+                        ),
+                    };
+
+                    if target_address_spaces.iter().any(|addr_space| {
+                        !matches!(addr_space, AddressSpace::Local | AddressSpace::Shared)
+                    }) {
+                        OpsCounts::offset(&value.elem_type(), &instruction.operation).map(|index| {
+                            (
+                                index as u32,
+                                (value.vector_size() * value.elem_type().size()) as u32,
+                            )
+                        })
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             };
