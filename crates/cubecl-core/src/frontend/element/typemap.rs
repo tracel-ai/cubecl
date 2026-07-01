@@ -115,6 +115,7 @@ impl<Marker: 'static> Neg for DynamicScalar<Marker> {
             ConstantValue::Float(val) => (-val).into(),
             ConstantValue::UInt(val) => (-(val as i64)).into(),
             ConstantValue::Bool(val) => (!val).into(),
+            ConstantValue::Complex(_, _) => panic!("Complex values aren't supported"),
         })
     }
 }
@@ -315,7 +316,9 @@ impl<Marker: 'static> Recip for DynamicScalar<Marker> {}
 impl<Marker: 'static> Erf for DynamicScalar<Marker> {}
 impl<Marker: 'static> Exp for DynamicScalar<Marker> {}
 impl<Marker: 'static> ModFloor for DynamicScalar<Marker> {}
-impl<Marker: 'static> Abs for DynamicScalar<Marker> {}
+impl<Marker: 'static> Abs for DynamicScalar<Marker> {
+    type AbsElem = Self;
+}
 impl<Marker: 'static> Log for DynamicScalar<Marker> {}
 impl<Marker: 'static> Log1p for DynamicScalar<Marker> {}
 impl<Marker: 'static> Expm1 for DynamicScalar<Marker> {}
@@ -430,6 +433,7 @@ impl<Marker: 'static> Not for DynamicScalar<Marker> {
             ConstantValue::UInt(val) => (!val).into(),
             ConstantValue::Bool(val) => (!val).into(),
             ConstantValue::Float(val) => f64::from_bits(!val.to_bits()).into(),
+            ConstantValue::Complex(_, _) => panic!("Complex values aren't supported"),
         })
     }
 }
@@ -481,6 +485,7 @@ impl<Marker: 'static> Shl for DynamicScalar<Marker> {
             ConstantValue::Float(val) => f64::from_bits(val.to_bits() << rhs.val.as_u64()).into(),
             ConstantValue::UInt(val) => (val << rhs.val.as_u64()).into(),
             ConstantValue::Bool(_) => panic!("Invalid value"),
+            ConstantValue::Complex(_, _) => panic!("Complex values aren't supported"),
         })
     }
 }
@@ -493,6 +498,7 @@ impl<Marker: 'static> Shr for DynamicScalar<Marker> {
             ConstantValue::Float(val) => f64::from_bits(val.to_bits() >> rhs.val.as_u64()).into(),
             ConstantValue::UInt(val) => (val >> rhs.val.as_u64()).into(),
             ConstantValue::Bool(_) => panic!("Invalid value"),
+            ConstantValue::Complex(_, _) => panic!("Complex values aren't supported"),
         })
     }
 }
@@ -504,6 +510,7 @@ impl<Marker: 'static> ShrAssign<u32> for DynamicScalar<Marker> {
             ConstantValue::Float(val) => f64::from_bits(val.to_bits() >> rhs).into(),
             ConstantValue::UInt(val) => (val >> rhs).into(),
             ConstantValue::Bool(_) => panic!("Invalid value"),
+            ConstantValue::Complex(_, _) => panic!("Complex values aren't supported"),
         });
     }
 }
@@ -515,6 +522,7 @@ impl<Marker: 'static> ShlAssign<u32> for DynamicScalar<Marker> {
             ConstantValue::Float(val) => f64::from_bits(val.to_bits() << rhs).into(),
             ConstantValue::UInt(val) => (val << rhs).into(),
             ConstantValue::Bool(_) => panic!("Invalid value"),
+            ConstantValue::Complex(_, _) => panic!("Complex values aren't supported"),
         });
     }
 }
@@ -835,3 +843,11 @@ impl<Marker: 'static> Zero for DynamicScalar<Marker> {
         self.val.is_zero()
     }
 }
+
+impl<Marker: 'static> ComplexCore for DynamicScalar<Marker> {
+    type FloatElem = Self;
+}
+
+impl<Marker: 'static> ComplexCompare for DynamicScalar<Marker> {}
+
+impl<Marker: 'static> ComplexMath for DynamicScalar<Marker> {}

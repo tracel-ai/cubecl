@@ -304,6 +304,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
                 shared::Elem::U64 => f.write_str("uint64"),
                 shared::Elem::Bool => f.write_str("bool"),
                 shared::Elem::None => f.write_str("<none>"),
+                shared::Elem::CF32 | shared::Elem::CF64 => {
+                    f.write_str("#error Complex not supported in HIP\n")
+                }
                 shared::Elem::_Dialect(_) => Ok(()),
             }
         }

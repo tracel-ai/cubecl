@@ -157,6 +157,14 @@ impl<D: Dialect> Component<D> for Value<D> {
 }
 
 pub(crate) fn format_const<D: Dialect>(number: &ConstantValue, item: &Item<D>) -> String {
+    if let ConstantValue::Complex(re, im) = number {
+        return match item.elem() {
+            Elem::CF32 => format!("make_cuFloatComplex({re:?}f, {im:?}f)"),
+            Elem::CF64 => format!("make_cuDoubleComplex({re:?}, {im:?})"),
+            _ => unreachable!("Complex constant requires a complex element type"),
+        };
+    }
+
     // minifloats are represented as raw bits, so use special handling
     let number = match item.elem() {
         Elem::FP4(FP4Kind::E2M1) => e2m1::from_f64(number.as_f64()).to_bits(),
@@ -184,7 +192,10 @@ impl<D: Dialect> Display for Value<D> {
             Value::Value { id, .. } => write!(f, "val_{id}"),
             Value::Constant(number, item) if item.vectorization() <= 1 => {
                 let value = format_const(number, item);
-                write!(f, "{item}({value})")
+                match item.elem() {
+                    Elem::CF32 | Elem::CF64 => write!(f, "{value}"),
+                    _ => write!(f, "{item}({value})"),
+                }
             }
             Value::Constant(number, item) => {
                 let number = format_const(number, item);
@@ -501,7 +512,10 @@ impl<D: Dialect> Display for IndexedValue<D> {
 
         if let Value::Constant(value, item) = var {
             let value = format_const(value, item);
-            return write!(f, "{}({value})", item.elem());
+            return match item.elem() {
+                Elem::CF32 | Elem::CF64 => write!(f, "{value}"),
+                _ => write!(f, "{}({value})", item.elem()),
+            };
         }
 
         if var.item().unwrap_ptr().is_array_like() {
