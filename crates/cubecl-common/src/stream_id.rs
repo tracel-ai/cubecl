@@ -94,13 +94,16 @@ impl core::fmt::Display for StreamId {
 /// Two implementations keep `swap`/`executes`/`current` working uniformly across
 /// every build:
 ///
-/// * `std`: a process-global atomic counter plus a `thread_local!` ambient cell,
-///   so each thread has its own current stream (the historical behavior).
-/// * `no_std`: a single-threaded global cell for both the counter and the ambient
-///   value. This is what lets multiple explicit streams coexist on single-threaded
-///   / wasm targets (where `swap` used to be a no-op). It is sound only because
-///   `no_std` builds of this crate are assumed single-threaded.
-#[cfg(feature = "std")]
+/// * `multi_threading` (`std` && non-wasm): a process-global atomic counter plus a
+///   `thread_local!` ambient cell, so each thread has its own current stream (the
+///   historical behavior).
+/// * `not(multi_threading)` (`no_std` or wasm): a single-threaded global cell for
+///   both the counter and the ambient value. This is what lets multiple explicit
+///   streams coexist on single-threaded / wasm targets (where `swap` used to be a
+///   no-op). It is sound only because these targets are assumed single-threaded —
+///   the same assumption the rest of the crate already encodes in the
+///   `multi_threading` cfg.
+#[cfg(multi_threading)]
 mod ambient {
     use core::cell::Cell;
     use core::sync::atomic::{AtomicU64, Ordering};
@@ -127,15 +130,17 @@ mod ambient {
     }
 }
 
-#[cfg(not(feature = "std"))]
+#[cfg(not(multi_threading))]
 mod ambient {
     use core::cell::Cell;
 
-    /// Wrapper that makes a `Cell` usable inside a `static`. Sound because `no_std`
-    /// builds of this crate are single-threaded (see module docs).
+    /// Wrapper that makes a `Cell` usable inside a `static`. Sound because
+    /// `not(multi_threading)` builds (`no_std` or wasm) are single-threaded
+    /// (see module docs).
     struct SingleThreaded<T>(T);
 
-    // SAFETY: no_std builds never access these statics from more than one thread.
+    // SAFETY: not(multi_threading) builds (no_std or wasm) never access these
+    // statics from more than one thread.
     unsafe impl<T> Sync for SingleThreaded<T> {}
 
     static STREAM_COUNT: SingleThreaded<Cell<u64>> = SingleThreaded(Cell::new(0));
