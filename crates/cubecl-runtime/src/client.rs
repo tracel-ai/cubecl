@@ -94,27 +94,11 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Set the stream in which the current client is operating on.
     ///
-    /// # Safety
-    ///
-    /// This is highly unsafe and should probably only be used by the CubeCL/Burn projects for now.
-    pub unsafe fn set_stream(&mut self, stream_id: StreamId) {
+    /// Every operation on this client then runs on `stream_id` (and hence its
+    /// memory pool), regardless of which thread issues it. Pin a cloned client
+    /// to an explicit [`StreamId`] to bound resident memory to a single pool.
+    pub fn set_stream(&mut self, stream_id: StreamId) {
         self.stream_id = Some(stream_id);
-    }
-
-    /// Returns a clone of this client pinned to `stream_id`.
-    ///
-    /// Every operation on the returned client runs on `stream_id` (and hence its
-    /// memory pool), regardless of which thread issues it. This is the safe,
-    /// ergonomic replacement for the unsafe [`set_stream`](Self::set_stream)
-    /// dance: route many threads through clients sharing one explicit
-    /// [`StreamId`] to bound resident memory to a single pool.
-    pub fn with_stream(&self, stream_id: StreamId) -> Self {
-        let mut client = self.clone();
-        // SAFETY: pinning a client to an explicit, externally-owned stream id is
-        // the supported safe path — `set_stream` is only `unsafe` because raw ids
-        // can otherwise be forged.
-        unsafe { client.set_stream(stream_id) };
-        client
     }
 
     fn do_read(&self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, ServerError>> {
