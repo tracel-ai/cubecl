@@ -168,12 +168,12 @@ mod tests {
         let stream_a = StreamId { value: 0 };
         let stream_b = StreamId { value: max_streams };
 
-        let client_a = unsafe {
+        let client_a = {
             let mut client = client.clone();
             client.set_stream(stream_a);
             client
         };
-        let client_b = unsafe {
+        let client_b = {
             let mut client = client.clone();
             client.set_stream(stream_b);
             client

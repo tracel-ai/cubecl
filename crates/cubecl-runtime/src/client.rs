@@ -94,10 +94,10 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Set the stream in which the current client is operating on.
     ///
-    /// # Safety
-    ///
-    /// This is highly unsafe and should probably only be used by the CubeCL/Burn projects for now.
-    pub unsafe fn set_stream(&mut self, stream_id: StreamId) {
+    /// Every operation on this client then runs on `stream_id` (and hence its
+    /// memory pool), regardless of which thread issues it. Pin a cloned client
+    /// to an explicit [`StreamId`] to bound resident memory to a single pool.
+    pub fn set_stream(&mut self, stream_id: StreamId) {
         self.stream_id = Some(stream_id);
     }
 
@@ -372,7 +372,9 @@ impl<R: Runtime> ComputeClient<R> {
         input: Input,
         task: F,
     ) -> Result<Re, ServerError> {
-        let stream_id = StreamId::current();
+        // Use the client's resolved stream so a stream-pinned client stays on its
+        // own stream instead of falling back to the ambient thread id.
+        let stream_id = self.stream_id();
 
         self.device.submit(move |server| {
             server.allocation_mode(MemoryAllocationMode::Persistent, stream_id);

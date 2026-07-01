@@ -16,12 +16,12 @@ pub fn big_task<F: Float>(input: &[u32], output: &mut [F], num_loop: usize) {
 }
 
 pub fn test_stream<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
-    let client_1 = unsafe {
+    let client_1 = {
         let mut c = client.clone();
         c.set_stream(StreamId { value: 10000 });
         c
     };
-    let client_2 = unsafe {
+    let client_2 = {
         let mut c = client.clone();
         c.set_stream(StreamId { value: 10001 });
         c
