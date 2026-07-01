@@ -30,7 +30,7 @@ impl StreamId {
     ///
     /// The previous [`StreamId`] is saved before the call and restored on
     /// return — including on unwind — so the caller never has to manage
-    /// raw `swap` pairs.
+    /// raw `set_current` pairs.
     pub fn executes<F, T>(self, f: F) -> T
     where
         F: FnOnce() -> T,
@@ -39,13 +39,11 @@ impl StreamId {
 
         impl Drop for Guard {
             fn drop(&mut self) {
-                unsafe {
-                    StreamId::swap(self.0);
-                }
+                StreamId::set_current(self.0);
             }
         }
 
-        let old = unsafe { StreamId::swap(self) };
+        let old = StreamId::set_current(self);
         let guard = Guard(old);
 
         let returned = f();
@@ -71,12 +69,12 @@ impl StreamId {
         Self { value }
     }
 
-    /// Swap the current stream id for the given one, returning the previous one.
+    /// Set this thread's ambient stream id, returning the previous one.
     ///
-    /// # Safety
-    ///
-    /// Unknown at this point, don't use that if you don't know what you are doing.
-    pub unsafe fn swap(stream: StreamId) -> StreamId {
+    /// The returned id is the stream that was current before the call. Hold onto
+    /// it if you intend to restore it later; most callers should prefer
+    /// [`StreamId::executes`], which restores automatically (even on unwind).
+    pub fn set_current(stream: StreamId) -> StreamId {
         let old = Self::current();
         ambient::set(Some(stream.value));
         old
@@ -91,7 +89,7 @@ impl core::fmt::Display for StreamId {
 
 /// Backing store for the global stream counter and the ambient current-stream cell.
 ///
-/// Two implementations keep `swap`/`executes`/`current` working uniformly across
+/// Two implementations keep `set_current`/`executes`/`current` working uniformly across
 /// every build:
 ///
 /// * `multi_threading` (`std` && non-wasm): a process-global atomic counter plus a
@@ -99,7 +97,7 @@ impl core::fmt::Display for StreamId {
 ///   historical behavior).
 /// * `not(multi_threading)` (`no_std` or wasm): a single-threaded global cell for
 ///   both the counter and the ambient value. This is what lets multiple explicit
-///   streams coexist on single-threaded / wasm targets (where `swap` used to be a
+///   streams coexist on single-threaded / wasm targets (where `set_current` used to be a
 ///   no-op). It is sound only because these targets are assumed single-threaded —
 ///   the same assumption the rest of the crate already encodes in the
 ///   `multi_threading` cfg.
