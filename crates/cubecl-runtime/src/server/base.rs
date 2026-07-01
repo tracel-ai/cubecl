@@ -435,23 +435,109 @@ where
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
 }
 
-/// An ID unique to any unordered combination of devices.
+/// An ID unique to a [`CommunicationGroup`].
+///
+/// Used as the key into per-server communicator caches. Built via one of the variant-specific
+/// constructors ([`CommunicationId::local`] or [`CommunicationId::distributed`]) so two groups
+/// with identical local devices but different cluster contexts cannot collide.
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct CommunicationId {
     /// The ID as a `String`.
     pub id: u64,
 }
 
-impl From<Vec<DeviceId>> for CommunicationId {
-    fn from(mut value: Vec<DeviceId>) -> Self {
-        // Make sure that device ids are sorted so that any combination of the same devices uses the same communicator.
-        value.sort();
+impl CommunicationId {
+    /// Build an id for an in-process [`CommunicationGroup::Local`] group.
+    pub fn local(devices: &[DeviceId]) -> Self {
+        let mut devices = devices.to_vec();
+        devices.sort();
         let mut hasher = AHasher::default();
-        value.hash(&mut hasher);
-        CommunicationId {
+        0u8.hash(&mut hasher);
+        devices.hash(&mut hasher);
+        Self {
             id: hasher.finish(),
         }
     }
+
+    /// Build an id for a [`CommunicationGroup::Distributed`] group.
+    pub fn distributed(cluster: &ClusterInfo) -> Self {
+        let mut hasher = AHasher::default();
+        1u8.hash(&mut hasher);
+        cluster.hash(&mut hasher);
+        Self {
+            id: hasher.finish(),
+        }
+    }
+}
+
+/// Describes a group of devices that participate in collective communication.
+///
+/// The [`Local`](CommunicationGroup::Local) variant covers the in-process case where every
+/// participating device is owned by `CudaServer`s living in this process. The
+/// [`Distributed`](CommunicationGroup::Distributed) variant carries the extra information needed
+/// to coordinate ranks across hosts (global rank, world size, rendezvous handle).
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub enum CommunicationGroup {
+    /// All participants live in this process. Rank is derived from the position of the local
+    /// device in the sorted list.
+    Local(Vec<DeviceId>),
+    /// Participants span multiple processes / hosts. Cluster info provides the globally-assigned
+    /// rank and the rendezvous information used to bootstrap the communicator.
+    Distributed(ClusterInfo),
+}
+
+impl CommunicationGroup {
+    /// Returns the devices participating from this process.
+    pub fn local_devices(&self) -> &[DeviceId] {
+        match self {
+            Self::Local(devices) => devices,
+            Self::Distributed(cluster) => &cluster.local_devices,
+        }
+    }
+
+    /// Convenience accessor for the variant-appropriate [`CommunicationId`].
+    ///
+    /// Call sites that already match on the variant (e.g. `comm_init`) should construct the id
+    /// via [`CommunicationId::local`] / [`CommunicationId::distributed`] directly instead.
+    pub fn id(&self) -> CommunicationId {
+        match self {
+            Self::Local(devices) => CommunicationId::local(devices),
+            Self::Distributed(cluster) => CommunicationId::distributed(cluster),
+        }
+    }
+}
+
+impl From<Vec<DeviceId>> for CommunicationGroup {
+    fn from(devices: Vec<DeviceId>) -> Self {
+        Self::Local(devices)
+    }
+}
+
+/// Information needed to participate in a distributed (multi-host) communication group.
+///
+/// Designed to be group-level (not per-rank) so every local device's `comm_init` call hashes
+/// to the same [`CommunicationId`]. Each local device derives its own global rank as
+/// `global_rank_base + position_in(local_devices)` — mirroring the rank-from-position
+/// derivation used by [`CommunicationGroup::Local`].
+///
+/// `world_size`, `global_rank_base`, and `rendezvous_addr` are assigned externally (typically
+/// by an orchestrator like torchrun or MPI) and must agree across every participating process.
+/// `group_id` is a caller-supplied stable identifier used to deduplicate communicator
+/// initialization.
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub struct ClusterInfo {
+    /// Devices participating from this process. Order determines local rank assignment.
+    pub local_devices: Vec<DeviceId>,
+    /// Global rank of `local_devices[0]`. Subsequent local devices get
+    /// `global_rank_base + 1`, `global_rank_base + 2`, etc.
+    pub global_rank_base: u32,
+    /// Total number of ranks in the group, across all processes.
+    pub world_size: u32,
+    /// Stable identifier shared by every participant in the group.
+    pub group_id: u64,
+    /// Address of the rendezvous master (the rank-0 process). Rank 0 binds and listens on this
+    /// address; every other rank connects to it to fetch the `ncclUniqueId`.
+    pub rendezvous_addr: core::net::SocketAddr,
 }
 
 /// Different reduce operations.
@@ -482,17 +568,18 @@ pub trait ServerCommunication {
         todo!() // For backends other than cuda.
     }
 
-    /// Initialize the communication between the devices in `device_ids`.
+    /// Initialize the communication for the given [`CommunicationGroup`].
     ///
     /// # Arguments
     ///
-    /// * `device_ids` - The IDs of the devices that need communication.
+    /// * `group` - Describes the participating devices (and, for distributed groups, the cluster
+    ///   coordination info).
     ///
     /// # Returns
     ///
     /// Returns a `Result` containing an `ServerError` if the operation fails.
     #[allow(unused_variables)]
-    fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
+    fn comm_init(&mut self, group: CommunicationGroup) -> Result<(), ServerError> {
         unimplemented!()
     }
 
@@ -506,7 +593,7 @@ pub trait ServerCommunication {
     /// * `dtype` - The element type of the data being reduced
     /// * `stream_id` - The data's stream id.
     /// * `op` - The reduce's aggregation operation e.g. mean, sum, etc.
-    /// * `device_ids` - The list of device ids from which to `all_reduce`.
+    /// * `group` - The communication group across which the reduction is performed.
     ///
     /// # Returns
     ///
@@ -519,7 +606,7 @@ pub trait ServerCommunication {
         dtype: ElemType,
         stream_id: StreamId,
         op: ReduceOperation,
-        device_ids: Vec<DeviceId>,
+        group: CommunicationGroup,
     ) -> Result<(), ServerError> {
         unimplemented!()
     }
@@ -1167,5 +1254,107 @@ mod tests {
         let actual = cube_count_spread(&max, required);
         let expected = [25, 32, 4];
         assert_eq!(actual, expected);
+    }
+
+    fn dev(type_id: u16, index_id: u16) -> DeviceId {
+        DeviceId { type_id, index_id }
+    }
+
+    fn sample_cluster() -> ClusterInfo {
+        ClusterInfo {
+            local_devices: alloc::vec![dev(1, 0), dev(1, 1)],
+            global_rank_base: 0,
+            world_size: 4,
+            group_id: 7,
+            rendezvous_addr: core::net::SocketAddr::from(([127, 0, 0, 1], 4567)),
+        }
+    }
+
+    #[test_log::test]
+    fn local_communication_id_is_sort_invariant() {
+        let a = CommunicationId::local(&[dev(1, 0), dev(1, 1), dev(1, 2)]);
+        let b = CommunicationId::local(&[dev(1, 2), dev(1, 0), dev(1, 1)]);
+        assert_eq!(a, b);
+    }
+
+    #[test_log::test]
+    fn local_communication_id_differs_across_device_sets() {
+        let a = CommunicationId::local(&[dev(1, 0), dev(1, 1)]);
+        let b = CommunicationId::local(&[dev(1, 0), dev(1, 2)]);
+        assert_ne!(a, b);
+    }
+
+    #[test_log::test]
+    fn local_and_distributed_never_collide_even_with_same_devices() {
+        let cluster = ClusterInfo {
+            local_devices: alloc::vec![dev(1, 0), dev(1, 1)],
+            ..sample_cluster()
+        };
+        let local = CommunicationId::local(&cluster.local_devices);
+        let distributed = CommunicationId::distributed(&cluster);
+        // Even though the device list matches, the variant tag must keep these distinct so a
+        // single per-server HashMap can hold both communicator entries side by side.
+        assert_ne!(local, distributed);
+    }
+
+    #[test_log::test]
+    fn distributed_communication_id_changes_with_cluster_fields() {
+        let base = sample_cluster();
+
+        let differ_group = ClusterInfo {
+            group_id: 8,
+            ..base.clone()
+        };
+        let differ_rank = ClusterInfo {
+            global_rank_base: 2,
+            ..base.clone()
+        };
+        let differ_world = ClusterInfo {
+            world_size: 8,
+            ..base.clone()
+        };
+        let differ_addr = ClusterInfo {
+            rendezvous_addr: core::net::SocketAddr::from(([127, 0, 0, 1], 9999)),
+            ..base.clone()
+        };
+
+        let id_base = CommunicationId::distributed(&base);
+        assert_ne!(id_base, CommunicationId::distributed(&differ_group));
+        assert_ne!(id_base, CommunicationId::distributed(&differ_rank));
+        assert_ne!(id_base, CommunicationId::distributed(&differ_world));
+        assert_ne!(id_base, CommunicationId::distributed(&differ_addr));
+    }
+
+    #[test_log::test]
+    fn group_id_dispatches_to_the_matching_explicit_constructor() {
+        let devices = alloc::vec![dev(1, 0), dev(1, 1)];
+        let local_group = CommunicationGroup::Local(devices.clone());
+        assert_eq!(local_group.id(), CommunicationId::local(&devices));
+
+        let cluster = sample_cluster();
+        let dist_group = CommunicationGroup::Distributed(cluster.clone());
+        assert_eq!(dist_group.id(), CommunicationId::distributed(&cluster));
+    }
+
+    #[test_log::test]
+    fn vec_into_communication_group_defaults_to_local() {
+        let devices = alloc::vec![dev(1, 0), dev(1, 1)];
+        let group: CommunicationGroup = devices.clone().into();
+        assert!(matches!(group, CommunicationGroup::Local(ref d) if d == &devices));
+    }
+
+    #[test_log::test]
+    fn communication_group_local_devices_accessor() {
+        let devices = alloc::vec![dev(2, 0), dev(2, 1)];
+
+        let local = CommunicationGroup::Local(devices.clone());
+        assert_eq!(local.local_devices(), devices.as_slice());
+
+        let cluster = ClusterInfo {
+            local_devices: devices.clone(),
+            ..sample_cluster()
+        };
+        let dist = CommunicationGroup::Distributed(cluster);
+        assert_eq!(dist.local_devices(), devices.as_slice());
     }
 }

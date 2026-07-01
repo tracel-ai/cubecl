@@ -5,8 +5,8 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
-        KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
+        CommunicationGroup, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle,
+        IoError, KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
         MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
         ServerUtilities,
     },
@@ -611,13 +611,13 @@ impl<R: Runtime> ComputeClient<R> {
         }
     }
 
-    /// Perform an `all_reduce` operation on the given devices.
+    /// Ensure the communicator for `group` has been initialized on this server.
     #[cfg_attr(
         feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, device_ids))
+        tracing::instrument(level = "trace", skip(self, group))
     )]
-    pub fn ensure_init_collective(&mut self, device_ids: Vec<DeviceId>) {
-        let comm_id = CommunicationId::from(device_ids.clone());
+    pub fn ensure_init_collective(&mut self, group: CommunicationGroup) {
+        let comm_id = group.id();
         let is_comms_init = self
             .utilities
             .initialized_comms
@@ -626,7 +626,7 @@ impl<R: Runtime> ComputeClient<R> {
             .contains(&comm_id);
         if !is_comms_init {
             self.device
-                .submit(move |server| server.comm_init(device_ids).unwrap());
+                .submit(move |server| server.comm_init(group).unwrap());
             let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
             initialized_comms.insert(comm_id);
             // Flush immediately so other devices aren't blocked waiting on this initialization.
@@ -651,17 +651,17 @@ impl<R: Runtime> ComputeClient<R> {
         self.device.flush_queue();
     }
 
-    /// Perform an `all_reduce` operation on the given devices.
+    /// Perform an `all_reduce` operation across the given [`CommunicationGroup`].
     #[cfg_attr(
         feature = "tracing",
-        tracing::instrument(level = "trace", skip(self, src, dst, dtype, device_ids, op))
+        tracing::instrument(level = "trace", skip(self, src, dst, dtype, group, op))
     )]
     pub fn all_reduce(
         &mut self,
         src: Handle,
         dst: Handle,
         dtype: ElemType,
-        device_ids: Vec<DeviceId>,
+        group: CommunicationGroup,
         op: ReduceOperation,
     ) {
         if DeviceHandle::<R::Server>::is_blocking() {
@@ -672,11 +672,11 @@ impl<R: Runtime> ComputeClient<R> {
         let src = src.binding();
         let dst = dst.binding();
 
-        self.ensure_init_collective(device_ids.clone());
+        self.ensure_init_collective(group.clone());
 
         self.device.submit(move |server| {
             server
-                .all_reduce(src, dst, dtype, stream_id, op, device_ids)
+                .all_reduce(src, dst, dtype, stream_id, op, group)
                 .unwrap();
         });
     }
@@ -704,9 +704,9 @@ impl<R: Runtime> ComputeClient<R> {
         let handle = Handle::new(stream_id_dst, src_descriptor.handle.size_in_used());
         let handle_cloned = handle.clone();
 
-        let device_ids = vec![device_id_src, device_id_dst];
-        self.ensure_init_collective(device_ids.clone());
-        dst_server.ensure_init_collective(device_ids);
+        let group = CommunicationGroup::Local(vec![device_id_src, device_id_dst]);
+        self.ensure_init_collective(group.clone());
+        dst_server.ensure_init_collective(group);
 
         self.device.submit(move |server_src| {
             server_src

@@ -3,7 +3,10 @@ use crate::{
     CudaCompiler,
     compute::{
         command::Command,
-        communication::{get_nccl_comm_id, get_nccl_dtype_count, to_nccl_op},
+        communication::{
+            get_nccl_comm_id_local, get_nccl_dtype_count, rendezvous_distributed_unique_id,
+            to_nccl_op,
+        },
         context::CudaContext,
         stream::CudaStreamBackend,
         sync::Fence,
@@ -19,9 +22,9 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Binding, CommunicationId, CopyDescriptor, Handle, KernelArguments, LaunchError,
-        ProfileError, ProfilingToken, ReduceOperation, ServerCommunication, ServerError,
-        ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
+        Binding, CommunicationGroup, CommunicationId, CopyDescriptor, Handle, KernelArguments,
+        LaunchError, ProfileError, ProfilingToken, ReduceOperation, ServerCommunication,
+        ServerError, ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
     },
 };
 use cubecl_runtime::{
@@ -38,12 +41,7 @@ use cudarc::driver::sys::{
     CUstream_st, CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapInterleave,
     CUtensorMapL2promotion, CUtensorMapSwizzle, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
-use std::{
-    collections::{HashMap, hash_map::Entry},
-    ffi::c_void,
-    mem::MaybeUninit,
-    sync::Arc,
-};
+use std::{collections::HashMap, ffi::c_void, mem::MaybeUninit, sync::Arc};
 
 pub(crate) const MB: usize = 1024 * 1024;
 
@@ -278,38 +276,57 @@ impl ComputeServer for CudaServer {
 impl ServerCommunication for CudaServer {
     const SERVER_COMM_ENABLED: bool = true;
 
-    fn comm_init(&mut self, device_ids: Vec<DeviceId>) -> Result<(), ServerError> {
-        let id = CommunicationId::from(device_ids.clone());
-        if let Entry::Vacant(e) = self.communicators.entry(id.clone()) {
-            let mut comm = MaybeUninit::uninit();
-            let mut device_ids = device_ids.clone();
-            device_ids.sort();
-            let rank = device_ids
-                .iter()
-                .position(|id| id.index_id == self.device_id.index_id)
-                .expect("Device's peer id should be in the list of device ids.");
-            let nccl_comm_id = get_nccl_comm_id(device_ids.clone());
+    fn comm_init(&mut self, group: CommunicationGroup) -> Result<(), ServerError> {
+        let (id, count, rank, nccl_comm_id) = match &group {
+            CommunicationGroup::Local(device_ids) => {
+                let id = CommunicationId::local(device_ids);
+                if self.communicators.contains_key(&id) {
+                    return Ok(());
+                }
+                let mut device_ids = device_ids.clone();
+                device_ids.sort();
+                let rank = device_ids
+                    .iter()
+                    .position(|id| id.index_id == self.device_id.index_id)
+                    .expect("Device's peer id should be in the list of device ids.")
+                    as i32;
+                let count = device_ids.len() as i32;
+                let nccl_comm_id = get_nccl_comm_id_local(&device_ids);
+                (id, count, rank, nccl_comm_id)
+            }
+            CommunicationGroup::Distributed(cluster) => {
+                let id = CommunicationId::distributed(cluster);
+                if self.communicators.contains_key(&id) {
+                    return Ok(());
+                }
+                let position = cluster
+                    .local_devices
+                    .iter()
+                    .position(|id| id.index_id == self.device_id.index_id)
+                    .expect("Local device should appear in cluster.local_devices");
+                let rank = cluster.global_rank_base as i32 + position as i32;
+                let count = cluster.world_size as i32;
+                let nccl_comm_id = rendezvous_distributed_unique_id(cluster, rank)?;
+                (id, count, rank, nccl_comm_id)
+            }
+        };
 
-            // SAFETY: `comm` is a valid `MaybeUninit`. `nccl_comm_id` is a unique communicator ID
-            // shared across all participating ranks. `rank` is this device's position in the
-            // group. `comm_init_rank` initializes the communicator, making `assume_init` valid.
-            unsafe {
-                cudarc::nccl::result::comm_init_rank(
-                    comm.as_mut_ptr(),
-                    device_ids.len() as i32,
-                    nccl_comm_id,
-                    rank as i32,
-                )
+        let mut comm = MaybeUninit::uninit();
+
+        // SAFETY: `comm` is a valid `MaybeUninit`. `nccl_comm_id` is a unique communicator ID
+        // shared across all participating ranks. `rank` is this device's position in the
+        // group. `comm_init_rank` initializes the communicator, making `assume_init` valid.
+        unsafe {
+            cudarc::nccl::result::comm_init_rank(comm.as_mut_ptr(), count, nccl_comm_id, rank)
                 .map_err(|e| ServerError::Generic {
                     reason: format!("NCCL comm_init_rank failed: {e:?}"),
                     backtrace: BackTrace::capture(),
                 })?;
-                e.insert(comm.assume_init());
-            }
-
-            let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
-            initialized_comms.insert(id);
+            self.communicators.insert(id.clone(), comm.assume_init());
         }
+
+        let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
+        initialized_comms.insert(id);
 
         Ok(())
     }
@@ -321,7 +338,7 @@ impl ServerCommunication for CudaServer {
         dtype: ElemType,
         stream_id: StreamId,
         op: ReduceOperation,
-        device_ids: Vec<DeviceId>,
+        group: CommunicationGroup,
     ) -> Result<(), ServerError> {
         // We create a command on the server to retrieve the correct resource of the source and the destination
         // from the memory pools.
@@ -363,7 +380,7 @@ impl ServerCommunication for CudaServer {
         // Get the communicator.
         let comm = self
             .communicators
-            .get(&CommunicationId::from(device_ids))
+            .get(&group.id())
             .expect("Communicator for this ID should be initialized");
 
         // Perform the `cudarc::nccl::result::all_reduce` operation.
@@ -441,7 +458,7 @@ impl ServerCommunication for CudaServer {
         // Get the communicator.
         let mut device_ids = vec![device_id_dst, self.device_id];
         device_ids.sort();
-        let comm_id = CommunicationId::from(device_ids.clone());
+        let comm_id = CommunicationId::local(&device_ids);
         let comm = self
             .communicators
             .get(&comm_id)
@@ -502,7 +519,7 @@ impl ServerCommunication for CudaServer {
         // Get the communicator.
         let mut device_ids = vec![device_id_src, self.device_id];
         device_ids.sort();
-        let comm_id = CommunicationId::from(device_ids.clone());
+        let comm_id = CommunicationId::local(&device_ids);
         let comm = self
             .communicators
             .get(&comm_id)
