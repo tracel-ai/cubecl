@@ -14,17 +14,20 @@ pub(super) struct Module<'a> {
     name: String,
     location: Location<'a>,
     context: &'a Context,
+    pub needs_parallelism: bool,
 }
 
 impl<'a> Module<'a> {
     pub(super) fn new(context: &'a Context, name: String) -> Self {
         let location = Location::unknown(context);
         let module = tracel_llvm::mlir_rs::ir::Module::new(location);
+        let needs_parallelism = false;
         Self {
             module,
             context,
             name,
             location,
+            needs_parallelism,
         }
     }
 
@@ -45,6 +48,7 @@ impl<'a> Module<'a> {
             global_state,
             shared_memories,
             addr_type,
+            &mut self.needs_parallelism,
         )
     }
 
