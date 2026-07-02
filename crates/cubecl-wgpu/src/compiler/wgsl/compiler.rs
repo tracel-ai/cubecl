@@ -19,6 +19,7 @@ use cubecl_core::{
 };
 use cubecl_core::{post_processing::disaggregate::DisaggregateVisitor, prelude::*};
 use cubecl_ir::AddressSpace;
+use cubecl_ir::ProfileCompiler;
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::kernel;
 use hashbrown::HashMap;
@@ -50,6 +51,33 @@ pub struct WgslCompiler {
     strategy: ExecutionMode,
     subgroup_instructions_used: bool,
     f16_used: bool,
+    profiler: cubecl_core::ir::CompilerProfiler<WgslCompilerProfiler>,
+}
+
+#[derive(Clone, Default)]
+pub struct WgslCompilerProfiler {
+    /// WGSL name of the global atomic counter buffer (e.g. `val_12`), set before emitting suffixes.
+    counter: Option<String>,
+}
+
+impl ProfileCompiler for WgslCompilerProfiler {
+    type I = wgsl::Instruction;
+
+    fn increment_instruction(&self, slot: u32, amount: u32) -> Self::I {
+        wgsl::Instruction::Custom(format!("flop_{slot} += {amount}u;"))
+    }
+
+    fn prefix_instruction(&self, slot: u32) -> Self::I {
+        wgsl::Instruction::Custom(format!("var flop_{slot} = 0u;"))
+    }
+
+    fn suffix_instruction(&self, slot: u32) -> Self::I {
+        let counter = self
+            .counter
+            .as_deref()
+            .expect("The counter buffer should be set when profiling is enabled");
+        wgsl::Instruction::Custom(format!("atomicAdd(&{counter}[{slot}], flop_{slot});"))
+    }
 }
 
 impl core::fmt::Debug for WgslCompiler {
@@ -130,7 +158,14 @@ impl WgslCompiler {
             .resize(value.num_global_buffers(), Visibility::Read);
 
         let address_type = self.compile_storage_type(address_type);
-        let instructions = self.compile_scope(&value.body);
+        let mut instructions = self.compile_scope(&value.body);
+        if value.body.profile.enabled {
+            // The counter buffer is the last one, appended by the kernel builder when profiling.
+            if let Some(counter) = value.buffers.last() {
+                self.profiler.compiler_mut().counter = Some(format!("val_{}", counter.value.id()));
+            }
+            self.profiler.profile(&mut instructions);
+        }
         let extensions = register_extensions(&instructions);
         let body = wgsl::Body {
             instructions,
@@ -311,6 +346,10 @@ impl WgslCompiler {
         out: Option<cube::Value>,
         scope: &cube::Scope,
     ) {
+        if scope.profile.enabled {
+            self.profiler
+                .profile_operation(&operation, out.as_ref(), instructions);
+        }
         match operation {
             cube::Operation::Copy(value) => instructions.push(wgsl::Instruction::Assign {
                 input: self.compile_value(value),

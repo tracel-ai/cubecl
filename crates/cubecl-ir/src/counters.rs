@@ -6,9 +6,8 @@ use paste::paste;
 
 use crate::AddressSpace;
 use crate::{
-    ArithmeticOpCode, AtomicBinaryOperands, AtomicOp, ElemType, FloatKind, IndexOperands,
-    Instruction, IntKind, Memory, MemoryOpCode, Operation, OperationReflect, Processor, Scope,
-    ScopeProcessing, Type, UIntKind, Value,
+    ArithmeticOpCode, ElemType, FloatKind, IntKind, Memory, MemoryOpCode, Operation,
+    OperationReflect, Type, UIntKind, Value,
 };
 
 fn display_u32(value: u32) -> String {
@@ -19,6 +18,54 @@ fn display_u32(value: u32) -> String {
         .map(|chunk| std::str::from_utf8(chunk).unwrap())
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+#[derive(derive_new::new)]
+pub struct CountInfo {
+    pub slot: u32,
+    pub amount: u32,
+}
+
+pub struct OpsCounter;
+
+impl OpsCounter {
+    pub fn count(operation: &Operation, out: Option<&Value>) -> Option<CountInfo> {
+        match operation {
+            Operation::Arithmetic(_) => {
+                let out = out?;
+                OpsCounts::offset(&out.elem_type(), operation)
+                    .map(|index| CountInfo::new(index as u32, out.vector_size() as u32))
+            }
+            Operation::Memory(memory) => {
+                let (value, target_address_spaces) = match memory {
+                    Memory::Index(_) => {
+                        let out = out?;
+                        (out, std::vec![out.address_space()])
+                    }
+                    Memory::Load(variable) => (variable, std::vec![variable.address_space()]),
+                    Memory::Store(op) => (&op.value, std::vec![op.ptr.address_space()]),
+                    Memory::CopyMemory(op) => (
+                        &op.source,
+                        std::vec![op.source.address_space(), op.target.address_space()],
+                    ),
+                };
+
+                if target_address_spaces.iter().any(|addr_space| {
+                    !matches!(addr_space, AddressSpace::Local | AddressSpace::Shared)
+                }) {
+                    OpsCounts::offset(&value.elem_type(), operation).map(|index| {
+                        CountInfo::new(
+                            index as u32,
+                            (value.vector_size() * value.elem_type().size()) as u32,
+                        )
+                    })
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 macro_rules! ops_count {
@@ -257,104 +304,5 @@ impl OpsCounts {
 
     pub fn offset(elem: &ElemType, op: &Operation) -> Option<usize> {
         OpsCount::offset(op).map(|within| Self::elem_index(elem) * OpsCount::LEN + within)
-    }
-
-    pub fn tracked_name(elem: &ElemType, op: &Operation) -> String {
-        format!("{:?}_{:?}", elem.to_string(), op.to_string())
-    }
-}
-
-#[derive(Debug)]
-pub struct OpsCountsProcessor {
-    ops_counts: Value,
-}
-
-impl OpsCountsProcessor {
-    pub fn new(ops_counts: Value) -> Self {
-        Self { ops_counts }
-    }
-
-    fn emit_increment(&self, processing: &mut ScopeProcessing, index: u32, amount: u32) {
-        let scope = Scope::root(false, false).with_global_state(processing.global_state.clone());
-
-        let u32_ty = Type::scalar(ElemType::UInt(UIntKind::U32));
-
-        let elem_ptr = scope.create_value(Type::pointer(
-            self.ops_counts.value_type(),
-            self.ops_counts.address_space(),
-        ));
-        scope.register(Instruction::new(
-            Memory::Index(IndexOperands {
-                list: self.ops_counts,
-                index: Value::constant(index.into(), u32_ty),
-                unroll_factor: 1,
-                checked: false,
-            }),
-            elem_ptr,
-        ));
-
-        let old = scope.create_value(u32_ty);
-        scope.register(Instruction::new(
-            AtomicOp::Add(AtomicBinaryOperands {
-                ptr: elem_ptr,
-                value: Value::constant(amount.into(), u32_ty),
-            }),
-            old,
-        ));
-
-        let tmp = scope.process([]);
-        processing.instructions.extend(tmp.instructions);
-    }
-}
-
-impl Processor for OpsCountsProcessor {
-    fn transform(&self, mut processing: ScopeProcessing) -> ScopeProcessing {
-        let mut instructions = Vec::new();
-        core::mem::swap(&mut processing.instructions, &mut instructions);
-
-        for instruction in instructions {
-            let metric = match &instruction.operation {
-                Operation::Arithmetic(_) => {
-                    OpsCounts::offset(&instruction.out().elem_type(), &instruction.operation)
-                        .map(|index| (index as u32, instruction.out().vector_size() as u32))
-                }
-                Operation::Memory(memory) => {
-                    let (value, target_address_spaces) = match memory {
-                        Memory::Index(_) => (
-                            instruction.out(),
-                            std::vec![instruction.out().address_space()],
-                        ),
-                        Memory::Load(variable) => (*variable, std::vec![variable.address_space()]),
-                        Memory::Store(op) => (op.value, std::vec![op.ptr.address_space()]),
-                        Memory::CopyMemory(op) => (
-                            op.source,
-                            std::vec![op.source.address_space(), op.target.address_space()],
-                        ),
-                    };
-
-                    if target_address_spaces.iter().any(|addr_space| {
-                        !matches!(addr_space, AddressSpace::Local | AddressSpace::Shared)
-                    }) {
-                        OpsCounts::offset(&value.elem_type(), &instruction.operation).map(|index| {
-                            (
-                                index as u32,
-                                (value.vector_size() * value.elem_type().size()) as u32,
-                            )
-                        })
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            };
-
-            processing.instructions.push(instruction);
-
-            if let Some((slot, amount)) = metric {
-                self.emit_increment(&mut processing, slot, amount);
-            }
-        }
-
-        processing
     }
 }

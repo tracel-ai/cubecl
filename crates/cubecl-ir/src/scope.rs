@@ -12,8 +12,8 @@ use itertools::Itertools;
 
 use crate::{
     AddressSpace, AggregateExtractOperands, CubeFnSource, DeviceProperties, FastMath, Function,
-    OpaqueType, Operation, OperationReflect, OpsCountsProcessor, Processor, SourceLoc, StorageType,
-    TargetProperties, TypeHash, arena::DropBump,
+    OpaqueType, Operation, OperationReflect, Processor, SourceLoc, StorageType, TargetProperties,
+    TypeHash, arena::DropBump,
 };
 
 use super::{Allocator, Id, Instruction, Type, Value, processing::ScopeProcessing};
@@ -325,13 +325,6 @@ impl Scope {
 
         for p in processors {
             processing = p.transform(processing);
-        }
-
-        if self.profile.enabled {
-            let counter = self.global_state.borrow().global_args.last().copied();
-            if let Some(counter) = counter {
-                processing = OpsCountsProcessor::new(counter).transform(processing);
-            }
         }
 
         processing
