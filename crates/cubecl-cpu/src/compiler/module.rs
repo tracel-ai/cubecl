@@ -1,12 +1,9 @@
-use cubecl_core::{ir::StorageType, prelude::KernelDefinition};
-use cubecl_opt::Function;
+use cubecl_core::prelude::KernelDefinition;
 use tracel_llvm::mlir_rs::{
     Context, ExecutionEngine,
     ir::{Location, operation::OperationLike},
     pass::{self, PassManager},
 };
-
-use super::{passes::shared_memories::SharedMemories, visitor::Visitor};
 
 pub(super) struct Module<'a> {
     module: tracel_llvm::mlir_rs::ir::Module<'a>,
@@ -31,19 +28,19 @@ impl<'a> Module<'a> {
     pub(super) fn visit_kernel(
         &mut self,
         kernel: &KernelDefinition,
-        func: &Function,
-        shared_memories: &SharedMemories,
-        addr_type: StorageType,
+        // func: &Function,
+        // shared_memories: &SharedMemories,
+        // addr_type: StorageType,
     ) {
-        Visitor::visit_kernel(
-            self.context,
-            self.location,
-            kernel,
-            &self.module,
-            func,
-            shared_memories,
-            addr_type,
-        )
+        // Visitor::visit_kernel(
+        //     self.context,
+        //     self.location,
+        //     kernel,
+        //     &self.module,
+        //     func,
+        //     // shared_memories,
+        //     addr_type,
+        // )
     }
 
     pub(super) fn run_pass(&mut self) {

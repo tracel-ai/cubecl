@@ -97,10 +97,9 @@ impl Threadpool {
 
         let mlir_data = MlirData::new(
             resources,
-            &mlir_engine.0.shared_memories,
-            &mut self.memory_management_shared_memory,
-            cube_dim,
-            cube_count,
+            // &mlir_engine.0.shared_memories,
+            // &mut self.memory_management_shared_memory,
+            cube_dim, cube_count,
         );
 
         let notifications = Notifications::new(cube_dim_size);

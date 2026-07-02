@@ -1,8 +1,6 @@
 use crate::compiler::mlir_data::MlirData;
 
-use super::{
-    external_function::register_external_function, passes::shared_memories::SharedMemories,
-};
+use super::external_function::register_external_function;
 
 use std::{
     fmt::{Debug, Display},
@@ -10,8 +8,8 @@ use std::{
 };
 
 use super::module::Module;
-use cubecl_core::{ir::StorageType, prelude::KernelDefinition};
-use cubecl_opt::Function;
+use cubecl_core::prelude::KernelDefinition;
+// use cubecl_opt::Function;
 use tracel_llvm::mlir_rs::{
     Context, ExecutionEngine,
     dialect::DialectRegistry,
@@ -20,7 +18,7 @@ use tracel_llvm::mlir_rs::{
 
 pub struct MlirKernel {
     execution_engine: ExecutionEngine,
-    pub shared_memories: SharedMemories,
+    // pub shared_memories: SharedMemories,
 }
 
 #[derive(Clone)]
@@ -41,9 +39,9 @@ impl Display for MlirEngine {
 impl MlirEngine {
     pub fn from_cubecl_ir(
         kernel: KernelDefinition,
-        func: &Function,
-        shared_memories: SharedMemories,
-        addr_type: StorageType,
+        // func: &Function,
+        // shared_memories: SharedMemories,
+        // addr_type: StorageType,
     ) -> Self {
         let registry = DialectRegistry::new();
         register_all_dialects(&registry);
@@ -55,9 +53,9 @@ impl MlirEngine {
         context.append_dialect_registry(&registry);
         context.load_all_available_dialects();
 
-        let mut module = Module::new(&context, kernel.options.kernel_name.clone());
+        let mut module = Module::new(&context, kernel.settings.kernel_name.clone());
 
-        module.visit_kernel(&kernel, func, &shared_memories, addr_type);
+        module.visit_kernel(&kernel);
 
         module.run_pass();
 
@@ -65,7 +63,7 @@ impl MlirEngine {
         register_external_function(&execution_engine);
         let kernel = MlirKernel {
             execution_engine,
-            shared_memories,
+            // shared_memories,
         };
         let mlir_kernel = Arc::new(kernel);
         Self(mlir_kernel)
