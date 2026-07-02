@@ -66,5 +66,7 @@ pub use tma::*;
 pub use r#type::*;
 pub use variable::*;
 
-pub(crate) use cubecl_macros_internal::{OperationArgs, OperationCode, OperationReflect, TypeHash};
+pub(crate) use cubecl_macros_internal::{
+    EnumCounts, OperationArgs, OperationCode, OperationReflect, TypeHash,
+};
 pub use type_hash::TypeHash;

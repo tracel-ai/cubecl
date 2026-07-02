@@ -52,3 +52,5 @@ hashbrown = { workspace = true }
 portable-atomic = { workspace = true }
 
 paste = { workspace = true }
+
+strum = { version = "0.28.0", features = ["derive"] }

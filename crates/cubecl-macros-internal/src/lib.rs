@@ -2,9 +2,11 @@ use generate::{
     op_args::generate_op_args,
     operation::{generate_opcode, generate_operation},
 };
+use enum_counts::enum_counts_impl;
 use proc_macro::TokenStream;
 use type_hash::type_hash_impl;
 
+mod enum_counts;
 mod generate;
 mod parse;
 mod type_hash;
@@ -71,4 +73,17 @@ pub fn derive_opcode(input: TokenStream) -> TokenStream {
 pub fn derive_type_hash(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = syn::parse(input).unwrap();
     type_hash_impl(input).into()
+}
+
+/// Generates variant reflection (`COUNT`, `VARIANTS`, `index`) for a fieldless enum, plus a flat
+/// `#[repr(C)]` named-field companion `{Enum}Counts<T>` (one field per variant) with `get`/`get_mut`,
+/// `iter`, `as_slice`, `Index`/`IndexMut`, and `Pod`/`Zeroable` when `T` is. Adding a variant extends
+/// both automatically.
+#[proc_macro_derive(EnumCounts)]
+pub fn derive_enum_counts(input: TokenStream) -> TokenStream {
+    let input = syn::parse(input).unwrap();
+    match enum_counts_impl(input) {
+        Ok(tokens) => tokens.into(),
+        Err(e) => e.into_compile_error().into(),
+    }
 }
