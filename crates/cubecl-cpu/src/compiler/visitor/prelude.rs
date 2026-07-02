@@ -1,4 +1,4 @@
-pub use super::Visitor;
+// pub use super::Visitor;
 pub use tracel_llvm::mlir_rs::{
     Context, Error,
     helpers::{ArithBlockExt, BuiltinBlockExt},

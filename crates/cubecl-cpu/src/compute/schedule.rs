@@ -41,6 +41,7 @@ impl core::fmt::Debug for ScheduleTask {
                 cube_count,
             } => f
                 .debug_struct("Execute")
+                .field("stream_id", stream_id)
                 .field("cube_dim", cube_dim)
                 .field("cube_count", cube_count)
                 .finish(),
