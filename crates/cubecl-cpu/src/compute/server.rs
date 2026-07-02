@@ -10,12 +10,12 @@ use cubecl_common::{
     backtrace::BackTrace, bytes::Bytes, profile::ProfileDuration, stream_id::StreamId,
 };
 use cubecl_core::{
-    CompilationError, CubeCount, ExecutionMode, MemoryConfiguration, MemoryUsage,
+    CompilationError, CubeCount, MemoryConfiguration, MemoryUsage,
     future::DynFut,
     ir::MemoryDeviceProperties,
     server::{
-        BufferBinding, ComputeServer, CopyDescriptor, IoError, KernelArguments, ProfileError,
-        ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
+        BufferBinding, ComputeServer, CopyDescriptor, IoError, KernelArguments, KernelResource,
+        ProfileError, ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -78,17 +78,19 @@ impl CpuServer {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
         let resources = bindings
-            .buffers
+            .resources
             .into_iter()
-            .map(|binding| {
+            .filter_map(|binding| {
+                let KernelResource::Buffer(binding) = binding else {
+                    return None;
+                };
                 let stream = self.scheduler.stream(&binding.stream);
-                let memory = binding.memory.clone();
-                let resource = stream
-                    .memory_management
-                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                    .unwrap();
-
-                ManagedResource::new(memory, resource)
+                Some(
+                    stream
+                        .memory_management
+                        .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                        .unwrap(),
+                )
             })
             .collect::<Vec<_>>();
 
@@ -290,8 +292,14 @@ impl ComputeServer for CpuServer {
     ) {
         self.streams_pool.clear();
         bindings
-            .buffers
+            .resources
             .iter()
+            .filter_map(|b| {
+                let KernelResource::Buffer(b) = b else {
+                    return None;
+                };
+                Some(b)
+            })
             .for_each(|b| self.streams_pool.push(b.stream));
         let bindings = self.prepare_bindings(bindings);
         let task = self

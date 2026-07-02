@@ -9,26 +9,18 @@ pub(super) mod visitor;
 
 use cubecl_common::backtrace::BackTrace;
 use cubecl_runtime::compiler::CompilationError;
-use passes::shared_memories::SharedMemories;
+// use passes::shared_memories::SharedMemories;
 pub use visitor::elem::register_supported_types;
 
 use cubecl_core::{
-    Compiler,
-    ir::{self, StorageType},
-    post_processing::{
-        checked_io::CheckedIoVisitor, disaggregate::DisaggregateVisitor,
-        predicate::PredicateProcessor, saturating::LowerSaturatingArithmetic,
-    },
-    prelude::KernelDefinition,
-    server::ExecutionMode,
+    Compiler, post_processing::saturating::LowerSaturatingArithmetic, prelude::KernelDefinition,
 };
-use cubecl_opt::OptimizerBuilder;
 use mlir_engine::MlirEngine;
 
-use crate::compiler::passes::{
-    erf_transform::ErfTransform,
-    trigonometries_transform::{HypotTransform, RhypotTransform},
-};
+// use crate::compiler::passes::{
+//     erf_transform::ErfTransform,
+//     trigonometries_transform::{HypotTransform, RhypotTransform},
+// };
 
 #[derive(Clone, Debug, Default)]
 pub struct MlirCompiler {}
@@ -45,8 +37,6 @@ impl Compiler for MlirCompiler {
         &mut self,
         kernel: KernelDefinition,
         _compilation_options: &Self::CompilationOptions, // TODO pass this through the visitor, though it doesn't need anything for the moment
-        mode: ExecutionMode, // TODO support this by adding array bound checking
-        addr_type: StorageType,
     ) -> Result<Self::Representation, CompilationError> {
         let errors = kernel.body.pop_errors();
         if !errors.is_empty() {
@@ -64,31 +54,25 @@ impl Compiler for MlirCompiler {
 
         #[cfg(feature = "mlir-dump")]
         dump_scope(&kernel.body, &kernel.options.kernel_name);
-        let mut opt = OptimizerBuilder::default()
-            .with_transformer(ErfTransform)
-            .with_transformer(HypotTransform)
-            .with_transformer(RhypotTransform)
-            .with_visitor(CheckedIoVisitor::new(
-                mode,
-                kernel.options.kernel_name.clone(),
-            ))
-            .with_visitor(DisaggregateVisitor::default())
-            .with_processor(LowerSaturatingArithmetic::new(true))
-            .with_processor(PredicateProcessor)
-            .optimize(kernel.body.clone(), kernel.cube_dim);
+        // let opt = OptimizerBuilder::default()
+        // .with_transformer(ErfTransform)
+        // .with_transformer(HypotTransform)
+        // .with_transformer(RhypotTransform)
+        // .with_visitor(CheckedIoVisitor::new(
+        //     mode,
+        //     kernel.options.kernel_name.clone(),
+        // ))
+        // .with_visitor(DisaggregateVisitor::default())
+        // .with_processor(LowerSaturatingArithmetic::new())
+        // .with_processor(PredicateProcessor)
+        // .optimize(kernel.body.clone(), kernel.cube_dim);
 
-        let mut shared_memories = SharedMemories::default();
-        shared_memories.visit(&opt);
+        // let mut shared_memories = SharedMemories::default();
+        // shared_memories.visit(&opt);
 
         #[cfg(feature = "mlir-dump")]
         dump_opt(&opt, &kernel.options.kernel_name);
-        Ok(MlirEngine::from_cubecl_ir(
-            kernel,
-            &mut opt.main,
-            &opt.global_state,
-            shared_memories,
-            addr_type,
-        ))
+        Ok(MlirEngine::from_cubecl_ir(kernel))
     }
 
     fn extension(&self) -> &'static str {

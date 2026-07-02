@@ -1,11 +1,10 @@
-use super::passes::shared_memories::SharedMemories;
+// use super::passes::shared_memories::SharedMemories;
 use crate::{
     compiler::{builtin::BuiltinArray, memref::LineMemRef},
     compute::schedule::BindingsResource,
 };
 use cubecl_core::CubeDim;
-use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
-use smallvec::SmallVec;
+// use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 use std::sync::{
     Arc,
     atomic::{AtomicI32, Ordering},
@@ -68,8 +67,8 @@ impl Clone for MlirData {
 impl MlirData {
     pub fn new(
         bindings: BindingsResource,
-        shared_memories: &SharedMemories,
-        memory_management_shared_memory: &mut MemoryManagement<BytesStorage>,
+        // shared_memories: &SharedMemories,
+        // memory_management_shared_memory: &mut MemoryManagement<BytesStorage>,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
     ) -> Self {
@@ -77,7 +76,8 @@ impl MlirData {
         let cube_dim_size = cube_dim.num_elems() as i32;
 
         let builtin = BuiltinArray::new(cube_dim, cube_count);
-        let indirect_args_len = resources.len() + shared_memories.0.len() + 2;
+        // let indirect_args_len = resources.len() + shared_memories.0.len() + 2;
+        let indirect_args_len = resources.len() + 2;
         let total_args_len = indirect_args_len + BuiltinArray::len();
 
         let args_zero_indirection = Vec::with_capacity(indirect_args_len);
@@ -111,24 +111,24 @@ impl MlirData {
             push_undirected(line_memref);
         }
 
-        let mut smem_handles = Vec::with_capacity(shared_memories.0.len());
-        for shared_memory in shared_memories.0.iter() {
-            let length_bytes = shared_memory.ty.size() as u64 * shared_memory.length as u64;
-            let handle = memory_management_shared_memory
-                .reserve(length_bytes)
-                .unwrap();
+        // let mut smem_handles = Vec::with_capacity(shared_memories.0.len());
+        // for shared_memory in shared_memories.0.iter() {
+        //     let length_bytes = shared_memory.ty.size() as u64 * shared_memory.length as u64;
+        //     let handle = memory_management_shared_memory
+        //         .reserve(length_bytes)
+        //         .unwrap();
 
-            smem_handles.push(handle.clone());
+        //     smem_handles.push(handle.clone());
 
-            let handle = memory_management_shared_memory
-                .get_resource(handle.binding(), None, None)
-                .expect("Failed to find resource");
-            let (ptr, len) = handle.get_write_ptr_and_length();
-            let line_memref = LineMemRef::new(ptr, len);
-            push_undirected(line_memref);
-        }
+        //     let handle = memory_management_shared_memory
+        //         .get_resource(handle.binding(), None, None)
+        //         .expect("Failed to find resource");
+        //     let (ptr, len) = handle.get_write_ptr_and_length();
+        //     let line_memref = LineMemRef::new(ptr, len);
+        //     push_undirected(line_memref);
+        // }
         // It is important to make sure multiple shared memories don't shared the same handle.
-        core::mem::drop(smem_handles);
+        // core::mem::drop(smem_handles);
 
         let ptr = shared_mlir_data.info.as_mut_ptr() as *mut u8;
         let info_len_bytes = shared_mlir_data.info.len() * core::mem::size_of::<u64>();
