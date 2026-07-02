@@ -9,6 +9,12 @@ pub struct NaiveScheduler {
     tx: Vec<mpsc::Sender<ComputeTask>>,
 }
 
+impl Default for NaiveScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NaiveScheduler {
     pub fn new() -> Self {
         let tx = get_active_cores()

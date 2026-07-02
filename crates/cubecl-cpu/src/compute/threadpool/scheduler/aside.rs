@@ -9,6 +9,12 @@ pub struct AsideScheduler {
     tx: Vec<mpsc::Sender<ComputeTask>>,
 }
 
+impl Default for AsideScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AsideScheduler {
     pub fn new() -> Self {
         let tx = get_active_cores()

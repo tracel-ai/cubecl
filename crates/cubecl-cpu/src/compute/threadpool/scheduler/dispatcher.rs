@@ -19,6 +19,12 @@ pub struct DispatcherScheduler {
     lens: Arc<[CachePadded<AtomicUsize>]>,
 }
 
+impl Default for DispatcherScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DispatcherScheduler {
     pub fn new() -> Self {
         let cores: Vec<_> = get_active_cores().collect();

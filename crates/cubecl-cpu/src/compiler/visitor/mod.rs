@@ -237,6 +237,7 @@ impl<'a> Visitor<'a> {
         ));
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(self) fn insert_builtin_loop(
         block: BlockRef<'a, 'a>,
         module: &tracel_llvm::mlir_rs::ir::Module<'a>,

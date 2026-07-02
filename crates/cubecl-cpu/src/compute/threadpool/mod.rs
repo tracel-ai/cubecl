@@ -14,7 +14,6 @@ use crate::{
     },
 };
 
-pub mod circular_buffer;
 pub mod compute_task;
 pub mod scheduler;
 
@@ -44,6 +43,7 @@ impl Threadpool {
         INSTANCE.get_or_init(|| spin::Mutex::new(Self::init()))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn execute_data(
         &mut self,
         mlir_engine: MlirEngine,
