@@ -100,6 +100,7 @@ pub struct DebugInfo {
 #[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
 pub struct ProfileInfo {
     pub enabled: bool,
+    pub counters_buffer: Option<Value>,
 }
 
 /// Modes set and reset during expansion
@@ -162,6 +163,7 @@ impl Scope {
             },
             profile: ProfileInfo {
                 enabled: profile_enabled,
+                counters_buffer: None,
             },
             global_state: Default::default(),
         }

@@ -1,9 +1,11 @@
 use super::Item;
 use super::Subgroup;
 use super::shader::ComputeShader;
+use crate::compiler::wgsl::WgslCompilerProfiler;
 use crate::compiler::wgsl::{self, SharedValue};
 
 use cubecl_common::backtrace::BackTrace;
+use cubecl_core::CompilerProfiler;
 use cubecl_core::ir::{Processor, UIntKind};
 use cubecl_core::{
     Info,
@@ -19,7 +21,6 @@ use cubecl_core::{
 };
 use cubecl_core::{post_processing::disaggregate::DisaggregateVisitor, prelude::*};
 use cubecl_ir::AddressSpace;
-use cubecl_ir::ProfileCompiler;
 use cubecl_runtime::compiler::CompilationError;
 use cubecl_runtime::kernel;
 use hashbrown::HashMap;
@@ -51,33 +52,7 @@ pub struct WgslCompiler {
     strategy: ExecutionMode,
     subgroup_instructions_used: bool,
     f16_used: bool,
-    profiler: cubecl_core::ir::CompilerProfiler<WgslCompilerProfiler>,
-}
-
-#[derive(Clone, Default)]
-pub struct WgslCompilerProfiler {
-    /// WGSL name of the global atomic counter buffer (e.g. `val_12`), set before emitting suffixes.
-    counter: Option<String>,
-}
-
-impl ProfileCompiler for WgslCompilerProfiler {
-    type I = wgsl::Instruction;
-
-    fn increment_instruction(&self, slot: u32, amount: u32) -> Self::I {
-        wgsl::Instruction::Custom(format!("flop_{slot} += {amount}u;"))
-    }
-
-    fn prefix_instruction(&self, slot: u32) -> Self::I {
-        wgsl::Instruction::Custom(format!("var flop_{slot} = 0u;"))
-    }
-
-    fn suffix_instruction(&self, slot: u32) -> Self::I {
-        let counter = self
-            .counter
-            .as_deref()
-            .expect("The counter buffer should be set when profiling is enabled");
-        wgsl::Instruction::Custom(format!("atomicAdd(&{counter}[{slot}], flop_{slot});"))
-    }
+    profiler: CompilerProfiler<WgslCompilerProfiler>,
 }
 
 impl core::fmt::Debug for WgslCompiler {
@@ -157,16 +132,13 @@ impl WgslCompiler {
         self.buffer_vis
             .resize(value.num_global_buffers(), Visibility::Read);
 
-        let address_type = self.compile_storage_type(address_type);
+        self.setup_profiler(&value.body);
         let mut instructions = self.compile_scope(&value.body);
-        if value.body.profile.enabled {
-            // The counter buffer is the last one, appended by the kernel builder when profiling.
-            if let Some(counter) = value.buffers.last() {
-                self.profiler.compiler_mut().counter = Some(format!("val_{}", counter.value.id()));
-            }
-            self.profiler.profile(&mut instructions);
-        }
+        self.profile(&value.body, &mut instructions);
+
+        let address_type = self.compile_storage_type(address_type);
         let extensions = register_extensions(&instructions);
+
         let body = wgsl::Body {
             instructions,
             id: self.id,
@@ -323,6 +295,25 @@ impl WgslCompiler {
     fn constant_var(&mut self, value: u32) -> wgsl::Value {
         let val = cube::Value::constant(value.into(), UIntKind::U32);
         self.compile_value(val)
+    }
+
+    fn setup_profiler(&mut self, scope: &cube::Scope) {
+        if scope.profile.enabled {
+            let counter = self.compile_value(
+                scope
+                    .profile
+                    .counters_buffer
+                    .expect("Profiling counters buffer should be initialized"),
+            );
+
+            self.profiler.set_counter(counter);
+        }
+    }
+
+    fn profile(&self, scope: &cube::Scope, mut instructions: &mut Vec<wgsl::Instruction>) {
+        if scope.profile.enabled {
+            self.profiler.profile(&mut instructions);
+        }
     }
 
     fn compile_scope(&mut self, scope: &cube::Scope) -> Vec<wgsl::Instruction> {

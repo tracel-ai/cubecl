@@ -97,7 +97,7 @@ impl<R: Runtime> KernelLauncher<R> {
         kernel: K,
         client: &ComputeClient<R>,
     ) {
-        let flop_counter = self.inject_profiling(client);
+        let profile = self.inject_profiling(client);
 
         let kernel_id = kernel.id();
         let bindings = self.into_bindings();
@@ -105,7 +105,7 @@ impl<R: Runtime> KernelLauncher<R> {
 
         client.launch(kernel, cube_count, bindings);
 
-        if let Some(handle) = flop_counter {
+        if let Some(handle) = profile {
             Self::report_profiling(client, kernel_id, handle);
         }
     }

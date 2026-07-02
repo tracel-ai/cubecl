@@ -92,7 +92,8 @@ impl KernelBuilder {
     /// Build the [kernel definition](KernelDefinition).
     pub fn build(mut self, settings: KernelSettings) -> KernelDefinition {
         if self.profile.enabled {
-            self.buffer(OpsCounts::stored_type());
+            let buffer = self.buffer(OpsCounts::stored_type());
+            self.scope.profile.counters_buffer = Some(buffer);
         }
 
         let scalars = self

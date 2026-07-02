@@ -5,6 +5,7 @@ fn test_chose_cube(lhs: f32, rhs: f32, out: &mut [f32]) {
     if UNIT_POS == 0 {
         out[0] = lhs + rhs + lhs;
         out[0] = lhs + rhs;
+        terminate!();
         out[0] = lhs + rhs;
     }
 }
@@ -134,9 +135,9 @@ fn test_chose_cube_vectorized() {
             CubeCount::Static(2, 1, 1),
             CubeDim::new_1d((input_values.len() / vectorization) as u32),
             vectorization,
-            unsafe { TensorArg::from_raw_parts(input, [4, 1].into(), [3, 4].into()) },
+            TensorArg::from_raw_parts(input, [4, 1].into(), [3, 4].into()),
             scale,
-            unsafe { TensorArg::from_raw_parts(output.clone(), [4, 1].into(), [3, 4].into()) },
+            TensorArg::from_raw_parts(output.clone(), [4, 1].into(), [3, 4].into()),
         );
     }
 
