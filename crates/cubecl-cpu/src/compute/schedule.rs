@@ -1,8 +1,7 @@
 use crate::{compiler::mlir_engine::MlirEngine, compute::stream::CpuStream};
 use cubecl_common::{bytes::Bytes, stream_id::StreamId};
 use cubecl_core::{
-    CubeDim, ExecutionMode, MemoryConfiguration, ir::MemoryDeviceProperties,
-    server::MetadataBindingInfo,
+    CubeDim, MemoryConfiguration, ir::MemoryDeviceProperties, server::MetadataBindingInfo,
 };
 use cubecl_runtime::{
     logging::ServerLogger,
@@ -24,7 +23,6 @@ pub enum ScheduleTask {
         stream_id: StreamId,
         mlir_engine: MlirEngine,
         bindings: BindingsResource,
-        kind: ExecutionMode,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
     },
@@ -47,13 +45,11 @@ impl core::fmt::Debug for ScheduleTask {
                 stream_id,
                 mlir_engine: _,
                 bindings: _,
-                kind,
                 cube_dim,
                 cube_count,
             } => f
                 .debug_struct("Execute")
                 .field("stream_id", stream_id)
-                .field("kind", kind)
                 .field("cube_dim", cube_dim)
                 .field("cube_count", cube_count)
                 .finish(),

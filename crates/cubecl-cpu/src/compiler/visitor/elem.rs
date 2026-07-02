@@ -1,5 +1,5 @@
 use cubecl_core::ir::{
-    AddressType, DeviceProperties, ElemType, FloatKind, IntKind, StorageType, UIntKind,
+    AddressType, DeviceProperties, ElemType, FloatKind, IntKind, UIntKind,
     features::{AtomicUsage, TypeUsage},
 };
 use tracel_llvm::mlir_rs::{
@@ -30,42 +30,42 @@ impl IntoType for ElemType {
     }
 }
 
-impl IntoType for StorageType {
-    fn to_type<'a>(self, context: &'a Context) -> Type<'a> {
-        match self {
-            StorageType::Scalar(ty) => ty.to_type(context),
-            _ => todo!("This type is not implemented yet. {}", self),
-        }
-    }
-}
+// impl IntoType for StorageType {
+//     fn to_type<'a>(self, context: &'a Context) -> Type<'a> {
+//         match self {
+//             StorageType::Scalar(ty) => ty.to_type(context),
+//             _ => todo!("This type is not implemented yet. {}", self),
+//         }
+//     }
+// }
 
-impl<'a> Visitor<'a> {
-    pub fn visit_correct_index(
-        &self,
-        lhs: Value<'a, 'a>,
-        rhs: Value<'a, 'a>,
-    ) -> (Value<'a, 'a>, Value<'a, 'a>) {
-        if lhs.r#type() == Type::index(self.context) && rhs.r#type() != Type::index(self.context) {
-            let rhs = self.append_operation_with_result(index::casts(
-                rhs,
-                Type::index(self.context),
-                self.location,
-            ));
-            (lhs, rhs)
-        } else if lhs.r#type() != Type::index(self.context)
-            && rhs.r#type() == Type::index(self.context)
-        {
-            let lhs = self.append_operation_with_result(index::casts(
-                lhs,
-                Type::index(self.context),
-                self.location,
-            ));
-            (lhs, rhs)
-        } else {
-            (lhs, rhs)
-        }
-    }
-}
+// impl<'a> Visitor<'a> {
+//     pub fn visit_correct_index(
+//         &self,
+//         lhs: Value<'a, 'a>,
+//         rhs: Value<'a, 'a>,
+//     ) -> (Value<'a, 'a>, Value<'a, 'a>) {
+//         if lhs.r#type() == Type::index(self.context) && rhs.r#type() != Type::index(self.context) {
+//             let rhs = self.append_operation_with_result(index::casts(
+//                 rhs,
+//                 Type::index(self.context),
+//                 self.location,
+//             ));
+//             (lhs, rhs)
+//         } else if lhs.r#type() != Type::index(self.context)
+//             && rhs.r#type() == Type::index(self.context)
+//         {
+//             let lhs = self.append_operation_with_result(index::casts(
+//                 lhs,
+//                 Type::index(self.context),
+//                 self.location,
+//             ));
+//             (lhs, rhs)
+//         } else {
+//             (lhs, rhs)
+//         }
+//     }
+// }
 
 pub fn register_supported_types(props: &mut DeviceProperties) {
     props.register_address_type(AddressType::U32);
