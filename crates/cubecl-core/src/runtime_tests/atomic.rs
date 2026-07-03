@@ -272,7 +272,7 @@ pub fn test_kernel_atomic_max_contention<R: Runtime, I: Numeric + CubeElement>(
 
     // Keep the highest contributed value within reach of the smallest integer type this
     // test runs against (i8, max 127), so 4 blocks of 32 threads contribute 0..=127.
-    let cube_dim = 32u32;
+    let cube_dim = std::cmp::min(32u32, client.properties().hardware.max_cube_dim.0);
     let cube_count = 4u32;
     let n = cube_dim * cube_count;
 
