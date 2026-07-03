@@ -1,7 +1,7 @@
 use crate::compiler::wgsl::Value;
 
 use super::{Body, Elem, Extension, Item};
-use cubecl_core::{CubeDim, Info, ir::Id, prelude::Visibility};
+use cubecl_core::{CubeDim, Info, ir::CountKey, ir::Id, prelude::Visibility};
 use std::fmt::Display;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -53,6 +53,12 @@ pub struct ComputeShader {
     pub kernel_name: String,
     pub subgroup_instructions_used: bool,
     pub f16_used: bool,
+    /// Profiling counters buffer, bound after every normal buffer and `info` when
+    /// `hardware_metrics` profiling is on. Kept out of `buffers` so it carries no metadata.
+    pub profile_counter: Option<KernelArg>,
+    /// Decodes the counter buffer slots back to `(op, elem, unit)` after readback. Its length is
+    /// the counter buffer size. Empty when profiling is off.
+    pub profile_map: Vec<CountKey>,
 }
 
 impl ComputeShader {
@@ -102,6 +108,20 @@ impl Display for ComputeShader {
 @binding({offset})
 var<{location}, {visibility}> info: info_st;
 \n",
+            )?;
+        }
+
+        // The profiling counters buffer is bound after every normal buffer and `info`.
+        if let Some(counter) = &self.profile_counter {
+            let binding = self.buffers.len() + self.info.has_info() as usize;
+            let ty = counter.value.item().unwrap_ptr();
+            write!(
+                f,
+                "@group(0)
+@binding({binding})
+var<storage, read_write> {}_store: {ty};
+\n",
+                counter.value,
             )?;
         }
 
@@ -187,6 +207,10 @@ fn {}(
 
         for KernelArg { value, .. } in self.buffers.iter() {
             writeln!(f, "let {value} = &{value}_store;")?;
+        }
+
+        if let Some(counter) = &self.profile_counter {
+            writeln!(f, "let {0} = &{0}_store;", counter.value)?;
         }
 
         for SharedValue { value, .. } in self.shared_values.iter() {

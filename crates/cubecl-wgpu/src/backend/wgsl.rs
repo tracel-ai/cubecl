@@ -28,6 +28,10 @@ pub fn bindings(
     if !args.info.data.is_empty() {
         bindings.push(Visibility::Read);
     }
+    // The profiling counters buffer is bound after `info` and written via atomics.
+    if repr.profile_counter.is_some() {
+        bindings.push(Visibility::ReadWrite);
+    }
     (bindings, 0)
 }
 

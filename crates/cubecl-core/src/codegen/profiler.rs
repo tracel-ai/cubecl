@@ -157,4 +157,17 @@ impl CompilerProfiler {
             }
         }
     }
+
+    /// The slot → key decoding table, indexed by dense slot. Its length is the number of used
+    /// counters, i.e. the size the global profiling buffer must be. Empty when nothing was
+    /// tracked.
+    pub fn profile_map(&self) -> Vec<CountKey> {
+        let mut entries: Vec<(usize, CountKey)> = self
+            .locals
+            .iter()
+            .map(|(key, (_, slot))| (*slot, key.clone()))
+            .collect();
+        entries.sort_by_key(|(slot, _)| *slot);
+        entries.into_iter().map(|(_, key)| key).collect()
+    }
 }

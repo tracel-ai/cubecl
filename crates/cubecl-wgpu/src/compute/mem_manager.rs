@@ -113,6 +113,25 @@ impl WgpuMemManager {
         Ok((resource, binding))
     }
 
+    /// Reserve a storage buffer (usable as a compute binding) and return both a resource and a
+    /// binding, so it can be bound, zeroed, and later read back.
+    pub(crate) fn reserve_storage(
+        &mut self,
+        size: u64,
+    ) -> Result<ManagedMemoryBinding, IoError> {
+        let handle = self.memory_pool.reserve(size)?;
+        Ok(MemoryHandle::binding(handle))
+    }
+
+    /// Resolve a storage-pool binding into a resource (may be called several times for the same
+    /// binding, e.g. to bind and to read back).
+    pub(crate) fn storage_resource(
+        &mut self,
+        binding: ManagedMemoryBinding,
+    ) -> Result<WgpuResource, IoError> {
+        self.memory_pool.get_resource(binding, None, None)
+    }
+
     pub(crate) fn get_resource(&mut self, binding: Binding) -> Result<WgpuResource, IoError> {
         self.memory_pool
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)

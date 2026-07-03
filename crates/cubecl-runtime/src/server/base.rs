@@ -32,7 +32,7 @@ use cubecl_common::{
     stream_id::StreamId,
     stub::RwLock,
 };
-use cubecl_ir::{CountKey, DeviceProperties, ElemType, OpsCounts, StorageType};
+use cubecl_ir::{CountKey, DeviceProperties, ElemType, StorageType, fmt_counts};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
@@ -93,8 +93,7 @@ impl std::fmt::Display for FlopRecord {
         writeln!(f, "FlopRecord:")?;
         writeln!(f, "  samples: {}", self.samples)?;
         writeln!(f, "  last:")?;
-        write!(f, "{}", self.last)?;
-        Ok(())
+        fmt_counts(&self.last, f)
     }
 }
 

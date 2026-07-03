@@ -131,6 +131,18 @@ impl WgslCompiler {
         self.buffer_vis
             .resize(value.num_global_buffers(), Visibility::Read);
 
+        // The counters buffer is a global (accessed via atomics) but lives outside `value.buffers`,
+        // so extend `buffer_vis` to cover its id with read-write visibility.
+        if let Some(counter) = value.body.profile.counters_buffer
+            && let cube::AddressSpace::Global(id) = counter.address_space()
+        {
+            let id = id as usize;
+            if id >= self.buffer_vis.len() {
+                self.buffer_vis.resize(id + 1, Visibility::Read);
+            }
+            self.buffer_vis[id] = Visibility::ReadWrite;
+        }
+
         self.setup_profiler(&value.body);
         let mut instructions = self.compile_scope(&value.body);
         self.profile(&value.body, &mut instructions);
@@ -143,6 +155,22 @@ impl WgslCompiler {
             id: self.id,
             address_type,
         };
+
+        // The counters buffer is a special trailing binding (not in `value.buffers`), with the
+        // decode map alongside it so the server can turn the read-back slots into named counts.
+        let profile_counter = value
+            .body
+            .profile
+            .counters_buffer
+            .map(|counter| wgsl::KernelArg {
+                id: match counter.address_space() {
+                    cube::AddressSpace::Global(id) => id,
+                    _ => 0,
+                },
+                visibility: Visibility::ReadWrite,
+                value: self.compile_value(counter),
+            });
+        let profile_map = self.profiler.profile_map();
 
         Ok(wgsl::ComputeShader {
             address_type,
@@ -185,6 +213,8 @@ impl WgslCompiler {
             workgroup_size_no_axis: self.workgroup_size_no_axis,
             subgroup_instructions_used: self.subgroup_instructions_used,
             f16_used: self.f16_used,
+            profile_counter,
+            profile_map,
             kernel_name: value.options.kernel_name,
         })
     }

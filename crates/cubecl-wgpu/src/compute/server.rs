@@ -17,16 +17,16 @@ use cubecl_core::{
     future::DynFut,
     prelude::*,
     server::{
-        CopyDescriptor, IoError, KernelArguments, LaunchError, ProfileError, ProfilingToken,
-        ServerCommunication, ServerError, ServerUtilities,
+        CopyDescriptor, FlopRecord, IoError, KernelArguments, LaunchError, ProfileError,
+        ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Strides, strides},
 };
 #[cfg(feature = "spirv")]
 use cubecl_core::{cache::CacheOption, compilation_cache::CompilationCache, hash::StableHash};
-use cubecl_ir::MemoryDeviceProperties;
+use cubecl_ir::{CountKey, MemoryDeviceProperties};
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
-use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage};
+use cubecl_runtime::memory_management::{ManagedMemoryBinding, ManagedMemoryHandle, MemoryUsage};
 use cubecl_runtime::{
     compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -62,6 +62,9 @@ pub struct WgpuServer<C: WgpuCompiler> {
     // A buffer that can be used to store stream id without extra allocations.
     streams_pool: Vec<StreamId>,
     pipelines: HashMap<KernelId, (Arc<ComputePipeline>, CompilerInfo)>,
+    /// Slot → key decode tables for profiled kernels, cached at compile time and used to turn the
+    /// read-back counters buffer into named counts.
+    profile_maps: HashMap<KernelId, Arc<Vec<CountKey>>>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
     pub(crate) spirv_cache:
@@ -112,6 +115,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             streams_pool: Vec::new(),
             device,
             pipelines: HashMap::new(),
+            profile_maps: HashMap::new(),
             scheduler: SchedulerMultiStream::new(
                 utilities.logger.clone(),
                 backend_scheduler,
@@ -159,6 +163,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             resources,
             info: bindings.info,
             compiler_info,
+            profile_counter: None,
         })
     }
 
@@ -199,6 +204,14 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         compiler.validate_ir(&compiled.repr, &self.utilities.properties)?;
         let (compiler_info, auto_repr) = compiler.normalize_repr(compiled.repr);
         let repr = auto_repr.as_ref().map(|r| r.as_ref());
+
+        // Cache the profiling decode table produced during compilation, keyed by kernel id.
+        if let Some(crate::AutoRepresentation::Wgsl(shader)) = auto_repr.as_ref()
+            && !shader.profile_map.is_empty()
+        {
+            self.profile_maps
+                .insert(kernel_id.clone(), Arc::new(shader.profile_map.clone()));
+        }
 
         // /!\ Do not delete the following commented code.
         // This is useful while working on the metal compiler.
@@ -252,6 +265,44 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         }
 
         Ok((pipeline, compiler_info))
+    }
+
+    /// Read back the counters buffer after the profiled dispatch, decode its slots through `map`,
+    /// and record the per-op counts on the shared metrics, keyed by `kernel_id`.
+    fn record_profile(
+        &mut self,
+        kernel_id: KernelId,
+        binding: ManagedMemoryBinding,
+        map: &[CountKey],
+        stream_id: StreamId,
+    ) {
+        // Flush the zeroing write and the dispatch before reading.
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
+        let Ok(resource) = stream.mem_manage.storage_resource(binding) else {
+            return;
+        };
+        let read =
+            stream.read_resources(vec![(resource, Shape::new([map.len()]), size_of::<u32>())]);
+        let Ok(mut bytes) = cubecl_common::future::block_on(read) else {
+            return;
+        };
+        let bytes = bytes.remove(0);
+        let data: &[u32] = bytemuck::cast_slice(&bytes);
+        let counts: HashMap<CountKey, u32> =
+            map.iter().cloned().zip(data.iter().copied()).collect();
+
+        let mut metrics = self.utilities.metrics.write().unwrap();
+        metrics
+            .entry(kernel_id)
+            .and_modify(|record| {
+                record.last = counts.clone();
+                record.samples += 1;
+            })
+            .or_insert(FlopRecord {
+                last: counts,
+                samples: 1,
+            });
     }
 }
 
@@ -372,6 +423,9 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
+        let mut kernel_id = kernel.id();
+        kernel_id.mode(mode);
+
         let (pipeline, compiler_info) = match self.pipeline(kernel, &args, mode) {
             Ok(val) => val,
             Err(err) => {
@@ -387,7 +441,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             .iter()
             .for_each(|b| self.streams_pool.push(b.stream));
 
-        let resources = match self.prepare_bindings(args, compiler_info) {
+        let mut resources = match self.prepare_bindings(args, compiler_info) {
             Ok(val) => val,
             Err(err) => {
                 // We make the stream that would execute the kernel in error.
@@ -396,13 +450,48 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                 return;
             }
         };
+
+        // If this kernel is profiled, allocate a zeroed counters buffer and bind it last.
+        let profile = self.profile_maps.get(&kernel_id).cloned();
+        let counter_binding = profile.as_ref().map(|map| {
+            let size = (map.len() * size_of::<u32>()) as u64;
+            let stream = self.scheduler.stream(&stream_id);
+            let binding = stream
+                .mem_manage
+                .reserve_storage(size)
+                .expect("The counters buffer should allocate");
+            // One resource to zero it, another to bind it (`WgpuResource` is not `Clone`).
+            let zero_resource = stream
+                .mem_manage
+                .storage_resource(binding.clone())
+                .expect("The counters resource should resolve");
+            let bind_resource = stream
+                .mem_manage
+                .storage_resource(binding.clone())
+                .expect("The counters resource should resolve");
+            // Zero it before the kernel accumulates into it.
+            self.scheduler.register(
+                stream_id,
+                ScheduleTask::Write {
+                    data: Bytes::from_bytes_vec(vec![0u8; size as usize]),
+                    buffer: zero_resource,
+                },
+                &[],
+            );
+            resources.profile_counter = Some(bind_resource);
+            binding
+        });
+
         let task = ScheduleTask::Execute {
             pipeline,
             count,
             resources,
         };
-
         self.scheduler.register(stream_id, task, &self.streams_pool);
+
+        if let (Some(binding), Some(map)) = (counter_binding, profile) {
+            self.record_profile(kernel_id, binding, &map, stream_id);
+        }
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {

@@ -8,7 +8,9 @@ use crate::{
     prelude::KernelDefinition,
 };
 use alloc::collections::BTreeMap;
-use cubecl_ir::{DeviceProperties, OpsCounts, Scope, StorageType, TargetProperties, Value};
+use cubecl_ir::{
+    DeviceProperties, Scope, StorageType, TargetProperties, Value, counter_stored_type,
+};
 use cubecl_runtime::config::{
     CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel,
 };
@@ -92,7 +94,12 @@ impl KernelBuilder {
     /// Build the [kernel definition](KernelDefinition).
     pub fn build(mut self, settings: KernelSettings) -> KernelDefinition {
         if self.profile.enabled {
-            let buffer = self.buffer(OpsCounts::stored_type());
+            // The profiling counters buffer is a *special trailing binding*: it is bound after
+            // every normal buffer and the `info` struct, and deliberately kept out of
+            // `self.buffers` so it does not contribute to the metadata layout (`num_meta`). It is
+            // only ever accessed via constant slot indices, so it needs no length metadata.
+            let id = self.buffer_id();
+            let buffer = self.scope.global(id, counter_stored_type());
             self.scope.profile.counters_buffer = Some(buffer);
         }
 

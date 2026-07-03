@@ -26,7 +26,7 @@ use cubecl_common::{
     profile::ProfileDuration,
     stub::RwLock,
 };
-use cubecl_ir::{CountUnit, DeviceProperties, ElemType, VectorSize, features::Features};
+use cubecl_ir::{DeviceProperties, ElemType, VectorSize, features::Features};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
@@ -731,22 +731,6 @@ impl<R: Runtime> ComputeClient<R> {
         dst_server.device.flush_queue();
 
         handle
-    }
-
-    /// Record per-operation FLOP counts for the given kernel, stored per-device in
-    /// [`ServerUtilities::metrics`]. Used by the launcher when `hardware_metrics` profiling is on.
-    pub fn record_flop_count(&self, id: KernelId, counts: OpsCounts) {
-        let mut metrics = self.utilities.metrics.write().unwrap();
-        metrics
-            .entry(id)
-            .and_modify(|record| {
-                record.last = counts;
-                record.samples += 1;
-            })
-            .or_insert(FlopRecord {
-                last: counts,
-                samples: 1,
-            });
     }
 
     /// Returns a reference to the [`RwLock`] containing the recorded FLOP metrics for all kernels.
