@@ -12,7 +12,6 @@ use std::fmt::Display;
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // Some variants might not be used with different flags
 pub enum Instruction {
-    Custom(String),
     DeclareVariable {
         val: Value,
         value_ty: Item,
@@ -483,7 +482,6 @@ pub enum Instruction {
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Instruction::Custom(s) => writeln!(f, "{s}"),
             Instruction::DeclareVariable { val, value_ty } => {
                 writeln!(f, "var {val}_store: {value_ty};")?;
                 writeln!(f, "let {val} = &{val}_store;")

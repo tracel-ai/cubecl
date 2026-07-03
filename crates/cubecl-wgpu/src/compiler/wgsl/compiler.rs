@@ -1,7 +1,6 @@
 use super::Item;
 use super::Subgroup;
 use super::shader::ComputeShader;
-use crate::compiler::wgsl::WgslCompilerProfiler;
 use crate::compiler::wgsl::{self, SharedValue};
 
 use cubecl_common::backtrace::BackTrace;
@@ -52,7 +51,7 @@ pub struct WgslCompiler {
     strategy: ExecutionMode,
     subgroup_instructions_used: bool,
     f16_used: bool,
-    profiler: CompilerProfiler<WgslCompilerProfiler>,
+    profiler: CompilerProfiler,
 }
 
 impl core::fmt::Debug for WgslCompiler {
@@ -298,21 +297,42 @@ impl WgslCompiler {
     }
 
     fn setup_profiler(&mut self, scope: &cube::Scope) {
-        if scope.profile.enabled {
-            let counter = self.compile_value(
-                scope
-                    .profile
-                    .counters_buffer
-                    .expect("Profiling counters buffer should be initialized"),
-            );
-
-            self.profiler.set_counter(counter);
+        if !scope.profile.enabled {
+            return;
         }
+
+        let counter = scope
+            .profile
+            .counters_buffer
+            .expect("Profiling counters buffer should be initialized");
+
+        self.profiler.set_counter(counter);
     }
 
-    fn profile(&self, scope: &cube::Scope, mut instructions: &mut Vec<wgsl::Instruction>) {
-        if scope.profile.enabled {
-            self.profiler.profile(&mut instructions);
+    fn profile(&mut self, scope: &cube::Scope, instructions: &mut Vec<wgsl::Instruction>) {
+        if !scope.profile.enabled {
+            return;
+        }
+
+        let (declare_instructions, flush_instructions) =
+            self.profiler.profile(&scope.state().allocator);
+
+        let mut declare_wgsl_instructions = Vec::new();
+
+        for instruction in declare_instructions {
+            self.compile_operation(
+                &mut declare_wgsl_instructions,
+                instruction.operation,
+                instruction.out,
+                scope,
+            );
+        }
+
+        let mut old_instructions = core::mem::replace(instructions, declare_wgsl_instructions);
+        instructions.append(&mut old_instructions);
+
+        for instruction in flush_instructions {
+            self.compile_operation(instructions, instruction.operation, instruction.out, scope);
         }
     }
 
@@ -325,9 +345,29 @@ impl WgslCompiler {
         processing
             .instructions
             .into_iter()
-            .for_each(|op| self.compile_operation(&mut instructions, op.operation, op.out, scope));
+            .for_each(|op| self.process_operation(&mut instructions, op.operation, op.out, scope));
 
         instructions
+    }
+
+    fn process_operation(
+        &mut self,
+        instructions: &mut Vec<wgsl::Instruction>,
+        operation: cube::Operation,
+        out: Option<cube::Value>,
+        scope: &cube::Scope,
+    ) {
+        if scope.profile.enabled {
+            let new_instructions =
+                self.profiler
+                    .profile_operation(&operation, out.as_ref(), &scope.state().allocator);
+
+            for instruction in new_instructions {
+                self.compile_operation(instructions, instruction.operation, instruction.out, scope);
+            }
+        }
+
+        self.compile_operation(instructions, operation, out, scope);
     }
 
     fn compile_operation(
@@ -337,10 +377,6 @@ impl WgslCompiler {
         out: Option<cube::Value>,
         scope: &cube::Scope,
     ) {
-        if scope.profile.enabled {
-            self.profiler
-                .profile_operation(&operation, out.as_ref(), instructions);
-        }
         match operation {
             cube::Operation::Copy(value) => instructions.push(wgsl::Instruction::Assign {
                 input: self.compile_value(value),

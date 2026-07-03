@@ -26,7 +26,7 @@ use cubecl_common::{
     profile::ProfileDuration,
     stub::RwLock,
 };
-use cubecl_ir::{DeviceProperties, ElemType, OpsCounts, VectorSize, features::Features};
+use cubecl_ir::{CountUnit, DeviceProperties, ElemType, VectorSize, features::Features};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]

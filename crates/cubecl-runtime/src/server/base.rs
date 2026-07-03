@@ -32,7 +32,7 @@ use cubecl_common::{
     stream_id::StreamId,
     stub::RwLock,
 };
-use cubecl_ir::{DeviceProperties, ElemType, OpsCounts, StorageType};
+use cubecl_ir::{CountKey, DeviceProperties, ElemType, OpsCounts, StorageType};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
 use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
@@ -83,7 +83,7 @@ impl core::fmt::Debug for ProfileError {
 pub struct FlopRecord {
     /// Most recent per-operation counts, keyed by op name (e.g. `"Add"`). Only operations that
     /// actually executed appear. Sorted for deterministic, serialization-friendly output.
-    pub last: OpsCounts,
+    pub last: HashMap<CountKey, u32>,
     /// Number of launches recorded for the kernel.
     pub samples: u32,
 }

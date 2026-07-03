@@ -5,7 +5,7 @@ fn test_chose_cube(lhs: f32, rhs: f32, out: &mut [f32]) {
     if UNIT_POS == 0 {
         out[0] = lhs + rhs + lhs;
         out[0] = lhs + rhs;
-        terminate!();
+        // terminate!();
         out[0] = lhs + rhs;
     }
 }

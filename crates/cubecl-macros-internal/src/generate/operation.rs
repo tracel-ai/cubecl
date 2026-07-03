@@ -347,16 +347,45 @@ impl Operation {
             }
         }
     }
+
+    /// Generates a `name()` method on the opcode enum returning a stable, human-readable
+    /// identity for each variant (e.g. `"Add"`), delegating through nested opcodes.
+    fn generate_opcode_name(&self) -> TokenStream {
+        let name = &self.opcode_name;
+        let variants = self.variants();
+        let match_variants = variants.iter().map(|variant| {
+            let ident = &variant.ident;
+            if variant.nested.is_present() {
+                quote![Self::#ident(child) => child.name()]
+            } else {
+                quote![Self::#ident => stringify!(#ident)]
+            }
+        });
+        quote! {
+            impl #name {
+                /// Stable, human-readable name of this opcode variant (e.g. `"Add"`).
+                ///
+                /// Nested opcodes delegate to their child's name.
+                pub fn name(&self) -> &'static str {
+                    match self {
+                        #(#match_variants),*
+                    }
+                }
+            }
+        }
+    }
 }
 
 pub fn generate_operation(input: DeriveInput) -> syn::Result<TokenStream> {
     let operation = Operation::from_derive_input(&input)?;
 
     let opcode = operation.generate_opcode();
+    let opcode_name = operation.generate_opcode_name();
     let operation_impl = operation.generate_operation_impl();
 
     Ok(quote! {
         #opcode
+        #opcode_name
         #operation_impl
     })
 }
@@ -377,10 +406,12 @@ pub fn generate_opcode(input: DeriveInput) -> syn::Result<TokenStream> {
     let generics = &operation.generics;
     let opcode_name = &operation.opcode_name;
     let opcode = operation.generate_opcode();
+    let opcode_name_impl = operation.generate_opcode_name();
     let match_opcode = operation.generate_opcode_impl();
 
     Ok(quote! {
         #opcode
+        #opcode_name_impl
 
         impl #generics #name {
             fn __match_opcode(&self) -> #opcode_name {
