@@ -1,11 +1,13 @@
 use core::{
+    cmp::Ordering,
     fmt::{Debug, Display},
-    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+    num::ParseFloatError,
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign},
 };
 
 use bytemuck::{Pod, Zeroable};
 use float8::F8E4M3;
-use num_traits::{NumCast, ToPrimitive};
+use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 
 /// A 8-bit floating point type with 4 exponent bits and 3 mantissa bits.
 ///
@@ -18,9 +20,35 @@ pub struct e4m3(u8);
 
 impl e4m3 {
     /// Maximum representable value
-    pub const MAX: f64 = F8E4M3::MAX.to_f64();
+    pub const MAX: Self = Self::from_bits(F8E4M3::MAX.to_bits());
     /// Minimum representable value
-    pub const MIN: f64 = F8E4M3::MIN.to_f64();
+    pub const MIN: Self = Self::from_bits(F8E4M3::MIN.to_bits());
+    /// the difference between 1.0 and the next largest representable number.
+    pub const EPSILON: Self = Self::from_bits(F8E4M3::EPSILON.to_bits());
+    /// Minimum representable value
+    pub const MIN_POSITIVE: Self = Self::from_bits(F8E4M3::MIN_POSITIVE.to_bits());
+    ///Approximate number of significant digits in base 10
+    pub const DIGITS: u32 = F8E4M3::DIGITS;
+    ///Number of mantissa digits
+    pub const MANTISSA_DIGITS: u32 = F8E4M3::MANTISSA_DIGITS;
+    /// Maximum possible normal power of 10 exponent
+    pub const MAX_10_EXP: i32 = F8E4M3::MAX_10_EXP;
+    /// Maximum possible normal power of 2 exponent
+    pub const MAX_EXP: i32 = F8E4M3::MAX_EXP;
+    /// Minimum possible normal power of 10 exponent
+    pub const MIN_10_EXP: i32 = F8E4M3::MIN_10_EXP;
+    /// Minimum possible normal power of 2 exponent
+    pub const MIN_EXP: i32 = F8E4M3::MIN_EXP;
+    /// The radix, or base, of the floating-point representation.
+    pub const RADIX: u32 = 2;
+    /// nan
+    pub const NAN: Self = Self::from_bits(0xFFu8);
+    /// Zero
+    pub const ZERO: Self = Self::from_bits(F8E4M3::ZERO.to_bits());
+    /// Negative Zero
+    pub const NEG_ZERO: Self = Self::from_bits(F8E4M3::NEG_ZERO.to_bits());
+    /// One
+    pub const ONE: Self = Self::from_bits(F8E4M3::ONE.to_bits());
 
     /// Constructs a [`e4m3`] value from the raw bits.
     #[inline]
@@ -68,6 +96,12 @@ impl e4m3 {
         self.to_f64() as f32
     }
 
+    /// check if an [`e4m3`] value is Nan
+    #[inline]
+    pub fn is_nan(self) -> bool {
+        F8E4M3::is_nan(&self.into())
+    }
+
     /// Converts a [`e4m3`] value into an [`f64`] value.
     ///
     /// This conversion is lossless as all values can be represented exactly in [`f64`].
@@ -75,6 +109,57 @@ impl e4m3 {
     #[must_use]
     pub const fn to_f64(self) -> f64 {
         F8E4M3::from_bits(self.0).to_f64()
+    }
+
+    /// Compares [`e4m3`] values
+    pub fn total_cmp(self, other: Self) -> Ordering {
+        F8E4M3::total_cmp(&self.into(), &other.into())
+    }
+}
+
+impl Zero for e4m3 {
+    #[inline]
+    fn zero() -> Self {
+        Self::ZERO
+    }
+    #[inline]
+    fn is_zero(&self) -> bool {
+        [Self::ZERO, Self::NEG_ZERO].contains(self)
+    }
+}
+
+impl One for e4m3 {
+    #[inline]
+    fn one() -> Self {
+        Self::ONE
+    }
+    #[inline]
+    fn is_one(&self) -> bool {
+        self == &Self::one()
+    }
+}
+
+impl Num for e4m3 {
+    type FromStrRadixErr = ParseFloatError;
+
+    fn from_str_radix(src: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
+        if radix != 10 {
+            return "".parse::<f32>().map(|_| unreachable!());
+        }
+        let val_f32 = src.parse::<f32>()?;
+        Ok(Self::from_f32(val_f32))
+    }
+}
+
+impl From<F8E4M3> for e4m3 {
+    fn from(value: F8E4M3) -> Self {
+        e4m3(value.to_bits())
+    }
+}
+
+impl From<e4m3> for F8E4M3 {
+    fn from(value: e4m3) -> Self {
+        Self::from_bits(value.to_bits())
     }
 }
 
@@ -111,6 +196,20 @@ impl Div for e4m3 {
 impl DivAssign for e4m3 {
     fn div_assign(&mut self, rhs: Self) {
         *self = *self / rhs;
+    }
+}
+
+impl Rem for e4m3 {
+    type Output = Self;
+
+    fn rem(self, rhs: Self) -> Self::Output {
+        Self::from_f32(self.to_f32() % rhs.to_f32())
+    }
+}
+
+impl RemAssign for e4m3 {
+    fn rem_assign(&mut self, rhs: Self) {
+        *self = *self % rhs;
     }
 }
 

@@ -91,10 +91,7 @@ pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
     }
 
     for ty in supported_atomic_types {
-        props.register_atomic_type_usage(
-            Type::atomic(ty),
-            AtomicUsage::LoadStore | AtomicUsage::Add,
-        );
+        props.register_atomic_type_usage(Type::atomic(ty), AtomicUsage::all());
     }
 
     let feats = adapter.features();
