@@ -289,16 +289,16 @@ pub enum ServerError {
         backtrace: BackTrace,
     },
 
-    /// A launch error happened during profiling
-    #[error("A launch error happened during profiling\nCaused by:\n  {0}")]
+    /// A launch error happened
+    #[error("A launch error happened\nCaused by:\n  {0}")]
     Launch(#[from] LaunchError),
 
     /// An execution error happened during profiling
     #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
     Profile(#[from] ProfileError),
 
-    /// An IO error happened during profiling
-    #[error("An IO error happened during profiling\nCaused by:\n  {0}")]
+    /// An IO error happened
+    #[error("An IO error happened\nCaused by:\n  {0}")]
     Io(#[from] IoError),
 
     /// The server is an invalid state.
