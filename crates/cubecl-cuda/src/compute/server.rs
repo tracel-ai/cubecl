@@ -47,6 +47,10 @@ use std::{
 
 pub(crate) const MB: usize = 1024 * 1024;
 
+/// Size of the pooled pinned staging chunks used to pipeline large host-to-device
+/// transfers.
+pub(crate) const STAGE_CHUNK: usize = 8 * MB;
+
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,

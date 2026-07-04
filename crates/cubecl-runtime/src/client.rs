@@ -278,7 +278,9 @@ impl<R: Runtime> ComputeClient<R> {
                         alloc.strides.clone(),
                         desc.elem_size,
                     ),
-                    Bytes::from_bytes_vec(data.to_vec()),
+                    // `data` is already an owned Vec; re-copying it would double
+                    // the host-side cost of every upload.
+                    Bytes::from_bytes_vec(data),
                 )
             })
             .collect::<Vec<_>>();
