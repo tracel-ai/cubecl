@@ -1,5 +1,5 @@
 mod base;
-mod kernels;
+mod runners;
 
 pub use base::*;
-pub(crate) use kernels::*;
+pub(crate) use runners::*;
