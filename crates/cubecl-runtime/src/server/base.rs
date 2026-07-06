@@ -14,6 +14,7 @@ use crate::{
 };
 use ahash::AHasher;
 use alloc::boxed::Box;
+use alloc::fmt;
 #[cfg(feature = "profile-tracy")]
 use alloc::format;
 use alloc::string::String;
@@ -88,7 +89,7 @@ pub struct FlopRecord {
     pub samples: u32,
 }
 
-impl std::fmt::Display for FlopRecord {
+impl fmt::Display for FlopRecord {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "FlopRecord:")?;
         writeln!(f, "  samples: {}", self.samples)?;
