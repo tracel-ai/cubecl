@@ -14,8 +14,8 @@ use cubecl_core::{
     future::DynFut,
     prelude::*,
     server::{
-        Binding, CopyDescriptor, IoError, KernelArguments, ProfileError, ProfilingToken,
-        ServerCommunication, ServerError, ServerUtilities,
+        Binding, CopyDescriptor, IoError, KernelArguments, LaunchError, ProfileError,
+        ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
 };
 use cubecl_runtime::{
@@ -45,7 +45,6 @@ pub struct MetalServer {
     streams: MultiStream<MetalStreamBackend>,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
     timestamps: TimestampProfiler,
-    errors: Vec<ServerError>,
 }
 
 impl MetalServer {
@@ -75,7 +74,6 @@ impl MetalServer {
             streams: MultiStream::new(logger, backend, max_streams),
             utilities,
             timestamps: TimestampProfiler::default(),
-            errors: Vec::new(),
         }
     }
 }
@@ -148,11 +146,11 @@ fn write_pitched(dst: *mut u8, data: &[u8], shape: &[usize], strides: &[usize], 
 }
 
 impl MetalServer {
-    /// Collects synchronous failures buffered on the server together with asynchronous GPU
-    /// faults recorded by stream completion handlers. Draining the stream sink clears the
-    /// poison so a recovered stream can serve new work.
+    /// Collects synchronous launch failures and asynchronous GPU faults from the stream's
+    /// error sink. Draining the sink clears the poison so a recovered stream can serve
+    /// new work.
     fn flush_errors(&mut self, stream_id: StreamId) -> Vec<ServerError> {
-        let mut errors = core::mem::take(&mut self.errors);
+        let mut errors = Vec::new();
 
         if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
             errors.append(&mut resolved.current().take_errors());
@@ -166,6 +164,16 @@ impl MetalServer {
         }
 
         errors
+    }
+
+    /// Records a launch failure on the issuing stream's error sink.
+    fn push_launch_error(&mut self, stream_id: StreamId, err: LaunchError) {
+        let mut resolved = match self.streams.resolve(stream_id, std::iter::empty(), false) {
+            Ok(resolved) => resolved,
+            Err(err) => unreachable!("{err}"),
+        };
+        let error = ServerError::Launch(err);
+        resolved.current().errors.lock().unwrap().push(error);
     }
 }
 
@@ -343,13 +351,13 @@ impl ComputeServer for MetalServer {
         if let Err(err) =
             cubecl_runtime::validation::validate_cube_dim(&self.utilities.properties, &kernel_id)
         {
-            self.errors.push(ServerError::Launch(err));
+            self.push_launch_error(stream_id, err);
             return;
         }
         if let Err(err) =
             cubecl_runtime::validation::validate_units(&self.utilities.properties, &kernel_id)
         {
-            self.errors.push(ServerError::Launch(err));
+            self.push_launch_error(stream_id, err);
             return;
         }
 
@@ -357,32 +365,15 @@ impl ComputeServer for MetalServer {
             &kernel_id,
             kernel,
             mode,
+            self.utilities.properties.hardware.max_shared_memory_size,
             self.utilities.logger.clone(),
         ) {
             Ok(c) => c,
             Err(err) => {
-                self.errors.push(ServerError::Launch(
-                    cubecl_core::prelude::LaunchError::CompilationError(err),
-                ));
+                self.push_launch_error(stream_id, err);
                 return;
             }
         };
-
-        // Validate shared memory usage
-        let max_smem = self.utilities.properties.hardware.max_shared_memory_size;
-        if compiled.shared_memory_bytes > max_smem {
-            use cubecl_core::server::ResourceLimitError;
-            self.errors.push(ServerError::Launch(
-                cubecl_core::prelude::LaunchError::TooManyResources(
-                    ResourceLimitError::SharedMemory {
-                        requested: compiled.shared_memory_bytes,
-                        max: max_smem,
-                        backtrace: cubecl_common::backtrace::BackTrace::capture(),
-                    },
-                ),
-            ));
-            return;
-        }
 
         let dispatch_info = match count {
             CubeCount::Static(x, y, z) => DispatchInfo::Static(x, y, z),
