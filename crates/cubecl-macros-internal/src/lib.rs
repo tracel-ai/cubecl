@@ -1,8 +1,8 @@
+use enum_counts::enum_counts_impl;
 use generate::{
     op_args::generate_op_args,
     operation::{generate_opcode, generate_operation},
 };
-use enum_counts::enum_counts_impl;
 use proc_macro::TokenStream;
 use type_hash::type_hash_impl;
 
