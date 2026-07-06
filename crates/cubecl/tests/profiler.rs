@@ -1,24 +1,24 @@
 use cubecl::{CubeDim, CubeElement, Runtime, TestRuntime, cube, prelude::*};
 
 #[cube(launch)]
-fn test_chose_cube(lhs: f32, rhs: f32, out: &mut [f32]) {
+fn profile_basic_kernel(lhs: f32, rhs: f32, out: &mut [f32]) {
     if UNIT_POS == 0 {
         out[0] = lhs + rhs + lhs;
         out[0] = lhs + rhs;
-        // terminate!();
+        terminate!();
         out[0] = lhs + rhs;
     }
 }
 
 #[test]
-fn test_chose_1() {
+fn test_profile_basic() {
     let client = TestRuntime::client(&Default::default());
 
     let lhs = 1.0;
     let rhs = 2.0;
     let output = client.empty(core::mem::size_of::<f32>());
 
-    test_chose_cube::launch(
+    profile_basic_kernel::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
@@ -46,21 +46,21 @@ fn test_chose_1() {
 }
 
 #[cube(launch)]
-fn test_chose_cube_tensor(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &mut Tensor<f32>) {
+fn profile_tensor_kernel(lhs: &Tensor<f32>, rhs: &Tensor<f32>, out: &mut Tensor<f32>) {
     if ABSOLUTE_POS < out.len() {
         out[ABSOLUTE_POS] = lhs[ABSOLUTE_POS] + rhs[ABSOLUTE_POS];
     }
 }
 
 #[test]
-fn test_chose_tensor() {
+fn test_profile_tensor() {
     let client = TestRuntime::client(&Default::default());
 
     let lhs = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0]));
     let rhs = client.create_from_slice(f32::as_bytes(&[10.0, 20.0, 30.0]));
     let output = client.empty(3 * core::mem::size_of::<f32>());
 
-    test_chose_cube_tensor::launch(
+    profile_tensor_kernel::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(3),
@@ -77,7 +77,7 @@ fn test_chose_tensor() {
 }
 
 #[cube(launch)]
-fn test_chose_cube_shape(input: &Tensor<f32>, out: &mut Tensor<u32>) {
+fn profile_shape_kernel(input: &Tensor<f32>, out: &mut Tensor<u32>) {
     if UNIT_POS == 0 {
         out[0] = input.shape(0) as u32;
         out[1] = input.shape(1) as u32;
@@ -85,12 +85,12 @@ fn test_chose_cube_shape(input: &Tensor<f32>, out: &mut Tensor<u32>) {
 }
 
 #[test]
-fn test_chose_shape() {
+fn test_profile_shape() {
     let client = TestRuntime::client(&Default::default());
     let input = client.create_from_slice(f32::as_bytes(&[0.0; 12]));
     let output = client.empty(2 * core::mem::size_of::<u32>());
 
-    test_chose_cube_shape::launch(
+    profile_shape_kernel::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(1),
@@ -105,7 +105,7 @@ fn test_chose_shape() {
 }
 
 #[cube(launch_unchecked)]
-fn test_chose_vectorized<F: Float, N: Size>(
+fn profile_vectorized_kernel<F: Float, N: Size>(
     input: &Tensor<Vector<F, N>>,
     scalar: f32,
     out: &mut Tensor<Vector<F, N>>,
@@ -120,7 +120,7 @@ fn test_chose_vectorized<F: Float, N: Size>(
 }
 
 #[test]
-fn test_chose_cube_vectorized() {
+fn test_profile_vectorized() {
     let client = TestRuntime::client(&Default::default());
 
     let vectorization = 2;
@@ -130,7 +130,7 @@ fn test_chose_cube_vectorized() {
     let output = client.empty(12 * core::mem::size_of::<f32>());
 
     unsafe {
-        test_chose_vectorized::launch_unchecked::<f32, TestRuntime>(
+        profile_vectorized_kernel::launch_unchecked::<f32, TestRuntime>(
             &client,
             CubeCount::Static(2, 1, 1),
             CubeDim::new_1d((input_values.len() / vectorization) as u32),
