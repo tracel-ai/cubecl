@@ -202,7 +202,7 @@ pub fn fmt_counts(
 
     // Sort by Elem, then strictly by Path (names), then Unit
     // Grouping by path ensures our tree algorithm correctly renders branches.
-    entries.sort_by(|a, b| a.0.cmp(&b.0).then(a.2.cmp(&b.2)).then(a.1.cmp(&b.1)));
+    entries.sort_by(|a, b| a.0.cmp(&b.0).then(a.2.cmp(b.2)).then(a.1.cmp(&b.1)));
 
     if entries.is_empty() {
         return writeln!(f, "    (none)");
@@ -242,7 +242,7 @@ pub fn fmt_counts(
         // Print root elements without indentation
         if cur_elem.as_ref() != Some(elem) {
             writeln!(f, "{elem}")?;
-            cur_elem = Some(elem.clone());
+            cur_elem = Some(*elem);
             is_last_at_depth.clear();
         }
 
