@@ -2,19 +2,21 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 #[cube(launch_unchecked)]
-pub fn compute_direct_throughput<F: Float>(
-    output: &mut [F],
+pub fn compute_direct_throughput<F: Float, N: Size>(
+    output: &mut [Vector<F, N>],
     #[comptime] n_acc: usize,
     n_iter: usize,
+    #[define(F)] _dtype: StorageType,
 ) {
     let tid = F::cast_from(ABSOLUTE_POS);
-    let b = tid * F::new(1e-7) + F::new(1.0);
-    let c = tid * F::new(1e-7);
 
-    let mut acc = Array::<F>::new(n_acc);
+    let b = Vector::new(tid * F::new(1e-7) + F::new(1.0));
+    let c = Vector::new(tid * F::new(1e-7));
+
+    let mut acc = Array::new(n_acc);
     #[unroll]
     for i in 0..n_acc {
-        acc[i] = tid + F::cast_from(i);
+        acc[i] = Vector::new(tid + F::cast_from(i));
     }
 
     for _ in 0..n_iter {
@@ -24,7 +26,7 @@ pub fn compute_direct_throughput<F: Float>(
         }
     }
 
-    let mut sum = F::new(0.0);
+    let mut sum = Vector::zeroed();
     #[unroll]
     for i in 0..n_acc {
         sum += acc[i];

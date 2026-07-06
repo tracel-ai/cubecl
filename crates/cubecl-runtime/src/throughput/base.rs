@@ -1,3 +1,4 @@
+use alloc::{format, string::String};
 use std::time::{Duration, Instant};
 use std::vec::Vec;
 
@@ -11,33 +12,60 @@ use serde;
 
 use crate::{client::ComputeClient, config::CubeClRuntimeConfig, runtime::Runtime};
 
-#[derive(serde::Serialize, serde::Deserialize, Eq, PartialEq, Clone, Hash, Debug)]
+/// Represents the mode of a throughput computation.
+#[derive(serde::Serialize, serde::Deserialize, Eq, PartialEq, Clone, Hash, Debug, Copy)]
 pub enum ThroughputMode {
-    Direct,
-    TensorCore,
+    /// Compute direct calculation without special hardware acceleration.
+    ComputeDirect,
+    /// Compute cmma calculation with CMMA hardware acceleration.
+    ComputeCmma,
+    /// Memory input reads and output writes.
+    Memory,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Eq, PartialEq, Clone, Hash, Debug)]
+/// Represents a key/configuration used to identify the throughput of a computation.
+#[derive(serde::Serialize, serde::Deserialize, Eq, PartialEq, Clone, Hash, Debug, Copy)]
 pub struct ThroughputKey {
+    /// The mode of the throughput computation.
     pub mode: ThroughputMode,
+    /// The data type of the computation.
     pub dtype: ElemType,
 }
 
+/// Represents the throughput of a computation, including the number of operations and the duration.
 #[derive(serde::Serialize, serde::Deserialize, Eq, PartialEq, Clone, Copy, Debug)]
 pub struct ThroughputValue {
-    pub work_bytes: usize,
+    /// The number of operations performed or bytes moved depending of the mode during the computation.
+    pub unit_count: usize,
+    /// The duration of the computation.
     pub duration: core::time::Duration,
 }
 
-/// One GB in bytes.
-const ONE_GB: f64 = 1e9;
-
 impl ThroughputValue {
-    pub fn throughput_gb_s(&self) -> f64 {
-        self.work_bytes as f64 / self.duration.as_secs_f64() / ONE_GB
+    /// Returns the throughput per second.
+    pub fn throughput_per_s(&self) -> f64 {
+        self.unit_count as f64 / self.duration.as_secs_f64()
+    }
+
+    /// Formats the throughput as a human-readable string.
+    pub fn format(&self, key: &ThroughputKey) -> String {
+        let unit = match key.mode {
+            ThroughputMode::ComputeDirect | ThroughputMode::ComputeCmma => "OPS",
+            ThroughputMode::Memory => "bytes",
+        };
+        let mut op_s = self.throughput_per_s();
+        let suffixes = ["", "K", "M", "G", "T", "P", "E", "Z", "Y", "R", "Q"];
+        for suffix in suffixes.iter() {
+            if op_s <= 1000.0 {
+                return format!("{op_s:.4} {suffix}{unit}/s");
+            }
+            op_s /= 1000.0;
+        }
+        format!("{op_s:.2} {unit}/s")
     }
 }
 
+///
 pub struct ThroughputCache {
     persistent_cache: Cache<ThroughputKey, ThroughputValue>,
 }
@@ -68,12 +96,14 @@ impl ThroughputBenchmarker {
     }
 
     /// Measure the maximum compute throughput of the given kernel on the given client.
+    /// Warms up the kernel until it plateaus,
+    /// then measures the throughput over multiple iterations taking the minimum time per iteration (peak attained).
     pub fn measure_throughput<R: Runtime>(
         &mut self,
         client: &ComputeClient<R>,
         key: ThroughputKey,
-        work_bytes: usize,
-        kernel: impl Fn() + Send + Sync,
+        unit_count: usize,
+        kernel: alloc::boxed::Box<dyn Fn()>,
     ) -> ThroughputValue {
         if self.cache_enabled
             && let Some(cached_value) = self.cache.persistent_cache.get(&key)
@@ -81,10 +111,6 @@ impl ThroughputBenchmarker {
             return *cached_value;
         }
 
-        // Take one wall-clock sample: enqueue the kernel and block until the GPU
-        // has actually finished. Because `sync` waits for real completion, the
-        // elapsed time reflects true device execution and can never collapse to
-        // the near-zero readings the device-timestamp profiler sometimes returns.
         let sample_once = || {
             let start = Instant::now();
             kernel();
@@ -92,14 +118,8 @@ impl ThroughputBenchmarker {
             start.elapsed()
         };
 
-        // --- Warmup to plateau -------------------------------------------------
-        // The GPU ramps its clock (DVFS) under sustained load: the first launches
-        // run in a low power state and get progressively faster until the clock
-        // saturates. Keep warming until the samples stop getting meaningfully
-        // faster (no improvement over the best-so-far for `PATIENCE` in a row),
-        // so we measure boosted-clock time rather than the cold ramp.
         const MAX_WARMUP: usize = 50;
-        const PLATEAU_TOL: f64 = 0.03; // treat <3% faster as "not improving"
+        const PLATEAU_TOL: f64 = 0.03;
         const PATIENCE: usize = 3;
 
         let mut best = f64::INFINITY;
@@ -107,18 +127,17 @@ impl ThroughputBenchmarker {
         for _ in 0..MAX_WARMUP {
             let s = sample_once().as_secs_f64();
             if s < best * (1.0 - PLATEAU_TOL) {
-                best = s; // meaningful speedup => clock still ramping
+                best = s;
                 stable = 0;
             } else {
                 best = best.min(s);
                 stable += 1;
                 if stable >= PATIENCE {
-                    break; // clock has plateaued
+                    break;
                 }
             }
         }
 
-        // --- Measure -----------------------------------------------------------
         const N_SAMPLES: usize = 20;
         let mut samples: Vec<Duration> = (0..N_SAMPLES).map(|_| sample_once()).collect();
         samples.sort();
@@ -126,12 +145,10 @@ impl ThroughputBenchmarker {
         let median = samples[samples.len() / 2];
         samples.retain(|d| *d >= median / 4);
 
-        // --- Reduce ------------------------------------------------------------
-        // Peak: the shortest valid sample => highest clock => maximum throughput.
         let duration = *samples.iter().min().expect("at least one valid sample");
 
         let value = ThroughputValue {
-            work_bytes,
+            unit_count,
             duration,
         };
 

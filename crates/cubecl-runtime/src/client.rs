@@ -1127,11 +1127,11 @@ impl<R: Runtime> ComputeClient<R> {
     pub fn throughput(
         &self,
         key: ThroughputKey,
-        work_bytes: usize,
-        kernel: impl Fn() + Send + Sync,
+        unit_count: usize,
+        kernel: alloc::boxed::Box<dyn Fn()>,
     ) -> ThroughputValue {
         let cache = ThroughputCache::new("temp_test");
         let mut throughputs = ThroughputBenchmarker::new(cache);
-        throughputs.measure_throughput(self, key, work_bytes, kernel)
+        throughputs.measure_throughput(self, key, unit_count, kernel)
     }
 }
