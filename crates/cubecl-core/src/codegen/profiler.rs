@@ -59,7 +59,7 @@ impl CompilerProfiler {
 
         self.locals.values().for_each(|(local_counter, index)| {
             declares.extend(self.declare_instructions(local_counter));
-            flushes.extend(self.flush_instructions(&local_counter, index, allocator));
+            flushes.extend(self.flush_instructions(local_counter, index, allocator));
         });
 
         (declares, flushes)
@@ -165,7 +165,7 @@ impl CompilerProfiler {
         let mut entries: Vec<(usize, CountKey)> = self
             .locals
             .iter()
-            .map(|(key, (_, slot))| (*slot, key.clone()))
+            .map(|(key, (_, slot))| (*slot, *key))
             .collect();
         entries.sort_by_key(|(slot, _)| *slot);
         entries.into_iter().map(|(_, key)| key).collect()
