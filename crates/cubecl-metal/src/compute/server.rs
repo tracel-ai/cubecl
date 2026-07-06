@@ -365,34 +365,15 @@ impl ComputeServer for MetalServer {
             &kernel_id,
             kernel,
             mode,
+            self.utilities.properties.hardware.max_shared_memory_size,
             self.utilities.logger.clone(),
         ) {
             Ok(c) => c,
             Err(err) => {
-                self.push_launch_error(
-                    stream_id,
-                    cubecl_core::prelude::LaunchError::CompilationError(err),
-                );
+                self.push_launch_error(stream_id, err);
                 return;
             }
         };
-
-        // Validate shared memory usage
-        let max_smem = self.utilities.properties.hardware.max_shared_memory_size;
-        if compiled.shared_memory_bytes > max_smem {
-            use cubecl_core::server::ResourceLimitError;
-            self.push_launch_error(
-                stream_id,
-                cubecl_core::prelude::LaunchError::TooManyResources(
-                    ResourceLimitError::SharedMemory {
-                        requested: compiled.shared_memory_bytes,
-                        max: max_smem,
-                        backtrace: cubecl_common::backtrace::BackTrace::capture(),
-                    },
-                ),
-            );
-            return;
-        }
 
         let dispatch_info = match count {
             CubeCount::Static(x, y, z) => DispatchInfo::Static(x, y, z),
