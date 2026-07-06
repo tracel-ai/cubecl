@@ -11,6 +11,7 @@ use crate::{
         ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
+    throughput::{ThroughputBenchmarker, ThroughputCache, ThroughputKey, ThroughputValue},
 };
 use alloc::{format, sync::Arc, vec, vec::Vec};
 
@@ -1120,5 +1121,17 @@ impl<R: Runtime> ComputeClient<R> {
         let num_candidates = max.trailing_zeros() + 1;
 
         (0..num_candidates).map(|i| 2usize.pow(i)).rev()
+    }
+
+    /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)
+    pub fn throughput(
+        &self,
+        key: ThroughputKey,
+        work_bytes: usize,
+        kernel: impl Fn() + Send + Sync,
+    ) -> ThroughputValue {
+        let cache = ThroughputCache::new("temp_test");
+        let mut throughputs = ThroughputBenchmarker::new(cache);
+        throughputs.measure_throughput(self, key, work_bytes, kernel)
     }
 }

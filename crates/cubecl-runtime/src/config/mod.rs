@@ -11,6 +11,8 @@ pub mod memory;
 pub mod profiling;
 /// Streaming config module.
 pub mod streaming;
+/// Throughput config module.
+pub mod throughput;
 
 mod base;
 mod logger;
