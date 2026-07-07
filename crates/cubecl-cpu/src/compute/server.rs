@@ -1,6 +1,6 @@
 use crate::{
     CpuCompiler,
-    compiler::MlirCompilerOptions,
+    compiler::PlironOptions,
     compute::{
         schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
         threadpool::CpuKernel,
@@ -140,8 +140,7 @@ impl CpuServer {
         let kernel = if let Some(kernel) = self.compilation_cache.get(&kernel_id) {
             kernel
         } else {
-            let kernel =
-                kernel.compile(&mut Default::default(), &MlirCompilerOptions::default())?;
+            let kernel = kernel.compile(&mut Default::default(), &PlironOptions::default())?;
             self.compilation_cache
                 .insert(kernel_id.clone(), CpuKernel::new(kernel));
             self.compilation_cache
@@ -155,7 +154,7 @@ impl CpuServer {
 
         let task = ScheduleTask::Execute {
             stream_id,
-            mlir_engine,
+            pliron_engine: mlir_engine,
             bindings,
             cube_dim,
             cube_count,

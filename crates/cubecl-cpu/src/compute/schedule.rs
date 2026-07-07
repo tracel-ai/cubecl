@@ -1,4 +1,4 @@
-use crate::{compiler::mlir_engine::MlirEngine, compute::stream::CpuStream};
+use crate::{compiler::jit::engine::PlironEngine, compute::stream::CpuStream};
 use cubecl_common::{bytes::Bytes, stream_id::StreamId};
 use cubecl_core::{
     CubeDim, MemoryConfiguration, ir::MemoryDeviceProperties, server::MetadataBindingInfo,
@@ -21,7 +21,7 @@ pub enum ScheduleTask {
     /// Represents a task to execute a kernel.
     Execute {
         stream_id: StreamId,
-        mlir_engine: MlirEngine,
+        pliron_engine: PlironEngine,
         bindings: BindingsResource,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
@@ -43,7 +43,7 @@ impl core::fmt::Debug for ScheduleTask {
                 .finish(),
             Self::Execute {
                 stream_id,
-                mlir_engine: _,
+                pliron_engine: _,
                 bindings: _,
                 cube_dim,
                 cube_count,
