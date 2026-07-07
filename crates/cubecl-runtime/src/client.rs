@@ -15,7 +15,7 @@ use crate::{
         KernelConfig, ThroughputBenchmarker, ThroughputCache, ThroughputKey, ThroughputValue,
     },
 };
-use alloc::{format, string::ToString, sync::Arc, vec, vec::Vec};
+use alloc::{format, sync::Arc, vec, vec::Vec};
 
 #[cfg(not(target_family = "wasm"))]
 mod lazy;
@@ -1127,7 +1127,8 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)
     pub fn throughput(&self, key: ThroughputKey, kernel_config: KernelConfig) -> ThroughputValue {
-        let cache = ThroughputCache::new(&self.device.device_id().to_string());
+        let name = format!("{}_dev{}", R::name(self), self.device.device_id().index_id);
+        let cache = ThroughputCache::new(&name);
         let mut throughputs = ThroughputBenchmarker::new(cache);
         throughputs.measure_throughput(self, key, kernel_config)
     }

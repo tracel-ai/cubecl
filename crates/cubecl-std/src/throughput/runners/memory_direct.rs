@@ -55,7 +55,7 @@ pub fn memory_direct_throughput<I: Numeric, N: Size>(
     let len = output.len();
     let stride = CUBE_DIM as usize * CUBE_COUNT;
 
-    let steps = (len - ABSOLUTE_POS).div_ceil(stride);
+    let steps = (len - ABSOLUTE_POS).div_ceil(stride).max(1);
 
     for _ in 0..n_iter {
         for step in 0..steps {
