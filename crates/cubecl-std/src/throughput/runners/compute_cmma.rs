@@ -1,4 +1,4 @@
-use cubecl::{ir::ElemType, prelude::*};
+use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_runtime::throughput::{
     KernelConfig, LaunchConfig, MatrixSizes, ThroughputKey, ThroughputMode, ThroughputRunner,
@@ -40,9 +40,9 @@ impl<R: Runtime> ThroughputRunner<R> for ComputeCmmaRunner {
         });
 
         let planes_per_cube = config.cube_dim / config.plane_size;
-        let unit_count = config.cube_count * planes_per_cube * N_ITER * ops_per_cmma;
+        let ops_count = config.cube_count * planes_per_cube * N_ITER * ops_per_cmma;
 
-        KernelConfig { kernel, unit_count }
+        KernelConfig { kernel, ops_count }
     }
 }
 

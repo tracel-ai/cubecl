@@ -7,7 +7,6 @@ use hashbrown::HashMap;
 use crate::{client::ComputeClient, config::CubeClRuntimeConfig, runtime::Runtime};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use alloc::{format, string::String};
 use cubecl_common::{
     config::RuntimeConfig,
     future::block_on,
@@ -15,14 +14,6 @@ use cubecl_common::{
 };
 use cubecl_ir::ElemType;
 use serde;
-
-#[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
-pub struct MatrixSizes {
-    pub m: usize,
-    pub n: usize,
-    pub k: usize,
-}
 
 /// Represents the mode of a throughput computation.
 #[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
@@ -34,6 +25,18 @@ pub enum ThroughputMode {
     ComputeCmma(MatrixSizes),
     /// Memory input reads and output writes.
     Memory,
+}
+
+/// Defines the spatial dimensions for a matrix multiplication operation.
+#[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+pub struct MatrixSizes {
+    /// The number of rows in the output matrix and the first input matrix.
+    pub m: usize,
+    /// The number of columns in the output matrix and the second input matrix.
+    pub n: usize,
+    /// The inner dimension shared between the two input matrices.
+    pub k: usize,
 }
 
 /// Represents a key/configuration used to identify the throughput of a computation.
@@ -50,38 +53,21 @@ pub struct ThroughputKey {
 #[derive(Eq, PartialEq, Clone, Copy, Debug)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub struct ThroughputValue {
-    /// The number of operations performed or bytes moved depending of the mode during the computation.
-    pub unit_count: usize,
+    /// The number of operations performed depending of the mode during the computation.
+    pub ops_count: usize,
     /// The duration of the computation.
     pub duration: core::time::Duration,
 }
 
 impl ThroughputValue {
-    /// Returns the throughput per second.
-    pub fn throughput_per_s(&self) -> f64 {
-        self.unit_count as f64 / self.duration.as_secs_f64()
+    /// Returns the operations per second.
+    pub fn ops_per_s(&self) -> f64 {
+        self.ops_count as f64 / self.duration.as_secs_f64()
     }
 
-    /// Formats the throughput as a human-readable string.
-    pub fn format(&self, key: &ThroughputKey) -> String {
-        let unit = match key.mode {
-            ThroughputMode::ComputeDirect | ThroughputMode::ComputeCmma(_) => "OPS",
-            ThroughputMode::Memory => "bytes",
-        };
-
-        let mut op_s = self.throughput_per_s();
-        let suffixes = ["", "K", "M", "G", "T", "P", "E", "Z", "Y", "R", "Q"];
-        let mut suffix_idx = 0;
-
-        for _ in 0..suffixes.len() - 1 {
-            if op_s < 1000.0 {
-                break;
-            }
-            op_s /= 1000.0;
-            suffix_idx += 1;
-        }
-
-        format!("{op_s:.4} {}{unit}/s", suffixes[suffix_idx])
+    /// Returns the bytes per second.
+    pub fn bytes_per_s(&self, key: &ThroughputKey) -> f64 {
+        (self.ops_count * key.dtype.size()) as f64 / self.duration.as_secs_f64()
     }
 }
 
@@ -138,8 +124,8 @@ impl ThroughputCache {
 pub struct KernelConfig {
     /// The executable kernel closure to be evaluated.
     pub kernel: Box<dyn Fn()>,
-    /// The total number of units (e.g., bytes, operations, or elements) processed.
-    pub unit_count: usize,
+    /// The total number of ops processed.
+    pub ops_count: usize,
 }
 
 /// Hardware execution parameters for launching a compute kernel.
@@ -151,6 +137,7 @@ pub struct LaunchConfig {
     pub cube_count: usize,
     /// The vectorization factor (e.g., 4 for `vec4` operations).
     pub vector_size: usize,
+    /// The number of threads in a hardware execution plane.
     pub plane_size: usize,
 }
 
@@ -208,7 +195,7 @@ impl ThroughputBenchmarker {
         let duration = self.estimate_throughput(sample_once);
 
         let value = ThroughputValue {
-            unit_count: kernel_config.unit_count,
+            ops_count: kernel_config.ops_count,
             duration,
         };
 

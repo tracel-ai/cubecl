@@ -17,7 +17,7 @@ pub fn peak_throughput<R: Runtime>(
         ThroughputMode::ComputeDirect => {
             <ComputeDirectRunner as ThroughputRunner<R>>::build_kernel(client, key, launch_config)
         }
-        ThroughputMode::ComputeCmma(sizes) => {
+        ThroughputMode::ComputeCmma(_) => {
             <ComputeCmmaRunner as ThroughputRunner<R>>::build_kernel(client, key, launch_config)
         }
         ThroughputMode::Memory => {

@@ -1,4 +1,4 @@
-use cubecl::{ir::ElemType, prelude::*};
+use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_runtime::throughput::{KernelConfig, LaunchConfig, ThroughputKey, ThroughputRunner};
 
@@ -41,10 +41,9 @@ impl<R: Runtime> ThroughputRunner<R> for MemoryDirectRunner {
             )
         });
 
-        KernelConfig {
-            kernel,
-            unit_count: 2 * num_lines * line_bytes * N_ITER,
-        }
+        let ops_count = 2 * num_lines * config.vector_size * N_ITER;
+
+        KernelConfig { kernel, ops_count }
     }
 }
 
@@ -58,11 +57,15 @@ pub fn memory_direct_throughput<I: Numeric, N: Size>(
     let len = output.len();
     let stride = CUBE_DIM as usize * CUBE_COUNT;
 
+    let steps = (len - ABSOLUTE_POS).div_ceil(stride);
+
     for _ in 0..n_iter {
-        let mut idx = ABSOLUTE_POS;
-        while idx < len {
-            output[idx] = input[idx];
-            idx += stride;
+        for step in 0..steps {
+            let idx = ABSOLUTE_POS + (step * stride);
+
+            if idx < len {
+                output[idx] = input[idx];
+            }
         }
     }
 }
