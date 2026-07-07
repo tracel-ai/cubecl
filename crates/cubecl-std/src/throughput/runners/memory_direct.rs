@@ -2,8 +2,6 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_runtime::throughput::{KernelConfig, LaunchConfig, ThroughputKey, ThroughputRunner};
 
-const N_ITER: usize = 8;
-
 pub struct MemoryDirectRunner;
 
 impl<R: Runtime> ThroughputRunner<R> for MemoryDirectRunner {
@@ -25,7 +23,7 @@ impl<R: Runtime> ThroughputRunner<R> for MemoryDirectRunner {
         let num_lines = (target / line_bytes).max(total_threads);
         let bytes = num_lines * line_bytes;
 
-        let kernel = Box::new(move || unsafe {
+        let kernel = Box::new(move |iterations: usize| unsafe {
             let in_handle = client.empty(bytes);
             let out_handle = client.empty(bytes);
 
@@ -36,12 +34,12 @@ impl<R: Runtime> ThroughputRunner<R> for MemoryDirectRunner {
                 config.vector_size,
                 BufferArg::from_raw_parts(in_handle, num_lines),
                 BufferArg::from_raw_parts(out_handle, num_lines),
-                N_ITER,
+                iterations,
                 dtype.into(),
             )
         });
 
-        let ops_count = 2 * num_lines * config.vector_size * N_ITER;
+        let ops_count = 2 * num_lines * config.vector_size;
 
         KernelConfig { kernel, ops_count }
     }

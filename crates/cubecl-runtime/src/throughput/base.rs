@@ -115,8 +115,8 @@ impl ThroughputCache {
 /// Configuration and payload for a benchmarkable compute kernel.
 pub struct KernelConfig {
     /// The executable kernel closure to be evaluated.
-    pub kernel: Box<dyn Fn()>,
-    /// The total number of ops processed.
+    pub kernel: Box<dyn Fn(usize)>,
+    /// The number of operations processed in one iteration.
     pub ops_count: usize,
 }
 
@@ -176,15 +176,15 @@ impl ThroughputBenchmarker {
 
         let kernel = kernel_config.kernel;
 
-        let sample_once = || {
+        let sample = |iterations: usize| {
             let start = Instant::now();
-            kernel();
+            kernel(iterations);
             let _ = block_on(client.sync());
             start.elapsed()
         };
 
-        self.warmup(sample_once);
-        let duration = self.estimate_throughput(sample_once);
+        let iterations = self.warmup(&sample);
+        let duration = self.estimate_throughput(iterations, &sample);
 
         let value = ThroughputValue {
             ops_count: kernel_config.ops_count,
@@ -198,37 +198,56 @@ impl ThroughputBenchmarker {
         value
     }
 
-    fn warmup(&mut self, sample_once: impl Fn() -> Duration) {
+    fn warmup(&mut self, sample: impl Fn(usize) -> Duration) -> usize {
         const MAX_WARMUP: usize = 50;
         const PLATEAU_TOL: f64 = 0.03;
         const PATIENCE: usize = 3;
+        const TARGET_DURATION: f64 = 0.01;
 
         let mut best = f64::INFINITY;
         let mut stable = 0;
+        let mut iterations = 1;
+
         for _ in 0..MAX_WARMUP {
-            let s = sample_once().as_secs_f64();
-            if s < best * (1.0 - PLATEAU_TOL) {
-                best = s;
+            let s = sample(iterations).as_secs_f64();
+            if s < TARGET_DURATION {
+                let multiplier = (TARGET_DURATION / s.max(1e-9)).ceil() as usize;
+                iterations *= multiplier.max(2);
+                best = f64::INFINITY;
+                stable = 0;
+                continue;
+            }
+
+            let s_normalized = s / iterations as f64;
+            if s_normalized < best * (1.0 - PLATEAU_TOL) {
+                best = s_normalized;
                 stable = 0;
             } else {
-                best = best.min(s);
+                best = best.min(s_normalized);
                 stable += 1;
                 if stable >= PATIENCE {
                     break;
                 }
             }
         }
+
+        iterations
     }
 
-    fn estimate_throughput(&mut self, sample_once: impl Fn() -> Duration) -> Duration {
+    fn estimate_throughput(
+        &mut self,
+        iterations: usize,
+        sample: impl Fn(usize) -> Duration,
+    ) -> Duration {
         const N_SAMPLES: usize = 20;
 
-        let mut samples: Vec<Duration> = (0..N_SAMPLES).map(|_| sample_once()).collect();
+        let mut samples: Vec<Duration> = (0..N_SAMPLES).map(|_| sample(iterations)).collect();
         samples.sort();
 
         let median = samples[samples.len() / 2];
         samples.retain(|d| *d >= median / 4);
 
-        *samples.iter().min().expect("at least one valid sample")
+        let min_duration = *samples.iter().min().expect("at least one valid sample");
+        min_duration / iterations as u32
     }
 }
