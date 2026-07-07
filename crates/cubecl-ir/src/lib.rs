@@ -16,6 +16,7 @@ mod bitwise;
 mod branch;
 mod cmma;
 mod comparison;
+mod count;
 mod marker;
 mod memory;
 mod metadata;
@@ -46,6 +47,7 @@ pub use bitwise::*;
 pub use branch::*;
 pub use cmma::*;
 pub use comparison::*;
+pub use count::*;
 pub use marker::*;
 pub use memory::*;
 pub use metadata::*;
@@ -64,5 +66,7 @@ pub use tma::*;
 pub use r#type::*;
 pub use variable::*;
 
-pub(crate) use cubecl_macros_internal::{OperationArgs, OperationCode, OperationReflect, TypeHash};
+pub(crate) use cubecl_macros_internal::{
+    EnumCounts, OperationArgs, OperationCode, OperationReflect, TypeHash,
+};
 pub use type_hash::TypeHash;

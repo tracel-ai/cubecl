@@ -3,6 +3,7 @@ use crate::{
     client::ComputeClient,
     compiler::CompilationError,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::BoundsCheckMode},
+    id::KernelId,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
@@ -13,6 +14,7 @@ use crate::{
 };
 use ahash::AHasher;
 use alloc::boxed::Box;
+use alloc::fmt;
 #[cfg(feature = "profile-tracy")]
 use alloc::format;
 use alloc::string::String;
@@ -31,9 +33,9 @@ use cubecl_common::{
     stream_id::StreamId,
     stub::RwLock,
 };
-use cubecl_ir::{DeviceProperties, ElemType, StorageType};
+use cubecl_ir::{CountKey, DeviceProperties, ElemType, StorageType, fmt_counts};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
-use hashbrown::HashSet;
+use hashbrown::{HashMap, HashSet};
 use itertools::Itertools;
 use thiserror::Error;
 
@@ -76,6 +78,26 @@ impl core::fmt::Debug for ProfileError {
     }
 }
 
+/// Profiling metrics recorded for a single kernel, keyed by [`KernelId`] in
+/// [`ServerUtilities::metrics`]. Populated when `hardware_metrics` profiling is enabled.
+#[derive(Debug, Clone)]
+pub struct FlopRecord {
+    /// Most recent per-operation counts, keyed by op name (e.g. `"Add"`). Only operations that
+    /// actually executed appear. Sorted for deterministic, serialization-friendly output.
+    pub last: HashMap<CountKey, u32>,
+    /// Number of launches recorded for the kernel.
+    pub samples: u32,
+}
+
+impl fmt::Display for FlopRecord {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        writeln!(f, "FlopRecord:")?;
+        writeln!(f, "  samples: {}", self.samples)?;
+        writeln!(f, "  last:")?;
+        fmt_counts(&self.last, f)
+    }
+}
+
 /// Contains many different types that are useful for server implementations and compute clients.
 pub struct ServerUtilities<Server: ComputeServer> {
     /// The time when `profile-tracy` is activated.
@@ -98,6 +120,8 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub check_mode: BoundsCheckMode,
     /// A set containing the ids for which the inter-device communication has already been initialized.
     pub initialized_comms: RwLock<HashSet<CommunicationId>>,
+    /// FLOP-profiling metrics recorded per kernel. Populated when `hardware_metrics` is enabled.
+    pub metrics: RwLock<HashMap<KernelId, FlopRecord>>,
 }
 
 /// Defines how the memory layout is determined.
@@ -135,6 +159,8 @@ impl<S: ComputeServer> ServerUtilities<S> {
         info: S::Info,
         allocator: S::MemoryLayoutPolicy,
     ) -> Self {
+        let config = CubeClRuntimeConfig::get();
+
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
         let client = tracy_client::Client::start();
@@ -159,8 +185,9 @@ impl<S: ComputeServer> ServerUtilities<S> {
             epoch_time: web_time::Instant::now(),
             info,
             layout_policy: allocator,
-            check_mode: CubeClRuntimeConfig::get().compilation.check_mode,
+            check_mode: config.compilation.check_mode,
             initialized_comms: RwLock::new(HashSet::default()),
+            metrics: RwLock::new(HashMap::default()),
         }
     }
 }

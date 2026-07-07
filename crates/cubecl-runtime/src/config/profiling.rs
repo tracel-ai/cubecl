@@ -6,6 +6,10 @@ pub struct ProfilingConfig {
     /// Logger configuration for profiling logs, using profiling-specific log levels.
     #[serde(default)]
     pub logger: LoggerConfig<ProfilingLogLevel>,
+    /// Determines whether hardware metrics are collected during profiling.
+    /// WARNING: Adds significant overhead to kernels as they are modified to count operations.
+    #[serde(default)]
+    pub hardware_metrics: bool,
 }
 
 /// Log levels for profiling in `CubeCL`.

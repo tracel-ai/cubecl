@@ -38,6 +38,7 @@ pub struct Scope {
     pub return_value: Option<Value>,
     pub locals: RefCell<Vec<Value>>,
     pub debug: DebugInfo,
+    pub profile: ProfileInfo,
 
     #[cfg_attr(feature = "serde", serde(skip))]
     pub global_state: GlobalState,
@@ -94,6 +95,14 @@ pub struct DebugInfo {
     pub entry_loc: RefCell<Option<SourceLoc>>,
 }
 
+/// Profiling related fields
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, TypeHash)]
+pub struct ProfileInfo {
+    pub enabled: bool,
+    pub counters_buffer: Option<Value>,
+}
+
 /// Modes set and reset during expansion
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, TypeHash)]
@@ -136,7 +145,7 @@ impl Scope {
     /// Create a scope that is at the root of a kernel definition.
     ///
     /// A local scope can be created with the [child](Self::child) method.
-    pub fn root(debug_enabled: bool) -> Self {
+    pub fn root(debug_enabled: bool, profile_enabled: bool) -> Self {
         Self {
             validation_errors: ValidationErrors {
                 errors: Rc::new(RefCell::new(Vec::new())),
@@ -151,6 +160,10 @@ impl Scope {
                 value_names: Default::default(),
                 source_loc: Default::default(),
                 entry_loc: Default::default(),
+            },
+            profile: ProfileInfo {
+                enabled: profile_enabled,
+                counters_buffer: None,
             },
             global_state: Default::default(),
         }
@@ -274,6 +287,7 @@ impl Scope {
             return_value: None,
             locals: Default::default(),
             debug: self.debug.clone(),
+            profile: self.profile.clone(),
             global_state: self.global_state.clone(),
         }
     }

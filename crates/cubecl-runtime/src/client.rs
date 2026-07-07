@@ -1,12 +1,13 @@
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
+    id::KernelId,
     kernel::KernelMetadata,
     logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
-        KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
+        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, FlopRecord,
+        Handle, IoError, KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
         MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
         ServerUtilities,
     },
@@ -23,6 +24,7 @@ use cubecl_common::{
     device_handle::{CallResultExt, DeviceHandle},
     future::DynFut,
     profile::ProfileDuration,
+    stub::RwLock,
 };
 use cubecl_ir::{DeviceProperties, ElemType, VectorSize, features::Features};
 use cubecl_zspace::Shape;
@@ -30,6 +32,7 @@ use cubecl_zspace::Shape;
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
 use cubecl_common::stream_id::StreamId;
+use hashbrown::HashMap;
 
 /// The `ComputeClient` is the entry point to require tasks from the `ComputeServer`.
 /// It should be obtained for a specific device via the Compute struct.
@@ -728,6 +731,11 @@ impl<R: Runtime> ComputeClient<R> {
         dst_server.device.flush_queue();
 
         handle
+    }
+
+    /// Returns a reference to the [`RwLock`] containing the recorded FLOP metrics for all kernels.
+    pub fn metrics(&self) -> &RwLock<HashMap<KernelId, FlopRecord>> {
+        &self.utilities.metrics
     }
 
     #[track_caller]

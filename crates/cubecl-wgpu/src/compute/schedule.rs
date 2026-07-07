@@ -59,6 +59,8 @@ pub struct BindingsResource {
     /// Which compiler was used. This determines the passing strategy of params.
     /// WGSL and metal use bindings, Vulkan uses buffer addresses sent via a uniform buffer.
     pub compiler_info: CompilerInfo,
+    /// The profiling counters buffer, bound after `info` when profiling is on.
+    pub profile_counter: Option<WgpuResource>,
 }
 
 /// Represents a WGPU backend for scheduling tasks on streams.
@@ -174,6 +176,10 @@ impl BindingsResource {
             _ => {
                 if let Some(info) = info {
                     self.resources.push(info);
+                }
+                // The counters buffer is bound last, after every buffer and `info`.
+                if let Some(counter) = self.profile_counter {
+                    self.resources.push(counter);
                 }
                 (self.resources, vec![], None)
             }

@@ -18,7 +18,7 @@ use cubecl_runtime::{
 std::thread_local! {
     static INFO: RefCell<InfoBuilder> = RefCell::new(InfoBuilder::default());
     // Only used for resolving types
-    static SCOPE: RefCell<Scope> = RefCell::new(Scope::root(false));
+    static SCOPE: RefCell<Scope> = RefCell::new(Scope::root(false, false));
 }
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).
@@ -76,7 +76,7 @@ impl<R: Runtime> KernelLauncher<R> {
         let bindings = self.into_bindings();
         let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
 
-        client.launch(kernel, cube_count, bindings)
+        client.launch(kernel, cube_count, bindings);
     }
 
     /// Launch the kernel without check bounds.
@@ -196,7 +196,7 @@ impl<R: Runtime> KernelLauncher<R> {
             #[cfg(not(feature = "std"))]
             info: InfoBuilder::default(),
             #[cfg(not(feature = "std"))]
-            scope: Scope::root(false),
+            scope: Scope::root(false, false),
         }
     }
 }

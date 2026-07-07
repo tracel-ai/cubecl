@@ -56,7 +56,8 @@ impl CheckedIoVisitor {
                     if has_length {
                         let list = op.list;
                         let index = op.index;
-                        let scope = Scope::root(false).with_global_state(global_state.clone());
+                        let scope =
+                            Scope::root(false, false).with_global_state(global_state.clone());
 
                         expand_checked_index(
                             &scope,
@@ -88,7 +89,8 @@ impl CheckedIoVisitor {
                     if has_length {
                         let list = op.list;
                         let index = op.index;
-                        let scope = Scope::root(false).with_global_state(global_state.clone());
+                        let scope =
+                            Scope::root(false, false).with_global_state(global_state.clone());
 
                         expand_validate_index(
                             &scope,

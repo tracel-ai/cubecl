@@ -1,5 +1,5 @@
 use super::{ConstantValue, Value, ValueKind};
-use crate::{BarrierLevel, ClampMode, Id, MatrixType, TypeHash};
+use crate::{BarrierLevel, ClampMode, EnumCounts, Id, MatrixType, TypeHash};
 use core::fmt::Display;
 use cubecl_common::{
     e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32,
@@ -12,7 +12,7 @@ use half::{bf16, f16};
 pub use internment::Intern;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCounts)]
 #[allow(missing_docs)]
 pub enum FloatKind {
     /// FP4, 2 bit exponent, 1 bit mantissa
@@ -38,7 +38,7 @@ pub enum FloatKind {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCounts)]
 #[allow(missing_docs)]
 pub enum IntKind {
     I8,
@@ -48,7 +48,7 @@ pub enum IntKind {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCounts)]
 #[allow(missing_docs)]
 pub enum UIntKind {
     U8,
@@ -1162,3 +1162,41 @@ impl_into_value!(
     usize => UIntKind::U32,
     isize => IntKind::I32,
 );
+
+#[cfg(test)]
+mod enum_counts_tests {
+    use super::*;
+
+    #[test]
+    fn count_and_index_are_consistent() {
+        assert_eq!(FloatKind::COUNT, 12);
+        assert_eq!(FloatKind::VARIANTS.len(), FloatKind::COUNT);
+        for (i, kind) in FloatKind::VARIANTS.into_iter().enumerate() {
+            assert_eq!(kind.index(), i);
+        }
+    }
+
+    #[test]
+    fn named_fields_match_indexed_access() {
+        let mut counts = FloatKindCounts::<u32>::default();
+        counts.f16 = 7;
+        counts[FloatKind::F32] = 9;
+
+        assert_eq!(counts[FloatKind::F16], 7);
+        assert_eq!(counts.f32, 9);
+        // as_slice is in declaration order, so index() addresses the same entry.
+        assert_eq!(counts.as_slice()[FloatKind::F16.index()], 7);
+        assert_eq!(counts.iter().filter(|(_, v)| **v != 0).count(), 2);
+    }
+
+    #[test]
+    fn is_pod() {
+        // Round-trips through bytes: relies on the generated `#[repr(C)]` + `Pod` impl.
+        let mut counts = UIntKindCounts::<u32>::default();
+        counts.u32 = 42;
+        let bytes = bytemuck::bytes_of(&counts);
+        assert_eq!(bytes.len(), UIntKind::COUNT * size_of::<u32>());
+        let back: UIntKindCounts<u32> = *bytemuck::from_bytes(bytes);
+        assert_eq!(back.u32, 42);
+    }
+}

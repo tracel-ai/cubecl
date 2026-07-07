@@ -179,6 +179,7 @@ impl<C: Compiler, K: CubeKernel> CubeTask<C> for KernelTask<C, K> {
         let gpu_ir = self.kernel_definition.define();
         let entrypoint_name = gpu_ir.options.kernel_name.clone();
         let cube_dim = gpu_ir.cube_dim;
+
         let lower_level_ir = compiler.compile(gpu_ir, compilation_options, mode, addr_type)?;
 
         Ok(CompiledKernel {

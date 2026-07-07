@@ -183,7 +183,7 @@ impl Default for GlobalState {
     fn default() -> Self {
         Self {
             allocator: Default::default(),
-            root_scope: Scope::root(false),
+            root_scope: Scope::root(false, false),
             buffer_visibility: Default::default(),
             extra_functions: Default::default(),
             cube_dim: CubeDim::new_1d(1),
@@ -660,7 +660,7 @@ mod test {
     #[test_log::test]
     #[ignore = "no good way to assert opt is applied"]
     fn test_pre() {
-        let ctx = Scope::root(false);
+        let ctx = Scope::root(false, false);
         let u32 = Type::scalar(ElemType::UInt(UIntKind::U32));
         let x = ctx.create_value(u32).into();
         let cond = ctx.create_value(u32).into();
