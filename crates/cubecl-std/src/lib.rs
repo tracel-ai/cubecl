@@ -19,5 +19,8 @@ pub mod tensor;
 /// Event utilities.
 pub mod event;
 
+/// Throughput utilities.
+pub mod throughput;
+
 #[cfg(feature = "export_tests")]
 pub mod tests;

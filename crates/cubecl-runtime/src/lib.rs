@@ -20,6 +20,9 @@ pub mod kernel;
 /// Stream related utilities.
 pub mod stream;
 
+/// Throughput related utilities.
+pub mod throughput;
+
 /// Compute client module.
 pub mod client;
 
