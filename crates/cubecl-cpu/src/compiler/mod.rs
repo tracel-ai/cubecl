@@ -1,37 +1,22 @@
-pub mod builtin;
-pub(super) mod external_function;
-pub(super) mod memref;
-pub mod mlir_data;
-pub mod mlir_engine;
-pub mod module;
-pub mod passes;
-pub(super) mod visitor;
+pub mod jit;
 
 use cubecl_common::backtrace::BackTrace;
 use cubecl_runtime::compiler::CompilationError;
-// use passes::shared_memories::SharedMemories;
-pub use visitor::elem::register_supported_types;
 
-use cubecl_core::{
-    Compiler, post_processing::saturating::LowerSaturatingArithmetic, prelude::KernelDefinition,
-};
-use mlir_engine::MlirEngine;
+use cubecl_core::{Compiler, prelude::KernelDefinition};
 
-// use crate::compiler::passes::{
-//     erf_transform::ErfTransform,
-//     trigonometries_transform::{HypotTransform, RhypotTransform},
-// };
+use crate::compiler::jit::engine::PlironEngine;
 
 #[derive(Clone, Debug, Default)]
-pub struct MlirCompiler {}
+pub struct PlironCompiler {}
 
-#[derive(Default, Debug)]
-pub struct MlirCompilerOptions {}
+#[derive(Clone, Debug, Default)]
+pub struct PlironOptions;
 
-impl Compiler for MlirCompiler {
-    type Representation = MlirEngine;
+impl Compiler for PlironCompiler {
+    type Representation = PlironEngine;
 
-    type CompilationOptions = MlirCompilerOptions;
+    type CompilationOptions = PlironOptions;
 
     fn compile(
         &mut self,
@@ -54,25 +39,10 @@ impl Compiler for MlirCompiler {
 
         #[cfg(feature = "mlir-dump")]
         dump_scope(&kernel.body, &kernel.options.kernel_name);
-        // let opt = OptimizerBuilder::default()
-        // .with_transformer(ErfTransform)
-        // .with_transformer(HypotTransform)
-        // .with_transformer(RhypotTransform)
-        // .with_visitor(CheckedIoVisitor::new(
-        //     mode,
-        //     kernel.options.kernel_name.clone(),
-        // ))
-        // .with_visitor(DisaggregateVisitor::default())
-        // .with_processor(LowerSaturatingArithmetic::new())
-        // .with_processor(PredicateProcessor)
-        // .optimize(kernel.body.clone(), kernel.cube_dim);
-
-        // let mut shared_memories = SharedMemories::default();
-        // shared_memories.visit(&opt);
 
         #[cfg(feature = "mlir-dump")]
         dump_opt(&opt, &kernel.options.kernel_name);
-        Ok(MlirEngine::from_cubecl_ir(kernel))
+        Ok(PlironEngine::default())
     }
 
     fn extension(&self) -> &'static str {
