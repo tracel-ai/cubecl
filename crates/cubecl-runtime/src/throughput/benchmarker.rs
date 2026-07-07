@@ -2,13 +2,22 @@ use crate::{
     client::ComputeClient,
     config::CubeClRuntimeConfig,
     runtime::Runtime,
-    throughput::{KernelConfig, ThroughputCache, ThroughputKey, ThroughputValue},
+    throughput::{ThroughputCache, ThroughputKey, ThroughputValue},
 };
+use alloc::boxed::Box;
 use cubecl_common::{
     config::RuntimeConfig,
     future::block_on,
     profile::{Duration, Instant},
 };
+
+/// Configuration and payload for a benchmarkable compute kernel.
+pub struct KernelConfig {
+    /// The executable kernel closure to be evaluated.
+    pub kernel: Box<dyn Fn(usize)>,
+    /// The number of operations processed in one iteration.
+    pub ops_count: usize,
+}
 
 /// A marker for measuring throughput of compute kernels.
 pub struct ThroughputBenchmarker {

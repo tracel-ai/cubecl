@@ -1,40 +1,38 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, frontend::fma, ir::ElemType};
-use cubecl_runtime::throughput::{KernelConfig, LaunchConfig, ThroughputKey, ThroughputRunner};
+use cubecl_runtime::throughput::{KernelConfig, ThroughputKey};
 
-pub struct ComputeDirectRunner;
+use crate::throughput::LaunchConfig;
 
-impl<R: Runtime> ThroughputRunner<R> for ComputeDirectRunner {
-    fn build_kernel(
-        client: &ComputeClient<R>,
-        key: ThroughputKey,
-        config: LaunchConfig,
-    ) -> KernelConfig {
-        let client = client.clone();
-        let dtype = key.dtype;
+pub fn build_kernel<R: Runtime>(
+    client: &ComputeClient<R>,
+    key: ThroughputKey,
+    config: LaunchConfig,
+) -> KernelConfig {
+    let client = client.clone();
+    let dtype = key.dtype;
 
-        let has_fma = matches!(dtype, ElemType::Float(_));
+    let has_fma = matches!(dtype, ElemType::Float(_));
 
-        let kernel = Box::new(move |iterations: usize| unsafe {
-            let out = client.empty(config.vector_size * dtype.size());
+    let kernel = Box::new(move |iterations: usize| unsafe {
+        let out = client.empty(config.vector_size * dtype.size());
 
-            compute_direct_throughput::launch_unchecked(
-                &client,
-                CubeCount::Static(config.cube_count as u32, 1, 1),
-                CubeDim::new_1d(config.cube_dim as u32),
-                config.vector_size,
-                BufferArg::from_raw_parts(out, 1),
-                iterations,
-                has_fma,
-                dtype.into(),
-            )
-        });
+        compute_direct_throughput::launch_unchecked(
+            &client,
+            CubeCount::Static(config.cube_count as u32, 1, 1),
+            CubeDim::new_1d(config.cube_dim as u32),
+            config.vector_size,
+            BufferArg::from_raw_parts(out, 1),
+            iterations,
+            has_fma,
+            dtype.into(),
+        )
+    });
 
-        let ops_count =
-            if has_fma { 8 } else { 4 } * config.cube_count * config.cube_dim * config.vector_size;
+    let ops_count =
+        if has_fma { 8 } else { 4 } * config.cube_count * config.cube_dim * config.vector_size;
 
-        KernelConfig { kernel, ops_count }
-    }
+    KernelConfig { kernel, ops_count }
 }
 
 #[cube(launch_unchecked)]

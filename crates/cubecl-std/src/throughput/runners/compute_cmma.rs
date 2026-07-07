@@ -1,51 +1,43 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{
-    KernelConfig, LaunchConfig, MatrixSizes, ThroughputKey, ThroughputMode, ThroughputRunner,
-};
+use cubecl_runtime::throughput::{ComputeCmmaConfig, KernelConfig, MatrixSizes, ThroughputKey};
 
-pub struct ComputeCmmaRunner;
+use crate::throughput::LaunchConfig;
 
-impl<R: Runtime> ThroughputRunner<R> for ComputeCmmaRunner {
-    fn build_kernel(
-        client: &ComputeClient<R>,
-        key: ThroughputKey,
-        config: LaunchConfig,
-    ) -> KernelConfig {
-        let client = client.clone();
-        let dtype = key.dtype;
+pub fn build_kernel<R: Runtime>(
+    client: &ComputeClient<R>,
+    key: ThroughputKey,
+    cmma_config: ComputeCmmaConfig,
+    config: LaunchConfig,
+) -> KernelConfig {
+    let client = client.clone();
+    let dtype = key.dtype;
 
-        let cmma_config = match key.mode {
-            ThroughputMode::ComputeCmma(config) => config,
-            _ => unreachable!(),
-        };
+    let ops_per_cmma = 2 * cmma_config.matrix_sizes.num_elems();
+    let out_bytes = cmma_config.matrix_sizes.m
+        * cmma_config.matrix_sizes.n
+        * cmma_config.accumulator_type.size();
 
-        let ops_per_cmma = 2 * cmma_config.matrix_sizes.num_elems();
-        let out_bytes = cmma_config.matrix_sizes.m
-            * cmma_config.matrix_sizes.n
-            * cmma_config.accumulator_type.size();
+    let kernel = Box::new(move |iterations: usize| unsafe {
+        let out = client.empty(out_bytes);
 
-        let kernel = Box::new(move |iterations: usize| unsafe {
-            let out = client.empty(out_bytes);
+        compute_cmma_throughput::launch_unchecked(
+            &client,
+            CubeCount::Static(config.cube_count as u32, 1, 1),
+            CubeDim::new_1d(config.cube_dim as u32),
+            config.vector_size,
+            BufferArg::from_raw_parts(out, 1),
+            iterations,
+            cmma_config.matrix_sizes,
+            dtype.into(),
+            cmma_config.accumulator_type.into(),
+        )
+    });
 
-            compute_cmma_throughput::launch_unchecked(
-                &client,
-                CubeCount::Static(config.cube_count as u32, 1, 1),
-                CubeDim::new_1d(config.cube_dim as u32),
-                config.vector_size,
-                BufferArg::from_raw_parts(out, 1),
-                iterations,
-                cmma_config.matrix_sizes,
-                dtype.into(),
-                cmma_config.accumulator_type.into(),
-            )
-        });
+    let planes_per_cube = config.cube_dim / config.plane_size;
+    let ops_count = config.cube_count * planes_per_cube * ops_per_cmma;
 
-        let planes_per_cube = config.cube_dim / config.plane_size;
-        let ops_count = config.cube_count * planes_per_cube * ops_per_cmma;
-
-        KernelConfig { kernel, ops_count }
-    }
+    KernelConfig { kernel, ops_count }
 }
 
 #[cube(launch_unchecked)]

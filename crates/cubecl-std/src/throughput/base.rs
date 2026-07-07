@@ -2,10 +2,10 @@ use cubecl_core::ir::ElemType;
 use cubecl_runtime::{
     client::ComputeClient,
     runtime::Runtime,
-    throughput::{LaunchConfig, ThroughputKey, ThroughputMode, ThroughputRunner, ThroughputValue},
+    throughput::{ThroughputKey, ThroughputMode, ThroughputValue},
 };
 
-use crate::throughput::{ComputeCmmaRunner, ComputeDirectRunner, MemoryDirectRunner};
+use crate::throughput::{compute_cmma, compute_direct, memory_direct};
 
 pub fn peak_throughput<R: Runtime>(
     client: &ComputeClient<R>,
@@ -14,18 +14,27 @@ pub fn peak_throughput<R: Runtime>(
     let launch_config = launch_config(client, key.dtype);
 
     let kernel_config = match key.mode {
-        ThroughputMode::ComputeDirect => {
-            <ComputeDirectRunner as ThroughputRunner<R>>::build_kernel(client, key, launch_config)
+        ThroughputMode::ComputeDirect => compute_direct::build_kernel(client, key, launch_config),
+        ThroughputMode::ComputeCmma(cmma_config) => {
+            compute_cmma::build_kernel(client, key, cmma_config, launch_config)
         }
-        ThroughputMode::ComputeCmma(_) => {
-            <ComputeCmmaRunner as ThroughputRunner<R>>::build_kernel(client, key, launch_config)
-        }
-        ThroughputMode::Memory => {
-            <MemoryDirectRunner as ThroughputRunner<R>>::build_kernel(client, key, launch_config)
-        }
+        ThroughputMode::Memory => memory_direct::build_kernel(client, key, launch_config),
     };
 
     client.throughput(key, kernel_config)
+}
+
+/// Hardware execution parameters for launching a compute kernel.
+#[derive(Clone, Copy)]
+pub struct LaunchConfig {
+    /// The number of threads per cube.
+    pub cube_dim: usize,
+    /// The total number of cubes to dispatch.
+    pub cube_count: usize,
+    /// The vectorization factor (e.g., 4 for `vec4` operations).
+    pub vector_size: usize,
+    /// The number of threads in a hardware execution plane.
+    pub plane_size: usize,
 }
 
 fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> LaunchConfig {
