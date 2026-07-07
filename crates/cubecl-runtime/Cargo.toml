@@ -30,7 +30,7 @@ default = [
 ]
 exclusive-memory-only = []
 profile-tracy = ["dep:tracy-client"]
-std = ["cubecl-common/std", "toml", "dirs", "thiserror/std"]
+std = ["cubecl-common/std", "toml", "etcetera", "thiserror/std"]
 storage-bytes = []
 
 tracing = ["dep:tracing", "cubecl-common/tracing", "cubecl-ir/tracing"]
@@ -50,7 +50,7 @@ cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.1", default-features
 cubecl-zspace = { path = "../cubecl-zspace", version = "=0.11.0-pre.1", default-features = false }
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = ["eq"] }
-dirs = { workspace = true, optional = true }
+etcetera = { workspace = true, optional = true }
 enumset = { workspace = true }
 hashbrown = { workspace = true }
 itertools = { workspace = true }
