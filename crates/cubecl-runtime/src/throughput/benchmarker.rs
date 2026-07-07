@@ -80,7 +80,7 @@ impl ThroughputBenchmarker {
 
     /// Warms up the device by running the kernel multiple times
     /// and estimating the number of iterations needed to reach a stable duration.
-    fn warmup(&mut self, sample: impl Fn(usize) -> Duration) -> usize {
+    fn warmup(&self, sample: impl Fn(usize) -> Duration) -> usize {
         const MAX_WARMUP: usize = 50;
         const PLATEAU_TOL: f64 = 0.03;
         const PATIENCE: usize = 3;
@@ -124,7 +124,7 @@ impl ThroughputBenchmarker {
     /// Sample the peak throughput of the kernel by running it multiple times
     /// and measuring the duration of each iteration.
     fn sample_peak_duration(
-        &mut self,
+        &self,
         iterations: usize,
         sample_once: impl Fn(usize) -> Duration,
     ) -> Duration {

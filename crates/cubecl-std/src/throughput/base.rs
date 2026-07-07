@@ -1,3 +1,4 @@
+use core::time::Duration;
 use cubecl_core::ir::ElemType;
 use cubecl_runtime::{
     client::ComputeClient,
@@ -17,6 +18,12 @@ pub fn measure_peak_throughput<R: Runtime>(
     let kernel_config = match key.mode {
         ThroughputMode::ComputeDirect => compute_direct::build_kernel(client, key, launch_config),
         ThroughputMode::ComputeCmma(cmma_config) => {
+            if client.properties().features.matmul.cmma.is_empty() {
+                return ThroughputValue {
+                    ops_count: 0,
+                    duration: Duration::ZERO,
+                };
+            }
             compute_cmma::build_kernel(client, key, cmma_config, launch_config)
         }
         ThroughputMode::Memory => memory_direct::build_kernel(client, key, launch_config),

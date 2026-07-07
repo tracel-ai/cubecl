@@ -39,11 +39,17 @@ pub struct ThroughputValue {
 impl ThroughputValue {
     /// Returns the operations per second.
     pub fn ops_per_s(&self) -> f64 {
+        if self.duration.is_zero() {
+            return f64::NAN;
+        }
         self.ops_count as f64 / self.duration.as_secs_f64()
     }
 
     /// Returns the bytes per second.
     pub fn bytes_per_s(&self, key: &ThroughputKey) -> f64 {
+        if self.duration.is_zero() {
+            return f64::NAN;
+        }
         (self.ops_count * key.dtype.size()) as f64 / self.duration.as_secs_f64()
     }
 
@@ -58,6 +64,10 @@ impl ThroughputValue {
             ThroughputMode::ComputeDirect | ThroughputMode::ComputeCmma(_) => self.ops_per_s(),
             ThroughputMode::Memory => self.bytes_per_s(key),
         };
+
+        if val_per_s.is_nan() {
+            return String::from("N/A");
+        }
 
         let suffixes = ["", "K", "M", "G", "T", "P", "E", "Z", "Y", "R", "Q"];
         let mut suffix_idx = 0;

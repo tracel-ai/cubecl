@@ -41,7 +41,7 @@ pub fn build_kernel<R: Runtime>(
 
 #[cube(launch_unchecked)]
 pub fn compute_cmma_throughput<I: Numeric, ACC: Numeric, N: Size>(
-    output: &mut [Vector<I, N>],
+    output: &mut [Vector<ACC, N>],
     n_iter: usize,
     #[comptime] cmm_dims: CmmaDims,
     #[define(I)] _dtype: StorageType,

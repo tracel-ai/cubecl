@@ -70,11 +70,7 @@ fn run<R: Runtime>(device: &R::Device, keys: &[ThroughputKey]) {
 
     println!("Peak throughput — {}", R::name(&client));
     for &key in keys {
-        let value = if supported(&client, &key) {
-            measure_peak_throughput(&client, key).format(&key)
-        } else {
-            "unsupported".to_string()
-        };
+        let value = measure_peak_throughput(&client, key).format(&key);
 
         println!(
             "  {:<15}{:<24}{:>18}",
@@ -93,14 +89,6 @@ fn describe(key: &ThroughputKey) -> String {
             key.dtype, cfg.accumulator_type, cfg.cmma_dims.m, cfg.cmma_dims.n, cfg.cmma_dims.k,
         ),
         _ => key.dtype.to_string(),
-    }
-}
-
-/// Whether the given benchmark can run on the client (e.g. CMMA needs tensor-core support).
-fn supported<R: Runtime>(client: &ComputeClient<R>, key: &ThroughputKey) -> bool {
-    match key.mode {
-        ThroughputMode::ComputeCmma(_) => !client.properties().features.matmul.cmma.is_empty(),
-        _ => true,
     }
 }
 
