@@ -12,7 +12,7 @@ pub fn build_kernel<R: Runtime>(
     let client = client.clone();
     let dtype = key.dtype;
 
-    let has_fma = matches!(dtype, ElemType::Float(_));
+    let use_fma = matches!(dtype, ElemType::Float(_));
 
     let kernel = Box::new(move |iterations: usize| unsafe {
         let out = client.empty(config.vector_size * dtype.size());
@@ -24,13 +24,13 @@ pub fn build_kernel<R: Runtime>(
             config.vector_size,
             BufferArg::from_raw_parts(out, 1),
             iterations,
-            has_fma,
+            use_fma,
             dtype.into(),
         )
     });
 
     let ops_count =
-        if has_fma { 8 } else { 4 } * config.cube_count * config.cube_dim * config.vector_size;
+        if use_fma { 8 } else { 4 } * config.cube_count * config.cube_dim * config.vector_size;
 
     KernelConfig { kernel, ops_count }
 }
@@ -39,7 +39,7 @@ pub fn build_kernel<R: Runtime>(
 pub fn compute_direct_throughput<I: Numeric, N: Size>(
     output: &mut [Vector<I, N>],
     n_iter: usize,
-    #[comptime] has_fma: bool,
+    #[comptime] use_fma: bool,
     #[define(I)] _dtype: StorageType,
 ) {
     let tid = I::cast_from(ABSOLUTE_POS);
@@ -53,7 +53,7 @@ pub fn compute_direct_throughput<I: Numeric, N: Size>(
     let mut s3 = Vector::new(I::cast_from(1));
 
     for _ in 0..n_iter {
-        if has_fma {
+        if use_fma {
             s0 = fma(s0, b, c);
             s1 = fma(s1, b, c);
             s2 = fma(s2, b, c);

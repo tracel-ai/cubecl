@@ -1,3 +1,5 @@
+use alloc::{format, string::String};
+
 use cubecl_ir::ElemType;
 
 use crate::throughput::ComputeCmmaConfig;
@@ -43,5 +45,31 @@ impl ThroughputValue {
     /// Returns the bytes per second.
     pub fn bytes_per_s(&self, key: &ThroughputKey) -> f64 {
         (self.ops_count * key.dtype.size()) as f64 / self.duration.as_secs_f64()
+    }
+
+    /// Formats the throughput value as a clean human-readable string.
+    pub fn format(&self, key: &ThroughputKey) -> String {
+        let unit = match key.mode {
+            ThroughputMode::ComputeDirect | ThroughputMode::ComputeCmma(_) => "OPS",
+            ThroughputMode::Memory => "bytes",
+        };
+
+        let mut val_per_s = match key.mode {
+            ThroughputMode::ComputeDirect | ThroughputMode::ComputeCmma(_) => self.ops_per_s(),
+            ThroughputMode::Memory => self.bytes_per_s(key),
+        };
+
+        let suffixes = ["", "K", "M", "G", "T", "P", "E", "Z", "Y", "R", "Q"];
+        let mut suffix_idx = 0;
+
+        for _ in 0..suffixes.len() - 1 {
+            if val_per_s < 1000.0 {
+                break;
+            }
+            val_per_s /= 1000.0;
+            suffix_idx += 1;
+        }
+
+        format!("{val_per_s:.4} {}{unit}/s", suffixes[suffix_idx])
     }
 }
