@@ -1,5 +1,5 @@
 use crate::{
-    compiler::mlir_engine::MlirEngine,
+    compiler::jit::engine::PlironEngine,
     compute::{
         notification::{Notification, Notifications},
         schedule::{BindingsResource, ScheduleTask},
@@ -92,7 +92,7 @@ impl CpuExecutionQueueServer {
             }
             ScheduleTask::Execute {
                 stream_id,
-                mlir_engine,
+                pliron_engine: mlir_engine,
                 bindings,
                 cube_dim,
                 cube_count,
@@ -125,14 +125,14 @@ impl CpuExecutionQueueServer {
     fn kernel(
         &mut self,
         stream_id: StreamId,
-        mlir_engine: MlirEngine,
+        pliron_engine: PlironEngine,
         bindings: BindingsResource,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
     ) {
         let notifications = self
             .runner
-            .execute_data(mlir_engine, bindings, cube_dim, cube_count);
+            .execute_data(pliron_engine, bindings, cube_dim, cube_count);
         self.pending_notifications
             .entry(stream_id)
             .or_default()
