@@ -9,7 +9,6 @@ use crate::{
     throughput::ComputeCmmaConfig,
 };
 use alloc::boxed::Box;
-use alloc::vec::Vec;
 use cubecl_common::{
     config::RuntimeConfig,
     future::block_on,
@@ -101,10 +100,9 @@ impl ThroughputCache {
         self.cache
             .insert(key, value)
             .expect("Should be able to insert new throughput value");
+
         #[cfg(not(std_io))]
-        {
-            self.cache.insert(key, value);
-        }
+        self.cache.insert(key, value);
     }
 
     fn get(&self, key: &ThroughputKey) -> Option<&ThroughputValue> {
@@ -183,8 +181,12 @@ impl ThroughputBenchmarker {
             start.elapsed()
         };
 
-        let iterations = self.warmup(&sample);
-        let duration = self.estimate_throughput(iterations, &sample);
+        const ROUNDS: usize = 3;
+        let mut duration = Duration::MAX;
+        for _ in 0..ROUNDS {
+            let iterations = self.warmup(&sample);
+            duration = duration.min(self.estimate_throughput(iterations, &sample));
+        }
 
         let value = ThroughputValue {
             ops_count: kernel_config.ops_count,
@@ -202,28 +204,33 @@ impl ThroughputBenchmarker {
         const MAX_WARMUP: usize = 50;
         const PLATEAU_TOL: f64 = 0.03;
         const PATIENCE: usize = 3;
-        const TARGET_DURATION: f64 = 0.01;
+        const TARGET_DURATION_MS: f64 = 20.0;
 
         let mut best = f64::INFINITY;
         let mut stable = 0;
         let mut iterations = 1;
 
         for _ in 0..MAX_WARMUP {
-            let s = sample(iterations).as_secs_f64();
-            if s < TARGET_DURATION {
-                let multiplier = (TARGET_DURATION / s.max(1e-9)).ceil() as usize;
-                iterations *= multiplier.max(2);
+            let duration = sample(iterations).as_secs_f64() * 1000.0;
+            if duration < TARGET_DURATION_MS {
+                let extra_iters = if duration > 1e-6 {
+                    let duration_per_iter = duration / iterations as f64;
+                    ((TARGET_DURATION_MS - duration) / duration_per_iter).ceil() as usize
+                } else {
+                    iterations
+                };
+                iterations += extra_iters.max(1);
                 best = f64::INFINITY;
                 stable = 0;
                 continue;
             }
 
-            let s_normalized = s / iterations as f64;
-            if s_normalized < best * (1.0 - PLATEAU_TOL) {
-                best = s_normalized;
+            let duration_per_iter = duration / iterations as f64;
+            if duration_per_iter < best * (1.0 - PLATEAU_TOL) {
+                best = duration_per_iter;
                 stable = 0;
             } else {
-                best = best.min(s_normalized);
+                best = best.min(duration_per_iter);
                 stable += 1;
                 if stable >= PATIENCE {
                     break;
@@ -237,17 +244,30 @@ impl ThroughputBenchmarker {
     fn estimate_throughput(
         &mut self,
         iterations: usize,
-        sample: impl Fn(usize) -> Duration,
+        sample_once: impl Fn(usize) -> Duration,
     ) -> Duration {
-        const N_SAMPLES: usize = 20;
+        const MIN_SAMPLES: usize = 20;
+        const MAX_SAMPLES: usize = 200;
+        const REL_TOL: f64 = 0.01;
+        const PATIENCE: usize = 12;
 
-        let mut samples: Vec<Duration> = (0..N_SAMPLES).map(|_| sample(iterations)).collect();
-        samples.sort();
+        let mut best = f64::INFINITY;
+        let mut stale = 0;
 
-        let median = samples[samples.len() / 2];
-        samples.retain(|d| *d >= median / 4);
+        for i in 0..MAX_SAMPLES {
+            let s = sample_once(iterations).as_secs_f64();
+            if s < best * (1.0 - REL_TOL) {
+                best = s;
+                stale = 0;
+            } else {
+                best = best.min(s);
+                stale += 1;
+            }
+            if i > MIN_SAMPLES && stale >= PATIENCE {
+                break;
+            }
+        }
 
-        let min_duration = *samples.iter().min().expect("at least one valid sample");
-        min_duration / iterations as u32
+        Duration::from_secs_f64(best / iterations as f64)
     }
 }
