@@ -15,22 +15,14 @@ pub fn peak_throughput<R: Runtime>(
 
     let kernel_config = match key.mode {
         ThroughputMode::ComputeDirect => {
-            <ComputeDirectRunner as ThroughputRunner<R>>::build_kernel(
-                client,
-                key.dtype,
-                launch_config,
-            )
+            <ComputeDirectRunner as ThroughputRunner<R>>::build_kernel(client, key, launch_config)
         }
-        ThroughputMode::ComputeCmma => <ComputeCmmaRunner as ThroughputRunner<R>>::build_kernel(
-            client,
-            key.dtype,
-            launch_config,
-        ),
-        ThroughputMode::Memory => <MemoryDirectRunner as ThroughputRunner<R>>::build_kernel(
-            client,
-            key.dtype,
-            launch_config,
-        ),
+        ThroughputMode::ComputeCmma(sizes) => {
+            <ComputeCmmaRunner as ThroughputRunner<R>>::build_kernel(client, key, launch_config)
+        }
+        ThroughputMode::Memory => {
+            <MemoryDirectRunner as ThroughputRunner<R>>::build_kernel(client, key, launch_config)
+        }
     };
 
     client.throughput(key, kernel_config)
@@ -52,9 +44,12 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
         .next()
         .unwrap_or(1);
 
+    let plane_size = client.properties().hardware.plane_size_max.max(1) as usize;
+
     LaunchConfig {
         cube_dim: cube_dim as usize,
         cube_count: cube_count as usize,
         vector_size,
+        plane_size,
     }
 }

@@ -16,6 +16,14 @@ use cubecl_common::{
 use cubecl_ir::ElemType;
 use serde;
 
+#[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+pub struct MatrixSizes {
+    pub m: usize,
+    pub n: usize,
+    pub k: usize,
+}
+
 /// Represents the mode of a throughput computation.
 #[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
@@ -23,7 +31,7 @@ pub enum ThroughputMode {
     /// Compute direct calculation without special hardware acceleration.
     ComputeDirect,
     /// Compute cmma calculation with CMMA hardware acceleration.
-    ComputeCmma,
+    ComputeCmma(MatrixSizes),
     /// Memory input reads and output writes.
     Memory,
 }
@@ -57,7 +65,7 @@ impl ThroughputValue {
     /// Formats the throughput as a human-readable string.
     pub fn format(&self, key: &ThroughputKey) -> String {
         let unit = match key.mode {
-            ThroughputMode::ComputeDirect | ThroughputMode::ComputeCmma => "OPS",
+            ThroughputMode::ComputeDirect | ThroughputMode::ComputeCmma(_) => "OPS",
             ThroughputMode::Memory => "bytes",
         };
 
@@ -143,6 +151,7 @@ pub struct LaunchConfig {
     pub cube_count: usize,
     /// The vectorization factor (e.g., 4 for `vec4` operations).
     pub vector_size: usize,
+    pub plane_size: usize,
 }
 
 /// A trait for running throughput benchmarks on compute kernels.
@@ -150,7 +159,7 @@ pub trait ThroughputRunner<R: Runtime> {
     /// Builds a kernel configuration for the given client, dtype, and launch config.
     fn build_kernel(
         client: &ComputeClient<R>,
-        dtype: ElemType,
+        key: ThroughputKey,
         config: LaunchConfig,
     ) -> KernelConfig;
 }

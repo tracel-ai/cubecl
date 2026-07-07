@@ -1,6 +1,6 @@
 use cubecl::{ir::ElemType, prelude::*};
 use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{KernelConfig, LaunchConfig, ThroughputRunner};
+use cubecl_runtime::throughput::{KernelConfig, LaunchConfig, ThroughputKey, ThroughputRunner};
 
 const N_ITER: usize = 8;
 
@@ -9,10 +9,11 @@ pub struct MemoryDirectRunner;
 impl<R: Runtime> ThroughputRunner<R> for MemoryDirectRunner {
     fn build_kernel(
         client: &ComputeClient<R>,
-        dtype: ElemType,
+        key: ThroughputKey,
         config: LaunchConfig,
     ) -> KernelConfig {
         let client = client.clone();
+        let dtype = key.dtype;
 
         let line_bytes = config.vector_size * dtype.size();
 
