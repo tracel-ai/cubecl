@@ -30,10 +30,8 @@ impl<R: Runtime> ThroughputRunner<R> for ComputeDirectRunner {
             )
         });
 
-        let ops_count = if has_fma { 8 } else { 4 }
-            * config.cube_count
-            * config.cube_dim
-            * config.vector_size;
+        let ops_count =
+            if has_fma { 8 } else { 4 } * config.cube_count * config.cube_dim * config.vector_size;
 
         KernelConfig { kernel, ops_count }
     }
@@ -64,10 +62,10 @@ pub fn compute_direct_throughput<I: Numeric, N: Size>(
             s3 = fma(s3, b, c);
         } else {
             // gives lower bound as mul is slowest integer operation
-            s0 = s0 * b;
-            s1 = s1 * b;
-            s2 = s2 * b;
-            s3 = s3 * b;
+            s0 *= b;
+            s1 *= b;
+            s2 *= b;
+            s3 *= b;
         }
     }
     let sum = s0 + s1 + s2 + s3;

@@ -181,12 +181,8 @@ impl ThroughputBenchmarker {
             start.elapsed()
         };
 
-        const ROUNDS: usize = 3;
-        let mut duration = Duration::MAX;
-        for _ in 0..ROUNDS {
-            let iterations = self.warmup(&sample);
-            duration = duration.min(self.estimate_throughput(iterations, &sample));
-        }
+        let iterations = self.warmup(sample);
+        let duration = self.estimate_throughput(iterations, sample);
 
         let value = ThroughputValue {
             ops_count: kernel_config.ops_count,
