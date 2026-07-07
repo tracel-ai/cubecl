@@ -1,7 +1,8 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_runtime::throughput::{
-    KernelConfig, LaunchConfig, MatrixSizes, ThroughputKey, ThroughputMode, ThroughputRunner,
+    ComputeCmmaConfig, KernelConfig, LaunchConfig, MatrixSizes, ThroughputKey, ThroughputMode,
+    ThroughputRunner,
 };
 
 const N_ITER: usize = 1024 * 8;
@@ -17,15 +18,18 @@ impl<R: Runtime> ThroughputRunner<R> for ComputeCmmaRunner {
         let client = client.clone();
         let dtype = key.dtype;
 
-        let matrix_sizes @ MatrixSizes { m, n, k } = match key.mode {
-            ThroughputMode::ComputeCmma(matrix_sizes) => matrix_sizes,
+        let cmma_config = match key.mode {
+            ThroughputMode::ComputeCmma(config) => config,
             _ => unreachable!(),
         };
 
-        let ops_per_cmma = 2 * m * n * k;
+        let ops_per_cmma = 2 * cmma_config.matrix_sizes.num_elems();
+        let out_bytes = cmma_config.matrix_sizes.m
+            * cmma_config.matrix_sizes.n
+            * cmma_config.accumulator_type.size();
 
         let kernel = Box::new(move || unsafe {
-            let out = client.empty(config.vector_size * dtype.size());
+            let out = client.empty(out_bytes);
 
             compute_cmma_throughput::launch_unchecked(
                 &client,
@@ -34,8 +38,9 @@ impl<R: Runtime> ThroughputRunner<R> for ComputeCmmaRunner {
                 config.vector_size,
                 BufferArg::from_raw_parts(out, 1),
                 N_ITER,
-                matrix_sizes,
+                cmma_config.matrix_sizes,
                 dtype.into(),
+                cmma_config.accumulator_type.into(),
             )
         });
 
@@ -47,11 +52,12 @@ impl<R: Runtime> ThroughputRunner<R> for ComputeCmmaRunner {
 }
 
 #[cube(launch_unchecked)]
-pub fn compute_cmma_throughput<I: Numeric, N: Size>(
+pub fn compute_cmma_throughput<I: Numeric, ACC: Numeric, N: Size>(
     output: &mut [Vector<I, N>],
     n_iter: usize,
     #[comptime] matrix_sizes: MatrixSizes,
     #[define(I)] _dtype: StorageType,
+    #[define(ACC)] _acc: StorageType,
 ) {
     let MatrixSizes { m, n, k } = matrix_sizes;
 
@@ -73,13 +79,13 @@ pub fn compute_cmma_throughput<I: Numeric, N: Size>(
         I::cast_from(1),
     );
 
-    let acc = cmma::Matrix::<I>::from_value(
+    let acc = cmma::Matrix::<ACC>::from_value(
         cmma::MatrixIdent::Accumulator,
         m,
         n,
         k,
         cmma::MatrixLayout::Undefined,
-        I::cast_from(0.0),
+        ACC::cast_from(0.0),
     );
 
     for _ in 0..n_iter {

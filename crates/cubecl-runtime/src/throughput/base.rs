@@ -4,7 +4,10 @@ use cubecl_common::cache::{Cache, CacheOption};
 #[cfg(not(std_io))]
 use hashbrown::HashMap;
 
-use crate::{client::ComputeClient, config::CubeClRuntimeConfig, runtime::Runtime};
+use crate::{
+    client::ComputeClient, config::CubeClRuntimeConfig, runtime::Runtime,
+    throughput::ComputeCmmaConfig,
+};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use cubecl_common::{
@@ -13,6 +16,7 @@ use cubecl_common::{
     profile::{Duration, Instant},
 };
 use cubecl_ir::ElemType;
+
 use serde;
 
 /// Represents the mode of a throughput computation.
@@ -22,21 +26,9 @@ pub enum ThroughputMode {
     /// Compute direct calculation without special hardware acceleration.
     ComputeDirect,
     /// Compute cmma calculation with CMMA hardware acceleration.
-    ComputeCmma(MatrixSizes),
+    ComputeCmma(ComputeCmmaConfig),
     /// Memory input reads and output writes.
     Memory,
-}
-
-/// Defines the spatial dimensions for a matrix multiplication operation.
-#[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
-pub struct MatrixSizes {
-    /// The number of rows in the output matrix and the first input matrix.
-    pub m: usize,
-    /// The number of columns in the output matrix and the second input matrix.
-    pub n: usize,
-    /// The inner dimension shared between the two input matrices.
-    pub k: usize,
 }
 
 /// Represents a key/configuration used to identify the throughput of a computation.
