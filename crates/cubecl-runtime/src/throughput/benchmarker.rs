@@ -5,11 +5,15 @@ use crate::{
     throughput::{ThroughputCache, ThroughputKey, ThroughputValue},
 };
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use cubecl_common::{
     config::RuntimeConfig,
     future::block_on,
     profile::{Duration, Instant},
 };
+use spin::Mutex;
+
+type Cache = Arc<Mutex<ThroughputCache>>;
 
 /// Configuration and payload for a benchmarkable compute kernel.
 pub struct KernelConfig {
@@ -21,13 +25,13 @@ pub struct KernelConfig {
 
 /// A marker for measuring throughput of compute kernels.
 pub struct ThroughputBenchmarker {
-    cache: ThroughputCache,
+    cache: Cache,
     cache_enabled: bool,
 }
 
 impl ThroughputBenchmarker {
     /// Creates a new `ThroughputBenchmarker` with the given cache.
-    pub fn new(cache: ThroughputCache) -> Self {
+    pub fn new(cache: Cache) -> Self {
         let cache_enabled = !CubeClRuntimeConfig::get().throughput.disable_cache;
         Self {
             cache,
@@ -38,14 +42,14 @@ impl ThroughputBenchmarker {
     /// Measure the maximum compute throughput of the given kernel on the given client.
     /// Warms up the kernel until it plateaus,
     /// then measures the throughput over multiple iterations taking the minimum time per iteration (peak attained).
-    pub fn measure_throughput<R: Runtime>(
+    pub fn measure<R: Runtime>(
         &mut self,
         client: &ComputeClient<R>,
         key: ThroughputKey,
         kernel_config: KernelConfig,
     ) -> ThroughputValue {
         if self.cache_enabled
-            && let Some(cached_value) = self.cache.get(&key)
+            && let Some(cached_value) = self.cache.lock().get(&key)
         {
             return *cached_value;
         }
@@ -60,7 +64,7 @@ impl ThroughputBenchmarker {
         };
 
         let iterations = self.warmup(sample);
-        let duration = self.estimate_throughput(iterations, sample);
+        let duration = self.sample_peak_duration(iterations, sample);
 
         let value = ThroughputValue {
             ops_count: kernel_config.ops_count,
@@ -68,12 +72,14 @@ impl ThroughputBenchmarker {
         };
 
         if self.cache_enabled {
-            self.cache.insert(key, value);
+            self.cache.lock().insert(key, value);
         }
 
         value
     }
 
+    /// Warms up the device by running the kernel multiple times
+    /// and estimating the number of iterations needed to reach a stable duration.
     fn warmup(&mut self, sample: impl Fn(usize) -> Duration) -> usize {
         const MAX_WARMUP: usize = 50;
         const PLATEAU_TOL: f64 = 0.03;
@@ -115,7 +121,9 @@ impl ThroughputBenchmarker {
         iterations
     }
 
-    fn estimate_throughput(
+    /// Sample the peak throughput of the kernel by running it multiple times
+    /// and measuring the duration of each iteration.
+    fn sample_peak_duration(
         &mut self,
         iterations: usize,
         sample_once: impl Fn(usize) -> Duration,

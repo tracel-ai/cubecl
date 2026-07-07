@@ -1126,10 +1126,14 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)
-    pub fn throughput(&self, key: ThroughputKey, kernel_config: KernelConfig) -> ThroughputValue {
+    pub fn measure_throughput(
+        &self,
+        key: ThroughputKey,
+        kernel_config: KernelConfig,
+    ) -> ThroughputValue {
         let name = format!("{}_dev{}", R::name(self), self.device.device_id().index_id);
-        let cache = ThroughputCache::new(&name);
+        let cache = ThroughputCache::get_for_device(&name);
         let mut throughputs = ThroughputBenchmarker::new(cache);
-        throughputs.measure_throughput(self, key, kernel_config)
+        throughputs.measure(self, key, kernel_config)
     }
 }

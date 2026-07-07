@@ -7,7 +7,8 @@ use cubecl_runtime::{
 
 use crate::throughput::{compute_cmma, compute_direct, memory_direct};
 
-pub fn peak_throughput<R: Runtime>(
+/// Computes the peak throughput for a given runtime and key.
+pub fn measure_peak_throughput<R: Runtime>(
     client: &ComputeClient<R>,
     key: ThroughputKey,
 ) -> ThroughputValue {
@@ -21,7 +22,7 @@ pub fn peak_throughput<R: Runtime>(
         ThroughputMode::Memory => memory_direct::build_kernel(client, key, launch_config),
     };
 
-    client.throughput(key, kernel_config)
+    client.measure_throughput(key, kernel_config)
 }
 
 /// Hardware execution parameters for launching a compute kernel.

@@ -1,6 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_runtime::throughput::{ComputeCmmaConfig, KernelConfig, MatrixSizes, ThroughputKey};
+use cubecl_runtime::throughput::{CmmaDims, ComputeCmmaConfig, KernelConfig, ThroughputKey};
 
 use crate::throughput::LaunchConfig;
 
@@ -13,10 +13,9 @@ pub fn build_kernel<R: Runtime>(
     let client = client.clone();
     let dtype = key.dtype;
 
-    let ops_per_cmma = 2 * cmma_config.matrix_sizes.num_elems();
-    let out_bytes = cmma_config.matrix_sizes.m
-        * cmma_config.matrix_sizes.n
-        * cmma_config.accumulator_type.size();
+    let ops_per_cmma = 2 * cmma_config.cmma_dims.num_elems();
+    let out_bytes =
+        cmma_config.cmma_dims.m * cmma_config.cmma_dims.n * cmma_config.accumulator_type.size();
 
     let kernel = Box::new(move |iterations: usize| unsafe {
         let out = client.empty(out_bytes);
@@ -28,7 +27,7 @@ pub fn build_kernel<R: Runtime>(
             config.vector_size,
             BufferArg::from_raw_parts(out, 1),
             iterations,
-            cmma_config.matrix_sizes,
+            cmma_config.cmma_dims,
             dtype.into(),
             cmma_config.accumulator_type.into(),
         )
@@ -44,11 +43,11 @@ pub fn build_kernel<R: Runtime>(
 pub fn compute_cmma_throughput<I: Numeric, ACC: Numeric, N: Size>(
     output: &mut [Vector<I, N>],
     n_iter: usize,
-    #[comptime] matrix_sizes: MatrixSizes,
+    #[comptime] cmm_dims: CmmaDims,
     #[define(I)] _dtype: StorageType,
     #[define(ACC)] _acc: StorageType,
 ) {
-    let MatrixSizes { m, n, k } = matrix_sizes;
+    let CmmaDims { m, n, k } = cmm_dims;
 
     let a = cmma::Matrix::<I>::from_value(
         cmma::MatrixIdent::A,
