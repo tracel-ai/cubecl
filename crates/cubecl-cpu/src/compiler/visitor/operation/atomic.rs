@@ -16,6 +16,7 @@ use crate::compiler::visitor::{Visitor, prelude::IntoType};
 
 impl<'a> Visitor<'a> {
     pub fn visit_atomic(&mut self, atomic: &AtomicOp, out: Option<cube::Value>) {
+        *self.needs_parallelism = true;
         match atomic {
             AtomicOp::Load(variable) => {
                 let raw_ptr = self.get_raw_ptr(*variable);
