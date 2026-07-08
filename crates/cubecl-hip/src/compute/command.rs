@@ -329,7 +329,8 @@ impl<'a> Command<'a> {
 
         current.drop_queue.push(data);
 
-        if should_flush {
+        // Defer fenced flushes while capturing — a host sync aborts the capture.
+        if should_flush && !current.capturing {
             current.drop_queue.flush(|| Fence::new(current.sys));
         }
 
@@ -415,7 +416,9 @@ impl<'a> Command<'a> {
             .ctx
             .execute_task(stream, kernel_id, dispatch_count, resources);
 
-        if stream.drop_queue.should_flush() {
+        // A fenced flush during capture would abort it; defer until the capture
+        // ends (the deferred staging buffers are reclaimed then).
+        if !stream.capturing && stream.drop_queue.should_flush() {
             stream.drop_queue.flush(|| Fence::new(stream.sys));
         }
 

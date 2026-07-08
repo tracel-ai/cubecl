@@ -220,7 +220,12 @@ impl ComputeServer for HipServer {
                 cubecl_hip_sys::hipStreamCaptureMode_hipStreamCaptureModeGlobal,
             )
         };
-        hip_check("hipStreamBeginCapture", status)
+        hip_check("hipStreamBeginCapture", status)?;
+        // Suppress fenced drop-queue flushes on the execution path for the
+        // duration of the capture (a host sync would abort it); the deferred
+        // staging buffers are reclaimed in `end_capture`.
+        stream.capturing = true;
+        Ok(())
     }
 
     fn end_capture(&mut self, stream_id: StreamId) -> Result<DeviceGraph, ServerError> {
@@ -255,6 +260,8 @@ impl ComputeServer for HipServer {
             cubecl_hip_sys::hipGraphDestroy(graph);
             exec
         };
+        // Capture is closed: re-enable the deferred fenced flushes.
+        stream.capturing = false;
         // Restore automatic allocation and pin every buffer the graph touched
         // so the pool never reuses that memory for the graph's lifetime — both
         // the GPU slices and the pinned staging slices the recorded info copies
@@ -523,9 +530,26 @@ impl HipServer {
 
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
 
-        let info = command
-            .create_with_data(bytemuck::cast_slice(&info.data))
-            .unwrap();
+        // Reuse a cached info buffer when this kernel has already run with these
+        // exact shapes/scalars; otherwise create one and cache it (bounded). The
+        // info is read-only metadata (no tensor pointers), so sharing it across
+        // launches is sound — and it means a stable-shape decode allocates and
+        // copies no info inside a capture window (all launches hit warm buffers).
+        let key = (kernel_id.clone(), info.data.clone());
+        let cached = command.streams.current().info_cache.get(&key).cloned();
+        let info_handle = match cached {
+            Some(handle) => handle,
+            None => {
+                let handle = command
+                    .create_with_data(bytemuck::cast_slice(&info.data))
+                    .unwrap();
+                let stream = command.streams.current();
+                if stream.info_cache.len() < crate::compute::stream::INFO_CACHE_MAX {
+                    stream.info_cache.insert(key, handle.clone());
+                }
+                handle
+            }
+        };
 
         let mut resources: Vec<_> = buffers
             .into_iter()
@@ -534,7 +558,7 @@ impl HipServer {
 
         resources.push(
             command
-                .resource(info.binding())
+                .resource(info_handle.binding())
                 .expect("Resource to exist."),
         );
 

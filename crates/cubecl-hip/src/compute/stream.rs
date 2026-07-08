@@ -1,10 +1,11 @@
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
-    server::{Binding, ServerError},
+    server::{Binding, Handle, ServerError},
 };
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
+    id::KernelId,
     logging::ServerLogger,
     memory_management::{
         MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
@@ -12,6 +13,7 @@ use cubecl_runtime::{
     },
     stream::EventStreamBackend,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::compute::{
@@ -27,7 +29,27 @@ pub struct Stream {
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
     pub errors: Vec<ServerError>,
     pub drop_queue: drop_queue::PendingDropQueue<Fence>,
+    /// Set while a graph capture is recording on this stream. A fenced drop-queue
+    /// flush (or any host sync) issued between `hipStreamBeginCapture` and
+    /// `hipStreamEndCapture` aborts the capture (`hipErrorStreamCaptureUnsupported`),
+    /// so the execution path defers those flushes while this is `true`; the
+    /// deferred buffers are reclaimed when the capture ends.
+    pub capturing: bool,
+    /// Reusable per-launch **info buffers** (kernel shapes/strides/scalars),
+    /// keyed by kernel and the exact info bytes. A kernel's info depends only on
+    /// its shapes and scalar args — not the tensor data pointers, which are
+    /// separate kernel arguments — so two launches with identical info can share
+    /// one read-only device buffer. Caching them avoids a fresh allocation and a
+    /// host→device copy on every launch, and makes captured graphs clean: a
+    /// stable-shape decode's launches all hit warm buffers, so nothing is
+    /// allocated or copied inside the capture window. Bounded by [`INFO_CACHE_MAX`].
+    pub info_cache: HashMap<(KernelId, Vec<u64>), Handle>,
 }
+
+/// Cap on [`Stream::info_cache`] entries; past it, launches fall back to a fresh
+/// per-launch info buffer (correct, just uncached) so the cache can't grow
+/// without bound on workloads with many distinct shapes.
+pub const INFO_CACHE_MAX: usize = 4096;
 
 impl drop_queue::Fence for Fence {
     fn sync(self) {
@@ -88,6 +110,8 @@ impl EventStreamBackend for HipStreamBackend {
             memory_management_gpu,
             memory_management_cpu,
             errors: Vec::new(),
+            capturing: false,
+            info_cache: HashMap::new(),
             drop_queue: PendingDropQueue::new(FlushingPolicy {
                 max_bytes_count: match self.is_integrated {
                     // Integrated GPUs (APUs) share memory and IOMMU with the CPU.
