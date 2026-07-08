@@ -19,7 +19,8 @@ pub struct CoreId(usize);
 #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "windows",)))]
 #[inline]
 pub fn get_active_cores() -> impl Iterator<Item = CoreId> {
-    [].into_iter()
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    (0..cores).map(CoreId)
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "windows",)))]
