@@ -25,6 +25,13 @@ use std::sync::{Arc, atomic::AtomicU64};
 pub struct CpuStream {
     pub(crate) max_units_per_cube: u32,
     pub(crate) memory_management: MemoryManagement<BytesStorage>,
+    /// Dedicated pool for per-launch shared memory.
+    ///
+    /// Shared memory MUST NOT be reserved from `memory_management`: kernel input/output
+    /// bindings keep their allocation alive through a `ManagedMemoryBinding`, which does
+    /// *not* hold the pool reservation. `reserve` would then hand a still-bound tensor's
+    /// slice to shared memory, aliasing an input and corrupting it in place.
+    pub(crate) shared_memory_management: MemoryManagement<BytesStorage>,
     pub(crate) timestamps: TimestampProfiler,
     errors: Vec<ServerError>,
     threadpool: &'static spin::Mutex<Threadpool>,
@@ -48,9 +55,16 @@ impl CpuStream {
         let memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &memory_properties,
-            memory_config,
+            memory_config.clone(),
             logger.clone(),
             MemoryManagementOptions::new("Main CPU"),
+        );
+        let shared_memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &memory_properties,
+            memory_config,
+            logger.clone(),
+            MemoryManagementOptions::new("Shared CPU"),
         );
         let threadpool = Threadpool::get();
         let next_counter_step = 0;
@@ -58,6 +72,7 @@ impl CpuStream {
         Self {
             max_units_per_cube,
             memory_management,
+            shared_memory_management,
             timestamps: TimestampProfiler::default(),
             errors: Vec::new(),
             threadpool,
@@ -96,7 +111,7 @@ impl CpuStream {
                     bindings,
                     cube_dim,
                     cube_count,
-                    &mut self.memory_management,
+                    &mut self.shared_memory_management,
                     self.next_counter_step,
                     &self.atomic_counter,
                 );
