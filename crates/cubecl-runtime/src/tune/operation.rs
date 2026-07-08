@@ -7,6 +7,8 @@ use core::hash::Hash;
 
 use alloc::format;
 
+use crate::throughput::ThroughputKey;
+
 use super::{
     AutotuneError, input_generator::InputGenerator, key_generator::KeyGenerator,
     tune_inputs::TuneInputs,
@@ -35,12 +37,23 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
     }
 }
 
+/// A bound for autotuning a throughput kernel, specifying the key, threshold, and number of operations.
+pub struct AutotuneBound {
+    /// The key for this bound, specifying the mode and data type of the throughput kernel.
+    pub throughput: f64,
+    /// The threshold for this bound, over which the kernel will be considered accurate.
+    pub threshold: f32,
+    /// The number of operations the kernel will run.
+    pub ops_count: usize,
+}
+
 /// A set of candidate tunable functions for autotune, sharing a key generator and an
 /// input generator. See [`TuneInputs`] for the `F` parameter.
 pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static> {
     tunables: Vec<Tunable<K, F, Output>>,
     key_gen: Arc<dyn KeyGenerator<K, F> + Send + Sync>,
     input_gen: Arc<dyn InputGenerator<K, F> + Send + Sync>,
+    bounds: Option<Vec<AutotuneBound>>,
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
@@ -60,6 +73,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
             tunables: Default::default(),
             input_gen: Arc::new(input_gen),
             key_gen: Arc::new(key_gen),
+            bounds: None,
         }
     }
 
@@ -72,6 +86,12 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
     /// Register a tunable with this tunable set.
     pub fn with(mut self, tunable: Tunable<K, F, Output>) -> Self {
         self.tunables.push(tunable);
+        self
+    }
+
+    /// Sets the autotune bounds for this set.
+    pub fn with_bounds(mut self, bounds: Vec<AutotuneBound>) -> Self {
+        self.bounds = Some(bounds);
         self
     }
 
@@ -109,6 +129,10 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
     /// Generate a set of test inputs from a key and reference inputs.
     pub fn generate_inputs<'a>(&self, key: &K, inputs: &F::At<'a>) -> F::At<'a> {
         self.input_gen.generate(key, inputs)
+    }
+
+    pub fn bounds(&self) -> Option<&Vec<AutotuneBound>> {
+        self.bounds.as_ref()
     }
 }
 

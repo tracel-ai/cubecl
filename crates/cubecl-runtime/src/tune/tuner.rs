@@ -3,6 +3,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::profile::ProfileDuration;
 use derive_more::Display;
+use itertools::Itertools;
 
 use core::time::Duration;
 
@@ -198,6 +199,18 @@ impl<K: AutotuneKey> Tuner<K> {
             _ => None,
         };
 
+        let threshold_limit = tunables
+            .bounds()
+            .map(|bounds| {
+                bounds
+                    .iter()
+                    .map(|b| (b.ops_count as f64 / b.throughput) / b.threshold as f64)
+                    .max_by(|a, b| a.total_cmp(b))
+            })
+            .flatten();
+
+        let mut batch_success = false;
+
         // Walk the plan batch by batch, launching each benchmark synchronously. A
         // successful launch queues a `PendingBench` for the async resolver below;
         // launch errors go straight into `results`. Retry the next batch if a whole
@@ -216,18 +229,52 @@ impl<K: AutotuneKey> Tuner<K> {
                 let op = autotunables[index];
 
                 match tune_benchmark(op, test_inputs.clone(), client.clone()) {
-                    Ok(profiles) => pending.push(PendingBench {
-                        index,
-                        name: op.name.clone(),
-                        profiles,
-                    }),
+                    Ok(profiles) => {
+                        #[cfg(not(target_family = "wasm"))]
+                        if let Some(limit) = threshold_limit {
+                            // Resolve the profiles inline (consumes profiles)
+                            let timing_method = profiles.first().unwrap().timing_method();
+                            let mut durations = Vec::with_capacity(profiles.len());
+                            for profile in profiles {
+                                durations.push(
+                                    cubecl_common::future::block_on(profile.resolve()).duration(),
+                                );
+                            }
+
+                            let benchmark_durations =
+                                BenchmarkDurations::from_durations(timing_method, durations);
+                            let computations = BenchmarkComputations::new(&benchmark_durations);
+
+                            let close_enough = computations.median.as_secs_f64() <= limit;
+                            // Directly write to results! We don't push to pending.
+                            results[index] = AutotuneResult::success(AutotuneOutcome::new(
+                                op.name.clone(),
+                                index,
+                                computations,
+                            ));
+
+                            batch_success = true;
+                            if close_enough {
+                                break;
+                            }
+
+                            continue; // Skip pushing to pending
+                        }
+
+                        // Normal path (WASM or no threshold)
+                        pending.push(PendingBench {
+                            index,
+                            name: op.name.clone(),
+                            profiles,
+                        });
+                    }
                     Err(err) => {
                         results[index] = AutotuneResult::error(err);
                     }
                 }
             }
 
-            if !pending.is_empty() {
+            if !pending.is_empty() || batch_success {
                 break;
             }
         }
