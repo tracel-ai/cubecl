@@ -218,9 +218,6 @@ impl<'a> Visitor<'a> {
     }
 
     fn visit_index(&mut self, index: &IndexOperands, out_ty: cube::Type) -> Value<'a, 'a> {
-        // Indexing is in units of the *accessed* item, mirroring the C++ backends: on an
-        // item-type mismatch they reinterpret the list to the out item and index in that
-        // unit, so a vectorized read of a scalar-typed list is line-unit there too.
         let ty = out_ty;
         let index_value = self.get_index(index.index, ty, ty.is_vectorized());
         let memref = self.get_value(index.list);
