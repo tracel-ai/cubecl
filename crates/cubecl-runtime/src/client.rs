@@ -420,6 +420,20 @@ impl<R: Runtime> ComputeClient<R> {
         Ok(output)
     }
 
+    /// Overwrite the bytes of an already-allocated `handle` in place — same
+    /// device buffer, same pointer, no reallocation. This is how a captured
+    /// graph's fixed input buffers are refreshed between replays: write the new
+    /// inputs into the handles the graph captured, then [`Graph::replay`]. The
+    /// write is ordered before any later launch on the client's stream.
+    pub fn write(&self, handle: &Handle, data: Bytes) {
+        let stream_id = self.stream_id();
+        let descriptor =
+            CopyDescriptor::new(handle.clone().binding(), [data.len()].into(), [1].into(), 1);
+        self.device.submit(move |server| {
+            server.write(vec![(descriptor, data)], stream_id);
+        });
+    }
+
     /// Returns a resource handle containing the given [Bytes].
     pub fn create(&self, data: Bytes) -> Handle {
         let shape = [data.len()].into();

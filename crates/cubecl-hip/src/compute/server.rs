@@ -182,7 +182,13 @@ impl ComputeServer for HipServer {
         // pool is warm before `begin_capture` — the capture window then reuses
         // those slices with no `hipMalloc` (which would be illegal mid-capture,
         // HIP status 901). `end_capture` pins the snapshotted slices.
-        command.streams.current().memory_management_gpu.capture_begin();
+        //
+        // Both pools are armed: the GPU pool for tensor and kernel-info buffers,
+        // and the pinned CPU pool that stages each kernel's info bytes to the
+        // device (a fresh pinned allocation mid-capture would fault the same way).
+        let stream = command.streams.current();
+        stream.memory_management_gpu.capture_begin();
+        stream.memory_management_cpu.capture_begin();
         Ok(())
     }
 
@@ -195,6 +201,17 @@ impl ComputeServer for HipServer {
             },
         )?;
         let stream = command.streams.current();
+        // Reclaim deferred frees before the capture window opens: warmup's
+        // pinned staging buffers (and any other drop-queued slices) sit in the
+        // drop queue until flushed, so without this the capture run finds no
+        // free staging slice and allocates a fresh one mid-capture — which
+        // faults. The queue is a double buffer (a flush only frees the batch
+        // from two cycles ago and rotates the current one into `pending`), so
+        // flush twice to actually free warmup's just-staged buffers and return
+        // them to their pools for the capture run to reuse.
+        let sys = stream.sys;
+        stream.drop_queue.flush(|| Fence::new(sys));
+        stream.drop_queue.flush(|| Fence::new(sys));
         // SAFETY: `stream.sys` is a valid HIP stream; global capture mode
         // records every launch issued on it until `hipStreamEndCapture`.
         let status = unsafe {
@@ -239,8 +256,11 @@ impl ComputeServer for HipServer {
             exec
         };
         // Restore automatic allocation and pin every buffer the graph touched
-        // so the pool never reuses that memory for the graph's lifetime.
-        let retained = stream.memory_management_gpu.capture_end();
+        // so the pool never reuses that memory for the graph's lifetime — both
+        // the GPU slices and the pinned staging slices the recorded info copies
+        // still read from on replay.
+        let mut retained = stream.memory_management_gpu.capture_end();
+        retained.extend(stream.memory_management_cpu.capture_end());
         Ok(DeviceGraph::new(crate::compute::graph::HipGraph {
             exec,
             _retained: retained,

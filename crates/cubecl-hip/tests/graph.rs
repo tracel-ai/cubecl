@@ -4,6 +4,7 @@
 //! state (persistent mode), so two captures sharing the one cached client must
 //! not overlap — exactly one capture at a time per device, as in real use.
 
+use cubecl_common::bytes::Bytes;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
@@ -62,6 +63,49 @@ fn hip_graph_capture_replay() {
     graph.replay().expect("replay 2");
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
+}
+
+/// The input-rewrite path: a captured graph reads its input buffer at replay
+/// time, so writing new bytes into that same buffer (same device pointer) and
+/// replaying must produce output for the new input. This is how a decode loop
+/// feeds the next token into a captured step without re-capturing.
+#[test]
+fn hip_graph_input_rewrite() {
+    let client = HipRuntime::client(&Default::default());
+    let n = 4usize;
+    let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
+    let output = client.empty(n * core::mem::size_of::<f32>());
+
+    let launch = |client: &ComputeClient<HipRuntime>| {
+        add_one::launch::<HipRuntime>(
+            client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(client, n),
+            unsafe { BufferArg::from_raw_parts(input.clone(), n) },
+            unsafe { BufferArg::from_raw_parts(output.clone(), n) },
+        );
+    };
+
+    launch(&client);
+    let _ = client.read_one(output.clone()).unwrap();
+
+    client.start_capture().expect("start_capture");
+    launch(&client);
+    let graph = client.stop_capture().expect("stop_capture");
+
+    graph.replay().expect("replay");
+    let out = client.read_one(output.clone()).unwrap();
+    assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
+
+    // Write new inputs into the captured buffer (same pointer), replay: the
+    // output must reflect the new input, not the captured-time values.
+    client.write(
+        &input,
+        Bytes::from_bytes_vec(f32::as_bytes(&[10.0, 20.0, 30.0, 40.0]).to_vec()),
+    );
+    graph.replay().expect("replay after rewrite");
+    let out = client.read_one(output).unwrap();
+    assert_eq!(f32::from_bytes(&out), &[11.0, 21.0, 31.0, 41.0]);
 }
 
 /// The lifecycle risk: a captured graph holds raw device pointers the memory
