@@ -20,8 +20,9 @@ impl<'a> Visitor<'a> {
     pub fn visit_memory(&mut self, memory: &Memory, out: Option<cube::Value>) {
         match memory {
             Memory::Index(index) => {
-                let value = self.visit_index(index);
-                self.insert_value(out.unwrap(), value);
+                let out = out.unwrap();
+                let value = self.visit_index(index, out.ty);
+                self.insert_value(out, value);
             }
             Memory::Load(variable) => {
                 let out = out.unwrap();
@@ -216,8 +217,11 @@ impl<'a> Visitor<'a> {
         self.append_operation_with_result(vector_extract)
     }
 
-    fn visit_index(&mut self, index: &IndexOperands) -> Value<'a, 'a> {
-        let ty = index.list.ty;
+    fn visit_index(&mut self, index: &IndexOperands, out_ty: cube::Type) -> Value<'a, 'a> {
+        // Indexing is in units of the *accessed* item, mirroring the C++ backends: on an
+        // item-type mismatch they reinterpret the list to the out item and index in that
+        // unit, so a vectorized read of a scalar-typed list is line-unit there too.
+        let ty = out_ty;
         let index_value = self.get_index(index.index, ty, ty.is_vectorized());
         let memref = self.get_value(index.list);
 
