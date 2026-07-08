@@ -529,9 +529,25 @@ impl ComputeServer for MetalServer {
             Ok(r) => r,
             Err(e) => return Box::pin(async move { Err(e) }),
         };
-        let fence = MetalStreamBackend::flush(resolved.current());
+        let stream = resolved.current();
+        let fence = MetalStreamBackend::flush(stream);
+        let error_sink = stream.errors.clone();
 
-        Box::pin(async move { MetalStreamBackend::wait_event_sync(fence) })
+        Box::pin(async move {
+            MetalStreamBackend::wait_event_sync(fence)?;
+            // Completion handlers may record faults between the pre-wait drain above
+            // and the fence resolving; surface them on this sync rather than leaving
+            // them to poison a later, unrelated call.
+            let errors = core::mem::take(&mut *error_sink.lock().unwrap());
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                Err(ServerError::ServerUnhealthy {
+                    errors,
+                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                })
+            }
+        })
     }
 
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
@@ -549,10 +565,11 @@ impl ComputeServer for MetalServer {
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
-        // Drain prior work so the window only contains command buffers committed from here on.
-        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
-            log::warn!("{err}");
-        }
+        // Drain prior work so the window only contains command buffers committed from
+        // here on. Errors are propagated, not swallowed: a fault left by previous work
+        // belongs to its own caller, and discarding it here would let the failure
+        // vanish while the profile reports a valid-looking measurement.
+        cubecl_common::future::block_on(self.sync(stream_id))?;
         // Begin collecting this window's work-bearing command buffers on the stream.
         if let Ok(mut resolved) = self.streams.resolve(stream_id, std::iter::empty(), false) {
             resolved.current().profiling = Some(Vec::new());
@@ -593,6 +610,17 @@ impl ComputeServer for MetalServer {
         // valid once completed, so wait explicitly before reading them.
         for buffer in &buffers {
             buffer.waitUntilCompleted();
+        }
+
+        // The completion handlers have now all run; surface any fault they recorded
+        // after the sync above drained the sink, so a mid-window GPU fault fails this
+        // profile instead of leaking into the next call on the stream.
+        let errors = self.flush_errors(stream_id);
+        if !errors.is_empty() {
+            return Err(ProfileError::Unknown {
+                reason: format!("{errors:?}"),
+                backtrace: cubecl_common::backtrace::BackTrace::capture(),
+            });
         }
 
         // GPU wall-time of the window: latest end minus earliest start across the
