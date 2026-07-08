@@ -21,8 +21,11 @@ pub(crate) fn handle_command(
         // conventional tests
         if args.ci {
             // Exclude crates that are not supported on CI
-            args.exclude
-                .extend(vec!["cubecl-cuda".to_string(), "cubecl-hip".to_string()]);
+            args.exclude.extend(vec![
+                "cubecl-cuda".to_string(),
+                "cubecl-hip".to_string(),
+                "cubecl-metal".to_string(),
+            ]);
         }
         base_commands::test::handle_command(args.try_into().unwrap(), env, context)?;
         // Specific additional commands to test specific features

@@ -652,6 +652,20 @@ pub trait DialectInstructions<D: Dialect> {
         }
     }
 
+    // exp
+    fn compile_instruction_expm1_scalar<T: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+    ) -> std::fmt::Result {
+        let elem = input.elem();
+        match elem {
+            Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
+                write!(f, "{elem}(expm1(float({input})))")
+            }
+            _ => write!(f, "expm1({input})"),
+        }
+    }
+
     // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn compile_instruction_sync_warp(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
@@ -784,10 +798,17 @@ pub trait DialectInstructions<D: Dialect> {
         "h2"
     }
 
+    /// Remaps a math-function name for the dialect (default: unchanged), e.g. fast-math
+    /// intrinsics to each dialect's spelling (`__expf` -> `fast::exp`).
+    fn compile_fast_math_function_name(name: &'static str) -> &'static str {
+        name
+    }
+
     // warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
         val: &str,
+        elem: &Elem<D>,
         source: &str,
     ) -> std::fmt::Result;
     fn compile_warp_shuffle_xor(
@@ -799,11 +820,13 @@ pub trait DialectInstructions<D: Dialect> {
     fn compile_warp_shuffle_up(
         f: &mut std::fmt::Formatter<'_>,
         val: &str,
+        elem: &Elem<D>,
         offset: &str,
     ) -> std::fmt::Result;
     fn compile_warp_shuffle_down(
         f: &mut std::fmt::Formatter<'_>,
         val: &str,
+        elem: &Elem<D>,
         offset: &str,
     ) -> std::fmt::Result;
     fn compile_warp_all<T: Component<D>>(

@@ -25,11 +25,6 @@ pub struct CpuExecutionQueue {
     sender: SyncSender<QueueItem>,
 }
 
-enum QueueItem {
-    Task(ScheduleTask),
-    Flush(Notification),
-}
-
 impl CpuExecutionQueue {
     /// Adds a new task to the queue.
     pub fn add(&self, task: ScheduleTask) {
@@ -85,25 +80,14 @@ struct CpuExecutionQueueServer {
 impl CpuExecutionQueueServer {
     fn execute_task(&mut self, task: ScheduleTask) {
         match task {
-            ScheduleTask::Write {
-                stream_id,
-                data,
-                buffer,
-            } => {
-                self.flush_stream(stream_id);
-                self.write(data, buffer)
-            }
+            ScheduleTask::Write { data, buffer, .. } => self.write(data, buffer),
             ScheduleTask::Execute {
-                stream_id,
                 mlir_engine,
                 bindings,
                 cube_dim,
                 cube_count,
                 ..
-            } => {
-                self.flush_stream(stream_id);
-                self.kernel(stream_id, mlir_engine, bindings, cube_dim, cube_count)
-            }
+            } => self.kernel(stream_id, mlir_engine, bindings, cube_dim, cube_count),
         }
     }
 
@@ -133,6 +117,7 @@ impl CpuExecutionQueueServer {
         cube_dim: CubeDim,
         cube_count: [u32; 3],
     ) {
+        self.flush_stream(stream_id);
         let notifications = self
             .runner
             .execute_data(mlir_engine, bindings, cube_dim, cube_count);

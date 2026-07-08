@@ -11,6 +11,9 @@ use crate::{
         ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
+    throughput::{
+        KernelConfig, ThroughputBenchmarker, ThroughputCache, ThroughputKey, ThroughputValue,
+    },
 };
 use alloc::{format, sync::Arc, vec, vec::Vec};
 
@@ -20,7 +23,7 @@ use cubecl_common::{
     backtrace::BackTrace,
     bytes::{AllocationProperty, Bytes},
     device::{Device, DeviceId},
-    device_handle::DeviceHandle,
+    device_handle::{CallResultExt, DeviceHandle},
     future::DynFut,
     profile::ProfileDuration,
 };
@@ -105,7 +108,7 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.read(descriptors, stream_id))
-            .unwrap()
+            .unwrap_or_resume()
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -255,7 +258,7 @@ impl<R: Runtime> ComputeClient<R> {
 
         self.device
             .submit_blocking(move |state| state.get_resource(binding, stream_id))
-            .unwrap()
+            .unwrap_or_resume()
     }
 
     fn do_create_from_slices(
@@ -356,7 +359,7 @@ impl<R: Runtime> ComputeClient<R> {
         self.device
             .exclusive(task)
             .map_err(|err| ServerError::Generic {
-                reason: format!("Communication channel with the server is down: {err:?}"),
+                reason: format!("{err:?}"),
                 backtrace: BackTrace::capture(),
             })
     }
@@ -573,7 +576,7 @@ impl<R: Runtime> ComputeClient<R> {
         let stagings = self
             .device
             .submit_blocking(move |server| server.staging(&sizes, stream_id))
-            .unwrap();
+            .unwrap_or_resume();
 
         let stagings = match stagings {
             Ok(val) => val,
@@ -780,7 +783,7 @@ impl<R: Runtime> ComputeClient<R> {
                                 .submit_blocking(move |state| unsafe {
                                     state.launch(kernel, count_moved, bindings, mode, stream_id)
                                 })
-                                .unwrap()
+                                .unwrap_or_resume()
                         },
                         name,
                     )
@@ -855,7 +858,7 @@ impl<R: Runtime> ComputeClient<R> {
 
         self.device
             .submit_blocking(move |server| server.flush(stream_id))
-            .unwrap()
+            .unwrap_or_resume()
     }
 
     /// Wait for the completion of every task in the server.
@@ -865,7 +868,7 @@ impl<R: Runtime> ComputeClient<R> {
         let fut = self
             .device
             .submit_blocking(move |server| server.sync(stream_id))
-            .unwrap();
+            .unwrap_or_resume();
 
         self.utilities.logger.profile_summary();
 
@@ -904,7 +907,7 @@ impl<R: Runtime> ComputeClient<R> {
                         Ok(acc.combine(server.memory_usage(id)?))
                     })
             })
-            .unwrap()
+            .unwrap_or_resume()
     }
 
     /// Get all devices of a specific type available to this runtime
@@ -1022,11 +1025,11 @@ impl<R: Runtime> ComputeClient<R> {
                             Err(err) => Err(err),
                         }
                     })
-                    .unwrap();
+                    .unwrap_or_resume();
 
                 Ok(result)
             })
-            .unwrap()
+            .unwrap_or_resume()
             .map_err(|err| ProfileError::Unknown {
                 reason: alloc::format!("{err}"),
                 backtrace: BackTrace::capture(),
@@ -1080,7 +1083,7 @@ impl<R: Runtime> ComputeClient<R> {
         let read = self
             .device
             .submit_blocking(move |server| server.read(vec![src_descriptor], stream_id))
-            .unwrap();
+            .unwrap_or_resume();
 
         let mut data = cubecl_common::future::block_on(read).unwrap();
 
@@ -1120,5 +1123,17 @@ impl<R: Runtime> ComputeClient<R> {
         let num_candidates = max.trailing_zeros() + 1;
 
         (0..num_candidates).map(|i| 2usize.pow(i)).rev()
+    }
+
+    /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)
+    pub fn measure_throughput(
+        &self,
+        key: ThroughputKey,
+        kernel_config: KernelConfig,
+    ) -> ThroughputValue {
+        let name = format!("{}_dev{}", R::name(self), self.device.device_id().index_id);
+        let cache = ThroughputCache::get_for_device(&name);
+        let mut throughputs = ThroughputBenchmarker::new(cache);
+        throughputs.measure(self, key, kernel_config)
     }
 }

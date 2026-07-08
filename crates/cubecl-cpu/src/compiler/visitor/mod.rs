@@ -64,6 +64,7 @@ pub struct Visitor<'a> {
     pub(self) stack_saves: HashMap<Id, StackSave<'a>>,
     pub(self) stack_save_counter: usize,
     pub(self) current_node: NodeIndex,
+    pub(self) needs_parallelism: &'a mut bool,
 }
 
 #[derive(Clone, Copy)]
@@ -84,6 +85,7 @@ impl<'a> Visitor<'a> {
         location: Location<'a>,
         args_manager: ArgsManager<'a>,
         liveness: Rc<MemoryLiveness>,
+        needs_parallelism: &'a mut bool,
     ) -> Self {
         let blocks = HashMap::new();
         let blocks_args = HashMap::new();
@@ -113,6 +115,7 @@ impl<'a> Visitor<'a> {
             stack_saves: HashMap::new(),
             stack_save_counter: 0,
             current_node: NodeIndex::new(0),
+            needs_parallelism,
         }
     }
 
@@ -188,6 +191,7 @@ impl<'a> Visitor<'a> {
         global_state: &GlobalState,
         shared_memories: &SharedMemories,
         addr_type: StorageType,
+        needs_parallelism: &mut bool,
     ) {
         let name = StringAttribute::new(context, "kernel");
 
@@ -212,8 +216,17 @@ impl<'a> Visitor<'a> {
                 let args = args.create_top_block(&region, context, location);
                 let block = region.first_block().unwrap();
 
-                Self::insert_builtin_loop(block, module, func, context, location, args, liveness)
-                    .unwrap();
+                Self::insert_builtin_loop(
+                    block,
+                    module,
+                    func,
+                    context,
+                    location,
+                    args,
+                    liveness,
+                    needs_parallelism,
+                )
+                .unwrap();
 
                 block.append_operation(func::r#return(&[], location));
 
@@ -224,6 +237,7 @@ impl<'a> Visitor<'a> {
         ));
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(self) fn insert_builtin_loop(
         block: BlockRef<'a, 'a>,
         module: &tracel_llvm::mlir_rs::ir::Module<'a>,
@@ -232,6 +246,7 @@ impl<'a> Visitor<'a> {
         location: Location<'a>,
         mut args: ArgsManager<'a>,
         liveness: Rc<MemoryLiveness>,
+        needs_parallelism: &mut bool,
     ) -> Result<(), Error> {
         let basic_block_id = func.root;
         let integer_type = IntegerType::new(context, 32).into();
@@ -396,6 +411,7 @@ impl<'a> Visitor<'a> {
                                     location,
                                     args,
                                     liveness.clone(),
+                                    needs_parallelism,
                                 );
                                 visitor.visit_basic_block(basic_block_id, func);
 

@@ -1,7 +1,10 @@
 use crate::config::memory::MemoryConfig;
 use crate::config::streaming::StreamingConfig;
 
-use super::{autotune::AutotuneConfig, compilation::CompilationConfig, profiling::ProfilingConfig};
+use super::{
+    autotune::AutotuneConfig, compilation::CompilationConfig, profiling::ProfilingConfig,
+    throughput::ThroughputConfig,
+};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
@@ -20,6 +23,10 @@ pub struct CubeClRuntimeConfig {
     /// Configuration for autotuning performance parameters.
     #[serde(default)]
     pub autotune: AutotuneConfig,
+
+    /// Configuration for throughput settings.
+    #[serde(default)]
+    pub throughput: ThroughputConfig,
 
     /// Configuration for compilation settings.
     #[serde(default)]
@@ -128,6 +135,18 @@ impl RuntimeConfig for CubeClRuntimeConfig {
                 }
                 "full" | "3" => {
                     self.autotune.level = AutotuneLevel::Full;
+                }
+                _ => {}
+            }
+        }
+
+        if let Ok(val) = std::env::var("CUBECL_THROUGHPUT_CACHE") {
+            match val.as_str() {
+                "true" | "1" | "on" => {
+                    self.throughput.disable_cache = false;
+                }
+                "false" | "0" | "off" => {
+                    self.throughput.disable_cache = true;
                 }
                 _ => {}
             }

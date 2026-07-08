@@ -114,7 +114,7 @@ impl Display for Profiled {
         write_line("⎼", f)?;
 
         for (name, num_computed, duration, num) in items {
-            let ratio = (100 * num.as_micros()) / total_duration.as_micros();
+            let ratio = (100 * num.as_micros()) / total_duration.as_micros().max(1);
 
             writeln!(
                 f,

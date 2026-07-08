@@ -249,6 +249,19 @@ pub enum ResourceLimitError {
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,
     },
+    /// Total of cube dim `CubeDim` exceeds maximum
+    #[error(
+        "Max units per cube exceeds maximum bounds.\nRequested {requested}, max is {max}.\nBacktrace\n{backtrace}"
+    )]
+    MaxUnitPerCube {
+        /// Requested value
+        requested: u32,
+        /// Maximum value
+        max: u32,
+        /// The backtrace for this error.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
 }
 
 impl core::fmt::Debug for LaunchError {
@@ -289,16 +302,16 @@ pub enum ServerError {
         backtrace: BackTrace,
     },
 
-    /// A launch error happened during profiling
-    #[error("A launch error happened during profiling\nCaused by:\n  {0}")]
+    /// A launch error happened
+    #[error("A launch error happened\nCaused by:\n  {0}")]
     Launch(#[from] LaunchError),
 
     /// An execution error happened during profiling
     #[error("An execution error happened during profiling\nCaused by:\n  {0}")]
     Profile(#[from] ProfileError),
 
-    /// An IO error happened during profiling
-    #[error("An IO error happened during profiling\nCaused by:\n  {0}")]
+    /// An IO error happened
+    #[error("An IO error happened\nCaused by:\n  {0}")]
     Io(#[from] IoError),
 
     /// The server is an invalid state.

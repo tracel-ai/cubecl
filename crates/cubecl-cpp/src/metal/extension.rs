@@ -4,12 +4,15 @@ use crate::{
 };
 
 #[allow(clippy::enum_variant_names)]
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub enum Extension<D: Dialect> {
     Erf(Elem<D>, Elem<D>),
     Ffs(Elem<D>),
     MulHi(Elem<D>),
     SafeTanh(Item<D>),
+    Hypot(Elem<D>),
+    Rhypot(Elem<D>),
+    FastRecip,
     #[default]
     NoExtension,
 }
@@ -150,15 +153,16 @@ pub fn format_safe_tanh<D: Dialect>(
     item: &Item<D>,
 ) -> core::fmt::Result {
     let elem = item.elem();
+    // For bfloat, tanh() returns float, so cast explicitly.
     write!(
         f,
         "
 /// Metal has a weird numerical behaviour with tanh for inputs over 43.0
 inline {elem} safe_tanh_scalar({elem} x) {{
-    if (x > 43.0) {{
-        return 1.0;
+    if (x > {elem}(43.0)) {{
+        return {elem}(1.0);
     }} else {{
-        return tanh(x);
+        return {elem}(tanh(float(x)));
     }}
 }}
 "
@@ -176,4 +180,48 @@ inline {elem} safe_tanh_scalar({elem} x) {{
         writeln!(f, "    return safe_tanh_scalar(x);")?;
     }
     writeln!(f, "}}")
+}
+
+pub fn format_hypot<D: Dialect>(
+    f: &mut core::fmt::Formatter<'_>,
+    elem: &Elem<D>,
+) -> core::fmt::Result {
+    // The Binary impl casts half/bfloat to float, so `elem` is always float here.
+    write!(
+        f,
+        "
+// MSL has no hypot built-in.
+inline {elem} hypot({elem} x, {elem} y) {{
+    return sqrt(x * x + y * y);
+}}
+"
+    )
+}
+
+pub fn format_rhypot<D: Dialect>(
+    f: &mut core::fmt::Formatter<'_>,
+    elem: &Elem<D>,
+) -> core::fmt::Result {
+    // The Binary impl casts half/bfloat to float, so `elem` is always float here.
+    write!(
+        f,
+        "
+// MSL has no rhypot built-in.
+inline {elem} rhypot({elem} x, {elem} y) {{
+    return rsqrt(x * x + y * y);
+}}
+"
+    )
+}
+
+// MSL has no unary fast reciprocal.
+pub fn format_fast_recip(f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    write!(
+        f,
+        "
+inline float fast_recip(float x) {{
+    return fast::divide(1.0f, x);
+}}
+"
+    )
 }

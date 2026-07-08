@@ -220,7 +220,11 @@ impl<D: Dialect> Binary<D> for FastDiv {
         _out_item: Item<D>,
     ) -> std::fmt::Result {
         // f32 only
-        write!(f, "__fdividef({lhs}, {rhs})")
+        write!(
+            f,
+            "{}({lhs}, {rhs})",
+            D::compile_fast_math_function_name("__fdividef")
+        )
     }
 }
 
@@ -314,7 +318,11 @@ impl<D: Dialect> Binary<D> for FastPowf {
         rhs: Rhs,
         _item: Item<D>,
     ) -> std::fmt::Result {
-        write!(f, "__powf({lhs}, {rhs})")
+        write!(
+            f,
+            "{}({lhs}, {rhs})",
+            D::compile_fast_math_function_name("__powf")
+        )
     }
 }
 

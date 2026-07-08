@@ -19,7 +19,7 @@ workspace = true
 
 
 [features]
-cache = ["std", "serde_json", "dirs", "sanitize-filename"]
+cache = ["std", "serde_json", "etcetera", "sanitize-filename"]
 compilation-cache = ["cache", "dep:ciborium"]
 default = ["std"]
 fp4 = ["float4"]
@@ -72,7 +72,7 @@ cfg-if = { workspace = true }
 
 # Cache
 ciborium = { workspace = true, optional = true }
-dirs = { workspace = true, optional = true }
+etcetera = { workspace = true, optional = true }
 hashbrown = { workspace = true }
 sanitize-filename = { workspace = true, optional = true }
 serde_bytes = { workspace = true, features = ["alloc"], optional = true }

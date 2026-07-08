@@ -1249,10 +1249,14 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Powi(self.compile_binary(op, out)))
             }
             ir::Arithmetic::Hypot(op) => {
-                instructions.push(Instruction::Hypot(self.compile_binary(op, out)))
+                let instruction = Instruction::Hypot(self.compile_binary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
             }
             ir::Arithmetic::Rhypot(op) => {
-                instructions.push(Instruction::Rhypot(self.compile_binary(op, out)))
+                let instruction = Instruction::Rhypot(self.compile_binary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
             }
             ir::Arithmetic::Sqrt(op) => {
                 let op = self.compile_unary(op, out);
@@ -1312,7 +1316,7 @@ impl<D: Dialect> CppCompiler<D> {
                 });
                 let recip = Instruction::FastRecip(UnaryInstruction { input, out });
 
-                instructions.push(self.select_fast_float(
+                let instruction = self.select_fast_float(
                     elem.into(),
                     modes,
                     FastMath::AllowReciprocal
@@ -1321,7 +1325,9 @@ impl<D: Dialect> CppCompiler<D> {
                         | FastMath::NotInf,
                     div,
                     recip,
-                ))
+                );
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction);
             }
             ir::Arithmetic::Round(op) => {
                 instructions.push(Instruction::Round(self.compile_unary(op, out)))
@@ -2061,9 +2067,14 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
     }
 
     for ty in supported_atomic_types {
-        props.register_atomic_type_usage(
-            Type::atomic(ty),
-            AtomicUsage::Add | AtomicUsage::LoadStore,
-        );
+        // Restricted to 32-bit integers because not every min/max/bitwise/CAS overload
+        // exists for 64-bit and float atomics across the C++ dialects (CUDA, HIP, Metal).
+        let usage = match ty {
+            ir::ElemType::Int(ir::IntKind::I32) | ir::ElemType::UInt(ir::UIntKind::U32) => {
+                AtomicUsage::all()
+            }
+            _ => AtomicUsage::Add | AtomicUsage::LoadStore,
+        };
+        props.register_atomic_type_usage(Type::atomic(ty), usage);
     }
 }
