@@ -450,14 +450,29 @@ where
     /// Flush all outstanding tasks in the server.
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
 
+    /// Prepare `stream_id` for an upcoming graph capture: route allocations
+    /// into a stable pool and snapshot it, so every buffer allocated between
+    /// here and [`end_capture`](ComputeServer::end_capture) can be pinned for
+    /// the graph's lifetime. Call this **before** the warmup run (which
+    /// populates the pool and the autotune cache) so the capture window itself
+    /// needs no fresh device allocation — a device malloc inside the capture is
+    /// illegal.
+    ///
+    /// A no-op by default (harmless on backends without graph support); a
+    /// hardware-graph backend enables its persistent pool + capture recording.
+    fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let _ = stream_id;
+        Ok(())
+    }
+
     /// Begin recording the launches issued on `stream_id` into a graph instead
     /// of executing them, so the sequence can later be [replayed](ComputeServer::replay)
     /// as a single dispatch. Between this call and [`end_capture`](ComputeServer::end_capture)
-    /// the stream must not synchronize or allocate fresh device memory (warm
-    /// the memory pool and autotune cache first).
+    /// the stream must not synchronize or allocate fresh device memory — call
+    /// [`graph_prepare`](ComputeServer::graph_prepare) and warm up first.
     ///
     /// The default is unsupported; a backend with hardware graph support (CUDA,
-    /// HIP) overrides all three methods.
+    /// HIP) overrides these methods.
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let _ = stream_id;
         Err(graph_capture_unsupported())

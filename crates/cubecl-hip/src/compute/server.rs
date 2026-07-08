@@ -169,6 +169,23 @@ impl ComputeServer for HipServer {
         Ok(())
     }
 
+    fn graph_prepare(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let mut command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: false,
+                flush: true,
+            },
+        )?;
+        // Route every allocation from here until `end_capture` into the
+        // persistent pool and snapshot it. Called before the warmup run, so the
+        // pool is warm before `begin_capture` — the capture window then reuses
+        // those slices with no `hipMalloc` (which would be illegal mid-capture,
+        // HIP status 901). `end_capture` pins the snapshotted slices.
+        command.streams.current().memory_management_gpu.capture_begin();
+        Ok(())
+    }
+
     fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
         let mut command = self.command_no_inputs(
             stream_id,
@@ -221,7 +238,13 @@ impl ComputeServer for HipServer {
             cubecl_hip_sys::hipGraphDestroy(graph);
             exec
         };
-        Ok(DeviceGraph::new(crate::compute::graph::HipGraph { exec }))
+        // Restore automatic allocation and pin every buffer the graph touched
+        // so the pool never reuses that memory for the graph's lifetime.
+        let retained = stream.memory_management_gpu.capture_end();
+        Ok(DeviceGraph::new(crate::compute::graph::HipGraph {
+            exec,
+            _retained: retained,
+        }))
     }
 
     fn replay(&mut self, graph: &DeviceGraph, stream_id: StreamId) -> Result<(), ServerError> {

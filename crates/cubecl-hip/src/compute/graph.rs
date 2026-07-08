@@ -1,4 +1,5 @@
 use cubecl_hip_sys::hipGraphExec_t;
+use cubecl_runtime::memory_management::ManagedMemoryHandle;
 
 /// An instantiated HIP executable graph (`hipGraphExec_t`), destroyed on drop.
 ///
@@ -7,6 +8,12 @@ use cubecl_hip_sys::hipGraphExec_t;
 #[derive(Debug)]
 pub struct HipGraph {
     pub(crate) exec: hipGraphExec_t,
+    /// Every buffer the captured graph touches, pinned for the graph's
+    /// lifetime. A replay re-runs the recorded kernels against these exact
+    /// device pointers; retaining the handles keeps the memory pool from
+    /// reusing those slices (a reuse would let a later allocation share memory
+    /// the replay overwrites). Dropped with the graph, releasing the memory.
+    pub(crate) _retained: Vec<ManagedMemoryHandle>,
 }
 
 // SAFETY: the exec handle is used exclusively on the owning device's server

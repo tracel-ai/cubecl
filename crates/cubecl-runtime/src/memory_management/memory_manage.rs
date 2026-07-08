@@ -123,6 +123,9 @@ pub struct MemoryManagement<Storage> {
     mode: MemoryAllocationMode,
     config: PersistentMemory,
     logger: Arc<ServerLogger>,
+    /// While a graph capture is active: the persistent-pool slice count at
+    /// `capture_begin` and the mode to restore at `capture_end`.
+    capture: Option<(usize, MemoryAllocationMode)>,
 }
 
 fn generate_bucket_sizes(
@@ -353,6 +356,31 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             mode,
             config,
             logger,
+            capture: None,
+        }
+    }
+
+    /// Begin a graph capture: force every allocation into the persistent pool
+    /// (stable slices whose pages are never released) and snapshot its state,
+    /// so [`capture_end`](Self::capture_end) can retain exactly the slices
+    /// allocated during the capture. Sets the mode directly, overriding the
+    /// config gate that [`mode`](Self::mode) honors.
+    pub fn capture_begin(&mut self) {
+        self.capture = Some((self.persistent.len(), self.mode));
+        self.mode = MemoryAllocationMode::Persistent;
+    }
+
+    /// End a graph capture: restore the previous allocation mode and return a
+    /// retained handle to every persistent slice allocated during the capture.
+    /// The caller pins these on the graph so the pool never reuses graph memory
+    /// (which a replay would corrupt). Empty if no capture was active.
+    pub fn capture_end(&mut self) -> Vec<ManagedMemoryHandle> {
+        match self.capture.take() {
+            Some((start, previous_mode)) => {
+                self.mode = previous_mode;
+                self.persistent.retain_from(start)
+            }
+            None => Vec::new(),
         }
     }
 

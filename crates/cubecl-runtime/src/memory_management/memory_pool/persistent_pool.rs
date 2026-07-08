@@ -62,6 +62,25 @@ impl PersistentPool {
         let effective_size = size + padding;
         self.sizes.contains_key(&effective_size)
     }
+
+    /// Number of slices currently tracked — a marker of the pool's state, used
+    /// to snapshot which slices are allocated during a graph capture.
+    pub fn len(&self) -> usize {
+        self.slices.len()
+    }
+
+    /// Retain a handle to every slice from `start` onward, keeping those slices
+    /// from ever being reported free (and thus reused). Used by graph capture:
+    /// every slice a captured graph touches must stay pinned for the graph's
+    /// lifetime, otherwise the pool hands its memory to a later allocation and
+    /// replay corrupts it. Cloning a slice's handle is exactly what
+    /// [`try_reserve`](Self::try_reserve) does.
+    pub fn retain_from(&self, start: usize) -> Vec<ManagedMemoryHandle> {
+        self.slices[start..]
+            .iter()
+            .map(|slice| slice.handle.clone())
+            .collect()
+    }
 }
 
 impl MemoryPool for PersistentPool {
