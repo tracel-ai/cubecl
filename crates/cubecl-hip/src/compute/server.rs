@@ -11,7 +11,7 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        Binding, CopyDescriptor, KernelArguments, ProfileError, ProfilingToken,
+        Binding, CopyDescriptor, DeviceGraph, KernelArguments, ProfileError, ProfilingToken,
         ServerCommunication, ServerError, ServerUtilities, StreamErrorMode,
     },
 };
@@ -26,6 +26,18 @@ use cubecl_runtime::{
     stream::MultiStream,
 };
 use std::sync::Arc;
+
+/// Turn a HIP status into a [`ServerError`], naming the failed operation.
+fn hip_check(op: &str, status: cubecl_hip_sys::hipError_t) -> Result<(), ServerError> {
+    if status == cubecl_hip_sys::HIP_SUCCESS {
+        Ok(())
+    } else {
+        Err(ServerError::Generic {
+            reason: format!("{op} failed with HIP status {status}"),
+            backtrace: BackTrace::capture(),
+        })
+    }
+}
 
 #[derive(Debug)]
 pub struct HipServer {
@@ -155,6 +167,82 @@ impl ComputeServer for HipServer {
         current.memory_management_gpu.storage().flush();
 
         Ok(())
+    }
+
+    fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let mut command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: false,
+                flush: true,
+            },
+        )?;
+        let stream = command.streams.current();
+        // SAFETY: `stream.sys` is a valid HIP stream; global capture mode
+        // records every launch issued on it until `hipStreamEndCapture`.
+        let status = unsafe {
+            cubecl_hip_sys::hipStreamBeginCapture(
+                stream.sys,
+                cubecl_hip_sys::hipStreamCaptureMode_hipStreamCaptureModeGlobal,
+            )
+        };
+        hip_check("hipStreamBeginCapture", status)
+    }
+
+    fn end_capture(&mut self, stream_id: StreamId) -> Result<DeviceGraph, ServerError> {
+        let mut command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: false,
+                flush: true,
+            },
+        )?;
+        let stream = command.streams.current();
+        // SAFETY: ends the capture begun on this stream and instantiates the
+        // recorded graph into an executable; the intermediate `graph` is freed
+        // once instantiated, leaving only the `exec` the returned handle owns.
+        let exec = unsafe {
+            let mut graph: cubecl_hip_sys::hipGraph_t = std::ptr::null_mut();
+            hip_check(
+                "hipStreamEndCapture",
+                cubecl_hip_sys::hipStreamEndCapture(stream.sys, &mut graph),
+            )?;
+            let mut exec: cubecl_hip_sys::hipGraphExec_t = std::ptr::null_mut();
+            hip_check(
+                "hipGraphInstantiate",
+                cubecl_hip_sys::hipGraphInstantiate(
+                    &mut exec,
+                    graph,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    0,
+                ),
+            )?;
+            cubecl_hip_sys::hipGraphDestroy(graph);
+            exec
+        };
+        Ok(DeviceGraph::new(crate::compute::graph::HipGraph { exec }))
+    }
+
+    fn replay(&mut self, graph: &DeviceGraph, stream_id: StreamId) -> Result<(), ServerError> {
+        let hip = graph
+            .downcast_ref::<crate::compute::graph::HipGraph>()
+            .ok_or_else(|| ServerError::Generic {
+                reason: "replay was given a graph from a different backend".into(),
+                backtrace: BackTrace::capture(),
+            })?;
+        let mut command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: false,
+                flush: true,
+            },
+        )?;
+        let stream = command.streams.current();
+        // SAFETY: `hip.exec` is a valid instantiated graph; launching it on the
+        // stream re-runs the recorded sequence.
+        let status = unsafe { cubecl_hip_sys::hipGraphLaunch(hip.exec, stream.sys) };
+        hip_check("hipGraphLaunch", status)
     }
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {

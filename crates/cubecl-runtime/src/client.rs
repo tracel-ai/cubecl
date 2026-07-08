@@ -5,8 +5,8 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
-        KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
+        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, DeviceGraph, ExecutionMode,
+        Handle, IoError, KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
         MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
         ServerUtilities,
     },
@@ -40,6 +40,29 @@ pub struct ComputeClient<R: Runtime> {
     device: DeviceHandle<R::Server>,
     utilities: Arc<ServerUtilities<R::Server>>,
     stream_id: Option<StreamId>,
+}
+
+/// A captured graph produced by [`ComputeClient::stop_capture`]: a recorded
+/// launch sequence that [`replay`](Graph::replay) re-runs as a single dispatch
+/// against its original buffers. Cheap to clone (shares the backend graph).
+#[derive(Clone)]
+pub struct Graph<R: Runtime> {
+    graph: Arc<DeviceGraph>,
+    device: DeviceHandle<R::Server>,
+}
+
+impl<R: Runtime> Graph<R> {
+    /// Replay the captured launch sequence on `client`'s stream — one dispatch
+    /// re-running every recorded kernel against the buffers it was captured
+    /// with. Write fresh inputs into those buffers, and read the outputs from
+    /// them, around each call.
+    pub fn replay(&self, client: &ComputeClient<R>) -> Result<(), ServerError> {
+        let stream_id = client.stream_id();
+        let graph = self.graph.clone();
+        self.device
+            .submit_blocking(move |server| server.replay(graph.as_ref(), stream_id))
+            .unwrap_or_resume()
+    }
 }
 
 impl<R: Runtime> Clone for ComputeClient<R> {
@@ -859,6 +882,34 @@ impl<R: Runtime> ComputeClient<R> {
         self.device
             .submit_blocking(move |server| server.flush(stream_id))
             .unwrap_or_resume()
+    }
+
+    /// Begin recording launches on this client's stream into a graph rather
+    /// than executing them (see [`ComputeServer::begin_capture`]). Pin the
+    /// client to a dedicated stream with [`set_stream`](Self::set_stream) and
+    /// warm the memory pool + autotune cache first; between this and
+    /// [`stop_capture`](Self::stop_capture) no sync or fresh allocation may
+    /// happen. Returns an error on backends without graph support.
+    pub fn start_capture(&self) -> Result<(), ServerError> {
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.begin_capture(stream_id))
+            .unwrap_or_resume()
+    }
+
+    /// Stop recording and return the captured graph, ready to
+    /// [`replay`](Graph::replay).
+    pub fn stop_capture(&self) -> Result<Graph<R>, ServerError> {
+        let stream_id = self.stream_id();
+        let graph = self
+            .device
+            .submit_blocking(move |server| server.end_capture(stream_id))
+            .unwrap_or_resume()?;
+
+        Ok(Graph {
+            graph: Arc::new(graph),
+            device: self.device.clone(),
+        })
     }
 
     /// Wait for the completion of every task in the server.

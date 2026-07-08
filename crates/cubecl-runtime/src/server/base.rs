@@ -276,6 +276,37 @@ impl core::fmt::Debug for ResourceLimitError {
     }
 }
 
+/// An opaque, backend-owned captured graph (a `hipGraphExec_t` / `CUgraphExec`
+/// wrapper). Constructed by [`ComputeServer::end_capture`] and passed back to
+/// [`ComputeServer::replay`]; the backend downcasts it to its own graph type.
+#[derive(Debug)]
+pub struct DeviceGraph {
+    inner: alloc::boxed::Box<dyn core::any::Any + Send + Sync>,
+}
+
+impl DeviceGraph {
+    /// Wrap a backend graph handle.
+    pub fn new<T: core::any::Any + Send + Sync>(graph: T) -> Self {
+        Self {
+            inner: alloc::boxed::Box::new(graph),
+        }
+    }
+
+    /// Borrow the backend graph handle, or `None` if it was produced by a
+    /// different backend.
+    pub fn downcast_ref<T: core::any::Any>(&self) -> Option<&T> {
+        self.inner.downcast_ref::<T>()
+    }
+}
+
+/// The error returned by the default (unsupported) graph-capture methods.
+fn graph_capture_unsupported() -> ServerError {
+    ServerError::Generic {
+        reason: alloc::string::String::from("graph capture is not supported by this backend"),
+        backtrace: BackTrace::capture(),
+    }
+}
+
 /// Error that can happen asynchronously while executing registered kernels.
 #[derive(Error, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
@@ -418,6 +449,33 @@ where
 
     /// Flush all outstanding tasks in the server.
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;
+
+    /// Begin recording the launches issued on `stream_id` into a graph instead
+    /// of executing them, so the sequence can later be [replayed](ComputeServer::replay)
+    /// as a single dispatch. Between this call and [`end_capture`](ComputeServer::end_capture)
+    /// the stream must not synchronize or allocate fresh device memory (warm
+    /// the memory pool and autotune cache first).
+    ///
+    /// The default is unsupported; a backend with hardware graph support (CUDA,
+    /// HIP) overrides all three methods.
+    fn begin_capture(&mut self, stream_id: StreamId) -> Result<(), ServerError> {
+        let _ = stream_id;
+        Err(graph_capture_unsupported())
+    }
+
+    /// Stop recording (see [`begin_capture`](ComputeServer::begin_capture)) and
+    /// return the captured [`DeviceGraph`], ready to replay.
+    fn end_capture(&mut self, stream_id: StreamId) -> Result<DeviceGraph, ServerError> {
+        let _ = stream_id;
+        Err(graph_capture_unsupported())
+    }
+
+    /// Replay a captured [`DeviceGraph`] on `stream_id` — one dispatch that
+    /// re-runs the whole recorded launch sequence against its original buffers.
+    fn replay(&mut self, graph: &DeviceGraph, stream_id: StreamId) -> Result<(), ServerError> {
+        let _ = (graph, stream_id);
+        Err(graph_capture_unsupported())
+    }
 
     /// Memory usage of the given stream.
     fn memory_usage(&mut self, stream_id: StreamId) -> Result<MemoryUsage, ServerError>;
