@@ -16,7 +16,7 @@ macro_rules! testgen_tuner {
 
             #[$crate::tests::test_log::test]
             fn test_tuner_short_circuit_with_memory_direct() {
-                const BUFFER_SIZE: usize = 1024;
+                const BUFFER_SIZE: usize = 1024 * 1024;
 
                 let client = TestRuntime::client(&Default::default());
 
@@ -40,86 +40,42 @@ macro_rules! testgen_tuner {
                     .max(plane)
                     .min(hardware.max_cube_dim.0);
 
-                let sms = hardware.num_streaming_multiprocessors.unwrap_or(64);
-                let cube_count = (sms * 32).min(hardware.max_cube_count.0);
+                let cube_count = vector_len.div_ceil(cube_dim as usize).max(1);
 
-                let execs1_clone = execs1.clone();
-                let client1 = client.clone();
-                let op1 = Tunable::<
-                    String,
-                    (
-                        cubecl_runtime::server::Handle,
-                        cubecl_runtime::server::Handle,
-                    ),
-                    (),
-                >::new("slow", move |inputs| {
-                    execs1_clone.fetch_add(1, Ordering::Relaxed);
-                    unsafe {
-                        memory_direct_throughput::launch_unchecked::<TestRuntime>(
-                            &client1,
-                            CubeCount::Static(cube_count as u32, 1, 1),
-                            CubeDim::new(&client1, cube_dim as usize),
-                            vector_size,
-                            BufferArg::from_raw_parts(inputs.0.clone(), vector_len),
-                            BufferArg::from_raw_parts(inputs.1.clone(), vector_len),
-                            100000, // lots of iters
-                            ElemType::Float(FloatKind::F32).into(),
-                        )
-                    }
-                    Ok::<(), String>(())
-                });
+                const ITERS_1: u32 = 10;
+                const ITERS_2: u32 = 5;
+                const ITERS_3: u32 = 1;
 
-                let execs2_clone = execs2.clone();
-                let client2 = client.clone();
-                let op2 = Tunable::<
-                    String,
-                    (
-                        cubecl_runtime::server::Handle,
-                        cubecl_runtime::server::Handle,
-                    ),
-                    (),
-                >::new("fast", move |inputs| {
-                    execs2_clone.fetch_add(1, Ordering::Relaxed);
-                    unsafe {
-                        memory_direct_throughput::launch_unchecked::<TestRuntime>(
-                            &client2,
-                            CubeCount::Static(cube_count as u32, 1, 1),
-                            CubeDim::new(&client2, cube_dim as usize),
-                            vector_size,
-                            BufferArg::from_raw_parts(inputs.0.clone(), vector_len),
-                            BufferArg::from_raw_parts(inputs.1.clone(), vector_len),
-                            1000, // 1000 iter
-                            ElemType::Float(FloatKind::F32).into(),
-                        )
-                    }
-                    Ok::<(), String>(())
-                });
+                let make_op = |name: &str, iters: u32, execs: Arc<AtomicUsize>| {
+                    let client_clone = client.clone();
+                    Tunable::<
+                        String,
+                        (
+                            cubecl_runtime::server::Handle,
+                            cubecl_runtime::server::Handle,
+                        ),
+                        (),
+                    >::new(name, move |inputs| {
+                        execs.fetch_add(1, Ordering::Relaxed);
+                        unsafe {
+                            memory_direct_throughput::launch_unchecked::<TestRuntime>(
+                                &client_clone,
+                                CubeCount::Static(cube_count as u32, 1, 1),
+                                CubeDim::new(&client_clone, cube_dim as usize),
+                                vector_size,
+                                BufferArg::from_raw_parts(inputs.0.clone(), vector_len),
+                                BufferArg::from_raw_parts(inputs.1.clone(), vector_len),
+                                iters as usize,
+                                ElemType::Float(FloatKind::F32).into(),
+                            )
+                        }
+                        Ok::<(), String>(())
+                    })
+                };
 
-                let execs3_clone = execs3.clone();
-                let client3 = client.clone();
-                let op3 = Tunable::<
-                    String,
-                    (
-                        cubecl_runtime::server::Handle,
-                        cubecl_runtime::server::Handle,
-                    ),
-                    (),
-                >::new("never", move |inputs| {
-                    execs3_clone.fetch_add(1, Ordering::Relaxed);
-                    unsafe {
-                        memory_direct_throughput::launch_unchecked::<TestRuntime>(
-                            &client3,
-                            CubeCount::Static(cube_count as u32, 1, 1),
-                            CubeDim::new(&client3, cube_dim as usize),
-                            vector_size,
-                            BufferArg::from_raw_parts(inputs.0.clone(), vector_len),
-                            BufferArg::from_raw_parts(inputs.1.clone(), vector_len),
-                            1,
-                            ElemType::Float(FloatKind::F32).into(),
-                        )
-                    }
-                    Ok::<(), String>(())
-                });
+                let op1 = make_op("slow", ITERS_1, execs1.clone());
+                let op2 = make_op("fast", ITERS_2, execs2.clone());
+                let op3 = make_op("never", ITERS_3, execs3.clone());
 
                 let key = ThroughputKey {
                     mode: ThroughputMode::Memory,
@@ -128,7 +84,7 @@ macro_rules! testgen_tuner {
                 let throughput_value = measure_peak_throughput(&client, key);
 
                 let bounds = vec![AutotuneBound {
-                    ops_count: 2 * BUFFER_SIZE * 1000,
+                    ops_count: 2 * BUFFER_SIZE * (ITERS_2 as usize),
                     throughput: throughput_value.ops_per_s(),
                     threshold: 1.0,
                 }];
