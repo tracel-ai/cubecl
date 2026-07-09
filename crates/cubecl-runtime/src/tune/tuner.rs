@@ -240,14 +240,14 @@ impl<K: AutotuneKey> Tuner<K> {
                         if let Some(limit) = threshold_limit {
                             let result = cubecl_common::future::block_on(resolve_bench(bench));
                             let close_enough = result.outcome.as_ref().is_ok_and(|outcome| {
-                                // std::println!(
-                                //     "{} min: {} median: {} max: {} limit: {}",
-                                //     outcome.name,
-                                //     outcome.computation.min.as_secs_f64(),
-                                //     outcome.computation.median.as_secs_f64(),
-                                //     outcome.computation.max.as_secs_f64(),
-                                //     limit
-                                // );
+                                std::println!(
+                                    "{} min: {} median: {} max: {} limit: {}",
+                                    outcome.name,
+                                    outcome.computation.min.as_secs_f64(),
+                                    outcome.computation.median.as_secs_f64(),
+                                    outcome.computation.max.as_secs_f64(),
+                                    limit
+                                );
                                 outcome.computation.median.as_secs_f64() <= limit
                             });
 
