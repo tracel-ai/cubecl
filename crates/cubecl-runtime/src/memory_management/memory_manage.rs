@@ -130,17 +130,19 @@ pub struct MemoryManagement<Storage> {
 
 /// While a graph capture is active, allocations are forced into the persistent
 /// pool; slices there stay freely reusable during the window (warmup populates
-/// them, the capture run reuses them), and `capture_end` hands the graph every
-/// slice that wasn't already someone else's when the window opened.
+/// them, the capture run reuses them), and `capture_end` hands the graph exactly
+/// the slices the window touched.
 struct CaptureState {
     /// The mode to restore at `capture_end`. Mid-capture [`mode`] changes land
     /// here instead of taking effect, so they can't reroute capture allocations
     /// away from the persistent pool.
     restore_mode: MemoryAllocationMode,
-    /// Ids of the persistent slices in use when the window opened: the
-    /// pre-existing buffers (weights, graph inputs created earlier) that the
-    /// graph must not claim.
-    preexisting: HashSet<ManagedMemoryId>,
+    /// Ids of every persistent slice handed out (reserved or freshly allocated)
+    /// while the window was open — exactly the slices the graph's recorded
+    /// kernels may replay against. `capture_end` retains these and nothing else,
+    /// so a slice the window never touched is not over-retained, and a
+    /// pre-existing slice freed and reused mid-window is still pinned.
+    touched: HashSet<ManagedMemoryId>,
 }
 
 fn generate_bucket_sizes(
@@ -429,47 +431,39 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Begin a graph capture: force every allocation into the persistent pool
     /// — exact-fit slices with no bucket padding, which is what a graph's
-    /// static shapes want — and snapshot the ids of the slices already in use.
-    /// Those pre-existing buffers belong to whoever holds their handles;
-    /// everything else the pool contains at [`capture_end`](Self::capture_end)
-    /// belongs to the graph. Slices stay reusable *within* the window — warmup
-    /// populates the pool, then the capture run reuses those slices without a
-    /// fresh device allocation (illegal mid-capture). Sets the mode directly,
-    /// overriding the config gate that [`mode`](Self::mode) honors. If a
-    /// capture is already active, only the mode is re-forced — the original
-    /// capture keeps its snapshot and restore state.
+    /// static shapes want — and start recording which slices the window hands
+    /// out (see [`reserve`](Self::reserve)). Every slice the window touches
+    /// belongs to the graph at [`capture_end`](Self::capture_end); anything it
+    /// never touches (pre-existing live buffers, idle free slices) does not.
+    /// Slices stay reusable *within* the window — warmup populates the pool, then
+    /// the capture run reuses those slices without a fresh device allocation
+    /// (illegal mid-capture). Sets the mode directly, overriding the config gate
+    /// that [`mode`](Self::mode) honors. If a capture is already active, only the
+    /// mode is re-forced — the original capture keeps its touched set and restore
+    /// state.
     pub fn capture_begin(&mut self) {
         if self.capture.is_none() {
-            // Free the persistent pool's idle slices before snapshotting, so the
-            // capture starts from a pool holding only live buffers. Every slice
-            // the window then needs is freshly allocated (nothing free to reuse),
-            // so `capture_end`'s begin/after diff pins exactly the slices the
-            // graph touched — a leftover free slice from an earlier capture can no
-            // longer be mistaken for one this window used and over-retained.
-            self.persistent
-                .cleanup(&mut self.storage, self.alloc_reserve_count, true);
             self.capture = Some(CaptureState {
                 restore_mode: self.mode,
-                preexisting: self.persistent.ids_in_use(),
+                touched: HashSet::new(),
             });
         }
         self.mode = MemoryAllocationMode::Persistent;
     }
 
-    /// End a graph capture: restore the previous allocation mode, resample the
-    /// persistent pool, and return a retained handle to every slice that is
-    /// not a pre-existing in-use buffer from the [`capture_begin`] snapshot —
-    /// the slices the window allocated, plus the free ones it may have reused.
-    /// The caller pins these on the graph so the pool never reuses graph
-    /// memory (which a replay would corrupt); dropping the graph drops the
-    /// handles and releases the slices. Pre-existing live buffers are never
-    /// retained, so their reuse and in-place (`can_mut`) semantics are
-    /// untouched. Empty if no capture was active.
+    /// End a graph capture: restore the previous allocation mode and return a
+    /// retained handle to every persistent slice the window touched — exactly
+    /// the memory the graph's recorded kernels replay against. The caller pins
+    /// these on the graph so the pool never reuses graph memory (which a replay
+    /// would corrupt); dropping the graph drops the handles and releases the
+    /// slices. Slices the window never touched are left alone, so a pre-existing
+    /// live buffer keeps its reuse and in-place (`can_mut`) semantics. Empty if
+    /// no capture was active.
     pub fn capture_end(&mut self) -> Vec<ManagedMemoryHandle> {
         match self.capture.take() {
             Some(capture) => {
                 self.mode = capture.restore_mode;
-                self.persistent.retain_new(&capture.preexisting)
+                self.persistent.retain_touched(&capture.touched)
             }
             None => Vec::new(),
         }
@@ -578,6 +572,21 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         Ok(self.storage().get(&handle))
     }
 
+    /// Record a persistent slice as touched by the active capture window, so
+    /// [`capture_end`](Self::capture_end) retains exactly the slices the window
+    /// handed out. A no-op outside a capture.
+    ///
+    /// Called with a slice's **final** identity: from [`reserve`](Self::reserve)
+    /// for a handle used as-is (e.g. pinned staging), and from [`bind`](Self::bind)
+    /// for a buffer whose reserved handle is replaced by an assigned one. A
+    /// reserved id later superseded by `bind` also lands here but harmlessly —
+    /// ids are unique, so it matches no live slice at `capture_end`.
+    fn capture_touch(&mut self, handle: &ManagedMemoryHandle) {
+        if let Some(capture) = &mut self.capture {
+            capture.touched.insert(handle.descriptor().id);
+        }
+    }
+
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     pub fn reserve(&mut self, size: u64) -> Result<ManagedMemoryHandle, IoError> {
@@ -595,6 +604,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     )
                 },
             );
+            self.capture_touch(&val);
             return Ok(val);
         }
 
@@ -610,6 +620,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     )
                 },
             );
+            if let Ok(handle) = &allocated {
+                self.capture_touch(handle);
+            }
             return allocated;
         }
 
@@ -705,6 +718,10 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let pool_index = descriptor.location().pool as usize;
         if pool_index >= self.pools.len() {
+            // `bind` sets the slice's final identity to `assigned` (replacing the
+            // throwaway reserved handle), so this — not the earlier `reserve` — is
+            // the id a capture must track for a bound persistent buffer.
+            self.capture_touch(&assigned);
             return self.persistent.bind(reserved, assigned, cursor);
         }
 
@@ -1318,6 +1335,68 @@ mod tests {
         assert!(
             after.bytes_reserved > before.bytes_reserved,
             "a pinned slice was handed to a later allocation"
+        );
+    }
+
+    #[test_log::test]
+    fn capture_pins_preexisting_slice_freed_and_reused_midwindow() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::ExclusivePages,
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        // A persistent slice that is live (in use) when the next window opens.
+        memory_management.capture_begin();
+        let live = memory_management.reserve(1024).unwrap();
+        drop(memory_management.capture_end()); // release the pin; `live` still holds the slice.
+
+        // The window opens with `live`'s slice in use, then frees it mid-window
+        // and reuses that exact slice for a window allocation the graph records
+        // against. The old snapshot-of-in-use heuristic excluded it (it was in
+        // use at begin); reservation-tracking pins it because the window touched
+        // it — the whole point of the redesign.
+        memory_management.capture_begin();
+        drop(live);
+        let reused = memory_management.reserve(1024).unwrap();
+        drop(reused);
+        let pins = memory_management.capture_end();
+        assert_eq!(
+            pins.len(),
+            1,
+            "a pre-existing slice freed and reused mid-window must be pinned"
+        );
+    }
+
+    #[test_log::test]
+    fn capture_does_not_retain_untouched_free_slices() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::ExclusivePages,
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        // Leave an idle free slice in the pool from an earlier capture.
+        memory_management.capture_begin();
+        let earlier = memory_management.reserve(1024).unwrap();
+        drop(earlier);
+        drop(memory_management.capture_end());
+
+        // A new capture that only ever touches a different size must not retain
+        // that leftover idle slice — reservation-tracking pins exactly what the
+        // window used, so no free-slice cleanup at `capture_begin` is needed.
+        memory_management.capture_begin();
+        let window = memory_management.reserve(2048).unwrap();
+        drop(window);
+        let pins = memory_management.capture_end();
+        assert_eq!(
+            pins.len(),
+            1,
+            "only the touched slice is retained, not the idle leftover"
         );
     }
 

@@ -63,30 +63,19 @@ impl PersistentPool {
         self.sizes.contains_key(&effective_size)
     }
 
-    /// Ids of the slices currently in use: the pre-existing live buffers of a
-    /// capture window. A capture must not claim them — they belong to whoever
-    /// holds their handles, and staying out keeps their reuse and in-place
-    /// (`can_mut`) semantics untouched.
-    pub fn ids_in_use(&self) -> HashSet<ManagedMemoryId> {
+    /// Retain a handle to every slice a capture window `touched` (reserved or
+    /// allocated while it was open), keeping those slices from ever being
+    /// reported free (and thus reused). These are exactly the slices the graph's
+    /// recorded kernels may replay against, so retaining them — and nothing more
+    /// — pins precisely the graph's working set: a slice the window never touched
+    /// is not retained (no over-retention), and a slice that was live at the
+    /// start but was freed and reused mid-window *is* (it was touched). The graph
+    /// holds the handles and releases the slices by dropping them. Cloning a
+    /// slice's handle is exactly what [`try_reserve`](Self::try_reserve) does.
+    pub fn retain_touched(&self, touched: &HashSet<ManagedMemoryId>) -> Vec<ManagedMemoryHandle> {
         self.slices
             .iter()
-            .filter(|slice| !slice.is_free())
-            .map(|slice| slice.descriptor().id)
-            .collect()
-    }
-
-    /// Retain a handle to every slice not in `preexisting`, keeping those
-    /// slices from ever being reported free (and thus reused). Used by graph
-    /// capture: everything else in the pool — slices the window allocated,
-    /// plus slices that were free when it opened and so may have been reused
-    /// by it — belongs to the captured graph, whose replay re-runs kernels
-    /// against those exact device pointers. The graph holds the handles and
-    /// releases the slices by dropping them. Cloning a slice's handle is
-    /// exactly what [`try_reserve`](Self::try_reserve) does.
-    pub fn retain_new(&self, preexisting: &HashSet<ManagedMemoryId>) -> Vec<ManagedMemoryHandle> {
-        self.slices
-            .iter()
-            .filter(|slice| !preexisting.contains(&slice.descriptor().id))
+            .filter(|slice| touched.contains(&slice.descriptor().id))
             .map(|slice| slice.handle.clone())
             .collect()
     }
