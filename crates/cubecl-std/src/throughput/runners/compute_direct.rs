@@ -20,7 +20,7 @@ pub fn build_kernel<R: Runtime>(
         compute_direct_throughput::launch_unchecked(
             &client,
             CubeCount::Static(config.cube_count as u32, 1, 1),
-            CubeDim::new_1d(config.cube_dim as u32),
+            CubeDim::new(&client, config.cube_dim),
             config.vector_size,
             BufferArg::from_raw_parts(out, 1),
             iterations,

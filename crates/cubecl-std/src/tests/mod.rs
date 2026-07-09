@@ -6,6 +6,7 @@ pub mod reinterpret_slice;
 pub mod tensor;
 pub mod trigonometry;
 pub mod view;
+pub mod tuner;
 
 #[macro_export]
 macro_rules! testgen {
@@ -17,6 +18,7 @@ macro_rules! testgen {
             cubecl_std::testgen_reinterpret_slice!();
             cubecl_std::testgen_trigonometry!();
             cubecl_std::testgen_event!();
+            cubecl_std::testgen_tuner!();
         }
     };
 }

@@ -3,7 +3,6 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::profile::ProfileDuration;
 use derive_more::Display;
-use itertools::Itertools;
 
 use core::time::Duration;
 
@@ -245,6 +244,8 @@ impl<K: AutotuneKey> Tuner<K> {
                                 BenchmarkDurations::from_durations(timing_method, durations);
                             let computations = BenchmarkComputations::new(&benchmark_durations);
 
+                            std::println!("current: {}", computations.median.as_secs_f64());
+                            std::println!("limit: {limit}");
                             let close_enough = computations.median.as_secs_f64() <= limit;
                             // Directly write to results! We don't push to pending.
                             results[index] = AutotuneResult::success(AutotuneOutcome::new(

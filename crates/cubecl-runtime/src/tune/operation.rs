@@ -7,8 +7,6 @@ use core::hash::Hash;
 
 use alloc::format;
 
-use crate::throughput::ThroughputKey;
-
 use super::{
     AutotuneError, input_generator::InputGenerator, key_generator::KeyGenerator,
     tune_inputs::TuneInputs,
@@ -131,6 +129,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
         self.input_gen.generate(key, inputs)
     }
 
+    /// Returns the autotune bounds for this set.
     pub fn bounds(&self) -> Option<&Vec<AutotuneBound>> {
         self.bounds.as_ref()
     }

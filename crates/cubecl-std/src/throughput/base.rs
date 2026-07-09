@@ -48,9 +48,9 @@ pub struct LaunchConfig {
 fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> LaunchConfig {
     let hardware = &client.properties().hardware;
 
-    let plane = hardware.plane_size_max.max(1);
-    let cube_dim = (hardware.max_units_per_cube.min(256) / plane * plane)
-        .max(plane)
+    let plane_size = hardware.plane_size_max.max(1);
+    let cube_dim = (hardware.max_units_per_cube / plane_size * plane_size)
+        .max(plane_size)
         .min(hardware.max_cube_dim.0);
 
     let sms = hardware.num_streaming_multiprocessors.unwrap_or(64);
@@ -61,12 +61,10 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
         .next()
         .unwrap_or(1);
 
-    let plane_size = client.properties().hardware.plane_size_max.max(1) as usize;
-
     LaunchConfig {
         cube_dim: cube_dim as usize,
         cube_count: cube_count as usize,
         vector_size,
-        plane_size,
+        plane_size: plane_size as usize,
     }
 }
