@@ -1,11 +1,11 @@
-use super::{ManagedMemoryHandle, MemoryPool, Slice, calculate_padding};
+use super::{ManagedMemoryHandle, ManagedMemoryId, MemoryPool, Slice, calculate_padding};
 use crate::memory_management::{BytesFormat, MemoryLocation};
 use crate::storage::StorageUtilization;
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec;
 use alloc::vec::Vec;
 use cubecl_common::backtrace::BackTrace;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 
 pub struct PersistentPool {
     slices: Vec<Slice>,
@@ -61,6 +61,23 @@ impl PersistentPool {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
         self.sizes.contains_key(&effective_size)
+    }
+
+    /// Retain a handle to every slice a capture window `touched` (reserved or
+    /// allocated while it was open), keeping those slices from ever being
+    /// reported free (and thus reused). These are exactly the slices the graph's
+    /// recorded kernels may replay against, so retaining them — and nothing more
+    /// — pins precisely the graph's working set: a slice the window never touched
+    /// is not retained (no over-retention), and a slice that was live at the
+    /// start but was freed and reused mid-window *is* (it was touched). The graph
+    /// holds the handles and releases the slices by dropping them. Cloning a
+    /// slice's handle is exactly what [`try_reserve`](Self::try_reserve) does.
+    pub fn retain_touched(&self, touched: &HashSet<ManagedMemoryId>) -> Vec<ManagedMemoryHandle> {
+        self.slices
+            .iter()
+            .filter(|slice| touched.contains(&slice.descriptor().id))
+            .map(|slice| slice.handle.clone())
+            .collect()
     }
 }
 
