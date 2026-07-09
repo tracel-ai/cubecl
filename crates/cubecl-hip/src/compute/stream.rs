@@ -5,15 +5,14 @@ use cubecl_core::{
 };
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
-    id::KernelId,
     logging::ServerLogger,
     memory_management::{
         MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
         drop_queue::{self, FlushingPolicy, PendingDropQueue},
     },
+    metadata_cache::{CacheMode, CacheSettings, MetadataInfoCache, TimeSinceLastUse},
     stream::EventStreamBackend,
 };
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::compute::{
@@ -34,15 +33,12 @@ pub struct Stream {
     /// `begin_capture` → `end_capture` transitions and gates the deferral of
     /// fenced drop-queue flushes while a capture is actively recording.
     pub capturing: StreamCaptureState,
-    /// Reusable per-launch **info buffers** (kernel shapes/strides/scalars),
-    /// keyed by kernel and the exact info bytes. A kernel's info depends only on
-    /// its shapes and scalar args — not the tensor data pointers, which are
-    /// separate kernel arguments — so two launches with identical info can share
-    /// one read-only device buffer. Caching them avoids a fresh allocation and a
-    /// host→device copy on every launch, and makes captured graphs clean: a
-    /// stable-shape decode's launches all hit warm buffers, so nothing is
-    /// allocated or copied inside the capture window. Bounded by [`INFO_CACHE_MAX`].
-    pub info_cache: HashMap<(KernelId, Vec<u64>), Handle>,
+    /// Reusable per-launch info buffers (kernel shapes/strides/scalars), keyed
+    /// by kernel and the exact info bytes. Admission and time-since-last-use
+    /// invalidation live in [`MetadataInfoCache`]; during graph capture the
+    /// launch path drives it in [`CacheMode::Capture`] so every buffer is cached
+    /// and none is dropped mid-capture. See [`StreamCaptureState::cache_mode`].
+    pub info_cache: MetadataInfoCache<Handle>,
 }
 
 /// Where a stream sits in the graph-capture lifecycle. Capture is a strict
@@ -71,12 +67,20 @@ impl StreamCaptureState {
     pub fn is_recording(&self) -> bool {
         matches!(self, StreamCaptureState::Capture)
     }
-}
 
-/// Cap on [`Stream::info_cache`] entries; past it, launches fall back to a fresh
-/// per-launch info buffer (correct, just uncached) so the cache can't grow
-/// without bound on workloads with many distinct shapes.
-pub const INFO_CACHE_MAX: usize = 4096;
+    /// The [`CacheMode`] the metadata info cache should run in at this lifecycle
+    /// position. Both while a graph is being *prepared* (warmup, which primes
+    /// the cache) and while it is being *recorded* the cache runs in
+    /// [`CacheMode::Capture`] — caching every buffer and invalidating none — so
+    /// the capture window finds every info buffer warm and drops none out from
+    /// under a recorded launch. Normal operation uses [`CacheMode::Normal`].
+    pub fn cache_mode(&self) -> CacheMode {
+        match self {
+            StreamCaptureState::NoCapture => CacheMode::Normal,
+            StreamCaptureState::Prepare | StreamCaptureState::Capture => CacheMode::Capture,
+        }
+    }
+}
 
 impl drop_queue::Fence for Fence {
     fn sync(self) {
@@ -138,7 +142,10 @@ impl EventStreamBackend for HipStreamBackend {
             memory_management_cpu,
             errors: Vec::new(),
             capturing: StreamCaptureState::NoCapture,
-            info_cache: HashMap::new(),
+            info_cache: MetadataInfoCache::new(
+                CacheSettings::default(),
+                Box::new(TimeSinceLastUse::default()),
+            ),
             drop_queue: PendingDropQueue::new(FlushingPolicy {
                 max_bytes_count: match self.is_integrated {
                     // Integrated GPUs (APUs) share memory and IOMMU with the CPU.

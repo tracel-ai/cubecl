@@ -611,22 +611,28 @@ impl HipServer {
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
 
         // Reuse a cached info buffer when this kernel has already run with these
-        // exact shapes/scalars; otherwise create one and cache it (bounded). The
-        // info is read-only metadata (no tensor pointers), so sharing it across
-        // launches is sound — and it means a stable-shape decode allocates and
-        // copies no info inside a capture window (all launches hit warm buffers).
+        // exact shapes/scalars; otherwise create one and offer it to the cache.
+        // The info is read-only metadata (no tensor pointers), so sharing it
+        // across launches is sound — and it means a stable-shape decode
+        // allocates and copies no info inside a capture window (all launches hit
+        // warm buffers). Admission and time-since-last-use invalidation live in
+        // the cache; during capture it runs in `CacheMode::Capture` so every
+        // buffer is cached and none is dropped mid-capture.
         let key = (kernel_id.clone(), info.data.clone());
-        let cached = command.streams.current().info_cache.get(&key).cloned();
+        let cache_mode = command.streams.current().capturing.cache_mode();
+        let cached = command.streams.current().info_cache.get(&key);
         let info_handle = match cached {
             Some(handle) => handle,
             None => {
+                let size = core::mem::size_of_val(info.data.as_slice());
                 let handle = command
                     .create_with_data(bytemuck::cast_slice(&info.data))
                     .unwrap();
-                let stream = command.streams.current();
-                if stream.info_cache.len() < crate::compute::stream::INFO_CACHE_MAX {
-                    stream.info_cache.insert(key, handle.clone());
-                }
+                command
+                    .streams
+                    .current()
+                    .info_cache
+                    .insert(key, handle.clone(), size, cache_mode);
                 handle
             }
         };
