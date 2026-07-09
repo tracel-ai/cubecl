@@ -7,14 +7,12 @@ mod backend;
 mod compiler;
 mod compute;
 mod device;
-mod element;
 mod graphics;
 mod runtime;
 
 pub use compiler::base::*;
 pub use compute::*;
 pub use device::*;
-pub use element::*;
 pub use graphics::*;
 pub use runtime::*;
 

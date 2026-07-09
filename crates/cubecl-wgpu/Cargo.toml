@@ -13,7 +13,6 @@ version.workspace = true
 [lints]
 workspace = true
 
-
 [features]
 default = [
     "cubecl-runtime/default",

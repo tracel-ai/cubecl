@@ -2,10 +2,7 @@ use core::{
     marker::PhantomData,
     ops::{Not, Rem},
 };
-use cubecl_ir::{
-    ConstantValue, dialect::bitwise::CountOnesOp,
-    pliron::builtin::op_interfaces::OneResultInterface,
-};
+use cubecl_ir::{ConstantValue, dialect::bitwise::CountOnesOp};
 use cubecl_macros::{cube, intrinsic};
 use num_traits::{NumCast, One, ToPrimitive, Zero};
 
@@ -299,8 +296,7 @@ impl<P: CountOnes + Scalar, N: Size> Vector<P, N> {
         intrinsic!(|scope| {
             let input = self.read_value(scope);
             let op = CountOnesOp::new(scope.ctx_mut(), input);
-            scope.register(&op);
-            op.get_result(scope.ctx()).into()
+            scope.register_with_result(&op).into()
         })
     }
 }

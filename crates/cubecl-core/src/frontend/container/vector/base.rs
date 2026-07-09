@@ -81,7 +81,6 @@ mod components {
             VectorExtractDynamicOp, VectorExtractOp, VectorInsertDynamicOp, VectorInsertOp,
         },
         interfaces::TypedExt,
-        pliron::builtin::op_interfaces::OneResultInterface,
     };
 
     use super::*;
@@ -93,8 +92,7 @@ mod components {
                 let this = self.read_value(scope);
                 if this.vector_size(scope.ctx()) > 1 {
                     let op = VectorExtractOp::new(scope.ctx_mut(), this, index);
-                    scope.register(&op);
-                    op.get_result(scope.ctx()).into()
+                    scope.register_with_result(&op).into()
                 } else {
                     this.into()
                 }
@@ -107,9 +105,8 @@ mod components {
                 let value = value.read_value(scope);
                 if this.vector_size(scope.ctx()) > 1 {
                     let op = VectorInsertOp::new(scope.ctx_mut(), this, value, index);
-                    scope.register(&op);
-                    let new_value = op.get_result(scope.ctx());
-                    assign::expand_element(scope, new_value.into(), self.expand);
+                    let new_value = scope.register_with_result(&op).into();
+                    assign::expand_element(scope, new_value, self.expand);
                 } else {
                     assign::expand_element(scope, value.into(), self.expand);
                 }
@@ -124,8 +121,7 @@ mod components {
                 if this.vector_size(scope.ctx()) > 1 {
                     let index = index.read_value(scope);
                     let op = VectorExtractDynamicOp::new(scope.ctx_mut(), this, index);
-                    scope.register(&op);
-                    op.get_result(scope.ctx()).into()
+                    scope.register_with_result(&op).into()
                 } else {
                     this.into()
                 }
@@ -141,9 +137,8 @@ mod components {
                 if this.vector_size(scope.ctx()) > 1 {
                     let index = index.read_value(scope);
                     let op = VectorInsertDynamicOp::new(scope.ctx_mut(), this, value, index);
-                    scope.register(&op);
-                    let new_value = op.get_result(scope.ctx());
-                    assign::expand_element(scope, new_value.into(), self.expand);
+                    let new_value = scope.register_with_result(&op).into();
+                    assign::expand_element(scope, new_value, self.expand);
                 } else {
                     assign::expand_element(scope, value.into(), self.expand);
                 }

@@ -7,7 +7,7 @@ use ash::vk::{
     SharingMode,
 };
 use cubecl_core::{
-    ExecutionMode, MemoryConfiguration, WgpuCompilationOptions,
+    MemoryConfiguration, WgpuCompilationOptions,
     backtrace::BackTrace,
     ir::{AddressType, ElemType, FloatKind, IntKind, UIntKind},
     prelude::{CompiledKernel, Visibility},
@@ -15,7 +15,7 @@ use cubecl_core::{
 };
 use cubecl_ir::{DeviceProperties, Type, features::*};
 use cubecl_runtime::compiler::CompilationError;
-use cubecl_spirv::{GLCompute, SpirvCompiler, SpirvKernel};
+use cubecl_spirv::{SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
 use tracel_ash::{
     khr::cooperative_matrix,
@@ -38,7 +38,7 @@ use crate::{WgpuCompiler, WgpuServer};
 
 mod features;
 
-pub type VkSpirvCompiler = SpirvCompiler<GLCompute>;
+pub type VkSpirvCompiler = SpirvCompiler;
 
 pub fn bindings(repr: &SpirvKernel, _bindings: &KernelArguments) -> (Vec<Visibility>, usize) {
     match repr.immediate_size {
@@ -597,11 +597,11 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         && nv_atomic_float_vector.shader_float16_vector_atomics == TRUE
     {
         props.register_atomic_type_usage(
-            Type::atomic(Type::scalar(ElemType::Float(FloatKind::F16)).with_vector_size(2)),
+            Type::atomic(Type::new(ElemType::Float(FloatKind::F16)).with_vector_size(2)),
             AtomicUsage::all(),
         );
         props.register_atomic_type_usage(
-            Type::atomic(Type::scalar(ElemType::Float(FloatKind::F16)).with_vector_size(4)),
+            Type::atomic(Type::new(ElemType::Float(FloatKind::F16)).with_vector_size(4)),
             AtomicUsage::all(),
         );
     }
@@ -640,9 +640,9 @@ fn register_cmma(ash: &InstanceShared, adapter: &vulkan::Adapter, props: &mut De
             props.hardware.min_tensor_cores_dim = Some(min_current);
 
             Some(MmaConfig {
-                a_type: convert_type(it.a_type)?.into(),
-                b_type: convert_type(it.b_type)?.into(),
-                cd_type: convert_type(it.c_type)?.into(),
+                a_type: convert_type(it.a_type)?,
+                b_type: convert_type(it.b_type)?,
+                cd_type: convert_type(it.c_type)?,
                 m: it.m_size,
                 k: it.k_size,
                 n: it.n_size,
@@ -695,9 +695,9 @@ fn register_cooperative_matrix2(
         .filter(|cfg| cfg.c_type == cfg.result_type)
         .filter_map(|cfg| {
             Some(CubeMmaConfig {
-                a_type: convert_type(cfg.a_type)?.into(),
-                b_type: convert_type(cfg.b_type)?.into(),
-                cd_type: convert_type(cfg.c_type)?.into(),
+                a_type: convert_type(cfg.a_type)?,
+                b_type: convert_type(cfg.b_type)?,
+                cd_type: convert_type(cfg.c_type)?,
                 m_granularity: cfg.m_granularity,
                 m_max: max_dim,
                 n_granularity: cfg.n_granularity,
@@ -742,18 +742,12 @@ pub(crate) fn compile<C>(
     dyn_comp: &mut C,
     server: &mut WgpuServer<C>,
     kernel: <WgpuServer<C> as ComputeServer>::Kernel,
-    mode: ExecutionMode,
 ) -> Result<CompiledKernel<C>, CompilationError>
 where
     C: WgpuCompiler<CompilationOptions = WgpuCompilationOptions>,
 {
     log::debug!("Compiling {}", kernel.name());
-    let compiled = kernel.compile(
-        dyn_comp,
-        &server.compilation_options,
-        mode,
-        kernel.address_type(),
-    )?;
+    let compiled = kernel.compile(dyn_comp, &server.compilation_options)?;
     Ok(compiled)
 }
 
@@ -784,9 +778,5 @@ pub(crate) fn dump_spirv(repr: &SpirvKernel, name: &str, id: cubecl_runtime::id:
             .flat_map(|it| it.to_le_bytes())
             .collect::<Vec<_>>();
         fs::write(format!("{dir}/{name}.spv"), kernel).unwrap();
-        if let Some(optimizer) = &repr.optimizer {
-            fs::write(format!("{dir}/{name}.ir.txt"), format!("{}", optimizer)).unwrap();
-            fs::write(format!("{dir}/{name}.ir.dot"), optimizer.main.dot_viz()).unwrap();
-        }
     }
 }

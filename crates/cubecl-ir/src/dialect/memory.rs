@@ -3,8 +3,13 @@ use cubecl_macros_internal::cube_op;
 use derive_more::From;
 use derive_new::new;
 use pliron::{
+    arg_err,
     builtin::attributes::{TypeAttr, UnitAttr},
     derive::pliron_attr,
+    irbuild::inserter::Inserter,
+    opts::mem2reg::{
+        AllocInfo, PromotableAllocationInterface, PromotableOpInterface, PromotableOpKind,
+    },
     printable::Printable,
     r#type::{TypeHandle, type_cast},
     verify_err,
@@ -14,7 +19,7 @@ use thiserror::Error;
 use crate::{
     AddressSpace, CanMaterialize, NoSideEffects, Pure,
     attributes::IndexAttr,
-    dialect::ptr_value_ty,
+    dialect::{general::PoisonOp, ptr_value_ty},
     interfaces::{IndexableType, aliasing::AliasingOp},
     prelude::*,
     types::{PointerType, scalar::IndexType},
@@ -34,6 +39,48 @@ pub struct DeclareVariableOp {
     pub value_ty: TypeAttr,
     pub addr_space: AddressSpaceAttr,
     pub alignment: IndexAttr,
+}
+
+#[op_interface_impl]
+impl PromotableAllocationInterface for DeclareVariableOp {
+    fn alloc_info(&self, ctx: &Context) -> Vec<AllocInfo> {
+        if self.addr_space(ctx).0 == AddressSpace::Local {
+            vec![AllocInfo {
+                ptr: self.get_result(ctx),
+                ty: self.value_ty(ctx).get_type(ctx),
+            }]
+        } else {
+            vec![]
+        }
+    }
+
+    fn default_value(
+        &self,
+        ctx: &mut Context,
+        inserter: &mut dyn Inserter,
+        alloc_info: &AllocInfo,
+    ) -> Result<Value> {
+        if alloc_info.ptr != self.get_result(ctx) {
+            return arg_err!(self.loc(ctx), UnrelatedAllocInfo);
+        }
+        let poison = PoisonOp::new(ctx, alloc_info.ty);
+        let poison_val = poison.get_result(ctx);
+        inserter.insert_op(ctx, &poison);
+        Ok(poison_val)
+    }
+
+    fn promote(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut dyn Rewriter,
+        alloc_infos: &[AllocInfo],
+    ) -> Result<()> {
+        if alloc_infos.len() != 1 || alloc_infos[0].ptr != self.get_result(ctx) {
+            return arg_err!(self.loc(ctx), UnrelatedAllocInfo);
+        }
+        rewriter.erase_operation(ctx, self.get_operation());
+        Ok(())
+    }
 }
 
 fn variable_ptr_ty(
@@ -92,6 +139,10 @@ fn indexed_ptr_ty(ctx: &Context, base: &Value) -> TypeHandle {
     PointerType::get(ctx, value_ty, address_space).into()
 }
 
+#[derive(Error, Debug)]
+#[error("Register Promotion: Allocation info provided is not related to this operation")]
+pub struct UnrelatedAllocInfo;
+
 #[cube_op(name = "memory.load")]
 #[result_ty(from_inputs = ptr_value_ty)]
 #[op_interfaces(OperandNOfType<0, PointerType>)]
@@ -99,6 +150,34 @@ fn indexed_ptr_ty(ctx: &Context, base: &Value) -> TypeHandle {
 pub struct LoadOp {
     #[operand(ptr_read)]
     pub ptr: Value,
+}
+
+#[op_interface_impl]
+impl PromotableOpInterface for LoadOp {
+    fn promotion_kind(&self, ctx: &Context, alloc_info: &AllocInfo) -> PromotableOpKind {
+        if self.ptr(ctx) == alloc_info.ptr {
+            PromotableOpKind::Load
+        } else {
+            PromotableOpKind::NonPromotableUse
+        }
+    }
+
+    fn promote(
+        &self,
+        ctx: &mut Context,
+        alloc_info_reaching_defs: &[(AllocInfo, Value)],
+        rewriter: &mut dyn Rewriter,
+    ) -> Result<()> {
+        if alloc_info_reaching_defs.len() != 1 {
+            return arg_err!(self.loc(ctx), UnrelatedAllocInfo);
+        }
+        let (alloc_info, reaching_def) = &alloc_info_reaching_defs[0];
+        if self.ptr(ctx) != alloc_info.ptr {
+            return arg_err!(self.loc(ctx), UnrelatedAllocInfo);
+        }
+        rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![*reaching_def]);
+        Ok(())
+    }
 }
 
 #[derive(Error, Debug)]
@@ -131,6 +210,34 @@ impl Verify for StoreOp {
                 )
             )?;
         }
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl PromotableOpInterface for StoreOp {
+    fn promotion_kind(&self, ctx: &Context, alloc_info: &AllocInfo) -> PromotableOpKind {
+        if self.ptr(ctx) == alloc_info.ptr {
+            PromotableOpKind::Store(self.ptr(ctx))
+        } else {
+            PromotableOpKind::NonPromotableUse
+        }
+    }
+
+    fn promote(
+        &self,
+        ctx: &mut Context,
+        alloc_info_reaching_defs: &[(AllocInfo, Value)],
+        rewriter: &mut dyn Rewriter,
+    ) -> Result<()> {
+        if alloc_info_reaching_defs.len() != 1 {
+            return arg_err!(self.loc(ctx), UnrelatedAllocInfo);
+        }
+        let (alloc_info, _reaching_def) = &alloc_info_reaching_defs[0];
+        if self.ptr(ctx) != alloc_info.ptr {
+            return arg_err!(self.loc(ctx), UnrelatedAllocInfo);
+        }
+        rewriter.erase_operation(ctx, self.get_operation());
         Ok(())
     }
 }

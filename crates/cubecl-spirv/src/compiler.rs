@@ -1,141 +1,77 @@
 use crate::{
-    SpirvKernel,
-    debug::DebugInfo,
-    item::Item,
-    lookups::CompilerState,
-    target::{GLCompute, SpirvTarget},
-    transformers::{BitwiseTransform, ErfTransform, HypotTransform, RhypotTransform},
+    ConvertArgsPass, PARAMS_NAME, SpirvKernel,
+    branch::BranchToSpirvConversionPass,
+    builtin::{BUILTINS_NAME, LowerBuiltinsPass},
+    ops::to_spirv_dialect::ToSpirvDialectPass,
+    params_storage_class,
 };
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
-    Compiler, CubeDim, WgpuCompilationOptions,
-    ir::{self as core, ElemType, InstructionModes, UIntKind, features::EnumSet},
-    post_processing::saturating::LowerSaturatingArithmetic,
-    prelude::{FastMath, KernelDefinition, Visibility},
+    Compiler, WgpuCompilationOptions,
+    ir::{
+        ContextExt,
+        attributes::{ATTR_READONLY, FuncInterface},
+        ident,
+        metadata::Info,
+        rewrite::SimplifyOpsPass,
+    },
+    post_processing::{
+        bitwise::PromoteBitwisePass, disaggregate::DisaggregatePass,
+        saturating::LowerSaturatingArithmeticPass,
+    },
+    prelude::{KernelDefinition, Visibility},
 };
-use cubecl_opt::{SharedLiveness, Uniformity};
-use cubecl_runtime::{
-    compiler::CompilationError,
-    config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel},
+use cubecl_ir::{
+    attributes::EntrypointInterface,
+    prelude::{SingleBlockRegionInterface, SymbolOpInterface},
+    rewrite::visit_all_ops_of_type_mut,
+    settings::Dim3,
+};
+use cubecl_opt::passes::{
+    alloc_shared_memory::AllocateSharedMemoryBlockPass,
+    annotate_buffer_visibility::AnnotateGlobalVisibilityPass, simple_cse::SimpleCSEPass,
+};
+use cubecl_runtime::compiler::CompilationError;
+use pliron::{
+    basic_block::BasicBlock,
+    builtin::{
+        op_interfaces::OneRegionInterface,
+        ops::{FuncOp, ModuleOp},
+    },
+    context::Context,
+    irbuild::{
+        inserter::BlockInsertionPoint,
+        listener::DummyListener,
+        rewriter::{IRRewriter, Rewriter},
+    },
+    op::Op,
+    operation::verify_operation,
+    opts::{
+        constants::sccp::SCCPPass, dce::DCEPass, mem2reg::Mem2RegPass,
+        simplify_cfg::SimplifyCFGPass,
+    },
+    pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
+    printable::Printable,
+};
+use pliron_spirv::{
+    PlironBuilder, ToSpirvOp,
+    ops::{EntryPointOp, ExecutionModeOp, SpirvModuleOp},
 };
 use rspirv::{
     binary::Assemble,
-    dr::{Builder, InsertPoint, Instruction, Module, Operand},
-    spirv::{BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
+    dr::Module,
+    spirv::{AddressingModel, ExecutionMode, ExecutionModel, MemoryModel, StorageClass},
 };
-use std::{
-    collections::HashSet,
-    fmt::Debug,
-    mem::take,
-    ops::{Deref, DerefMut},
-    rc::Rc,
-    sync::Arc,
-};
+use std::{fmt::Debug, sync::Arc};
 
-pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
-    pub target: Target,
-    pub(crate) builder: Builder,
-
-    pub cube_dim: CubeDim,
-    pub mode: ExecutionMode,
-    pub addr_type: StorageType,
-    pub debug_symbols: bool,
-    global_invocation_id: Word,
-    num_workgroups: Word,
-    pub setup_block: usize,
-    pub opt: Rc<Optimizer>,
-    pub uniformity: Rc<Uniformity>,
-    pub shared_liveness: Rc<SharedLiveness>,
-    pub current_func: Option<Id>,
-    pub current_block: Option<NodeIndex>,
-
-    pub capabilities: HashSet<Capability>,
-    pub state: CompilerState,
-    pub ext_meta_pos: Vec<u32>,
-    pub info: Info,
-    pub debug_info: Option<DebugInfo>,
-    pub compilation_options: WgpuCompilationOptions,
+pub struct KernelInfo {
+    pub cube_dim: Dim3,
 }
 
-unsafe impl<T: SpirvTarget> Send for SpirvCompiler<T> {}
-unsafe impl<T: SpirvTarget> Sync for SpirvCompiler<T> {}
+#[derive(Clone, Copy, Default)]
+pub struct SpirvCompiler;
 
-impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
-    fn clone(&self) -> Self {
-        Self {
-            target: self.target.clone(),
-            builder: Builder::new_from_module(self.module_ref().clone()),
-            cube_dim: self.cube_dim,
-            mode: self.mode,
-            addr_type: self.addr_type,
-            global_invocation_id: self.global_invocation_id,
-            num_workgroups: self.num_workgroups,
-            setup_block: self.setup_block,
-            opt: self.opt.clone(),
-            uniformity: self.uniformity.clone(),
-            shared_liveness: self.shared_liveness.clone(),
-            current_func: self.current_func,
-            current_block: self.current_block,
-            capabilities: self.capabilities.clone(),
-            state: self.state.clone(),
-            debug_symbols: self.debug_symbols,
-            info: self.info.clone(),
-            debug_info: self.debug_info.clone(),
-            ext_meta_pos: self.ext_meta_pos.clone(),
-            compilation_options: self.compilation_options,
-        }
-    }
-}
-
-fn debug_symbols_activated() -> bool {
-    matches!(
-        CubeClRuntimeConfig::get().compilation.logger.level,
-        CompilationLogLevel::Full
-    )
-}
-
-impl<T: SpirvTarget> Default for SpirvCompiler<T> {
-    fn default() -> Self {
-        Self {
-            target: Default::default(),
-            builder: Builder::new(),
-            cube_dim: CubeDim::new_single(),
-            mode: Default::default(),
-            addr_type: ElemType::UInt(UIntKind::U32).into(),
-            global_invocation_id: Default::default(),
-            num_workgroups: Default::default(),
-            capabilities: Default::default(),
-            state: Default::default(),
-            setup_block: Default::default(),
-            opt: Default::default(),
-            uniformity: Default::default(),
-            shared_liveness: Default::default(),
-            current_func: Default::default(),
-            current_block: Default::default(),
-            debug_symbols: debug_symbols_activated(),
-            info: Default::default(),
-            debug_info: Default::default(),
-            ext_meta_pos: Default::default(),
-            compilation_options: Default::default(),
-        }
-    }
-}
-
-impl<T: SpirvTarget> Deref for SpirvCompiler<T> {
-    type Target = Builder;
-
-    fn deref(&self) -> &Self::Target {
-        &self.builder
-    }
-}
-
-impl<T: SpirvTarget> DerefMut for SpirvCompiler<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.builder
-    }
-}
-
-impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
+impl Compiler for SpirvCompiler {
     type Representation = SpirvKernel;
     type CompilationOptions = WgpuCompilationOptions;
 
@@ -143,8 +79,6 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         &mut self,
         value: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
-        mode: ExecutionMode,
-        addr_type: StorageType,
     ) -> Result<Self::Representation, CompilationError> {
         let errors = value.body.pop_errors();
         if !errors.is_empty() {
@@ -160,59 +94,37 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
             });
         }
 
-        let bindings = value.buffers.clone();
-        let mut ext_meta_pos = Vec::new();
-        let mut num_ext = 0;
+        let entry_func = value.body.state().entry_func;
+        let module = value.body.state().module;
 
-        let mut all_meta: Vec<_> = value
-            .buffers
-            .iter()
-            .chain(value.tensor_maps.iter())
-            .map(|buf| (buf.id, buf.has_extended_meta))
-            .collect();
-        all_meta.sort_by_key(|(id, _)| *id);
+        let mut ctx = value.body.into_context().expect("Should be unique");
+        ctx.set_aux_ty::<Info>(value.info);
+        ctx.set_aux_ty::<WgpuCompilationOptions>(*compilation_options);
+        ctx.set_aux_ty::<KernelInfo>(KernelInfo {
+            cube_dim: value.settings.cube_dim,
+        });
 
-        let num_meta = all_meta.len();
-
-        for (_, has_extended_meta) in all_meta.iter() {
-            ext_meta_pos.push(num_ext);
-            if *has_extended_meta {
-                num_ext += 1;
+        let entry = entry_func.get_entry_block(&ctx);
+        let bindings = (0..entry.deref(&ctx).get_num_arguments()).map(|i| {
+            let readonly = entry_func.has_arg_attr(&ctx, i, &ATTR_READONLY);
+            match readonly {
+                true => Visibility::Read,
+                false => Visibility::ReadWrite,
             }
-        }
+        });
+        let bindings: Vec<Visibility> = bindings.collect();
 
-        let metadata = Metadata::new(num_meta as u32, num_ext);
-
-        self.cube_dim = value.cube_dim;
-        self.mode = mode;
-        self.addr_type = addr_type;
-        self.info = Info::new(&value.scalars, metadata, addr_type);
-        self.compilation_options = *compilation_options;
-        self.ext_meta_pos = ext_meta_pos;
-
-        let (module, optimizer, shared_size) = self.compile_kernel(value);
-        let info_visibility = match T::info_storage_class(self) {
-            StorageClass::Uniform => Visibility::Uniform,
-            _ => Visibility::Read,
-        };
-        let immediate_size = match T::params_storage_class(self, bindings.len()) {
+        let info_visibility = Visibility::Read;
+        let immediate_size = match params_storage_class(&ctx, bindings.len()) {
             StorageClass::PushConstant => Some((bindings.len() + 1) * size_of::<u64>()),
             _ => None,
         };
 
-        let visibility = self.opt.global_state.buffer_visibility.borrow();
-        let bindings = visibility
-            .iter()
-            .map(|vis| match vis.writable {
-                true => Visibility::ReadWrite,
-                false => Visibility::Read,
-            })
-            .collect();
+        let (module, shared_size) = self.compile_kernel(&mut ctx, module);
 
         Ok(SpirvKernel {
             assembled_module: module.assemble(),
             module: Some(Arc::new(module)),
-            optimizer: Some(Arc::new(optimizer)),
             bindings,
             shared_size,
             immediate_size,
@@ -225,338 +137,262 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
     }
 }
 
-impl<Target: SpirvTarget> Debug for SpirvCompiler<Target> {
+impl Debug for SpirvCompiler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "spirv<{:?}>", self.target)
+        f.write_str("spirv")
     }
 }
 
-impl<Target: SpirvTarget> SpirvCompiler<Target> {
-    pub fn compile_kernel(&mut self, mut kernel: KernelDefinition) -> (Module, Optimizer, usize) {
-        let options = kernel.options.clone();
+impl SpirvCompiler {
+    pub fn compile_kernel(&mut self, ctx: &mut Context, module: ModuleOp) -> (Module, usize) {
+        let module_op = module.get_operation();
 
-        self.debug_symbols = debug_symbols_activated() || options.debug_symbols;
+        std::fs::write("target/initial.plir", format!("{}", module.disp(ctx))).unwrap();
+        verify_operation(module.get_operation(), ctx).expect("Failed to verify before passes");
 
-        let version = self.compilation_options.vulkan.max_spirv_version;
-        self.set_version(version.0, version.1);
+        let config = PMConfig {
+            print_after_all: true,
+            ..Default::default()
+        };
 
-        let mut target = self.target.clone();
+        let mut analyses = AnalysisManager::default();
+        analyses.set_config(config);
 
-        let mut opt = OptimizerBuilder::default()
-            .with_transformer(ErfTransform)
-            .with_transformer(BitwiseTransform::new(
-                self.compilation_options.vulkan.supports_arbitrary_bitwise,
-            ))
-            .with_transformer(HypotTransform)
-            .with_transformer(RhypotTransform)
-            .with_visitor(CheckedIoVisitor::new(
-                self.mode,
-                kernel.options.kernel_name.clone(),
-            ))
-            .with_visitor(DisaggregateVisitor::default())
-            .with_visitor(UnrollVisitor::new(
-                self.compilation_options.vulkan.max_vector_size,
-            ))
-            .with_processor(LowerSaturatingArithmetic::new(true))
-            .optimize(kernel.body.clone(), kernel.cube_dim);
+        let mut passes = OpPass::<ModuleOp, Passes>::default();
 
-        self.uniformity = opt.main.analysis::<Uniformity>(&opt.global_state);
-        self.shared_liveness = opt.main.analysis::<SharedLiveness>(&opt.global_state);
-        self.opt = Rc::new(opt);
+        let mut func_passes = OpPass::<FuncOp, Passes>::default();
+        func_passes.add_pass(DisaggregatePass);
+        func_passes.add_pass(AllocateSharedMemoryBlockPass);
+        func_passes.add_pass(LowerSaturatingArithmeticPass::default());
 
-        self.init_debug();
-        self.init_base_state(&mut kernel);
+        passes.add_pass(NestedOpsPass::new(func_passes));
+        passes.add_pass(LowerBuiltinsPass);
 
-        let cube_dims = vec![kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
+        let mut func_passes = OpPass::<FuncOp, Passes>::default();
+        func_passes.add_pass(SCCPPass);
+        func_passes.add_pass(SimpleCSEPass);
+        func_passes.add_pass(SimplifyOpsPass::default());
+        func_passes.add_pass(PromoteBitwisePass);
+        func_passes.add_pass(DCEPass);
 
-        target.set_kernel_name(options.kernel_name.clone());
+        passes.add_pass(NestedOpsPass::new(func_passes));
+        passes.add_pass(AnnotateGlobalVisibilityPass);
 
-        let opt = self.opt.clone();
-        for (id, func) in opt.global_state.extra_functions.iter() {
-            let def = self.declare_function(func);
-            self.current_func = Some(*id);
+        passes.run(module_op, ctx, &mut analyses).unwrap();
 
-            let blocks = func.breadth_first_dominators();
-            for block in blocks {
-                self.compile_block(block);
-            }
-            self.end_function_and_reset_lookups();
+        std::fs::write(
+            "target/after_lower_shared.plir",
+            format!("{}", module.disp(ctx)),
+        )
+        .unwrap();
 
-            self.state.extra_funcs.insert(*id, def);
-            self.current_func = None;
-        }
+        verify_operation(module_op, ctx).expect("Failed to verify after passes");
 
-        self.init_kernel_state(kernel);
+        let mut passes = OpPass::<ModuleOp, Passes>::default();
+        let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
-        let (main, debug_setup) = self.declare_main(&options.kernel_name);
+        func_passes.add_pass(BranchToSpirvConversionPass::default());
+        func_passes.add_pass(Mem2RegPass);
+        func_passes.add_pass(DCEPass);
+        func_passes.add_pass(SCCPPass);
+        func_passes.add_pass(SimplifyCFGPass);
+        func_passes.add_pass(DCEPass);
 
-        let setup = self.id();
-        self.debug_name(setup, "setup");
+        passes.add_pass(NestedOpsPass::new(func_passes));
+        passes.run(module_op, ctx, &mut analyses).unwrap();
 
-        let entry = self.opt.entry();
-        let body = self.label(entry);
+        std::fs::write(
+            "target/after_lower_cfg.plir",
+            format!("{}", module.disp(ctx)),
+        )
+        .unwrap();
 
-        let setup_block = self.setup(setup, debug_setup);
-        self.setup_block = setup_block;
+        verify_operation(module_op, ctx).expect("Failed to verify after passes");
 
-        let shared_size = self.declare_shared_memories();
+        let spirv_module = insert_spirv_module(ctx, module);
+        let spirv_module_op = spirv_module.get_operation();
 
-        let blocks = opt.main.breadth_first_dominators();
-        for block in blocks {
-            self.compile_block(block);
-        }
+        let mut passes = OpPass::<SpirvModuleOp, Passes>::default();
+        let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
-        self.select_block(Some(setup_block)).unwrap();
-        self.branch(body).unwrap();
+        func_passes.add_pass(DCEPass);
+        func_passes.add_pass(ToSpirvDialectPass::default());
 
-        // Don't reset the state here, need to keep used builtins around
-        self.end_function().unwrap();
+        passes.add_pass(ConvertArgsPass);
+        passes.add_pass(NestedOpsPass::new(func_passes));
 
-        let builtins = self
-            .state
-            .used_builtins
-            .clone()
-            .into_iter()
-            .map(|(builtin, (id, item))| {
-                let ty = Item::Pointer(StorageClass::Input, Box::new(item)).id(self);
-                self.variable(ty, Some(id), StorageClass::Input, None);
-                self.decorate(id, Decoration::BuiltIn, vec![builtin.into()]);
-                id
-            })
-            .collect::<Vec<_>>();
+        passes.run(spirv_module_op, ctx, &mut analyses).unwrap();
 
-        target.set_modes(self, main, builtins, cube_dims);
+        declare_entry_point(ctx, spirv_module);
 
-        let module = take(&mut self.builder).module();
-        (module, self.opt.as_ref().clone(), shared_size)
+        std::fs::write(
+            "target/after_convert_args.plir",
+            format!("{}", module.disp(ctx)),
+        )
+        .unwrap();
+
+        // verify_operation(module_op, ctx).expect("Failed to verify after passes");
+
+        let mut builder = PlironBuilder::new(spirv_module);
+        spirv_module
+            .to_spirv(ctx, &mut builder)
+            .expect("Failed to convert");
+        let module = builder.module();
+        let shared_size = 0;
+
+        (module, shared_size)
     }
 
-    fn setup(&mut self, label: Word, debug_setup: impl Fn(&mut Self)) -> usize {
-        self.begin_block(Some(label)).unwrap();
+    // /// When using `VK_KHR_workgroup_memory_explicit_layout`, all shared memory is declared as a
+    // /// `Block`. This means they are all pointers into the same chunk of memory, with different
+    // /// offsets and sizes. Unlike C++, this shared block is declared implicitly, not explicitly.
+    // /// Alignment and total size is calculated by the driver.
+    // fn declare_shared_memories_explicit(&mut self) -> u32 {
+    //     let mut shared_size = 0;
 
-        Target::load_params(self);
+    //     let shared = self.state.shared.clone();
+    //     if shared.is_empty() {
+    //         return shared_size;
+    //     }
 
-        debug_setup(self);
+    //     self.capabilities
+    //         .insert(Capability::WorkgroupMemoryExplicitLayoutKHR);
 
-        let setup_block = self.selected_block().unwrap();
-        self.select_block(None).unwrap();
-        setup_block
-    }
+    //     for (index, memory) in shared {
+    //         let memory_size = memory.item.size();
+    //         let value_size = memory.item.value_type().size();
+    //         shared_size = shared_size.max(memory.offset + memory_size);
 
-    #[track_caller]
-    pub fn current_block(&self) -> BasicBlock {
-        self.current_func()
-            .block(self.current_block.unwrap())
-            .clone()
-    }
+    //         // It's safe to assume that if 8-bit/16-bit types are supported, they're supported for
+    //         // explicit layout as well.
+    //         match value_size {
+    //             1 => {
+    //                 self.capabilities
+    //                     .insert(Capability::WorkgroupMemoryExplicitLayout8BitAccessKHR);
+    //             }
+    //             2 => {
+    //                 self.capabilities
+    //                     .insert(Capability::WorkgroupMemoryExplicitLayout16BitAccessKHR);
+    //             }
+    //             _ => {}
+    //         }
 
-    pub fn current_func(&self) -> &Function {
-        self.current_func
-            .map(|func| &self.opt.global_state.extra_functions[&func])
-            .unwrap_or(&self.opt.main)
-    }
+    //         let item_id = memory.item.id(self);
+    //         let block_id = self.id();
 
-    pub fn builtin(&mut self, builtin: BuiltIn, item: Item) -> Word {
-        if let Some(existing) = self.state.used_builtins.get(&builtin) {
-            existing.0
-        } else {
-            let id = self.id();
-            self.state.used_builtins.insert(builtin, (id, item));
-            id
-        }
-    }
+    //         if let Item::Array(_, _) = memory.item {
+    //             self.decorate(item_id, Decoration::ArrayStride, [value_size.into()]);
+    //         }
 
-    pub fn compile_block(&mut self, block: NodeIndex) {
-        self.current_block = Some(block);
+    //         self.type_struct_id(Some(block_id), [item_id]);
 
-        let label = self.label(block);
-        self.begin_block(Some(label)).unwrap();
-        let block_id = self.selected_block().unwrap();
+    //         self.decorate(block_id, Decoration::Block, []);
+    //         self.member_decorate(block_id, 0, Decoration::Offset, [memory.offset.into()]);
 
-        self.debug_start_block();
+    //         let block_ptr_ty = self.type_pointer(None, StorageClass::Workgroup, block_id);
+    //         let ptr_ty =
+    //             self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, item_id);
 
-        let operations = self.current_block().ops.borrow().clone();
-        for (_, operation) in operations {
-            self.compile_operation(operation);
-        }
+    //         self.debug_shared(memory.id, index);
+    //         self.variable(
+    //             block_ptr_ty,
+    //             Some(memory.val_id),
+    //             StorageClass::Workgroup,
+    //             None,
+    //         );
+    //         self.decorate(memory.val_id, Decoration::Aliased, []);
 
-        let control_flow = self.current_block().control_flow.borrow().clone();
-        self.compile_control_flow(control_flow);
+    //         self.insert_in_setup(|b| {
+    //             let zero = b.const_u32(0);
+    //             b.in_bounds_access_chain(ptr_ty, Some(memory.id), memory.val_id, [zero])
+    //                 .unwrap()
+    //         });
+    //     }
 
-        let current = self.selected_block();
-        self.select_block(Some(block_id)).unwrap();
-        let phi = { self.current_func().block(block).phi_nodes.borrow().clone() };
-        for phi in phi {
-            let out = self.compile_value(phi.out);
-            let ty = out.item().id(self);
-            let out_id = self.write_id(&out);
-            let entries: Vec<_> = phi
-                .entries
-                .into_iter()
-                .map(|it| {
-                    let label = self.end_label(it.block);
-                    let value = self.compile_value(it.value);
-                    let value = self.read(&value);
-                    (value, label)
-                })
-                .collect();
-            self.insert_phi(InsertPoint::Begin, ty, Some(out_id), entries)
-                .unwrap();
-        }
-        self.select_block(current).unwrap();
-    }
+    //     shared_size
+    // }
 
-    // Declare variable in the first block of the function
-    pub fn declare_function_variable(&mut self, ty: Word, init: Option<Word>) -> Word {
-        let setup = self.setup_block;
-        let id = self.id();
-        let mut val = Instruction::new(
-            Op::Variable,
-            Some(ty),
-            Some(id),
-            vec![Operand::StorageClass(StorageClass::Function)],
-        );
-        if let Some(init) = init {
-            val.operands.push(Operand::IdRef(init));
-        }
-        let current_block = self.selected_block();
-        self.select_block(Some(setup)).unwrap();
-        self.insert_into_block(InsertPoint::Begin, val).unwrap();
-        self.select_block(current_block).unwrap();
-        id
-    }
+    // fn declare_shared_memories_implicit(&mut self) -> u32 {
+    //     let mut shared_size = 0;
 
-    fn declare_shared_memories(&mut self) -> usize {
-        if self.compilation_options.vulkan.supports_explicit_smem {
-            self.declare_shared_memories_explicit() as usize
-        } else {
-            self.declare_shared_memories_implicit() as usize
-        }
-    }
+    //     let shared = self.state.shared.clone();
+    //     for (index, memory) in shared {
+    //         shared_size += memory.item.size();
 
-    /// When using `VK_KHR_workgroup_memory_explicit_layout`, all shared memory is declared as a
-    /// `Block`. This means they are all pointers into the same chunk of memory, with different
-    /// offsets and sizes. Unlike C++, this shared block is declared implicitly, not explicitly.
-    /// Alignment and total size is calculated by the driver.
-    fn declare_shared_memories_explicit(&mut self) -> u32 {
-        let mut shared_size = 0;
+    //         let ty_id = memory.item.id(self);
+    //         let ptr_ty = self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, ty_id);
 
-        let shared = self.state.shared.clone();
-        if shared.is_empty() {
-            return shared_size;
-        }
+    //         self.debug_shared(memory.id, index);
+    //         self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
+    //     }
+    //     shared_size
+    // }
+}
 
-        self.capabilities
-            .insert(Capability::WorkgroupMemoryExplicitLayoutKHR);
+fn insert_spirv_module(ctx: &mut Context, module: ModuleOp) -> SpirvModuleOp {
+    let mut rewriter = IRRewriter::<DummyListener>::default();
 
-        for (index, memory) in shared {
-            let memory_size = memory.item.size();
-            let value_size = memory.item.value_type().size();
-            shared_size = shared_size.max(memory.offset + memory_size);
+    let spirv_module = SpirvModuleOp::new(
+        ctx,
+        ident("kernel"),
+        AddressingModel::PhysicalStorageBuffer64,
+        MemoryModel::Vulkan,
+    );
+    rewriter.inline_region(
+        ctx,
+        module.get_region(ctx),
+        BlockInsertionPoint::AtRegionStart(spirv_module.get_region(ctx)),
+    );
+    let module_body = BasicBlock::new(ctx, None, vec![]);
+    module_body.insert_at_front(module.get_region(ctx), ctx);
+    spirv_module
+        .get_operation()
+        .insert_at_front(module_body, ctx);
+    spirv_module
+}
 
-            // It's safe to assume that if 8-bit/16-bit types are supported, they're supported for
-            // explicit layout as well.
-            match value_size {
-                1 => {
-                    self.capabilities
-                        .insert(Capability::WorkgroupMemoryExplicitLayout8BitAccessKHR);
-                }
-                2 => {
-                    self.capabilities
-                        .insert(Capability::WorkgroupMemoryExplicitLayout16BitAccessKHR);
-                }
-                _ => {}
-            }
-
-            let item_id = memory.item.id(self);
-            let block_id = self.id();
-
-            if let Item::Array(_, _) = memory.item {
-                self.decorate(item_id, Decoration::ArrayStride, [value_size.into()]);
-            }
-
-            self.type_struct_id(Some(block_id), [item_id]);
-
-            self.decorate(block_id, Decoration::Block, []);
-            self.member_decorate(block_id, 0, Decoration::Offset, [memory.offset.into()]);
-
-            let block_ptr_ty = self.type_pointer(None, StorageClass::Workgroup, block_id);
-            let ptr_ty =
-                self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, item_id);
-
-            self.debug_shared(memory.id, index);
-            self.variable(
-                block_ptr_ty,
-                Some(memory.val_id),
-                StorageClass::Workgroup,
-                None,
-            );
-            self.decorate(memory.val_id, Decoration::Aliased, []);
-
-            self.insert_in_setup(|b| {
-                let zero = b.const_u32(0);
-                b.in_bounds_access_chain(ptr_ty, Some(memory.id), memory.val_id, [zero])
-                    .unwrap()
-            });
-        }
-
-        shared_size
-    }
-
-    fn declare_shared_memories_implicit(&mut self) -> u32 {
-        let mut shared_size = 0;
-
-        let shared = self.state.shared.clone();
-        for (index, memory) in shared {
-            shared_size += memory.item.size();
-
-            let ty_id = memory.item.id(self);
-            let ptr_ty = self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, ty_id);
-
-            self.debug_shared(memory.id, index);
-            self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
-        }
-        shared_size
-    }
-
-    pub fn declare_math_mode(&mut self, modes: InstructionModes, out_id: Word) {
-        if !self.compilation_options.vulkan.supports_fp_fast_math || modes.fp_math_mode.is_empty() {
+fn declare_entry_point(ctx: &mut Context, mut module: SpirvModuleOp) {
+    let op = module.get_operation();
+    visit_all_ops_of_type_mut::<FuncOp, _>(ctx, &mut module, op, |ctx, module, func| {
+        let Some(entry) = func.get_entrypoint_abi(ctx) else {
             return;
-        }
-        let mode = convert_math_mode(modes.fp_math_mode);
-        self.capabilities.insert(Capability::FloatControls2);
-        self.decorate(
-            out_id,
-            Decoration::FPFastMathMode,
-            [Operand::FPFastMathMode(mode)],
+        };
+        let block = module.get_body(ctx, 0);
+        let func_name = func.get_symbol_name(ctx);
+        let entry_point = EntryPointOp::new(
+            ctx,
+            ExecutionModel::GLCompute,
+            func_name.clone(),
+            func_name.to_string(),
+            vec![PARAMS_NAME.clone(), BUILTINS_NAME.clone()],
         );
-    }
-
-    pub fn is_uniform_block(&self) -> bool {
-        self.uniformity
-            .is_block_uniform(self.current_block.unwrap())
-    }
+        entry_point.get_operation().insert_at_front(block, ctx);
+        let (x, y, z) = entry.cube_dim.into();
+        let execution_mode =
+            ExecutionModeOp::new(ctx, func_name, ExecutionMode::LocalSize, vec![x, y, z]);
+        execution_mode.get_operation().insert_at_front(block, ctx);
+    });
 }
 
-pub(crate) fn convert_math_mode(math_mode: EnumSet<FastMath>) -> FPFastMathMode {
-    let mut flags = FPFastMathMode::NONE;
+// pub(crate) fn convert_math_mode(math_mode: EnumSet<FastMath>) -> FPFastMathMode {
+//     let mut flags = FPFastMathMode::NONE;
 
-    for mode in math_mode.iter() {
-        match mode {
-            FastMath::NotNaN => flags |= FPFastMathMode::NOT_NAN,
-            FastMath::NotInf => flags |= FPFastMathMode::NOT_INF,
-            FastMath::UnsignedZero => flags |= FPFastMathMode::NSZ,
-            FastMath::AllowReciprocal => flags |= FPFastMathMode::ALLOW_RECIP,
-            FastMath::AllowContraction => flags |= FPFastMathMode::ALLOW_CONTRACT,
-            FastMath::AllowReassociation => flags |= FPFastMathMode::ALLOW_REASSOC,
-            FastMath::AllowTransform => {
-                flags |= FPFastMathMode::ALLOW_CONTRACT
-                    | FPFastMathMode::ALLOW_REASSOC
-                    | FPFastMathMode::ALLOW_TRANSFORM
-            }
-            _ => {}
-        }
-    }
+//     for mode in math_mode.iter() {
+//         match mode {
+//             FastMath::NotNaN => flags |= FPFastMathMode::NOT_NAN,
+//             FastMath::NotInf => flags |= FPFastMathMode::NOT_INF,
+//             FastMath::UnsignedZero => flags |= FPFastMathMode::NSZ,
+//             FastMath::AllowReciprocal => flags |= FPFastMathMode::ALLOW_RECIP,
+//             FastMath::AllowContraction => flags |= FPFastMathMode::ALLOW_CONTRACT,
+//             FastMath::AllowReassociation => flags |= FPFastMathMode::ALLOW_REASSOC,
+//             FastMath::AllowTransform => {
+//                 flags |= FPFastMathMode::ALLOW_CONTRACT
+//                     | FPFastMathMode::ALLOW_REASSOC
+//                     | FPFastMathMode::ALLOW_TRANSFORM
+//             }
+//             _ => {}
+//         }
+//     }
 
-    flags
-}
+//     flags
+// }

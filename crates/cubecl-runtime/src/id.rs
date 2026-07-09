@@ -95,7 +95,8 @@ pub struct KernelId {
     pub cube_dim: Dim3,
     /// The address type for this kernel
     pub address_type: AddressType,
-    pub(crate) mode: ExecutionMode,
+    /// The execution mode for this kernel
+    pub mode: ExecutionMode,
     pub(crate) info: Option<Info>,
 }
 

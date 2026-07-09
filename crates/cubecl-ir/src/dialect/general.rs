@@ -42,6 +42,11 @@ impl AliasingOp for CopyOp {
     }
 }
 
+#[cube_op(name = "cube.poison")]
+#[result_ty(argument)]
+#[op_traits(Pure, CanMaterialize)]
+pub struct PoisonOp {}
+
 #[pliron_op(name = "aggregate.construct", format, verifier = "succ")]
 #[op_interfaces(NResultsInterface<1>, OneResultInterface)]
 #[op_traits(Pure, CanMaterialize)]

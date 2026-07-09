@@ -44,7 +44,7 @@ pub mod sub {
 
 pub mod clamp {
     use super::*;
-    use cubecl_ir::{dialect::cmp::ClampOp, pliron::builtin::op_interfaces::OneResultInterface};
+    use cubecl_ir::dialect::cmp::ClampOp;
 
     pub fn expand<C: PartialOrd + CubePrimitive>(
         scope: &Scope,
@@ -56,8 +56,7 @@ pub mod clamp {
         let min = min.read_value(scope);
         let max = max.read_value(scope);
         let op = ClampOp::new(scope.ctx_mut(), input, min, max);
-        scope.register(&op);
-        op.get_result(scope.ctx()).into()
+        scope.register_with_result(&op).into()
     }
 }
 

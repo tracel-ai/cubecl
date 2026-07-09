@@ -1,8 +1,3 @@
-use cubecl_core::ir::{ElemType, ExpandValue, InstructionModes, IntKind, UIntKind};
-use rspirv::spirv::{Capability, MemorySemantics, Scope, Word};
-
-use crate::{SpirvCompiler, SpirvTarget};
-
 // impl<T: SpirvTarget> SpirvCompiler<T> {
 //     pub fn compile_atomic(
 //         &mut self,
