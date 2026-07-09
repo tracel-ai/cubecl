@@ -42,7 +42,7 @@ pub mod prelude {
     pub use pliron::derive::derive_op_interface_impl as op_interfaces;
     pub use pliron::{
         attribute::AttributeDict,
-        builtin::{op_interfaces::*, type_interfaces::*},
+        builtin::{attributes::TypeAttr, op_interfaces::*, type_interfaces::*},
         common_traits::Verify,
         context::{Context, Ptr},
         derive::*,
