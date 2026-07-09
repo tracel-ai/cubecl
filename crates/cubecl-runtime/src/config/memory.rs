@@ -9,6 +9,36 @@ pub struct MemoryConfig {
     /// Configuration for persistent memory pools.
     #[serde(default)]
     pub persistent_memory: PersistentMemory,
+    /// Strategy used for the dynamic (activation) memory pools.
+    #[serde(default)]
+    pub dynamic_pool: DynamicPoolConfig,
+}
+
+/// Strategy used to build the dynamic memory pools that back activations.
+///
+/// The default ([`Auto`](DynamicPoolConfig::Auto)) keeps the
+/// [`MemoryConfiguration`](crate::memory_management::MemoryConfiguration) chosen
+/// by the runtime (e.g. `SubSlices`). [`SingleSliced`](DynamicPoolConfig::SingleSliced)
+/// overrides it with a single coalescing arena so that allocations of every size
+/// reuse the same chunks instead of each size-bucketed pool retaining its own
+/// peak reservation.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
+#[serde(tag = "strategy", rename_all = "kebab-case")]
+pub enum DynamicPoolConfig {
+    /// Keep the [`MemoryConfiguration`](crate::memory_management::MemoryConfiguration)
+    /// passed by the runtime (today's behavior).
+    #[default]
+    Auto,
+    /// Route every dynamic allocation through a single sliced arena (plus the
+    /// tiny sub-alignment exclusive pool). `page_size_bytes` is the per-chunk
+    /// granularity; the pool allocates as many chunks as the live working set
+    /// needs. It must be at least as large as the biggest single allocation, or
+    /// that allocation is rejected. When omitted, a safe large default is used.
+    SingleSliced {
+        /// Per-chunk size in bytes. Aligned up to the device alignment.
+        #[serde(default)]
+        page_size_bytes: Option<u64>,
+    },
 }
 
 /// Configuration options for persistent memory pools in `CubeCL` runtimes.
