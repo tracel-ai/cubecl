@@ -17,6 +17,19 @@
 //! policy caches everything and evicts nothing — so the runtime never has to
 //! special-case capture: it just asks the policy and follows the answer.
 //!
+//! A captured graph records the device pointer of every info buffer its launches
+//! touch, so those buffers must outlive the graph. While a capture is recording,
+//! every entry the launch path touches — a fresh miss *or* a hit on a buffer
+//! built earlier in normal operation — is **pinned** to the graph being built.
+//! Pinned entries are never evicted, so the pointer a graph recorded stays valid
+//! for its whole life even if the cache would otherwise reclaim it.
+//! [`capture_commit`](MetadataInfoCache::capture_commit) seals those pins under
+//! the graph's id at `end_capture`, and
+//! [`graph_release`](MetadataInfoCache::graph_release) drops them when the graph
+//! is destroyed, freeing any buffer no other live graph still pins. Pins are
+//! refcounted, so an info buffer shared by two graphs survives until both are
+//! gone.
+//!
 //! The runtime drives it in three steps, so a value is only ever cloned into the
 //! cache when it will actually be kept:
 //!
@@ -26,9 +39,9 @@
 //! 3. on a miss, create the value and [`insert`](MetadataInfoCache::insert) it.
 
 use alloc::vec::Vec;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 
-use crate::id::KernelId;
+use crate::id::{GraphId, KernelId};
 
 /// Identifies a cached info buffer: the kernel plus the exact metadata words
 /// (shapes, strides, scalars) the buffer was built from.
@@ -110,6 +123,16 @@ impl MetadataCachePolicy {
             CacheMode::Normal => Some(self.max_entries),
         }
     }
+
+    /// Whether entries touched right now must be pinned to the graph being
+    /// captured. True in [`CacheMode::Capture`]: a graph records the device
+    /// pointer of every info buffer its launches touch, so those entries must
+    /// not be evicted for the graph's lifetime — even after the cache returns to
+    /// [`CacheMode::Normal`], and even if the buffer lives in the regular
+    /// (non-persistent) pool and so is not otherwise retained by the graph.
+    pub fn pins_entries(&self) -> bool {
+        matches!(self.mode, CacheMode::Capture)
+    }
 }
 
 #[derive(Debug)]
@@ -118,6 +141,11 @@ struct Entry<V> {
     /// Clock tick of this entry's most recent use (insert or hit); the smallest
     /// marks the least-recently-used entry, evicted first.
     last_used: u64,
+    /// Number of live captured graphs that pinned this entry. While `> 0` the
+    /// entry is never evicted, so every graph that recorded this info buffer
+    /// keeps replaying against the exact buffer it captured. Dropped back toward
+    /// zero as those graphs are destroyed (see [`MetadataInfoCache::graph_release`]).
+    locks: u32,
 }
 
 /// A cache of metadata info buffers keyed by [`InfoCacheKey`], generic over the
@@ -134,6 +162,15 @@ pub struct MetadataInfoCache<V> {
     policy: MetadataCachePolicy,
     /// Monotonic logical clock; advanced once per [`get`](Self::get).
     clock: u64,
+    /// Keys touched during the in-progress capture, each pinned exactly once,
+    /// awaiting association with a [`GraphId`] at
+    /// [`capture_commit`](Self::capture_commit) (or release at
+    /// [`capture_discard`](Self::capture_discard) if the capture is abandoned).
+    pending: HashSet<InfoCacheKey>,
+    /// The keys each live captured graph pinned, so
+    /// [`graph_release`](Self::graph_release) can drop that graph's locks when it
+    /// is destroyed.
+    graph_locks: HashMap<GraphId, Vec<InfoCacheKey>>,
 }
 
 impl<V> MetadataInfoCache<V> {
@@ -143,6 +180,8 @@ impl<V> MetadataInfoCache<V> {
             entries: HashMap::new(),
             policy,
             clock: 0,
+            pending: HashSet::new(),
+            graph_locks: HashMap::new(),
         }
     }
 
@@ -178,20 +217,32 @@ impl<V> MetadataInfoCache<V> {
 impl<V: Clone> MetadataInfoCache<V> {
     /// Look up `key`, advancing the logical clock by one tick. On a hit the
     /// entry is marked used — its recency resets — and the value is cloned out.
+    /// During a capture ([`pins_entries`](MetadataCachePolicy::pins_entries)) a
+    /// hit also pins the entry to the graph being recorded, once per capture.
     ///
     /// Call only when [`should_cache`](Self::should_cache) is `true`; on a miss
     /// create the value and hand it to [`insert`](Self::insert).
     pub fn get(&mut self, key: &InfoCacheKey) -> Option<V> {
         self.clock += 1;
+        let clock = self.clock;
+        // Pin once per capture: `pending.insert` is true only the first time this
+        // key is touched in the current window (disjoint field from `entries`).
+        let pin = self.policy.pins_entries() && self.entries.contains_key(key) && {
+            self.pending.insert(key.clone())
+        };
         let entry = self.entries.get_mut(key)?;
-        entry.last_used = self.clock;
+        entry.last_used = clock;
+        if pin {
+            entry.locks += 1;
+        }
         Some(entry.value.clone())
     }
 
-    /// Store `value` under `key` after a [`get`](Self::get) miss. Evicts the
-    /// least-recently-used entry first if the cache is at
-    /// [capacity](MetadataCachePolicy::capacity) (never in
-    /// [`CacheMode::Capture`], which is unbounded).
+    /// Store `value` under `key` after a [`get`](Self::get) miss. During a
+    /// capture the new entry is pinned to the graph being recorded; otherwise it
+    /// evicts the least-recently-used *unpinned* entry first if the cache is at
+    /// [capacity](MetadataCachePolicy::capacity) (a capture is unbounded and
+    /// never evicts).
     ///
     /// Because the runtime only reaches here on a
     /// [`should_cache`](Self::should_cache) miss, the value it clones in is
@@ -205,20 +256,73 @@ impl<V: Clone> MetadataInfoCache<V> {
                 self.evict_least_recently_used();
             }
         }
+        // A miss during capture pins the fresh entry to the graph being recorded.
+        let locks = if self.policy.pins_entries() {
+            self.pending.insert(key.clone());
+            1
+        } else {
+            0
+        };
         self.entries.insert(
             key,
             Entry {
                 value,
                 last_used: self.clock,
+                locks,
             },
         );
     }
 
-    /// Drop the entry whose last use is oldest (largest "time since last use").
+    /// Seal the entries pinned during the just-finished capture under `graph`,
+    /// so [`graph_release`](Self::graph_release) can drop their locks when the
+    /// graph is destroyed. Call once from `end_capture` after the graph is built.
+    pub fn capture_commit(&mut self, graph: GraphId) {
+        if !self.pending.is_empty() {
+            let keys = self.pending.drain().collect();
+            self.graph_locks.insert(graph, keys);
+        }
+    }
+
+    /// Drop the locks taken during a capture that was abandoned (never turned
+    /// into a graph), so the touched entries become evictable again. The entries
+    /// themselves stay as ordinary cached values.
+    pub fn capture_discard(&mut self) {
+        let keys: Vec<_> = self.pending.drain().collect();
+        for key in keys {
+            if let Some(entry) = self.entries.get_mut(&key) {
+                entry.locks = entry.locks.saturating_sub(1);
+            }
+        }
+    }
+
+    /// Release the entries a destroyed `graph` pinned. An entry no other live
+    /// graph still pins is removed, freeing its buffer — this is how the cache
+    /// is cleaned up when a graph is destroyed.
+    pub fn graph_release(&mut self, graph: GraphId) {
+        let Some(keys) = self.graph_locks.remove(&graph) else {
+            return;
+        };
+        for key in keys {
+            let drop_entry = match self.entries.get_mut(&key) {
+                Some(entry) => {
+                    entry.locks = entry.locks.saturating_sub(1);
+                    entry.locks == 0
+                }
+                None => false,
+            };
+            if drop_entry {
+                self.entries.remove(&key);
+            }
+        }
+    }
+
+    /// Drop the entry whose last use is oldest (largest "time since last use"),
+    /// skipping entries pinned to a live graph.
     fn evict_least_recently_used(&mut self) {
         let victim = self
             .entries
             .iter()
+            .filter(|(_, entry)| entry.locks == 0)
             .min_by_key(|(_, entry)| entry.last_used)
             .map(|(key, _)| key.clone());
         if let Some(key) = victim {
@@ -296,5 +400,96 @@ mod tests {
         assert!(!cache.should_cache(8), "disabled cache never caches");
         cache.insert(key(0), 0);
         assert!(cache.is_empty());
+    }
+
+    /// Capture one entry into a graph, then thrash the cache well past capacity
+    /// in normal mode: the pinned entry must survive (its buffer is still
+    /// replayed against), and only after the graph is released can it be evicted.
+    #[test]
+    fn pinned_entry_survives_eviction_until_graph_released() {
+        let mut cache = cache(2);
+        let graph = GraphId::new();
+
+        // Capture pins entry 0.
+        cache.mode(CacheMode::Capture);
+        cache.insert(key(0), 0);
+        cache.capture_commit(graph);
+
+        // Back to normal: flood the cache far past capacity (get-then-insert,
+        // as the launch path does, so recency advances per entry).
+        cache.mode(CacheMode::Normal);
+        for i in 1..20 {
+            cache.get(&key(i));
+            cache.insert(key(i), i as u32);
+        }
+        assert_eq!(cache.get(&key(0)), Some(0), "pinned entry never evicted");
+
+        // Destroying the graph releases the pin and drops the entry.
+        cache.graph_release(graph);
+        assert!(cache.get(&key(0)).is_none(), "released entry cleaned up");
+    }
+
+    /// A cache hit during capture (on a buffer built earlier in normal mode)
+    /// must pin that entry — otherwise later eviction would free a buffer the
+    /// graph still replays against. This is the finding-#1 regression guard.
+    #[test]
+    fn capture_hit_on_normal_entry_pins_it() {
+        let mut cache = cache(2);
+        let graph = GraphId::new();
+
+        // Built in normal mode (e.g. regular pool), cached.
+        cache.insert(key(0), 0);
+
+        // Captured: the launch hits the existing entry, which must pin it.
+        cache.mode(CacheMode::Capture);
+        assert_eq!(cache.get(&key(0)), Some(0));
+        cache.capture_commit(graph);
+
+        cache.mode(CacheMode::Normal);
+        for i in 1..20 {
+            cache.get(&key(i));
+            cache.insert(key(i), i as u32);
+        }
+        assert_eq!(cache.get(&key(0)), Some(0), "hit-pinned entry survives");
+    }
+
+    /// An entry shared by two graphs stays until both are destroyed (refcount).
+    #[test]
+    fn pin_is_refcounted_across_graphs() {
+        let mut cache = cache(8);
+        let (g1, g2) = (GraphId::new(), GraphId::new());
+
+        cache.mode(CacheMode::Capture);
+        cache.insert(key(0), 0);
+        cache.capture_commit(g1);
+
+        // Second capture hits the same entry.
+        assert_eq!(cache.get(&key(0)), Some(0));
+        cache.capture_commit(g2);
+
+        cache.mode(CacheMode::Normal);
+        cache.graph_release(g1);
+        assert_eq!(cache.get(&key(0)), Some(0), "still pinned by g2");
+        cache.graph_release(g2);
+        assert!(cache.get(&key(0)).is_none(), "gone once both released");
+    }
+
+    /// An abandoned capture releases its pins but keeps the entries as ordinary
+    /// cached values (they become evictable again).
+    #[test]
+    fn capture_discard_unpins_without_removing() {
+        let mut cache = cache(8);
+        cache.mode(CacheMode::Capture);
+        cache.insert(key(0), 0);
+        cache.capture_discard();
+
+        // Entry still present, but now evictable: flood past capacity in normal.
+        cache.mode(CacheMode::Normal);
+        assert_eq!(cache.get(&key(0)), Some(0), "kept as a normal entry");
+        for i in 1..20 {
+            cache.get(&key(i));
+            cache.insert(key(i), i as u32);
+        }
+        assert!(cache.get(&key(0)).is_none(), "no longer pinned, evicted");
     }
 }

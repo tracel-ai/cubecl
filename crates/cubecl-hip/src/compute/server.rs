@@ -289,6 +289,8 @@ impl ComputeServer for HipServer {
             // `graph_prepare`/`start_capture` sequence.
             stream.memory_management_gpu.capture_end();
             stream.memory_management_cpu.capture_end();
+            // Unpin any info-cache entries warmup pinned; the capture is off.
+            stream.info_cache.capture_discard();
             stream.capturing = StreamCaptureState::NoCapture;
             return Err(err);
         }
@@ -300,14 +302,21 @@ impl ComputeServer for HipServer {
     }
 
     fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
+        let id = GraphId::new();
         // Build the graph inside a scope so the `command` borrow of `self` ends
         // before we register the graph in `self.graphs`.
         let hip_graph = {
+            // Do NOT flush/surface queued errors here (`ignore: true, flush:
+            // false`): this command runs while the stream is still recording, and
+            // `flush_errors` would `hipFree` mid-capture — aborting it — and bail
+            // via `?` before `hipStreamEndCapture` ever runs, wedging the stream
+            // in capture mode forever. Any queued error surfaces on the next
+            // normal op once the capture is closed below.
             let mut command = self.command_no_inputs(
                 stream_id,
                 StreamErrorMode {
-                    ignore: false,
-                    flush: true,
+                    ignore: true,
+                    flush: false,
                 },
             )?;
             let stream = command.streams.current();
@@ -352,7 +361,7 @@ impl ComputeServer for HipServer {
             // Pin every buffer the graph touched so the pool never reuses that
             // memory for the graph's lifetime — both the GPU slices and the pinned
             // staging slices the recorded info copies still read from on replay.
-            // On failure the handles drop with `exec?` below, unpinning them.
+            // On failure the handles drop below with `retained`, unpinning them.
             let mut retained = stream.memory_management_gpu.capture_end();
             retained.extend(stream.memory_management_cpu.capture_end());
             // Reclaim the buffers dropped during the capture window, whose fenced
@@ -361,12 +370,24 @@ impl ComputeServer for HipServer {
             let sys = stream.sys;
             stream.drop_queue.flush(|| Fence::new(sys));
             stream.drop_queue.flush(|| Fence::new(sys));
-            HipGraph {
-                exec: exec?,
-                _retained: retained,
+            match exec {
+                Ok(exec) => {
+                    // Seal the info-cache entries this capture pinned under the
+                    // graph's id, so `graph_destroy` can release them later.
+                    stream.info_cache.capture_commit(id);
+                    HipGraph {
+                        exec,
+                        _retained: retained,
+                    }
+                }
+                Err(err) => {
+                    // Instantiation failed: unpin the entries this capture pinned
+                    // (they stay as ordinary cached values) and drop `retained`.
+                    stream.info_cache.capture_discard();
+                    return Err(err);
+                }
             }
         };
-        let id = GraphId::new();
         self.graphs.insert(id, hip_graph);
         Ok(id)
     }
@@ -393,6 +414,11 @@ impl ComputeServer for HipServer {
         if self.graphs.contains_key(&graph) {
             let _ = cubecl_common::future::block_on(self.sync(stream_id));
             self.graphs.remove(&graph);
+            // Release the info-cache entries this graph pinned; entries no other
+            // live graph still pins are dropped, freeing their buffers.
+            if let Ok(mut streams) = self.streams.resolve(stream_id, [].into_iter(), false) {
+                streams.current().info_cache.graph_release(graph);
+            }
         }
     }
 
