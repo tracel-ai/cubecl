@@ -296,6 +296,14 @@ impl<'a> Command<'a> {
         let resource = self.resource(binding)?;
         let size = data.len();
 
+        // An empty tensor (a zero dim in its shape) has nothing to copy. Bail
+        // before staging: the zero-size staging buffer has no real backing (a
+        // dangling pointer), and the 2D copy below would still transfer
+        // `width_bytes` from it when only the leading dims are zero.
+        if size == 0 {
+            return Ok(());
+        }
+
         let property = data.property();
 
         // Transfers up to this size go through a pinned staging buffer (faster DMA).
@@ -454,6 +462,12 @@ pub(crate) unsafe fn write_to_cpu(
     resource_ptr: *mut c_void,
     stream: *mut ihipStream_t,
 ) -> Result<(), IoError> {
+    // Nothing to copy for an empty tensor; `bytes` has no real backing (a
+    // dangling zero-size buffer) and must not reach the driver.
+    if bytes.is_empty() {
+        return Ok(());
+    }
+
     let rank = shape.len();
 
     if rank <= 1 {
@@ -530,6 +544,12 @@ unsafe fn write_to_gpu(
 ) -> Result<(), IoError> {
     let rank = shape.len();
 
+    // Nothing to copy for an empty tensor; `data` may be a dangling (zero-size)
+    // staging buffer that must not reach the driver.
+    if data.is_empty() {
+        return Ok(());
+    }
+
     if !has_pitched_row_major_strides(shape, strides) {
         return Err(IoError::UnsupportedStrides {
             backtrace: BackTrace::capture(),
@@ -554,7 +574,7 @@ unsafe fn write_to_gpu(
                 ptr,
                 width_bytes,
                 width_bytes,
-                height.max(1),
+                height,
                 hipMemcpyKind_hipMemcpyHostToDevice,
                 stream,
             );
