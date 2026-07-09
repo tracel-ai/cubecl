@@ -10,7 +10,7 @@ use cubecl_runtime::{
         MemoryAllocationMode, MemoryManagement, MemoryManagementOptions,
         drop_queue::{self, FlushingPolicy, PendingDropQueue},
     },
-    metadata_cache::{CacheMode, CacheSettings, MetadataInfoCache, TimeSinceLastUse},
+    metadata_cache::{CacheMode, MetadataCachePolicy, MetadataInfoCache},
     stream::EventStreamBackend,
 };
 use std::sync::Arc;
@@ -34,10 +34,11 @@ pub struct Stream {
     /// fenced drop-queue flushes while a capture is actively recording.
     pub capturing: StreamCaptureState,
     /// Reusable per-launch info buffers (kernel shapes/strides/scalars), keyed
-    /// by kernel and the exact info bytes. Admission and time-since-last-use
-    /// invalidation live in [`MetadataInfoCache`]; during graph capture the
-    /// launch path drives it in [`CacheMode::Capture`] so every buffer is cached
-    /// and none is dropped mid-capture. See [`StreamCaptureState::cache_mode`].
+    /// by kernel and the exact info bytes. Admission and least-recently-used
+    /// eviction are decided by the cache's [`MetadataCachePolicy`]; the launch
+    /// path sets its [`CacheMode`] from the capture lifecycle, so during graph
+    /// capture every buffer is cached and none is evicted mid-capture. See
+    /// [`StreamCaptureState::cache_mode`].
     pub info_cache: MetadataInfoCache<Handle>,
 }
 
@@ -142,10 +143,7 @@ impl EventStreamBackend for HipStreamBackend {
             memory_management_cpu,
             errors: Vec::new(),
             capturing: StreamCaptureState::NoCapture,
-            info_cache: MetadataInfoCache::new(
-                CacheSettings::default(),
-                Box::new(TimeSinceLastUse::default()),
-            ),
+            info_cache: MetadataInfoCache::new(MetadataCachePolicy::default()),
             drop_queue: PendingDropQueue::new(FlushingPolicy {
                 max_bytes_count: match self.is_integrated {
                     // Integrated GPUs (APUs) share memory and IOMMU with the CPU.

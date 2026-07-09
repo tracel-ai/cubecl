@@ -633,30 +633,40 @@ impl HipServer {
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
 
         // Reuse a cached info buffer when this kernel has already run with these
-        // exact shapes/scalars; otherwise create one and offer it to the cache.
-        // The info is read-only metadata (no tensor pointers), so sharing it
-        // across launches is sound — and it means a stable-shape decode
-        // allocates and copies no info inside a capture window (all launches hit
-        // warm buffers). Admission and time-since-last-use invalidation live in
-        // the cache; during capture it runs in `CacheMode::Capture` so every
-        // buffer is cached and none is dropped mid-capture.
+        // exact shapes/scalars. The info is read-only metadata (no tensor
+        // pointers), so sharing it across launches is sound — and it means a
+        // stable-shape decode allocates and copies no info inside a capture
+        // window (all launches hit warm buffers).
+        //
+        // The cache's policy makes every decision (see `MetadataInfoCache`), and
+        // the capture lifecycle drives its mode so that during capture every
+        // buffer is cached and none is evicted. We ask the policy first and only
+        // touch the cache when it says to — otherwise we just build the buffer,
+        // never cloning a handle we wouldn't keep.
         let key = (kernel_id.clone(), info.data.clone());
+        let size = core::mem::size_of_val(info.data.as_slice());
         let cache_mode = command.streams.current().capturing.cache_mode();
-        let cached = command.streams.current().info_cache.get(&key);
-        let info_handle = match cached {
-            Some(handle) => handle,
-            None => {
-                let size = core::mem::size_of_val(info.data.as_slice());
-                let handle = command
-                    .create_with_data(bytemuck::cast_slice(&info.data))
-                    .unwrap();
-                command
-                    .streams
-                    .current()
-                    .info_cache
-                    .insert(key, handle.clone(), size, cache_mode);
-                handle
+        command.streams.current().info_cache.mode(cache_mode);
+
+        let info_handle = if command.streams.current().info_cache.should_cache(size) {
+            match command.streams.current().info_cache.get(&key) {
+                Some(handle) => handle,
+                None => {
+                    let handle = command
+                        .create_with_data(bytemuck::cast_slice(&info.data))
+                        .unwrap();
+                    command
+                        .streams
+                        .current()
+                        .info_cache
+                        .insert(key, handle.clone());
+                    handle
+                }
             }
+        } else {
+            command
+                .create_with_data(bytemuck::cast_slice(&info.data))
+                .unwrap()
         };
 
         let mut resources: Vec<_> = buffers

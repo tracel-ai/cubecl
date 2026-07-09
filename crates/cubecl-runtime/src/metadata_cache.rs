@@ -9,20 +9,22 @@
 //! launches all hit warm buffers, so nothing is allocated or copied inside the
 //! capture window (a device allocation mid-capture is illegal).
 //!
-//! Two knobs govern the cache, split by scope:
+//! [`MetadataCachePolicy`] owns every decision: whether a given metadata info is
+//! worth caching at all (small enough, and the cache enabled) and how many
+//! entries to keep before the least-recently-used one is evicted. Its two knobs,
+//! `max_entries` and `max_cached_size`, are tuned by the backend. The current
+//! [`CacheMode`] feeds into those same decisions — during graph capture the
+//! policy caches everything and evicts nothing — so the runtime never has to
+//! special-case capture: it just asks the policy and follows the answer.
 //!
-//! * [`CacheSettings`] — cache-wide **admission**: how many entries to keep and
-//!   how large an info buffer is still worth caching (past some size the key
-//!   hash/compare costs more than just re-allocating the buffer).
-//! * [`CachePolicy`] — per-entry **invalidation**: which entries are stale and
-//!   may be evicted to make room. [`TimeSinceLastUse`] is the default strategy.
+//! The runtime drives it in three steps, so a value is only ever cloned into the
+//! cache when it will actually be kept:
 //!
-//! During graph capture both are suspended (see [`CacheMode::Capture`]): every
-//! info buffer is cached regardless of size and nothing is ever invalidated, so
-//! the capture window finds every buffer warm and drops none out from under a
-//! recorded launch.
+//! 1. ask [`MetadataInfoCache::should_cache`] — if `false`, create the value and
+//!    return it directly, never touching the cache;
+//! 2. otherwise [`get`](MetadataInfoCache::get) — a hit returns the cached value;
+//! 3. on a miss, create the value and [`insert`](MetadataInfoCache::insert) it.
 
-use alloc::boxed::Box;
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 
@@ -32,106 +34,90 @@ use crate::id::KernelId;
 /// (shapes, strides, scalars) the buffer was built from.
 pub type InfoCacheKey = (KernelId, Vec<u64>);
 
-/// How the cache should treat the current launch.
+/// How the cache should behave for the current launch. Fed into the
+/// [`MetadataCachePolicy`], so it shapes every decision, not just a setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheMode {
-    /// Normal operation: honor the [size gate](CacheSettings::max_cached_size)
-    /// and let the [policy](CachePolicy) invalidate stale entries to make room.
+    /// Normal operation: cache only info small enough to be worth it, and evict
+    /// the least-recently-used entry once the cache is full.
     Normal,
     /// Graph-capture warmup/recording: cache every info buffer regardless of
-    /// size and never invalidate, so the capture window finds every buffer warm
-    /// and no entry a recorded launch depends on is dropped mid-capture.
+    /// size and never evict, so the capture window finds every buffer warm and
+    /// no entry a recorded launch depends on is dropped mid-capture.
     Capture,
 }
 
-/// Cache-wide admission settings — the "global" knobs that decide *what* is
-/// worth caching, independent of any per-entry [invalidation policy](CachePolicy).
-#[derive(Debug, Clone, Copy)]
-pub struct CacheSettings {
-    /// Hard cap on the number of cached entries in [`CacheMode::Normal`]. When
-    /// the cache is full a fresh entry first tries to reclaim room by
-    /// invalidating stale entries; if none are stale the entry is left uncached
-    /// (correct, just not reused). Bypassed in [`CacheMode::Capture`].
-    pub max_entries: usize,
-    /// Largest info buffer, in bytes, still worth caching in
-    /// [`CacheMode::Normal`]. Above this the cost of hashing and comparing the
-    /// key can exceed the cost of just re-allocating the buffer, so the launch
-    /// falls back to a fresh per-launch buffer. Bypassed in
-    /// [`CacheMode::Capture`], where every buffer must be cached.
-    pub max_cached_size: usize,
-}
-
-impl Default for CacheSettings {
-    fn default() -> Self {
-        Self {
-            // Matches the previous fixed `INFO_CACHE_MAX`.
-            max_entries: 4096,
-            // ~256 metadata words: a handful of tensors' shapes and strides.
-            // Larger infos (many tensors / high rank) are cheaper to rebuild
-            // than to look up.
-            max_cached_size: 2048,
-        }
-    }
-}
-
-/// Per-entry statistics handed to a [`CachePolicy`] so it can decide whether an
-/// entry is stale. Deliberately richer than any single policy needs, so new
-/// strategies (least-frequently-used, size-weighted, …) can be added without
-/// touching the cache.
-#[derive(Debug, Clone, Copy)]
-pub struct EntryStats {
-    /// Logical ticks elapsed since this entry was last used. One tick passes
-    /// per cache lookup (i.e. per launch that consults the cache), so this is
-    /// "how many launches ago was this info last needed".
-    pub idle_ticks: u64,
-    /// Number of times this entry has been reused since it was inserted.
-    pub hits: u64,
-    /// Size in bytes of the cached info buffer.
-    pub size: usize,
-}
-
-/// Decides which cache entries are stale and may be evicted. Implementations
-/// must be cheap: [`should_invalidate`](CachePolicy::should_invalidate) is
-/// called once per entry whenever the cache needs to reclaim room.
-pub trait CachePolicy: core::fmt::Debug {
-    /// Whether an entry with these [stats](EntryStats) should be invalidated.
-    fn should_invalidate(&self, stats: &EntryStats) -> bool;
-}
-
-/// Evict an entry once it has gone unused for more than [`max_idle_ticks`]
-/// lookups — a time-since-last-use (recency) strategy. Hot entries keep
-/// resetting their idle count on every hit and survive; entries whose shape has
-/// dropped out of the working set age out and free their buffers.
+/// Every caching decision, in one place. Given an info's size and the current
+/// [`CacheMode`], the policy decides whether that info is cached at all
+/// ([`should_cache`](Self::should_cache)) and, through its
+/// [`capacity`](Self::capacity), when the cache must evict to stay bounded. How
+/// those decisions are carried out (lookups, eviction) is the cache's job and
+/// differs per runtime; *what* to do lives here.
 ///
-/// [`max_idle_ticks`]: TimeSinceLastUse::max_idle_ticks
+/// `max_entries` and `max_cached_size` are the backend-tunable knobs.
 #[derive(Debug, Clone, Copy)]
-pub struct TimeSinceLastUse {
-    /// Idle-tick threshold past which an entry is considered stale. One tick
-    /// passes per cache lookup.
-    pub max_idle_ticks: u64,
+pub struct MetadataCachePolicy {
+    max_entries: usize,
+    max_cached_size: usize,
+    mode: CacheMode,
 }
 
-impl Default for TimeSinceLastUse {
+impl Default for MetadataCachePolicy {
     fn default() -> Self {
-        Self {
-            max_idle_ticks: 2048,
-        }
+        // 4096 entries, ~256 metadata words (2048 bytes): a handful of tensors'
+        // shapes and strides. Larger infos (many tensors / high rank) are
+        // cheaper to rebuild than to hash and look up.
+        Self::new(4096, 2048)
     }
 }
 
-impl CachePolicy for TimeSinceLastUse {
-    fn should_invalidate(&self, stats: &EntryStats) -> bool {
-        stats.idle_ticks > self.max_idle_ticks
+impl MetadataCachePolicy {
+    /// Build a policy in [`CacheMode::Normal`]. `max_entries` caps the number of
+    /// cached entries; `max_cached_size` (bytes) is the largest info still worth
+    /// caching in normal operation.
+    pub fn new(max_entries: usize, max_cached_size: usize) -> Self {
+        Self {
+            max_entries,
+            max_cached_size,
+            mode: CacheMode::Normal,
+        }
+    }
+
+    /// Switch the mode driving the policy's decisions (see [`CacheMode`]).
+    pub fn mode(&mut self, mode: CacheMode) {
+        self.mode = mode;
+    }
+
+    /// Whether an info of `size` bytes should go through the cache at all. In
+    /// [`CacheMode::Normal`] a too-large info (or a disabled cache) is skipped:
+    /// the runtime should create it directly, without a lookup or a store. In
+    /// [`CacheMode::Capture`] everything is cached so the capture window stays
+    /// warm.
+    pub fn should_cache(&self, size: usize) -> bool {
+        match self.mode {
+            CacheMode::Capture => true,
+            CacheMode::Normal => self.max_entries > 0 && size <= self.max_cached_size,
+        }
+    }
+
+    /// The entry bound the cache must hold to, or `None` when unbounded. In
+    /// [`CacheMode::Capture`] the cache is unbounded and never evicts (dropping
+    /// an entry could free a buffer a recorded launch still needs); in
+    /// [`CacheMode::Normal`] it is capped at `max_entries`.
+    pub fn capacity(&self) -> Option<usize> {
+        match self.mode {
+            CacheMode::Capture => None,
+            CacheMode::Normal => Some(self.max_entries),
+        }
     }
 }
 
 #[derive(Debug)]
 struct Entry<V> {
     value: V,
-    /// Clock tick of this entry's most recent use (insert or hit).
+    /// Clock tick of this entry's most recent use (insert or hit); the smallest
+    /// marks the least-recently-used entry, evicted first.
     last_used: u64,
-    hits: u64,
-    size: usize,
 }
 
 /// A cache of metadata info buffers keyed by [`InfoCacheKey`], generic over the
@@ -139,27 +125,38 @@ struct Entry<V> {
 /// entry drops its `V`; when `V` is a memory handle that returns the buffer to
 /// the pool, so the cache never pins more device memory than its live entries.
 ///
-/// Admission is governed by [`CacheSettings`] and invalidation by a
-/// [`CachePolicy`], both suspended during graph capture (see [`CacheMode`]).
+/// All policy is delegated to [`MetadataCachePolicy`]; this type only carries
+/// out its decisions. See the [module docs](self) for the intended
+/// `should_cache` → `get` → `insert` flow.
 #[derive(Debug)]
 pub struct MetadataInfoCache<V> {
     entries: HashMap<InfoCacheKey, Entry<V>>,
-    settings: CacheSettings,
-    policy: Box<dyn CachePolicy>,
+    policy: MetadataCachePolicy,
     /// Monotonic logical clock; advanced once per [`get`](Self::get).
     clock: u64,
 }
 
 impl<V> MetadataInfoCache<V> {
-    /// Create a cache with the given admission `settings` and invalidation
-    /// `policy`.
-    pub fn new(settings: CacheSettings, policy: Box<dyn CachePolicy>) -> Self {
+    /// Create a cache governed by `policy`.
+    pub fn new(policy: MetadataCachePolicy) -> Self {
         Self {
             entries: HashMap::new(),
-            settings,
             policy,
             clock: 0,
         }
+    }
+
+    /// Switch the [`CacheMode`] driving the policy (see
+    /// [`MetadataCachePolicy::mode`]).
+    pub fn mode(&mut self, mode: CacheMode) {
+        self.policy.mode(mode);
+    }
+
+    /// Whether an info of `size` bytes should be cached — see
+    /// [`MetadataCachePolicy::should_cache`]. When `false`, skip the cache
+    /// entirely and create the value directly.
+    pub fn should_cache(&self, size: usize) -> bool {
+        self.policy.should_cache(size)
     }
 
     /// Number of entries currently cached.
@@ -180,68 +177,53 @@ impl<V> MetadataInfoCache<V> {
 
 impl<V: Clone> MetadataInfoCache<V> {
     /// Look up `key`, advancing the logical clock by one tick. On a hit the
-    /// entry is marked used — its recency resets and its hit count grows — and
-    /// the value is cloned out; on a miss the caller creates the value and
-    /// offers it back via [`insert`](Self::insert).
+    /// entry is marked used — its recency resets — and the value is cloned out.
+    ///
+    /// Call only when [`should_cache`](Self::should_cache) is `true`; on a miss
+    /// create the value and hand it to [`insert`](Self::insert).
     pub fn get(&mut self, key: &InfoCacheKey) -> Option<V> {
         self.clock += 1;
         let entry = self.entries.get_mut(key)?;
         entry.last_used = self.clock;
-        entry.hits += 1;
         Some(entry.value.clone())
     }
 
-    /// Offer a freshly created value for a key that just [missed](Self::get).
+    /// Store `value` under `key` after a [`get`](Self::get) miss. Evicts the
+    /// least-recently-used entry first if the cache is at
+    /// [capacity](MetadataCachePolicy::capacity) (never in
+    /// [`CacheMode::Capture`], which is unbounded).
     ///
-    /// In [`Normal`](CacheMode::Normal) mode this honors admission: an info
-    /// larger than [`max_cached_size`](CacheSettings::max_cached_size) is not
-    /// cached, and when the cache is at
-    /// [`max_entries`](CacheSettings::max_entries) it first evicts stale entries
-    /// per the [policy](CachePolicy) — if none are stale the value is left
-    /// uncached (the caller still uses its own copy, just without reuse). In
-    /// [`Capture`](CacheMode::Capture) mode the size gate, capacity bound and
-    /// invalidation are all bypassed: every buffer is cached so the capture
-    /// window hits only warm entries.
-    pub fn insert(&mut self, key: InfoCacheKey, value: V, size: usize, mode: CacheMode) {
-        if mode == CacheMode::Normal {
-            if size > self.settings.max_cached_size {
+    /// Because the runtime only reaches here on a
+    /// [`should_cache`](Self::should_cache) miss, the value it clones in is
+    /// always kept — no wasted clones.
+    pub fn insert(&mut self, key: InfoCacheKey, value: V) {
+        if let Some(capacity) = self.policy.capacity() {
+            if capacity == 0 {
                 return;
             }
-            if self.entries.len() >= self.settings.max_entries {
-                // Only scan for stale entries when we actually need room, so a
-                // steady stream of new shapes costs at most one O(n) sweep per
-                // time the cache fills rather than one per miss.
-                self.invalidate_stale();
-                if self.entries.len() >= self.settings.max_entries {
-                    return;
-                }
+            if self.entries.len() >= capacity {
+                self.evict_least_recently_used();
             }
         }
-
         self.entries.insert(
             key,
             Entry {
                 value,
                 last_used: self.clock,
-                hits: 0,
-                size,
             },
         );
     }
 
-    /// Evict every entry the [policy](CachePolicy) considers stale. Never run in
-    /// [`CacheMode::Capture`].
-    fn invalidate_stale(&mut self) {
-        let clock = self.clock;
-        let policy = &self.policy;
-        self.entries.retain(|_, entry| {
-            let stats = EntryStats {
-                idle_ticks: clock.saturating_sub(entry.last_used),
-                hits: entry.hits,
-                size: entry.size,
-            };
-            !policy.should_invalidate(&stats)
-        });
+    /// Drop the entry whose last use is oldest (largest "time since last use").
+    fn evict_least_recently_used(&mut self) {
+        let victim = self
+            .entries
+            .iter()
+            .min_by_key(|(_, entry)| entry.last_used)
+            .map(|(key, _)| key.clone());
+        if let Some(key) = victim {
+            self.entries.remove(&key);
+        }
     }
 }
 
@@ -253,80 +235,66 @@ mod tests {
         (KernelId::new::<()>(), alloc::vec![n])
     }
 
-    fn cache(max_entries: usize, max_idle_ticks: u64) -> MetadataInfoCache<u32> {
-        MetadataInfoCache::new(
-            CacheSettings {
-                max_entries,
-                max_cached_size: 64,
-            },
-            Box::new(TimeSinceLastUse { max_idle_ticks }),
-        )
+    fn cache(max_entries: usize) -> MetadataInfoCache<u32> {
+        MetadataInfoCache::new(MetadataCachePolicy::new(max_entries, 64))
+    }
+
+    #[test]
+    fn normal_mode_gates_on_size() {
+        let cache = cache(8);
+        assert!(cache.should_cache(64), "within max_cached_size");
+        assert!(!cache.should_cache(65), "over max_cached_size");
+    }
+
+    #[test]
+    fn capture_mode_caches_any_size() {
+        let mut cache = cache(8);
+        cache.mode(CacheMode::Capture);
+        assert!(cache.should_cache(10_000));
     }
 
     #[test]
     fn hit_returns_value_and_records_use() {
-        let mut cache = cache(8, 1000);
+        let mut cache = cache(8);
         let k = key(1);
         assert!(cache.get(&k).is_none());
-        cache.insert(k.clone(), 42, 8, CacheMode::Normal);
+        cache.insert(k.clone(), 42);
         assert_eq!(cache.get(&k), Some(42));
     }
 
     #[test]
-    fn normal_mode_rejects_oversized_info() {
-        let mut cache = cache(8, 1000);
-        let k = key(1);
-        cache.insert(k.clone(), 42, 65, CacheMode::Normal); // over max_cached_size
-        assert!(cache.get(&k).is_none());
+    fn normal_mode_evicts_least_recently_used() {
+        // Capacity 2: fill it, keep entry 0 hot so entry 1 is the LRU, then
+        // insert a third entry and expect entry 1 evicted, entry 0 kept.
+        let mut cache = cache(2);
+        cache.insert(key(0), 0);
+        cache.insert(key(1), 1);
+
+        // Touch entry 0 so entry 1 becomes least-recently-used.
+        assert_eq!(cache.get(&key(0)), Some(0));
+
+        cache.insert(key(2), 2);
+        assert_eq!(cache.len(), 2, "stayed at capacity");
+        assert_eq!(cache.get(&key(0)), Some(0), "recently used entry kept");
+        assert!(cache.get(&key(1)).is_none(), "least-recently-used evicted");
+        assert_eq!(cache.get(&key(2)), Some(2), "new entry cached");
     }
 
     #[test]
-    fn capture_mode_caches_oversized_info() {
-        let mut cache = cache(8, 1000);
-        let k = key(1);
-        cache.insert(k.clone(), 42, 10_000, CacheMode::Capture);
-        assert_eq!(cache.get(&k), Some(42));
-    }
-
-    #[test]
-    fn capture_mode_bypasses_capacity() {
-        let mut cache = cache(2, 1000);
+    fn capture_mode_is_unbounded() {
+        let mut cache = cache(2);
+        cache.mode(CacheMode::Capture);
         for i in 0..10 {
-            cache.insert(key(i), i as u32, 8, CacheMode::Capture);
+            cache.insert(key(i), i as u32);
         }
         assert_eq!(cache.len(), 10, "capture must cache every buffer");
     }
 
     #[test]
-    fn time_since_last_use_evicts_stale_not_hot() {
-        // Capacity 2: fill it, keep entry 0 hot, then insert a third entry and
-        // expect the idle entry (1) to be evicted while the hot one (0) stays.
-        let mut cache = cache(2, 3);
-        cache.insert(key(0), 0, 8, CacheMode::Normal);
-        cache.insert(key(1), 1, 8, CacheMode::Normal);
-
-        // Keep entry 0 hot across several ticks so entry 1 goes idle.
-        for _ in 0..5 {
-            assert_eq!(cache.get(&key(0)), Some(0));
-        }
-
-        // Cache is full; inserting a new key must reclaim room by evicting the
-        // stale entry 1, keeping the hot entry 0.
-        cache.insert(key(2), 2, 8, CacheMode::Normal);
-        assert_eq!(cache.get(&key(0)), Some(0), "hot entry survived");
-        assert!(cache.get(&key(1)).is_none(), "idle entry evicted");
-        assert_eq!(cache.get(&key(2)), Some(2), "new entry cached");
-    }
-
-    #[test]
-    fn full_of_hot_entries_leaves_new_uncached() {
-        // Capacity 2, both entries kept hot: a third insert finds nothing stale
-        // and leaves the newcomer uncached (correct fallback).
-        let mut cache = cache(2, 1000);
-        cache.insert(key(0), 0, 8, CacheMode::Normal);
-        cache.insert(key(1), 1, 8, CacheMode::Normal);
-        cache.insert(key(2), 2, 8, CacheMode::Normal);
-        assert_eq!(cache.len(), 2);
-        assert!(cache.get(&key(2)).is_none());
+    fn zero_capacity_disables_caching() {
+        let mut cache = cache(0);
+        assert!(!cache.should_cache(8), "disabled cache never caches");
+        cache.insert(key(0), 0);
+        assert!(cache.is_empty());
     }
 }
