@@ -197,22 +197,19 @@ fn single_sliced_pool_options(
         .max(alignment)
         .next_multiple_of(alignment);
 
-    Some(alloc::vec![
-        // Tiny sub-alignment / offset-incapable allocations.
-        MemoryPoolOptions {
-            pool_type: PoolType::ExclusivePages { max_alloc_size: 0 },
-            dealloc_period: None,
+    // A single sliced arena, no separate tiny-allocation pool: the arena's
+    // `accept`/`try_reserve` handle every size (including zero), and adding the
+    // `ExclusivePages { max_alloc_size: 0 }` pool that `SubSlices` uses strands
+    // in-flight bindings when its `cleanup` deallocates+renumbers pages under
+    // the multi-stream cursor lookup (`handle_cursor`).
+    Some(alloc::vec![MemoryPoolOptions {
+        // `dealloc_period: None` keeps warmup-grown chunks retained for reuse.
+        pool_type: PoolType::SlicedPages {
+            page_size,
+            max_slice_size: page_size,
         },
-        // The single arena. `dealloc_period: None` keeps warmup-grown chunks
-        // retained for reuse.
-        MemoryPoolOptions {
-            pool_type: PoolType::SlicedPages {
-                page_size,
-                max_slice_size: page_size,
-            },
-            dealloc_period: None,
-        },
-    ])
+        dealloc_period: None,
+    }])
 }
 
 /// The options for creating a new [`MemoryManagement`] instance.
@@ -999,7 +996,7 @@ mod tests {
         // `Auto` keeps the runtime's own configuration.
         assert!(single_sliced_pool_options(&DynamicPoolConfig::Auto, &DUMMY_MEM_PROPS).is_none());
 
-        // `SingleSliced` yields the tiny pool + one aligned sliced arena.
+        // `SingleSliced` yields exactly one aligned sliced arena.
         let opts = single_sliced_pool_options(
             &DynamicPoolConfig::SingleSliced {
                 page_size_bytes: Some(1000),
@@ -1007,12 +1004,8 @@ mod tests {
             &DUMMY_MEM_PROPS,
         )
         .unwrap();
-        assert_eq!(opts.len(), 2);
-        assert!(matches!(
-            opts[0].pool_type,
-            PoolType::ExclusivePages { max_alloc_size: 0 }
-        ));
-        match opts[1].pool_type {
+        assert_eq!(opts.len(), 1);
+        match opts[0].pool_type {
             PoolType::SlicedPages {
                 page_size,
                 max_slice_size,
@@ -1032,7 +1025,7 @@ mod tests {
             &DUMMY_MEM_PROPS,
         )
         .unwrap();
-        match opts[1].pool_type {
+        match opts[0].pool_type {
             PoolType::SlicedPages { page_size, .. } => {
                 assert_eq!(page_size, DUMMY_MEM_PROPS.max_page_size.min(1024 * 1024 * 1024));
             }
