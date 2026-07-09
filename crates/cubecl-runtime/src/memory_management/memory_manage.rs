@@ -536,21 +536,36 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     fn find(&self, binding: ManagedMemoryBinding) -> Result<&Slice, IoError> {
         let id = binding.descriptor();
 
-        if id.location().pool >= self.pools.len() as u8 {
-            return self.persistent.find(&binding);
+        if id.location().init == 0 {
+            return Err(IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: "Memory location was never initialized".into(),
+            });
         }
 
-        let pool =
-            self.pools
-                .get(id.location().pool as usize)
-                .ok_or_else(|| IoError::NotFound {
-                    backtrace: BackTrace::capture(),
-                    reason: format!("Pool {} doesn't exist", id.location().pool).into(),
-                })?;
+        let slice = if id.location().pool >= self.pools.len() as u8 {
+            self.persistent.find(&binding)?
+        } else {
+            let pool =
+                self.pools
+                    .get(id.location().pool as usize)
+                    .ok_or_else(|| IoError::NotFound {
+                        backtrace: BackTrace::capture(),
+                        reason: format!("Pool {} doesn't exist", id.location().pool).into(),
+                    })?;
 
-        let slice = pool.find(&binding)?;
+            pool.find(&binding)?
+        };
 
-        assert_eq!(slice.handle.descriptor(), binding.descriptor());
+        // A stale location (e.g. a page that was deallocated and whose index a
+        // later cleanup reassigned) must surface as `NotFound`, never as another
+        // allocation's slice.
+        if slice.handle.descriptor() != binding.descriptor() {
+            return Err(IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: "Memory location points to a different allocation".into(),
+            });
+        }
 
         Ok(slice)
     }
@@ -843,6 +858,102 @@ mod tests {
         let _handle = memory_management.reserve(100);
         let usage_new = memory_management.memory_usage();
         assert_eq!(usage, usage_new);
+    }
+
+    #[test_log::test]
+    fn find_uninit_binding_returns_not_found() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::SlicedPages {
+                        page_size: 2048,
+                        max_slice_size: 2048,
+                    },
+                    dealloc_period: None,
+                }],
+            },
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        // Even with a live page at index 0, a never-initialized descriptor must
+        // not resolve to it.
+        let _live = memory_management.reserve(512).unwrap();
+
+        let binding = ManagedMemoryHandle::new().binding();
+        assert!(matches!(
+            memory_management.get_cursor(binding),
+            Err(IoError::NotFound { .. })
+        ));
+    }
+
+    #[test_log::test]
+    fn find_stale_descriptor_returns_not_found() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::SlicedPages {
+                        page_size: 2048,
+                        max_slice_size: 2048,
+                    },
+                    dealloc_period: None,
+                }],
+            },
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        let reserved = memory_management.reserve(512).unwrap();
+        let stale = reserved.clone();
+        let assigned = ManagedMemoryHandle::new();
+        let assigned_binding = assigned.clone().binding();
+
+        memory_management.bind(reserved, assigned, 0).unwrap();
+
+        // The slice's identity is now `assigned`; the stale reserved descriptor
+        // must surface as `NotFound`, not as the new allocation's data.
+        assert!(matches!(
+            memory_management.get_cursor(stale.binding()),
+            Err(IoError::NotFound { .. })
+        ));
+        assert!(memory_management.get_cursor(assigned_binding).is_ok());
+    }
+
+    #[test_log::test]
+    fn held_binding_survives_explicit_cleanup_renumber() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::ExclusivePages {
+                        max_alloc_size: 1024,
+                    },
+                    dealloc_period: None,
+                }],
+            },
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        let handle_a = memory_management.reserve(1024).unwrap();
+        let handle_b = memory_management.reserve(1024).unwrap();
+        let handle_c = memory_management.reserve(1024).unwrap();
+
+        let binding_b = handle_b.binding();
+        drop(handle_a);
+        drop(handle_c);
+
+        // Deallocates the two free pages and renumbers the surviving one.
+        memory_management.cleanup(true);
+
+        assert!(memory_management.get_cursor(binding_b.clone()).is_ok());
+        assert!(memory_management.get_storage(binding_b).is_ok());
+        assert_eq!(memory_management.memory_usage().bytes_reserved, 1024);
     }
 
     #[test_log::test]

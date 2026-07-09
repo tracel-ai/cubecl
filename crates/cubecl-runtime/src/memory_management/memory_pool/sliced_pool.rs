@@ -8,6 +8,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::fmt::Display;
+use cubecl_common::backtrace::BackTrace;
 
 pub struct SlicedPool {
     pages: Vec<(MemoryPage, StorageId)>,
@@ -44,7 +45,14 @@ impl MemoryPool for SlicedPool {
     }
 
     fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
-        let (page, _) = &self.pages[binding.descriptor().page()];
+        let page_index = binding.descriptor().page();
+        let (page, _) = self
+            .pages
+            .get(page_index)
+            .ok_or_else(|| IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: alloc::format!("Memory page {page_index} doesn't exist").into(),
+            })?;
         page.find(binding)
     }
 
