@@ -4,9 +4,7 @@ use std::fmt::Display;
 pub struct PlironEngine;
 
 impl PlironEngine {
-    pub(crate) fn run_kernel(&self, pliron_data: &mut super::data::PlironData) {
-        todo!()
-    }
+    pub(crate) fn run_kernel(&self, _pliron_data: &mut super::data::PlironData) {}
 }
 
 impl Display for PlironEngine {
