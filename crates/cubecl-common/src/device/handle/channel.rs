@@ -1338,6 +1338,7 @@ mod tests {
 
         let result = handle.submit_blocking(|_state| {
             let value: Result<(), &str> = Err("nope");
+            #[allow(clippy::unnecessary_literal_unwrap)]
             value.unwrap();
         });
 
