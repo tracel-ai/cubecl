@@ -29,12 +29,11 @@ pub struct Stream {
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
     pub errors: Vec<ServerError>,
     pub drop_queue: drop_queue::PendingDropQueue<Fence>,
-    /// Set while a graph capture is recording on this stream. A fenced drop-queue
-    /// flush (or any host sync) issued between `hipStreamBeginCapture` and
-    /// `hipStreamEndCapture` aborts the capture (`hipErrorStreamCaptureUnsupported`),
-    /// so the execution path defers those flushes while this is `true`; the
-    /// deferred buffers are reclaimed when the capture ends.
-    pub capturing: bool,
+    /// This stream's position in the graph-capture lifecycle (see
+    /// [`StreamCaptureState`]). Enforces the ordered `graph_prepare` →
+    /// `begin_capture` → `end_capture` transitions and gates the deferral of
+    /// fenced drop-queue flushes while a capture is actively recording.
+    pub capturing: StreamCaptureState,
     /// Reusable per-launch **info buffers** (kernel shapes/strides/scalars),
     /// keyed by kernel and the exact info bytes. A kernel's info depends only on
     /// its shapes and scalar args — not the tensor data pointers, which are
@@ -44,6 +43,34 @@ pub struct Stream {
     /// stable-shape decode's launches all hit warm buffers, so nothing is
     /// allocated or copied inside the capture window. Bounded by [`INFO_CACHE_MAX`].
     pub info_cache: HashMap<(KernelId, Vec<u64>), Handle>,
+}
+
+/// Where a stream sits in the graph-capture lifecycle. Capture is a strict
+/// `NoCapture → Prepare → Capture → NoCapture` progression: `graph_prepare`
+/// arms the pools (`NoCapture → Prepare`), `begin_capture` opens the recording
+/// window (`Prepare → Capture`), and `end_capture` closes it (`Capture →
+/// NoCapture`). Every transition rejects an out-of-order call, so a capture can
+/// never start unprepared and two captures can never overlap on one stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamCaptureState {
+    /// No capture is prepared or recording.
+    NoCapture,
+    /// `graph_prepare` has armed the persistent pools and snapshotted them for
+    /// the warmup run; `begin_capture` may now open the window.
+    Prepare,
+    /// `hipStreamBeginCapture` is recording launches. A fenced drop-queue flush
+    /// (or any host sync) issued now aborts the capture
+    /// (`hipErrorStreamCaptureUnsupported`), so the execution path defers those
+    /// flushes until `end_capture`, which reclaims the deferred buffers.
+    Capture,
+}
+
+impl StreamCaptureState {
+    /// Whether launches on the stream are being recorded into a graph right
+    /// now — the window during which a host sync would abort the capture.
+    pub fn is_recording(&self) -> bool {
+        matches!(self, StreamCaptureState::Capture)
+    }
 }
 
 /// Cap on [`Stream::info_cache`] entries; past it, launches fall back to a fresh
@@ -110,7 +137,7 @@ impl EventStreamBackend for HipStreamBackend {
             memory_management_gpu,
             memory_management_cpu,
             errors: Vec::new(),
-            capturing: false,
+            capturing: StreamCaptureState::NoCapture,
             info_cache: HashMap::new(),
             drop_queue: PendingDropQueue::new(FlushingPolicy {
                 max_bytes_count: match self.is_integrated {

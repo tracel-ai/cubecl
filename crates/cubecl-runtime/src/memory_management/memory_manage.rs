@@ -1208,8 +1208,8 @@ mod tests {
 
         memory_management.capture_begin();
         let first = memory_management.reserve(1024).unwrap();
-        // A second begin (e.g. a retried graph_prepare) must not discard the
-        // pins or the saved mode of the capture already in flight.
+        // A second begin (defensive: callers arm a capture exactly once) must
+        // not discard the pins or the saved mode of the capture already in flight.
         memory_management.capture_begin();
         let second = memory_management.reserve(2048).unwrap();
         drop(first);
@@ -1245,7 +1245,11 @@ mod tests {
 
         // Only the window's slice is claimed; the pre-existing buffer keeps a
         // single user reference, so in-place ops on it keep working.
-        assert_eq!(pins.len(), 1, "only the window's slice belongs to the graph");
+        assert_eq!(
+            pins.len(),
+            1,
+            "only the window's slice belongs to the graph"
+        );
         assert!(
             preexisting.can_mut(),
             "a capture must not claim pre-existing live buffers"

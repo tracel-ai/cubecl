@@ -48,6 +48,9 @@ fn hip_graph_capture_replay() {
         );
     };
 
+    // Prepare arms the persistent pool; it is mandatory before a capture.
+    client.graph_prepare().expect("graph_prepare");
+
     // Warm up: compile the kernel and allocate every buffer, so capture stays
     // on the warm path (no compile / alloc / sync mid-capture).
     launch(&client);
@@ -90,6 +93,8 @@ fn hip_graph_input_rewrite() {
             unsafe { BufferArg::from_raw_parts(output.clone(), n) },
         );
     };
+
+    client.graph_prepare().expect("graph_prepare");
 
     launch(&client);
     let _ = client.read_one(output.clone()).unwrap();

@@ -330,7 +330,7 @@ impl<'a> Command<'a> {
         current.drop_queue.push(data);
 
         // Defer fenced flushes while capturing — a host sync aborts the capture.
-        if should_flush && !current.capturing {
+        if should_flush && !current.capturing.is_recording() {
             current.drop_queue.flush(|| Fence::new(current.sys));
         }
 
@@ -418,7 +418,7 @@ impl<'a> Command<'a> {
 
         // A fenced flush during capture would abort it; defer until the capture
         // ends (the deferred staging buffers are reclaimed then).
-        if !stream.capturing && stream.drop_queue.should_flush() {
+        if !stream.capturing.is_recording() && stream.drop_queue.should_flush() {
             stream.drop_queue.flush(|| Fence::new(stream.sys));
         }
 

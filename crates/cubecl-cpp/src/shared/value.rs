@@ -177,7 +177,12 @@ pub(crate) fn format_const<D: Dialect>(number: &ConstantValue, item: &Item<D>) -
             // sources — the IEEE constant expressions work everywhere.
             if let ConstantValue::Float(value) = number {
                 if value.is_infinite() {
-                    return if *value < 0.0 { "(-1.0f/0.0f)" } else { "(1.0f/0.0f)" }.to_string();
+                    return if *value < 0.0 {
+                        "(-1.0f/0.0f)"
+                    } else {
+                        "(1.0f/0.0f)"
+                    }
+                    .to_string();
                 }
                 if value.is_nan() {
                     return "(0.0f/0.0f)".to_string();
