@@ -4,7 +4,7 @@ use cubecl_ir::{
         vector::VectorBroadcastOp,
     },
     interfaces::TypedExt,
-    pliron::{builtin::op_interfaces::OneResultInterface, r#type::Typed, value::Value},
+    pliron::{r#type::Typed, value::Value},
     types::VectorType,
 };
 use pliron::r#type::TypeHandle;
@@ -52,8 +52,7 @@ pub fn cast_value(scope: &Scope, from: Value, to_ty: TypeHandle) -> Value {
         expand_error!("Cast element count must match if input is not scalar");
     }
     let op = CastOp::new(ctx, to_ty, from);
-    scope.register(&op);
-    op.get_result(ctx)
+    scope.register_with_result(&op)
 }
 
 pub fn broadcast_value(scope: &Scope, value: Value, vector_size: usize) -> Value {
@@ -64,8 +63,7 @@ pub fn broadcast_value(scope: &Scope, value: Value, vector_size: usize) -> Value
     assert_eq!(value.vector_size(ctx), 1, "Can't broadcast vector");
     let vec_ty = VectorType::get(ctx, value.get_type(ctx), vector_size).to_handle();
     let op = VectorBroadcastOp::new(ctx, vec_ty, value);
-    scope.register(&op);
-    op.get_result(ctx)
+    scope.register_with_result(&op)
 }
 
 impl<P: CubePrimitive> Cast for P {
@@ -117,6 +115,5 @@ pub fn reinterpret_value(scope: &Scope, from: Value, to_ty: TypeHandle) -> Value
     let size_out = to_ty.size(scope.ctx());
     expand_assert!(size_in == size_out, "Reinterpret type sizes must match");
     let op = ReinterpretCastOp::new(scope.ctx_mut(), to_ty, from);
-    scope.register(&op);
-    op.get_result(scope.ctx())
+    scope.register_with_result(&op)
 }

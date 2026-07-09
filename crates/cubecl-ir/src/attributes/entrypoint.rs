@@ -87,10 +87,7 @@ dict_key!(ATTR_KEY_RES_ATTRS, "res_attrs");
 /// |------|------------------------| -----|
 /// | arg_attrs | [ATTR_KEY_ARG_ATTRS] | [VecAttr](pliron::builtin::attributes::VecAttr) |
 /// | res_attrs | [ATTR_KEY_RES_ATTRS] | [VecAttr](pliron::builtin::attributes::VecAttr) |
-#[op_interface]
-pub trait FuncInterface {
-    verify_op_succ!();
-
+pub trait FuncInterface: Op {
     fn get_arg_attrs<'a>(&self, ctx: &'a Context, arg_idx: usize) -> Option<Ref<'a, DictAttr>> {
         let self_op = self.get_operation().deref(ctx);
         Ref::filter_map(self_op, |self_op| {
@@ -100,18 +97,22 @@ pub trait FuncInterface {
         .ok()
     }
 
-    fn get_arg_attr<'a>(
+    fn get_arg_attr<'a, T: Attribute>(
         &self,
         ctx: &'a Context,
         arg_idx: usize,
         key: &Identifier,
-    ) -> Option<Ref<'a, AttrObj>> {
+    ) -> Option<Ref<'a, T>> {
         let arg_attrs = self.get_arg_attrs(ctx, arg_idx)?;
-        Ref::filter_map(arg_attrs, |arg_attrs| arg_attrs.lookup(key)).ok()
+        Ref::filter_map(arg_attrs, |arg_attrs| {
+            arg_attrs.lookup(key).and_then(|attr| attr.downcast_ref())
+        })
+        .ok()
     }
 
     fn has_arg_attr(&self, ctx: &Context, arg_idx: usize, key: &Identifier) -> bool {
-        self.get_arg_attr(ctx, arg_idx, key).is_some()
+        self.get_arg_attrs(ctx, arg_idx)
+            .is_some_and(|arg_attrs| arg_attrs.lookup(key).is_some())
     }
 
     fn get_arg_attrs_mut<'a>(&self, ctx: &'a Context, arg_idx: usize) -> RefMut<'a, DictAttr> {
@@ -130,18 +131,22 @@ pub trait FuncInterface {
         .ok()
     }
 
-    fn get_res_attr<'a>(
+    fn get_res_attr<'a, T: Attribute>(
         &self,
         ctx: &'a Context,
         res_idx: usize,
         key: &Identifier,
-    ) -> Option<Ref<'a, AttrObj>> {
+    ) -> Option<Ref<'a, T>> {
         let res_attrs = self.get_res_attrs(ctx, res_idx)?;
-        Ref::filter_map(res_attrs, |res_attrs| res_attrs.lookup(key)).ok()
+        Ref::filter_map(res_attrs, |res_attrs| {
+            res_attrs.lookup(key).and_then(|attr| attr.downcast_ref())
+        })
+        .ok()
     }
 
     fn has_res_attr(&self, ctx: &Context, res_idx: usize, key: &Identifier) -> bool {
-        self.get_res_attr(ctx, res_idx, key).is_some()
+        self.get_res_attrs(ctx, res_idx)
+            .is_some_and(|res_attrs| res_attrs.lookup(key).is_some())
     }
 
     fn get_res_attrs_mut<'a>(&self, ctx: &'a Context, res_idx: usize) -> RefMut<'a, DictAttr> {
@@ -222,5 +227,4 @@ fn vec_get_or_insert_mut<T: Attribute>(
     vec.0[idx].downcast_mut()
 }
 
-#[op_interface_impl]
 impl FuncInterface for FuncOp {}

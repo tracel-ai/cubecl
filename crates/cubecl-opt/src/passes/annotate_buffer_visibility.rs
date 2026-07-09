@@ -36,9 +36,8 @@ impl Pass for AnnotateGlobalVisibilityPass {
                 let num_args = func.get_entry_block(ctx).deref(ctx).get_num_arguments();
                 for i in 0..num_args {
                     if let Some(buffer) = func
-                        .get_arg_attr(ctx, i, &ATTR_BUFFER_BINDING)
-                        .map(|it| it.clone())
-                        && let Ok(buffer) = buffer.downcast::<BufferBindingAttr>()
+                        .get_arg_attr::<BufferBindingAttr>(ctx, i, &ATTR_BUFFER_BINDING)
+                        .map(|it| *it)
                         && let Some(visibility) =
                             global_visibility.visibility.get(&buffer.buffer_pos)
                     {

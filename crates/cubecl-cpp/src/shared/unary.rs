@@ -330,12 +330,10 @@ impl LowerOp for UniformLoadOp {
         let ptr = self.ptr(scope.ctx());
         let val = if ptr_value_ty(scope.ctx(), &ptr).is_atomic(scope.ctx()) {
             let op = AtomicLoadOp::new(scope.ctx_mut(), ptr);
-            scope.register(&op);
-            op.get_result(scope.ctx())
+            scope.register_with_result(&op)
         } else {
             let op = LoadOp::new(scope.ctx_mut(), ptr);
-            scope.register(&op);
-            op.get_result(scope.ctx())
+            scope.register_with_result(&op)
         };
         vec![val]
     }

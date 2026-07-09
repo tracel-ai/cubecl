@@ -219,10 +219,7 @@ fn find_global_constness(ctx: &Context, idx: usize) -> bool {
     let num_args = func.get_entry_block(ctx).deref(ctx).get_num_arguments();
     let arg_pos = (0..num_args)
         .filter_map(|i| Some((i, func.get_arg_attr(ctx, i, &ATTR_BUFFER_BINDING)?)))
-        .find(|(_, attr)| {
-            let binding = attr.downcast_ref::<BufferBindingAttr>().unwrap();
-            binding.buffer_pos == idx
-        })
+        .find(|(_, binding): &(_, Ref<'_, BufferBindingAttr>)| binding.buffer_pos == idx)
         .expect("Should exist");
     func.has_arg_attr(ctx, arg_pos.0, &ATTR_READONLY)
 }

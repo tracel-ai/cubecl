@@ -9,9 +9,7 @@ pub fn fma<C: CubePrimitive>(a: C, b: C, c: C) -> C {
 /// Expand method of [`fma()`].
 pub mod fma {
     use super::*;
-    use cubecl_ir::{
-        Scope, dialect::math::FmaOp, pliron::builtin::op_interfaces::OneResultInterface,
-    };
+    use cubecl_ir::{Scope, dialect::math::FmaOp};
 
     pub fn expand<C: CubePrimitive>(
         scope: &Scope,
@@ -26,7 +24,6 @@ pub mod fma {
         let [a, b, c] = normalize_same_vectorization(scope, [a, b, c]);
 
         let op = FmaOp::new(scope.ctx_mut(), a, b, c);
-        scope.register(&op);
-        op.get_result(scope.ctx()).into()
+        scope.register_with_result(&op).into()
     }
 }

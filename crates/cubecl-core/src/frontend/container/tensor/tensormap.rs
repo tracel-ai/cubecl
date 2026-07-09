@@ -285,10 +285,7 @@ tma_store!(5, v, w, z, y, x);
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use cubecl_ir::{
-        dialect::general::{ShapeOp, StrideOp},
-        pliron::builtin::op_interfaces::OneResultInterface,
-    };
+    use cubecl_ir::dialect::general::{ShapeOp, StrideOp};
 
     use super::*;
 
@@ -406,8 +403,7 @@ mod metadata {
             let buffer_idx = ext_meta_idx(scope, self.value(scope));
             let dim = dim.read_value(scope);
             let op = StrideOp::new(scope.ctx_mut(), dim, buffer_idx);
-            scope.register(&op);
-            op.get_result(scope.ctx()).into()
+            scope.register_with_result(&op).into()
         }
 
         // Expand method of [shape](Tensor::shape).
@@ -419,8 +415,7 @@ mod metadata {
             let buffer_idx = ext_meta_idx(scope, self.value(scope));
             let dim = dim.read_value(scope);
             let op = ShapeOp::new(scope.ctx_mut(), dim, buffer_idx);
-            scope.register(&op);
-            op.get_result(scope.ctx()).into()
+            scope.register_with_result(&op).into()
         }
 
         // Expand method of [len](Tensor::len).

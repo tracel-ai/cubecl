@@ -1,13 +1,11 @@
-use alloc::vec::Vec;
 use cubecl_ir::{ElemType, Scope, metadata::Info, settings::KernelSettings};
-use cubecl_runtime::kernel::{KernelDefinition, ScalarKernelArg};
+use cubecl_runtime::kernel::KernelDefinition;
 
 /// The kernel integrator allows you to create a [kernel definition](KernelDefinition) based on
 /// [kernel expansion](KernelExpansion) and [kernel settings](KernelSettings).
 #[derive(Debug)]
 pub struct KernelIntegrator {
     expansion: KernelExpansion,
-    scalar_bindings: Vec<ScalarKernelArg>,
 }
 
 /// The information necessary to compile a [kernel definition](KernelDefinition).
@@ -27,19 +25,13 @@ pub struct ScalarInfo {
 impl KernelIntegrator {
     /// Starts a new compilation.
     pub fn new(info: KernelExpansion) -> Self {
-        Self {
-            expansion: info,
-            scalar_bindings: Default::default(),
-        }
+        Self { expansion: info }
     }
 
     /// Performs the compilation with the provided [settings](KernelSettings).
     #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
-    pub fn integrate(mut self, settings: KernelSettings) -> KernelDefinition {
-        self.scalar_bindings.sort_by_key(|binding| binding.ty);
-
+    pub fn integrate(self, settings: KernelSettings) -> KernelDefinition {
         KernelDefinition {
-            scalars: self.scalar_bindings,
             body: self.expansion.scope,
             info: self.expansion.info,
             settings,

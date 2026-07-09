@@ -59,10 +59,7 @@ impl<T: CubePrimitive> Tensor<T> {
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use cubecl_ir::{
-        dialect::general::{ShapeOp, StrideOp},
-        pliron::builtin::op_interfaces::OneResultInterface,
-    };
+    use cubecl_ir::dialect::general::{ShapeOp, StrideOp};
 
     use super::*;
 
@@ -74,8 +71,7 @@ mod metadata {
                 let dim = dim.read_value(scope);
                 let buffer_idx = ext_meta_idx(scope, self.__extract_list(scope));
                 let op = StrideOp::new(scope.ctx_mut(), dim, buffer_idx);
-                scope.register(&op);
-                op.get_result(scope.ctx()).into()
+                scope.register_with_result(&op).into()
             })
         }
 
@@ -85,8 +81,7 @@ mod metadata {
                 let dim = dim.read_value(scope);
                 let buffer_idx = ext_meta_idx(scope, self.__extract_list(scope));
                 let op = ShapeOp::new(scope.ctx_mut(), dim, buffer_idx);
-                scope.register(&op);
-                op.get_result(scope.ctx()).into()
+                scope.register_with_result(&op).into()
             })
         }
 

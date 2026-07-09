@@ -47,8 +47,7 @@ cuda_op_with_out!(GenericToSharedOp, |op, ctx| {
 pub fn generic_to_shared<T: CubePrimitive>(ptr: *const T) -> u32 {
     intrinsic!(|scope| {
         let cvt = GenericToSharedOp::new(scope.ctx_mut(), unsafe { *ptr }.value(scope));
-        scope.register(&cvt);
-        cvt.get_result(scope.ctx()).into()
+        scope.register_with_result(&cvt).into()
     })
 }
 
@@ -98,8 +97,7 @@ cuda_op_with_out!(BarrierNativeHandleOp, |op, ctx| {
 pub fn barrier_native_handle(bar: &Barrier) -> u32 {
     intrinsic!(|scope| {
         let handle = BarrierNativeHandleOp::new(scope.ctx_mut(), bar.value(scope));
-        scope.register(&handle);
-        handle.get_result(scope.ctx()).into()
+        scope.register_with_result(&handle).into()
     })
 }
 
@@ -124,7 +122,6 @@ cuda_op_with_out!(TensorMapAddrOp, |op, ctx| {
 pub fn tensor_map_address<T: CubePrimitive, K: TensorMapKind>(tensor_map: &TensorMap<T, K>) -> u64 {
     intrinsic!(|scope| {
         let addr = TensorMapAddrOp::new(scope.ctx_mut(), tensor_map.value(scope));
-        scope.register(&addr);
-        addr.get_result(scope.ctx()).into()
+        scope.register_with_result(&addr).into()
     })
 }

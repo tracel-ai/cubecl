@@ -10,23 +10,26 @@ use rspirv::{binary::Disassemble, dr::Module};
 
 mod arithmetic;
 mod atomic;
+pub mod attributes;
 mod bitwise;
 mod branch;
+pub mod builtin;
 mod cmma;
 mod compiler;
 mod debug;
 mod extensions;
 mod globals;
-mod instruction;
 mod item;
 mod lookups;
 pub mod lower;
 mod metadata;
+pub mod ops;
 mod subgroup;
 mod sync;
 mod target;
 mod tensor_indexing;
 mod transformers;
+pub mod types;
 mod value;
 
 pub use compiler::*;

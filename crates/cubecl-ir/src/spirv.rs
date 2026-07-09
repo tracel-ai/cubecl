@@ -1,0 +1,39 @@
+use alloc::{vec, vec::Vec};
+
+use crate::{
+    NoMemoryEffect,
+    interfaces::{MemoryEffect, MemoryEffects},
+};
+use pliron::{
+    context::Context,
+    r#type::{Typed, TypedHandle},
+};
+use pliron_spirv::{
+    ops::{AccessChainOp, InBoundsAccessChainOp, LoadOp},
+    spirv::StorageClass,
+    types::PointerType,
+};
+
+NoMemoryEffect!(InBoundsAccessChainOp);
+NoMemoryEffect!(AccessChainOp);
+
+impl MemoryEffects for LoadOp {
+    fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
+        let ptr = self.get_operand_pointer(ctx);
+        let Ok(ptr_ty) = TypedHandle::<PointerType>::from_handle(ptr.get_type(ctx), ctx) else {
+            return vec![MemoryEffect::Read(self.get_operand_pointer(ctx))];
+        };
+        let storage_class = ptr_ty.deref(ctx).storage_class;
+        match storage_class {
+            // Inherently readonly memory that does not observe writes, memory effects are not
+            // relevant to value. Until we add a better way to represent that, treat it as no memory
+            // effect.
+            StorageClass::UniformConstant
+            | StorageClass::Input
+            | StorageClass::ShaderRecordBufferKHR
+            | StorageClass::IncomingCallableDataKHR
+            | StorageClass::IncomingRayPayloadKHR => vec![],
+            _ => vec![MemoryEffect::Read(self.get_operand_pointer(ctx))],
+        }
+    }
+}

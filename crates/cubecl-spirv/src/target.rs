@@ -1,472 +1,391 @@
-use cubecl_core::prelude::KernelArg;
-use cubecl_opt::BufferVisibility;
-use rspirv::{
-    dr::Operand,
-    spirv::{
-        self, AddressingModel, Capability, Decoration, ExecutionMode, ExecutionModel, MemoryModel,
-        StorageClass, Word,
+use core::any::type_name;
+use cubecl_core::{
+    WgpuCompilationOptions,
+    ir::{
+        ExpandValue, Scope, UIntKind,
+        attributes::{
+            ATTR_BUFFER_BINDING, ATTR_READONLY, ATTR_WRITEONLY, BufferBindingAttr,
+            EntrypointInterface, FuncInterface,
+        },
+        ident,
+        interfaces::TypedExt,
+        metadata::Info,
+        prelude::*,
     },
 };
-use std::{fmt::Debug, iter};
+use pliron::{
+    builtin::ops::FuncOp,
+    identifier::Identifier,
+    irbuild::{inserter::Inserter, listener::DummyListener},
+    std_deps::sync::LazyLock,
+};
+use pliron_spirv::{
+    decorations::{DecoratableOp, DecorationInfo},
+    ops::{AddressOfOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp, SpirvModuleOp},
+    types::{ArrayType, PointerType, RuntimeArrayType, StructType},
+};
+use rspirv::spirv::{Capability, Decoration, MemoryAccess, StorageClass};
 
-use crate::{SpirvCompiler, extensions::TargetExtensions, item::Item, lookups::Buffer};
+use crate::types::ty_to_spirv_dialect;
 
-pub trait SpirvTarget:
-    TargetExtensions<Self> + Debug + Clone + Default + Send + Sync + 'static
-{
-    fn set_modes(
+pub static PARAMS_NAME: LazyLock<Identifier> = LazyLock::new(|| ident("_spirv_params"));
+
+/// Run on: `SpirvModuleOp`
+pub struct ConvertArgsPass;
+
+impl Pass for ConvertArgsPass {
+    fn name(&self) -> &str {
+        type_name::<Self>()
+    }
+
+    fn run(
         &mut self,
-        b: &mut SpirvCompiler<Self>,
-        main: Word,
-        builtins: Vec<Word>,
-        cube_dims: Vec<u32>,
-    );
-    fn generate_params(
-        &mut self,
-        b: &mut SpirvCompiler<Self>,
-        bindings: &[KernelArg],
-        visibility: &[BufferVisibility],
-    ) -> Vec<Buffer>;
-    fn load_params(b: &mut SpirvCompiler<Self>);
-    fn info_storage_class(b: &mut SpirvCompiler<Self>) -> StorageClass;
-    fn params_storage_class(b: &mut SpirvCompiler<Self>, num_buffers: usize) -> StorageClass;
-
-    fn set_kernel_name(&mut self, name: impl Into<String>);
-}
-
-#[derive(Clone)]
-pub struct GLCompute {
-    kernel_name: String,
-}
-
-impl Default for GLCompute {
-    fn default() -> Self {
-        Self {
-            kernel_name: "main".into(),
-        }
+        op: Ptr<Operation>,
+        ctx: &mut Context,
+        _analyses: &mut AnalysisManager,
+    ) -> Result<PassResult> {
+        let mut module = op
+            .as_op::<SpirvModuleOp>(ctx)
+            .expect("Should run on SPIR-V module");
+        visit_all_ops_of_type_mut::<FuncOp, _>(ctx, &mut module, op, |ctx, module, func| {
+            if func.get_entrypoint_abi(ctx).is_some() {
+                Self::convert_func(ctx, *module, func);
+            }
+        });
+        let mut res = PassResult::default();
+        res.ir_changed = IRStatus::Changed;
+        Ok(res)
     }
 }
 
-impl Debug for GLCompute {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("gl_compute")
-    }
-}
+impl ConvertArgsPass {
+    pub fn convert_func(ctx: &mut Context, module: SpirvModuleOp, func: FuncOp) {
+        let info = ctx.aux_ty::<Info>().clone();
+        let entry = func.get_entry_block(ctx);
+        let module_body = module.get_body(ctx, 0);
+        let args = entry.deref(ctx).arguments().collect::<Vec<_>>();
+        let mut buffers = vec![];
 
-impl SpirvTarget for GLCompute {
-    fn set_modes(
-        &mut self,
-        b: &mut SpirvCompiler<Self>,
-        main: Word,
-        builtins: Vec<Word>,
-        cube_dims: Vec<u32>,
-    ) {
-        let interface: Vec<u32> = builtins
-            .into_iter()
-            .chain(iter::once(b.state.params))
-            .chain(b.state.shared.values().map(|it| it.val_id))
-            .collect();
-
-        let version = b.compilation_options.vulkan.max_spirv_version;
-
-        b.capability(Capability::Shader);
-        b.capability(Capability::PhysicalStorageBufferAddresses);
-        b.capability(Capability::VulkanMemoryModel);
-        b.capability(Capability::VulkanMemoryModelDeviceScope);
-        b.capability(Capability::GroupNonUniform);
-
-        if b.compilation_options.vulkan.supports_explicit_smem {
-            b.extension("SPV_KHR_workgroup_memory_explicit_layout");
-        }
-
-        if b.compilation_options.vulkan.supports_long_vectors {
-            b.extension("SPV_EXT_long_vector");
-            b.capability(Capability::LongVectorEXT);
-        }
-
-        if b.addr_type.size_bits() == 64 {
-            b.extension("SPV_EXT_shader_64bit_indexing");
-            b.capability(Capability::Shader64BitIndexingEXT);
-            b.execution_mode(main, ExecutionMode::Shader64BitIndexingEXT, []);
-        }
-
-        let mut caps = b.capabilities.clone();
-
-        if caps.contains(&Capability::CooperativeMatrixKHR) {
-            b.extension("SPV_KHR_cooperative_matrix");
-        }
-
-        if caps.contains(&Capability::CooperativeMatrixReductionsNV)
-            || caps.contains(&Capability::CooperativeMatrixConversionsNV)
-            || caps.contains(&Capability::CooperativeMatrixPerElementOperationsNV)
-            || caps.contains(&Capability::CooperativeMatrixTensorAddressingNV)
-            || caps.contains(&Capability::CooperativeMatrixBlockLoadsNV)
-        {
-            b.extension("SPV_NV_cooperative_matrix2")
-        }
-
-        // Callback requires physical storage buffer
-        if caps.contains(&Capability::CooperativeMatrixBlockLoadsNV) {
-            b.extension("SPV_KHR_physical_storage_buffer");
-            caps.insert(Capability::PhysicalStorageBufferAddresses);
-        }
-
-        if caps.contains(&Capability::TensorAddressingNV) {
-            b.extension("SPV_NV_tensor_addressing")
-        }
-
-        if caps.contains(&Capability::AtomicFloat16AddEXT) {
-            b.extension("SPV_EXT_shader_atomic_float16_add");
-        }
-
-        if caps.contains(&Capability::AtomicFloat32AddEXT)
-            | caps.contains(&Capability::AtomicFloat64AddEXT)
-        {
-            b.extension("SPV_EXT_shader_atomic_float_add");
-        }
-
-        if caps.contains(&Capability::AtomicFloat16MinMaxEXT)
-            | caps.contains(&Capability::AtomicFloat32MinMaxEXT)
-            | caps.contains(&Capability::AtomicFloat64MinMaxEXT)
-        {
-            b.extension("SPV_EXT_shader_atomic_float_min_max");
-        }
-
-        if caps.contains(&Capability::AtomicFloat16VectorNV) {
-            b.extension("SPV_NV_shader_atomic_fp16_vector");
-        }
-
-        if caps.contains(&Capability::BFloat16TypeKHR)
-            || caps.contains(&Capability::BFloat16CooperativeMatrixKHR)
-            || caps.contains(&Capability::BFloat16DotProductKHR)
-        {
-            b.extension("SPV_KHR_bfloat16");
-        }
-
-        if caps.contains(&Capability::Float8EXT)
-            || caps.contains(&Capability::Float8CooperativeMatrixEXT)
-        {
-            b.extension("SPV_EXT_float8");
-        }
-
-        if caps.contains(&Capability::FloatControls2) {
-            b.extension("SPV_KHR_float_controls2");
-        }
-
-        if b.debug_symbols {
-            b.extension("SPV_KHR_non_semantic_info");
-        }
-
-        if version < (1, 5) {
-            b.extension("SPV_KHR_physical_storage_buffer");
-            b.extension("SPV_KHR_vulkan_memory_model");
-            if caps.contains(&Capability::StorageBuffer8BitAccess) {
-                b.extension("SPV_KHR_8bit_storage");
+        for (i, arg) in args.iter().enumerate() {
+            let binding = func.get_arg_attr::<BufferBindingAttr>(ctx, i, &ATTR_BUFFER_BINDING);
+            let non_writable = func.has_arg_attr(ctx, i, &ATTR_READONLY);
+            let non_readable = func.has_arg_attr(ctx, i, &ATTR_WRITEONLY);
+            if let Some(binding) = binding {
+                buffers.insert(
+                    binding.buffer_pos,
+                    (
+                        *arg,
+                        buffer_ty(ctx, *arg, module),
+                        non_readable,
+                        non_writable,
+                    ),
+                );
+            } else {
+                panic!("Expected all kernel inputs to be bindings")
             }
         }
 
-        if version < (1, 3) && caps.contains(&Capability::StorageBuffer16BitAccess) {
-            b.extension("SPV_KHR_16bit_storage");
-        }
+        let mut addr_struct = StructType::default();
+        addr_struct.decorate_type(DecorationInfo::unit(Decoration::Block));
 
-        for cap in caps {
-            b.capability(cap);
-        }
-
-        b.memory_model(
-            AddressingModel::PhysicalStorageBuffer64,
-            MemoryModel::Vulkan,
-        );
-        b.entry_point(
-            ExecutionModel::GLCompute,
-            main,
-            &self.kernel_name,
-            interface,
-        );
-        b.execution_mode(main, spirv::ExecutionMode::LocalSize, cube_dims);
-    }
-
-    fn generate_params(
-        &mut self,
-        b: &mut SpirvCompiler<Self>,
-        bindings: &[KernelArg],
-        visibility: &[BufferVisibility],
-    ) -> Vec<Buffer> {
-        let params_class = Self::params_storage_class(b, bindings.len());
-
-        let params_struct_id = b.id();
-        let params_ptr_id = b.id();
-
-        let buffers = bindings
-            .iter()
-            .map(|binding| {
-                let buffer = self.generate_storage_buffer(b, binding);
-                b.state
-                    .base_lookups
-                    .values
-                    .insert(binding.value.id(), buffer.id);
-                buffer
-            })
-            .collect::<Vec<_>>();
-        let info = b.info.has_info().then(|| self.generate_info_binding(b));
-
-        b.type_struct_id(
-            Some(params_struct_id),
-            buffers
-                .iter()
-                .chain(info.iter())
-                .map(|it| it.struct_ptr_ty_id),
-        );
-        b.type_pointer(Some(params_ptr_id), params_class, params_struct_id);
-
-        b.decorate(params_struct_id, Decoration::Block, []);
-        b.name(params_struct_id, "Params");
-
-        let params = b.insert_in_root(|b| b.variable(params_ptr_id, None, params_class, None));
-        b.name(params, "params");
-
-        b.state.params = params;
-
-        if !matches!(params_class, StorageClass::PushConstant) {
-            b.decorate(params, Decoration::DescriptorSet, vec![0u32.into()]);
-            b.decorate(params, Decoration::Binding, vec![0u32.into()]);
-        }
-
-        for (i, visibility) in visibility.iter().enumerate() {
-            let offset = (size_of::<u64>() * i) as u32;
-            b.member_decorate(
-                params_struct_id,
-                i as u32,
-                Decoration::Offset,
-                [offset.into()],
-            );
-            if !visibility.readable {
-                b.member_decorate(params_struct_id, i as u32, Decoration::NonReadable, []);
+        for (i, (_, ty, non_readable, non_writable)) in buffers.iter().copied().enumerate() {
+            addr_struct.field_types.push(ty);
+            addr_struct.offsets.push((i * size_of::<u64>()) as u32);
+            if non_readable {
+                addr_struct.decorate_member(i, DecorationInfo::unit(Decoration::NonReadable));
             }
-            if !visibility.writable {
-                b.member_decorate(params_struct_id, i as u32, Decoration::NonWritable, []);
+            if non_writable {
+                addr_struct.decorate_member(i, DecorationInfo::unit(Decoration::NonWritable));
             }
         }
 
-        if let Some(info) = info {
-            let i = buffers.len();
-            let offset = (size_of::<u64>() * i) as u32;
-            b.member_decorate(
-                params_struct_id,
-                i as u32,
-                Decoration::Offset,
-                [offset.into()],
-            );
-            b.member_decorate(params_struct_id, i as u32, Decoration::NonWritable, []);
-
-            b.state.info = Some(info);
+        if info.has_info() {
+            let offset = buffers.len() * size_of::<u64>();
+            addr_struct.field_types.push(info_ty(ctx, module));
+            addr_struct.offsets.push(offset as u32);
+            addr_struct
+                .decorate_member(buffers.len(), DecorationInfo::unit(Decoration::NonWritable));
         }
 
-        buffers
-    }
+        let addr_struct = Type::register_instance(addr_struct, ctx).to_handle();
+        let storage_class = params_storage_class(ctx, buffers.len());
+        let addr_struct_ptr = PointerType::get(ctx, addr_struct, storage_class).into();
+        let ptrs_var =
+            GlobalVariableOp::new(ctx, addr_struct, storage_class, PARAMS_NAME.clone(), None);
+        ptrs_var.get_operation().insert_at_front(module_body, ctx);
 
-    fn load_params(b: &mut SpirvCompiler<Self>) {
-        let params = b.state.params;
-        let params_class = Self::params_storage_class(b, b.state.buffers.len());
-        let zero = b.const_u32(0);
-
-        for (i, buffer) in b.state.buffers.clone().into_iter().enumerate() {
-            // uniform/push constant pointer to physical storage buffer pointer
-            let field_ptr_ty = b.type_pointer(None, params_class, buffer.struct_ptr_ty_id);
-            let field_idx = b.const_u32(i as u32);
-            let ptr = b
-                .in_bounds_access_chain(field_ptr_ty, None, params, [field_idx])
-                .unwrap();
-            b.insert_in_setup(|b| {
-                let st_ptr = b
-                    .load(buffer.struct_ptr_ty_id, None, ptr, None, [])
-                    .unwrap();
-                b.in_bounds_access_chain(buffer.arr_ptr_ty_id, Some(buffer.id), st_ptr, [zero])
-                    .unwrap()
-            });
-            b.name(buffer.id, format!("global_{i}"));
+        if !matches!(storage_class, StorageClass::PushConstant) {
+            ptrs_var.set_decoration_descriptor_set(ctx, 0.into());
+            ptrs_var.set_decoration_binding(ctx, 0.into());
         }
 
-        if let Some(info) = b.state.info {
-            let i = b.state.buffers.len();
+        let mut rewriter = IRRewriter::<DummyListener>::default();
+        rewriter.set_insertion_point_to_block_start(entry);
+        let scope = Scope::from_context_and_inserter(ctx, &mut rewriter);
+        let ptrs = scope.register_with_result(&AddressOfOp::new(
+            ctx,
+            addr_struct_ptr,
+            PARAMS_NAME.clone(),
+        ));
 
-            // uniform/push constant pointer to physical storage buffer pointer
-            let field_ptr_ty = b.type_pointer(None, params_class, info.struct_ptr_ty_id);
-            let field_idx = b.const_u32(i as u32);
-            let ptr = b
-                .in_bounds_access_chain(field_ptr_ty, None, params, [field_idx])
-                .unwrap();
-            b.insert_in_setup(|b| {
-                b.load(info.struct_ptr_ty_id, Some(info.id), ptr, None, [])
-                    .unwrap()
-            });
-            b.name(info.id, "info");
+        for (i, (buffer, ..)) in buffers.iter().enumerate() {
+            load_buffer_array(ctx, &scope, ptrs, i, *buffer, storage_class);
         }
-    }
 
-    fn info_storage_class(_b: &mut SpirvCompiler<Self>) -> StorageClass {
-        StorageClass::PhysicalStorageBuffer
-    }
+        // TODO
+        let _info = info
+            .has_info()
+            .then(|| load_buffer(ctx, &scope, ptrs, buffers.len(), storage_class));
+        let num_args = entry.deref(ctx).get_num_arguments();
 
-    fn params_storage_class(b: &mut SpirvCompiler<Self>, num_buffers: usize) -> StorageClass {
-        let num_addresses = match b.info.has_info() {
-            true => num_buffers + 1,
-            false => num_buffers,
-        };
-        if num_addresses > b.compilation_options.vulkan.push_constant_size / size_of::<u64>() {
-            StorageClass::Uniform
-        } else {
-            StorageClass::PushConstant
+        for _ in 0..num_args {
+            func.pop_argument(ctx);
         }
-    }
-
-    fn set_kernel_name(&mut self, name: impl Into<String>) {
-        self.kernel_name = name.into();
     }
 }
 
-impl GLCompute {
-    fn generate_storage_buffer(
-        &mut self,
-        b: &mut SpirvCompiler<Self>,
-        binding: &KernelArg,
-    ) -> Buffer {
-        let item = b.compile_type(binding.value.ty.unwrap_ptr());
-        match item.elem().size() {
+fn buffer_ty(ctx: &Context, buffer: Value, module: SpirvModuleOp) -> TypeHandle {
+    let ty = buffer.element_ty(ctx);
+    let ty_size = ty.size(ctx);
+    let ty = ty_to_spirv_dialect(ctx, ty);
+    match ty_size {
+        1 => module.insert_capability(ctx, Capability::StorageBuffer8BitAccess),
+        2 => module.insert_capability(ctx, Capability::StorageBuffer16BitAccess),
+        _ => {}
+    }
+    let array = RuntimeArrayType::get(ctx, ty, Some(ty_size as u32));
+    let struct_ = StructType::get(ctx, vec![array.into()], vec![0], vec![], vec![]);
+    PointerType::get(ctx, struct_.into(), StorageClass::PhysicalStorageBuffer).into()
+}
+
+fn info_ty(ctx: &Context, module: SpirvModuleOp) -> TypeHandle {
+    let address_ty = ctx.address_type();
+    let info = ctx.aux_ty::<Info>().clone();
+
+    let mut struct_ = StructType::default();
+
+    for scalar in info.scalars {
+        let ty = ty_to_spirv_dialect(ctx, scalar.ty.to_type(ctx));
+        let ty_size = scalar.ty.size() as u32;
+        match ty_size {
             1 => {
-                b.capabilities.insert(Capability::StorageBuffer8BitAccess);
+                module.insert_capability(ctx, Capability::StorageBuffer8BitAccess);
+                module.insert_capability(ctx, Capability::UniformAndStorageBuffer8BitAccess);
             }
             2 => {
-                b.capabilities.insert(Capability::StorageBuffer16BitAccess);
+                module.insert_capability(ctx, Capability::StorageBuffer16BitAccess);
+                module.insert_capability(ctx, Capability::UniformAndStorageBuffer16BitAccess);
             }
             _ => {}
         }
 
-        let value_size = item.value_type().size();
-
-        let arr_ty_id = item.id(b);
-        let struct_ty_id = b.id();
-        let storage_class = StorageClass::PhysicalStorageBuffer;
-
-        b.decorate(arr_ty_id, Decoration::ArrayStride, [value_size.into()]);
-
-        b.type_struct_id(Some(struct_ty_id), [arr_ty_id]);
-        b.decorate(struct_ty_id, Decoration::Block, []);
-        b.member_decorate(struct_ty_id, 0, Decoration::Offset, [0u32.into()]);
-
-        let arr_ptr_ty_id = b.type_pointer(None, storage_class, arr_ty_id);
-        let struct_ptr_ty_id = b.type_pointer(None, storage_class, struct_ty_id);
-
-        Buffer {
-            id: b.id(),
-            struct_ty_id,
-            struct_ptr_ty_id,
-            arr_ty_id,
-            arr_ptr_ty_id,
-            storage_class,
-        }
+        let array = ArrayType::get(ctx, scalar.count as u32, ty, Some(ty_size));
+        struct_.field_types.push(array.into());
+        struct_.offsets.push(scalar.offset as u32);
     }
 
-    /// Generate info binding struct and variable.
-    /// SPIR-V structs have explicit offsets so unlike other targets we don't need to pad the length.
-    fn generate_info_binding(&mut self, b: &mut SpirvCompiler<Self>) -> Buffer {
-        let address_type = b.addr_type;
-        let struct_ty_id = b.id();
-        let storage_class = StorageClass::PhysicalStorageBuffer;
+    if let Some(field) = info.sized_meta {
+        let ty = ty_to_spirv_dialect(ctx, field.ty.to_type(ctx));
+        let ty_size = field.ty.size() as u32;
+        let array = ArrayType::get(ctx, field.count as u32, ty, Some(ty_size));
+        struct_.field_types.push(array.into());
+        struct_.offsets.push(field.offset as u32);
+    }
 
-        let mut fields = Vec::new();
+    if info.has_dynamic_meta {
+        let address_ty = ty_to_spirv_dialect(ctx, address_ty.unsigned_type().to_type(ctx));
+        let ty_size = address_ty.size(ctx) as u32;
+        let array = RuntimeArrayType::get(ctx, address_ty, Some(ty_size));
+        struct_.field_types.push(array.into());
+        struct_.offsets.push(info.dynamic_meta_offset as u32);
+    }
 
-        let scalars = b.info.scalars.clone();
+    let struct_ = Type::register_instance(struct_, ctx).to_handle();
+    PointerType::get(ctx, struct_, StorageClass::PhysicalStorageBuffer).into()
+}
 
-        for scalar in scalars {
-            let scalar_ty = b.compile_storage_type(scalar.ty);
-            match scalar_ty.size() {
-                1 => {
-                    b.capabilities.insert(Capability::StorageBuffer8BitAccess);
-                    b.capabilities
-                        .insert(Capability::UniformAndStorageBuffer8BitAccess);
-                }
-                2 => {
-                    b.capabilities.insert(Capability::StorageBuffer16BitAccess);
-                    b.capabilities
-                        .insert(Capability::UniformAndStorageBuffer16BitAccess);
-                }
-                _ => {}
-            }
+fn load_buffer_array(
+    ctx: &mut Context,
+    scope: &Scope,
+    ptrs: Value,
+    idx: usize,
+    cube_buffer: Value,
+    storage_class: StorageClass,
+) {
+    let buffer = load_buffer(ctx, scope, ptrs, idx, storage_class);
+    let buffer_ty = TypedHandle::<PointerType>::from_handle(buffer.get_type(ctx), ctx).unwrap();
+    let buffer_ty =
+        TypedHandle::<StructType>::from_handle(buffer_ty.deref(ctx).element_type, ctx).unwrap();
+    let array_ty = buffer_ty.deref(ctx).field_types[0];
+    let array_ptr_ty = PointerType::get(ctx, array_ty, StorageClass::PhysicalStorageBuffer);
 
-            let ty_size = scalar_ty.size();
-            let scalar_ty_id = Item::Scalar(scalar_ty).id(b);
-            let arr_ty_id = b.id();
-            let len_id = b.const_u32(scalar.padded_size() as u32);
+    let zero = ExpandValue::constant(0.into(), UIntKind::U32).value(scope);
+    let array = InBoundsAccessChainOp::new(ctx, array_ptr_ty.into(), buffer, vec![zero]);
+    let array = scope.register_with_result(&array);
+    cube_buffer.replace_all_uses_with(ctx, &array);
+}
 
-            b.type_array_id(Some(arr_ty_id), scalar_ty_id, len_id);
-            b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
-            b.name(arr_ty_id, format!("Scalars<{}>", scalar.ty));
+fn load_buffer(
+    ctx: &mut Context,
+    scope: &Scope,
+    ptrs: Value,
+    idx: usize,
+    storage_class: StorageClass,
+) -> Value {
+    let struct_ptr = TypedHandle::<PointerType>::from_handle(ptrs.get_type(ctx), ctx).unwrap();
+    let struct_ =
+        TypedHandle::<StructType>::from_handle(struct_ptr.deref(ctx).element_type, ctx).unwrap();
+    let buffer_ty = struct_.deref(ctx).field_types[idx];
+    let buffer_ptr_ty = PointerType::get(ctx, buffer_ty, storage_class);
 
-            b.member_decorate(
-                struct_ty_id,
-                fields.len() as u32,
-                Decoration::Offset,
-                [(scalar.offset as u32).into()],
-            );
-            fields.push(arr_ty_id);
-        }
+    let idx = ExpandValue::constant(idx.into(), UIntKind::U32).value(scope);
+    let buffer_ptr = InBoundsAccessChainOp::new(ctx, buffer_ptr_ty.into(), ptrs, vec![idx]);
+    let buffer_ptr = scope.register_with_result(&buffer_ptr);
+    let load = LoadOp::new(ctx, buffer_ty, buffer_ptr, MemoryAccess::NONE, None);
+    scope.register_with_result(&load)
+}
 
-        if let Some(field) = b.info.sized_meta {
-            let scalar_ty = b.compile_storage_type(field.ty);
-
-            let ty_size = scalar_ty.size();
-            let scalar_ty_id = Item::Scalar(scalar_ty).id(b);
-            let arr_ty_id = b.id();
-            let len_id = b.const_u32(field.size as u32);
-
-            b.type_array_id(Some(arr_ty_id), scalar_ty_id, len_id);
-            b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
-            b.name(arr_ty_id, "StaticMeta");
-
-            b.member_decorate(
-                struct_ty_id,
-                fields.len() as u32,
-                Decoration::Offset,
-                [(field.offset as u32).into()],
-            );
-            fields.push(arr_ty_id);
-        }
-
-        if b.info.has_dynamic_meta {
-            let offset = b.info.dynamic_meta_offset;
-            let scalar_ty = b.compile_storage_type(address_type);
-
-            let ty_size = scalar_ty.size();
-            let scalar_ty_id = Item::Scalar(scalar_ty).id(b);
-            let arr_ty_id = b.id();
-
-            b.type_runtime_array_id(Some(arr_ty_id), scalar_ty_id);
-            b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
-            b.name(arr_ty_id, "DynamicMeta");
-
-            b.member_decorate(
-                struct_ty_id,
-                fields.len() as u32,
-                Decoration::Offset,
-                [Operand::LiteralBit32(offset as u32)],
-            );
-            fields.push(arr_ty_id);
-        }
-
-        b.type_struct_id(Some(struct_ty_id), fields);
-        b.decorate(struct_ty_id, Decoration::Block, vec![]);
-        b.name(struct_ty_id, "Info");
-
-        let struct_ptr_ty_id = b.type_pointer(None, storage_class, struct_ty_id);
-
-        Buffer {
-            id: b.id(),
-            struct_ty_id,
-            struct_ptr_ty_id,
-            arr_ty_id: 0,
-            arr_ptr_ty_id: 0,
-            storage_class,
-        }
+pub fn params_storage_class(ctx: &Context, num_buffers: usize) -> StorageClass {
+    let num_addresses = match ctx.aux_ty::<Info>().has_info() {
+        true => num_buffers + 1,
+        false => num_buffers,
+    };
+    let comp_options = &ctx.aux_ty::<WgpuCompilationOptions>().vulkan;
+    if num_addresses > comp_options.push_constant_size / size_of::<u64>() {
+        StorageClass::Uniform
+    } else {
+        StorageClass::PushConstant
     }
 }
+
+// fn set_modes(
+//     &mut self,
+//     b: &mut SpirvCompiler<Self>,
+//     main: Word,
+//     builtins: Vec<Word>,
+//     cube_dims: Vec<u32>,
+// ) {
+//     let interface: Vec<u32> = builtins
+//         .into_iter()
+//         .chain(iter::once(b.state.params))
+//         .chain(b.state.shared.values().map(|it| it.val_id))
+//         .collect();
+
+//     let version = b.compilation_options.vulkan.max_spirv_version;
+
+//     b.capability(Capability::Shader);
+//     b.capability(Capability::PhysicalStorageBufferAddresses);
+//     b.capability(Capability::VulkanMemoryModel);
+//     b.capability(Capability::VulkanMemoryModelDeviceScope);
+//     b.capability(Capability::GroupNonUniform);
+
+//     if b.compilation_options.vulkan.supports_explicit_smem {
+//         b.extension("SPV_KHR_workgroup_memory_explicit_layout");
+//     }
+
+//     if b.compilation_options.vulkan.supports_long_vectors {
+//         b.extension("SPV_EXT_long_vector");
+//         b.capability(Capability::LongVectorEXT);
+//     }
+
+//     if b.addr_type.size_bits() == 64 {
+//         b.extension("SPV_EXT_shader_64bit_indexing");
+//         b.capability(Capability::Shader64BitIndexingEXT);
+//         b.execution_mode(main, ExecutionMode::Shader64BitIndexingEXT, []);
+//     }
+
+//     let mut caps = b.capabilities.clone();
+
+//     if caps.contains(&Capability::CooperativeMatrixKHR) {
+//         b.extension("SPV_KHR_cooperative_matrix");
+//     }
+
+//     if caps.contains(&Capability::CooperativeMatrixReductionsNV)
+//         || caps.contains(&Capability::CooperativeMatrixConversionsNV)
+//         || caps.contains(&Capability::CooperativeMatrixPerElementOperationsNV)
+//         || caps.contains(&Capability::CooperativeMatrixTensorAddressingNV)
+//         || caps.contains(&Capability::CooperativeMatrixBlockLoadsNV)
+//     {
+//         b.extension("SPV_NV_cooperative_matrix2")
+//     }
+
+//     // Callback requires physical storage buffer
+//     if caps.contains(&Capability::CooperativeMatrixBlockLoadsNV) {
+//         b.extension("SPV_KHR_physical_storage_buffer");
+//         caps.insert(Capability::PhysicalStorageBufferAddresses);
+//     }
+
+//     if caps.contains(&Capability::TensorAddressingNV) {
+//         b.extension("SPV_NV_tensor_addressing")
+//     }
+
+//     if caps.contains(&Capability::AtomicFloat16AddEXT) {
+//         b.extension("SPV_EXT_shader_atomic_float16_add");
+//     }
+
+//     if caps.contains(&Capability::AtomicFloat32AddEXT)
+//         | caps.contains(&Capability::AtomicFloat64AddEXT)
+//     {
+//         b.extension("SPV_EXT_shader_atomic_float_add");
+//     }
+
+//     if caps.contains(&Capability::AtomicFloat16MinMaxEXT)
+//         | caps.contains(&Capability::AtomicFloat32MinMaxEXT)
+//         | caps.contains(&Capability::AtomicFloat64MinMaxEXT)
+//     {
+//         b.extension("SPV_EXT_shader_atomic_float_min_max");
+//     }
+
+//     if caps.contains(&Capability::AtomicFloat16VectorNV) {
+//         b.extension("SPV_NV_shader_atomic_fp16_vector");
+//     }
+
+//     if caps.contains(&Capability::BFloat16TypeKHR)
+//         || caps.contains(&Capability::BFloat16CooperativeMatrixKHR)
+//         || caps.contains(&Capability::BFloat16DotProductKHR)
+//     {
+//         b.extension("SPV_KHR_bfloat16");
+//     }
+
+//     if caps.contains(&Capability::Float8EXT)
+//         || caps.contains(&Capability::Float8CooperativeMatrixEXT)
+//     {
+//         b.extension("SPV_EXT_float8");
+//     }
+
+//     if caps.contains(&Capability::FloatControls2) {
+//         b.extension("SPV_KHR_float_controls2");
+//     }
+
+//     if b.debug_symbols {
+//         b.extension("SPV_KHR_non_semantic_info");
+//     }
+
+//     if version < (1, 5) {
+//         b.extension("SPV_KHR_physical_storage_buffer");
+//         b.extension("SPV_KHR_vulkan_memory_model");
+//         if caps.contains(&Capability::StorageBuffer8BitAccess) {
+//             b.extension("SPV_KHR_8bit_storage");
+//         }
+//     }
+
+//     if version < (1, 3) && caps.contains(&Capability::StorageBuffer16BitAccess) {
+//         b.extension("SPV_KHR_16bit_storage");
+//     }
+
+//     for cap in caps {
+//         b.capability(cap);
+//     }
+
+//     b.memory_model(
+//         AddressingModel::PhysicalStorageBuffer64,
+//         MemoryModel::Vulkan,
+//     );
+//     b.entry_point(
+//         ExecutionModel::GLCompute,
+//         main,
+//         &self.kernel_name,
+//         interface,
+//     );
+//     b.execution_mode(main, spirv::ExecutionMode::LocalSize, cube_dims);
+// }

@@ -4,7 +4,6 @@ use cubecl_ir::{
         AtomicAddOp, AtomicAndOp, AtomicCompareExchangeWeakOp, AtomicExchangeOp, AtomicLoadOp,
         AtomicMaxOp, AtomicMinOp, AtomicOrOp, AtomicStoreOp, AtomicSubOp, AtomicXorOp,
     },
-    pliron::builtin::op_interfaces::OneResultInterface,
     types::AtomicType,
 };
 use cubecl_macros::intrinsic;
@@ -35,8 +34,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
         intrinsic!(|scope| {
             let ptr = self.value(scope);
             let op = AtomicLoadOp::new(scope.ctx_mut(), ptr);
-            scope.register(&op);
-            op.get_result(scope.ctx()).into()
+            scope.register_with_result(&op).into()
         })
     }
 
@@ -55,8 +53,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
             let op = AtomicExchangeOp::new(scope.ctx_mut(), ptr, value);
-            scope.register(&op);
-            op.get_result(scope.ctx()).into()
+            scope.register_with_result(&op).into()
         })
     }
 
@@ -66,8 +63,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
             let op = AtomicAddOp::new(scope.ctx_mut(), ptr, value);
-            scope.register(&op);
-            op.get_result(scope.ctx()).into()
+            scope.register_with_result(&op).into()
         })
     }
 
@@ -77,8 +73,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
             let op = AtomicSubOp::new(scope.ctx_mut(), ptr, value);
-            scope.register(&op);
-            op.get_result(scope.ctx()).into()
+            scope.register_with_result(&op).into()
         })
     }
 
@@ -89,8 +84,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
             let op = AtomicMaxOp::new(scope.ctx_mut(), ptr, value);
-            scope.register(&op);
-            op.get_result(scope.ctx()).into()
+            scope.register_with_result(&op).into()
         })
     }
 
@@ -101,8 +95,7 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
             let op = AtomicMinOp::new(scope.ctx_mut(), ptr, value);
-            scope.register(&op);
-            op.get_result(scope.ctx()).into()
+            scope.register_with_result(&op).into()
         })
     }
 }
@@ -120,8 +113,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
             let cmp = cmp.read_value(scope);
             let value = value.read_value(scope);
             let op = AtomicCompareExchangeWeakOp::new(scope.ctx_mut(), ptr, cmp, value);
-            scope.register(&op);
-            op.get_result(scope.ctx()).into()
+            scope.register_with_result(&op).into()
         })
     }
 
@@ -131,8 +123,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
             let op = AtomicAndOp::new(scope.ctx_mut(), ptr, value);
-            scope.register(&op);
-            op.get_result(scope.ctx()).into()
+            scope.register_with_result(&op).into()
         })
     }
 
@@ -142,8 +133,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
             let op = AtomicOrOp::new(scope.ctx_mut(), ptr, value);
-            scope.register(&op);
-            op.get_result(scope.ctx()).into()
+            scope.register_with_result(&op).into()
         })
     }
 
@@ -153,8 +143,7 @@ impl<Inner: CubePrimitive<Scalar: Int>> Atomic<Inner> {
             let ptr = self.value(scope);
             let value = value.read_value(scope);
             let op = AtomicXorOp::new(scope.ctx_mut(), ptr, value);
-            scope.register(&op);
-            op.get_result(scope.ctx()).into()
+            scope.register_with_result(&op).into()
         })
     }
 }

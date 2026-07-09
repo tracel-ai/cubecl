@@ -23,6 +23,7 @@ macro_rules! packable {
     };
 }
 pub(crate) use packable;
+use pliron::irbuild::inserter::Inserter;
 
 use crate::shared::ty::TypedExtCPP;
 
@@ -39,7 +40,7 @@ impl MatchRewrite for PackOps {
     fn rewrite(
         &mut self,
         ctx: &mut Context,
-        _rewriter: &mut MatchRewriter,
+        rewriter: &mut MatchRewriter,
         op: Ptr<Operation>,
     ) -> Result<()> {
         let dyn_op = op.dyn_op(ctx);
@@ -57,11 +58,10 @@ impl MatchRewrite for PackOps {
             }
         }
 
-        res.set_type(ctx, res_ty.packed_type(ctx));
+        rewriter.set_value_type(ctx, res, res_ty.packed_type(ctx));
         let reinterpret_res = ReinterpretCastOp::new(ctx, res_ty, res);
+        rewriter.insert_op(ctx, &reinterpret_res);
         let new_res = reinterpret_res.get_result(ctx);
-        reinterpret_res.get_operation().insert_after(ctx, op);
-
         res.replace_all_uses_except_with(ctx, reinterpret_res.input_as_use(ctx), &new_res);
 
         Ok(())

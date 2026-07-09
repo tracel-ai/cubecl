@@ -1,7 +1,4 @@
-use cubecl_ir::{
-    ConstantValue, ExpandValue, dialect::general::ReadScalarOp,
-    pliron::builtin::op_interfaces::OneResultInterface,
-};
+use cubecl_ir::{ConstantValue, ExpandValue, dialect::general::ReadScalarOp};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::{NumCast, One, Zero};
 
@@ -96,8 +93,7 @@ pub trait ScalarArgSettings: Send + Sync + Scalar {
         let id = builder.scalar(storage_ty);
         let ty = storage_ty.to_type(builder.ctx_mut());
         let op = ReadScalarOp::new(builder.ctx_mut(), ty, id);
-        builder.register(&op);
-        op.get_result(builder.ctx()).into()
+        builder.register_with_result(&op).into()
     }
 }
 

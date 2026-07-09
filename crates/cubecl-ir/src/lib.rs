@@ -13,6 +13,9 @@ mod r#type;
 mod type_hash;
 mod value;
 
+#[cfg(feature = "spirv")]
+mod spirv;
+
 pub mod arena;
 pub mod attributes;
 pub mod dialect;
