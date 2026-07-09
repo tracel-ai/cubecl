@@ -25,6 +25,7 @@ pub struct Ranges {
 }
 
 impl Range {
+    #[allow(dead_code)]
     fn constant(val: u64) -> Self {
         Self {
             lower_bound: Some(val),
@@ -32,6 +33,7 @@ impl Range {
         }
     }
 
+    #[allow(dead_code)]
     fn uint(upper: u64) -> Self {
         Self {
             lower_bound: Some(0),
@@ -49,6 +51,7 @@ impl Analysis for Ranges {
     }
 }
 
+#[allow(dead_code)]
 impl Ranges {
     fn run_loop(&mut self, func: &mut Function, state: &GlobalState) -> bool {
         for block in func.node_ids() {
@@ -139,6 +142,7 @@ impl Ranges {
     }
 }
 
+#[allow(dead_code)]
 impl Ranges {
     /// The possible range of values of any values, if applicable. Returns unbounded range if no range
     /// can be determined, or the type is not an integer.
@@ -164,6 +168,7 @@ pub(crate) fn val_id(val: &Value) -> Option<Id> {
     }
 }
 
+#[allow(dead_code)]
 fn is_uint(ty: Type) -> bool {
     matches!(ty.elem_type(), ElemType::UInt(_))
 }
