@@ -20,6 +20,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use cubecl_common::{backtrace::BackTrace, stub::Arc};
 use cubecl_ir::MemoryDeviceProperties;
+use hashbrown::HashSet;
 
 pub use super::memory_pool::{ManagedMemoryBinding, handle::*};
 
@@ -129,12 +130,17 @@ pub struct MemoryManagement<Storage> {
 
 /// While a graph capture is active, allocations are forced into the persistent
 /// pool; slices there stay freely reusable during the window (warmup populates
-/// them, the capture run reuses them), and `capture_end` pins the whole pool.
+/// them, the capture run reuses them), and `capture_end` hands the graph every
+/// slice that wasn't already someone else's when the window opened.
 struct CaptureState {
     /// The mode to restore at `capture_end`. Mid-capture [`mode`] changes land
     /// here instead of taking effect, so they can't reroute capture allocations
     /// away from the persistent pool.
     restore_mode: MemoryAllocationMode,
+    /// Ids of the persistent slices in use when the window opened: the
+    /// pre-existing buffers (weights, graph inputs created earlier) that the
+    /// graph must not claim.
+    preexisting: HashSet<ManagedMemoryId>,
 }
 
 fn generate_bucket_sizes(
@@ -370,36 +376,40 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Begin a graph capture: force every allocation into the persistent pool
-    /// (stable slices whose pages are never released), which
-    /// [`capture_end`](Self::capture_end) pins wholesale. Slices stay reusable
-    /// *within* the window — warmup populates the pool, then the capture run
-    /// reuses those slices without a fresh device allocation (illegal
-    /// mid-capture). Sets the mode directly, overriding the config gate that
-    /// [`mode`](Self::mode) honors. If a capture is already active, only the
-    /// mode is re-forced — the original capture keeps its restore state.
+    /// — exact-fit slices with no bucket padding, which is what a graph's
+    /// static shapes want — and snapshot the ids of the slices already in use.
+    /// Those pre-existing buffers belong to whoever holds their handles;
+    /// everything else the pool contains at [`capture_end`](Self::capture_end)
+    /// belongs to the graph. Slices stay reusable *within* the window — warmup
+    /// populates the pool, then the capture run reuses those slices without a
+    /// fresh device allocation (illegal mid-capture). Sets the mode directly,
+    /// overriding the config gate that [`mode`](Self::mode) honors. If a
+    /// capture is already active, only the mode is re-forced — the original
+    /// capture keeps its snapshot and restore state.
     pub fn capture_begin(&mut self) {
         if self.capture.is_none() {
             self.capture = Some(CaptureState {
                 restore_mode: self.mode,
+                preexisting: self.persistent.ids_in_use(),
             });
         }
         self.mode = MemoryAllocationMode::Persistent;
     }
 
-    /// End a graph capture: restore the previous allocation mode and return a
-    /// retained handle to every slice in the persistent pool. The caller pins
-    /// these on the graph so the pool never reuses graph memory (which a
-    /// replay would corrupt) — or drops them to unpin, if the capture failed.
-    /// Pinning the whole pool over-retains slices the graph never touched, but
-    /// persistent slices are long-lived by definition and handle clones cost
-    /// nothing; in exchange no bookkeeping can go stale, however the pool
-    /// reorganizes or reuses slices predating the capture. Empty if no capture
-    /// was active.
+    /// End a graph capture: restore the previous allocation mode, resample the
+    /// persistent pool, and return a retained handle to every slice that is
+    /// not a pre-existing in-use buffer from the [`capture_begin`] snapshot —
+    /// the slices the window allocated, plus the free ones it may have reused.
+    /// The caller pins these on the graph so the pool never reuses graph
+    /// memory (which a replay would corrupt); dropping the graph drops the
+    /// handles and releases the slices. Pre-existing live buffers are never
+    /// retained, so their reuse and in-place (`can_mut`) semantics are
+    /// untouched. Empty if no capture was active.
     pub fn capture_end(&mut self) -> Vec<ManagedMemoryHandle> {
         match self.capture.take() {
             Some(capture) => {
                 self.mode = capture.restore_mode;
-                self.persistent.retain_all()
+                self.persistent.retain_new(&capture.preexisting)
             }
             None => Vec::new(),
         }
@@ -442,7 +452,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         // The persistent pool is untouchable during a capture: the window's
         // free slices are exactly what the capture run reuses (deallocating
         // one forces a fresh device allocation mid-capture, which faults), and
-        // `capture_end` pins the pool wholesale.
+        // `capture_end` still has to resample them.
         if self.capture.is_none() {
             self.persistent
                 .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
@@ -1209,6 +1219,36 @@ mod tests {
         assert!(
             memory_management.capture_end().is_empty(),
             "capture must be fully disarmed"
+        );
+    }
+
+    #[test_log::test]
+    fn capture_leaves_preexisting_buffers_alone() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::ExclusivePages,
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        // A persistent buffer that predates the capture and stays alive
+        // through it (weights, a graph input created earlier).
+        memory_management.capture_begin();
+        let preexisting = memory_management.reserve(1024).unwrap();
+        drop(memory_management.capture_end());
+
+        memory_management.capture_begin();
+        let window = memory_management.reserve(2048).unwrap();
+        drop(window);
+        let pins = memory_management.capture_end();
+
+        // Only the window's slice is claimed; the pre-existing buffer keeps a
+        // single user reference, so in-place ops on it keep working.
+        assert_eq!(pins.len(), 1, "only the window's slice belongs to the graph");
+        assert!(
+            preexisting.can_mut(),
+            "a capture must not claim pre-existing live buffers"
         );
     }
 

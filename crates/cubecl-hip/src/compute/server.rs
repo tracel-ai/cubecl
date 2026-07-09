@@ -178,10 +178,11 @@ impl ComputeServer for HipServer {
             },
         )?;
         // Route every allocation from here until `end_capture` into the
-        // persistent pool and snapshot it. Called before the warmup run, so the
-        // pool is warm before `begin_capture` — the capture window then reuses
-        // those slices with no `hipMalloc` (which would be illegal mid-capture,
-        // HIP status 901). `end_capture` pins the snapshotted slices.
+        // persistent pool and snapshot which slices are already in use. Called
+        // before the warmup run, so the pool is warm before `begin_capture` —
+        // the capture window then reuses those slices with no `hipMalloc`
+        // (which would be illegal mid-capture, HIP status 901). `end_capture`
+        // pins everything the window added on the graph.
         //
         // Both pools are armed: the GPU pool for tensor and kernel-info buffers,
         // and the pinned CPU pool that stages each kernel's info bytes to the
