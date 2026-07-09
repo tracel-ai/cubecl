@@ -29,11 +29,17 @@ pub fn build_kernel<R: Runtime>(
         )
     });
 
+    // `CHAINS` independent accumulators per lane, each retiring one fma (two flops) or one mul.
+    let ops_per_chain = if use_fma { 2 } else { 1 };
     let ops_count =
-        if use_fma { 8 } else { 4 } * config.cube_count * config.cube_dim * config.vector_size;
+        ops_per_chain * CHAINS * config.cube_count * config.cube_dim * config.vector_size;
 
     KernelConfig { kernel, ops_count }
 }
+
+/// Independent accumulator chains per lane, to hide the arithmetic latency of the dependent
+/// `sum = fma(sum, b, c)` recurrence.
+const CHAINS: usize = 4;
 
 #[cube(launch_unchecked)]
 pub fn compute_direct_throughput<I: Numeric, N: Size>(
@@ -44,13 +50,29 @@ pub fn compute_direct_throughput<I: Numeric, N: Size>(
 ) {
     let tid = I::cast_from(ABSOLUTE_POS);
 
-    let b = Vector::new(tid * I::cast_from(1) + I::cast_from(1));
-    let c = Vector::new(tid * I::cast_from(1));
+    let mut b = Vector::<I, N>::empty();
+    let mut c = Vector::<I, N>::empty();
 
-    let mut s0 = Vector::new(I::cast_from(1));
-    let mut s1 = Vector::new(I::cast_from(1));
-    let mut s2 = Vector::new(I::cast_from(1));
-    let mut s3 = Vector::new(I::cast_from(1));
+    let mut s0 = Vector::<I, N>::empty();
+    let mut s1 = Vector::<I, N>::empty();
+    let mut s2 = Vector::<I, N>::empty();
+    let mut s3 = Vector::<I, N>::empty();
+
+    // Every lane and every chain gets a distinct seed. Values that are provably equal get folded:
+    // a broadcast (`Vector::new`) collapses the vector to one lane, and identically seeded chains
+    // collapse to one chain. Either way the kernel retires fewer operations than `ops_count` bills.
+    let lanes = b.vector_size();
+    #[unroll]
+    for lane in 0..lanes {
+        let offset = I::cast_from(lane);
+        b.insert(lane, tid + offset + I::cast_from(1));
+        c.insert(lane, tid + offset);
+
+        s0.insert(lane, offset + I::cast_from(1));
+        s1.insert(lane, offset + I::cast_from(2));
+        s2.insert(lane, offset + I::cast_from(3));
+        s3.insert(lane, offset + I::cast_from(4));
+    }
 
     for _ in 0..n_iter {
         if use_fma {
@@ -66,6 +88,7 @@ pub fn compute_direct_throughput<I: Numeric, N: Size>(
             s3 *= b;
         }
     }
+
     let sum = s0 + s1 + s2 + s3;
 
     if ABSOLUTE_POS == 0 {

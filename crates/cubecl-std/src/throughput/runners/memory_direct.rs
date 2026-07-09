@@ -4,6 +4,18 @@ use cubecl_runtime::throughput::{KernelConfig, ThroughputKey};
 
 use crate::throughput::LaunchConfig;
 
+/// Per-buffer size, clamped to the largest allocation the device permits.
+///
+/// The kernel sweeps its buffers `n_iter` times and the benchmarker keeps the fastest sample, so
+/// any reuse across passes is what gets reported. The buffer must therefore be large enough that a
+/// warm pass costs the same as a cold one; cache capacity is not a reliable guide to that size. On
+/// an RTX 4070 Ti SUPER (48 MiB L2, 672 GB/s) a 128 MiB buffer makes warm passes 4x cheaper than
+/// the cold one and reports 2607 GB/s, 256 MiB reports 764 GB/s, and only at 512 MiB do warm and
+/// cold agree, at 602 GB/s.
+const TARGET_BYTES: usize = 512 * 1024 * 1024;
+
+/// Builds the copy kernel, sizing each of the two buffers as close to [`TARGET_BYTES`] as the
+/// device's maximum allocation and the line width allow.
 pub fn build_kernel<R: Runtime>(
     client: &ComputeClient<R>,
     key: ThroughputKey,
@@ -14,7 +26,6 @@ pub fn build_kernel<R: Runtime>(
 
     let line_bytes = config.vector_size * dtype.size();
 
-    const TARGET_BYTES: usize = 256 * 1024 * 1024;
     let max_alloc = client.properties().memory.max_page_size as usize;
     let target = TARGET_BYTES.min(max_alloc);
 
@@ -22,17 +33,17 @@ pub fn build_kernel<R: Runtime>(
     let num_lines = (target / line_bytes).max(total_threads);
     let bytes = num_lines * line_bytes;
 
-    let kernel = Box::new(move |iterations: usize| unsafe {
-        let in_handle = client.empty(bytes);
-        let out_handle = client.empty(bytes);
+    let in_handle = client.empty(bytes);
+    let out_handle = client.empty(bytes);
 
+    let kernel = Box::new(move |iterations: usize| unsafe {
         memory_direct_throughput::launch_unchecked(
             &client,
             CubeCount::Static(config.cube_count as u32, 1, 1),
             CubeDim::new(&client, config.cube_dim),
             config.vector_size,
-            BufferArg::from_raw_parts(in_handle, num_lines),
-            BufferArg::from_raw_parts(out_handle, num_lines),
+            BufferArg::from_raw_parts(in_handle.clone(), num_lines),
+            BufferArg::from_raw_parts(out_handle.clone(), num_lines),
             iterations,
             dtype.into(),
         )

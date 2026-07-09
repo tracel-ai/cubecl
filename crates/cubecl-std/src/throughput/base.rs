@@ -1,8 +1,8 @@
-use core::time::Duration;
 use cubecl_core::ir::ElemType;
 use cubecl_runtime::{
     client::ComputeClient,
     runtime::Runtime,
+    server::CubeDim,
     throughput::{ThroughputKey, ThroughputMode, ThroughputValue},
 };
 
@@ -19,10 +19,7 @@ pub fn measure_peak_throughput<R: Runtime>(
         ThroughputMode::ComputeDirect => compute_direct::build_kernel(client, key, launch_config),
         ThroughputMode::ComputeCmma(cmma_config) => {
             if client.properties().features.matmul.cmma.is_empty() {
-                return ThroughputValue {
-                    ops_count: 0,
-                    duration: Duration::ZERO,
-                };
+                return ThroughputValue::ZERO;
             }
             compute_cmma::build_kernel(client, key, cmma_config, launch_config)
         }
@@ -49,9 +46,11 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
     let hardware = &client.properties().hardware;
 
     let plane_size = hardware.plane_size_max.max(1);
-    let cube_dim = (hardware.max_units_per_cube / plane_size * plane_size)
+    let requested = (hardware.max_units_per_cube / plane_size * plane_size)
         .max(plane_size)
         .min(hardware.max_cube_dim.0);
+
+    let cube_dim = CubeDim::new(client, requested as usize).num_elems();
 
     let sms = hardware.num_streaming_multiprocessors.unwrap_or(64);
     let cube_count = (sms * 32).min(hardware.max_cube_count.0);
