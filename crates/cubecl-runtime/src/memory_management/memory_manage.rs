@@ -247,6 +247,28 @@ enum MemoryAllocationOption {
     Provided(MemoryAllocationMode),
 }
 
+impl MemoryConfiguration {
+    /// Resolve this configuration against the global dynamic-pool strategy
+    /// ([`DynamicPoolConfig`](crate::config::memory::DynamicPoolConfig)) for a
+    /// pool with the given `properties`.
+    ///
+    /// [`SingleSliced`](crate::config::memory::DynamicPoolConfig::SingleSliced)
+    /// replaces the dynamic pools with one coalescing arena (returned as a
+    /// [`Custom`](Self::Custom) config); the default `Auto` keeps `self`
+    /// unchanged. The server calls this when it decides a pool's configuration,
+    /// so [`MemoryManagement::from_configuration`] purely honors the config it is
+    /// handed rather than silently overriding it from a global.
+    pub fn resolve(self, properties: &MemoryDeviceProperties) -> Self {
+        match single_sliced_pool_options(
+            &CubeClRuntimeConfig::get().memory.dynamic_pool,
+            properties,
+        ) {
+            Some(pool_options) => MemoryConfiguration::Custom { pool_options },
+            None => self,
+        }
+    }
+}
+
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
@@ -256,7 +278,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         logger: Arc<ServerLogger>,
         options: MemoryManagementOptions,
     ) -> Self {
-        let mut pool_options = match config {
+        let pool_options = match config {
             #[cfg(not(exclusive_memory_only))]
             MemoryConfiguration::SubSlices => {
                 // Round chunk size to be aligned.
@@ -348,16 +370,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             }
             MemoryConfiguration::Custom { pool_options } => pool_options,
         };
-
-        // A configured single-sliced arena overrides whatever the runtime asked
-        // for: route every dynamic allocation through one coalescing pool so
-        // allocations of every size reuse the same chunks, instead of each
-        // size-bucketed pool retaining its own peak reservation forever.
-        if let Some(single) =
-            single_sliced_pool_options(&CubeClRuntimeConfig::get().memory.dynamic_pool, properties)
-        {
-            pool_options = single;
-        }
 
         logger.log_memory(
             |level| !matches!(level, MemoryLogLevel::Disabled),

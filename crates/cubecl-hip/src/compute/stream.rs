@@ -117,22 +117,25 @@ impl EventStreamBackend for HipStreamBackend {
         };
         let storage = GpuStorage::new(self.mem_alignment, stream);
 
+        // Resolve the configured dynamic-pool strategy here (the server), so
+        // `from_configuration` purely honors the config it's handed.
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,
             &self.mem_props,
-            self.mem_config.clone(),
+            self.mem_config.clone().resolve(&self.mem_props),
             self.logger.clone(),
             MemoryManagementOptions::new("Main GPU Memory"),
         );
         // We use the same page size and memory pools configuration for CPU pinned memory, since we
         // expect the CPU to have at least the same amount of RAM as GPU memory.
+        let cpu_props = MemoryDeviceProperties {
+            max_page_size: self.mem_props.max_page_size,
+            alignment: PINNED_MEMORY_ALIGNMENT as u64,
+        };
         let memory_management_cpu = MemoryManagement::from_configuration(
             PinnedMemoryStorage::new(stream),
-            &MemoryDeviceProperties {
-                max_page_size: self.mem_props.max_page_size,
-                alignment: PINNED_MEMORY_ALIGNMENT as u64,
-            },
-            self.mem_config.clone(),
+            &cpu_props,
+            self.mem_config.clone().resolve(&cpu_props),
             self.logger.clone(),
             MemoryManagementOptions::new("Pinned CPU Memory").mode(MemoryAllocationMode::Auto),
         );

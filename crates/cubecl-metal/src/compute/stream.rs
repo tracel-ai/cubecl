@@ -267,10 +267,12 @@ impl EventStreamBackend for MetalStreamBackend {
             .expect("Failed to create shared event");
 
         let storage = MetalStorage::new(self.device.clone());
+        // Resolve the configured dynamic-pool strategy here (the server), so
+        // `from_configuration` purely honors the config it's handed.
         let memory_management = MemoryManagement::from_configuration(
             storage,
             &self.mem_props,
-            self.mem_config.clone(),
+            self.mem_config.clone().resolve(&self.mem_props),
             self.logger.clone(),
             MemoryManagementOptions::new("Metal GPU Memory"),
         );

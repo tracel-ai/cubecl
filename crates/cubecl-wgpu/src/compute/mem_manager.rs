@@ -45,7 +45,9 @@ impl WgpuMemManager {
                 use_vulkan_compiler,
             ),
             &memory_properties,
-            memory_config,
+            // Resolve the configured dynamic-pool strategy here (the server), so
+            // `from_configuration` purely honors the config it's handed.
+            memory_config.resolve(&memory_properties),
             logger.clone(),
             MemoryManagementOptions::new("Main GPU Memory"),
         );
@@ -60,7 +62,7 @@ impl WgpuMemManager {
             &memory_properties,
             // Unfortunately, we can't reuse a different part of a buffer for different reads, so we
             // can't have a single binding with multiple slices allocated.
-            MemoryConfiguration::ExclusivePages,
+            MemoryConfiguration::ExclusivePages.resolve(&memory_properties),
             logger.clone(),
             MemoryManagementOptions::new("Staging CPU Memory").mode(MemoryAllocationMode::Auto),
         );
@@ -75,7 +77,7 @@ impl WgpuMemManager {
                 use_vulkan_compiler,
             ),
             &memory_properties,
-            MemoryConfiguration::ExclusivePages,
+            MemoryConfiguration::ExclusivePages.resolve(&memory_properties),
             logger,
             MemoryManagementOptions::new("Uniform GPU Memory").mode(MemoryAllocationMode::Auto),
         );
