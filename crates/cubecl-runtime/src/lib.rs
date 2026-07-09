@@ -31,6 +31,8 @@ pub mod tune;
 
 /// Memory management module.
 pub mod memory_management;
+/// Cache of per-launch kernel metadata info buffers.
+pub mod metadata_cache;
 /// Compute server module.
 pub mod server;
 /// Compute Storage module.
