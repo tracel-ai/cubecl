@@ -11,6 +11,7 @@ use hashbrown::HashMap;
 use pliron::{
     basic_block::BasicBlock,
     builtin::{
+        attributes::VecAttr,
         op_interfaces::{OneResultInterface, SingleBlockRegionInterface},
         ops::{ConstantOp, FuncOp, ModuleOp},
         type_interfaces::FunctionTypeInterface,
@@ -34,8 +35,8 @@ use crate::{
     AddressSpace, AddressType, DeviceProperties, ElemType, FastMath, TargetProperties, TypeHash,
     arena::DropBump,
     attributes::{
-        ATTR_BUFFER_BINDING, ATTR_TENSOR_MAP_BINDING, BufferBindingAttr, EntrypointAbiAttr,
-        EntrypointInterface, FuncInterface, IndexAttr,
+        ATTR_BUFFER_BINDING, ATTR_KEY_ARG_ATTRS, ATTR_TENSOR_MAP_BINDING, BufferBindingAttr,
+        EntrypointAbiAttr, EntrypointInterface, FuncInterface, IndexAttr,
     },
     dialect::{
         branch::{ReturnOp, YieldOp},
@@ -213,6 +214,7 @@ impl ContextExt for Context {
 
 pub trait FuncOpExt {
     fn push_argument(&self, ctx: &Context, ty: TypeHandle) -> usize;
+    fn pop_argument(&self, ctx: &Context);
 }
 
 impl FuncOpExt for FuncOp {
@@ -229,6 +231,26 @@ impl FuncOpExt for FuncOp {
         let new_func_ty = FunctionType::get(ctx, arg_types, res_types).to_handle();
         self.set_attr_func_type(ctx, new_func_ty.into());
         id
+    }
+
+    fn pop_argument(&self, ctx: &Context) {
+        let last_idx = self.get_entry_block(ctx).deref(ctx).get_num_arguments() - 1;
+        BasicBlock::pop_argument(self.get_entry_block(ctx), ctx);
+
+        let (mut arg_types, res_types) = {
+            let current_func_ty = self.get_type(ctx).deref(ctx);
+            let current_func_ty = current_func_ty.downcast_ref::<FunctionType>().unwrap();
+            (current_func_ty.arg_types(), current_func_ty.res_types())
+        };
+
+        arg_types.pop();
+        let new_func_ty = FunctionType::get(ctx, arg_types, res_types).to_handle();
+        self.set_attr_func_type(ctx, new_func_ty.into());
+        let mut op = self.get_operation().deref_mut(ctx);
+        let arg_attrs = op.attributes.0.get_mut(&ATTR_KEY_ARG_ATTRS);
+        if let Some(arg_attrs) = arg_attrs.and_then(|attr| attr.downcast_mut::<VecAttr>()) {
+            arg_attrs.0.truncate(last_idx);
+        }
     }
 }
 
@@ -435,6 +457,12 @@ impl Scope {
         self.inserter().append_op(ctx, op);
     }
 
+    /// Register an [`Instruction`] into the scope and return its result.
+    pub fn register_with_result(&self, op: &dyn OneResultInterface) -> Value {
+        self.register(op);
+        op.get_result(self.ctx())
+    }
+
     /// Terminate block with a `cube.yield` if not already terminated
     pub fn terminate_yield(&self) {
         let block = self.inserter().get_insertion_block(self.ctx());
@@ -567,14 +595,12 @@ impl Scope {
     pub fn extract_field(&self, aggregate: Value, field: usize) -> Value {
         let ctx = self.ctx_mut();
         let op = AggregateExtractOp::new(ctx, aggregate, field);
-        self.register(&op);
-        op.get_result(ctx)
+        self.register_with_result(&op)
     }
 
     pub fn const_usize(&self, value: usize) -> Value {
         let op = ConstantOp::new(self.ctx_mut(), IndexAttr::new(value).into());
-        self.register(&op);
-        op.get_result(self.ctx())
+        self.register_with_result(&op)
     }
 
     pub fn into_context(self) -> Option<Context> {

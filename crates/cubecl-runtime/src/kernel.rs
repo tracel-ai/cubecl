@@ -1,7 +1,6 @@
 use alloc::{
     boxed::Box,
     string::{String, ToString},
-    vec::Vec,
 };
 use core::{
     fmt::Display,
@@ -41,7 +40,6 @@ pub trait KernelMetadata: Send + Sync + 'static {
 
 #[allow(missing_docs)]
 pub struct KernelDefinition {
-    pub scalars: Vec<ScalarKernelArg>,
     pub body: Scope,
     pub info: Info,
     pub settings: KernelSettings,

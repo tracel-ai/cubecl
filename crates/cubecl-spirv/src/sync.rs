@@ -1,7 +1,3 @@
-use rspirv::spirv::{MemorySemantics, Scope};
-
-use crate::{SpirvCompiler, SpirvTarget};
-
 // impl<T: SpirvTarget> SpirvCompiler<T> {
 //     pub fn compile_sync(&mut self, sync: Synchronization) {
 //         match sync {

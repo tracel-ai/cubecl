@@ -125,12 +125,10 @@ impl LowerOp for DeclareVariableOp {
             AddressSpace::Local => {
                 if value_ty.get_type(ctx).deref(ctx).is::<MatrixType>() {
                     let op = DeclareMatrixOp::new(scope.ctx_mut(), value_ty);
-                    scope.register(&op);
-                    op.get_result(scope.ctx())
+                    scope.register_with_result(&op)
                 } else {
                     let op = DeclareLocalOp::new(scope.ctx_mut(), value_ty);
-                    scope.register(&op);
-                    op.get_result(scope.ctx())
+                    scope.register_with_result(&op)
                 }
             }
         }]

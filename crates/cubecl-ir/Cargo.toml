@@ -22,7 +22,7 @@ workspace = true
 default = ["serde"]
 
 serde = ["dep:serde", "hashbrown/serde", "enumset/serde"]
-
+spirv = ["dep:pliron-spirv"]
 tracing = ["cubecl-common/tracing"]
 
 [dependencies]
@@ -33,6 +33,7 @@ cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-
 cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "=0.11.0-pre.1" }
 
 pliron = { workspace = true }
+pliron-spirv = { workspace = true, optional = true }
 
 bumpalo = { workspace = true }
 derive-new = { workspace = true }

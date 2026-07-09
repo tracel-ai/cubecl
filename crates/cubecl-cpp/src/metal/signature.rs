@@ -51,13 +51,11 @@ fn gen_param(ctx: &Context, func: &FuncOp, i: usize, arg: Value) -> String {
     segments.push(arg.get_type(ctx).to_cpp(ctx));
     segments.push("const".into());
     segments.push(arg.name(ctx).to_string());
-    if let Some(binding) = func.get_arg_attr(ctx, i, &ATTR_BUFFER_BINDING) {
-        let binding = binding.downcast_ref::<BufferBindingAttr>().unwrap();
+    if let Some(binding) = func.get_arg_attr::<BufferBindingAttr>(ctx, i, &ATTR_BUFFER_BINDING) {
         segments.push(format!("[[buffer({})]]", binding.buffer_pos));
     }
-    if let Some(builtin) = func.get_arg_attr(ctx, i, &ATTR_BUILTIN_ATTRIBUTE) {
-        let builtin = builtin.downcast_ref::<BuiltinAttr>().unwrap().0;
-        segments.push(format!("{builtin}"));
+    if let Some(builtin) = func.get_arg_attr::<BuiltinAttr>(ctx, i, &ATTR_BUILTIN_ATTRIBUTE) {
+        segments.push(format!("{}", builtin.0));
     }
     segments.join(" ")
 }

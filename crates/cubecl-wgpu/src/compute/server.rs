@@ -10,7 +10,7 @@ use cubecl_common::{
     profile::{ProfileDuration, TimingMethod},
     stream_id::StreamId,
 };
-use cubecl_core::server::{BufferBinding, StreamErrorMode};
+use cubecl_core::server::{BufferBinding, KernelResource, StreamErrorMode};
 use cubecl_core::zspace::Shape;
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
@@ -147,12 +147,17 @@ impl<C: WgpuCompiler> WgpuServer<C> {
     ) -> Result<BindingsResource, IoError> {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
-        let mut resources = Vec::with_capacity(bindings.buffers.len());
+        let mut resources = Vec::with_capacity(bindings.resources.len());
 
-        for b in bindings.buffers.into_iter() {
-            let stream = self.scheduler.stream(&b.stream);
-            let resource = stream.mem_manage.get_resource(b)?;
-            resources.push(resource);
+        for resource in bindings.resources.into_iter() {
+            match resource {
+                KernelResource::Buffer(b) => {
+                    let stream = self.scheduler.stream(&b.stream);
+                    let resource = stream.mem_manage.get_resource(b)?;
+                    resources.push(resource);
+                }
+                KernelResource::TensorMap(_) => panic!("Tensor map not supported in wgpu"),
+            }
         }
 
         Ok(BindingsResource {
@@ -166,10 +171,9 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         &mut self,
         kernel: <Self as ComputeServer>::Kernel,
         bindings: &KernelArguments,
-        mode: ExecutionMode,
     ) -> Result<(Arc<ComputePipeline>, CompilerInfo), LaunchError> {
-        let mut kernel_id = kernel.id();
-        kernel_id.mode(mode);
+        let kernel_id = kernel.id();
+        let mode = kernel_id.mode;
 
         if let Some(pipeline) = self.pipelines.get(&kernel_id) {
             return Ok(pipeline.clone());
@@ -186,7 +190,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         validate_units(&self.utilities.properties, &kernel_id)?;
 
         let mut compiler = C::init(self.backend, &self.compilation_options);
-        let mut compiled = compiler.compile_kernel(self, kernel, mode)?;
+        let mut compiled = compiler.compile_kernel(self, kernel)?;
 
         if self.scheduler.logger.compilation_activated() {
             compiled.debug_info = Some(DebugInformation::new(
@@ -228,7 +232,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
 
         let module = self.create_module(
             &compiled.entrypoint_name,
-            kernel_id.cube_dim,
+            kernel_id.cube_dim.into(),
             repr,
             &compiled.source,
             mode,
@@ -369,10 +373,9 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         kernel: Self::Kernel,
         count: CubeCount,
         args: KernelArguments,
-        mode: ExecutionMode,
         stream_id: StreamId,
     ) {
-        let (pipeline, compiler_info) = match self.pipeline(kernel, &args, mode) {
+        let (pipeline, compiler_info) = match self.pipeline(kernel, &args) {
             Ok(val) => val,
             Err(err) => {
                 // We make the stream that would execute the kernel in error.
@@ -383,9 +386,12 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         };
 
         self.streams_pool.clear();
-        args.buffers
-            .iter()
-            .for_each(|b| self.streams_pool.push(b.stream));
+        args.resources.iter().for_each(|resource| match resource {
+            KernelResource::Buffer(b) => self.streams_pool.push(b.stream),
+            KernelResource::TensorMap(_) => {
+                panic!("Tensor maps not supported in WGPU")
+            }
+        });
 
         let resources = match self.prepare_bindings(args, compiler_info) {
             Ok(val) => val,

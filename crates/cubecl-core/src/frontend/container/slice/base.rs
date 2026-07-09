@@ -15,10 +15,7 @@ use cubecl_ir::{
         general::{AggregateConstructOp, ReinterpretCastOp},
     },
     interfaces::{TypedExt, aliasing::PointerExt},
-    pliron::{
-        builtin::op_interfaces::OneResultInterface, context::Context, printable::Printable,
-        r#type::Typed, value::Value,
-    },
+    pliron::{context::Context, printable::Printable, r#type::Typed, value::Value},
     types::{
         ArrayType, PointerType, RuntimeArrayType, VectorType,
         aggregate::{MetadataKind, PtrAggregateType},
@@ -80,10 +77,9 @@ fn buffer_binding(scope: &Scope, list: Value) -> BufferBindingAttr {
     };
     let func = entry_block.deref(ctx).get_parent_op(ctx).unwrap();
     let func = func.as_op::<FuncOp>(ctx).expect("Should be function");
-    let binding = func
-        .get_arg_attr(scope.ctx(), idx, &ATTR_BUFFER_BINDING)
-        .expect("Should be buffer binding");
-    *binding.downcast_ref::<BufferBindingAttr>().unwrap()
+    *func
+        .get_arg_attr::<BufferBindingAttr>(scope.ctx(), idx, &ATTR_BUFFER_BINDING)
+        .expect("Should be buffer binding")
 }
 
 pub trait SliceVectorExt<E: Scalar, N: Size> {
@@ -142,8 +138,7 @@ impl<E: Scalar, N: Size> SliceExpand<Vector<E, N>> {
 
         let new_ptr_ty = change_list_vectorization(scope.ctx_mut(), list, vector_size);
         let reinterpret = ReinterpretCastOp::new(scope.ctx_mut(), new_ptr_ty, list);
-        scope.register(&reinterpret);
-        let new_ptr = reinterpret.get_result(scope.ctx());
+        let new_ptr = scope.register_with_result(&reinterpret);
 
         if current < vector_size {
             let ratio = vector_size / current;
@@ -537,8 +532,7 @@ pub fn from_raw_parts<E: CubePrimitive>(
     let length = length.read_value(scope);
     let ty = PtrAggregateType::get(scope.ctx(), list_ty, MetadataKind::Slice).to_handle();
     let op = AggregateConstructOp::new(scope.ctx_mut(), ty, vec![list, offset, length]);
-    scope.register(&op);
-    op.get_result(scope.ctx()).into()
+    scope.register_with_result(&op).into()
 }
 
 impl<E: CubePrimitive> SliceExpand<E> {

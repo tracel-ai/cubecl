@@ -8,127 +8,14 @@ use cubecl_core::ir::{
 use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,
-    graph::ControlFlowGraph,
     irbuild::inserter::{BlockInsertionPoint, Inserter},
     opts::constants::BranchOpFoldInterface,
-    region::Region,
 };
+use pliron_spirv::ops::{BranchOp, MergeOp, SelectionOp};
 
+// Custom branch because of `BoolType`
 #[pliron_op(
-    name = "spirv.selection",
-    format = "` -> ` types(CharSpace(`,`)) region($0)",
-    verifier = "succ"
-)]
-#[op_interfaces(NRegionsInterface<1>)]
-pub struct SelectionOp;
-
-impl SelectionOp {
-    pub fn new(ctx: &mut Context, result_types: Vec<TypeHandle>) -> Self {
-        let op = Operation::new(
-            ctx,
-            Self::get_concrete_op_info(),
-            result_types,
-            vec![],
-            vec![],
-            1,
-        );
-        let region = op.deref(ctx).get_region(0);
-        let entry_block = BasicBlock::new(ctx, None, vec![]);
-        entry_block.insert_at_front(region, ctx);
-        Self { op }
-    }
-
-    pub fn region(&self, ctx: &Context) -> Ptr<Region> {
-        self.get_operation().deref(ctx).get_region(0)
-    }
-
-    pub fn entry_block(&self, ctx: &Context) -> Ptr<BasicBlock> {
-        self.region(ctx).entry_node(ctx).unwrap()
-    }
-}
-
-#[pliron_op(name = "spirv.merge", format, verifier = "succ")]
-#[op_interfaces(IsTerminatorInterface)]
-#[op_traits(NoMemoryEffect)]
-pub struct MergeOp;
-
-impl MergeOp {
-    pub fn new(ctx: &mut Context, dest_opds: Vec<Value>) -> Self {
-        MergeOp {
-            op: Operation::new(
-                ctx,
-                Self::get_concrete_op_info(),
-                vec![],
-                dest_opds,
-                vec![],
-                0,
-            ),
-        }
-    }
-}
-
-#[pliron_op(
-    name = "spirv.branch",
-    format = "succ($0) `(` operands(CharSpace(`,`)) `)`",
-    verifier = "succ"
-)]
-#[op_interfaces(IsTerminatorInterface, NResultsInterface<0>, NSuccsInterface<1>, OneSuccInterface)]
-#[op_traits(NoMemoryEffect)]
-pub struct BranchOp;
-
-impl BranchOp {
-    pub fn new(ctx: &mut Context, dest: Ptr<BasicBlock>, dest_opds: Vec<Value>) -> Self {
-        BranchOp {
-            op: Operation::new(
-                ctx,
-                Self::get_concrete_op_info(),
-                vec![],
-                dest_opds,
-                vec![dest],
-                0,
-            ),
-        }
-    }
-}
-
-#[op_interface_impl]
-impl BranchOpInterface for BranchOp {
-    fn successor_operands(&self, ctx: &Context, succ_idx: usize) -> Vec<Value> {
-        self.get_operation().deref(ctx).operands().collect()
-    }
-
-    fn add_successor_operand(&self, ctx: &mut Context, succ_idx: usize, operand: Value) -> usize {
-        Operation::push_operand(self.get_operation(), ctx, operand)
-    }
-
-    fn remove_successor_operand(
-        &self,
-        ctx: &mut Context,
-        succ_idx: usize,
-        opd_idx: usize,
-    ) -> Value {
-        assert!(succ_idx == 0, "BrOp has exactly one successor");
-        Operation::remove_operand(self.get_operation(), ctx, opd_idx)
-    }
-}
-
-#[op_interface_impl]
-impl BranchOpFoldInterface for BranchOp {
-    fn check_fold(&self, ctx: &Context, _operands: &[Option<AttrObj>]) -> Vec<Ptr<BasicBlock>> {
-        self.get_operation().deref(ctx).successors().collect()
-    }
-    fn fold_in_place(
-        &self,
-        _ctx: &mut Context,
-        _ops: &[Option<AttrObj>],
-        _rw: &mut dyn Rewriter,
-    ) -> IRStatus {
-        IRStatus::Unchanged
-    }
-}
-
-#[pliron_op(
-    name = "spirv.branch_conditional",
+    name = "spirv.cube.branch_conditional",
     format = "succ($0) `(` operands(CharSpace(`,`)) `)`",
     operands = (condition: BoolType, true_dest_opds, false_dest_opds),
     verifier = "succ"
@@ -138,7 +25,7 @@ impl BranchOpFoldInterface for BranchOp {
 pub struct BranchConditionalOp;
 
 impl BranchConditionalOp {
-    /// Create a new [CondBrOp].
+    /// Create a new [`BranchConditionalOp`].
     pub fn new(
         ctx: &mut Context,
         condition: Value,
@@ -247,7 +134,7 @@ impl BranchOpFoldInterface for BranchConditionalOp {
 }
 
 #[op_interface]
-pub trait ToSpirvDialect {
+pub trait ToSpirvCFDialect {
     verify_op_succ!();
     fn rewrite(
         &self,
@@ -258,12 +145,12 @@ pub trait ToSpirvDialect {
 }
 
 #[op_interface_impl]
-impl ToSpirvDialect for IfOp {
+impl ToSpirvCFDialect for IfOp {
     fn rewrite(
         &self,
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
-        operands_info: &OperandsInfo,
+        _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let selection = SelectionOp::new(ctx, vec![]);
         let select_region = selection.region(ctx);
@@ -322,11 +209,14 @@ impl ToSpirvDialect for IfOp {
     }
 }
 
+pub type BranchToSpirvConversionPass = DialectConversionPass<BranchToSpirvConversion>;
+
+#[derive(Default)]
 pub struct BranchToSpirvConversion;
 
 impl DialectConversion for BranchToSpirvConversion {
     fn can_convert_op(&self, ctx: &Context, op: Ptr<Operation>) -> bool {
-        op.impls::<dyn ToSpirvDialect>(ctx)
+        op.impls::<dyn ToSpirvCFDialect>(ctx)
     }
 
     fn rewrite(
@@ -336,7 +226,7 @@ impl DialectConversion for BranchToSpirvConversion {
         op: Ptr<Operation>,
         operands_info: &OperandsInfo,
     ) -> Result<()> {
-        op_cast::<dyn ToSpirvDialect>(&*op.dyn_op(ctx))
+        op_cast::<dyn ToSpirvCFDialect>(&*op.dyn_op(ctx))
             .unwrap()
             .rewrite(ctx, rewriter, operands_info)
     }

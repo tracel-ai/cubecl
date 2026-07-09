@@ -1,10 +1,6 @@
 use core::ops::{Index, IndexMut};
 
-use cubecl_ir::{
-    ExpandValue, Scope,
-    dialect::memory::IndexOp,
-    pliron::{builtin::op_interfaces::OneResultInterface, value::Value},
-};
+use cubecl_ir::{ExpandValue, Scope, dialect::memory::IndexOp, pliron::value::Value};
 
 use crate::frontend::ReadValue;
 
@@ -98,8 +94,7 @@ where
     let index = index.read_value(scope);
 
     let index_op = IndexOp::maybe_checked(scope.ctx_mut(), list, index, checked);
-    scope.register(&index_op);
-    let out: ExpandValue = index_op.get_result(scope.ctx()).into();
+    let out: ExpandValue = scope.register_with_result(&index_op).into();
 
     scope.create_kernel_ref(out.into())
 }

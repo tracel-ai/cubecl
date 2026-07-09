@@ -46,14 +46,12 @@ where
     let [lhs, rhs] =
         normalize_same_vectorization(scope, [lhs.read_value(scope), rhs.read_value(scope)]);
     let op = func(scope.ctx_mut(), lhs, rhs);
-    scope.register(&op);
-    op.get_result(scope.ctx()).into()
+    scope.register_with_result(&op).into()
 }
 
 pub(crate) fn index_expand(scope: &Scope, list: Value, index: Value, checked: bool) -> Value {
     let op = IndexOp::maybe_checked(scope.ctx_mut(), list, index, checked);
-    scope.register(&op);
-    op.get_result(scope.ctx())
+    scope.register_with_result(&op)
 }
 
 pub(crate) fn assign_binop_expand<T: NativeCubeType + CanReadValue, O>(
@@ -71,8 +69,8 @@ pub(crate) fn assign_binop_expand<T: NativeCubeType + CanReadValue, O>(
     let [lhs_val, rhs] = normalize_same_vectorization(scope, [lhs_val, rhs]);
 
     let op = func(scope.ctx_mut(), lhs_val, rhs);
-    scope.register(&op);
-    assign::expand_element(scope, op.get_result(scope.ctx()).into(), lhs.expand);
+    let out = scope.register_with_result(&op);
+    assign::expand_element(scope, out.into(), lhs.expand);
 }
 
 pub fn unary_expand<F, O>(scope: &Scope, input: ExpandValue, func: F) -> ExpandValue
@@ -82,8 +80,7 @@ where
 {
     let input = input.read_value(scope);
     let op = func(scope.ctx_mut(), input);
-    scope.register(&op);
-    op.get_result(scope.ctx()).into()
+    scope.register_with_result(&op).into()
 }
 
 pub fn init_expand(scope: &Scope, input: ExpandValue, mutable: bool) -> ExpandValue {
@@ -96,8 +93,7 @@ pub fn init_expand(scope: &Scope, input: ExpandValue, mutable: bool) -> ExpandVa
         out.into()
     } else {
         let op = CopyOp::new(scope.ctx_mut(), input);
-        scope.register(&op);
-        op.get_result(scope.ctx()).into()
+        scope.register_with_result(&op).into()
     }
 }
 

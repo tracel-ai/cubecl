@@ -5,7 +5,10 @@ use derive_new::new;
 use pliron::{
     attribute::AttrObj,
     builtin::ops::ConstantOp,
-    graph::walkers::uninterruptible::immutable::walk_op,
+    graph::walkers::uninterruptible::{
+        immutable::{self},
+        mutable,
+    },
     irbuild::{
         dialect_conversion::apply_dialect_conversion,
         match_rewrite::{RewriterOrder, apply_match_rewrite},
@@ -112,6 +115,7 @@ fn const_operands(ctx: &Context, op: Ptr<Operation>) -> Vec<Option<AttrObj>> {
 }
 
 pub type VisitOpsCallback<T, State> = fn(&Context, &mut State, T);
+pub type VisitOpsMutCallback<T, State> = fn(&mut Context, &mut State, T);
 
 pub fn visit_all_ops_of_type<T: Op, State>(
     ctx: &Context,
@@ -119,7 +123,28 @@ pub fn visit_all_ops_of_type<T: Op, State>(
     root: Ptr<Operation>,
     callback: VisitOpsCallback<T, State>,
 ) {
-    walk_op(
+    immutable::walk_op(
+        ctx,
+        &mut (state, callback),
+        &WALKCONFIG_PREORDER_FORWARD,
+        root,
+        |ctx, (state, callback), node| {
+            if let IRNode::Operation(op) = node
+                && let Some(op) = op.as_op::<T>(ctx)
+            {
+                callback(ctx, state, op)
+            }
+        },
+    );
+}
+
+pub fn visit_all_ops_of_type_mut<T: Op, State>(
+    ctx: &mut Context,
+    state: &mut State,
+    root: Ptr<Operation>,
+    callback: VisitOpsMutCallback<T, State>,
+) {
+    mutable::walk_op(
         ctx,
         &mut (state, callback),
         &WALKCONFIG_PREORDER_FORWARD,

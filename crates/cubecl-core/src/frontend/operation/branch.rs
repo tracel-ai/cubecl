@@ -26,9 +26,7 @@ pub fn select_many<C: Scalar, N: Size>(
 }
 
 pub mod select {
-    use cubecl_ir::{
-        ExpandValue, dialect::general::SelectOp, pliron::builtin::op_interfaces::OneResultInterface,
-    };
+    use cubecl_ir::{ExpandValue, dialect::general::SelectOp};
 
     use super::*;
 
@@ -53,7 +51,6 @@ pub mod select {
         let [condition, then, or_else] =
             normalize_same_vectorization(scope, [condition, then, or_else]);
         let select = SelectOp::new(scope.ctx_mut(), condition, then, or_else);
-        scope.register(&select);
-        select.get_result(scope.ctx()).into()
+        scope.register_with_result(&select).into()
     }
 }

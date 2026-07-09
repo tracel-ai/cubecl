@@ -92,6 +92,15 @@ impl ScalarType for UIntType {
 }
 
 #[pliron_type(
+    name = "cube.poison",
+    format = "",
+    generate_get = true,
+    verifier = "succ"
+)]
+#[derive(Hash, PartialEq, Eq, Debug, Clone)]
+pub struct PoisonType;
+
+#[pliron_type(
     name = "cube.index",
     format = "",
     generate_get = true,

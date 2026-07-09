@@ -12,20 +12,14 @@ use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
 use derive_more::From;
 use float_ord::FloatOrd;
 use pliron::{
-    attribute::AttrObj,
-    builtin::{op_interfaces::OneResultInterface, ops::ConstantOp},
-    context::Context,
-    derive::format,
-    r#type::TypedHandle,
-    utils::apfloat::f64_to_double,
-    value::Value,
+    attribute::AttrObj, builtin::ops::ConstantOp, context::Context, derive::format,
+    r#type::TypedHandle, utils::apfloat::f64_to_double, value::Value,
 };
 
 pub fn read_value(scope: &Scope, val: Value) -> Value {
     if val.is_ptr(scope.ctx()) {
         let op = LoadOp::new(scope.ctx_mut(), val);
-        scope.register(&op);
-        op.get_result(scope.ctx())
+        scope.register_with_result(&op)
     } else {
         val
     }
@@ -54,8 +48,7 @@ impl ExpandValue {
                 let ctx = scope.ctx_mut();
                 let value = value.as_attribute(ctx, *ty);
                 let op = ConstantOp::new(scope.ctx_mut(), value);
-                scope.register(&op);
-                op.get_result(ctx)
+                scope.register_with_result(&op)
             }
         }
     }
