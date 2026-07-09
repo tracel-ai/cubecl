@@ -731,14 +731,14 @@ impl HipServer {
     fn replay_checked(&mut self, graph: GraphId, stream_id: StreamId) -> Result<(), ServerError> {
         // Copy the executable pointer out before borrowing a `command` (which
         // borrows `self`); a raw `hipGraphExec_t` is `Copy`.
-        let exec = self
-            .graphs
-            .get(&graph)
-            .map(|hip| hip.exec)
-            .ok_or_else(|| ServerError::Generic {
-                reason: "replay was given an unknown or already-destroyed graph".into(),
-                backtrace: BackTrace::capture(),
-            })?;
+        let exec =
+            self.graphs
+                .get(&graph)
+                .map(|hip| hip.exec)
+                .ok_or_else(|| ServerError::Generic {
+                    reason: "replay was given an unknown or already-destroyed graph".into(),
+                    backtrace: BackTrace::capture(),
+                })?;
         let mut command = self.command_no_inputs(
             stream_id,
             StreamErrorMode {
