@@ -62,12 +62,12 @@ fn hip_graph_capture_replay() {
     let graph = client.stop_capture().expect("stop_capture");
 
     // Replay executes the recorded launch; the output is input + 1.
-    graph.replay();
+    unsafe { graph.replay() };
     let out = client.read_one(output.clone()).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 
     // Replaying again re-runs it deterministically.
-    graph.replay();
+    unsafe { graph.replay() };
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 }
@@ -103,19 +103,17 @@ fn hip_graph_input_rewrite() {
     launch(&client);
     let graph = client.stop_capture().expect("stop_capture");
 
-    graph.replay();
+    unsafe { graph.replay() };
     let out = client.read_one(output.clone()).unwrap();
     assert_eq!(f32::from_bytes(&out), &[2.0, 3.0, 4.0, 5.0]);
 
     // Write new inputs into the captured buffer (same pointer), replay: the
     // output must reflect the new input, not the captured-time values.
-    client
-        .write(
-            &input,
-            Bytes::from_bytes_vec(f32::as_bytes(&[10.0, 20.0, 30.0, 40.0]).to_vec()),
-        )
-        .expect("write");
-    graph.replay();
+    client.write(
+        &input,
+        Bytes::from_bytes_vec(f32::as_bytes(&[10.0, 20.0, 30.0, 40.0]).to_vec()),
+    );
+    unsafe { graph.replay() };
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[11.0, 21.0, 31.0, 41.0]);
 }
@@ -189,7 +187,7 @@ fn hip_graph_intermediate_recycling() {
     // Replay. The graph's own OUTPUT is correct regardless: its first kernel
     // rewrites `tmp` before the second reads it (write-before-read), so
     // external reuse cannot corrupt the graph's result.
-    graph.replay();
+    unsafe { graph.replay() };
     let out_bytes = client.read_one(output).unwrap();
     let out = f32::from_bytes(&out_bytes);
     println!("graph output: {out:?} (want [4, 6, 8, 10])");

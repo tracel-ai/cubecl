@@ -87,12 +87,40 @@ impl<R: Runtime> Graph<R> {
     /// stream's error queue and surfaces on the next
     /// [`sync`](ComputeClient::sync)/[`flush`](ComputeClient::flush) (e.g. when
     /// reading the output back).
-    pub fn replay(&self) {
+    ///
+    /// # Safety
+    ///
+    /// The dispatch re-runs the recorded kernels against the raw device pointers
+    /// captured with them; nothing validates those buffers still exist or are
+    /// unshared. The caller must guarantee, until the replay's work completes on
+    /// the stream:
+    ///
+    /// - **Liveness** — every [`Handle`] the captured kernels read or wrote is
+    ///   still allocated. Freeing one returns its memory to the pool, and a
+    ///   later replay reads or corrupts whatever the allocator has since placed
+    ///   there.
+    /// - **No concurrent use** — no other stream or thread touches buffers the
+    ///   graph reads or writes while the replay executes; the replay is ordered
+    ///   only against work on its capture stream.
+    /// - **Same-stream refreshes** — input writes and output reads are issued on
+    ///   the capture stream (keep the client pinned to it via
+    ///   [`set_stream`](ComputeClient::set_stream), or do everything from the
+    ///   one client), so they order against the replay instead of racing it.
+    pub unsafe fn replay(&self) {
         let id = self.inner.id;
         let stream_id = self.inner.stream_id;
         self.inner
             .device
             .submit(move |server| server.replay(id, stream_id));
+    }
+}
+
+impl<R: Runtime> core::fmt::Debug for Graph<R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Graph")
+            .field("id", &self.inner.id)
+            .field("stream_id", &self.inner.stream_id)
+            .finish()
     }
 }
 
@@ -464,6 +492,24 @@ impl<R: Runtime> ComputeClient<R> {
         });
 
         Ok(output)
+    }
+
+    /// Write `data` into an existing allocation, in place (same device pointer).
+    ///
+    /// This is how a captured [`Graph`]'s inputs are refreshed between replays:
+    /// the graph records raw device pointers, so new input bytes must land in
+    /// the very buffer the capture read from. Issue it from the capture stream
+    /// (see the stream-ordering notes on [`Graph`]) so the write orders against
+    /// the replays instead of racing them.
+    ///
+    /// Non-blocking: the write is enqueued on this client's current stream.
+    pub fn write(&self, handle: &Handle, data: Bytes) {
+        let stream_id = self.stream_id();
+        let descriptor =
+            CopyDescriptor::new(handle.clone().binding(), [data.len()].into(), [1].into(), 1);
+        self.device.submit(move |server| {
+            server.write(vec![(descriptor, data)], stream_id);
+        });
     }
 
     /// Returns a resource handle containing the given [Bytes].
