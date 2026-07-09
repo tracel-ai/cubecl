@@ -3,6 +3,7 @@ mod server;
 pub(crate) mod command;
 pub(crate) mod context;
 pub(crate) mod fence;
+pub(crate) mod graph;
 pub(crate) mod io;
 pub(crate) mod storage;
 pub(crate) mod stream;

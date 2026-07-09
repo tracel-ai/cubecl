@@ -329,7 +329,8 @@ impl<'a> Command<'a> {
 
         current.drop_queue.push(data);
 
-        if should_flush {
+        // Defer fenced flushes while capturing — a host sync aborts the capture.
+        if should_flush && !current.capturing.is_recording() {
             current.drop_queue.flush(|| Fence::new(current.sys));
         }
 
@@ -415,7 +416,9 @@ impl<'a> Command<'a> {
             .ctx
             .execute_task(stream, kernel_id, dispatch_count, resources);
 
-        if stream.drop_queue.should_flush() {
+        // A fenced flush during capture would abort it; defer until the capture
+        // ends (the deferred staging buffers are reclaimed then).
+        if !stream.capturing.is_recording() && stream.drop_queue.should_flush() {
             stream.drop_queue.flush(|| Fence::new(stream.sys));
         }
 
@@ -558,10 +561,20 @@ unsafe fn write_to_gpu(
             assert_eq!(status, HIP_SUCCESS, "Should send data to device");
         }
     } else {
-        // SAFETY: For rank <= 1 data is contiguous. The assertion ensures the device
-        // allocation is large enough. `ptr` points to valid host data of `data.len()` bytes.
+        if resource.size < data.len() as u64 {
+            return Err(IoError::Unknown {
+                description: format!(
+                    "write of {} bytes exceeds the target buffer of {} bytes",
+                    data.len(),
+                    resource.size
+                ),
+                backtrace: BackTrace::capture(),
+            });
+        }
+        // SAFETY: For rank <= 1 data is contiguous, the bound check above ensures the
+        // device allocation is large enough, and `ptr` points to valid host data of
+        // `data.len()` bytes.
         unsafe {
-            assert!(resource.size >= data.len() as u64);
             let status = cubecl_hip_sys::hipMemcpyHtoDAsync(resource.ptr, ptr, data.len(), stream);
             assert_eq!(status, HIP_SUCCESS, "Should send data to device");
         }

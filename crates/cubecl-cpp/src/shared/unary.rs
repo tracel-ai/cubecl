@@ -420,6 +420,14 @@ impl<D: Dialect> Unary<D> for Assign {
         if elem != input.elem() {
             match elem {
                 Elem::TF32 => write!(f, "nvcuda::wmma::__float_to_tf32({input})"),
+                // A direct construction between the two half types is
+                // ambiguous on HIP — `__hip_bfloat16` exposes a dozen implicit
+                // conversion operators, so `__half(bf16)` (and the reverse)
+                // fails to compile. Route half<->half through `float`, which
+                // is a single unambiguous conversion on every dialect.
+                elem if is_half(elem) && is_half(input.elem()) => {
+                    write!(f, "{elem}(float({input}))")
+                }
                 elem => write!(f, "{elem}({input})"),
             }
         } else {
@@ -430,6 +438,12 @@ impl<D: Dialect> Unary<D> for Assign {
     fn can_optimize() -> bool {
         false
     }
+}
+
+/// The two scalar half-precision float types, whose direct
+/// interconstruction is ambiguous on HIP.
+fn is_half<D: Dialect>(elem: Elem<D>) -> bool {
+    matches!(elem, Elem::F16 | Elem::BF16)
 }
 
 fn elem_function_name<D: Dialect>(base_name: &'static str, elem: Elem<D>) -> String {
