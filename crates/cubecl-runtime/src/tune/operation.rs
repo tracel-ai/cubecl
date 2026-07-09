@@ -51,7 +51,7 @@ pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static> {
     tunables: Vec<Tunable<K, F, Output>>,
     key_gen: Arc<dyn KeyGenerator<K, F> + Send + Sync>,
     input_gen: Arc<dyn InputGenerator<K, F> + Send + Sync>,
-    bounds: Option<Vec<AutotuneBound>>,
+    bounds_gen: Option<Arc<dyn Fn(&K) -> Vec<AutotuneBound> + Send + Sync>>,
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
@@ -71,7 +71,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
             tunables: Default::default(),
             input_gen: Arc::new(input_gen),
             key_gen: Arc::new(key_gen),
-            bounds: None,
+            bounds_gen: None,
         }
     }
 
@@ -88,8 +88,11 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
     }
 
     /// Sets the autotune bounds for this set.
-    pub fn with_bounds(mut self, bounds: Vec<AutotuneBound>) -> Self {
-        self.bounds = Some(bounds);
+    pub fn with_bounds(
+        mut self,
+        bounds: Arc<dyn Fn(&K) -> Vec<AutotuneBound> + Send + Sync>,
+    ) -> Self {
+        self.bounds_gen = Some(bounds);
         self
     }
 
@@ -129,9 +132,9 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
         self.input_gen.generate(key, inputs)
     }
 
-    /// Returns the autotune bounds for this set.
-    pub fn bounds(&self) -> Option<&Vec<AutotuneBound>> {
-        self.bounds.as_ref()
+    /// The throughput bounds registered on this set, if any.
+    pub fn bounds(&self, key: &K) -> Option<Vec<AutotuneBound>> {
+        self.bounds_gen.as_ref().map(|f| f(key))
     }
 }
 

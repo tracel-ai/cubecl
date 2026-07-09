@@ -5,8 +5,8 @@ pub mod event;
 pub mod reinterpret_slice;
 pub mod tensor;
 pub mod trigonometry;
-pub mod view;
 pub mod tuner;
+pub mod view;
 
 #[macro_export]
 macro_rules! testgen {
