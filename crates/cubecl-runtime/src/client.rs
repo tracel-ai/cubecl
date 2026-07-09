@@ -466,35 +466,6 @@ impl<R: Runtime> ComputeClient<R> {
         Ok(output)
     }
 
-    /// Overwrite the bytes of an already-allocated `handle` in place — same
-    /// device buffer, same pointer, no reallocation. This is how a captured
-    /// graph's fixed input buffers are refreshed between replays: write the new
-    /// inputs into the handles the graph captured, then [`Graph::replay`]. The
-    /// write is ordered before any later launch on the client's stream.
-    ///
-    /// Errors if `data` is larger than the buffer behind `handle`.
-    pub fn write(&self, handle: &Handle, data: Bytes) -> Result<(), IoError> {
-        if data.len() as u64 > handle.size_in_used() {
-            return Err(IoError::Unknown {
-                description: format!(
-                    "write of {} bytes exceeds the target handle of {} bytes",
-                    data.len(),
-                    handle.size_in_used()
-                ),
-                backtrace: BackTrace::capture(),
-            });
-        }
-
-        let stream_id = self.stream_id();
-        let descriptor =
-            CopyDescriptor::new(handle.clone().binding(), [data.len()].into(), [1].into(), 1);
-        self.device.submit(move |server| {
-            server.write(vec![(descriptor, data)], stream_id);
-        });
-
-        Ok(())
-    }
-
     /// Returns a resource handle containing the given [Bytes].
     pub fn create(&self, data: Bytes) -> Handle {
         let shape = [data.len()].into();
