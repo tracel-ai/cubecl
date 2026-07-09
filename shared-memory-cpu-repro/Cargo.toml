@@ -1,0 +1,16 @@
+# Standalone crate (own workspace root) so it does not join cubek's workspace.
+[workspace]
+
+[package]
+name = "shared-memory-cpu-repro"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+# Same cubecl revision cubek is pinned to.
+cubecl = { path = "../crates/cubecl", default-features = false, features = ["cpu"] }
+
+# Binaries are auto-discovered from src/bin/:
+#   current_shared_sum  - the problem surfaced by the cubecl update
+#   old_interpolate     - the pre-existing interpolate shared-memory problem
