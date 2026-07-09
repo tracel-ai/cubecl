@@ -160,9 +160,8 @@ ash = "0.38"
 tracel-ash = "0.39.2"
 # tracel-ash = { path = "../tracel-ash/crates/ash" }
 
-wgpu = { git = "https://github.com/gfx-rs/wgpu.git", rev = "bde709122f8320571ab1733ab055dcb54415a483" }
-# wgpu = "^29.0.1"
-wgpu-hal = { git = "https://github.com/gfx-rs/wgpu.git", rev = "bde709122f8320571ab1733ab055dcb54415a483" }
+wgpu = "^30.0.0"
+wgpu-hal = "^30.0.0"
 
 renderdoc = "0.12"
 
