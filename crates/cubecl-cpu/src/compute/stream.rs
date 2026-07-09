@@ -48,7 +48,7 @@ impl CpuStream {
         let memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &memory_properties,
-            memory_config.resolve(&memory_properties),
+            memory_config,
             logger.clone(),
             MemoryManagementOptions::new("Main CPU"),
         );
