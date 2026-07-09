@@ -1,12 +1,13 @@
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
+    id::GraphId,
     kernel::KernelMetadata,
     logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, DeviceGraph, ExecutionMode,
-        Handle, IoError, KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
+        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
+        KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
         MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
         ServerUtilities,
     },
@@ -44,17 +45,24 @@ pub struct ComputeClient<R: Runtime> {
 
 /// A captured graph produced by [`ComputeClient::stop_capture`]: a recorded
 /// launch sequence that [`replay`](Graph::replay) re-runs as a single dispatch
-/// against its original buffers. Cheap to clone (shares the backend graph).
+/// against its original buffers. Cheap to clone (shares one backend graph).
 ///
-/// The graph replays against the exact device buffers used during capture. The
-/// caller keeps those input/output [`Handle`]s alive and, each iteration,
-/// writes fresh inputs into the input handles (same device pointers) and reads
-/// the output handles after replaying — see [`ComputeClient::stop_capture`].
-#[derive(Clone)]
+/// The graph itself lives in the backend server, referenced here only by
+/// [`GraphId`]; this handle holds a reference-counted owner that releases the
+/// backend graph once the last clone drops. The graph replays against the exact
+/// device buffers used during capture. The caller keeps those input/output
+/// [`Handle`]s alive and, each iteration, writes fresh inputs into the input
+/// handles (same device pointers) and reads the output handles after replaying —
+/// see [`ComputeClient::stop_capture`].
 pub struct Graph<R: Runtime> {
-    /// Always `Some` — only [`Drop`] takes it, to ship the reference to the
-    /// server actor instead of releasing it on the calling thread.
-    graph: Option<Arc<DeviceGraph>>,
+    inner: Arc<GraphHandle<R>>,
+}
+
+/// Reference-counted owner of a backend graph. Its [`Drop`] ships the release to
+/// the server actor, so the last [`Graph`] clone frees the backend graph on the
+/// thread that owns it.
+struct GraphHandle<R: Runtime> {
+    id: GraphId,
     device: DeviceHandle<R::Server>,
     stream_id: StreamId,
 }
@@ -62,34 +70,36 @@ pub struct Graph<R: Runtime> {
 impl<R: Runtime> Graph<R> {
     /// Replay the captured launch sequence — one dispatch re-running every
     /// recorded kernel against the buffers it was captured with, on the stream
-    /// it was captured on. Self-contained (the graph owns its device handle);
+    /// it was captured on. Self-contained (the handle owns its device handle);
     /// no client needed.
     pub fn replay(&self) -> Result<(), ServerError> {
-        let stream_id = self.stream_id;
-        let graph = self.graph.clone().expect("only taken on drop");
-        self.device
-            .submit_blocking(move |server| server.replay(graph.as_ref(), stream_id))
+        let id = self.inner.id;
+        let stream_id = self.inner.stream_id;
+        self.inner
+            .device
+            .submit_blocking(move |server| server.replay(id, stream_id))
             .unwrap_or_resume()
     }
 }
 
-impl<R: Runtime> Drop for Graph<R> {
+impl<R: Runtime> Clone for Graph<R> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<R: Runtime> Drop for GraphHandle<R> {
     fn drop(&mut self) {
-        let Some(graph) = self.graph.take() else {
-            return;
-        };
+        let id = self.id;
         let stream_id = self.stream_id;
-        // The backend graph's Drop destroys the raw executable, which must
-        // happen on the server actor (the only thread allowed to touch it) and
-        // only once in-flight replays have completed — `replay` returns at
-        // enqueue time, not completion. Ship the reference to the actor: the
-        // last one syncs the stream, then releases.
-        self.device.submit(move |server| {
-            if Arc::strong_count(&graph) == 1 {
-                let _ = cubecl_common::future::block_on(server.sync(stream_id));
-            }
-            drop(graph);
-        });
+        // Destroying the raw executable must happen on the server actor (the
+        // only thread allowed to touch it) and only once in-flight replays have
+        // completed — `replay` returns at enqueue time, not completion. Ship the
+        // release to the actor; the backend syncs the stream before it destroys.
+        self.device
+            .submit(move |server| server.graph_destroy(id, stream_id));
     }
 }
 
@@ -969,15 +979,17 @@ impl<R: Runtime> ComputeClient<R> {
     /// [`replay`](Graph::replay).
     pub fn stop_capture(&self) -> Result<Graph<R>, ServerError> {
         let stream_id = self.stream_id();
-        let graph = self
+        let id = self
             .device
             .submit_blocking(move |server| server.end_capture(stream_id))
             .unwrap_or_resume()?;
 
         Ok(Graph {
-            graph: Some(Arc::new(graph)),
-            device: self.device.clone(),
-            stream_id,
+            inner: Arc::new(GraphHandle {
+                id,
+                device: self.device.clone(),
+                stream_id,
+            }),
         })
     }
 

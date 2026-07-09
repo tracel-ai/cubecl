@@ -3,12 +3,12 @@ use cubecl_runtime::memory_management::ManagedMemoryHandle;
 
 /// An instantiated HIP executable graph (`hipGraphExec_t`), destroyed on drop.
 ///
-/// The raw handle is only ever touched from inside the server actor, which
-/// serializes access, so it is sound to move across the actor boundary. The
-/// client-side `Graph` wrapper upholds this for `Drop` too: it ships its
-/// reference to the actor instead of releasing it on the calling thread, and
-/// the final release syncs the stream first so the executable is never
-/// destroyed while a replay is still running.
+/// Owned by the [`HipServer`](super::server::HipServer) registry and referenced
+/// by [`GraphId`](cubecl_runtime::id::GraphId); the raw handle never leaves the
+/// server actor, which serializes access, so it is only ever touched on the one
+/// thread allowed to. The client references the graph by id and, on the last
+/// drop, asks the actor to release it — `graph_destroy` syncs the stream first
+/// so the executable is never destroyed while a replay is still running.
 #[derive(Debug)]
 pub struct HipGraph {
     pub(crate) exec: hipGraphExec_t,
@@ -19,11 +19,6 @@ pub struct HipGraph {
     /// the replay overwrites). Dropped with the graph, releasing the memory.
     pub(crate) _retained: Vec<ManagedMemoryHandle>,
 }
-
-// SAFETY: the exec handle is used exclusively on the owning device's server
-// actor (see the ComputeServer impl), never concurrently.
-unsafe impl Send for HipGraph {}
-unsafe impl Sync for HipGraph {}
 
 impl Drop for HipGraph {
     fn drop(&mut self) {

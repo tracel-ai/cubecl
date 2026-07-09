@@ -16,7 +16,7 @@ use cubecl_core::{
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
-        Binding, CopyDescriptor, DeviceGraph, KernelArguments, ProfileError, ProfilingToken,
+        Binding, CopyDescriptor, KernelArguments, ProfileError, ProfilingToken,
         ServerCommunication, ServerError, ServerUtilities, StreamErrorMode,
     },
 };
@@ -24,12 +24,16 @@ use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy,
     compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
+    id::GraphId,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
     server::ComputeServer,
     storage::{ComputeStorage, ManagedResource},
     stream::MultiStream,
 };
+use std::collections::HashMap;
+
+use crate::compute::graph::HipGraph;
 use std::sync::Arc;
 
 /// Turn a HIP status into a [`ServerError`], naming the failed operation.
@@ -59,6 +63,12 @@ pub struct HipServer {
     ctx: HipContext,
     streams: MultiStream<HipStreamBackend>,
     utilities: Arc<ServerUtilities<Self>>,
+    /// Captured graphs owned by this server, keyed by the [`GraphId`] handed to
+    /// the client. `end_capture` inserts, `replay` looks up, `graph_destroy`
+    /// removes (dropping the [`HipGraph`] destroys its executable and unpins the
+    /// buffers it retained). Referencing graphs by id keeps the raw
+    /// `hipGraphExec_t` inside the server, never boxed across the actor boundary.
+    graphs: HashMap<GraphId, HipGraph>,
 }
 
 // SAFETY: `HipServer` is only accessed from one thread at a time via the `DeviceHandle`
@@ -289,76 +299,87 @@ impl ComputeServer for HipServer {
         Ok(())
     }
 
-    fn end_capture(&mut self, stream_id: StreamId) -> Result<DeviceGraph, ServerError> {
-        let mut command = self.command_no_inputs(
-            stream_id,
-            StreamErrorMode {
-                ignore: false,
-                flush: true,
-            },
-        )?;
-        let stream = command.streams.current();
-        // Only a recording stream can be ended; reject a stray `end_capture`
-        // (nothing prepared/started, or the capture already ended) instead of
-        // calling `hipStreamEndCapture` on a stream that never began one.
-        if !stream.capturing.is_recording() {
-            return Err(graph_state_error(
-                "end_capture: no graph capture is recording on this stream",
-            ));
-        }
-        // SAFETY: ends the capture begun on this stream and instantiates the
-        // recorded graph into an executable; the intermediate `graph` is freed
-        // whether or not instantiation succeeds, leaving only the `exec` the
-        // returned handle owns.
-        let exec = unsafe {
-            let mut graph: cubecl_hip_sys::hipGraph_t = std::ptr::null_mut();
-            hip_check(
-                "hipStreamEndCapture",
-                cubecl_hip_sys::hipStreamEndCapture(stream.sys, &mut graph),
-            )
-            .and_then(|_| {
-                let mut exec: cubecl_hip_sys::hipGraphExec_t = std::ptr::null_mut();
-                let instantiated = hip_check(
-                    "hipGraphInstantiate",
-                    cubecl_hip_sys::hipGraphInstantiate(
-                        &mut exec,
-                        graph,
-                        std::ptr::null_mut(),
-                        std::ptr::null_mut(),
-                        0,
-                    ),
-                );
-                cubecl_hip_sys::hipGraphDestroy(graph);
-                instantiated.map(|_| exec)
-            })
+    fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
+        // Build the graph inside a scope so the `command` borrow of `self` ends
+        // before we register the graph in `self.graphs`.
+        let hip_graph = {
+            let mut command = self.command_no_inputs(
+                stream_id,
+                StreamErrorMode {
+                    ignore: false,
+                    flush: true,
+                },
+            )?;
+            let stream = command.streams.current();
+            // Only a recording stream can be ended; reject a stray `end_capture`
+            // (nothing prepared/started, or the capture already ended) instead of
+            // calling `hipStreamEndCapture` on a stream that never began one.
+            if !stream.capturing.is_recording() {
+                return Err(graph_state_error(
+                    "end_capture: no graph capture is recording on this stream",
+                ));
+            }
+            // SAFETY: ends the capture begun on this stream and instantiates the
+            // recorded graph into an executable; the intermediate `graph` is freed
+            // whether or not instantiation succeeds, leaving only the `exec` the
+            // returned handle owns.
+            let exec = unsafe {
+                let mut graph: cubecl_hip_sys::hipGraph_t = std::ptr::null_mut();
+                hip_check(
+                    "hipStreamEndCapture",
+                    cubecl_hip_sys::hipStreamEndCapture(stream.sys, &mut graph),
+                )
+                .and_then(|_| {
+                    let mut exec: cubecl_hip_sys::hipGraphExec_t = std::ptr::null_mut();
+                    let instantiated = hip_check(
+                        "hipGraphInstantiate",
+                        cubecl_hip_sys::hipGraphInstantiate(
+                            &mut exec,
+                            graph,
+                            std::ptr::null_mut(),
+                            std::ptr::null_mut(),
+                            0,
+                        ),
+                    );
+                    cubecl_hip_sys::hipGraphDestroy(graph);
+                    instantiated.map(|_| exec)
+                })
+            };
+            // The capture is over even if it failed to instantiate: re-enable the
+            // deferred fenced flushes and restore the allocation mode, so an error
+            // here doesn't leave the stream stuck in capture/persistent state.
+            stream.capturing = StreamCaptureState::NoCapture;
+            // Pin every buffer the graph touched so the pool never reuses that
+            // memory for the graph's lifetime — both the GPU slices and the pinned
+            // staging slices the recorded info copies still read from on replay.
+            // On failure the handles drop with `exec?` below, unpinning them.
+            let mut retained = stream.memory_management_gpu.capture_end();
+            retained.extend(stream.memory_management_cpu.capture_end());
+            // Reclaim the buffers dropped during the capture window, whose fenced
+            // flushes were deferred while `capturing` was set. Flush twice: the
+            // queue is a double buffer, one flush only rotates the current batch.
+            let sys = stream.sys;
+            stream.drop_queue.flush(|| Fence::new(sys));
+            stream.drop_queue.flush(|| Fence::new(sys));
+            HipGraph {
+                exec: exec?,
+                _retained: retained,
+            }
         };
-        // The capture is over even if it failed to instantiate: re-enable the
-        // deferred fenced flushes and restore the allocation mode, so an error
-        // here doesn't leave the stream stuck in capture/persistent state.
-        stream.capturing = StreamCaptureState::NoCapture;
-        // Pin every buffer the graph touched so the pool never reuses that
-        // memory for the graph's lifetime — both the GPU slices and the pinned
-        // staging slices the recorded info copies still read from on replay.
-        // On failure the handles drop with `exec?` below, unpinning them.
-        let mut retained = stream.memory_management_gpu.capture_end();
-        retained.extend(stream.memory_management_cpu.capture_end());
-        // Reclaim the buffers dropped during the capture window, whose fenced
-        // flushes were deferred while `capturing` was set. Flush twice: the
-        // queue is a double buffer, one flush only rotates the current batch.
-        let sys = stream.sys;
-        stream.drop_queue.flush(|| Fence::new(sys));
-        stream.drop_queue.flush(|| Fence::new(sys));
-        Ok(DeviceGraph::new(crate::compute::graph::HipGraph {
-            exec: exec?,
-            _retained: retained,
-        }))
+        let id = GraphId::new();
+        self.graphs.insert(id, hip_graph);
+        Ok(id)
     }
 
-    fn replay(&mut self, graph: &DeviceGraph, stream_id: StreamId) -> Result<(), ServerError> {
-        let hip = graph
-            .downcast_ref::<crate::compute::graph::HipGraph>()
+    fn replay(&mut self, graph: GraphId, stream_id: StreamId) -> Result<(), ServerError> {
+        // Copy the executable pointer out before borrowing a `command` (which
+        // borrows `self`); a raw `hipGraphExec_t` is `Copy`.
+        let exec = self
+            .graphs
+            .get(&graph)
+            .map(|hip| hip.exec)
             .ok_or_else(|| ServerError::Generic {
-                reason: "replay was given a graph from a different backend".into(),
+                reason: "replay was given an unknown or already-destroyed graph".into(),
                 backtrace: BackTrace::capture(),
             })?;
         let mut command = self.command_no_inputs(
@@ -369,10 +390,22 @@ impl ComputeServer for HipServer {
             },
         )?;
         let stream = command.streams.current();
-        // SAFETY: `hip.exec` is a valid instantiated graph; launching it on the
+        // SAFETY: `exec` is a valid instantiated graph; launching it on the
         // stream re-runs the recorded sequence.
-        let status = unsafe { cubecl_hip_sys::hipGraphLaunch(hip.exec, stream.sys) };
+        let status = unsafe { cubecl_hip_sys::hipGraphLaunch(exec, stream.sys) };
         hip_check("hipGraphLaunch", status)
+    }
+
+    fn graph_destroy(&mut self, graph: GraphId, stream_id: StreamId) {
+        // Destroy only after in-flight replays finish: `replay` returns at
+        // enqueue time, so a replay may still be running against this executable.
+        // Sync the stream, then drop the graph — `HipGraph::drop` destroys the
+        // executable and unpins the buffers it retained. No-op for an unknown id
+        // (e.g. a double release).
+        if self.graphs.contains_key(&graph) {
+            let _ = cubecl_common::future::block_on(self.sync(stream_id));
+            self.graphs.remove(&graph);
+        }
     }
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<Result<(), ServerError>> {
@@ -503,6 +536,7 @@ impl HipServer {
                 max_streams,
             ),
             utilities: Arc::new(utilities),
+            graphs: HashMap::new(),
         }
     }
 

@@ -3,6 +3,7 @@ use crate::{
     client::ComputeClient,
     compiler::CompilationError,
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::BoundsCheckMode},
+    id::GraphId,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
@@ -276,29 +277,6 @@ impl core::fmt::Debug for ResourceLimitError {
     }
 }
 
-/// An opaque, backend-owned captured graph (a `hipGraphExec_t` / `CUgraphExec`
-/// wrapper). Constructed by [`ComputeServer::end_capture`] and passed back to
-/// [`ComputeServer::replay`]; the backend downcasts it to its own graph type.
-#[derive(Debug)]
-pub struct DeviceGraph {
-    inner: alloc::boxed::Box<dyn core::any::Any + Send + Sync>,
-}
-
-impl DeviceGraph {
-    /// Wrap a backend graph handle.
-    pub fn new<T: core::any::Any + Send + Sync>(graph: T) -> Self {
-        Self {
-            inner: alloc::boxed::Box::new(graph),
-        }
-    }
-
-    /// Borrow the backend graph handle, or `None` if it was produced by a
-    /// different backend.
-    pub fn downcast_ref<T: core::any::Any>(&self) -> Option<&T> {
-        self.inner.downcast_ref::<T>()
-    }
-}
-
 /// The error returned by the default (unsupported) graph-capture methods.
 fn graph_capture_unsupported() -> ServerError {
     ServerError::Generic {
@@ -478,18 +456,27 @@ where
         Err(graph_capture_unsupported())
     }
 
-    /// Stop recording (see [`begin_capture`](ComputeServer::begin_capture)) and
-    /// return the captured [`DeviceGraph`], ready to replay.
-    fn end_capture(&mut self, stream_id: StreamId) -> Result<DeviceGraph, ServerError> {
+    /// Stop recording (see [`begin_capture`](ComputeServer::begin_capture)),
+    /// store the captured graph in the backend's registry, and return its
+    /// [`GraphId`], ready to [replay](ComputeServer::replay).
+    fn end_capture(&mut self, stream_id: StreamId) -> Result<GraphId, ServerError> {
         let _ = stream_id;
         Err(graph_capture_unsupported())
     }
 
-    /// Replay a captured [`DeviceGraph`] on `stream_id` — one dispatch that
+    /// Replay the graph identified by `graph` on `stream_id` — one dispatch that
     /// re-runs the whole recorded launch sequence against its original buffers.
-    fn replay(&mut self, graph: &DeviceGraph, stream_id: StreamId) -> Result<(), ServerError> {
+    fn replay(&mut self, graph: GraphId, stream_id: StreamId) -> Result<(), ServerError> {
         let _ = (graph, stream_id);
         Err(graph_capture_unsupported())
+    }
+
+    /// Release the graph identified by `graph`, destroying its executable and
+    /// unpinning the buffers it retained. The backend must ensure any in-flight
+    /// replay on `stream_id` has completed first (replay returns at enqueue
+    /// time). A no-op by default and for an unknown id.
+    fn graph_destroy(&mut self, graph: GraphId, stream_id: StreamId) {
+        let _ = (graph, stream_id);
     }
 
     /// Memory usage of the given stream.
