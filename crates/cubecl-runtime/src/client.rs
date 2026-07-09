@@ -72,13 +72,18 @@ impl<R: Runtime> Graph<R> {
     /// recorded kernel against the buffers it was captured with, on the stream
     /// it was captured on. Self-contained (the handle owns its device handle);
     /// no client needed.
-    pub fn replay(&self) -> Result<(), ServerError> {
+    ///
+    /// Non-blocking, like a kernel launch: this enqueues the dispatch and returns
+    /// immediately. A replay failure is not reported here — it lands in the
+    /// stream's error queue and surfaces on the next
+    /// [`sync`](ComputeClient::sync)/[`flush`](ComputeClient::flush) (e.g. when
+    /// reading the output back).
+    pub fn replay(&self) {
         let id = self.inner.id;
         let stream_id = self.inner.stream_id;
         self.inner
             .device
-            .submit_blocking(move |server| server.replay(id, stream_id))
-            .unwrap_or_resume()
+            .submit(move |server| server.replay(id, stream_id));
     }
 }
 

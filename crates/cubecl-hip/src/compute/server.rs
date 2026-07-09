@@ -371,29 +371,17 @@ impl ComputeServer for HipServer {
         Ok(id)
     }
 
-    fn replay(&mut self, graph: GraphId, stream_id: StreamId) -> Result<(), ServerError> {
-        // Copy the executable pointer out before borrowing a `command` (which
-        // borrows `self`); a raw `hipGraphExec_t` is `Copy`.
-        let exec = self
-            .graphs
-            .get(&graph)
-            .map(|hip| hip.exec)
-            .ok_or_else(|| ServerError::Generic {
-                reason: "replay was given an unknown or already-destroyed graph".into(),
-                backtrace: BackTrace::capture(),
-            })?;
-        let mut command = self.command_no_inputs(
-            stream_id,
-            StreamErrorMode {
-                ignore: false,
-                flush: true,
-            },
-        )?;
-        let stream = command.streams.current();
-        // SAFETY: `exec` is a valid instantiated graph; launching it on the
-        // stream re-runs the recorded sequence.
-        let status = unsafe { cubecl_hip_sys::hipGraphLaunch(exec, stream.sys) };
-        hip_check("hipGraphLaunch", status)
+    fn replay(&mut self, graph: GraphId, stream_id: StreamId) {
+        // Fire-and-forget like `launch`: enqueue the graph dispatch and, on
+        // failure, push the error onto the stream's queue so it surfaces on the
+        // next flush/sync rather than blocking the caller here.
+        if let Err(err) = self.replay_checked(graph, stream_id) {
+            let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
+                Ok(stream) => stream,
+                Err(err) => unreachable!("{err}"),
+            };
+            stream.current().errors.push(err);
+        }
     }
 
     fn graph_destroy(&mut self, graph: GraphId, stream_id: StreamId) {
@@ -685,6 +673,37 @@ impl HipServer {
         command.kernel(kernel_id, kernel, mode, count, &resources, logger)?;
 
         Ok(())
+    }
+
+    /// Enqueue a graph replay, returning any error to [`replay`](Self::replay)
+    /// to push onto the stream's error queue. Mirrors [`launch_checked`]: the
+    /// stream's existing errors are ignored (they surface on the next sync) so a
+    /// replay just adds its own on failure.
+    ///
+    /// [`launch_checked`]: Self::launch_checked
+    fn replay_checked(&mut self, graph: GraphId, stream_id: StreamId) -> Result<(), ServerError> {
+        // Copy the executable pointer out before borrowing a `command` (which
+        // borrows `self`); a raw `hipGraphExec_t` is `Copy`.
+        let exec = self
+            .graphs
+            .get(&graph)
+            .map(|hip| hip.exec)
+            .ok_or_else(|| ServerError::Generic {
+                reason: "replay was given an unknown or already-destroyed graph".into(),
+                backtrace: BackTrace::capture(),
+            })?;
+        let mut command = self.command_no_inputs(
+            stream_id,
+            StreamErrorMode {
+                ignore: true,
+                flush: false,
+            },
+        )?;
+        let stream = command.streams.current();
+        // SAFETY: `exec` is a valid instantiated graph; launching it on the
+        // stream re-runs the recorded sequence.
+        let status = unsafe { cubecl_hip_sys::hipGraphLaunch(exec, stream.sys) };
+        hip_check("hipGraphLaunch", status)
     }
 
     pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {

@@ -466,9 +466,15 @@ where
 
     /// Replay the graph identified by `graph` on `stream_id` — one dispatch that
     /// re-runs the whole recorded launch sequence against its original buffers.
-    fn replay(&mut self, graph: GraphId, stream_id: StreamId) -> Result<(), ServerError> {
+    ///
+    /// Fire-and-forget, like [`launch`](ComputeServer::launch): the call enqueues
+    /// the dispatch and returns without waiting, so a failure is **not** returned
+    /// here — it is pushed onto the stream's error queue and surfaces on the next
+    /// [`flush`](ComputeServer::flush)/[`sync`](ComputeServer::sync), which leaves
+    /// the server unhealthy until drained. A no-op by default: a [`GraphId`] can
+    /// only come from [`end_capture`](ComputeServer::end_capture), unsupported here.
+    fn replay(&mut self, graph: GraphId, stream_id: StreamId) {
         let _ = (graph, stream_id);
-        Err(graph_capture_unsupported())
     }
 
     /// Release the graph identified by `graph`, destroying its executable and
