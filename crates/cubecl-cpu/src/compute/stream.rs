@@ -52,10 +52,14 @@ impl CpuStream {
         memory_config: MemoryConfiguration,
         logger: Arc<ServerLogger>,
     ) -> Self {
+        // Resolve the global `memory.pools` config override for the main pool
+        // only (the server does it, so `from_configuration` purely honors the
+        // config it's handed). The shared pool below is left alone: it has a
+        // deliberate configuration that must not be overridden.
         let memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &memory_properties,
-            memory_config.clone(),
+            memory_config.clone().resolve(&memory_properties),
             logger.clone(),
             MemoryManagementOptions::new("Main CPU"),
         );

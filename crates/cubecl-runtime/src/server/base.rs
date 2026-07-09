@@ -814,9 +814,11 @@ pub enum IoError {
 
     /// A memory pool with a fixed capacity cap is exhausted.
     ///
-    /// Unlike [`IoError::BufferTooBig`] (the allocation can *never* fit), the
-    /// allocation could succeed later: freeing pool memory and retrying is
-    /// valid.
+    /// Unlike [`IoError::BufferTooBig`] (the allocation can *never* fit), this
+    /// means the working set exceeded the configured budget. Server execution
+    /// paths treat it as fatal — the budget is a hard contract, so failing
+    /// early beats silently growing — but callers that manage their own
+    /// working set may free pool memory and retry.
     #[error(
         "memory pool capacity exceeded: failed to reserve {size} bytes, pool is capped at {capacity} bytes ({in_use} bytes in use)\n{backtrace}"
     )]

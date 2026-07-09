@@ -231,16 +231,15 @@ export CUBECL_AUTOTUNE_LEVEL=full
 You can also set the global configuration from Rust code before CubeCL is initialized:
 
 ```rust
-let config = cubecl::config::GlobalConfig {
-    profiling: ...,
-    autotune: ...,
-    compilation: ...,
-};
-cubecl::config::GlobalConfig::set(config);
+use cubecl::config::{CubeClRuntimeConfig, RuntimeConfig};
+
+let mut config = CubeClRuntimeConfig::default();
+config.autotune.level = cubecl::config::autotune::AutotuneLevel::Extensive;
+CubeClRuntimeConfig::set(config);
 ```
 
-> **Note:** You must call `GlobalConfig::set` before any CubeCL operations, and only once per
-> process.
+> **Note:** You must call `CubeClRuntimeConfig::set` before any CubeCL operations, and only once
+> per process.
 
 This is the recommended way to configure memory pools whose sizes are computed at runtime, such
 as a fixed arena covering an LLM KV cache plus activations:
@@ -286,7 +285,9 @@ You can configure these in the `logger` field for each section.
 To generate a default configuration file:
 
 ```rust
-cubecl::config::GlobalConfig::save_default("cubecl.toml").unwrap();
+use cubecl::config::{CubeClRuntimeConfig, RuntimeConfig};
+
+CubeClRuntimeConfig::save_default("cubecl.toml").unwrap();
 ```
 
 ## Example: Full Configuration

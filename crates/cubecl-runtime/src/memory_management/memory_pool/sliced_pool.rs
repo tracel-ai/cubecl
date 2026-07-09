@@ -90,7 +90,13 @@ impl SlicedPool {
         }
         let max_pages = self.max_pages.expect("preallocated implies a capacity cap");
         while self.pages.len() < max_pages as usize {
-            self.alloc_page(storage)?;
+            if let Err(err) = self.alloc_page(storage) {
+                // The fixed footprint was never achieved: behave as a lazy
+                // capped pool, so cleanup can release the pages that did get
+                // allocated.
+                self.preallocated = false;
+                return Err(err);
+            }
         }
         Ok(())
     }

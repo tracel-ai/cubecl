@@ -230,11 +230,25 @@ pub enum PoolConfigError {
     },
     /// `preallocate` was requested without a `max_pool_size` to fill to.
     PreallocateWithoutCap,
+    /// `max_pool_size` is smaller than `page_size` (the cap can't fit one page).
+    CapSmallerThanPage {
+        /// The page size in bytes (after alignment).
+        page_size: u64,
+        /// The pool capacity in bytes.
+        max_pool_size: u64,
+    },
+    /// `max_pool_size` spans more pages of `page_size` than a pool can hold.
+    TooManyPages {
+        /// The number of pages the configuration asks for.
+        pages: u64,
+    },
     /// The preset is not available in this build.
     PresetUnavailable {
         /// The preset name.
         preset: &'static str,
     },
+    /// Sliced pools are not available in this build (`exclusive_memory_only`).
+    SlicedPoolsUnavailable,
 }
 
 impl core::fmt::Display for PoolConfigError {
@@ -252,8 +266,26 @@ impl core::fmt::Display for PoolConfigError {
             PoolConfigError::PreallocateWithoutCap => {
                 write!(f, "`preallocate` requires `max_pool_size`")
             }
+            PoolConfigError::CapSmallerThanPage {
+                page_size,
+                max_pool_size,
+            } => write!(
+                f,
+                "`max_pool_size` ({max_pool_size}) is smaller than `page_size` ({page_size}); the cap can't fit a single page"
+            ),
+            PoolConfigError::TooManyPages { pages } => write!(
+                f,
+                "`max_pool_size` spans {pages} pages of `page_size`, exceeding the maximum of {}; increase `page_size` or lower the cap",
+                u16::MAX
+            ),
             PoolConfigError::PresetUnavailable { preset } => {
                 write!(f, "the `{preset}` preset is not available in this build")
+            }
+            PoolConfigError::SlicedPoolsUnavailable => {
+                write!(
+                    f,
+                    "sliced pools are not available in this build (exclusive memory only)"
+                )
             }
         }
     }
@@ -351,6 +383,13 @@ fn pool_options_from_entry(
                 dealloc_period: *dealloc_period,
             })
         }
+        // Sliced pools break the invariant `exclusive_memory_only` builds rely
+        // on (e.g. wgpu on wasm assumes a buffer is never shared between
+        // slices), so an explicit list must be rejected just like the
+        // `sub-slices` preset is.
+        #[cfg(exclusive_memory_only)]
+        MemoryPoolConfig::Sliced { .. } => Err(PoolConfigError::SlicedPoolsUnavailable),
+        #[cfg(not(exclusive_memory_only))]
         MemoryPoolConfig::Sliced {
             page_size,
             max_slice_size,
@@ -363,13 +402,6 @@ fn pool_options_from_entry(
             }
             if *preallocate && max_pool_size.is_none() {
                 return Err(PoolConfigError::PreallocateWithoutCap);
-            }
-            if let Some(cap) = max_pool_size {
-                if cap.bytes() == 0 {
-                    return Err(PoolConfigError::ZeroSize {
-                        field: "max_pool_size",
-                    });
-                }
             }
 
             let page_size = page_size.bytes().next_multiple_of(alignment);
@@ -387,6 +419,24 @@ fn pool_options_from_entry(
                     page_size,
                     max_slice_size,
                 });
+            }
+            if let Some(cap) = max_pool_size {
+                let cap = cap.bytes();
+                if cap == 0 {
+                    return Err(PoolConfigError::ZeroSize {
+                        field: "max_pool_size",
+                    });
+                }
+                if cap < page_size {
+                    return Err(PoolConfigError::CapSmallerThanPage {
+                        page_size,
+                        max_pool_size: cap,
+                    });
+                }
+                let pages = cap / page_size;
+                if pages > u16::MAX as u64 {
+                    return Err(PoolConfigError::TooManyPages { pages });
+                }
             }
 
             Ok(MemoryPoolOptions {
@@ -1537,6 +1587,27 @@ mod tests {
     }
 
     #[test_log::test]
+    #[cfg(exclusive_memory_only)]
+    fn resolve_rejects_sliced_pools_when_exclusive_only() {
+        use crate::config::size::MemorySize;
+
+        let pools = MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
+            page_size: MemorySize(1024),
+            max_slice_size: None,
+            max_pool_size: None,
+            preallocate: false,
+            dealloc_period: None,
+        }]);
+        assert_eq!(
+            MemoryConfiguration::default()
+                .resolve_with(Some(&pools), &DUMMY_MEM_PROPS)
+                .unwrap_err(),
+            PoolConfigError::SlicedPoolsUnavailable
+        );
+    }
+
+    #[test_log::test]
+    #[cfg(not(exclusive_memory_only))]
     fn resolve_explicit_list_aligns_and_defaults() {
         use crate::config::size::MemorySize;
 
@@ -1583,6 +1654,7 @@ mod tests {
     }
 
     #[test_log::test]
+    #[cfg(not(exclusive_memory_only))]
     fn resolve_invalid_pool_configs_fail() {
         use crate::config::size::MemorySize;
 
@@ -1621,6 +1693,30 @@ mod tests {
                 }]),
                 PoolConfigError::PreallocateWithoutCap,
             ),
+            (
+                MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
+                    page_size: MemorySize(2048),
+                    max_slice_size: None,
+                    max_pool_size: Some(MemorySize(1024)),
+                    preallocate: false,
+                    dealloc_period: None,
+                }]),
+                PoolConfigError::CapSmallerThanPage {
+                    page_size: 2048,
+                    max_pool_size: 1024,
+                },
+            ),
+            (
+                MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
+                    page_size: MemorySize(1024),
+                    max_slice_size: None,
+                    // 2^26 pages of 1 KiB: far beyond the u16 page index.
+                    max_pool_size: Some(MemorySize(64 * 1024 * 1024 * 1024)),
+                    preallocate: false,
+                    dealloc_period: None,
+                }]),
+                PoolConfigError::TooManyPages { pages: 64 * 1024 * 1024 },
+            ),
         ];
 
         for (pools, expected) in cases {
@@ -1633,6 +1729,7 @@ mod tests {
     // ranges" reuse the same arena instead of each landing in its own
     // size-bucketed pool that keeps a separate reservation.
     #[test_log::test]
+    #[cfg(not(exclusive_memory_only))]
     fn resolved_single_arena_reuses_across_sizes() {
         use crate::config::size::MemorySize;
 
