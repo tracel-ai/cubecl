@@ -408,16 +408,25 @@ impl ComputeServer for HipServer {
     fn graph_destroy(&mut self, graph: GraphId, stream_id: StreamId) {
         // Destroy only after in-flight replays finish: `replay` returns at
         // enqueue time, so a replay may still be running against this executable.
-        // Sync the stream, then drop the graph — `HipGraph::drop` destroys the
-        // executable and unpins the buffers it retained. No-op for an unknown id
-        // (e.g. a double release).
-        if self.graphs.contains_key(&graph) {
-            let _ = cubecl_common::future::block_on(self.sync(stream_id));
-            self.graphs.remove(&graph);
+        // No-op for an unknown id (e.g. a double release).
+        if !self.graphs.contains_key(&graph) {
+            return;
+        }
+        // Wait for in-flight replays before dropping the executable. A failed
+        // sync means the stream already faulted — so no replay is still running
+        // against this graph, and destroying is safe — but don't silently
+        // swallow the error: surface it on the stream so the next op reports it.
+        let synced = cubecl_common::future::block_on(self.sync(stream_id));
+        // `HipGraph::drop` destroys the executable and unpins the buffers it
+        // retained.
+        self.graphs.remove(&graph);
+        if let Ok(mut streams) = self.streams.resolve(stream_id, [].into_iter(), false) {
+            let stream = streams.current();
             // Release the info-cache entries this graph pinned; entries no other
             // live graph still pins are dropped, freeing their buffers.
-            if let Ok(mut streams) = self.streams.resolve(stream_id, [].into_iter(), false) {
-                streams.current().info_cache.graph_release(graph);
+            stream.info_cache.graph_release(graph);
+            if let Err(err) = synced {
+                stream.errors.push(err);
             }
         }
     }
@@ -669,12 +678,14 @@ impl HipServer {
         // buffer is cached and none is evicted. We ask the policy first and only
         // touch the cache when it says to — otherwise we just build the buffer,
         // never cloning a handle we wouldn't keep.
-        let key = (kernel_id.clone(), info.data.clone());
         let size = core::mem::size_of_val(info.data.as_slice());
         let cache_mode = command.streams.current().capturing.cache_mode();
         command.streams.current().info_cache.mode(cache_mode);
 
         let info_handle = if command.streams.current().info_cache.should_cache(size) {
+            // Build the key only on the cache path: an uncached launch (large
+            // info in normal mode) pays no `KernelId`/`Vec<u64>` clone.
+            let key = (kernel_id.clone(), info.data.clone());
             match command.streams.current().info_cache.get(&key) {
                 Some(handle) => handle,
                 None => {

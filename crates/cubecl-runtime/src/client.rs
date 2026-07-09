@@ -54,6 +54,15 @@ pub struct ComputeClient<R: Runtime> {
 /// [`Handle`]s alive and, each iteration, writes fresh inputs into the input
 /// handles (same device pointers) and reads the output handles after replaying —
 /// see [`ComputeClient::stop_capture`].
+///
+/// **Stream ordering.** [`replay`](Graph::replay) always dispatches on the
+/// stream the graph was captured on, but input writes and output reads go on the
+/// *writing client's* current stream. They are ordered against the replay only
+/// when they land on that same stream, so keep the client pinned to the capture
+/// stream (via [`set_stream`](ComputeClient::set_stream)) — or issue all writes,
+/// replays, and reads from the same unpinned client — for the whole decode loop.
+/// Refreshing inputs from a client on a different stream races the replay and
+/// silently feeds it stale data.
 pub struct Graph<R: Runtime> {
     inner: Arc<GraphHandle<R>>,
 }

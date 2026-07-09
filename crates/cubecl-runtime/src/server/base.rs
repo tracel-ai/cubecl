@@ -431,10 +431,16 @@ where
     /// Prepare `stream_id` for an upcoming graph capture: route allocations
     /// into a stable pool and snapshot it, so every buffer allocated between
     /// here and [`end_capture`](ComputeServer::end_capture) can be pinned for
-    /// the graph's lifetime. Call this **before** the warmup run (which
-    /// populates the pool and the autotune cache) so the capture window itself
-    /// needs no fresh device allocation — a device malloc inside the capture is
-    /// illegal.
+    /// the graph's lifetime. Call this **before** the warmup run so the capture
+    /// window itself needs no fresh device allocation — a device malloc inside
+    /// the capture is illegal.
+    ///
+    /// Prefer having kernels already **autotuned before** this call: any
+    /// transient benchmark buffers autotune allocates while the window is armed
+    /// are forced into the persistent pool and pinned to the graph, so a graph
+    /// captured over a cold autotune cache retains more device memory than it
+    /// replays against. Warm the autotune cache first, then `graph_prepare` and
+    /// warm up only to populate the pool.
     ///
     /// A no-op by default (harmless on backends without graph support); a
     /// hardware-graph backend enables its persistent pool + capture recording.
