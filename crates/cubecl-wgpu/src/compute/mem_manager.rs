@@ -34,6 +34,10 @@ impl WgpuMemManager {
         // Allocate storage & memory management for the main memory buffers. Any calls
         // to empty() or create() with a small enough size will be allocated from this
         // main memory pool.
+        //
+        // The global `memory.pools` config override is resolved for the main
+        // pool only; the staging and uniforms pools below have deliberate
+        // configurations that must not be overridden.
         let memory_main = MemoryManagement::from_configuration(
             WgpuStorage::new(
                 memory_properties.alignment as usize,
@@ -45,7 +49,7 @@ impl WgpuMemManager {
                 use_vulkan_compiler,
             ),
             &memory_properties,
-            memory_config,
+            memory_config.resolve(&memory_properties),
             logger.clone(),
             MemoryManagementOptions::new("Main GPU Memory"),
         );

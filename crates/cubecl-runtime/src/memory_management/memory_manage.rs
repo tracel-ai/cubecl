@@ -5,7 +5,10 @@ use super::{
 use crate::{
     config::{
         CubeClRuntimeConfig, RuntimeConfig,
-        memory::{DynamicPoolConfig, MemoryLogLevel, PersistentMemory},
+        memory::{
+            MemoryLogLevel, MemoryPoolConfig, MemoryPoolsConfig, MemoryPoolsPreset,
+            PersistentMemory,
+        },
     },
     logging::ServerLogger,
     memory_management::{BytesFormat, memory_pool::Slice},
@@ -173,47 +176,6 @@ fn generate_bucket_sizes(
 const DEALLOC_SCALE_MB: u64 = 1024 * 1024 * 1024;
 const BASE_DEALLOC_PERIOD: u64 = 5000;
 
-/// Build the pool layout for a [`DynamicPoolConfig::SingleSliced`] override, or
-/// `None` for [`DynamicPoolConfig::Auto`] (which keeps the runtime's own
-/// [`MemoryConfiguration`]).
-///
-/// The layout is the tiny sub-alignment exclusive pool (matching the first pool
-/// of `SubSlices`) followed by a single sliced arena of `page_size` chunks. Any
-/// single allocation larger than `page_size` is rejected, so it must exceed the
-/// biggest tensor; when unset it defaults to a large-but-bounded chunk.
-fn single_sliced_pool_options(
-    dynamic: &DynamicPoolConfig,
-    properties: &MemoryDeviceProperties,
-) -> Option<Vec<MemoryPoolOptions>> {
-    let DynamicPoolConfig::SingleSliced { page_size_bytes } = dynamic else {
-        return None;
-    };
-
-    const GIB: u64 = 1024 * 1024 * 1024;
-
-    let alignment = properties.alignment.max(1);
-    let page_size = page_size_bytes
-        .unwrap_or_else(|| properties.max_page_size.min(GIB))
-        .max(alignment)
-        .next_multiple_of(alignment);
-
-    // A single sliced arena, no separate tiny-allocation pool: the arena's
-    // `accept`/`try_reserve` handle every size (including zero), and adding the
-    // `ExclusivePages { max_alloc_size: 0 }` pool that `SubSlices` uses strands
-    // in-flight bindings when its `cleanup` deallocates+renumbers pages under
-    // the multi-stream cursor lookup (`handle_cursor`).
-    Some(alloc::vec![MemoryPoolOptions {
-        // `dealloc_period: None` keeps warmup-grown chunks retained for reuse.
-        pool_type: PoolType::SlicedPages {
-            page_size,
-            max_slice_size: page_size,
-            max_pool_size: None,
-            preallocate: false,
-        },
-        dealloc_period: None,
-    }])
-}
-
 /// The options for creating a new [`MemoryManagement`] instance.
 #[derive(Debug)]
 pub struct MemoryManagementOptions {
@@ -249,24 +211,193 @@ enum MemoryAllocationOption {
     Provided(MemoryAllocationMode),
 }
 
+/// Why a `memory.pools` config could not be turned into a pool layout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PoolConfigError {
+    /// `memory.pools` was an empty list.
+    EmptyPoolList,
+    /// A size field that must be non-zero was zero.
+    ZeroSize {
+        /// The offending field.
+        field: &'static str,
+    },
+    /// `max_slice_size` exceeds `page_size` (a slice can never span pages).
+    SliceLargerThanPage {
+        /// The page size in bytes (after alignment).
+        page_size: u64,
+        /// The maximum slice size in bytes (after alignment).
+        max_slice_size: u64,
+    },
+    /// `preallocate` was requested without a `max_pool_size` to fill to.
+    PreallocateWithoutCap,
+    /// The preset is not available in this build.
+    PresetUnavailable {
+        /// The preset name.
+        preset: &'static str,
+    },
+}
+
+impl core::fmt::Display for PoolConfigError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            PoolConfigError::EmptyPoolList => write!(f, "the pool list is empty"),
+            PoolConfigError::ZeroSize { field } => write!(f, "`{field}` must be non-zero"),
+            PoolConfigError::SliceLargerThanPage {
+                page_size,
+                max_slice_size,
+            } => write!(
+                f,
+                "`max_slice_size` ({max_slice_size}) exceeds `page_size` ({page_size}); a slice can never span pages"
+            ),
+            PoolConfigError::PreallocateWithoutCap => {
+                write!(f, "`preallocate` requires `max_pool_size`")
+            }
+            PoolConfigError::PresetUnavailable { preset } => {
+                write!(f, "the `{preset}` preset is not available in this build")
+            }
+        }
+    }
+}
+
 impl MemoryConfiguration {
-    /// Resolve this configuration against the global dynamic-pool strategy
-    /// ([`DynamicPoolConfig`](crate::config::memory::DynamicPoolConfig)) for a
-    /// pool with the given `properties`.
+    /// Resolve the runtime-chosen configuration against the global
+    /// `memory.pools` override for the **main GPU** pool.
     ///
-    /// [`SingleSliced`](crate::config::memory::DynamicPoolConfig::SingleSliced)
-    /// replaces the dynamic pools with one coalescing arena (returned as a
-    /// [`Custom`](Self::Custom) config); the default `Auto` keeps `self`
-    /// unchanged. The server calls this when it decides a pool's configuration,
-    /// so [`MemoryManagement::from_configuration`] purely honors the config it is
-    /// handed rather than silently overriding it from a global.
+    /// When `memory.pools` is absent, the runtime's own `self` is kept
+    /// unchanged; when present, it wins. Runtimes call this once per main-GPU
+    /// [`MemoryManagement`] at server/stream creation, so
+    /// [`MemoryManagement::from_configuration`] purely honors the config it is
+    /// handed (auxiliary pinned/staging/uniform pools pass their forced
+    /// configs straight through, unresolved).
+    ///
+    /// `page_size` is deliberately not validated against
+    /// [`MemoryDeviceProperties::max_page_size`]: that value is a sizing
+    /// heuristic for the default layouts (CUDA/HIP report a quarter of the
+    /// device memory), not an allocation limit, and a large arena is exactly
+    /// what an explicit pool override is for. An unallocatable page fails at
+    /// allocation time.
+    ///
+    /// # Panics
+    ///
+    /// Panics with a descriptive message if `memory.pools` is invalid (empty
+    /// list, zero page size, slice larger than page, preallocation without a
+    /// cap, unavailable preset). An explicit memory override that cannot be
+    /// honored must not be silently replaced.
     pub fn resolve(self, properties: &MemoryDeviceProperties) -> Self {
-        match single_sliced_pool_options(
-            &CubeClRuntimeConfig::get().memory.dynamic_pool,
-            properties,
-        ) {
-            Some(pool_options) => MemoryConfiguration::Custom { pool_options },
-            None => self,
+        let config = CubeClRuntimeConfig::get();
+        match self.resolve_with(config.memory.pools.as_ref(), properties) {
+            Ok(resolved) => resolved,
+            Err(err) => panic!("Invalid `memory.pools` configuration: {err}"),
+        }
+    }
+
+    /// Testable core of [`Self::resolve`]: same semantics, explicit input.
+    fn resolve_with(
+        self,
+        pools: Option<&MemoryPoolsConfig>,
+        properties: &MemoryDeviceProperties,
+    ) -> Result<Self, PoolConfigError> {
+        let Some(pools) = pools else {
+            return Ok(self);
+        };
+
+        match pools {
+            MemoryPoolsConfig::Preset(MemoryPoolsPreset::SubSlices) => {
+                #[cfg(exclusive_memory_only)]
+                {
+                    Err(PoolConfigError::PresetUnavailable {
+                        preset: "sub-slices",
+                    })
+                }
+                #[cfg(not(exclusive_memory_only))]
+                {
+                    Ok(MemoryConfiguration::SubSlices)
+                }
+            }
+            MemoryPoolsConfig::Preset(MemoryPoolsPreset::ExclusivePages) => {
+                Ok(MemoryConfiguration::ExclusivePages)
+            }
+            MemoryPoolsConfig::Explicit(entries) => {
+                if entries.is_empty() {
+                    return Err(PoolConfigError::EmptyPoolList);
+                }
+                let pool_options = entries
+                    .iter()
+                    .map(|entry| pool_options_from_entry(entry, properties))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(MemoryConfiguration::Custom { pool_options })
+            }
+        }
+    }
+}
+
+/// Convert one config entry into runtime pool options, aligning sizes up to
+/// the device alignment (a device constraint, not a user error).
+fn pool_options_from_entry(
+    entry: &MemoryPoolConfig,
+    properties: &MemoryDeviceProperties,
+) -> Result<MemoryPoolOptions, PoolConfigError> {
+    let alignment = properties.alignment.max(1);
+    match entry {
+        MemoryPoolConfig::Exclusive {
+            max_alloc_size,
+            dealloc_period,
+        } => {
+            // 0 stays 0: a pool dedicated to zero-sized allocations, as used by
+            // the `SubSlices` preset.
+            let max_alloc_size = max_alloc_size.bytes().next_multiple_of(alignment);
+            Ok(MemoryPoolOptions {
+                pool_type: PoolType::ExclusivePages { max_alloc_size },
+                dealloc_period: *dealloc_period,
+            })
+        }
+        MemoryPoolConfig::Sliced {
+            page_size,
+            max_slice_size,
+            max_pool_size,
+            preallocate,
+            dealloc_period,
+        } => {
+            if page_size.bytes() == 0 {
+                return Err(PoolConfigError::ZeroSize { field: "page_size" });
+            }
+            if *preallocate && max_pool_size.is_none() {
+                return Err(PoolConfigError::PreallocateWithoutCap);
+            }
+            if let Some(cap) = max_pool_size {
+                if cap.bytes() == 0 {
+                    return Err(PoolConfigError::ZeroSize {
+                        field: "max_pool_size",
+                    });
+                }
+            }
+
+            let page_size = page_size.bytes().next_multiple_of(alignment);
+            let max_slice_size = match max_slice_size {
+                Some(size) if size.bytes() == 0 => {
+                    return Err(PoolConfigError::ZeroSize {
+                        field: "max_slice_size",
+                    });
+                }
+                Some(size) => size.bytes().next_multiple_of(alignment),
+                None => page_size,
+            };
+            if max_slice_size > page_size {
+                return Err(PoolConfigError::SliceLargerThanPage {
+                    page_size,
+                    max_slice_size,
+                });
+            }
+
+            Ok(MemoryPoolOptions {
+                pool_type: PoolType::SlicedPages {
+                    page_size,
+                    max_slice_size,
+                    max_pool_size: max_pool_size.map(|size| size.bytes()),
+                    preallocate: *preallocate,
+                },
+                dealloc_period: *dealloc_period,
+            })
         }
     }
 }
@@ -1375,68 +1506,152 @@ mod tests {
     }
 
     #[test_log::test]
-    fn single_sliced_option_builder() {
-        // `Auto` keeps the runtime's own configuration.
-        assert!(single_sliced_pool_options(&DynamicPoolConfig::Auto, &DUMMY_MEM_PROPS).is_none());
+    fn resolve_absent_pools_config_keeps_runtime_choice() {
+        #[cfg(not(exclusive_memory_only))]
+        assert!(matches!(
+            MemoryConfiguration::SubSlices
+                .resolve_with(None, &DUMMY_MEM_PROPS)
+                .unwrap(),
+            MemoryConfiguration::SubSlices
+        ));
+        assert!(matches!(
+            MemoryConfiguration::ExclusivePages
+                .resolve_with(None, &DUMMY_MEM_PROPS)
+                .unwrap(),
+            MemoryConfiguration::ExclusivePages
+        ));
+    }
 
-        // `SingleSliced` yields exactly one aligned sliced arena.
-        let opts = single_sliced_pool_options(
-            &DynamicPoolConfig::SingleSliced {
-                page_size_bytes: Some(1000),
+    #[test_log::test]
+    fn resolve_preset_overrides_runtime_choice() {
+        let preset = MemoryPoolsConfig::Preset(MemoryPoolsPreset::ExclusivePages);
+        #[cfg(not(exclusive_memory_only))]
+        let base = MemoryConfiguration::SubSlices;
+        #[cfg(exclusive_memory_only)]
+        let base = MemoryConfiguration::ExclusivePages;
+
+        assert!(matches!(
+            base.resolve_with(Some(&preset), &DUMMY_MEM_PROPS).unwrap(),
+            MemoryConfiguration::ExclusivePages
+        ));
+    }
+
+    #[test_log::test]
+    fn resolve_explicit_list_aligns_and_defaults() {
+        use crate::config::size::MemorySize;
+
+        let pools = MemoryPoolsConfig::Explicit(vec![
+            MemoryPoolConfig::Exclusive {
+                max_alloc_size: MemorySize(8 * 1024),
+                dealloc_period: Some(10000),
             },
-            &DUMMY_MEM_PROPS,
-        )
-        .unwrap();
-        assert_eq!(opts.len(), 1);
-        match opts[0].pool_type {
+            MemoryPoolConfig::Sliced {
+                // Rounded up to the 32-byte alignment.
+                page_size: MemorySize(1000),
+                max_slice_size: None,
+                max_pool_size: Some(MemorySize(4096)),
+                preallocate: true,
+                dealloc_period: None,
+            },
+        ]);
+
+        let resolved = MemoryConfiguration::default()
+            .resolve_with(Some(&pools), &DUMMY_MEM_PROPS)
+            .unwrap();
+        let MemoryConfiguration::Custom { pool_options } = resolved else {
+            panic!("expected a custom configuration");
+        };
+
+        assert_eq!(pool_options.len(), 2);
+        assert!(matches!(
+            pool_options[0].pool_type,
+            PoolType::ExclusivePages {
+                max_alloc_size: 8192
+            }
+        ));
+        assert_eq!(pool_options[0].dealloc_period, Some(10000));
+        assert!(matches!(
+            pool_options[1].pool_type,
             PoolType::SlicedPages {
-                page_size,
-                max_slice_size,
-                ..
-            } => {
-                // 1000 rounded up to the 32-byte alignment.
-                assert_eq!(page_size, 1024);
-                assert_eq!(max_slice_size, page_size);
+                page_size: 1024,
+                // Defaults to the aligned page size.
+                max_slice_size: 1024,
+                max_pool_size: Some(4096),
+                preallocate: true,
             }
-            _ => panic!("expected a sliced arena"),
-        }
+        ));
+    }
 
-        // Unset page size falls back to a large-but-bounded default.
-        let opts = single_sliced_pool_options(
-            &DynamicPoolConfig::SingleSliced {
-                page_size_bytes: None,
-            },
-            &DUMMY_MEM_PROPS,
-        )
-        .unwrap();
-        match opts[0].pool_type {
-            PoolType::SlicedPages { page_size, .. } => {
-                assert_eq!(page_size, DUMMY_MEM_PROPS.max_page_size.min(1024 * 1024 * 1024));
-            }
-            _ => panic!("expected a sliced arena"),
+    #[test_log::test]
+    fn resolve_invalid_pool_configs_fail() {
+        use crate::config::size::MemorySize;
+
+        let cases = [
+            (MemoryPoolsConfig::Explicit(vec![]), PoolConfigError::EmptyPoolList),
+            (
+                MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
+                    page_size: MemorySize(0),
+                    max_slice_size: None,
+                    max_pool_size: None,
+                    preallocate: false,
+                    dealloc_period: None,
+                }]),
+                PoolConfigError::ZeroSize { field: "page_size" },
+            ),
+            (
+                MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
+                    page_size: MemorySize(1024),
+                    max_slice_size: Some(MemorySize(2048)),
+                    max_pool_size: None,
+                    preallocate: false,
+                    dealloc_period: None,
+                }]),
+                PoolConfigError::SliceLargerThanPage {
+                    page_size: 1024,
+                    max_slice_size: 2048,
+                },
+            ),
+            (
+                MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
+                    page_size: MemorySize(1024),
+                    max_slice_size: None,
+                    max_pool_size: None,
+                    preallocate: true,
+                    dealloc_period: None,
+                }]),
+                PoolConfigError::PreallocateWithoutCap,
+            ),
+        ];
+
+        for (pools, expected) in cases {
+            let result = MemoryConfiguration::default().resolve_with(Some(&pools), &DUMMY_MEM_PROPS);
+            assert_eq!(result.unwrap_err(), expected);
         }
     }
 
-    // The whole point of the single-sliced arena: allocations from different
-    // "sequence-length ranges" reuse the same chunk instead of each landing in
-    // its own size-bucketed pool that keeps a separate reservation.
+    // The motivating use case: allocations from different "sequence-length
+    // ranges" reuse the same arena instead of each landing in its own
+    // size-bucketed pool that keeps a separate reservation.
     #[test_log::test]
-    fn single_sliced_reuses_one_arena_across_sizes() {
-        let page = 1024 * 1024; // 1 MiB chunk.
-        let pools = single_sliced_pool_options(
-            &DynamicPoolConfig::SingleSliced {
-                page_size_bytes: Some(page),
-            },
-            &DUMMY_MEM_PROPS,
-        )
-        .unwrap();
+    fn resolved_single_arena_reuses_across_sizes() {
+        use crate::config::size::MemorySize;
+
+        let page = 1024 * 1024; // 1 MiB arena.
+        let pools = MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
+            page_size: MemorySize(page),
+            max_slice_size: None,
+            max_pool_size: None,
+            preallocate: false,
+            dealloc_period: None,
+        }]);
+        let config = MemoryConfiguration::default()
+            .resolve_with(Some(&pools), &DUMMY_MEM_PROPS)
+            .unwrap();
 
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Custom {
-                pool_options: pools,
-            },
+            config,
             Arc::new(ServerLogger::default()),
             options(),
         );
@@ -1444,13 +1659,13 @@ mod tests {
         // A "small seq" allocation, then freed.
         let small = memory_management.reserve(4 * 1024).unwrap();
         drop(small);
-        // A "large seq" allocation must reuse the same arena chunk.
+        // A "large seq" allocation must reuse the same arena page.
         let large = memory_management.reserve(512 * 1024).unwrap();
 
         let usage = memory_management.memory_usage();
         assert_eq!(
             usage.bytes_reserved, page,
-            "both sizes must share a single arena chunk"
+            "both sizes must share a single arena page"
         );
         assert_eq!(usage.number_allocs, 1);
         drop(large);
