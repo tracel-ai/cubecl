@@ -152,36 +152,6 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             }
         }
 
-        if let Ok(val) = std::env::var("CUBECL_MEM_DYNAMIC") {
-            use crate::config::memory::DynamicPoolConfig;
-
-            match val.as_str() {
-                "single-sliced" | "single_sliced" => {
-                    // Preserve an explicitly configured page size, if any.
-                    let page_size_bytes = match self.memory.dynamic_pool {
-                        DynamicPoolConfig::SingleSliced { page_size_bytes } => page_size_bytes,
-                        DynamicPoolConfig::Auto => None,
-                    };
-                    self.memory.dynamic_pool = DynamicPoolConfig::SingleSliced { page_size_bytes };
-                }
-                "auto" => {
-                    self.memory.dynamic_pool = DynamicPoolConfig::Auto;
-                }
-                _ => {}
-            }
-        }
-
-        if let Ok(val) = std::env::var("CUBECL_MEM_PAGE_SIZE") {
-            use crate::config::memory::DynamicPoolConfig;
-
-            if let Ok(bytes) = val.parse::<u64>() {
-                // A page size implies the single-sliced strategy.
-                self.memory.dynamic_pool = DynamicPoolConfig::SingleSliced {
-                    page_size_bytes: Some(bytes),
-                };
-            }
-        }
-
         self
     }
 }

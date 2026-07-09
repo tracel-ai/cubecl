@@ -117,15 +117,10 @@ impl EventStreamBackend for HipStreamBackend {
         };
         let storage = GpuStorage::new(self.mem_alignment, stream);
 
-        // Resolve the configured dynamic-pool strategy for the main GPU
-        // activation pool only (the server does it, so `from_configuration`
-        // purely honors the config it's handed). The pinned pool below is left
-        // alone: the dynamic-pool override targets GPU activations, and the other
-        // pools have deliberate configurations that must not be overridden.
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,
             &self.mem_props,
-            self.mem_config.clone().resolve(&self.mem_props),
+            self.mem_config.clone(),
             self.logger.clone(),
             MemoryManagementOptions::new("Main GPU Memory"),
         );

@@ -5,7 +5,7 @@ use super::{
 use crate::{
     config::{
         CubeClRuntimeConfig, RuntimeConfig,
-        memory::{DynamicPoolConfig, MemoryLogLevel, PersistentMemory},
+        memory::{MemoryLogLevel, PersistentMemory},
     },
     logging::ServerLogger,
     memory_management::{BytesFormat, memory_pool::Slice},
@@ -173,45 +173,6 @@ fn generate_bucket_sizes(
 const DEALLOC_SCALE_MB: u64 = 1024 * 1024 * 1024;
 const BASE_DEALLOC_PERIOD: u64 = 5000;
 
-/// Build the pool layout for a [`DynamicPoolConfig::SingleSliced`] override, or
-/// `None` for [`DynamicPoolConfig::Auto`] (which keeps the runtime's own
-/// [`MemoryConfiguration`]).
-///
-/// The layout is the tiny sub-alignment exclusive pool (matching the first pool
-/// of `SubSlices`) followed by a single sliced arena of `page_size` chunks. Any
-/// single allocation larger than `page_size` is rejected, so it must exceed the
-/// biggest tensor; when unset it defaults to a large-but-bounded chunk.
-fn single_sliced_pool_options(
-    dynamic: &DynamicPoolConfig,
-    properties: &MemoryDeviceProperties,
-) -> Option<Vec<MemoryPoolOptions>> {
-    let DynamicPoolConfig::SingleSliced { page_size_bytes } = dynamic else {
-        return None;
-    };
-
-    const GIB: u64 = 1024 * 1024 * 1024;
-
-    let alignment = properties.alignment.max(1);
-    let page_size = page_size_bytes
-        .unwrap_or_else(|| properties.max_page_size.min(GIB))
-        .max(alignment)
-        .next_multiple_of(alignment);
-
-    // A single sliced arena, no separate tiny-allocation pool: the arena's
-    // `accept`/`try_reserve` handle every size (including zero), and adding the
-    // `ExclusivePages { max_alloc_size: 0 }` pool that `SubSlices` uses strands
-    // in-flight bindings when its `cleanup` deallocates+renumbers pages under
-    // the multi-stream cursor lookup (`handle_cursor`).
-    Some(alloc::vec![MemoryPoolOptions {
-        // `dealloc_period: None` keeps warmup-grown chunks retained for reuse.
-        pool_type: PoolType::SlicedPages {
-            page_size,
-            max_slice_size: page_size,
-        },
-        dealloc_period: None,
-    }])
-}
-
 /// The options for creating a new [`MemoryManagement`] instance.
 #[derive(Debug)]
 pub struct MemoryManagementOptions {
@@ -245,28 +206,6 @@ enum MemoryAllocationOption {
     FromConfig,
     /// Use the provided [`MemoryAllocationMode`].
     Provided(MemoryAllocationMode),
-}
-
-impl MemoryConfiguration {
-    /// Resolve this configuration against the global dynamic-pool strategy
-    /// ([`DynamicPoolConfig`](crate::config::memory::DynamicPoolConfig)) for a
-    /// pool with the given `properties`.
-    ///
-    /// [`SingleSliced`](crate::config::memory::DynamicPoolConfig::SingleSliced)
-    /// replaces the dynamic pools with one coalescing arena (returned as a
-    /// [`Custom`](Self::Custom) config); the default `Auto` keeps `self`
-    /// unchanged. The server calls this when it decides a pool's configuration,
-    /// so [`MemoryManagement::from_configuration`] purely honors the config it is
-    /// handed rather than silently overriding it from a global.
-    pub fn resolve(self, properties: &MemoryDeviceProperties) -> Self {
-        match single_sliced_pool_options(
-            &CubeClRuntimeConfig::get().memory.dynamic_pool,
-            properties,
-        ) {
-            Some(pool_options) => MemoryConfiguration::Custom { pool_options },
-            None => self,
-        }
-    }
 }
 
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
@@ -1001,87 +940,6 @@ mod tests {
         // Total memory should be size of all pages, and no more.
         assert_eq!(usage.bytes_in_use, alloc_sizes.iter().sum::<u64>());
         assert!(usage.bytes_reserved >= sizes.iter().sum::<u64>());
-    }
-
-    #[test_log::test]
-    fn single_sliced_option_builder() {
-        // `Auto` keeps the runtime's own configuration.
-        assert!(single_sliced_pool_options(&DynamicPoolConfig::Auto, &DUMMY_MEM_PROPS).is_none());
-
-        // `SingleSliced` yields exactly one aligned sliced arena.
-        let opts = single_sliced_pool_options(
-            &DynamicPoolConfig::SingleSliced {
-                page_size_bytes: Some(1000),
-            },
-            &DUMMY_MEM_PROPS,
-        )
-        .unwrap();
-        assert_eq!(opts.len(), 1);
-        match opts[0].pool_type {
-            PoolType::SlicedPages {
-                page_size,
-                max_slice_size,
-            } => {
-                // 1000 rounded up to the 32-byte alignment.
-                assert_eq!(page_size, 1024);
-                assert_eq!(max_slice_size, page_size);
-            }
-            _ => panic!("expected a sliced arena"),
-        }
-
-        // Unset page size falls back to a large-but-bounded default.
-        let opts = single_sliced_pool_options(
-            &DynamicPoolConfig::SingleSliced {
-                page_size_bytes: None,
-            },
-            &DUMMY_MEM_PROPS,
-        )
-        .unwrap();
-        match opts[0].pool_type {
-            PoolType::SlicedPages { page_size, .. } => {
-                assert_eq!(page_size, DUMMY_MEM_PROPS.max_page_size.min(1024 * 1024 * 1024));
-            }
-            _ => panic!("expected a sliced arena"),
-        }
-    }
-
-    // The whole point of the single-sliced arena: allocations from different
-    // "sequence-length ranges" reuse the same chunk instead of each landing in
-    // its own size-bucketed pool that keeps a separate reservation.
-    #[test_log::test]
-    fn single_sliced_reuses_one_arena_across_sizes() {
-        let page = 1024 * 1024; // 1 MiB chunk.
-        let pools = single_sliced_pool_options(
-            &DynamicPoolConfig::SingleSliced {
-                page_size_bytes: Some(page),
-            },
-            &DUMMY_MEM_PROPS,
-        )
-        .unwrap();
-
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            MemoryConfiguration::Custom {
-                pool_options: pools,
-            },
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-
-        // A "small seq" allocation, then freed.
-        let small = memory_management.reserve(4 * 1024).unwrap();
-        drop(small);
-        // A "large seq" allocation must reuse the same arena chunk.
-        let large = memory_management.reserve(512 * 1024).unwrap();
-
-        let usage = memory_management.memory_usage();
-        assert_eq!(
-            usage.bytes_reserved, page,
-            "both sizes must share a single arena chunk"
-        );
-        assert_eq!(usage.number_allocs, 1);
-        drop(large);
     }
 
     #[test_log::test]
