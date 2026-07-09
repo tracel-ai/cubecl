@@ -683,10 +683,10 @@ impl HipServer {
         command.streams.current().info_cache.mode(cache_mode);
 
         let info_handle = if command.streams.current().info_cache.should_cache(size) {
-            // Build the key only on the cache path: an uncached launch (large
-            // info in normal mode) pays no `KernelId`/`Vec<u64>` clone.
-            let key = (kernel_id.clone(), info.data.clone());
-            match command.streams.current().info_cache.get(&key) {
+            // Look up by the borrowed info bytes — a hit clones nothing. On a
+            // miss we build the buffer and hand the owned `info.data` to the
+            // cache (moved, not cloned) as the key.
+            match command.streams.current().info_cache.get(&info.data) {
                 Some(handle) => handle,
                 None => {
                     let handle = command
@@ -696,7 +696,7 @@ impl HipServer {
                         .streams
                         .current()
                         .info_cache
-                        .insert(key, handle.clone());
+                        .insert(info.data, handle.clone());
                     handle
                 }
             }

@@ -1,9 +1,10 @@
 //! Cache of per-launch **metadata info buffers** (kernel shapes, strides and
-//! scalars) keyed by the kernel and the exact info bytes it was built from.
+//! scalars) keyed by the exact info bytes they were built from (see
+//! [`InfoCacheKey`]).
 //!
-//! A kernel's info depends only on its shapes and scalar arguments — not on the
-//! tensor data pointers, which are separate kernel arguments — so two launches
-//! with identical info can share one read-only device buffer. Caching those
+//! Info depends only on shapes and scalar arguments — not on the tensor data
+//! pointers, which are separate kernel arguments — so two launches with identical
+//! info, even of different kernels, can share one read-only device buffer. Caching those
 //! buffers removes a fresh allocation and a host→device copy from every launch,
 //! and it is what makes hardware graph capture clean: a stable-shape decode's
 //! launches all hit warm buffers, so nothing is allocated or copied inside the
@@ -41,11 +42,18 @@
 use alloc::vec::Vec;
 use hashbrown::{HashMap, HashSet};
 
-use crate::id::{GraphId, KernelId};
+use crate::id::GraphId;
 
-/// Identifies a cached info buffer: the kernel plus the exact metadata words
-/// (shapes, strides, scalars) the buffer was built from.
-pub type InfoCacheKey = (KernelId, Vec<u64>);
+/// Identifies a cached info buffer: the exact metadata words (shapes, strides,
+/// scalars) the buffer was built from — nothing else.
+///
+/// The kernel is deliberately **not** part of the key. An info buffer is
+/// read-only metadata whose bytes are fully determined by these words, so two
+/// launches (even of different kernels) with identical info want a byte-identical
+/// buffer and can safely share one. Keying on the words alone means a hit needs
+/// only the caller's borrowed slice — no owned key to clone on the hot path — and
+/// buffers are reused across kernels, not just within one.
+pub type InfoCacheKey = Vec<u64>;
 
 /// How the cache should behave for the current launch. Fed into the
 /// [`MetadataCachePolicy`], so it shapes every decision, not just a setting.
@@ -222,17 +230,17 @@ impl<V: Clone> MetadataInfoCache<V> {
     ///
     /// Call only when [`should_cache`](Self::should_cache) is `true`; on a miss
     /// create the value and hand it to [`insert`](Self::insert).
-    pub fn get(&mut self, key: &InfoCacheKey) -> Option<V> {
+    pub fn get(&mut self, key: &[u64]) -> Option<V> {
         self.clock += 1;
         let clock = self.clock;
-        // Pin once per capture: `pending.insert` is true only the first time this
-        // key is touched in the current window (disjoint field from `entries`).
-        let pin = self.policy.pins_entries() && self.entries.contains_key(key) && {
-            self.pending.insert(key.clone())
-        };
+        // Pin once per capture. Check membership first (borrowed, no alloc); only
+        // when this is a fresh pin do we materialize an owned key for `pending`.
+        // `pending`/`entries` are disjoint fields, so both borrows coexist.
+        let pin = self.policy.pins_entries() && !self.pending.contains(key);
         let entry = self.entries.get_mut(key)?;
         entry.last_used = clock;
         if pin {
+            self.pending.insert(key.to_vec());
             entry.locks += 1;
         }
         Some(entry.value.clone())
@@ -336,7 +344,7 @@ mod tests {
     use super::*;
 
     fn key(n: u64) -> InfoCacheKey {
-        (KernelId::new::<()>(), alloc::vec![n])
+        alloc::vec![n]
     }
 
     fn cache(max_entries: usize) -> MetadataInfoCache<u32> {
