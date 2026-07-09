@@ -812,6 +812,26 @@ pub enum IoError {
         backtrace: BackTrace,
     },
 
+    /// A memory pool with a fixed capacity cap is exhausted.
+    ///
+    /// Unlike [`IoError::BufferTooBig`] (the allocation can *never* fit), the
+    /// allocation could succeed later: freeing pool memory and retrying is
+    /// valid.
+    #[error(
+        "memory pool capacity exceeded: failed to reserve {size} bytes, pool is capped at {capacity} bytes ({in_use} bytes in use)\n{backtrace}"
+    )]
+    PoolCapacityExceeded {
+        /// The size of the failed reservation in bytes.
+        size: u64,
+        /// The configured pool capacity in bytes (whole pages).
+        capacity: u64,
+        /// Bytes currently in use in the pool.
+        in_use: u64,
+        /// The captured backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
     /// Strides aren't supported for this copy operation on this runtime
     #[error("the provided strides are not supported for this operation\n{backtrace}")]
     UnsupportedStrides {

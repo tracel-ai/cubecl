@@ -207,6 +207,8 @@ fn single_sliced_pool_options(
         pool_type: PoolType::SlicedPages {
             page_size,
             max_slice_size: page_size,
+            max_pool_size: None,
+            preallocate: false,
         },
         dealloc_period: None,
     }])
@@ -323,6 +325,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         pool_type: PoolType::SlicedPages {
                             page_size,
                             max_slice_size: max,
+                            max_pool_size: None,
+                            preallocate: false,
                         },
                         dealloc_period: None,
                     });
@@ -333,6 +337,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     pool_type: PoolType::SlicedPages {
                         page_size: max_page / memory_alignment * memory_alignment,
                         max_slice_size: max_page / memory_alignment * memory_alignment,
+                        max_pool_size: None,
+                        preallocate: false,
                     },
                     dealloc_period: None,
                 });
@@ -382,33 +388,63 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             },
         );
 
-        let pools: Vec<_> = pool_options
+        let mut storage = storage;
+        let mut pools: Vec<_> = pool_options
             .iter()
             .enumerate()
-            .map(|(pool_pos, options)| {
+            .map(|(pool_pos, pool)| {
                 let pool_pos = pool_pos as u8;
 
-                match options.pool_type {
+                match pool.pool_type {
                     PoolType::SlicedPages {
                         page_size,
                         max_slice_size,
-                    } => DynamicPool::Sliced(SlicedPool::new(
-                        page_size,
-                        max_slice_size,
-                        properties.alignment,
-                        pool_pos,
-                    )),
+                        max_pool_size,
+                        preallocate,
+                    } => {
+                        if preallocate && max_pool_size.is_none() {
+                            #[cfg(feature = "std")]
+                            log::warn!(
+                                "[{}] `preallocate` requires `max_pool_size`; ignoring.",
+                                options.name,
+                            );
+                        }
+                        DynamicPool::Sliced(SlicedPool::new(
+                            page_size,
+                            max_slice_size,
+                            properties.alignment,
+                            pool_pos,
+                            max_pool_size,
+                            preallocate,
+                        ))
+                    }
                     PoolType::ExclusivePages { max_alloc_size } => {
                         DynamicPool::Exclusive(ExclusiveMemoryPool::new(
                             max_alloc_size,
                             properties.alignment,
-                            options.dealloc_period.unwrap_or(u64::MAX),
+                            pool.dealloc_period.unwrap_or(u64::MAX),
                             pool_pos,
                         ))
                     }
                 }
             })
             .collect();
+
+        // Preallocate fixed-footprint pools up front. On failure: log and
+        // degrade to lazy allocation — the capacity cap is still enforced at
+        // reserve time.
+        for pool in pools.iter_mut() {
+            if let DynamicPool::Sliced(pool) = pool {
+                if let Err(_err) = pool.preallocate(&mut storage) {
+                    #[cfg(feature = "std")]
+                    log::error!(
+                        "[{}] Failed to preallocate sliced pool pages: {_err}. \
+                         Falling back to on-demand allocation (capacity cap still applies).",
+                        options.name,
+                    );
+                }
+            }
+        }
 
         let config = CubeClRuntimeConfig::get().memory.persistent_memory.clone();
 
@@ -870,6 +906,8 @@ mod tests {
                     pool_type: PoolType::SlicedPages {
                         page_size: 2048,
                         max_slice_size: 2048,
+                        max_pool_size: None,
+                        preallocate: false,
                     },
                     dealloc_period: None,
                 }],
@@ -899,6 +937,8 @@ mod tests {
                     pool_type: PoolType::SlicedPages {
                         page_size: 2048,
                         max_slice_size: 2048,
+                        max_pool_size: None,
+                        preallocate: false,
                     },
                     dealloc_period: None,
                 }],
@@ -956,6 +996,216 @@ mod tests {
         assert_eq!(memory_management.memory_usage().bytes_reserved, 1024);
     }
 
+    fn capped_sliced_config(
+        page_size: u64,
+        max_pool_size: Option<u64>,
+        preallocate: bool,
+    ) -> MemoryConfiguration {
+        MemoryConfiguration::Custom {
+            pool_options: vec![MemoryPoolOptions {
+                pool_type: PoolType::SlicedPages {
+                    page_size,
+                    max_slice_size: page_size,
+                    max_pool_size,
+                    preallocate,
+                },
+                dealloc_period: None,
+            }],
+        }
+    }
+
+    #[test_log::test]
+    fn capped_sliced_pool_errors_instead_of_growing() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            capped_sliced_config(1024, Some(2048), false),
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        let _a = memory_management.reserve(1024).unwrap();
+        let _b = memory_management.reserve(1024).unwrap();
+
+        let result = memory_management.reserve(1024);
+        assert!(matches!(
+            result,
+            Err(IoError::PoolCapacityExceeded {
+                capacity: 2048,
+                ..
+            })
+        ));
+        assert_eq!(
+            memory_management.memory_usage().bytes_reserved,
+            2048,
+            "a failed reservation must not grow the pool"
+        );
+    }
+
+    #[test_log::test]
+    fn capped_sliced_pool_reuses_freed_memory() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            capped_sliced_config(1024, Some(2048), false),
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        let handle_a = memory_management.reserve(1024).unwrap();
+        let _b = memory_management.reserve(1024).unwrap();
+        drop(handle_a);
+
+        // The capacity error is transient: freeing makes the reservation fit
+        // again without growing the pool.
+        let _c = memory_management.reserve(1024).unwrap();
+        assert_eq!(memory_management.memory_usage().bytes_reserved, 2048);
+    }
+
+    #[test_log::test]
+    fn preallocated_pool_has_fixed_footprint_from_start() {
+        let memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            capped_sliced_config(1024, Some(4096), true),
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        let usage = memory_management.memory_usage();
+        assert_eq!(usage.bytes_reserved, 4096);
+        assert_eq!(usage.number_allocs, 0);
+        assert_eq!(usage.bytes_in_use, 0);
+    }
+
+    #[test_log::test]
+    fn preallocated_pool_survives_explicit_cleanup() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            capped_sliced_config(1024, Some(4096), true),
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        let handle = memory_management.reserve(1024).unwrap();
+        drop(handle);
+        memory_management.cleanup(true);
+
+        assert_eq!(
+            memory_management.memory_usage().bytes_reserved,
+            4096,
+            "explicit cleanup must not shrink a preallocated pool"
+        );
+        let _handle = memory_management.reserve(1024).unwrap();
+        assert_eq!(memory_management.memory_usage().bytes_reserved, 4096);
+    }
+
+    #[test_log::test]
+    fn capped_lazy_pool_cleanup_still_frees() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            capped_sliced_config(1024, Some(2048), false),
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        let handle_a = memory_management.reserve(1024).unwrap();
+        let handle_b = memory_management.reserve(1024).unwrap();
+        drop(handle_a);
+        drop(handle_b);
+        memory_management.cleanup(true);
+        assert_eq!(memory_management.memory_usage().bytes_reserved, 0);
+
+        // The cap is still enforced after the pool shrank and regrew.
+        let _a = memory_management.reserve(1024).unwrap();
+        let _b = memory_management.reserve(1024).unwrap();
+        assert!(matches!(
+            memory_management.reserve(1024),
+            Err(IoError::PoolCapacityExceeded { .. })
+        ));
+    }
+
+    #[test_log::test]
+    fn max_pool_size_smaller_than_page_shrinks_page() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            capped_sliced_config(2048, Some(512), false),
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        let _small = memory_management.reserve(256).unwrap();
+        assert!(memory_management.memory_usage().bytes_reserved <= 512);
+
+        // Larger than the (shrunk) page: rejected without growing the footprint.
+        assert!(memory_management.reserve(1024).is_err());
+        assert!(memory_management.memory_usage().bytes_reserved <= 512);
+    }
+
+    #[test_log::test]
+    fn preallocate_without_cap_degrades_to_lazy() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            capped_sliced_config(1024, None, true),
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        assert_eq!(memory_management.memory_usage().bytes_reserved, 0);
+
+        // Previous (unbounded) behavior.
+        let _a = memory_management.reserve(1024).unwrap();
+        let _b = memory_management.reserve(1024).unwrap();
+        assert_eq!(memory_management.memory_usage().bytes_reserved, 2048);
+    }
+
+    #[test_log::test]
+    fn capacity_error_does_not_fall_through_to_later_pool() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![
+                    MemoryPoolOptions {
+                        pool_type: PoolType::SlicedPages {
+                            page_size: 1024,
+                            max_slice_size: 1024,
+                            max_pool_size: Some(1024),
+                            preallocate: false,
+                        },
+                        dealloc_period: None,
+                    },
+                    MemoryPoolOptions {
+                        pool_type: PoolType::SlicedPages {
+                            page_size: 1024,
+                            max_slice_size: 1024,
+                            max_pool_size: None,
+                            preallocate: false,
+                        },
+                        dealloc_period: None,
+                    },
+                ],
+            },
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        let _fill = memory_management.reserve(1024).unwrap();
+        assert!(matches!(
+            memory_management.reserve(1024),
+            Err(IoError::PoolCapacityExceeded { .. })
+        ));
+        assert_eq!(
+            memory_management.memory_usage().bytes_reserved,
+            1024,
+            "the overflow must not silently land in the later pool"
+        );
+    }
+
     #[test_log::test]
     fn alloc_two_chunks_on_one_page() {
         let page_size = 2048;
@@ -968,6 +1218,8 @@ mod tests {
                     pool_type: PoolType::SlicedPages {
                         page_size,
                         max_slice_size: page_size,
+                        max_pool_size: None,
+                        preallocate: false,
                     },
                     dealloc_period: None,
                 }],
@@ -999,6 +1251,8 @@ mod tests {
                     pool_type: PoolType::SlicedPages {
                         page_size,
                         max_slice_size: page_size,
+                        max_pool_size: None,
+                        preallocate: false,
                     },
                     dealloc_period: None,
                 }],
@@ -1030,6 +1284,8 @@ mod tests {
                     pool_type: PoolType::SlicedPages {
                         page_size,
                         max_slice_size: page_size,
+                        max_pool_size: None,
+                        preallocate: false,
                     },
                     dealloc_period: None,
                 }],
@@ -1062,6 +1318,8 @@ mod tests {
                     pool_type: PoolType::SlicedPages {
                         page_size,
                         max_slice_size: page_size,
+                        max_pool_size: None,
+                        preallocate: false,
                     },
                     dealloc_period: None,
                 }],
@@ -1087,6 +1345,8 @@ mod tests {
                 pool_type: PoolType::SlicedPages {
                     page_size: *size,
                     max_slice_size: *size,
+                    max_pool_size: None,
+                    preallocate: false,
                 },
                 dealloc_period: None,
             })
@@ -1132,6 +1392,7 @@ mod tests {
             PoolType::SlicedPages {
                 page_size,
                 max_slice_size,
+                ..
             } => {
                 // 1000 rounded up to the 32-byte alignment.
                 assert_eq!(page_size, 1024);
@@ -1396,6 +1657,8 @@ mod tests {
                 pool_type: PoolType::SlicedPages {
                     page_size: size,
                     max_slice_size: size,
+                    max_pool_size: None,
+                    preallocate: false,
                 },
                 dealloc_period: None,
             })

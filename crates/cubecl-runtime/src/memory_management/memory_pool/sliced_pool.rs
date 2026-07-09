@@ -17,18 +17,82 @@ pub struct SlicedPool {
     alignment: u64,
     max_alloc_size: u64,
     location_base: MemoryLocation,
+    /// Max number of pages (`floor(max_pool_size / page_size)`).
+    /// `None` keeps unbounded growth.
+    max_pages: Option<u16>,
+    /// Pages are allocated up front and retained across cleanups.
+    preallocated: bool,
 }
 
 impl SlicedPool {
-    pub fn new(page_size: u64, max_slice_size: u64, alignment: u64, pool_pos: u8) -> Self {
+    pub fn new(
+        page_size: u64,
+        max_slice_size: u64,
+        alignment: u64,
+        pool_pos: u8,
+        max_pool_size: Option<u64>,
+        preallocate: bool,
+    ) -> Self {
+        // A budget smaller than one page shrinks the page to the
+        // (alignment-rounded-down) budget, so the cap is honored rather than
+        // exceeded by a single page.
+        let (page_size, max_pages) = match max_pool_size {
+            Some(cap) => {
+                let page_size = if cap < page_size {
+                    (cap / alignment * alignment).max(alignment)
+                } else {
+                    page_size
+                };
+                let max_pages = (cap / page_size).min(u16::MAX as u64).max(1) as u16;
+                (page_size, Some(max_pages))
+            }
+            None => (page_size, None),
+        };
+
         Self {
             pages: Vec::new(),
             pages_tmp: Vec::new(),
             page_size,
             alignment,
-            max_alloc_size: max_slice_size,
+            max_alloc_size: max_slice_size.min(page_size),
             location_base: MemoryLocation::new(pool_pos, 0, 0),
+            max_pages,
+            // Preallocation without a cap is meaningless (nothing to fill to);
+            // `from_configuration` logs the warning.
+            preallocated: preallocate && max_pages.is_some(),
         }
+    }
+
+    /// Allocate a new page and return its index.
+    fn alloc_page<Storage: crate::storage::ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+    ) -> Result<usize, IoError> {
+        let storage = storage.alloc(self.page_size)?;
+        let storage_id = storage.id;
+        let mut location_base = self.location_base;
+        location_base.page = self.pages.len() as u16;
+
+        let page = MemoryPage::new(storage, self.alignment, location_base);
+        self.pages.push((page, storage_id));
+
+        Ok(self.pages.len() - 1)
+    }
+
+    /// Allocate all pages up front, up to the pool's capacity cap.
+    /// A no-op for pools that aren't configured to preallocate.
+    pub(crate) fn preallocate<Storage: crate::storage::ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+    ) -> Result<(), IoError> {
+        if !self.preallocated {
+            return Ok(());
+        }
+        let max_pages = self.max_pages.expect("preallocated implies a capacity cap");
+        while self.pages.len() < max_pages as usize {
+            self.alloc_page(storage)?;
+        }
+        Ok(())
     }
 }
 
@@ -76,15 +140,23 @@ impl MemoryPool for SlicedPool {
         storage: &mut Storage,
         size: u64,
     ) -> Result<super::ManagedMemoryHandle, crate::server::IoError> {
-        let storage = storage.alloc(self.page_size)?;
+        // `alloc` is only called after `try_reserve` coalesced every page and
+        // found no fit, so hitting the cap here means the working set truly
+        // exceeds the budget.
+        if let Some(max_pages) = self.max_pages {
+            if self.pages.len() >= max_pages as usize {
+                return Err(IoError::PoolCapacityExceeded {
+                    size,
+                    capacity: max_pages as u64 * self.page_size,
+                    in_use: self.get_memory_usage().bytes_in_use,
+                    backtrace: BackTrace::capture(),
+                });
+            }
+        }
 
-        let storage_id = storage.id;
-        let mut location_base = self.location_base;
-        location_base.page = self.pages.len() as u16;
-
-        let mut page = MemoryPage::new(storage, self.alignment, location_base);
+        let index = self.alloc_page(storage)?;
+        let (page, _) = &mut self.pages[index];
         let returned = page.try_reserve(size);
-        self.pages.push((page, storage_id));
 
         Ok(returned.expect("effective_size to be smaller than page_size"))
     }
@@ -115,7 +187,9 @@ impl MemoryPool for SlicedPool {
         _alloc_nr: u64,
         explicit: bool,
     ) {
-        if !explicit {
+        // A preallocated pool's whole point is a fixed footprint: releasing its
+        // fully-free pages would shrink it only to re-alloc on next use.
+        if !explicit || self.preallocated {
             return;
         }
 
@@ -157,10 +231,18 @@ impl Display for SlicedPool {
         }
 
         f.write_fmt(format_args!(
-            " - Sliced Pool page_size={} max_alloc_size={}\n",
+            " - Sliced Pool page_size={} max_alloc_size={}",
             BytesFormat::new(self.page_size),
             BytesFormat::new(self.max_alloc_size)
         ))?;
+        if let Some(max_pages) = self.max_pages {
+            f.write_fmt(format_args!(
+                " max_pool_size={} preallocated={}",
+                BytesFormat::new(max_pages as u64 * self.page_size),
+                self.preallocated
+            ))?;
+        }
+        f.write_str("\n")?;
 
         for (page, id) in self.pages.iter() {
             let summary = page.summary(false);
