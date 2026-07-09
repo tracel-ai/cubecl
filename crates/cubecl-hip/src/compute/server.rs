@@ -201,6 +201,16 @@ impl ComputeServer for HipServer {
             },
         )?;
         let stream = command.streams.current();
+        // Arm the capture even when the caller skipped `graph_prepare`
+        // (recommended for a warm persistent pool, but not required): anything
+        // the window allocates must land in the persistent pool and be pinned
+        // by `end_capture`, or the pool hands the graph's memory to a later
+        // allocation and replay corrupts it. Without the warmup that
+        // `graph_prepare` enables, a fresh allocation mid-capture faults
+        // loudly instead — still better than silent corruption. No-op when
+        // `graph_prepare` already armed the capture.
+        stream.memory_management_gpu.capture_begin();
+        stream.memory_management_cpu.capture_begin();
         // Reclaim deferred frees before the capture window opens: warmup's
         // pinned staging buffers (and any other drop-queued slices) sit in the
         // drop queue until flushed, so without this the capture run finds no
@@ -220,7 +230,15 @@ impl ComputeServer for HipServer {
                 cubecl_hip_sys::hipStreamCaptureMode_hipStreamCaptureModeGlobal,
             )
         };
-        hip_check("hipStreamBeginCapture", status)?;
+        if let Err(err) = hip_check("hipStreamBeginCapture", status) {
+            // The capture never opened: disarm retention and restore the
+            // allocation mode, so a failed `start_capture` doesn't leave the
+            // stream allocating pinned persistent memory forever. The caller
+            // can retry the whole `graph_prepare`/`start_capture` sequence.
+            stream.memory_management_gpu.capture_end();
+            stream.memory_management_cpu.capture_end();
+            return Err(err);
+        }
         // Suppress fenced drop-queue flushes on the execution path for the
         // duration of the capture (a host sync would abort it); the deferred
         // staging buffers are reclaimed in `end_capture`.
@@ -239,37 +257,48 @@ impl ComputeServer for HipServer {
         let stream = command.streams.current();
         // SAFETY: ends the capture begun on this stream and instantiates the
         // recorded graph into an executable; the intermediate `graph` is freed
-        // once instantiated, leaving only the `exec` the returned handle owns.
+        // whether or not instantiation succeeds, leaving only the `exec` the
+        // returned handle owns.
         let exec = unsafe {
             let mut graph: cubecl_hip_sys::hipGraph_t = std::ptr::null_mut();
             hip_check(
                 "hipStreamEndCapture",
                 cubecl_hip_sys::hipStreamEndCapture(stream.sys, &mut graph),
-            )?;
-            let mut exec: cubecl_hip_sys::hipGraphExec_t = std::ptr::null_mut();
-            hip_check(
-                "hipGraphInstantiate",
-                cubecl_hip_sys::hipGraphInstantiate(
-                    &mut exec,
-                    graph,
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    0,
-                ),
-            )?;
-            cubecl_hip_sys::hipGraphDestroy(graph);
-            exec
+            )
+            .and_then(|_| {
+                let mut exec: cubecl_hip_sys::hipGraphExec_t = std::ptr::null_mut();
+                let instantiated = hip_check(
+                    "hipGraphInstantiate",
+                    cubecl_hip_sys::hipGraphInstantiate(
+                        &mut exec,
+                        graph,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        0,
+                    ),
+                );
+                cubecl_hip_sys::hipGraphDestroy(graph);
+                instantiated.map(|_| exec)
+            })
         };
-        // Capture is closed: re-enable the deferred fenced flushes.
+        // The capture is over even if it failed to instantiate: re-enable the
+        // deferred fenced flushes and restore the allocation mode, so an error
+        // here doesn't leave the stream stuck in capture/persistent state.
         stream.capturing = false;
-        // Restore automatic allocation and pin every buffer the graph touched
-        // so the pool never reuses that memory for the graph's lifetime — both
-        // the GPU slices and the pinned staging slices the recorded info copies
-        // still read from on replay.
+        // Pin every buffer the graph touched so the pool never reuses that
+        // memory for the graph's lifetime — both the GPU slices and the pinned
+        // staging slices the recorded info copies still read from on replay.
+        // On failure the handles drop with `exec?` below, unpinning them.
         let mut retained = stream.memory_management_gpu.capture_end();
         retained.extend(stream.memory_management_cpu.capture_end());
+        // Reclaim the buffers dropped during the capture window, whose fenced
+        // flushes were deferred while `capturing` was set. Flush twice: the
+        // queue is a double buffer, one flush only rotates the current batch.
+        let sys = stream.sys;
+        stream.drop_queue.flush(|| Fence::new(sys));
+        stream.drop_queue.flush(|| Fence::new(sys));
         Ok(DeviceGraph::new(crate::compute::graph::HipGraph {
-            exec,
+            exec: exec?,
             _retained: retained,
         }))
     }

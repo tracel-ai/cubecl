@@ -52,7 +52,9 @@ pub struct ComputeClient<R: Runtime> {
 /// the output handles after replaying — see [`ComputeClient::stop_capture`].
 #[derive(Clone)]
 pub struct Graph<R: Runtime> {
-    graph: Arc<DeviceGraph>,
+    /// Always `Some` — only [`Drop`] takes it, to ship the reference to the
+    /// server actor instead of releasing it on the calling thread.
+    graph: Option<Arc<DeviceGraph>>,
     device: DeviceHandle<R::Server>,
     stream_id: StreamId,
 }
@@ -64,10 +66,30 @@ impl<R: Runtime> Graph<R> {
     /// no client needed.
     pub fn replay(&self) -> Result<(), ServerError> {
         let stream_id = self.stream_id;
-        let graph = self.graph.clone();
+        let graph = self.graph.clone().expect("only taken on drop");
         self.device
             .submit_blocking(move |server| server.replay(graph.as_ref(), stream_id))
             .unwrap_or_resume()
+    }
+}
+
+impl<R: Runtime> Drop for Graph<R> {
+    fn drop(&mut self) {
+        let Some(graph) = self.graph.take() else {
+            return;
+        };
+        let stream_id = self.stream_id;
+        // The backend graph's Drop destroys the raw executable, which must
+        // happen on the server actor (the only thread allowed to touch it) and
+        // only once in-flight replays have completed — `replay` returns at
+        // enqueue time, not completion. Ship the reference to the actor: the
+        // last one syncs the stream, then releases.
+        self.device.submit(move |server| {
+            if Arc::strong_count(&graph) == 1 {
+                let _ = cubecl_common::future::block_on(server.sync(stream_id));
+            }
+            drop(graph);
+        });
     }
 }
 
@@ -425,13 +447,28 @@ impl<R: Runtime> ComputeClient<R> {
     /// graph's fixed input buffers are refreshed between replays: write the new
     /// inputs into the handles the graph captured, then [`Graph::replay`]. The
     /// write is ordered before any later launch on the client's stream.
-    pub fn write(&self, handle: &Handle, data: Bytes) {
+    ///
+    /// Errors if `data` is larger than the buffer behind `handle`.
+    pub fn write(&self, handle: &Handle, data: Bytes) -> Result<(), IoError> {
+        if data.len() as u64 > handle.size_in_used() {
+            return Err(IoError::Unknown {
+                description: format!(
+                    "write of {} bytes exceeds the target handle of {} bytes",
+                    data.len(),
+                    handle.size_in_used()
+                ),
+                backtrace: BackTrace::capture(),
+            });
+        }
+
         let stream_id = self.stream_id();
         let descriptor =
             CopyDescriptor::new(handle.clone().binding(), [data.len()].into(), [1].into(), 1);
         self.device.submit(move |server| {
             server.write(vec![(descriptor, data)], stream_id);
         });
+
+        Ok(())
     }
 
     /// Returns a resource handle containing the given [Bytes].
@@ -938,7 +975,7 @@ impl<R: Runtime> ComputeClient<R> {
             .unwrap_or_resume()?;
 
         Ok(Graph {
-            graph: Arc::new(graph),
+            graph: Some(Arc::new(graph)),
             device: self.device.clone(),
             stream_id,
         })

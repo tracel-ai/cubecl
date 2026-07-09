@@ -1,14 +1,17 @@
 //! Validates HIP graph capture/replay on the actual device.
-//!
-//! Run with `--test-threads 1`: graph capture toggles device-global allocation
-//! state (persistent mode), so two captures sharing the one cached client must
-//! not overlap — exactly one capture at a time per device, as in real use.
 
 use cubecl_common::bytes::Bytes;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_core::server::Handle;
 use cubecl_hip::HipRuntime;
+use std::sync::Mutex;
+
+/// Graph capture toggles device-global allocation state (persistent mode) on
+/// the one cached client, so two captures must not overlap — exactly one
+/// capture at a time per device, as in real use. Serialize the tests instead
+/// of relying on `--test-threads 1`.
+static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
 
 #[cube(launch)]
 fn add_one(input: &[f32], output: &mut [f32]) {
@@ -28,6 +31,7 @@ fn mul_two(input: &[f32], output: &mut [f32]) {
 /// output — the end-to-end proof that hardware graph capture works on this GPU.
 #[test]
 fn hip_graph_capture_replay() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let client = HipRuntime::client(&Default::default());
 
     let n = 4usize;
@@ -71,6 +75,7 @@ fn hip_graph_capture_replay() {
 /// feeds the next token into a captured step without re-capturing.
 #[test]
 fn hip_graph_input_rewrite() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let client = HipRuntime::client(&Default::default());
     let n = 4usize;
     let input = client.create_from_slice(f32::as_bytes(&[1.0, 2.0, 3.0, 4.0]));
@@ -99,10 +104,12 @@ fn hip_graph_input_rewrite() {
 
     // Write new inputs into the captured buffer (same pointer), replay: the
     // output must reflect the new input, not the captured-time values.
-    client.write(
-        &input,
-        Bytes::from_bytes_vec(f32::as_bytes(&[10.0, 20.0, 30.0, 40.0]).to_vec()),
-    );
+    client
+        .write(
+            &input,
+            Bytes::from_bytes_vec(f32::as_bytes(&[10.0, 20.0, 30.0, 40.0]).to_vec()),
+        )
+        .expect("write");
     graph.replay().expect("replay after rewrite");
     let out = client.read_one(output).unwrap();
     assert_eq!(f32::from_bytes(&out), &[11.0, 21.0, 31.0, 41.0]);
@@ -125,6 +132,7 @@ fn hip_graph_input_rewrite() {
 /// that fix.
 #[test]
 fn hip_graph_intermediate_recycling() {
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let client = HipRuntime::client(&Default::default());
     let n = 4usize;
     let bytes = n * core::mem::size_of::<f32>();

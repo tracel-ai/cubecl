@@ -4,7 +4,11 @@ use cubecl_runtime::memory_management::ManagedMemoryHandle;
 /// An instantiated HIP executable graph (`hipGraphExec_t`), destroyed on drop.
 ///
 /// The raw handle is only ever touched from inside the server actor, which
-/// serializes access, so it is sound to move across the actor boundary.
+/// serializes access, so it is sound to move across the actor boundary. The
+/// client-side `Graph` wrapper upholds this for `Drop` too: it ships its
+/// reference to the actor instead of releasing it on the calling thread, and
+/// the final release syncs the stream first so the executable is never
+/// destroyed while a replay is still running.
 #[derive(Debug)]
 pub struct HipGraph {
     pub(crate) exec: hipGraphExec_t,
