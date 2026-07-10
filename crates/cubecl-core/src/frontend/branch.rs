@@ -1,10 +1,15 @@
 use alloc::vec::Vec;
 use cubecl_ir::{
     OpInserter,
-    attributes::{IntAttr, UIntAttr},
     dialect::branch::{BreakOp, IfOp, LoopOp, ReturnOp, SwitchOp, UnreachableOp},
     pliron::{irbuild::inserter::Inserter, r#type::TypedHandle},
-    types::scalar::UIntType,
+};
+use pliron::{
+    builtin::{
+        attributes::IntegerAttr,
+        types::{IntegerType, Signedness},
+    },
+    utils::apint::{APInt, bw},
 };
 
 use crate::{
@@ -218,18 +223,10 @@ impl<I: Int> SwitchExpand<I> {
     pub fn finish(self, scope: &Scope) {
         let cases = self.cases.into_iter().map(|case| {
             let ty = I::__expand_as_type(scope);
-            match I::is_signed(scope) {
-                true => IntAttr::new(
-                    TypedHandle::from_handle(ty, scope.ctx()).unwrap(),
-                    case.to_i64().unwrap(),
-                )
-                .into(),
-                false => UIntAttr::new(
-                    TypedHandle::from_handle(ty, scope.ctx()).unwrap(),
-                    case.to_u64().unwrap(),
-                )
-                .into(),
-            }
+            let ty = TypedHandle::<IntegerType>::from_handle(ty, scope.ctx()).unwrap();
+            let width = bw(ty.deref(scope.ctx()).width() as usize);
+            let val = APInt::from_i128(case.to_i128().unwrap(), width);
+            IntegerAttr::new(ty, val).into()
         });
         self.switch_op.set_attr_cases(scope.ctx(), cases);
         scope.register(&self.switch_op);
@@ -282,18 +279,10 @@ impl<I: Int, C: Assign> SwitchExpandExpr<I, C> {
     pub fn finish(self, scope: &Scope) -> C {
         let cases = self.cases.into_iter().map(|case| {
             let ty = I::__expand_as_type(scope);
-            match I::is_signed(scope) {
-                true => IntAttr::new(
-                    TypedHandle::from_handle(ty, scope.ctx()).unwrap(),
-                    case.to_i64().unwrap(),
-                )
-                .into(),
-                false => UIntAttr::new(
-                    TypedHandle::from_handle(ty, scope.ctx()).unwrap(),
-                    case.to_u64().unwrap(),
-                )
-                .into(),
-            }
+            let ty = TypedHandle::<IntegerType>::from_handle(ty, scope.ctx()).unwrap();
+            let width = bw(ty.deref(scope.ctx()).width() as usize);
+            let val = APInt::from_i128(case.to_i128().unwrap(), width);
+            IntegerAttr::new(ty, val).into()
         });
         self.switch_op.set_attr_cases(scope.ctx(), cases);
         scope.register(&self.switch_op);
@@ -417,8 +406,8 @@ impl<T: CubeEnum> MatchExpand<T> {
                 }
 
                 let cases = cases.into_iter().map(|case| {
-                    let ty = UIntType::get(scope.ctx(), 32);
-                    UIntAttr::new(ty, case as u64).into()
+                    let ty = IntegerType::get(scope.ctx(), 32, Signedness::Unsigned);
+                    IntegerAttr::new(ty, APInt::from_i32(case, bw(32))).into()
                 });
                 switch_op.set_attr_cases(scope.ctx(), cases);
                 scope.register(&switch_op);
@@ -580,8 +569,8 @@ impl<T: CubeEnum, C: Assign> MatchExpandExpr<T, C> {
                 }
 
                 let cases = cases.into_iter().map(|case| {
-                    let ty = UIntType::get(scope.ctx(), 32);
-                    UIntAttr::new(ty, case as u64).into()
+                    let ty = IntegerType::get(scope.ctx(), 32, Signedness::Unsigned);
+                    IntegerAttr::new(ty, APInt::from_i32(case, bw(32))).into()
                 });
                 switch_op.set_attr_cases(scope.ctx(), cases);
                 scope.register(&switch_op);

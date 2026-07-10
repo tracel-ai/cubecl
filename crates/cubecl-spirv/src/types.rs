@@ -68,14 +68,14 @@ impl ToSpirvDialectType for IndexType {
 #[type_interface_impl]
 impl ToSpirvDialectType for IntType {
     fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
-        IntegerType::get(ctx, self.width as u32, Signedness::Signless).to_handle()
+        IntegerType::get(ctx, self.width as u32, Signedness::Signed).to_handle()
     }
 }
 
 #[type_interface_impl]
 impl ToSpirvDialectType for UIntType {
     fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
-        IntegerType::get(ctx, self.width as u32, Signedness::Signless).to_handle()
+        IntegerType::get(ctx, self.width as u32, Signedness::Unsigned).to_handle()
     }
 }
 

@@ -219,11 +219,11 @@ fn insert_placeholders(
 fn infer_constraint_letter(ctx: &Context, ty: TypeHandle) -> char {
     if ty.is_bool(ctx) {
         'b'
-    } else if ty.is_int_of_width(ctx, 16) || ty.is_uint_of_width(ctx, 16) {
+    } else if ty.is_int_of_width(ctx, 16) {
         'h'
-    } else if ty.is_int_of_width(ctx, 32) || ty.is_uint_of_width(ctx, 32) {
+    } else if ty.is_int_of_width(ctx, 32) {
         'r'
-    } else if ty.is_int_of_width(ctx, 64) || ty.is_uint_of_width(ctx, 64) {
+    } else if ty.is_int_of_width(ctx, 64) {
         'l'
     } else if ty.is_float32(ctx) {
         'f'

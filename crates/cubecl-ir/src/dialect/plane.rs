@@ -1,5 +1,8 @@
 use cubecl_macros_internal::{cube_op, op_traits};
-use pliron::r#type::TypeHandle;
+use pliron::{
+    builtin::types::{IntegerType, Signedness},
+    r#type::TypeHandle,
+};
 
 use crate::{
     CanMaterialize, NoMemoryEffect,
@@ -7,10 +10,7 @@ use crate::{
     dialect::{ptr_value_ty, synchronization::SyncScope},
     interfaces::{TriviallyUnrollable, synchronizes},
     prelude::*,
-    types::{
-        VectorType,
-        scalar::{BoolType, UIntType},
-    },
+    types::{VectorType, scalar::BoolType},
 };
 
 #[cube_op(name = "plane.elect")]
@@ -53,7 +53,7 @@ pub struct BallotOp {
 synchronizes!(BallotOp, SyncScope::Plane);
 
 fn ballot_ty(ctx: &Context) -> TypeHandle {
-    let u32 = UIntType::get(ctx, 32);
+    let u32 = IntegerType::get(ctx, 32, Signedness::Unsigned);
     VectorType::get(ctx, u32.into(), 4).into()
 }
 

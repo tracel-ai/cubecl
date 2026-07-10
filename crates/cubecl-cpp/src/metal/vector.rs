@@ -1,7 +1,4 @@
-use cubecl_core::ir::{
-    dialect::vector::{DotOp, MagnitudeOp, NormalizeOp},
-    prelude::*,
-};
+use cubecl_core::ir::{dialect::vector::*, prelude::*};
 
 use crate::metal::metal_op_with_out;
 
@@ -15,7 +12,7 @@ metal_op_with_out!(NormalizeOp, |op, ctx| {
     format!("normalize({input})")
 });
 
-metal_op_with_out!(DotOp, |op, ctx| {
+metal_op_with_out!(FDotOp, |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);
     let rhs = op.rhs(ctx).name(ctx);
     format!("dot({lhs}, {rhs})")

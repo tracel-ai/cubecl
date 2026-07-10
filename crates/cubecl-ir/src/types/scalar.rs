@@ -1,4 +1,5 @@
 use pliron::{
+    builtin::types::{IntegerType, Signedness},
     context::Context,
     derive::{pliron_type, type_interface_impl},
 };
@@ -9,85 +10,37 @@ use crate::{
     scalar, sized,
 };
 
-#[pliron_type(
-    name = "cube.int",
-    format = "$width",
-    generate_get = true,
-    verifier = "succ"
-)]
-#[derive(Hash, PartialEq, Eq, Debug, Clone)]
-pub struct IntType {
-    pub width: usize,
-}
-scalar!(IntType);
-not_packed!(IntType);
+scalar!(IntegerType);
+not_packed!(IntegerType);
 
 #[type_interface_impl]
-impl AlignedType for IntType {
+impl AlignedType for IntegerType {
     fn align(&self, _ctx: &Context) -> usize {
-        self.width / 8
+        self.width() as usize / 8
     }
 }
 
 #[type_interface_impl]
-impl SizedType for IntType {
+impl SizedType for IntegerType {
     fn size(&self, _ctx: &Context) -> usize {
-        self.width / 8
+        self.width() as usize / 8
     }
 }
 
 #[type_interface_impl]
-impl ScalarType for IntType {
+impl ScalarType for IntegerType {
     fn elem_type(&self, _ctx: &Context) -> ElemType {
-        match self.width {
-            8 => IntKind::I8,
-            16 => IntKind::I16,
-            32 => IntKind::I32,
-            64 => IntKind::I64,
+        match (self.width(), self.signedness()) {
+            (8, Signedness::Signed) => IntKind::I8.into(),
+            (16, Signedness::Signed) => IntKind::I16.into(),
+            (32, Signedness::Signed) => IntKind::I32.into(),
+            (64, Signedness::Signed) => IntKind::I64.into(),
+            (8, _) => UIntKind::U8.into(),
+            (16, _) => UIntKind::U16.into(),
+            (32, _) => UIntKind::U32.into(),
+            (64, _) => UIntKind::U64.into(),
             _ => unreachable!("Unsupported bit width"),
         }
-        .into()
-    }
-}
-
-#[pliron_type(
-    name = "cube.uint",
-    format = "$width",
-    generate_get = true,
-    verifier = "succ"
-)]
-#[derive(Hash, PartialEq, Eq, Debug, Clone)]
-pub struct UIntType {
-    pub width: usize,
-}
-scalar!(UIntType);
-not_packed!(UIntType);
-
-#[type_interface_impl]
-impl AlignedType for UIntType {
-    fn align(&self, _ctx: &Context) -> usize {
-        self.width / 8
-    }
-}
-
-#[type_interface_impl]
-impl SizedType for UIntType {
-    fn size(&self, _ctx: &Context) -> usize {
-        self.width / 8
-    }
-}
-
-#[type_interface_impl]
-impl ScalarType for UIntType {
-    fn elem_type(&self, _ctx: &Context) -> ElemType {
-        match self.width {
-            8 => UIntKind::U8,
-            16 => UIntKind::U16,
-            32 => UIntKind::U32,
-            64 => UIntKind::U64,
-            _ => unreachable!("Unsupported bit width"),
-        }
-        .into()
     }
 }
 

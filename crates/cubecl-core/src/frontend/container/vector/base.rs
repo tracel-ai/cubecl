@@ -3,10 +3,7 @@ use core::{marker::PhantomData, ops::Neg};
 use crate::frontend::{CubePrimitive, CubeType, NativeAssign, NativeExpand};
 use crate::ir::Scope;
 use crate::{self as cubecl, prelude::*};
-use cubecl_ir::{
-    ConstantValue, ExpandValue, dialect::cmp::*,
-    pliron::builtin::op_interfaces::OneResultInterface, types::VectorType,
-};
+use cubecl_ir::{ConstantValue, ExpandValue, types::VectorType};
 use cubecl_macros::{cube, intrinsic};
 use pliron::r#type::TypeHandle;
 
@@ -35,6 +32,11 @@ impl<P: Scalar + Neg<Output = P>, N: Size> Neg for Vector<P, N> {
             val: -self.val,
             _size: PhantomData,
         }
+    }
+}
+impl<P: Scalar + NegNativeExpand, N: Size> NegNativeExpand for Vector<P, N> {
+    fn __expand_native_neg(scope: &Scope, this: ExpandValue) -> ExpandValue {
+        P::__expand_native_neg(scope, this)
     }
 }
 
@@ -232,7 +234,7 @@ macro_rules! impl_vector_comparison {
                 use super::*;
 
                 #[cube]
-                impl<P: Scalar, N: Size> Vector<P, N> {
+                impl<P: Scalar + CubePartialOrd, N: Size> Vector<P, N> {
                     #[doc = concat!(
                         "Return a new vector with the element-wise comparison of the first vector being ",
                         $comment,
@@ -240,16 +242,10 @@ macro_rules! impl_vector_comparison {
                     )]
                     pub fn $name(&self, other: &Self) -> Vector<bool, N> {
                         intrinsic!(|scope| {
-                            let this = self.__expand_deref_method(scope);
-                            let other = other.__expand_deref_method(scope);
-                            let lhs = this.read_value(scope);
-                            let rhs = other.read_value(scope);
+                            let this = self.__expand_deref_method(scope).into();
+                            let other = other.__expand_deref_method(scope).into();
 
-                            let [lhs, rhs] = normalize_same_vectorization(scope, [lhs, rhs]);
-
-                            let op = $operator::new(scope.ctx_mut(), lhs, rhs);
-                            scope.register(&op);
-                            op.get_result(scope.ctx()).into()
+                            P::Scalar::[<__expand_native_ $operator>](scope, this, other).into()
                         })
                     }
                 }
@@ -259,16 +255,12 @@ macro_rules! impl_vector_comparison {
     };
 }
 
-impl_vector_comparison!(equal, EqualOp, "equal to");
-impl_vector_comparison!(not_equal, NotEqualOp, "not equal to");
-impl_vector_comparison!(less_than, LessThanOp, "less than");
-impl_vector_comparison!(greater_than, GreaterThanOp, "greater than");
-impl_vector_comparison!(less_equal, LessThanOrEqualOp, "less than or equal to");
-impl_vector_comparison!(
-    greater_equal,
-    GreaterThanOrEqualOp,
-    "greater than or equal to"
-);
+impl_vector_comparison!(equal, eq, "equal to");
+impl_vector_comparison!(not_equal, ne, "not equal to");
+impl_vector_comparison!(less_than, lt, "less than");
+impl_vector_comparison!(greater_than, gt, "greater than");
+impl_vector_comparison!(less_equal, le, "less than or equal to");
+impl_vector_comparison!(greater_equal, ge, "greater than or equal to");
 
 mod bool_and {
     use cubecl_ir::dialect::general::BoolAndOp;

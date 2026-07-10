@@ -16,10 +16,16 @@ macro_rules! atomic_binop {
 }
 
 atomic_binop!("atomic.exchange", AtomicExchangeOp);
-atomic_binop!("atomic.add", AtomicAddOp);
-atomic_binop!("atomic.sub", AtomicSubOp);
-atomic_binop!("atomic.min", AtomicMinOp);
-atomic_binop!("atomic.max", AtomicMaxOp);
+atomic_binop!("atomic.i_add", AtomicIAddOp);
+atomic_binop!("atomic.f_add", AtomicFAddOp);
+atomic_binop!("atomic.i_sub", AtomicISubOp);
+atomic_binop!("atomic.f_sub", AtomicFSubOp);
+atomic_binop!("atomic.s_min", AtomicSMinOp);
+atomic_binop!("atomic.u_min", AtomicUMinOp);
+atomic_binop!("atomic.f_min", AtomicFMinOp);
+atomic_binop!("atomic.s_max", AtomicSMaxOp);
+atomic_binop!("atomic.u_max", AtomicUMaxOp);
+atomic_binop!("atomic.f_max", AtomicFMaxOp);
 atomic_binop!("atomic.and", AtomicAndOp);
 atomic_binop!("atomic.or", AtomicOrOp);
 atomic_binop!("atomic.xor", AtomicXorOp);

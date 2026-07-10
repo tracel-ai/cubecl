@@ -1,7 +1,7 @@
 use cubecl_core::{
     e2m1, e4m3, e5m2,
     ir::{
-        attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttr, UIntAttr},
+        attributes::{BoolAttr, FloatAttr, IndexAttr},
         types::{barrier::BarrierTokenType, scalar::*},
         verify_attr_succ,
     },
@@ -9,7 +9,7 @@ use cubecl_core::{
 };
 use pliron::{
     attribute::{AttrObj, attr_cast},
-    builtin::ops::ConstantOp,
+    builtin::{attributes::IntegerAttr, ops::ConstantOp},
     common_traits::Named,
     context::Context,
     derive::{attr_interface, attr_interface_impl},
@@ -70,8 +70,7 @@ macro_rules! const_attr {
     };
 }
 
-const_attr!(IntAttr, |attr, _| attr.val);
-const_attr!(UIntAttr, |attr, _| attr.val);
+const_attr!(IntegerAttr, |attr, _| attr.value().to_i128());
 const_attr!(FloatAttr, |attr, _| double_to_f64(attr.val));
 const_attr!(IndexAttr, |attr, _| attr.0);
 

@@ -321,7 +321,7 @@ impl SwitchOp {
         let out = (0..cases.len()).map(|i| {
             let value = attr_cast::<dyn ConstantAttr>(&*cases[i]).unwrap();
             let block = self.get_body(ctx, i + 1);
-            (value.as_const_val(), block)
+            (value.as_const_val(ctx), block)
         });
         out.collect()
     }

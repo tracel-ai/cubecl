@@ -13,7 +13,12 @@ use derive_more::{Display, From};
 use half::{bf16, f16};
 
 pub use internment::Intern;
-use pliron::{context::Context, derive::format, r#type::TypeHandle};
+use pliron::{
+    builtin::types::{IntegerType, Signedness},
+    context::Context,
+    derive::format,
+    r#type::TypeHandle,
+};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -75,7 +80,7 @@ pub enum IntKind {
 
 impl IntKind {
     pub fn to_type(&self, ctx: &Context) -> TypeHandle {
-        IntType::get(ctx, self.size_bits()).into()
+        IntegerType::get(ctx, self.size_bits() as u32, Signedness::Signed).into()
     }
 
     pub fn size_bits(&self) -> usize {
@@ -100,7 +105,7 @@ pub enum UIntKind {
 
 impl UIntKind {
     pub fn to_type(&self, ctx: &Context) -> TypeHandle {
-        UIntType::get(ctx, self.size_bits()).into()
+        IntegerType::get(ctx, self.size_bits() as u32, Signedness::Unsigned).into()
     }
 
     pub fn size_bits(&self) -> usize {

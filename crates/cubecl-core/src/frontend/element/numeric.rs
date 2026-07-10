@@ -2,8 +2,8 @@ use cubecl_ir::{ConstantValue, ExpandValue, dialect::general::ReadScalarOp};
 use cubecl_runtime::runtime::Runtime;
 use num_traits::{NumCast, One, Zero};
 
-use crate::compute::KernelLauncher;
-use crate::{IntoRuntime, ScalarArgType, compute::KernelBuilder};
+use crate::{IntoRuntime, ScalarArgType, compute::KernelBuilder, frontend::*};
+use crate::{compute::KernelLauncher, frontend::AtomicNumeric};
 use crate::{frontend::CubeType, prelude::InputScalar};
 use crate::{
     frontend::{Abs, ModFloor, VectorSum},
@@ -19,15 +19,21 @@ pub trait Numeric:
     Copy
     + Abs
     + VectorSum
+    + CubeAdd
+    + CubeSub
+    + CubeMul
+    + CubeDiv
+    + CubeRem
     + ModFloor
+    + NegNativeExpand
     + Scalar
+    + AtomicNumeric
     + NativeAssign
     + Into<NativeExpand<Self>>
     + Into<ConstantValue>
+    + CubePartialOrd
     + num_traits::NumCast
     + num_traits::NumAssign
-    + core::cmp::PartialOrd
-    + core::cmp::PartialEq
     + core::fmt::Debug
     + bytemuck::Zeroable
 {

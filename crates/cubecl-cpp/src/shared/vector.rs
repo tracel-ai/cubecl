@@ -1,13 +1,6 @@
 use cubecl_core::{
     self as cubecl,
-    ir::{
-        dialect::vector::{
-            DotOp, MagnitudeOp, NormalizeOp, SumOp, VectorBroadcastOp, VectorExtractDynamicOp,
-            VectorExtractOp, VectorInitOp, VectorInsertDynamicOp, VectorInsertOp,
-        },
-        interfaces::TypedExt,
-        prelude::*,
-    },
+    ir::{dialect::vector::*, interfaces::TypedExt, prelude::*},
     prelude::*,
 };
 use itertools::Itertools;
@@ -120,5 +113,8 @@ lower_unop!(NormalizeOp, normalize, |_, ctx| {
     ctx.target() != Target::Metal
 });
 
-lower_unop!(SumOp, sum);
-lower_binop!(DotOp, dot, |_, ctx| ctx.target() != Target::Metal);
+lower_unop!(ISumOp, sum);
+lower_unop!(FSumOp, sum);
+lower_binop!(SDotOp, dot);
+lower_binop!(UDotOp, dot);
+lower_binop!(FDotOp, dot, |_, ctx| ctx.target() != Target::Metal);
