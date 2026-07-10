@@ -1,4 +1,4 @@
-use core::{any::type_name, num::NonZeroUsize};
+use core::any::type_name;
 
 use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_ir::{

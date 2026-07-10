@@ -1,5 +1,3 @@
-use core::num::NonZeroUsize;
-
 use cubecl_ir::{ContextExt, attributes::IndexAttr, verify_attr_succ};
 use pliron::{
     attribute::{AttrObj, attr_cast},
@@ -41,28 +39,6 @@ impl ToSpirvDialectAttr for IndexAttr {
         let ty = ty_to_spirv_dialect(ctx, self.get_type(ctx));
         let ty = TypedHandle::from_handle(ty, ctx).expect("Should be integer");
         IntegerAttr::new(ty, APInt::from_usize(value, width)).into()
-    }
-}
-
-#[attr_interface_impl]
-impl ToSpirvDialectAttr for UIntAttr {
-    fn to_spirv_dialect(&self, ctx: &Context) -> AttrObj {
-        let value = self.val;
-        let width = bw(self.ty.deref(ctx).width);
-        let ty = ty_to_spirv_dialect(ctx, self.get_type(ctx));
-        let ty = TypedHandle::from_handle(ty, ctx).expect("Should be integer");
-        IntegerAttr::new(ty, APInt::from_u64(value, width)).into()
-    }
-}
-
-#[attr_interface_impl]
-impl ToSpirvDialectAttr for IntAttr {
-    fn to_spirv_dialect(&self, ctx: &Context) -> AttrObj {
-        let value = self.val;
-        let width = bw(self.ty.deref(ctx).width);
-        let ty = ty_to_spirv_dialect(ctx, self.get_type(ctx));
-        let ty = TypedHandle::from_handle(ty, ctx).expect("Should be integer");
-        IntegerAttr::new(ty, APInt::from_i64(value, width)).into()
     }
 }
 

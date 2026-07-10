@@ -25,7 +25,6 @@ pub trait Numeric:
     + CubeDiv
     + CubeRem
     + ModFloor
-    + NegNativeExpand
     + Scalar
     + AtomicNumeric
     + NativeAssign

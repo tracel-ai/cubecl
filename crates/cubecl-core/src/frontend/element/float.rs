@@ -19,6 +19,7 @@ mod tensor_float;
 pub trait Float:
     Numeric
     + FloatOps
+    + CubeNeg
     + Exp
     + Log
     + Log1p
