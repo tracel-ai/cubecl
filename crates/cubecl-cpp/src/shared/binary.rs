@@ -19,8 +19,11 @@ pub trait Binary<D: Dialect> {
         if let Item::Vector(..) = out_item {
             Self::unroll_vec(f, lhs, rhs, out)
         } else {
-            let out = out.fmt_left();
-            write!(f, "{out} = ")?;
+            if out.declare_local_ptr_backing(f)? {
+                write!(f, "*{out} = ")?;
+            } else {
+                write!(f, "{} = ", out.fmt_left())?;
+            }
             Self::format_scalar(f, *lhs, *rhs, out_item)?;
             f.write_str(";\n")
         }
