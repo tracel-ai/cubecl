@@ -7,6 +7,8 @@ use core::hash::Hash;
 
 use alloc::format;
 
+use crate::tune::{AutotuneBound, BoundsGenerator};
+
 use super::{
     AutotuneError, input_generator::InputGenerator, key_generator::KeyGenerator,
     tune_inputs::TuneInputs,
@@ -35,15 +37,8 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
     }
 }
 
-/// A bound for autotuning a throughput kernel, specifying the key, threshold, and number of operations.
-pub struct AutotuneBound {
-    /// The key for this bound, specifying the mode and data type of the throughput kernel.
-    pub throughput: f64,
-    /// The threshold for this bound, over which the kernel will be considered accurate.
-    pub threshold: f32,
-    /// The number of operations the kernel will run.
-    pub ops_count: usize,
-}
+/// Pseudo generic bound type to avoid adding a generic parameter to [`TunableSet`].
+type B = AutotuneBound;
 
 /// A set of candidate tunable functions for autotune, sharing a key generator and an
 /// input generator. See [`TuneInputs`] for the `F` parameter.
@@ -51,7 +46,7 @@ pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static> {
     tunables: Vec<Tunable<K, F, Output>>,
     key_gen: Arc<dyn KeyGenerator<K, F> + Send + Sync>,
     input_gen: Arc<dyn InputGenerator<K, F> + Send + Sync>,
-    bounds_gen: Option<Arc<dyn Fn(&K) -> Vec<AutotuneBound> + Send + Sync>>,
+    bounds_gen: Option<Arc<dyn BoundsGenerator<K, F, B> + Send + Sync>>,
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
@@ -88,10 +83,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
     }
 
     /// Sets the autotune bounds for this set.
-    pub fn with_bounds(
-        mut self,
-        bounds: Arc<dyn Fn(&K) -> Vec<AutotuneBound> + Send + Sync>,
-    ) -> Self {
+    pub fn with_bounds(mut self, bounds: Arc<dyn BoundsGenerator<K, F, B> + Send + Sync>) -> Self {
         self.bounds_gen = Some(bounds);
         self
     }
@@ -133,8 +125,8 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
     }
 
     /// The throughput bounds registered on this set, if any.
-    pub fn bounds(&self, key: &K) -> Option<Vec<AutotuneBound>> {
-        self.bounds_gen.as_ref().map(|f| f(key))
+    pub fn bounds(&self, key: &K, inputs: &F::At<'_>) -> Option<Vec<AutotuneBound>> {
+        self.bounds_gen.as_ref().map(|f| f.generate(key, inputs))
     }
 }
 

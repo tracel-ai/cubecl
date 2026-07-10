@@ -201,9 +201,10 @@ impl<K: AutotuneKey> Tuner<K> {
         // The slowest median duration still considered close enough to peak throughput.
         // Only used on native, where a benchmark can be resolved inline to exit early.
         #[cfg(not(target_family = "wasm"))]
-        let threshold_limit = tunables.bounds(key).and_then(|bounds| {
+        let threshold_limit = tunables.bounds(key, inputs).and_then(|bounds| {
             bounds
                 .iter()
+                .filter(|b| b.throughput.is_normal())
                 .map(|b| (b.ops_count as f64 / b.throughput) / b.threshold as f64)
                 .max_by(|a, b| a.total_cmp(b))
         });
@@ -247,6 +248,10 @@ impl<K: AutotuneKey> Tuner<K> {
                                     outcome.computation.median.as_secs_f64(),
                                     outcome.computation.max.as_secs_f64(),
                                     limit
+                                );
+                                std::println!(
+                                    "Reached {:.2}% of the theoretical limit",
+                                    (limit / outcome.computation.median.as_secs_f64()) * 100.0
                                 );
                                 outcome.computation.median.as_secs_f64() <= limit
                             });
