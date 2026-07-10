@@ -2,11 +2,23 @@ pub mod dialect;
 pub mod jit;
 
 use cubecl_common::backtrace::BackTrace;
+use cubecl_opt::passes::simple_cse::SimpleCSEPass;
 use cubecl_runtime::compiler::CompilationError;
 
-use cubecl_core::{Compiler, prelude::*};
+use cubecl_core::{
+    Compiler,
+    ir::rewrite::SimplifyOpsPass,
+    post_processing::{bitwise::PromoteBitwisePass, disaggregate::DisaggregatePass},
+    prelude::*,
+};
+use pliron::{
+    builtin::ops::{FuncOp, ModuleOp},
+    op::Op,
+    opts::{constants::sccp::SCCPPass, dce::DCEPass},
+    pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
+};
 #[cfg(feature = "pliron-dump")]
-use pliron::{builtin::ops::ModuleOp, context::Context, printable::Printable};
+use pliron::{context::Context, printable::Printable};
 
 use crate::compiler::jit::engine::PlironEngine;
 
@@ -50,11 +62,33 @@ impl Compiler for PlironCompiler {
 
 impl PlironCompiler {
     fn compile_ir(self, kernel: KernelDefinition) -> PlironEngine {
-        let _module = kernel.body.state().module;
-        let mut _ctx = kernel.body.into_context().expect("Should be owned scope");
+        let module = kernel.body.state().module;
+        let module_op = module.get_operation();
+        let mut ctx = kernel.body.into_context().expect("Should be owned scope");
+
+        let config = PMConfig {
+            print_after_all: true,
+            ..Default::default()
+        };
+
+        let mut analyses = AnalysisManager::default();
+        analyses.set_config(config);
+
+        let mut passes = OpPass::<ModuleOp, Passes>::default();
+        let mut func_passes = OpPass::<FuncOp, Passes>::default();
+        func_passes.add_pass(DisaggregatePass);
+        func_passes.add_pass(SCCPPass);
+        func_passes.add_pass(SimpleCSEPass);
+        func_passes.add_pass(SimplifyOpsPass::default());
+        func_passes.add_pass(PromoteBitwisePass);
+        func_passes.add_pass(DCEPass);
+
+        passes.add_pass(NestedOpsPass::new(func_passes));
+
+        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
 
         #[cfg(feature = "pliron-dump")]
-        dump_pliron(&_module, &_ctx, &kernel.settings.kernel_name);
+        dump_pliron(&module, &ctx, &kernel.settings.kernel_name);
 
         PlironEngine::default()
     }
