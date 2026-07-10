@@ -153,3 +153,39 @@ fn desugar_slice_destructure(fields: &[Pat], init: LocalInit) -> Vec<Stmt> {
         #(#from_end_fields)*
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Desugar;
+    use crate::{expression::Block, scope::Context};
+    use syn::{Ident, parse_quote, visit_mut::VisitMut};
+
+    #[test]
+    fn nested_tuple_patterns_are_fully_desugared() {
+        let mut block: syn::Block = parse_quote!({
+            let (a, b, (c, d, (e, f))) = tuple;
+        });
+
+        Desugar.visit_block_mut(&mut block);
+
+        let mut context = Context::new(parse_quote!(()), false, false);
+        let result = Block::from_block(block, &mut context);
+
+        assert!(result.is_ok(), "{result:?}");
+
+        let bindings: [Ident; 6] = [
+            parse_quote!(a),
+            parse_quote!(b),
+            parse_quote!(c),
+            parse_quote!(d),
+            parse_quote!(e),
+            parse_quote!(f),
+        ];
+        for binding in bindings {
+            assert!(
+                context.variable(&binding).is_some(),
+                "missing binding `{binding}`"
+            );
+        }
+    }
+}
