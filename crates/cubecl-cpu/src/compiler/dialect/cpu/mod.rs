@@ -1,6 +1,9 @@
 use cubecl_core::ir::{Scope, prelude::*};
 
 pub mod entrypoint;
+pub mod insert_entrypoint;
+
+pub use insert_entrypoint::InsertEntrypointPass;
 
 #[op_interface]
 pub trait LowerOpCpu {
