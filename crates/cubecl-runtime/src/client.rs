@@ -124,15 +124,6 @@ impl<R: Runtime> Graph<R> {
     }
 }
 
-impl<R: Runtime> core::fmt::Debug for Graph<R> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Graph")
-            .field("id", &self.inner.id)
-            .field("stream_id", &self.inner.stream_id)
-            .finish()
-    }
-}
-
 impl<R: Runtime> Clone for Graph<R> {
     fn clone(&self) -> Self {
         Self {
