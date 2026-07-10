@@ -1,7 +1,7 @@
 use cubecl_ir::{
     prelude::{
-        BranchOpInterface, Context, DialectConversion, DialectConversionRewriter,
-        OneResultInterface, OperandsInfo, Operation, OperationPtrExt, Ptr, Result, Rewriter,
+        BranchOpInterface, Context, DialectConversion, DialectConversionRewriter, OperandsInfo,
+        Operation, OperationPtrExt, Ptr, Result, Rewriter,
     },
     rewrite::DialectConversionPass,
     verify_op_succ,
@@ -12,14 +12,10 @@ use pliron::{
     derive::{op_interface, op_interface_impl},
     irbuild::inserter::Inserter,
     op::{Op, op_cast},
-    r#type::Typed,
 };
 use pliron_spirv::ops::BranchConditionalOp;
 
-use crate::{
-    attributes::{ToSpirvDialectAttr, attr_to_spirv_dialect},
-    types::ty_to_spirv_dialect,
-};
+use crate::attributes::{ToSpirvDialectAttr, attr_to_spirv_dialect};
 
 #[op_interface]
 pub trait ToSpirvDialectOp {
@@ -95,29 +91,6 @@ impl ToSpirvDialectOp for crate::branch::BranchConditionalOp {
         let op = BranchConditionalOp::new(ctx, cond, true_dest, true_opds, false_dest, false_opds);
         rewriter.insert_op(ctx, &op);
         rewriter.replace_operation(ctx, self.get_operation(), op.get_operation());
-        Ok(())
-    }
-}
-
-#[op_interface_impl]
-impl ToSpirvDialectOp for pliron_spirv::ops::LoadOp {
-    fn should_convert(&self, ctx: &Context) -> bool {
-        let ptr = self.get_operand_pointer(ctx);
-        ty_to_spirv_dialect(ctx, self.result_type(ctx)) != self.result_type(ctx)
-            || ty_to_spirv_dialect(ctx, ptr.get_type(ctx)) != ptr.get_type(ctx)
-    }
-
-    fn to_spirv_dialect(
-        &self,
-        ctx: &mut Context,
-        rewriter: &mut DialectConversionRewriter,
-        _operands_info: &OperandsInfo,
-    ) -> Result<()> {
-        let ptr = self.get_operand_pointer(ctx);
-        let ptr_ty = ty_to_spirv_dialect(ctx, ptr.get_type(ctx));
-        let result_ty = ty_to_spirv_dialect(ctx, self.result_type(ctx));
-        rewriter.set_value_type(ctx, ptr, ptr_ty);
-        rewriter.set_value_type(ctx, self.get_result(ctx), result_ty);
         Ok(())
     }
 }
