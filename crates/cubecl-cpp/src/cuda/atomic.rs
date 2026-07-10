@@ -5,15 +5,12 @@
 
 use cubecl_core::{
     frontend::reinterpret_value,
-    ir::{
-        Scope,
-        dialect::atomic::*,
-        interfaces::TypedExt,
-        prelude::*,
-        types::{VectorType, scalar::UIntType},
-    },
+    ir::{Scope, dialect::atomic::*, interfaces::TypedExt, prelude::*, types::VectorType},
 };
-use pliron::value::Value;
+use pliron::{
+    builtin::types::{IntegerType, Signedness},
+    value::Value,
+};
 
 use crate::{
     cuda::{
@@ -57,9 +54,9 @@ fn atom_ty(ctx: &Context, val: impl Typed) -> &'static str {
         "bf16"
     } else if scalar_ty.deref(ctx).is::<BFloat16x2Type>() {
         "bf16x2"
-    } else if scalar_ty.is_int_of_width(ctx, 64) || scalar_ty.is_uint_of_width(ctx, 64) {
+    } else if scalar_ty.is_int_of_width(ctx, 64) {
         "u64"
-    } else if scalar_ty.is_int_of_width(ctx, 32) || scalar_ty.is_uint_of_width(ctx, 32) {
+    } else if scalar_ty.is_int_of_width(ctx, 32) {
         "u32"
     } else {
         panic!("Unsupported type")
@@ -68,9 +65,9 @@ fn atom_ty(ctx: &Context, val: impl Typed) -> &'static str {
 
 fn atom_ty_cmp(ctx: &Context, val: impl Typed) -> &'static str {
     let scalar_ty = val.scalar_ty(ctx);
-    if scalar_ty.is_int_of_width(ctx, 64) {
+    if scalar_ty.is_int_of_width(ctx, 64) && scalar_ty.is_signed_int(ctx) {
         "s64"
-    } else if scalar_ty.is_int_of_width(ctx, 32) {
+    } else if scalar_ty.is_int_of_width(ctx, 32) && scalar_ty.is_signed_int(ctx) {
         "s32"
     } else {
         atom_ty(ctx, val)
@@ -80,8 +77,8 @@ fn atom_ty_cmp(ctx: &Context, val: impl Typed) -> &'static str {
 // Reinterpet f16 etc
 fn as_registers(scope: &Scope, val: Value) -> Value {
     let vec = val.vector_size(scope.ctx());
-    let u16 = UIntType::get(scope.ctx(), 16).to_handle();
-    let u32 = UIntType::get(scope.ctx(), 32).to_handle();
+    let u16 = IntegerType::get(scope.ctx(), 16, Signedness::Unsigned).to_handle();
+    let u32 = IntegerType::get(scope.ctx(), 32, Signedness::Unsigned).to_handle();
     if vec > 1 && val.is_half(scope.ctx()) {
         let vec_ty = VectorType::get(scope.ctx(), u16, vec);
         reinterpret_value(scope, val, vec_ty.to_handle())
@@ -126,6 +123,11 @@ macro_rules! atomic_binop {
     };
 }
 
-atomic_binop!(AtomicAddOp, "add", atom_ty);
-atomic_binop!(AtomicMinOp, "min", atom_ty_cmp);
-atomic_binop!(AtomicMaxOp, "max", atom_ty_cmp);
+atomic_binop!(AtomicIAddOp, "add", atom_ty);
+atomic_binop!(AtomicFAddOp, "add", atom_ty);
+atomic_binop!(AtomicSMinOp, "min", atom_ty_cmp);
+atomic_binop!(AtomicUMinOp, "min", atom_ty_cmp);
+atomic_binop!(AtomicFMinOp, "min", atom_ty_cmp);
+atomic_binop!(AtomicSMaxOp, "max", atom_ty_cmp);
+atomic_binop!(AtomicUMaxOp, "max", atom_ty_cmp);
+atomic_binop!(AtomicFMaxOp, "max", atom_ty_cmp);

@@ -42,9 +42,9 @@ impl ConstEvalArm {
         let value_defs = closure.inputs.iter().enumerate().map(|(i, name)| {
             let attr_name = format_ident!("attr_{i}");
             if let Some(ty) = ty {
-                quote![let #name = #attr_name.value::<#ty>(ctx)?;]
+                quote![let #name = #attr_name.as_value::<#ty>(ctx)?;]
             } else {
-                quote![let #name = #attr_name.value()?;]
+                quote![let #name = #attr_name.as_value(ctx)?;]
             }
         });
 
@@ -56,9 +56,9 @@ impl ConstEvalArm {
                 __x
             }]
         } else if let Some(ty) = ty {
-            quote![attr_0.with_value::<#ty>(#body)]
+            quote![attr_0.with_value::<#ty>(ctx, #body)]
         } else {
-            quote![attr_0.with_value(#body)]
+            quote![attr_0.with_value(ctx, #body)]
         };
 
         Ok(quote! {

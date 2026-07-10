@@ -7,7 +7,7 @@ use crate::{
 use pliron::{
     alloc::vec::Vec,
     attribute::{AttrObj, AttributeDict},
-    builtin::{attr_interfaces::TypedAttrInterface, ops::ConstantOp},
+    builtin::{attr_interfaces::TypedAttrInterface, ops::ConstantOp, types::IntegerType},
     context::Context,
     derive::{op_interface, type_interface},
     opts::dce::SideEffects,
@@ -324,7 +324,7 @@ pub trait SimplifyInterface {
 #[attr_interface]
 pub trait ConstantAttr: TypedAttrInterface {
     verify_attr_succ!();
-    fn as_const_val(&self) -> ConstantValue;
+    fn as_const_val(&self, ctx: &Context) -> ConstantValue;
 }
 
 #[macro_export]
@@ -464,24 +464,25 @@ pub trait TypedExt: Typed {
 
     fn is_int(&self, ctx: &Context) -> bool {
         let ty = self.get_type(ctx).deref(ctx);
-        ty.is::<IntType>()
+        ty.is::<IntegerType>()
+    }
+
+    fn is_signed_int(&self, ctx: &Context) -> bool {
+        let ty = self.get_type(ctx).deref(ctx);
+        ty.downcast_ref::<IntegerType>()
+            .is_some_and(|it| it.is_signed())
+    }
+
+    fn is_unsigned_int(&self, ctx: &Context) -> bool {
+        let ty = self.get_type(ctx).deref(ctx);
+        ty.downcast_ref::<IntegerType>()
+            .is_some_and(|it| !it.is_signed())
     }
 
     fn is_int_of_width(&self, ctx: &Context, width: usize) -> bool {
         let ty = self.get_type(ctx).deref(ctx);
-        ty.downcast_ref::<IntType>()
-            .is_some_and(|it| it.width == width)
-    }
-
-    fn is_uint(&self, ctx: &Context) -> bool {
-        let ty = self.get_type(ctx).deref(ctx);
-        ty.is::<UIntType>()
-    }
-
-    fn is_uint_of_width(&self, ctx: &Context, width: usize) -> bool {
-        let ty = self.get_type(ctx).deref(ctx);
-        ty.downcast_ref::<UIntType>()
-            .is_some_and(|it| it.width == width)
+        ty.downcast_ref::<IntegerType>()
+            .is_some_and(|it| it.width() as usize == width)
     }
 
     fn is_float64(&self, ctx: &Context) -> bool {

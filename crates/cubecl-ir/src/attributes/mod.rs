@@ -2,18 +2,23 @@ use alloc::boxed::Box;
 
 use derive_more::From;
 use derive_new::new;
-use num_traits::NumCast;
+use num_traits::{AsPrimitive, NumCast};
 use pliron::{
     builtin::{
         attr_interfaces::{MaterializableAttr, TypedAttrInterface},
+        attributes::IntegerAttr,
         ops::ConstantOp,
+        types::IntegerType,
     },
     context::{Context, Ptr},
     derive::{attr_interface_impl, pliron_attr},
     op::Op,
     operation::Operation,
-    r#type::{TypeHandle, TypedHandle},
-    utils::apfloat::{Double, double_to_f64, f64_to_double},
+    r#type::TypeHandle,
+    utils::{
+        apfloat::{Double, double_to_f64, f64_to_double},
+        apint::{APInt, bw},
+    },
 };
 
 use crate::{ConstantValue, interfaces::ConstantAttr, settings::Dim3, types::scalar::*};
@@ -73,18 +78,18 @@ pub struct IndexAttr(pub usize);
 materialize_const!(IndexAttr);
 
 impl IndexAttr {
-    pub fn value(&self) -> Option<usize> {
+    pub fn as_value(&self, _ctx: &Context) -> Option<usize> {
         Some(self.0)
     }
 
-    pub fn with_value(&self, new_val: usize) -> Self {
+    pub fn with_value(&self, _ctx: &Context, new_val: usize) -> Self {
         Self::new(new_val)
     }
 }
 
 #[attr_interface_impl]
 impl ConstantAttr for IndexAttr {
-    fn as_const_val(&self) -> ConstantValue {
+    fn as_const_val(&self, _ctx: &Context) -> ConstantValue {
         ConstantValue::UInt(self.0 as u64)
     }
 }
@@ -109,11 +114,11 @@ pub struct BoolAttr(pub bool);
 materialize_const!(BoolAttr);
 
 impl BoolAttr {
-    pub fn value(&self) -> Option<bool> {
+    pub fn as_value(&self, _ctx: &Context) -> Option<bool> {
         Some(self.0)
     }
 
-    pub fn with_value(&self, new_val: bool) -> Self {
+    pub fn with_value(&self, _ctx: &Context, new_val: bool) -> Self {
         Self::new(new_val)
     }
 }
@@ -139,80 +144,48 @@ impl TypedAttrInterface for BoolAttr {
 
 #[attr_interface_impl]
 impl ConstantAttr for BoolAttr {
-    fn as_const_val(&self) -> ConstantValue {
+    fn as_const_val(&self, _ctx: &Context) -> ConstantValue {
         ConstantValue::Bool(self.0)
     }
 }
 
-#[pliron_attr(name = "cube.int", format = "$val `: ` $ty", verifier = "succ")]
-#[derive(new, PartialEq, Eq, Clone, Copy, Debug, Hash)]
-pub struct IntAttr {
-    pub ty: TypedHandle<IntType>,
-    pub val: i64,
-}
-materialize_const!(IntAttr);
+pub trait IntAttrExt {
+    fn as_value<T>(&self, ctx: &Context) -> Option<T>
+    where
+        T: TypedLiteral + Copy + 'static,
+        i128: AsPrimitive<T>;
 
-impl IntAttr {
-    pub fn value<T: NumCast + TypedLiteral>(&self, ctx: &Context) -> Option<T> {
-        if T::is_same_type(ctx, self.ty.into()) {
-            Some(T::from(self.val).expect("Should succeed"))
+    fn with_value<T: NumCast>(&self, ctx: &Context, new_val: T) -> Self;
+}
+
+impl IntAttrExt for IntegerAttr {
+    fn as_value<T>(&self, ctx: &Context) -> Option<T>
+    where
+        T: TypedLiteral + Copy + 'static,
+        i128: AsPrimitive<T>,
+    {
+        if T::is_same_type(ctx, self.get_type().into()) {
+            Some(self.value().to_i128().as_())
         } else {
             None
         }
     }
 
-    pub fn with_value<T: NumCast>(&self, new_val: T) -> Self {
-        Self::new(self.ty, new_val.to_i64().unwrap())
+    fn with_value<T: NumCast>(&self, ctx: &Context, new_val: T) -> Self {
+        let width = bw(self.get_type().deref(ctx).width() as usize);
+        let val = new_val.to_i128().expect("Should succeed");
+        Self::new(self.get_type(), APInt::from_i128(val, width))
     }
 }
 
 #[attr_interface_impl]
-impl TypedAttrInterface for IntAttr {
-    fn get_type(&self, _ctx: &Context) -> TypeHandle {
-        self.ty.into()
-    }
-}
-
-#[attr_interface_impl]
-impl ConstantAttr for IntAttr {
-    fn as_const_val(&self) -> ConstantValue {
-        ConstantValue::Int(self.val)
-    }
-}
-
-#[pliron_attr(name = "cube.uint", format = "$val `: ` $ty", verifier = "succ")]
-#[derive(new, PartialEq, Eq, Clone, Debug, Hash)]
-pub struct UIntAttr {
-    pub ty: TypedHandle<UIntType>,
-    pub val: u64,
-}
-materialize_const!(UIntAttr);
-
-impl UIntAttr {
-    pub fn value<T: NumCast + TypedLiteral>(&self, ctx: &Context) -> Option<T> {
-        if T::is_same_type(ctx, self.ty.into()) {
-            Some(T::from(self.val).expect("Should succeed"))
+impl ConstantAttr for IntegerAttr {
+    fn as_const_val(&self, ctx: &Context) -> ConstantValue {
+        if self.get_type().deref(ctx).is_signed() {
+            ConstantValue::Int(self.value().to_i64())
         } else {
-            None
+            ConstantValue::UInt(self.value().to_u64())
         }
-    }
-
-    pub fn with_value<T: NumCast>(&self, new_val: T) -> Self {
-        Self::new(self.ty, new_val.to_u64().expect("Should convert"))
-    }
-}
-
-#[attr_interface_impl]
-impl TypedAttrInterface for UIntAttr {
-    fn get_type(&self, _ctx: &Context) -> TypeHandle {
-        self.ty.into()
-    }
-}
-
-#[attr_interface_impl]
-impl ConstantAttr for UIntAttr {
-    fn as_const_val(&self) -> ConstantValue {
-        ConstantValue::UInt(self.val)
     }
 }
 
@@ -225,7 +198,7 @@ pub struct FloatAttr {
 materialize_const!(FloatAttr);
 
 impl FloatAttr {
-    pub fn value<T: NumCast + TypedLiteral>(&self, ctx: &Context) -> Option<T> {
+    pub fn as_value<T: NumCast + TypedLiteral>(&self, ctx: &Context) -> Option<T> {
         if T::is_same_type(ctx, self.ty) {
             Some(T::from(double_to_f64(self.val)).expect("Should succeed"))
         } else {
@@ -233,7 +206,7 @@ impl FloatAttr {
         }
     }
 
-    pub fn with_value<T: NumCast>(&self, new_val: T) -> Self {
+    pub fn with_value<T: NumCast>(&self, _ctx: &Context, new_val: T) -> Self {
         Self::new(
             self.ty,
             f64_to_double(new_val.to_f64().expect("Should convert")),
@@ -254,7 +227,7 @@ impl TypedAttrInterface for FloatAttr {
 
 #[attr_interface_impl]
 impl ConstantAttr for FloatAttr {
-    fn as_const_val(&self) -> ConstantValue {
+    fn as_const_val(&self, _ctx: &Context) -> ConstantValue {
         ConstantValue::Float(double_to_f64(self.val))
     }
 }
@@ -278,15 +251,15 @@ macro_rules! literal {
 
 literal!(usize, IndexType);
 
-literal!(i8, IntType, |it| it.width == 8);
-literal!(i16, IntType, |it| it.width == 16);
-literal!(i32, IntType, |it| it.width == 32);
-literal!(i64, IntType, |it| it.width == 64);
+literal!(i8, IntegerType, |it| it.width() == 8);
+literal!(i16, IntegerType, |it| it.width() == 16);
+literal!(i32, IntegerType, |it| it.width() == 32);
+literal!(i64, IntegerType, |it| it.width() == 64);
 
-literal!(u8, UIntType, |it| it.width == 8);
-literal!(u16, UIntType, |it| it.width == 16);
-literal!(u32, UIntType, |it| it.width == 32);
-literal!(u64, UIntType, |it| it.width == 64);
+literal!(u8, IntegerType, |it| it.width() == 8);
+literal!(u16, IntegerType, |it| it.width() == 16);
+literal!(u32, IntegerType, |it| it.width() == 32);
+literal!(u64, IntegerType, |it| it.width() == 64);
 
 literal!(half::f16, Float16Type);
 literal!(half::bf16, BFloat16Type);

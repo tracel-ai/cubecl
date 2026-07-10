@@ -54,23 +54,17 @@ pub(crate) fn index_expand(scope: &Scope, list: Value, index: Value, checked: bo
     scope.register_with_result(&op)
 }
 
-pub(crate) fn assign_binop_expand<T: NativeCubeType + CanReadValue, O>(
+pub(crate) fn assign_binop_expand<T: NativeCubeType + CanReadValue>(
     scope: &Scope,
     lhs: &mut NativeExpand<T>,
     rhs: NativeExpand<T>,
-    func: impl Fn(&mut Context, Value, Value) -> O,
+    func: impl Fn(&Scope, ExpandValue, ExpandValue) -> ExpandValue,
 ) where
-    O: Op + OneResultInterface,
     NativeExpand<T>: DerefExpand<Target = NativeExpand<T>>,
 {
-    let lhs_val = lhs.__expand_deref_method(scope).read_value(scope);
-    let rhs = rhs.read_value(scope);
-
-    let [lhs_val, rhs] = normalize_same_vectorization(scope, [lhs_val, rhs]);
-
-    let op = func(scope.ctx_mut(), lhs_val, rhs);
-    let out = scope.register_with_result(&op);
-    assign::expand_element(scope, out.into(), lhs.expand);
+    let lhs_val = lhs.__expand_deref_method(scope);
+    let out = func(scope, lhs_val.into(), rhs.into());
+    assign::expand_element(scope, out, lhs.expand);
 }
 
 pub fn unary_expand<F, O>(scope: &Scope, input: ExpandValue, func: F) -> ExpandValue

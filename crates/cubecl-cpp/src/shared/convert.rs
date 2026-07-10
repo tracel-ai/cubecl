@@ -6,11 +6,14 @@ use cubecl_core::ir::{
     interfaces::ValueExt,
     prelude::{Context, MatchRewriter, Operation, Ptr, Result},
     rewrite::MatchRewritePass,
-    types::scalar::{Float32Type, IntType, UIntType},
+    types::scalar::Float32Type,
     verify_op_succ,
 };
 use pliron::{
-    builtin::op_interfaces::OneResultInterface,
+    builtin::{
+        op_interfaces::OneResultInterface,
+        types::{IntegerType, Signedness},
+    },
     derive::op_interface,
     irbuild::match_rewrite::MatchRewrite,
     op::Op,
@@ -70,11 +73,11 @@ impl MatchRewrite for PromoteUnsupportedTypes {
             promote(ctx, op, |ctx, value| value.is_half(ctx), f32);
         }
         if op.impls::<dyn IntPromotedOp>(ctx) && op.result(ctx).is_small_signed_int(ctx) {
-            let i32 = IntType::get(ctx, 32).to_handle();
+            let i32 = IntegerType::get(ctx, 32, Signedness::Signed).to_handle();
             promote(ctx, op, |ctx, value| value.is_small_int(ctx), i32);
         }
         if op.impls::<dyn IntPromotedOp>(ctx) && op.result(ctx).is_small_unsigned_int(ctx) {
-            let u32 = UIntType::get(ctx, 32).to_handle();
+            let u32 = IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle();
             promote(ctx, op, |ctx, value| value.is_small_int(ctx), u32);
         }
 

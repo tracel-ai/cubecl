@@ -103,7 +103,13 @@ function!(RoundOp, "rint", packable);
 
 function!(ErfOp, "erf", no_half);
 
-shared_op_with_out!(AbsOp, |op, ctx| {
+shared_op_with_out!(SAbsOp, |op, ctx| {
+    format!("abs({})", op.input(ctx).name(ctx))
+});
+unrolling!(SAbsOp);
+promotes_int!(SAbsOp);
+
+shared_op_with_out!(FAbsOp, |op, ctx| {
     let input = op.input(ctx);
     if input.is_half(ctx) {
         format!("__habs({})", input.name(ctx))
@@ -113,14 +119,16 @@ shared_op_with_out!(AbsOp, |op, ctx| {
         format!("abs({})", input.name(ctx))
     }
 });
-unrolling!(AbsOp);
-packable!(AbsOp);
-promotes_int!(AbsOp);
+unrolling!(FAbsOp);
+packable!(FAbsOp);
 
-shared_op_with_out!(NegOp, |op, ctx| format!("-{}", op.input(ctx).name(ctx)));
-unrolling!(NegOp);
-packable!(NegOp);
-promotes_int!(NegOp);
+shared_op_with_out!(SNegOp, |op, ctx| format!("-{}", op.input(ctx).name(ctx)));
+unrolling!(SNegOp);
+promotes_int!(SNegOp);
+
+shared_op_with_out!(FNegOp, |op, ctx| format!("-{}", op.input(ctx).name(ctx)));
+unrolling!(FNegOp);
+packable!(FNegOp);
 
 shared_op_with_out!(BoolNotOp, |op, ctx| format!("!{}", op.input(ctx).name(ctx)));
 unrolling!(BoolNotOp);

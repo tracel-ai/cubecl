@@ -1,5 +1,8 @@
-use cubecl_ir::{ConstantValue, ElemType, types::scalar::IntType};
-use pliron::r#type::TypeHandle;
+use cubecl_ir::{ConstantValue, ElemType};
+use pliron::{
+    builtin::types::{IntegerType, Signedness},
+    r#type::TypeHandle,
+};
 
 use crate::frontend::{CubeType, Numeric};
 use crate::ir::{IntKind, Scope};
@@ -18,15 +21,17 @@ pub trait Int:
     + FindFirstSet
     + SaturatingAdd
     + SaturatingSub
-    + core::ops::BitOr<Output = Self>
-    + core::ops::BitAnd<Output = Self>
-    + core::ops::BitXor<Output = Self>
-    + core::ops::Shl<Output = Self>
-    + core::ops::Shr<Output = Self>
-    + core::ops::Not<Output = Self>
-    + core::ops::BitOrAssign
-    + core::ops::BitAndAssign
-    + core::ops::BitXorAssign
+    + CubeBitOr
+    + CubeBitAnd
+    + CubeBitXor
+    + CubeShl
+    + CubeShr
+    + CubeNot
+    + CubeBitOrAssign
+    + CubeBitAndAssign
+    + CubeBitXorAssign
+    + CubeShlAssign
+    + CubeShrAssign
     + core::ops::ShlAssign<u32>
     + core::ops::ShrAssign<u32>
     + core::hash::Hash
@@ -65,8 +70,8 @@ macro_rules! impl_int {
             type WithScalar<S: Scalar> = S;
 
             fn __expand_as_type(scope: &Scope) -> TypeHandle {
-                let width = IntKind::$kind.size_bits();
-                IntType::get(scope.ctx(), width).into()
+                let width = IntKind::$kind.size_bits() as u32;
+                IntegerType::get(scope.ctx(), width, Signedness::Signed).into()
             }
 
             fn from_const_value(value: ConstantValue) -> Self {

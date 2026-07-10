@@ -7,7 +7,7 @@ use cubecl_ir::{
     dialect::{
         base::OperationPtrExt,
         general::CopyOp,
-        math::{AddOp, MulOp},
+        math::{IAddOp, IMulOp},
         matrix,
         memory::{DeclareVariableOp, IndexOp},
         vector::{VectorExtractOp, VectorInsertOp},
@@ -162,14 +162,14 @@ impl CustomUnrollOp for IndexOp {
             let unroll_factor = current_vec / vector_size;
             let unroll_const = const_usize(ctx, self, unroll_factor);
 
-            let mul = MulOp::new(ctx, self.index(ctx), unroll_const);
+            let mul = IMulOp::new(ctx, self.index(ctx), unroll_const);
             mul.get_operation().insert_before(ctx, self.get_operation());
             let start_idx = mul.get_result(ctx);
 
             let new_results = (0..unroll_factor)
                 .map(|i| {
                     let i = const_usize(ctx, self, i);
-                    let add = AddOp::new(ctx, start_idx, i);
+                    let add = IAddOp::new(ctx, start_idx, i);
                     add.get_operation().insert_before(ctx, self.get_operation());
                     let idx = add.get_result(ctx);
 

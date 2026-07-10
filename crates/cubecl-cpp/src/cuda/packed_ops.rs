@@ -59,6 +59,7 @@ impl MatchRewrite for PackOps {
         }
 
         rewriter.set_value_type(ctx, res, res_ty.packed_type(ctx));
+        rewriter.set_insertion_point_after_operation(op);
         let reinterpret_res = ReinterpretCastOp::new(ctx, res_ty, res);
         rewriter.insert_op(ctx, &reinterpret_res);
         let new_res = reinterpret_res.get_result(ctx);

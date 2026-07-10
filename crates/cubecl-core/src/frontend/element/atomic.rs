@@ -1,15 +1,12 @@
-use cubecl_ir::{
-    ConstantValue, ExpandValue,
-    dialect::atomic::{
-        AtomicAddOp, AtomicAndOp, AtomicCompareExchangeWeakOp, AtomicExchangeOp, AtomicLoadOp,
-        AtomicMaxOp, AtomicMinOp, AtomicOrOp, AtomicStoreOp, AtomicSubOp, AtomicXorOp,
-    },
-    types::AtomicType,
-};
+use cubecl_ir::{ConstantValue, ExpandValue, dialect::atomic::*, types::AtomicType};
 use cubecl_macros::intrinsic;
-use pliron::r#type::TypeHandle;
+use half::{bf16, f16};
+use pliron::{
+    builtin::op_interfaces::OneResultInterface, context::Context, op::Op, r#type::TypeHandle,
+    value::Value,
+};
 
-use super::{NativeAssign, NativeExpand, Numeric};
+use super::{NativeAssign, NativeExpand};
 use crate::{
     self as cubecl,
     frontend::{CubePrimitive, CubeType},
@@ -27,8 +24,52 @@ pub struct Atomic<Inner: CubePrimitive> {
 
 type AtomicExpand<Inner> = NativeExpand<Atomic<Inner>>;
 
+pub trait AtomicNumeric {
+    fn __expand_fetch_add(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue;
+    fn __expand_fetch_sub(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue;
+    fn __expand_fetch_min(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue;
+    fn __expand_fetch_max(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue;
+}
+
+macro_rules! atomic_numeric {
+    ($($ty: ty),*; $add: ty, $sub: ty, $min: ty, $max: ty) => {
+        $(impl AtomicNumeric for $ty {
+            fn __expand_fetch_add(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue {
+                atomic_binary_expand(scope, ptr, value, <$add>::new)
+            }
+            fn __expand_fetch_sub(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue {
+                atomic_binary_expand(scope, ptr, value, <$sub>::new)
+            }
+            fn __expand_fetch_min(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue {
+                atomic_binary_expand(scope, ptr, value, <$min>::new)
+            }
+            fn __expand_fetch_max(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue {
+                atomic_binary_expand(scope, ptr, value, <$max>::new)
+            }
+        })*
+    };
+}
+
+atomic_numeric!(i8, i16, i32, i64, isize; AtomicIAddOp, AtomicISubOp, AtomicSMinOp, AtomicSMaxOp);
+atomic_numeric!(u8, u16, u32, u64, usize; AtomicIAddOp, AtomicISubOp, AtomicUMinOp, AtomicUMaxOp);
+atomic_numeric!(f16, bf16, f32, flex32, tf32, f64; AtomicFAddOp, AtomicFSubOp, AtomicFMinOp, AtomicFMaxOp);
+
+fn atomic_binary_expand<F, O>(
+    scope: &Scope,
+    ptr: ExpandValue,
+    value: ExpandValue,
+    func: F,
+) -> ExpandValue
+where
+    F: Fn(&mut Context, Value, Value) -> O,
+    O: Op + OneResultInterface,
+{
+    let op = func(scope.ctx_mut(), ptr.value(scope), value.read_value(scope));
+    scope.register_with_result(&op).into()
+}
+
 #[cube]
-impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
+impl<Inner: CubePrimitive<Scalar: AtomicNumeric>> Atomic<Inner> {
     /// Load the value of the atomic.
     pub fn load(&self) -> Inner {
         intrinsic!(|scope| {
@@ -59,44 +100,32 @@ impl<Inner: CubePrimitive<Scalar: Numeric>> Atomic<Inner> {
 
     /// Atomically add a number to the atomic variable. Returns the old value.
     pub fn fetch_add(&self, value: Inner) -> Inner {
-        intrinsic!(|scope| {
-            let ptr = self.value(scope);
-            let value = value.read_value(scope);
-            let op = AtomicAddOp::new(scope.ctx_mut(), ptr, value);
-            scope.register_with_result(&op).into()
-        })
+        intrinsic!(
+            |scope| Inner::Scalar::__expand_fetch_add(scope, self.expand, value.expand).into()
+        )
     }
 
     /// Atomically subtracts a number from the atomic variable. Returns the old value.
     pub fn fetch_sub(&self, value: Inner) -> Inner {
-        intrinsic!(|scope| {
-            let ptr = self.value(scope);
-            let value = value.read_value(scope);
-            let op = AtomicSubOp::new(scope.ctx_mut(), ptr, value);
-            scope.register_with_result(&op).into()
-        })
+        intrinsic!(
+            |scope| Inner::Scalar::__expand_fetch_sub(scope, self.expand, value.expand).into()
+        )
     }
 
     /// Atomically sets the value of the atomic variable to `max(current_value, value)`. Returns
     /// the old value.
     pub fn fetch_max(&self, value: Inner) -> Inner {
-        intrinsic!(|scope| {
-            let ptr = self.value(scope);
-            let value = value.read_value(scope);
-            let op = AtomicMaxOp::new(scope.ctx_mut(), ptr, value);
-            scope.register_with_result(&op).into()
-        })
+        intrinsic!(
+            |scope| Inner::Scalar::__expand_fetch_max(scope, self.expand, value.expand).into()
+        )
     }
 
     /// Atomically sets the value of the atomic variable to `min(current_value, value)`. Returns the
     /// old value.
     pub fn fetch_min(&self, value: Inner) -> Inner {
-        intrinsic!(|scope| {
-            let ptr = self.value(scope);
-            let value = value.read_value(scope);
-            let op = AtomicMinOp::new(scope.ctx_mut(), ptr, value);
-            scope.register_with_result(&op).into()
-        })
+        intrinsic!(
+            |scope| Inner::Scalar::__expand_fetch_min(scope, self.expand, value.expand).into()
+        )
     }
 }
 
