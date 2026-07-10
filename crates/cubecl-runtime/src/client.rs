@@ -67,6 +67,15 @@ pub struct Graph<R: Runtime> {
     inner: Arc<GraphHandle<R>>,
 }
 
+impl<R: Runtime> core::fmt::Debug for Graph<R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Graph")
+            .field("id", &self.inner.id)
+            .field("stream_id", &self.inner.stream_id)
+            .finish()
+    }
+}
+
 /// Reference-counted owner of a backend graph. Its [`Drop`] ships the release to
 /// the server actor, so the last [`Graph`] clone frees the backend graph on the
 /// thread that owns it.
