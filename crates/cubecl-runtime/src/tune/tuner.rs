@@ -207,6 +207,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 .filter(|b| b.throughput.is_normal())
                 .map(|b| (b.ops_count as f64 / b.throughput) / b.threshold as f64)
                 .max_by(|a, b| a.total_cmp(b))
+                .map(|limit| Duration::from_secs_f64(limit))
         });
 
         #[cfg(not(target_family = "wasm"))]
@@ -242,18 +243,20 @@ impl<K: AutotuneKey> Tuner<K> {
                             let result = cubecl_common::future::block_on(resolve_bench(bench));
                             let close_enough = result.outcome.as_ref().is_ok_and(|outcome| {
                                 std::println!(
-                                    "{} min: {} median: {} max: {} limit: {}",
+                                    "{} min: {:?} median: {:?} max: {:?} limit: {:?}",
                                     outcome.name,
-                                    outcome.computation.min.as_secs_f64(),
-                                    outcome.computation.median.as_secs_f64(),
-                                    outcome.computation.max.as_secs_f64(),
+                                    outcome.computation.min,
+                                    outcome.computation.median,
+                                    outcome.computation.max,
                                     limit
                                 );
                                 std::println!(
                                     "Reached {:.2}% of the theoretical limit",
-                                    (limit / outcome.computation.median.as_secs_f64()) * 100.0
+                                    (limit.as_secs_f64()
+                                        / outcome.computation.median.as_secs_f64())
+                                        * 100.0
                                 );
-                                outcome.computation.median.as_secs_f64() <= limit
+                                outcome.computation.median <= limit
                             });
 
                             batch_success |= result.outcome.is_ok();

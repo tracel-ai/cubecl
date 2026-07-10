@@ -34,7 +34,7 @@ pub trait TimeBound {
 
 /// A bound for autotuning a throughput kernel, specifying the key, threshold, and number of operations.
 pub struct AutotuneBound {
-    /// The key for this bound, specifying the mode and data type of the throughput kernel.
+    /// The key for this bound, specifying the mode and data type of the throughput kernel. In seconds.
     pub throughput: f64,
     /// The threshold for this bound, over which the kernel will be considered accurate.
     pub threshold: f32,
