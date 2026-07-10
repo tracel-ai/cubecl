@@ -1,6 +1,16 @@
+use core::time::Duration;
+
 use alloc::vec::Vec;
 
 use crate::tune::TuneInputs;
+
+/// A set of [`AutotuneBound`]s for a given key and reference inputs, with a launch overhead.
+pub struct Bounds<B: TimeBound> {
+    /// The bounds for autotuning.
+    pub bounds: Vec<B>,
+    /// The launch overhead for autotuning.
+    pub launch_overhead: Duration,
+}
 
 /// Produces a set of [`AutotuneBound`]s for a given key and reference inputs.
 #[diagnostic::on_unimplemented(
@@ -9,7 +19,7 @@ use crate::tune::TuneInputs;
 )]
 pub trait BoundsGenerator<K, I: TuneInputs, B: TimeBound>: Send + Sync + 'static {
     /// Generate a set of inputs for a given key and reference inputs.
-    fn generate<'a>(&self, key: &K, inputs: &I::At<'a>) -> Vec<B>;
+    fn generate<'a>(&self, key: &K, inputs: &I::At<'a>) -> Bounds<B>;
 }
 
 /// `Fn(&K, &A) -> A` acts as an [`InputGenerator`] when `A` is an owned type. For
@@ -18,10 +28,10 @@ impl<K, Func, A, B: TimeBound> BoundsGenerator<K, A, B> for Func
 where
     A: Clone + Send + Sync + 'static,
     K: 'static,
-    Func: Send + Sync + 'static + Fn(&K, &A) -> Vec<B>,
+    Func: Send + Sync + 'static + Fn(&K, &A) -> Bounds<B>,
 {
     #[inline]
-    fn generate<'a>(&self, key: &K, inputs: &<A as TuneInputs>::At<'a>) -> Vec<B> {
+    fn generate<'a>(&self, key: &K, inputs: &<A as TuneInputs>::At<'a>) -> Bounds<B> {
         (self)(key, inputs)
     }
 }
@@ -29,7 +39,7 @@ where
 /// A calculator that determines the time limit for autotune bounds.
 pub trait TimeBound {
     /// Returns the time limit for autotune bounds.
-    fn time_limit(&self) -> f64;
+    fn time_limit(&self) -> Option<Duration>;
 }
 
 /// A bound for autotuning a throughput kernel, specifying the key, threshold, and number of operations.
@@ -43,7 +53,29 @@ pub struct AutotuneBound {
 }
 
 impl TimeBound for AutotuneBound {
-    fn time_limit(&self) -> f64 {
-        (self.ops_count as f64 / self.throughput) / self.threshold as f64
+    fn time_limit(&self) -> Option<Duration> {
+        if self.throughput.is_normal() && self.threshold.is_normal() {
+            Some(Duration::from_secs_f64(
+                (self.ops_count as f64 / self.throughput) / self.threshold as f64,
+            ))
+        } else {
+            None
+        }
+    }
+}
+
+impl<B: TimeBound> TimeBound for Vec<B> {
+    fn time_limit(&self) -> Option<Duration> {
+        self.iter()
+            .filter_map(|b| b.time_limit())
+            .max_by(|a, b| a.cmp(b))
+    }
+}
+
+impl<B: TimeBound> TimeBound for Bounds<B> {
+    fn time_limit(&self) -> Option<Duration> {
+        self.bounds
+            .time_limit()
+            .map(|limit| limit + self.launch_overhead)
     }
 }

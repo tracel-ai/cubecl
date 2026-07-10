@@ -1,4 +1,9 @@
-use cubecl_core::ir::ElemType;
+use cubecl_core::{
+    CubeCount,
+    frontend::BufferArg,
+    future::block_on,
+    ir::{ElemType, IntKind},
+};
 use cubecl_runtime::{
     client::ComputeClient,
     runtime::Runtime,
@@ -6,7 +11,7 @@ use cubecl_runtime::{
     throughput::{ThroughputKey, ThroughputMode, ThroughputValue},
 };
 
-use crate::throughput::{compute_cmma, compute_direct, memory_direct};
+use crate::throughput::{compute_cmma, compute_direct, launch_overhead, memory_direct};
 
 /// Computes the peak throughput for a given runtime and key.
 pub fn measure_peak_throughput<R: Runtime>(
@@ -66,4 +71,37 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
         vector_size,
         plane_size: plane_size as usize,
     }
+}
+
+/// Measures the fixed cost of a single kernel launch: the overhead every dispatch pays
+/// regardless of the work it does.
+///
+/// Memoized per device by [`ComputeClient::measure_launch_overhead`], which also owns the
+/// warmup and the reduction over repeated samples. This function only provides one sample:
+/// a single trivial dispatch, timed through [`ComputeClient::profile`] to share the time
+/// base of benchmarked kernels.
+pub fn measure_launch_overhead<R: Runtime>(client: &ComputeClient<R>) -> core::time::Duration {
+    client.measure_launch_overhead(|| {
+        let input = client.empty(size_of::<i32>());
+        let output = client.empty(size_of::<i32>());
+
+        let (_, duration) = client
+            .profile(
+                || unsafe {
+                    launch_overhead::launch_overhead::launch_unchecked::<R>(
+                        &client,
+                        CubeCount::new_single(),
+                        CubeDim::new_single(),
+                        1,
+                        BufferArg::from_raw_parts(input.clone(), 1),
+                        BufferArg::from_raw_parts(output.clone(), 1),
+                        ElemType::Int(IntKind::I32).into(),
+                    );
+                },
+                "launch_overhead",
+            )
+            .expect("should succeed launch_overhead");
+
+        block_on(duration.into_future()).duration()
+    })
 }

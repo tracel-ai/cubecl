@@ -11,7 +11,7 @@ use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::config::{Logger, autotune::AutotuneLogLevel};
 use crate::server::LaunchError;
-use crate::tune::{AutotuneResult, TuneCache, tune_benchmark};
+use crate::tune::{AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use crate::{client::ComputeClient, runtime::Runtime};
 
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneInputs};
@@ -201,14 +201,10 @@ impl<K: AutotuneKey> Tuner<K> {
         // The slowest median duration still considered close enough to peak throughput.
         // Only used on native, where a benchmark can be resolved inline to exit early.
         #[cfg(not(target_family = "wasm"))]
-        let threshold_limit = tunables.bounds(key, inputs).and_then(|bounds| {
-            bounds
-                .iter()
-                .filter(|b| b.throughput.is_normal())
-                .map(|b| (b.ops_count as f64 / b.throughput) / b.threshold as f64)
-                .max_by(|a, b| a.total_cmp(b))
-                .map(|limit| Duration::from_secs_f64(limit))
-        });
+        let threshold_limit = tunables
+            .bounds(key, inputs)
+            .map(|bounds| bounds.time_limit())
+            .unwrap_or_default();
 
         #[cfg(not(target_family = "wasm"))]
         let mut batch_success = false;
@@ -251,7 +247,7 @@ impl<K: AutotuneKey> Tuner<K> {
                                     limit
                                 );
                                 std::println!(
-                                    "Reached {:.2}% of the theoretical limit",
+                                    "Reached {:.2}% of the threshold limit",
                                     (limit.as_secs_f64()
                                         / outcome.computation.median.as_secs_f64())
                                         * 100.0
