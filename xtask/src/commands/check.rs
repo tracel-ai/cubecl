@@ -78,7 +78,7 @@ pub(crate) fn handle_command(
 }
 
 /// Run workspace lint, excluding platform-specific crates.
-fn run_ci_lint() -> anyhow::Result<()> {
+pub(crate) fn run_ci_lint() -> anyhow::Result<()> {
     let mut cmd_args: Vec<&str> = vec!["clippy", "--workspace", "--no-deps", "--color=always"];
     for crate_name in CI_EXCLUDED_CRATES {
         cmd_args.push("--exclude");

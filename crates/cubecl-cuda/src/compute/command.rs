@@ -361,6 +361,14 @@ impl<'a> Command<'a> {
 
         let size = data.len();
 
+        // An empty tensor (a zero dim in its shape) has nothing to copy. Bail
+        // before staging: the zero-size staging buffer has no real backing (a
+        // dangling pointer), and the 2D copy below would still transfer
+        // `width_bytes` from it when only the leading dims are zero.
+        if size == 0 {
+            return Ok(());
+        }
+
         let property = data.property();
 
         // Transfers up to this size go through a pinned staging buffer (faster DMA).
@@ -607,6 +615,12 @@ pub(crate) unsafe fn write_to_gpu(
         backtrace: BackTrace::capture(),
     })?;
 
+    // Nothing to copy for an empty tensor; `data` may be a dangling (zero-size)
+    // staging buffer that must not reach the driver.
+    if data.is_empty() {
+        return Ok(());
+    }
+
     let rank = shape.len();
     if rank <= 1 {
         // SAFETY: For rank <= 1 data is contiguous. `dst_ptr` is a valid device pointer
@@ -691,6 +705,12 @@ pub(crate) unsafe fn write_to_cpu(
         description: format!("write_to_cpu: invalid strides: {e}"),
         backtrace: BackTrace::capture(),
     })?;
+
+    // Nothing to copy for an empty tensor; `bytes` has no real backing (a
+    // dangling zero-size buffer) and must not reach the driver.
+    if bytes.is_empty() {
+        return Ok(());
+    }
 
     let rank = shape.len();
     let bytes = bytes.deref_mut();

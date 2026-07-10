@@ -20,6 +20,7 @@ use tracel_llvm::mlir_rs::{
 
 pub struct MlirKernel {
     execution_engine: ExecutionEngine,
+    pub needs_parallelism: bool,
     pub shared_memories: SharedMemories,
 }
 
@@ -28,13 +29,19 @@ pub struct MlirEngine(pub Arc<MlirKernel>);
 
 impl Debug for MlirEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Work in progress")
+        write!(
+            f,
+            "MLIR output many IR, so check the README.md on how to generate debug output"
+        )
     }
 }
 
 impl Display for MlirEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "work in progress")
+        write!(
+            f,
+            "MLIR output many IR, so check the README.md on how to generate debug output"
+        )
     }
 }
 
@@ -60,6 +67,7 @@ impl MlirEngine {
 
         module.visit_kernel(&kernel, func, global_state, &shared_memories, addr_type);
 
+        let needs_parallelism = module.needs_parallelism;
         module.run_pass();
 
         let execution_engine = module.into_execution_engine();
@@ -67,6 +75,7 @@ impl MlirEngine {
         let mlir_kernel = MlirKernel {
             execution_engine,
             shared_memories,
+            needs_parallelism,
         };
 
         let mlir_kernel = Arc::new(mlir_kernel);

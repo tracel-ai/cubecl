@@ -1,5 +1,6 @@
 use crate::{
     config::{TypeNameFormatLevel, type_name_format},
+    id::GraphId,
     kernel::KernelMetadata,
     logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryUsage},
@@ -11,6 +12,9 @@ use crate::{
         ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
+    throughput::{
+        KernelConfig, ThroughputBenchmarker, ThroughputCache, ThroughputKey, ThroughputValue,
+    },
 };
 use alloc::{format, sync::Arc, vec, vec::Vec};
 
@@ -37,6 +41,108 @@ pub struct ComputeClient<R: Runtime> {
     device: DeviceHandle<R::Server>,
     utilities: Arc<ServerUtilities<R::Server>>,
     stream_id: Option<StreamId>,
+}
+
+/// A captured graph produced by [`ComputeClient::stop_capture`]: a recorded
+/// launch sequence that [`replay`](Graph::replay) re-runs as a single dispatch
+/// against its original buffers. Cheap to clone (shares one backend graph).
+///
+/// The graph itself lives in the backend server, referenced here only by
+/// [`GraphId`]; this handle holds a reference-counted owner that releases the
+/// backend graph once the last clone drops. The graph replays against the exact
+/// device buffers used during capture. The caller keeps those input/output
+/// [`Handle`]s alive and, each iteration, writes fresh inputs into the input
+/// handles (same device pointers) and reads the output handles after replaying —
+/// see [`ComputeClient::stop_capture`].
+///
+/// **Stream ordering.** [`replay`](Graph::replay) always dispatches on the
+/// stream the graph was captured on, but input writes and output reads go on the
+/// *writing client's* current stream. They are ordered against the replay only
+/// when they land on that same stream, so keep the client pinned to the capture
+/// stream (via [`set_stream`](ComputeClient::set_stream)) — or issue all writes,
+/// replays, and reads from the same unpinned client — for the whole decode loop.
+/// Refreshing inputs from a client on a different stream races the replay and
+/// silently feeds it stale data.
+pub struct Graph<R: Runtime> {
+    inner: Arc<GraphHandle<R>>,
+}
+
+/// Reference-counted owner of a backend graph. Its [`Drop`] ships the release to
+/// the server actor, so the last [`Graph`] clone frees the backend graph on the
+/// thread that owns it.
+struct GraphHandle<R: Runtime> {
+    id: GraphId,
+    device: DeviceHandle<R::Server>,
+    stream_id: StreamId,
+}
+
+impl<R: Runtime> Graph<R> {
+    /// Replay the captured launch sequence — one dispatch re-running every
+    /// recorded kernel against the buffers it was captured with, on the stream
+    /// it was captured on. Self-contained (the handle owns its device handle);
+    /// no client needed.
+    ///
+    /// Non-blocking, like a kernel launch: this enqueues the dispatch and returns
+    /// immediately. A replay failure is not reported here — it lands in the
+    /// stream's error queue and surfaces on the next
+    /// [`sync`](ComputeClient::sync)/[`flush`](ComputeClient::flush) (e.g. when
+    /// reading the output back).
+    ///
+    /// # Safety
+    ///
+    /// The dispatch re-runs the recorded kernels against the raw device pointers
+    /// captured with them; nothing validates those buffers still exist or are
+    /// unshared. The caller must guarantee, until the replay's work completes on
+    /// the stream:
+    ///
+    /// - **Liveness** — every [`Handle`] the captured kernels read or wrote is
+    ///   still allocated. Freeing one returns its memory to the pool, and a
+    ///   later replay reads or corrupts whatever the allocator has since placed
+    ///   there.
+    /// - **No concurrent use** — no other stream or thread touches buffers the
+    ///   graph reads or writes while the replay executes; the replay is ordered
+    ///   only against work on its capture stream.
+    /// - **Same-stream refreshes** — input writes and output reads are issued on
+    ///   the capture stream (keep the client pinned to it via
+    ///   [`set_stream`](ComputeClient::set_stream), or do everything from the
+    ///   one client), so they order against the replay instead of racing it.
+    pub unsafe fn replay(&self) {
+        let id = self.inner.id;
+        let stream_id = self.inner.stream_id;
+        self.inner
+            .device
+            .submit(move |server| server.replay(id, stream_id));
+    }
+}
+
+impl<R: Runtime> core::fmt::Debug for Graph<R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Graph")
+            .field("id", &self.inner.id)
+            .field("stream_id", &self.inner.stream_id)
+            .finish()
+    }
+}
+
+impl<R: Runtime> Clone for Graph<R> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<R: Runtime> Drop for GraphHandle<R> {
+    fn drop(&mut self) {
+        let id = self.id;
+        let stream_id = self.stream_id;
+        // Destroying the raw executable must happen on the server actor (the
+        // only thread allowed to touch it) and only once in-flight replays have
+        // completed — `replay` returns at enqueue time, not completion. Ship the
+        // release to the actor; the backend syncs the stream before it destroys.
+        self.device
+            .submit(move |server| server.graph_destroy(id, stream_id));
+    }
 }
 
 impl<R: Runtime> Clone for ComputeClient<R> {
@@ -388,6 +494,24 @@ impl<R: Runtime> ComputeClient<R> {
         });
 
         Ok(output)
+    }
+
+    /// Write `data` into an existing allocation, in place (same device pointer).
+    ///
+    /// This is how a captured [`Graph`]'s inputs are refreshed between replays:
+    /// the graph records raw device pointers, so new input bytes must land in
+    /// the very buffer the capture read from. Issue it from the capture stream
+    /// (see the stream-ordering notes on [`Graph`]) so the write orders against
+    /// the replays instead of racing them.
+    ///
+    /// Non-blocking: the write is enqueued on this client's current stream.
+    pub fn write(&self, handle: &Handle, data: Bytes) {
+        let stream_id = self.stream_id();
+        let descriptor =
+            CopyDescriptor::new(handle.clone().binding(), [data.len()].into(), [1].into(), 1);
+        self.device.submit(move |server| {
+            server.write(vec![(descriptor, data)], stream_id);
+        });
     }
 
     /// Returns a resource handle containing the given [Bytes].
@@ -860,6 +984,48 @@ impl<R: Runtime> ComputeClient<R> {
             .unwrap_or_resume()
     }
 
+    /// Prepare this client's stream for a graph capture (see
+    /// [`ComputeServer::graph_prepare`]) — enable the persistent pool + capture
+    /// recording. Call this **before** the warmup run, then
+    /// [`start_capture`](Self::start_capture) around the run to record.
+    pub fn graph_prepare(&self) -> Result<(), ServerError> {
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.graph_prepare(stream_id))
+            .unwrap_or_resume()
+    }
+
+    /// Begin recording launches on this client's stream into a graph rather
+    /// than executing them (see [`ComputeServer::begin_capture`]). Pin the
+    /// client to a dedicated stream with [`set_stream`](Self::set_stream), then
+    /// [`graph_prepare`](Self::graph_prepare) and warm up first; between this
+    /// and [`stop_capture`](Self::stop_capture) no sync or fresh allocation may
+    /// happen. Returns an error on backends without graph support.
+    pub fn start_capture(&self) -> Result<(), ServerError> {
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.begin_capture(stream_id))
+            .unwrap_or_resume()
+    }
+
+    /// Stop recording and return the captured graph, ready to
+    /// [`replay`](Graph::replay).
+    pub fn stop_capture(&self) -> Result<Graph<R>, ServerError> {
+        let stream_id = self.stream_id();
+        let id = self
+            .device
+            .submit_blocking(move |server| server.end_capture(stream_id))
+            .unwrap_or_resume()?;
+
+        Ok(Graph {
+            inner: Arc::new(GraphHandle {
+                id,
+                device: self.device.clone(),
+                stream_id,
+            }),
+        })
+    }
+
     /// Wait for the completion of every task in the server.
     pub fn sync(&self) -> DynFut<Result<(), ServerError>> {
         let stream_id = self.stream_id();
@@ -1122,5 +1288,17 @@ impl<R: Runtime> ComputeClient<R> {
         let num_candidates = max.trailing_zeros() + 1;
 
         (0..num_candidates).map(|i| 2usize.pow(i)).rev()
+    }
+
+    /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)
+    pub fn measure_throughput(
+        &self,
+        key: ThroughputKey,
+        kernel_config: KernelConfig,
+    ) -> ThroughputValue {
+        let name = format!("{}_dev{}", R::name(self), self.device.device_id().index_id);
+        let cache = ThroughputCache::get_for_device(&name);
+        let mut throughputs = ThroughputBenchmarker::new(cache);
+        throughputs.measure(self, key, kernel_config)
     }
 }
