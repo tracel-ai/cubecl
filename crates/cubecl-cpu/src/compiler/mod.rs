@@ -68,7 +68,6 @@ impl PlironCompiler {
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
         let config = PMConfig {
-            print_after_all: true,
             ..Default::default()
         };
 
@@ -77,13 +76,13 @@ impl PlironCompiler {
 
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
+        func_passes.add_pass(InsertEntrypointPass::default());
         func_passes.add_pass(DisaggregatePass);
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(PromoteBitwisePass);
         func_passes.add_pass(DCEPass);
-        func_passes.add_pass(InsertEntrypointPass::default());
 
         passes.add_pass(NestedOpsPass::new(func_passes));
 
