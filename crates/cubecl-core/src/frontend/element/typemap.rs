@@ -148,7 +148,12 @@ impl<Marker: 'static> Neg for DynamicScalar<Marker> {
 }
 impl<Marker: 'static> NegNativeExpand for DynamicScalar<Marker> {
     fn __expand_native_neg(scope: &Scope, this: ExpandValue) -> ExpandValue {
-        unary_dispatch!(__expand_native_neg, scope, this)
+        let ty = Self::__expand_as_type(scope);
+        if ty.is_int(scope.ctx()) {
+            i32::__expand_native_neg(scope, this)
+        } else {
+            f32::__expand_native_neg(scope, this)
+        }
     }
 }
 

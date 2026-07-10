@@ -297,18 +297,6 @@ macro_rules! impl_core_unop {
     };
 }
 
-macro_rules! impl_core_unop_nop {
-    ($($ty: ty),*; $trait: ident, $method: ident) => {
-        paste::paste! {
-            $(impl [<$trait NativeExpand>] for $ty {
-                fn [<__expand_native_ $method>](_scope: &Scope, this: ExpandValue) -> ExpandValue {
-                    this
-                }
-            })*
-        }
-    };
-}
-
 impl_not!(
     Not, not, bool, u8, u16, u32, u64, i8, i16, i32, i64, isize, usize
 );
@@ -316,7 +304,6 @@ impl_not!(
 define_core_unop!(Neg, neg);
 impl_core_unop!(i8, i16, i32, i64, isize; Neg, neg, SNegOp);
 impl_core_unop!(f16, bf16, f32, flex32, tf32, f64; Neg, neg, FNegOp);
-impl_core_unop_nop!(u8, u16, u32, u64, usize; Neg, neg);
 
 define_unary_func!(Abs, abs, SAbsOp, i8, i16, i32, i64, isize);
 impl_unary_func_nop!(u8, u16, u32, u64, usize; Abs, abs);
