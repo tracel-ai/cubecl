@@ -52,14 +52,15 @@ impl CpuStream {
         memory_config: MemoryConfiguration,
         logger: Arc<ServerLogger>,
     ) -> Self {
-        // Resolve the global `memory.pools` config override for the main pool
-        // only (the server does it, so `from_configuration` purely honors the
-        // config it's handed). The shared pool below is left alone: it has a
-        // deliberate configuration that must not be overridden.
+        // `memory_config` shapes the main pool only; the shared pool below is
+        // left alone, as it has a deliberate configuration that must not be
+        // overridden. Pool layout overrides reach GPU runtimes through
+        // `configure_memory_pools`; the CPU runtime has no such override and
+        // keeps the config it's handed.
         let memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &memory_properties,
-            memory_config.clone().resolve(&memory_properties),
+            memory_config.clone(),
             logger.clone(),
             MemoryManagementOptions::new("Main CPU"),
         );
