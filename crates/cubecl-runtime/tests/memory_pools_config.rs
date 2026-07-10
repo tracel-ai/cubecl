@@ -1,16 +1,15 @@
-//! End-to-end test of the `memory.pools` global config override: the whole
-//! path from `CubeClRuntimeConfig::set()` through `MemoryConfiguration::resolve`
-//! to the actual pool behavior.
-//!
-//! This lives in its own integration-test binary because the global config is
-//! a per-process singleton: `set()` must run before any `get()` and only once.
+//! End-to-end test of the programmatic pool layout: the whole path from a
+//! [`MemoryPoolsConfig`] payload through [`MemoryConfiguration::resolve`] to
+//! the actual pool behavior, plus the in-place rebuild
+//! ([`MemoryManagement::configure`]) that re-sizes the pools between
+//! workloads. There is deliberately no config-file pathway for pool layouts —
+//! they are dynamic, set at runtime per workload.
 
 use std::sync::Arc;
 
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::config::memory::{MemoryPoolConfig, MemoryPoolsConfig};
 use cubecl_runtime::config::size::MemorySize;
-use cubecl_runtime::config::{CubeClRuntimeConfig, RuntimeConfig};
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{
     MemoryConfiguration, MemoryManagement, MemoryManagementOptions,
@@ -19,29 +18,34 @@ use cubecl_runtime::storage::BytesStorage;
 
 const MIB: u64 = 1024 * 1024;
 
-#[test]
-fn global_pools_config_overrides_runtime_default() {
-    // The programmatic path a downstream user takes when the budget is
-    // computed at runtime (e.g. an LLM KV cache).
-    let mut config = CubeClRuntimeConfig::default();
-    config.memory.pools = Some(MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
-        page_size: MemorySize(MIB),
+fn sliced(page_size: u64, pages: u64) -> MemoryPoolsConfig {
+    MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
+        page_size: MemorySize(page_size),
         max_slice_size: None,
-        max_pool_size: Some(MemorySize(2 * MIB)),
+        max_pool_size: Some(MemorySize(page_size * pages)),
         dealloc_period: None,
-    }]));
-    CubeClRuntimeConfig::set(config);
+    }])
+}
 
-    let props = MemoryDeviceProperties {
+fn props() -> MemoryDeviceProperties {
+    MemoryDeviceProperties {
         max_page_size: 128 * MIB,
         alignment: 32,
-    };
+    }
+}
 
-    // What every runtime does for its main GPU pool at server creation.
-    let resolved = MemoryConfiguration::default().resolve(&props);
+#[test]
+fn programmatic_pools_override_runtime_default() {
+    // The path a downstream user takes when the budget is computed at runtime
+    // (e.g. an LLM activation working set), and what every runtime does for
+    // its main GPU pool at stream creation.
+    let pools = sliced(MIB, 2);
+    let resolved = MemoryConfiguration::default()
+        .resolve(Some(&pools), &props())
+        .unwrap();
     let mut memory_management = MemoryManagement::from_configuration(
         BytesStorage::default(),
-        &props,
+        &props(),
         resolved,
         Arc::new(ServerLogger::default()),
         MemoryManagementOptions::new("Main GPU Memory"),
@@ -59,4 +63,33 @@ fn global_pools_config_overrides_runtime_default() {
     let _fill_2 = memory_management.reserve(500 * 1024).unwrap();
     assert!(memory_management.reserve(MIB).is_err());
     assert_eq!(memory_management.memory_usage().bytes_reserved, 2 * MIB);
+}
+
+#[test]
+fn configure_rebuilds_pools_in_place() {
+    let resolved = MemoryConfiguration::default()
+        .resolve(Some(&sliced(MIB, 2)), &props())
+        .unwrap();
+    let mut memory_management = MemoryManagement::from_configuration(
+        BytesStorage::default(),
+        &props(),
+        resolved,
+        Arc::new(ServerLogger::default()),
+        MemoryManagementOptions::new("Main GPU Memory"),
+    );
+
+    // While an allocation is live, the rebuild is refused and the old layout
+    // (2 × 1 MiB cap) stays in force.
+    let live = memory_management.reserve(MIB).unwrap();
+    let bigger = MemoryConfiguration::default()
+        .resolve(Some(&sliced(4 * MIB, 2)), &props())
+        .unwrap();
+    assert!(!memory_management.configure(bigger.clone(), &props()));
+    assert!(memory_management.reserve(2 * MIB).is_err());
+
+    // At a quiescent point the rebuild goes through, and the new layout
+    // serves what the old cap refused.
+    drop(live);
+    assert!(memory_management.configure(bigger, &props()));
+    let _large = memory_management.reserve(2 * MIB).unwrap();
 }

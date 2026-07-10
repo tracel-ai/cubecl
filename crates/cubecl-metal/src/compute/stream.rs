@@ -235,6 +235,11 @@ pub struct MetalStreamBackend {
     mem_props: MemoryDeviceProperties,
     mem_config: MemoryConfiguration,
     logger: Arc<ServerLogger>,
+    /// Programmatic main-GPU pool layout (see
+    /// [`ComputeServer::configure_memory_pools`](cubecl_runtime::server::ComputeServer::configure_memory_pools)):
+    /// streams created after it is set build their GPU pools from it instead
+    /// of the runtime default.
+    gpu_pools_override: Option<MemoryConfiguration>,
 }
 
 impl MetalStreamBackend {
@@ -249,7 +254,21 @@ impl MetalStreamBackend {
             mem_props,
             mem_config,
             logger,
+            gpu_pools_override: None,
         }
+    }
+
+    /// The layout streams build their main-GPU pools with.
+    pub(crate) fn gpu_pools(&self) -> MemoryConfiguration {
+        self.gpu_pools_override
+            .clone()
+            .unwrap_or_else(|| self.mem_config.clone())
+    }
+
+    /// Set the main-GPU pool layout for streams created from now on.
+    #[allow(dead_code)]
+    pub(crate) fn set_gpu_pools(&mut self, config: MemoryConfiguration) {
+        self.gpu_pools_override = Some(config);
     }
 }
 
@@ -268,13 +287,12 @@ impl EventStreamBackend for MetalStreamBackend {
 
         let storage = MetalStorage::new(self.device.clone());
 
-        // Resolve the global `memory.pools` config override for the main GPU
-        // pool (the server does it, so `from_configuration` purely honors the
-        // config it's handed).
+        // The main GPU pool honors the programmatic pool override when one was
+        // installed (`configure_memory_pools`).
         let memory_management = MemoryManagement::from_configuration(
             storage,
             &self.mem_props,
-            self.mem_config.clone().resolve(&self.mem_props),
+            self.gpu_pools(),
             self.logger.clone(),
             MemoryManagementOptions::new("Metal GPU Memory"),
         );

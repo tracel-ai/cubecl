@@ -42,6 +42,29 @@ pub struct CudaStreamBackend {
     mem_alignment: usize,
     logger: Arc<ServerLogger>,
     priority: StreamPriority,
+    /// Programmatic main-GPU pool layout (see
+    /// [`ComputeServer::configure_memory_pools`](cubecl_runtime::server::ComputeServer::configure_memory_pools)):
+    /// streams created after it is set build their GPU pools from it instead
+    /// of the runtime default. Auxiliary pools are unaffected.
+    #[new(default)]
+    gpu_pools_override: Option<MemoryConfiguration>,
+}
+
+impl CudaStreamBackend {
+    /// The layout streams build their main-GPU pools with, and the properties
+    /// to resolve it against.
+    pub(crate) fn gpu_pools(&self) -> (MemoryConfiguration, MemoryDeviceProperties) {
+        let config = self
+            .gpu_pools_override
+            .clone()
+            .unwrap_or_else(|| self.mem_config.clone());
+        (config, self.mem_props.clone())
+    }
+
+    /// Set the main-GPU pool layout for streams created from now on.
+    pub(crate) fn set_gpu_pools(&mut self, config: MemoryConfiguration) {
+        self.gpu_pools_override = Some(config);
+    }
 }
 
 /// Create a non-blocking CUDA stream, applying the requested priority hint.
@@ -107,15 +130,15 @@ impl EventStreamBackend for CudaStreamBackend {
 
         let storage = GpuStorage::new(self.mem_alignment, stream);
 
-        // Resolve the global `memory.pools` config override for the main GPU
-        // pool only (the server does it, so `from_configuration` purely honors
-        // the config it's handed). The pinned pool below is left alone: the
-        // override targets GPU activations, and the other pools have deliberate
-        // configurations that must not be overridden.
+        // The main GPU pool honors the programmatic pool override when one was
+        // installed (`configure_memory_pools`). The pinned pool below is left
+        // alone: the override targets GPU activations, and the other pools
+        // have deliberate configurations that must not be overridden.
+        let (gpu_config, gpu_props) = self.gpu_pools();
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,
-            &self.mem_props,
-            self.mem_config.clone().resolve(&self.mem_props),
+            &gpu_props,
+            gpu_config,
             self.logger.clone(),
             MemoryManagementOptions::new("Main GPU Memory"),
         );

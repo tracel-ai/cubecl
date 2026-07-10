@@ -124,7 +124,7 @@ max_streams: 4
 
 ### Memory
 
-The `[memory]` section controls memory-related logging and the memory pools of every runtime.
+The `[memory]` section controls memory-related logging and the persistent-memory policy.
 
 **Log Levels:**
 
@@ -141,62 +141,19 @@ such as model weights.
 - `enforced`: every allocation is persistent. May cause out-of-memory errors when tensor sizes
   vary.
 
-**Memory pools** (`pools`): overrides the pool layout of every runtime's **main GPU** memory.
-Omit it to keep each runtime's own default. Auxiliary pools (pinned CPU, staging, uniforms) are
-never affected. The value is either a preset name:
-
-```toml
-[memory]
-pools = "sub-slices" # or "exclusive-pages"
-```
-
-or an explicit pool list. At allocation time, the first pool that accepts an allocation's size
-serves it. Sizes accept raw integers (bytes) or human-readable strings with binary units
-(`"8KiB"`, `"512MB"`, `"20GiB"`).
-
-```toml
-[memory]
-[[memory.pools]]
-type = "exclusive"       # one page per allocation
-max_alloc_size = "8KiB"  # small buffers (e.g. kernel metadata)
-dealloc_period = 10000   # deallocate unused pages periodically (omit to keep them forever)
-
-[[memory.pools]]
-type = "sliced"          # allocations are slices of large pages
-page_size = "20GiB"
-max_slice_size = "20GiB" # optional, defaults to page_size
-max_pool_size = "20GiB"  # hard cap: exceeding it is an error, never silent growth
-```
-
-A single sliced arena with a hard cap, as above, gives a **fixed memory footprint**: allocations
-of every size reuse the same pages instead of each size-bucketed pool retaining its own peak
-reservation — useful when the maximum working set is known up front, such as an LLM inference
-server whose KV-cache size is fixed. When the cap is reached and nothing fits after coalescing,
-the allocation fails with a pool-capacity error instead of growing.
-
-Notes:
-
-- An invalid layout (empty list, zero `page_size`, `max_slice_size` larger than `page_size`,
-  `max_pool_size` smaller than `page_size`) panics at client creation with a descriptive
-  message — an explicit memory override is never silently replaced.
-- `page_size` may exceed the device's reported `max_page_size`: that value is a sizing heuristic
-  for the default layouts, not an allocation limit. A page the device truly cannot allocate
-  fails at allocation time.
-- Runtimes that create one memory management per stream (CUDA, HIP) apply the layout — and any
-  `max_pool_size` cap — per stream.
-
 **Example:**
 
 ```toml
 [memory]
 logger = { level = "basic", stdout = true }
 persistent_memory = "enabled"
-pools = "sub-slices"
 ```
 
-Since pool sizes are often computed at runtime (model size, sequence length, batch), the
-`pools` setting is commonly set programmatically instead of in a file — see
-[Programmatic Configuration](#programmatic-configuration).
+**Memory pools are a programmatic setting, not a config-file one.** Pool layouts are dynamic —
+sized at runtime from the workload (model size, sequence length, batch) and changeable between
+workloads — so they must not freeze at process startup. See
+[Memory pool layouts](#memory-pool-layouts) below. A leftover `pools` entry in `[memory]` is a
+load error.
 
 ## Environment Variable Overrides
 
@@ -240,32 +197,53 @@ CubeClRuntimeConfig::set(config);
 > **Note:** You must call `CubeClRuntimeConfig::set` before any CubeCL operations, and only once
 > per process.
 
-This is the recommended way to configure memory pools whose sizes are computed at runtime, such
-as a fixed arena covering an LLM KV cache plus activations:
-
-```rust
-use cubecl::config::{CubeClRuntimeConfig, RuntimeConfig};
-use cubecl::config::memory::{MemoryPoolConfig, MemoryPoolsConfig};
-use cubecl::config::size::MemorySize;
-
-// Start from the file/env configuration so `set` doesn't discard it.
-let mut config = CubeClRuntimeConfig::from_current_dir().override_from_env();
-config.memory.pools = Some(MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
-    page_size: MemorySize(budget_bytes),
-    max_slice_size: None,
-    max_pool_size: Some(MemorySize(budget_bytes)),
-    dealloc_period: None,
-}]));
-CubeClRuntimeConfig::set(config);
-// ... only now create the first client/device.
-```
-
 Two sharp edges:
 
 - `set` panics if the configuration was already loaded — it must run before *any* CubeCL call
   that touches a client, autotune, or logging.
 - `set` bypasses `cubecl.toml` and `CUBECL_*` env vars unless you seed the value with
   `from_current_dir().override_from_env()` as above.
+
+## Memory pool layouts
+
+The pool layout of a runtime's **main GPU** memory is configured at runtime through the compute
+client — never through a config file, so it can change between workloads instead of freezing at
+startup:
+
+```rust
+use cubecl::config::memory::{MemoryPoolConfig, MemoryPoolsConfig};
+use cubecl::config::size::MemorySize;
+
+client.configure_memory_pools(&MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
+    page_size: MemorySize(page_bytes),
+    max_slice_size: None,
+    max_pool_size: Some(MemorySize(pages * page_bytes)),
+    dealloc_period: None,
+}]));
+```
+
+The value is either a preset (`MemoryPoolsConfig::Preset` — `sub-slices` or `exclusive-pages`,
+matching the runtime defaults) or an explicit pool list; at allocation time, the first pool that
+accepts an allocation's size serves it. Auxiliary pools (pinned CPU, staging, uniforms) and the
+persistent pool are never affected.
+
+Semantics:
+
+- The **calling stream's** pools are rebuilt in place, provided nothing is live in them —
+  reconfigure at a quiescent point (e.g. right after unloading a model and running
+  `memory_cleanup`). When something is still live, the old layout is kept and a memory log line
+  says so.
+- Every stream **created afterwards** is built with the new layout, so workloads with different
+  layouts can coexist on different streams.
+- An invalid layout (empty list, zero `page_size`, `max_slice_size` larger than `page_size`,
+  `max_pool_size` smaller than `page_size`) panics with a descriptive message — an explicit
+  layout is never silently replaced.
+- `page_size` may exceed the device's reported `max_page_size`: that value is a sizing heuristic
+  for the default layouts, not an allocation limit. A page the device truly cannot allocate
+  fails at allocation time.
+- A hard-capped sliced arena gives a **fixed memory footprint**: allocations of every size reuse
+  the same pages, and when the cap is reached and nothing fits after coalescing, the allocation
+  fails with a pool-capacity error instead of growing silently.
 
 ## Logging
 

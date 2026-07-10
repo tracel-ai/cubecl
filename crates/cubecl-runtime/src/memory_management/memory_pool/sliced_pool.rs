@@ -121,15 +121,15 @@ impl MemoryPool for SlicedPool {
         // `alloc` is only called after `try_reserve` coalesced every page and
         // found no fit, so hitting the cap here means the working set truly
         // exceeds the budget.
-        if let Some(max_pages) = self.max_pages {
-            if self.pages.len() >= max_pages as usize {
-                return Err(IoError::PoolCapacityExceeded {
-                    size,
-                    capacity: max_pages as u64 * self.page_size,
-                    in_use: self.get_memory_usage().bytes_in_use,
-                    backtrace: BackTrace::capture(),
-                });
-            }
+        if let Some(max_pages) = self.max_pages
+            && self.pages.len() >= max_pages as usize
+        {
+            return Err(IoError::PoolCapacityExceeded {
+                size,
+                capacity: max_pages as u64 * self.page_size,
+                in_use: self.get_memory_usage().bytes_in_use,
+                backtrace: BackTrace::capture(),
+            });
         }
 
         let index = self.alloc_page(storage)?;

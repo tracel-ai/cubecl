@@ -3,7 +3,8 @@ use crate::{
     id::GraphId,
     kernel::KernelMetadata,
     logging::ProfileLevel,
-    memory_management::{MemoryAllocationMode, MemoryUsage},
+    config::memory::MemoryPoolsConfig,
+    memory_management::{MemoryAllocationMode, MemoryConfiguration, MemoryUsage},
     runtime::Runtime,
     server::{
         CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
@@ -1114,6 +1115,33 @@ impl<R: Runtime> ComputeClient<R> {
                 server.memory_cleanup(id);
             }
         });
+    }
+
+    /// Install a new dynamic-pool layout for the device's main GPU memory.
+    ///
+    /// Pool layouts are a purely programmatic, runtime setting — there is no
+    /// config-file pathway — sized per workload (e.g. per model, just before
+    /// loading it). The current stream's pools are rebuilt in place when
+    /// nothing is live in them (reconfigure at a quiescent point, e.g. right
+    /// after unloading a model), and the layout applies to every stream
+    /// created afterwards. Auxiliary pools (pinned CPU, staging, uniforms) and
+    /// the persistent pool are never affected.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the layout is invalid (empty list, zero page size, slice
+    /// larger than page, cap smaller than page, unavailable preset) — an
+    /// explicit layout that cannot be honored must not be silently replaced.
+    pub fn configure_memory_pools(&self, pools: &MemoryPoolsConfig) {
+        let config = match MemoryConfiguration::default()
+            .resolve(Some(pools), &self.properties().memory)
+        {
+            Ok(config) => config,
+            Err(err) => panic!("Invalid memory pools configuration: {err}"),
+        };
+        let stream_id = self.stream_id();
+        self.device
+            .submit(move |server| server.configure_memory_pools(config, stream_id));
     }
 
     /// Measure the execution time of some inner operations.

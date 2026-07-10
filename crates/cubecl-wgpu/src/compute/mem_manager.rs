@@ -35,9 +35,9 @@ impl WgpuMemManager {
         // to empty() or create() with a small enough size will be allocated from this
         // main memory pool.
         //
-        // The global `memory.pools` config override is resolved for the main
-        // pool only; the staging and uniforms pools below have deliberate
-        // configurations that must not be overridden.
+        // `memory_config` (which honors any programmatic pool override) shapes
+        // the main pool only; the staging and uniforms pools below have
+        // deliberate configurations that must not be overridden.
         let memory_main = MemoryManagement::from_configuration(
             WgpuStorage::new(
                 memory_properties.alignment as usize,
@@ -49,7 +49,7 @@ impl WgpuMemManager {
                 use_vulkan_compiler,
             ),
             &memory_properties,
-            memory_config.resolve(&memory_properties),
+            memory_config,
             logger.clone(),
             MemoryManagementOptions::new("Main GPU Memory"),
         );
@@ -146,6 +146,17 @@ impl WgpuMemManager {
 
     pub(crate) fn mode(&mut self, mode: MemoryAllocationMode) {
         self.memory_pool.mode(mode);
+    }
+
+    /// Rebuild the main pool with a new layout (a no-op with a log when
+    /// something is still live in it). The staging and uniforms pools keep
+    /// their deliberate configurations.
+    pub(crate) fn configure_memory_pools(
+        &mut self,
+        config: MemoryConfiguration,
+        props: &MemoryDeviceProperties,
+    ) {
+        self.memory_pool.configure(config, props);
     }
 
     pub(crate) fn release_uniforms(&mut self) {

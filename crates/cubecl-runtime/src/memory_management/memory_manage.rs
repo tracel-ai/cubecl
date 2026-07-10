@@ -287,15 +287,14 @@ impl core::fmt::Display for PoolConfigError {
 }
 
 impl MemoryConfiguration {
-    /// Resolve the runtime-chosen configuration against the global
-    /// `memory.pools` override for the **main GPU** pool.
+    /// Resolve a programmatic [`MemoryPoolsConfig`] override against the
+    /// runtime-chosen configuration for the **main GPU** pool.
     ///
-    /// When `memory.pools` is absent, the runtime's own `self` is kept
-    /// unchanged; when present, it wins. Runtimes call this once per main-GPU
-    /// [`MemoryManagement`] at server/stream creation, so
-    /// [`MemoryManagement::from_configuration`] purely honors the config it is
-    /// handed (auxiliary pinned/staging/uniform pools pass their forced
-    /// configs straight through, unresolved).
+    /// When `pools` is `None`, the runtime's own `self` is kept unchanged;
+    /// when present, it wins. There is deliberately no config-file pathway for
+    /// pool layouts — they are dynamic (set per model just before a load) and
+    /// must not freeze at startup; the override reaches the server through
+    /// [`configure_memory_pools`](crate::client::ComputeClient::configure_memory_pools).
     ///
     /// `page_size` is deliberately not validated against
     /// [`MemoryDeviceProperties::max_page_size`]: that value is a sizing
@@ -303,23 +302,7 @@ impl MemoryConfiguration {
     /// device memory), not an allocation limit, and a large arena is exactly
     /// what an explicit pool override is for. An unallocatable page fails at
     /// allocation time.
-    ///
-    /// # Panics
-    ///
-    /// Panics with a descriptive message if `memory.pools` is invalid (empty
-    /// list, zero page size, slice larger than page, cap smaller than page,
-    /// unavailable preset). An explicit memory override that cannot be
-    /// honored must not be silently replaced.
-    pub fn resolve(self, properties: &MemoryDeviceProperties) -> Self {
-        let config = CubeClRuntimeConfig::get();
-        match self.resolve_with(config.memory.pools.as_ref(), properties) {
-            Ok(resolved) => resolved,
-            Err(err) => panic!("Invalid `memory.pools` configuration: {err}"),
-        }
-    }
-
-    /// Testable core of [`Self::resolve`]: same semantics, explicit input.
-    fn resolve_with(
+    pub fn resolve(
         self,
         pools: Option<&MemoryPoolsConfig>,
         properties: &MemoryDeviceProperties,
@@ -442,16 +425,23 @@ fn pool_options_from_entry(
     }
 }
 
-impl<Storage: ComputeStorage> MemoryManagement<Storage> {
-    /// Creates the options from device limits.
-    pub fn from_configuration(
-        storage: Storage,
-        properties: &MemoryDeviceProperties,
-        config: MemoryConfiguration,
-        logger: Arc<ServerLogger>,
-        options: MemoryManagementOptions,
-    ) -> Self {
-        let pool_options = match config {
+/// The pool position stamped on persistent-pool slices, routing their binds
+/// and lookups to the persistent pool. A fixed sentinel (rather than "one past
+/// the dynamic pools") so live persistent slices stay routable when
+/// [`MemoryManagement::configure`] rebuilds the dynamic pools with a
+/// different count.
+const PERSISTENT_POOL_POS: u8 = u8::MAX;
+
+/// Build the dynamic pools for `config` — the shared core of
+/// [`MemoryManagement::from_configuration`] and
+/// [`MemoryManagement::configure`].
+fn build_pools(
+    properties: &MemoryDeviceProperties,
+    config: MemoryConfiguration,
+    logger: &Arc<ServerLogger>,
+    name: &str,
+) -> Vec<DynamicPool> {
+    let pool_options = match config {
             #[cfg(not(exclusive_memory_only))]
             MemoryConfiguration::SubSlices => {
                 // Round chunk size to be aligned.
@@ -546,46 +536,64 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             MemoryConfiguration::Custom { pool_options } => pool_options,
         };
 
-        logger.log_memory(
-            |level| !matches!(level, MemoryLogLevel::Disabled),
-            || {
-                let mut msg = String::new();
-                for pool in pool_options.iter() {
-                    msg += &format!("[{}] Using memory pool: \n {pool:?}\n", options.name);
-                }
-                msg
-            },
-        );
+    logger.log_memory(
+        |level| !matches!(level, MemoryLogLevel::Disabled),
+        || {
+            let mut msg = String::new();
+            for pool in pool_options.iter() {
+                msg += &format!("[{name}] Using memory pool: \n {pool:?}\n");
+            }
+            msg
+        },
+    );
 
-        let pools: Vec<_> = pool_options
-            .iter()
-            .enumerate()
-            .map(|(pool_pos, pool)| {
-                let pool_pos = pool_pos as u8;
+    assert!(
+        pool_options.len() < PERSISTENT_POOL_POS as usize,
+        "at most {} dynamic pools are supported",
+        PERSISTENT_POOL_POS
+    );
 
-                match pool.pool_type {
-                    PoolType::SlicedPages {
-                        page_size,
-                        max_slice_size,
-                        max_pool_size,
-                    } => DynamicPool::Sliced(SlicedPool::new(
-                        page_size,
-                        max_slice_size,
+    pool_options
+        .iter()
+        .enumerate()
+        .map(|(pool_pos, pool)| {
+            let pool_pos = pool_pos as u8;
+
+            match pool.pool_type {
+                PoolType::SlicedPages {
+                    page_size,
+                    max_slice_size,
+                    max_pool_size,
+                } => DynamicPool::Sliced(SlicedPool::new(
+                    page_size,
+                    max_slice_size,
+                    properties.alignment,
+                    pool_pos,
+                    max_pool_size,
+                )),
+                PoolType::ExclusivePages { max_alloc_size } => {
+                    DynamicPool::Exclusive(ExclusiveMemoryPool::new(
+                        max_alloc_size,
                         properties.alignment,
+                        pool.dealloc_period.unwrap_or(u64::MAX),
                         pool_pos,
-                        max_pool_size,
-                    )),
-                    PoolType::ExclusivePages { max_alloc_size } => {
-                        DynamicPool::Exclusive(ExclusiveMemoryPool::new(
-                            max_alloc_size,
-                            properties.alignment,
-                            pool.dealloc_period.unwrap_or(u64::MAX),
-                            pool_pos,
-                        ))
-                    }
+                    ))
                 }
-            })
-            .collect();
+            }
+        })
+        .collect()
+}
+
+impl<Storage: ComputeStorage> MemoryManagement<Storage> {
+    /// Creates the options from device limits.
+    pub fn from_configuration(
+        storage: Storage,
+        properties: &MemoryDeviceProperties,
+        config: MemoryConfiguration,
+        logger: Arc<ServerLogger>,
+        options: MemoryManagementOptions,
+    ) -> Self {
+        let pools = build_pools(properties, config, &logger, &options.name);
 
         let config = CubeClRuntimeConfig::get().memory.persistent_memory.clone();
 
@@ -603,7 +611,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             persistent: PersistentPool::new(
                 properties.max_page_size,
                 properties.alignment,
-                pools.len() as u8,
+                PERSISTENT_POOL_POS,
             ),
             pools,
             storage,
@@ -613,6 +621,53 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             logger,
             capture: None,
         }
+    }
+
+    /// Rebuild the dynamic pools with a new layout, in place.
+    ///
+    /// The old pools are cleaned up first (every currently-free page returned
+    /// to the driver). Rebuilding only happens when no live allocation remains
+    /// in them — a live slice carries its pool position, so swapping the pool
+    /// list under it would corrupt routing. When something is still alive, the
+    /// old layout is kept and `false` is returned; the caller reconfigures at a
+    /// quiescent point (e.g. right after unloading a model) so this is the
+    /// exceptional path, not the normal one.
+    ///
+    /// The persistent pool is untouched: its slices route through a fixed
+    /// sentinel position and its layout is model-agnostic.
+    pub fn configure(
+        &mut self,
+        config: MemoryConfiguration,
+        properties: &MemoryDeviceProperties,
+    ) -> bool {
+        self.cleanup(true);
+
+        // Only the dynamic pools are rebuilt, so only their live slices block
+        // (persistent usage — weights of another workload — doesn't).
+        let dynamic_in_use: u64 = self
+            .pools
+            .iter()
+            .map(|pool| match pool {
+                DynamicPool::Sliced(p) => p.get_memory_usage().bytes_in_use,
+                DynamicPool::Exclusive(p) => p.get_memory_usage().bytes_in_use,
+            })
+            .sum();
+        if dynamic_in_use > 0 {
+            self.logger.log_memory(
+                |level| !matches!(level, MemoryLogLevel::Disabled),
+                || {
+                    format!(
+                        "[{}] Keeping the current pool layout: {dynamic_in_use} bytes \
+                         are still live in the dynamic pools",
+                        self.name
+                    )
+                },
+            );
+            return false;
+        }
+
+        self.pools = build_pools(properties, config, &self.logger, &self.name);
+        true
     }
 
     /// Begin a graph capture: force every allocation into the persistent pool
@@ -701,6 +756,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         for pool in self.pools.iter_mut() {
             pool.cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
         }
+
+        // The pools only queue their page deallocations in the storage; an
+        // explicit cleanup means "release the memory now", so push them to the
+        // driver instead of leaving them pending.
+        if explicit {
+            self.storage.flush();
+        }
     }
 
     /// Returns the storage from the specified binding
@@ -720,7 +782,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             });
         }
 
-        let slice = if id.location().pool >= self.pools.len() as u8 {
+        let slice = if id.location().pool == PERSISTENT_POOL_POS {
             self.persistent.find(&binding)?
         } else {
             let pool =
@@ -918,7 +980,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         }
 
         let pool_index = descriptor.location().pool as usize;
-        if pool_index >= self.pools.len() {
+        if pool_index == PERSISTENT_POOL_POS as usize {
             // `bind` sets the slice's final identity to `assigned` (replacing the
             // throwaway reserved handle), so this — not the earlier `reserve` — is
             // the id a capture must track for a bound persistent buffer.
@@ -1449,13 +1511,13 @@ mod tests {
         #[cfg(not(exclusive_memory_only))]
         assert!(matches!(
             MemoryConfiguration::SubSlices
-                .resolve_with(None, &DUMMY_MEM_PROPS)
+                .resolve(None, &DUMMY_MEM_PROPS)
                 .unwrap(),
             MemoryConfiguration::SubSlices
         ));
         assert!(matches!(
             MemoryConfiguration::ExclusivePages
-                .resolve_with(None, &DUMMY_MEM_PROPS)
+                .resolve(None, &DUMMY_MEM_PROPS)
                 .unwrap(),
             MemoryConfiguration::ExclusivePages
         ));
@@ -1470,7 +1532,7 @@ mod tests {
         let base = MemoryConfiguration::ExclusivePages;
 
         assert!(matches!(
-            base.resolve_with(Some(&preset), &DUMMY_MEM_PROPS).unwrap(),
+            base.resolve(Some(&preset), &DUMMY_MEM_PROPS).unwrap(),
             MemoryConfiguration::ExclusivePages
         ));
     }
@@ -1488,7 +1550,7 @@ mod tests {
         }]);
         assert_eq!(
             MemoryConfiguration::default()
-                .resolve_with(Some(&pools), &DUMMY_MEM_PROPS)
+                .resolve(Some(&pools), &DUMMY_MEM_PROPS)
                 .unwrap_err(),
             PoolConfigError::SlicedPoolsUnavailable
         );
@@ -1514,7 +1576,7 @@ mod tests {
         ]);
 
         let resolved = MemoryConfiguration::default()
-            .resolve_with(Some(&pools), &DUMMY_MEM_PROPS)
+            .resolve(Some(&pools), &DUMMY_MEM_PROPS)
             .unwrap();
         let MemoryConfiguration::Custom { pool_options } = resolved else {
             panic!("expected a custom configuration");
@@ -1592,7 +1654,7 @@ mod tests {
         ];
 
         for (pools, expected) in cases {
-            let result = MemoryConfiguration::default().resolve_with(Some(&pools), &DUMMY_MEM_PROPS);
+            let result = MemoryConfiguration::default().resolve(Some(&pools), &DUMMY_MEM_PROPS);
             assert_eq!(result.unwrap_err(), expected);
         }
     }
@@ -1613,7 +1675,7 @@ mod tests {
             dealloc_period: None,
         }]);
         let config = MemoryConfiguration::default()
-            .resolve_with(Some(&pools), &DUMMY_MEM_PROPS)
+            .resolve(Some(&pools), &DUMMY_MEM_PROPS)
             .unwrap();
 
         let mut memory_management = MemoryManagement::from_configuration(

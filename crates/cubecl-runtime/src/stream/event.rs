@@ -182,6 +182,13 @@ impl<'a, B: EventStreamBackend> Drop for ResolvedStreams<'a, B> {
 }
 
 impl<B: EventStreamBackend> MultiStream<B> {
+    /// Mutable access to the stream-creation backend, e.g. to change the
+    /// configuration new streams are created with. Already-created streams are
+    /// unaffected.
+    pub fn backend_mut(&mut self) -> &mut B {
+        &mut self.streams.factory_mut().backend
+    }
+
     /// Creates an empty multi-stream.
     pub fn new(logger: Arc<ServerLogger>, backend: B, max_streams: u8) -> Self {
         let wrapper = EventStreamBackendWrapper { backend };

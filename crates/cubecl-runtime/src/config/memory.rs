@@ -3,7 +3,12 @@ use super::size::MemorySize;
 use alloc::vec::Vec;
 
 /// Configuration for memory settings in `CubeCL`.
+///
+/// Unknown fields are rejected so a leftover `pools` entry (now a programmatic
+/// setting, see [`MemoryPoolsConfig`]) or a misspelled option is a load error
+/// rather than a silently dropped setting.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct MemoryConfig {
     /// Logger configuration for memory-related logs, using specific log levels.
     #[serde(default)]
@@ -11,20 +16,20 @@ pub struct MemoryConfig {
     /// Configuration for persistent memory pools.
     #[serde(default)]
     pub persistent_memory: PersistentMemory,
-    /// Overrides the pool layout of every runtime's **main GPU** memory.
-    ///
-    /// Omit to keep each runtime's own default. Either a preset name or an
-    /// explicit `[[memory.pools]]` list. Auxiliary pools (pinned CPU, staging,
-    /// uniforms) are never affected. An invalid layout (empty list, zero page
-    /// size, slice larger than page) panics at server creation rather than
-    /// being silently replaced.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pools: Option<MemoryPoolsConfig>,
 }
 
-/// `memory.pools`: a preset name (`"sub-slices"` / `"exclusive-pages"`) or an
-/// explicit list of pool entries, tried in order at allocation time (the first
-/// pool that accepts an allocation's size serves it).
+/// A pool layout override for a runtime's **main GPU** memory: a preset name
+/// (`"sub-slices"` / `"exclusive-pages"`) or an explicit list of pool entries,
+/// tried in order at allocation time (the first pool that accepts an
+/// allocation's size serves it).
+///
+/// This is a **programmatic** setting, deliberately not a config-file one —
+/// pool layouts are dynamic (e.g. resized per model just before a load) and
+/// must not freeze at startup. Apply it with
+/// [`configure_memory_pools`](crate::client::ComputeClient::configure_memory_pools):
+/// it rebuilds the calling stream's pools in place and becomes the layout for
+/// streams created afterwards. Auxiliary pools (pinned CPU, staging, uniforms)
+/// are never affected.
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(untagged)]
 pub enum MemoryPoolsConfig {
@@ -220,155 +225,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pools_omitted_keeps_none() {
-        // Existing config files written before `pools` was added must continue
-        // to deserialize unchanged.
-        let config: MemoryConfig = toml::from_str("persistent_memory = \"enabled\"").unwrap();
-        assert_eq!(config.pools, None);
-    }
-
-    #[test]
-    fn pools_preset_string() {
-        let config: MemoryConfig = toml::from_str("pools = \"sub-slices\"").unwrap();
-        assert_eq!(
-            config.pools,
-            Some(MemoryPoolsConfig::Preset(MemoryPoolsPreset::SubSlices))
+    fn pools_rejected_in_config_files() {
+        // Pool layouts are a programmatic setting; a leftover `pools` entry in
+        // a config file must be a load error, not a silently ignored setting.
+        assert!(toml::from_str::<MemoryConfig>("pools = \"sub-slices\"").is_err());
+        assert!(
+            toml::from_str::<MemoryConfig>(
+                "[[pools]]\ntype = \"sliced\"\npage_size = \"1MiB\"\n"
+            )
+            .is_err()
         );
-
-        let config: MemoryConfig = toml::from_str("pools = \"exclusive-pages\"").unwrap();
-        assert_eq!(
-            config.pools,
-            Some(MemoryPoolsConfig::Preset(MemoryPoolsPreset::ExclusivePages))
-        );
-    }
-
-    #[test]
-    fn pools_unknown_preset_fails() {
-        assert!(toml::from_str::<MemoryConfig>("pools = \"bogus\"").is_err());
-    }
-
-    #[test]
-    fn pools_unknown_field_fails() {
-        // A misspelled option must be a load error, not a silently dropped
-        // setting.
-        for toml in [
-            // Not a field of sliced pools.
-            "[[pools]]\ntype = \"sliced\"\npage_size = \"1MiB\"\npreallocate = true",
-            // `max_pool_sizes` instead of `max_pool_size`.
-            "[[pools]]\ntype = \"sliced\"\npage_size = \"1MiB\"\nmax_pool_sizes = \"20GiB\"",
-            // Sliced-only field on an exclusive pool.
-            "[[pools]]\ntype = \"exclusive\"\nmax_alloc_size = \"8KiB\"\npage_size = \"1MiB\"",
-        ] {
-            assert!(
-                toml::from_str::<MemoryConfig>(toml).is_err(),
-                "should reject: {toml}"
-            );
-        }
-    }
-
-    #[test]
-    fn pools_explicit_list() {
-        let config: MemoryConfig = toml::from_str(
-            r#"
-            [[pools]]
-            type = "exclusive"
-            max_alloc_size = "8KiB"
-            dealloc_period = 10000
-
-            [[pools]]
-            type = "sliced"
-            page_size = "20GiB"
-            max_slice_size = "20GiB"
-            max_pool_size = "20GiB"
-            "#,
-        )
-        .unwrap();
-
-        const GIB: u64 = 1024 * 1024 * 1024;
-        let expected = MemoryPoolsConfig::Explicit(alloc::vec![
-            MemoryPoolConfig::Exclusive {
-                max_alloc_size: MemorySize(8 * 1024),
-                dealloc_period: Some(10000),
-            },
-            MemoryPoolConfig::Sliced {
-                page_size: MemorySize(20 * GIB),
-                max_slice_size: Some(MemorySize(20 * GIB)),
-                max_pool_size: Some(MemorySize(20 * GIB)),
-                dealloc_period: None,
-            },
-        ]);
-        assert_eq!(config.pools, Some(expected));
-    }
-
-    #[test]
-    fn pools_raw_integer_sizes_and_defaults() {
-        let config: MemoryConfig = toml::from_str(
-            r#"
-            [[pools]]
-            type = "sliced"
-            page_size = 8192
-            "#,
-        )
-        .unwrap();
-
-        let expected = MemoryPoolsConfig::Explicit(alloc::vec![MemoryPoolConfig::Sliced {
-            page_size: MemorySize(8192),
-            max_slice_size: None,
-            max_pool_size: None,
-            dealloc_period: None,
-        }]);
-        assert_eq!(config.pools, Some(expected));
-    }
-
-    #[test]
-    fn pools_parse_from_nested_section() {
-        // The untagged enum must also work one level down, where serde's
-        // content buffering replays the values.
-        let config: crate::config::CubeClRuntimeConfig = toml::from_str(
-            r#"
-            [memory]
-            persistent_memory = "enabled"
-
-            [[memory.pools]]
-            type = "sliced"
-            page_size = "1MiB"
-            "#,
-        )
-        .unwrap();
-
-        let expected = MemoryPoolsConfig::Explicit(alloc::vec![MemoryPoolConfig::Sliced {
-            page_size: MemorySize(1024 * 1024),
-            max_slice_size: None,
-            max_pool_size: None,
-            dealloc_period: None,
-        }]);
-        assert_eq!(config.memory.pools, Some(expected));
-    }
-
-    #[test]
-    fn pools_toml_roundtrip() {
-        for pools in [
-            MemoryPoolsConfig::Preset(MemoryPoolsPreset::SubSlices),
-            MemoryPoolsConfig::Explicit(alloc::vec![
-                MemoryPoolConfig::Exclusive {
-                    max_alloc_size: MemorySize(0),
-                    dealloc_period: None,
-                },
-                MemoryPoolConfig::Sliced {
-                    page_size: MemorySize(4096),
-                    max_slice_size: Some(MemorySize(2048)),
-                    max_pool_size: Some(MemorySize(8192)),
-                    dealloc_period: Some(500),
-                },
-            ]),
-        ] {
-            let config = MemoryConfig {
-                pools: Some(pools),
-                ..Default::default()
-            };
-            let serialized = toml::to_string(&config).unwrap();
-            let parsed: MemoryConfig = toml::from_str(&serialized).unwrap();
-            assert_eq!(parsed.pools, config.pools, "failed for: {serialized}");
-        }
     }
 }

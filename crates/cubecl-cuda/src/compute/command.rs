@@ -13,8 +13,9 @@ use cubecl_common::{
 #[cfg(debug_assertions)]
 use cubecl_core::zspace::striding::try_check_pitched_row_major_strides;
 use cubecl_core::{
-    MemoryUsage,
+    MemoryConfiguration, MemoryUsage,
     future::DynFut,
+    ir::MemoryDeviceProperties,
     server::{
         Binding, CopyDescriptor, ExecutionMode, Handle, IoError, LaunchError, ProfileError,
         ServerError,
@@ -76,7 +77,16 @@ impl<'a> Command<'a> {
 
     /// Explicitly cleanup gpu memory on the current stream.
     pub fn memory_cleanup(&mut self) {
-        self.streams.current().memory_management_gpu.cleanup(true)
+        let stream = self.streams.current();
+        // Deferred frees sit in the drop queue until a fenced flush, so an
+        // explicit cleanup must drain it first or the pools still see those
+        // slices as live. The queue is a double buffer (one flush only rotates
+        // the current batch), so flush twice.
+        let sys = stream.sys;
+        stream.drop_queue.flush(|| Fence::new(sys));
+        stream.drop_queue.flush(|| Fence::new(sys));
+        stream.memory_management_gpu.cleanup(true);
+        stream.memory_management_cpu.cleanup(true);
     }
 
     /// Set the [`MemoryAllocationMode`] for the current stream.
@@ -86,6 +96,19 @@ impl<'a> Command<'a> {
     /// * `mode` - The allocation mode to be used.
     pub fn allocation_mode(&mut self, mode: MemoryAllocationMode) {
         self.streams.current().memory_management_gpu.mode(mode)
+    }
+
+    /// Rebuild the current stream's main-GPU pools with a new layout (a no-op
+    /// with a log when something is still live in them).
+    pub fn configure_memory_pools(
+        &mut self,
+        config: MemoryConfiguration,
+        props: &MemoryDeviceProperties,
+    ) {
+        self.streams
+            .current()
+            .memory_management_gpu
+            .configure(config, props);
     }
 
     /// Allocates a new GPU memory buffer of the specified size.
