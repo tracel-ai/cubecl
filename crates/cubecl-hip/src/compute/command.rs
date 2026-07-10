@@ -558,7 +558,13 @@ unsafe fn write_to_gpu(
 
     let ptr = data as *const _ as *mut _;
 
-    if rank > 1 {
+    // A row stride equal to the row width means no pitch padding: the copy is
+    // one contiguous span, so use the plain linear copy. Only genuinely pitched
+    // destinations need the 2D copy (which the driver also rejects for very
+    // tall transfers, e.g. an embedding table's 128k rows).
+    let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
+
+    if pitched {
         let stride = strides[rank - 2];
         let width = *shape.last().unwrap_or(&1);
         let height: usize = shape.iter().rev().skip(1).product();
@@ -578,7 +584,14 @@ unsafe fn write_to_gpu(
                 hipMemcpyKind_hipMemcpyHostToDevice,
                 stream,
             );
-            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
+            assert_eq!(
+                status,
+                HIP_SUCCESS,
+                "Should send data to device (2D copy: shape {shape:?}, strides {strides:?}, \
+                 elem_size {elem_size}, dpitch {stride_bytes}, width {width_bytes}, \
+                 height {height}, resource size {})",
+                resource.size
+            );
         }
     } else {
         if resource.size < data.len() as u64 {
