@@ -66,6 +66,57 @@ fn programmatic_pools_override_runtime_default() {
 }
 
 #[test]
+fn capped_pool_respects_max_slice_size() {
+    // A small hard-capped pool routing only tiny allocations (e.g. kernel
+    // metadata), followed by a big arena. Allocations near the small pool's
+    // *page* size must not be pulled into it by the low-fragmentation
+    // heuristic — that would drain the small pool's budget with strays the
+    // cap was never sized for (seen on wgpu: 8 MiB upload staging chunks
+    // exhausting an 8 MiB-page metadata pool).
+    let pools = MemoryPoolsConfig::Explicit(vec![
+        MemoryPoolConfig::Sliced {
+            page_size: MemorySize(MIB),
+            max_slice_size: Some(MemorySize(64 * 1024)),
+            max_pool_size: Some(MemorySize(2 * MIB)),
+            dealloc_period: None,
+        },
+        MemoryPoolConfig::Sliced {
+            page_size: MemorySize(16 * MIB),
+            max_slice_size: None,
+            max_pool_size: Some(MemorySize(32 * MIB)),
+            dealloc_period: None,
+        },
+    ]);
+    let resolved = MemoryConfiguration::default()
+        .resolve(Some(&pools), &props())
+        .unwrap();
+    let mut memory_management = MemoryManagement::from_configuration(
+        BytesStorage::default(),
+        &props(),
+        resolved,
+        Arc::new(ServerLogger::default()),
+        MemoryManagementOptions::new("Main GPU Memory"),
+    );
+
+    // Page-sized allocations in the small pool's range go to the arena: even
+    // many of them (more than the small pool's whole budget) must succeed.
+    let strays: Vec<_> = (0..4)
+        .map(|_| memory_management.reserve(MIB).unwrap())
+        .collect();
+    // Nothing landed in the small pool — its pages were never allocated.
+    assert_eq!(
+        memory_management.memory_usage().bytes_reserved,
+        16 * MIB,
+        "strays must land in the arena, not the capped small pool"
+    );
+
+    // Small allocations still route to the small pool.
+    let _tiny = memory_management.reserve(4096).unwrap();
+    assert_eq!(memory_management.memory_usage().bytes_reserved, 17 * MIB);
+    drop(strays);
+}
+
+#[test]
 fn configure_rebuilds_pools_in_place() {
     let resolved = MemoryConfiguration::default()
         .resolve(Some(&sliced(MIB, 2)), &props())

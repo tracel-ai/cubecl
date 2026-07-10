@@ -79,11 +79,14 @@ impl MemoryPool for SlicedPool {
         self.max_alloc_size >= size
             ||
             // If the size is close to the page size so it doesn't create much fragmentation with
-            // unused space.
-            match self.page_size.checked_sub(size) {
-                Some(diff) => diff * 5 < self.page_size, // 20 % unused space is the max allowed.
-                None => false,
-            }
+            // unused space. Only for unbounded pools: a hard-capped pool is a budget for the
+            // allocations `max_slice_size` routes to it, and near-page-size strays would exhaust
+            // it (e.g. a small metadata pool whose page size matches an upload staging chunk).
+            (self.max_pages.is_none()
+                && match self.page_size.checked_sub(size) {
+                    Some(diff) => diff * 5 < self.page_size, // 20 % unused space is the max allowed.
+                    None => false,
+                })
     }
 
     fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
