@@ -20,6 +20,7 @@ use pliron::{
 #[cfg(feature = "pliron-dump")]
 use pliron::{context::Context, printable::Printable};
 
+use crate::compiler::dialect::cpu::InsertEntrypointPass;
 use crate::compiler::jit::engine::PlironEngine;
 
 #[derive(Clone, Debug, Default)]
@@ -82,6 +83,7 @@ impl PlironCompiler {
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(PromoteBitwisePass);
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(InsertEntrypointPass::default());
 
         passes.add_pass(NestedOpsPass::new(func_passes));
 
