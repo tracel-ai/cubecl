@@ -1,12 +1,13 @@
 use cubecl_core::{
     frontend::cast_value,
-    ir::{
-        ContextExt,
-        dialect::plane::*,
-        types::scalar::{BoolType, UIntType},
-    },
+    ir::{ContextExt, dialect::plane::*, types::scalar::BoolType},
 };
-use pliron::{context::Context, derive::op_interface_impl, value::Value};
+use pliron::{
+    builtin::types::{IntegerType, Signedness},
+    context::Context,
+    derive::op_interface_impl,
+    value::Value,
+};
 
 use crate::{
     cuda::{cuda_op_with_out, ptx::InlinePtxOp},
@@ -69,7 +70,7 @@ impl LowerOp<Cuda> for ElectOp {
 
     fn lower(&self, scope: &cubecl_core::ir::Scope) -> Vec<Value> {
         let ctx = scope.ctx_mut();
-        let u32 = UIntType::get(ctx, 32).to_handle();
+        let u32 = IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle();
         let ptx = ptx_block! {
             ".reg .pred %%px;"
             "elect.sync _|%%px, 0xffffffff;"

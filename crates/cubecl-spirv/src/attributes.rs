@@ -1,10 +1,6 @@
 use core::num::NonZeroUsize;
 
-use cubecl_ir::{
-    ContextExt,
-    attributes::{IndexAttr, IntAttr, UIntAttr},
-    verify_attr_succ,
-};
+use cubecl_ir::{ContextExt, attributes::IndexAttr, verify_attr_succ};
 use pliron::{
     attribute::{AttrObj, attr_cast},
     builtin::{
@@ -14,7 +10,10 @@ use pliron::{
     context::Context,
     derive::{attr_interface, attr_interface_impl},
     r#type::TypedHandle,
-    utils::{apfloat::double_to_f64, apint::APInt},
+    utils::{
+        apfloat::double_to_f64,
+        apint::{APInt, bw},
+    },
 };
 use pliron_spirv::attrs::FloatAttr;
 
@@ -38,7 +37,7 @@ pub trait ToSpirvDialectAttr {
 impl ToSpirvDialectAttr for IndexAttr {
     fn to_spirv_dialect(&self, ctx: &Context) -> AttrObj {
         let value = self.0;
-        let width = NonZeroUsize::new(ctx.address_type().size_bits()).unwrap();
+        let width = bw(ctx.address_type().size_bits());
         let ty = ty_to_spirv_dialect(ctx, self.get_type(ctx));
         let ty = TypedHandle::from_handle(ty, ctx).expect("Should be integer");
         IntegerAttr::new(ty, APInt::from_usize(value, width)).into()
@@ -49,7 +48,7 @@ impl ToSpirvDialectAttr for IndexAttr {
 impl ToSpirvDialectAttr for UIntAttr {
     fn to_spirv_dialect(&self, ctx: &Context) -> AttrObj {
         let value = self.val;
-        let width = NonZeroUsize::new(self.ty.deref(ctx).width).unwrap();
+        let width = bw(self.ty.deref(ctx).width);
         let ty = ty_to_spirv_dialect(ctx, self.get_type(ctx));
         let ty = TypedHandle::from_handle(ty, ctx).expect("Should be integer");
         IntegerAttr::new(ty, APInt::from_u64(value, width)).into()
@@ -60,7 +59,7 @@ impl ToSpirvDialectAttr for UIntAttr {
 impl ToSpirvDialectAttr for IntAttr {
     fn to_spirv_dialect(&self, ctx: &Context) -> AttrObj {
         let value = self.val;
-        let width = NonZeroUsize::new(self.ty.deref(ctx).width).unwrap();
+        let width = bw(self.ty.deref(ctx).width);
         let ty = ty_to_spirv_dialect(ctx, self.get_type(ctx));
         let ty = TypedHandle::from_handle(ty, ctx).expect("Should be integer");
         IntegerAttr::new(ty, APInt::from_i64(value, width)).into()

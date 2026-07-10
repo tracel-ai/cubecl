@@ -33,13 +33,13 @@ impl<T: Scalar + CubeMul, N: Size> PlaneOp<T, N> for OpMul {
     }
 }
 #[cube]
-impl<T: Scalar + PartialOrd, N: Size> PlaneOp<T, N> for OpMin {
+impl<T: Scalar + CubePartialOrd, N: Size> PlaneOp<T, N> for OpMin {
     fn apply(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
         min(lhs, rhs)
     }
 }
 #[cube]
-impl<T: Scalar + PartialOrd, N: Size> PlaneOp<T, N> for OpMax {
+impl<T: Scalar + CubePartialOrd, N: Size> PlaneOp<T, N> for OpMax {
     fn apply(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
         max(lhs, rhs)
     }

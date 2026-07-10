@@ -9,9 +9,12 @@ use cubecl_ir::{
     },
     interfaces::TypedExt,
     prelude::*,
-    types::{VectorType, scalar::UIntType},
+    types::VectorType,
 };
-use pliron::irbuild::match_rewrite::{RewriterOrder, apply_match_rewrite};
+use pliron::{
+    builtin::types::{IntegerType, Signedness},
+    irbuild::match_rewrite::{RewriterOrder, apply_match_rewrite},
+};
 
 use crate::{self as cubecl, prelude::*};
 
@@ -128,9 +131,10 @@ fn lhs_is_small_int(ctx: &Context, op: Ptr<Operation>) -> bool {
 fn zero_extend(scope: &Scope, value: Value) -> Value {
     let ctx = scope.ctx_mut();
     let scalar = value.scalar_ty(ctx);
-    let unsigned = match value.scalar_ty(ctx).is_int(ctx) {
+    let unsigned = match value.scalar_ty(ctx).is_signed_int(ctx) {
         true => {
-            let scalar_ty = UIntType::get(ctx, scalar.size_bits(ctx)).to_handle();
+            let scalar_ty =
+                IntegerType::get(ctx, scalar.size_bits(ctx) as u32, Signedness::Unsigned).into();
             let ty = with_scalar_ty(ctx, value.get_type(ctx), scalar_ty);
             let cast = CastOp::new(ctx, ty, value);
             scope.register(&cast);
@@ -138,7 +142,7 @@ fn zero_extend(scope: &Scope, value: Value) -> Value {
         }
         false => value,
     };
-    let scalar_ty = UIntType::get(ctx, 32).to_handle();
+    let scalar_ty = IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle();
     let ty = with_scalar_ty(ctx, value.get_type(ctx), scalar_ty);
     let cast = CastOp::new(ctx, ty, unsigned);
     scope.register(&cast);

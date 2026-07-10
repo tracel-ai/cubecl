@@ -10,7 +10,6 @@ use cubecl_core::{
             PointerType,
             barrier::{BarrierLevel, BarrierType},
             cuda::TensorMapType,
-            scalar::UIntType,
         },
     },
     prelude::*,
@@ -21,7 +20,11 @@ mod mma;
 
 pub use asm::*;
 pub use mma::*;
-use pliron::{printable::Printable, verify_err};
+use pliron::{
+    builtin::types::{IntegerType, Signedness},
+    printable::Printable,
+    verify_err,
+};
 
 pub mod copy_async;
 pub mod tma_load_im2col;
@@ -33,7 +36,7 @@ use crate::{cuda::cuda_op_with_out, shared::ty::TypeExtCPP};
 /// and using it without adding the `.shared` modifier will break. Using shared addresses in generic
 /// instructions will also break, which is why this isn't automatically applied in `InlinePtxOp`.
 #[cube_op(name = "cuda.generic_to_shared", format = "$0 ` : ` type($0)")]
-#[result_ty(fixed = UIntType::get(ctx, 32).to_handle())]
+#[result_ty(fixed = IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle())]
 pub struct GenericToSharedOp {
     ptr: Value,
 }
@@ -58,7 +61,7 @@ pub fn generic_to_shared<T: CubePrimitive>(ptr: *const T) -> u32 {
     format = "$0 ` : ` type($0)",
     verifier = "custom"
 )]
-#[result_ty(fixed = UIntType::get(ctx, 32).to_handle())]
+#[result_ty(fixed = IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle())]
 #[op_interfaces(OperandNOfType<0, PointerType>)]
 pub struct BarrierNativeHandleOp {
     bar_ptr: Value,
@@ -106,7 +109,7 @@ pub fn barrier_native_handle(bar: &Barrier) -> u32 {
 /// it doesn't need to deal with Metal address space nonsense. Returns the raw address as `u64`
 /// since it's always used for PTX anyways, and that coerces pointers to u64.
 #[cube_op(name = "cuda.tensor_map_addr", format = "$0 ` : ` type($0)")]
-#[result_ty(fixed = UIntType::get(ctx, 64).to_handle())]
+#[result_ty(fixed = IntegerType::get(ctx, 64, Signedness::Unsigned).to_handle())]
 #[op_interfaces(OperandNOfType<0, TensorMapType>)]
 pub struct TensorMapAddrOp {
     tensor_map: Value,

@@ -1,22 +1,57 @@
 use crate as cubecl;
 use alloc::vec;
 use cubecl_ir::{
-    ElemType, Scope, UIntKind,
+    Scope,
     dialect::{
         base::OperationPtrExt,
-        math::{SaturatingAddOp, SaturatingSubOp},
+        math::{SaturatingSAddOp, SaturatingSSubOp, SaturatingUAddOp, SaturatingUSubOp},
     },
     interfaces::TypedExt,
     prelude::*,
 };
+use pliron::builtin::types::{IntegerType, Signedness};
 
 use crate::prelude::*;
 
-define_scalar!(ElemA);
-define_scalar!(ElemB);
-define_size!(SizeA);
+define_scalar!(Elem);
+define_scalar!(ElemU);
+define_size!(N);
 
 pub type LowerSaturatingArithmeticPass = MatchRewritePass<LowerSaturatingArithmetic>;
+
+#[op_interface]
+trait SaturatingOp {
+    verify_op_succ!();
+    fn run_polyfill(&self, args: (&Scope, Value, Value)) -> Value;
+}
+
+#[op_interface_impl]
+impl SaturatingOp for SaturatingSAddOp {
+    fn run_polyfill(&self, args: (&Scope, Value, Value)) -> Value {
+        run_polyfill(args, saturating_add_signed::expand::<Elem, ElemU, N>)
+    }
+}
+
+#[op_interface_impl]
+impl SaturatingOp for SaturatingUAddOp {
+    fn run_polyfill(&self, args: (&Scope, Value, Value)) -> Value {
+        run_polyfill(args, saturating_add_unsigned::expand::<Elem, N>)
+    }
+}
+
+#[op_interface_impl]
+impl SaturatingOp for SaturatingSSubOp {
+    fn run_polyfill(&self, args: (&Scope, Value, Value)) -> Value {
+        run_polyfill(args, saturating_sub_signed::expand::<Elem, ElemU, N>)
+    }
+}
+
+#[op_interface_impl]
+impl SaturatingOp for SaturatingUSubOp {
+    fn run_polyfill(&self, args: (&Scope, Value, Value)) -> Value {
+        run_polyfill(args, saturating_sub_unsigned::expand::<Elem, N>)
+    }
+}
 
 /// Replaces saturating arithmetic with a performant polyfill
 #[derive(new, Debug, Default)]
@@ -24,7 +59,7 @@ pub struct LowerSaturatingArithmetic;
 
 impl MatchRewrite for LowerSaturatingArithmetic {
     fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
-        op.is_op::<SaturatingAddOp>(ctx) || op.is_op::<SaturatingSubOp>(ctx)
+        op.impls::<dyn SaturatingOp>(ctx)
     }
 
     fn rewrite(
@@ -37,37 +72,10 @@ impl MatchRewrite for LowerSaturatingArithmetic {
         let lhs = op.deref(ctx).get_operand(0);
         let rhs = op.deref(ctx).get_operand(1);
 
-        let value = if op.is_op::<SaturatingAddOp>(ctx) {
-            if lhs.scalar_ty(ctx).is_int(ctx) {
-                run_polyfill(
-                    (&scope, lhs, rhs),
-                    saturating_add_signed::expand::<ElemA, ElemB, SizeA>,
-                )
-            } else if lhs.scalar_ty(ctx).is_uint(ctx) {
-                run_polyfill(
-                    (&scope, lhs, rhs),
-                    saturating_add_unsigned::expand::<ElemA, SizeA>,
-                )
-            } else {
-                unreachable!("Should be int or uint")
-            }
-        } else if op.is_op::<SaturatingSubOp>(ctx) {
-            if lhs.scalar_ty(ctx).is_int(ctx) {
-                run_polyfill(
-                    (&scope, lhs, rhs),
-                    saturating_sub_signed::expand::<ElemA, ElemB, SizeA>,
-                )
-            } else if lhs.scalar_ty(ctx).is_uint(ctx) {
-                run_polyfill(
-                    (&scope, lhs, rhs),
-                    saturating_sub_unsigned::expand::<ElemA, SizeA>,
-                )
-            } else {
-                unreachable!("Should be int or uint")
-            }
-        } else {
-            unreachable!()
-        };
+        let dyn_op = op.dyn_op(ctx);
+        let sat_op = op_cast::<dyn SaturatingOp>(&*dyn_op).unwrap();
+        let value = sat_op.run_polyfill((&scope, lhs, rhs));
+
         rewriter.replace_operation_with_values(ctx, op, vec![value]);
         Ok(())
     }
@@ -77,17 +85,11 @@ fn run_polyfill<T: CubePrimitive>(
     (scope, lhs, rhs): (&Scope, Value, Value),
     mut polyfill: impl FnMut(&Scope, NativeExpand<T>, NativeExpand<T>) -> NativeExpand<T>,
 ) -> Value {
-    scope.register_value_type::<ElemA, SizeA>(lhs);
-    if lhs.scalar_ty(scope.ctx()).is_int(scope.ctx()) {
-        let unsigned_ty = match lhs.scalar_ty(scope.ctx()).size(scope.ctx()) {
-            1 => UIntKind::U8,
-            2 => UIntKind::U16,
-            4 => UIntKind::U32,
-            8 => UIntKind::U64,
-            _ => unreachable!("Unsupported width"),
-        };
-        scope.register_type::<ElemB>(ElemType::UInt(unsigned_ty))
-    }
+    let ctx = scope.ctx();
+    let width = lhs.scalar_ty(ctx).size_bits(ctx);
+    let unsigned_ty = IntegerType::get(ctx, width as u32, Signedness::Unsigned);
+    scope.register_value_type::<Elem, N>(lhs);
+    scope.register_value_type::<ElemU, ()>(unsigned_ty.to_handle());
 
     polyfill(scope, lhs.into(), rhs.into()).value(scope)
 }

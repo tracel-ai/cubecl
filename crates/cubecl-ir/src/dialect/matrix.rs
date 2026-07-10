@@ -1,7 +1,11 @@
 use cubecl_macros_internal::cube_op;
 use derive_more::{Deref, From};
 use derive_new::new;
-use pliron::{derive::pliron_attr, r#type::TypedHandle};
+use pliron::{
+    builtin::types::{IntegerType, Signedness},
+    derive::pliron_attr,
+    r#type::TypedHandle,
+};
 
 use crate::{
     CanMaterialize, Pure,
@@ -12,7 +16,6 @@ use crate::{
     types::{
         ArrayType, MatrixShape, PointerType, VectorType,
         matrix::{MatrixLayout, MatrixType},
-        scalar::UIntType,
     },
 };
 
@@ -93,7 +96,7 @@ pub struct CastOp {
 }
 
 #[cube_op(name = "matrix.row_index")]
-#[result_ty(fixed = UIntType::get(ctx, 32).into())]
+#[result_ty(fixed = IntegerType::get(ctx, 32, Signedness::Unsigned).into())]
 #[op_traits(CanMaterialize, Pure)]
 pub struct RowIndexOp {
     pub lane_id: Value,
@@ -102,7 +105,7 @@ pub struct RowIndexOp {
 }
 
 #[cube_op(name = "matrix.col_index")]
-#[result_ty(fixed = UIntType::get(ctx, 32).into())]
+#[result_ty(fixed = IntegerType::get(ctx, 32, Signedness::Unsigned).into())]
 #[op_traits(CanMaterialize, Pure)]
 pub struct ColIndexOp {
     pub lane_id: Value,

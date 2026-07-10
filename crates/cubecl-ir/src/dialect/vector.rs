@@ -213,19 +213,45 @@ pub struct NormalizeOp {
     pub input: Value,
 }
 
-#[cube_op(name = "vector.sum")]
+#[cube_op(name = "vector.i_sum")]
 #[result_ty(from_inputs = scalar_ty)]
 #[op_interfaces(OperandNOfType<0, VectorType>)]
 #[op_traits(CanMaterialize, Pure)]
-pub struct SumOp {
+pub struct ISumOp {
     pub input: Value,
 }
 
-#[cube_op(name = "vector.dot")]
+#[cube_op(name = "vector.f_sum")]
+#[result_ty(from_inputs = scalar_ty)]
+#[op_interfaces(OperandNOfType<0, VectorType>)]
+#[op_traits(CanMaterialize, Pure)]
+pub struct FSumOp {
+    pub input: Value,
+}
+
+#[cube_op(name = "vector.s_dot")]
 #[result_ty(from_inputs = |ctx, lhs, _| scalar_ty(ctx, lhs))]
 #[op_interfaces(OperandNOfType<0, VectorType>, OperandNOfType<1, VectorType>)]
 #[op_traits(CanMaterialize, Pure)]
-pub struct DotOp {
+pub struct SDotOp {
+    pub lhs: Value,
+    pub rhs: Value,
+}
+
+#[cube_op(name = "vector.u_dot")]
+#[result_ty(from_inputs = |ctx, lhs, _| scalar_ty(ctx, lhs))]
+#[op_interfaces(OperandNOfType<0, VectorType>, OperandNOfType<1, VectorType>)]
+#[op_traits(CanMaterialize, Pure)]
+pub struct UDotOp {
+    pub lhs: Value,
+    pub rhs: Value,
+}
+
+#[cube_op(name = "vector.f_dot")]
+#[result_ty(from_inputs = |ctx, lhs, _| scalar_ty(ctx, lhs))]
+#[op_interfaces(OperandNOfType<0, VectorType>, OperandNOfType<1, VectorType>)]
+#[op_traits(CanMaterialize, Pure)]
+pub struct FDotOp {
     pub lhs: Value,
     pub rhs: Value,
 }

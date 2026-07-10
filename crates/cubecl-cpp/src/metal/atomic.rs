@@ -31,25 +31,55 @@ metal_op_with_out!(AtomicCompareExchangeWeakOp, |op, ctx| {
     )
 });
 
-metal_op_with_out!(AtomicAddOp, |op, ctx| {
+metal_op_with_out!(AtomicIAddOp, |op, ctx| {
+    let ptr = op.ptr(ctx).name(ctx);
+    let value = op.value(ctx).name(ctx);
+    format!("atomic_fetch_add_explicit({ptr}, {value}, memory_order_relaxed)")
+});
+metal_op_with_out!(AtomicFAddOp, |op, ctx| {
     let ptr = op.ptr(ctx).name(ctx);
     let value = op.value(ctx).name(ctx);
     format!("atomic_fetch_add_explicit({ptr}, {value}, memory_order_relaxed)")
 });
 
-metal_op_with_out!(AtomicSubOp, |op, ctx| {
+metal_op_with_out!(AtomicISubOp, |op, ctx| {
+    let ptr = op.ptr(ctx).name(ctx);
+    let value = op.value(ctx).name(ctx);
+    format!("atomic_fetch_sub_explicit({ptr}, {value}, memory_order_relaxed)")
+});
+metal_op_with_out!(AtomicFSubOp, |op, ctx| {
     let ptr = op.ptr(ctx).name(ctx);
     let value = op.value(ctx).name(ctx);
     format!("atomic_fetch_sub_explicit({ptr}, {value}, memory_order_relaxed)")
 });
 
-metal_op_with_out!(AtomicMinOp, |op, ctx| {
+metal_op_with_out!(AtomicSMinOp, |op, ctx| {
+    let ptr = op.ptr(ctx).name(ctx);
+    let value = op.value(ctx).name(ctx);
+    format!("atomic_fetch_min_explicit({ptr}, {value}, memory_order_relaxed)")
+});
+metal_op_with_out!(AtomicUMinOp, |op, ctx| {
+    let ptr = op.ptr(ctx).name(ctx);
+    let value = op.value(ctx).name(ctx);
+    format!("atomic_fetch_min_explicit({ptr}, {value}, memory_order_relaxed)")
+});
+metal_op_with_out!(AtomicFMinOp, |op, ctx| {
     let ptr = op.ptr(ctx).name(ctx);
     let value = op.value(ctx).name(ctx);
     format!("atomic_fetch_min_explicit({ptr}, {value}, memory_order_relaxed)")
 });
 
-metal_op_with_out!(AtomicMaxOp, |op, ctx| {
+metal_op_with_out!(AtomicSMaxOp, |op, ctx| {
+    let ptr = op.ptr(ctx).name(ctx);
+    let value = op.value(ctx).name(ctx);
+    format!("atomic_fetch_max_explicit({ptr}, {value}, memory_order_relaxed)")
+});
+metal_op_with_out!(AtomicUMaxOp, |op, ctx| {
+    let ptr = op.ptr(ctx).name(ctx);
+    let value = op.value(ctx).name(ctx);
+    format!("atomic_fetch_max_explicit({ptr}, {value}, memory_order_relaxed)")
+});
+metal_op_with_out!(AtomicFMaxOp, |op, ctx| {
     let ptr = op.ptr(ctx).name(ctx);
     let value = op.value(ctx).name(ctx);
     format!("atomic_fetch_max_explicit({ptr}, {value}, memory_order_relaxed)")

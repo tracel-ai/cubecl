@@ -23,7 +23,7 @@ use pliron::{
     op::Op,
     pass::Pass,
     r#type::{TypeHandle, Typed},
-    utils::apint::APInt,
+    utils::apint::{APInt, bw},
     value::Value,
 };
 use pliron_spirv::{
@@ -286,7 +286,7 @@ impl RewriteBuiltins<'_> {
 
 fn const_int32(scope: &Scope, value: u32) -> Value {
     let ty = IntegerType::get(scope.ctx(), 32, Signedness::Signless);
-    let value = IntegerAttr::new(ty, APInt::from_u32(value, NonZeroUsize::new(32).unwrap()));
+    let value = IntegerAttr::new(ty, APInt::from_u32(value, bw(32)));
     let constant = ConstantOp::new(scope.ctx_mut(), Box::new(value));
     scope.register_with_result(&constant)
 }

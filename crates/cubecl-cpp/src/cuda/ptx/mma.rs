@@ -5,11 +5,12 @@ use cubecl_core::{
         AddressType, ContextExt, ElemType, FloatKind, IntKind, UIntKind,
         dialect::matrix::{LdMatrixOp, MmaManualOp, MmaManualScaledOp, StMatrixOp},
         interfaces::{ScalarType, TypedExt},
-        types::{VectorType, scalar::UIntType},
+        types::VectorType,
     },
     prelude::*,
 };
 use pliron::{
+    builtin::types::{IntegerType, Signedness},
     context::Context,
     derive::op_interface_impl,
     r#type::{Type, Typed, type_cast},
@@ -216,7 +217,8 @@ impl LowerOp<Cuda> for StMatrixOp {
         let factor = self.factor(ctx).0;
         let trans = if self.transpose(ctx).0 { ".trans" } else { "" };
 
-        let vec_ty = VectorType::get(ctx, UIntType::get(ctx, 32).to_handle(), factor);
+        let u32 = IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle();
+        let vec_ty = VectorType::get(ctx, u32, factor);
         let value = reinterpret_value(scope, self.registers(ctx), vec_ty.to_handle()).into();
         scope.register_size::<NCD>(factor);
 

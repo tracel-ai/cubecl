@@ -40,16 +40,31 @@ macro_rules! operator {
     };
 }
 
-operator!(AddOp, "+");
-operator!(SubOp, "-");
-operator!(DivOp, "/");
-operator!(MulOp, "*");
-operator!(EqualOp, "==");
-operator!(NotEqualOp, "!=");
-operator!(LessThanOp, "<");
-operator!(LessThanOrEqualOp, "<=");
-operator!(GreaterThanOp, ">");
-operator!(GreaterThanOrEqualOp, ">=");
+operator!(IAddOp, "+");
+operator!(FAddOp, "+");
+operator!(ISubOp, "-");
+operator!(FSubOp, "-");
+operator!(SDivOp, "/");
+operator!(UDivOp, "/");
+operator!(FDivOp, "/");
+operator!(IMulOp, "*");
+operator!(FMulOp, "*");
+operator!(IEqualOp, "==");
+operator!(FEqualOp, "==");
+operator!(INotEqualOp, "!=");
+operator!(FNotEqualOp, "!=");
+operator!(SLessThanOp, "<");
+operator!(ULessThanOp, "<");
+operator!(FLessThanOp, "<");
+operator!(SLessThanOrEqualOp, "<=");
+operator!(ULessThanOrEqualOp, "<=");
+operator!(FLessThanOrEqualOp, "<=");
+operator!(SGreaterThanOp, ">");
+operator!(UGreaterThanOp, ">");
+operator!(FGreaterThanOp, ">");
+operator!(SGreaterThanOrEqualOp, ">=");
+operator!(UGreaterThanOrEqualOp, ">=");
+operator!(FGreaterThanOrEqualOp, ">=");
 operator!(ShiftLeftOp, "<<");
 operator!(ShiftRightOp, ">>");
 operator!(BitwiseOrOp, "|");
@@ -58,35 +73,47 @@ operator!(BitwiseXorOp, "^");
 operator!(BoolOrOp, "||");
 operator!(BoolAndOp, "&&");
 
-shared_op_with_out!(RemOp, |op, ctx| {
+shared_op_with_out!(SRemOp, |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);
     let rhs = op.rhs(ctx).name(ctx);
-    let out = op.get_result(ctx);
-    if out.is_float32(ctx) | out.is_float64(ctx) {
-        format!("fmod({lhs}, {rhs})")
-    } else {
-        format!("{lhs} % {rhs}")
-    }
+    format!("{lhs} % {rhs}")
 });
-unrolling!(RemOp);
-no_half!(RemOp);
-promotes_int!(RemOp);
+unrolling!(SRemOp);
+promotes_int!(SRemOp);
 
-shared_op_with_out!(ModFloorOp, |op, ctx| {
+shared_op_with_out!(URemOp, |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);
     let rhs = op.rhs(ctx).name(ctx);
-    let out = op.get_result(ctx);
-    let out_elem = out.get_type(ctx).to_cpp(ctx);
-    let prefix = ctx.target().ty_prefix(ctx, out);
-    let floor = format!("{prefix}floor");
-    if out.is_int(ctx) {
-        format!("{lhs} - {rhs} * ({out_elem}){floor}((float){lhs} / (float){rhs})")
-    } else {
-        format!("{lhs} - {rhs} * {floor}({lhs} / {rhs})")
-    }
+    format!("{lhs} % {rhs}")
 });
-unrolling!(ModFloorOp);
-packable!(ModFloorOp);
+unrolling!(URemOp);
+promotes_int!(URemOp);
+
+shared_op_with_out!(FRemOp, |op, ctx| {
+    let lhs = op.lhs(ctx).name(ctx);
+    let rhs = op.rhs(ctx).name(ctx);
+    format!("fmod({lhs}, {rhs})")
+});
+unrolling!(FRemOp);
+no_half!(FRemOp);
+
+shared_op_with_out!(SModFloorOp, |op, ctx| {
+    let lhs = op.lhs(ctx).name(ctx);
+    let rhs = op.rhs(ctx).name(ctx);
+    let out_elem = op.get_result(ctx).get_type(ctx).to_cpp(ctx);
+    format!("{lhs} - {rhs} * ({out_elem})floor((float){lhs} / (float){rhs})")
+});
+unrolling!(SModFloorOp);
+
+shared_op_with_out!(FModFloorOp, |op, ctx| {
+    let lhs = op.lhs(ctx).name(ctx);
+    let rhs = op.rhs(ctx).name(ctx);
+    let prefix = ctx.target().ty_prefix(ctx, op.get_result(ctx));
+    let floor = format!("{prefix}floor");
+    format!("{lhs} - {rhs} * {floor}({lhs} / {rhs})")
+});
+unrolling!(FModFloorOp);
+packable!(FModFloorOp);
 
 // pub struct FastDiv;
 
@@ -102,18 +129,27 @@ packable!(ModFloorOp);
 //     }
 // }
 
-shared_op_with_out!(MulHiOp, |op, ctx| {
+shared_op_with_out!(SMulHiOp, |op, ctx| {
     let lhs = op.lhs(ctx);
     let rhs = op.rhs(ctx).name(ctx);
-    match (lhs.size(ctx), lhs.is_int(ctx)) {
-        (4, true) => format!("__mulhi({}, {rhs})", lhs.name(ctx)),
-        (4, false) => format!("__umulhi({}, {rhs})", lhs.name(ctx)),
-        (8, true) => format!("__mul64hi({}, {rhs})", lhs.name(ctx)),
-        (8, false) => format!("__umul64hi({}, {rhs})", lhs.name(ctx)),
+    match lhs.size(ctx) {
+        4 => format!("__mulhi({}, {rhs})", lhs.name(ctx)),
+        8 => format!("__mul64hi({}, {rhs})", lhs.name(ctx)),
         _ => unreachable!("HiMul only supports 32 and 64 bit ints"),
     }
 });
-unrolling!(MulHiOp);
+unrolling!(SMulHiOp);
+
+shared_op_with_out!(UMulHiOp, |op, ctx| {
+    let lhs = op.lhs(ctx);
+    let rhs = op.rhs(ctx).name(ctx);
+    match lhs.size(ctx) {
+        4 => format!("__umulhi({}, {rhs})", lhs.name(ctx)),
+        8 => format!("__umul64hi({}, {rhs})", lhs.name(ctx)),
+        _ => unreachable!("HiMul only supports 32 and 64 bit ints"),
+    }
+});
+unrolling!(UMulHiOp);
 
 macro_rules! lower_binop {
     ($ty: ty, $name: ident, $pred: expr) => {
@@ -164,14 +200,30 @@ fn max_bf16<T: Numeric, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector
     Vector::cast_from(lhs.min(rhs))
 }
 
-lower_target_binop!(MinOp, min_bf16, Hip, |op, ctx| {
+lower_target_binop!(FMinOp, min_bf16, Hip, |op, ctx| {
     op.lhs(ctx).is_bfloat16(ctx)
 });
-lower_target_binop!(MaxOp, max_bf16, Hip, |op, ctx| {
+lower_target_binop!(FMaxOp, max_bf16, Hip, |op, ctx| {
     op.lhs(ctx).is_bfloat16(ctx)
 });
 
-shared_op_with_out!(MinOp, |op, ctx| {
+shared_op_with_out!(SMinOp, |op, ctx| {
+    let lhs = op.lhs(ctx).name(ctx);
+    let rhs = op.rhs(ctx).name(ctx);
+    format!("min({lhs}, {rhs})")
+});
+unrolling!(SMinOp);
+promotes_int!(SMinOp);
+
+shared_op_with_out!(UMinOp, |op, ctx| {
+    let lhs = op.lhs(ctx).name(ctx);
+    let rhs = op.rhs(ctx).name(ctx);
+    format!("min({lhs}, {rhs})")
+});
+unrolling!(UMinOp);
+promotes_int!(UMinOp);
+
+shared_op_with_out!(FMinOp, |op, ctx| {
     let lhs = op.lhs(ctx);
     let rhs = op.rhs(ctx).name(ctx);
     if lhs.is_half(ctx) {
@@ -182,11 +234,26 @@ shared_op_with_out!(MinOp, |op, ctx| {
         format!("min({}, {rhs})", lhs.name(ctx))
     }
 });
-unrolling!(MinOp);
-packable!(MinOp);
-promotes_int!(MinOp);
+unrolling!(FMinOp);
+packable!(FMinOp);
 
-shared_op_with_out!(MaxOp, |op, ctx| {
+shared_op_with_out!(SMaxOp, |op, ctx| {
+    let lhs = op.lhs(ctx).name(ctx);
+    let rhs = op.rhs(ctx).name(ctx);
+    format!("max({lhs}, {rhs})")
+});
+unrolling!(SMaxOp);
+promotes_int!(SMaxOp);
+
+shared_op_with_out!(UMaxOp, |op, ctx| {
+    let lhs = op.lhs(ctx).name(ctx);
+    let rhs = op.rhs(ctx).name(ctx);
+    format!("max({lhs}, {rhs})")
+});
+unrolling!(UMaxOp);
+promotes_int!(UMaxOp);
+
+shared_op_with_out!(FMaxOp, |op, ctx| {
     let lhs = op.lhs(ctx);
     let rhs = op.rhs(ctx).name(ctx);
     if lhs.is_half(ctx) {
@@ -197,11 +264,28 @@ shared_op_with_out!(MaxOp, |op, ctx| {
         format!("max({}, {rhs})", lhs.name(ctx))
     }
 });
-unrolling!(MaxOp);
-packable!(MaxOp);
-promotes_int!(MaxOp);
+unrolling!(FMaxOp);
+packable!(FMaxOp);
 
-shared_op_with_out!(ClampOp, |op, ctx| {
+shared_op_with_out!(SClampOp, |op, ctx| {
+    let input = op.input(ctx).name(ctx);
+    let min = op.min(ctx).name(ctx);
+    let max = op.max(ctx).name(ctx);
+    format!("max(min({input}, {max}), {min})")
+});
+unrolling!(SClampOp);
+promotes_int!(SClampOp);
+
+shared_op_with_out!(UClampOp, |op, ctx| {
+    let input = op.input(ctx).name(ctx);
+    let min = op.min(ctx).name(ctx);
+    let max = op.max(ctx).name(ctx);
+    format!("max(min({input}, {max}), {min})")
+});
+unrolling!(UClampOp);
+promotes_int!(UClampOp);
+
+shared_op_with_out!(FClampOp, |op, ctx| {
     let input = op.input(ctx);
     let min = op.min(ctx).name(ctx);
     let max = op.max(ctx).name(ctx);
@@ -213,9 +297,8 @@ shared_op_with_out!(ClampOp, |op, ctx| {
         format!("max(min({}, {max}), {min})", input.name(ctx))
     }
 });
-unrolling!(ClampOp);
-packable!(ClampOp);
-promotes_int!(ClampOp);
+unrolling!(FClampOp);
+packable!(FClampOp);
 
 shared_op_with_out!(PowfOp, |op, ctx| {
     let lhs = op.lhs(ctx);

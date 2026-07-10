@@ -1,8 +1,8 @@
-use cubecl_ir::{
-    ConstantValue, ElemType, Scope, UIntKind,
-    types::scalar::{IndexType, UIntType},
+use cubecl_ir::{ConstantValue, ElemType, Scope, UIntKind, types::scalar::IndexType};
+use pliron::{
+    builtin::types::{IntegerType, Signedness},
+    r#type::TypeHandle,
 };
-use pliron::r#type::TypeHandle;
 
 use crate::prelude::*;
 
@@ -26,8 +26,8 @@ macro_rules! declare_uint {
             type WithScalar<S: Scalar> = S;
 
             fn __expand_as_type(scope: &Scope) -> TypeHandle {
-                let width = UIntKind::$kind.size_bits();
-                UIntType::get(scope.ctx(), width).into()
+                let width = UIntKind::$kind.size_bits() as u32;
+                IntegerType::get(scope.ctx(), width, Signedness::Unsigned).into()
             }
 
             fn from_const_value(value: ConstantValue) -> Self {

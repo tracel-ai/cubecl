@@ -2,7 +2,7 @@ use core::fmt::Debug;
 
 use crate::{
     self as cubecl, Assign, IntoRuntime,
-    frontend::CanReadValue,
+    frontend::{CanReadValue, CubePartialEq, PartialEqNativeExpand},
     prelude::{Const, CubeDebug, IntoMut, Size},
     unexpanded,
 };
@@ -104,7 +104,8 @@ pub trait Scalar:
     + Default
     + IntoRuntime
     + Debug
-    + core::cmp::PartialEq
+    + CubePartialEq
+    + PartialEqNativeExpand
     + Into<ExpandValue>
 {
     fn elem_type(_scope: &Scope) -> ElemType {

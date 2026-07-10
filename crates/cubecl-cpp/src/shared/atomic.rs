@@ -3,6 +3,7 @@ use cubecl_core::{
     ir::{dialect::atomic::*, interfaces::TypedExt, prelude::*},
     prelude::*,
 };
+use num_traits::One;
 
 use crate::{
     shared::{
@@ -12,7 +13,15 @@ use crate::{
 };
 
 #[cube]
-fn atomic_sub<T: Numeric + CubeNeg, N: Size>(
+fn atomic_i_sub<T: Numeric + CubeNot, N: Size>(
+    ptr: Atomic<Vector<T, N>>,
+    value: Vector<T, N>,
+) -> Vector<T, N> {
+    ptr.fetch_add(!value + Vector::one())
+}
+
+#[cube]
+fn atomic_f_sub<T: Numeric + CubeNeg, N: Size>(
     ptr: Atomic<Vector<T, N>>,
     value: Vector<T, N>,
 ) -> Vector<T, N> {
@@ -37,7 +46,10 @@ impl LowerOp for AtomicStoreOp {
     }
 }
 
-lower_binop!(AtomicSubOp, atomic_sub, |_, ctx| {
+lower_binop!(AtomicISubOp, atomic_i_sub, |_, ctx| {
+    ctx.target() != Target::Metal
+});
+lower_binop!(AtomicFSubOp, atomic_f_sub, |_, ctx| {
     ctx.target() != Target::Metal
 });
 
@@ -111,13 +123,33 @@ shared_op_with_out!(AtomicCompareExchangeWeakOp, |op, ctx| {
     }
 });
 
-shared_op_with_out!(AtomicMinOp, |op, ctx| {
+shared_op_with_out!(AtomicSMinOp, |op, ctx| {
+    let ptr = op.ptr(ctx).name(ctx);
+    let value = op.value(ctx).name(ctx);
+    format!("atomicMin({ptr}, {value})")
+});
+shared_op_with_out!(AtomicUMinOp, |op, ctx| {
+    let ptr = op.ptr(ctx).name(ctx);
+    let value = op.value(ctx).name(ctx);
+    format!("atomicMin({ptr}, {value})")
+});
+shared_op_with_out!(AtomicFMinOp, |op, ctx| {
     let ptr = op.ptr(ctx).name(ctx);
     let value = op.value(ctx).name(ctx);
     format!("atomicMin({ptr}, {value})")
 });
 
-shared_op_with_out!(AtomicMaxOp, |op, ctx| {
+shared_op_with_out!(AtomicSMaxOp, |op, ctx| {
+    let ptr = op.ptr(ctx).name(ctx);
+    let value = op.value(ctx).name(ctx);
+    format!("atomicMax({ptr}, {value})")
+});
+shared_op_with_out!(AtomicUMaxOp, |op, ctx| {
+    let ptr = op.ptr(ctx).name(ctx);
+    let value = op.value(ctx).name(ctx);
+    format!("atomicMax({ptr}, {value})")
+});
+shared_op_with_out!(AtomicFMaxOp, |op, ctx| {
     let ptr = op.ptr(ctx).name(ctx);
     let value = op.value(ctx).name(ctx);
     format!("atomicMax({ptr}, {value})")

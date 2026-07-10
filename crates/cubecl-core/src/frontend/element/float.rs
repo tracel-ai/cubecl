@@ -80,7 +80,7 @@ pub trait Float:
 }
 
 #[cube]
-pub trait FloatOps: CubePrimitive + PartialOrd + Sized {
+pub trait FloatOps: CubePartialOrd + Sized {
     fn min(self, other: Self) -> Self {
         cubecl::prelude::min(self, other)
     }

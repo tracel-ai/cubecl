@@ -15,7 +15,7 @@ use crate::{
     Builtin, CanMaterialize, ConstantValue, Pure,
     attributes::{BoolAttr, IndexAttr},
     dialect::{
-        math::{index_attr, int_attr, uint_attr},
+        math::{index_attr, int_attr},
         pure_binop, pure_unop,
     },
     interfaces::{AggregateType, ScalarType, TypedExt, aliasing::AliasingOp},
@@ -104,24 +104,24 @@ pure_binop!("cube.bool_and", BoolAndOp);
 const_eval!(BoolAndOp, {
     BoolAttr: |lhs, rhs| lhs && rhs,
     // false && x -> false
-    custom: |lhs, _| match lhs?.as_const_val() {
+    custom: |lhs, _| match lhs?.as_const_val(ctx) {
         ConstantValue::Bool(false) => Some(BoolAttr::new(false)),
         _ => None
     },
     // x && false -> false
-    custom: |_, rhs| match rhs?.as_const_val() {
+    custom: |_, rhs| match rhs?.as_const_val(ctx) {
         ConstantValue::Bool(false) => Some(BoolAttr::new(false)),
         _ => None
     }
 });
 simplify!(BoolAndOp, {
     // true && x -> x
-    |lhs, _| match lhs?.as_const_val() {
+    |lhs, _| match lhs?.as_const_val(ctx) {
         ConstantValue::Bool(true) => Some(self.rhs(ctx)),
         _ => None,
     },
     // x && true -> x
-    |_, rhs| match rhs?.as_const_val() {
+    |_, rhs| match rhs?.as_const_val(ctx) {
         ConstantValue::Bool(true) => Some(self.lhs(ctx)),
         _ => None,
     },
@@ -136,24 +136,24 @@ pure_binop!("cube.bool_or", BoolOrOp);
 const_eval!(BoolOrOp, {
     BoolAttr: |lhs, rhs| lhs || rhs,
     // true || x -> true
-    custom: |lhs, _| match lhs?.as_const_val() {
+    custom: |lhs, _| match lhs?.as_const_val(ctx) {
         ConstantValue::Bool(true) => Some(BoolAttr::new(true)),
         _ => None
     },
     // x || true -> true
-    custom: |_, rhs| match rhs?.as_const_val() {
+    custom: |_, rhs| match rhs?.as_const_val(ctx) {
         ConstantValue::Bool(true) => Some(BoolAttr::new(true)),
         _ => None
     }
 });
 simplify!(BoolOrOp, {
     // false || x -> x
-    |lhs, _| match lhs?.as_const_val() {
+    |lhs, _| match lhs?.as_const_val(ctx) {
         ConstantValue::Bool(false) => Some(self.rhs(ctx)),
         _ => None,
     },
     // false || x -> x
-    |_, rhs| match rhs?.as_const_val() {
+    |_, rhs| match rhs?.as_const_val(ctx) {
         ConstantValue::Bool(false) => Some(self.lhs(ctx)),
         _ => None,
     },
@@ -177,7 +177,7 @@ pub struct CastOp {
 }
 const_eval!(CastOp, {
     custom: |inp| {
-        let val = inp?.as_const_val();
+        let val = inp?.as_const_val(ctx);
         let out_ty = self.get_result(ctx).get_type(ctx).deref(ctx);
         let elem = type_cast::<dyn ScalarType>(&*out_ty)?.elem_type(ctx);
         Some(val.cast_to(elem).as_attribute(ctx, elem))
@@ -193,16 +193,14 @@ pub struct ReinterpretCastOp {
 const_eval!(ReinterpretCastOp, {
     custom: |inp| {
         // Too much weirdness around floats, don't bother dealing with it
-        let val = match inp?.as_const_val() {
+        let val = match inp?.as_const_val(ctx) {
             ConstantValue::Int(val) => val as u64,
             ConstantValue::UInt(val) => val,
             _ => None?,
         };
         let out_ty = self.get_result(ctx).get_type(ctx);
         if out_ty.is_int(ctx) {
-            Some(int_attr(ctx, out_ty, val as i64))
-        } else if out_ty.is_uint(ctx) {
-            Some(uint_attr(ctx, out_ty, val))
+            Some(int_attr(ctx, out_ty, val as i128))
         } else if out_ty.is_index(ctx) {
             Some(index_attr(val as usize))
         } else {
@@ -220,7 +218,7 @@ pub struct SelectOp {
     pub false_value: Value,
 }
 simplify!(SelectOp, {
-    |cond, _, _| match cond?.as_const_val() {
+    |cond, _, _| match cond?.as_const_val(ctx) {
         ConstantValue::Bool(true) => Some(self.true_value(ctx)),
         ConstantValue::Bool(false) => Some(self.false_value(ctx)),
         _ => None,

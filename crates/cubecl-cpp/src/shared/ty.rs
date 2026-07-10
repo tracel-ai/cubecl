@@ -9,7 +9,10 @@ use cubecl_core::ir::{
     types::{ArrayType, AtomicType, RuntimeArrayType, VectorType, scalar::*},
 };
 use pliron::{
-    builtin::{attributes::TypeAttr, types::UnitType},
+    builtin::{
+        attributes::TypeAttr,
+        types::{IntegerType, Signedness, UnitType},
+    },
     r#type::TypedHandle,
 };
 
@@ -174,15 +177,15 @@ pub trait TypedExtCPP: Typed {
     /// Whether the type is an integer that may be auto-promoted by C++
     /// They need special handling
     fn is_small_int(&self, ctx: &Context) -> bool {
-        (self.is_int(ctx) || self.is_uint(ctx)) && self.scalar_ty(ctx).size(ctx) < 4
-    }
-
-    fn is_small_signed_int(&self, ctx: &Context) -> bool {
         self.is_int(ctx) && self.scalar_ty(ctx).size(ctx) < 4
     }
 
+    fn is_small_signed_int(&self, ctx: &Context) -> bool {
+        self.is_signed_int(ctx) && self.scalar_ty(ctx).size(ctx) < 4
+    }
+
     fn is_small_unsigned_int(&self, ctx: &Context) -> bool {
-        self.is_uint(ctx) && self.scalar_ty(ctx).size(ctx) < 4
+        self.is_unsigned_int(ctx) && self.scalar_ty(ctx).size(ctx) < 4
     }
 }
 impl<T: Typed> TypedExtCPP for T {}
@@ -236,8 +239,10 @@ pub struct UniformPointerType {
 }
 
 shared_ty!(UnitType, |_, _| "void".into());
-shared_ty!(IntType, |ty, _| format!("int{}_t", ty.width));
-shared_ty!(UIntType, |ty, _| format!("uint{}_t", ty.width));
+shared_ty!(IntegerType, |ty, _| match ty.signedness() {
+    Signedness::Signed => format!("int{}_t", ty.width()),
+    Signedness::Unsigned | Signedness::Signless => format!("uint{}_t", ty.width()),
+});
 shared_ty!(BoolType, |_, _| "bool".into());
 
 shared_ty!(Float32Type, |_, _| "float".into());

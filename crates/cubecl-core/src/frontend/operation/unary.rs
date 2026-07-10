@@ -27,10 +27,11 @@ pub mod not {
     }
 }
 
-macro_rules! impl_unary_func {
+macro_rules! define_unary_func {
     ($trait_name:ident, $method_name:ident, $operator:expr, $($type:ty),*) => {
         paste::paste! {
-            pub trait $trait_name: CubePrimitive + CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
+            pub trait $trait_name: CubePrimitive<Scalar: [<$trait_name NativeExpand>]>
+                + CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
                 #[allow(unused_variables)]
                 fn $method_name(self) -> Self {
                     unexpanded!()
@@ -45,12 +46,48 @@ macro_rules! impl_unary_func {
                 fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self;
             }
 
+            pub trait [<$trait_name NativeExpand>] {
+                fn [<__expand_native_ $method_name>](scope: &Scope, input: ExpandValue) -> ExpandValue;
+            }
+
             $(impl $trait_name for $type {})*
+            $(impl [<$trait_name NativeExpand>] for $type {
+                fn [<__expand_native_ $method_name>](scope: &Scope, input: ExpandValue) -> ExpandValue {
+                    unary_expand(scope, input, $operator::new)
+                }
+            })*
+
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for NativeExpand<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self {
-                    unary_expand(scope, self.into(), $operator::new).into()
+                    T::Scalar::[<__expand_native_ $method_name>](scope, self.into()).into()
                 }
             }
+        }
+    }
+}
+
+macro_rules! impl_unary_func {
+    ($($type:ty),*; $trait_name:ident, $method_name:ident, $operator:expr) => {
+        paste::paste! {
+            $(impl $trait_name for $type {})*
+            $(impl [<$trait_name NativeExpand>] for $type {
+                fn [<__expand_native_ $method_name>](scope: &Scope, input: ExpandValue) -> ExpandValue {
+                    unary_expand(scope, input, $operator::new)
+                }
+            })*
+        }
+    }
+}
+
+macro_rules! impl_unary_func_nop {
+    ($($type:ty),*; $trait_name:ident, $method_name:ident) => {
+        paste::paste! {
+            $(impl $trait_name for $type {})*
+            $(impl [<$trait_name NativeExpand>] for $type {
+                fn [<__expand_native_ $method_name>](_scope: &Scope, input: ExpandValue) -> ExpandValue {
+                    input
+                }
+            })*
         }
     }
 }
@@ -90,16 +127,10 @@ macro_rules! impl_normalize {
     }
 }
 
-impl Exp for f32 {
-    fn exp(self) -> Self {
-        self.exp()
-    }
-}
-
-macro_rules! impl_unary_func_scalar_out {
-    ($trait_name:ident, $method_name:ident, $operator:expr, $scalar_op: expr, $($type:ty),*) => {
+macro_rules! define_unary_func_scalar_out {
+    ($trait_name:ident, $method_name:ident) => {
         paste::paste! {
-            pub trait $trait_name: CubePrimitive
+            pub trait $trait_name: CubePrimitive<Scalar: [<$trait_name NativeExpand>]>
                 + CubeType<ExpandType: [<$trait_name Expand>]
                 + CubePrimitiveExpand<Scalar = NativeExpand<Self::Scalar>>>
                 + Sized {
@@ -117,18 +148,38 @@ macro_rules! impl_unary_func_scalar_out {
                 fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self::Scalar;
             }
 
-            $(impl $trait_name for $type {})*
+            pub trait [<$trait_name NativeExpand>] {
+                fn [<__expand_native_ $method_name _scalar>](scope: &Scope, input: ExpandValue) -> ExpandValue;
+                fn [<__expand_native_ $method_name>](scope: &Scope, input: ExpandValue) -> ExpandValue;
+            }
+
             impl<T: $trait_name + CubePrimitive> [<$trait_name Expand>] for NativeExpand<T> {
                 fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self::Scalar {
                     // A lot of backends can't deal with 1-sized vectors, and we don't want to deal
                     // with the scalar edge case.
                     if self.__expand_vector_size_method(scope) == 1 {
-                        ($scalar_op)(scope, self).into()
+                        T::Scalar::[<__expand_native_ $method_name _scalar>](scope, self.into()).into()
                     } else {
-                        unary_expand(scope, self.into(), $operator::new).into()
+                        T::Scalar::[<__expand_native_ $method_name>](scope, self.into()).into()
                     }
                 }
             }
+        }
+    }
+}
+
+macro_rules! impl_unary_func_scalar_out {
+    ($($type:ty),*; $trait_name:ident, $method_name:ident, $operator:expr, $scalar_op: expr) => {
+        paste::paste! {
+            $(impl $trait_name for $type {})*
+            $(impl [<$trait_name NativeExpand>] for $type {
+                fn [<__expand_native_ $method_name _scalar>](scope: &Scope, input: ExpandValue) -> ExpandValue {
+                    ($scalar_op)(scope, input)
+                }
+                fn [<__expand_native_ $method_name>](scope: &Scope, input: ExpandValue) -> ExpandValue {
+                    unary_expand(scope, input, $operator::new)
+                }
+            })*
         }
     }
 }
@@ -195,13 +246,15 @@ macro_rules! impl_not {
     }
 }
 
-macro_rules! impl_core_unop {
-    ($trait: ident, $method: ident, $op: expr) => {
+macro_rules! define_core_unop {
+    ($trait: ident, $method: ident) => {
         paste::paste! {
-            pub trait [<Cube $trait>]: $trait<Output = Self> + CubePrimitive + Into<ExpandValue> + CubeType<ExpandType: [<$trait Expand>]> + Sized {
+            pub trait [<Cube $trait>]:
+                $trait<Output = Self> + CubePrimitive<Scalar: [<$trait NativeExpand>]>
+                + IntoExpand<Expand = <Self as CubeType>::ExpandType>
+                + CubeType<ExpandType: [<$trait Expand>]> + Sized {
                 fn [<__expand_ $method _method>](self, scope: &Scope) -> NativeExpand<Self> {
-                    let this: ExpandValue = self.into();
-                    let this: NativeExpand<Self> = this.into();
+                    let this: NativeExpand<Self> = self.into_expand(scope);
                     this.[<__expand_ $method _method>](scope)
                 }
 
@@ -217,12 +270,41 @@ macro_rules! impl_core_unop {
                 fn [<__expand_ $method _method>](self, scope: &Scope) -> Self;
             }
 
-            impl<T: $trait<Output = T> + CubePrimitive + Into<ExpandValue>> [<Cube $trait>] for T {}
-            impl<T: $trait<Output = T> + CubePrimitive> [<$trait Expand>] for NativeExpand<T> {
+            pub trait [<$trait NativeExpand>] {
+                fn [<__expand_native_ $method>](scope: &Scope, this: ExpandValue) -> ExpandValue;
+            }
+
+            impl<T: $trait<Output = Self> + CubePrimitive<Scalar: [<$trait NativeExpand>]>
+                + IntoExpand<Expand = <Self as CubeType>::ExpandType>> [<Cube $trait>] for T {}
+            impl<T: [<Cube $trait>]> [<$trait Expand>] for NativeExpand<T> {
                 fn [<__expand_ $method _method>](self, scope: &Scope) -> Self {
-                    unary_expand(scope, self.into(), $op::new).into()
+                    T::Scalar::[<__expand_native_ $method>](scope, self.expand).into()
                 }
             }
+        }
+    };
+}
+
+macro_rules! impl_core_unop {
+    ($($ty: ty),*; $trait: ident, $method: ident, $op: expr) => {
+        paste::paste! {
+            $(impl [<$trait NativeExpand>] for $ty {
+                fn [<__expand_native_ $method>](scope: &Scope, this: ExpandValue) -> ExpandValue {
+                    unary_expand(scope, this, $op::new).into()
+                }
+            })*
+        }
+    };
+}
+
+macro_rules! impl_core_unop_nop {
+    ($($ty: ty),*; $trait: ident, $method: ident) => {
+        paste::paste! {
+            $(impl [<$trait NativeExpand>] for $ty {
+                fn [<__expand_native_ $method>](_scope: &Scope, this: ExpandValue) -> ExpandValue {
+                    this
+                }
+            })*
         }
     };
 }
@@ -231,39 +313,39 @@ impl_not!(
     Not, not, bool, u8, u16, u32, u64, i8, i16, i32, i64, isize, usize
 );
 
-impl_core_unop!(Neg, neg, NegOp);
+define_core_unop!(Neg, neg);
+impl_core_unop!(i8, i16, i32, i64, isize; Neg, neg, SNegOp);
+impl_core_unop!(f16, bf16, f32, flex32, tf32, f64; Neg, neg, FNegOp);
+impl_core_unop_nop!(u8, u16, u32, u64, usize; Neg, neg);
 
-impl_unary_func!(
-    Abs, abs, AbsOp, e2m1, e4m3, e5m2, ue8m0, f16, bf16, flex32, tf32, f32, f64, i8, i16, i32, i64,
-    u8, u16, u32, u64, usize, isize
-);
-impl_unary_func!(
-    Exp, exp, ExpOp, f16, bf16, flex32, tf32, // f32,
-    f64
-);
-impl_unary_func!(Log, ln, LogOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(Log1p, log1p, Log1pOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(Expm1, exp_m1, Expm1Op, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(Cos, cos, CosOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(Sin, sin, SinOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(Tan, tan, TanOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(Tanh, tanh, TanhOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(Sinh, sinh, SinhOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(Cosh, cosh, CoshOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(ArcCos, acos, ArcCosOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(ArcSin, asin, ArcSinOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(ArcTan, atan, ArcTanOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(ArcSinh, asinh, ArcSinhOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(ArcCosh, acosh, ArcCoshOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(ArcTanh, atanh, ArcTanhOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(
+define_unary_func!(Abs, abs, SAbsOp, i8, i16, i32, i64, isize);
+impl_unary_func_nop!(u8, u16, u32, u64, usize; Abs, abs);
+impl_unary_func!(e2m1, e4m3, e5m2, ue8m0, f16, bf16, flex32, tf32, f32, f64; Abs, abs, FAbsOp);
+
+define_unary_func!(Exp, exp, ExpOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Log, ln, LogOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Log1p, log1p, Log1pOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Expm1, exp_m1, Expm1Op, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Cos, cos, CosOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Sin, sin, SinOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Tan, tan, TanOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Tanh, tanh, TanhOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Sinh, sinh, SinhOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Cosh, cosh, CoshOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(ArcCos, acos, ArcCosOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(ArcSin, asin, ArcSinOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(ArcTan, atan, ArcTanOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(ArcSinh, asinh, ArcSinhOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(ArcCosh, acosh, ArcCoshOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(ArcTanh, atanh, ArcTanhOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(
     Degrees, to_degrees, DegreesOp, f16, bf16, flex32, tf32, f32, f64
 );
-impl_unary_func!(
+define_unary_func!(
     Radians, to_radians, RadiansOp, f16, bf16, flex32, tf32, f32, f64
 );
-impl_unary_func!(Sqrt, sqrt, SqrtOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(
+define_unary_func!(Sqrt, sqrt, SqrtOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(
     InverseSqrt,
     inverse_sqrt,
     RsqrtOp,
@@ -274,50 +356,20 @@ impl_unary_func!(
     f32,
     f64
 );
-impl_unary_func!(Round, round, RoundOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(Floor, floor, FloorOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(Ceil, ceil, CeilOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(Trunc, trunc, TruncOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(Erf, erf, ErfOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func!(Recip, recip, RecipOp, f16, bf16, flex32, tf32, f32, f64);
-impl_unary_func_scalar_out!(
-    Magnitude,
-    magnitude,
-    MagnitudeOp,
-    |scope, input: NativeExpand<_>| unary_expand(scope, input.expand, AbsOp::new),
-    f16,
-    bf16,
-    flex32,
-    tf32,
-    f32,
-    f64
-);
-impl_unary_func_scalar_out!(
-    VectorSum,
-    vector_sum,
-    SumOp,
-    |_, input: NativeExpand<_>| input.expand,
-    e2m1,
-    e4m3,
-    e5m2,
-    ue8m0,
-    f16,
-    bf16,
-    flex32,
-    tf32,
-    f32,
-    f64,
-    i8,
-    i16,
-    i32,
-    i64,
-    u8,
-    u16,
-    u32,
-    u64,
-    usize,
-    isize
-);
+define_unary_func!(Round, round, RoundOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Floor, floor, FloorOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Ceil, ceil, CeilOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Trunc, trunc, TruncOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Erf, erf, ErfOp, f16, bf16, flex32, tf32, f32, f64);
+define_unary_func!(Recip, recip, RecipOp, f16, bf16, flex32, tf32, f32, f64);
+
+define_unary_func_scalar_out!(Magnitude, magnitude);
+impl_unary_func_scalar_out!(f16, bf16, flex32, tf32, f32, f64; Magnitude, magnitude, MagnitudeOp, |scope, input| unary_expand(scope, input, FAbsOp::new));
+
+define_unary_func_scalar_out!(VectorSum, vector_sum);
+impl_unary_func_scalar_out!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize; VectorSum, vector_sum, ISumOp, |_, input| input);
+impl_unary_func_scalar_out!(f16, bf16, f32, flex32, tf32, f64; VectorSum, vector_sum, FSumOp, |_, input| input);
+
 impl_normalize!(
     Normalize,
     normalize,
@@ -345,7 +397,7 @@ impl_unary_func_fixed_out_ty!(
     usize,
     isize
 );
-impl_unary_func!(
+define_unary_func!(
     ReverseBits,
     reverse_bits,
     ReverseBitsOp,

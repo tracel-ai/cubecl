@@ -1,18 +1,24 @@
 #![allow(clippy::redundant_guards, reason = "-1 is bugged with the macro")]
 
 use cubecl_macros_internal::{const_eval, simplify};
-use pliron::r#type::TypedHandle;
+use pliron::{
+    builtin::{
+        attributes::IntegerAttr,
+        types::{IntegerType, Signedness},
+    },
+    r#type::TypedHandle,
+    utils::apint::{APInt, bw},
+};
 
 use crate::{
     ConstantValue,
-    attributes::{IndexAttr, IntAttr, UIntAttr},
+    attributes::{IndexAttr, IntAttrExt},
     dialect::{
         cmp::{is_max_uint, width},
-        math::{int_attr, uint_attr},
+        math::int_attr,
     },
     interfaces::TypedExt,
     prelude::*,
-    types::scalar::UIntType,
 };
 use crate::{
     dialect::{pure_binop, pure_unop},
@@ -21,20 +27,20 @@ use crate::{
 
 pure_binop!("bitwise.and", BitwiseAndOp);
 const_eval!(BitwiseAndOp, {
-    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs & rhs,
+    [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs & rhs,
     // x & 0 -> 0; 0 & x -> 0;
     custom: |lhs, rhs| {
         let const_val = lhs.or(rhs)?;
-        Some(match const_val.as_const_val() {
-            crate::ConstantValue::Int(0) => int_attr(ctx, const_val.get_type(ctx), 0),
-            crate::ConstantValue::UInt(0) => uint_attr(ctx, const_val.get_type(ctx), 0),
+        Some(match const_val.as_const_val(ctx) {
+            ConstantValue::Int(0) => int_attr(ctx, const_val.get_type(ctx), 0),
+            ConstantValue::UInt(0) => int_attr(ctx, const_val.get_type(ctx), 0),
             _ => None?
         })
     }
 });
 simplify!(BitwiseAndOp, {
     // -1 & x -> x
-    |lhs, _| match lhs?.as_const_val() {
+    |lhs, _| match lhs?.as_const_val(ctx) {
         ConstantValue::Int(val) if val == -1 => {
             Some(self.rhs(ctx))
         }
@@ -44,7 +50,7 @@ simplify!(BitwiseAndOp, {
         _ => None?,
     },
     // x & -1 -> x
-    |_, rhs| match rhs?.as_const_val() {
+    |_, rhs| match rhs?.as_const_val(ctx) {
         ConstantValue::Int(val) if val == -1 => {
             Some(self.lhs(ctx))
         }
@@ -62,18 +68,18 @@ simplify!(BitwiseAndOp, {
 
 pure_binop!("bitwise.or", BitwiseOrOp);
 const_eval!(BitwiseOrOp, {
-    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs | rhs
+    [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs | rhs
 });
 simplify!(BitwiseOrOp, {
     // 0 | x -> x
-    |lhs, _| match lhs?.as_const_val() {
+    |lhs, _| match lhs?.as_const_val(ctx) {
         ConstantValue::Int(0) | ConstantValue::UInt(0) => {
             Some(self.rhs(ctx))
         }
         _ => None?,
     },
     // x | 0 -> x
-    |_, rhs| match rhs?.as_const_val() {
+    |_, rhs| match rhs?.as_const_val(ctx) {
         ConstantValue::Int(0) | ConstantValue::UInt(0) => {
             Some(self.lhs(ctx))
         }
@@ -88,28 +94,24 @@ simplify!(BitwiseOrOp, {
 
 pure_binop!("bitwise.xor", BitwiseXorOp);
 const_eval!(BitwiseXorOp, {
-    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs ^ rhs,
+    [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs ^ rhs,
     // x ^ x -> 0
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(if self.get_type(ctx).is_int(ctx) {
-                int_attr(ctx, self.get_type(ctx), 0)
-            } else {
-                uint_attr(ctx, self.get_type(ctx), 0)
-            })
+            Some(int_attr(ctx, self.get_type(ctx), 0))
         } else {
             None
         }
     }
 });
 simplify!(BitwiseXorOp, {
-    |lhs, _| match lhs?.as_const_val() {
+    |lhs, _| match lhs?.as_const_val(ctx) {
         ConstantValue::Int(0) | ConstantValue::UInt(0) => {
             Some(self.rhs(ctx))
         }
         _ => None?,
     },
-    |_, rhs| match rhs?.as_const_val() {
+    |_, rhs| match rhs?.as_const_val(ctx) {
         ConstantValue::Int(0) | ConstantValue::UInt(0) => {
             Some(self.lhs(ctx))
         }
@@ -119,12 +121,11 @@ simplify!(BitwiseXorOp, {
 
 pure_binop!("bitwise.shl", ShiftLeftOp);
 const_eval!(ShiftLeftOp, {
-    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs << rhs,
+    [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs << rhs,
     // 0 << x -> 0
     custom: |lhs, _| {
-        Some(match lhs?.as_const_val() {
-            crate::ConstantValue::Int(0) => int_attr(ctx, lhs?.get_type(ctx), 0),
-            crate::ConstantValue::UInt(0) => uint_attr(ctx, lhs?.get_type(ctx), 0),
+        Some(match lhs?.as_const_val(ctx) {
+            ConstantValue::Int(0) | ConstantValue::UInt(0) => int_attr(ctx, lhs?.get_type(ctx), 0),
             _ => None?
         })
     },
@@ -132,15 +133,15 @@ const_eval!(ShiftLeftOp, {
     custom: |_, rhs| {
         let ty = self.lhs(ctx).get_type(ctx);
         let width = width(ctx, ty);
-        Some(match rhs?.as_const_val() {
-            crate::ConstantValue::Int(val) if val > 0 && width <= val as usize => int_attr(ctx, ty, 0),
-            crate::ConstantValue::UInt(val) if width <= val as usize => uint_attr(ctx, ty, 0),
+        Some(match rhs?.as_const_val(ctx) {
+            ConstantValue::Int(val) if val > 0 && width <= val as usize => int_attr(ctx, ty, 0),
+            ConstantValue::UInt(val) if width <= val as usize => int_attr(ctx, ty, 0),
             _ => None?
         })
     }
 });
 simplify!(ShiftLeftOp, {
-    |_, rhs| match rhs?.as_const_val() {
+    |_, rhs| match rhs?.as_const_val(ctx) {
         ConstantValue::Int(0) | ConstantValue::UInt(0) => Some(self.lhs(ctx)),
         _ => None?,
     }
@@ -148,12 +149,11 @@ simplify!(ShiftLeftOp, {
 
 pure_binop!("bitwise.shr", ShiftRightOp);
 const_eval!(ShiftRightOp, {
-    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs >> rhs,
+    [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |lhs, rhs| lhs >> rhs,
     // 0 >> x -> 0
     custom: |lhs, _| {
-        Some(match lhs?.as_const_val() {
-            crate::ConstantValue::Int(0) => int_attr(ctx, lhs?.get_type(ctx), 0),
-            crate::ConstantValue::UInt(0) => uint_attr(ctx, lhs?.get_type(ctx), 0),
+        Some(match lhs?.as_const_val(ctx) {
+            ConstantValue::Int(0) | ConstantValue::UInt(0) => int_attr(ctx, lhs?.get_type(ctx), 0),
             _ => None?
         })
     },
@@ -161,15 +161,15 @@ const_eval!(ShiftRightOp, {
     custom: |_, rhs| {
         let ty = self.lhs(ctx).get_type(ctx);
         let width = width(ctx, ty);
-        Some(match rhs?.as_const_val() {
-            crate::ConstantValue::Int(val) if val > 0 && width <= val as usize => int_attr(ctx, ty, 0),
-            crate::ConstantValue::UInt(val) if width <= val as usize => uint_attr(ctx, ty, 0),
+        Some(match rhs?.as_const_val(ctx) {
+            ConstantValue::Int(val) if val > 0 && width <= val as usize => int_attr(ctx, ty, 0),
+            ConstantValue::UInt(val) if width <= val as usize => int_attr(ctx, ty, 0),
             _ => None?
         })
     }
 });
 simplify!(ShiftRightOp, {
-    |_, rhs| match rhs?.as_const_val() {
+    |_, rhs| match rhs?.as_const_val(ctx) {
         ConstantValue::Int(0) | ConstantValue::UInt(0) => Some(self.lhs(ctx)),
         _ => None?,
     }
@@ -177,7 +177,7 @@ simplify!(ShiftRightOp, {
 
 pure_unop!("bitwise.not", BitwiseNotOp);
 const_eval!(BitwiseNotOp, {
-    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |inp| !inp
+    [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |inp| !inp
 });
 
 macro_rules! pure_unop_u32 {
@@ -193,7 +193,7 @@ macro_rules! pure_unop_u32 {
 }
 
 fn u32_maybe_vec(ctx: &Context, value: &Value) -> TypeHandle {
-    let u32 = UIntType::get(ctx, 32).to_handle();
+    let u32 = IntegerType::get(ctx, 32, Signedness::Unsigned).to_handle();
     if value.vector_size(ctx) > 1 {
         VectorType::get(ctx, u32, value.vector_size(ctx)).to_handle()
     } else {
@@ -201,40 +201,40 @@ fn u32_maybe_vec(ctx: &Context, value: &Value) -> TypeHandle {
     }
 }
 
-fn u32_ty(ctx: &Context) -> TypedHandle<UIntType> {
-    UIntType::get(ctx, 32)
+fn u32_ty(ctx: &Context) -> TypedHandle<IntegerType> {
+    IntegerType::get(ctx, 32, Signedness::Unsigned)
 }
 
 pure_unop_u32!("bitwise.count_ones", CountOnesOp);
 const_eval!(CountOnesOp, {
-    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |inp| -> UIntAttr {
-        UIntAttr::new(u32_ty(ctx), inp.count_ones() as u64)
+    [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |inp| -> IntegerAttr {
+        IntegerAttr::new(u32_ty(ctx), APInt::from_u32(inp.count_ones(), bw(32)))
     },
 });
 
 pure_unop!("bitwise.reverse_bits", ReverseBitsOp);
 const_eval!(ReverseBitsOp, {
-    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |inp| inp.reverse_bits()
+    [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |inp| inp.reverse_bits()
 });
 
 pure_unop_u32!("bitwise.leading_zeros", LeadingZerosBitsOp);
 const_eval!(LeadingZerosBitsOp, {
-    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |inp| -> UIntAttr {
-        UIntAttr::new(u32_ty(ctx), inp.leading_zeros() as u64)
+    [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |inp| -> IntegerAttr {
+        IntegerAttr::new(u32_ty(ctx), APInt::from_u32(inp.leading_zeros(), bw(32)))
     },
 });
 
 pure_unop_u32!("bitwise.trailing_zeros", TrailingZerosBitsOp);
 const_eval!(TrailingZerosBitsOp, {
-    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |inp| -> UIntAttr {
-        UIntAttr::new(u32_ty(ctx), inp.trailing_zeros() as u64)
+    [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |inp| -> IntegerAttr {
+        IntegerAttr::new(u32_ty(ctx), APInt::from_u32(inp.trailing_zeros(), bw(32)))
     },
 });
 
 pure_unop_u32!("bitwise.find_first_set", FindFirstSetOp);
 const_eval!(FindFirstSetOp, {
-    [IndexAttr, IntAttr(i8, i16, i32, i64), UIntAttr(u8, u16, u32, u64)]: |inp| -> UIntAttr {
+    [IndexAttr, IntegerAttr(u8, u16, u32, u64)]: |inp| -> IntegerAttr {
         let out = if inp == 0 { 0 } else { inp.trailing_zeros() + 1 };
-        UIntAttr::new(u32_ty(ctx), out as u64)
+        IntegerAttr::new(u32_ty(ctx), APInt::from_u32(out, bw(32)))
     },
 });

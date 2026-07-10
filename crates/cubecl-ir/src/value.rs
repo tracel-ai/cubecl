@@ -2,7 +2,7 @@ use core::{fmt::Display, hash::Hash};
 
 use crate::{
     FloatKind, IntKind, Scope, TypeHash,
-    attributes::{BoolAttr, FloatAttr, IndexAttr, IntAttr, UIntAttr},
+    attributes::{BoolAttr, FloatAttr, IndexAttr},
     dialect::memory::LoadOp,
     interfaces::TypedExt,
 };
@@ -12,8 +12,16 @@ use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
 use derive_more::From;
 use float_ord::FloatOrd;
 use pliron::{
-    attribute::AttrObj, builtin::ops::ConstantOp, context::Context, derive::format,
-    r#type::TypedHandle, utils::apfloat::f64_to_double, value::Value,
+    attribute::AttrObj,
+    builtin::{attributes::IntegerAttr, ops::ConstantOp},
+    context::Context,
+    derive::format,
+    r#type::TypedHandle,
+    utils::{
+        apfloat::f64_to_double,
+        apint::{APInt, bw},
+    },
+    value::Value,
 };
 
 pub fn read_value(scope: &Scope, val: Value) -> Value {
@@ -296,13 +304,15 @@ impl ConstantValue {
         let ty = elem.to_type(ctx);
         match self {
             ConstantValue::Int(value) => {
-                IntAttr::new(TypedHandle::from_handle(ty, ctx).unwrap(), *value).into()
+                let value = APInt::from_i64(*value, bw(ty.size_bits(ctx)));
+                IntegerAttr::new(TypedHandle::from_handle(ty, ctx).unwrap(), value).into()
             }
             ConstantValue::UInt(value) if elem == ElemType::Index => {
                 IndexAttr::new(*value as usize).into()
             }
             ConstantValue::UInt(value) => {
-                UIntAttr::new(TypedHandle::from_handle(ty, ctx).unwrap(), *value).into()
+                let value = APInt::from_u64(*value, bw(ty.size_bits(ctx)));
+                IntegerAttr::new(TypedHandle::from_handle(ty, ctx).unwrap(), value).into()
             }
             ConstantValue::Float(value) => FloatAttr::new(ty, f64_to_double(*value)).into(),
             ConstantValue::Bool(value) => BoolAttr::new(*value).into(),
