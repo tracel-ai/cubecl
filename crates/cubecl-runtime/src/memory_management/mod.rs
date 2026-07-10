@@ -36,15 +36,10 @@ pub enum PoolType {
         /// reserving returns [`IoError`](crate::server::IoError)
         /// `PoolCapacityExceeded` instead of silently growing. `None` (the
         /// previous behavior) keeps unbounded growth.
-        max_pool_size: Option<u64>,
-        /// Allocate all pages up to `max_pool_size` at construction, so the
-        /// footprint is fixed from startup and first use pays no allocation
-        /// latency. Requires `max_pool_size`; ignored (with a warning)
-        /// otherwise. Explicit cleanups do NOT release preallocated pages.
         ///
         /// Note: runtimes that create one memory management per stream (CUDA,
-        /// HIP) preallocate per stream.
-        preallocate: bool,
+        /// HIP) apply the cap per stream.
+        max_pool_size: Option<u64>,
     },
 }
 

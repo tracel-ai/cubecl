@@ -166,7 +166,6 @@ type = "sliced"          # allocations are slices of large pages
 page_size = "20GiB"
 max_slice_size = "20GiB" # optional, defaults to page_size
 max_pool_size = "20GiB"  # hard cap: exceeding it is an error, never silent growth
-preallocate = true       # allocate the full capacity at startup
 ```
 
 A single sliced arena with a hard cap, as above, gives a **fixed memory footprint**: allocations
@@ -178,13 +177,13 @@ the allocation fails with a pool-capacity error instead of growing.
 Notes:
 
 - An invalid layout (empty list, zero `page_size`, `max_slice_size` larger than `page_size`,
-  `preallocate` without `max_pool_size`) panics at client creation with a descriptive message —
-  an explicit memory override is never silently replaced.
+  `max_pool_size` smaller than `page_size`) panics at client creation with a descriptive
+  message — an explicit memory override is never silently replaced.
 - `page_size` may exceed the device's reported `max_page_size`: that value is a sizing heuristic
   for the default layouts, not an allocation limit. A page the device truly cannot allocate
   fails at allocation time.
 - Runtimes that create one memory management per stream (CUDA, HIP) apply the layout — and any
-  preallocation — per stream.
+  `max_pool_size` cap — per stream.
 
 **Example:**
 
@@ -255,7 +254,6 @@ config.memory.pools = Some(MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sl
     page_size: MemorySize(budget_bytes),
     max_slice_size: None,
     max_pool_size: Some(MemorySize(budget_bytes)),
-    preallocate: true,
     dealloc_period: None,
 }]));
 CubeClRuntimeConfig::set(config);

@@ -228,8 +228,6 @@ pub enum PoolConfigError {
         /// The maximum slice size in bytes (after alignment).
         max_slice_size: u64,
     },
-    /// `preallocate` was requested without a `max_pool_size` to fill to.
-    PreallocateWithoutCap,
     /// `max_pool_size` is smaller than `page_size` (the cap can't fit one page).
     CapSmallerThanPage {
         /// The page size in bytes (after alignment).
@@ -263,9 +261,6 @@ impl core::fmt::Display for PoolConfigError {
                 f,
                 "`max_slice_size` ({max_slice_size}) exceeds `page_size` ({page_size}); a slice can never span pages"
             ),
-            PoolConfigError::PreallocateWithoutCap => {
-                write!(f, "`preallocate` requires `max_pool_size`")
-            }
             PoolConfigError::CapSmallerThanPage {
                 page_size,
                 max_pool_size,
@@ -312,8 +307,8 @@ impl MemoryConfiguration {
     /// # Panics
     ///
     /// Panics with a descriptive message if `memory.pools` is invalid (empty
-    /// list, zero page size, slice larger than page, preallocation without a
-    /// cap, unavailable preset). An explicit memory override that cannot be
+    /// list, zero page size, slice larger than page, cap smaller than page,
+    /// unavailable preset). An explicit memory override that cannot be
     /// honored must not be silently replaced.
     pub fn resolve(self, properties: &MemoryDeviceProperties) -> Self {
         let config = CubeClRuntimeConfig::get();
@@ -394,14 +389,10 @@ fn pool_options_from_entry(
             page_size,
             max_slice_size,
             max_pool_size,
-            preallocate,
             dealloc_period,
         } => {
             if page_size.bytes() == 0 {
                 return Err(PoolConfigError::ZeroSize { field: "page_size" });
-            }
-            if *preallocate && max_pool_size.is_none() {
-                return Err(PoolConfigError::PreallocateWithoutCap);
             }
 
             let page_size = page_size.bytes().next_multiple_of(alignment);
@@ -444,7 +435,6 @@ fn pool_options_from_entry(
                     page_size,
                     max_slice_size,
                     max_pool_size: max_pool_size.map(|size| size.bytes()),
-                    preallocate: *preallocate,
                 },
                 dealloc_period: *dealloc_period,
             })
@@ -507,7 +497,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                             page_size,
                             max_slice_size: max,
                             max_pool_size: None,
-                            preallocate: false,
                         },
                         dealloc_period: None,
                     });
@@ -519,7 +508,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         page_size: max_page / memory_alignment * memory_alignment,
                         max_slice_size: max_page / memory_alignment * memory_alignment,
                         max_pool_size: None,
-                        preallocate: false,
                     },
                     dealloc_period: None,
                 });
@@ -569,8 +557,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             },
         );
 
-        let mut storage = storage;
-        let mut pools: Vec<_> = pool_options
+        let pools: Vec<_> = pool_options
             .iter()
             .enumerate()
             .map(|(pool_pos, pool)| {
@@ -581,24 +568,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         page_size,
                         max_slice_size,
                         max_pool_size,
-                        preallocate,
-                    } => {
-                        if preallocate && max_pool_size.is_none() {
-                            #[cfg(feature = "std")]
-                            log::warn!(
-                                "[{}] `preallocate` requires `max_pool_size`; ignoring.",
-                                options.name,
-                            );
-                        }
-                        DynamicPool::Sliced(SlicedPool::new(
-                            page_size,
-                            max_slice_size,
-                            properties.alignment,
-                            pool_pos,
-                            max_pool_size,
-                            preallocate,
-                        ))
-                    }
+                    } => DynamicPool::Sliced(SlicedPool::new(
+                        page_size,
+                        max_slice_size,
+                        properties.alignment,
+                        pool_pos,
+                        max_pool_size,
+                    )),
                     PoolType::ExclusivePages { max_alloc_size } => {
                         DynamicPool::Exclusive(ExclusiveMemoryPool::new(
                             max_alloc_size,
@@ -610,22 +586,6 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 }
             })
             .collect();
-
-        // Preallocate fixed-footprint pools up front. On failure: log and
-        // degrade to lazy allocation — the capacity cap is still enforced at
-        // reserve time.
-        for pool in pools.iter_mut() {
-            if let DynamicPool::Sliced(pool) = pool {
-                if let Err(_err) = pool.preallocate(&mut storage) {
-                    #[cfg(feature = "std")]
-                    log::error!(
-                        "[{}] Failed to preallocate sliced pool pages: {_err}. \
-                         Falling back to on-demand allocation (capacity cap still applies).",
-                        options.name,
-                    );
-                }
-            }
-        }
 
         let config = CubeClRuntimeConfig::get().memory.persistent_memory.clone();
 
@@ -1088,7 +1048,6 @@ mod tests {
                         page_size: 2048,
                         max_slice_size: 2048,
                         max_pool_size: None,
-                        preallocate: false,
                     },
                     dealloc_period: None,
                 }],
@@ -1119,7 +1078,6 @@ mod tests {
                         page_size: 2048,
                         max_slice_size: 2048,
                         max_pool_size: None,
-                        preallocate: false,
                     },
                     dealloc_period: None,
                 }],
@@ -1177,18 +1135,13 @@ mod tests {
         assert_eq!(memory_management.memory_usage().bytes_reserved, 1024);
     }
 
-    fn capped_sliced_config(
-        page_size: u64,
-        max_pool_size: Option<u64>,
-        preallocate: bool,
-    ) -> MemoryConfiguration {
+    fn capped_sliced_config(page_size: u64, max_pool_size: Option<u64>) -> MemoryConfiguration {
         MemoryConfiguration::Custom {
             pool_options: vec![MemoryPoolOptions {
                 pool_type: PoolType::SlicedPages {
                     page_size,
                     max_slice_size: page_size,
                     max_pool_size,
-                    preallocate,
                 },
                 dealloc_period: None,
             }],
@@ -1200,7 +1153,7 @@ mod tests {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
-            capped_sliced_config(1024, Some(2048), false),
+            capped_sliced_config(1024, Some(2048)),
             Arc::new(ServerLogger::default()),
             options(),
         );
@@ -1228,7 +1181,7 @@ mod tests {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
-            capped_sliced_config(1024, Some(2048), false),
+            capped_sliced_config(1024, Some(2048)),
             Arc::new(ServerLogger::default()),
             options(),
         );
@@ -1244,50 +1197,11 @@ mod tests {
     }
 
     #[test_log::test]
-    fn preallocated_pool_has_fixed_footprint_from_start() {
-        let memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            capped_sliced_config(1024, Some(4096), true),
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-
-        let usage = memory_management.memory_usage();
-        assert_eq!(usage.bytes_reserved, 4096);
-        assert_eq!(usage.number_allocs, 0);
-        assert_eq!(usage.bytes_in_use, 0);
-    }
-
-    #[test_log::test]
-    fn preallocated_pool_survives_explicit_cleanup() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            capped_sliced_config(1024, Some(4096), true),
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-
-        let handle = memory_management.reserve(1024).unwrap();
-        drop(handle);
-        memory_management.cleanup(true);
-
-        assert_eq!(
-            memory_management.memory_usage().bytes_reserved,
-            4096,
-            "explicit cleanup must not shrink a preallocated pool"
-        );
-        let _handle = memory_management.reserve(1024).unwrap();
-        assert_eq!(memory_management.memory_usage().bytes_reserved, 4096);
-    }
-
-    #[test_log::test]
     fn capped_lazy_pool_cleanup_still_frees() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
-            capped_sliced_config(1024, Some(2048), false),
+            capped_sliced_config(1024, Some(2048)),
             Arc::new(ServerLogger::default()),
             options(),
         );
@@ -1313,7 +1227,7 @@ mod tests {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
-            capped_sliced_config(2048, Some(512), false),
+            capped_sliced_config(2048, Some(512)),
             Arc::new(ServerLogger::default()),
             options(),
         );
@@ -1324,24 +1238,6 @@ mod tests {
         // Larger than the (shrunk) page: rejected without growing the footprint.
         assert!(memory_management.reserve(1024).is_err());
         assert!(memory_management.memory_usage().bytes_reserved <= 512);
-    }
-
-    #[test_log::test]
-    fn preallocate_without_cap_degrades_to_lazy() {
-        let mut memory_management = MemoryManagement::from_configuration(
-            BytesStorage::default(),
-            &DUMMY_MEM_PROPS,
-            capped_sliced_config(1024, None, true),
-            Arc::new(ServerLogger::default()),
-            options(),
-        );
-
-        assert_eq!(memory_management.memory_usage().bytes_reserved, 0);
-
-        // Previous (unbounded) behavior.
-        let _a = memory_management.reserve(1024).unwrap();
-        let _b = memory_management.reserve(1024).unwrap();
-        assert_eq!(memory_management.memory_usage().bytes_reserved, 2048);
     }
 
     #[test_log::test]
@@ -1356,7 +1252,6 @@ mod tests {
                             page_size: 1024,
                             max_slice_size: 1024,
                             max_pool_size: Some(1024),
-                            preallocate: false,
                         },
                         dealloc_period: None,
                     },
@@ -1365,7 +1260,6 @@ mod tests {
                             page_size: 1024,
                             max_slice_size: 1024,
                             max_pool_size: None,
-                            preallocate: false,
                         },
                         dealloc_period: None,
                     },
@@ -1400,7 +1294,6 @@ mod tests {
                         page_size,
                         max_slice_size: page_size,
                         max_pool_size: None,
-                        preallocate: false,
                     },
                     dealloc_period: None,
                 }],
@@ -1433,7 +1326,6 @@ mod tests {
                         page_size,
                         max_slice_size: page_size,
                         max_pool_size: None,
-                        preallocate: false,
                     },
                     dealloc_period: None,
                 }],
@@ -1466,7 +1358,6 @@ mod tests {
                         page_size,
                         max_slice_size: page_size,
                         max_pool_size: None,
-                        preallocate: false,
                     },
                     dealloc_period: None,
                 }],
@@ -1500,7 +1391,6 @@ mod tests {
                         page_size,
                         max_slice_size: page_size,
                         max_pool_size: None,
-                        preallocate: false,
                     },
                     dealloc_period: None,
                 }],
@@ -1527,7 +1417,6 @@ mod tests {
                     page_size: *size,
                     max_slice_size: *size,
                     max_pool_size: None,
-                    preallocate: false,
                 },
                 dealloc_period: None,
             })
@@ -1595,7 +1484,6 @@ mod tests {
             page_size: MemorySize(1024),
             max_slice_size: None,
             max_pool_size: None,
-            preallocate: false,
             dealloc_period: None,
         }]);
         assert_eq!(
@@ -1621,7 +1509,6 @@ mod tests {
                 page_size: MemorySize(1000),
                 max_slice_size: None,
                 max_pool_size: Some(MemorySize(4096)),
-                preallocate: true,
                 dealloc_period: None,
             },
         ]);
@@ -1648,7 +1535,6 @@ mod tests {
                 // Defaults to the aligned page size.
                 max_slice_size: 1024,
                 max_pool_size: Some(4096),
-                preallocate: true,
             }
         ));
     }
@@ -1665,7 +1551,6 @@ mod tests {
                     page_size: MemorySize(0),
                     max_slice_size: None,
                     max_pool_size: None,
-                    preallocate: false,
                     dealloc_period: None,
                 }]),
                 PoolConfigError::ZeroSize { field: "page_size" },
@@ -1675,7 +1560,6 @@ mod tests {
                     page_size: MemorySize(1024),
                     max_slice_size: Some(MemorySize(2048)),
                     max_pool_size: None,
-                    preallocate: false,
                     dealloc_period: None,
                 }]),
                 PoolConfigError::SliceLargerThanPage {
@@ -1685,20 +1569,9 @@ mod tests {
             ),
             (
                 MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
-                    page_size: MemorySize(1024),
-                    max_slice_size: None,
-                    max_pool_size: None,
-                    preallocate: true,
-                    dealloc_period: None,
-                }]),
-                PoolConfigError::PreallocateWithoutCap,
-            ),
-            (
-                MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig::Sliced {
                     page_size: MemorySize(2048),
                     max_slice_size: None,
                     max_pool_size: Some(MemorySize(1024)),
-                    preallocate: false,
                     dealloc_period: None,
                 }]),
                 PoolConfigError::CapSmallerThanPage {
@@ -1712,7 +1585,6 @@ mod tests {
                     max_slice_size: None,
                     // 2^26 pages of 1 KiB: far beyond the u16 page index.
                     max_pool_size: Some(MemorySize(64 * 1024 * 1024 * 1024)),
-                    preallocate: false,
                     dealloc_period: None,
                 }]),
                 PoolConfigError::TooManyPages { pages: 64 * 1024 * 1024 },
@@ -1738,7 +1610,6 @@ mod tests {
             page_size: MemorySize(page),
             max_slice_size: None,
             max_pool_size: None,
-            preallocate: false,
             dealloc_period: None,
         }]);
         let config = MemoryConfiguration::default()
@@ -1970,7 +1841,6 @@ mod tests {
                     page_size: size,
                     max_slice_size: size,
                     max_pool_size: None,
-                    preallocate: false,
                 },
                 dealloc_period: None,
             })

@@ -120,15 +120,11 @@ pub enum MemoryPoolConfig {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_slice_size: Option<MemorySize>,
         /// Hard cap on the pool's total reserved bytes: exceeding it is an
-        /// error instead of silent growth. Omit for unbounded growth.
+        /// error instead of silent growth. Omit for unbounded growth. Note:
+        /// runtimes that create one memory management per stream (CUDA, HIP)
+        /// apply the cap per stream.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_pool_size: Option<MemorySize>,
-        /// Eagerly allocate all pages up to `max_pool_size` at server creation
-        /// for a fixed footprint from startup. Requires `max_pool_size`. Note:
-        /// runtimes that create one memory management per stream (CUDA, HIP)
-        /// preallocate per stream.
-        #[serde(default)]
-        preallocate: bool,
         /// Period (in parent allocation count) after which unused pages are
         /// deallocated. Omit to never deallocate.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -163,8 +159,6 @@ struct SlicedPoolDe {
     #[serde(default)]
     max_pool_size: Option<MemorySize>,
     #[serde(default)]
-    preallocate: bool,
-    #[serde(default)]
     dealloc_period: Option<u64>,
 }
 
@@ -179,7 +173,6 @@ impl From<MemoryPoolConfigDe> for MemoryPoolConfig {
                 page_size: pool.page_size,
                 max_slice_size: pool.max_slice_size,
                 max_pool_size: pool.max_pool_size,
-                preallocate: pool.preallocate,
                 dealloc_period: pool.dealloc_period,
             },
         }
@@ -259,8 +252,8 @@ mod tests {
         // A misspelled option must be a load error, not a silently dropped
         // setting.
         for toml in [
-            // `preallocated` instead of `preallocate`.
-            "[[pools]]\ntype = \"sliced\"\npage_size = \"1MiB\"\npreallocated = true",
+            // Not a field of sliced pools.
+            "[[pools]]\ntype = \"sliced\"\npage_size = \"1MiB\"\npreallocate = true",
             // `max_pool_sizes` instead of `max_pool_size`.
             "[[pools]]\ntype = \"sliced\"\npage_size = \"1MiB\"\nmax_pool_sizes = \"20GiB\"",
             // Sliced-only field on an exclusive pool.
@@ -287,7 +280,6 @@ mod tests {
             page_size = "20GiB"
             max_slice_size = "20GiB"
             max_pool_size = "20GiB"
-            preallocate = true
             "#,
         )
         .unwrap();
@@ -302,7 +294,6 @@ mod tests {
                 page_size: MemorySize(20 * GIB),
                 max_slice_size: Some(MemorySize(20 * GIB)),
                 max_pool_size: Some(MemorySize(20 * GIB)),
-                preallocate: true,
                 dealloc_period: None,
             },
         ]);
@@ -324,7 +315,6 @@ mod tests {
             page_size: MemorySize(8192),
             max_slice_size: None,
             max_pool_size: None,
-            preallocate: false,
             dealloc_period: None,
         }]);
         assert_eq!(config.pools, Some(expected));
@@ -350,7 +340,6 @@ mod tests {
             page_size: MemorySize(1024 * 1024),
             max_slice_size: None,
             max_pool_size: None,
-            preallocate: false,
             dealloc_period: None,
         }]);
         assert_eq!(config.memory.pools, Some(expected));
@@ -369,7 +358,6 @@ mod tests {
                     page_size: MemorySize(4096),
                     max_slice_size: Some(MemorySize(2048)),
                     max_pool_size: Some(MemorySize(8192)),
-                    preallocate: true,
                     dealloc_period: Some(500),
                 },
             ]),

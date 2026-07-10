@@ -28,7 +28,6 @@ fn global_pools_config_overrides_runtime_default() {
         page_size: MemorySize(MIB),
         max_slice_size: None,
         max_pool_size: Some(MemorySize(2 * MIB)),
-        preallocate: true,
         dealloc_period: None,
     }]));
     CubeClRuntimeConfig::set(config);
@@ -48,15 +47,12 @@ fn global_pools_config_overrides_runtime_default() {
         MemoryManagementOptions::new("Main GPU Memory"),
     );
 
-    // Preallocated: the footprint is fixed before any reservation.
-    assert_eq!(memory_management.memory_usage().bytes_reserved, 2 * MIB);
-
     // Vastly different sizes share the same arena instead of landing in
     // size-bucketed pools with separate reservations.
     let small = memory_management.reserve(4096).unwrap();
     drop(small);
     let _large = memory_management.reserve(512 * 1024).unwrap();
-    assert_eq!(memory_management.memory_usage().bytes_reserved, 2 * MIB);
+    assert_eq!(memory_management.memory_usage().bytes_reserved, MIB);
 
     // The budget is a hard cap.
     let _fill_1 = memory_management.reserve(MIB).unwrap();

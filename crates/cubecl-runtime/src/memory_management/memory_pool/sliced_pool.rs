@@ -20,8 +20,6 @@ pub struct SlicedPool {
     /// Max number of pages (`floor(max_pool_size / page_size)`).
     /// `None` keeps unbounded growth.
     max_pages: Option<u16>,
-    /// Pages are allocated up front and retained across cleanups.
-    preallocated: bool,
 }
 
 impl SlicedPool {
@@ -31,7 +29,6 @@ impl SlicedPool {
         alignment: u64,
         pool_pos: u8,
         max_pool_size: Option<u64>,
-        preallocate: bool,
     ) -> Self {
         // A budget smaller than one page shrinks the page to the
         // (alignment-rounded-down) budget, so the cap is honored rather than
@@ -57,9 +54,6 @@ impl SlicedPool {
             max_alloc_size: max_slice_size.min(page_size),
             location_base: MemoryLocation::new(pool_pos, 0, 0),
             max_pages,
-            // Preallocation without a cap is meaningless (nothing to fill to);
-            // `from_configuration` logs the warning.
-            preallocated: preallocate && max_pages.is_some(),
         }
     }
 
@@ -77,28 +71,6 @@ impl SlicedPool {
         self.pages.push((page, storage_id));
 
         Ok(self.pages.len() - 1)
-    }
-
-    /// Allocate all pages up front, up to the pool's capacity cap.
-    /// A no-op for pools that aren't configured to preallocate.
-    pub(crate) fn preallocate<Storage: crate::storage::ComputeStorage>(
-        &mut self,
-        storage: &mut Storage,
-    ) -> Result<(), IoError> {
-        if !self.preallocated {
-            return Ok(());
-        }
-        let max_pages = self.max_pages.expect("preallocated implies a capacity cap");
-        while self.pages.len() < max_pages as usize {
-            if let Err(err) = self.alloc_page(storage) {
-                // The fixed footprint was never achieved: behave as a lazy
-                // capped pool, so cleanup can release the pages that did get
-                // allocated.
-                self.preallocated = false;
-                return Err(err);
-            }
-        }
-        Ok(())
     }
 }
 
@@ -193,9 +165,7 @@ impl MemoryPool for SlicedPool {
         _alloc_nr: u64,
         explicit: bool,
     ) {
-        // A preallocated pool's whole point is a fixed footprint: releasing its
-        // fully-free pages would shrink it only to re-alloc on next use.
-        if !explicit || self.preallocated {
+        if !explicit {
             return;
         }
 
@@ -243,9 +213,8 @@ impl Display for SlicedPool {
         ))?;
         if let Some(max_pages) = self.max_pages {
             f.write_fmt(format_args!(
-                " max_pool_size={} preallocated={}",
-                BytesFormat::new(max_pages as u64 * self.page_size),
-                self.preallocated
+                " max_pool_size={}",
+                BytesFormat::new(max_pages as u64 * self.page_size)
             ))?;
         }
         f.write_str("\n")?;
