@@ -5,13 +5,16 @@ use cubecl_core::ir::{
     prelude::*,
     types::scalar::BoolType,
 };
+use cubecl_ir::dialect::branch;
 use pliron::{
     attribute::AttrObj,
     basic_block::BasicBlock,
     irbuild::inserter::{BlockInsertionPoint, Inserter},
     opts::constants::BranchOpFoldInterface,
 };
-use pliron_spirv::ops::{BranchOp, MergeOp, SelectionOp};
+use pliron_spirv::ops::{self, BranchOp, MergeOp, SelectionOp};
+
+use crate::ops::to_spirv_dialect::ToSpirvDialectOp;
 
 // Custom branch because of `BoolType`
 #[pliron_op(
@@ -133,6 +136,27 @@ impl BranchOpFoldInterface for BranchConditionalOp {
     }
 }
 
+#[op_interface_impl]
+impl ToSpirvDialectOp for BranchConditionalOp {
+    fn to_spirv_dialect(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let cond = self.get_operand_condition(ctx);
+        let true_dest = self.get_operation().deref(ctx).get_successor(0);
+        let true_opds = self.successor_operands(ctx, 0);
+        let false_dest = self.get_operation().deref(ctx).get_successor(1);
+        let false_opds = self.successor_operands(ctx, 1);
+        let op =
+            ops::BranchConditionalOp::new(ctx, cond, true_dest, true_opds, false_dest, false_opds);
+        rewriter.insert_op(ctx, &op);
+        rewriter.replace_operation(ctx, self.get_operation(), op.get_operation());
+        Ok(())
+    }
+}
+
 #[op_interface]
 pub trait ToSpirvCFDialect {
     verify_op_succ!();
@@ -204,6 +228,24 @@ impl ToSpirvCFDialect for IfOp {
         rewriter.set_insertion_point_before_operation(self.get_operation());
         rewriter.insert_op(ctx, &selection);
         rewriter.replace_operation(ctx, self.get_operation(), selection.get_operation());
+
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl ToSpirvCFDialect for branch::ReturnOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let op = self.get_operation();
+        let opds = op.operands(ctx);
+        let return_ = ops::ReturnOp::new(ctx, opds.into_iter().next());
+        rewriter.insert_op(ctx, &return_);
+        rewriter.replace_operation(ctx, op, return_.get_operation());
 
         Ok(())
     }

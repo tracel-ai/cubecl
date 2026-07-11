@@ -1,8 +1,8 @@
 use crate::{
-    ConvertArgsPass, PARAMS_NAME, SpirvKernel,
-    branch::BranchToSpirvConversionPass,
+    CollectVerCapExtPass, ConvertArgsPass, PARAMS_NAME, SpirvKernel,
     builtin::{BUILTINS_NAME, LowerBuiltinsPass},
-    ops::to_spirv_dialect::ToSpirvDialectPass,
+    lower::LowerOpsSpirvPass,
+    ops::{branch::BranchToSpirvConversionPass, to_spirv_dialect::ToSpirvDialectPass},
     params_storage_class,
 };
 use cubecl_common::backtrace::BackTrace;
@@ -55,12 +55,15 @@ use pliron::{
 };
 use pliron_spirv::{
     PlironBuilder, ToSpirvOp,
+    attrs::VerCapExtAttr,
     ops::{EntryPointOp, ExecutionModeOp, SpirvModuleOp},
 };
 use rspirv::{
     binary::Assemble,
     dr::Module,
-    spirv::{AddressingModel, ExecutionMode, ExecutionModel, MemoryModel, StorageClass},
+    spirv::{
+        AddressingModel, Capability, ExecutionMode, ExecutionModel, MemoryModel, StorageClass,
+    },
 };
 use std::{fmt::Debug, sync::Arc};
 
@@ -173,6 +176,7 @@ impl SpirvCompiler {
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(PromoteBitwisePass);
+        func_passes.add_pass(LowerOpsSpirvPass::default());
         func_passes.add_pass(DCEPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
@@ -221,6 +225,9 @@ impl SpirvCompiler {
         passes.add_pass(ConvertArgsPass);
         passes.add_pass(NestedOpsPass::new(func_passes));
 
+        // Make sure this is the last pass so it catches all ops
+        passes.add_pass(CollectVerCapExtPass);
+
         passes.run(spirv_module_op, ctx, &mut analyses).unwrap();
 
         declare_entry_point(ctx, spirv_module);
@@ -233,7 +240,7 @@ impl SpirvCompiler {
 
         // verify_operation(module_op, ctx).expect("Failed to verify after passes");
 
-        let mut builder = PlironBuilder::new(spirv_module);
+        let mut builder = PlironBuilder::default();
         spirv_module
             .to_spirv(ctx, &mut builder)
             .expect("Failed to convert");
@@ -331,6 +338,7 @@ impl SpirvCompiler {
 
 fn insert_spirv_module(ctx: &mut Context, module: ModuleOp) -> SpirvModuleOp {
     let mut rewriter = IRRewriter::<DummyListener>::default();
+    let comp_opts = ctx.aux_ty::<WgpuCompilationOptions>().vulkan;
 
     let spirv_module = SpirvModuleOp::new(
         ctx,
@@ -348,6 +356,12 @@ fn insert_spirv_module(ctx: &mut Context, module: ModuleOp) -> SpirvModuleOp {
     spirv_module
         .get_operation()
         .insert_at_front(module_body, ctx);
+    let vce = VerCapExtAttr::new(
+        comp_opts.max_spirv_version,
+        vec![Capability::Shader],
+        vec![],
+    );
+    spirv_module.set_attr_spirv_module_vce(ctx, vce);
     spirv_module
 }
 

@@ -1,7 +1,7 @@
 use cubecl_ir::{
     prelude::{
-        BranchOpInterface, Context, DialectConversion, DialectConversionRewriter, OperandsInfo,
-        Operation, OperationPtrExt, Ptr, Result, Rewriter,
+        Context, DialectConversion, DialectConversionRewriter, OperandsInfo, Operation,
+        OperationPtrExt, Ptr, Result, Rewriter,
     },
     rewrite::DialectConversionPass,
     verify_op_succ,
@@ -13,7 +13,6 @@ use pliron::{
     irbuild::inserter::Inserter,
     op::{Op, op_cast},
 };
-use pliron_spirv::ops::BranchConditionalOp;
 
 use crate::attributes::{ToSpirvDialectAttr, attr_to_spirv_dialect};
 
@@ -71,26 +70,6 @@ impl ToSpirvDialectOp for ConstantOp {
         let new_const = ConstantOp::new(ctx, attr);
         rewriter.insert_op(ctx, &new_const);
         rewriter.replace_operation(ctx, self.get_operation(), new_const.get_operation());
-        Ok(())
-    }
-}
-
-#[op_interface_impl]
-impl ToSpirvDialectOp for crate::branch::BranchConditionalOp {
-    fn to_spirv_dialect(
-        &self,
-        ctx: &mut Context,
-        rewriter: &mut DialectConversionRewriter,
-        _operands_info: &OperandsInfo,
-    ) -> Result<()> {
-        let cond = self.get_operand_condition(ctx);
-        let true_dest = self.get_operation().deref(ctx).get_successor(0);
-        let true_opds = self.successor_operands(ctx, 0);
-        let false_dest = self.get_operation().deref(ctx).get_successor(1);
-        let false_opds = self.successor_operands(ctx, 1);
-        let op = BranchConditionalOp::new(ctx, cond, true_dest, true_opds, false_dest, false_opds);
-        rewriter.insert_op(ctx, &op);
-        rewriter.replace_operation(ctx, self.get_operation(), op.get_operation());
         Ok(())
     }
 }
