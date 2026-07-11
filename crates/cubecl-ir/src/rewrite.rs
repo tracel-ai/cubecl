@@ -13,6 +13,7 @@ use pliron::{
         dialect_conversion::apply_dialect_conversion,
         match_rewrite::{RewriterOrder, apply_match_rewrite},
     },
+    op::OpInterfaceMarker,
 };
 
 use crate::{interfaces::SimplifyInterface, prelude::*};
@@ -154,6 +155,28 @@ pub fn visit_all_ops_of_type_mut<T: Op, State>(
                 && let Some(op) = op.as_op::<T>(ctx)
             {
                 callback(ctx, state, op)
+            }
+        },
+    );
+}
+
+pub fn visit_all_ops_with_interface<T: ?Sized + OpInterfaceMarker + 'static, State>(
+    ctx: &Context,
+    state: &mut State,
+    root: Ptr<Operation>,
+    callback: for<'a> fn(&Context, &mut State, &'a T),
+) {
+    immutable::walk_op(
+        ctx,
+        &mut (state, callback),
+        &WALKCONFIG_PREORDER_FORWARD,
+        root,
+        |ctx, (state, callback), node| {
+            if let IRNode::Operation(op) = node {
+                let dyn_op = op.dyn_op(ctx);
+                if let Some(op) = op_cast::<T>(&*dyn_op) {
+                    callback(ctx, state, op)
+                }
             }
         },
     );

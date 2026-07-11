@@ -11,8 +11,6 @@ use rspirv::{binary::Disassemble, dr::Module};
 mod arithmetic;
 mod atomic;
 pub mod attributes;
-mod bitwise;
-mod branch;
 pub mod builtin;
 mod cmma;
 mod compiler;

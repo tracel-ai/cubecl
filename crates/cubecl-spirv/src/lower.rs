@@ -10,6 +10,9 @@ pub trait LowerOp {
     fn lower(&self, scope: &Scope) -> Vec<Value>;
 }
 
+pub type LowerOpsSpirvPass = MatchRewritePass<LowerOpsSpirv>;
+
+#[derive(Default)]
 pub struct LowerOpsSpirv;
 
 impl MatchRewrite for LowerOpsSpirv {

@@ -16,7 +16,7 @@ not_packed!(IntegerType);
 #[type_interface_impl]
 impl AlignedType for IntegerType {
     fn align(&self, _ctx: &Context) -> usize {
-        self.width() as usize / 8
+        self.width().div_ceil(8) as usize
     }
 }
 
