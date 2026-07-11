@@ -1,7 +1,7 @@
 use cubecl_ir::{
-    ContextExt,
+    AddressSpace, ContextExt,
     interfaces::TypedExt,
-    types::{ArrayType, RuntimeArrayType, VectorType, scalar::*},
+    types::{ArrayType, PointerType, RuntimeArrayType, VectorType, scalar::*},
     verify_ty_succ,
 };
 use pliron::{
@@ -14,7 +14,7 @@ use pliron_spirv::types::{
     ArrayType as SpirvArrayType, FloatType, PointerType as SpirvPointerType,
     RuntimeArrayType as SpirvRuntimeArrayType, VectorType as SpirvVectorType,
 };
-use rspirv::spirv::FPEncoding;
+use rspirv::spirv::{FPEncoding, StorageClass};
 
 pub fn ty_to_spirv_dialect(ctx: &Context, handle: TypeHandle) -> TypeHandle {
     let ty = handle.deref(ctx);
@@ -65,17 +65,11 @@ impl ToSpirvDialectType for IndexType {
     }
 }
 
+/// Erase sign to simplify SPIR-V, it's ignored anyways
 #[type_interface_impl]
-impl ToSpirvDialectType for IntType {
+impl ToSpirvDialectType for IntegerType {
     fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
-        IntegerType::get(ctx, self.width as u32, Signedness::Signed).to_handle()
-    }
-}
-
-#[type_interface_impl]
-impl ToSpirvDialectType for UIntType {
-    fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
-        IntegerType::get(ctx, self.width as u32, Signedness::Unsigned).to_handle()
+        IntegerType::get(ctx, self.width(), Signedness::Signless).to_handle()
     }
 }
 
@@ -100,6 +94,19 @@ impl ToSpirvDialectType for RuntimeArrayType {
     fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
         let inner = ty_to_spirv_dialect(ctx, self.inner);
         SpirvRuntimeArrayType::get(ctx, inner, Some(inner.size(ctx) as u32)).to_handle()
+    }
+}
+
+#[type_interface_impl]
+impl ToSpirvDialectType for PointerType {
+    fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
+        let inner = ty_to_spirv_dialect(ctx, self.inner);
+        let storage_class = match self.address_space {
+            AddressSpace::Global(_) => StorageClass::PhysicalStorageBuffer,
+            AddressSpace::Shared => StorageClass::Workgroup,
+            AddressSpace::Local => StorageClass::Function,
+        };
+        SpirvPointerType::get(ctx, inner, storage_class).to_handle()
     }
 }
 

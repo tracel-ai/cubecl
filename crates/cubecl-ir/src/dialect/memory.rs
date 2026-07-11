@@ -34,7 +34,7 @@ pub struct AddressSpaceAttr(pub AddressSpace);
     format = "attr($value_ty, $TypeAttr) `, ` attr($addr_space, $AddressSpaceAttr) `, align = ` attr($alignment, $IndexAttr)"
 )]
 #[result_ty(from_inputs = variable_ptr_ty)]
-#[op_traits(CanMaterialize)]
+#[op_traits(NoSideEffects, CanMaterialize)]
 pub struct DeclareVariableOp {
     pub value_ty: TypeAttr,
     pub addr_space: AddressSpaceAttr,

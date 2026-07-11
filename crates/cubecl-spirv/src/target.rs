@@ -17,10 +17,12 @@ use pliron::{
     builtin::ops::FuncOp,
     identifier::Identifier,
     irbuild::{inserter::Inserter, listener::DummyListener},
+    printable::Printable,
     std_deps::sync::LazyLock,
 };
 use pliron_spirv::{
     decorations::{DecoratableOp, DecorationInfo},
+    interfaces::VerCapExtInterface,
     ops::{AddressOfOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp, SpirvModuleOp},
     types::{ArrayType, PointerType, RuntimeArrayType, StructType},
 };
@@ -154,7 +156,13 @@ fn buffer_ty(ctx: &Context, buffer: Value, module: SpirvModuleOp) -> TypeHandle 
         _ => {}
     }
     let array = RuntimeArrayType::get(ctx, ty, Some(ty_size as u32));
-    let struct_ = StructType::get(ctx, vec![array.into()], vec![0], vec![], vec![]);
+    let struct_ = StructType::get(
+        ctx,
+        vec![array.into()],
+        vec![0],
+        vec![],
+        vec![DecorationInfo::unit(Decoration::Block)],
+    );
     PointerType::get(ctx, struct_.into(), StorageClass::PhysicalStorageBuffer).into()
 }
 
@@ -163,6 +171,9 @@ fn info_ty(ctx: &Context, module: SpirvModuleOp) -> TypeHandle {
     let info = ctx.aux_ty::<Info>().clone();
 
     let mut struct_ = StructType::default();
+    struct_
+        .type_decorations
+        .push(DecorationInfo::unit(Decoration::Block));
 
     for scalar in info.scalars {
         let ty = ty_to_spirv_dialect(ctx, scalar.ty.to_type(ctx));
@@ -258,134 +269,65 @@ pub fn params_storage_class(ctx: &Context, num_buffers: usize) -> StorageClass {
     }
 }
 
-// fn set_modes(
-//     &mut self,
-//     b: &mut SpirvCompiler<Self>,
-//     main: Word,
-//     builtins: Vec<Word>,
-//     cube_dims: Vec<u32>,
-// ) {
-//     let interface: Vec<u32> = builtins
-//         .into_iter()
-//         .chain(iter::once(b.state.params))
-//         .chain(b.state.shared.values().map(|it| it.val_id))
-//         .collect();
+pub struct CollectVerCapExtPass;
 
-//     let version = b.compilation_options.vulkan.max_spirv_version;
+impl Pass for CollectVerCapExtPass {
+    fn name(&self) -> &str {
+        type_name::<Self>()
+    }
 
-//     b.capability(Capability::Shader);
-//     b.capability(Capability::PhysicalStorageBufferAddresses);
-//     b.capability(Capability::VulkanMemoryModel);
-//     b.capability(Capability::VulkanMemoryModelDeviceScope);
-//     b.capability(Capability::GroupNonUniform);
+    fn run(
+        &mut self,
+        op: Ptr<Operation>,
+        ctx: &mut Context,
+        _analyses: &mut AnalysisManager,
+    ) -> Result<PassResult> {
+        let mut res = PassResult::default();
+        res.ir_changed = IRStatus::Changed;
+        let mut module = op.as_op::<SpirvModuleOp>(ctx).unwrap();
+        visit_all_ops_with_interface(ctx, &mut module, op, update_ver_cap_ext);
+        Ok(res)
+    }
+}
 
-//     if b.compilation_options.vulkan.supports_explicit_smem {
-//         b.extension("SPV_KHR_workgroup_memory_explicit_layout");
-//     }
+fn update_ver_cap_ext(ctx: &Context, module: &mut SpirvModuleOp, op: &dyn VerCapExtInterface) {
+    let max_ver = ctx
+        .aux_ty::<WgpuCompilationOptions>()
+        .vulkan
+        .max_spirv_version;
+    let min_version = op.min_version(ctx);
+    let extensions = if min_version.is_some_and(|ver| ver <= max_ver) {
+        vec![]
+    } else {
+        op.required_extensions(ctx)
+    };
+    let caps = op.required_capabilities(ctx);
 
-//     if b.compilation_options.vulkan.supports_long_vectors {
-//         b.extension("SPV_EXT_long_vector");
-//         b.capability(Capability::LongVectorEXT);
-//     }
+    for cap_set in caps.into_iter().filter(|set| !set.is_empty()) {
+        if cap_set.len() == 1 {
+            module.insert_capability(ctx, cap_set[0]);
+        } else if cap_set.iter().any(|cap| module.has_capability(ctx, cap)) {
+            continue;
+        } else {
+            panic!(
+                "Need custom rule for multi-capability op {}, lists capabilities: {:?}",
+                op.get_operation().disp(ctx),
+                cap_set
+            );
+        }
+    }
 
-//     if b.addr_type.size_bits() == 64 {
-//         b.extension("SPV_EXT_shader_64bit_indexing");
-//         b.capability(Capability::Shader64BitIndexingEXT);
-//         b.execution_mode(main, ExecutionMode::Shader64BitIndexingEXT, []);
-//     }
-
-//     let mut caps = b.capabilities.clone();
-
-//     if caps.contains(&Capability::CooperativeMatrixKHR) {
-//         b.extension("SPV_KHR_cooperative_matrix");
-//     }
-
-//     if caps.contains(&Capability::CooperativeMatrixReductionsNV)
-//         || caps.contains(&Capability::CooperativeMatrixConversionsNV)
-//         || caps.contains(&Capability::CooperativeMatrixPerElementOperationsNV)
-//         || caps.contains(&Capability::CooperativeMatrixTensorAddressingNV)
-//         || caps.contains(&Capability::CooperativeMatrixBlockLoadsNV)
-//     {
-//         b.extension("SPV_NV_cooperative_matrix2")
-//     }
-
-//     // Callback requires physical storage buffer
-//     if caps.contains(&Capability::CooperativeMatrixBlockLoadsNV) {
-//         b.extension("SPV_KHR_physical_storage_buffer");
-//         caps.insert(Capability::PhysicalStorageBufferAddresses);
-//     }
-
-//     if caps.contains(&Capability::TensorAddressingNV) {
-//         b.extension("SPV_NV_tensor_addressing")
-//     }
-
-//     if caps.contains(&Capability::AtomicFloat16AddEXT) {
-//         b.extension("SPV_EXT_shader_atomic_float16_add");
-//     }
-
-//     if caps.contains(&Capability::AtomicFloat32AddEXT)
-//         | caps.contains(&Capability::AtomicFloat64AddEXT)
-//     {
-//         b.extension("SPV_EXT_shader_atomic_float_add");
-//     }
-
-//     if caps.contains(&Capability::AtomicFloat16MinMaxEXT)
-//         | caps.contains(&Capability::AtomicFloat32MinMaxEXT)
-//         | caps.contains(&Capability::AtomicFloat64MinMaxEXT)
-//     {
-//         b.extension("SPV_EXT_shader_atomic_float_min_max");
-//     }
-
-//     if caps.contains(&Capability::AtomicFloat16VectorNV) {
-//         b.extension("SPV_NV_shader_atomic_fp16_vector");
-//     }
-
-//     if caps.contains(&Capability::BFloat16TypeKHR)
-//         || caps.contains(&Capability::BFloat16CooperativeMatrixKHR)
-//         || caps.contains(&Capability::BFloat16DotProductKHR)
-//     {
-//         b.extension("SPV_KHR_bfloat16");
-//     }
-
-//     if caps.contains(&Capability::Float8EXT)
-//         || caps.contains(&Capability::Float8CooperativeMatrixEXT)
-//     {
-//         b.extension("SPV_EXT_float8");
-//     }
-
-//     if caps.contains(&Capability::FloatControls2) {
-//         b.extension("SPV_KHR_float_controls2");
-//     }
-
-//     if b.debug_symbols {
-//         b.extension("SPV_KHR_non_semantic_info");
-//     }
-
-//     if version < (1, 5) {
-//         b.extension("SPV_KHR_physical_storage_buffer");
-//         b.extension("SPV_KHR_vulkan_memory_model");
-//         if caps.contains(&Capability::StorageBuffer8BitAccess) {
-//             b.extension("SPV_KHR_8bit_storage");
-//         }
-//     }
-
-//     if version < (1, 3) && caps.contains(&Capability::StorageBuffer16BitAccess) {
-//         b.extension("SPV_KHR_16bit_storage");
-//     }
-
-//     for cap in caps {
-//         b.capability(cap);
-//     }
-
-//     b.memory_model(
-//         AddressingModel::PhysicalStorageBuffer64,
-//         MemoryModel::Vulkan,
-//     );
-//     b.entry_point(
-//         ExecutionModel::GLCompute,
-//         main,
-//         &self.kernel_name,
-//         interface,
-//     );
-//     b.execution_mode(main, spirv::ExecutionMode::LocalSize, cube_dims);
-// }
+    for ext_set in extensions.into_iter().filter(|set| !set.is_empty()) {
+        if ext_set.len() == 1 {
+            module.insert_extension(ctx, ext_set[0]);
+        } else if ext_set.iter().any(|ext| module.has_extension(ctx, *ext)) {
+            continue;
+        } else {
+            panic!(
+                "Need custom rule for multi-extension op {}, lists extensions: {:?}",
+                op.get_operation().disp(ctx),
+                ext_set
+            );
+        }
+    }
+}

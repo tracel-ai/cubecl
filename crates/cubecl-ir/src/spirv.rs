@@ -2,21 +2,23 @@ use alloc::{vec, vec::Vec};
 
 use crate::{
     NoMemoryEffect,
-    interfaces::{MemoryEffect, MemoryEffects},
+    interfaces::{AlignedType, MemoryEffect, MemoryEffects},
 };
 use pliron::{
     context::Context,
+    derive::{op_interface_impl, type_interface_impl},
     r#type::{Typed, TypedHandle},
 };
 use pliron_spirv::{
     ops::{AccessChainOp, InBoundsAccessChainOp, LoadOp},
     spirv::StorageClass,
-    types::PointerType,
+    types::{FloatType, PointerType},
 };
 
 NoMemoryEffect!(InBoundsAccessChainOp);
 NoMemoryEffect!(AccessChainOp);
 
+#[op_interface_impl]
 impl MemoryEffects for LoadOp {
     fn memory_effects(&self, ctx: &Context) -> Vec<MemoryEffect> {
         let ptr = self.get_operand_pointer(ctx);
@@ -35,5 +37,12 @@ impl MemoryEffects for LoadOp {
             | StorageClass::IncomingRayPayloadKHR => vec![],
             _ => vec![MemoryEffect::Read(self.get_operand_pointer(ctx))],
         }
+    }
+}
+
+#[type_interface_impl]
+impl AlignedType for FloatType {
+    fn align(&self, _ctx: &Context) -> usize {
+        self.width.div_ceil(8) as usize
     }
 }

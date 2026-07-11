@@ -56,6 +56,7 @@ pub mod prelude {
         irbuild::{
             IRStatus,
             dialect_conversion::{DialectConversion, DialectConversionRewriter, OperandsInfo},
+            inserter::Inserter,
             listener::Recorder,
             match_rewrite::{MatchRewrite, MatchRewriter},
             rewriter::{IRRewriter, Rewriter},
