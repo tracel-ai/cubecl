@@ -275,7 +275,7 @@ const_eval!(ISubOp, {
     // x - x -> 0
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(int_attr(ctx, self.get_type(ctx), 0))
+            Some(int_attr(ctx, self.result_type(ctx), 0))
         } else {
             None
         }
@@ -294,7 +294,7 @@ const_eval!(FSubOp, {
     // x - x -> 0
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(float_attr(self.get_type(ctx), 0.0))
+            Some(float_attr(self.result_type(ctx), 0.0))
         } else {
             None
         }

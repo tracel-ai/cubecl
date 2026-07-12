@@ -39,7 +39,7 @@ use pliron::{
     irbuild::match_rewrite::MatchRewrite,
     op::Op,
     operation::verify_operation,
-    opts::{constants::sccp::SCCPPass, dce::DCEPass},
+    opts::{constants::sccp::SCCPPass, dce::DCEPass, mem2reg::Mem2RegPass},
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
     printable::Printable,
 };
@@ -192,12 +192,22 @@ where
         func_passes.add_pass(PackOpsPass::default());
         func_passes.add_pass(CppUnrollPass::default());
         func_passes.add_pass(LowerBuiltinsPass::<T>::default());
+
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());
+        func_passes.add_pass(DCEPass);
+
+        // SCCP/DCE may unlock more mem2reg opportunities, and vice versa. So we do a sandwich.
+        func_passes.add_pass(Mem2RegPass);
+
+        func_passes.add_pass(SCCPPass);
+        func_passes.add_pass(SimpleCSEPass);
+        func_passes.add_pass(SimplifyOpsPass::default());
+        func_passes.add_pass(DCEPass);
+
         func_passes.add_pass(PromoteBitwisePass);
         func_passes.add_pass(PromoteUnsupportedTypesPass::default());
-        func_passes.add_pass(DCEPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(AnnotateGlobalVisibilityPass);

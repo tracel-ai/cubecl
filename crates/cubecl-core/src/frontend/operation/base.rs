@@ -82,7 +82,7 @@ pub fn init_expand(scope: &Scope, input: ExpandValue, mutable: bool) -> ExpandVa
     let ty = input.get_type(scope.ctx());
 
     if mutable {
-        let out = scope.create_local_mut(ty);
+        let out = scope.create_local_mut(ty, None);
         assign::expand_element(scope, input.into(), out.into());
         out.into()
     } else {

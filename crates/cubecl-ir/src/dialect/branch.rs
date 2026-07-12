@@ -2,6 +2,7 @@ use pliron::{
     attribute::{AttrObj, attr_cast},
     basic_block::BasicBlock,
     builtin::attributes::VecAttr,
+    irbuild::inserter::OpInsertionPoint,
     linked_list::ContainsLinkedList,
     opts::{constants::ConstFoldInterface, dce::SideEffects},
     region::Region,
@@ -10,7 +11,7 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    CanMaterialize, ConstantValue, NoMemoryEffect,
+    CanMaterialize, ConstantValue, NoMemoryEffect, Pure,
     attributes::BoolAttr,
     interfaces::ConstantAttr,
     prelude::*,
@@ -95,18 +96,6 @@ impl ReturnOp {
     }
 }
 
-#[pliron_op(name = "branch.break", format = "", verifier = "succ")]
-#[op_interfaces(IsTerminatorInterface)]
-#[op_traits(CanMaterialize, NoMemoryEffect)]
-pub struct BreakOp;
-
-impl BreakOp {
-    pub fn new(ctx: &mut Context) -> Self {
-        let op = Operation::new(ctx, Self::get_concrete_op_info(), vec![], vec![], vec![], 0);
-        Self { op }
-    }
-}
-
 #[pliron_op(name = "branch.unreachable", format = "", verifier = "succ")]
 #[op_interfaces(IsTerminatorInterface)]
 #[op_traits(CanMaterialize, NoMemoryEffect)]
@@ -119,19 +108,20 @@ impl UnreachableOp {
     }
 }
 
-#[pliron_op(
-    name = "branch.execute_region",
-    format = "region($0)",
-    verifier = "succ"
-)]
-#[op_interfaces(NOpdsInterface<0>, NResultsInterface<0>, NRegionsInterface<1>, SingleBlockRegionInterface)]
-pub struct ExecuteRegionOp;
+/// Dead region for constant folding, returns a dummy result so it gets eliminated from dead code
+/// elimination. We can't erase the block straight away because it might contain SCCP candidates
+/// that are already tracked and will cause a dangling ptr deref.
+#[pliron_op(name = "branch.dead_region", format = "region($0)", verifier = "succ")]
+#[op_interfaces(NOpdsInterface<0>, OneResultInterface, OneRegionInterface, SingleBlockRegionInterface)]
+#[op_traits(Pure)]
+pub struct DeadRegionOp;
 
-impl ExecuteRegionOp {
-    pub fn new(ctx: &mut Context, body: Ptr<BasicBlock>) -> Self {
+impl DeadRegionOp {
+    pub fn new(ctx: &mut Context) -> Self {
         let op = Operation::new(ctx, Self::get_concrete_op_info(), vec![], vec![], vec![], 1);
 
         let region = op.deref_mut(ctx).get_region(0);
+        let body = BasicBlock::new(ctx, None, vec![]);
         body.insert_at_front(region, ctx);
 
         Self { op }
@@ -139,17 +129,6 @@ impl ExecuteRegionOp {
 
     pub fn region(&self, ctx: &Context) -> Ptr<Region> {
         self.get_operation().deref(ctx).get_region(0)
-    }
-
-    pub fn block(&self, ctx: &Context) -> Ptr<BasicBlock> {
-        self.get_body(ctx, 0)
-    }
-}
-
-#[op_interface_impl]
-impl SideEffects for ExecuteRegionOp {
-    fn has_side_effects(&self, ctx: &Context) -> bool {
-        block_side_effects(ctx, self.block(ctx))
     }
 }
 
@@ -234,6 +213,7 @@ impl ConstFoldInterface for IfOp {
         operand_attrs: &[Option<AttrObj>],
         rewriter: &mut dyn Rewriter,
     ) -> IRStatus {
+        let op = self.get_operation();
         let Some(attr) = operand_attrs[0].as_ref() else {
             return IRStatus::Unchanged;
         };
@@ -245,20 +225,35 @@ impl ConstFoldInterface for IfOp {
             false => (self.else_block(ctx), self.then_block(ctx)),
         };
 
-        rewriter.erase_block(ctx, not_taken);
-        taken.unlink(ctx);
-        let new_op = ExecuteRegionOp::new(ctx, taken);
-        rewriter.append_op(ctx, &new_op);
+        let not_taken_op = DeadRegionOp::new(ctx);
+        let dead_block = not_taken_op.get_body(ctx, 0);
+        rewriter.append_op(ctx, &not_taken_op);
 
-        let then_region = self.then_region(ctx);
-        let then_body = BasicBlock::new(ctx, Some("then".try_into().unwrap()), vec![]);
-        then_body.insert_at_front(then_region, ctx);
-
-        let else_region = self.else_region(ctx);
-        let else_body = BasicBlock::new(ctx, Some("else".try_into().unwrap()), vec![]);
-        else_body.insert_at_front(else_region, ctx);
+        inline_block(ctx, rewriter, taken, OpInsertionPoint::BeforeOperation(op));
+        inline_block(
+            ctx,
+            rewriter,
+            not_taken,
+            OpInsertionPoint::AtBlockStart(dead_block),
+        );
 
         IRStatus::Changed
+    }
+}
+
+fn inline_block(
+    ctx: &Context,
+    rewriter: &mut dyn Rewriter,
+    block: Ptr<BasicBlock>,
+    insertion_point: OpInsertionPoint,
+) {
+    let ops = block.deref(ctx).iter(ctx).collect::<Vec<_>>();
+    let mut insertion_pt = insertion_point;
+    for op in ops {
+        if !op.is_terminator(ctx) {
+            rewriter.move_operation(ctx, op, insertion_pt);
+            insertion_pt = OpInsertionPoint::AfterOperation(op);
+        }
     }
 }
 
@@ -336,7 +331,7 @@ impl SwitchOp {
     format = "`for *` $0 ` = ` $1 ` to ` $2 ` step ` $3 ` do ` region($0)",
     verifier = "succ"
 )]
-#[op_interfaces(NResultsInterface<0>, NRegionsInterface<1>, SingleBlockRegionInterface)]
+#[op_interfaces(NResultsInterface<0>, OneRegionInterface, SingleBlockRegionInterface)]
 pub struct RangeLoopOp;
 
 impl RangeLoopOp {
@@ -390,7 +385,7 @@ impl RangeLoopOp {
 #[op_interfaces(
     OperandNOfType<0, PointerType>,
     NResultsInterface<0>,
-    NRegionsInterface<1>,
+    OneRegionInterface,
     SingleBlockRegionInterface
 )]
 pub struct WhileOp;
@@ -415,35 +410,6 @@ impl WhileOp {
 
     pub fn cond_ptr(&self, ctx: &Context) -> Value {
         self.get_operation().deref(ctx).get_operand(0)
-    }
-
-    pub fn loop_body(&self, ctx: &Context) -> Ptr<BasicBlock> {
-        self.get_body(ctx, 0)
-    }
-}
-
-#[pliron_op(name = "branch.loop", format = "`loop ` region($0)", verifier = "succ")]
-#[op_interfaces(
-    NOpdsInterface<0>,
-    NResultsInterface<0>,
-    NRegionsInterface<1>,
-    SingleBlockRegionInterface,
-)]
-pub struct LoopOp;
-
-impl LoopOp {
-    pub fn new(ctx: &mut Context) -> Self {
-        let op = Operation::new(ctx, Self::get_concrete_op_info(), vec![], vec![], vec![], 1);
-
-        let body_region = op.deref_mut(ctx).get_region(0);
-        let body = BasicBlock::new(ctx, Some("body".try_into().unwrap()), vec![]);
-        body.insert_at_front(body_region, ctx);
-
-        Self { op }
-    }
-
-    pub fn loop_region(&self, ctx: &Context) -> Ptr<Region> {
-        self.get_operation().deref(ctx).get_region(0)
     }
 
     pub fn loop_body(&self, ctx: &Context) -> Ptr<BasicBlock> {

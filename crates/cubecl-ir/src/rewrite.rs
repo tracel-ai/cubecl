@@ -5,6 +5,7 @@ use derive_new::new;
 use pliron::{
     attribute::AttrObj,
     builtin::ops::ConstantOp,
+    debug_info::{self, set_operation_result_name},
     graph::walkers::uninterruptible::{
         immutable::{self},
         mutable,
@@ -225,7 +226,25 @@ impl<T: Op, R: RewriteOp<T>> MatchRewrite for MatchRewriteOp<T, R> {
 pub trait RewriterExt: Rewriter {
     fn replace_op_with(&mut self, ctx: &mut Context, op: Ptr<Operation>, new_op: Ptr<Operation>) {
         new_op.insert_before(ctx, op);
+        transfer_result_names(ctx, op, &new_op.results(ctx));
         self.replace_operation(ctx, op, new_op);
     }
 }
 impl<R: Rewriter> RewriterExt for R {}
+
+pub fn transfer_result_names(ctx: &Context, old_op: Ptr<Operation>, values: &[Value]) {
+    for (idx, value) in values.iter().enumerate() {
+        transfer_result_name(ctx, old_op, *value, idx);
+    }
+}
+
+pub fn transfer_result_name(ctx: &Context, old_op: Ptr<Operation>, value: Value, idx: usize) {
+    if let Some(new_op) = value.defining_op() {
+        set_operation_result_name(
+            ctx,
+            new_op,
+            idx,
+            debug_info::get_operation_result_name(ctx, old_op, idx),
+        );
+    }
+}

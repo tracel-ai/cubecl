@@ -4,9 +4,9 @@ use cubecl_core::{
         AddressSpace, Scope, cube_op,
         dialect::{
             base::OperationPtrExt,
-            general::{CommentOp, PrintfOp},
+            general::{CommentOp, PoisonOp, PrintfOp},
             math::FmaOp,
-            memory::DeclareVariableOp,
+            memory::{DeclareVariableOp, UnrelatedAllocInfo},
             synchronization::{SyncOp, SyncScope},
         },
         prelude::*,
@@ -15,11 +15,16 @@ use cubecl_core::{
 };
 use cubecl_opt::passes::alloc_shared_memory::SliceSharedOp;
 use itertools::Itertools;
-use pliron::builtin::attributes::TypeAttr;
+use pliron::{
+    arg_err,
+    attribute::AttrObj,
+    builtin::{attributes::TypeAttr, ops::ConstantOp},
+    opts::mem2reg::{AllocInfo, PromotableAllocationInterface},
+};
 
 use crate::{
     error::{CompileError, Result},
-    shared::{CppValue, lowering::LowerOp, ty::TypeExtCPP},
+    shared::{CppValue, format_const, lowering::LowerOp, ty::TypeExtCPP},
     target::{Shared, dispatch_target},
 };
 
@@ -81,13 +86,66 @@ impl OpExtCPP for Ptr<Operation> {
 #[result_ty(from_inputs = variable_ptr_ty)]
 pub struct DeclareLocalOp {
     pub value_ty: TypeAttr,
+    #[attribute(optional, untyped)]
+    pub initializer: AttrObj,
+}
+
+#[op_interface_impl]
+impl PromotableAllocationInterface for DeclareLocalOp {
+    fn alloc_info(&self, ctx: &Context) -> Vec<AllocInfo> {
+        vec![AllocInfo {
+            ptr: self.get_result(ctx),
+            ty: self.value_ty(ctx).get_type(ctx),
+        }]
+    }
+
+    fn default_value(
+        &self,
+        ctx: &mut Context,
+        inserter: &mut dyn Inserter,
+        alloc_info: &AllocInfo,
+    ) -> cubecl_core::ir::prelude::Result<Value> {
+        if alloc_info.ptr != self.get_result(ctx) {
+            return arg_err!(self.loc(ctx), UnrelatedAllocInfo);
+        }
+        if let Some(initializer) = self.initializer(ctx).map(|it| it.clone()) {
+            let constant = ConstantOp::new(ctx, initializer);
+            inserter.insert_op(ctx, &constant);
+            Ok(constant.get_result(ctx))
+        } else {
+            let poison = PoisonOp::new(ctx, alloc_info.ty);
+            inserter.insert_op(ctx, &poison);
+            Ok(poison.get_result(ctx))
+        }
+    }
+
+    fn promote(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut dyn Rewriter,
+        alloc_infos: &[AllocInfo],
+    ) -> cubecl_core::ir::prelude::Result<()> {
+        if alloc_infos.len() != 1 || alloc_infos[0].ptr != self.get_result(ctx) {
+            return arg_err!(self.loc(ctx), UnrelatedAllocInfo);
+        }
+        rewriter.erase_operation(ctx, self.get_operation());
+        Ok(())
+    }
 }
 
 shared_op!(DeclareLocalOp, |op, ctx| {
+    let ty = op.value_ty(ctx).get_type(ctx);
     let name = op.get_result(ctx).name(ctx);
-    let value_ty = op.value_ty(ctx).get_type(ctx).to_cpp(ctx);
+    let value_ty = ty.to_cpp(ctx);
     let out_ty = op.get_result(ctx).get_type(ctx).to_cpp(ctx);
-    format!("{value_ty} {name}_store;\n{out_ty} {name} = &{name}_store;")
+    let init = op
+        .initializer(ctx)
+        .map(|init| format_const(ctx, init.clone(), ty));
+    if let Some(init) = init {
+        format!("{value_ty} {name}_store = {init};\n{out_ty} {name} = &{name}_store;")
+    } else {
+        format!("{value_ty} {name}_store;\n{out_ty} {name} = &{name}_store;")
+    }
 });
 
 #[cube_op(name = "cpp.declare_matrix")]
@@ -124,10 +182,11 @@ impl LowerOp for DeclareVariableOp {
             AddressSpace::Shared => panic!("Should be lowered to block allocation"),
             AddressSpace::Local => {
                 if value_ty.get_type(ctx).deref(ctx).is::<MatrixType>() {
-                    let op = DeclareMatrixOp::new(scope.ctx_mut(), value_ty);
+                    let op = DeclareMatrixOp::new(ctx, value_ty);
                     scope.register_with_result(&op)
                 } else {
-                    let op = DeclareLocalOp::new(scope.ctx_mut(), value_ty);
+                    let init = self.initializer(ctx).map(|it| it.clone());
+                    let op = DeclareLocalOp::new(ctx, value_ty, init);
                     scope.register_with_result(&op)
                 }
             }
