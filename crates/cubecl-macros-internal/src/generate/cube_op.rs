@@ -24,14 +24,23 @@ impl ToTokens for Verifier {
 impl CubeOp {
     pub fn generate_op_impl(&self, args: CubeOpArgs) -> syn::Result<TokenStream> {
         let name = args.name.value();
-        let format = self.qualified_format_string(&args).map(|fmt| quote![format = #fmt]);
-        let format = format.unwrap_or_else(|| quote![format]);
+        let format = if self.custom_format(&args) {
+            quote![]
+        } else {
+            let format = self.qualified_format_string(&args).map(|fmt| quote![,format = #fmt]);
+            format.unwrap_or_else(|| quote![,format])
+        };
+        
         let verifier = &args.verifier;
         let attributes = self
             .attributes()
-            .map(|CubeOpArg { ident, ty, .. }| {
+            .map(|CubeOpArg { ident, ty, flags, .. }| {
                 let ident = args.qualified_name(ident);
-                quote![#ident: #ty]
+                if flags.untyped.is_present() {
+                    quote![#ident]
+                } else {
+                    quote![#ident: #ty]
+                }
             })
             .collect::<Vec<_>>();
         let attributes = if attributes.is_empty() {
@@ -58,7 +67,7 @@ impl CubeOp {
 
         Ok(quote! {
             #(#attrs)*
-            #[::pliron::derive::pliron_op(name = #name, #format, #attributes #verifier)]
+            #[::pliron::derive::pliron_op(name = #name #format, #attributes #verifier)]
             #[::pliron::derive::derive_op_interface_impl(#(#interfaces),*)]
             #vis struct #ident #generics;
 
@@ -77,12 +86,12 @@ impl CubeOp {
         let args = self
             .data
             .iter()
-            .filter(|it| !it.flags.optional.is_present())
             .map(|arg| {
                 let CubeOpArg { ident, ty, kind, .. } = arg;
-                match kind {
-                    ArgKind::Value => quote![#ident: #ty],
-                    ArgKind::Attribute => quote![#ident: impl Into<#ty>]
+                match (kind, arg.flags.optional.is_present()) {
+                    (_, true) => quote![#ident: Option<#ty>],
+                    (ArgKind::Value, false) => quote![#ident: #ty],
+                    (ArgKind::Attribute, false) => quote![#ident: impl Into<#ty>]
                 }
             });
         let values = self.values().map(|arg| &arg.ident);
@@ -94,6 +103,13 @@ impl CubeOp {
             let name = &it.ident;
             let setter = format_ident!("set_attr_{}", op_args.qualified_name(name));
             quote![op.#setter(ctx, #name);]
+        });
+        let opt_attrs = self.optional_attributes().map(|it| {
+            let name = &it.ident;
+            let setter = format_ident!("set_attr_{}", op_args.qualified_name(name));
+            quote![if let Some(attr) = #name {
+                op.#setter(ctx, attr);
+            }]
         });
 
         let args: Vec<_> = match self.result_ty {
@@ -121,6 +137,7 @@ impl CubeOp {
                     )
                 };
                 #(#attributes)*
+                #(#opt_attrs)*
                 op
             }
         }
@@ -309,6 +326,10 @@ impl CubeOp {
             format = format.replace(&attr_name_ref, &qualified);
         }
         Some(format)
+    }
+
+    fn custom_format(&self, args: &CubeOpArgs) -> bool {
+        args.format.as_ref().is_some_and(|it| it.value() == "custom")
     }
 
     fn qualified_attribute_key(&self, ident: &Ident, args: &CubeOpArgs) -> TokenStream {

@@ -622,11 +622,11 @@ impl<E: CubePrimitive> Iterable for SliceExpand<E> {
         let end = self.__extract_length(scope).value(scope);
         let step = scope.const_usize(1);
 
-        let i = scope.create_local_mut(index_ty);
+        let i = scope.create_local_mut(index_ty, None);
         let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
         let loop_body = range_loop.loop_body(scope.ctx());
 
-        let child = scope.child(OpInserter::new_at_block_end(loop_body));
+        let child = scope.loop_child(OpInserter::new_at_block_end(loop_body));
 
         let index = NativeExpand::new(i.into());
         let item = self
@@ -635,7 +635,8 @@ impl<E: CubePrimitive> Iterable for SliceExpand<E> {
         body(&child, item);
         child.terminate_yield();
 
-        scope.register(&range_loop);
+        register_range_loop::<usize>(scope, &range_loop, &child);
+        scope.set_may_return(&[child]);
     }
 
     fn expand_unroll(self, _scope: &Scope, _body: impl FnMut(&Scope, Self::Item)) {
@@ -653,18 +654,19 @@ impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E> {
         let end = self.__extract_length(scope).value(scope);
         let step = scope.const_usize(1);
 
-        let i = scope.create_local_mut(index_ty);
+        let i = scope.create_local_mut(index_ty, None);
         let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
         let loop_body = range_loop.loop_body(scope.ctx());
 
-        let child = scope.child(OpInserter::new_at_block_end(loop_body));
+        let child = scope.loop_child(OpInserter::new_at_block_end(loop_body));
 
         let index = NativeExpand::new(i.into());
         let item = self.__expand_index_method(&child, index);
         body(&child, item);
         child.terminate_yield();
 
-        scope.register(&range_loop);
+        register_range_loop::<usize>(scope, &range_loop, &child);
+        scope.set_may_return(&[child]);
     }
 
     fn expand_unroll(self, _scope: &Scope, _body: impl FnMut(&Scope, Self::Item)) {
@@ -682,18 +684,19 @@ impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E> {
         let end = self.__extract_length(scope).value(scope);
         let step = scope.const_usize(1);
 
-        let i = scope.create_local_mut(index_ty);
+        let i = scope.create_local_mut(index_ty, None);
         let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
         let loop_body = range_loop.loop_body(scope.ctx());
 
-        let child = scope.child(OpInserter::new_at_block_end(loop_body));
+        let child = scope.loop_child(OpInserter::new_at_block_end(loop_body));
 
         let index = NativeExpand::new(i.into());
         let item = self.__expand_index_mut_method(&child, index);
         body(&child, item);
         child.terminate_yield();
 
-        scope.register(&range_loop);
+        register_range_loop::<usize>(scope, &range_loop, &child);
+        scope.set_may_return(&[child]);
     }
 
     fn expand_unroll(self, _scope: &Scope, _body: impl FnMut(&Scope, Self::Item)) {

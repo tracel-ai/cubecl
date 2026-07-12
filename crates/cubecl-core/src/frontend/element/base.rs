@@ -875,7 +875,7 @@ pub(crate) fn init_mut_of_type(scope: &Scope, mut ty: TypeHandle) -> ExpandValue
     if ty.is_ptr(ctx) {
         panic!("tried initializing mut for ptr {}", ty.disp(ctx));
     }
-    scope.create_local_mut(ty).into()
+    scope.create_local_mut(ty, None).into()
 }
 
 impl<T: IntoMut> IntoMut for Option<T> {

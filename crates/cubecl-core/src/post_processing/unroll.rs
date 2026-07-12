@@ -132,7 +132,8 @@ impl CustomUnrollOp for DeclareVariableOp {
             let factor = current_vec / vector_size;
             let mut results = vec![];
             for _ in 0..factor {
-                let new_op = DeclareVariableOp::new(ctx, new_value_ty, addr_space, align);
+                let init = self.initializer(ctx).map(|init| init.clone());
+                let new_op = DeclareVariableOp::new(ctx, new_value_ty, addr_space, align, init);
                 new_op
                     .get_operation()
                     .insert_before(ctx, self.get_operation());

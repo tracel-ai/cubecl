@@ -98,7 +98,7 @@ const_eval!(BitwiseXorOp, {
     // x ^ x -> 0
     custom: |_, _| {
         if self.lhs(ctx) == self.rhs(ctx) {
-            Some(int_attr(ctx, self.get_type(ctx), 0))
+            Some(int_attr(ctx, self.result_type(ctx), 0))
         } else {
             None
         }

@@ -15,10 +15,6 @@ pub fn block_to_cpp(ctx: &Context, block: Ptr<BasicBlock>) -> String {
     out
 }
 
-shared_op!(ExecuteRegionOp, |op, ctx| {
-    format!("{{{}}}", block_to_cpp(ctx, op.block(ctx)))
-});
-
 shared_op!(IfOp, |op, ctx| {
     let cond = op.condition(ctx).name(ctx);
     let else_block = op.else_block(ctx);
@@ -57,7 +53,6 @@ shared_op!(ReturnOp, |op, ctx| {
     }
 });
 
-shared_op!(BreakOp, |_, _| "break;".into());
 shared_op!(UnreachableOp, |_, _| "__builtin_unreachable();".into());
 
 shared_op!(RangeLoopOp, |op, ctx| {
@@ -74,13 +69,6 @@ shared_op!(RangeLoopOp, |op, ctx| {
 shared_op!(WhileOp, |op, ctx| {
     let cond = op.cond_ptr(ctx).name(ctx);
     let mut out = format!("while(*{cond}) {{\n");
-    out.push_str(&block_to_cpp(ctx, op.loop_body(ctx)));
-    out.push_str("}\n");
-    out
-});
-
-shared_op!(LoopOp, |op, ctx| {
-    let mut out = "while(true) {\n".to_string();
     out.push_str(&block_to_cpp(ctx, op.loop_body(ctx)));
     out.push_str("}\n");
     out
