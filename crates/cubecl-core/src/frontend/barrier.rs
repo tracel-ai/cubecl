@@ -197,7 +197,8 @@ impl Barrier {
     /// arrival count of `1`.
     pub fn local() -> Self {
         intrinsic!(|scope| {
-            let value = scope.create_local_mut(BarrierType::get(scope.ctx(), BarrierLevel::Unit));
+            let value =
+                scope.create_local_mut(BarrierType::get(scope.ctx(), BarrierLevel::Unit), None);
             let arrival_count: ExpandValue = 1u32.into();
             let arrival_count = arrival_count.read_value(scope);
             let op = InitOp::new(scope.ctx_mut(), value, arrival_count);

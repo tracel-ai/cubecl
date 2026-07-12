@@ -35,6 +35,7 @@ impl<T: 'static> MatchRewrite for LowerOpsCpp<T> {
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
         let lower = op_cast::<dyn LowerOp<T>>(&*dyn_op).unwrap();
         let new_values = lower.lower(&scope);
+        transfer_result_names(ctx, op, &new_values);
         rewriter.replace_operation_with_values(ctx, op, new_values);
 
         Ok(())

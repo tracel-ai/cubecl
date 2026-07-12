@@ -232,6 +232,18 @@ pub fn kernel_for_loop_with_break<F: Float>(output: &mut [F]) {
     }
 }
 
+#[cube(launch)]
+pub fn kernel_for_loop_with_return<F: Float>(output: &mut [F]) {
+    let max_iterations = comptime!(20_i32);
+    for i in 0..max_iterations {
+        if i > 3 {
+            terminate!();
+        }
+        output[i as usize] = F::new(1f32);
+    }
+    output[0] = F::new(5f32);
+}
+
 pub fn test_switch_const<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
@@ -362,6 +374,26 @@ pub fn test_for_loop_with_break<R: Runtime, F: Float + CubeElement>(client: Comp
     assert_eq!(actual, expected.as_slice());
 }
 
+pub fn test_for_loop_with_return<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
+    let zeros = vec![F::new(0.0); 20];
+    let handle = client.create_from_slice(F::as_bytes(&zeros));
+
+    kernel_for_loop_with_return::launch::<F, R>(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 20) },
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    let actual = F::from_bytes(&actual);
+
+    let expected: Vec<F> = (0..20)
+        .map(|i| if i < 4 { F::new(1.0) } else { F::new(0.0) })
+        .collect();
+    assert_eq!(actual, expected.as_slice());
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_branch {
@@ -440,6 +472,14 @@ macro_rules! testgen_branch {
         fn test_for_loop_with_break() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::branch::test_for_loop_with_break::<TestRuntime, FloatType>(
+                client,
+            );
+        }
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_for_loop_with_return() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::branch::test_for_loop_with_return::<TestRuntime, FloatType>(
                 client,
             );
         }

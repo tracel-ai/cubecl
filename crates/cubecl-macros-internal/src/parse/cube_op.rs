@@ -112,6 +112,7 @@ pub struct ArgFlags {
     pub ptr_write: Flag,
 
     pub optional: Flag,
+    pub untyped: Flag,
 }
 
 fn unwrap_fields(data: &syn::Data) -> darling::Result<Vec<CubeOpArg>> {

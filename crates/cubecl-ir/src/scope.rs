@@ -1,7 +1,7 @@
 use alloc::{boxed::Box, format, rc::Rc, string::String, vec, vec::Vec};
 use core::{
     any::{TypeId, type_name},
-    cell::UnsafeCell,
+    cell::{Ref, RefCell, RefMut, UnsafeCell},
     fmt::{Debug, Display},
 };
 use cubecl_common::{format::type_name_sanitized, stub::Mutex};
@@ -10,15 +10,17 @@ use cubecl_environment::collections::{HashMap, HashSet};
 use derive_more::{Eq, PartialEq};
 use enumset::EnumSet;
 use pliron::{
+    attribute::AttrObj,
     basic_block::BasicBlock,
     builtin::{
-        attributes::VecAttr,
+        attributes::{TypeAttr, VecAttr},
         op_interfaces::{OneResultInterface, SingleBlockRegionInterface},
         ops::{ConstantOp, FuncOp, ModuleOp},
         type_interfaces::FunctionTypeInterface,
         types::{FunctionType, UnitType},
     },
     context::{AuxDataIndex, Context},
+    debug_info::set_operation_result_name,
     dict_key,
     identifier::Identifier,
     irbuild::{
@@ -36,17 +38,18 @@ use crate::{
     AddressSpace, AddressType, DeviceProperties, ElemType, FastMath, TargetProperties, TypeHash,
     arena::DropBump,
     attributes::{
-        ATTR_BUFFER_BINDING, ATTR_KEY_ARG_ATTRS, ATTR_TENSOR_MAP_BINDING, BufferBindingAttr,
-        EntrypointAbiAttr, EntrypointInterface, FuncInterface, IndexAttr,
+        ATTR_BUFFER_BINDING, ATTR_KEY_ARG_ATTRS, ATTR_TENSOR_MAP_BINDING, BoolAttr,
+        BufferBindingAttr, EntrypointAbiAttr, EntrypointInterface, FuncInterface, IndexAttr,
     },
     dialect::{
-        branch::{ReturnOp, YieldOp},
+        branch::{IfOp, ReturnOp, YieldOp},
         general::AggregateExtractOp,
         memory::DeclareVariableOp,
     },
     interfaces::{ScalarType, TypedExt},
+    read_value,
     settings::KernelSettings,
-    types::{PointerType, RuntimeArrayType, cuda::TensorMapType},
+    types::{PointerType, RuntimeArrayType, cuda::TensorMapType, scalar::BoolType},
 };
 
 pub type Types = HashMap<TypeId, ElemType>;
@@ -111,6 +114,17 @@ impl InserterHandle {
 pub struct Scope {
     ctx: CtxHandle,
     inserter: InserterHandle,
+    expand_state: RefCell<ExpandState>,
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct ExpandState {
+    pub may_return: bool,
+    pub may_break: bool,
+    // Whether the kernel has *not* returned. Inverted to save a not on the loop condition.
+    pub inv_return_flag: Option<Value>,
+    /// Whether the loop is *not* broken. Inverted to save a not on the loop condition.
+    pub inv_break_flag: Option<Value>,
 }
 
 impl Debug for Scope {
@@ -349,12 +363,24 @@ impl Scope {
         self.state_mut().device_properties = Some(Rc::new(properties.clone()));
     }
 
+    #[track_caller]
     pub fn state(&self) -> &GlobalState {
         self.ctx().aux_ty()
     }
 
+    #[track_caller]
     pub fn state_mut(&self) -> &mut GlobalState {
         self.ctx_mut().aux_ty_mut()
+    }
+
+    #[track_caller]
+    pub fn expand_state(&self) -> Ref<'_, ExpandState> {
+        self.expand_state.borrow()
+    }
+
+    #[track_caller]
+    pub fn expand_state_mut(&self) -> RefMut<'_, ExpandState> {
+        self.expand_state.borrow_mut()
     }
 
     pub fn ctx(&self) -> &Context {
@@ -375,15 +401,23 @@ impl Scope {
     /// A local scope can be created with the [child](Self::child) method.
     pub fn root(settings: KernelSettings) -> Self {
         let ctx = new_context(settings);
-        let inserter = {
+        let mut inserter = {
             let ctx = unsafe { &*ctx.get() };
             let state = ctx.aux_ty::<GlobalState>();
             let entry_block = state.entry_func.get_entry_block(ctx);
             OpInserter::new_at_block_end(entry_block)
         };
+        let return_flag =
+            init_bool_flag(unsafe { &mut *ctx.get() }, &mut inserter, "inv_return_flag");
         Self {
             ctx: CtxHandle::Rc(ctx),
             inserter: InserterHandle::owned(inserter),
+            expand_state: RefCell::new(ExpandState {
+                may_break: false,
+                may_return: false,
+                inv_return_flag: Some(return_flag),
+                inv_break_flag: None,
+            }),
         }
     }
 
@@ -400,6 +434,7 @@ impl Scope {
         Self {
             ctx: CtxHandle::Rc(ctx),
             inserter: InserterHandle::owned(inserter),
+            expand_state: Default::default(),
         }
     }
 
@@ -412,15 +447,28 @@ impl Scope {
         Self {
             ctx: CtxHandle::Ref(ctx),
             inserter: InserterHandle::Ref(inserter),
+            expand_state: RefCell::new(ExpandState {
+                may_return: false,
+                may_break: false,
+                inv_return_flag: None,
+                inv_break_flag: None,
+            }),
         }
     }
 
     /// Create a new mutable local variable of type specified by `value_ty`.
-    pub fn create_local_mut(&self, value_ty: impl Into<TypeHandle>) -> Value {
+    /// `initializer` is a constant attribute and has the same rules as `OpConstant`. This is because
+    /// SPIR-V does not allow non-constant (technically non-global, but constants are the only
+    /// non-pointer globals) initializers.
+    pub fn create_local_mut(
+        &self,
+        value_ty: impl Into<TypeHandle>,
+        init: Option<AttrObj>,
+    ) -> Value {
         let value_ty = value_ty.into();
         let ctx = self.ctx_mut();
         let align = value_ty.align(ctx);
-        let op = DeclareVariableOp::new(ctx, value_ty, AddressSpace::Local, align);
+        let op = DeclareVariableOp::new(ctx, value_ty, AddressSpace::Local, align, init);
         let out = op.get_result(ctx);
         self.inserter().append_op(ctx, &op);
         out
@@ -435,7 +483,7 @@ impl Scope {
         let value_ty = value_ty.into();
         let ctx = self.ctx_mut();
         let align = alignment.unwrap_or_else(|| value_ty.align(ctx));
-        let op = DeclareVariableOp::new(ctx, value_ty, AddressSpace::Shared, align);
+        let op = DeclareVariableOp::new(ctx, value_ty, AddressSpace::Shared, align, None);
         let out = op.get_result(ctx);
         self.inserter().append_op(ctx, &op);
         out
@@ -471,6 +519,44 @@ impl Scope {
         if block.deref(self.ctx()).get_terminator(self.ctx()).is_none() {
             self.register(&YieldOp::new(self.ctx_mut()));
         }
+    }
+
+    pub fn set_break_return(&self, children: &[Scope]) {
+        self.set_may_break(children);
+        self.set_may_return(children);
+    }
+
+    pub fn set_may_return(&self, children: &[Scope]) {
+        let child_may_return = children.iter().any(|scope| scope.expand_state().may_return);
+        if child_may_return {
+            self.expand_state_mut().may_return = true;
+            let flag = self.expand_state().inv_return_flag;
+            self.predicate_on_flag(flag.expect("Can't return in rewrite context"));
+        }
+    }
+
+    pub fn set_may_break(&self, children: &[Scope]) {
+        let child_may_return = children.iter().any(|scope| scope.expand_state().may_break);
+        if child_may_return {
+            self.expand_state_mut().may_break = true;
+            let flag = self.expand_state().inv_break_flag;
+            self.predicate_on_flag(flag.expect("Should have break flag"));
+        }
+    }
+
+    fn predicate_on_flag(&self, flag: Value) {
+        let ctx = self.ctx_mut();
+        let cond = read_value(self, flag);
+        let predication = IfOp::new(ctx, cond);
+        let then_block = predication.then_block(ctx);
+        let else_block = predication.else_block(ctx);
+        let yield_ = YieldOp::new(ctx).get_operation();
+        yield_.insert_at_back(then_block, ctx);
+        let yield_ = YieldOp::new(ctx).get_operation();
+        yield_.insert_at_back(else_block, ctx);
+        self.register(&predication);
+        self.inserter()
+            .set_insertion_point_to_block_start(then_block);
     }
 
     /// Add a value to the global arena so we can create a kernel-wide reference to it.
@@ -534,6 +620,42 @@ impl Scope {
         Self {
             ctx: self.ctx.clone(),
             inserter: InserterHandle::owned(inserter),
+            expand_state: RefCell::new(ExpandState {
+                may_break: false,
+                may_return: false,
+                inv_return_flag: self.expand_state().inv_return_flag,
+                inv_break_flag: self.expand_state().inv_break_flag,
+            }),
+        }
+    }
+
+    /// Create a child scope with a new break condition.
+    pub fn loop_child(&self, inserter: impl Inserter + 'static) -> Self {
+        let break_flag = init_bool_flag(self.ctx_mut(), self.inserter(), "inv_break_flag");
+        Self {
+            ctx: self.ctx.clone(),
+            inserter: InserterHandle::owned(inserter),
+            expand_state: RefCell::new(ExpandState {
+                may_return: false,
+                may_break: false,
+                inv_return_flag: self.expand_state().inv_return_flag,
+                inv_break_flag: Some(break_flag),
+            }),
+        }
+    }
+
+    /// Create a child that's at the root of a new function
+    pub fn func_child(&self, mut inserter: impl Inserter + 'static) -> Self {
+        let return_flag = init_bool_flag(self.ctx_mut(), &mut inserter, "inv_return_flag");
+        Self {
+            ctx: self.ctx.clone(),
+            inserter: InserterHandle::owned(inserter),
+            expand_state: RefCell::new(ExpandState {
+                may_break: false,
+                may_return: false,
+                inv_return_flag: Some(return_flag),
+                inv_break_flag: None,
+            }),
         }
     }
 
@@ -604,9 +726,15 @@ impl Scope {
         self.register_with_result(&op)
     }
 
+    pub fn const_bool(&self, value: bool) -> Value {
+        let op = ConstantOp::new(self.ctx_mut(), BoolAttr::new(value).into());
+        self.register_with_result(&op)
+    }
+
     pub fn into_context(self) -> Option<Context> {
         let entry = self.state().entry_func.get_entry_block(self.ctx());
         if entry.deref(self.ctx()).get_terminator(self.ctx()).is_none() {
+            self.inserter().set_insertion_point_to_block_end(entry);
             self.register(&ReturnOp::new(self.ctx_mut()));
         }
         match self.ctx {
@@ -622,4 +750,13 @@ impl Display for Scope {
         let state = self.state();
         write!(f, "{}", state.module.disp(ctx))
     }
+}
+
+fn init_bool_flag(ctx: &mut Context, inserter: &mut dyn Inserter, name: &str) -> Value {
+    let bool = TypeAttr::new(BoolType::get(ctx).to_handle());
+    let false_ = BoolAttr::new(true).into();
+    let flag = DeclareVariableOp::new(ctx, bool, AddressSpace::Local, 1, Some(false_));
+    inserter.append_op(ctx, &flag);
+    set_operation_result_name(ctx, flag.get_operation(), 0, Some(ident(name)));
+    flag.get_result(ctx)
 }

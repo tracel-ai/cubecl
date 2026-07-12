@@ -259,7 +259,7 @@ impl<C: CubePrimitive, S: MatrixScope> Matrix<C, S> {
                 layout,
                 S::SCOPE,
             );
-            let elem = scope.create_local_mut(matrix_ty);
+            let elem = scope.create_local_mut(matrix_ty, None);
             MatrixExpand {
                 elem,
                 ident,
@@ -869,7 +869,7 @@ pub mod load {
 
         let ptr = unsafe { *value.__expand_as_ptr_method(scope) }.value(scope);
 
-        scope.register(&LoadOp::new(scope.ctx_mut(), mat.elem, ptr, stride));
+        scope.register(&LoadOp::new(scope.ctx_mut(), mat.elem, ptr, stride, None));
     }
 }
 
@@ -946,7 +946,7 @@ pub mod load_with_layout {
         let ptr = unsafe { *value.__expand_as_ptr_method(scope) }.value(scope);
         let stride = stride.read_value(scope);
 
-        let load = LoadOp::new(scope.ctx_mut(), mat.elem, ptr, stride);
+        let load = LoadOp::new(scope.ctx_mut(), mat.elem, ptr, stride, None);
         load.set_layout(scope.ctx(), layout);
 
         scope.register(&load);
@@ -1265,7 +1265,7 @@ pub mod execute_elementwise_op {
         let col = func_body.deref(scope.ctx()).get_argument(1);
         let elem = func_body.deref(scope.ctx()).get_argument(2);
 
-        let mut closure_scope = scope.child(OpInserter::new_at_block_end(func_body));
+        let mut closure_scope = scope.func_child(OpInserter::new_at_block_end(func_body));
         let return_value = op(&mut closure_scope, row.into(), col.into(), elem.into()).value(scope);
         closure_scope.register(&ReturnOp::new_with_value(scope.ctx_mut(), return_value));
 

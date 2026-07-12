@@ -23,6 +23,7 @@ pub trait OperationPtrExt: Sized {
     fn operands_as_uses(self, ctx: &Context) -> Vec<Use<Value>>;
     fn result(self, ctx: &Context) -> Value;
     fn results(self, ctx: &Context) -> Vec<Value>;
+    fn result_names(self, ctx: &Context) -> Vec<Option<Identifier>>;
     fn opt_result(self, ctx: &Context) -> Option<Value>;
 }
 
@@ -51,6 +52,12 @@ impl OperationPtrExt for Ptr<Operation> {
     fn results(self, ctx: &Context) -> Vec<Value> {
         self.deref(ctx).results().collect()
     }
+    fn result_names(self, ctx: &Context) -> Vec<Option<Identifier>> {
+        self.deref(ctx)
+            .results()
+            .map(|it| it.given_name(ctx))
+            .collect()
+    }
     fn opt_result(self, ctx: &Context) -> Option<Value> {
         self.deref(ctx).results().next()
     }
@@ -72,6 +79,8 @@ macro_rules! pure_unop {
     };
 }
 use pliron::{
+    common_traits::Named,
+    identifier::Identifier,
     op::{OpInterfaceMarker, OpObj, op_impls},
     r#type::TypeHandle,
     value::Use,

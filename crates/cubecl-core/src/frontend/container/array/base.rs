@@ -49,7 +49,7 @@ mod new {
                 // so it needs to be prepared in advance.
                 let elem = T::__expand_as_type(scope);
                 let ty = ArrayType::get(scope.ctx(), elem, length);
-                let buffer = scope.create_local_mut(ty);
+                let buffer = scope.create_local_mut(ty, None);
                 let slice = slice::from_raw_parts::<T>(
                     scope,
                     buffer,
