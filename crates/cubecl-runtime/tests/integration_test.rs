@@ -101,6 +101,67 @@ fn autotune_basic_multiplication_execution() {
     assert_eq!(obtained_resource, Vec::from([0, 4, 8]));
 }
 
+/// A throughput bound with a generous `time_limit` makes the tuner short-circuit: it
+/// accepts the first candidate whose median is under the limit and never benchmarks the
+/// rest. The set registers the slow+wrong kernel first, so a hit proves the faster `add`
+/// was skipped rather than raced and lost.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+fn autotune_bounds_short_circuit_accepts_first_within_limit() {
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_bounds_short_circuit");
+
+    let client = test_client(&DummyDevice);
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs, rhs, out.clone()];
+
+    let test_set = TUNER.init(|| {
+        let client = test_client(&DummyDevice);
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        // time_limit = (1 / 1.0) / 1.0 = 1s, far above the ~few-ms slow kernel, so the
+        // first candidate is already "close enough".
+        dummy::bounded_addition_set_slow_first(client, shapes, 1.0, 1.0)
+    });
+    TUNER.execute(&"test".to_string(), &client, test_set, handles);
+
+    let obtained = client.read_one(out).unwrap().to_vec();
+
+    // The slow+wrong kernel copies lhs -> out. Getting it back means the tuner stopped
+    // at the first candidate and never reached the faster, correct `add`.
+    assert_eq!(obtained, vec![0, 1, 2]);
+}
+
+/// The mirror of the test above: an unreachable `time_limit` disqualifies every
+/// candidate, so the tuner falls back to benchmarking the whole batch and the faster
+/// `add` wins despite being registered second. This isolates the short-circuit as the
+/// cause of the early exit, not the mere presence of a bound.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+fn autotune_bounds_unreachable_limit_benchmarks_all() {
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_bounds_unreachable_limit");
+
+    let client = test_client(&DummyDevice);
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs, rhs, out.clone()];
+
+    let test_set = TUNER.init(|| {
+        let client = test_client(&DummyDevice);
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        // time_limit = (1 / 1e12) / 1.0 ≈ 1ps, below any real median, so nothing qualifies.
+        dummy::bounded_addition_set_slow_first(client, shapes, 1e12, 1.0)
+    });
+    TUNER.execute(&"test".to_string(), &client, test_set, handles);
+
+    let obtained = client.read_one(out).unwrap().to_vec();
+
+    assert_eq!(obtained, vec![4, 5, 6]);
+}
+
 /// 2-I1 — A panic inside a profiled closure surfaces at the `ComputeClient` caller as
 /// the *original* panic (the issue's symptom), instead of an opaque `CallError`.
 #[test_log::test]

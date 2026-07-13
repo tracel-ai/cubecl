@@ -13,6 +13,8 @@ use cubecl_runtime::{
 use crate::throughput::{compute_cmma, compute_direct, launch_overhead, memory_direct};
 
 /// Computes the peak throughput for a given runtime and key.
+///
+/// Native only, panics on WASM
 pub fn measure_peak_throughput<R: Runtime>(
     client: &ComputeClient<R>,
     key: ThroughputKey,
@@ -73,6 +75,8 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
 }
 
 /// Measures the fixed cost of a single kernel launch.
+///
+/// Native only, panics on WASM
 pub fn measure_launch_overhead<R: Runtime>(client: &ComputeClient<R>) -> core::time::Duration {
     client.measure_launch_overhead(|| {
         let input = client.empty(size_of::<i32>());
