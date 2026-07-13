@@ -563,7 +563,10 @@ mod tests {
         // First resolve records stream_1 as synced on stream_2.
         let handle_1 = Handle::new(stream_1, 10);
         let binding_1 = handle_1.binding();
-        drop(ms.resolve(stream_2, [&binding_1].into_iter(), false).unwrap());
+        drop(
+            ms.resolve(stream_2, [&binding_1].into_iter(), false)
+                .unwrap(),
+        );
         drop(binding_1);
 
         // Close the gate for the second round.

@@ -620,8 +620,7 @@ unsafe fn write_to_gpu(
                 stream,
             );
             assert_eq!(
-                status,
-                HIP_SUCCESS,
+                status, HIP_SUCCESS,
                 "Should send data to device (2D copy: shape {shape:?}, strides {strides:?}, \
                  elem_size {elem_size}, dpitch {stride_bytes}, width {width_bytes}, \
                  height {height}, resource size {})",

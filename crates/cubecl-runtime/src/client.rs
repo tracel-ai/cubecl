@@ -1,9 +1,9 @@
 use crate::{
+    config::memory::MemoryPoolsConfig,
     config::{TypeNameFormatLevel, type_name_format},
     id::GraphId,
     kernel::KernelMetadata,
     logging::ProfileLevel,
-    config::memory::MemoryPoolsConfig,
     memory_management::{MemoryAllocationMode, MemoryConfiguration, MemoryUsage},
     runtime::Runtime,
     server::{
@@ -1143,12 +1143,11 @@ impl<R: Runtime> ComputeClient<R> {
     /// silently replaced.
     #[must_use = "a `false` return means the current stream kept its old pool layout"]
     pub fn configure_memory_pools(&self, pools: &MemoryPoolsConfig) -> bool {
-        let config = match MemoryConfiguration::default()
-            .resolve(Some(pools), &self.properties().memory)
-        {
-            Ok(config) => config,
-            Err(err) => panic!("Invalid memory pools configuration: {err}"),
-        };
+        let config =
+            match MemoryConfiguration::default().resolve(Some(pools), &self.properties().memory) {
+                Ok(config) => config,
+                Err(err) => panic!("Invalid memory pools configuration: {err}"),
+            };
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.configure_memory_pools(config, stream_id))

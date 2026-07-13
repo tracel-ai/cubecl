@@ -129,10 +129,8 @@ mod tests {
         // a config file must be a load error, not a silently ignored setting.
         assert!(toml::from_str::<MemoryConfig>("pools = \"sub-slices\"").is_err());
         assert!(
-            toml::from_str::<MemoryConfig>(
-                "[[pools]]\ntype = \"sliced\"\npage_size = \"1MiB\"\n"
-            )
-            .is_err()
+            toml::from_str::<MemoryConfig>("[[pools]]\ntype = \"sliced\"\npage_size = \"1MiB\"\n")
+                .is_err()
         );
     }
 }

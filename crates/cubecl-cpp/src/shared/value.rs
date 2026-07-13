@@ -413,7 +413,10 @@ impl<D: Dialect> Value<D> {
     ///
     /// This is only reached for freshly-created outputs (the op defines `out`),
     /// so it never double-declares an already-declared local.
-    pub fn declare_local_ptr_backing(&self, f: &mut Formatter<'_>) -> Result<bool, std::fmt::Error> {
+    pub fn declare_local_ptr_backing(
+        &self,
+        f: &mut Formatter<'_>,
+    ) -> Result<bool, std::fmt::Error> {
         if let Value::Value {
             item: Item::Pointer(_, PointerClass::Local),
             ..
