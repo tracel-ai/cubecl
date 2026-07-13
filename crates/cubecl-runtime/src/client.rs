@@ -1,9 +1,10 @@
 use crate::{
+    config::memory::MemoryPoolsConfig,
     config::{TypeNameFormatLevel, type_name_format},
     id::GraphId,
     kernel::KernelMetadata,
     logging::ProfileLevel,
-    memory_management::{MemoryAllocationMode, MemoryUsage},
+    memory_management::{MemoryAllocationMode, MemoryConfiguration, MemoryUsage},
     runtime::Runtime,
     server::{
         CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
@@ -67,6 +68,15 @@ pub struct Graph<R: Runtime> {
     inner: Arc<GraphHandle<R>>,
 }
 
+impl<R: Runtime> core::fmt::Debug for Graph<R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Graph")
+            .field("id", &self.inner.id)
+            .field("stream_id", &self.inner.stream_id)
+            .finish()
+    }
+}
+
 /// Reference-counted owner of a backend graph. Its [`Drop`] ships the release to
 /// the server actor, so the last [`Graph`] clone frees the backend graph on the
 /// thread that owns it.
@@ -112,15 +122,6 @@ impl<R: Runtime> Graph<R> {
         self.inner
             .device
             .submit(move |server| server.replay(id, stream_id));
-    }
-}
-
-impl<R: Runtime> core::fmt::Debug for Graph<R> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Graph")
-            .field("id", &self.inner.id)
-            .field("stream_id", &self.inner.stream_id)
-            .finish()
     }
 }
 
@@ -1114,6 +1115,43 @@ impl<R: Runtime> ComputeClient<R> {
                 server.memory_cleanup(id);
             }
         });
+    }
+
+    /// Install a new dynamic-pool layout for the device's main GPU memory.
+    ///
+    /// Pool layouts are a purely programmatic, runtime setting — there is no
+    /// config-file pathway — sized per workload (e.g. per model, just before
+    /// loading it). The current stream's pools are rebuilt in place when
+    /// nothing is live in them (reconfigure at a quiescent point, e.g. right
+    /// after unloading a model), and the layout applies to every stream
+    /// created afterwards. Auxiliary pools (pinned CPU, staging, uniforms) and
+    /// the persistent pool are never affected.
+    ///
+    /// Returns `true` when the current stream's pools were rebuilt now.
+    /// Returns `false` when they kept the old layout because something was
+    /// still live in them — e.g. a garbage-collection task that has not
+    /// released its cross-stream pins yet, which can lag behind an explicit
+    /// [`memory_cleanup`](Self::memory_cleanup). The layout still applies to
+    /// streams created afterwards; retry after the remaining work drains to
+    /// rebuild the current stream too.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the layout is invalid (empty list, too many pools, zero page
+    /// size, slice larger than page, cap smaller than page, unavailable
+    /// preset) — an explicit layout that cannot be honored must not be
+    /// silently replaced.
+    #[must_use = "a `false` return means the current stream kept its old pool layout"]
+    pub fn configure_memory_pools(&self, pools: &MemoryPoolsConfig) -> bool {
+        let config =
+            match MemoryConfiguration::default().resolve(Some(pools), &self.properties().memory) {
+                Ok(config) => config,
+                Err(err) => panic!("Invalid memory pools configuration: {err}"),
+            };
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.configure_memory_pools(config, stream_id))
+            .unwrap_or_resume()
     }
 
     /// Measure the execution time of some inner operations.

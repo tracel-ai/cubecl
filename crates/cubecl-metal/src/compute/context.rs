@@ -119,7 +119,7 @@ impl MetalContext {
             kernel.address_type(),
         )?;
 
-        if logger.compilation_activated() {
+        if logger.compilation_source_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("msl", kernel_id.clone()));
         }
 

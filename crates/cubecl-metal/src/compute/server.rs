@@ -666,6 +666,23 @@ impl ComputeServer for MetalServer {
             stream.memory_management.mode(mode);
         }
     }
+
+    fn configure_memory_pools(&mut self, config: MemoryConfiguration, stream_id: StreamId) -> bool {
+        // Streams created from now on build their GPU pools with the new
+        // layout; memory is per stream, so already-created streams keep theirs.
+        self.streams.backend_mut().set_gpu_pools(config.clone());
+        let (_, props) = self.streams.backend_mut().gpu_pools();
+
+        // The calling stream's pools are rebuilt in place (kept, with a log,
+        // when something is still live in them).
+        match self.streams.resolve(stream_id, std::iter::empty(), false) {
+            Ok(mut resolved) => {
+                let stream = resolved.current();
+                stream.memory_management.configure(config, &props)
+            }
+            Err(_) => false,
+        }
+    }
 }
 
 #[cfg(test)]

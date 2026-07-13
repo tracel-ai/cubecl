@@ -993,8 +993,12 @@ impl<D: Dialect> Dot<D> {
             })
             .collect::<Vec<_>>();
 
-        let out = out.fmt_left();
-        writeln!(f, "{out} = {};", muls.join(" + "))
+        let value = muls.join(" + ");
+        if out.declare_local_ptr_backing(f)? {
+            writeln!(f, "*{out} = {value};")
+        } else {
+            writeln!(f, "{} = {value};", out.fmt_left())
+        }
     }
 }
 
@@ -1014,8 +1018,12 @@ impl<D: Dialect> VectorSumFmt<D> {
             .map(|i| format!("{}", input.index(i)))
             .collect::<Vec<_>>();
 
-        let out = out.fmt_left();
-        writeln!(f, "{out} = {};", elems.join(" + "))
+        let value = elems.join(" + ");
+        if out.declare_local_ptr_backing(f)? {
+            writeln!(f, "*{out} = {value};")
+        } else {
+            writeln!(f, "{} = {value};", out.fmt_left())
+        }
     }
 }
 
