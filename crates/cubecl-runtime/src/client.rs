@@ -16,7 +16,7 @@ use crate::{
         KernelConfig, ThroughputBenchmarker, ThroughputCache, ThroughputKey, ThroughputValue,
     },
 };
-use alloc::{format, sync::Arc, vec, vec::Vec};
+use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
 
 #[cfg(not(target_family = "wasm"))]
 mod lazy;
@@ -1288,15 +1288,27 @@ impl<R: Runtime> ComputeClient<R> {
         (0..num_candidates).map(|i| 2usize.pow(i)).rev()
     }
 
+    /// Stable per-device identity, used to key device-level measurement caches.
+    fn device_key(&self) -> String {
+        format!("{}_dev{}", R::name(self), self.device.device_id().index_id)
+    }
+
     /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)
     pub fn measure_throughput(
         &self,
         key: ThroughputKey,
         kernel_config: KernelConfig,
     ) -> ThroughputValue {
-        let name = format!("{}_dev{}", R::name(self), self.device.device_id().index_id);
-        let cache = ThroughputCache::get_for_device(&name);
+        let cache = ThroughputCache::get_for_device(&self.device_key());
         let mut throughputs = ThroughputBenchmarker::new(cache);
         throughputs.measure(self, key, kernel_config)
+    }
+
+    /// Calculates the launch overhead of the device by sampling.
+    pub fn measure_launch_overhead(
+        &self,
+        sample: impl Fn() -> core::time::Duration,
+    ) -> core::time::Duration {
+        crate::throughput::launch_overhead_or_measure(&self.device_key(), sample)
     }
 }

@@ -1,7 +1,7 @@
 use cubecl::{
     ir::{ElemType, FloatKind},
     prelude::*,
-    std::throughput::measure_peak_throughput,
+    std::throughput::{measure_launch_overhead, measure_peak_throughput},
     throughput::{CmmaDims, ComputeCmmaConfig, ThroughputKey, ThroughputMode},
 };
 
@@ -57,12 +57,20 @@ pub fn memory<R: Runtime>(device: &R::Device) {
     run::<R>(device, &[memory_key()]);
 }
 
+/// Measures the fixed cost of a single kernel launch.
+pub fn launch_overhead<R: Runtime>(device: &R::Device) {
+    let client = R::client(device);
+    let duration = measure_launch_overhead::<R>(&client);
+    println!("Launch overhead: {:?}", duration);
+}
+
 /// Runs every throughput benchmark and prints them as a table.
 pub fn all<R: Runtime>(device: &R::Device) {
     run::<R>(
         device,
         &[compute_direct_key(), compute_cmma_key(), memory_key()],
     );
+    launch_overhead::<R>(device);
 }
 
 fn run<R: Runtime>(device: &R::Device, keys: &[ThroughputKey]) {

@@ -37,6 +37,12 @@ pub struct ThroughputValue {
 }
 
 impl ThroughputValue {
+    /// A zero-initialized throughput value, representing no operations or duration.
+    pub const ZERO: Self = Self {
+        ops_count: 0,
+        duration: core::time::Duration::ZERO,
+    };
+
     /// Returns the operations per second.
     pub fn ops_per_s(&self) -> f64 {
         if self.duration.is_zero() {

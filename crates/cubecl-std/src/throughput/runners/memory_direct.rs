@@ -4,6 +4,10 @@ use cubecl_runtime::throughput::{KernelConfig, ThroughputKey};
 
 use crate::throughput::LaunchConfig;
 
+/// Per-buffer size, clamped to the device's maximum allocation.
+const TARGET_BYTES: usize = 512 * 1024 * 1024;
+
+/// Builds the copy kernel.
 pub fn build_kernel<R: Runtime>(
     client: &ComputeClient<R>,
     key: ThroughputKey,
@@ -14,7 +18,6 @@ pub fn build_kernel<R: Runtime>(
 
     let line_bytes = config.vector_size * dtype.size();
 
-    const TARGET_BYTES: usize = 256 * 1024 * 1024;
     let max_alloc = client.properties().memory.max_page_size as usize;
     let target = TARGET_BYTES.min(max_alloc);
 
@@ -22,17 +25,17 @@ pub fn build_kernel<R: Runtime>(
     let num_lines = (target / line_bytes).max(total_threads);
     let bytes = num_lines * line_bytes;
 
-    let kernel = Box::new(move |iterations: usize| unsafe {
-        let in_handle = client.empty(bytes);
-        let out_handle = client.empty(bytes);
+    let in_handle = client.empty(bytes);
+    let out_handle = client.empty(bytes);
 
+    let kernel = Box::new(move |iterations: usize| unsafe {
         memory_direct_throughput::launch_unchecked(
             &client,
             CubeCount::Static(config.cube_count as u32, 1, 1),
-            CubeDim::new_1d(config.cube_dim as u32),
+            CubeDim::new(&client, config.cube_dim),
             config.vector_size,
-            BufferArg::from_raw_parts(in_handle, num_lines),
-            BufferArg::from_raw_parts(out_handle, num_lines),
+            BufferArg::from_raw_parts(in_handle.clone(), num_lines),
+            BufferArg::from_raw_parts(out_handle.clone(), num_lines),
             iterations,
             dtype.into(),
         )

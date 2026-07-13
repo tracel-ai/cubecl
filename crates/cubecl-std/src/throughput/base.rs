@@ -1,14 +1,20 @@
-use core::time::Duration;
-use cubecl_core::ir::ElemType;
+use cubecl_core::{
+    CubeCount,
+    frontend::BufferArg,
+    ir::{ElemType, IntKind},
+};
 use cubecl_runtime::{
     client::ComputeClient,
     runtime::Runtime,
+    server::CubeDim,
     throughput::{ThroughputKey, ThroughputMode, ThroughputValue},
 };
 
-use crate::throughput::{compute_cmma, compute_direct, memory_direct};
+use crate::throughput::{compute_cmma, compute_direct, launch_overhead, memory_direct};
 
 /// Computes the peak throughput for a given runtime and key.
+///
+/// Native only, panics on WASM
 pub fn measure_peak_throughput<R: Runtime>(
     client: &ComputeClient<R>,
     key: ThroughputKey,
@@ -19,10 +25,7 @@ pub fn measure_peak_throughput<R: Runtime>(
         ThroughputMode::ComputeDirect => compute_direct::build_kernel(client, key, launch_config),
         ThroughputMode::ComputeCmma(cmma_config) => {
             if client.properties().features.matmul.cmma.is_empty() {
-                return ThroughputValue {
-                    ops_count: 0,
-                    duration: Duration::ZERO,
-                };
+                return ThroughputValue::ZERO;
             }
             compute_cmma::build_kernel(client, key, cmma_config, launch_config)
         }
@@ -48,10 +51,12 @@ pub struct LaunchConfig {
 fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> LaunchConfig {
     let hardware = &client.properties().hardware;
 
-    let plane = hardware.plane_size_max.max(1);
-    let cube_dim = (hardware.max_units_per_cube.min(256) / plane * plane)
-        .max(plane)
+    let plane_size = hardware.plane_size_max.max(1);
+    let requested = (hardware.max_units_per_cube / plane_size * plane_size)
+        .max(plane_size)
         .min(hardware.max_cube_dim.0);
+
+    let cube_dim = CubeDim::new(client, requested as usize).num_elems();
 
     let sms = hardware.num_streaming_multiprocessors.unwrap_or(64);
     let cube_count = (sms * 32).min(hardware.max_cube_count.0);
@@ -61,12 +66,39 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
         .next()
         .unwrap_or(1);
 
-    let plane_size = client.properties().hardware.plane_size_max.max(1) as usize;
-
     LaunchConfig {
         cube_dim: cube_dim as usize,
         cube_count: cube_count as usize,
         vector_size,
-        plane_size,
+        plane_size: plane_size as usize,
     }
+}
+
+/// Measures the fixed cost of a single kernel launch.
+///
+/// Native only, panics on WASM
+pub fn measure_launch_overhead<R: Runtime>(client: &ComputeClient<R>) -> core::time::Duration {
+    client.measure_launch_overhead(|| {
+        let input = client.empty(size_of::<i32>());
+        let output = client.empty(size_of::<i32>());
+
+        let (_, duration) = client
+            .profile(
+                || unsafe {
+                    launch_overhead::launch_overhead::launch_unchecked::<R>(
+                        client,
+                        CubeCount::new_single(),
+                        CubeDim::new_single(),
+                        1,
+                        BufferArg::from_raw_parts(input.clone(), 1),
+                        BufferArg::from_raw_parts(output.clone(), 1),
+                        ElemType::Int(IntKind::I32).into(),
+                    );
+                },
+                "launch_overhead",
+            )
+            .expect("should succeed launch_overhead");
+
+        cubecl_core::future::block_on(duration.into_future()).duration()
+    })
 }
