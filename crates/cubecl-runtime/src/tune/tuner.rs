@@ -16,6 +16,15 @@ use crate::{client::ComputeClient, runtime::Runtime};
 
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneInputs};
 
+macro_rules! log_autotune {
+    ($logger:expr, $($arg:tt)*) => {{
+        let mut logger = $logger.lock();
+        if !matches!(logger.log_level_autotune(), AutotuneLogLevel::Disabled) {
+            logger.log_autotune(&format!($($arg)*));
+        }
+    }};
+}
+
 #[derive(Debug)]
 /// Runs autotune benchmarks for a single device and caches the results.
 ///
@@ -198,10 +207,19 @@ impl<K: AutotuneKey> Tuner<K> {
             _ => None,
         };
 
+        // The slowest median duration still considered close enough to peak throughput.
+        // Only used on native, where a benchmark can be resolved inline to exit early.
         #[cfg(not(target_family = "wasm"))]
         let threshold_limit = tunables
             .bounds(key, inputs)
-            .map(|bounds| bounds.time_limit())
+            .map(|bounds| {
+                let limit = bounds.time_limit();
+                log_autotune!(
+                    self.logger,
+                    "Calculated bounds: {bounds:?} - limit: {limit:?}"
+                );
+                limit
+            })
             .unwrap_or_default();
 
         // The batch-retry check below reads this through `cfg!`, which keeps
@@ -240,15 +258,36 @@ impl<K: AutotuneKey> Tuner<K> {
                         #[cfg(not(target_family = "wasm"))]
                         if let Some(limit) = threshold_limit {
                             let result = cubecl_common::future::block_on(resolve_bench(bench));
-                            let close_enough = result
+                            let median = result
                                 .outcome
                                 .as_ref()
-                                .is_ok_and(|outcome| outcome.computation.median <= limit);
+                                .map(|outcome| outcome.computation.median)
+                                .unwrap_or(core::time::Duration::MAX);
+
+                            let percentage = if median.as_secs_f64() > 0.0 {
+                                (limit.as_secs_f64() / median.as_secs_f64()) * 100.0
+                            } else {
+                                f64::INFINITY
+                            };
+
+                            let close_enough = median <= limit;
+
+                            log_autotune!(
+                                self.logger,
+                                "Autotune candidate '{}' achieved {:.2}% of the required throughput threshold.",
+                                op.name,
+                                percentage
+                            );
 
                             batch_success |= result.outcome.is_ok();
                             results[index] = result;
 
                             if close_enough {
+                                log_autotune!(
+                                    self.logger,
+                                    "Short circuiting autotune. {} is close enough to peak throughput.",
+                                    op.name
+                                );
                                 break;
                             }
 
