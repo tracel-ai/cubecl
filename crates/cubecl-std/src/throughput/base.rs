@@ -83,7 +83,7 @@ pub fn measure_launch_overhead<R: Runtime>(client: &ComputeClient<R>) -> core::t
             .profile(
                 || unsafe {
                     launch_overhead::launch_overhead::launch_unchecked::<R>(
-                        &client,
+                        client,
                         CubeCount::new_single(),
                         CubeDim::new_single(),
                         1,

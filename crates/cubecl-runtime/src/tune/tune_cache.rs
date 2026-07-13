@@ -82,9 +82,8 @@ impl PartialEq for AutotuneResult {
 #[derive(Debug)]
 pub(crate) struct TuneCache<K> {
     in_memory_cache: HashMap<K, CacheEntry>,
-    /// `None` when the persistent cache is disabled, so no cache file is ever touched.
     #[cfg(std_io)]
-    persistent_cache: Option<Cache<PersistentCacheKey<K>, PersistentCacheValue>>,
+    persistent_cache: Cache<PersistentCacheKey<K>, PersistentCacheValue>,
 }
 
 /// Result of the cache try
@@ -115,23 +114,17 @@ impl<K: AutotuneKey> TuneCache<K> {
             use crate::config::RuntimeConfig;
             use std::format;
 
-            let config = crate::config::CubeClRuntimeConfig::get();
-
-            if config.autotune.disable_cache {
-                return TuneCache {
-                    in_memory_cache: HashMap::new(),
-                    persistent_cache: None,
-                };
-            }
-
-            let root = config.autotune.cache.root();
+            let root = crate::config::CubeClRuntimeConfig::get()
+                .autotune
+                .cache
+                .root();
             let options = cubecl_common::cache::CacheOption::default();
             let mut cache = TuneCache {
                 in_memory_cache: HashMap::new(),
-                persistent_cache: Some(Cache::new(
+                persistent_cache: Cache::new(
                     format!("{device_id}/{name}"),
                     options.root(root).name("autotune"),
-                )),
+                ),
             };
             cache.load();
             cache
@@ -228,11 +221,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         fastest_index: usize,
         results: Vec<AutotuneResult>,
     ) {
-        let Some(persistent_cache) = self.persistent_cache.as_mut() else {
-            return;
-        };
-
-        if let Err(err) = persistent_cache.insert(
+        if let Err(err) = self.persistent_cache.insert(
             PersistentCacheKey { key, checksum },
             PersistentCacheValue {
                 fastest_index,
@@ -259,13 +248,9 @@ impl<K: AutotuneKey> TuneCache<K> {
 
     /// Load the persistent cache data from disk
     pub(crate) fn load(&mut self) {
-        let Some(persistent_cache) = self.persistent_cache.as_mut() else {
-            return;
-        };
-
         log::info!("Load autotune cache ...");
         let mut loaded = 0;
-        persistent_cache.for_each(|key, value| {
+        self.persistent_cache.for_each(|key, value| {
             loaded += 1;
             self.in_memory_cache.insert(
                 key.key.clone(),

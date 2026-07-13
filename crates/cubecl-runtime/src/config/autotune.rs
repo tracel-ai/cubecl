@@ -17,12 +17,6 @@ pub struct AutotuneConfig {
     #[serde(default)]
     #[cfg(std_io)]
     pub cache: CacheConfig,
-
-    /// Whether to disable the persistent cache of autotune results.
-    ///
-    /// The in-memory cache is unaffected: a key is still tuned only once per process.
-    #[serde(default)]
-    pub disable_cache: bool,
 }
 
 /// Log levels for autotune logging in `CubeCL`.
