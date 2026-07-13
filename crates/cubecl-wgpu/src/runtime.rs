@@ -429,7 +429,10 @@ async fn request_adapter(
     #[cfg(not(feature = "vulkan-validate"))]
     let instance_flags = {
         let debug = ServerLogger::default();
-        match (debug.profile_level(), debug.compilation_activated()) {
+        // Debug/validation layers cost real per-dispatch CPU time, so only
+        // source-level compilation logging (`full`) opts into them — `basic`
+        // is passive name-only logging and must not change how kernels run.
+        match (debug.profile_level(), debug.compilation_source_activated()) {
             (Some(ProfileLevel::Full), _) => InstanceFlags::advanced_debugging(),
             (_, true) => InstanceFlags::debugging(),
             (_, false) => InstanceFlags::default(),
