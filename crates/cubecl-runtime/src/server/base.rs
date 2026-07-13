@@ -518,10 +518,16 @@ where
     /// config-file pathway — so callers size them per workload (e.g. per model,
     /// just before loading it).
     ///
-    /// The default is a no-op for servers without configurable pools.
-    fn configure_memory_pools(&mut self, config: MemoryConfiguration, stream_id: StreamId) {
+    /// Returns `true` when the calling stream's pools were rebuilt now, and
+    /// `false` when they kept the old layout (something was still live in
+    /// them); the layout still applies to streams created afterwards.
+    ///
+    /// The default is a no-op returning `false` for servers without
+    /// configurable pools.
+    fn configure_memory_pools(&mut self, config: MemoryConfiguration, stream_id: StreamId) -> bool {
         let _ = (config, stream_id);
         log::warn!("Memory pool configuration isn't supported by this server; keeping defaults");
+        false
     }
 
     /// Enable collecting timestamps.

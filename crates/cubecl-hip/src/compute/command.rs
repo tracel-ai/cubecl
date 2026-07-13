@@ -74,6 +74,8 @@ impl<'a> Command<'a> {
         // slices as live. The queue is a double buffer (one flush only rotates
         // the current batch), so flush twice. Skipped mid-capture: a host sync
         // aborts the capture, and the capture path drains the queue itself.
+        // The cleanups below stay safe mid-capture: `cleanup` defers all frees
+        // while a capture is active.
         if !stream.capturing.is_recording() {
             let sys = stream.sys;
             stream.drop_queue.flush(|| Fence::new(sys));
@@ -92,17 +94,18 @@ impl<'a> Command<'a> {
         self.streams.current().memory_management_gpu.mode(mode)
     }
 
-    /// Rebuild the current stream's main-GPU pools with a new layout (a no-op
-    /// with a log when something is still live in them).
+    /// Rebuild the current stream's main-GPU pools with a new layout. Returns
+    /// `false` (keeping the old layout, with a log) when something is still
+    /// live in them.
     pub fn configure_memory_pools(
         &mut self,
         config: MemoryConfiguration,
         props: &MemoryDeviceProperties,
-    ) {
+    ) -> bool {
         self.streams
             .current()
             .memory_management_gpu
-            .configure(config, props);
+            .configure(config, props)
     }
 
     /// Allocates a new GPU memory buffer of the specified size.
@@ -496,8 +499,15 @@ pub(crate) unsafe fn write_to_cpu(
 
     let rank = shape.len();
 
-    if rank <= 1 {
-        // SAFETY: For rank <= 1 data is contiguous. `resource_ptr` and `bytes` are valid
+    // A row stride equal to the row width means no pitch padding: the copy is
+    // one contiguous span, so use the plain linear copy. Only genuinely pitched
+    // sources need the 2D copy (which the driver also rejects for very tall
+    // transfers, e.g. an embedding table's 128k rows). The caller validated the
+    // strides as pitched row-major.
+    let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
+
+    if !pitched {
+        // SAFETY: The data is contiguous. `resource_ptr` and `bytes` are valid
         // and `bytes.len()` does not exceed the device allocation size.
         let status = unsafe {
             cubecl_hip_sys::hipMemcpyDtoHAsync(
@@ -522,11 +532,11 @@ pub(crate) unsafe fn write_to_cpu(
     let dim_y: usize = shape.iter().rev().skip(1).product();
     let pitch = strides[rank - 2] * elem_size;
 
-    // SAFETY: For rank > 1 data may be pitched. The 2D async copy respects the pitch
-    // (stride of the second-to-last dimension). If the 2D copy fails, we fall back to a
-    // flat 1D copy which is valid when the data happens to be contiguous.
-    unsafe {
-        let status = cubecl_hip_sys::hipMemcpy2DAsync(
+    // SAFETY: The source is pitched. The 2D async copy respects the pitch
+    // (stride of the second-to-last dimension); a flat copy would scramble the
+    // rows, so a failure is an error rather than a fallback.
+    let status = unsafe {
+        cubecl_hip_sys::hipMemcpy2DAsync(
             bytes.as_mut_ptr() as *mut _,
             width_bytes,
             resource_ptr,
@@ -535,18 +545,17 @@ pub(crate) unsafe fn write_to_cpu(
             dim_y,
             hipMemcpyKind_hipMemcpyDeviceToHost,
             stream,
-        );
+        )
+    };
 
-        // Fallback, sometimes the copy doesn't work.
-        if status != HIP_SUCCESS {
-            let status = cubecl_hip_sys::hipMemcpyDtoHAsync(
-                bytes.as_mut_ptr() as *mut _,
-                resource_ptr,
-                bytes.len(),
-                stream,
-            );
-            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
-        }
+    if status != HIP_SUCCESS {
+        return Err(IoError::Unknown {
+            description: format!(
+                "HIP 2D memcpy failed: {status} (shape {shape:?}, strides {strides:?}, \
+                 elem_size {elem_size}, spitch {pitch}, width {width_bytes}, height {dim_y})"
+            ),
+            backtrace: BackTrace::capture(),
+        });
     }
 
     Ok(())

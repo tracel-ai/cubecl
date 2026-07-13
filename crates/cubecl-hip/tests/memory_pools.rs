@@ -29,7 +29,7 @@ fn pools_reconfigure_in_place() {
 
     // 2 pages of 8 MiB, hard-capped: both fit, and anything past the cap
     // would error rather than grow.
-    client.configure_memory_pools(&sliced(8 * MIB, 2));
+    assert!(client.configure_memory_pools(&sliced(8 * MIB, 2)));
     let a = client.empty(8 * MIB as usize);
     let b = client.empty(8 * MIB as usize);
 
@@ -39,7 +39,7 @@ fn pools_reconfigure_in_place() {
 
     // A bigger layout replaces the old one: 4 pages of 16 MiB — more than the
     // old 16 MiB cap could ever serve — now fit.
-    client.configure_memory_pools(&sliced(16 * MIB, 4));
+    assert!(client.configure_memory_pools(&sliced(16 * MIB, 4)));
     let handles: Vec<_> = (0..4).map(|_| client.empty(16 * MIB as usize)).collect();
     drop(handles);
     client.memory_cleanup();

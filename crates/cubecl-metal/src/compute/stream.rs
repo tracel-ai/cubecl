@@ -258,15 +258,17 @@ impl MetalStreamBackend {
         }
     }
 
-    /// The layout streams build their main-GPU pools with.
-    pub(crate) fn gpu_pools(&self) -> MemoryConfiguration {
-        self.gpu_pools_override
+    /// The layout streams build their main-GPU pools with, and the memory
+    /// properties they are resolved against.
+    pub(crate) fn gpu_pools(&self) -> (MemoryConfiguration, MemoryDeviceProperties) {
+        let config = self
+            .gpu_pools_override
             .clone()
-            .unwrap_or_else(|| self.mem_config.clone())
+            .unwrap_or_else(|| self.mem_config.clone());
+        (config, self.mem_props.clone())
     }
 
     /// Set the main-GPU pool layout for streams created from now on.
-    #[allow(dead_code)]
     pub(crate) fn set_gpu_pools(&mut self, config: MemoryConfiguration) {
         self.gpu_pools_override = Some(config);
     }
@@ -289,10 +291,11 @@ impl EventStreamBackend for MetalStreamBackend {
 
         // The main GPU pool honors the programmatic pool override when one was
         // installed (`configure_memory_pools`).
+        let (gpu_config, _) = self.gpu_pools();
         let memory_management = MemoryManagement::from_configuration(
             storage,
             &self.mem_props,
-            self.gpu_pools(),
+            gpu_config,
             self.logger.clone(),
             MemoryManagementOptions::new("Metal GPU Memory"),
         );

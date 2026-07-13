@@ -1127,12 +1127,22 @@ impl<R: Runtime> ComputeClient<R> {
     /// created afterwards. Auxiliary pools (pinned CPU, staging, uniforms) and
     /// the persistent pool are never affected.
     ///
+    /// Returns `true` when the current stream's pools were rebuilt now.
+    /// Returns `false` when they kept the old layout because something was
+    /// still live in them — e.g. a garbage-collection task that has not
+    /// released its cross-stream pins yet, which can lag behind an explicit
+    /// [`memory_cleanup`](Self::memory_cleanup). The layout still applies to
+    /// streams created afterwards; retry after the remaining work drains to
+    /// rebuild the current stream too.
+    ///
     /// # Panics
     ///
-    /// Panics if the layout is invalid (empty list, zero page size, slice
-    /// larger than page, cap smaller than page, unavailable preset) — an
-    /// explicit layout that cannot be honored must not be silently replaced.
-    pub fn configure_memory_pools(&self, pools: &MemoryPoolsConfig) {
+    /// Panics if the layout is invalid (empty list, too many pools, zero page
+    /// size, slice larger than page, cap smaller than page, unavailable
+    /// preset) — an explicit layout that cannot be honored must not be
+    /// silently replaced.
+    #[must_use = "a `false` return means the current stream kept its old pool layout"]
+    pub fn configure_memory_pools(&self, pools: &MemoryPoolsConfig) -> bool {
         let config = match MemoryConfiguration::default()
             .resolve(Some(pools), &self.properties().memory)
         {
@@ -1141,7 +1151,8 @@ impl<R: Runtime> ComputeClient<R> {
         };
         let stream_id = self.stream_id();
         self.device
-            .submit(move |server| server.configure_memory_pools(config, stream_id));
+            .submit_blocking(move |server| server.configure_memory_pools(config, stream_id))
+            .unwrap_or_resume()
     }
 
     /// Measure the execution time of some inner operations.

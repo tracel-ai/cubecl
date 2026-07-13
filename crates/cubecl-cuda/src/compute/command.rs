@@ -98,17 +98,18 @@ impl<'a> Command<'a> {
         self.streams.current().memory_management_gpu.mode(mode)
     }
 
-    /// Rebuild the current stream's main-GPU pools with a new layout (a no-op
-    /// with a log when something is still live in them).
+    /// Rebuild the current stream's main-GPU pools with a new layout. Returns
+    /// `false` (keeping the old layout, with a log) when something is still
+    /// live in them.
     pub fn configure_memory_pools(
         &mut self,
         config: MemoryConfiguration,
         props: &MemoryDeviceProperties,
-    ) {
+    ) -> bool {
         self.streams
             .current()
             .memory_management_gpu
-            .configure(config, props);
+            .configure(config, props)
     }
 
     /// Allocates a new GPU memory buffer of the specified size.
@@ -577,8 +578,15 @@ pub(crate) unsafe fn write_to_gpu(
     }
 
     let rank = shape.len();
-    if rank <= 1 {
-        // SAFETY: For rank <= 1 data is contiguous. `dst_ptr` is a valid device pointer
+
+    // A row stride equal to the row width means no pitch padding: the copy is
+    // one contiguous span, so use the plain linear copy. Only genuinely pitched
+    // destinations need the 2D copy (which the driver also rejects for very
+    // tall transfers, e.g. an embedding table's 128k rows).
+    let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
+
+    if !pitched {
+        // SAFETY: The data is contiguous. `dst_ptr` is a valid device pointer
         // and `data` is a valid host slice.
         unsafe {
             cudarc::driver::result::memcpy_htod_async(dst_ptr, data, stream).map_err(|e| {
@@ -589,9 +597,8 @@ pub(crate) unsafe fn write_to_gpu(
             })
         }
     } else {
-        // As we've enforced that the strides are contiguous row-major,
-        // and we know that the rank >= 2, we can construct a 2D view
-        // for the aligned GPU pitched memcpy.
+        // The strides are validated as pitched row-major and the rank is >= 2,
+        // so a 2D view with the row pitch covers the transfer.
 
         let dim_x_shape = shape[rank - 1];
         let width_bytes = dim_x_shape * elem_size;
@@ -669,8 +676,15 @@ pub(crate) unsafe fn write_to_cpu(
 
     let rank = shape.len();
     let bytes = bytes.deref_mut();
-    if rank <= 1 {
-        // SAFETY: For rank <= 1 data is contiguous. `resource_ptr` is a valid device pointer
+
+    // A row stride equal to the row width means no pitch padding: the copy is
+    // one contiguous span, so use the plain linear copy. Only genuinely pitched
+    // sources need the 2D copy (which the driver also rejects for very tall
+    // transfers, e.g. an embedding table's 128k rows).
+    let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
+
+    if !pitched {
+        // SAFETY: The data is contiguous. `resource_ptr` is a valid device pointer
         // and `bytes` has sufficient capacity.
         unsafe {
             cudarc::driver::result::memcpy_dtoh_async(bytes, resource_ptr, stream).map_err(|e| {
@@ -681,9 +695,8 @@ pub(crate) unsafe fn write_to_cpu(
             })
         }
     } else {
-        // As we've enforced that the strides are contiguous row-major,
-        // and we know that the rank >= 2, we can construct a 2D view
-        // for the aligned GPU pitched memcpy.
+        // The strides are validated as pitched row-major and the rank is >= 2,
+        // so a 2D view with the row pitch covers the transfer.
 
         let dim_x_shape = shape[rank - 1];
         let width_bytes = dim_x_shape * elem_size;

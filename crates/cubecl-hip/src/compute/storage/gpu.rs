@@ -52,8 +52,9 @@ impl GpuStorage {
                 // SAFETY: `ptr` was obtained from a prior `hipMalloc` call and
                 // has not been freed yet. `hipFree` synchronizes the device, so
                 // in-flight work never sees the page disappear.
-                unsafe {
-                    cubecl_hip_sys::hipFree(ptr);
+                let status = unsafe { cubecl_hip_sys::hipFree(ptr) };
+                if status != HIP_SUCCESS {
+                    eprintln!("HIP free error: {status}");
                 }
             }
         }

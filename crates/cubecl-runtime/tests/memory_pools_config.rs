@@ -5,6 +5,10 @@
 //! workloads. There is deliberately no config-file pathway for pool layouts —
 //! they are dynamic, set at runtime per workload.
 
+// Every test here exercises sliced pools, which `exclusive_memory_only`
+// builds reject by design.
+#![cfg(not(exclusive_memory_only))]
+
 use std::sync::Arc;
 
 use cubecl_ir::MemoryDeviceProperties;

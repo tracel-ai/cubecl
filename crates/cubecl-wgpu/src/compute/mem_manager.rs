@@ -148,15 +148,15 @@ impl WgpuMemManager {
         self.memory_pool.mode(mode);
     }
 
-    /// Rebuild the main pool with a new layout (a no-op with a log when
-    /// something is still live in it). The staging and uniforms pools keep
-    /// their deliberate configurations.
+    /// Rebuild the main pool with a new layout. Returns `false` (keeping the
+    /// old layout, with a log) when something is still live in it. The staging
+    /// and uniforms pools keep their deliberate configurations.
     pub(crate) fn configure_memory_pools(
         &mut self,
         config: MemoryConfiguration,
         props: &MemoryDeviceProperties,
-    ) {
-        self.memory_pool.configure(config, props);
+    ) -> bool {
+        self.memory_pool.configure(config, props)
     }
 
     pub(crate) fn release_uniforms(&mut self) {

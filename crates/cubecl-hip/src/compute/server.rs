@@ -527,13 +527,13 @@ impl ComputeServer for HipServer {
         command.allocation_mode(mode)
     }
 
-    fn configure_memory_pools(&mut self, config: MemoryConfiguration, stream_id: StreamId) {
+    fn configure_memory_pools(&mut self, config: MemoryConfiguration, stream_id: StreamId) -> bool {
         // Streams created from now on build their GPU pools with the new
         // layout; memory is per stream, so already-created streams keep theirs.
         self.streams.backend_mut().set_gpu_pools(config.clone());
         let (_, props) = self.streams.backend_mut().gpu_pools();
 
-        // The calling stream's pools are rebuilt in place (a no-op with a log
+        // The calling stream's pools are rebuilt in place (kept, with a log,
         // when something is still live in them).
         let mut command = match self.command_no_inputs(
             stream_id,
@@ -544,9 +544,9 @@ impl ComputeServer for HipServer {
         ) {
             Ok(val) => val,
             // Server is in error.
-            Err(_) => return,
+            Err(_) => return false,
         };
-        command.configure_memory_pools(config, &props);
+        command.configure_memory_pools(config, &props)
     }
 }
 

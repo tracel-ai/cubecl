@@ -32,7 +32,9 @@ impl SlicedPool {
     ) -> Self {
         // A budget smaller than one page shrinks the page to the
         // (alignment-rounded-down) budget, so the cap is honored rather than
-        // exceeded by a single page.
+        // exceeded by a single page. A budget below the alignment can't fit
+        // even the smallest page the device allows, so it yields zero pages:
+        // allocations error instead of overshooting the cap.
         let (page_size, max_pages) = match max_pool_size {
             Some(cap) => {
                 let page_size = if cap < page_size {
@@ -40,7 +42,7 @@ impl SlicedPool {
                 } else {
                     page_size
                 };
-                let max_pages = (cap / page_size).min(u16::MAX as u64).max(1) as u16;
+                let max_pages = (cap / page_size).min(u16::MAX as u64) as u16;
                 (page_size, Some(max_pages))
             }
             None => (page_size, None),

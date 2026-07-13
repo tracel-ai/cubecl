@@ -44,8 +44,12 @@ pub trait Binary<D: Dialect> {
     ) -> core::fmt::Result {
         let mut write_op =
             |index: usize, lhs: &Value<D>, rhs: &Value<D>, out: &Value<D>, item_out: Item<D>| {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = {item_out}{{")?;
+                if out.declare_local_ptr_backing(f)? {
+                    writeln!(f, "*{out} = {item_out}{{")?;
+                } else {
+                    let out = out.fmt_left();
+                    writeln!(f, "{out} = {item_out}{{")?;
+                }
                 for i in 0..index {
                     let lhsi = lhs.index(i);
                     let rhsi = rhs.index(i);
@@ -75,12 +79,19 @@ pub trait Binary<D: Dialect> {
                 let out_tmp = Value::tmp(item_out_optimized);
                 write_op(index, &lhs, &rhs, &out_tmp, item_out_optimized)?;
                 let addr_space = D::address_space_for_value(out);
-                let out = out.fmt_left();
 
-                writeln!(
-                    f,
-                    "{out} = reinterpret_cast<{addr_space}{item_out_original}&>({out_tmp});\n"
-                )?;
+                if out.declare_local_ptr_backing(f)? {
+                    writeln!(
+                        f,
+                        "*{out} = reinterpret_cast<{addr_space}{item_out_original}&>({out_tmp});\n"
+                    )?;
+                } else {
+                    let out = out.fmt_left();
+                    writeln!(
+                        f,
+                        "{out} = reinterpret_cast<{addr_space}{item_out_original}&>({out_tmp});\n"
+                    )?;
+                }
 
                 Ok(())
             }

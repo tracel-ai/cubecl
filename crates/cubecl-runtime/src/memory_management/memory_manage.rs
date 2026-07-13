@@ -240,6 +240,11 @@ pub enum PoolConfigError {
         /// The number of pages the configuration asks for.
         pages: u64,
     },
+    /// The pool list has more entries than the pool routing can address.
+    TooManyPools {
+        /// The number of entries in the configuration.
+        count: usize,
+    },
     /// The preset is not available in this build.
     PresetUnavailable {
         /// The preset name.
@@ -272,6 +277,11 @@ impl core::fmt::Display for PoolConfigError {
                 f,
                 "`max_pool_size` spans {pages} pages of `page_size`, exceeding the maximum of {}; increase `page_size` or lower the cap",
                 u16::MAX
+            ),
+            PoolConfigError::TooManyPools { count } => write!(
+                f,
+                "the pool list has {count} entries, exceeding the maximum of {} dynamic pools",
+                PERSISTENT_POOL_POS - 1
             ),
             PoolConfigError::PresetUnavailable { preset } => {
                 write!(f, "the `{preset}` preset is not available in this build")
@@ -330,6 +340,15 @@ impl MemoryConfiguration {
             MemoryPoolsConfig::Explicit(entries) => {
                 if entries.is_empty() {
                     return Err(PoolConfigError::EmptyPoolList);
+                }
+                // Slices route through their pool's position, and the
+                // persistent pool owns the sentinel position, so the list must
+                // stay addressable below it — checked here so the caller gets
+                // the error instead of a panic on the device thread.
+                if entries.len() >= PERSISTENT_POOL_POS as usize {
+                    return Err(PoolConfigError::TooManyPools {
+                        count: entries.len(),
+                    });
                 }
                 let pool_options = entries
                     .iter()
@@ -744,14 +763,18 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             || "Manual memory cleanup ...".to_string(),
         );
 
-        // The persistent pool is untouchable during a capture: the window's
-        // free slices are exactly what the capture run reuses (deallocating
-        // one forces a fresh device allocation mid-capture, which faults), and
-        // `capture_end` still has to resample them.
-        if self.capture.is_none() {
-            self.persistent
-                .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
+        // Nothing may be freed during a capture. The persistent window's free
+        // slices are exactly what the capture run reuses (deallocating one
+        // forces a fresh device allocation mid-capture, which faults), and
+        // the storage frees behind the dynamic pools can synchronize the
+        // device (e.g. `hipFree`), which invalidates the capture. Everything
+        // stays queued until the capture ends.
+        if self.capture.is_some() {
+            return;
         }
+
+        self.persistent
+            .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
 
         for pool in self.pools.iter_mut() {
             pool.cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
@@ -1303,6 +1326,26 @@ mod tests {
     }
 
     #[test_log::test]
+    fn max_pool_size_below_alignment_never_overshoots() {
+        // A cap below the device alignment (32 in `DUMMY_MEM_PROPS`) can't fit
+        // even the smallest page, so every reservation must error rather than
+        // exceed the budget.
+        let mut memory_management = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &DUMMY_MEM_PROPS,
+            capped_sliced_config(1024, Some(16)),
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        assert!(matches!(
+            memory_management.reserve(8),
+            Err(IoError::PoolCapacityExceeded { .. })
+        ));
+        assert_eq!(memory_management.memory_usage().bytes_reserved, 0);
+    }
+
+    #[test_log::test]
     fn capacity_error_does_not_fall_through_to_later_pool() {
         let mut memory_management = MemoryManagement::from_configuration(
             BytesStorage::default(),
@@ -1650,6 +1693,18 @@ mod tests {
                     dealloc_period: None,
                 }]),
                 PoolConfigError::TooManyPages { pages: 64 * 1024 * 1024 },
+            ),
+            (
+                MemoryPoolsConfig::Explicit(vec![
+                    MemoryPoolConfig::Exclusive {
+                        max_alloc_size: MemorySize(1024),
+                        dealloc_period: None,
+                    };
+                    PERSISTENT_POOL_POS as usize
+                ]),
+                PoolConfigError::TooManyPools {
+                    count: PERSISTENT_POOL_POS as usize,
+                },
             ),
         ];
 
