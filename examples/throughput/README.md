@@ -2,12 +2,13 @@
 
 Small benchmarks that measure a device's **peak throughput** for a few workloads:
 
-| example          | measures                                          |
-| ---------------- | ------------------------------------------------- |
-| `compute_direct` | peak arithmetic throughput (non-CMMA, f32)        |
-| `compute_cmma`   | peak tensor-core (CMMA) throughput (f16 → f32)    |
-| `memory`         | peak memory (copy) bandwidth                      |
-| `all`            | runs all of the above and prints them as a table  |
+| example           | measures                                          |
+| ----------------- | ------------------------------------------------- |
+| `compute_direct`  | peak arithmetic throughput (non-CMMA, f32)        |
+| `compute_cmma`    | peak tensor-core (CMMA) throughput (f16 → f32)    |
+| `memory`          | peak memory (copy) bandwidth                      |
+| `launch_overhead` | fixed per-launch dispatch latency                 |
+| `all`             | runs all of the above and prints them as a table  |
 
 ## Running
 
@@ -17,6 +18,7 @@ Pick a backend with a feature flag:
 cargo run --release -p throughput --features wgpu --example all
 cargo run --release -p throughput --features cuda --example memory
 cargo run --release -p throughput --features cuda --example compute_cmma
+cargo run --release -p throughput --features wgpu --example launch_overhead
 ```
 
 Always use `--release`; a debug build measures the wrong thing.
@@ -28,6 +30,7 @@ Peak throughput — wgpu<wgsl>
   compute-direct f32                          6.4877 TOPS/s
   compute-cmma   f16→f16 16×16×16               unsupported
   memory         f32                      131.5563 Gbytes/s
+Launch overhead: 32.4µs
 ```
 
 CMMA needs a tensor-core backend. On backends without it (e.g. WGSL) it prints
@@ -62,3 +65,6 @@ CUBECL_THROUGHPUT_CACHE=off cargo run --release -p throughput --example all --fe
 
 Accepted values: `on` / `1` / `true` to enable (the default), `off` / `0` /
 `false` to disable.
+
+`launch_overhead` is memoized per device in memory only (it is not persisted and
+is unaffected by `CUBECL_THROUGHPUT_CACHE`), so it is re-measured each run.

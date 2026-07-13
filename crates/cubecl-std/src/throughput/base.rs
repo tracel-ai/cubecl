@@ -1,7 +1,6 @@
 use cubecl_core::{
     CubeCount,
     frontend::BufferArg,
-    future::block_on,
     ir::{ElemType, IntKind},
 };
 use cubecl_runtime::{
@@ -96,6 +95,6 @@ pub fn measure_launch_overhead<R: Runtime>(client: &ComputeClient<R>) -> core::t
             )
             .expect("should succeed launch_overhead");
 
-        block_on(duration.into_future()).duration()
+        cubecl_core::future::block_on(duration.into_future()).duration()
     })
 }

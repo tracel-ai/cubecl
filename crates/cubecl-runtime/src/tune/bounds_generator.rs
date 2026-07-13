@@ -18,11 +18,11 @@ pub struct Bounds<B: TimeBound> {
     label = "invalid bounds generator"
 )]
 pub trait BoundsGenerator<K, I: TuneInputs, B: TimeBound>: Send + Sync + 'static {
-    /// Generate a set of inputs for a given key and reference inputs.
+    /// Generate a set of bounds for a given key and reference inputs.
     fn generate<'a>(&self, key: &K, inputs: &I::At<'a>) -> Bounds<B>;
 }
 
-/// `Fn(&K, &A) -> A` acts as an [`InputGenerator`] when `A` is an owned type. For
+/// `Fn(&K, &A) -> Bounds<B>` acts as an [`BoundsGenerator`] when `A` is an owned type. For
 /// multi-input kernels, `A` is a tuple that the closure destructures internally.
 impl<K, Func, A, B: TimeBound> BoundsGenerator<K, A, B> for Func
 where
@@ -44,7 +44,7 @@ pub trait TimeBound {
 
 /// A bound for autotuning a throughput kernel, specifying the key, threshold, and number of operations.
 pub struct AutotuneBound {
-    /// The key for this bound, specifying the mode and data type of the throughput kernel. In seconds.
+    /// The key for this bound, specifying the mode and data type of the throughput kernel. In ops/bytes per seconds.
     pub throughput: f64,
     /// The threshold for this bound, over which the kernel will be considered accurate.
     pub threshold: f32,
@@ -66,9 +66,7 @@ impl TimeBound for AutotuneBound {
 
 impl<B: TimeBound> TimeBound for Vec<B> {
     fn time_limit(&self) -> Option<Duration> {
-        self.iter()
-            .filter_map(|b| b.time_limit())
-            .max_by(|a, b| a.cmp(b))
+        self.iter().filter_map(|b| b.time_limit()).max()
     }
 }
 
