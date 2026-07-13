@@ -37,8 +37,7 @@ pub fn build_kernel<R: Runtime>(
     KernelConfig { kernel, ops_count }
 }
 
-/// Independent accumulator chains per lane, to hide the arithmetic latency of the dependent
-/// `sum = fma(sum, b, c)` recurrence.
+/// Independent accumulator chains per lane to hide arithmetic latency.
 const CHAINS: usize = 4;
 
 #[cube(launch_unchecked)]
@@ -58,9 +57,7 @@ pub fn compute_direct_throughput<I: Numeric, N: Size>(
     let mut s2 = Vector::<I, N>::empty();
     let mut s3 = Vector::<I, N>::empty();
 
-    // Every lane and every chain gets a distinct seed. Values that are provably equal get folded:
-    // a broadcast (`Vector::new`) collapses the vector to one lane, and identically seeded chains
-    // collapse to one chain. Either way the kernel retires fewer operations than `ops_count` bills.
+    // Give every lane and chain a distinct seed to prevent folding.
     let lanes = b.vector_size();
     #[unroll]
     for lane in 0..lanes {
@@ -81,7 +78,7 @@ pub fn compute_direct_throughput<I: Numeric, N: Size>(
             s2 = fma(s2, b, c);
             s3 = fma(s3, b, c);
         } else {
-            // gives lower bound as mul is slowest integer operation
+            // mul is the slowest integer operation
             s0 *= b;
             s1 *= b;
             s2 *= b;

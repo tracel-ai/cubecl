@@ -73,13 +73,7 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
     }
 }
 
-/// Measures the fixed cost of a single kernel launch: the overhead every dispatch pays
-/// regardless of the work it does.
-///
-/// Memoized per device by [`ComputeClient::measure_launch_overhead`], which also owns the
-/// warmup and the reduction over repeated samples. This function only provides one sample:
-/// a single trivial dispatch, timed through [`ComputeClient::profile`] to share the time
-/// base of benchmarked kernels.
+/// Measures the fixed cost of a single kernel launch.
 pub fn measure_launch_overhead<R: Runtime>(client: &ComputeClient<R>) -> core::time::Duration {
     client.measure_launch_overhead(|| {
         let input = client.empty(size_of::<i32>());
