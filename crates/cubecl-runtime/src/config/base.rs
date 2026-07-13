@@ -152,6 +152,18 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             }
         }
 
+        if let Ok(val) = std::env::var("CUBECL_AUTOTUNE_CACHE") {
+            match val.as_str() {
+                "true" | "1" | "on" => {
+                    self.autotune.disable_cache = false;
+                }
+                "false" | "0" | "off" => {
+                    self.autotune.disable_cache = true;
+                }
+                _ => {}
+            }
+        }
+
         self
     }
 }
