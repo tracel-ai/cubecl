@@ -16,13 +16,18 @@ fn kernel_test_sync_cube(buffer: &mut [u32], out: &mut [u32]) {
 }
 
 pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R>) {
+    // Clamp the cube dim to the device's limit (e.g. the core count on CPU).
+    let max_units = client.properties().hardware.max_units_per_cube;
+    let dim_x = core::cmp::min(8, (max_units / 2).max(1));
+    let units = (dim_x * 2) as usize;
+
     let handle = client.empty(32 * core::mem::size_of::<u32>());
     let test = client.empty(32 * core::mem::size_of::<u32>());
 
     kernel_test_sync_cube::launch(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::new_2d(8, 2),
+        CubeDim::new_2d(dim_x, 2),
         unsafe { BufferArg::from_raw_parts(test, 32) },
         unsafe { BufferArg::from_raw_parts(handle.clone(), 32) },
     );
@@ -30,11 +35,11 @@ pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R>) {
     let actual = client.read_one_unchecked(handle);
     let actual = u32::from_bytes(&actual);
 
-    let expected: Vec<u32> = (0..16)
+    let expected: Vec<u32> = (0..units as i32)
         .map(|i| core::cmp::max(2 * i - 1, 0) as u32)
         .collect();
 
-    assert_eq!(&actual[1..16], &expected[1..16]);
+    assert_eq!(&actual[1..units], &expected[1..units]);
 }
 
 #[cube(launch)]
@@ -54,13 +59,18 @@ fn kernel_test_finished_sync_cube(buffer: &mut [u32], out: &mut [u32]) {
 }
 
 pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R>) {
+    // Clamp the cube dim to the device's limit (e.g. the core count on CPU).
+    let max_units = client.properties().hardware.max_units_per_cube;
+    let dim_x = core::cmp::min(8, (max_units / 2).max(1));
+    let checked = core::cmp::min(8, (dim_x * 2) as usize);
+
     let handle = client.empty(32 * core::mem::size_of::<u32>());
     let test = client.empty(32 * core::mem::size_of::<u32>());
 
     kernel_test_finished_sync_cube::launch(
         &client,
         CubeCount::Static(2, 1, 1),
-        CubeDim::new_2d(8, 2),
+        CubeDim::new_2d(dim_x, 2),
         unsafe { BufferArg::from_raw_parts(test, 32) },
         unsafe { BufferArg::from_raw_parts(handle.clone(), 32) },
     );
@@ -68,11 +78,11 @@ pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R>) {
     let actual = client.read_one_unchecked(handle);
     let actual = u32::from_bytes(&actual);
 
-    let expected: Vec<u32> = (0..8)
+    let expected: Vec<u32> = (0..checked as i32)
         .map(|i| core::cmp::max(2 * i - 1, 0) as u32)
         .collect();
 
-    assert_eq!(&actual[1..8], &expected[1..8]);
+    assert_eq!(&actual[1..checked], &expected[1..checked]);
 }
 
 #[cube(launch)]

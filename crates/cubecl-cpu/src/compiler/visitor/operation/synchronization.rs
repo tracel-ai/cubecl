@@ -425,6 +425,9 @@ impl<'a> Visitor<'a> {
     pub fn visit_synchronization(&mut self, synchronization: &Synchronization) {
         match synchronization {
             Synchronization::SyncCube => {
+                // The spin barrier only completes when every unit of the cube runs on its
+                // own thread; the scheduler must not queue two units behind each other.
+                *self.needs_parallelism = true;
                 let func_name = FlatSymbolRefAttribute::new(self.context, "sync_cube");
                 self.block.append_operation(func::call(
                     self.context,
