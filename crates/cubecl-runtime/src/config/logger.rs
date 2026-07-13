@@ -78,27 +78,27 @@ impl Logger {
 
     /// Logs a message for streaming, directing it to all configured streaming loggers.
     pub fn log_streaming<S: Display>(&mut self, msg: &S) {
-        self.sinks.log(&self.streaming_index, msg);
+        self.sinks.log(&self.streaming_index, "cubecl::streaming", msg);
     }
 
     /// Logs a message for memory, directing it to all configured memory loggers.
     pub fn log_memory<S: Display>(&mut self, msg: &S) {
-        self.sinks.log(&self.memory_index, msg);
+        self.sinks.log(&self.memory_index, "cubecl::memory", msg);
     }
 
     /// Logs a message for compilation, directing it to all configured compilation loggers.
     pub fn log_compilation<S: Display>(&mut self, msg: &S) {
-        self.sinks.log(&self.compilation_index, msg);
+        self.sinks.log(&self.compilation_index, "cubecl::compilation", msg);
     }
 
     /// Logs a message for profiling, directing it to all configured profiling loggers.
     pub fn log_profiling<S: Display>(&mut self, msg: &S) {
-        self.sinks.log(&self.profiling_index, msg);
+        self.sinks.log(&self.profiling_index, "cubecl::profiling", msg);
     }
 
     /// Logs a message for autotuning, directing it to all configured autotuning loggers.
     pub fn log_autotune<S: Display>(&mut self, msg: &S) {
-        self.sinks.log(&self.autotune_index, msg);
+        self.sinks.log(&self.autotune_index, "cubecl::autotune", msg);
     }
 
     /// Returns the current streaming log level from the global configuration.

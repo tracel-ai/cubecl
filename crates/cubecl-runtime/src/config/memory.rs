@@ -18,10 +18,9 @@ pub struct MemoryConfig {
     pub persistent_memory: PersistentMemory,
 }
 
-/// A pool layout override for a runtime's **main GPU** memory: a preset name
-/// (`"sub-slices"` / `"exclusive-pages"`) or an explicit list of pool entries,
-/// tried in order at allocation time (the first pool that accepts an
-/// allocation's size serves it).
+/// A pool layout override for a runtime's **main GPU** memory: a preset or an
+/// explicit list of pool entries, tried in order at allocation time (the first
+/// pool that accepts an allocation's size serves it).
 ///
 /// This is a **programmatic** setting, deliberately not a config-file one —
 /// pool layouts are dynamic (e.g. resized per model just before a load) and
@@ -30,8 +29,7 @@ pub struct MemoryConfig {
 /// it rebuilds the calling stream's pools in place and becomes the layout for
 /// streams created afterwards. Auxiliary pools (pinned CPU, staging, uniforms)
 /// are never affected.
-#[derive(Clone, Debug, PartialEq, serde::Serialize)]
-#[serde(untagged)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum MemoryPoolsConfig {
     /// A named preset matching the runtime-level presets.
     Preset(MemoryPoolsPreset),
@@ -40,53 +38,8 @@ pub enum MemoryPoolsConfig {
     Explicit(Vec<MemoryPoolConfig>),
 }
 
-// Manual deserialization (instead of `#[serde(untagged)]`) so errors inside a
-// pool entry — like a misspelled field — surface as-is instead of the generic
-// "did not match any variant" message.
-impl<'de> serde::Deserialize<'de> for MemoryPoolsConfig {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct Visitor;
-
-        impl<'de> serde::de::Visitor<'de> for Visitor {
-            type Value = MemoryPoolsConfig;
-
-            fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                f.write_str(
-                    "a preset string (\"sub-slices\" or \"exclusive-pages\") or a list of pool tables",
-                )
-            }
-
-            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
-                match value {
-                    "sub-slices" => Ok(MemoryPoolsConfig::Preset(MemoryPoolsPreset::SubSlices)),
-                    "exclusive-pages" => {
-                        Ok(MemoryPoolsConfig::Preset(MemoryPoolsPreset::ExclusivePages))
-                    }
-                    other => Err(E::custom(alloc::format!(
-                        "unknown preset `{other}`, expected \"sub-slices\" or \"exclusive-pages\""
-                    ))),
-                }
-            }
-
-            fn visit_seq<A: serde::de::SeqAccess<'de>>(
-                self,
-                mut seq: A,
-            ) -> Result<Self::Value, A::Error> {
-                let mut entries = Vec::new();
-                while let Some(entry) = seq.next_element::<MemoryPoolConfig>()? {
-                    entries.push(entry);
-                }
-                Ok(MemoryPoolsConfig::Explicit(entries))
-            }
-        }
-
-        deserializer.deserialize_any(Visitor)
-    }
-}
-
 /// The presets of [`MemoryConfiguration`](crate::memory_management::MemoryConfiguration).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MemoryPoolsPreset {
     /// The runtime's `SubSlices` preset: a ladder of size-bucketed pools that
     /// sub-slice large pages.
@@ -99,11 +52,8 @@ pub enum MemoryPoolsPreset {
 /// One pool entry; mirrors [`MemoryPoolOptions`](crate::memory_management::MemoryPoolOptions)
 /// and [`PoolType`](crate::memory_management::PoolType).
 ///
-/// Sizes accept raw integers (bytes) or strings like `"8KiB"` / `"20GiB"`, and
-/// are aligned up to the device alignment. Unknown fields are rejected, so a
-/// misspelled option is a load error rather than a silently dropped setting.
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", rename_all = "kebab-case", from = "MemoryPoolConfigDe")]
+/// Sizes are aligned up to the device alignment.
+#[derive(Clone, Debug, PartialEq)]
 pub enum MemoryPoolConfig {
     /// Every allocation gets its own page
     /// ([`PoolType::ExclusivePages`](crate::memory_management::PoolType::ExclusivePages)).
@@ -112,8 +62,7 @@ pub enum MemoryPoolConfig {
         /// dedicated to zero-sized (sub-alignment) allocations.
         max_alloc_size: MemorySize,
         /// Period (in parent allocation count) after which unused pages are
-        /// deallocated. Omit to never deallocate.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        /// deallocated. `None` never deallocates.
         dealloc_period: Option<u64>,
     },
     /// Allocations are slices of larger pages
@@ -122,66 +71,16 @@ pub enum MemoryPoolConfig {
         /// Size of each page.
         page_size: MemorySize,
         /// Largest slice this pool accepts. Defaults to `page_size`.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         max_slice_size: Option<MemorySize>,
         /// Hard cap on the pool's total reserved bytes: exceeding it is an
-        /// error instead of silent growth. Omit for unbounded growth. Note:
+        /// error instead of silent growth. `None` grows unbounded. Note:
         /// runtimes that create one memory management per stream (CUDA, HIP)
         /// apply the cap per stream.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         max_pool_size: Option<MemorySize>,
         /// Period (in parent allocation count) after which unused pages are
-        /// deallocated. Omit to never deallocate.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        /// deallocated. `None` never deallocates.
         dealloc_period: Option<u64>,
     },
-}
-
-// Deserialize-only mirror of [`MemoryPoolConfig`]: `deny_unknown_fields` can't
-// be used on an internally tagged enum directly, but works on the newtype
-// variants' inner structs, turning a misspelled field into a load error.
-#[derive(serde::Deserialize)]
-#[serde(tag = "type", rename_all = "kebab-case")]
-enum MemoryPoolConfigDe {
-    Exclusive(ExclusivePoolDe),
-    Sliced(SlicedPoolDe),
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ExclusivePoolDe {
-    max_alloc_size: MemorySize,
-    #[serde(default)]
-    dealloc_period: Option<u64>,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SlicedPoolDe {
-    page_size: MemorySize,
-    #[serde(default)]
-    max_slice_size: Option<MemorySize>,
-    #[serde(default)]
-    max_pool_size: Option<MemorySize>,
-    #[serde(default)]
-    dealloc_period: Option<u64>,
-}
-
-impl From<MemoryPoolConfigDe> for MemoryPoolConfig {
-    fn from(value: MemoryPoolConfigDe) -> Self {
-        match value {
-            MemoryPoolConfigDe::Exclusive(pool) => MemoryPoolConfig::Exclusive {
-                max_alloc_size: pool.max_alloc_size,
-                dealloc_period: pool.dealloc_period,
-            },
-            MemoryPoolConfigDe::Sliced(pool) => MemoryPoolConfig::Sliced {
-                page_size: pool.page_size,
-                max_slice_size: pool.max_slice_size,
-                max_pool_size: pool.max_pool_size,
-                dealloc_period: pool.dealloc_period,
-            },
-        }
-    }
 }
 
 /// Configuration options for persistent memory pools in `CubeCL` runtimes.

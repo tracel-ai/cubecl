@@ -222,7 +222,7 @@ client.configure_memory_pools(&MemoryPoolsConfig::Explicit(vec![MemoryPoolConfig
 }]));
 ```
 
-The value is either a preset (`MemoryPoolsConfig::Preset` — `sub-slices` or `exclusive-pages`,
+The value is either a preset (`MemoryPoolsConfig::Preset` — `SubSlices` or `ExclusivePages`,
 matching the runtime defaults) or an explicit pool list; at allocation time, the first pool that
 accepts an allocation's size serves it. Auxiliary pools (pinned CPU, staging, uniforms) and the
 persistent pool are never affected.
