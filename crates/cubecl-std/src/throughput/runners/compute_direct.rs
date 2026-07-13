@@ -72,18 +72,10 @@ pub fn compute_direct_throughput<I: Numeric, N: Size>(
     }
 
     for _ in 0..n_iter {
-        if use_fma {
-            s0 = fma(s0, b, c);
-            s1 = fma(s1, b, c);
-            s2 = fma(s2, b, c);
-            s3 = fma(s3, b, c);
-        } else {
-            // mul is the slowest integer operation
-            s0 *= b;
-            s1 *= b;
-            s2 *= b;
-            s3 *= b;
-        }
+        s0 = step(s0, b, c, use_fma);
+        s1 = step(s1, b, c, use_fma);
+        s2 = step(s2, b, c, use_fma);
+        s3 = step(s3, b, c, use_fma);
     }
 
     let sum = s0 + s1 + s2 + s3;
@@ -91,4 +83,16 @@ pub fn compute_direct_throughput<I: Numeric, N: Size>(
     if ABSOLUTE_POS == 0 {
         output[0] = sum;
     }
+}
+
+/// Retires one arithmetic op per chain: an fma (two flops) for floats, otherwise a mul
+/// (the slowest integer op, giving a lower bound).
+#[cube]
+fn step<I: Numeric, N: Size>(
+    s: Vector<I, N>,
+    b: Vector<I, N>,
+    c: Vector<I, N>,
+    #[comptime] use_fma: bool,
+) -> Vector<I, N> {
+    if use_fma { fma(s, b, c) } else { s * b }
 }

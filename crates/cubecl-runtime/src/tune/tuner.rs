@@ -198,8 +198,6 @@ impl<K: AutotuneKey> Tuner<K> {
             _ => None,
         };
 
-        // The slowest median duration still considered close enough to peak throughput.
-        // Only used on native, where a benchmark can be resolved inline to exit early.
         #[cfg(not(target_family = "wasm"))]
         let threshold_limit = tunables
             .bounds(key, inputs)
