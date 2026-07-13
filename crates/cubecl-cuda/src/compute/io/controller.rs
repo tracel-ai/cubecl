@@ -41,6 +41,13 @@ impl AllocationController for PinnedMemoryManagedAllocController {
         &mut self,
         _policy: AccessPolicy,
     ) -> Result<&mut [std::mem::MaybeUninit<u8>], AccessError> {
+        // A zero-size resource carries a NULL pointer (a zero-size host alloc
+        // returns success without allocating), which `from_raw_parts_mut`
+        // rejects even for an empty slice — hand out an aligned dangling
+        // pointer instead.
+        if self.resource.size == 0 {
+            return Ok(empty_pinned_slice_mut());
+        }
         // SAFETY:
         // - The ptr is valid while the binding is alive.
         // - The resource is allocated with the size of size.
@@ -55,6 +62,10 @@ impl AllocationController for PinnedMemoryManagedAllocController {
     }
 
     fn memory(&self, _policy: AccessPolicy) -> Result<&[std::mem::MaybeUninit<u8>], AccessError> {
+        // See `memory_mut`: a zero-size resource carries a NULL pointer.
+        if self.resource.size == 0 {
+            return Ok(empty_pinned_slice_mut());
+        }
         // SAFETY:
         // - The ptr is valid while the binding is alive.
         // - The resource is allocated with the size of size.
@@ -69,5 +80,15 @@ impl AllocationController for PinnedMemoryManagedAllocController {
 
     fn property(&self) -> AllocationProperty {
         AllocationProperty::Pinned
+    }
+}
+
+/// An empty slice whose (dangling) pointer still satisfies
+/// [`PINNED_MEMORY_ALIGNMENT`], matching what `alloc_align` advertises.
+fn empty_pinned_slice_mut<'a>() -> &'a mut [std::mem::MaybeUninit<u8>] {
+    // SAFETY: a dangling, well-aligned, non-null pointer is valid for a
+    // zero-length slice.
+    unsafe {
+        std::slice::from_raw_parts_mut(std::ptr::without_provenance_mut(PINNED_MEMORY_ALIGNMENT), 0)
     }
 }

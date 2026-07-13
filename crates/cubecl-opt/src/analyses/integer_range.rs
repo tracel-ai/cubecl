@@ -1,3 +1,7 @@
+// The integer range analysis is currently unused but kept for a future index-bound optimization
+// pass; suppress dead-code lints for the whole module rather than deleting the analysis.
+#![allow(dead_code)]
+
 use cubecl_ir::{
     Arithmetic, Builtin, ConstantValue, ElemType, Id, Operation, Operator, Type, Value, ValueKind,
 };
@@ -19,7 +23,6 @@ pub struct Range {
 /// between simple arithmetic, so we can determine the possible range of a good number of values.
 /// This is currently only used in index bound analysis.
 #[derive(Debug, Default)]
-#[allow(unused)]
 pub struct Ranges {
     int_ranges: HashMap<Id, Range>,
 }
