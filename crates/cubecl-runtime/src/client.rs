@@ -1304,12 +1304,7 @@ impl<R: Runtime> ComputeClient<R> {
         throughputs.measure(self, key, kernel_config)
     }
 
-    /// Returns the device's launch overhead: the fixed latency of a single kernel
-    /// dispatch, memoized per device for the lifetime of the process.
-    ///
-    /// `sample` performs one trivial dispatch and returns its measured duration; the
-    /// warmup and reduction over repeated samples happen here. Kept in the same time
-    /// base as benchmarked kernels by measuring through [`Self::profile`].
+    /// Calculates the launch overhead of the device by sampling.
     pub fn measure_launch_overhead(
         &self,
         sample: impl Fn() -> core::time::Duration,

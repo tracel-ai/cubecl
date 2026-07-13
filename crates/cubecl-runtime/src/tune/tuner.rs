@@ -237,23 +237,10 @@ impl<K: AutotuneKey> Tuner<K> {
                         #[cfg(not(target_family = "wasm"))]
                         if let Some(limit) = threshold_limit {
                             let result = cubecl_common::future::block_on(resolve_bench(bench));
-                            let close_enough = result.outcome.as_ref().is_ok_and(|outcome| {
-                                std::println!(
-                                    "{} min: {:?} median: {:?} max: {:?} limit: {:?}",
-                                    outcome.name,
-                                    outcome.computation.min,
-                                    outcome.computation.median,
-                                    outcome.computation.max,
-                                    limit
-                                );
-                                std::println!(
-                                    "Reached {:.2}% of the threshold limit",
-                                    (limit.as_secs_f64()
-                                        / outcome.computation.median.as_secs_f64())
-                                        * 100.0
-                                );
-                                outcome.computation.median <= limit
-                            });
+                            let close_enough = result
+                                .outcome
+                                .as_ref()
+                                .is_ok_and(|outcome| outcome.computation.median <= limit);
 
                             batch_success |= result.outcome.is_ok();
                             results[index] = result;

@@ -110,8 +110,6 @@ pub struct BenchmarkComputations {
 impl BenchmarkComputations {
     /// Compute duration values and return a `BenchmarkComputations` struct
     pub fn new(durations: &BenchmarkDurations) -> Self {
-        #[cfg(feature = "std")]
-        std::println!("Benchmarking with {:?} durations", durations);
         let mean = durations.mean_duration();
         let (min, max, median) = durations.min_max_median_durations();
         Self {
