@@ -58,6 +58,7 @@ half = { workspace = true }
 log = { workspace = true }
 paste = { workspace = true }
 pliron = { workspace = true }
+pliron = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 sysinfo = { workspace = true }
 tracel-llvm = { workspace = true }

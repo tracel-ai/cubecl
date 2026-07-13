@@ -1,6 +1,11 @@
 pub mod dialect;
 pub mod jit;
 
+#[cfg(feature = "pliron-dump")]
+use pliron::context::Context;
+#[cfg(feature = "pliron-dump")]
+use std::{path::PathBuf, str::FromStr};
+
 use cubecl_common::backtrace::BackTrace;
 use cubecl_opt::passes::simple_cse::SimpleCSEPass;
 use cubecl_runtime::compiler::CompilationError;
@@ -17,8 +22,6 @@ use pliron::{
     opts::{constants::sccp::SCCPPass, dce::DCEPass},
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
 };
-#[cfg(feature = "pliron-dump")]
-use pliron::{context::Context, printable::Printable};
 
 use crate::compiler::dialect::cpu::InsertEntrypointPass;
 use crate::compiler::jit::engine::PlironEngine;
@@ -67,7 +70,13 @@ impl PlironCompiler {
         let module_op = module.get_operation();
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
+        #[cfg(not(feature = "pliron-dump"))]
+        let tree_printing_path = None;
+        #[cfg(feature = "pliron-dump")]
+        let tree_printing_path = pliron_path(&kernel.settings.kernel_name);
         let config = PMConfig {
+            print_after_all: true,
+            tree_printing_path,
             ..Default::default()
         };
 
@@ -88,23 +97,18 @@ impl PlironCompiler {
 
         passes.run(module_op, &mut ctx, &mut analyses).unwrap();
 
-        #[cfg(feature = "pliron-dump")]
-        dump_pliron(&module, &ctx, &kernel.settings.kernel_name);
-
         PlironEngine::default()
     }
 }
 
 #[cfg(feature = "pliron-dump")]
-fn dump_pliron(module: &ModuleOp, ctx: &Context, name: &str) {
+fn pliron_path(name: &str) -> Option<PathBuf> {
     use std::fs;
     if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
-        let path = format!("{dir}/{name}");
-        let _ = fs::create_dir(&path);
-        std::fs::write(
-            format!("{}/initial.plir", path),
-            format!("{}", module.disp(&ctx)),
-        )
-        .unwrap();
+        let path = PathBuf::from_str(&dir).unwrap().join(name);
+        let _ = fs::create_dir_all(&path);
+        Some(path)
+    } else {
+        None
     }
 }
