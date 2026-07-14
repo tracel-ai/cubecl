@@ -1,11 +1,12 @@
 use proc_macro::TokenStream;
-use syn::{DeriveInput, parse_macro_input};
+use syn::{DeriveInput, ItemImpl, parse_macro_input};
 use type_hash::type_hash_impl;
 
 use crate::{
     generate::{
         const_eval::generate_const_eval,
         cube_op::{generate_cube_op, generate_op_traits},
+        pass_name::generate_pass_name,
         simplify::generate_simplify,
     },
     parse::{
@@ -48,6 +49,14 @@ pub fn op_traits(args: TokenStream, input: TokenStream) -> TokenStream {
     let traits = parse_macro_input!(args as PathList);
     let input = parse_macro_input!(input as DeriveInput);
     macro_try!(generate_op_traits(input, traits)).into()
+}
+
+/// Implements `Pass::name` on the annotated `impl Pass for X` block, returning the short name of
+/// the pass struct (e.g. `"InsertEntrypointPass"`) instead of the fully-qualified type path.
+#[proc_macro_attribute]
+pub fn pass_name(_args: TokenStream, input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as ItemImpl);
+    macro_try!(generate_pass_name(input)).into()
 }
 
 #[proc_macro]

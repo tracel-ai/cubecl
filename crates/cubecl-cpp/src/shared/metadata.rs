@@ -1,4 +1,3 @@
-use core::any::type_name;
 
 use cubecl_core::ir::{
     CanMaterialize, Pure,
@@ -76,11 +75,8 @@ shared_op_with_out!(CppReadDynamicMetaOp, |op, ctx| {
 #[derive(Default)]
 pub struct LowerInfoPass;
 
+#[pass_name]
 impl Pass for LowerInfoPass {
-    fn name(&self) -> &str {
-        type_name::<Self>()
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,

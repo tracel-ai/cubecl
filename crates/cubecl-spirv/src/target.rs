@@ -1,4 +1,3 @@
-use core::any::type_name;
 use cubecl_core::{
     WgpuCompilationOptions,
     ir::{
@@ -46,11 +45,8 @@ pub trait LowerInfoOp {
 /// Run on: `SpirvModuleOp`
 pub struct ConvertArgsPass;
 
+#[pass_name]
 impl Pass for ConvertArgsPass {
-    fn name(&self) -> &str {
-        type_name::<Self>()
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,

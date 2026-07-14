@@ -1,4 +1,3 @@
-use core::any::type_name;
 
 use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_ir::{
@@ -6,7 +5,7 @@ use cubecl_ir::{
     dialect::general::ReadBuiltinOp,
     prelude::{
         AnalysisManager, Context, MatchRewrite, MatchRewriter, OneResultInterface, Operation,
-        OperationPtrExt, PassResult, Ptr, Result, Rewriter, SingleBlockRegionInterface,
+        OperationPtrExt, PassResult, Ptr, Result, Rewriter, SingleBlockRegionInterface, pass_name,
     },
     rewrite::visit_all_ops_of_type_mut,
     types::scalar::PoisonType,
@@ -40,11 +39,8 @@ dict_key!(BUILTINS_NAME, "_spirv_builtins");
 
 pub struct LowerBuiltinsPass;
 
+#[pass_name]
 impl Pass for LowerBuiltinsPass {
-    fn name(&self) -> &str {
-        type_name::<Self>()
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,

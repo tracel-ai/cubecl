@@ -18,11 +18,8 @@ type Aggregates = HashMap<Value, Vec<Value>>;
 #[derive(Default)]
 pub struct DisaggregatePass;
 
+#[pass_name]
 impl Pass for DisaggregatePass {
-    fn name(&self) -> &str {
-        "Disaggregate"
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,
