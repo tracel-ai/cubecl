@@ -10,13 +10,14 @@ use std::{
 use crossbeam_utils::CachePadded;
 
 use crate::compute::{
-    affinity::get_active_cores,
+    affinity::{CoreId, get_active_cores},
     threadpool::{ThreadTask, compute_task::ComputeTask, scheduler::Worker},
 };
 
 pub struct DispatcherScheduler {
+    cores: Vec<CoreId>,
     tx: Vec<mpsc::Sender<ComputeTask>>,
-    lens: Arc<[CachePadded<AtomicUsize>]>,
+    lens: Vec<Arc<CachePadded<AtomicUsize>>>,
 }
 
 impl Default for DispatcherScheduler {
@@ -28,61 +29,78 @@ impl Default for DispatcherScheduler {
 impl DispatcherScheduler {
     pub fn new() -> Self {
         let cores: Vec<_> = get_active_cores().collect();
-        let lens: Vec<_> = cores
-            .iter()
-            .map(|_| CachePadded::new(AtomicUsize::new(0)))
-            .collect();
-        let lens: Arc<[_]> = lens.into();
-        let tx = cores
-            .iter()
-            .enumerate()
-            .map(|(thread_id, &core_id)| {
-                let (worker, tx) = DispatcherWorker::new(thread_id, lens.clone());
-                worker.spawn_thread(core_id);
-                tx
-            })
-            .collect();
-
-        Self { tx, lens }
+        let mut scheduler = Self {
+            cores,
+            tx: Vec::new(),
+            lens: Vec::new(),
+        };
+        // Start with one worker per active core; the pool grows on demand when a
+        // parallel cube needs more units than we currently have workers.
+        let cores = scheduler.cores.len();
+        scheduler.ensure_workers(cores);
+        scheduler
     }
 
-    pub fn send(&mut self, mut index: usize, task: ComputeTask) {
-        if !task.mlir_engine.0.needs_parallelism {
-            let mut min_value = self.lens[index].load(atomic::Ordering::Relaxed);
-            for i in 0..self.lens.len() {
+    /// Spawns workers until at least `n` exist. Overflow workers past the core
+    /// count round-robin over the active cores, so a cube with more units than
+    /// cores still gets one thread per unit — required so the `sync_cube` spin
+    /// barrier never queues two units of the same cube behind each other.
+    pub fn ensure_workers(&mut self, n: usize) {
+        while self.tx.len() < n {
+            let core_id = self.cores[self.tx.len() % self.cores.len()];
+            let (worker, tx, len) = DispatcherWorker::new();
+            worker.spawn_thread(core_id);
+            self.tx.push(tx);
+            self.lens.push(len);
+        }
+    }
+
+    pub fn send(&mut self, index: usize, task: ComputeTask) {
+        let target = if task.mlir_engine.0.needs_parallelism {
+            // Barrier kernels need one dedicated worker per unit; the caller
+            // grew the pool via `ensure_workers` so `index` is in range.
+            index
+        } else {
+            // Independent units load-balance onto the least-loaded worker. The
+            // incoming `index` is a unit position that can exceed the worker
+            // count, so never use it directly here.
+            let mut best = 0;
+            let mut min_value = self.lens[0].load(atomic::Ordering::Relaxed);
+            for i in 1..self.lens.len() {
                 let len = self.lens[i].load(atomic::Ordering::Relaxed);
                 if len < min_value {
-                    index = i;
+                    best = i;
                     min_value = len;
                 }
             }
-        }
-        let _ = self.tx[index].send(task);
-        self.lens[index].fetch_add(1, atomic::Ordering::Relaxed);
+            best
+        };
+        let _ = self.tx[target].send(task);
+        self.lens[target].fetch_add(1, atomic::Ordering::Relaxed);
     }
 }
 
 pub struct DispatcherWorker {
     rx: mpsc::Receiver<ComputeTask>,
     aside: VecDeque<ComputeTask>,
-    thread_id: usize,
-    lens: Arc<[CachePadded<AtomicUsize>]>,
+    len: Arc<CachePadded<AtomicUsize>>,
 }
 
 impl DispatcherWorker {
-    fn new(
-        thread_id: usize,
-        lens: Arc<[CachePadded<AtomicUsize>]>,
-    ) -> (Self, mpsc::Sender<ComputeTask>) {
+    fn new() -> (
+        Self,
+        mpsc::Sender<ComputeTask>,
+        Arc<CachePadded<AtomicUsize>>,
+    ) {
         let (tx, rx) = mpsc::channel();
         let aside = VecDeque::with_capacity(4);
-        let rx = Self {
+        let len = Arc::new(CachePadded::new(AtomicUsize::new(0)));
+        let worker = Self {
             rx,
             aside,
-            thread_id,
-            lens,
+            len: len.clone(),
         };
-        (rx, tx)
+        (worker, tx, len)
     }
 }
 
@@ -94,7 +112,7 @@ impl Worker for DispatcherWorker {
                 if let Ok(mut task) = task {
                     if task.is_ready() {
                         task.compute();
-                        self.lens[self.thread_id].fetch_sub(1, atomic::Ordering::Relaxed);
+                        self.len.fetch_sub(1, atomic::Ordering::Relaxed);
                     } else {
                         self.aside.push_back(task);
                     }
@@ -108,7 +126,7 @@ impl Worker for DispatcherWorker {
             self.aside.retain_mut(|elem| {
                 if elem.is_ready() {
                     elem.compute();
-                    self.lens[self.thread_id].fetch_sub(1, atomic::Ordering::Relaxed);
+                    self.len.fetch_sub(1, atomic::Ordering::Relaxed);
                     false
                 } else {
                     std::hint::spin_loop();

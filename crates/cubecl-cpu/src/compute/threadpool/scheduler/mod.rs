@@ -59,6 +59,17 @@ impl Scheduler {
             Scheduler::Dispatcher(dispatcher) => dispatcher.send(index, task),
         }
     }
+
+    /// Grows the pool so it has at least `n` workers, spawning threads as needed.
+    /// Called before dispatching a parallel cube whose unit count exceeds the
+    /// current worker count. Only the `Dispatcher` (the variant the threadpool
+    /// actually builds) grows; the experimental fixed-pool variants no-op.
+    pub fn ensure_workers(&mut self, n: usize) {
+        match self {
+            Scheduler::Naive(_) | Scheduler::Aside(_) => {}
+            Scheduler::Dispatcher(dispatcher) => dispatcher.ensure_workers(n),
+        }
+    }
 }
 
 trait Worker: Sized + Send + 'static {
