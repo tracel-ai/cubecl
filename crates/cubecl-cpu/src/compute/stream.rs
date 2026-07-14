@@ -23,6 +23,10 @@ use cubecl_runtime::{
 use std::sync::{Arc, atomic::AtomicU64};
 
 pub struct CpuStream {
+    // TEMP: only read by the disabled unit-limit check in `enqueue_task`. Kept so
+    // the plumbing stays in place; remove the attribute when the check is restored.
+    #[allow(dead_code)]
+    pub(crate) max_units_per_cube: u32,
     pub(crate) memory_management: MemoryManagement<BytesStorage>,
     /// Dedicated pool for per-launch shared memory.
     ///
@@ -46,6 +50,7 @@ impl core::fmt::Debug for CpuStream {
 
 impl CpuStream {
     pub fn new(
+        max_units_per_cube: u32,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         logger: Arc<ServerLogger>,
@@ -73,6 +78,7 @@ impl CpuStream {
         let next_counter_step = 0;
         let atomic_counter = Arc::new(CachePadded::new(AtomicU64::new(0)));
         Self {
+            max_units_per_cube,
             memory_management,
             shared_memory_management,
             timestamps: TimestampProfiler::default(),
@@ -95,10 +101,22 @@ impl CpuStream {
                 cube_dim,
                 cube_count,
             } => {
-                // The threadpool grows to accommodate any cube dim, so there is
-                // no per-launch unit limit; the pool spawns one worker per unit
-                // for barrier kernels and load-balances the rest.
                 let requested = cube_dim.num_elems();
+                // TEMP: the threadpool now grows to fit any cube_dim (it spawns one
+                // worker per unit for barrier kernels, see Threadpool::execute_data),
+                // so the per-launch unit-count limit is disabled. Uncomment to restore
+                // the hard cap (also re-add the LaunchError/ResourceLimitError imports).
+                // let max = self.max_units_per_cube;
+                // if requested > max {
+                //     let launch_error: LaunchError = ResourceLimitError::MaxUnitPerCube {
+                //         requested,
+                //         max,
+                //         backtrace: BackTrace::capture(),
+                //     }
+                //     .into();
+                //     self.error(launch_error.into());
+                //     return;
+                // }
 
                 self.threadpool.lock().execute_data(
                     mlir_engine,
