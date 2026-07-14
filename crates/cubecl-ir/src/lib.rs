@@ -41,7 +41,7 @@ pub mod prelude {
         verify_ty_succ,
     };
     pub use alloc::{vec, vec::Vec};
-    pub use cubecl_macros_internal::{cube_op, op_traits};
+    pub use cubecl_macros_internal::{cube_op, op_traits, pass_name};
     pub use pliron::derive::derive_op_interface_impl as op_interfaces;
     pub use pliron::{
         attribute::AttributeDict,

@@ -7,10 +7,7 @@
 //! multi-block regions. The logic isn't complex enough to handle them properly.
 
 use alloc::string::{String, ToString};
-use core::{
-    any::type_name,
-    fmt::{self, Formatter},
-};
+use core::fmt::{self, Formatter};
 use itertools::Itertools;
 
 use cubecl_ir::{
@@ -78,11 +75,8 @@ pub enum SimpleCSEError {
 #[derive(Default)]
 pub struct SimpleCSEPass;
 
+#[pass_name]
 impl Pass for SimpleCSEPass {
-    fn name(&self) -> &str {
-        type_name::<SimpleCSEPass>()
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,

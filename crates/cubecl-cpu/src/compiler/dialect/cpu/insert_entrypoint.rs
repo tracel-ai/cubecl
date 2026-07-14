@@ -1,5 +1,3 @@
-use core::any::type_name;
-
 use cubecl_core::ir::attributes::EntrypointInterface;
 use cubecl_core::ir::dialect::branch::YieldOp;
 use cubecl_core::ir::prelude::*;
@@ -32,11 +30,8 @@ use crate::compiler::dialect::cpu::entrypoint::EntrypointOp;
 #[derive(Default)]
 pub struct InsertEntrypointPass;
 
+#[pass_name]
 impl Pass for InsertEntrypointPass {
-    fn name(&self) -> &str {
-        type_name::<Self>()
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,
