@@ -376,7 +376,7 @@ fn is_global_short_circuit_enabled() -> bool {
     }
 
     #[cfg(not(std_io))]
-    false
+    true
 }
 
 fn check_limit(
