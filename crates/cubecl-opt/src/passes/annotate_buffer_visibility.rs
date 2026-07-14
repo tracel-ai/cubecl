@@ -1,4 +1,3 @@
-use core::any::type_name;
 
 use cubecl_ir::{
     attributes::{
@@ -15,11 +14,8 @@ use crate::analyses::pointer_source::GlobalVisibility;
 /// so non-inlined functions can contribute to the analysis and be annotated.
 pub struct AnnotateGlobalVisibilityPass;
 
+#[pass_name]
 impl Pass for AnnotateGlobalVisibilityPass {
-    fn name(&self) -> &str {
-        type_name::<Self>()
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,

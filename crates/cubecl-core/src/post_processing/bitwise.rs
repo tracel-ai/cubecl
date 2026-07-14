@@ -1,4 +1,3 @@
-use core::any::type_name;
 
 use cubecl_ir::{
     dialect::{
@@ -23,11 +22,8 @@ define_size!(N);
 
 pub struct PromoteBitwisePass;
 
+#[pass_name]
 impl Pass for PromoteBitwisePass {
-    fn name(&self) -> &str {
-        type_name::<Self>()
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,

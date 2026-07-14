@@ -1,4 +1,3 @@
-use core::any::type_name;
 
 use alloc::{boxed::Box, vec, vec::Vec};
 use cubecl_ir::{
@@ -302,11 +301,8 @@ struct UnrollState {
     rewriter: PassRewriter,
 }
 
+#[pass_name]
 impl Pass for UnrollPass {
-    fn name(&self) -> &str {
-        type_name::<UnrollPass>()
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,

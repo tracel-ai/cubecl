@@ -1,4 +1,4 @@
-use core::{any::type_name, marker::PhantomData};
+use core::marker::PhantomData;
 
 use cubecl_core::ir::{
     ContextExt, cube_op,
@@ -105,11 +105,8 @@ shared_op!(AllocSharedOp, |op, ctx| {
 #[derive(Default)]
 pub struct DeclareVectorTypesPass;
 
+#[pass_name]
 impl Pass for DeclareVectorTypesPass {
-    fn name(&self) -> &str {
-        type_name::<Self>()
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,
@@ -258,11 +255,8 @@ pub struct CollectIncludesPass<T: CppTarget> {
     _ty: PhantomData<T>,
 }
 
+#[pass_name]
 impl<T: CppTarget> Pass for CollectIncludesPass<T> {
-    fn name(&self) -> &str {
-        type_name::<Self>()
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,

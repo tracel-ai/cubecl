@@ -1,4 +1,3 @@
-use core::any::type_name;
 
 use ::pliron::context::Context;
 use cubecl_ir::{
@@ -34,11 +33,8 @@ pub struct SliceSharedOp {
 /// Allocates shared memory as a single block and attaches offsets to shared memory declarations.
 pub struct AllocateSharedMemoryBlockPass;
 
+#[pass_name]
 impl Pass for AllocateSharedMemoryBlockPass {
-    fn name(&self) -> &str {
-        type_name::<Self>()
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,
