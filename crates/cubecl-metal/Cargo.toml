@@ -25,12 +25,6 @@ cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.1", default-features
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.1", default-features = false }
 cubecl-cpp = { path = "../cubecl-cpp", version = "=0.11.0-pre.1", features = ["metal"] }
 
-# Metal bindings
-objc2 = "0.6"
-objc2-metal = { version = "0.3", features = ["block2", "MTLLibrary", "objc2-core-foundation"] }
-objc2-foundation = "0.3"
-block2 = "0.6"
-
 # Utilities
 log = { workspace = true }
 derive-new = { workspace = true }
@@ -39,6 +33,15 @@ bytemuck = { workspace = true }
 half = { workspace = true }
 serde = { workspace = true }
 async-channel = { workspace = true }
+
+# Metal bindings only exist on Apple platforms. Keeping them in a target table
+# means other platforms never even download them, so workspace-wide builds and
+# clippy work everywhere (the crate itself is empty off-Apple, see lib.rs).
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc2 = "0.6"
+objc2-metal = { version = "0.3", features = ["block2", "MTLLibrary", "objc2-core-foundation"] }
+objc2-foundation = "0.3"
+block2 = "0.6"
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.1", features = ["export_tests"] }

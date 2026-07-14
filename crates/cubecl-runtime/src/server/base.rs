@@ -6,7 +6,9 @@ use crate::{
     id::GraphId,
     kernel::KernelMetadata,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
+    memory_management::{
+        ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration, MemoryUsage,
+    },
     runtime::Runtime,
     server::Binding,
     storage::{ComputeStorage, ManagedResource},
@@ -506,6 +508,28 @@ where
     /// Ask the server to release memory that it can release.
     fn memory_cleanup(&mut self, stream_id: StreamId);
 
+    /// Install a new dynamic-pool layout for the device's **main GPU** memory.
+    ///
+    /// The calling stream's pools are rebuilt in place (see
+    /// [`MemoryManagement::configure`](crate::memory_management::MemoryManagement::configure)
+    /// — a rebuild only happens when nothing is live in them), and the layout
+    /// becomes the one every stream created afterwards is built with. Pool
+    /// layouts are a purely programmatic, runtime setting — there is no
+    /// config-file pathway — so callers size them per workload (e.g. per model,
+    /// just before loading it).
+    ///
+    /// Returns `true` when the calling stream's pools were rebuilt now, and
+    /// `false` when they kept the old layout (something was still live in
+    /// them); the layout still applies to streams created afterwards.
+    ///
+    /// The default is a no-op returning `false` for servers without
+    /// configurable pools.
+    fn configure_memory_pools(&mut self, config: MemoryConfiguration, stream_id: StreamId) -> bool {
+        let _ = (config, stream_id);
+        log::warn!("Memory pool configuration isn't supported by this server; keeping defaults");
+        false
+    }
+
     /// Enable collecting timestamps.
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError>;
 
@@ -807,6 +831,28 @@ pub enum IoError {
     BufferTooBig {
         /// The size of the buffer in bytes.
         size: u64,
+        /// The captured backtrace.
+        #[cfg_attr(std_io, serde(skip))]
+        backtrace: BackTrace,
+    },
+
+    /// A memory pool with a fixed capacity cap is exhausted.
+    ///
+    /// Unlike [`IoError::BufferTooBig`] (the allocation can *never* fit), this
+    /// means the working set exceeded the configured budget. Server execution
+    /// paths treat it as fatal — the budget is a hard contract, so failing
+    /// early beats silently growing — but callers that manage their own
+    /// working set may free pool memory and retry.
+    #[error(
+        "memory pool capacity exceeded: failed to reserve {size} bytes, pool is capped at {capacity} bytes ({in_use} bytes in use)\n{backtrace}"
+    )]
+    PoolCapacityExceeded {
+        /// The size of the failed reservation in bytes.
+        size: u64,
+        /// The configured pool capacity in bytes (whole pages).
+        capacity: u64,
+        /// Bytes currently in use in the pool.
+        in_use: u64,
         /// The captured backtrace.
         #[cfg_attr(std_io, serde(skip))]
         backtrace: BackTrace,

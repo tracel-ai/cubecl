@@ -34,6 +34,10 @@ impl WgpuMemManager {
         // Allocate storage & memory management for the main memory buffers. Any calls
         // to empty() or create() with a small enough size will be allocated from this
         // main memory pool.
+        //
+        // `memory_config` (which honors any programmatic pool override) shapes
+        // the main pool only; the staging and uniforms pools below have
+        // deliberate configurations that must not be overridden.
         let memory_main = MemoryManagement::from_configuration(
             WgpuStorage::new(
                 memory_properties.alignment as usize,
@@ -142,6 +146,17 @@ impl WgpuMemManager {
 
     pub(crate) fn mode(&mut self, mode: MemoryAllocationMode) {
         self.memory_pool.mode(mode);
+    }
+
+    /// Rebuild the main pool with a new layout. Returns `false` (keeping the
+    /// old layout, with a log) when something is still live in it. The staging
+    /// and uniforms pools keep their deliberate configurations.
+    pub(crate) fn configure_memory_pools(
+        &mut self,
+        config: MemoryConfiguration,
+        props: &MemoryDeviceProperties,
+    ) -> bool {
+        self.memory_pool.configure(config, props)
     }
 
     pub(crate) fn release_uniforms(&mut self) {
