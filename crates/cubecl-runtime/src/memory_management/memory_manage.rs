@@ -619,7 +619,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         let mode = match options.memory {
             MemoryAllocationOption::Provided(mode) => mode,
             MemoryAllocationOption::FromConfig => match config {
-                PersistentMemory::Enabled => MemoryAllocationMode::Auto,
+                PersistentMemory::Enabled | PersistentMemory::SizeMatch => {
+                    MemoryAllocationMode::Auto
+                }
                 PersistentMemory::Disabled => MemoryAllocationMode::Auto,
                 PersistentMemory::Enforced => MemoryAllocationMode::Persistent,
             },
@@ -733,7 +735,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     pub fn mode(&mut self, mode: MemoryAllocationMode) {
         // We override the mode based on the cubecl config.
         let mode = match self.config {
-            PersistentMemory::Enabled => mode,
+            PersistentMemory::Enabled | PersistentMemory::SizeMatch => mode,
             PersistentMemory::Disabled | PersistentMemory::Enforced => return,
         };
 
@@ -880,21 +882,32 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         // hard about overflow here.
         self.alloc_reserve_count += 1;
 
-        if let Some(val) = self.persistent.try_reserve(size) {
-            self.logger.log_memory(
-                |level| matches!(level, MemoryLogLevel::Full),
-                || {
-                    format!(
-                        "[{}] Reserved memory {size} using persistent memory",
-                        self.name
-                    )
-                },
-            );
-            self.capture_touch(&val);
-            return Ok(val);
+        // In an explicit persistent window the pool always serves the
+        // allocation (reusing a freed same-size slice when one exists).
+        // Outside a window, the pool participates only under the `size-match`
+        // config: recurring weight-shaped allocations reuse the buckets — a
+        // training-friendly heuristic that would otherwise pull inference
+        // activations into exact-sized persistent slices.
+        let persistent_mode = matches!(self.mode, MemoryAllocationMode::Persistent);
+        let size_match = matches!(self.config, PersistentMemory::SizeMatch);
+
+        if persistent_mode || size_match {
+            if let Some(val) = self.persistent.try_reserve(size) {
+                self.logger.log_memory(
+                    |level| matches!(level, MemoryLogLevel::Full),
+                    || {
+                        format!(
+                            "[{}] Reserved memory {size} using persistent memory",
+                            self.name
+                        )
+                    },
+                );
+                self.capture_touch(&val);
+                return Ok(val);
+            }
         }
 
-        if matches!(self.mode, MemoryAllocationMode::Persistent) || self.persistent.has_size(size) {
+        if persistent_mode || (size_match && self.persistent.has_size(size)) {
             let allocated = self.persistent.alloc(&mut self.storage, size);
 
             self.logger.log_memory(
