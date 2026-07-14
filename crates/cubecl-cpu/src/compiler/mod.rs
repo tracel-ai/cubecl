@@ -23,7 +23,7 @@ use pliron::{
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
 };
 
-use crate::compiler::dialect::cpu::InsertEntrypointPass;
+use crate::compiler::dialect::cpu::InsertConstantEmulationPass;
 use crate::compiler::jit::engine::PlironEngine;
 
 #[derive(Clone, Debug, Default)]
@@ -85,7 +85,7 @@ impl PlironCompiler {
 
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
-        func_passes.add_pass(InsertEntrypointPass::default());
+        func_passes.add_pass(InsertConstantEmulationPass::default());
         func_passes.add_pass(DisaggregatePass);
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass);
