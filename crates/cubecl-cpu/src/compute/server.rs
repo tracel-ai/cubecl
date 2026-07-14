@@ -42,13 +42,11 @@ pub struct CpuServer {
 
 impl CpuServer {
     pub fn new(
-        max_units_per_cube: u32,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         utilities: Arc<ServerUtilities<CpuServer>>,
     ) -> Self {
         let backend = ScheduledCpuBackend::new(
-            max_units_per_cube,
             memory_properties,
             memory_config,
             utilities.logger.clone(),

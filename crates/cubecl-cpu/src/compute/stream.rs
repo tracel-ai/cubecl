@@ -8,8 +8,8 @@ use cubecl_core::{
     backtrace::BackTrace,
     ir::MemoryDeviceProperties,
     server::{
-        Binding, CopyDescriptor, IoError, LaunchError, ProfileError, ProfilingToken,
-        ResourceLimitError, ServerError, StreamErrorMode,
+        Binding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError,
+        StreamErrorMode,
     },
 };
 use cubecl_runtime::{
@@ -23,7 +23,6 @@ use cubecl_runtime::{
 use std::sync::{Arc, atomic::AtomicU64};
 
 pub struct CpuStream {
-    pub(crate) max_units_per_cube: u32,
     pub(crate) memory_management: MemoryManagement<BytesStorage>,
     /// Dedicated pool for per-launch shared memory.
     ///
@@ -47,7 +46,6 @@ impl core::fmt::Debug for CpuStream {
 
 impl CpuStream {
     pub fn new(
-        max_units_per_cube: u32,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         logger: Arc<ServerLogger>,
@@ -70,7 +68,6 @@ impl CpuStream {
         let next_counter_step = 0;
         let atomic_counter = Arc::new(CachePadded::new(AtomicU64::new(0)));
         Self {
-            max_units_per_cube,
             memory_management,
             shared_memory_management,
             timestamps: TimestampProfiler::default(),
@@ -93,18 +90,10 @@ impl CpuStream {
                 cube_dim,
                 cube_count,
             } => {
+                // The threadpool grows to accommodate any cube dim, so there is
+                // no per-launch unit limit; the pool spawns one worker per unit
+                // for barrier kernels and load-balances the rest.
                 let requested = cube_dim.num_elems();
-                let max = self.max_units_per_cube;
-                if requested > max {
-                    let launch_error: LaunchError = ResourceLimitError::MaxUnitPerCube {
-                        requested,
-                        max,
-                        backtrace: BackTrace::capture(),
-                    }
-                    .into();
-                    self.error(launch_error.into());
-                    return;
-                }
 
                 self.threadpool.lock().execute_data(
                     mlir_engine,
