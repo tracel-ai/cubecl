@@ -47,6 +47,7 @@ pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static> {
     key_gen: Arc<dyn KeyGenerator<K, F> + Send + Sync>,
     input_gen: Arc<dyn InputGenerator<K, F> + Send + Sync>,
     bounds_gen: Option<Arc<dyn BoundsGenerator<K, F, B> + Send + Sync>>,
+    short_circuit: bool,
 }
 
 impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
@@ -67,6 +68,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
             input_gen: Arc::new(input_gen),
             key_gen: Arc::new(key_gen),
             bounds_gen: None,
+            short_circuit: true,
         }
     }
 
@@ -86,6 +88,17 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
     pub fn with_bounds(mut self, bounds: Arc<dyn BoundsGenerator<K, F, B> + Send + Sync>) -> Self {
         self.bounds_gen = Some(bounds);
         self
+    }
+
+    /// Set whether bounds-based short-circuiting is enabled.
+    pub fn with_short_circuit(mut self, enabled: bool) -> Self {
+        self.short_circuit = enabled;
+        self
+    }
+
+    /// Whether short-circuiting is enabled for this set.
+    pub fn is_short_circuit_enabled(&self) -> bool {
+        self.short_circuit
     }
 
     /// All candidate operations in this set, in registration order.

@@ -122,6 +122,7 @@ struct TuneRequest<K: AutotuneKey> {
     checksum: String,
     context_logs: Option<String>,
     pending: Vec<PendingBench>,
+    limit: Option<Duration>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -196,6 +197,13 @@ impl<K: AutotuneKey> Tuner<K> {
 
         // Fast path: single tunable, no benchmarking needed.
         if results.len() == 1 {
+            if let Some(bounds) = tunables.bounds(key, inputs) {
+                let limit = bounds.time_limit();
+                log_autotune!(
+                    self.logger,
+                    "Calculated bounds: {bounds:?} - limit: {limit:?}"
+                );
+            }
             self.cache.lock().cache_insert(key.clone(), 0);
             return TuneCacheResult::Hit { fastest_index: 0 };
         }
@@ -207,20 +215,21 @@ impl<K: AutotuneKey> Tuner<K> {
             _ => None,
         };
 
+        let limit = tunables.bounds(key, inputs).and_then(|bounds| {
+            let limit = bounds.time_limit();
+            log_autotune!(
+                self.logger,
+                "Calculated bounds: {bounds:?} - limit: {limit:?}"
+            );
+            limit
+        });
+
         // The slowest median duration still considered close enough to peak throughput.
         // Only used on native, where a benchmark can be resolved inline to exit early.
         #[cfg(not(target_family = "wasm"))]
-        let threshold_limit = tunables
-            .bounds(key, inputs)
-            .map(|bounds| {
-                let limit = bounds.time_limit();
-                log_autotune!(
-                    self.logger,
-                    "Calculated bounds: {bounds:?} - limit: {limit:?}"
-                );
-                limit
-            })
-            .unwrap_or_default();
+        let short_circuit = limit.is_some()
+            && tunables.is_short_circuit_enabled()
+            && is_global_short_circuit_enabled();
 
         // The batch-retry check below reads this through `cfg!`, which keeps
         // the name alive on wasm too; the assignment is native-only, so it
@@ -256,28 +265,10 @@ impl<K: AutotuneKey> Tuner<K> {
                         };
 
                         #[cfg(not(target_family = "wasm"))]
-                        if let Some(limit) = threshold_limit {
+                        if short_circuit {
+                            let limit = limit.unwrap();
                             let result = cubecl_common::future::block_on(resolve_bench(bench));
-                            let median = result
-                                .outcome
-                                .as_ref()
-                                .map(|outcome| outcome.computation.median)
-                                .unwrap_or(core::time::Duration::MAX);
-
-                            let percentage = if median.as_secs_f64() > 0.0 {
-                                (limit.as_secs_f64() / median.as_secs_f64()) * 100.0
-                            } else {
-                                f64::INFINITY
-                            };
-
-                            let close_enough = median <= limit;
-
-                            log_autotune!(
-                                self.logger,
-                                "Autotune candidate '{}' achieved {:.2}% of the required throughput threshold.",
-                                op.name,
-                                percentage
-                            );
+                            let close_enough = check_limit(&self.logger, &op.name, limit, &result);
 
                             batch_success |= result.outcome.is_ok();
                             results[index] = result;
@@ -314,6 +305,7 @@ impl<K: AutotuneKey> Tuner<K> {
             checksum,
             context_logs,
             pending,
+            limit,
         };
 
         // Resolve samples and commit the result. On wasm this runs on the browser
@@ -371,6 +363,50 @@ async fn resolve_bench(bench: PendingBench) -> AutotuneResult {
     ))
 }
 
+#[cfg(not(target_family = "wasm"))]
+fn is_global_short_circuit_enabled() -> bool {
+    #[cfg(std_io)]
+    {
+        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ENABLED.get_or_init(|| {
+            std::env::var("CUBECL_AUTOTUNE_SHORT_CIRCUIT")
+                .map(|v| v != "false" && v != "0")
+                .unwrap_or(true)
+        })
+    }
+
+    #[cfg(not(std_io))]
+    false
+}
+
+fn check_limit(
+    logger: &spin::Mutex<Logger>,
+    name: &str,
+    limit: Duration,
+    result: &AutotuneResult,
+) -> bool {
+    let median = result
+        .outcome
+        .as_ref()
+        .map(|outcome| outcome.computation.median)
+        .unwrap_or(Duration::MAX);
+
+    let percentage = if median.as_secs_f64() > 0.0 {
+        (limit.as_secs_f64() / median.as_secs_f64()) * 100.0
+    } else {
+        f64::INFINITY
+    };
+
+    log_autotune!(
+        logger,
+        "Autotune candidate '{}' achieved {:.2}% of the required throughput threshold.",
+        name,
+        percentage
+    );
+
+    median <= limit
+}
+
 /// Await every profile sample, pick the fastest tunable, commit to the cache.
 async fn process_request<K: AutotuneKey>(
     request: TuneRequest<K>,
@@ -384,11 +420,19 @@ async fn process_request<K: AutotuneKey>(
         checksum,
         context_logs,
         pending,
+        limit,
     } = request;
 
     for bench in pending {
         let index = bench.index;
-        results[index] = resolve_bench(bench).await;
+        let name = bench.name.clone();
+        let result = resolve_bench(bench).await;
+
+        if let Some(limit) = limit {
+            check_limit(logger, &name, limit, &result);
+        }
+
+        results[index] = result;
     }
 
     results.sort_by(|a, b| {
