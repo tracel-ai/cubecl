@@ -400,6 +400,36 @@ impl<D: Dialect> Value<D> {
         }
     }
 
+    /// A value-producing op (e.g. `Dot`/`VectorSum`, or any arithmetic) whose
+    /// output was allocated as a fresh mutable local ends up typed as a local
+    /// pointer. Such an output can't be declared inline via [`FmtLeft::fmt_left`]
+    /// — that yields `T* out = <scalar value>;`, which is a type error. Instead it
+    /// needs backing storage, exactly like [`super::Instruction::DeclareVariable`].
+    ///
+    /// When `self` is such a local pointer, this emits the backing declaration
+    /// (`T out_store; T* out = &out_store;`) and returns `true`, so the caller
+    /// writes the result through the pointer (`*out = value;`). Otherwise it emits
+    /// nothing and returns `false`, and the caller declares the output inline.
+    ///
+    /// This is only reached for freshly-created outputs (the op defines `out`),
+    /// so it never double-declares an already-declared local.
+    pub fn declare_local_ptr_backing(
+        &self,
+        f: &mut Formatter<'_>,
+    ) -> Result<bool, std::fmt::Error> {
+        if let Value::Value {
+            item: Item::Pointer(_, PointerClass::Local),
+            ..
+        } = self
+        {
+            writeln!(f, "{} {self}_store;", self.item().value_ty())?;
+            writeln!(f, "{} {self} = &{self}_store;", self.item())?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     /// Format variable for a pointer argument. Slices and buffers are already pointers, so we
     /// just leave them as is to avoid accidental double pointers
     pub fn fmt_ptr(&self) -> String {

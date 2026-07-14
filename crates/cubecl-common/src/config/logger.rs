@@ -143,15 +143,18 @@ impl LoggerSinks {
         indices
     }
 
-    /// Writes `msg` to every sink in `indices`.
-    pub fn log<S: Display>(&mut self, indices: &[usize], msg: &S) {
+    /// Writes `msg` to every sink in `indices`. `target` names the subsystem
+    /// (e.g. `cubecl::autotune`) — the `log`-crate sink emits it as the
+    /// record's target so consumers can tell subsystems apart; the file and
+    /// stdio sinks are already per-subsystem by configuration and ignore it.
+    pub fn log<S: Display>(&mut self, indices: &[usize], target: &str, msg: &S) {
         match indices.len() {
             0 => {}
-            1 => self.loggers[indices[0]].log(msg),
+            1 => self.loggers[indices[0]].log(target, msg),
             _ => {
                 let msg = msg.to_string();
                 for &index in indices {
-                    self.loggers[index].log(&msg);
+                    self.loggers[index].log(target, &msg);
                 }
             }
         }
@@ -197,7 +200,7 @@ enum LoggerKind {
 }
 
 impl LoggerKind {
-    fn log<S: Display>(&mut self, msg: &S) {
+    fn log<S: Display>(&mut self, target: &str, msg: &S) {
         match self {
             #[cfg(std_io)]
             LoggerKind::File(file_logger) => file_logger.log(msg),
@@ -205,11 +208,14 @@ impl LoggerKind {
             LoggerKind::Stdout => println!("{msg}"),
             #[cfg(feature = "std")]
             LoggerKind::Stderr => eprintln!("{msg}"),
-            LoggerKind::Log(level) => match level {
-                LogCrateLevel::Info => log::info!("{msg}"),
-                LogCrateLevel::Debug => log::debug!("{msg}"),
-                LogCrateLevel::Trace => log::trace!("{msg}"),
-            },
+            LoggerKind::Log(level) => {
+                let level = match level {
+                    LogCrateLevel::Info => log::Level::Info,
+                    LogCrateLevel::Debug => log::Level::Debug,
+                    LogCrateLevel::Trace => log::Level::Trace,
+                };
+                log::log!(target: target, level, "{msg}");
+            }
         }
     }
 }

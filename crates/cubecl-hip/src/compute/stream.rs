@@ -96,6 +96,29 @@ pub struct HipStreamBackend {
     mem_alignment: usize,
     is_integrated: bool,
     logger: Arc<ServerLogger>,
+    /// Programmatic main-GPU pool layout (see
+    /// [`ComputeServer::configure_memory_pools`](cubecl_runtime::server::ComputeServer::configure_memory_pools)):
+    /// streams created after it is set build their GPU pools from it instead
+    /// of the runtime default. Auxiliary pools are unaffected.
+    #[new(default)]
+    gpu_pools_override: Option<MemoryConfiguration>,
+}
+
+impl HipStreamBackend {
+    /// The layout streams build their main-GPU pools with, and the properties
+    /// to resolve it against.
+    pub(crate) fn gpu_pools(&self) -> (MemoryConfiguration, MemoryDeviceProperties) {
+        let config = self
+            .gpu_pools_override
+            .clone()
+            .unwrap_or_else(|| self.mem_config.clone());
+        (config, self.mem_props.clone())
+    }
+
+    /// Set the main-GPU pool layout for streams created from now on.
+    pub(crate) fn set_gpu_pools(&mut self, config: MemoryConfiguration) {
+        self.gpu_pools_override = Some(config);
+    }
 }
 
 impl EventStreamBackend for HipStreamBackend {
@@ -115,12 +138,17 @@ impl EventStreamBackend for HipStreamBackend {
             assert_eq!(stream_status, HIP_SUCCESS, "Should create a stream");
             stream
         };
-        let storage = GpuStorage::new(self.mem_alignment, stream);
+        let storage = GpuStorage::new(self.mem_alignment);
 
+        // The main GPU pool honors the programmatic pool override when one was
+        // installed (`configure_memory_pools`). The pinned pool below is left
+        // alone: the override targets GPU activations, and the other pools
+        // have deliberate configurations that must not be overridden.
+        let (gpu_config, gpu_props) = self.gpu_pools();
         let memory_management_gpu = MemoryManagement::from_configuration(
             storage,
-            &self.mem_props,
-            self.mem_config.clone(),
+            &gpu_props,
+            gpu_config,
             self.logger.clone(),
             MemoryManagementOptions::new("Main GPU Memory"),
         );
@@ -177,10 +205,13 @@ impl EventStreamBackend for HipStreamBackend {
     }
 
     fn handle_cursor(stream: &Self::Stream, binding: &Binding) -> u64 {
+        // The slice cursor the sync logic compares against the origin stream's `last_synced`
+        // to decide whether to wait. A freed/reallocated slice falls back to `u64::MAX`,
+        // which conservatively forces a wait.
         stream
             .memory_management_gpu
             .get_cursor(binding.memory.clone())
-            .unwrap()
+            .unwrap_or(u64::MAX)
     }
 
     fn is_healthy(stream: &Self::Stream) -> bool {

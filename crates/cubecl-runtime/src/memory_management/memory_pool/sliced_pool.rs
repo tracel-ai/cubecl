@@ -8,6 +8,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::fmt::Display;
+use cubecl_common::backtrace::BackTrace;
 
 pub struct SlicedPool {
     pages: Vec<(MemoryPage, StorageId)>,
@@ -16,18 +17,62 @@ pub struct SlicedPool {
     alignment: u64,
     max_alloc_size: u64,
     location_base: MemoryLocation,
+    /// Max number of pages (`floor(max_pool_size / page_size)`).
+    /// `None` keeps unbounded growth.
+    max_pages: Option<u16>,
 }
 
 impl SlicedPool {
-    pub fn new(page_size: u64, max_slice_size: u64, alignment: u64, pool_pos: u8) -> Self {
+    pub fn new(
+        page_size: u64,
+        max_slice_size: u64,
+        alignment: u64,
+        pool_pos: u8,
+        max_pool_size: Option<u64>,
+    ) -> Self {
+        // A budget smaller than one page shrinks the page to the
+        // (alignment-rounded-down) budget, so the cap is honored rather than
+        // exceeded by a single page. A budget below the alignment can't fit
+        // even the smallest page the device allows, so it yields zero pages:
+        // allocations error instead of overshooting the cap.
+        let (page_size, max_pages) = match max_pool_size {
+            Some(cap) => {
+                let page_size = if cap < page_size {
+                    (cap / alignment * alignment).max(alignment)
+                } else {
+                    page_size
+                };
+                let max_pages = (cap / page_size).min(u16::MAX as u64) as u16;
+                (page_size, Some(max_pages))
+            }
+            None => (page_size, None),
+        };
+
         Self {
             pages: Vec::new(),
             pages_tmp: Vec::new(),
             page_size,
             alignment,
-            max_alloc_size: max_slice_size,
+            max_alloc_size: max_slice_size.min(page_size),
             location_base: MemoryLocation::new(pool_pos, 0, 0),
+            max_pages,
         }
+    }
+
+    /// Allocate a new page and return its index.
+    fn alloc_page<Storage: crate::storage::ComputeStorage>(
+        &mut self,
+        storage: &mut Storage,
+    ) -> Result<usize, IoError> {
+        let storage = storage.alloc(self.page_size)?;
+        let storage_id = storage.id;
+        let mut location_base = self.location_base;
+        location_base.page = self.pages.len() as u16;
+
+        let page = MemoryPage::new(storage, self.alignment, location_base);
+        self.pages.push((page, storage_id));
+
+        Ok(self.pages.len() - 1)
     }
 }
 
@@ -36,15 +81,25 @@ impl MemoryPool for SlicedPool {
         self.max_alloc_size >= size
             ||
             // If the size is close to the page size so it doesn't create much fragmentation with
-            // unused space.
-            match self.page_size.checked_sub(size) {
-                Some(diff) => diff * 5 < self.page_size, // 20 % unused space is the max allowed.
-                None => false,
-            }
+            // unused space. Only for unbounded pools: a hard-capped pool is a budget for the
+            // allocations `max_slice_size` routes to it, and near-page-size strays would exhaust
+            // it (e.g. a small metadata pool whose page size matches an upload staging chunk).
+            (self.max_pages.is_none()
+                && match self.page_size.checked_sub(size) {
+                    Some(diff) => diff * 5 < self.page_size, // 20 % unused space is the max allowed.
+                    None => false,
+                })
     }
 
     fn find(&self, binding: &super::ManagedMemoryBinding) -> Result<&Slice, IoError> {
-        let (page, _) = &self.pages[binding.descriptor().page()];
+        let page_index = binding.descriptor().page();
+        let (page, _) = self
+            .pages
+            .get(page_index)
+            .ok_or_else(|| IoError::NotFound {
+                backtrace: BackTrace::capture(),
+                reason: alloc::format!("Memory page {page_index} doesn't exist").into(),
+            })?;
         page.find(binding)
     }
 
@@ -68,15 +123,23 @@ impl MemoryPool for SlicedPool {
         storage: &mut Storage,
         size: u64,
     ) -> Result<super::ManagedMemoryHandle, crate::server::IoError> {
-        let storage = storage.alloc(self.page_size)?;
+        // `alloc` is only called after `try_reserve` coalesced every page and
+        // found no fit, so hitting the cap here means the working set truly
+        // exceeds the budget.
+        if let Some(max_pages) = self.max_pages
+            && self.pages.len() >= max_pages as usize
+        {
+            return Err(IoError::PoolCapacityExceeded {
+                size,
+                capacity: max_pages as u64 * self.page_size,
+                in_use: self.get_memory_usage().bytes_in_use,
+                backtrace: BackTrace::capture(),
+            });
+        }
 
-        let storage_id = storage.id;
-        let mut location_base = self.location_base;
-        location_base.page = self.pages.len() as u16;
-
-        let mut page = MemoryPage::new(storage, self.alignment, location_base);
+        let index = self.alloc_page(storage)?;
+        let (page, _) = &mut self.pages[index];
         let returned = page.try_reserve(size);
-        self.pages.push((page, storage_id));
 
         Ok(returned.expect("effective_size to be smaller than page_size"))
     }
@@ -149,10 +212,17 @@ impl Display for SlicedPool {
         }
 
         f.write_fmt(format_args!(
-            " - Sliced Pool page_size={} max_alloc_size={}\n",
+            " - Sliced Pool page_size={} max_alloc_size={}",
             BytesFormat::new(self.page_size),
             BytesFormat::new(self.max_alloc_size)
         ))?;
+        if let Some(max_pages) = self.max_pages {
+            f.write_fmt(format_args!(
+                " max_pool_size={}",
+                BytesFormat::new(max_pages as u64 * self.page_size)
+            ))?;
+        }
+        f.write_str("\n")?;
 
         for (page, id) in self.pages.iter() {
             let summary = page.summary(false);

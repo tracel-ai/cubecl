@@ -15,7 +15,6 @@ pub struct GpuStorage {
     memory: HashMap<StorageId, cubecl_hip_sys::hipDeviceptr_t>,
     deallocations: Vec<StorageId>,
     ptr_bindings: PtrBindings,
-    stream: cubecl_hip_sys::hipStream_t,
 }
 
 /// A GPU memory resource allocated for HIP using [`GpuStorage`].
@@ -30,18 +29,17 @@ pub struct GpuResource {
 }
 
 impl GpuStorage {
-    /// Creates a new [`GpuStorage`] instance for the specified HIP stream.
+    /// Creates a new [`GpuStorage`] instance.
     ///
     /// # Arguments
     ///
     /// * `mem_alignment` - The memory alignment requirement in bytes.
-    pub fn new(mem_alignment: usize, stream: cubecl_hip_sys::hipStream_t) -> Self {
+    pub fn new(mem_alignment: usize) -> Self {
         Self {
             mem_alignment,
             memory: HashMap::new(),
             deallocations: Vec::new(),
             ptr_bindings: PtrBindings::new(),
-            stream,
         }
     }
 
@@ -51,10 +49,12 @@ impl GpuStorage {
     pub fn perform_deallocations(&mut self) {
         for id in self.deallocations.drain(..) {
             if let Some(ptr) = self.memory.remove(&id) {
-                // SAFETY: `ptr` was obtained from a prior `hipMallocAsync` call and has not
-                // been freed yet. `self.stream` is the same stream used for allocation.
-                unsafe {
-                    cubecl_hip_sys::hipFreeAsync(ptr, self.stream);
+                // SAFETY: `ptr` was obtained from a prior `hipMalloc` call and
+                // has not been freed yet. `hipFree` synchronizes the device, so
+                // in-flight work never sees the page disappear.
+                let status = unsafe { cubecl_hip_sys::hipFree(ptr) };
+                if status != HIP_SUCCESS {
+                    eprintln!("HIP free error: {status}");
                 }
             }
         }
@@ -129,12 +129,19 @@ impl ComputeStorage for GpuStorage {
     )]
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
-        // SAFETY: Calling HIP FFI to allocate device memory asynchronously. The returned
-        // pointer is valid after stream synchronization (performed below). The pointer is
-        // stored in `self.memory` and will be freed via `hipFreeAsync` on deallocation.
+        // Plain (synchronous) `hipMalloc` on purpose: `hipMallocAsync` draws
+        // from the driver's async mempool, which on ROCm never returns freed
+        // memory to the OS (`hipFreeAsync` + `hipMemPoolTrimTo(0)` keep the
+        // high-water mark forever — measured on gfx1151). The pools above
+        // amortize allocations into large, rare pages, so the synchronous
+        // call costs nothing where it matters — and freed pages really leave
+        // the process.
+        //
+        // SAFETY: Calling HIP FFI to allocate device memory. The pointer is
+        // stored in `self.memory` and freed via `hipFree` on deallocation.
         unsafe {
             let mut ptr: *mut ::std::os::raw::c_void = std::ptr::null_mut();
-            let status = cubecl_hip_sys::hipMallocAsync(&mut ptr, size as usize, self.stream);
+            let status = cubecl_hip_sys::hipMalloc(&mut ptr, size as usize);
 
             match status {
                 HIP_SUCCESS => {}
@@ -145,9 +152,6 @@ impl ComputeStorage for GpuStorage {
                     });
                 }
             }
-
-            // For safety, reducing the odds of missing mapped memory page.
-            cubecl_hip_sys::hipStreamSynchronize(self.stream);
 
             self.memory.insert(id, ptr);
         };
