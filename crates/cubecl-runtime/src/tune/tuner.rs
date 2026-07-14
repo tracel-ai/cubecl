@@ -1,13 +1,15 @@
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use cubecl_common::profile::ProfileDuration;
+use cubecl_common::{
+    benchmark::{BenchmarkComputations, BenchmarkDurations},
+    profile::{Instant, ProfileDuration},
+};
 use derive_more::Display;
 
 use core::time::Duration;
 
 use alloc::string::{String, ToString};
-use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::config::{Logger, autotune::AutotuneLogLevel};
 use crate::server::LaunchError;
@@ -123,6 +125,7 @@ struct TuneRequest<K: AutotuneKey> {
     context_logs: Option<String>,
     pending: Vec<PendingBench>,
     limit: Option<Duration>,
+    start_time: Instant,
 }
 
 #[allow(clippy::new_without_default)]
@@ -181,6 +184,7 @@ impl<K: AutotuneKey> Tuner<K> {
         }
 
         log::info!("Tuning {key}");
+        let start_time = Instant::now();
 
         let autotunables = tunables.autotunables().collect::<Vec<_>>();
         let mut results: Vec<AutotuneResult> = autotunables
@@ -306,6 +310,7 @@ impl<K: AutotuneKey> Tuner<K> {
             context_logs,
             pending,
             limit,
+            start_time,
         };
 
         // Resolve samples and commit the result. On wasm this runs on the browser
@@ -421,6 +426,7 @@ async fn process_request<K: AutotuneKey>(
         context_logs,
         pending,
         limit,
+        start_time,
     } = request;
 
     for bench in pending {
@@ -457,8 +463,10 @@ async fn process_request<K: AutotuneKey>(
         .expect("At least one kernel has to succeed.")
         .index;
 
+    let tune_duration = start_time.elapsed();
+
     {
-        log_result(&mut logger.lock(), &key, &results, context_logs.as_deref());
+        log_result(&mut logger.lock(), &key, &results, context_logs.as_deref(), tune_duration);
         cache.lock().cache_insert(key.clone(), fastest_index);
         #[cfg(std_io)]
         cache
@@ -475,6 +483,7 @@ fn log_result<K: AutotuneKey>(
     key: &K,
     results: &[AutotuneResult],
     context_logs: Option<&str>,
+    tune_duration: Duration,
 ) {
     match logger.log_level_autotune() {
         AutotuneLogLevel::Minimal => {
@@ -502,7 +511,7 @@ fn log_result<K: AutotuneKey>(
 
             let context = context_logs.unwrap_or("");
             logger.log_autotune(&format!(
-                "Fastest result {}-{key}. \n Top 3 times: {top_times:?}, context: {context}",
+                "Fastest result {}-{key} (tuned in {tune_duration:?}). \n Top 3 times: {top_times:?}, context: {context}",
                 result.name,
             ));
         }
@@ -516,7 +525,7 @@ fn log_result<K: AutotuneKey>(
 
             let context = context_logs.unwrap_or("");
             logger.log_autotune(&format!(
-                "Fastest result {}-{key}. Context: {context}",
+                "Fastest result {}-{key} (tuned in {tune_duration:?}). Context: {context}",
                 result.name,
             ));
 
