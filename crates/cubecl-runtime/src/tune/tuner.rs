@@ -204,8 +204,13 @@ impl<K: AutotuneKey> Tuner<K> {
             .map(|bounds| bounds.time_limit())
             .unwrap_or_default();
 
+        // The batch-retry check below reads this through `cfg!`, which keeps
+        // the name alive on wasm too; the assignment is native-only, so it
+        // simply stays false there.
         #[cfg(not(target_family = "wasm"))]
         let mut batch_success = false;
+        #[cfg(target_family = "wasm")]
+        let batch_success = false;
 
         // Walk the plan batch by batch, launching each benchmark synchronously. A
         // successful launch queues a `PendingBench` for the async resolver below;
