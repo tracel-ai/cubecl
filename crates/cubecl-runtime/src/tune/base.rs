@@ -202,7 +202,7 @@ impl TunePlan {
 
         if priority >= 0 {
             for (index, _name) in group_indices {
-                if !self.returned.contains(&index) {
+                if !self.returned.contains(&index) && !indices.contains(&index) {
                     all_skip = false;
                     indices.push(index);
                 }
