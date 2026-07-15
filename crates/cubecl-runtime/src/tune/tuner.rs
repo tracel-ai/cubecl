@@ -249,7 +249,14 @@ impl<K: AutotuneKey> Tuner<K> {
                         if short_circuit {
                             let limit = limit.unwrap();
                             let result = cubecl_common::future::block_on(resolve_bench(bench));
-                            let (close_enough, _) = check_limit(limit, &result);
+
+                            let median = result
+                                .outcome
+                                .as_ref()
+                                .map(|outcome| outcome.computation.median)
+                                .unwrap_or(Duration::MAX);
+
+                            let close_enough = median <= limit;
 
                             batch_success |= result.outcome.is_ok();
                             results[index] = result;
@@ -337,22 +344,6 @@ async fn resolve_bench(bench: PendingBench) -> AutotuneResult {
             durations,
         )),
     ))
-}
-
-fn check_limit(limit: Duration, result: &AutotuneResult) -> (bool, f64) {
-    let median = result
-        .outcome
-        .as_ref()
-        .map(|outcome| outcome.computation.median)
-        .unwrap_or(Duration::MAX);
-
-    let percentage = if median.as_secs_f64() > 0.0 {
-        (limit.as_secs_f64() / median.as_secs_f64()) * 100.0
-    } else {
-        f64::INFINITY
-    };
-
-    (median <= limit, percentage)
 }
 
 /// Await every profile sample, pick the fastest tunable, commit to the cache.
