@@ -57,11 +57,15 @@ impl ThroughputCache {
     }
 
     /// Inserts a new [`ThroughputValue`] into the cache for the given [`ThroughputKey`].
+    ///
+    /// Throughput measurements are nondeterministic, so a concurrent process (or an
+    /// earlier run) may have recorded a different value for the same key; the cache
+    /// keeps the existing value in that case rather than failing.
     pub fn insert(&mut self, key: ThroughputKey, value: ThroughputValue) {
         #[cfg(std_io)]
-        self.cache
-            .insert(key, value)
-            .expect("Should be able to insert new throughput value");
+        if let Err(err) = self.cache.insert(key, value) {
+            log::warn!("Concurrent throughput measurement, keeping the existing value: {err:?}");
+        }
 
         #[cfg(not(std_io))]
         self.cache.insert(key, value);
