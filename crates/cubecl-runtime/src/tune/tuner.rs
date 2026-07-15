@@ -237,6 +237,8 @@ impl<K: AutotuneKey> Tuner<K> {
             for index in tunable_indices {
                 let op = autotunables[index];
 
+                log_context.push_tuning_step(op.name.to_string());
+
                 match tune_benchmark(op, test_inputs.clone(), client.clone()) {
                     Ok(profiles) => {
                         let bench = PendingBench {
@@ -247,22 +249,18 @@ impl<K: AutotuneKey> Tuner<K> {
 
                         #[cfg(not(target_family = "wasm"))]
                         if short_circuit {
-                            let limit = limit.unwrap();
                             let result = cubecl_common::future::block_on(resolve_bench(bench));
 
-                            let median = result
+                            let close_enough = result
                                 .outcome
                                 .as_ref()
-                                .map(|outcome| outcome.computation.median)
-                                .unwrap_or(Duration::MAX);
-
-                            let close_enough = median <= limit;
+                                .is_ok_and(|out| out.computation.median <= limit.unwrap());
 
                             batch_success |= result.outcome.is_ok();
                             results[index] = result;
 
                             if close_enough {
-                                log_context.push_short_circuit(op.name.clone());
+                                log_context.push_short_circuit(op.name.to_string());
                                 break;
                             }
 

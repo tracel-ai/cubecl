@@ -10,8 +10,8 @@ use core::time::Duration;
 #[derive(Debug, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneLogEvent {
-    /// Tracks a batch of tunable kernels that were executed during autotuning.
-    TuningSteps(Vec<String>),
+    /// Tracks a tunable kernel that was executed during autotuning.
+    TuningStep(String),
     /// A short circuit event where autotuning stopped early because this candidate
     /// achieved sufficient throughput.
     ShortCircuit(String),
@@ -51,7 +51,7 @@ impl core::fmt::Display for AutotuneLogContext {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         for event in &self.events {
             match event {
-                AutotuneLogEvent::TuningSteps(steps) => write!(f, "\n - Tuning: {steps:?}")?,
+                AutotuneLogEvent::TuningStep(step) => write!(f, "\n - Tuning: {step}")?,
                 AutotuneLogEvent::ShortCircuit(name) => write!(
                     f,
                     "\nShort circuiting autotune. {name} is close enough to peak throughput."
@@ -66,8 +66,8 @@ impl core::fmt::Display for AutotuneLogContext {
 pub trait AutotuneLoggerExt {
     /// Pushes a short circuit event if logging is enabled.
     fn push_short_circuit(&mut self, name: String);
-    /// Pushes a tuning steps event if logging is enabled.
-    fn push_tuning_steps(&mut self, names: Vec<String>);
+    /// Pushes a tuning step event if logging is enabled.
+    fn push_tuning_step(&mut self, name: String);
     /// Logs the benchmark result if logging is enabled.
     fn log_result<K: AutotuneKey>(&self, logger: &mut Logger, key: &K, results: &[AutotuneResult]);
 }
@@ -79,9 +79,9 @@ impl AutotuneLoggerExt for Option<AutotuneLogContext> {
         }
     }
 
-    fn push_tuning_steps(&mut self, names: Vec<String>) {
+    fn push_tuning_step(&mut self, name: String) {
         if let Some(ctx) = self.as_mut() {
-            ctx.events.push(AutotuneLogEvent::TuningSteps(names));
+            ctx.events.push(AutotuneLogEvent::TuningStep(name));
         }
     }
 
@@ -97,9 +97,9 @@ impl<'a> AutotuneLoggerExt for Option<&'a mut AutotuneLogContext> {
         }
     }
 
-    fn push_tuning_steps(&mut self, names: Vec<String>) {
+    fn push_tuning_step(&mut self, name: String) {
         if let Some(ctx) = self.as_deref_mut() {
-            ctx.events.push(AutotuneLogEvent::TuningSteps(names));
+            ctx.events.push(AutotuneLogEvent::TuningStep(name));
         }
     }
 
@@ -169,15 +169,11 @@ pub(crate) fn log_result<K: AutotuneKey>(
         AutotuneLogLevel::Minimal => {
             let top_times = results
                 .iter()
-                .map(|r| {
-                    let time = r
-                        .outcome
+                .filter_map(|r| {
+                    r.outcome
                         .as_ref()
-                        .map(|r| r.computation.median)
-                        .unwrap_or(Duration::MAX);
-
-                    let index = r.outcome.as_ref().map(|r| r.index).unwrap_or_default();
-                    (index, time)
+                        .ok()
+                        .map(|o| (o.index, o.computation.median))
                 })
                 .take(3)
                 .collect::<Vec<_>>();

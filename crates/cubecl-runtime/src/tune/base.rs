@@ -1,5 +1,5 @@
 use super::{AutotuneError, AutotuneKey, TuneFn, TuneInputs};
-use crate::tune::{AutotuneLogContext, AutotuneLoggerExt};
+use crate::tune::AutotuneLogContext;
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::{string::String, sync::Arc, vec, vec::Vec};
@@ -184,7 +184,7 @@ impl TunePlan {
     /// Get the next batch of [tunable](Tunable) index to be autotuned.
     ///
     /// Note that if the list is empty, it means no more autotuned entry can be executed.
-    pub(crate) fn next(&mut self, mut log_context: Option<&mut AutotuneLogContext>) -> Vec<usize> {
+    pub(crate) fn next(&mut self, log_context: Option<&mut AutotuneLogContext>) -> Vec<usize> {
         let mut indices = core::mem::take(&mut self.no_groups);
         let priority = self.priorities.last();
 
@@ -201,11 +201,6 @@ impl TunePlan {
         self.cleanup(cleanup);
 
         if priority >= 0 {
-            let names = group_indices
-                .iter()
-                .map(|(_, name)| ToString::to_string(name))
-                .collect();
-            log_context.push_tuning_steps(names);
             for (index, _name) in group_indices {
                 if !self.returned.contains(&index) {
                     all_skip = false;
