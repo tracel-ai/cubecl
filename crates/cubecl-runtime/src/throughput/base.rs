@@ -2,7 +2,7 @@ use alloc::{format, string::String};
 
 use cubecl_ir::ElemType;
 
-use crate::throughput::ComputeCmmaConfig;
+use crate::throughput::{CmmaDims, ComputeCmmaConfig};
 
 /// Represents the mode of a throughput computation.
 #[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
@@ -87,5 +87,33 @@ impl ThroughputValue {
         }
 
         format!("{val_per_s:.4} {}{unit}/s", suffixes[suffix_idx])
+    }
+}
+
+/// Constructs a compute [`ThroughputKey`] based on CMMA tile availability and types.
+pub fn compute_throughput_key(
+    cmma_tile: Option<(u32, u32, u32)>,
+    input_elem_type: ElemType,
+    acc_elem_type: ElemType,
+) -> ThroughputKey {
+    let mode = match cmma_tile {
+        Some((tile_m, tile_n, tile_k)) => ThroughputMode::ComputeCmma(ComputeCmmaConfig {
+            accumulator_type: acc_elem_type,
+            cmma_dims: CmmaDims {
+                m: tile_m as usize,
+                n: tile_n as usize,
+                k: tile_k as usize,
+            },
+        }),
+        None => ThroughputMode::ComputeDirect,
+    };
+
+    ThroughputKey {
+        mode,
+        dtype: match mode {
+            ThroughputMode::ComputeCmma(_) => input_elem_type,
+            ThroughputMode::ComputeDirect => acc_elem_type,
+            ThroughputMode::Memory => unreachable!(),
+        },
     }
 }

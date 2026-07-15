@@ -12,6 +12,17 @@ use cubecl_runtime::{
 
 use crate::throughput::{compute_cmma, compute_direct, launch_overhead, memory_direct};
 
+/// Measure peak throughput on `device` for each of the given `keys`.
+pub fn device_throughput<R: Runtime>(
+    device: &R::Device,
+    keys: &[ThroughputKey],
+) -> alloc::vec::Vec<ThroughputValue> {
+    let client = R::client(device);
+    keys.iter()
+        .map(|key| measure_peak_throughput::<R>(&client, *key))
+        .collect()
+}
+
 /// Computes the peak throughput for a given runtime and key.
 ///
 /// Native only, panics on WASM
