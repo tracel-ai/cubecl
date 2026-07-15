@@ -1,5 +1,6 @@
 use crate::config::{Logger, autotune::AutotuneLogLevel};
 use crate::tune::{AutotuneKey, AutotuneResult};
+use alloc::borrow::Cow;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -7,7 +8,7 @@ use core::time::Duration;
 
 /// Events that occurred during autotuning, useful for observability and logging.
 #[derive(Debug, Clone)]
-#[cfg_attr(std_io, derive(serde::Serialize))]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneLogEvent {
     /// Tracks a batch of tunable kernels that were executed during autotuning.
     TuningSteps(Vec<String>),
@@ -18,7 +19,7 @@ pub enum AutotuneLogEvent {
 
 /// The context containing bounds, limits, and events that happened during autotuning.
 #[derive(Debug, Clone, Default)]
-#[cfg_attr(std_io, derive(serde::Serialize))]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub struct AutotuneLogContext {
     /// Calculated bounds for autotuning.
     pub bounds: Option<crate::tune::Bounds<crate::tune::AutotuneBound>>,
@@ -109,18 +110,19 @@ impl<'a> AutotuneLoggerExt for Option<&'a mut AutotuneLogContext> {
 
 /// Telemetry information emitted when autotune runs.
 #[cfg(std_io)]
-#[derive(serde::Serialize)]
-pub struct AutotuneTelemetry<'a, K> {
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(bound(deserialize = "K: Clone + serde::Deserialize<'de>"))]
+pub struct AutotuneTelemetry<'a, K: Clone> {
     /// The key for the autotuning job.
-    pub key: &'a K,
+    pub key: Cow<'a, K>,
     /// The index of the fastest candidate.
     pub fastest_index: usize,
     /// The time taken by the fastest candidate.
     pub fastest_time: Duration,
     /// All benchmarking results.
-    pub results: &'a [AutotuneResult],
+    pub results: Cow<'a, [AutotuneResult]>,
     /// Logging context with bounds, limit, and events.
-    pub log_context: Option<&'a AutotuneLogContext>,
+    pub log_context: Option<Cow<'a, AutotuneLogContext>>,
 }
 
 /// Emit the autotune result through the logger at the currently configured level.
@@ -147,11 +149,11 @@ pub(crate) fn log_result<K: AutotuneKey>(
             #[cfg(std_io)]
             {
                 let telemetry = AutotuneTelemetry {
-                    key,
+                    key: Cow::Borrowed(key),
                     fastest_index: fastest_result.index,
                     fastest_time: fastest_result.computation.median,
-                    results,
-                    log_context,
+                    results: Cow::Borrowed(results),
+                    log_context: log_context.map(Cow::Borrowed),
                 };
 
                 let msg = serde_json::to_string(&telemetry).unwrap_or_else(|err| {
