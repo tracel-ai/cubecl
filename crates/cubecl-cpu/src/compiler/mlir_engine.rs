@@ -11,7 +11,7 @@ use std::{
 
 use super::module::Module;
 use cubecl_core::{ir::StorageType, prelude::KernelDefinition};
-use cubecl_opt::Function;
+use cubecl_opt::{Function, GlobalState};
 use tracel_llvm::mlir_rs::{
     Context, ExecutionEngine,
     dialect::DialectRegistry,
@@ -20,6 +20,7 @@ use tracel_llvm::mlir_rs::{
 
 pub struct MlirKernel {
     execution_engine: ExecutionEngine,
+    pub needs_parallelism: bool,
     pub shared_memories: SharedMemories,
 }
 
@@ -28,20 +29,27 @@ pub struct MlirEngine(pub Arc<MlirKernel>);
 
 impl Debug for MlirEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Work in progress")
+        write!(
+            f,
+            "MLIR output many IR, so check the README.md on how to generate debug output"
+        )
     }
 }
 
 impl Display for MlirEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "work in progress")
+        write!(
+            f,
+            "MLIR output many IR, so check the README.md on how to generate debug output"
+        )
     }
 }
 
 impl MlirEngine {
     pub fn from_cubecl_ir(
         kernel: KernelDefinition,
-        func: &Function,
+        func: &mut Function,
+        global_state: &GlobalState,
         shared_memories: SharedMemories,
         addr_type: StorageType,
     ) -> Self {
@@ -57,18 +65,24 @@ impl MlirEngine {
 
         let mut module = Module::new(&context, kernel.options.kernel_name.clone());
 
-        module.visit_kernel(&kernel, func, &shared_memories, addr_type);
+        module.visit_kernel(&kernel, func, global_state, &shared_memories, addr_type);
 
+        let needs_parallelism = module.needs_parallelism;
         module.run_pass();
 
         let execution_engine = module.into_execution_engine();
         register_external_function(&execution_engine);
-        let kernel = MlirKernel {
+        let mlir_kernel = MlirKernel {
             execution_engine,
             shared_memories,
+            needs_parallelism,
         };
-        let mlir_kernel = Arc::new(kernel);
-        Self(mlir_kernel)
+
+        let mlir_kernel = Arc::new(mlir_kernel);
+        let mlir_kernel = Self(mlir_kernel);
+        #[cfg(feature = "mlir-dump")]
+        mlir_kernel.dump_debug_shared_library(&kernel.options.kernel_name);
+        mlir_kernel
     }
 
     pub fn dump_object(&self, path: &str) {
@@ -87,6 +101,13 @@ impl MlirEngine {
                     log::error!("MLIR kernel invocation failed: {err}");
                     panic!("{err}");
                 });
+        }
+    }
+
+    #[cfg(feature = "mlir-dump")]
+    fn dump_debug_shared_library(&self, name: &str) {
+        if let Some(path) = super::get_dump_name(name) {
+            self.dump_object(path.join("mlir_output.so").to_str().unwrap());
         }
     }
 }

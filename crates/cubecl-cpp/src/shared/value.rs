@@ -180,6 +180,22 @@ pub(crate) fn format_const<D: Dialect>(number: &ConstantValue, item: &Item<D>) -
         Elem::FP8(FP8Kind::E5M2) => e5m2::from_f64(number.as_f64()).to_bits(),
         Elem::FP8(FP8Kind::UE8M0) => ue8m0::from_f64(number.as_f64()).to_bits(),
         _ => {
+            // Non-finite floats have no C++ literal, and the math.h macros
+            // (INFINITY/NAN) are not declared in the headerless HIP/nvrtc
+            // sources — the IEEE constant expressions work everywhere.
+            if let ConstantValue::Float(value) = number {
+                if value.is_infinite() {
+                    return if *value < 0.0 {
+                        "(-1.0f/0.0f)"
+                    } else {
+                        "(1.0f/0.0f)"
+                    }
+                    .to_string();
+                }
+                if value.is_nan() {
+                    return "(0.0f/0.0f)".to_string();
+                }
+            }
             return format!("{number}");
         }
     };
@@ -392,6 +408,36 @@ impl<D: Dialect> Value<D> {
             Value::Value { id, .. } => Some(*id),
             Value::Tmp { id, .. } => Some(*id),
             _ => None,
+        }
+    }
+
+    /// A value-producing op (e.g. `Dot`/`VectorSum`, or any arithmetic) whose
+    /// output was allocated as a fresh mutable local ends up typed as a local
+    /// pointer. Such an output can't be declared inline via [`FmtLeft::fmt_left`]
+    /// — that yields `T* out = <scalar value>;`, which is a type error. Instead it
+    /// needs backing storage, exactly like [`super::Instruction::DeclareVariable`].
+    ///
+    /// When `self` is such a local pointer, this emits the backing declaration
+    /// (`T out_store; T* out = &out_store;`) and returns `true`, so the caller
+    /// writes the result through the pointer (`*out = value;`). Otherwise it emits
+    /// nothing and returns `false`, and the caller declares the output inline.
+    ///
+    /// This is only reached for freshly-created outputs (the op defines `out`),
+    /// so it never double-declares an already-declared local.
+    pub fn declare_local_ptr_backing(
+        &self,
+        f: &mut Formatter<'_>,
+    ) -> Result<bool, std::fmt::Error> {
+        if let Value::Value {
+            item: Item::Pointer(_, PointerClass::Local),
+            ..
+        } = self
+        {
+            writeln!(f, "{} {self}_store;", self.item().value_ty())?;
+            writeln!(f, "{} {self} = &{self}_store;", self.item())?;
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 

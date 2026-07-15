@@ -34,7 +34,10 @@ use cubecl_runtime::{
     memory_management::MemoryAllocationMode,
     server::ComputeServer,
     storage::ManagedResource,
-    stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
+    stream::scheduler::{
+        SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy,
+        SchedulerStreamBackend,
+    },
     validation::{validate_cube_dim, validate_units},
 };
 use hashbrown::HashMap;
@@ -188,7 +191,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         let mut compiler = C::init(self.backend, &self.compilation_options);
         let mut compiled = compiler.compile_kernel(self, kernel, mode)?;
 
-        if self.scheduler.logger.compilation_activated() {
+        if self.scheduler.logger.compilation_source_activated() {
             compiled.debug_info = Some(DebugInformation::new(
                 compiler.lang_tag(),
                 kernel_id.clone(),
@@ -461,6 +464,22 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.mem_manage.mode(mode);
+    }
+
+    fn configure_memory_pools(&mut self, config: MemoryConfiguration, stream_id: StreamId) -> bool {
+        // Streams created from now on build their main pool with the new
+        // layout; memory is per stream, so already-created streams keep theirs.
+        self.scheduler
+            .backend_mut()
+            .factory()
+            .set_gpu_pools(config.clone());
+        let (_, props) = self.scheduler.backend_mut().factory().gpu_pools();
+
+        // The calling stream's pools are rebuilt in place (kept, with a log,
+        // when something is still live in them).
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
+        stream.mem_manage.configure_memory_pools(config, &props)
     }
 }
 

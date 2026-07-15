@@ -91,9 +91,12 @@ pub trait FunctionFmt<D: Dialect> {
                 Elem::F16x2 | Elem::BF16x2 => D::compile_instruction_half2_function_name_prefix(),
                 _ => "",
             };
-            format!("{prefix}{}", Self::base_function_name())
+            format!(
+                "{prefix}{}",
+                D::compile_fast_math_function_name(Self::base_function_name())
+            )
         } else {
-            Self::base_function_name().into()
+            D::compile_fast_math_function_name(Self::base_function_name()).into()
         }
     }
     fn format_unary<Input: Display>(
@@ -111,7 +114,16 @@ pub trait FunctionFmt<D: Dialect> {
         }
 
         if Self::half_support() {
-            write!(f, "{}({input})", Self::function_name(elem))
+            // Dialects without a half prefix (e.g. Metal) reuse the float-taking
+            // function and lack `bfloat` intrinsics, so bfloat must round-trip through
+            // float. Dialects with a prefix (e.g. CUDA's `h`) have native intrinsics.
+            let no_half_prefix = D::compile_instruction_half_function_name_prefix().is_empty();
+            match elem {
+                Elem::BF16 | Elem::BF16x2 if no_half_prefix => {
+                    write!(f, "{}({}(float({input})))", elem, Self::function_name(elem))
+                }
+                _ => write!(f, "{}({input})", Self::function_name(elem)),
+            }
         } else {
             match elem {
                 Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
@@ -182,7 +194,6 @@ function!(FastSqrt, "__fsqrt_rn", false);
 function!(FastInverseSqrt, "__frsqrt_rn", false);
 function!(Exp, "exp");
 function!(FastExp, "__expf", false);
-function!(Expm1, "expm1", false);
 function!(Ceil, "ceil");
 function!(Trunc, "trunc");
 function!(Floor, "floor");
@@ -242,6 +253,22 @@ impl<D: Dialect> Unary<D> for Log1p {
         _out_elem: Elem<D>,
     ) -> std::fmt::Result {
         D::compile_instruction_log1p_scalar(f, input)
+    }
+
+    fn can_optimize() -> bool {
+        false
+    }
+}
+
+pub struct Expm1;
+
+impl<D: Dialect> Unary<D> for Expm1 {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _out_elem: Elem<D>,
+    ) -> std::fmt::Result {
+        D::compile_instruction_expm1_scalar(f, input)
     }
 
     fn can_optimize() -> bool {
@@ -433,6 +460,14 @@ impl<D: Dialect> Unary<D> for Assign {
         if elem != input.elem() {
             match elem {
                 Elem::TF32 => write!(f, "nvcuda::wmma::__float_to_tf32({input})"),
+                // A direct construction between the two half types is
+                // ambiguous on HIP — `__hip_bfloat16` exposes a dozen implicit
+                // conversion operators, so `__half(bf16)` (and the reverse)
+                // fails to compile. Route half<->half through `float`, which
+                // is a single unambiguous conversion on every dialect.
+                elem if is_half(elem) && is_half(input.elem()) => {
+                    write!(f, "{elem}(float({input}))")
+                }
                 elem => write!(f, "{elem}({input})"),
             }
         } else {
@@ -443,6 +478,12 @@ impl<D: Dialect> Unary<D> for Assign {
     fn can_optimize() -> bool {
         false
     }
+}
+
+/// The two scalar half-precision float types, whose direct
+/// interconstruction is ambiguous on HIP.
+fn is_half<D: Dialect>(elem: Elem<D>) -> bool {
+    matches!(elem, Elem::F16 | Elem::BF16)
 }
 
 fn elem_function_name<D: Dialect>(base_name: &'static str, elem: Elem<D>) -> String {

@@ -37,7 +37,7 @@ use core::{
 };
 
 use alloc::{boxed::Box, collections::vec_deque::VecDeque, rc::Rc, vec, vec::Vec};
-use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::LocalStores};
+use analyses::{AnalysisCache, dominance::DomFrontiers, writes::LocalStores};
 use cubecl_core::{
     CubeDim,
     post_processing::{
@@ -80,9 +80,14 @@ pub use petgraph::graph::{EdgeIndex, NodeIndex};
 pub use transformers::*;
 pub use version::PhiInstruction;
 
+pub use crate::analyses::liveness::MemoryLiveness;
 pub use crate::analyses::liveness::shared::SharedLiveness;
 use crate::{
-    analyses::{dominance::Dominators, liveness::Captures, pointer_source::PointerSource},
+    analyses::{
+        dominance::Dominators,
+        liveness::{Captures, Liveness},
+        pointer_source::PointerSource,
+    },
     passes::{CopyTransform, DisaggregateArray},
 };
 
@@ -156,6 +161,7 @@ pub struct GlobalState {
     pub buffer_visibility: RefCell<Vec<BufferVisibility>>,
     pub extra_functions: HashMap<Id, Function>,
     /// The `CubeDim` used for range analysis
+    #[allow(dead_code)]
     pub(crate) cube_dim: CubeDim,
     pub(crate) transformers: Vec<Rc<dyn IrTransformer>>,
     pub(crate) processors: Rc<Vec<Box<dyn Processor>>>,

@@ -27,6 +27,19 @@ pub enum PoolType {
         page_size: u64,
         /// The maximum size of a slice to allocate in the pool.
         max_slice_size: u64,
+        /// Hard cap on the total bytes of pages this pool may hold.
+        ///
+        /// The effective cap is `floor(max_pool_size / page_size)` whole pages.
+        /// If `max_pool_size < page_size`, the page size is shrunk to the
+        /// (alignment-rounded) cap so the budget is honored with a single page.
+        /// When the cap is reached and no free slice fits after coalescing,
+        /// reserving returns [`IoError`](crate::server::IoError)
+        /// `PoolCapacityExceeded` instead of silently growing. `None` (the
+        /// previous behavior) keeps unbounded growth.
+        ///
+        /// Note: runtimes that create one memory management per stream (CUDA,
+        /// HIP) apply the cap per stream.
+        max_pool_size: Option<u64>,
     },
 }
 

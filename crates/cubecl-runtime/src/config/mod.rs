@@ -9,8 +9,12 @@ pub mod compilation;
 pub mod memory;
 /// Profiling config module.
 pub mod profiling;
+/// Human-readable byte sizes for config files.
+pub mod size;
 /// Streaming config module.
 pub mod streaming;
+/// Throughput config module.
+pub mod throughput;
 
 mod base;
 mod logger;

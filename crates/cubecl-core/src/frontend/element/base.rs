@@ -494,63 +494,63 @@ impl_launch_arg_ref!(*mut T);
 
 macro_rules! launch_tuple {
     ($(($T:ident, $t:ident)),*) => {
-        impl<$($T: LaunchArg),*> LaunchArg for ($($T),*) {
-            type RuntimeArg<R: Runtime> = ($($T::RuntimeArg<R>),*);
-            type CompilationArg = ($($T::CompilationArg),*);
+        impl<$($T: LaunchArg),*> LaunchArg for ($($T,)*) {
+            type RuntimeArg<R: Runtime> = ($($T::RuntimeArg<R>,)*);
+            type CompilationArg = ($($T::CompilationArg,)*);
 
             fn register<R: Runtime>(runtime_arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) -> Self::CompilationArg {
-                let ($($t),*) = runtime_arg;
-                ($($T::register($t, launcher)),*)
+                let ($($t,)*) = runtime_arg;
+                ($($T::register($t, launcher),)*)
             }
 
-            fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> ($(<$T as CubeType>::ExpandType),*) {
-                let ($($t),*) = arg;
-                ($($T::expand($t, builder)),*)
+            fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> ($(<$T as CubeType>::ExpandType,)*) {
+                let ($($t,)*) = arg;
+                ($($T::expand($t, builder),)*)
             }
         }
     };
 }
 
-all_tuples!(launch_tuple, 2, 12, T, t);
+all_tuples!(launch_tuple, 1, 12, T, t);
 
 macro_rules! as_ref_tuple {
     ($(($T:ident, $t:ident)),*) => {
-        impl<$($T: AsRefExpand),*> AsRefExpand for ($($T),*) {
-            fn __expand_ref_method(&self, _: &Scope) -> &($($T),*) {
+        impl<$($T: AsRefExpand),*> AsRefExpand for ($($T,)*) {
+            fn __expand_ref_method(&self, _: &Scope) -> &($($T,)*) {
                 self
             }
         }
     };
 }
 
-all_tuples!(as_ref_tuple, 2, 12, T, t);
+all_tuples!(as_ref_tuple, 1, 12, T, t);
 
 macro_rules! as_mut_tuple {
     ($(($T:ident, $t:ident)),*) => {
-        impl<$($T: AsMutExpand),*> AsMutExpand for ($($T),*) {
-            fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut ($($T),*) {
+        impl<$($T: AsMutExpand),*> AsMutExpand for ($($T,)*) {
+            fn __expand_ref_mut_method(&mut self, _: &Scope) -> &mut ($($T,)*) {
                 self
             }
         }
     };
 }
 
-all_tuples!(as_mut_tuple, 2, 12, T, t);
+all_tuples!(as_mut_tuple, 1, 12, T, t);
 
 macro_rules! deref_tuple {
     ($(($T:ident, $t:ident)),*) => {
-        impl<$($T: DerefExpand),*> DerefExpand for ($($T),*) {
-            type Target = ($($T::Target),*);
+        impl<$($T: DerefExpand),*> DerefExpand for ($($T,)*) {
+            type Target = ($($T::Target,)*);
 
             fn __expand_deref_method(&self, scope: &Scope) -> Self::Target {
-                let ($($t),*) = self;
-                ($($t.__expand_deref_method(scope)),*)
+                let ($($t,)*) = self;
+                ($($t.__expand_deref_method(scope),)*)
             }
         }
     };
 }
 
-all_tuples!(deref_tuple, 2, 12, T, t);
+all_tuples!(deref_tuple, 1, 12, T, t);
 
 /// Expand type of a native GPU type, i.e. scalar primitives, arrays, shared memory.
 #[derive(new, Clone, Copy, Debug)]
@@ -742,11 +742,11 @@ macro_rules! tuple_assign {
     }
 }
 
-all_tuples!(tuple_cube_type, 2, 12, P);
-all_tuples!(tuple_debug, 2, 12, P);
-all_tuples!(tuple_init, 2, 12, P);
-all_tuples!(tuple_runtime, 2, 12, P);
-all_tuples_enumerated!(tuple_assign, 2, 12, P);
+all_tuples!(tuple_cube_type, 1, 12, P);
+all_tuples!(tuple_debug, 1, 12, P);
+all_tuples!(tuple_init, 1, 12, P);
+all_tuples!(tuple_runtime, 1, 12, P);
+all_tuples_enumerated!(tuple_assign, 1, 12, P);
 
 /// Trait for native types that can be assigned. For non-native composites, use the normal [`Assign`].
 pub trait NativeAssign: CubeType {

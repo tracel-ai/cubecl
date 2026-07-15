@@ -5,6 +5,7 @@ use crate::{
 };
 use cubecl_core::CubeDim;
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
+use smallvec::SmallVec;
 use std::sync::{
     Arc,
     atomic::{AtomicI32, Ordering},
@@ -48,7 +49,7 @@ unsafe impl Sync for SharedMlirData {}
 
 pub struct MlirData {
     pub shared_mlir_data: Arc<SharedMlirData>,
-    pub args_second_indirection: Vec<*mut ()>,
+    pub args_second_indirection: SmallVec<[*mut (); 20]>,
     pub builtin: BuiltinArray,
 }
 
@@ -81,7 +82,7 @@ impl MlirData {
 
         let args_zero_indirection = Vec::with_capacity(indirect_args_len);
         let args_first_indirection = Vec::with_capacity(indirect_args_len);
-        let mut args_second_indirection = Vec::with_capacity(total_args_len);
+        let mut args_second_indirection = SmallVec::with_capacity(total_args_len);
         let info = info.data;
 
         let mut shared_mlir_data = SharedMlirData {
@@ -105,7 +106,7 @@ impl MlirData {
         };
 
         for resource in resources {
-            let (ptr, len) = resource.get_write_ptr_and_length();
+            let (ptr, len) = resource.resource().get_write_ptr_and_length();
             let line_memref = LineMemRef::new(ptr, len);
             push_undirected(line_memref);
         }

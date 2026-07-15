@@ -1,5 +1,5 @@
 use crate::compute::storage::cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryResource};
-use cubecl_common::bytes::{AllocationController, AllocationProperty};
+use cubecl_common::bytes::{AccessError, AccessPolicy, AllocationController, AllocationProperty};
 use cubecl_runtime::memory_management::ManagedMemoryBinding;
 
 /// Controller for managing pinned (page-locked) host memory allocations.
@@ -41,30 +41,55 @@ impl AllocationController for PinnedMemoryManagedAllocController {
         AllocationProperty::Pinned
     }
 
-    unsafe fn memory_mut(&mut self) -> &mut [std::mem::MaybeUninit<u8>] {
+    // Pinned host memory is always host-resident: the policy never forces a copy here.
+    unsafe fn memory_mut(
+        &mut self,
+        _policy: AccessPolicy,
+    ) -> Result<&mut [std::mem::MaybeUninit<u8>], AccessError> {
+        // A zero-size resource carries a NULL pointer (`hipHostMalloc(0)`
+        // returns success without allocating), which `from_raw_parts_mut`
+        // rejects even for an empty slice — hand out an aligned dangling
+        // pointer instead.
+        if self.resource.size == 0 {
+            return Ok(empty_pinned_slice_mut());
+        }
         // SAFETY:
         // - The ptr is valid while the binding is alive.
         // - The resource is allocated with the size of size.
         // - MaybeUninit<u8> has the same layout as u8.
         // - Caller has to promise to only write initialized data to this slice.
-        unsafe {
+        Ok(unsafe {
             std::slice::from_raw_parts_mut(
                 self.resource.ptr as *mut std::mem::MaybeUninit<u8>,
                 self.resource.size,
             )
-        }
+        })
     }
 
-    fn memory(&self) -> &[std::mem::MaybeUninit<u8>] {
+    fn memory(&self, _policy: AccessPolicy) -> Result<&[std::mem::MaybeUninit<u8>], AccessError> {
+        // See `memory_mut`: a zero-size resource carries a NULL pointer.
+        if self.resource.size == 0 {
+            return Ok(empty_pinned_slice_mut());
+        }
         // SAFETY:
         // - The ptr is valid while the binding is alive.
         // - The resource is allocated with the size of size.
         // - MaybeUninit<u8> has the same layout as u8.
-        unsafe {
+        Ok(unsafe {
             std::slice::from_raw_parts(
                 self.resource.ptr as *mut std::mem::MaybeUninit<u8>,
                 self.resource.size,
             )
-        }
+        })
+    }
+}
+
+/// An empty slice whose (dangling) pointer still satisfies
+/// [`PINNED_MEMORY_ALIGNMENT`], matching what `alloc_align` advertises.
+fn empty_pinned_slice_mut<'a>() -> &'a mut [std::mem::MaybeUninit<u8>] {
+    // SAFETY: a dangling, well-aligned, non-null pointer is valid for a
+    // zero-length slice.
+    unsafe {
+        std::slice::from_raw_parts_mut(std::ptr::without_provenance_mut(PINNED_MEMORY_ALIGNMENT), 0)
     }
 }

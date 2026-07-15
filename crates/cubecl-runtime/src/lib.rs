@@ -20,6 +20,9 @@ pub mod kernel;
 /// Stream related utilities.
 pub mod stream;
 
+/// Throughput related utilities.
+pub mod throughput;
+
 /// Compute client module.
 pub mod client;
 
@@ -28,6 +31,8 @@ pub mod tune;
 
 /// Memory management module.
 pub mod memory_management;
+/// Cache of per-launch kernel metadata info buffers.
+pub mod metadata_cache;
 /// Compute server module.
 pub mod server;
 /// Compute Storage module.

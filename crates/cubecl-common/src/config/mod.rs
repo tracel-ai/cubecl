@@ -88,11 +88,24 @@ pub trait RuntimeConfig:
     /// [`Config::get`]. Attempting to set the configuration after it has been initialized will
     /// cause a panic.
     fn set(config: Self) {
-        let mut state = Self::storage().lock();
-        if state.is_some() {
+        if !Self::try_set(config) {
             panic!("Cannot set the configuration multiple times.");
         }
+    }
+
+    /// Sets the configuration to the provided value, unless it has already been
+    /// set or read — in which case the existing configuration is kept and
+    /// `false` is returned.
+    ///
+    /// Use this from libraries that want to provide a computed default without
+    /// overriding a configuration the application set first.
+    fn try_set(config: Self) -> bool {
+        let mut state = Self::storage().lock();
+        if state.is_some() {
+            return false;
+        }
         *state = Some(Arc::new(config));
+        true
     }
 
     /// Save the default configuration to the provided file path.

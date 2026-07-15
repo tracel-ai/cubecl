@@ -1,5 +1,5 @@
 use cubecl_core::{ir::StorageType, prelude::KernelDefinition};
-use cubecl_opt::Function;
+use cubecl_opt::{Function, GlobalState};
 use tracel_llvm::mlir_rs::{
     Context, ExecutionEngine,
     ir::{Location, operation::OperationLike},
@@ -14,24 +14,28 @@ pub(super) struct Module<'a> {
     name: String,
     location: Location<'a>,
     context: &'a Context,
+    pub needs_parallelism: bool,
 }
 
 impl<'a> Module<'a> {
     pub(super) fn new(context: &'a Context, name: String) -> Self {
         let location = Location::unknown(context);
         let module = tracel_llvm::mlir_rs::ir::Module::new(location);
+        let needs_parallelism = false;
         Self {
             module,
             context,
             name,
             location,
+            needs_parallelism,
         }
     }
 
     pub(super) fn visit_kernel(
         &mut self,
         kernel: &KernelDefinition,
-        func: &Function,
+        func: &mut Function,
+        global_state: &GlobalState,
         shared_memories: &SharedMemories,
         addr_type: StorageType,
     ) {
@@ -41,8 +45,10 @@ impl<'a> Module<'a> {
             kernel,
             &self.module,
             func,
+            global_state,
             shared_memories,
             addr_type,
+            &mut self.needs_parallelism,
         )
     }
 

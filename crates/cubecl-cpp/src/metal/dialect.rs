@@ -1,7 +1,7 @@
 use super::{
     AddressSpace, Extension,
     arch::MetalArchitecture,
-    extension::{format_ffs, format_mulhi},
+    extension::{format_fast_recip, format_ffs, format_hypot, format_mulhi, format_rhypot},
     format_erf, format_global_binding_arg, format_metal_builtin_binding_arg, format_safe_tanh,
 };
 use crate::{
@@ -36,18 +36,45 @@ impl MslDialect {
         simd_op_suffix: &str,
     ) -> core::fmt::Result {
         let out = out.fmt_left();
+        // No simd reduction for bfloat; reduce in float and cast back.
+        let (open, in_open, in_close, close) = if matches!(input.item().elem(), Elem::BF16) {
+            ("bfloat(", "float(", ")", ")")
+        } else {
+            ("", "", "", "")
+        };
 
         if let Item::Vector(_, vectorization) = input.item() {
             f.write_fmt(format_args!("{out} = {} {{", input.item()))?;
 
             for k in 0..vectorization {
                 let comma = if k + 1 < vectorization { "," } else { "" };
-                writeln!(f, "{simd_op_prefix}{input}.i_{k}{simd_op_suffix}{comma}")?;
+                writeln!(
+                    f,
+                    "{open}{simd_op_prefix}{in_open}{input}.i_{k}{in_close}{simd_op_suffix}{close}{comma}"
+                )?;
             }
 
             f.write_fmt(format_args!("}};\n"))
         } else {
-            writeln!(f, "{out} = {simd_op_prefix}{input}{simd_op_suffix};")
+            writeln!(
+                f,
+                "{out} = {open}{simd_op_prefix}{in_open}{input}{in_close}{simd_op_suffix}{close};"
+            )
+        }
+    }
+
+    fn warp_shuffle(
+        f: &mut core::fmt::Formatter<'_>,
+        op: &str,
+        val: &str,
+        elem: &Elem<Self>,
+        arg: &str,
+    ) -> core::fmt::Result {
+        // No simd_shuffle for bfloat; route it through a same-width ushort.
+        if matches!(elem, Elem::BF16) {
+            write!(f, "as_type<bfloat>({op}(as_type<ushort>({val}), {arg}))")
+        } else {
+            write!(f, "{op}({val}, {arg})")
         }
     }
 }
@@ -151,6 +178,9 @@ using namespace metal;
                 Extension::Ffs(elem) => format_ffs(f, elem)?,
                 Extension::MulHi(elem) => format_mulhi(f, elem)?,
                 Extension::SafeTanh(item) => format_safe_tanh::<Self>(f, item)?,
+                Extension::Hypot(elem) => format_hypot::<Self>(f, elem)?,
+                Extension::Rhypot(elem) => format_rhypot::<Self>(f, elem)?,
+                Extension::FastRecip => format_fast_recip(f)?,
                 Extension::NoExtension => {}
             }
         }
@@ -198,6 +228,25 @@ using namespace metal;
             }
             shared::Instruction::<Self>::Tanh(instruction) => {
                 register_extension(Extension::SafeTanh(instruction.input.item()));
+            }
+            shared::Instruction::<Self>::Hypot(instruction) => {
+                // For half types, the Binary impl casts to float, so we need float hypot
+                let elem = match instruction.out.elem() {
+                    Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => Elem::F32,
+                    other => other,
+                };
+                register_extension(Extension::Hypot(elem));
+            }
+            shared::Instruction::<Self>::Rhypot(instruction) => {
+                // For half types, the Binary impl casts to float, so we need float rhypot
+                let elem = match instruction.out.elem() {
+                    Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => Elem::F32,
+                    other => other,
+                };
+                register_extension(Extension::Rhypot(elem));
+            }
+            shared::Instruction::<Self>::FastRecip(_) => {
+                register_extension(Extension::FastRecip);
             }
             _ => {}
         }
@@ -304,6 +353,13 @@ struct alignas({alignment}) {item} {{"
             }
             Item::Pointer(inner, class) => {
                 let address_space = match class {
+                    // Atomics always need mutable (device) access, even on read-only
+                    // bindings, because MSL forbids `const`-qualified `atomic<T>` pointers.
+                    shared::PointerClass::Global(_)
+                        if matches!(inner.value_ty(), Item::Atomic(_)) =>
+                    {
+                        AddressSpace::Device
+                    }
                     shared::PointerClass::Global(vis) => (*vis).into(),
                     shared::PointerClass::Shared => AddressSpace::ThreadGroup,
                     shared::PointerClass::Local => AddressSpace::Thread,
@@ -443,7 +499,6 @@ void {kernel_name}("
         if body.info_by_ptr && body.has_dynamic_meta {
             let address_space = AddressSpace::ConstDevice;
             writeln!(f, "const {address_space} info_st& info = *info_ptr;")?;
-            // Could use `info_ptr + 1` but that seems dirty, so use manual `sizeof` instead
             writeln!(
                 f,
                 "const {address_space} {addr}* dynamic_meta = reinterpret_cast<const {address_space} {addr}*>(
@@ -459,10 +514,7 @@ void {kernel_name}("
 // Cube builtins dialect
 
 impl DialectCubeBuiltins<Self> for MslDialect {
-    /// Depending on the dialect available built-ins the
-    /// inclusion rules might change.
-    /// For instance in metal we have a built-in for the Unit plane position
-    /// so we don't rely on other builtins.
+    /// Metal exposes the unit plane position as a native built-in.
     fn builtin_rules(flags: &CubeIndexFlags) -> CubeIndexFlags {
         let absolute_pos = flags.absolute_pos;
         let cube_count = flags.cube_count;
@@ -501,7 +553,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     fn compile_absolute_pos_tuple_computation(
         _f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        // no need to compute it on metal as there is y a built-in for it
+        // no need to compute it on metal as there is a built-in for it
         Ok(())
     }
 
@@ -598,7 +650,7 @@ impl DialectCubeBuiltins<Self> for MslDialect {
     }
 
     fn compile_unit_pos_computation(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // no need to compute it on metal as there is y a built-in for it
+        // no need to compute it on metal as there is a built-in for it
         Ok(())
     }
 
@@ -679,11 +731,15 @@ impl DialectInstructions<Self> for MslDialect {
         val: &Value<Self>,
         out: &Value<Self>,
     ) -> std::fmt::Result {
-        let out = out.fmt_left();
+        let expected_name = format!("{out}_expected");
+        let out_item = out.item();
+        writeln!(f, "{out_item} {expected_name} = {cmp};")?;
         writeln!(
             f,
-            "{out} = atomic_compare_exchange_weak_explicit({input}, &{cmp}, {val}, memory_order_relaxed, memory_order_relaxed);"
-        )
+            "atomic_compare_exchange_weak_explicit({input}, &{expected_name}, {val}, memory_order_relaxed, memory_order_relaxed);"
+        )?;
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {expected_name};")
     }
 
     fn compile_atomic_load(
@@ -832,6 +888,37 @@ impl DialectInstructions<Self> for MslDialect {
         }
     }
 
+    // exp
+    fn compile_instruction_expm1_scalar<T: Component<Self>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: T,
+    ) -> std::fmt::Result {
+        // MSL has no `expm1`. The naive `exp(x) - 1` loses all precision near zero
+        // (catastrophic cancellation), so use the stable identity
+        // `expm1(x) = (exp(x) - 1) * x / log(exp(x))`, where `x / log(exp(x))` is a
+        // unit-valued correction. With `u = exp(x)`, three boundary regimes need
+        // explicit handling (in order):
+        //   * `u == 1`   (x near 0)   → `x`     (avoids the `0/0` ratio)
+        //   * `isinf(u)` (x large +)  → `u`     (else `(inf-1)*x/log(inf)` is NaN)
+        //   * `u == 0`   (x large -)  → `u - 1` (else `x / log(0)` collapses it)
+        // `precise::` pins `exp`/`log` accurate regardless of the kernel's math mode.
+        let elem = input.elem();
+        match elem {
+            // The Unary impl casts half/bfloat to float, so operate in float and
+            // cast the result back.
+            Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
+                write!(
+                    f,
+                    "{elem}(precise::exp(float({input})) == 1.0f ? float({input}) : (isinf(precise::exp(float({input}))) ? precise::exp(float({input})) : (precise::exp(float({input})) == 0.0f ? precise::exp(float({input})) - 1.0f : (precise::exp(float({input})) - 1.0f) * float({input}) / precise::log(precise::exp(float({input}))))))"
+                )
+            }
+            _ => write!(
+                f,
+                "(precise::exp({input}) == 1.0f ? {input} : (isinf(precise::exp({input})) ? precise::exp({input}) : (precise::exp({input}) == 0.0f ? precise::exp({input}) - 1.0f : (precise::exp({input}) - 1.0f) * {input} / precise::log(precise::exp({input})))))"
+            ),
+        }
+    }
+
     // sync
     fn compile_instruction_sync_threads(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "threadgroup_barrier(mem_flags::mem_threadgroup);")
@@ -943,24 +1030,18 @@ impl DialectInstructions<Self> for MslDialect {
         f: &mut std::fmt::Formatter<'_>,
         lhs: &str,
         rhs: &str,
-        elem: Elem<Self>,
+        _elem: Elem<Self>,
     ) -> std::fmt::Result {
-        match elem {
-            Elem::F32 => write!(f, "length(float2({lhs}, {rhs}))"),
-            _ => write!(f, "#error Unsupported type for hypot: {elem}"),
-        }
+        write!(f, "hypot({lhs}, {rhs})")
     }
 
     fn compile_instruction_rhypot(
         f: &mut std::fmt::Formatter<'_>,
         lhs: &str,
         rhs: &str,
-        elem: Elem<Self>,
+        _elem: Elem<Self>,
     ) -> std::fmt::Result {
-        match elem {
-            Elem::F32 => write!(f, "rsqrt({lhs} * {lhs} + {rhs} * {rhs})"),
-            _ => write!(f, "#error Unsupported type for hypot: {elem}"),
-        }
+        write!(f, "rhypot({lhs}, {rhs})")
     }
 
     fn compile_instruction_half_function_name_prefix() -> &'static str {
@@ -971,38 +1052,58 @@ impl DialectInstructions<Self> for MslDialect {
         ""
     }
 
+    fn compile_fast_math_function_name(name: &'static str) -> &'static str {
+        // `__frcp_rn` has no native `fast::` form, so it uses the `fast_recip` helper.
+        match name {
+            "__expf" => "fast::exp",
+            "__logf" => "fast::log",
+            "__sinf" => "fast::sin",
+            "__cosf" => "fast::cos",
+            "__fsqrt_rn" => "fast::sqrt",
+            "__frsqrt_rn" => "fast::rsqrt",
+            "__tanhf" => "fast::tanh",
+            "__fdividef" => "fast::divide",
+            "__powf" => "fast::pow",
+            "__frcp_rn" => "fast_recip",
+            other => other,
+        }
+    }
+
     // Warp
     fn compile_warp_shuffle(
         f: &mut std::fmt::Formatter<'_>,
         val: &str,
+        elem: &Elem<Self>,
         source: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle({val}, {source})")
+        Self::warp_shuffle(f, "simd_shuffle", val, elem, source)
     }
 
     fn compile_warp_shuffle_xor(
         f: &mut std::fmt::Formatter<'_>,
         val: &str,
-        _elem: &Elem<Self>,
+        elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle_xor({val}, {offset})")
+        Self::warp_shuffle(f, "simd_shuffle_xor", val, elem, offset)
     }
 
     fn compile_warp_shuffle_up(
         f: &mut std::fmt::Formatter<'_>,
         val: &str,
+        elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle_up({val}, {offset})")
+        Self::warp_shuffle(f, "simd_shuffle_up", val, elem, offset)
     }
 
     fn compile_warp_shuffle_down(
         f: &mut std::fmt::Formatter<'_>,
         val: &str,
+        elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "simd_shuffle_down({val}, {offset})")
+        Self::warp_shuffle(f, "simd_shuffle_down", val, elem, offset)
     }
 
     fn compile_warp_all<T: Component<Self>>(
@@ -1095,7 +1196,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 match *frag.item().value_ty() {
                     Item::Fragment { .. } => {
                         let ty = frag.elem();
-                        // Only 8x8x8 fragemts are supported. Check is done at fragment compilation time.
+                        // Only 8x8x8 fragments are supported. Check is done at fragment compilation time.
                         writeln!(
                             f,
                             "*{frag} = make_filled_simdgroup_matrix<{ty}, 8, 8>({value});"

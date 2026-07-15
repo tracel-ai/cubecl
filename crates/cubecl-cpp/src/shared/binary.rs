@@ -19,8 +19,11 @@ pub trait Binary<D: Dialect> {
         if let Item::Vector(..) = out_item {
             Self::unroll_vec(f, lhs, rhs, out)
         } else {
-            let out = out.fmt_left();
-            write!(f, "{out} = ")?;
+            if out.declare_local_ptr_backing(f)? {
+                write!(f, "*{out} = ")?;
+            } else {
+                write!(f, "{} = ", out.fmt_left())?;
+            }
             Self::format_scalar(f, *lhs, *rhs, out_item)?;
             f.write_str(";\n")
         }
@@ -41,8 +44,12 @@ pub trait Binary<D: Dialect> {
     ) -> core::fmt::Result {
         let mut write_op =
             |index: usize, lhs: &Value<D>, rhs: &Value<D>, out: &Value<D>, item_out: Item<D>| {
-                let out = out.fmt_left();
-                writeln!(f, "{out} = {item_out}{{")?;
+                if out.declare_local_ptr_backing(f)? {
+                    writeln!(f, "*{out} = {item_out}{{")?;
+                } else {
+                    let out = out.fmt_left();
+                    writeln!(f, "{out} = {item_out}{{")?;
+                }
                 for i in 0..index {
                     let lhsi = lhs.index(i);
                     let rhsi = rhs.index(i);
@@ -72,12 +79,19 @@ pub trait Binary<D: Dialect> {
                 let out_tmp = Value::tmp(item_out_optimized);
                 write_op(index, &lhs, &rhs, &out_tmp, item_out_optimized)?;
                 let addr_space = D::address_space_for_value(out);
-                let out = out.fmt_left();
 
-                writeln!(
-                    f,
-                    "{out} = reinterpret_cast<{addr_space}{item_out_original}&>({out_tmp});\n"
-                )?;
+                if out.declare_local_ptr_backing(f)? {
+                    writeln!(
+                        f,
+                        "*{out} = reinterpret_cast<{addr_space}{item_out_original}&>({out_tmp});\n"
+                    )?;
+                } else {
+                    let out = out.fmt_left();
+                    writeln!(
+                        f,
+                        "{out} = reinterpret_cast<{addr_space}{item_out_original}&>({out_tmp});\n"
+                    )?;
+                }
 
                 Ok(())
             }
@@ -220,7 +234,11 @@ impl<D: Dialect> Binary<D> for FastDiv {
         _out_item: Item<D>,
     ) -> std::fmt::Result {
         // f32 only
-        write!(f, "__fdividef({lhs}, {rhs})")
+        write!(
+            f,
+            "{}({lhs}, {rhs})",
+            D::compile_fast_math_function_name("__fdividef")
+        )
     }
 }
 
@@ -315,7 +333,11 @@ impl<D: Dialect> Binary<D> for FastPowf {
         rhs: Rhs,
         _item: Item<D>,
     ) -> std::fmt::Result {
-        write!(f, "__powf({lhs}, {rhs})")
+        write!(
+            f,
+            "{}({lhs}, {rhs})",
+            D::compile_fast_math_function_name("__powf")
+        )
     }
 }
 

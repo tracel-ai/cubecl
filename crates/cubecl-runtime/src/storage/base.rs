@@ -117,4 +117,9 @@ impl<Resource: Send> ManagedResource<Resource> {
     pub fn resource(&self) -> &Resource {
         &self.resource
     }
+
+    /// Mutable access to the underlying resource.
+    pub fn resource_mut(&mut self) -> &mut Resource {
+        &mut self.resource
+    }
 }

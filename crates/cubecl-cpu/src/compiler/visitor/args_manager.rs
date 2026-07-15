@@ -255,7 +255,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
     }
 }
 
-pub(super) struct ArgsManager<'a> {
+pub struct ArgsManager<'a> {
     pub buffers: HashMap<Id, Value<'a, 'a>>,
     pub scalars_memref: HashMap<StorageType, Value<'a, 'a>>,
     pub static_metadata_memref: Option<Value<'a, 'a>>,
@@ -319,6 +319,18 @@ impl<'a> ArgsManager<'a> {
             .addi(unit_pos_yz_corrected, self.get(Builtin::UnitPosX), location)
             .unwrap();
         self.set(Builtin::UnitPos, unit_pos);
+
+        let cube_count_xy = block
+            .muli(
+                self.get(Builtin::CubeCountX),
+                self.get(Builtin::CubeCountY),
+                location,
+            )
+            .unwrap();
+        let cube_count = block
+            .muli(cube_count_xy, self.get(Builtin::CubeCountZ), location)
+            .unwrap();
+        self.set(Builtin::CubeCount, cube_count);
     }
 
     pub fn set(&mut self, builtin: Builtin, value: Value<'a, 'a>) {
