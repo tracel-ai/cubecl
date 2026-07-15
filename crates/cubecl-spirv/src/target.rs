@@ -15,22 +15,33 @@ use cubecl_core::{
 };
 use pliron::{
     builtin::ops::FuncOp,
+    graph::walkers::uninterruptible::immutable::walk_op,
     identifier::Identifier,
-    irbuild::{inserter::Inserter, listener::DummyListener},
+    irbuild::{inserter::Inserter, listener::DummyListener, match_rewrite::apply_match_rewrite},
     printable::Printable,
     std_deps::sync::LazyLock,
 };
 use pliron_spirv::{
     decorations::{DecoratableOp, DecorationInfo},
-    interfaces::VerCapExtInterface,
+    interfaces::{VerCapExtOpInterface, VerCapExtTypeInterface},
     ops::{AddressOfOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp, SpirvModuleOp},
     types::{ArrayType, PointerType, RuntimeArrayType, StructType},
 };
-use rspirv::spirv::{Capability, Decoration, MemoryAccess, StorageClass};
+use rspirv::{
+    dr::Operand,
+    spirv::{Capability, Decoration, MemoryAccess, StorageClass},
+};
 
 use crate::types::ty_to_spirv_dialect;
 
 pub static PARAMS_NAME: LazyLock<Identifier> = LazyLock::new(|| ident("_spirv_params"));
+
+/// Lower op that depends on info struct
+#[op_interface]
+pub trait LowerInfoOp {
+    verify_op_succ!();
+    fn lower(&self, ctx: &mut Context, rewriter: &mut MatchRewriter, info_st: Value) -> Value;
+}
 
 /// Run on: `SpirvModuleOp`
 pub struct ConvertArgsPass;
@@ -51,7 +62,7 @@ impl Pass for ConvertArgsPass {
             .expect("Should run on SPIR-V module");
         visit_all_ops_of_type_mut::<FuncOp, _>(ctx, &mut module, op, |ctx, module, func| {
             if func.get_entrypoint_abi(ctx).is_some() {
-                Self::convert_func(ctx, *module, func);
+                Self::convert_func(ctx, *module, func).unwrap();
             }
         });
         let mut res = PassResult::default();
@@ -61,7 +72,8 @@ impl Pass for ConvertArgsPass {
 }
 
 impl ConvertArgsPass {
-    pub fn convert_func(ctx: &mut Context, module: SpirvModuleOp, func: FuncOp) {
+    pub fn convert_func(ctx: &mut Context, module: SpirvModuleOp, func: FuncOp) -> Result<()> {
+        let func_op = func.get_operation();
         let info = ctx.aux_ty::<Info>().clone();
         let entry = func.get_entry_block(ctx);
         let module_body = module.get_body(ctx, 0);
@@ -75,12 +87,7 @@ impl ConvertArgsPass {
             if let Some(binding) = binding {
                 buffers.insert(
                     binding.buffer_pos,
-                    (
-                        *arg,
-                        buffer_ty(ctx, *arg, module),
-                        non_readable,
-                        non_writable,
-                    ),
+                    (*arg, buffer_ty(ctx, *arg), non_readable, non_writable),
                 );
             } else {
                 panic!("Expected all kernel inputs to be bindings")
@@ -103,7 +110,7 @@ impl ConvertArgsPass {
 
         if info.has_info() {
             let offset = buffers.len() * size_of::<u64>();
-            addr_struct.field_types.push(info_ty(ctx, module));
+            addr_struct.field_types.push(info_ty(ctx));
             addr_struct.offsets.push(offset as u32);
             addr_struct
                 .decorate_member(buffers.len(), DecorationInfo::unit(Decoration::NonWritable));
@@ -134,27 +141,24 @@ impl ConvertArgsPass {
             load_buffer_array(ctx, &scope, ptrs, i, *buffer, storage_class);
         }
 
-        // TODO
-        let _info = info
-            .has_info()
-            .then(|| load_buffer(ctx, &scope, ptrs, buffers.len(), storage_class));
+        if info.has_info() {
+            let info = load_buffer(ctx, &scope, ptrs, buffers.len(), storage_class);
+            apply_match_rewrite(ctx, &mut LowerInfoOps(info), Default::default(), func_op)?;
+        }
+
         let num_args = entry.deref(ctx).get_num_arguments();
 
         for _ in 0..num_args {
             func.pop_argument(ctx);
         }
+        Ok(())
     }
 }
 
-fn buffer_ty(ctx: &Context, buffer: Value, module: SpirvModuleOp) -> TypeHandle {
+fn buffer_ty(ctx: &Context, buffer: Value) -> TypeHandle {
     let ty = buffer.element_ty(ctx);
     let ty_size = ty.size(ctx);
     let ty = ty_to_spirv_dialect(ctx, ty);
-    match ty_size {
-        1 => module.insert_capability(ctx, Capability::StorageBuffer8BitAccess),
-        2 => module.insert_capability(ctx, Capability::StorageBuffer16BitAccess),
-        _ => {}
-    }
     let array = RuntimeArrayType::get(ctx, ty, Some(ty_size as u32));
     let struct_ = StructType::get(
         ctx,
@@ -166,7 +170,7 @@ fn buffer_ty(ctx: &Context, buffer: Value, module: SpirvModuleOp) -> TypeHandle 
     PointerType::get(ctx, struct_.into(), StorageClass::PhysicalStorageBuffer).into()
 }
 
-fn info_ty(ctx: &Context, module: SpirvModuleOp) -> TypeHandle {
+fn info_ty(ctx: &Context) -> TypeHandle {
     let address_ty = ctx.address_type();
     let info = ctx.aux_ty::<Info>().clone();
 
@@ -177,19 +181,7 @@ fn info_ty(ctx: &Context, module: SpirvModuleOp) -> TypeHandle {
 
     for scalar in info.scalars {
         let ty = ty_to_spirv_dialect(ctx, scalar.ty.to_type(ctx));
-        let ty_size = scalar.ty.size() as u32;
-        match ty_size {
-            1 => {
-                module.insert_capability(ctx, Capability::StorageBuffer8BitAccess);
-                module.insert_capability(ctx, Capability::UniformAndStorageBuffer8BitAccess);
-            }
-            2 => {
-                module.insert_capability(ctx, Capability::StorageBuffer16BitAccess);
-                module.insert_capability(ctx, Capability::UniformAndStorageBuffer16BitAccess);
-            }
-            _ => {}
-        }
-
+        let ty_size = scalar.ty.expand_size(ctx.address_type()) as u32;
         let array = ArrayType::get(ctx, scalar.count as u32, ty, Some(ty_size));
         struct_.field_types.push(array.into());
         struct_.offsets.push(scalar.offset as u32);
@@ -197,7 +189,7 @@ fn info_ty(ctx: &Context, module: SpirvModuleOp) -> TypeHandle {
 
     if let Some(field) = info.sized_meta {
         let ty = ty_to_spirv_dialect(ctx, field.ty.to_type(ctx));
-        let ty_size = field.ty.size() as u32;
+        let ty_size = field.ty.expand_size(ctx.address_type()) as u32;
         let array = ArrayType::get(ctx, field.count as u32, ty, Some(ty_size));
         struct_.field_types.push(array.into());
         struct_.offsets.push(field.offset as u32);
@@ -269,6 +261,27 @@ pub fn params_storage_class(ctx: &Context, num_buffers: usize) -> StorageClass {
     }
 }
 
+struct LowerInfoOps(Value);
+
+impl MatchRewrite for LowerInfoOps {
+    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
+        op.impls::<dyn LowerInfoOp>(ctx)
+    }
+
+    fn rewrite(
+        &mut self,
+        ctx: &mut Context,
+        rewriter: &mut MatchRewriter,
+        op: Ptr<Operation>,
+    ) -> Result<()> {
+        let dyn_op = op.dyn_op(ctx);
+        let lower_info = op_cast::<dyn LowerInfoOp>(&*dyn_op).unwrap();
+        let value = lower_info.lower(ctx, rewriter, self.0);
+        rewriter.replace_operation_with_values(ctx, op, vec![value]);
+        Ok(())
+    }
+}
+
 pub struct CollectVerCapExtPass;
 
 impl Pass for CollectVerCapExtPass {
@@ -285,33 +298,105 @@ impl Pass for CollectVerCapExtPass {
         let mut res = PassResult::default();
         res.ir_changed = IRStatus::Changed;
         let mut module = op.as_op::<SpirvModuleOp>(ctx).unwrap();
-        visit_all_ops_with_interface(ctx, &mut module, op, update_ver_cap_ext);
+        let conf = &WALKCONFIG_PREORDER_FORWARD;
+        walk_op(ctx, &mut module, conf, op, update_ver_cap_ext);
+        while update_capability_requirements_recursive(ctx, module) {}
         Ok(res)
     }
 }
 
-fn update_ver_cap_ext(ctx: &Context, module: &mut SpirvModuleOp, op: &dyn VerCapExtInterface) {
+const PREFERRED_CAPS: &[Capability] = &[Capability::GroupNonUniformArithmetic];
+
+/// Capabilities can require other capabilities which require other capabilities, and each can
+/// require extensions/a minimum version. So add them all recursively.
+fn update_capability_requirements_recursive(ctx: &Context, module: SpirvModuleOp) -> bool {
+    let op = module.get_operation();
+    let caps_start = module.get_vce(ctx).capabilities;
+    for cap in caps_start.iter().copied().map(Operand::from) {
+        let min_version = cap.minimum_version();
+        let extensions = cap.required_extensions();
+        let caps = cap.required_capabilities();
+        update_ver_cap_ext_impl(ctx, module, min_version, extensions, caps, op);
+    }
+    module.get_vce(ctx).capabilities != caps_start
+}
+
+fn update_ver_cap_ext(ctx: &Context, module: &mut SpirvModuleOp, node: IRNode) {
+    match node {
+        IRNode::BasicBlock(block) => {
+            let args = block.deref(ctx).arguments().collect::<Vec<_>>();
+            for arg in args {
+                let ty = arg.get_type(ctx).deref(ctx);
+                if let Some(ver_cap_ext) = type_cast(&*ty) {
+                    update_ver_cap_ext_ty(ctx, module, ver_cap_ext);
+                }
+            }
+        }
+        IRNode::Operation(op) => {
+            let dyn_op = op.dyn_op(ctx);
+            if let Some(ver_cap_ext) = op_cast(&*dyn_op) {
+                update_ver_cap_ext_op(ctx, module, ver_cap_ext);
+            }
+            for res in op.results(ctx) {
+                let ty = res.get_type(ctx).deref(ctx);
+                if let Some(ver_cap_ext) = type_cast(&*ty) {
+                    update_ver_cap_ext_ty(ctx, module, ver_cap_ext);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn update_ver_cap_ext_op(ctx: &Context, module: &mut SpirvModuleOp, op: &dyn VerCapExtOpInterface) {
+    let min_version = op.min_version(ctx);
+    let extensions = op.required_extensions(ctx);
+    let caps = op.required_capabilities(ctx);
+    let op = op.get_operation();
+    update_ver_cap_ext_impl(ctx, *module, min_version, extensions, caps, op);
+}
+
+fn update_ver_cap_ext_ty(
+    ctx: &Context,
+    module: &mut SpirvModuleOp,
+    ty: &dyn VerCapExtTypeInterface,
+) {
+    let min_version = ty.min_version(ctx);
+    let extensions = ty.required_extensions(ctx);
+    let caps = ty.required_capabilities(ctx);
+    let ty = ty.get_self_handle(ctx);
+    update_ver_cap_ext_impl(ctx, *module, min_version, extensions, caps, ty);
+}
+
+fn update_ver_cap_ext_impl(
+    ctx: &Context,
+    module: SpirvModuleOp,
+    min_version: Option<(u8, u8)>,
+    extensions: Vec<Vec<&'static str>>,
+    caps: Vec<Vec<Capability>>,
+    obj: impl Printable,
+) {
     let max_ver = ctx
         .aux_ty::<WgpuCompilationOptions>()
         .vulkan
         .max_spirv_version;
-    let min_version = op.min_version(ctx);
     let extensions = if min_version.is_some_and(|ver| ver <= max_ver) {
         vec![]
     } else {
-        op.required_extensions(ctx)
+        extensions
     };
-    let caps = op.required_capabilities(ctx);
 
     for cap_set in caps.into_iter().filter(|set| !set.is_empty()) {
         if cap_set.len() == 1 {
             module.insert_capability(ctx, cap_set[0]);
         } else if cap_set.iter().any(|cap| module.has_capability(ctx, cap)) {
             continue;
+        } else if let Some(preferred) = cap_set.iter().find(|cap| PREFERRED_CAPS.contains(cap)) {
+            module.insert_capability(ctx, *preferred);
         } else {
             panic!(
-                "Need custom rule for multi-capability op {}, lists capabilities: {:?}",
-                op.get_operation().disp(ctx),
+                "Need custom rule for multi-capability node {}, lists capabilities: {:?}",
+                obj.disp(ctx),
                 cap_set
             );
         }
@@ -324,8 +409,8 @@ fn update_ver_cap_ext(ctx: &Context, module: &mut SpirvModuleOp, op: &dyn VerCap
             continue;
         } else {
             panic!(
-                "Need custom rule for multi-extension op {}, lists extensions: {:?}",
-                op.get_operation().disp(ctx),
+                "Need custom rule for multi-extension node {}, lists extensions: {:?}",
+                obj.disp(ctx),
                 ext_set
             );
         }

@@ -106,16 +106,26 @@ macro_rules! lower_unop {
     };
 }
 
-lower_unop!(plane::SumOp, plane_reduce, OpAdd);
-lower_unop!(plane::ProdOp, plane_reduce, OpMul);
-lower_unop!(plane::MinOp, plane_reduce, OpMin);
-lower_unop!(plane::MaxOp, plane_reduce, OpMax);
+lower_unop!(plane::ISumOp, plane_reduce, OpAdd);
+lower_unop!(plane::FSumOp, plane_reduce, OpAdd);
+lower_unop!(plane::IProdOp, plane_reduce, OpMul);
+lower_unop!(plane::FProdOp, plane_reduce, OpMul);
+lower_unop!(plane::SMinOp, plane_reduce, OpMin);
+lower_unop!(plane::UMinOp, plane_reduce, OpMin);
+lower_unop!(plane::FMinOp, plane_reduce, OpMin);
+lower_unop!(plane::SMaxOp, plane_reduce, OpMax);
+lower_unop!(plane::UMaxOp, plane_reduce, OpMax);
+lower_unop!(plane::FMaxOp, plane_reduce, OpMax);
 
-lower_unop!(plane::InclusiveSumOp, plane_reduce_inclusive, OpAdd);
-lower_unop!(plane::InclusiveProdOp, plane_reduce_inclusive, OpMul);
+lower_unop!(plane::InclusiveISumOp, plane_reduce_inclusive, OpAdd);
+lower_unop!(plane::InclusiveFSumOp, plane_reduce_inclusive, OpAdd);
+lower_unop!(plane::InclusiveIProdOp, plane_reduce_inclusive, OpMul);
+lower_unop!(plane::InclusiveFProdOp, plane_reduce_inclusive, OpMul);
 
-lower_unop!(plane::ExclusiveSumOp, plane_reduce_exclusive, OpAdd, 0);
-lower_unop!(plane::ExclusiveProdOp, plane_reduce_exclusive, OpMul, 1);
+lower_unop!(plane::ExclusiveISumOp, plane_reduce_exclusive, OpAdd, 0);
+lower_unop!(plane::ExclusiveFSumOp, plane_reduce_exclusive, OpAdd, 0);
+lower_unop!(plane::ExclusiveIProdOp, plane_reduce_exclusive, OpMul, 1);
+lower_unop!(plane::ExclusiveFProdOp, plane_reduce_exclusive, OpMul, 1);
 
 unrolling!(plane::BroadcastOp);
 packable!(plane::BroadcastOp);

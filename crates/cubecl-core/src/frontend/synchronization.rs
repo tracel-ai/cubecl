@@ -117,7 +117,7 @@ pub fn workgroup_uniform_load_atomic<E: CubePrimitive<Scalar: Numeric>>(
 /// Module containing the expand function for [`workgroup_uniform_load_atomic()`].
 pub mod workgroup_uniform_load_atomic {
     use cubecl_ir::{
-        dialect::plane::UniformLoadOp, pliron::builtin::op_interfaces::OneResultInterface,
+        dialect::plane::AtomicUniformLoadOp, pliron::builtin::op_interfaces::OneResultInterface,
     };
 
     use crate::frontend::HasValue;
@@ -130,7 +130,7 @@ pub mod workgroup_uniform_load_atomic {
         reference: &NativeExpand<Atomic<E>>,
     ) -> NativeExpand<E> {
         let ptr = reference.value(scope);
-        let op = UniformLoadOp::new(scope.ctx_mut(), ptr);
+        let op = AtomicUniformLoadOp::new(scope.ctx_mut(), ptr);
         scope.register(&op);
         op.get_result(scope.ctx()).into()
     }

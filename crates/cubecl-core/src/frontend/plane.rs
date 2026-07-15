@@ -1,9 +1,62 @@
+use cubecl_ir::ExpandValue;
+use half::{bf16, f16};
+
 use super::{CubePrimitive, Vector};
 use crate::prelude::*;
 use crate::{
     ir::{Scope, attributes::IndexAttr, dialect::plane::*},
     unexpanded,
 };
+
+pub trait PlaneNumeric {
+    fn __expand_native_sum(scope: &Scope, value: ExpandValue) -> ExpandValue;
+    fn __expand_native_inclusive_sum(scope: &Scope, value: ExpandValue) -> ExpandValue;
+    fn __expand_native_exclusive_sum(scope: &Scope, value: ExpandValue) -> ExpandValue;
+
+    fn __expand_native_prod(scope: &Scope, value: ExpandValue) -> ExpandValue;
+    fn __expand_native_inclusive_prod(scope: &Scope, value: ExpandValue) -> ExpandValue;
+    fn __expand_native_exclusive_prod(scope: &Scope, value: ExpandValue) -> ExpandValue;
+
+    fn __expand_native_plane_min(scope: &Scope, value: ExpandValue) -> ExpandValue;
+    fn __expand_native_plane_max(scope: &Scope, value: ExpandValue) -> ExpandValue;
+}
+
+macro_rules! plane_numeric {
+    ($($ty: ty),*; $sum: ty, $inc_sum: ty, $exc_sum: ty, $prod: ty, $inc_prod: ty, $exc_prod: ty, $min: ty, $max: ty) => {
+        $(impl PlaneNumeric for $ty {
+            fn __expand_native_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
+                unary_expand(scope, value, <$sum>::new)
+            }
+            fn __expand_native_inclusive_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
+                unary_expand(scope, value, <$inc_sum>::new)
+            }
+            fn __expand_native_exclusive_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
+                unary_expand(scope, value, <$exc_sum>::new)
+            }
+
+            fn __expand_native_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
+                unary_expand(scope, value, <$prod>::new)
+            }
+            fn __expand_native_inclusive_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
+                unary_expand(scope, value, <$inc_prod>::new)
+            }
+            fn __expand_native_exclusive_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
+                unary_expand(scope, value, <$exc_prod>::new)
+            }
+
+            fn __expand_native_plane_min(scope: &Scope, value: ExpandValue) -> ExpandValue {
+                unary_expand(scope, value, <$min>::new)
+            }
+            fn __expand_native_plane_max(scope: &Scope, value: ExpandValue) -> ExpandValue {
+                unary_expand(scope, value, <$max>::new)
+            }
+        })*
+    };
+}
+
+plane_numeric!(i8, i16, i32, i64, isize; ISumOp, InclusiveISumOp, ExclusiveISumOp, IProdOp, InclusiveIProdOp, ExclusiveIProdOp, SMinOp, SMaxOp);
+plane_numeric!(u8, u16, u32, u64, usize; ISumOp, InclusiveISumOp, ExclusiveISumOp, IProdOp, InclusiveIProdOp, ExclusiveIProdOp, UMinOp, UMaxOp);
+plane_numeric!(f16, bf16, f32, flex32, tf32, f64; FSumOp, InclusiveFSumOp, ExclusiveFSumOp, FProdOp, InclusiveFProdOp, ExclusiveFProdOp, FMinOp, FMaxOp);
 
 /// Returns true if the cube unit has the lowest `plane_unit_id` among active unit in the plane
 pub fn plane_elect() -> bool {
@@ -162,7 +215,7 @@ pub mod plane_shuffle_down {
 
 /// Perform a reduce sum operation across all units in a plane.
 #[allow(unused_variables)]
-pub fn plane_sum<E: CubePrimitive>(value: E) -> E {
+pub fn plane_sum<E: CubePrimitive<Scalar: PlaneNumeric>>(value: E) -> E {
     unexpanded!()
 }
 
@@ -171,10 +224,11 @@ pub mod plane_sum {
     use super::*;
 
     /// Expand method of [`plane_sum()`].
-    pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let value = elem.read_value(scope);
-        let op = SumOp::new(scope.ctx_mut(), value);
-        scope.register_with_result(&op).into()
+    pub fn expand<E: CubePrimitive<Scalar: PlaneNumeric>>(
+        scope: &Scope,
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        E::Scalar::__expand_native_sum(scope, elem.into()).into()
     }
 }
 
@@ -185,7 +239,7 @@ pub mod plane_sum {
 /// # Example
 /// `inclusive_sum([1, 2, 3, 4, 5]) == [1, 3, 6, 10, 15]`
 #[allow(unused_variables)]
-pub fn plane_inclusive_sum<E: CubePrimitive>(value: E) -> E {
+pub fn plane_inclusive_sum<E: CubePrimitive<Scalar: PlaneNumeric>>(value: E) -> E {
     unexpanded!()
 }
 
@@ -194,10 +248,11 @@ pub mod plane_inclusive_sum {
     use super::*;
 
     /// Expand method of [`plane_inclusive_sum()`].
-    pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let value = elem.read_value(scope);
-        let op = InclusiveSumOp::new(scope.ctx_mut(), value);
-        scope.register_with_result(&op).into()
+    pub fn expand<E: CubePrimitive<Scalar: PlaneNumeric>>(
+        scope: &Scope,
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        E::Scalar::__expand_native_inclusive_sum(scope, elem.into()).into()
     }
 }
 
@@ -209,7 +264,7 @@ pub mod plane_inclusive_sum {
 /// # Example
 /// `exclusive_sum([1, 2, 3, 4, 5]) == [0, 1, 3, 6, 10]`
 #[allow(unused_variables)]
-pub fn plane_exclusive_sum<E: CubePrimitive>(value: E) -> E {
+pub fn plane_exclusive_sum<E: CubePrimitive<Scalar: PlaneNumeric>>(value: E) -> E {
     unexpanded!()
 }
 
@@ -218,15 +273,16 @@ pub mod plane_exclusive_sum {
     use super::*;
 
     /// Expand method of [`plane_exclusive_sum()`].
-    pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let value = elem.read_value(scope);
-        let op = ExclusiveSumOp::new(scope.ctx_mut(), value);
-        scope.register_with_result(&op).into()
+    pub fn expand<E: CubePrimitive<Scalar: PlaneNumeric>>(
+        scope: &Scope,
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        E::Scalar::__expand_native_exclusive_sum(scope, elem.into()).into()
     }
 }
 
 /// Perform a reduce prod operation across all units in a plane.
-pub fn plane_prod<E: CubePrimitive>(_elem: E) -> E {
+pub fn plane_prod<E: CubePrimitive<Scalar: PlaneNumeric>>(_elem: E) -> E {
     unexpanded!()
 }
 
@@ -235,10 +291,11 @@ pub mod plane_prod {
     use super::*;
 
     /// Expand method of [`plane_prod()`].
-    pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let value = elem.read_value(scope);
-        let op = ProdOp::new(scope.ctx_mut(), value);
-        scope.register_with_result(&op).into()
+    pub fn expand<E: CubePrimitive<Scalar: PlaneNumeric>>(
+        scope: &Scope,
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        E::Scalar::__expand_native_prod(scope, elem.into()).into()
     }
 }
 
@@ -249,7 +306,7 @@ pub mod plane_prod {
 /// # Example
 /// `exclusive_prod([1, 2, 3, 4, 5]) == [1, 2, 6, 24, 120]`
 #[allow(unused_variables)]
-pub fn plane_inclusive_prod<E: CubePrimitive>(value: E) -> E {
+pub fn plane_inclusive_prod<E: CubePrimitive<Scalar: PlaneNumeric>>(value: E) -> E {
     unexpanded!()
 }
 
@@ -258,10 +315,11 @@ pub mod plane_inclusive_prod {
     use super::*;
 
     /// Expand method of [`plane_inclusive_prod()`].
-    pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let value = elem.read_value(scope);
-        let op = InclusiveProdOp::new(scope.ctx_mut(), value);
-        scope.register_with_result(&op).into()
+    pub fn expand<E: CubePrimitive<Scalar: PlaneNumeric>>(
+        scope: &Scope,
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        E::Scalar::__expand_native_inclusive_prod(scope, elem.into()).into()
     }
 }
 
@@ -273,7 +331,7 @@ pub mod plane_inclusive_prod {
 /// # Example
 /// `exclusive_prod([1, 2, 3, 4, 5]) == [1, 1, 2, 6, 24]`
 #[allow(unused_variables)]
-pub fn plane_exclusive_prod<E: CubePrimitive>(value: E) -> E {
+pub fn plane_exclusive_prod<E: CubePrimitive<Scalar: PlaneNumeric>>(value: E) -> E {
     unexpanded!()
 }
 
@@ -282,15 +340,16 @@ pub mod plane_exclusive_prod {
     use super::*;
 
     /// Expand method of [`plane_exclusive_prod()`].
-    pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let value = elem.read_value(scope);
-        let op = ExclusiveProdOp::new(scope.ctx_mut(), value);
-        scope.register_with_result(&op).into()
+    pub fn expand<E: CubePrimitive<Scalar: PlaneNumeric>>(
+        scope: &Scope,
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        E::Scalar::__expand_native_exclusive_prod(scope, elem.into()).into()
     }
 }
 
 /// Perform a reduce max operation across all units in a plane.
-pub fn plane_max<E: CubePrimitive>(_elem: E) -> E {
+pub fn plane_max<E: CubePrimitive<Scalar: PlaneNumeric>>(_elem: E) -> E {
     unexpanded!()
 }
 
@@ -299,15 +358,16 @@ pub mod plane_max {
     use super::*;
 
     /// Expand method of [`plane_max()`].
-    pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let value = elem.read_value(scope);
-        let op = MaxOp::new(scope.ctx_mut(), value);
-        scope.register_with_result(&op).into()
+    pub fn expand<E: CubePrimitive<Scalar: PlaneNumeric>>(
+        scope: &Scope,
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        E::Scalar::__expand_native_plane_max(scope, elem.into()).into()
     }
 }
 
 /// Perform a reduce min operation across all units in a plane.
-pub fn plane_min<E: CubePrimitive>(_elem: E) -> E {
+pub fn plane_min<E: CubePrimitive<Scalar: PlaneNumeric>>(_elem: E) -> E {
     unexpanded!()
 }
 
@@ -316,10 +376,11 @@ pub mod plane_min {
     use super::*;
 
     /// Expand method of [`plane_min()`].
-    pub fn expand<E: CubePrimitive>(scope: &Scope, elem: NativeExpand<E>) -> NativeExpand<E> {
-        let value = elem.read_value(scope);
-        let op = MinOp::new(scope.ctx_mut(), value);
-        scope.register_with_result(&op).into()
+    pub fn expand<E: CubePrimitive<Scalar: PlaneNumeric>>(
+        scope: &Scope,
+        elem: NativeExpand<E>,
+    ) -> NativeExpand<E> {
+        E::Scalar::__expand_native_plane_min(scope, elem.into()).into()
     }
 }
 
