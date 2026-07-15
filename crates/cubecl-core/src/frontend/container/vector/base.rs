@@ -5,6 +5,7 @@ use crate::ir::Scope;
 use crate::{self as cubecl, prelude::*};
 use cubecl_ir::{ConstantValue, ExpandValue, types::VectorType};
 use cubecl_macros::{cube, intrinsic};
+use num_traits::Zero;
 use pliron::r#type::TypeHandle;
 
 /// A contiguous list of elements that supports auto-vectorized operations.
@@ -335,3 +336,10 @@ impl<T: MulHi + Scalar, N: Size> MulHi for Vector<T, N> {}
 impl<T: FloatOps + Scalar, N: Size> FloatOps for Vector<T, N> {}
 impl<T: Hypot + Scalar, N: Size> Hypot for Vector<T, N> {}
 impl<T: Rhypot + Scalar, N: Size> Rhypot for Vector<T, N> {}
+
+#[cube]
+impl<T: Int, N: Size> Vector<T, N> {
+    pub fn is_multiple_of(&self, multiple: T) -> Vector<bool, N> {
+        (*self % Vector::new(multiple)).equal(&Vector::zero())
+    }
+}

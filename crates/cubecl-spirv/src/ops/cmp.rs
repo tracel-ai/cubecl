@@ -23,7 +23,7 @@ macro_rules! clamp_to_spirv_dialect {
                 let max = op.operand(ctx, 2);
                 let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
                 let new_op = <$new_ty>::new(ctx, out_ty, inp, min, max);
-                rewriter.insert_op(ctx, &new_op);
+                rewriter.append_op(ctx, &new_op);
                 rewriter.replace_operation(ctx, op, new_op.get_operation());
 
                 Ok(())

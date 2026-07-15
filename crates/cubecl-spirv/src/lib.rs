@@ -8,7 +8,6 @@ use std::{
 use cubecl_core::prelude::Visibility;
 use rspirv::{binary::Disassemble, dr::Module};
 
-mod arithmetic;
 mod atomic;
 pub mod attributes;
 pub mod builtin;
@@ -20,7 +19,6 @@ mod globals;
 mod item;
 mod lookups;
 pub mod lower;
-mod metadata;
 pub mod ops;
 mod subgroup;
 mod sync;

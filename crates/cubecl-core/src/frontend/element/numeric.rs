@@ -27,6 +27,7 @@ pub trait Numeric:
     + ModFloor
     + Scalar
     + AtomicNumeric
+    + PlaneNumeric
     + NativeAssign
     + Into<NativeExpand<Self>>
     + Into<ConstantValue>

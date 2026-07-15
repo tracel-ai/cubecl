@@ -130,7 +130,7 @@ impl BranchOpFoldInterface for BranchConditionalOp {
         )
         .get_operation();
         let old_op = self.get_operation();
-        rewriter.insert_operation(ctx, new_op);
+        rewriter.append_operation(ctx, new_op);
         rewriter.replace_operation(ctx, old_op, new_op);
         IRStatus::Changed
     }
@@ -151,7 +151,7 @@ impl ToSpirvDialectOp for BranchConditionalOp {
         let false_opds = self.successor_operands(ctx, 1);
         let op =
             ops::BranchConditionalOp::new(ctx, cond, true_dest, true_opds, false_dest, false_opds);
-        rewriter.insert_op(ctx, &op);
+        rewriter.append_op(ctx, &op);
         rewriter.replace_operation(ctx, self.get_operation(), op.get_operation());
         Ok(())
     }
@@ -201,17 +201,17 @@ impl ToSpirvCFDialect for IfOp {
             else_block,
             vec![],
         );
-        rewriter.insert_op(ctx, &branch_cond);
+        rewriter.append_op(ctx, &branch_cond);
 
         rewriter.set_insertion_point_before_operation(then_term);
         let then_branch = BranchOp::new(ctx, merge, vec![]);
-        rewriter.insert_op(ctx, &then_branch);
+        rewriter.append_op(ctx, &then_branch);
         rewriter.erase_operation(ctx, then_term);
         rewriter.inline_region(ctx, then_region, BlockInsertionPoint::AfterBlock(entry));
 
         rewriter.set_insertion_point_before_operation(else_term);
         let else_branch = BranchOp::new(ctx, merge, vec![]);
-        rewriter.insert_op(ctx, &else_branch);
+        rewriter.append_op(ctx, &else_branch);
         rewriter.erase_operation(ctx, else_term);
         rewriter.inline_region(
             ctx,
@@ -223,10 +223,10 @@ impl ToSpirvCFDialect for IfOp {
         rewriter.set_insertion_point_to_block_end(merge);
 
         let merge_op = MergeOp::new(ctx, vec![]);
-        rewriter.insert_op(ctx, &merge_op);
+        rewriter.append_op(ctx, &merge_op);
 
         rewriter.set_insertion_point_before_operation(self.get_operation());
-        rewriter.insert_op(ctx, &selection);
+        rewriter.append_op(ctx, &selection);
         rewriter.replace_operation(ctx, self.get_operation(), selection.get_operation());
 
         Ok(())
@@ -244,7 +244,7 @@ impl ToSpirvCFDialect for branch::ReturnOp {
         let op = self.get_operation();
         let opds = op.operands(ctx);
         let return_ = ops::ReturnOp::new(ctx, opds.into_iter().next());
-        rewriter.insert_op(ctx, &return_);
+        rewriter.append_op(ctx, &return_);
         rewriter.replace_operation(ctx, op, return_.get_operation());
 
         Ok(())

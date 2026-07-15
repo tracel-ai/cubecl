@@ -34,14 +34,24 @@ macro_rules! unary_plane_op {
 
 unary_plane_op!("plane.all", AllOp);
 unary_plane_op!("plane.any", AnyOp);
-unary_plane_op!("plane.sum", SumOp);
-unary_plane_op!("plane.inclusive_sum", InclusiveSumOp);
-unary_plane_op!("plane.exclusive_sum", ExclusiveSumOp);
-unary_plane_op!("plane.prod", ProdOp);
-unary_plane_op!("plane.inclusive_prod", InclusiveProdOp);
-unary_plane_op!("plane.exclusive_prod", ExclusiveProdOp);
-unary_plane_op!("plane.min", MinOp);
-unary_plane_op!("plane.max", MaxOp);
+unary_plane_op!("plane.i_sum", ISumOp);
+unary_plane_op!("plane.f_sum", FSumOp);
+unary_plane_op!("plane.inclusive_i_sum", InclusiveISumOp);
+unary_plane_op!("plane.inclusive_f_sum", InclusiveFSumOp);
+unary_plane_op!("plane.exclusive_i_sum", ExclusiveISumOp);
+unary_plane_op!("plane.exclusive_f_sum", ExclusiveFSumOp);
+unary_plane_op!("plane.i_prod", IProdOp);
+unary_plane_op!("plane.f_prod", FProdOp);
+unary_plane_op!("plane.inclusive_i_prod", InclusiveIProdOp);
+unary_plane_op!("plane.inclusive_f_prod", InclusiveFProdOp);
+unary_plane_op!("plane.exclusive_i_prod", ExclusiveIProdOp);
+unary_plane_op!("plane.exclusive_f_prod", ExclusiveFProdOp);
+unary_plane_op!("plane.s_min", SMinOp);
+unary_plane_op!("plane.u_min", UMinOp);
+unary_plane_op!("plane.f_min", FMinOp);
+unary_plane_op!("plane.s_max", SMaxOp);
+unary_plane_op!("plane.u_max", UMaxOp);
+unary_plane_op!("plane.f_max", FMaxOp);
 
 #[cube_op(name = "plane.ballot")]
 #[result_ty(fixed = ballot_ty(ctx))]
@@ -116,3 +126,13 @@ pub struct UniformLoadOp {
     pub ptr: Value,
 }
 synchronizes!(UniformLoadOp, SyncScope::Plane);
+
+#[cube_op(name = "plane.atomic_uniform_load")]
+#[result_ty(from_inputs = ptr_value_ty)]
+#[op_interfaces(TriviallyUnrollable)]
+#[op_traits(CanMaterialize)]
+pub struct AtomicUniformLoadOp {
+    #[operand(ptr_read)]
+    pub ptr: Value,
+}
+synchronizes!(AtomicUniformLoadOp, SyncScope::Plane);

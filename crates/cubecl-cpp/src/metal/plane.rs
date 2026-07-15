@@ -47,42 +47,82 @@ metal_op_with_out!(BallotOp, |op, ctx| {
     format!("{{simd_ballot({val}), 0, 0}};")
 });
 
-metal_op_with_out!(SumOp, |op, ctx| {
+metal_op_with_out!(ISumOp, |op, ctx| {
+    let val = op.input(ctx).name(ctx);
+    format!("simd_sum({val});")
+});
+metal_op_with_out!(FSumOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_sum({val});")
 });
 
-metal_op_with_out!(ProdOp, |op, ctx| {
+metal_op_with_out!(IProdOp, |op, ctx| {
+    let val = op.input(ctx).name(ctx);
+    format!("simd_product({val});")
+});
+metal_op_with_out!(FProdOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_product({val});")
 });
 
-metal_op_with_out!(MinOp, |op, ctx| {
+metal_op_with_out!(SMinOp, |op, ctx| {
+    let val = op.input(ctx).name(ctx);
+    format!("simd_min({val});")
+});
+metal_op_with_out!(UMinOp, |op, ctx| {
+    let val = op.input(ctx).name(ctx);
+    format!("simd_min({val});")
+});
+metal_op_with_out!(FMinOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_min({val});")
 });
 
-metal_op_with_out!(MaxOp, |op, ctx| {
+metal_op_with_out!(SMaxOp, |op, ctx| {
+    let val = op.input(ctx).name(ctx);
+    format!("simd_max({val});")
+});
+metal_op_with_out!(UMaxOp, |op, ctx| {
+    let val = op.input(ctx).name(ctx);
+    format!("simd_max({val});")
+});
+metal_op_with_out!(FMaxOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_max({val});")
 });
 
-metal_op_with_out!(InclusiveSumOp, |op, ctx| {
+metal_op_with_out!(InclusiveISumOp, |op, ctx| {
+    let val = op.input(ctx).name(ctx);
+    format!("simd_prefix_inclusive_sum({val});")
+});
+metal_op_with_out!(InclusiveFSumOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_inclusive_sum({val});")
 });
 
-metal_op_with_out!(InclusiveProdOp, |op, ctx| {
+metal_op_with_out!(InclusiveIProdOp, |op, ctx| {
+    let val = op.input(ctx).name(ctx);
+    format!("simd_prefix_inclusive_product({val});")
+});
+metal_op_with_out!(InclusiveFProdOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_inclusive_product({val});")
 });
 
-metal_op_with_out!(ExclusiveSumOp, |op, ctx| {
+metal_op_with_out!(ExclusiveISumOp, |op, ctx| {
+    let val = op.input(ctx).name(ctx);
+    format!("simd_prefix_exclusive_sum({val});")
+});
+metal_op_with_out!(ExclusiveFSumOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_exclusive_sum({val});")
 });
 
-metal_op_with_out!(ExclusiveProdOp, |op, ctx| {
+metal_op_with_out!(ExclusiveIProdOp, |op, ctx| {
+    let val = op.input(ctx).name(ctx);
+    format!("simd_prefix_exclusive_product({val});")
+});
+metal_op_with_out!(ExclusiveFProdOp, |op, ctx| {
     let val = op.input(ctx).name(ctx);
     format!("simd_prefix_exclusive_product({val});")
 });

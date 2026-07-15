@@ -29,7 +29,7 @@ use pliron::{
 use pliron_spirv::{
     attrs::BuiltInAttr,
     decorations::DecorationInfo,
-    ops::{AccessChainOp, AddressOfOp, GlobalVariableOp, LoadOp},
+    ops::{AddressOfOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp},
     types::{MemberDecorationInfo, PointerType, StructType, VectorType},
 };
 use rspirv::spirv::{BuiltIn, Decoration, MemoryAccess, StorageClass};
@@ -258,7 +258,7 @@ impl RewriteBuiltins<'_> {
         let ctx = scope.ctx_mut();
         let offset = self.get_offset(scope, builtin);
         let ptr_ty = PointerType::get(ctx, ty, StorageClass::Input).to_handle();
-        let access_chain = AccessChainOp::new(ctx, ptr_ty, self.struct_val, vec![offset]);
+        let access_chain = InBoundsAccessChainOp::new(ctx, ptr_ty, self.struct_val, vec![offset]);
         let offset_ptr = scope.register_with_result(&access_chain);
         let load = LoadOp::new(ctx, ty, offset_ptr, MemoryAccess::NONE, None);
         scope.register_with_result(&load)
@@ -277,14 +277,14 @@ impl RewriteBuiltins<'_> {
 
         let ptr_ty = PointerType::get(ctx, ty, StorageClass::Input).to_handle();
         let access_chain =
-            AccessChainOp::new(ctx, ptr_ty, self.struct_val, vec![offset, dim_const]);
+            InBoundsAccessChainOp::new(ctx, ptr_ty, self.struct_val, vec![offset, dim_const]);
         let offset_ptr = scope.register_with_result(&access_chain);
         let load = LoadOp::new(ctx, ty, offset_ptr, MemoryAccess::NONE, None);
         scope.register_with_result(&load)
     }
 }
 
-fn const_int32(scope: &Scope, value: u32) -> Value {
+pub(crate) fn const_int32(scope: &Scope, value: u32) -> Value {
     let ty = IntegerType::get(scope.ctx(), 32, Signedness::Signless);
     let value = IntegerAttr::new(ty, APInt::from_u32(value, bw(32)));
     let constant = ConstantOp::new(scope.ctx_mut(), Box::new(value));

@@ -73,7 +73,7 @@ macro_rules! lower_binop {
                 define_size!(S);
                 let lhs = self.get_operation().operand(scope.ctx(), 0);
                 let rhs = self.get_operation().operand(scope.ctx(), 1);
-                scope.register_value_type::<T, S>(rhs);
+                scope.register_value_type::<T, S>(lhs);
                 vec![$name::expand::<T, S>(scope, lhs.into(), rhs.into()).read_value(scope)]
             }
         }

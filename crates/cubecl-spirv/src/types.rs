@@ -16,7 +16,8 @@ use pliron_spirv::types::{
 };
 use rspirv::spirv::{FPEncoding, StorageClass};
 
-pub fn ty_to_spirv_dialect(ctx: &Context, handle: TypeHandle) -> TypeHandle {
+pub fn ty_to_spirv_dialect(ctx: &Context, handle: impl Into<TypeHandle>) -> TypeHandle {
+    let handle = handle.into();
     let ty = handle.deref(ctx);
     if let Some(to_spirv) = type_cast::<dyn ToSpirvDialectType>(&*ty) {
         to_spirv.to_spirv_ty(ctx)
