@@ -1,4 +1,5 @@
 use super::{AutotuneError, AutotuneKey, TuneFn, TuneInputs};
+use crate::tune::{AutotuneLogContext, AutotuneLoggerExt};
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::{string::String, sync::Arc, vec, vec::Vec};
@@ -183,7 +184,7 @@ impl TunePlan {
     /// Get the next batch of [tunable](Tunable) index to be autotuned.
     ///
     /// Note that if the list is empty, it means no more autotuned entry can be executed.
-    pub(crate) fn next(&mut self) -> Vec<usize> {
+    pub(crate) fn next(&mut self, mut log_context: Option<&mut AutotuneLogContext>) -> Vec<usize> {
         let mut indices = core::mem::take(&mut self.no_groups);
         let priority = self.priorities.last();
 
@@ -200,6 +201,11 @@ impl TunePlan {
         self.cleanup(cleanup);
 
         if priority >= 0 {
+            let names = group_indices
+                .iter()
+                .map(|(_, name)| ToString::to_string(name))
+                .collect();
+            log_context.push_tuning_steps(names);
             for (index, _name) in group_indices {
                 if !self.returned.contains(&index) {
                     all_skip = false;
@@ -212,7 +218,7 @@ impl TunePlan {
         // autotuning, since some entries were skipped.
 
         if indices.is_empty() && (skipped || all_skip) {
-            self.next()
+            self.next(log_context)
         } else {
             for i in indices.iter() {
                 self.returned.push(*i);
@@ -334,10 +340,10 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
-        assert_eq!(plan.next(), vec![0, 2]);
-        assert_eq!(plan.next(), vec![1]);
-        assert_eq!(plan.next(), vec![3]);
-        assert!(plan.next().is_empty());
+        assert_eq!(plan.next(None), vec![0, 2]);
+        assert_eq!(plan.next(None), vec![1]);
+        assert_eq!(plan.next(None), vec![3]);
+        assert!(plan.next(None).is_empty());
     }
 
     #[test_log::test]
@@ -359,10 +365,10 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3, tunable4]);
 
-        assert_eq!(plan.next(), vec![0, 2]);
-        assert_eq!(plan.next(), vec![1]);
-        assert_eq!(plan.next(), vec![3, 4]);
-        assert!(plan.next().is_empty());
+        assert_eq!(plan.next(None), vec![0, 2]);
+        assert_eq!(plan.next(None), vec![1]);
+        assert_eq!(plan.next(None), vec![3, 4]);
+        assert!(plan.next(None).is_empty());
     }
 
     #[test_log::test]
@@ -382,10 +388,10 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
-        assert_eq!(plan.next(), vec![0, 3]);
-        assert_eq!(plan.next(), vec![1]);
-        assert_eq!(plan.next(), vec![2]);
-        assert!(plan.next().is_empty());
+        assert_eq!(plan.next(None), vec![0, 3]);
+        assert_eq!(plan.next(None), vec![1]);
+        assert_eq!(plan.next(None), vec![2]);
+        assert!(plan.next(None).is_empty());
     }
 
     #[test_log::test]
@@ -404,9 +410,9 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
 
-        assert_eq!(plan.next(), vec![0, 2]);
-        assert_eq!(plan.next(), vec![3]);
-        assert!(plan.next().is_empty());
+        assert_eq!(plan.next(None), vec![0, 2]);
+        assert_eq!(plan.next(None), vec![3]);
+        assert!(plan.next(None).is_empty());
     }
 
     #[test_log::test]
@@ -417,8 +423,8 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1]);
 
-        assert_eq!(plan.next(), vec![0, 1]);
-        assert!(plan.next().is_empty());
+        assert_eq!(plan.next(None), vec![0, 1]);
+        assert!(plan.next(None).is_empty());
     }
 
     #[test_log::test]
@@ -443,7 +449,7 @@ mod tests {
 
         let mut all_returned: Vec<usize> = Vec::new();
         loop {
-            let batch = plan.next();
+            let batch = plan.next(None);
             if batch.is_empty() {
                 break;
             }
@@ -470,10 +476,10 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2]);
 
-        assert_eq!(plan.next(), vec![2]);
-        assert_eq!(plan.next(), vec![1]);
-        assert_eq!(plan.next(), vec![0]);
-        assert!(plan.next().is_empty());
+        assert_eq!(plan.next(None), vec![2]);
+        assert_eq!(plan.next(None), vec![1]);
+        assert_eq!(plan.next(None), vec![0]);
+        assert!(plan.next(None).is_empty());
     }
 
     #[test_log::test]
@@ -493,8 +499,8 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2]);
 
-        assert_eq!(plan.next(), vec![2]);
-        assert!(plan.next().is_empty());
+        assert_eq!(plan.next(None), vec![2]);
+        assert!(plan.next(None).is_empty());
     }
 
     #[test_log::test]
@@ -514,9 +520,9 @@ mod tests {
         let key = FakeAutotuneKey;
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2]);
 
-        assert_eq!(plan.next(), vec![0, 1]);
-        assert_eq!(plan.next(), vec![2]);
-        assert!(plan.next().is_empty());
+        assert_eq!(plan.next(None), vec![0, 1]);
+        assert_eq!(plan.next(None), vec![2]);
+        assert!(plan.next(None).is_empty());
     }
 
     #[test_log::test]
@@ -537,7 +543,7 @@ mod tests {
 
         let mut all_returned: Vec<usize> = Vec::new();
         loop {
-            let batch = plan.next();
+            let batch = plan.next(None);
             if batch.is_empty() {
                 break;
             }
@@ -574,12 +580,12 @@ mod tests {
         let mut plan = TunePlan::new(&key, &[tunable0, tunable1]);
 
         // First call: group_hi yields tunable0.
-        assert_eq!(plan.next(), vec![0]);
+        assert_eq!(plan.next(None), vec![0]);
         // Second call: group_lo's higher intra-priority batch is just tunable0 (already
         // returned). Without the fix this returns [] and the autotuner aborts. With the fix
         // the plan recurses and yields tunable1.
-        assert_eq!(plan.next(), vec![1]);
-        assert!(plan.next().is_empty());
+        assert_eq!(plan.next(None), vec![1]);
+        assert!(plan.next(None).is_empty());
     }
 
     fn fake_kernel(_: ()) -> Result<(), String> {

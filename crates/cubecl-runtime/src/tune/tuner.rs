@@ -11,8 +11,9 @@ use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::config::{Logger, autotune::AutotuneLogLevel};
 use crate::server::LaunchError;
-use crate::tune::{AutotuneResult, TimeBound, TuneCache, tune_benchmark};
+use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use crate::{client::ComputeClient, runtime::Runtime};
+use cubecl_common::config::RuntimeConfig;
 
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneInputs};
 
@@ -31,9 +32,12 @@ pub struct Tuner<K: AutotuneKey> {
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 #[derive(new, Debug, Clone, PartialEq, Eq)]
 pub struct AutotuneOutcome {
-    name: String,
-    index: usize,
-    computation: BenchmarkComputations,
+    /// The name of the tunable.
+    pub name: String,
+    /// The index of the tunable.
+    pub index: usize,
+    /// The computation benchmark results.
+    pub computation: BenchmarkComputations,
 }
 
 impl core::fmt::Display for AutotuneOutcome {
@@ -111,9 +115,8 @@ struct TuneRequest<K: AutotuneKey> {
     results: Vec<AutotuneResult>,
     #[cfg(std_io)]
     checksum: String,
-    bounds: Option<crate::tune::Bounds<crate::tune::AutotuneBound>>,
+    log_context: Option<crate::tune::AutotuneLogContext>,
     pending: Vec<PendingBench>,
-    limit: Option<Duration>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -197,12 +200,17 @@ impl<K: AutotuneKey> Tuner<K> {
         let bounds = tunables.bounds(key, inputs);
         let limit = bounds.as_ref().and_then(|bounds| bounds.time_limit());
 
+        let mut log_context =
+            crate::tune::AutotuneLogContext::new(&mut self.logger.lock(), bounds, limit);
+
         // The slowest median duration still considered close enough to peak throughput.
         // Only used on native, where a benchmark can be resolved inline to exit early.
         #[cfg(not(target_family = "wasm"))]
         let short_circuit = limit.is_some()
             && tunables.is_short_circuit_enabled()
-            && is_global_short_circuit_enabled();
+            && !crate::config::CubeClRuntimeConfig::get()
+                .autotune
+                .disable_short_circuit;
 
         // The batch-retry check below reads this through `cfg!`, which keeps
         // the name alive on wasm too; the assignment is native-only, so it
@@ -218,7 +226,7 @@ impl<K: AutotuneKey> Tuner<K> {
         // batch failed to queue anything.
         let mut pending = Vec::<PendingBench>::new();
         loop {
-            let tunable_indices = plan.next();
+            let tunable_indices = plan.next(log_context.as_mut());
 
             if tunable_indices.is_empty() {
                 panic!(
@@ -247,6 +255,7 @@ impl<K: AutotuneKey> Tuner<K> {
                             results[index] = result;
 
                             if close_enough {
+                                log_context.push_short_circuit(op.name.clone());
                                 break;
                             }
 
@@ -271,9 +280,8 @@ impl<K: AutotuneKey> Tuner<K> {
             results,
             #[cfg(std_io)]
             checksum,
-            bounds,
+            log_context,
             pending,
-            limit,
         };
 
         // Resolve samples and commit the result. On wasm this runs on the browser
@@ -331,22 +339,6 @@ async fn resolve_bench(bench: PendingBench) -> AutotuneResult {
     ))
 }
 
-#[cfg(not(target_family = "wasm"))]
-fn is_global_short_circuit_enabled() -> bool {
-    #[cfg(std_io)]
-    {
-        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *ENABLED.get_or_init(|| {
-            std::env::var("CUBECL_AUTOTUNE_SHORT_CIRCUIT")
-                .map(|v| v != "false" && v != "0")
-                .unwrap_or(true)
-        })
-    }
-
-    #[cfg(not(std_io))]
-    true
-}
-
 fn check_limit(limit: Duration, result: &AutotuneResult) -> (bool, f64) {
     let median = result
         .outcome
@@ -374,9 +366,8 @@ async fn process_request<K: AutotuneKey>(
         mut results,
         #[cfg(std_io)]
         checksum,
-        bounds,
+        log_context,
         pending,
-        limit,
     } = request;
 
     for bench in pending {
@@ -409,7 +400,7 @@ async fn process_request<K: AutotuneKey>(
         .index;
 
     {
-        log_result(&mut logger.lock(), &key, &results, bounds, limit);
+        log_context.log_result(&mut logger.lock(), &key, &results);
         cache.lock().cache_insert(key.clone(), fastest_index);
         #[cfg(std_io)]
         cache
@@ -418,118 +409,6 @@ async fn process_request<K: AutotuneKey>(
     }
 
     TuneCacheResult::Hit { fastest_index }
-}
-
-/// Emit the autotune result through the logger at the currently configured level.
-fn log_result<K: AutotuneKey>(
-    logger: &mut Logger,
-    key: &K,
-    results: &[AutotuneResult],
-    bounds: Option<crate::tune::Bounds<crate::tune::AutotuneBound>>,
-    limit: Option<Duration>,
-) {
-    match logger.log_level_autotune() {
-        AutotuneLogLevel::Telemetry => {
-            #[cfg(std_io)]
-            {
-                #[derive(serde::Serialize)]
-                struct AutotuneTelemetry<'a, K> {
-                    key: &'a K,
-                    fastest_index: usize,
-                    fastest_time: Duration,
-                    results: &'a [AutotuneResult],
-                    bounds: Option<crate::tune::Bounds<crate::tune::AutotuneBound>>,
-                    limit: Option<Duration>,
-                }
-
-                let result = results
-                    .first()
-                    .expect("At least one kernel needed.")
-                    .outcome
-                    .as_ref()
-                    .expect("At least one kernel has to succeed.");
-
-                let telemetry = AutotuneTelemetry {
-                    key,
-                    fastest_index: result.index,
-                    fastest_time: result.computation.median,
-                    results,
-                    bounds,
-                    limit,
-                };
-
-                let msg = serde_json::to_string(&telemetry).unwrap_or_else(|err| {
-                    format!("{{\"error\": \"Failed to serialize telemetry: {err}\"}}")
-                });
-                logger.log_autotune(&msg);
-            }
-            #[cfg(not(std_io))]
-            {
-                logger.log_autotune(&"{\"error\": \"Telemetry not available without std_io\"}");
-            }
-        }
-        AutotuneLogLevel::Minimal => {
-            let top_times = results
-                .iter()
-                .map(|r| {
-                    let time = r
-                        .outcome
-                        .as_ref()
-                        .map(|r| r.computation.median)
-                        .unwrap_or(Duration::MAX);
-
-                    let index = r.outcome.as_ref().map(|r| r.index).unwrap_or_default();
-                    (index, time)
-                })
-                .take(3)
-                .collect::<Vec<_>>();
-
-            let result = results
-                .first()
-                .expect("At least one kernel needed.")
-                .outcome
-                .as_ref()
-                .expect("At least one kernel has to succeed.");
-
-            logger.log_autotune(&format!(
-                "Fastest result {}-{key}. Top 3 times: {top_times:?}",
-                result.name,
-            ));
-        }
-        AutotuneLogLevel::Full => {
-            let result = results
-                .first()
-                .expect("At least one kernel needed.")
-                .outcome
-                .as_ref()
-                .expect("At least one kernel has to succeed.");
-
-            let mut context = String::new();
-            use core::fmt::Write;
-            if let Some(b) = &bounds {
-                let _ = writeln!(
-                    &mut context,
-                    "Calculated bounds: {:?} - limit: {:?}",
-                    b, limit
-                );
-            }
-
-            logger.log_autotune(&format!(
-                "Fastest result {}-{key}.\nContext:\n{context}",
-                result.name,
-            ));
-
-            for result in results.iter() {
-                match &result.outcome {
-                    Ok(val) => {
-                        logger.log_autotune(&format!("{val}"));
-                    }
-                    Err(err) => logger.log_autotune(&format!("{err}")),
-                }
-            }
-        }
-        AutotuneLogLevel::Disabled => {}
-    }
 }
 
 #[cfg(feature = "autotune-checks")]

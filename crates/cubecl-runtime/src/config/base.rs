@@ -164,6 +164,18 @@ impl RuntimeConfig for CubeClRuntimeConfig {
             }
         }
 
+        if let Ok(val) = std::env::var("CUBECL_AUTOTUNE_SHORT_CIRCUIT") {
+            match val.as_str() {
+                "true" | "1" | "on" => {
+                    self.autotune.disable_short_circuit = false;
+                }
+                "false" | "0" | "off" => {
+                    self.autotune.disable_short_circuit = true;
+                }
+                _ => {}
+            }
+        }
+
         self
     }
 }

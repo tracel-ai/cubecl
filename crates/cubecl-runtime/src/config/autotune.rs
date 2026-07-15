@@ -23,6 +23,10 @@ pub struct AutotuneConfig {
     /// The in-memory cache is unaffected: a key is still tuned only once per process.
     #[serde(default)]
     pub disable_cache: bool,
+
+    /// Whether to disable the short circuit logic during autotuning.
+    #[serde(default)]
+    pub disable_short_circuit: bool,
 }
 
 /// Log levels for autotune logging in `CubeCL`.
