@@ -90,6 +90,15 @@ pub enum PersistentMemory {
     #[default]
     #[serde(rename = "enabled")]
     Enabled,
+    /// Like `enabled`, and automatic allocations whose size matches an
+    /// existing persistent bucket are also served from the persistent pool.
+    ///
+    /// A good heuristic for training, where the recurring allocations are
+    /// weight-shaped and updated within the same pool. Less suited to
+    /// inference: activations that happen to match a weight size get pulled
+    /// into exact-sized persistent slices.
+    #[serde(rename = "size-match")]
+    SizeMatch,
     /// Persistent memory is disabled, allowing dynamic allocations.
     #[serde(rename = "disabled")]
     Disabled,
