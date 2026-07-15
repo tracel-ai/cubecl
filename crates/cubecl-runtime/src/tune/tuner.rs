@@ -237,7 +237,9 @@ impl<K: AutotuneKey> Tuner<K> {
             for index in tunable_indices {
                 let op = autotunables[index];
 
-                log_context.push_tuning_step(op.name.to_string());
+                let start_time = log_context
+                    .is_some()
+                    .then(cubecl_common::profile::Instant::now);
 
                 match tune_benchmark(op, test_inputs.clone(), client.clone()) {
                     Ok(profiles) => {
@@ -259,6 +261,10 @@ impl<K: AutotuneKey> Tuner<K> {
                             batch_success |= result.outcome.is_ok();
                             results[index] = result;
 
+                            if let Some(start) = start_time {
+                                log_context.push_tuning_step(op.name.to_string(), start.elapsed());
+                            }
+
                             if close_enough {
                                 log_context.push_short_circuit(op.name.to_string());
                                 break;
@@ -268,9 +274,16 @@ impl<K: AutotuneKey> Tuner<K> {
                         }
 
                         pending.push(bench);
+
+                        if let Some(start) = start_time {
+                            log_context.push_tuning_step(op.name.to_string(), start.elapsed());
+                        }
                     }
                     Err(err) => {
                         results[index] = AutotuneResult::error(err);
+                        if let Some(start) = start_time {
+                            log_context.push_tuning_step(op.name.to_string(), start.elapsed());
+                        }
                     }
                 }
             }

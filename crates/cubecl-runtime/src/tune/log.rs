@@ -11,7 +11,7 @@ use core::time::Duration;
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneLogEvent {
     /// Tracks a tunable kernel that was executed during autotuning.
-    TuningStep(String),
+    TuningStep(String, Duration),
     /// A short circuit event where autotuning stopped early because this candidate
     /// achieved sufficient throughput.
     ShortCircuit(String),
@@ -51,7 +51,9 @@ impl core::fmt::Display for AutotuneLogContext {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         for event in &self.events {
             match event {
-                AutotuneLogEvent::TuningStep(step) => write!(f, "\n - Tuning: {step}")?,
+                AutotuneLogEvent::TuningStep(step, duration) => {
+                    write!(f, "\n - Tuning: {step} (compilation & bench: {duration:?})")?
+                }
                 AutotuneLogEvent::ShortCircuit(name) => write!(
                     f,
                     "\nShort circuiting autotune. {name} is close enough to peak throughput."
@@ -67,7 +69,7 @@ pub trait AutotuneLoggerExt {
     /// Pushes a short circuit event if logging is enabled.
     fn push_short_circuit(&mut self, name: String);
     /// Pushes a tuning step event if logging is enabled.
-    fn push_tuning_step(&mut self, name: String);
+    fn push_tuning_step(&mut self, name: String, duration: Duration);
     /// Logs the benchmark result if logging is enabled.
     fn log_result<K: AutotuneKey>(&self, logger: &mut Logger, key: &K, results: &[AutotuneResult]);
 }
@@ -79,9 +81,10 @@ impl AutotuneLoggerExt for Option<AutotuneLogContext> {
         }
     }
 
-    fn push_tuning_step(&mut self, name: String) {
+    fn push_tuning_step(&mut self, name: String, duration: Duration) {
         if let Some(ctx) = self.as_mut() {
-            ctx.events.push(AutotuneLogEvent::TuningStep(name));
+            ctx.events
+                .push(AutotuneLogEvent::TuningStep(name, duration));
         }
     }
 
@@ -97,9 +100,10 @@ impl<'a> AutotuneLoggerExt for Option<&'a mut AutotuneLogContext> {
         }
     }
 
-    fn push_tuning_step(&mut self, name: String) {
+    fn push_tuning_step(&mut self, name: String, duration: Duration) {
         if let Some(ctx) = self.as_deref_mut() {
-            ctx.events.push(AutotuneLogEvent::TuningStep(name));
+            ctx.events
+                .push(AutotuneLogEvent::TuningStep(name, duration));
         }
     }
 
