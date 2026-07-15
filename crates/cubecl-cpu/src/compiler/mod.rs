@@ -75,7 +75,7 @@ impl PlironCompiler {
         #[cfg(feature = "pliron-dump")]
         let tree_printing_path = pliron_path(&kernel.settings.kernel_name);
         let config = PMConfig {
-            print_after_all: true,
+            print_before_all: true,
             tree_printing_path,
             ..Default::default()
         };
