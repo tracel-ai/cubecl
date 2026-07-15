@@ -389,6 +389,33 @@ impl<Marker: 'static> AtomicNumeric for DynamicScalar<Marker> {
     }
 }
 
+impl<Marker: 'static> PlaneNumeric for DynamicScalar<Marker> {
+    fn __expand_native_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_sum, scope, value)
+    }
+    fn __expand_native_inclusive_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_inclusive_sum, scope, value)
+    }
+    fn __expand_native_exclusive_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_exclusive_sum, scope, value)
+    }
+    fn __expand_native_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_prod, scope, value)
+    }
+    fn __expand_native_inclusive_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_inclusive_prod, scope, value)
+    }
+    fn __expand_native_exclusive_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_exclusive_prod, scope, value)
+    }
+    fn __expand_native_plane_min(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_plane_min, scope, value)
+    }
+    fn __expand_native_plane_max(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_plane_max, scope, value)
+    }
+}
+
 impl<Marker: 'static> NativeAssign for DynamicScalar<Marker> {}
 
 impl<Marker: 'static> ScalarArgSettings for DynamicScalar<Marker> {

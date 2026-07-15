@@ -2,7 +2,7 @@ use alloc::{vec, vec::Vec};
 
 use crate::{
     NoMemoryEffect,
-    interfaces::{AlignedType, MemoryEffect, MemoryEffects},
+    interfaces::{AlignedType, MemoryEffect, MemoryEffects, TypedExt},
 };
 use pliron::{
     context::Context,
@@ -12,7 +12,7 @@ use pliron::{
 use pliron_spirv::{
     ops::{AccessChainOp, InBoundsAccessChainOp, LoadOp},
     spirv::StorageClass,
-    types::{FloatType, PointerType},
+    types::{FloatType, PointerType, VectorType},
 };
 
 NoMemoryEffect!(InBoundsAccessChainOp);
@@ -44,5 +44,12 @@ impl MemoryEffects for LoadOp {
 impl AlignedType for FloatType {
     fn align(&self, _ctx: &Context) -> usize {
         self.width.div_ceil(8) as usize
+    }
+}
+
+#[type_interface_impl]
+impl AlignedType for VectorType {
+    fn align(&self, ctx: &Context) -> usize {
+        self.count as usize * self.element_type.align(ctx)
     }
 }

@@ -51,11 +51,11 @@ impl ToSpirvDialectOp for bitwise::ShiftRightOp {
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
         if self.get_result(ctx).scalar_ty(ctx).is_signed_int(ctx) {
             let new_op = ShiftRightArithmeticOp::new(ctx, out_ty, lhs, rhs);
-            rewriter.insert_op(ctx, &new_op);
+            rewriter.append_op(ctx, &new_op);
             rewriter.replace_operation(ctx, op, new_op.get_operation());
         } else {
             let new_op = ShiftRightLogicalOp::new(ctx, out_ty, lhs, rhs);
-            rewriter.insert_op(ctx, &new_op);
+            rewriter.append_op(ctx, &new_op);
             rewriter.replace_operation(ctx, op, new_op.get_operation());
         }
 

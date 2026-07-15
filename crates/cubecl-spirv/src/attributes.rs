@@ -46,6 +46,14 @@ impl ToSpirvDialectAttr for IndexAttr {
 }
 
 #[attr_interface_impl]
+impl ToSpirvDialectAttr for IntegerAttr {
+    fn to_spirv_dialect(&self, ctx: &Context) -> AttrObj {
+        let ty = ty_to_spirv_dialect(ctx, self.get_type());
+        IntegerAttr::new(TypedHandle::from_handle(ty, ctx).unwrap(), self.value()).into()
+    }
+}
+
+#[attr_interface_impl]
 impl ToSpirvDialectAttr for cubecl_ir::attributes::FloatAttr {
     fn to_spirv_dialect(&self, ctx: &Context) -> AttrObj {
         let value = float_bits(ctx, double_to_f64(self.val), self.get_type(ctx));
