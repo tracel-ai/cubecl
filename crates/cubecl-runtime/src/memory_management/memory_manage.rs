@@ -891,20 +891,20 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         let persistent_mode = matches!(self.mode, MemoryAllocationMode::Persistent);
         let size_match = matches!(self.config, PersistentMemory::SizeMatch);
 
-        if persistent_mode || size_match {
-            if let Some(val) = self.persistent.try_reserve(size) {
-                self.logger.log_memory(
-                    |level| matches!(level, MemoryLogLevel::Full),
-                    || {
-                        format!(
-                            "[{}] Reserved memory {size} using persistent memory",
-                            self.name
-                        )
-                    },
-                );
-                self.capture_touch(&val);
-                return Ok(val);
-            }
+        if (persistent_mode || size_match)
+            && let Some(val) = self.persistent.try_reserve(size)
+        {
+            self.logger.log_memory(
+                |level| matches!(level, MemoryLogLevel::Full),
+                || {
+                    format!(
+                        "[{}] Reserved memory {size} using persistent memory",
+                        self.name
+                    )
+                },
+            );
+            self.capture_touch(&val);
+            return Ok(val);
         }
 
         if persistent_mode || (size_match && self.persistent.has_size(size)) {
