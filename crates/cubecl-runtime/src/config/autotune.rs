@@ -41,6 +41,10 @@ pub enum AutotuneLogLevel {
     /// Full autotune details are logged.
     #[serde(rename = "full")]
     Full,
+
+    /// Emits telemetry data as structured JSON.
+    #[serde(rename = "telemetry")]
+    Telemetry,
 }
 
 impl LogLevel for AutotuneLogLevel {}

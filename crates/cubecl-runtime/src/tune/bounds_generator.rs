@@ -6,6 +6,7 @@ use crate::tune::TuneInputs;
 
 /// A set of [`AutotuneBound`]s for a given key and reference inputs, with a launch overhead.
 #[derive(Debug, Clone)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub struct Bounds<B: TimeBound> {
     /// The bounds for autotuning.
     pub bounds: Vec<B>,
@@ -45,6 +46,7 @@ pub trait TimeBound {
 
 /// A bound for autotuning a throughput kernel, specifying the key, threshold, and number of operations.
 #[derive(Debug, Clone)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub struct AutotuneBound {
     /// Peak throughput of the reference kernel, in ops (or bytes) per second.
     pub throughput: f64,

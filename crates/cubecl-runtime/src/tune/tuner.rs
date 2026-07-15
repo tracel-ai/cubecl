@@ -16,15 +16,6 @@ use crate::{client::ComputeClient, runtime::Runtime};
 
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneInputs};
 
-macro_rules! log_autotune {
-    ($logger:expr, $($arg:tt)*) => {{
-        let mut logger = $logger.lock();
-        if !matches!(logger.log_level_autotune(), AutotuneLogLevel::Disabled) {
-            logger.log_autotune(&format!($($arg)*));
-        }
-    }};
-}
-
 #[derive(Debug)]
 /// Runs autotune benchmarks for a single device and caches the results.
 ///
@@ -120,7 +111,7 @@ struct TuneRequest<K: AutotuneKey> {
     results: Vec<AutotuneResult>,
     #[cfg(std_io)]
     checksum: String,
-    context_logs: Option<String>,
+    bounds: Option<crate::tune::Bounds<crate::tune::AutotuneBound>>,
     pending: Vec<PendingBench>,
     limit: Option<Duration>,
 }
@@ -197,32 +188,14 @@ impl<K: AutotuneKey> Tuner<K> {
 
         // Fast path: single tunable, no benchmarking needed.
         if results.len() == 1 {
-            if let Some(bounds) = tunables.bounds(key, inputs) {
-                let limit = bounds.time_limit();
-                log_autotune!(
-                    self.logger,
-                    "Calculated bounds: {bounds:?} - limit: {limit:?}"
-                );
-            }
             self.cache.lock().cache_insert(key.clone(), 0);
             return TuneCacheResult::Hit { fastest_index: 0 };
         }
 
         let test_inputs = tunables.generate_inputs(key, inputs);
         let mut plan = tunables.plan(key);
-        let mut context_logs = match self.logger.lock().log_level_autotune() {
-            AutotuneLogLevel::Full => Some(String::new()),
-            _ => None,
-        };
-
-        let limit = tunables.bounds(key, inputs).and_then(|bounds| {
-            let limit = bounds.time_limit();
-            log_autotune!(
-                self.logger,
-                "Calculated bounds: {bounds:?} - limit: {limit:?}"
-            );
-            limit
-        });
+        let bounds = tunables.bounds(key, inputs);
+        let limit = bounds.as_ref().and_then(|bounds| bounds.time_limit());
 
         // The slowest median duration still considered close enough to peak throughput.
         // Only used on native, where a benchmark can be resolved inline to exit early.
@@ -245,7 +218,7 @@ impl<K: AutotuneKey> Tuner<K> {
         // batch failed to queue anything.
         let mut pending = Vec::<PendingBench>::new();
         loop {
-            let tunable_indices = plan.next(context_logs.as_mut());
+            let tunable_indices = plan.next();
 
             if tunable_indices.is_empty() {
                 panic!(
@@ -268,17 +241,12 @@ impl<K: AutotuneKey> Tuner<K> {
                         if short_circuit {
                             let limit = limit.unwrap();
                             let result = cubecl_common::future::block_on(resolve_bench(bench));
-                            let close_enough = check_limit(&self.logger, &op.name, limit, &result);
+                            let (close_enough, _) = check_limit(limit, &result);
 
                             batch_success |= result.outcome.is_ok();
                             results[index] = result;
 
                             if close_enough {
-                                log_autotune!(
-                                    self.logger,
-                                    "Short circuiting autotune. {} is close enough to peak throughput.",
-                                    op.name
-                                );
                                 break;
                             }
 
@@ -303,7 +271,7 @@ impl<K: AutotuneKey> Tuner<K> {
             results,
             #[cfg(std_io)]
             checksum,
-            context_logs,
+            bounds,
             pending,
             limit,
         };
@@ -379,12 +347,7 @@ fn is_global_short_circuit_enabled() -> bool {
     true
 }
 
-fn check_limit(
-    logger: &spin::Mutex<Logger>,
-    name: &str,
-    limit: Duration,
-    result: &AutotuneResult,
-) -> bool {
+fn check_limit(limit: Duration, result: &AutotuneResult) -> (bool, f64) {
     let median = result
         .outcome
         .as_ref()
@@ -397,14 +360,7 @@ fn check_limit(
         f64::INFINITY
     };
 
-    log_autotune!(
-        logger,
-        "Autotune candidate '{}' achieved {:.2}% of the required throughput threshold.",
-        name,
-        percentage
-    );
-
-    median <= limit
+    (median <= limit, percentage)
 }
 
 /// Await every profile sample, pick the fastest tunable, commit to the cache.
@@ -418,19 +374,14 @@ async fn process_request<K: AutotuneKey>(
         mut results,
         #[cfg(std_io)]
         checksum,
-        context_logs,
+        bounds,
         pending,
         limit,
     } = request;
 
     for bench in pending {
         let index = bench.index;
-        let name = bench.name.clone();
         let result = resolve_bench(bench).await;
-
-        if let Some(limit) = limit {
-            check_limit(logger, &name, limit, &result);
-        }
 
         results[index] = result;
     }
@@ -458,7 +409,7 @@ async fn process_request<K: AutotuneKey>(
         .index;
 
     {
-        log_result(&mut logger.lock(), &key, &results, context_logs.as_deref());
+        log_result(&mut logger.lock(), &key, &results, bounds, limit);
         cache.lock().cache_insert(key.clone(), fastest_index);
         #[cfg(std_io)]
         cache
@@ -474,9 +425,49 @@ fn log_result<K: AutotuneKey>(
     logger: &mut Logger,
     key: &K,
     results: &[AutotuneResult],
-    context_logs: Option<&str>,
+    bounds: Option<crate::tune::Bounds<crate::tune::AutotuneBound>>,
+    limit: Option<Duration>,
 ) {
     match logger.log_level_autotune() {
+        AutotuneLogLevel::Telemetry => {
+            #[cfg(std_io)]
+            {
+                #[derive(serde::Serialize)]
+                struct AutotuneTelemetry<'a, K> {
+                    key: &'a K,
+                    fastest_index: usize,
+                    fastest_time: Duration,
+                    results: &'a [AutotuneResult],
+                    bounds: Option<crate::tune::Bounds<crate::tune::AutotuneBound>>,
+                    limit: Option<Duration>,
+                }
+
+                let result = results
+                    .first()
+                    .expect("At least one kernel needed.")
+                    .outcome
+                    .as_ref()
+                    .expect("At least one kernel has to succeed.");
+
+                let telemetry = AutotuneTelemetry {
+                    key,
+                    fastest_index: result.index,
+                    fastest_time: result.computation.median,
+                    results,
+                    bounds,
+                    limit,
+                };
+
+                let msg = serde_json::to_string(&telemetry).unwrap_or_else(|err| {
+                    format!("{{\"error\": \"Failed to serialize telemetry: {err}\"}}")
+                });
+                logger.log_autotune(&msg);
+            }
+            #[cfg(not(std_io))]
+            {
+                logger.log_autotune(&"{\"error\": \"Telemetry not available without std_io\"}");
+            }
+        }
         AutotuneLogLevel::Minimal => {
             let top_times = results
                 .iter()
@@ -500,9 +491,8 @@ fn log_result<K: AutotuneKey>(
                 .as_ref()
                 .expect("At least one kernel has to succeed.");
 
-            let context = context_logs.unwrap_or("");
             logger.log_autotune(&format!(
-                "Fastest result {}-{key}. \n Top 3 times: {top_times:?}, context: {context}",
+                "Fastest result {}-{key}. Top 3 times: {top_times:?}",
                 result.name,
             ));
         }
@@ -514,9 +504,18 @@ fn log_result<K: AutotuneKey>(
                 .as_ref()
                 .expect("At least one kernel has to succeed.");
 
-            let context = context_logs.unwrap_or("");
+            let mut context = String::new();
+            use core::fmt::Write;
+            if let Some(b) = &bounds {
+                let _ = writeln!(
+                    &mut context,
+                    "Calculated bounds: {:?} - limit: {:?}",
+                    b, limit
+                );
+            }
+
             logger.log_autotune(&format!(
-                "Fastest result {}-{key}. Context: {context}",
+                "Fastest result {}-{key}.\nContext:\n{context}",
                 result.name,
             ));
 
