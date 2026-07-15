@@ -196,7 +196,6 @@ impl Pass for InsertConstantEmulationPass {
             }
         });
         for (old_value, new_value) in replacer.replacements {
-            // `ReadBuiltinOp` is pure, so the now unused op is swept by the DCE pass.
             old_value.replace_all_uses_with(ctx, &new_value);
         }
 
@@ -337,7 +336,6 @@ fn insert_skeleton(
         builtins.set(Builtin::CubePos, cube_pos);
     }
 
-    // The innermost body is terminated by the caller, once the kernel body has been moved into it.
     scope_y.register(&loop_x);
     scope_y.terminate_yield();
     scope_z.register(&loop_y);

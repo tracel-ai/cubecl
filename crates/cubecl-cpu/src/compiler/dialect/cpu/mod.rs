@@ -1,5 +1,6 @@
 use cubecl_core::ir::{Scope, prelude::*};
 
+pub mod branch;
 pub mod entrypoint;
 
 pub use entrypoint::InsertConstantEmulationPass;

@@ -74,6 +74,7 @@ impl PlironCompiler {
         let ir_printing_dir = pliron_path(&kernel.settings.kernel_name);
         let config = PMConfig {
             print_before_all: true,
+            print_after_all: true,
             ir_printing_dir,
             ..Default::default()
         };
