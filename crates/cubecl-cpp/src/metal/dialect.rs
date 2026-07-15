@@ -38,14 +38,14 @@ impl MslDialect {
         let out = out.fmt_left();
         let vectorization = input.item().vectorization;
 
+        if vectorization == 1 {
+            return writeln!(f, "{out} = {simd_op_prefix}{input}{simd_op_suffix};");
+        }
+
         f.write_fmt(format_args!("{out} = {} {{", input.item()))?;
 
         for k in 0..vectorization {
-            let index = if vectorization > 1 {
-                format!(".i_{k}")
-            } else {
-                String::new()
-            };
+            let index = format!(".i_{k}");
             let comma = if k + 1 < vectorization { "," } else { "" };
 
             writeln!(f, "{simd_op_prefix}{input}{index}{simd_op_suffix}{comma}")?;
@@ -1310,5 +1310,45 @@ impl DialectWmmaCompiler<Self> for MslDialect {
 impl DialectProcessors<Self> for MslDialect {
     fn processors() -> Vec<Box<dyn gpu::Processor>> {
         Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct WarpReduceSum<'a> {
+        input: &'a Variable<MslDialect>,
+        out: &'a Variable<MslDialect>,
+    }
+
+    impl Display for WarpReduceSum<'_> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            MslDialect::warp_reduce_sum(f, self.input, self.out)
+        }
+    }
+
+    #[test]
+    fn scalar_warp_reduction_does_not_use_aggregate_initialization() {
+        let item = Item::scalar(Elem::F32, false);
+        let input = Variable::LocalConst { id: 1, item };
+        let out = Variable::LocalConst { id: 2, item };
+
+        assert_eq!(
+            WarpReduceSum {
+                input: &input,
+                out: &out
+            }
+            .to_string(),
+            "const float l_2 = simd_sum(l_1);\n"
+        );
+    }
+
+    #[test]
+    fn atomic_local_reference_keeps_device_address_space() {
+        let item = Item::scalar(Elem::Atomic(AtomicKind::F32), false);
+        let atomic_ref = Variable::<MslDialect>::LocalConst { id: 1, item };
+
+        assert_eq!(atomic_ref.fmt_left(), "device atomic_float* l_1");
     }
 }

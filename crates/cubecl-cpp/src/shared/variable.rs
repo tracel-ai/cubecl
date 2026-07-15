@@ -585,7 +585,8 @@ impl<D: Dialect> FmtLeft for Variable<D> {
         match self {
             Self::LocalConst { item, .. } => match item.elem {
                 Elem::Atomic(_) => {
-                    format!("{item}* {self}")
+                    let addr_space = D::address_space_for_variable(self);
+                    format!("{addr_space}{item}* {self}")
                 }
                 _ => {
                     format!("const {item} {self}")
