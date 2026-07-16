@@ -206,8 +206,15 @@ pub trait Benchmark {
         vec![]
     }
 
-    /// Wait for computation to complete.
-    fn sync(&self);
+    /// Wait for all queued work to complete, surfacing any error left on the stream.
+    ///
+    /// On asynchronous backends, kernel launches are fire-and-forget: compilation and
+    /// validation errors recorded at launch time, as well as GPU execution faults, may
+    /// only become observable at synchronization. Implementations must return these as
+    /// `Err` — e.g. `block_on(client.sync()).map_err(|err| format!("{err}"))` — rather
+    /// than panic, so a failing benchmark fails its own [`Benchmark::run`] instead of
+    /// aborting the process.
+    fn sync(&self) -> Result<(), String>;
 
     /// Start measuring the computation duration.
     #[cfg(feature = "std")]
@@ -219,10 +226,13 @@ pub trait Benchmark {
     /// device duration is available or not.
     #[cfg(feature = "std")]
     fn profile_full(&self, args: Self::Input) -> Result<ProfileDuration, String> {
-        self.sync();
+        // Surfaces faults left queued by previous work before the timer starts.
+        self.sync()?;
         let start_time = Instant::now();
         let out = self.execute(args)?;
-        self.sync();
+        // Surfaces queued launch errors (compilation/validation) and execution
+        // faults belonging to this workload.
+        self.sync()?;
         core::mem::drop(out);
         Ok(ProfileDuration::new_system_time(start_time, Instant::now()))
     }
@@ -231,41 +241,58 @@ pub trait Benchmark {
     #[allow(unused_variables)]
     fn run(&self, timing_method: TimingMethod) -> Result<BenchmarkDurations, String> {
         #[cfg(not(feature = "std"))]
-        panic!("Attempting to run benchmark in a no-std environment");
+        {
+            Err(String::from(
+                "Running a benchmark is not supported in a no-std environment",
+            ))
+        }
 
         #[cfg(feature = "std")]
         {
-            let execute = |args: &Self::Input| {
-                let profile: Result<ProfileDuration, String> = match timing_method {
+            let execute = |args: &Self::Input| -> Result<crate::profile::ProfileTicks, String> {
+                let profile = match timing_method {
                     TimingMethod::System => self.profile_full(args.clone()),
                     TimingMethod::Device => self.profile(args.clone()),
-                };
-                let profile = match profile {
-                    Ok(val) => val,
-                    Err(err) => return Err(err),
-                };
+                }?;
                 Ok(crate::future::block_on(profile.resolve()))
             };
             let args = self.prepare();
 
-            // Triggers JIT-compilation and perform a Warmup
-            //
-            // We are using 5 iterations, where the first one probably triggers the JIT-compilation
-            // and it is then followed by 4 warmup executions.
-            for _ in 0..5 {
-                let _duration: Result<crate::profile::ProfileTicks, _> = execute(&args);
-            }
-
-            // Real execution.
-            let mut durations = Vec::with_capacity(self.num_samples());
-            for _ in 0..self.num_samples() {
-                match execute(&args) {
-                    Ok(val) => durations.push(val.duration()),
-                    Err(err) => {
-                        return Err(err);
-                    }
+            let collect = || -> Result<Vec<Duration>, String> {
+                // Triggers JIT-compilation and performs a warmup.
+                //
+                // We are using 5 iterations, where the first one probably triggers the
+                // JIT-compilation and it is then followed by 4 warmup executions.
+                //
+                // Errors are propagated: JIT compilation happens here, so queued
+                // compilation/launch errors and GPU faults surface at a warmup
+                // sync. Swallowing them would report timings for a strategy that
+                // never ran correctly.
+                for _ in 0..5 {
+                    execute(&args)?;
                 }
-            }
+
+                // Real execution.
+                let mut durations = Vec::with_capacity(self.num_samples());
+                for _ in 0..self.num_samples() {
+                    durations.push(execute(&args)?.duration());
+                }
+                Ok(durations)
+            };
+
+            let result = collect();
+
+            // Drain any failure still queued on the stream, regardless of outcome.
+            // Device-timing overrides of `profile()` bypass the trait's `sync()`
+            // entirely and `ProfileDuration::resolve()` has no error channel, so a
+            // fault from the final samples could otherwise go unreported — or worse,
+            // surface at the NEXT benchmark's leading sync and be misattributed.
+            let drained = self.sync();
+
+            // The in-run error wins; a drain error only surfaces when the run was
+            // otherwise clean.
+            let durations = result?;
+            drained?;
 
             Ok(BenchmarkDurations {
                 timing_method,
@@ -411,5 +438,121 @@ mod tests {
         let mean = durations.mean_duration();
         let variance = durations.variance_duration(mean);
         assert_eq!(variance, Duration::from_secs(200));
+    }
+
+    #[cfg(feature = "std")]
+    mod fallible_sync {
+        use super::super::*;
+        use core::cell::Cell;
+
+        /// A benchmark whose `sync` fails on a chosen call, counting calls so
+        /// tests can target the leading sync, the post-execute sync, or the
+        /// trailing drain in `run()`.
+        struct MockBench {
+            fail_sync_on_call: Option<usize>,
+            sync_calls: Cell<usize>,
+            samples: usize,
+        }
+
+        impl MockBench {
+            fn new(fail_sync_on_call: Option<usize>) -> Self {
+                Self {
+                    fail_sync_on_call,
+                    sync_calls: Cell::new(0),
+                    samples: 3,
+                }
+            }
+        }
+
+        impl Benchmark for MockBench {
+            type Input = ();
+            type Output = ();
+
+            fn prepare(&self) -> Self::Input {}
+
+            fn execute(&self, _input: Self::Input) -> Result<Self::Output, String> {
+                Ok(())
+            }
+
+            fn num_samples(&self) -> usize {
+                self.samples
+            }
+
+            fn name(&self) -> String {
+                String::from("mock")
+            }
+
+            fn sync(&self) -> Result<(), String> {
+                let call = self.sync_calls.get();
+                self.sync_calls.set(call + 1);
+                match self.fail_sync_on_call {
+                    Some(fail_on) if call == fail_on => Err(String::from("queued fault")),
+                    _ => Ok(()),
+                }
+            }
+        }
+
+        #[test_log::test]
+        fn clean_run_returns_num_samples_durations() {
+            let bench = MockBench::new(None);
+            let durations = bench.run(TimingMethod::System).unwrap();
+            assert_eq!(durations.durations.len(), bench.num_samples());
+        }
+
+        #[test_log::test]
+        fn sync_error_during_warmup_fails_the_run() {
+            // Call 1 is the post-execute sync of the first warmup iteration,
+            // where a queued JIT compilation error would surface.
+            let bench = MockBench::new(Some(1));
+            let result = bench.run(TimingMethod::System);
+            assert_eq!(result.unwrap_err(), "queued fault");
+        }
+
+        #[test_log::test]
+        fn sync_error_in_trailing_drain_fails_an_otherwise_clean_run() {
+            // (5 warmups + 3 samples) * 2 syncs in profile_full = 16 calls,
+            // so call 16 is the trailing drain in `run()`.
+            let bench = MockBench::new(Some(16));
+            let result = bench.run(TimingMethod::System);
+            assert_eq!(bench.sync_calls.get(), 17);
+            assert_eq!(result.unwrap_err(), "queued fault");
+        }
+
+        #[test_log::test]
+        fn loop_error_wins_over_drain_error() {
+            struct BothFail {
+                sync_calls: Cell<usize>,
+            }
+            impl Benchmark for BothFail {
+                type Input = ();
+                type Output = ();
+                fn prepare(&self) -> Self::Input {}
+                fn execute(&self, _input: Self::Input) -> Result<Self::Output, String> {
+                    Err(String::from("execute failed"))
+                }
+                fn num_samples(&self) -> usize {
+                    1
+                }
+                fn name(&self) -> String {
+                    String::from("both-fail")
+                }
+                fn sync(&self) -> Result<(), String> {
+                    let call = self.sync_calls.get();
+                    self.sync_calls.set(call + 1);
+                    match call {
+                        // Call 0 is the leading sync of the first warmup; call 1
+                        // is the trailing drain, reached because execute errored.
+                        0 => Ok(()),
+                        _ => Err(String::from("drain failed")),
+                    }
+                }
+            }
+            let bench = BothFail {
+                sync_calls: Cell::new(0),
+            };
+            let result = bench.run(TimingMethod::System);
+            assert_eq!(bench.sync_calls.get(), 2);
+            assert_eq!(result.unwrap_err(), "execute failed");
+        }
     }
 }

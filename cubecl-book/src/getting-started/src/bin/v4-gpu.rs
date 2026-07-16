@@ -22,11 +22,11 @@ impl<R: Runtime, F: Float + CubeElement> Benchmark for ReductionBench<R, F> {
         format!("{}-reduction-{:?}", R::name(&self.client), self.input_shape).to_lowercase()
     }
 
-    fn sync(&self) {
-        future::block_on(self.client.sync())
+    fn sync(&self) -> Result<(), String> {
+        future::block_on(self.client.sync()).map_err(|err| format!("{err}"))
     }
 
-    fn execute(&self, input: Self::Input) -> Self::Output {
+    fn execute(&self, input: Self::Input) -> Result<Self::Output, String> {
         let output_shape: Vec<usize> = vec![self.input_shape[0]];
         let output = GpuTensor::<R, F>::empty(output_shape, &self.client);
 
@@ -40,7 +40,7 @@ impl<R: Runtime, F: Float + CubeElement> Benchmark for ReductionBench<R, F> {
             );
         }
 
-        output
+        Ok(output)
     }
 }
 
@@ -69,7 +69,10 @@ pub fn launch<R: Runtime, F: Float + CubeElement>(device: &R::Device) {
 
     for bench in [bench1, bench2] {
         println!("{}", bench.name());
-        println!("{}", bench.run(TimingMethod::System));
+        match bench.run(TimingMethod::System) {
+            Ok(durations) => println!("{durations}"),
+            Err(err) => eprintln!("error: {err}"),
+        }
     }
 }
 
