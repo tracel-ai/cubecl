@@ -46,6 +46,9 @@ fn main() {
     correctness_matrix();
     cross_stream_ordering();
     overlapping_output_is_rejected();
+    aliased_output_is_rejected();
+    foreign_output_is_rejected();
+    zero_k_is_rejected();
     prior_error_is_not_bypassed();
     println!("cuBLAS BF16 padded/offset/batched/multistream checks passed");
 }
@@ -256,6 +259,70 @@ fn overlapping_output_is_rejected() {
     assert!(future::block_on(client.sync()).is_err());
 }
 
+fn aliased_output_is_rejected() {
+    let mut client = CudaRuntime::client(&CudaDevice::default());
+    unsafe { client.set_stream(StreamId { value: 104 }) };
+
+    let values = vec![bf16::ONE.to_bits(); 4];
+    let lhs_and_out = client.create_from_slice(bytemuck::cast_slice(&values));
+    let rhs = client.create_from_slice(bytemuck::cast_slice(&values));
+    client.gemm(GemmDescriptor::new(
+        GemmMatrix::new(lhs_and_out.clone().binding(), 2, 0, false),
+        GemmMatrix::new(rhs.binding(), 2, 0, false),
+        GemmMatrix::new(lhs_and_out.binding(), 2, 0, false),
+        2,
+        2,
+        2,
+        1,
+        ElemType::Float(FloatKind::BF16),
+    ));
+    assert!(future::block_on(client.sync()).is_err());
+}
+
+fn foreign_output_is_rejected() {
+    let mut origin = CudaRuntime::client(&CudaDevice::default());
+    let mut execution = origin.clone();
+    unsafe {
+        origin.set_stream(StreamId { value: 105 });
+        execution.set_stream(StreamId { value: 106 });
+    }
+
+    let values = vec![bf16::ONE.to_bits(); 4];
+    let lhs = execution.create_from_slice(bytemuck::cast_slice(&values));
+    let rhs = execution.create_from_slice(bytemuck::cast_slice(&values));
+    let foreign_out = origin.empty(8);
+    execution.gemm(GemmDescriptor::new(
+        GemmMatrix::new(lhs.binding(), 2, 0, false),
+        GemmMatrix::new(rhs.binding(), 2, 0, false),
+        GemmMatrix::new(foreign_out.binding(), 2, 0, false),
+        2,
+        2,
+        2,
+        1,
+        ElemType::Float(FloatKind::BF16),
+    ));
+    assert!(future::block_on(execution.sync()).is_err());
+}
+
+fn zero_k_is_rejected() {
+    let mut client = CudaRuntime::client(&CudaDevice::default());
+    unsafe { client.set_stream(StreamId { value: 107 }) };
+
+    let placeholder = client.empty(2);
+    let out = client.empty(12);
+    client.gemm(GemmDescriptor::new(
+        GemmMatrix::new(placeholder.clone().binding(), 1, 0, false),
+        GemmMatrix::new(placeholder.binding(), 3, 0, false),
+        GemmMatrix::new(out.binding(), 3, 0, false),
+        2,
+        3,
+        0,
+        1,
+        ElemType::Float(FloatKind::BF16),
+    ));
+    assert!(future::block_on(client.sync()).is_err());
+}
+
 fn prior_error_is_not_bypassed() {
     let client = CudaRuntime::client(&CudaDevice::default());
     let input = client.create_from_slice(bytemuck::cast_slice(&[bf16::ONE.to_bits()]));
@@ -274,16 +341,20 @@ fn prior_error_is_not_bypassed() {
     let descriptor = GemmDescriptor::new(
         GemmMatrix::new(input.clone().binding(), 1, 0, false),
         GemmMatrix::new(input.binding(), 1, 0, false),
-        GemmMatrix::new(output.binding(), 1, 0, false),
+        GemmMatrix::new(output.clone().binding(), 1, 0, false),
         1,
         1,
         1,
         1,
         ElemType::Float(FloatKind::BF16),
     );
-    client.gemm(descriptor);
+    client.gemm(descriptor.clone());
     // Surfaces the original launch error and restores stream health.
     assert!(future::block_on(client.sync()).is_err());
+
+    client.gemm(descriptor);
+    let bytes = client.read_one_unchecked(output);
+    assert_eq!(bytemuck::cast_slice::<u8, u16>(&bytes), &[bf16::ONE.to_bits()]);
 }
 
 impl Matrix {

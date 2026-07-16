@@ -34,15 +34,15 @@ impl CublasState {
         if descriptor.elem != ElemType::Float(FloatKind::BF16) {
             return Err(validation_error("cuBLAS GEMM currently supports only BF16"));
         }
-        validate(descriptor, lhs, rhs, out)?;
-
-        if descriptor.m == 0
-            || descriptor.n == 0
-            || descriptor.k == 0
-            || descriptor.batch_count == 0
-        {
+        if descriptor.m == 0 || descriptor.n == 0 || descriptor.batch_count == 0 {
             return Ok(());
         }
+        if descriptor.k == 0 {
+            return Err(validation_error(
+                "cuBLAS GEMM does not initialize a nonempty zero-K output",
+            ));
+        }
+        validate(descriptor, lhs, rhs, out)?;
 
         let handle = match self.handle {
             Some(handle) => handle,
@@ -136,6 +136,9 @@ fn validate(
     if descriptor.out.transposed {
         return Err(validation_error("GEMM output must be row-major"));
     }
+    if resources_overlap(out, lhs) || resources_overlap(out, rhs) {
+        return Err(validation_error("GEMM output may not overlap either input"));
+    }
 
     validate_matrix(
         "lhs",
@@ -164,6 +167,15 @@ fn validate(
         out,
         false,
     )
+}
+
+fn resources_overlap(lhs: &GpuResource, rhs: &GpuResource) -> bool {
+    if lhs.size == 0 || rhs.size == 0 {
+        return false;
+    }
+    let lhs_end = lhs.ptr.saturating_add(lhs.size);
+    let rhs_end = rhs.ptr.saturating_add(rhs.size);
+    lhs.ptr < rhs_end && rhs.ptr < lhs_end
 }
 
 #[allow(clippy::too_many_arguments)]
