@@ -439,12 +439,12 @@ pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
     #[cfg(std_io)]
     let reference_name = reference.0;
 
-    let is_telemetry = is_telemetry_enabled();
+    let is_recording = is_recording_enabled();
 
     #[cfg(std_io)]
     {
         let reference_passed = reference_result.is_ok();
-        let mut check_results = execute_checks(checks_outputs, reference_result, is_telemetry);
+        let mut check_results = execute_checks(checks_outputs, reference_result, is_recording);
         check_results.push(crate::tune::log::CheckResult {
             name: reference_name,
             passed: reference_passed,
@@ -455,24 +455,25 @@ pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
 
     #[cfg(not(std_io))]
     {
-        execute_checks(checks_outputs, reference_result, is_telemetry)
+        execute_checks(checks_outputs, reference_result, is_recording)
     }
 }
 
+/// Whether a mismatch should be collected rather than fatal: it can only be reported if something
+/// is recording the results, so with no recorder a failed check panics on the spot instead of
+/// passing silently.
 #[cfg(feature = "autotune-checks")]
-fn is_telemetry_enabled() -> bool {
-    let log_level = crate::config::CubeClRuntimeConfig::get()
+fn is_recording_enabled() -> bool {
+    crate::config::CubeClRuntimeConfig::get()
         .autotune
-        .logger
-        .level;
-    matches!(log_level, AutotuneLogLevel::Telemetry)
+        .recording_enabled()
 }
 
 #[cfg(feature = "autotune-checks")]
 fn execute_checks<O: AutotuneOutput>(
     checks_outputs: Vec<(String, Result<O, AutotuneError>)>,
     reference_result: Result<O, AutotuneError>,
-    is_telemetry: bool,
+    is_recording: bool,
 ) -> Vec<crate::tune::log::CheckResult> {
     let mut check_results = Vec::new();
 
@@ -488,7 +489,7 @@ fn execute_checks<O: AutotuneOutput>(
 
     for (name, other_result) in checks_outputs.into_iter() {
         if let Ok(other) = other_result {
-            let passed = check_equivalence(&reference, other, is_telemetry);
+            let passed = check_equivalence(&reference, other, is_recording);
             check_results.push(crate::tune::log::CheckResult { name, passed });
         } else {
             check_results.push(crate::tune::log::CheckResult {
@@ -502,10 +503,10 @@ fn execute_checks<O: AutotuneOutput>(
 }
 
 #[cfg(feature = "autotune-checks")]
-fn check_equivalence<O: AutotuneOutput>(reference: &O, other: O, is_telemetry: bool) -> bool {
-    // When telemetry is enabled, we catch the panic so we can collect and log all check failures.
-    // When disabled, we let it panic immediately to notify when a mismatch is found.
-    if is_telemetry {
+fn check_equivalence<O: AutotuneOutput>(reference: &O, other: O, is_recording: bool) -> bool {
+    // When the results are being recorded, we catch the panic so we can collect and report every
+    // check failure. With nothing recording, we let it panic immediately rather than pass silently.
+    if is_recording {
         #[cfg(std_io)]
         {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

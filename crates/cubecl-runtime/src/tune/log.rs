@@ -1,5 +1,5 @@
 use crate::config::{Logger, autotune::AutotuneLogLevel};
-use crate::tune::{AutotuneKey, AutotuneResult};
+use crate::tune::{AutotuneKey, AutotuneOutcome, AutotuneResult};
 #[cfg(std_io)]
 use alloc::borrow::Cow;
 use alloc::format;
@@ -154,11 +154,12 @@ impl<'a> AutotuneLoggerExt for Option<&'a mut AutotuneLogContext> {
     }
 }
 
-/// Telemetry information emitted when autotune runs.
+/// The complete record of one tuning decision, written as JSON when the autotune recorder has a
+/// sink configured. One record per line, per decision, in a fixed schema for tools to read back.
 #[cfg(std_io)]
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(bound(deserialize = "K: Clone + serde::Deserialize<'de>"))]
-pub struct AutotuneTelemetry<'a, K: Clone> {
+pub struct AutotuneRecord<'a, K: Clone> {
     /// The key for the autotuning job.
     pub key: Cow<'a, K>,
     /// The index of the fastest candidate.
@@ -182,7 +183,8 @@ pub struct CheckResult {
     pub passed: bool,
 }
 
-/// Emit the autotune result through the logger at the currently configured level.
+/// Emit the autotune result: a line for humans at the logger's level and, independently, the
+/// [`AutotuneRecord`] for tools if the recorder has a sink. Either, both, or neither.
 pub(crate) fn log_result<K: AutotuneKey>(
     logger: &mut Logger,
     key: &K,
@@ -190,42 +192,71 @@ pub(crate) fn log_result<K: AutotuneKey>(
     log_context: Option<&AutotuneLogContext>,
 ) {
     let level = logger.log_level_autotune();
-    if matches!(level, AutotuneLogLevel::Disabled) {
+    let recording = logger.autotune_recording_enabled();
+    if matches!(level, AutotuneLogLevel::Disabled) && !recording {
         return;
     }
 
-    let fastest_result = results
+    // Shared by both sinks, and resolved only once one of them is listening: it assumes a candidate
+    // succeeded, which is not true of every tuning pass.
+    let fastest = results
         .first()
         .expect("At least one kernel needed.")
         .outcome
         .as_ref()
         .expect("At least one kernel has to succeed.");
 
-    match level {
-        AutotuneLogLevel::Telemetry => {
-            #[cfg(std_io)]
-            {
-                let telemetry = AutotuneTelemetry {
-                    key: Cow::Borrowed(key),
-                    fastest_index: fastest_result.index,
-                    fastest_time: fastest_result.computation.median,
-                    results: Cow::Borrowed(results),
-                    log_context: log_context.map(Cow::Borrowed),
-                    checks: log_context
-                        .and_then(|c| c.checks.as_deref())
-                        .map(Cow::Borrowed),
-                };
+    if recording {
+        write_record(logger, key, results, log_context, fastest);
+    }
+    write_log(logger, level, key, results, log_context, fastest);
+}
 
-                let msg = serde_json::to_string(&telemetry).unwrap_or_else(|err| {
-                    format!("{{\"error\": \"Failed to serialize telemetry: {err}\"}}")
-                });
-                logger.log_autotune(&msg);
-            }
-            #[cfg(not(std_io))]
-            {
-                logger.log_autotune(&"{\"error\": \"Telemetry not available without std_io\"}");
-            }
-        }
+/// The record, for tools: one JSON object on the recorder's sink.
+#[cfg_attr(not(std_io), allow(unused_variables))]
+fn write_record<K: AutotuneKey>(
+    logger: &mut Logger,
+    key: &K,
+    results: &[AutotuneResult],
+    log_context: Option<&AutotuneLogContext>,
+    fastest: &AutotuneOutcome,
+) {
+    #[cfg(std_io)]
+    {
+        let record = AutotuneRecord {
+            key: Cow::Borrowed(key),
+            fastest_index: fastest.index,
+            fastest_time: fastest.computation.median,
+            results: Cow::Borrowed(results),
+            log_context: log_context.map(Cow::Borrowed),
+            checks: log_context
+                .and_then(|c| c.checks.as_deref())
+                .map(Cow::Borrowed),
+        };
+
+        let msg = serde_json::to_string(&record).unwrap_or_else(|err| {
+            format!("{{\"error\": \"Failed to serialize the autotune record: {err}\"}}")
+        });
+        logger.log_autotune_record(&msg);
+    }
+    #[cfg(not(std_io))]
+    {
+        logger.log_autotune_record(
+            &"{\"error\": \"Recording autotune is not available without std_io\"}",
+        );
+    }
+}
+
+/// The line for humans, at whatever the logger's level asks for.
+fn write_log<K: AutotuneKey>(
+    logger: &mut Logger,
+    level: AutotuneLogLevel,
+    key: &K,
+    results: &[AutotuneResult],
+    log_context: Option<&AutotuneLogContext>,
+    fastest: &AutotuneOutcome,
+) {
+    match level {
         AutotuneLogLevel::Minimal => {
             let top_times = results
                 .iter()
@@ -243,7 +274,7 @@ pub(crate) fn log_result<K: AutotuneKey>(
                 .unwrap_or_default();
             logger.log_autotune(&format!(
                 "Fastest result {}-{key}. Top 3 times: {top_times:?}{context_str}",
-                fastest_result.name,
+                fastest.name,
             ));
         }
         AutotuneLogLevel::Full => {
@@ -262,7 +293,7 @@ pub(crate) fn log_result<K: AutotuneKey>(
 
             logger.log_autotune(&format!(
                 "Fastest result {}-{key}.\nContext:\n{context_str}",
-                fastest_result.name,
+                fastest.name,
             ));
 
             for result in results.iter() {

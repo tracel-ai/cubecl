@@ -9,6 +9,15 @@ pub struct AutotuneConfig {
     #[serde(default)]
     pub logger: LoggerConfig<AutotuneLogLevel>,
 
+    /// Recorder configuration: where to write one [`AutotuneRecord`](crate::tune::AutotuneRecord)
+    /// per tuning decision, as JSON, for a tool to read back.
+    ///
+    /// Independent of [`logger`](Self::logger), because the two answer different questions and both
+    /// can be wanted at once: the logger's level says how much to tell a human, the recorder says
+    /// where to put the machine-readable record.
+    #[serde(default)]
+    pub recorder: LoggerConfig<RecorderLevel>,
+
     /// Autotune level, controlling the intensity of autotuning.
     #[serde(default)]
     pub level: AutotuneLevel,
@@ -45,13 +54,32 @@ pub enum AutotuneLogLevel {
     /// Full autotune details are logged.
     #[serde(rename = "full")]
     Full,
-
-    /// Emits telemetry data as structured JSON.
-    #[serde(rename = "telemetry")]
-    Telemetry,
 }
 
 impl LogLevel for AutotuneLogLevel {}
+
+/// The recorder's (absent) verbosity.
+///
+/// A record is one fixed schema, which is the whole point: a tool reads it back and depends on its
+/// shape, so there is no "how much" to choose. The recorder is simply on when it has a sink
+/// (see [`AutotuneConfig::recording_enabled`]); this type exists only so it can reuse
+/// [`LoggerConfig`]'s sinks.
+#[derive(Default, Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+pub struct RecorderLevel;
+
+impl LogLevel for RecorderLevel {}
+
+impl AutotuneConfig {
+    /// Whether tuning decisions are being recorded, i.e. the recorder has somewhere to write.
+    pub fn recording_enabled(&self) -> bool {
+        #[cfg(std_io)]
+        let has_file = self.recorder.file.is_some();
+        #[cfg(not(std_io))]
+        let has_file = false;
+
+        has_file || self.recorder.stdout || self.recorder.stderr
+    }
+}
 
 /// Autotune levels controlling the intensity of autotuning.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
