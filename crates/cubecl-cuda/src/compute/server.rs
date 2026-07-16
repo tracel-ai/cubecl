@@ -672,6 +672,16 @@ impl CudaServer {
         descriptor: GemmDescriptor,
         stream_id: StreamId,
     ) -> Result<(), ServerError> {
+        // A binding records its allocation stream, which is also the stream
+        // later consumers use for dependency tracking. Executing a write on a
+        // different stream would leave that metadata stale and let a consumer
+        // on the allocation stream race the GEMM.
+        if descriptor.out.binding.stream != stream_id {
+            return Err(ServerError::Validation {
+                message: "GEMM output must be allocated on the execution stream".into(),
+                backtrace: BackTrace::capture(),
+            });
+        }
         let bindings = [
             &descriptor.lhs.binding,
             &descriptor.rhs.binding,

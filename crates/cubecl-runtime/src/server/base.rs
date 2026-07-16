@@ -373,7 +373,9 @@ pub struct GemmMatrix {
 ///
 /// Computes `out = lhs @ rhs` for `batch_count` matrices. All matrices use
 /// `elem`; accumulation precision is selected by the backend. The output must
-/// be row-major.
+/// be row-major, allocated on the execution stream, and disjoint from both
+/// inputs. Backends may reject a nonempty zero-K problem rather than provide a
+/// separate output-initialization path.
 #[derive(new, Clone, Debug)]
 pub struct GemmDescriptor {
     /// Left-hand matrix, logically shaped `[m, k]`.
