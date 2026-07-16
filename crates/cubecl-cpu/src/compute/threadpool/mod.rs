@@ -62,6 +62,13 @@ impl Threadpool {
             cube_count,
         );
 
+        // A `sync_cube` barrier only resolves when every unit of the cube runs
+        // on its own thread, so grow the pool to one worker per unit. Kernels
+        // without a barrier load-balance and need no extra workers.
+        if mlir_engine.0.needs_parallelism {
+            self.scheduler.ensure_workers(cube_dim.num_elems() as usize);
+        }
+
         let mut i = 0;
         for unit_pos_x in 0..cube_dim.x {
             for unit_pos_y in 0..cube_dim.y {
