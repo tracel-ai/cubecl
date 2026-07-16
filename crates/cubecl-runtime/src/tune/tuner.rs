@@ -120,8 +120,6 @@ struct TuneRequest<K: AutotuneKey> {
     checksum: String,
     log_context: Option<crate::tune::AutotuneLogContext>,
     pending: Vec<PendingBench>,
-    #[cfg(feature = "autotune-checks")]
-    checks: Option<Vec<crate::tune::log::CheckResult>>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -154,7 +152,7 @@ impl<K: AutotuneKey> Tuner<K> {
         tunables: &TunableSet<K, F, Out>,
         #[cfg_attr(not(std_io), allow(unused))] checksum: impl FnOnce() -> String + Send + Sync,
         client: &ComputeClient<R>,
-        #[cfg(feature = "autotune-checks")] check_results: Vec<crate::tune::log::CheckResult>,
+        mut log_context: Option<crate::tune::AutotuneLogContext>,
     ) -> TuneCacheResult
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
@@ -211,8 +209,8 @@ impl<K: AutotuneKey> Tuner<K> {
         let bounds = tunables.bounds(key, inputs);
         let limit = bounds.as_ref().and_then(|bounds| bounds.time_limit());
 
-        let mut log_context =
-            crate::tune::AutotuneLogContext::new(&mut self.logger.lock(), bounds, limit);
+        log_context.set_bounds(bounds);
+        log_context.set_limit(limit);
 
         // The slowest median duration still considered close enough to peak throughput.
         // Only used on native, where a benchmark can be resolved inline to exit early.
@@ -311,8 +309,6 @@ impl<K: AutotuneKey> Tuner<K> {
             checksum,
             log_context,
             pending,
-            #[cfg(feature = "autotune-checks")]
-            checks: Some(check_results),
         };
 
         // Resolve samples and commit the result. On wasm this runs on the browser
@@ -383,8 +379,6 @@ async fn process_request<K: AutotuneKey>(
         checksum,
         log_context,
         pending,
-        #[cfg(feature = "autotune-checks")]
-        checks,
     } = request;
 
     for bench in pending {
@@ -417,13 +411,7 @@ async fn process_request<K: AutotuneKey>(
         .index;
 
     {
-        log_context.log_result(
-            &mut logger.lock(),
-            &key,
-            &results,
-            #[cfg(feature = "autotune-checks")]
-            checks.as_deref(),
-        );
+        log_context.log_result(&mut logger.lock(), &key, &results);
         cache.lock().cache_insert(key.clone(), fastest_index);
         #[cfg(std_io)]
         cache

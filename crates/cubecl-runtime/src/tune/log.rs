@@ -28,21 +28,20 @@ pub struct AutotuneLogContext {
     pub limit: Option<Duration>,
     /// The chronological list of tuning events.
     pub events: Vec<AutotuneLogEvent>,
+    /// The results of the checks.
+    pub checks: Option<Vec<crate::tune::log::CheckResult>>,
 }
 
 impl AutotuneLogContext {
     /// Creates a new log context if the logger is enabled for autotuning.
-    pub fn new(
-        logger: &mut Logger,
-        bounds: Option<crate::tune::Bounds<crate::tune::AutotuneBound>>,
-        limit: Option<Duration>,
-    ) -> Option<Self> {
+    pub fn new(logger: &mut Logger) -> Option<Self> {
         match logger.log_level_autotune() {
             AutotuneLogLevel::Disabled => None,
             _ => Some(Self {
-                bounds,
-                limit,
+                bounds: None,
+                limit: None,
                 events: Vec::new(),
+                checks: None,
             }),
         }
     }
@@ -71,14 +70,14 @@ pub trait AutotuneLoggerExt {
     fn push_short_circuit(&mut self, name: String);
     /// Pushes a tuning step event if logging is enabled.
     fn push_tuning_step(&mut self, name: String, duration: Duration);
+    /// Sets the tuning bounds if logging is active.
+    fn set_bounds(&mut self, bounds: Option<crate::tune::Bounds<crate::tune::AutotuneBound>>);
+    /// Sets the tuning limit if logging is active.
+    fn set_limit(&mut self, limit: Option<Duration>);
+    /// Adds checks if logging is active.
+    fn add_checks(&mut self, checks: impl FnOnce() -> Vec<CheckResult>);
     /// Logs the benchmark result if logging is enabled.
-    fn log_result<K: AutotuneKey>(
-        &self,
-        logger: &mut Logger,
-        key: &K,
-        results: &[AutotuneResult],
-        #[cfg(feature = "autotune-checks")] check_results: Option<&[CheckResult]>,
-    );
+    fn log_result<K: AutotuneKey>(&self, logger: &mut Logger, key: &K, results: &[AutotuneResult]);
 }
 
 impl AutotuneLoggerExt for Option<AutotuneLogContext> {
@@ -95,21 +94,26 @@ impl AutotuneLoggerExt for Option<AutotuneLogContext> {
         }
     }
 
-    fn log_result<K: AutotuneKey>(
-        &self,
-        logger: &mut Logger,
-        key: &K,
-        results: &[AutotuneResult],
-        #[cfg(feature = "autotune-checks")] check_results: Option<&[CheckResult]>,
-    ) {
-        crate::tune::log_result(
-            logger,
-            key,
-            results,
-            self.as_ref(),
-            #[cfg(feature = "autotune-checks")]
-            check_results,
-        );
+    fn set_bounds(&mut self, bounds: Option<crate::tune::Bounds<crate::tune::AutotuneBound>>) {
+        if let Some(ctx) = self.as_mut() {
+            ctx.bounds = bounds;
+        }
+    }
+
+    fn set_limit(&mut self, limit: Option<Duration>) {
+        if let Some(ctx) = self.as_mut() {
+            ctx.limit = limit;
+        }
+    }
+
+    fn add_checks(&mut self, checks: impl FnOnce() -> Vec<CheckResult>) {
+        if let Some(ctx) = self.as_mut() {
+            ctx.checks = Some(checks());
+        }
+    }
+
+    fn log_result<K: AutotuneKey>(&self, logger: &mut Logger, key: &K, results: &[AutotuneResult]) {
+        crate::tune::log_result(logger, key, results, self.as_ref());
     }
 }
 
@@ -127,21 +131,26 @@ impl<'a> AutotuneLoggerExt for Option<&'a mut AutotuneLogContext> {
         }
     }
 
-    fn log_result<K: AutotuneKey>(
-        &self,
-        logger: &mut Logger,
-        key: &K,
-        results: &[AutotuneResult],
-        #[cfg(feature = "autotune-checks")] check_results: Option<&[CheckResult]>,
-    ) {
-        crate::tune::log_result(
-            logger,
-            key,
-            results,
-            self.as_deref(),
-            #[cfg(feature = "autotune-checks")]
-            check_results,
-        );
+    fn set_bounds(&mut self, bounds: Option<crate::tune::Bounds<crate::tune::AutotuneBound>>) {
+        if let Some(ctx) = self.as_deref_mut() {
+            ctx.bounds = bounds;
+        }
+    }
+
+    fn set_limit(&mut self, limit: Option<Duration>) {
+        if let Some(ctx) = self.as_deref_mut() {
+            ctx.limit = limit;
+        }
+    }
+
+    fn add_checks(&mut self, checks: impl FnOnce() -> Vec<CheckResult>) {
+        if let Some(ctx) = self.as_deref_mut() {
+            ctx.checks = Some(checks());
+        }
+    }
+
+    fn log_result<K: AutotuneKey>(&self, logger: &mut Logger, key: &K, results: &[AutotuneResult]) {
+        crate::tune::log_result(logger, key, results, self.as_deref());
     }
 }
 
@@ -160,12 +169,12 @@ pub struct AutotuneTelemetry<'a, K: Clone> {
     pub results: Cow<'a, [AutotuneResult]>,
     /// Logging context with bounds, limit, and events.
     pub log_context: Option<Cow<'a, AutotuneLogContext>>,
-    /// Check results if autotune-checks is enabled.
+    /// Check results if autotune-checks is enabled else None.
     pub checks: Option<Cow<'a, [CheckResult]>>,
 }
 
 /// The check result for a single benchmark.
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CheckResult {
     /// The name of the benchmark.
     pub name: String,
@@ -179,7 +188,6 @@ pub(crate) fn log_result<K: AutotuneKey>(
     key: &K,
     results: &[AutotuneResult],
     log_context: Option<&AutotuneLogContext>,
-    #[cfg(feature = "autotune-checks")] check_results: Option<&[CheckResult]>,
 ) {
     let level = logger.log_level_autotune();
     if matches!(level, AutotuneLogLevel::Disabled) {
@@ -203,10 +211,9 @@ pub(crate) fn log_result<K: AutotuneKey>(
                     fastest_time: fastest_result.computation.median,
                     results: Cow::Borrowed(results),
                     log_context: log_context.map(Cow::Borrowed),
-                    #[cfg(feature = "autotune-checks")]
-                    checks: check_results.map(Cow::Borrowed),
-                    #[cfg(not(feature = "autotune-checks"))]
-                    checks: None,
+                    checks: log_context
+                        .and_then(|c| c.checks.as_deref())
+                        .map(Cow::Borrowed),
                 };
 
                 let msg = serde_json::to_string(&telemetry).unwrap_or_else(|err| {

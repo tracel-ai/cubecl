@@ -1,4 +1,6 @@
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneInputs, Tuner};
+#[cfg(feature = "autotune-checks")]
+use crate::tune::AutotuneLoggerExt;
 use crate::{client::ComputeClient, runtime::Runtime, tune::TuneCacheResult};
 use alloc::string::ToString;
 use alloc::sync::Arc;
@@ -143,8 +145,11 @@ where
                 .clone()
         };
 
+        #[allow(unused_mut)]
+        let mut log_context = crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
+
         #[cfg(feature = "autotune-checks")]
-        let check_results = self.checks::<I, Out>(&operations, &inputs);
+        log_context.add_checks(|| self.checks::<I, Out>(&operations, &inputs));
 
         // First, check for a cache hit under a read lock.
         if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
@@ -160,8 +165,7 @@ where
             &operations,
             || operations.compute_checksum(),
             client,
-            #[cfg(feature = "autotune-checks")]
-            check_results,
+            log_context,
         );
 
         // Run the execution depending on the cache state.
