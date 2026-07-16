@@ -3,7 +3,7 @@ pub mod jit;
 
 #[cfg(feature = "pliron-dump")]
 use pliron::context::Context;
-use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
+// use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 #[cfg(feature = "pliron-dump")]
 use std::{path::PathBuf, str::FromStr};
 
@@ -104,7 +104,7 @@ impl PlironCompiler {
         func_passes.add_pass(DCEPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
-        passes.add_pass(builtin_to_llvm_pass());
+        // passes.add_pass(builtin_to_llvm_pass());
 
         passes.run(module_op, &mut ctx, &mut analyses).unwrap();
 
