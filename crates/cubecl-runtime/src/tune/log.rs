@@ -161,7 +161,6 @@ pub struct AutotuneTelemetry<'a, K: Clone> {
     /// Logging context with bounds, limit, and events.
     pub log_context: Option<Cow<'a, AutotuneLogContext>>,
     /// Check results if autotune-checks is enabled.
-    #[cfg(feature = "autotune-checks")]
     pub checks: Option<Cow<'a, [CheckResult]>>,
 }
 
@@ -206,6 +205,8 @@ pub(crate) fn log_result<K: AutotuneKey>(
                     log_context: log_context.map(Cow::Borrowed),
                     #[cfg(feature = "autotune-checks")]
                     checks: check_results.map(Cow::Borrowed),
+                    #[cfg(not(feature = "autotune-checks"))]
+                    checks: None,
                 };
 
                 let msg = serde_json::to_string(&telemetry).unwrap_or_else(|err| {
