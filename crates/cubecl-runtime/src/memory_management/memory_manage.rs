@@ -937,20 +937,35 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         );
 
         // Find first pool that fits this allocation
-        let pool = self
-            .pools
-            .iter_mut()
-            .find(|p| p.accept(size))
-            .ok_or(IoError::BufferTooBig {
-                size,
-                backtrace: BackTrace::capture(),
-            })?;
+        let pool_index =
+            self.pools
+                .iter()
+                .position(|p| p.accept(size))
+                .ok_or(IoError::BufferTooBig {
+                    size,
+                    backtrace: BackTrace::capture(),
+                })?;
 
-        if let Some(slice) = pool.try_reserve(size) {
+        if let Some(slice) = self.pools[pool_index].try_reserve(size) {
             return Ok(slice);
         }
 
-        let allocated = pool.alloc(&mut self.storage, size);
+        let allocated = self.pools[pool_index].alloc(&mut self.storage, size);
+
+        // Autotuning can leave one-off pages cached in several size buckets.
+        // If the device is full, release every unused page and retry once
+        // before surfacing the allocation error.
+        let allocated = match allocated {
+            Err(IoError::BufferTooBig { .. }) => {
+                self.cleanup(true);
+                if let Some(slice) = self.pools[pool_index].try_reserve(size) {
+                    Ok(slice)
+                } else {
+                    self.pools[pool_index].alloc(&mut self.storage, size)
+                }
+            }
+            result => result,
+        };
 
         self.logger.log_memory(
             |level| matches!(level, MemoryLogLevel::Full),
@@ -1069,8 +1084,12 @@ impl<Storage> core::fmt::Debug for MemoryManagement<Storage> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{memory_management::MemoryManagement, storage::BytesStorage};
+    use crate::{
+        memory_management::MemoryManagement,
+        storage::{BytesResource, BytesStorage, ComputeStorage, StorageHandle, StorageId},
+    };
     use alloc::vec;
+    use hashbrown::HashMap;
 
     const DUMMY_MEM_PROPS: MemoryDeviceProperties = MemoryDeviceProperties {
         max_page_size: 128 * 1024 * 1024,
@@ -1082,6 +1101,86 @@ mod tests {
             name: "test".into(),
             memory: MemoryAllocationOption::FromConfig,
         }
+    }
+
+    #[derive(Debug)]
+    struct LimitedStorage {
+        inner: BytesStorage,
+        capacity: u64,
+        allocated: u64,
+        sizes: HashMap<StorageId, u64>,
+    }
+
+    impl LimitedStorage {
+        fn new(capacity: u64) -> Self {
+            Self {
+                inner: BytesStorage::default(),
+                capacity,
+                allocated: 0,
+                sizes: HashMap::new(),
+            }
+        }
+    }
+
+    impl ComputeStorage for LimitedStorage {
+        type Resource = BytesResource;
+
+        fn alignment(&self) -> usize {
+            self.inner.alignment()
+        }
+
+        fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
+            self.inner.get(handle)
+        }
+
+        fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+            if self.allocated + size > self.capacity {
+                return Err(IoError::BufferTooBig {
+                    size,
+                    backtrace: BackTrace::capture(),
+                });
+            }
+            let handle = self.inner.alloc(size)?;
+            self.allocated += size;
+            self.sizes.insert(handle.id, size);
+            Ok(handle)
+        }
+
+        fn dealloc(&mut self, id: StorageId) {
+            if let Some(size) = self.sizes.remove(&id) {
+                self.allocated -= size;
+            }
+            self.inner.dealloc(id);
+        }
+
+        fn flush(&mut self) {
+            self.inner.flush();
+        }
+    }
+
+    #[test_log::test]
+    fn allocation_oom_reclaims_cached_pages_and_retries() {
+        let mut memory_management = MemoryManagement::from_configuration(
+            LimitedStorage::new(1024),
+            &DUMMY_MEM_PROPS,
+            MemoryConfiguration::Custom {
+                pool_options: vec![MemoryPoolOptions {
+                    pool_type: PoolType::ExclusivePages {
+                        max_alloc_size: 1024,
+                    },
+                    dealloc_period: None,
+                }],
+            },
+            Arc::new(ServerLogger::default()),
+            options(),
+        );
+
+        let cached = memory_management.reserve(768).unwrap();
+        drop(cached);
+
+        let _live = memory_management.reserve(1024).unwrap();
+        assert_eq!(memory_management.memory_usage().bytes_in_use, 1024);
+        assert_eq!(memory_management.memory_usage().bytes_reserved, 1024);
     }
 
     // Test pools with slices.
