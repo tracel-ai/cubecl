@@ -1,5 +1,6 @@
 use crate::config::{Logger, autotune::AutotuneLogLevel};
 use crate::tune::{AutotuneKey, AutotuneResult};
+#[cfg(std_io)]
 use alloc::borrow::Cow;
 use alloc::format;
 use alloc::string::String;
@@ -127,6 +128,35 @@ pub struct AutotuneTelemetry<'a, K: Clone> {
     pub results: Cow<'a, [AutotuneResult]>,
     /// Logging context with bounds, limit, and events.
     pub log_context: Option<Cow<'a, AutotuneLogContext>>,
+}
+
+/// The check result for a single benchmark.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct CheckResult {
+    /// The name of the benchmark.
+    pub name: String,
+    /// Whether the check passed.
+    pub passed: bool,
+}
+
+/// Telemetry information emitted when autotune runs checks.
+#[cfg(std_io)]
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct AutotuneCheckTelemetry<'a> {
+    /// The booleans indicating if each benchmark passed the check.
+    pub results: Cow<'a, [CheckResult]>,
+}
+
+/// Emit the autotune check telemetry through the logger.
+#[cfg(all(feature = "autotune-checks", std_io))]
+pub(crate) fn log_telemetry_check(check_results: &[CheckResult]) {
+    let telemetry = AutotuneCheckTelemetry {
+        results: Cow::Borrowed(check_results),
+    };
+    let msg = serde_json::to_string(&telemetry).unwrap_or_else(|err| {
+        format!("{{\"error\": \"Failed to serialize check telemetry: {err}\"}}")
+    });
+    crate::config::Logger::new().log_autotune(&msg);
 }
 
 /// Emit the autotune result through the logger at the currently configured level.

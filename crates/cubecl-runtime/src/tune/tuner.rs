@@ -1,3 +1,4 @@
+#[cfg(std_io)]
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -9,7 +10,9 @@ use core::time::Duration;
 use alloc::string::{String, ToString};
 use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
-use crate::config::{Logger, autotune::AutotuneLogLevel};
+use crate::config::Logger;
+#[cfg(any(feature = "autotune-checks", std_io))]
+use crate::config::autotune::AutotuneLogLevel;
 use crate::server::LaunchError;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};
 use crate::{client::ComputeClient, runtime::Runtime};
@@ -415,13 +418,104 @@ async fn process_request<K: AutotuneKey>(
 
 #[cfg(feature = "autotune-checks")]
 pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
-    mut checks_outputs: Vec<Result<O, AutotuneError>>,
+    mut checks_outputs: Vec<(String, Result<O, AutotuneError>)>,
 ) {
-    let reference = checks_outputs.remove(checks_outputs.len() - 1);
+    if checks_outputs.is_empty() {
+        return;
+    }
 
-    if let Ok(reference) = reference {
-        for other in checks_outputs.into_iter().flatten() {
-            reference.check_equivalence(other);
+    let reference_idx = checks_outputs.len() - 1;
+    let reference = checks_outputs.remove(reference_idx);
+    let reference_result = reference.1;
+    #[cfg(std_io)]
+    let reference_name = reference.0;
+
+    let is_telemetry = is_telemetry_enabled();
+
+    #[cfg(std_io)]
+    {
+        let reference_passed = reference_result.is_ok();
+        let mut check_results = execute_checks(checks_outputs, reference_result, is_telemetry);
+        check_results.push(crate::tune::log::CheckResult {
+            name: reference_name,
+            passed: reference_passed,
+        });
+
+        if is_telemetry {
+            crate::tune::log::log_telemetry_check(&check_results);
         }
+    }
+
+    #[cfg(not(std_io))]
+    {
+        execute_checks(checks_outputs, reference_result, is_telemetry);
+
+        if is_telemetry {
+            crate::config::Logger::new()
+                .log_autotune(&"{\"error\": \"Check telemetry not available without std_io\"}");
+        }
+    }
+}
+
+#[cfg(feature = "autotune-checks")]
+fn is_telemetry_enabled() -> bool {
+    let log_level = crate::config::CubeClRuntimeConfig::get()
+        .autotune
+        .logger
+        .level;
+    matches!(log_level, AutotuneLogLevel::Telemetry)
+}
+
+#[cfg(feature = "autotune-checks")]
+fn execute_checks<O: AutotuneOutput>(
+    checks_outputs: Vec<(String, Result<O, AutotuneError>)>,
+    reference_result: Result<O, AutotuneError>,
+    is_telemetry: bool,
+) -> Vec<crate::tune::log::CheckResult> {
+    let mut check_results = Vec::new();
+
+    let Ok(reference) = reference_result else {
+        for (name, _) in checks_outputs.into_iter() {
+            check_results.push(crate::tune::log::CheckResult {
+                name,
+                passed: false,
+            });
+        }
+        return check_results;
+    };
+
+    for (name, other_result) in checks_outputs.into_iter() {
+        if let Ok(other) = other_result {
+            let passed = check_equivalence(&reference, other, is_telemetry);
+            check_results.push(crate::tune::log::CheckResult { name, passed });
+        } else {
+            check_results.push(crate::tune::log::CheckResult {
+                name,
+                passed: false,
+            });
+        }
+    }
+
+    check_results
+}
+
+#[cfg(feature = "autotune-checks")]
+fn check_equivalence<O: AutotuneOutput>(reference: &O, other: O, is_telemetry: bool) -> bool {
+    if is_telemetry {
+        #[cfg(std_io)]
+        {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                reference.check_equivalence(other);
+            }))
+            .is_ok()
+        }
+        #[cfg(not(std_io))]
+        {
+            reference.check_equivalence(other);
+            true
+        }
+    } else {
+        reference.check_equivalence(other);
+        true
     }
 }
