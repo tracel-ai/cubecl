@@ -430,7 +430,10 @@ pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
         return Vec::new();
     }
 
-    let reference_idx = checks_outputs.len() - 1;
+    let reference_idx = checks_outputs
+        .iter()
+        .position(|(_, res)| res.is_ok())
+        .unwrap_or(checks_outputs.len() - 1);
     let reference = checks_outputs.remove(reference_idx);
     let reference_result = reference.1;
     #[cfg(std_io)]
