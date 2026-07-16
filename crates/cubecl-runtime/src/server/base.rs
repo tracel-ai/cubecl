@@ -351,6 +351,49 @@ pub struct StreamErrorMode {
     pub flush: bool,
 }
 
+/// Describes one matrix operand of an accelerated GEMM.
+///
+/// Strides are expressed in elements. A matrix is either row-major
+/// (`transposed == false`) or a transposed view of a row-major matrix. The
+/// latter has a unit row stride and `leading_dimension` as its column stride.
+#[derive(new, Clone, Debug)]
+pub struct GemmMatrix {
+    /// Buffer containing the matrix data.
+    pub binding: Binding,
+    /// Leading dimension of the underlying row-major allocation.
+    pub leading_dimension: u32,
+    /// Distance between consecutive batch matrices, in elements. Zero
+    /// broadcasts this operand across batches.
+    pub batch_stride: u64,
+    /// Whether the logical matrix is a transposed row-major view.
+    pub transposed: bool,
+}
+
+/// Backend-optional accelerated GEMM descriptor.
+///
+/// Computes `out = lhs @ rhs` for `batch_count` matrices. All matrices use
+/// `elem`; accumulation precision is selected by the backend. The output must
+/// be row-major.
+#[derive(new, Clone, Debug)]
+pub struct GemmDescriptor {
+    /// Left-hand matrix, logically shaped `[m, k]`.
+    pub lhs: GemmMatrix,
+    /// Right-hand matrix, logically shaped `[k, n]`.
+    pub rhs: GemmMatrix,
+    /// Row-major output matrix, logically shaped `[m, n]`.
+    pub out: GemmMatrix,
+    /// Number of rows in the output.
+    pub m: u32,
+    /// Number of columns in the output.
+    pub n: u32,
+    /// Contracting dimension.
+    pub k: u32,
+    /// Number of independent matrix products.
+    pub batch_count: u32,
+    /// Scalar element type shared by all operands.
+    pub elem: ElemType,
+}
+
 /// The compute server is responsible for handling resources and computations over resources.
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
@@ -426,6 +469,17 @@ where
         kind: ExecutionMode,
         stream_id: StreamId,
     );
+
+    /// Enqueue an accelerated GEMM when the backend provides one.
+    ///
+    /// Callers must first check
+    /// [`Features::matmul.accelerated_gemm`](cubecl_ir::features::MatmulFeatures).
+    /// The enqueue returns immediately and records failures on the stream so
+    /// they surface at its next synchronization point.
+    fn gemm(&mut self, descriptor: GemmDescriptor, stream_id: StreamId) {
+        let _ = (descriptor, stream_id);
+        panic!("Compute server advertised an accelerated GEMM without implementing it")
+    }
 
     /// Flush all outstanding tasks in the server.
     fn flush(&mut self, stream_id: StreamId) -> Result<(), ServerError>;

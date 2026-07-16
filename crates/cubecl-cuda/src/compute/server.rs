@@ -5,6 +5,7 @@ use crate::{
         command::Command,
         communication::{get_nccl_comm_id, get_nccl_dtype_count, to_nccl_op},
         context::CudaContext,
+        cublas::CublasState,
         stream::CudaStreamBackend,
         sync::Fence,
     },
@@ -19,9 +20,9 @@ use cubecl_core::{
     ir::{ElemType, FloatKind, IntKind, MemoryDeviceProperties, StorageType, UIntKind},
     prelude::*,
     server::{
-        Binding, CommunicationId, CopyDescriptor, Handle, KernelArguments, LaunchError,
-        ProfileError, ProfilingToken, ReduceOperation, ServerCommunication, ServerError,
-        ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
+        Binding, CommunicationId, CopyDescriptor, GemmDescriptor, Handle, KernelArguments,
+        LaunchError, ProfileError, ProfilingToken, ReduceOperation, ServerCommunication,
+        ServerError, ServerUtilities, StreamErrorMode, TensorMapBinding, TensorMapMeta,
     },
 };
 use cubecl_runtime::{
@@ -55,6 +56,7 @@ pub struct CudaServer {
     utilities: Arc<ServerUtilities<Self>>,
     comm_stream: *mut CUstream_st,
     communicators: HashMap<CommunicationId, *mut cudarc::nccl::sys::ncclComm>,
+    cublas: CublasState,
 }
 
 // SAFETY: `CudaServer` is only accessed from one thread at a time via the `DeviceHandle`,
@@ -155,6 +157,16 @@ impl ComputeServer for CudaServer {
         stream_id: StreamId,
     ) {
         if let Err(err) = self.launch_checked(kernel, count, bindings, mode, stream_id) {
+            let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
+                Ok(stream) => stream,
+                Err(err) => unreachable!("{err}"),
+            };
+            stream.current().errors.push(err);
+        }
+    }
+
+    fn gemm(&mut self, descriptor: GemmDescriptor, stream_id: StreamId) {
+        if let Err(err) = self.gemm_checked(descriptor, stream_id) {
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
                 Ok(stream) => stream,
                 Err(err) => unreachable!("{err}"),
@@ -594,6 +606,7 @@ impl CudaServer {
             utilities: Arc::new(utilities),
             comm_stream,
             communicators: HashMap::default(),
+            cublas: CublasState::default(),
         }
     }
 
@@ -652,6 +665,30 @@ impl CudaServer {
 
         core::mem::drop(stream);
         errors
+    }
+
+    fn gemm_checked(
+        &mut self,
+        descriptor: GemmDescriptor,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        let bindings = [
+            &descriptor.lhs.binding,
+            &descriptor.rhs.binding,
+            &descriptor.out.binding,
+        ];
+        self.unsafe_set_current();
+        let streams = self
+            .streams
+            .resolve(stream_id, bindings.into_iter(), true)?;
+        let cublas = &mut self.cublas;
+        let mut command = Command::new(&mut self.ctx, streams);
+        let lhs = command.resource(descriptor.lhs.binding.clone())?;
+        let rhs = command.resource(descriptor.rhs.binding.clone())?;
+        let out = command.resource(descriptor.out.binding.clone())?;
+        let stream = command.streams.current().sys;
+
+        cublas.launch(&descriptor, &lhs, &rhs, &out, stream)
     }
 
     fn launch_checked(
@@ -911,6 +948,13 @@ impl CudaServer {
 
     pub(crate) fn utilities(&self) -> Arc<ServerUtilities<Self>> {
         self.utilities.clone()
+    }
+}
+
+impl Drop for CudaServer {
+    fn drop(&mut self) {
+        self.unsafe_set_current();
+        self.cublas.destroy();
     }
 }
 
