@@ -21,7 +21,10 @@ use pliron::{
     builtin::ops::{FuncOp, ModuleOp},
     op::Op,
     operation::verify_operation,
-    opts::{constants::sccp::SCCPPass, dce::DCEPass, simplify_cfg::SimplifyCFGPass},
+    opts::{
+        constants::sccp::SCCPPass, dce::DCEPass, mem2reg::Mem2RegPass,
+        simplify_cfg::SimplifyCFGPass,
+    },
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
 };
 
@@ -98,10 +101,11 @@ impl PlironCompiler {
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(PromoteBitwisePass);
-        func_passes.add_pass(CubeToLLVMPass::default());
         func_passes.add_pass(CfToLlvmConversionPass::default());
         func_passes.add_pass(SimplifyCFGPass);
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(CubeToLLVMPass::default());
+        func_passes.add_pass(Mem2RegPass::default());
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         // passes.add_pass(builtin_to_llvm_pass());

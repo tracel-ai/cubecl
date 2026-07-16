@@ -1,6 +1,9 @@
-use pliron::builtin::attributes::IntegerAttr;
-use pliron::builtin::ops::ConstantOp;
-use pliron::builtin::types::{IntegerType, Signedness};
+use pliron::builtin::{
+    attributes::IntegerAttr,
+    ops::ConstantOp,
+    types::{IntegerType, Signedness},
+};
+use pliron_llvm::ops as llvm;
 
 use super::prelude::*;
 
@@ -18,22 +21,16 @@ impl ToLLVMDialect for ConstantOp {
         };
         let ty = int_attr.get_type();
         let val = int_attr.value();
-        let (width, needs_conversion) = {
-            let ty = ty.deref(ctx);
-            (ty.width(), ty.signedness() != Signedness::Signless)
-        };
-        if !needs_conversion {
-            return Ok(());
-        }
+        let width = ty.deref(ctx).width();
+        let const_value = IntegerAttr::new(IntegerType::get(ctx, width, Signedness::Signless), val);
 
-        let signless = IntegerType::get(ctx, width, Signedness::Signless);
-        let new_const = ConstantOp::new(ctx, IntegerAttr::new(signless, val).into());
-        rewriter.insert_op(ctx, &new_const);
-        rewriter.replace_operation_with_values(
-            ctx,
-            self.get_operation(),
-            vec![new_const.get_result(ctx)],
-        );
+        let llvm_const = llvm::ConstantOp::new(ctx, const_value.into());
+
+        rewriter.insert_operation(ctx, llvm_const.get_operation());
+
+        let old_op = self.get_operation();
+        rewriter.replace_operation(ctx, old_op, llvm_const.get_operation());
+
         Ok(())
     }
 }

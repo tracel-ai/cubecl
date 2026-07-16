@@ -1,7 +1,11 @@
 pub use super::prelude::*;
 use cubecl_core::ir::types::PointerType as CubePointerType;
+use cubecl_core::ir::types::scalar::{BoolType, IndexType};
 use pliron::builtin::types::{IntegerType, Signedness};
 use pliron_llvm::types::PointerType as LlvmPointerType;
+
+/// LLVM width of a `cube.index`. `IndexType` is `size_of::<u64>()`, so it maps to `i64`.
+const INDEX_WIDTH: u32 = 64;
 
 /// Which LLVM type a cubecl type maps to.
 enum LlvmTypeKind {
@@ -24,6 +28,10 @@ pub fn cube_type_to_llvm(ctx: &mut Context, ty: TypeHandle) -> TypeHandle {
             } else {
                 LlvmTypeKind::Identity
             }
+        } else if ty.is::<BoolType>() {
+            LlvmTypeKind::SignlessInt(1)
+        } else if ty.is::<IndexType>() {
+            LlvmTypeKind::SignlessInt(INDEX_WIDTH)
         } else if ty.is::<CubePointerType>() {
             LlvmTypeKind::Pointer
         } else {
@@ -69,6 +77,8 @@ impl DialectConversion for CubeToLLVM {
     fn can_convert_type(&self, ctx: &Context, ty: TypeHandle) -> bool {
         let ty = ty.deref(ctx);
         ty.is::<CubePointerType>()
+            || ty.is::<BoolType>()
+            || ty.is::<IndexType>()
             || matches!(
                 ty.downcast_ref::<IntegerType>(),
                 Some(int) if int.signedness() != Signedness::Signless

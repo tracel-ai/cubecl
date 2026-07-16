@@ -1,0 +1,79 @@
+use cubecl_core::ir::dialect::general::CastOp;
+use cubecl_core::ir::types::scalar::{BoolType, IndexType};
+use pliron::builtin::attributes::IntegerAttr;
+use pliron::builtin::types::{IntegerType, Signedness};
+use pliron::utils::apint::{APInt, bw};
+use pliron_llvm::attributes::ICmpPredicateAttr;
+use pliron_llvm::op_interfaces::{CastOpInterface, CastOpWithNNegInterface};
+use pliron_llvm::ops as llvm;
+
+use super::prelude::*;
+use super::to_llvm::cube_type_to_llvm;
+
+/// The integer representation `(width, signed)` a cubecl scalar type lowers to, or `None`
+/// for types outside the integer family (e.g. floats, which are handled elsewhere).
+fn int_repr(ctx: &Context, ty: TypeHandle) -> Option<(u32, bool)> {
+    let ty = ty.deref(ctx);
+    if let Some(int) = ty.downcast_ref::<IntegerType>() {
+        Some((int.width(), int.signedness() == Signedness::Signed))
+    } else if ty.is::<BoolType>() {
+        Some((1, false))
+    } else if ty.is::<IndexType>() {
+        Some((64, false))
+    } else {
+        None
+    }
+}
+
+#[op_interface_impl]
+impl ToLLVMDialect for CastOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let in_ty = self.input(ctx).get_type(ctx);
+        let out_ty = self.get_result(ctx).get_type(ctx);
+
+        // Only integer-family casts are lowered here; leave float casts untouched.
+        let (Some((in_width, in_signed)), Some((out_width, _))) =
+            (int_repr(ctx, in_ty), int_repr(ctx, out_ty))
+        else {
+            return Ok(());
+        };
+
+        let input = self.input(ctx);
+        let out_llvm = cube_type_to_llvm(ctx, out_ty);
+        let old_op = self.get_operation();
+
+        if out_ty.deref(ctx).is::<BoolType>() && in_width > 1 {
+            // int -> bool is `value != 0` (a truncation would drop the high bits).
+            let in_llvm = IntegerType::get(ctx, in_width, Signedness::Signless);
+            let zero_attr = IntegerAttr::new(in_llvm, APInt::zero(bw(in_width as usize)));
+            let zero = llvm::ConstantOp::new(ctx, zero_attr.into());
+            rewriter.insert_op(ctx, &zero);
+            let cmp = llvm::ICmpOp::new(ctx, ICmpPredicateAttr::NE, input, zero.get_result(ctx));
+            rewriter.insert_op(ctx, &cmp);
+            rewriter.replace_operation_with_values(ctx, old_op, vec![cmp.get_result(ctx)]);
+        } else if in_width == out_width {
+            rewriter.replace_operation_with_values(ctx, old_op, vec![input]);
+        } else if out_width > in_width {
+            if in_signed {
+                let op = llvm::SExtOp::new(ctx, input, out_llvm);
+                rewriter.insert_op(ctx, &op);
+                rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+            } else {
+                let op = llvm::ZExtOp::new_with_nneg(ctx, input, out_llvm, false);
+                rewriter.insert_op(ctx, &op);
+                rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+            }
+        } else {
+            let op = llvm::TruncOp::new(ctx, input, out_llvm);
+            rewriter.insert_op(ctx, &op);
+            rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+        }
+
+        Ok(())
+    }
+}

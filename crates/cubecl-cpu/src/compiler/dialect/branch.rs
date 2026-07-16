@@ -9,7 +9,6 @@ use cubecl_core::ir::interfaces::ScalarType;
 use cubecl_core::ir::prelude::*;
 use pliron::basic_block::BasicBlock;
 use pliron::builtin::attributes::IntegerAttr;
-use pliron::builtin::types::{IntegerType, Signedness};
 use pliron::irbuild::inserter::{BlockInsertionPoint, OpInsertionPoint};
 use pliron::region::Region;
 use pliron_llvm::ops as llvm;
@@ -23,22 +22,6 @@ pub trait LowerCpuCF {
         rewriter: &mut DialectConversionRewriter,
         operands_info: &OperandsInfo,
     ) -> Result<()>;
-}
-
-/// Return `cond` if it is already an `i1`, otherwise materialize one with a `cube.cast`
-/// inserted at the current insertion point.
-fn ensure_i1(ctx: &mut Context, rewriter: &mut DialectConversionRewriter, cond: Value) -> Value {
-    let cond_ty = cond.get_type(ctx);
-    if let Some(int_ty) = cond_ty.deref(ctx).downcast_ref::<IntegerType>()
-        && int_ty.width() == 1
-        && int_ty.signedness() == Signedness::Signless
-    {
-        return cond;
-    }
-    let i1 = IntegerType::get(ctx, 1, Signedness::Signless).into();
-    let cast = CastOp::new(ctx, i1, cond);
-    rewriter.append_op(ctx, &cast);
-    cast.get_result(ctx)
 }
 
 #[op_interface_impl]
@@ -76,7 +59,7 @@ impl LowerCpuCF for IfOp {
         );
 
         rewriter.set_insertion_point_to_block_end(pre);
-        let cond = ensure_i1(ctx, rewriter, self.condition(ctx));
+        let cond = self.condition(ctx);
         let cond_br = llvm::CondBrOp::new(ctx, cond, then_block, vec![], else_block, vec![]);
         rewriter.append_op(ctx, &cond_br);
 
@@ -136,7 +119,7 @@ impl LowerCpuCF for WhileOp {
         rewriter.set_insertion_point_to_block_end(header);
         let load = LoadOp::new(ctx, cond_ptr);
         rewriter.append_op(ctx, &load);
-        let cond = ensure_i1(ctx, rewriter, load.get_result(ctx));
+        let cond = load.get_result(ctx);
         let cond_br = llvm::CondBrOp::new(ctx, cond, body_block, vec![], exit, vec![]);
         rewriter.append_op(ctx, &cond_br);
 
@@ -199,8 +182,7 @@ impl LowerCpuCF for RangeLoopOp {
         rewriter.set_insertion_point_to_block_end(header);
         let load = LoadOp::new(ctx, iter_var);
         rewriter.append_op(ctx, &load);
-        let cmp = less_than(ctx, rewriter, signed, load.get_result(ctx), end);
-        let cond = ensure_i1(ctx, rewriter, cmp);
+        let cond = less_than(ctx, rewriter, signed, load.get_result(ctx), end);
         let cond_br = llvm::CondBrOp::new(ctx, cond, body_block, vec![], exit, vec![]);
         rewriter.append_op(ctx, &cond_br);
 
