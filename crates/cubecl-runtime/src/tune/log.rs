@@ -65,14 +65,20 @@ impl core::fmt::Display for AutotuneLogContext {
     }
 }
 
-/// Extension trait for `Option<AutotuneLogContext>` and `Option<&mut AutotuneLogContext>` to make logging events cleaner.
+/// Extension trait for `Option<AutotuneLogContext>` and `Option<&mut AutotuneLogContext>`.
 pub trait AutotuneLoggerExt {
     /// Pushes a short circuit event if logging is enabled.
     fn push_short_circuit(&mut self, name: String);
     /// Pushes a tuning step event if logging is enabled.
     fn push_tuning_step(&mut self, name: String, duration: Duration);
     /// Logs the benchmark result if logging is enabled.
-    fn log_result<K: AutotuneKey>(&self, logger: &mut Logger, key: &K, results: &[AutotuneResult]);
+    fn log_result<K: AutotuneKey>(
+        &self,
+        logger: &mut Logger,
+        key: &K,
+        results: &[AutotuneResult],
+        #[cfg(feature = "autotune-checks")] check_results: Option<&[CheckResult]>,
+    );
 }
 
 impl AutotuneLoggerExt for Option<AutotuneLogContext> {
@@ -89,8 +95,21 @@ impl AutotuneLoggerExt for Option<AutotuneLogContext> {
         }
     }
 
-    fn log_result<K: AutotuneKey>(&self, logger: &mut Logger, key: &K, results: &[AutotuneResult]) {
-        crate::tune::log_result(logger, key, results, self.as_ref());
+    fn log_result<K: AutotuneKey>(
+        &self,
+        logger: &mut Logger,
+        key: &K,
+        results: &[AutotuneResult],
+        #[cfg(feature = "autotune-checks")] check_results: Option<&[CheckResult]>,
+    ) {
+        crate::tune::log_result(
+            logger,
+            key,
+            results,
+            self.as_ref(),
+            #[cfg(feature = "autotune-checks")]
+            check_results,
+        );
     }
 }
 
@@ -108,8 +127,21 @@ impl<'a> AutotuneLoggerExt for Option<&'a mut AutotuneLogContext> {
         }
     }
 
-    fn log_result<K: AutotuneKey>(&self, logger: &mut Logger, key: &K, results: &[AutotuneResult]) {
-        crate::tune::log_result(logger, key, results, self.as_deref());
+    fn log_result<K: AutotuneKey>(
+        &self,
+        logger: &mut Logger,
+        key: &K,
+        results: &[AutotuneResult],
+        #[cfg(feature = "autotune-checks")] check_results: Option<&[CheckResult]>,
+    ) {
+        crate::tune::log_result(
+            logger,
+            key,
+            results,
+            self.as_deref(),
+            #[cfg(feature = "autotune-checks")]
+            check_results,
+        );
     }
 }
 
@@ -128,6 +160,9 @@ pub struct AutotuneTelemetry<'a, K: Clone> {
     pub results: Cow<'a, [AutotuneResult]>,
     /// Logging context with bounds, limit, and events.
     pub log_context: Option<Cow<'a, AutotuneLogContext>>,
+    /// Check results if autotune-checks is enabled.
+    #[cfg(feature = "autotune-checks")]
+    pub checks: Option<Cow<'a, [CheckResult]>>,
 }
 
 /// The check result for a single benchmark.
@@ -139,32 +174,13 @@ pub struct CheckResult {
     pub passed: bool,
 }
 
-/// Telemetry information emitted when autotune runs checks.
-#[cfg(std_io)]
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct AutotuneCheckTelemetry<'a> {
-    /// The booleans indicating if each benchmark passed the check.
-    pub results: Cow<'a, [CheckResult]>,
-}
-
-/// Emit the autotune check telemetry through the logger.
-#[cfg(all(feature = "autotune-checks", std_io))]
-pub(crate) fn log_telemetry_check(check_results: &[CheckResult]) {
-    let telemetry = AutotuneCheckTelemetry {
-        results: Cow::Borrowed(check_results),
-    };
-    let msg = serde_json::to_string(&telemetry).unwrap_or_else(|err| {
-        format!("{{\"error\": \"Failed to serialize check telemetry: {err}\"}}")
-    });
-    crate::config::Logger::new().log_autotune(&msg);
-}
-
 /// Emit the autotune result through the logger at the currently configured level.
 pub(crate) fn log_result<K: AutotuneKey>(
     logger: &mut Logger,
     key: &K,
     results: &[AutotuneResult],
     log_context: Option<&AutotuneLogContext>,
+    #[cfg(feature = "autotune-checks")] check_results: Option<&[CheckResult]>,
 ) {
     let level = logger.log_level_autotune();
     if matches!(level, AutotuneLogLevel::Disabled) {
@@ -188,6 +204,8 @@ pub(crate) fn log_result<K: AutotuneKey>(
                     fastest_time: fastest_result.computation.median,
                     results: Cow::Borrowed(results),
                     log_context: log_context.map(Cow::Borrowed),
+                    #[cfg(feature = "autotune-checks")]
+                    checks: check_results.map(Cow::Borrowed),
                 };
 
                 let msg = serde_json::to_string(&telemetry).unwrap_or_else(|err| {

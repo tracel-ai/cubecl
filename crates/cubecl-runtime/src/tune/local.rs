@@ -101,7 +101,8 @@ where
         &self,
         operations: &TunableSet<AK, I, Out>,
         inputs: &<I as TuneInputs>::At<'a>,
-    ) where
+    ) -> alloc::vec::Vec<crate::tune::log::CheckResult>
+    where
         <I as TuneInputs>::At<'a>: Clone + Send,
     {
         use alloc::vec::Vec;
@@ -112,7 +113,7 @@ where
             let result = op.execute(inputs.clone());
             checks_outputs.push((op.name.to_string(), result));
         }
-        super::check_autotune_outputs(checks_outputs);
+        super::check_autotune_outputs(checks_outputs)
     }
 
     /// Execute the fastest operation in a [`TunableSet`], triggering a tuning pass on
@@ -142,10 +143,11 @@ where
                 .clone()
         };
 
+        #[cfg(feature = "autotune-checks")]
+        let check_results = self.checks::<I, Out>(&operations, &inputs);
+
         // First, check for a cache hit under a read lock.
         if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
-            #[cfg(feature = "autotune-checks")]
-            self.checks::<I, Out>(&operations, &inputs);
             return operations
                 .fastest(fastest_index)
                 .execute(inputs)
@@ -158,19 +160,16 @@ where
             &operations,
             || operations.compute_checksum(),
             client,
+            #[cfg(feature = "autotune-checks")]
+            check_results,
         );
 
         // Run the execution depending on the cache state.
         match fastest {
-            TuneCacheResult::Hit { fastest_index } => {
-                #[cfg(feature = "autotune-checks")]
-                self.checks::<I, Out>(&operations, &inputs);
-
-                operations
-                    .fastest(fastest_index)
-                    .execute(inputs)
-                    .expect("Should run when selected by autotune.")
-            }
+            TuneCacheResult::Hit { fastest_index } => operations
+                .fastest(fastest_index)
+                .execute(inputs)
+                .expect("Should run when selected by autotune."),
             TuneCacheResult::Unchecked | TuneCacheResult::Miss => {
                 panic!(
                     "Somehow we STILL didn't check a tuning checksum or start tuning, something has gone wrong."

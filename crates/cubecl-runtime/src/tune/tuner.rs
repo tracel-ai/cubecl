@@ -120,6 +120,8 @@ struct TuneRequest<K: AutotuneKey> {
     checksum: String,
     log_context: Option<crate::tune::AutotuneLogContext>,
     pending: Vec<PendingBench>,
+    #[cfg(feature = "autotune-checks")]
+    checks: Option<Vec<crate::tune::log::CheckResult>>,
 }
 
 #[allow(clippy::new_without_default)]
@@ -138,6 +140,11 @@ impl<K: AutotuneKey> Tuner<K> {
         self.cache.lock().fastest(key)
     }
 
+    /// Fetch the logger instance.
+    pub fn logger(&self) -> Arc<spin::Mutex<Logger>> {
+        self.logger.clone()
+    }
+
     /// Check the cache, validate checksums if needed, and kick off a tuning job if the
     /// key is a miss. Returns the resolved cache state.
     pub fn check_tune<'a, R: Runtime, F: TuneInputs, Out: AutotuneOutput>(
@@ -147,6 +154,7 @@ impl<K: AutotuneKey> Tuner<K> {
         tunables: &TunableSet<K, F, Out>,
         #[cfg_attr(not(std_io), allow(unused))] checksum: impl FnOnce() -> String + Send + Sync,
         client: &ComputeClient<R>,
+        #[cfg(feature = "autotune-checks")] check_results: Vec<crate::tune::log::CheckResult>,
     ) -> TuneCacheResult
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
@@ -303,6 +311,8 @@ impl<K: AutotuneKey> Tuner<K> {
             checksum,
             log_context,
             pending,
+            #[cfg(feature = "autotune-checks")]
+            checks: Some(check_results),
         };
 
         // Resolve samples and commit the result. On wasm this runs on the browser
@@ -373,6 +383,8 @@ async fn process_request<K: AutotuneKey>(
         checksum,
         log_context,
         pending,
+        #[cfg(feature = "autotune-checks")]
+        checks,
     } = request;
 
     for bench in pending {
@@ -405,7 +417,13 @@ async fn process_request<K: AutotuneKey>(
         .index;
 
     {
-        log_context.log_result(&mut logger.lock(), &key, &results);
+        log_context.log_result(
+            &mut logger.lock(),
+            &key,
+            &results,
+            #[cfg(feature = "autotune-checks")]
+            checks.as_deref(),
+        );
         cache.lock().cache_insert(key.clone(), fastest_index);
         #[cfg(std_io)]
         cache
@@ -419,9 +437,9 @@ async fn process_request<K: AutotuneKey>(
 #[cfg(feature = "autotune-checks")]
 pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
     mut checks_outputs: Vec<(String, Result<O, AutotuneError>)>,
-) {
+) -> Vec<crate::tune::log::CheckResult> {
     if checks_outputs.is_empty() {
-        return;
+        return Vec::new();
     }
 
     let reference_idx = checks_outputs.len() - 1;
@@ -441,19 +459,12 @@ pub(crate) fn check_autotune_outputs<O: AutotuneOutput>(
             passed: reference_passed,
         });
 
-        if is_telemetry {
-            crate::tune::log::log_telemetry_check(&check_results);
-        }
+        check_results
     }
 
     #[cfg(not(std_io))]
     {
-        execute_checks(checks_outputs, reference_result, is_telemetry);
-
-        if is_telemetry {
-            crate::config::Logger::new()
-                .log_autotune(&"{\"error\": \"Check telemetry not available without std_io\"}");
-        }
+        execute_checks(checks_outputs, reference_result, is_telemetry)
     }
 }
 
@@ -501,6 +512,8 @@ fn execute_checks<O: AutotuneOutput>(
 
 #[cfg(feature = "autotune-checks")]
 fn check_equivalence<O: AutotuneOutput>(reference: &O, other: O, is_telemetry: bool) -> bool {
+    // When telemetry is enabled, we catch the panic so we can collect and log all check failures.
+    // When disabled, we let it panic immediately to notify when a mismatch is found.
     if is_telemetry {
         #[cfg(std_io)]
         {
