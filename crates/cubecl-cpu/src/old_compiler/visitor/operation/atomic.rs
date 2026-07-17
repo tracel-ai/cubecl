@@ -15,7 +15,7 @@ use tracel_llvm::mlir_rs::{
 use crate::compiler::visitor::{Visitor, prelude::IntoType};
 
 impl<'a> Visitor<'a> {
-    pub fn visit_atomic(&mut self, atomic: &AtomicOp, out: Option<cube::ExpandValue>) {
+    pub fn visit_atomic(&mut self, atomic: &AtomicOp, out: Option<cube::Value>) {
         match atomic {
             AtomicOp::Load(variable) => {
                 let raw_ptr = self.get_raw_ptr(*variable);
@@ -91,7 +91,7 @@ impl<'a> Visitor<'a> {
         };
     }
 
-    fn get_raw_ptr(&mut self, value: cube::ExpandValue) -> Value<'a, 'a> {
+    fn get_raw_ptr(&mut self, value: cube::Value) -> Value<'a, 'a> {
         let value = self.get_value(value);
         let value = self.append_operation_with_result(memref::extract_aligned_pointer_as_index(
             value,
@@ -111,7 +111,7 @@ impl<'a> Visitor<'a> {
         &mut self,
         atomic: &AtomicOp,
         atomic_binary_operands: &AtomicBinaryOperands,
-        out: Option<cube::ExpandValue>,
+        out: Option<cube::Value>,
     ) {
         let ty = atomic_binary_operands.ptr.ty.elem_type();
         let value = if let AtomicOp::Sub(_) = atomic {

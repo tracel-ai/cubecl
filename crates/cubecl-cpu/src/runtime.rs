@@ -1,8 +1,4 @@
-use crate::{
-    compiler::{MlirCompiler, register_supported_types},
-    compute::server::CpuServer,
-    device::CpuDevice,
-};
+use crate::{compiler::PlironCompiler, compute::server::CpuServer, device::CpuDevice};
 use cubecl_common::{device::DeviceService, profile::TimingMethod};
 use cubecl_core::{
     MemoryConfiguration, Runtime,
@@ -29,7 +25,7 @@ pub struct RuntimeOptions {
 #[derive(Debug, Clone)]
 pub struct CpuRuntime;
 
-pub type CpuCompiler = MlirCompiler;
+pub type CpuCompiler = PlironCompiler;
 
 impl DeviceService for CpuServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
@@ -72,7 +68,7 @@ impl DeviceService for CpuServer {
             alignment: ALIGNMENT,
         };
 
-        let mut device_props = DeviceProperties::new(
+        let device_props = DeviceProperties::new(
             Features {
                 unaligned_io: true,
                 ..Default::default()
@@ -81,7 +77,6 @@ impl DeviceService for CpuServer {
             topology,
             TimingMethod::Device,
         );
-        register_supported_types(&mut device_props);
 
         let utilities = ServerUtilities::new(
             device_props,

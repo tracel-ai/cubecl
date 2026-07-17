@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use cubecl_core::ir::{self as cube, Builtin, ConstantValue, FloatKind, Id, ValueKind};
 use tracel_llvm::mlir_rs::{
     dialect::{
-        index, memref,
-        ods::{arith, vector},
+        index, llvm, memref,
+        ods::{arith, llvm::intr_stacksave, vector},
     },
     ir::{
         Value,
@@ -18,13 +18,13 @@ use super::prelude::*;
 pub type Values<'a> = HashMap<Id, Value<'a, 'a>>;
 
 impl<'a> Visitor<'a> {
-    pub fn insert_value(&mut self, cube_value: cube::ExpandValue, mlir_value: Value<'a, 'a>) {
+    pub fn insert_value(&mut self, cube_value: cube::Value, mlir_value: Value<'a, 'a>) {
         self.values.insert(cube_value.id(), mlir_value);
     }
 
     pub fn declare_mutable_memory(
         &mut self,
-        cube_value: cube::ExpandValue,
+        cube_value: cube::Value,
         value_ty: cube::Type,
         alignment: usize,
     ) {
@@ -33,25 +33,37 @@ impl<'a> Visitor<'a> {
         let align_ty = IntegerType::new(self.context, 64);
         let alignment = IntegerAttribute::new(align_ty.into(), alignment as i64);
         let memref_type = MemRefType::new(r#type, &[length as i64], None, None);
-        let value = self
-            .first_block
-            .unwrap()
-            .append_op_result(memref::alloca(
-                self.context,
-                memref_type,
-                &[],
-                &[],
-                Some(alignment),
-                self.location,
-            ))
-            .unwrap();
+
+        let ptr_ty = llvm::r#type::pointer(self.context, 0);
+        let stack_pointer =
+            self.append_operation_with_result(intr_stacksave(self.context, ptr_ty, self.location));
+
+        let value = self.append_operation_with_result(memref::alloca(
+            self.context,
+            memref_type,
+            &[],
+            &[],
+            Some(alignment),
+            self.location,
+        ));
+        let seq = self.stack_save_counter;
+        self.stack_save_counter += 1;
+        self.stack_saves.insert(
+            cube_value.id(),
+            super::StackSave {
+                stack_pointer,
+                seq,
+                alloc_block: self.current_node,
+            },
+        );
+        self.mutable_variables.push(cube_value.id());
         self.values.insert(cube_value.id(), value);
     }
 
     pub fn get_binary_op_values(
         &self,
-        lhs: cube::ExpandValue,
-        rhs: cube::ExpandValue,
+        lhs: cube::Value,
+        rhs: cube::Value,
     ) -> (Value<'a, 'a>, Value<'a, 'a>) {
         let vectorization_factor = std::cmp::max(lhs.vector_size(), rhs.vector_size());
         let (mut lhs_value, mut rhs_value) = (self.get_value(lhs), self.get_value(rhs));
@@ -85,7 +97,7 @@ impl<'a> Visitor<'a> {
         (lhs_value, rhs_value)
     }
 
-    pub fn get_value(&self, cube_value: cube::ExpandValue) -> Value<'a, 'a> {
+    pub fn get_value(&self, cube_value: cube::Value) -> Value<'a, 'a> {
         match cube_value.kind {
             ValueKind::Value { id } => *self
                 .values
@@ -151,7 +163,7 @@ impl<'a> Visitor<'a> {
 
     pub fn get_index(
         &self,
-        value: cube::ExpandValue,
+        value: cube::Value,
         target_item: cube::Type,
         list_is_vectorized: bool,
     ) -> Value<'a, 'a> {

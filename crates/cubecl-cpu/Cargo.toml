@@ -23,7 +23,7 @@ default = [
     "cubecl-core/default",
 ]
 
-mlir-dump = []
+pliron-dump = []
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 tracing = [
@@ -60,6 +60,7 @@ paste = { workspace = true }
 serde = { workspace = true }
 sysinfo = { workspace = true }
 tracel-llvm = { workspace = true }
+pliron = { workspace = true, features = ["std"] }
 
 [target.'cfg(any(target_os = "android", target_os = "linux", target_os = "macos", target_os = "freebsd"))'.dependencies]
 libc = { workspace = true }

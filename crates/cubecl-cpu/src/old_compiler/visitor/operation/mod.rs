@@ -123,7 +123,7 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    pub fn visit_operation_with_out(&mut self, operation: &Operation, out: cube::ExpandValue) {
+    pub fn visit_operation_with_out(&mut self, operation: &Operation, out: cube::Value) {
         match operation {
             Operation::DeclareVariable {
                 value_ty,

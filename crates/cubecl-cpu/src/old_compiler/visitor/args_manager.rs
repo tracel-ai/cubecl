@@ -28,7 +28,7 @@ pub(super) struct ArgsManagerBuilder<'a, 'b> {
     buffers: Vec<KernelArg>,
     function_types: Vec<Type<'a>>,
     info: Info,
-    ext_meta_positions: HashMap<cube::ExpandValue, u32>,
+    ext_meta_positions: HashMap<cube::Value, u32>,
     block_inputs: Vec<(Type<'a>, Location<'a>)>,
     shared_memories: &'b SharedMemories,
     addr_type: Type<'a>,
@@ -255,12 +255,12 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
     }
 }
 
-pub(super) struct ArgsManager<'a> {
+pub struct ArgsManager<'a> {
     pub buffers: HashMap<Id, Value<'a, 'a>>,
     pub scalars_memref: HashMap<StorageType, Value<'a, 'a>>,
     pub static_metadata_memref: Option<Value<'a, 'a>>,
     pub dynamic_metadata_memref: Option<Value<'a, 'a>>,
-    pub ext_meta_positions: HashMap<cube::ExpandValue, u32>,
+    pub ext_meta_positions: HashMap<cube::Value, u32>,
     pub metadata: Metadata,
     pub shared_memory_values: HashMap<u32, Value<'a, 'a>>,
     pub builtin: [Option<Value<'a, 'a>>; NB_BUILTIN],
@@ -272,14 +272,14 @@ pub(super) struct ArgsManager<'a> {
 const NB_PASSED_BUILTIN: usize = 9;
 
 impl<'a> ArgsManager<'a> {
-    pub fn buffer_position(&self, val: &cube::ExpandValue) -> u32 {
+    pub fn buffer_position(&self, val: &cube::Value) -> u32 {
         let AddressSpace::Global(pos) = val.address_space() else {
             unreachable!("should be global")
         };
         pos
     }
 
-    pub fn ext_meta_position(&self, val: &cube::ExpandValue) -> u32 {
+    pub fn ext_meta_position(&self, val: &cube::Value) -> u32 {
         self.ext_meta_positions[val]
     }
 

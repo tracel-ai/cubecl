@@ -1,4 +1,4 @@
-use core::{any::type_name, marker::PhantomData};
+use core::marker::PhantomData;
 
 use derive_more::{Deref, DerefMut, From};
 use derive_new::new;
@@ -22,11 +22,8 @@ use crate::{interfaces::SimplifyInterface, prelude::*};
 #[derive(new, From, Clone, Debug, Default)]
 pub struct DialectConversionPass<T: DialectConversion>(T);
 
+#[pass_name]
 impl<T: DialectConversion> Pass for DialectConversionPass<T> {
-    fn name(&self) -> &str {
-        type_name::<Self>()
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,
@@ -42,11 +39,8 @@ impl<T: DialectConversion> Pass for DialectConversionPass<T> {
 #[derive(new, From, Clone, Debug, Default)]
 pub struct MatchRewritePass<T: MatchRewrite>(pub T);
 
+#[pass_name]
 impl<T: MatchRewrite> Pass for MatchRewritePass<T> {
-    fn name(&self) -> &str {
-        type_name::<Self>()
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,
@@ -65,11 +59,8 @@ pub struct CombinedPass<P1: Pass, P2: Pass> {
     pass_2: P2,
 }
 
+#[pass_name]
 impl<P1: Pass, P2: Pass> Pass for CombinedPass<P1, P2> {
-    fn name(&self) -> &str {
-        type_name::<Self>()
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,

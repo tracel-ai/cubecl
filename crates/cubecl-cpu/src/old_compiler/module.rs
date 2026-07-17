@@ -1,5 +1,5 @@
 use cubecl_core::{ir::StorageType, prelude::KernelDefinition};
-use cubecl_opt::Function;
+use cubecl_opt::{Function, GlobalState};
 use tracel_llvm::mlir_rs::{
     Context, ExecutionEngine,
     ir::{Location, operation::OperationLike},
@@ -31,7 +31,8 @@ impl<'a> Module<'a> {
     pub(super) fn visit_kernel(
         &mut self,
         kernel: &KernelDefinition,
-        func: &Function,
+        func: &mut Function,
+        global_state: &GlobalState,
         shared_memories: &SharedMemories,
         addr_type: StorageType,
     ) {
@@ -41,6 +42,7 @@ impl<'a> Module<'a> {
             kernel,
             &self.module,
             func,
+            global_state,
             shared_memories,
             addr_type,
         )

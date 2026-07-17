@@ -4,7 +4,7 @@ use tracel_llvm::mlir_rs::dialect::{arith, index, memref};
 use crate::compiler::visitor::prelude::*;
 
 impl<'a> Visitor<'a> {
-    fn append_metadata(&mut self, offset: u32, out: cube::ExpandValue) {
+    fn append_metadata(&mut self, offset: u32, out: cube::Value) {
         let metadata_memref = self.args_manager.static_metadata_memref.unwrap();
         let offset = self
             .block
@@ -23,12 +23,7 @@ impl<'a> Visitor<'a> {
         self.insert_value(out, result);
     }
 
-    fn append_extended_metadata(
-        &mut self,
-        offset: u32,
-        dim: cube::ExpandValue,
-        out: cube::ExpandValue,
-    ) {
+    fn append_extended_metadata(&mut self, offset: u32, dim: cube::Value, out: cube::Value) {
         let static_metadata_memref = self.args_manager.static_metadata_memref.unwrap();
         let dynamic_metadata_memref = self.args_manager.dynamic_metadata_memref.unwrap();
         let offset = self
@@ -61,7 +56,7 @@ impl<'a> Visitor<'a> {
         self.insert_value(out, result);
     }
 
-    pub fn visit_metadata(&mut self, metadata: &Metadata, out: cube::ExpandValue) {
+    pub fn visit_metadata(&mut self, metadata: &Metadata, out: cube::Value) {
         match metadata {
             Metadata::BufferLength { list } => {
                 let position = self.args_manager.buffer_position(list);

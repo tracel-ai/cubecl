@@ -1,6 +1,9 @@
 use super::{compute_task::ComputeTask, schedule::BindingsResource, worker::Worker};
 use crate::{
-    compiler::{MlirCompiler, mlir_data::MlirData, mlir_engine::MlirEngine},
+    compiler::{
+        PlironCompiler,
+        jit::{data::PlironData, engine::PlironEngine},
+    },
     compute::{affinity::get_active_cores, notification::Notifications},
 };
 use cubecl_core::{
@@ -25,11 +28,11 @@ pub struct Threadpool {
 
 /// A compiled cpu kernel.
 pub struct CpuKernel {
-    pub(crate) mlir: Arc<CompiledKernel<MlirCompiler>>,
+    pub(crate) mlir: Arc<CompiledKernel<PlironCompiler>>,
 }
 
 impl CpuKernel {
-    pub fn new(kernel: CompiledKernel<MlirCompiler>) -> Self {
+    pub fn new(kernel: CompiledKernel<PlironCompiler>) -> Self {
         Self {
             mlir: Arc::new(kernel),
         }
@@ -83,7 +86,7 @@ impl Threadpool {
     }
     pub fn execute_data(
         &mut self,
-        mlir_engine: MlirEngine,
+        pliron_engine: PlironEngine,
         resources: BindingsResource,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
@@ -95,29 +98,23 @@ impl Threadpool {
                 .extend((0..cube_dim_size - self.workers.len() as u32).map(|_| Worker::new()));
         }
 
-        let mlir_data = MlirData::new(
-            resources,
-            &mlir_engine.0.shared_memories,
-            &mut self.memory_management_shared_memory,
-            cube_dim,
-            cube_count,
-        );
+        let mlir_data = PlironData::default();
 
         let notifications = Notifications::new(cube_dim_size);
         let mut workers = self.workers.iter_mut();
-        for unit_pos_x in 0..cube_dim.x {
-            for unit_pos_y in 0..cube_dim.y {
-                for unit_pos_z in 0..cube_dim.z {
-                    let unit_pos = [unit_pos_x, unit_pos_y, unit_pos_z];
+        for _unit_pos_x in 0..cube_dim.x {
+            for _unit_pos_y in 0..cube_dim.y {
+                for _unit_pos_z in 0..cube_dim.z {
+                    // let unit_pos = [unit_pos_x, unit_pos_y, unit_pos_z];
                     let worker = workers.next().expect("The CubeDim are too large");
-                    let mlir_engine = mlir_engine.clone();
-                    let mut mlir_data = mlir_data.clone();
-                    mlir_data.builtin.set_unit_pos(unit_pos);
+                    let pliron_engine = pliron_engine.clone();
+                    let pliron_data = mlir_data.clone();
+                    // pliron_data.builtin.set_unit_pos(unit_pos);
 
                     let notifications = notifications.clone();
                     let compute_task = ComputeTask {
-                        mlir_engine,
-                        mlir_data,
+                        pliron_engine,
+                        pliron_data,
                         notifications,
                     };
                     worker.send_task(compute_task);
