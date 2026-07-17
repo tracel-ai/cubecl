@@ -332,6 +332,64 @@ impl CubeTypeEnum {
         }
     }
 
+    pub(crate) fn required_address_type_impl(&self) -> proc_macro2::TokenStream {
+        let launch_arg = prelude_type("LaunchArg");
+        let address_type = prelude_type("AddressType");
+        let scope = prelude_type("Scope");
+        let name = Ident::new(&format!("{}Args", self.ident), Span::call_site());
+
+        let body = self.match_impl(
+            quote! {arg},
+            self.variants
+                .iter()
+                .map(|variant| {
+                    let variant_name = &variant.ident;
+                    match variant.kind {
+                        VariantKind::Named => {
+                            let args = &variant.field_names;
+                            let required = args.iter().zip(&variant.fields).map(|(name, field)| {
+                                let ty = &field.ty;
+                                quote![.max(<#ty as #launch_arg>::required_address_type::<R>(#name, scope))]
+                            });
+                            quote! {
+                                #name::#variant_name { #(#args),* } => {
+                                    #address_type::U32 #(#required)*
+                                }
+                            }
+                        }
+                        VariantKind::Unnamed => {
+                            let args = variant
+                                .fields
+                                .iter()
+                                .enumerate()
+                                .map(|(i, _)| Ident::new(&format!("_{i}"), Span::call_site()))
+                                .collect::<Vec<_>>();
+                            let required = args.iter().zip(&variant.fields).map(|(name, field)| {
+                                let ty = &field.ty;
+                                quote![.max(<#ty as #launch_arg>::required_address_type::<R>(#name, scope))]
+                            });
+                            quote! {
+                                #name::#variant_name(#(#args),*) => {
+                                    #address_type::U32 #(#required)*
+                                }
+                            }
+                        }
+                        VariantKind::Empty => quote![#name::#variant_name => #address_type::U32],
+                    }
+                })
+                .collect(),
+        );
+
+        quote! {
+            fn required_address_type<R: Runtime>(
+                arg: &Self::RuntimeArg<R>,
+                scope: &#scope,
+            ) -> #address_type {
+                #body
+            }
+        }
+    }
+
     fn launch_arg_impl(&self) -> proc_macro2::TokenStream {
         let launch_arg = prelude_type("LaunchArg");
         let cube_type = prelude_type("CubeType");
@@ -350,6 +408,7 @@ impl CubeTypeEnum {
         let (_, all_generic_names, _) = all.split_for_impl();
 
         let register_impl = self.register_impl();
+        let required_address_type_impl = self.required_address_type_impl();
 
         let body_expand = self.launch_arg_expand_body();
 
@@ -359,6 +418,7 @@ impl CubeTypeEnum {
                 type CompilationArg = #compilation_arg #generic_names;
 
                 #register_impl
+                #required_address_type_impl
 
                 fn expand(arg: &Self::CompilationArg, builder: &mut #kernel_builder) -> <Self as #cube_type>::ExpandType {
                     #body_expand

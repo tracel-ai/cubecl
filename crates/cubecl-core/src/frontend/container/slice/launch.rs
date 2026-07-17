@@ -82,6 +82,15 @@ impl<R: Runtime> BufferArg<R> {
             BufferArg::Alias { length, .. } => length,
         }
     }
+
+    /// Address type required to fully index the underlying buffer.
+    pub fn required_address_type(&self, elem_size: usize) -> AddressType {
+        let len = match self {
+            BufferArg::Handle { handle } => handle.handle.size_in_used() / elem_size as u64,
+            BufferArg::Alias { length, .. } => length[0] as u64,
+        };
+        AddressType::from_len_u64(len)
+    }
 }
 
 impl<R: Runtime> BufferBinding<R> {
@@ -134,6 +143,10 @@ impl<C: CubePrimitive> LaunchArg for Box<[C]> {
         <[C]>::register(arg, launcher)
     }
 
+    fn required_address_type<R: Runtime>(arg: &Self::RuntimeArg<R>, scope: &Scope) -> AddressType {
+        <[C]>::required_address_type::<R>(arg, scope)
+    }
+
     fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<Box<[C]>> {
         <[C]>::expand(arg, builder).expand.into()
     }
@@ -155,6 +168,10 @@ impl<C: CubePrimitive> LaunchArg for [C] {
         launcher.register_buffer(arg, ty);
 
         BufferCompilationArg { inplace }
+    }
+
+    fn required_address_type<R: Runtime>(arg: &Self::RuntimeArg<R>, scope: &Scope) -> AddressType {
+        arg.required_address_type(C::__expand_type_size(scope))
     }
 
     fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> NativeExpand<[C]> {

@@ -433,6 +433,53 @@ impl CubeTypeEnum {
         }
     }
 
+    fn required_address_type_impl_runtime(&self) -> proc_macro2::TokenStream {
+        let launch_arg = prelude_type("LaunchArg");
+        let address_type = prelude_type("AddressType");
+        let scope = prelude_type("Scope");
+        let args_name = Ident::new(&format!("{}Args", self.ident), Span::call_site());
+        let launch_name = Ident::new(&format!("{}Launch", self.ident), Span::call_site());
+        let value_ty = self.value_ty();
+
+        let body = self.match_impl(
+            quote! {value},
+            self.variants
+                .iter()
+                .map(|variant| {
+                    let name = &variant.ident;
+                    match variant.kind {
+                        VariantKind::Named => unimplemented!(),
+                        VariantKind::Unnamed => quote! {
+                            #args_name::#name(value) => {
+                                <#value_ty as #launch_arg>::required_address_type::<R>(value, scope)
+                            }
+                        },
+                        VariantKind::Empty => quote! {
+                            #args_name::#name => {
+                                <#value_ty as #launch_arg>::required_address_type::<R>(
+                                    &Default::default(),
+                                    scope,
+                                )
+                            }
+                        },
+                    }
+                })
+                .collect(),
+        );
+
+        quote! {
+            fn required_address_type<R: Runtime>(
+                arg: &Self::RuntimeArg<R>,
+                scope: &#scope,
+            ) -> #address_type {
+                let value = match arg {
+                    #launch_name::Comptime(value) | #launch_name::Runtime(value) => value,
+                };
+                #body
+            }
+        }
+    }
+
     fn launch_arg_impl_runtime(&self) -> proc_macro2::TokenStream {
         let launch_arg = prelude_type("LaunchArg");
         let cube_type = prelude_type("CubeType");
@@ -451,6 +498,7 @@ impl CubeTypeEnum {
         let (_, all_generic_names, _) = all.split_for_impl();
 
         let register_impl_runtime = self.register_impl_runtime();
+        let required_address_type_impl_runtime = self.required_address_type_impl_runtime();
 
         let value_ty = self.value_ty();
 
@@ -460,6 +508,7 @@ impl CubeTypeEnum {
                 type CompilationArg = #compilation_arg #generic_names;
 
                 #register_impl_runtime
+                #required_address_type_impl_runtime
 
                 fn expand(arg: &Self::CompilationArg, builder: &mut #kernel_builder) -> <Self as #cube_type>::ExpandType {
                     match arg {

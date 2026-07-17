@@ -251,6 +251,10 @@ impl<T: CubePrimitive> LaunchArg for TensorView<T> {
         TensorViewBuilder::<T>::register(arg, launcher)
     }
 
+    fn required_address_type<R: Runtime>(arg: &Self::RuntimeArg<R>, scope: &Scope) -> AddressType {
+        TensorViewBuilder::<T>::required_address_type::<R>(arg, scope)
+    }
+
     fn expand(
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,

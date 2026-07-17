@@ -164,6 +164,11 @@ impl<E: CubePrimitive, K: TensorMapKind> LaunchArg for TensorMap<E, K> {
         launcher.register_tensor_map(arg, ty);
     }
 
+    fn required_address_type<R: Runtime>(arg: &Self::RuntimeArg<R>, scope: &Scope) -> AddressType {
+        arg.tensor
+            .required_address_type(E::__expand_type_size(scope))
+    }
+
     fn expand(
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,

@@ -222,6 +222,8 @@ impl CubeTypeStruct {
     fn launch_arg_impl(&self) -> proc_macro2::TokenStream {
         let launch_arg = prelude_type("LaunchArg");
         let cube_type = prelude_type("CubeType");
+        let address_type = prelude_type("AddressType");
+        let scope = prelude_type("Scope");
         let body_input =
             self.fields
                 .iter()
@@ -242,6 +244,16 @@ impl CubeTypeStruct {
         let where_clause = self.launch_arg_where();
 
         let register_impl = self.register_impl();
+        let required_address_types = self
+            .fields
+            .iter()
+            .map(TypeField::split)
+            .filter(|field| !field.3)
+            .map(|(_, name, ty, _)| {
+                quote! {
+                    .max(<#ty as #launch_arg>::required_address_type::<R>(&arg.#name, scope))
+                }
+            });
 
         let (_, compilation_generics, _) = self.generics.split_for_impl();
         let assoc_generics = self.assoc_generics();
@@ -259,6 +271,13 @@ impl CubeTypeStruct {
                 type CompilationArg = #compilation_ident #compilation_generics;
 
                 #register_impl
+
+                fn required_address_type<R: Runtime>(
+                    arg: &Self::RuntimeArg<R>,
+                    scope: &#scope,
+                ) -> #address_type {
+                    #address_type::U32 #(#required_address_types)*
+                }
 
                 fn expand(
                     arg: &Self::CompilationArg,

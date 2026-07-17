@@ -13,6 +13,15 @@ pub struct ComptimeTag {
     tag: String,
 }
 
+#[derive(CubeLaunch, CubeType)]
+#[allow(dead_code)]
+pub struct AutoAddressingArgs {
+    input: Box<[f32]>,
+    alias: Box<[f32]>,
+    output: Box<[f32]>,
+    max: usize,
+}
+
 #[cube(launch)]
 pub fn kernel_with_comptime_tag(mut output: ComptimeTag) {
     if UNIT_POS == 0 {
@@ -42,6 +51,13 @@ pub fn kernel_without_generics(output: &mut [f32]) {
 pub fn kernel_dynamic_addressing(output: &mut [f32]) {
     if UNIT_POS == 0 {
         output[0] = 5.0;
+    }
+}
+
+#[cube(launch, address_type = "auto")]
+pub fn kernel_auto_addressing(mut args: AutoAddressingArgs) {
+    if UNIT_POS == 0 {
+        args.output[0] = if args.max + 1 == 0 { 32.0f32 } else { 64.0f32 };
     }
 }
 
@@ -371,6 +387,44 @@ pub fn test_kernel_dynamic_addressing<R: Runtime>(
     assert_eq!(actual[0], 5.0);
 }
 
+pub fn test_kernel_auto_addressing<R: Runtime>(client: ComputeClient<R>, expected: AddressType) {
+    if !client.properties().supports_address(expected) {
+        println!("Skipping automatic addressing kernel, no type support");
+        return;
+    }
+
+    let alias_len = match expected {
+        AddressType::U32 => 2,
+        AddressType::U64 => match usize::try_from(u32::MAX as u64 + 1) {
+            Ok(len) => len,
+            Err(_) => return,
+        },
+    };
+    let input = client.create_from_slice(f32::as_bytes(&[1.0, 0.0]));
+    let output = client.create_from_slice(f32::as_bytes(&[0.0, 0.0]));
+
+    kernel_auto_addressing::launch(
+        &client,
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(1),
+        AutoAddressingArgsLaunch::new(
+            unsafe { BufferArg::from_raw_parts(input, 2) },
+            BufferArg::alias(0, alias_len),
+            unsafe { BufferArg::from_raw_parts(output.clone(), 2) },
+            u32::MAX as usize,
+        ),
+    );
+
+    let actual = client.read_one_unchecked(output);
+    let actual = f32::from_bytes(&actual);
+
+    let expected = match expected {
+        AddressType::U32 => 32.0,
+        AddressType::U64 => 64.0,
+    };
+    assert_eq!(actual[0], expected);
+}
+
 #[allow(missing_docs)]
 #[macro_export]
 macro_rules! testgen_launch {
@@ -449,6 +503,24 @@ macro_rules! testgen_launch_untyped {
         fn test_launch_dynamic_addressing_64() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::launch::test_kernel_dynamic_addressing::<TestRuntime>(
+                client,
+                AddressType::U64,
+            );
+        }
+
+        #[test]
+        fn test_launch_auto_addressing_32() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_kernel_auto_addressing::<TestRuntime>(
+                client,
+                AddressType::U32,
+            );
+        }
+
+        #[test]
+        fn test_launch_auto_addressing_64() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::launch::test_kernel_auto_addressing::<TestRuntime>(
                 client,
                 AddressType::U64,
             );

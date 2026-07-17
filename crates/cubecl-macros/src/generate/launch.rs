@@ -136,6 +136,7 @@ impl Launch {
 
     fn launch_body(&self) -> TokenStream {
         let kernel_launcher = prelude_type("KernelLauncher");
+        let launch_context = prelude_type("LaunchContext");
 
         let mappings = self.func.sig.define_mappings();
         let generic_registers =
@@ -143,7 +144,8 @@ impl Launch {
                 .analysis
                 .register_types(mappings, quote![scope], false, true);
 
-        let settings = self.configure_settings();
+        let settings = self.configure_settings(true);
+        let auto_address_type = self.configure_auto_address_type();
         let kernel_name = self.kernel_name();
         let kernel_generics = self.kernel_call_generics();
         let kernel_generics = kernel_generics.split_for_impl();
@@ -152,31 +154,70 @@ impl Launch {
         let (registers, args) = self.arg_registers();
 
         quote! {
-            #settings
-
-            let mut launcher = #kernel_launcher::<__R>::new(__settings.clone());
-            launcher.with_scope(|scope| {
+            let __launch_context = #launch_context::new();
+            __launch_context.with_scope(|scope| {
                 scope.device_properties(__client.properties());
                 #generic_registers
             });
 
+            #auto_address_type
+            #settings
+
+            let mut launcher = #kernel_launcher::<__R>::new_with_context(
+                __settings.clone(),
+                __launch_context,
+            );
             #registers
             let __kernel = #kernel_name #kernel_generics::new(__settings, __client.clone(), #args #(#comptime_args),*);
         }
     }
 
-    fn configure_settings(&self) -> TokenStream {
+    fn configure_settings(&self, auto_resolved: bool) -> TokenStream {
         let kernel_settings = prelude_type("KernelSettings");
         let addr_ty = prelude_type("AddressType");
         let address_type = match self.args.address_type {
             AddressType::U32 => quote![#addr_ty::U32],
             AddressType::U64 => quote![#addr_ty::U64],
             AddressType::Dynamic => quote![__address_type],
+            AddressType::Auto if auto_resolved => quote![__address_type],
+            AddressType::Auto => quote![#addr_ty::U32],
         };
 
         quote! {
-            let mut __settings = #kernel_settings::default()
+            let __settings = #kernel_settings::default()
                 .cube_dim(__cube_dim).address_type(#address_type);
+        }
+    }
+
+    fn configure_auto_address_type(&self) -> TokenStream {
+        if self.args.address_type != AddressType::Auto {
+            return TokenStream::new();
+        }
+
+        let launch_arg = prelude_type("LaunchArg");
+        let address_type = prelude_type("AddressType");
+        let required_address_types = self.runtime_params().map(|input| {
+            let ty = strip_ref(input.ty.clone());
+            let ty = anon_lifetime_to_static(ty);
+            let name = &input.name;
+            quote! {
+                __address_type = __address_type.max(
+                    <#ty as #launch_arg>::required_address_type::<__R>(&#name, scope)
+                );
+            }
+        });
+
+        quote! {
+            let __address_type = __launch_context.with_scope(|scope| {
+                let mut __address_type = #address_type::U32;
+                #(#required_address_types)*
+                __address_type
+            });
+            assert!(
+                __client.properties().supports_address(__address_type),
+                "The automatically selected address type `{}` isn't supported by this device",
+                __address_type,
+            );
         }
     }
 
@@ -215,7 +256,7 @@ impl Launch {
             let generics = &self.kernel_generics;
             let (_, generic_names, _) = self.kernel_generics.split_for_impl();
 
-            let settings = self.configure_settings();
+            let settings = self.configure_settings(false);
             let kernel_name = self.kernel_name();
             let comptime_args = self.launch_args();
             let comptime_names = self.comptime_params().map(|it| &it.name);

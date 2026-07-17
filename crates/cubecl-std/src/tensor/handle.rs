@@ -125,7 +125,7 @@ where
 
     pub fn required_address_type(&self) -> AddressType {
         let len = self.handle.size() / self.dtype.size() as u64;
-        AddressType::from_len(len as usize)
+        AddressType::from_len_u64(len)
     }
 
     pub fn shape(&self) -> &Shape {

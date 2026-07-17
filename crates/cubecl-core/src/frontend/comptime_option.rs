@@ -89,6 +89,13 @@ impl<T: LaunchArg + 'static + CubeType> LaunchArg for ComptimeOption<T> {
         }
     }
 
+    fn required_address_type<R: Runtime>(arg: &Self::RuntimeArg<R>, scope: &Scope) -> AddressType {
+        match arg {
+            ComptimeOptionArgs::Some(arg) => T::required_address_type::<R>(arg, scope),
+            ComptimeOptionArgs::None => AddressType::U32,
+        }
+    }
+
     fn expand(
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
