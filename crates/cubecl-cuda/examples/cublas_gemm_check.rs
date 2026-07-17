@@ -354,7 +354,10 @@ fn prior_error_is_not_bypassed() {
 
     client.gemm(descriptor);
     let bytes = client.read_one_unchecked(output);
-    assert_eq!(bytemuck::cast_slice::<u8, u16>(&bytes), &[bf16::ONE.to_bits()]);
+    assert_eq!(
+        bytemuck::cast_slice::<u8, u16>(&bytes),
+        &[bf16::ONE.to_bits()]
+    );
 }
 
 impl Matrix {
