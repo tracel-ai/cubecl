@@ -29,6 +29,8 @@ pub enum ThroughputMode {
 /// Represents a key/configuration used to identify the throughput of a computation.
 #[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+// Reject cached entries from an older key layout instead of silently ignoring their extra fields.
+#[cfg_attr(std_io, serde(deny_unknown_fields))]
 pub struct ThroughputKey {
     /// The mode of the throughput computation.
     pub mode: ThroughputMode,

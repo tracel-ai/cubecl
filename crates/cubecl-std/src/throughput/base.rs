@@ -42,7 +42,11 @@ pub fn measure_peak_throughput<R: Runtime>(
         ThroughputMode::Launch => launch_overhead::build_kernel(client, key, launch_config),
     };
 
-    client.measure_throughput(key, kernel_config)
+    let value = client.measure_throughput(key, kernel_config);
+
+    client.memory_cleanup();
+
+    value
 }
 
 /// Hardware execution parameters for launching a compute kernel.
