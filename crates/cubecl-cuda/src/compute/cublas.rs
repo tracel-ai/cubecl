@@ -1,23 +1,82 @@
+use std::collections::HashMap;
+use std::ffi::c_void;
+
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
     ir::{ElemType, FloatKind},
     server::{GemmDescriptor, GemmMatrix, ServerError},
 };
-use cudarc::cublas::{result, sys};
-use std::ffi::c_void;
+use cudarc::cublas::sys::cublasOperation_t;
+use cudarc::cublaslt::{result as lt, sys};
 
 use super::storage::gpu::GpuResource;
 
+/// Workspace given to every cublasLt matmul. 32 MiB matches the size the
+/// cuBLAS documentation recommends for Ampere+ so the heuristic can pick
+/// split-K and other workspace-hungry algorithms.
+const WORKSPACE_BYTES: usize = 32 * 1024 * 1024;
+
+/// A cached execution plan: the descriptor/layout objects plus the algorithm
+/// the cublasLt heuristic selected for one GEMM shape.
+struct MatmulPlan {
+    desc: sys::cublasLtMatmulDesc_t,
+    a_layout: sys::cublasLtMatrixLayout_t,
+    b_layout: sys::cublasLtMatrixLayout_t,
+    d_layout: sys::cublasLtMatrixLayout_t,
+    algo: sys::cublasLtMatmulAlgo_t,
+}
+
+#[derive(PartialEq, Eq, Hash)]
+struct MatrixKey {
+    leading_dimension: u32,
+    batch_stride: u64,
+    transposed: bool,
+}
+
+#[derive(PartialEq, Eq, Hash)]
+struct PlanKey {
+    m: u32,
+    n: u32,
+    k: u32,
+    batch_count: u32,
+    lhs: MatrixKey,
+    rhs: MatrixKey,
+    out: MatrixKey,
+}
+
+impl PlanKey {
+    fn new(descriptor: &GemmDescriptor) -> Self {
+        let matrix = |m: &GemmMatrix| MatrixKey {
+            leading_dimension: m.leading_dimension,
+            batch_stride: m.batch_stride,
+            transposed: m.transposed,
+        };
+        Self {
+            m: descriptor.m,
+            n: descriptor.n,
+            k: descriptor.k,
+            batch_count: descriptor.batch_count,
+            lhs: matrix(&descriptor.lhs),
+            rhs: matrix(&descriptor.rhs),
+            out: matrix(&descriptor.out),
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct CublasState {
-    handle: Option<sys::cublasHandle_t>,
-    stream: Option<cudarc::driver::sys::CUstream>,
+    handle: Option<sys::cublasLtHandle_t>,
+    /// One workspace per CUDA stream: concurrent matmuls on different
+    /// streams must not share scratch memory.
+    workspaces: HashMap<usize, cudarc::driver::sys::CUdeviceptr>,
+    plans: HashMap<PlanKey, MatmulPlan>,
 }
 
 impl core::fmt::Debug for CublasState {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("CublasState")
             .field("initialized", &self.handle.is_some())
+            .field("plans", &self.plans.len())
             .finish()
     }
 }
@@ -47,51 +106,60 @@ impl CublasState {
         let handle = match self.handle {
             Some(handle) => handle,
             None => {
-                let handle = result::create_handle().map_err(cublas_error)?;
+                let handle = lt::create_handle().map_err(cublas_error)?;
                 self.handle = Some(handle);
                 handle
             }
         };
-        if self.stream != Some(stream) {
-            // SAFETY: both handles are owned by this CUDA server. Changing the
-            // cuBLAS stream only changes where subsequent work is enqueued.
-            unsafe { result::set_stream(handle, stream.cast()) }.map_err(cublas_error)?;
-            self.stream = Some(stream);
+        let workspace = match self.workspaces.get(&(stream as usize)) {
+            Some(workspace) => *workspace,
+            None => {
+                // SAFETY: the server made its CUDA context current before
+                // resolving the streams for this launch.
+                let workspace = unsafe { cudarc::driver::result::malloc_sync(WORKSPACE_BYTES) }
+                    .map_err(|err| ServerError::Generic {
+                        reason: format!("cublasLt workspace allocation failed: {err}"),
+                        backtrace: BackTrace::capture(),
+                    })?;
+                self.workspaces.insert(stream as usize, workspace);
+                workspace
+            }
+        };
+
+        let key = PlanKey::new(descriptor);
+        if !self.plans.contains_key(&key) {
+            let plan = build_plan(handle, descriptor)?;
+            self.plans.insert(PlanKey::new(descriptor), plan);
         }
+        let plan = self
+            .plans
+            .get(&key)
+            .expect("cublasLt plan was just inserted");
 
         let alpha = 1.0f32;
         let beta = 0.0f32;
-        let op_rhs = operation(&descriptor.rhs);
-        let op_lhs = operation(&descriptor.lhs);
 
         // cuBLAS is column-major. Swapping the row-major operands computes
-        // C^T = rhs^T @ lhs^T without copies. The call is asynchronous on the
-        // exact stream resolved by CubeCL for these bindings.
+        // D^T = rhs^T @ lhs^T without copies, so A carries `rhs` and B
+        // carries `lhs`. The call is asynchronous on the given stream.
         unsafe {
-            result::gemm_strided_batched_ex(
+            lt::matmul(
                 handle,
-                op_rhs,
-                op_lhs,
-                descriptor.n as i32,
-                descriptor.m as i32,
-                descriptor.k as i32,
+                plan.desc,
                 (&alpha as *const f32).cast::<c_void>(),
-                rhs.ptr as *const c_void,
-                sys::cudaDataType::CUDA_R_16BF,
-                descriptor.rhs.leading_dimension as i32,
-                descriptor.rhs.batch_stride as i64,
-                lhs.ptr as *const c_void,
-                sys::cudaDataType::CUDA_R_16BF,
-                descriptor.lhs.leading_dimension as i32,
-                descriptor.lhs.batch_stride as i64,
                 (&beta as *const f32).cast::<c_void>(),
+                rhs.ptr as *const c_void,
+                plan.a_layout,
+                lhs.ptr as *const c_void,
+                plan.b_layout,
+                out.ptr as *const c_void,
+                plan.d_layout,
                 out.ptr as *mut c_void,
-                sys::cudaDataType::CUDA_R_16BF,
-                descriptor.out.leading_dimension as i32,
-                descriptor.out.batch_stride as i64,
-                descriptor.batch_count as i32,
-                sys::cublasComputeType_t::CUBLAS_COMPUTE_32F,
-                sys::cublasGemmAlgo_t::CUBLAS_GEMM_DEFAULT_TENSOR_OP,
+                plan.d_layout,
+                &plan.algo,
+                workspace as *mut c_void,
+                WORKSPACE_BYTES,
+                stream.cast(),
             )
         }
         .map_err(cublas_error)?;
@@ -100,20 +168,229 @@ impl CublasState {
     }
 
     pub(crate) fn destroy(&mut self) {
+        for (_, plan) in self.plans.drain() {
+            // SAFETY: each plan uniquely owns its descriptor objects and is
+            // destroyed exactly once.
+            unsafe {
+                let _ = lt::destroy_matmul_desc(plan.desc);
+                let _ = lt::destroy_matrix_layout(plan.a_layout);
+                let _ = lt::destroy_matrix_layout(plan.b_layout);
+                let _ = lt::destroy_matrix_layout(plan.d_layout);
+            }
+        }
+        for (_, workspace) in self.workspaces.drain() {
+            // SAFETY: the workspace was allocated by this state on the
+            // server's context and freed exactly once.
+            if let Err(err) = unsafe { cudarc::driver::result::free_sync(workspace) } {
+                log::warn!("Unable to free cublasLt workspace: {err}");
+            }
+        }
         if let Some(handle) = self.handle.take() {
             // SAFETY: this state uniquely owns the handle and destroys it once.
-            if let Err(err) = unsafe { result::destroy_handle(handle) } {
-                log::warn!("Unable to destroy cuBLAS handle: {err}");
+            if let Err(err) = unsafe { lt::destroy_handle(handle) } {
+                log::warn!("Unable to destroy cublasLt handle: {err}");
             }
         }
     }
 }
 
-fn operation(matrix: &GemmMatrix) -> sys::cublasOperation_t {
-    if matrix.transposed {
-        sys::cublasOperation_t::CUBLAS_OP_T
+/// Build the descriptor, layouts, and heuristic-selected algorithm for one
+/// GEMM shape. All dimensions below are in cuBLAS column-major terms, i.e.
+/// the row-major operands are swapped: `m_lt = n`, `n_lt = m`, `A = rhs`,
+/// `B = lhs`.
+fn build_plan(
+    handle: sys::cublasLtHandle_t,
+    descriptor: &GemmDescriptor,
+) -> Result<MatmulPlan, ServerError> {
+    let m_lt = descriptor.n as u64;
+    let n_lt = descriptor.m as u64;
+    let k_lt = descriptor.k as u64;
+    let op_a = operation(&descriptor.rhs);
+    let op_b = operation(&descriptor.lhs);
+
+    let desc = lt::create_matmul_desc(
+        sys::cublasComputeType_t::CUBLAS_COMPUTE_32F,
+        sys::cudaDataType::CUDA_R_32F,
+    )
+    .map_err(cublas_error)?;
+    let destroy_desc = || {
+        // SAFETY: created above, not yet owned by a plan.
+        unsafe {
+            let _ = lt::destroy_matmul_desc(desc);
+        }
+    };
+    for (attr, op) in [
+        (
+            sys::cublasLtMatmulDescAttributes_t::CUBLASLT_MATMUL_DESC_TRANSA,
+            op_a,
+        ),
+        (
+            sys::cublasLtMatmulDescAttributes_t::CUBLASLT_MATMUL_DESC_TRANSB,
+            op_b,
+        ),
+    ] {
+        let value = op as i32;
+        // SAFETY: `desc` is live and the attribute is an i32 by contract.
+        if let Err(err) = unsafe {
+            lt::set_matmul_desc_attribute(
+                desc,
+                attr,
+                (&value as *const i32).cast::<c_void>(),
+                core::mem::size_of::<i32>(),
+            )
+        } {
+            destroy_desc();
+            return Err(cublas_error(err));
+        }
+    }
+
+    // Stored (pre-transpose) dimensions of each column-major operand.
+    let a_dims = if matches!(op_a, cublasOperation_t::CUBLAS_OP_N) {
+        (m_lt, k_lt)
     } else {
-        sys::cublasOperation_t::CUBLAS_OP_N
+        (k_lt, m_lt)
+    };
+    let b_dims = if matches!(op_b, cublasOperation_t::CUBLAS_OP_N) {
+        (k_lt, n_lt)
+    } else {
+        (n_lt, k_lt)
+    };
+    let layout = |rows: u64, cols: u64, matrix: &GemmMatrix| -> Result<_, ServerError> {
+        let layout = lt::create_matrix_layout(
+            sys::cudaDataType::CUDA_R_16BF,
+            rows,
+            cols,
+            matrix.leading_dimension as i64,
+        )
+        .map_err(cublas_error)?;
+        let batch_count = descriptor.batch_count as i32;
+        let batch_stride = matrix.batch_stride as i64;
+        // SAFETY: `layout` is live; both attributes take the given widths.
+        let result = unsafe {
+            lt::set_matrix_layout_attribute(
+                layout,
+                sys::cublasLtMatrixLayoutAttribute_t::CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT,
+                (&batch_count as *const i32).cast::<c_void>(),
+                core::mem::size_of::<i32>(),
+            )
+            .and_then(|_| {
+                lt::set_matrix_layout_attribute(
+                    layout,
+                    sys::cublasLtMatrixLayoutAttribute_t::
+                        CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET,
+                    (&batch_stride as *const i64).cast::<c_void>(),
+                    core::mem::size_of::<i64>(),
+                )
+            })
+        };
+        if let Err(err) = result {
+            // SAFETY: created above, not yet owned by a plan.
+            unsafe {
+                let _ = lt::destroy_matrix_layout(layout);
+            }
+            return Err(cublas_error(err));
+        }
+        Ok(layout)
+    };
+
+    let a_layout = match layout(a_dims.0, a_dims.1, &descriptor.rhs) {
+        Ok(layout) => layout,
+        Err(err) => {
+            destroy_desc();
+            return Err(err);
+        }
+    };
+    let b_layout = match layout(b_dims.0, b_dims.1, &descriptor.lhs) {
+        Ok(layout) => layout,
+        Err(err) => {
+            destroy_desc();
+            // SAFETY: created above, not yet owned by a plan.
+            unsafe {
+                let _ = lt::destroy_matrix_layout(a_layout);
+            }
+            return Err(err);
+        }
+    };
+    let d_layout = match layout(m_lt, n_lt, &descriptor.out) {
+        Ok(layout) => layout,
+        Err(err) => {
+            destroy_desc();
+            // SAFETY: created above, not yet owned by a plan.
+            unsafe {
+                let _ = lt::destroy_matrix_layout(a_layout);
+                let _ = lt::destroy_matrix_layout(b_layout);
+            }
+            return Err(err);
+        }
+    };
+    let cleanup = || {
+        destroy_desc();
+        // SAFETY: created above, not yet owned by a plan.
+        unsafe {
+            let _ = lt::destroy_matrix_layout(a_layout);
+            let _ = lt::destroy_matrix_layout(b_layout);
+            let _ = lt::destroy_matrix_layout(d_layout);
+        }
+    };
+
+    let pref = match lt::create_matmul_pref() {
+        Ok(pref) => pref,
+        Err(err) => {
+            cleanup();
+            return Err(cublas_error(err));
+        }
+    };
+    let workspace_bytes = WORKSPACE_BYTES as u64;
+    // SAFETY: `pref` is live and the attribute is a u64 by contract.
+    if let Err(err) = unsafe {
+        lt::set_matmul_pref_attribute(
+            pref,
+            sys::cublasLtMatmulPreferenceAttributes_t::CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
+            (&workspace_bytes as *const u64).cast::<c_void>(),
+            core::mem::size_of::<u64>(),
+        )
+    } {
+        // SAFETY: created above.
+        unsafe {
+            let _ = lt::destroy_matmul_pref(pref);
+        }
+        cleanup();
+        return Err(cublas_error(err));
+    }
+
+    // SAFETY: every descriptor is live; the C layout equals the D layout
+    // because beta is always zero.
+    let heuristic = unsafe {
+        lt::get_matmul_algo_heuristic(handle, desc, a_layout, b_layout, d_layout, d_layout, pref)
+    };
+    // SAFETY: created above.
+    unsafe {
+        let _ = lt::destroy_matmul_pref(pref);
+    }
+    let heuristic = match heuristic {
+        Ok(heuristic) => heuristic,
+        Err(_) => {
+            cleanup();
+            return Err(validation_error(
+                "cublasLt has no algorithm for this GEMM shape",
+            ));
+        }
+    };
+
+    Ok(MatmulPlan {
+        desc,
+        a_layout,
+        b_layout,
+        d_layout,
+        algo: heuristic.algo,
+    })
+}
+
+fn operation(matrix: &GemmMatrix) -> cublasOperation_t {
+    if matrix.transposed {
+        cublasOperation_t::CUBLAS_OP_T
+    } else {
+        cublasOperation_t::CUBLAS_OP_N
     }
 }
 
@@ -237,9 +514,9 @@ fn validation_error(message: &str) -> ServerError {
     }
 }
 
-fn cublas_error(error: result::CublasError) -> ServerError {
+fn cublas_error(error: lt::CublasError) -> ServerError {
     ServerError::Generic {
-        reason: format!("cuBLAS GEMM failed: {error}"),
+        reason: format!("cuBLAS error: {error:?}"),
         backtrace: BackTrace::capture(),
     }
 }
