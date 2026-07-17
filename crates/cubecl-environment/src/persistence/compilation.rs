@@ -176,7 +176,14 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
             idx += 1;
         }
 
-        cache.borrow_mut().extend(new_entries);
+        // Never replace an existing entry: `get_ref_unsafe` hands out
+        // references whose validity depends on boxes never being dropped, so
+        // a key present in both a local chunk and a bundle chunk must keep
+        // its first-loaded value.
+        let mut cache = cache.borrow_mut();
+        for (key, value) in new_entries {
+            cache.entry(key).or_insert(value);
+        }
     }
 
     /// Insert a new item to the cache.

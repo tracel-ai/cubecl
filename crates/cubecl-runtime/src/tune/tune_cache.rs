@@ -237,6 +237,15 @@ impl<K: AutotuneKey> TuneCache<K> {
             return;
         };
 
+        // Only asynchronous backends (browser hydration) can have new
+        // content after construction without a local insert. Synchronous
+        // backends are fully ingested at open, and re-reading them here
+        // would take the multi-process file lock on the autotune hot path
+        // while the tuner mutex is held.
+        if !persistent_cache.pending_hydration() {
+            return;
+        }
+
         persistent_cache.for_each(|key, value| {
             self.in_memory_cache
                 .entry(key.key.clone())

@@ -54,8 +54,11 @@ pub trait RuntimeConfig:
     /// installed with [`RuntimeConfig::set`] / [`RuntimeConfig::try_set`].
     ///
     /// Use it to apply configuration to global state (stream policy, bundle
-    /// installation, ...). Called outside the storage lock, so calling
-    /// [`RuntimeConfig::get`] from the hook is safe.
+    /// installation, ...). Runs while the storage lock is held so that no
+    /// concurrent [`RuntimeConfig::get`] can observe the configuration before
+    /// the hook completed. Consequently the hook must not call
+    /// [`RuntimeConfig::get`], [`RuntimeConfig::set`] or
+    /// [`RuntimeConfig::try_set`] — that would deadlock.
     fn on_loaded(&self) {}
 
     /// Retrieves the current configuration, loading it from the current directory if not set.
@@ -83,7 +86,8 @@ pub trait RuntimeConfig:
 
             let config = Arc::new(config);
             *state = Some(config.clone());
-            core::mem::drop(state);
+            // Still under the lock: a concurrent `get` must not observe the
+            // configuration before the hook has run.
             config.on_loaded();
 
             return config;
@@ -120,7 +124,7 @@ pub trait RuntimeConfig:
         }
         let config = Arc::new(config);
         *state = Some(config.clone());
-        core::mem::drop(state);
+        // Still under the lock: see `get`.
         config.on_loaded();
         true
     }

@@ -110,6 +110,11 @@ impl KvBackend for BrowserBackend {
         !self.inbox.lock().done
     }
 
+    fn has_pending(&self) -> bool {
+        let inbox = self.inbox.lock();
+        !inbox.done || !inbox.hydrated.is_empty()
+    }
+
     fn describe(&self) -> String {
         format!("browser storage (indexeddb: {}/{}*)", DB_NAME, self.prefix)
     }

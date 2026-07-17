@@ -123,7 +123,19 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), BundleError> {
             {
                 continue;
             }
-            std::fs::copy(&path, &target)?;
+            if target.exists() {
+                // Colliding files across multiple cache roots are merged by
+                // appending: both cache formats (JSON lines and concatenated
+                // CBOR entries) are valid under concatenation, and
+                // overwriting would silently drop the first root's entries.
+                use std::io::Write;
+
+                let content = std::fs::read(&path)?;
+                let mut file = std::fs::OpenOptions::new().append(true).open(&target)?;
+                file.write_all(&content)?;
+            } else {
+                std::fs::copy(&path, &target)?;
+            }
         }
     }
 

@@ -229,8 +229,11 @@ impl CacheFile {
             }
         };
 
-        match file.write(content) {
-            Ok(n) => self.cursor += n as u64,
+        // `write_all`, not `write`: a short write would leave a truncated
+        // entry in the append-only file that every future parse skips as
+        // corrupted, silently losing the entry forever.
+        match file.write_all(content) {
+            Ok(()) => self.cursor += content.len() as u64,
             Err(err) => {
                 log::error!(
                     "cubecl cache: write({:?}, {} bytes) failed: kind={:?} raw_os_error={:?} err={}",

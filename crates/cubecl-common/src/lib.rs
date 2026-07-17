@@ -14,6 +14,8 @@ extern crate std;
 #[macro_use]
 extern crate derive_new;
 
+mod obfuscation;
+
 /// A circular, allocation-free arena for reusable memory blocks.
 #[cfg(feature = "std")]
 pub mod arena;

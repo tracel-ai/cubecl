@@ -63,7 +63,7 @@ impl MetalContext {
                 let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
                 if let Some(cache) = &config.compilation.cache {
                     let root = cache.root();
-                    Some(Cache::new(
+                    Some(Cache::open(
                         "msl",
                         CacheOption::default().name("metal").root(root),
                     ))

@@ -54,6 +54,11 @@ pub enum SeedMode {
 /// There is no update possible; if a value is reinserted a second time with a different value but
 /// the same key, an error will arise.
 ///
+/// The one exception is bundle-seeded entries: a locally computed value
+/// silently *shadows* a stale bundle entry instead of erroring, because a
+/// shipped bundle must never be able to break the application that installs
+/// it. See [`KvStore::insert`].
+///
 /// This is important to keep the file format simple: there is no metadata, no headers, just a plain
 /// separator between each entry. Therefore, it isn’t possible to edit previously saved content.
 ///
@@ -319,6 +324,13 @@ impl<K: CacheKey, V: CacheValue> KvStore<K, V> {
         self.backend.hydrating()
     }
 
+    /// Whether asynchronously delivered content may still be waiting to be
+    /// ingested. `false` for synchronous backends (file system, memory),
+    /// whose content is fully ingested at open.
+    pub fn pending_hydration(&self) -> bool {
+        self.backend.has_pending()
+    }
+
     /// Iterate over all values of the store.
     #[cfg_attr(
         feature = "tracing",
@@ -364,6 +376,19 @@ impl<K: CacheKey, V: CacheValue> KvStore<K, V> {
     }
 
     /// Insert a new item into the store.
+    ///
+    /// Insert-only semantics depend on where the existing entry came from:
+    ///
+    /// - Key absent: the entry is appended to the writable backend.
+    /// - Present with the same value: `Ok`, nothing written (a bundle-served
+    ///   entry keeps being served by the bundle).
+    /// - Present with a different value, [`Origin::Local`]: an error —
+    ///   [`KvStoreError::DuplicatedKey`], or
+    ///   [`KvStoreError::KeyOutOfSync`] when the conflicting entry was just
+    ///   synced from the backend.
+    /// - Present with a different value, [`Origin::Bundle`]: the locally
+    ///   computed value silently shadows the stale bundle entry and is
+    ///   appended locally. Bundles are never trusted over local computation.
     pub fn insert(&mut self, key: K, value: V) -> Result<(), KvStoreError<K, V>> {
         if let Some(buffer) = self.backend.lock()
             && let Err(err) = self.sync_content(&buffer, Some((&key, &value)))

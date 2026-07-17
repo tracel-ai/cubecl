@@ -37,6 +37,15 @@ pub trait KvBackend: Send + core::fmt::Debug {
         false
     }
 
+    /// Whether asynchronously delivered content may still be waiting to be
+    /// ingested — hydration in flight, or delivered bytes not yet drained.
+    ///
+    /// `false` for synchronous backends: their content is fully ingested at
+    /// open, so callers can skip speculative re-syncs on the hot path.
+    fn has_pending(&self) -> bool {
+        false
+    }
+
     /// Human-readable location for log messages.
     fn describe(&self) -> String;
 }
