@@ -12,6 +12,7 @@ use cubecl_core::{
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
+    memory_management::ManagedMemoryBinding,
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
 
@@ -32,6 +33,11 @@ pub enum ScheduleTask {
         count: CubeCount,
         /// The resources (bindings) required for execution.
         resources: BindingsResource,
+        /// Cross-stream input memory bindings that must be kept alive until this
+        /// task's submission completes on the GPU.
+        ///
+        /// [`WgpuStream::flush`] ties its release to the consuming submission's completion.
+        pins: Vec<ManagedMemoryBinding>,
     },
 }
 

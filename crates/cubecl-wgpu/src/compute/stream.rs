@@ -26,7 +26,8 @@ use cubecl_core::{
 };
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
-    logging::ServerLogger, memory_management::ManagedMemoryHandle,
+    logging::ServerLogger,
+    memory_management::{ManagedMemoryBinding, ManagedMemoryHandle},
     timestamp_profiler::TimestampProfiler,
 };
 #[cfg(renderdoc)]
@@ -64,6 +65,10 @@ pub struct WgpuStream {
     /// Used to prevent wgpu staging buffer pool exhaustion during bulk writes
     /// (e.g. model loading with hundreds of tensors).
     pending_write_count: usize,
+    /// Cross-stream input bindings for tasks recorded but not yet submitted.
+    /// Kept alive here until the next `flush` ties their release to the submission's completion.
+    /// See [`ScheduleTask::Execute::pins`](crate::schedule::ScheduleTask).
+    pending_pins: Vec<ManagedMemoryBinding>,
 }
 
 impl WgpuStream {
@@ -132,6 +137,7 @@ impl WgpuStream {
             poll,
             submission_load: SubmissionLoad::default(),
             pending_write_count: 0,
+            pending_pins: Vec::new(),
         }
     }
 
@@ -158,7 +164,9 @@ impl WgpuStream {
                 pipeline,
                 count,
                 resources,
+                mut pins,
             } => {
+                self.pending_pins.append(&mut pins);
                 let (resources, custom_handles, addresses) = resources.into_resources(self);
                 self.register_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
             }
@@ -507,6 +515,7 @@ impl WgpuStream {
 
     pub fn flush(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
         if self.tasks_count == 0 {
+            self.pending_pins.clear();
             return self.flush_errors(mode);
         }
 
@@ -526,6 +535,14 @@ impl WgpuStream {
 
         // This will _first_ fire off all pending write_buffer work.
         let index = self.queue.submit([tasks_encoder.finish()]);
+
+        // Release cross-stream input pins.
+        if !self.pending_pins.is_empty() {
+            let pins = core::mem::take(&mut self.pending_pins);
+            self.queue.on_submitted_work_done(move || {
+                drop(pins);
+            });
+        }
 
         self.submission_load
             .regulate(&self.device, self.tasks_count, index);

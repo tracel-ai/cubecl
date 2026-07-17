@@ -26,7 +26,7 @@ use cubecl_core::{
 use cubecl_core::{cache::CacheOption, compilation_cache::CompilationCache, hash::StableHash};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
-use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage};
+use cubecl_runtime::memory_management::{ManagedMemoryBinding, ManagedMemoryHandle, MemoryUsage};
 use cubecl_runtime::{
     compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -386,9 +386,14 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         };
 
         self.streams_pool.clear();
-        args.buffers
-            .iter()
-            .for_each(|b| self.streams_pool.push(b.stream));
+        // Pin the memory of every input that lives on another stream (released in `WgpuStream::flush`).
+        let mut pins: Vec<ManagedMemoryBinding> = Vec::new();
+        args.buffers.iter().for_each(|b| {
+            self.streams_pool.push(b.stream);
+            if b.stream != stream_id {
+                pins.push(b.memory.clone());
+            }
+        });
 
         let resources = match self.prepare_bindings(args, compiler_info) {
             Ok(val) => val,
@@ -403,6 +408,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             pipeline,
             count,
             resources,
+            pins,
         };
 
         self.scheduler.register(stream_id, task, &self.streams_pool);

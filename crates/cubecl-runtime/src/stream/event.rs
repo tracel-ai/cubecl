@@ -257,7 +257,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
         self.apply_analysis(stream_id, analysis)
     }
 
-    /// Update and analyzes the bindings to determine which streams need alignment (flushing and waiting).
+    /// Updates and analyzes the bindings to determine which streams need alignment (flushing and waiting).
     ///
     /// This checks for shared bindings from other streams and determines if synchronization is needed
     /// based on cursor positions.
