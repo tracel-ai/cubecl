@@ -146,10 +146,7 @@ where
         if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
             #[cfg(feature = "autotune-checks")]
             self.checks::<I, Out>(&operations, &inputs);
-            return operations
-                .fastest(fastest_index)
-                .execute(inputs)
-                .expect("Should run when selected by autotune.");
+            return Self::execute_selected(&key, &operations, fastest_index, inputs);
         }
 
         let fastest = tuner.check_tune::<R, I, Out>(
@@ -166,10 +163,7 @@ where
                 #[cfg(feature = "autotune-checks")]
                 self.checks::<I, Out>(&operations, &inputs);
 
-                operations
-                    .fastest(fastest_index)
-                    .execute(inputs)
-                    .expect("Should run when selected by autotune.")
+                Self::execute_selected(&key, &operations, fastest_index, inputs)
             }
             TuneCacheResult::Unchecked | TuneCacheResult::Miss => {
                 panic!(
@@ -186,5 +180,43 @@ where
                 panic!("All autotune operations failed, no viable operation found.");
             }
         }
+    }
+
+    /// Run the tunable selected for `key`, degrading gracefully when it cannot
+    /// launch.
+    ///
+    /// Selection is cached per *anchored* key, so the concrete problem may
+    /// violate a legality constraint — an alignment requirement, say — that
+    /// the representative it was benchmarked on satisfied. A launch failure
+    /// therefore falls back to the remaining tunables in declaration order
+    /// (the first entry is the guaranteed-to-run fallback by convention)
+    /// instead of taking the device down; the failed tunables were already
+    /// compiled during the tuning pass, so the retry compiles nothing new.
+    fn execute_selected<'a, I: TuneInputs, Out>(
+        key: &AK,
+        operations: &TunableSet<AK, I, Out>,
+        fastest_index: usize,
+        inputs: <I as TuneInputs>::At<'a>,
+    ) -> Out
+    where
+        <I as TuneInputs>::At<'a>: Clone + Send,
+        Out: AutotuneOutput,
+    {
+        let selected = operations.fastest(fastest_index);
+        let error = match selected.execute(inputs.clone()) {
+            Ok(output) => return output,
+            Err(error) => error,
+        };
+        log::warn!(
+            "Autotuned kernel '{}' cannot launch for key {key}: {error}; \
+             trying the remaining tunables",
+            selected.name,
+        );
+        for index in (0..operations.len()).filter(|index| *index != fastest_index) {
+            if let Ok(output) = operations.fastest(index).execute(inputs.clone()) {
+                return output;
+            }
+        }
+        panic!("All autotune operations failed, no viable operation found.");
     }
 }
