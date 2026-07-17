@@ -30,11 +30,13 @@ pub fn measure_peak_throughput<R: Runtime>(
     client: &ComputeClient<R>,
     key: ThroughputKey,
 ) -> ThroughputValue {
-    let launch_config = launch_config(client, key.dtype);
+    let launch_config = launch_config(client, key.dtype());
 
     let kernel_config = match key.mode {
-        ThroughputMode::ComputeDirect => compute_direct::build_kernel(client, key, launch_config),
-        ThroughputMode::ComputeCmma(cmma_config) => {
+        ThroughputMode::ComputeDirect { .. } => {
+            compute_direct::build_kernel(client, key, launch_config)
+        }
+        ThroughputMode::ComputeCmma { config: cmma_config, .. } => {
             if client.properties().features.matmul.cmma.is_empty() {
                 return ThroughputValue::ZERO;
             }

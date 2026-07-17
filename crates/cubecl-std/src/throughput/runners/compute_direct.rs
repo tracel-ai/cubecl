@@ -10,7 +10,7 @@ pub fn build_kernel<R: Runtime>(
     config: LaunchConfig,
 ) -> KernelConfig {
     let client = client.clone();
-    let dtype = key.dtype;
+    let dtype = key.dtype();
 
     let use_fma = matches!(dtype, ElemType::Float(_));
 

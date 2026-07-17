@@ -14,7 +14,7 @@ pub fn build_kernel<R: Runtime>(
     config: LaunchConfig,
 ) -> KernelConfig {
     let client = client.clone();
-    let dtype = key.dtype;
+    let dtype = key.dtype();
 
     let line_bytes = config.vector_size * dtype.size();
 

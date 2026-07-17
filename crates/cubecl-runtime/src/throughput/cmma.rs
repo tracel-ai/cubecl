@@ -56,5 +56,5 @@ pub fn select_cmma_tile<R: Runtime>(
         .filter(|it| m >= it.m as usize && n >= it.n as usize && k >= it.k as usize)
         // Select the tile with the largest volume to maximize throughput.
         .max_by_key(|it| it.m as u64 * it.n as u64 * it.k as u64)
-        .map(|it| (it.m as u32, it.n as u32, it.k as u32))
+        .map(|it| (it.m, it.n, it.k))
 }

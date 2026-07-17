@@ -11,7 +11,7 @@ pub fn build_kernel<R: Runtime>(
     config: LaunchConfig,
 ) -> KernelConfig {
     let client = client.clone();
-    let dtype = key.dtype;
+    let dtype = key.dtype();
 
     let ops_per_cmma = 2 * cmma_config.cmma_dims.num_elems();
     let out_bytes =

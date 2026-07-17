@@ -27,7 +27,7 @@ macro_rules! dispatch {
             type $runtime = cubecl::cpu::CpuRuntime;
             $body;
         }
-        #[cfg(feature = "metal-native")]
+        #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
         {
             type $runtime = cubecl::metal::MetalRuntime;
             $body;
@@ -92,46 +92,46 @@ fn run<R: Runtime>(device: &R::Device, keys: &[ThroughputKey]) {
 /// Describes the operands of a benchmark: input dtype, plus CMMA shape and accumulator.
 fn describe(key: &ThroughputKey) -> String {
     match key.mode {
-        ThroughputMode::ComputeCmma(cfg) => format!(
+        ThroughputMode::ComputeCmma { dtype: input_dtype, config: cfg } => format!(
             "{}→{} {}×{}×{}",
-            key.dtype, cfg.accumulator_type, cfg.cmma_dims.m, cfg.cmma_dims.n, cfg.cmma_dims.k,
+            input_dtype, cfg.accumulator_type, cfg.cmma_dims.m, cfg.cmma_dims.n, cfg.cmma_dims.k,
         ),
-        _ => key.dtype.to_string(),
+        _ => key.dtype().to_string(),
     }
 }
 
 fn mode_label(mode: &ThroughputMode) -> &'static str {
     match mode {
-        ThroughputMode::ComputeDirect => "compute-direct",
-        ThroughputMode::ComputeCmma(_) => "compute-cmma",
+        ThroughputMode::ComputeDirect { .. } => "compute-direct",
+        ThroughputMode::ComputeCmma { .. } => "compute-cmma",
         ThroughputMode::Memory => "memory",
     }
 }
 
 fn compute_direct_key() -> ThroughputKey {
     ThroughputKey {
-        mode: ThroughputMode::ComputeDirect,
-        dtype: ElemType::Float(FloatKind::F16),
+        mode: ThroughputMode::ComputeDirect { dtype: ElemType::Float(FloatKind::F16) },
     }
 }
 
 fn compute_cmma_key() -> ThroughputKey {
     ThroughputKey {
-        mode: ThroughputMode::ComputeCmma(ComputeCmmaConfig {
-            cmma_dims: CmmaDims {
-                m: 16,
-                n: 16,
-                k: 16,
+        mode: ThroughputMode::ComputeCmma {
+            dtype: ElemType::Float(FloatKind::F16),
+            config: ComputeCmmaConfig {
+                cmma_dims: CmmaDims {
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                },
+                accumulator_type: ElemType::Float(FloatKind::F16),
             },
-            accumulator_type: ElemType::Float(FloatKind::F16),
-        }),
-        dtype: ElemType::Float(FloatKind::F16),
+        },
     }
 }
 
 fn memory_key() -> ThroughputKey {
     ThroughputKey {
         mode: ThroughputMode::Memory,
-        dtype: ElemType::Float(FloatKind::F16),
     }
 }

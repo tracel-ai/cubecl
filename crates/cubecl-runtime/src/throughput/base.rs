@@ -1,6 +1,6 @@
 use alloc::{format, string::String};
 
-use cubecl_ir::ElemType;
+use cubecl_ir::{ElemType, FloatKind};
 
 use crate::throughput::{CmmaDims, ComputeCmmaConfig};
 
@@ -9,9 +9,17 @@ use crate::throughput::{CmmaDims, ComputeCmmaConfig};
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub enum ThroughputMode {
     /// Compute direct calculation without special hardware acceleration.
-    ComputeDirect,
+    ComputeDirect {
+        /// The data type of the computation.
+        dtype: ElemType,
+    },
     /// Compute cmma calculation with CMMA hardware acceleration.
-    ComputeCmma(ComputeCmmaConfig),
+    ComputeCmma {
+        /// The data type of the computation.
+        dtype: ElemType,
+        /// The configuration of the CMMA operation.
+        config: ComputeCmmaConfig,
+    },
     /// Memory input reads and output writes.
     Memory,
 }
@@ -22,8 +30,17 @@ pub enum ThroughputMode {
 pub struct ThroughputKey {
     /// The mode of the throughput computation.
     pub mode: ThroughputMode,
-    /// The data type of the computation.
-    pub dtype: ElemType,
+}
+
+impl ThroughputKey {
+    /// Returns the data type of the computation.
+    pub fn dtype(&self) -> ElemType {
+        match self.mode {
+            ThroughputMode::ComputeDirect { dtype } => dtype,
+            ThroughputMode::ComputeCmma { dtype, .. } => dtype,
+            ThroughputMode::Memory => ElemType::Float(FloatKind::F32),
+        }
+    }
 }
 
 /// Represents the throughput of a computation, including the number of operations and the duration.
@@ -52,23 +69,26 @@ impl ThroughputValue {
     }
 
     /// Returns the bytes per second.
-    pub fn bytes_per_s(&self, key: &ThroughputKey) -> f64 {
+    pub fn bytes_per_s(&self) -> f64 {
         if self.duration.is_zero() {
             return f64::NAN;
         }
-        (self.ops_count * key.dtype.size()) as f64 / self.duration.as_secs_f64()
+        (self.ops_count * ElemType::Float(FloatKind::F32).size()) as f64
+            / self.duration.as_secs_f64()
     }
 
     /// Formats the throughput value as a clean human-readable string.
     pub fn format(&self, key: &ThroughputKey) -> String {
         let unit = match key.mode {
-            ThroughputMode::ComputeDirect | ThroughputMode::ComputeCmma(_) => "OPS",
+            ThroughputMode::ComputeDirect { .. } | ThroughputMode::ComputeCmma { .. } => "OPS",
             ThroughputMode::Memory => "bytes",
         };
 
         let mut val_per_s = match key.mode {
-            ThroughputMode::ComputeDirect | ThroughputMode::ComputeCmma(_) => self.ops_per_s(),
-            ThroughputMode::Memory => self.bytes_per_s(key),
+            ThroughputMode::ComputeDirect { .. } | ThroughputMode::ComputeCmma { .. } => {
+                self.ops_per_s()
+            }
+            ThroughputMode::Memory => self.bytes_per_s(),
         };
 
         if val_per_s.is_nan() {
@@ -97,23 +117,21 @@ pub fn compute_throughput_key(
     acc_elem_type: ElemType,
 ) -> ThroughputKey {
     let mode = match cmma_tile {
-        Some((tile_m, tile_n, tile_k)) => ThroughputMode::ComputeCmma(ComputeCmmaConfig {
-            accumulator_type: acc_elem_type,
-            cmma_dims: CmmaDims {
-                m: tile_m as usize,
-                n: tile_n as usize,
-                k: tile_k as usize,
+        Some((tile_m, tile_n, tile_k)) => ThroughputMode::ComputeCmma {
+            dtype: input_elem_type,
+            config: ComputeCmmaConfig {
+                accumulator_type: acc_elem_type,
+                cmma_dims: CmmaDims {
+                    m: tile_m as usize,
+                    n: tile_n as usize,
+                    k: tile_k as usize,
+                },
             },
-        }),
-        None => ThroughputMode::ComputeDirect,
+        },
+        None => ThroughputMode::ComputeDirect {
+            dtype: acc_elem_type,
+        },
     };
 
-    ThroughputKey {
-        mode,
-        dtype: match mode {
-            ThroughputMode::ComputeCmma(_) => input_elem_type,
-            ThroughputMode::ComputeDirect => acc_elem_type,
-            ThroughputMode::Memory => unreachable!(),
-        },
-    }
+    ThroughputKey { mode }
 }

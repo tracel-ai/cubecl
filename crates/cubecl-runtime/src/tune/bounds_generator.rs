@@ -2,7 +2,7 @@ use core::time::Duration;
 
 use alloc::vec::Vec;
 
-use crate::throughput::{ThroughputKey, ThroughputValue};
+use crate::throughput::ThroughputValue;
 use crate::tune::TuneInputs;
 
 /// A set of [`AutotuneBound`]s for a given key and reference inputs, with a launch overhead.
@@ -63,7 +63,6 @@ pub fn calculate_bounds(
     compute_ops: usize,
     compute_threshold: f32,
     memory_throughput: &ThroughputValue,
-    memory_key: &ThroughputKey,
     memory_bytes: usize,
     memory_threshold: f32,
 ) -> Vec<AutotuneBound> {
@@ -75,7 +74,7 @@ pub fn calculate_bounds(
         },
         AutotuneBound {
             ops_count: memory_bytes,
-            throughput: memory_throughput.bytes_per_s(memory_key),
+            throughput: memory_throughput.bytes_per_s(),
             threshold: memory_threshold,
         },
     ]
