@@ -31,7 +31,7 @@ use pliron::{
 use crate::compiler::{
     dialect::{
         branch::CfToLlvmConversionPass, entrypoint::InsertConstantEmulationPass,
-        to_llvm::CubeToLLVMPass,
+        metadata::LowerBufferLenPass, to_llvm::CubeToLLVMPass,
     },
     jit::engine::PlironEngine,
 };
@@ -104,6 +104,7 @@ impl PlironCompiler {
         func_passes.add_pass(CfToLlvmConversionPass::default());
         func_passes.add_pass(SimplifyCFGPass);
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(LowerBufferLenPass::default());
         func_passes.add_pass(CubeToLLVMPass::default());
         func_passes.add_pass(Mem2RegPass::default());
 

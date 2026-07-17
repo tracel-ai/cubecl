@@ -6,6 +6,7 @@ pub mod func;
 pub mod general;
 pub mod math;
 pub mod memory;
+pub mod metadata;
 pub mod to_llvm;
 
 mod prelude {

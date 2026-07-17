@@ -5,7 +5,7 @@ use pliron::builtin::types::{IntegerType, Signedness};
 use pliron_llvm::types::PointerType as LlvmPointerType;
 
 /// LLVM width of a `cube.index`. `IndexType` is `size_of::<u64>()`, so it maps to `i64`.
-const INDEX_WIDTH: u32 = 64;
+pub const INDEX_WIDTH: u32 = 64;
 
 /// Which LLVM type a cubecl type maps to.
 enum LlvmTypeKind {
