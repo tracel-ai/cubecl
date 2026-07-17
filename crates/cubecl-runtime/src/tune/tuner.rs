@@ -11,7 +11,7 @@ use alloc::string::{String, ToString};
 use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
 use crate::config::Logger;
-#[cfg(any(feature = "autotune-checks", std_io))]
+#[cfg(std_io)]
 use crate::config::autotune::AutotuneLogLevel;
 use crate::server::LaunchError;
 use crate::tune::{AutotuneLoggerExt, AutotuneResult, TimeBound, TuneCache, tune_benchmark};

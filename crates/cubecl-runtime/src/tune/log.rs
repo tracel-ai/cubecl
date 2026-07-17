@@ -33,16 +33,20 @@ pub struct AutotuneLogContext {
 }
 
 impl AutotuneLogContext {
-    /// Creates a new log context if the logger is enabled for autotuning.
+    /// Creates a new log context if either the human logger or the machine-readable recorder is
+    /// enabled. The recorder is independent of the logger, so records are still populated when the
+    /// logger is disabled.
     pub fn new(logger: &mut Logger) -> Option<Self> {
-        match logger.log_level_autotune() {
-            AutotuneLogLevel::Disabled => None,
-            _ => Some(Self {
+        let logging = !matches!(logger.log_level_autotune(), AutotuneLogLevel::Disabled);
+        if logging || logger.autotune_recording_enabled() {
+            Some(Self {
                 bounds: None,
                 limit: None,
                 events: Vec::new(),
                 checks: None,
-            }),
+            })
+        } else {
+            None
         }
     }
 }
