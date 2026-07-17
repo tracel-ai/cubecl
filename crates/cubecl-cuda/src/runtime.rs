@@ -181,7 +181,7 @@ impl DeviceService for CudaServer {
         if arch_version >= 60 {
             device_props.register_atomic_type_usage(
                 Type::atomic(ElemType::Float(FloatKind::F64)),
-                AtomicUsage::Add | AtomicUsage::LoadStore,
+                AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
             );
         }
         if arch_version >= 70 {
@@ -191,7 +191,7 @@ impl DeviceService for CudaServer {
             );
             device_props.register_atomic_type_usage(
                 Type::atomic(Type::new(ElemType::Float(FloatKind::F16)).with_vector_size(2)),
-                AtomicUsage::Add | AtomicUsage::LoadStore,
+                AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
             );
             device_props.register_opaque_type(OpaqueType::Barrier);
             device_props.features.plane.insert(Plane::Sync);
@@ -249,11 +249,11 @@ impl DeviceService for CudaServer {
             for vec in [2, 4, 8] {
                 device_props.register_atomic_type_usage(
                     Type::atomic(Type::new(FloatKind::BF16).with_vector_size(vec)),
-                    AtomicUsage::Add | AtomicUsage::LoadStore,
+                    AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
                 );
                 device_props.register_atomic_type_usage(
                     Type::atomic(Type::new(FloatKind::F16).with_vector_size(vec)),
-                    AtomicUsage::Add | AtomicUsage::LoadStore,
+                    AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
                 );
             }
             // PTX docs say min/max is only supported for vectorized f16/bf16, not sure why it's
@@ -273,11 +273,11 @@ impl DeviceService for CudaServer {
             if CUDA_VERSION > 12080 {
                 device_props.register_atomic_type_usage(
                     Type::atomic(Type::new(ElemType::Float(FloatKind::F32)).with_vector_size(2)),
-                    AtomicUsage::LoadStore | AtomicUsage::Add,
+                    AtomicUsage::LoadStore | AtomicUsage::Exchange | AtomicUsage::Add,
                 );
                 device_props.register_atomic_type_usage(
                     Type::atomic(Type::new(ElemType::Float(FloatKind::F32)).with_vector_size(4)),
-                    AtomicUsage::LoadStore | AtomicUsage::Add,
+                    AtomicUsage::LoadStore | AtomicUsage::Exchange | AtomicUsage::Add,
                 );
             }
         }

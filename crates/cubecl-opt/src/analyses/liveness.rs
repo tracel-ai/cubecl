@@ -144,6 +144,7 @@ pub mod shared {
             IRNode, WALKCONFIG_PREORDER_FORWARD, uninterruptible::immutable::walk_op,
         },
         pass::{Analysis, AnalysisManager},
+        r#type::TypeHandle,
         value::Value,
     };
 
@@ -155,6 +156,8 @@ pub mod shared {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct SmemAllocation {
         pub value: Value,
+        /// The type of the value (not wrapped in a pointer)
+        pub value_ty: TypeHandle,
         /// The shared memory being allocated
         pub smem: MemoryResource,
         /// The offset in the shared memory buffer
@@ -224,6 +227,7 @@ pub mod shared {
                                     root_ptr,
                                     SmemAllocation {
                                         value: root_ptr,
+                                        value_ty: declare.value_ty(ctx).get_type(ctx),
                                         smem,
                                         offset,
                                     },

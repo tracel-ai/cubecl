@@ -32,7 +32,7 @@ use rspirv::{
     spirv::{Capability, Decoration, MemoryAccess, StorageClass},
 };
 
-use crate::types::ty_to_spirv_dialect;
+use crate::types::ty_to_spirv_dialect_explicit_layout;
 
 pub static PARAMS_NAME: LazyLock<Identifier> = LazyLock::new(|| ident("_spirv_params"));
 
@@ -158,7 +158,7 @@ impl ConvertArgsPass {
 fn buffer_ty(ctx: &Context, buffer: Value) -> TypeHandle {
     let ty = buffer.element_ty(ctx);
     let ty_size = ty.size(ctx);
-    let ty = ty_to_spirv_dialect(ctx, ty);
+    let ty = ty_to_spirv_dialect_explicit_layout(ctx, ty);
     let array = RuntimeArrayType::get(ctx, ty, Some(ty_size as u32));
     let struct_ = StructType::get(
         ctx,
@@ -180,7 +180,7 @@ fn info_ty(ctx: &Context) -> TypeHandle {
         .push(DecorationInfo::unit(Decoration::Block));
 
     for scalar in info.scalars {
-        let ty = ty_to_spirv_dialect(ctx, scalar.ty.to_type(ctx));
+        let ty = ty_to_spirv_dialect_explicit_layout(ctx, scalar.ty.to_type(ctx));
         let ty_size = scalar.ty.expand_size(ctx.address_type()) as u32;
         let array = ArrayType::get(ctx, scalar.count as u32, ty, Some(ty_size));
         struct_.field_types.push(array.into());
@@ -188,7 +188,7 @@ fn info_ty(ctx: &Context) -> TypeHandle {
     }
 
     if let Some(field) = info.sized_meta {
-        let ty = ty_to_spirv_dialect(ctx, field.ty.to_type(ctx));
+        let ty = ty_to_spirv_dialect_explicit_layout(ctx, field.ty.to_type(ctx));
         let ty_size = field.ty.expand_size(ctx.address_type()) as u32;
         let array = ArrayType::get(ctx, field.count as u32, ty, Some(ty_size));
         struct_.field_types.push(array.into());
@@ -196,7 +196,8 @@ fn info_ty(ctx: &Context) -> TypeHandle {
     }
 
     if info.has_dynamic_meta {
-        let address_ty = ty_to_spirv_dialect(ctx, address_ty.unsigned_type().to_type(ctx));
+        let address_ty =
+            ty_to_spirv_dialect_explicit_layout(ctx, address_ty.unsigned_type().to_type(ctx));
         let ty_size = address_ty.size(ctx) as u32;
         let array = RuntimeArrayType::get(ctx, address_ty, Some(ty_size));
         struct_.field_types.push(array.into());
@@ -282,6 +283,7 @@ impl MatchRewrite for LowerInfoOps {
     }
 }
 
+#[derive(Default)]
 pub struct CollectVerCapExtPass;
 
 impl Pass for CollectVerCapExtPass {
@@ -305,7 +307,26 @@ impl Pass for CollectVerCapExtPass {
     }
 }
 
+#[op_interface]
+pub trait CustomCapabilitiesOp {
+    fn custom_capabilities(&self, ctx: &Context) -> Vec<Capability>;
+    fn verify(_op: &dyn Op, _ctx: &Context) -> Result<()>
+    where
+        Self: Sized,
+    {
+        Ok(())
+    }
+}
+
+// These are restricted to OpenCL so remove from consideration
+#[rustfmt::skip]
+const EXCLUDED_CAPS: &[Capability] = {
+    use Capability::*;
+    &[Kernel, Vector16, Float16Buffer, ImageBasic, ImageReadWrite, ImageMipmap, Pipes,
+    DeviceEnqueue, LiteralSampler, SubgroupDispatch, NamedBarrier, PipeStorage]
+};
 const PREFERRED_CAPS: &[Capability] = &[Capability::GroupNonUniformArithmetic];
+const PREFERRED_EXTS: &[&str] = &["SPV_KHR_physical_storage_buffer"];
 
 /// Capabilities can require other capabilities which require other capabilities, and each can
 /// require extensions/a minimum version. So add them all recursively.
@@ -334,6 +355,11 @@ fn update_ver_cap_ext(ctx: &Context, module: &mut SpirvModuleOp, node: IRNode) {
         }
         IRNode::Operation(op) => {
             let dyn_op = op.dyn_op(ctx);
+            if let Some(custom) = op_cast::<dyn CustomCapabilitiesOp>(&*dyn_op) {
+                for cap in custom.custom_capabilities(ctx) {
+                    module.insert_capability(ctx, cap);
+                }
+            }
             if let Some(ver_cap_ext) = op_cast(&*dyn_op) {
                 update_ver_cap_ext_op(ctx, module, ver_cap_ext);
             }
@@ -386,7 +412,8 @@ fn update_ver_cap_ext_impl(
         extensions
     };
 
-    for cap_set in caps.into_iter().filter(|set| !set.is_empty()) {
+    for mut cap_set in caps.into_iter().filter(|set| !set.is_empty()) {
+        cap_set.retain(|cap| !EXCLUDED_CAPS.contains(cap));
         if cap_set.len() == 1 {
             module.insert_capability(ctx, cap_set[0]);
         } else if cap_set.iter().any(|cap| module.has_capability(ctx, cap)) {
@@ -407,6 +434,8 @@ fn update_ver_cap_ext_impl(
             module.insert_extension(ctx, ext_set[0]);
         } else if ext_set.iter().any(|ext| module.has_extension(ctx, *ext)) {
             continue;
+        } else if let Some(preferred) = ext_set.iter().find(|cap| PREFERRED_EXTS.contains(cap)) {
+            module.insert_extension(ctx, *preferred);
         } else {
             panic!(
                 "Need custom rule for multi-extension node {}, lists extensions: {:?}",

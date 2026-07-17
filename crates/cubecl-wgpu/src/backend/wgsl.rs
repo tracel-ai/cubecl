@@ -94,7 +94,7 @@ pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
     for ty in supported_atomic_types {
         props.register_atomic_type_usage(
             Type::atomic(ty),
-            AtomicUsage::LoadStore | AtomicUsage::Add,
+            AtomicUsage::LoadStore | AtomicUsage::Exchange | AtomicUsage::Add,
         );
     }
 
@@ -113,7 +113,7 @@ pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
     if feats.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
         props.register_atomic_type_usage(
             Type::atomic(ElemType::Float(FloatKind::F32)),
-            AtomicUsage::LoadStore | AtomicUsage::Add,
+            AtomicUsage::LoadStore | AtomicUsage::Exchange | AtomicUsage::Add,
         );
     }
 }

@@ -270,7 +270,7 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
     for ty in supported_atomic_types {
         props.register_atomic_type_usage(
             Type::atomic(ty),
-            AtomicUsage::Add | AtomicUsage::LoadStore,
+            AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
         );
     }
 }

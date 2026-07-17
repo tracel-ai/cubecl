@@ -2,12 +2,15 @@ use alloc::{vec, vec::Vec};
 
 use crate::{
     NoMemoryEffect,
-    interfaces::{AlignedType, MemoryEffect, MemoryEffects, TypedExt},
+    interfaces::{
+        AlignedType, MaybeVectorizedType, MemoryEffect, MemoryEffects, ScalarizableType, TypedExt,
+    },
+    scalar,
 };
 use pliron::{
     context::Context,
     derive::{op_interface_impl, type_interface_impl},
-    r#type::{Typed, TypedHandle},
+    r#type::{TypeHandle, Typed, TypedHandle},
 };
 use pliron_spirv::{
     ops::{AccessChainOp, InBoundsAccessChainOp, LoadOp},
@@ -40,6 +43,8 @@ impl MemoryEffects for LoadOp {
     }
 }
 
+scalar!(FloatType);
+
 #[type_interface_impl]
 impl AlignedType for FloatType {
     fn align(&self, _ctx: &Context) -> usize {
@@ -51,5 +56,19 @@ impl AlignedType for FloatType {
 impl AlignedType for VectorType {
     fn align(&self, ctx: &Context) -> usize {
         self.count as usize * self.element_type.align(ctx)
+    }
+}
+
+#[type_interface_impl]
+impl MaybeVectorizedType for VectorType {
+    fn vector_size(&self, _ctx: &Context) -> usize {
+        self.count as usize
+    }
+}
+
+#[type_interface_impl]
+impl ScalarizableType for VectorType {
+    fn scalar_type(&self, ctx: &Context) -> TypeHandle {
+        self.element_type.scalar_ty(ctx)
     }
 }
