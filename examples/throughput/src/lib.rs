@@ -66,7 +66,12 @@ pub fn launch_overhead<R: Runtime>(device: &R::Device) {
 pub fn all<R: Runtime>(device: &R::Device) {
     run::<R>(
         device,
-        &[compute_direct_key(), compute_cmma_key(), memory_key(), launch_overhead_key()],
+        &[
+            compute_direct_key(),
+            compute_cmma_key(),
+            memory_key(),
+            launch_overhead_key(),
+        ],
     );
 }
 
@@ -89,7 +94,10 @@ fn run<R: Runtime>(device: &R::Device, keys: &[ThroughputKey]) {
 /// Describes the operands of a benchmark: input dtype, plus CMMA shape and accumulator.
 fn describe(key: &ThroughputKey) -> String {
     match key.mode {
-        ThroughputMode::ComputeCmma { dtype: input_dtype, config: cfg } => format!(
+        ThroughputMode::ComputeCmma {
+            dtype: input_dtype,
+            config: cfg,
+        } => format!(
             "{}→{} {}×{}×{}",
             input_dtype, cfg.accumulator_type, cfg.cmma_dims.m, cfg.cmma_dims.n, cfg.cmma_dims.k,
         ),
@@ -109,7 +117,9 @@ fn mode_label(mode: &ThroughputMode) -> &'static str {
 
 fn compute_direct_key() -> ThroughputKey {
     ThroughputKey {
-        mode: ThroughputMode::ComputeDirect { dtype: ElemType::Float(FloatKind::F16) },
+        mode: ThroughputMode::ComputeDirect {
+            dtype: ElemType::Float(FloatKind::F16),
+        },
     }
 }
 

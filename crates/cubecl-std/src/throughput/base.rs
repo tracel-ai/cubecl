@@ -32,7 +32,10 @@ pub fn measure_peak_throughput<R: Runtime>(
         ThroughputMode::ComputeDirect { .. } => {
             compute_direct::build_kernel(client, key, launch_config)
         }
-        ThroughputMode::ComputeCmma { config: cmma_config, .. } => {
+        ThroughputMode::ComputeCmma {
+            config: cmma_config,
+            ..
+        } => {
             if client.properties().features.matmul.cmma.is_empty() {
                 return ThroughputValue::ZERO;
             }
@@ -87,4 +90,3 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
         plane_size: plane_size as usize,
     }
 }
-
