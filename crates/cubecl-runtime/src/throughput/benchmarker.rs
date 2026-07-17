@@ -71,7 +71,7 @@ impl ThroughputBenchmarker {
     /// and estimating the number of iterations needed to reach a stable duration.
     fn warmup(&self, sample: impl Fn(usize) -> Duration) -> usize {
         const MAX_WARMUP: usize = 50;
-        const MAX_ITERATIONS: usize = 200;
+        const MAX_ITERATIONS: usize = 1_000;
         const PLATEAU_TOL: f64 = 0.03;
         const PATIENCE: usize = 3;
         const TARGET_DURATION_MS: f64 = 20.0;
