@@ -22,6 +22,8 @@ pub enum ThroughputMode {
     },
     /// Memory input reads and output writes.
     Memory,
+    /// Launch overhead measurement.
+    Launch,
 }
 
 /// Represents a key/configuration used to identify the throughput of a computation.
@@ -38,7 +40,7 @@ impl ThroughputKey {
         match self.mode {
             ThroughputMode::ComputeDirect { dtype } => dtype,
             ThroughputMode::ComputeCmma { dtype, .. } => dtype,
-            ThroughputMode::Memory => ElemType::Float(FloatKind::F32),
+            ThroughputMode::Memory | ThroughputMode::Launch => ElemType::Float(FloatKind::F32),
         }
     }
 }
@@ -77,18 +79,29 @@ impl ThroughputValue {
             / self.duration.as_secs_f64()
     }
 
+    /// Returns the duration per operation.
+    pub fn duration_per_op(&self) -> core::time::Duration {
+        if self.ops_count == 0 {
+            core::time::Duration::ZERO
+        } else {
+            core::time::Duration::from_secs_f64(self.duration.as_secs_f64() / self.ops_count as f64)
+        }
+    }
+
     /// Formats the throughput value as a clean human-readable string.
     pub fn format(&self, key: &ThroughputKey) -> String {
-        let unit = match key.mode {
-            ThroughputMode::ComputeDirect { .. } | ThroughputMode::ComputeCmma { .. } => "OPS",
-            ThroughputMode::Memory => "bytes",
-        };
-
-        let mut val_per_s = match key.mode {
+        let (mut val_per_s, unit) = match key.mode {
             ThroughputMode::ComputeDirect { .. } | ThroughputMode::ComputeCmma { .. } => {
-                self.ops_per_s()
+                (self.ops_per_s(), "OPS")
             }
-            ThroughputMode::Memory => self.bytes_per_s(),
+            ThroughputMode::Memory => (self.bytes_per_s(), "bytes"),
+            ThroughputMode::Launch => {
+                let dur = self.duration_per_op();
+                if dur.is_zero() {
+                    return String::from("N/A");
+                }
+                return format!("{dur:?}/launch");
+            }
         };
 
         if val_per_s.is_nan() {

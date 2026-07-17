@@ -1,7 +1,7 @@
 use cubecl::{
     ir::{ElemType, FloatKind},
     prelude::*,
-    std::throughput::{measure_launch_overhead, measure_peak_throughput},
+    std::throughput::measure_peak_throughput,
     throughput::{CmmaDims, ComputeCmmaConfig, ThroughputKey, ThroughputMode},
 };
 
@@ -59,18 +59,15 @@ pub fn memory<R: Runtime>(device: &R::Device) {
 
 /// Measures the fixed cost of a single kernel launch.
 pub fn launch_overhead<R: Runtime>(device: &R::Device) {
-    let client = R::client(device);
-    let duration = measure_launch_overhead::<R>(&client);
-    println!("Launch overhead: {:?}", duration);
+    run::<R>(device, &[launch_overhead_key()]);
 }
 
 /// Runs every throughput benchmark and prints them as a table.
 pub fn all<R: Runtime>(device: &R::Device) {
     run::<R>(
         device,
-        &[compute_direct_key(), compute_cmma_key(), memory_key()],
+        &[compute_direct_key(), compute_cmma_key(), memory_key(), launch_overhead_key()],
     );
-    launch_overhead::<R>(device);
 }
 
 fn run<R: Runtime>(device: &R::Device, keys: &[ThroughputKey]) {
@@ -96,7 +93,8 @@ fn describe(key: &ThroughputKey) -> String {
             "{}→{} {}×{}×{}",
             input_dtype, cfg.accumulator_type, cfg.cmma_dims.m, cfg.cmma_dims.n, cfg.cmma_dims.k,
         ),
-        _ => key.dtype().to_string(),
+        ThroughputMode::ComputeDirect { .. } => key.dtype().to_string(),
+        ThroughputMode::Memory | ThroughputMode::Launch => String::new(),
     }
 }
 
@@ -105,6 +103,7 @@ fn mode_label(mode: &ThroughputMode) -> &'static str {
         ThroughputMode::ComputeDirect { .. } => "compute-direct",
         ThroughputMode::ComputeCmma { .. } => "compute-cmma",
         ThroughputMode::Memory => "memory",
+        ThroughputMode::Launch => "launch",
     }
 }
 
@@ -133,5 +132,11 @@ fn compute_cmma_key() -> ThroughputKey {
 fn memory_key() -> ThroughputKey {
     ThroughputKey {
         mode: ThroughputMode::Memory,
+    }
+}
+
+fn launch_overhead_key() -> ThroughputKey {
+    ThroughputKey {
+        mode: ThroughputMode::Launch,
     }
 }

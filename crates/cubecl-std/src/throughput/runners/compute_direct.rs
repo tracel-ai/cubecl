@@ -14,19 +14,24 @@ pub fn build_kernel<R: Runtime>(
 
     let use_fma = matches!(dtype, ElemType::Float(_));
 
-    let kernel = Box::new(move |iterations: usize| unsafe {
-        let out = client.empty(config.vector_size * dtype.size());
+    let sample = Box::new(move |iterations: usize| {
+        let start = cubecl_common::profile::Instant::now();
+        unsafe {
+            let out = client.empty(config.vector_size * dtype.size());
 
-        compute_direct_throughput::launch_unchecked(
-            &client,
-            CubeCount::Static(config.cube_count as u32, 1, 1),
-            CubeDim::new(&client, config.cube_dim),
-            config.vector_size,
-            BufferArg::from_raw_parts(out, 1),
-            iterations,
-            use_fma,
-            dtype.into(),
-        )
+            compute_direct_throughput::launch_unchecked(
+                &client,
+                CubeCount::Static(config.cube_count as u32, 1, 1),
+                CubeDim::new(&client, config.cube_dim),
+                config.vector_size,
+                BufferArg::from_raw_parts(out, 1),
+                iterations,
+                use_fma,
+                dtype.into(),
+            )
+        };
+        let _ = cubecl_core::future::block_on(client.sync());
+        start.elapsed()
     });
 
     // `CHAINS` independent accumulators per lane, each retiring one fma (two flops) or one mul.
@@ -34,7 +39,7 @@ pub fn build_kernel<R: Runtime>(
     let ops_count =
         ops_per_chain * CHAINS * config.cube_count * config.cube_dim * config.vector_size;
 
-    KernelConfig { kernel, ops_count }
+    KernelConfig { sample, ops_count }
 }
 
 /// Independent accumulator chains per lane to hide arithmetic latency.

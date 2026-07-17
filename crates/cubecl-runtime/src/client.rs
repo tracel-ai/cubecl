@@ -1341,12 +1341,4 @@ impl<R: Runtime> ComputeClient<R> {
         let mut throughputs = ThroughputBenchmarker::new(cache);
         throughputs.measure(self, key, kernel_config)
     }
-
-    /// Calculates the launch overhead of the device by sampling.
-    pub fn measure_launch_overhead(
-        &self,
-        sample: impl Fn() -> core::time::Duration,
-    ) -> core::time::Duration {
-        crate::throughput::launch_overhead_or_measure(&self.device_key(), sample)
-    }
 }

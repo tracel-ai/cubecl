@@ -6,19 +6,15 @@ use crate::{
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use cubecl_common::{
-    config::RuntimeConfig,
-    future::block_on,
-    profile::{Duration, Instant},
-};
+use cubecl_common::{config::RuntimeConfig, profile::Duration};
 use spin::Mutex;
 
 type Cache = Arc<Mutex<ThroughputCache>>;
 
 /// Configuration and payload for a benchmarkable compute kernel.
 pub struct KernelConfig {
-    /// The executable kernel closure to be evaluated.
-    pub kernel: Box<dyn Fn(usize)>,
+    /// A closure that executes the kernel for the given number of iterations and returns the duration.
+    pub sample: Box<dyn Fn(usize) -> Duration>,
     /// The number of operations processed in one iteration.
     pub ops_count: usize,
 }
@@ -44,7 +40,7 @@ impl ThroughputBenchmarker {
     /// then measures the throughput over multiple iterations taking the minimum time per iteration (peak attained).
     pub fn measure<R: Runtime>(
         &mut self,
-        client: &ComputeClient<R>,
+        _client: &ComputeClient<R>,
         key: ThroughputKey,
         kernel_config: KernelConfig,
     ) -> ThroughputValue {
@@ -54,17 +50,10 @@ impl ThroughputBenchmarker {
             return *cached_value;
         }
 
-        let kernel = kernel_config.kernel;
+        let sample = kernel_config.sample;
 
-        let sample = |iterations: usize| {
-            let start = Instant::now();
-            kernel(iterations);
-            let _ = block_on(client.sync());
-            start.elapsed()
-        };
-
-        let iterations = self.warmup(sample);
-        let duration = self.sample_peak_duration(iterations, sample);
+        let iterations = self.warmup(&sample);
+        let duration = self.sample_peak_duration(iterations, &sample);
 
         let value = ThroughputValue {
             ops_count: kernel_config.ops_count,
