@@ -1,6 +1,6 @@
 #[cfg(not(target_family = "wasm"))]
 mod _impl {
-    use std::thread::JoinHandle;
+    use cubecl_environment::thread::JoinHandle;
 
     #[derive(Debug)]
     pub struct WgpuPoll {
@@ -15,7 +15,7 @@ mod _impl {
             let thread_check = active_handle.clone();
 
             let (cancel_sender, cancel_receiver) = std::sync::mpsc::channel();
-            let poll_thread = std::thread::spawn(move || {
+            let poll_thread = cubecl_environment::thread::spawn(move || {
                 loop {
                     // Check whether the WgpuPoll, this thread, and something else is holding
                     // a handle.

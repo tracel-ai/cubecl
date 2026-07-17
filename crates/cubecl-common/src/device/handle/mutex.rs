@@ -1,16 +1,14 @@
-use crate::{
-    device::{
-        DeviceId, DeviceService,
-        handle::{CallError, DeviceHandleSpec, ServerUtilitiesHandle, ServiceCreationError},
-    },
-    stream_id::StreamId,
-    stub::{Arc, Mutex, RwLock},
+use crate::device::{
+    DeviceId, DeviceService,
+    handle::{CallError, DeviceHandleSpec, ServerUtilitiesHandle, ServiceCreationError},
 };
 use alloc::boxed::Box;
 use core::{
     any::{Any, TypeId},
     marker::PhantomData,
 };
+use cubecl_environment::stream::StreamId;
+use cubecl_environment::sync::{Arc, Mutex, RwLock};
 use hashbrown::HashMap;
 
 /// A handle to a specific device context (no-std version).

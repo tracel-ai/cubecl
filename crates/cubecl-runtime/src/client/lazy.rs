@@ -10,8 +10,8 @@ use core::mem::MaybeUninit;
 use cubecl_common::bytes::{
     AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes,
 };
+use cubecl_environment::sync::Once;
 use cubecl_zspace::striding::has_contiguous_row_major_strides;
-use spin::Once;
 
 /// Allocation controller that lazily copies a device resource into host memory on first access.
 ///
@@ -72,8 +72,10 @@ impl<R: Runtime> LazyDeviceController<R> {
                     desc.strides.clone(),
                     desc.elem_size,
                 );
-                cubecl_common::reader::read_sync(self.client.read_one_tensor_async(descriptor))
-                    .map_err(|err| AccessError::Read(format!("{err:?}")))
+                cubecl_environment::future::reader::read_sync(
+                    self.client.read_one_tensor_async(descriptor),
+                )
+                .map_err(|err| AccessError::Read(format!("{err:?}")))
             })
     }
 

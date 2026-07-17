@@ -1,7 +1,7 @@
 use core::ops::Deref;
 
+use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_ir::{Id, Memory, Operation};
-use hashbrown::{HashMap, HashSet};
 
 use crate::{Function, GlobalState, NodeIndex};
 

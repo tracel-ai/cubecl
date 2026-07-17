@@ -1,7 +1,7 @@
 use core::{cell::RefCell, ops::Deref};
 
+use cubecl_environment::collections::HashMap;
 use cubecl_ir::{Id, Memory, Operation, Value, ValueKind};
-use hashbrown::HashMap;
 
 use crate::{
     Function, GlobalState, MemoryBlock,

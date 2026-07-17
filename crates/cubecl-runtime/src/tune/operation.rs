@@ -130,7 +130,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
     }
 }
 
-#[cfg(std_io)]
+#[cfg(autotune_persistence)]
 /// Trait alias with support for persistent caching
 pub trait AutotuneKey:
     Clone
@@ -146,7 +146,7 @@ pub trait AutotuneKey:
     + 'static
 {
 }
-#[cfg(not(std_io))]
+#[cfg(not(autotune_persistence))]
 /// Trait alias
 pub trait AutotuneKey:
     Clone + Debug + PartialEq + Eq + Hash + Display + Send + Sync + 'static

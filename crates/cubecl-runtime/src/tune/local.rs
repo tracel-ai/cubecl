@@ -7,15 +7,15 @@ use core::{
     fmt::Display,
     hash::Hash,
 };
-use hashbrown::HashMap;
-use spin::Mutex;
+use cubecl_environment::collections::HashMap;
+use cubecl_environment::sync::{Mutex, RwLock};
 
 /// A local tuner allows to create a tuner for a specific key that can be different from the server
 /// key.
 pub struct LocalTuner<AK: AutotuneKey, ID> {
     state: Mutex<Option<HashMap<ID, Arc<Tuner<AK>>>>>,
     name: &'static str,
-    sets: spin::RwLock<Option<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
+    sets: RwLock<Option<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
 }
 
 /// Create a local tuner with the provided name.
@@ -41,7 +41,7 @@ where
         Self {
             state: Mutex::new(None),
             name,
-            sets: spin::RwLock::new(None),
+            sets: RwLock::new(None),
         }
     }
 
@@ -55,7 +55,7 @@ where
         I: TuneInputs,
         Out: AutotuneOutput,
     {
-        let sets = self.sets.read();
+        let sets = self.sets.read().unwrap();
         let type_id = TypeId::of::<F>();
 
         static DOWNCAST_ERROR: &str = "Local tuner only support one set of tunable that must work on the same input and output declared with the init function.";
@@ -68,7 +68,7 @@ where
 
         core::mem::drop(sets);
 
-        let mut sets = self.sets.write();
+        let mut sets = self.sets.write().unwrap();
 
         if let Some(sets) = sets.as_ref()
             && let Some(set) = sets.get(&type_id)
@@ -91,7 +91,7 @@ where
 
     /// Clear the autotune state.
     pub fn clear(&self) {
-        if let Some(s) = self.state.lock().as_mut() {
+        if let Some(s) = self.state.lock().unwrap().as_mut() {
             s.clear()
         }
     }
@@ -131,7 +131,7 @@ where
         let key = operations.generate_key(&inputs);
 
         let tuner = {
-            let mut state_lock = self.state.lock();
+            let mut state_lock = self.state.lock().unwrap();
             let state_map = state_lock.get_or_insert_with(|| HashMap::new());
             state_map
                 .entry(id.clone())

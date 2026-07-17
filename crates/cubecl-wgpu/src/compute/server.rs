@@ -5,16 +5,15 @@ use crate::WgpuCompiler;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
 use cubecl_common::{
-    backtrace::BackTrace,
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
-    stream_id::StreamId,
 };
+#[cfg(feature = "spirv")]
+use cubecl_core::hash::StableHash;
 use cubecl_core::server::{Binding, StreamErrorMode};
 use cubecl_core::zspace::Shape;
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
-    future::DynFut,
     prelude::*,
     server::{
         CopyDescriptor, IoError, KernelArguments, LaunchError, ProfileError, ProfilingToken,
@@ -22,8 +21,14 @@ use cubecl_core::{
     },
     zspace::{Strides, strides},
 };
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashMap;
+use cubecl_environment::future::DynFut;
 #[cfg(feature = "spirv")]
-use cubecl_core::{cache::CacheOption, compilation_cache::CompilationCache, hash::StableHash};
+use cubecl_environment::persistence::CacheOption;
+#[cfg(feature = "spirv")]
+use cubecl_environment::persistence::compilation::CompilationCache;
+use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
 use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage};
@@ -40,7 +45,6 @@ use cubecl_runtime::{
     },
     validation::{validate_cube_dim, validate_units},
 };
-use hashbrown::HashMap;
 use wgpu::ComputePipeline;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

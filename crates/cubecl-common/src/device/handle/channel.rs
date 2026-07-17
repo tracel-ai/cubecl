@@ -1,10 +1,9 @@
-use crate::{
-    device::{
-        DeviceId, DeviceService, DeviceServiceStage, ServerUtilitiesHandle,
-        handle::{CallError, DeviceHandleSpec, ServiceCreationError},
-    },
-    stream_id::StreamId,
+use crate::device::{
+    DeviceId, DeviceService, DeviceServiceStage, ServerUtilitiesHandle,
+    handle::{CallError, DeviceHandleSpec, ServiceCreationError},
 };
+use cubecl_environment::future::channel::oneshot;
+use cubecl_environment::stream::StreamId;
 use hashbrown::HashMap;
 use std::{
     any::{Any, TypeId},

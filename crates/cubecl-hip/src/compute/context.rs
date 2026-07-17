@@ -1,16 +1,16 @@
 use super::storage::gpu::GpuResource;
 use crate::runtime::HipCompiler;
 use crate::{compute::stream::Stream, runtime::HipComputeKernel};
-use cubecl_common::backtrace::BackTrace;
-use cubecl_common::cache::CacheOption;
 use cubecl_common::hash::StableHash;
 use cubecl_core::{
-    compilation_cache::CompilationCache,
     server::ResourceLimitError,
     {ir::DeviceProperties, prelude::*},
 };
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::persistence::CacheOption;
+use cubecl_environment::persistence::compilation::CompilationCache;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{
@@ -50,7 +50,11 @@ pub struct CompilationCacheEntry {
 }
 
 impl HipContext {
-    pub fn new(compilation_options: CompilationOptions, properties: DeviceProperties) -> Self {
+    pub fn new(
+        compilation_options: CompilationOptions,
+        properties: DeviceProperties,
+        arch_name: String,
+    ) -> Self {
         Self {
             module_names: HashMap::new(),
             timestamps: TimestampProfiler::default(),
@@ -60,8 +64,12 @@ impl HipContext {
                 let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
                 if let Some(cache) = &config.compilation.cache {
                     let root = cache.root();
+                    // The architecture is part of the path: binaries built for
+                    // one arch are not portable, and fingerprinting the path
+                    // keeps bundles shipped across machines from serving wrong
+                    // binaries.
                     Some(CompilationCache::new(
-                        "hip-kernel",
+                        format!("hip-kernel_{arch_name}"),
                         CacheOption::default().name("hip").root(root),
                     ))
                 } else {

@@ -3,10 +3,10 @@ use core::cell::{RefCell, RefMut};
 use cubecl_runtime::kernel::Visibility;
 use derive_more::{Deref, DerefMut};
 
+use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_ir::{
     AddressSpace, GlobalState, Id, Instruction, Memory, Operation, Scope, Value, ValueKind,
 };
-use hashbrown::{HashMap, HashSet};
 
 use crate::post_processing::{
     util::AtomicCounter,

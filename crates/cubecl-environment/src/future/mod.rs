@@ -1,3 +1,9 @@
+/// Channel types shared across environments.
+pub mod channel;
+
+/// Read async data without having to decorate each function with async notation.
+pub mod reader;
+
 use alloc::boxed::Box;
 use core::{future::Future, pin::Pin};
 
@@ -6,8 +12,8 @@ use core::{future::Future, pin::Pin};
 pub type DynFut<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
 /// Spawns a future to run detached. This will use a thread on native, or the browser runtime
-/// on WASM. The returned `JoinOnDrop` will join the thread when it is dropped.
-pub fn spawn_detached_fut(fut: impl Future<Output = ()> + Send + 'static) {
+/// on WASM.
+pub fn spawn_detached(fut: impl Future<Output = ()> + Send + 'static) {
     cfg_if::cfg_if! {
         if #[cfg(target_family = "wasm")] {
             wasm_bindgen_futures::spawn_local(fut);
@@ -15,7 +21,7 @@ pub fn spawn_detached_fut(fut: impl Future<Output = ()> + Send + 'static) {
             std::thread::spawn(|| block_on(fut));
         } else {
             drop(fut); // Just to prevent unused.
-            panic!("spawn_detached_fut is only supported with 'std' or on 'wasm' targets");
+            panic!("spawn_detached is only supported with 'std' or on 'wasm' targets");
         }
     }
 }
@@ -26,7 +32,7 @@ pub fn spawn_detached_fut(fut: impl Future<Output = ()> + Send + 'static) {
 pub fn block_on<O>(fut: impl Future<Output = O>) -> O {
     #[cfg(target_family = "wasm")]
     {
-        super::reader::read_sync(fut)
+        self::reader::read_sync(fut)
     }
 
     #[cfg(all(not(target_family = "wasm"), not(feature = "std")))]

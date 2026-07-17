@@ -1,5 +1,5 @@
 use cubecl_common::device::{Device, DeviceId};
-use hashbrown::HashMap;
+use cubecl_environment::collections::HashMap;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::MTLDevice;

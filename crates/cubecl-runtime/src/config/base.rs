@@ -8,10 +8,11 @@ use super::{
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
-use cubecl_common::config::RuntimeConfig;
+use cubecl_environment::config::RuntimeConfig;
+use cubecl_environment::sync::Mutex;
 
 /// Static mutex holding the global configuration, initialized as `None`.
-static CUBE_GLOBAL_CONFIG: spin::Mutex<Option<Arc<CubeClRuntimeConfig>>> = spin::Mutex::new(None);
+static CUBE_GLOBAL_CONFIG: Mutex<Option<Arc<CubeClRuntimeConfig>>> = Mutex::new(None);
 
 /// Represents the global configuration for `CubeCL`, combining profiling, autotuning, and compilation settings.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -39,11 +40,29 @@ pub struct CubeClRuntimeConfig {
     /// Configuration for memory settings.
     #[serde(default)]
     pub memory: MemoryConfig,
+
+    /// Configuration for environment bundles (pre-warmed caches).
+    #[serde(default)]
+    pub bundle: super::bundle::BundleConfig,
 }
 
 impl RuntimeConfig for CubeClRuntimeConfig {
-    fn storage() -> &'static spin::Mutex<Option<Arc<Self>>> {
+    fn storage() -> &'static Mutex<Option<Arc<Self>>> {
         &CUBE_GLOBAL_CONFIG
+    }
+
+    fn on_loaded(&self) {
+        cubecl_environment::stream::set_policy_from_config(self.streaming.policy);
+
+        #[cfg(std_io)]
+        cubecl_environment::bundle::install_from_paths(
+            &self
+                .bundle
+                .paths
+                .iter()
+                .map(std::path::PathBuf::from)
+                .collect::<alloc::vec::Vec<_>>(),
+        );
     }
 
     fn file_names() -> &'static [&'static str] {
@@ -162,6 +181,12 @@ impl RuntimeConfig for CubeClRuntimeConfig {
                 }
                 _ => {}
             }
+        }
+
+        if let Ok(val) = std::env::var("CUBECL_BUNDLE") {
+            self.bundle
+                .paths
+                .extend(std::env::split_paths(&val).map(|path| path.to_string_lossy().to_string()));
         }
 
         self

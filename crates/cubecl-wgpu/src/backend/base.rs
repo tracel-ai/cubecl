@@ -146,7 +146,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 let err_future = error_scope.pop();
 
                 #[cfg(not(target_family = "wasm"))]
-                if let Some(err) = cubecl_common::future::block_on(err_future) {
+                if let Some(err) = cubecl_environment::future::block_on(err_future) {
                     log::error!(
                         "[cubecl-wgpu] WGSL compilation failed for kernel `{entrypoint_name}`:\n{err}\n--- shader source ({} bytes) ---\n{source}\n--- end shader ---",
                         source.len()
@@ -155,7 +155,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                         reason: format!(
                             "WGSL compilation failed for kernel `{entrypoint_name}`: {err}"
                         ),
-                        backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                        backtrace: cubecl_environment::backtrace::BackTrace::capture(),
                     });
                 }
 

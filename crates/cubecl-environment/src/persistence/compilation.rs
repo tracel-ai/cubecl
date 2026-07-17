@@ -1,6 +1,7 @@
 use std::{
     boxed::Box,
     cell::RefCell,
+    format,
     fs::{self, File},
     io::{Cursor, Write},
     path::{Path, PathBuf},
@@ -12,8 +13,8 @@ use ciborium::{de::from_reader, ser::into_writer};
 use hashbrown::HashMap;
 use serde::Serialize;
 
-use crate::cache::{
-    Cache, CacheError, CacheKey, CacheOption, CacheValue, Entry, sanitize_path_segment,
+use super::store::{
+    Cache, CacheError, CacheKey, CacheOption, CacheValue, Entry, Origin, sanitize_path_segment,
 };
 
 /// The in-memory cache used by the chunked kernel cache.
@@ -30,6 +31,9 @@ pub struct CompilationCache<K: CacheKey, V: CacheValue> {
     current_chunk: File,
     current_chunk_path_normalized: String,
     cache_root: PathBuf,
+    /// The cache root relative to any root directory (`name/version/segments`,
+    /// `/`-separated): the base for bundle chunk lookups.
+    rel_root: String,
 }
 
 /// Error related to caching.
@@ -53,18 +57,20 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
         level = "trace",
         skip(path),
         fields(path = ?path.as_ref())))]
-    pub fn new<P: AsRef<Path>>(path: P, option: CacheOption) -> Self {
+    pub fn new<P: AsRef<str>>(path: P, option: CacheOption) -> Self {
         let (_, name, version, root, _) = option.clone().resolve();
         let path = path.as_ref();
-        let toc_path = path.join("toc");
+        let toc_path = format!("{path}/toc");
         // `.cbor` suffix (was `.bin` with bincode) invalidates old on-disk chunks.
         let chunk_path = Path::new("chunk0.cbor"); // Split later
 
-        let cache_root = get_persistent_cache_root(path, root, name, version);
+        let rel_root = relative_cache_root(Path::new(path), &name, &version);
+        let cache_root =
+            std::path::absolute(root.join(&rel_root)).expect("Not empty, so can't fail");
         let chunk_path = get_persistent_chunk_file_path(chunk_path, &cache_root);
 
         let in_memory_cache = InMemoryCache::default();
-        let toc = Cache::new(toc_path, option);
+        let toc = Cache::open_file(toc_path, option);
 
         if fs::exists(&chunk_path).unwrap_or(false) {
             Self::read_chunk(&chunk_path, &in_memory_cache);
@@ -82,6 +88,7 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
                     .expect("Should contain root"),
             ),
             cache_root,
+            rel_root: normalized_path(&rel_root),
         }
     }
 
@@ -90,8 +97,30 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
         if let Some(value) = self.get_ref_unsafe(key) {
             return Some(value);
         }
-        let chunk = self.toc.get(key)?;
-        Self::read_chunk(&self.cache_root.join(chunk), &self.in_memory_cache);
+        let (chunk, origin) = self.toc.get_with_origin(key)?;
+        match origin {
+            Origin::Local => {
+                Self::read_chunk(&self.cache_root.join(chunk), &self.in_memory_cache);
+            }
+            Origin::Bundle(index) => {
+                let seed = self.toc.seed(index)?;
+                let rel = format!("{}/{chunk}", self.rel_root);
+                match seed.chunk_bytes(&rel) {
+                    Some(bytes) => {
+                        Self::read_chunk_bytes(bytes.into_owned(), &self.in_memory_cache, &rel);
+                    }
+                    None => {
+                        // A truncated bundle: recompile instead of panicking.
+                        log::warn!(
+                            "Bundle chunk '{rel}' referenced by the table of contents is \
+                             missing in {}; recompiling.",
+                            seed.describe()
+                        );
+                        return None;
+                    }
+                }
+            }
+        }
         self.get_ref_unsafe(key)
     }
 
@@ -113,6 +142,10 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
     fn read_chunk(chunk: &PathBuf, cache: &InMemoryCache<K, V>) {
         let data =
             fs::read(chunk).expect("Can't open chunk in table of contents, cache is corrupted!");
+        Self::read_chunk_bytes(data, cache, &chunk.to_string_lossy());
+    }
+
+    fn read_chunk_bytes(data: Vec<u8>, cache: &InMemoryCache<K, V>, chunk: &str) {
         let mut cursor = Cursor::new(data);
         // Collect new entries first so we only need to lock once everything is loaded
         let mut new_entries = Vec::new();
@@ -185,16 +218,9 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
     }
 }
 
-fn get_persistent_cache_root(
-    path_partial: impl AsRef<Path>,
-    root: PathBuf,
-    name: String,
-    version: String,
-) -> PathBuf {
-    let path_partial = path_partial.as_ref();
-    let mut path = root
-        .join(sanitize_path_segment(&name))
-        .join(sanitize_path_segment(&version));
+/// The cache root relative to any root directory: `name/version/segments`.
+fn relative_cache_root(path_partial: &Path, name: &str, version: &str) -> PathBuf {
+    let mut path = PathBuf::from(sanitize_path_segment(name)).join(sanitize_path_segment(version));
 
     for segment in path_partial.iter() {
         // Skip the name directory since it resets the previous path segments.
@@ -204,7 +230,7 @@ fn get_persistent_cache_root(
         path = path.join(sanitize_path_segment(segment.to_str().unwrap()));
     }
 
-    std::path::absolute(path).expect("Not empty, so can't fail")
+    path
 }
 
 fn get_persistent_chunk_file_path<P: AsRef<Path>>(path_partial: P, chunks_root: &Path) -> PathBuf {

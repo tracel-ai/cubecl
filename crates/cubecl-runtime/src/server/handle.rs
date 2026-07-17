@@ -1,4 +1,4 @@
-use cubecl_common::stream_id::StreamId;
+use cubecl_environment::stream::StreamId;
 use cubecl_zspace::{Shape, Strides};
 
 use crate::{

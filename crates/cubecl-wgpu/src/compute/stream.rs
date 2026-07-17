@@ -12,18 +12,18 @@ use core::iter;
 #[cfg(renderdoc)]
 use core::{cell::LazyCell, ptr::null};
 use cubecl_common::{
-    backtrace::BackTrace,
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
 };
-#[cfg(renderdoc)]
-use cubecl_core::stub::Mutex;
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
-    future::{self, DynFut},
     server::{IoError, ProfileError, ProfilingToken, ServerError, StreamErrorMode},
     zspace::Shape,
 };
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::future::{self, DynFut};
+#[cfg(renderdoc)]
+use cubecl_environment::sync::Mutex;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger, memory_management::ManagedMemoryHandle,
@@ -219,7 +219,7 @@ impl WgpuStream {
 
         for entry in staging_info.iter() {
             if let Some((staging, _binding, _size)) = entry {
-                let (sender, receiver) = async_channel::bounded(1);
+                let (sender, receiver) = cubecl_environment::future::channel::bounded(1);
                 staging
                     .buffer
                     .slice(..)
@@ -279,7 +279,7 @@ impl WgpuStream {
 
     pub fn start_profile(&mut self) -> Result<ProfilingToken, ServerError> {
         if matches!(self.timings, Timings::System(_)) {
-            cubecl_common::future::block_on(self.sync())?;
+            cubecl_environment::future::block_on(self.sync())?;
         } else {
             self.flush(StreamErrorMode {
                 ignore: false,
@@ -382,7 +382,7 @@ impl WgpuStream {
         let poll = self.poll.start_polling();
 
         Box::pin(async move {
-            let (sender, receiver) = async_channel::bounded::<()>(1);
+            let (sender, receiver) = cubecl_environment::future::channel::bounded::<()>(1);
             queue.on_submitted_work_done(move || {
                 // Signal that we're done.
                 let _ = sender.try_send(());

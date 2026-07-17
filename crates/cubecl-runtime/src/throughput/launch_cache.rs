@@ -2,8 +2,8 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::time::Duration;
 
-use hashbrown::HashMap;
-use spin::Mutex;
+use cubecl_environment::collections::HashMap;
+use cubecl_environment::sync::Mutex;
 
 /// In-memory memo of the launch overhead (a fixed per-device latency) keyed by device name.
 static LAUNCH_OVERHEAD_CACHE: Mutex<Option<HashMap<String, Duration>>> = Mutex::new(None);
@@ -11,7 +11,7 @@ static LAUNCH_OVERHEAD_CACHE: Mutex<Option<HashMap<String, Duration>>> = Mutex::
 /// Returns the cached launch overhead for `name`, measuring it on a miss.
 pub fn launch_overhead_or_measure(name: &str, sample: impl Fn() -> Duration) -> Duration {
     {
-        let guard = LAUNCH_OVERHEAD_CACHE.lock();
+        let guard = LAUNCH_OVERHEAD_CACHE.lock().unwrap();
         if let Some(value) = guard.as_ref().and_then(|map| map.get(name)) {
             return *value;
         }
@@ -19,7 +19,7 @@ pub fn launch_overhead_or_measure(name: &str, sample: impl Fn() -> Duration) -> 
 
     let value = measure_overhead(sample);
 
-    let mut guard = LAUNCH_OVERHEAD_CACHE.lock();
+    let mut guard = LAUNCH_OVERHEAD_CACHE.lock().unwrap();
     *guard
         .get_or_insert_with(HashMap::new)
         .entry(name.to_string())

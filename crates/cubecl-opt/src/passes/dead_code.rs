@@ -6,8 +6,8 @@ use core::{
 };
 
 use alloc::{rc::Rc, vec::Vec};
+use cubecl_environment::collections::HashSet;
 use cubecl_ir::{AddressSpace, ConstantValue, Instruction, Operation, OperationReflect};
-use hashbrown::HashSet;
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 
 use crate::{

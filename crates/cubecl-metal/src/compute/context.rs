@@ -1,9 +1,9 @@
 use crate::MetalCompiler;
-use cubecl_common::backtrace::BackTrace;
 use cubecl_core::prelude::*;
 use cubecl_core::server::{LaunchError, ResourceLimitError};
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashMap;
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
-use hashbrown::HashMap;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSString;
@@ -13,7 +13,7 @@ use objc2_metal::{
 };
 use std::sync::Arc;
 
-use cubecl_common::cache::{Cache, CacheOption};
+use cubecl_environment::persistence::{Cache, CacheOption};
 
 #[derive(Debug, Clone)]
 pub struct CompiledKernel {

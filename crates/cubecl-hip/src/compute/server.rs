@@ -8,11 +8,9 @@ use crate::{
     },
     runtime::HipCompiler,
 };
-use cubecl_common::{bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
+use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
     MemoryConfiguration,
-    backtrace::BackTrace,
-    future,
     ir::MemoryDeviceProperties,
     prelude::*,
     server::{
@@ -20,6 +18,10 @@ use cubecl_core::{
         ServerCommunication, ServerError, ServerUtilities, StreamErrorMode,
     },
 };
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::future;
+use cubecl_environment::future::DynFut;
+use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy,
     compiler::CubeTask,
@@ -416,7 +418,7 @@ impl ComputeServer for HipServer {
         // sync means the stream already faulted — so no replay is still running
         // against this graph, and destroying is safe — but don't silently
         // swallow the error: surface it on the stream so the next op reports it.
-        let synced = cubecl_common::future::block_on(self.sync(stream_id));
+        let synced = cubecl_environment::future::block_on(self.sync(stream_id));
         // `HipGraph::drop` destroys the executable and unpins the buffers it
         // retained.
         self.graphs.remove(&graph);
@@ -447,7 +449,7 @@ impl ComputeServer for HipServer {
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> Result<ProfilingToken, ServerError> {
-        cubecl_common::future::block_on(self.sync(stream_id))?;
+        cubecl_environment::future::block_on(self.sync(stream_id))?;
         Ok(self.ctx.timestamps.start())
     }
 
@@ -456,7 +458,7 @@ impl ComputeServer for HipServer {
         stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        if let Err(err) = cubecl_common::future::block_on(self.sync(stream_id)) {
+        if let Err(err) = cubecl_environment::future::block_on(self.sync(stream_id)) {
             self.ctx
                 .timestamps
                 .error(ProfileError::Server(Box::new(err)));

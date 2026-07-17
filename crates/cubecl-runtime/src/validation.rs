@@ -1,4 +1,4 @@
-use cubecl_common::backtrace::BackTrace;
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::DeviceProperties;
 
 use crate::{

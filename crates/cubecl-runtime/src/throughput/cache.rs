@@ -1,5 +1,5 @@
 #[cfg(std_io)]
-use cubecl_common::cache::{Cache, CacheOption};
+use cubecl_environment::persistence::{Cache, CacheOption};
 
 use crate::{
     config::CubeClRuntimeConfig,
@@ -7,9 +7,9 @@ use crate::{
 };
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
-use cubecl_common::config::RuntimeConfig;
-use hashbrown::HashMap;
-use spin::Mutex;
+use cubecl_environment::collections::HashMap;
+use cubecl_environment::config::RuntimeConfig;
+use cubecl_environment::sync::Mutex;
 
 static GLOBAL_CACHE: Mutex<Option<HashMap<String, Arc<Mutex<ThroughputCache>>>>> = Mutex::new(None);
 
@@ -27,7 +27,7 @@ pub struct ThroughputCache {
 impl ThroughputCache {
     /// Gets or creates a global `ThroughputCache` for the given device name.
     pub fn get_for_device(name: &str) -> Arc<Mutex<Self>> {
-        let mut cache_map = GLOBAL_CACHE.lock();
+        let mut cache_map = GLOBAL_CACHE.lock().unwrap();
         let cache_map = cache_map.get_or_insert_with(HashMap::new);
 
         cache_map
@@ -51,7 +51,7 @@ impl ThroughputCache {
             let options = CacheOption::default().root(root).name("throughput");
 
             Self {
-                cache: Cache::new(name, options),
+                cache: Cache::open(name, options),
             }
         }
     }

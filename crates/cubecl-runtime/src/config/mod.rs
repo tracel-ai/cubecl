@@ -1,8 +1,12 @@
 /// Autotune config module.
 pub mod autotune;
-/// Cache config module.
+/// Bundle config module.
+pub mod bundle;
+/// Cache config module, re-exported from `cubecl-environment`.
 #[cfg(std_io)]
-pub mod cache;
+pub mod cache {
+    pub use cubecl_environment::persistence::CacheConfig;
+}
 /// Compilation config module.
 pub mod compilation;
 /// Memory config module.
@@ -20,5 +24,5 @@ mod base;
 mod logger;
 
 pub use base::*;
-pub use cubecl_common::config::RuntimeConfig;
+pub use cubecl_environment::config::RuntimeConfig;
 pub use logger::Logger;

@@ -5,8 +5,8 @@ use alloc::{
     collections::{linked_list::LinkedList, vec_deque::VecDeque},
     vec,
 };
+use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_ir::{Value, ValueKind};
-use hashbrown::{HashMap, HashSet};
 use smallvec::SmallVec;
 
 use crate::analyses::dominance::{Dominators, PostDominators};

@@ -34,7 +34,7 @@ clap = { version = "4.5.53" }
 
 log = { default-features = false, version = "^0.4.22" }
 
-tokio = { version = "^1.47.1" }
+tokio = { version = "^1.47.1", default-features = false }
 
 test-log = { version = "^0.2", default-features = false }
 
@@ -76,11 +76,16 @@ rand = { version = "0.10.0", default-features = false, features = [
     "std_rng",
 ] } # std_rng is for no_std
 
-async-channel = "2.3"
+async-channel = { version = "2.3", default-features = false }
+backtrace = { version = "0.3", default-features = false }
 etcetera = "0.11.0"
+js-sys = "0.3"
+parking_lot = { version = "0.12.5", default-features = false }
+web-sys = "0.3"
 embassy-time = { version = "0.5", default-features = false }
 md5 = "0.8.0"
 sanitize-filename = "0.6"
+wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4.45"
 web-time = "1.1.0"
 

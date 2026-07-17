@@ -1,8 +1,8 @@
 use alloc::vec::Vec;
+use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_ir::{
     Builtin, Operation, OperationReflect, Operator, Plane, Synchronization, Value, ValueKind,
 };
-use hashbrown::{HashMap, HashSet};
 use petgraph::{graph::EdgeIndex, visit::EdgeRef};
 
 use crate::{ControlFlow, Function, GlobalState, NodeIndex};

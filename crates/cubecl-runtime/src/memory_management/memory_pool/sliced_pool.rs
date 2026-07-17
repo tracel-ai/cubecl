@@ -8,7 +8,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::fmt::Display;
-use cubecl_common::backtrace::BackTrace;
+use cubecl_environment::backtrace::BackTrace;
 
 pub struct SlicedPool {
     pages: Vec<(MemoryPage, StorageId)>,

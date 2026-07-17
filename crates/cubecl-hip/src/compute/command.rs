@@ -5,11 +5,10 @@ use crate::{
     },
     runtime::HipCompiler,
 };
-use cubecl_common::{backtrace::BackTrace, bytes::Bytes, stream_id::StreamId};
+use cubecl_common::bytes::Bytes;
 use cubecl_core::{
     MemoryConfiguration, MemoryUsage,
     bytes::AllocationProperty,
-    future::DynFut,
     ir::MemoryDeviceProperties,
     server::{
         Binding, CopyDescriptor, ExecutionMode, Handle, IoError, LaunchError, ProfileError,
@@ -17,6 +16,9 @@ use cubecl_core::{
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::future::DynFut;
+use cubecl_environment::stream::StreamId;
 use cubecl_hip_sys::{
     HIP_SUCCESS, hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice,
     ihipStream_t,

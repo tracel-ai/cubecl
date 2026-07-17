@@ -5,13 +5,13 @@ use crossbeam_utils::CachePadded;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
     MemoryConfiguration,
-    backtrace::BackTrace,
     ir::MemoryDeviceProperties,
     server::{
         Binding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError,
         StreamErrorMode,
     },
 };
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{

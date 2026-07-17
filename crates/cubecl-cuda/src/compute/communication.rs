@@ -4,8 +4,8 @@ use cubecl_core::{
     device::DeviceId,
     ir::ElemType,
     server::{CommunicationId, ReduceOperation},
-    stub::Mutex,
 };
+use cubecl_environment::sync::Mutex;
 
 /// Global state map from [`CommunicationId`] to boxed [`cudarc::nccl::sys::ncclUniqueId`].
 static UNIQUE_IDS_MAP: OnceLock<Mutex<HashMap<CommunicationId, cudarc::nccl::sys::ncclUniqueId>>> =

@@ -10,6 +10,12 @@ pub use spin::{Lazy, RwLockReadGuard, RwLockWriteGuard};
 #[cfg(feature = "std")]
 pub use std::sync::{LazyLock as Lazy, RwLockReadGuard, RwLockWriteGuard};
 
+/// A spin-based one-time initialization cell, identical on every target.
+///
+/// Prefer [`SyncOnceCell`] for plain lazy initialization; use this when the
+/// fallible [`spin::Once::try_call_once`] API is needed.
+pub use spin::Once;
+
 #[cfg(target_has_atomic = "ptr")]
 pub use alloc::sync::Arc;
 
@@ -105,12 +111,11 @@ impl<T> RwLock<T> {
     }
 }
 
-/// A unique identifier for a running thread.
-///
-/// This module is a stub when no std is available to swap with `std::thread::ThreadId`.
-#[allow(dead_code)]
-#[derive(Eq, PartialEq, Clone, Copy, Hash, Debug)]
-pub struct ThreadId(core::num::NonZeroU64);
+/// Re-entrant locking primitives, available in std environments.
+#[cfg(feature = "std")]
+pub mod reentrant {
+    pub use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
+}
 
 /// A cell that provides lazy one-time initialization that implements [Sync] and [Send].
 ///

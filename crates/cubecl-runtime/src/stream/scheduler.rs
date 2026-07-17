@@ -4,7 +4,7 @@ use crate::{
     stream::{StreamFactory, StreamPool},
 };
 use alloc::{format, sync::Arc, vec, vec::Vec};
-use cubecl_common::stream_id::StreamId;
+use cubecl_environment::stream::StreamId;
 
 /// Defines a trait for a scheduler stream backend, specifying the types and behavior for task scheduling.
 pub trait SchedulerStreamBackend {

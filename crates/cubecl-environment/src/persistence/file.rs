@@ -2,10 +2,13 @@ use core::{fmt::Display, time::Duration};
 use std::{
     format,
     fs::{self, File},
-    io::{BufReader, Seek, SeekFrom, Write},
+    io::{BufReader, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    string::String,
+    string::{String, ToString},
+    vec::Vec,
 };
+
+use super::backend::KvBackend;
 
 /// Multi-process safe append-only file .
 #[derive(Debug)]
@@ -240,6 +243,45 @@ impl CacheFile {
                 self.valid = false;
             }
         }
+    }
+}
+
+/// The file system implementation of [`KvBackend`], backed by the
+/// multi-process safe append-only [`CacheFile`].
+impl KvBackend for CacheFile {
+    fn lock(&mut self) -> Option<Vec<u8>> {
+        // Resolves to the inherent `CacheFile::lock`, which acquires the
+        // multi-process lock and returns a reader over the bytes appended
+        // since the last call.
+        let mut reader = self.lock()?;
+
+        let mut buffer = Vec::new();
+        match reader.read_to_end(&mut buffer) {
+            Ok(_) => Some(buffer),
+            Err(err) => {
+                log::error!(
+                    "cubecl cache: read_to_end({:?}) failed: kind={:?} err={}; \
+                     cache will be disabled for this entry",
+                    self.path,
+                    err.kind(),
+                    err
+                );
+                self.valid = false;
+                None
+            }
+        }
+    }
+
+    fn unlock(&mut self) {
+        CacheFile::unlock(self);
+    }
+
+    fn append(&mut self, _dedup_key: &str, bytes: &[u8]) {
+        self.write(bytes);
+    }
+
+    fn describe(&self) -> String {
+        self.to_string()
     }
 }
 

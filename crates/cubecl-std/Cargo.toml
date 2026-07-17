@@ -36,6 +36,7 @@ test-log = { workspace = true, optional = true }
 cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", features = [
     "hash",
 ], default-features = false }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.1", default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.1", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.1", default-features = false }
 half.workspace = true

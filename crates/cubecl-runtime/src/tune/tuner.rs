@@ -6,6 +6,8 @@ use derive_more::Display;
 
 use core::time::Duration;
 
+use cubecl_environment::sync::Mutex;
+
 use alloc::string::{String, ToString};
 use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
@@ -23,12 +25,12 @@ use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneInputs
 /// it blocks inline. Either way the benchmarking itself is synchronous; only the
 /// per-sample profile resolution is awaited.
 pub struct Tuner<K: AutotuneKey> {
-    cache: Arc<spin::Mutex<TuneCache<K>>>,
-    logger: Arc<spin::Mutex<Logger>>,
+    cache: Arc<Mutex<TuneCache<K>>>,
+    logger: Arc<Mutex<Logger>>,
 }
 
 /// The measured outcome for a given autotune invocation.
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
 #[derive(new, Debug, Clone, PartialEq, Eq)]
 pub struct AutotuneOutcome {
     name: String,
@@ -48,7 +50,7 @@ impl core::fmt::Display for AutotuneOutcome {
 
 /// Error from running autotune.
 #[derive(Clone, Display)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(autotune_persistence, derive(serde::Serialize, serde::Deserialize))]
 pub enum AutotuneError {
     /// An unknown error happened.
     #[display("{name}: An unknown error happened.\n{err}")]
@@ -109,7 +111,7 @@ struct PendingBench {
 struct TuneRequest<K: AutotuneKey> {
     key: K,
     results: Vec<AutotuneResult>,
-    #[cfg(std_io)]
+    #[cfg(autotune_persistence)]
     checksum: String,
     context_logs: Option<String>,
     pending: Vec<PendingBench>,
@@ -117,18 +119,19 @@ struct TuneRequest<K: AutotuneKey> {
 
 #[allow(clippy::new_without_default)]
 impl<K: AutotuneKey> Tuner<K> {
-    /// Create a tuner. Its cache is seeded from the persistent on-disk cache when
-    /// `std_io` is enabled.
+    /// Create a tuner. Its cache is seeded from the persistent cache when
+    /// persistence is available (disk on native, browser storage on wasm with
+    /// the `browser-cache` feature).
     pub fn new(name: &str, device_id: &str) -> Self {
         Self {
-            cache: Arc::new(spin::Mutex::new(TuneCache::new(name, device_id))),
-            logger: Arc::new(spin::Mutex::new(Logger::new())),
+            cache: Arc::new(Mutex::new(TuneCache::new(name, device_id))),
+            logger: Arc::new(Mutex::new(Logger::new())),
         }
     }
 
     /// Fetch the fastest autotune operation index for an autotune key.
     pub fn fastest(&self, key: &K) -> TuneCacheResult {
-        self.cache.lock().fastest(key)
+        self.cache.lock().unwrap().fastest(key)
     }
 
     /// Check the cache, validate checksums if needed, and kick off a tuning job if the
@@ -138,19 +141,32 @@ impl<K: AutotuneKey> Tuner<K> {
         key: &K,
         inputs: &F::At<'a>,
         tunables: &TunableSet<K, F, Out>,
-        #[cfg_attr(not(std_io), allow(unused))] checksum: impl FnOnce() -> String + Send + Sync,
+        #[cfg_attr(not(autotune_persistence), allow(unused))] checksum: impl FnOnce() -> String
+        + Send
+        + Sync,
         client: &ComputeClient<R>,
     ) -> TuneCacheResult
     where
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
         {
-            let mut cache = self.cache.lock();
+            let mut cache = self.cache.lock().unwrap();
             let cur = cache.fastest(key);
 
-            #[cfg(std_io)]
+            // Persistent entries may have arrived after construction: browser
+            // hydration is asynchronous, and other processes append to the
+            // cache file. Ingest them before starting a redundant tune.
+            #[cfg(autotune_persistence)]
+            let cur = if matches!(cur, TuneCacheResult::Miss) {
+                cache.sync_persistent();
+                cache.fastest(key)
+            } else {
+                cur
+            };
+
+            #[cfg(autotune_persistence)]
             let cur = if matches!(cur, TuneCacheResult::Unchecked) {
-                let mut log = self.logger.lock();
+                let mut log = self.logger.lock().unwrap();
                 let checksum = checksum();
                 if let AutotuneLogLevel::Full = log.log_level_autotune() {
                     log.log_autotune(&format!("validate checksum key={key}, checksum={checksum}"));
@@ -167,7 +183,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 }
             }
             // Scope the guard: the rest of this function re-locks `self.cache` (fast
-            // path insert, `process_request`), and `spin::Mutex` is non-reentrant.
+            // path insert, `process_request`), and the mutex is non-reentrant.
         }
 
         log::info!("Tuning {key}");
@@ -182,18 +198,18 @@ impl<K: AutotuneKey> Tuner<K> {
             })
             .collect();
 
-        #[cfg(std_io)]
+        #[cfg(autotune_persistence)]
         let checksum = tunables.compute_checksum();
 
         // Fast path: single tunable, no benchmarking needed.
         if results.len() == 1 {
-            self.cache.lock().cache_insert(key.clone(), 0);
+            self.cache.lock().unwrap().cache_insert(key.clone(), 0);
             return TuneCacheResult::Hit { fastest_index: 0 };
         }
 
         let test_inputs = tunables.generate_inputs(key, inputs);
         let mut plan = tunables.plan(key);
-        let mut context_logs = match self.logger.lock().log_level_autotune() {
+        let mut context_logs = match self.logger.lock().unwrap().log_level_autotune() {
             AutotuneLogLevel::Full => Some(String::new()),
             _ => None,
         };
@@ -239,7 +255,7 @@ impl<K: AutotuneKey> Tuner<K> {
 
                         #[cfg(not(target_family = "wasm"))]
                         if let Some(limit) = threshold_limit {
-                            let result = cubecl_common::future::block_on(resolve_bench(bench));
+                            let result = cubecl_environment::future::block_on(resolve_bench(bench));
                             let close_enough = result
                                 .outcome
                                 .as_ref()
@@ -271,7 +287,7 @@ impl<K: AutotuneKey> Tuner<K> {
         let request = TuneRequest {
             key: key.clone(),
             results,
-            #[cfg(std_io)]
+            #[cfg(autotune_persistence)]
             checksum,
             context_logs,
             pending,
@@ -291,7 +307,7 @@ impl<K: AutotuneKey> Tuner<K> {
         }
 
         #[cfg(not(target_family = "wasm"))]
-        cubecl_common::future::block_on(process_request(request, &self.cache, &self.logger))
+        cubecl_environment::future::block_on(process_request(request, &self.cache, &self.logger))
     }
 }
 
@@ -335,13 +351,13 @@ async fn resolve_bench(bench: PendingBench) -> AutotuneResult {
 /// Await every profile sample, pick the fastest tunable, commit to the cache.
 async fn process_request<K: AutotuneKey>(
     request: TuneRequest<K>,
-    cache: &spin::Mutex<TuneCache<K>>,
-    logger: &spin::Mutex<Logger>,
+    cache: &Mutex<TuneCache<K>>,
+    logger: &Mutex<Logger>,
 ) -> TuneCacheResult {
     let TuneRequest {
         key,
         mut results,
-        #[cfg(std_io)]
+        #[cfg(autotune_persistence)]
         checksum,
         context_logs,
         pending,
@@ -375,11 +391,20 @@ async fn process_request<K: AutotuneKey>(
         .index;
 
     {
-        log_result(&mut logger.lock(), &key, &results, context_logs.as_deref());
-        cache.lock().cache_insert(key.clone(), fastest_index);
-        #[cfg(std_io)]
+        log_result(
+            &mut logger.lock().unwrap(),
+            &key,
+            &results,
+            context_logs.as_deref(),
+        );
         cache
             .lock()
+            .unwrap()
+            .cache_insert(key.clone(), fastest_index);
+        #[cfg(autotune_persistence)]
+        cache
+            .lock()
+            .unwrap()
             .persistent_cache_insert(key, checksum, fastest_index, results);
     }
 

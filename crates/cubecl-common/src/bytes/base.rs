@@ -1,12 +1,9 @@
 //! A version of [`bytemuck::BoxBytes`] that is cloneable and allows trailing uninitialized elements.
 
-use crate::{
-    bytes::{
-        AccessError, AccessPolicy, Reader, Writer,
-        default_controller::{self, NativeAllocationController},
-        shared_arc::SharedAllocationController,
-    },
-    stub::Arc,
+use crate::bytes::{
+    AccessError, AccessPolicy, Reader, Writer,
+    default_controller::{self, NativeAllocationController},
+    shared_arc::SharedAllocationController,
 };
 use alloc::{boxed::Box, vec::Vec};
 use core::{
@@ -15,6 +12,7 @@ use core::{
     ops::{Deref, DerefMut},
     ptr::NonNull,
 };
+use cubecl_environment::sync::Arc;
 
 /// A buffer similar to `Box<[u8]>` that supports custom memory alignment and allows trailing uninitialized bytes.
 ///

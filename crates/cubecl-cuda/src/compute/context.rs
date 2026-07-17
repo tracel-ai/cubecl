@@ -1,6 +1,6 @@
-use cubecl_common::backtrace::BackTrace;
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_runtime::{
     compiler::CompilationError,
     validation::{validate_cube_dim, validate_units},
@@ -13,11 +13,11 @@ use crate::{
     install::{cccl_include_path, include_path},
 };
 use cubecl_core::{
-    compilation_cache::CompilationCache,
     hash::StableHash,
     server::ResourceLimitError,
     {ir::DeviceProperties, prelude::*},
 };
+use cubecl_environment::persistence::compilation::CompilationCache;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use cudarc::driver::DriverError;
@@ -30,7 +30,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 
-use cubecl_common::cache::CacheOption;
+use cubecl_environment::persistence::CacheOption;
 
 #[derive(Debug)]
 pub(crate) struct CudaContext {
@@ -72,8 +72,12 @@ impl CudaContext {
                 let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
                 if let Some(cache) = &config.compilation.cache {
                     let root = cache.root();
+                    // The architecture is part of the path: PTX built for one
+                    // arch is not portable, and fingerprinting the path keeps
+                    // bundles shipped across machines from serving wrong
+                    // binaries.
                     Some(CompilationCache::new(
-                        "ptx",
+                        format!("ptx_sm{}", arch.version),
                         CacheOption::default().name("cuda").root(root),
                     ))
                 } else {

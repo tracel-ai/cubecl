@@ -19,32 +19,21 @@ workspace = true
 
 
 [features]
-cache = ["std", "serde_json", "etcetera", "sanitize-filename"]
-compilation-cache = ["cache", "dep:ciborium"]
 default = ["std"]
 fp4 = ["float4"]
 fp8 = ["float8"]
 hash = ["xxhash-rust"]
 serde = ["serde_bytes"]
 shared-bytes = ["dep:bytes"]
-std = [
-    "rand/std",
-    "futures-lite",
-    "rand/thread_rng",
-    "serde_json?/std",
-    "parking_lot",
-    "backtrace",
-    "oneshot/std",
-    "dep:toml",
-]
-tracing = ["dep:tracing"]
+std = ["cubecl-environment/std"]
+tracing = ["cubecl-environment/tracing"]
 
 
 [dependencies]
+cubecl-environment = { path = "../cubecl-environment", version = "0.11.0-pre.1", default-features = false }
+
 # Runtime Deps
 log = { workspace = true }
-oneshot = { workspace = true, default-features = false, optional = true }
-tracing = { workspace = true, features = ["attributes"], optional = true }
 tynm = { workspace = true }
 
 # ** Please make sure all dependencies support no_std when std is disabled **
@@ -63,36 +52,18 @@ derive_more = { workspace = true, features = [
 float4 = { workspace = true, optional = true }
 float8 = { workspace = true, optional = true }
 half = { workspace = true }
+hashbrown = { workspace = true }
 num-traits = { workspace = true }
-rand = { workspace = true }
 serde = { workspace = true }
-spin = { workspace = true } # using in place of use std::sync::Mutex;
+serde_bytes = { workspace = true, features = ["alloc"], optional = true }
 
 cfg-if = { workspace = true }
-
-# Cache
-ciborium = { workspace = true, optional = true }
-etcetera = { workspace = true, optional = true }
-hashbrown = { workspace = true }
-sanitize-filename = { workspace = true, optional = true }
-serde_bytes = { workspace = true, features = ["alloc"], optional = true }
-serde_json = { workspace = true, features = ["alloc"], optional = true }
-toml = { workspace = true, optional = true }
 
 # Hash
 xxhash-rust = { workspace = true, features = [
     "xxh3",
     "const_xxh3",
 ], optional = true }
-
-# Only activate futures for std env
-embassy-futures = { version = "0.1.1" }
-futures-lite = { workspace = true, features = [
-    "std",
-], default-features = false, optional = true }
-
-backtrace = { version = "0.3", optional = true, features = ["std"] }
-parking_lot = { version = "0.12.5", default-features = false, optional = true }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 bytes = { workspace = true, optional = true }
@@ -109,17 +80,6 @@ spin = { workspace = true, features = [
 # Enable extra-platforms for bytes on targets without native atomics
 bytes = { workspace = true, features = ["extra-platforms"], optional = true }
 
-[target.'cfg(target_family = "wasm")'.dependencies]
-wasm-bindgen-futures = { workspace = true }
-
-# Default dependency for all targets
-[target.'cfg(not(target_os = "none"))'.dependencies]
-web-time = { workspace = true }
-
-# Only for true no_std / embedded targets
-[target.'cfg(target_os = "none")'.dependencies]
-embassy-time = { workspace = true }
-
 [build-dependencies]
 cfg_aliases = { workspace = true }
 
@@ -128,7 +88,7 @@ ciborium = { workspace = true }
 criterion = { version = "0.8", features = ["html_reports"] }
 dashmap = { workspace = true }
 tempfile = "3.20"
-test-log = { workspace = true, features = ["trace"] }        # Cache
+test-log = { workspace = true, features = ["trace"] }
 
 [[bench]]
 harness = false

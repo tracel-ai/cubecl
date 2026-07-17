@@ -33,6 +33,9 @@ template = ["cubecl-core/template"]
 
 profile-tracy = ["cubecl-runtime/profile-tracy", "cubecl-wgpu?/profile-tracy"]
 
+browser-cache = ["cubecl-core/browser-cache"]
+tokio = ["cubecl-core/tokio"]
+
 tracing = [
     "cubecl-core/tracing",
     "cubecl-cuda?/tracing",

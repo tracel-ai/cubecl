@@ -53,7 +53,7 @@ fn install_completion_handler(
                 };
                 errors.lock().unwrap().push(ServerError::Generic {
                     reason,
-                    backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                    backtrace: cubecl_environment::backtrace::BackTrace::capture(),
                 });
 
                 // Metal leaves encoded events unsignaled on fault; signal manually
@@ -189,7 +189,7 @@ impl MetalEvent {
         if !result {
             return Err(ServerError::Generic {
                 reason: "Metal event wait timed out".to_string(),
-                backtrace: cubecl_common::backtrace::BackTrace::capture(),
+                backtrace: cubecl_environment::backtrace::BackTrace::capture(),
             });
         }
         std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
@@ -434,7 +434,7 @@ mod tests {
 
         stream.errors.lock().unwrap().push(ServerError::Generic {
             reason: "injected fault".to_string(),
-            backtrace: cubecl_common::backtrace::BackTrace::capture(),
+            backtrace: cubecl_environment::backtrace::BackTrace::capture(),
         });
         assert!(!MetalStreamBackend::is_healthy(&stream));
 

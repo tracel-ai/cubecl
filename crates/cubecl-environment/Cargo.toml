@@ -1,0 +1,131 @@
+[package]
+authors = [
+    "Dilshod Tadjibaev (@antimora)",
+    "Nathaniel Simard (@nathanielsimard)",
+]
+categories = ["science", "mathematics", "algorithms"]
+description = "Environment compatibility layer for CubeCL: sync primitives, futures, streams, config and persistence across std, no-std, wasm and tokio"
+edition.workspace = true
+keywords = ["gpu", "cuda", "wgpu"]
+license.workspace = true
+name = "cubecl-environment"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-environment"
+version.workspace = true
+
+
+[lints]
+workspace = true
+
+
+[features]
+browser-cache = [
+    "dep:serde_json",
+    "dep:web-sys",
+    "dep:js-sys",
+    "dep:wasm-bindgen",
+    "oneshot/async",
+]
+cache = ["std", "dep:serde_json", "dep:etcetera", "dep:sanitize-filename"]
+compilation-cache = ["cache", "dep:ciborium"]
+default = ["std"]
+std = [
+    "rand/std",
+    "rand/thread_rng",
+    "serde_json?/std",
+    "dep:futures-lite",
+    "dep:parking_lot",
+    "dep:backtrace",
+    "oneshot/std",
+    "async-channel/std",
+    "dep:toml",
+]
+tokio = ["std", "dep:tokio"]
+tracing = ["dep:tracing"]
+
+
+[dependencies]
+log = { workspace = true }
+oneshot = { workspace = true, default-features = false }
+tracing = { workspace = true, features = ["attributes"], optional = true }
+
+# ** Please make sure all dependencies support no_std when std is disabled **
+cfg-if = { workspace = true }
+foldhash = { workspace = true }
+hashbrown = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+
+# Persistence
+ciborium = { workspace = true, optional = true }
+etcetera = { workspace = true, optional = true }
+sanitize-filename = { workspace = true, optional = true }
+serde_json = { workspace = true, features = ["alloc"], optional = true }
+toml = { workspace = true, optional = true }
+
+# Async
+async-channel = { workspace = true, default-features = false }
+embassy-futures = { version = "0.1.1" }
+futures-lite = { workspace = true, features = [
+    "std",
+], default-features = false, optional = true }
+
+backtrace = { workspace = true, optional = true, features = ["std"] }
+parking_lot = { workspace = true, optional = true }
+
+[target.'cfg(target_has_atomic = "ptr")'.dependencies]
+spin = { workspace = true, features = ["mutex", "spin_mutex"] }
+
+[target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
+portable-atomic = { workspace = true }
+portable-atomic-util = { workspace = true }
+spin = { workspace = true, features = [
+    "mutex",
+    "spin_mutex",
+    "portable_atomic",
+] }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+tokio = { workspace = true, optional = true, default-features = false, features = [
+    "rt",
+] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+js-sys = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+wasm-bindgen-futures = { workspace = true }
+web-sys = { workspace = true, optional = true, features = [
+    "DomException",
+    "DomStringList",
+    "Event",
+    "EventTarget",
+    "IdbDatabase",
+    "IdbFactory",
+    "IdbKeyRange",
+    "IdbObjectStore",
+    "IdbOpenDbRequest",
+    "IdbRequest",
+    "IdbTransaction",
+    "IdbTransactionMode",
+] }
+
+# Default dependency for all targets
+[target.'cfg(not(target_os = "none"))'.dependencies]
+web-time = { workspace = true }
+
+# Only for true no_std / embedded targets
+[target.'cfg(target_os = "none")'.dependencies]
+embassy-time = { workspace = true }
+
+[build-dependencies]
+cfg_aliases = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.20"
+test-log = { workspace = true, features = ["trace"] }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tokio = { workspace = true, default-features = false, features = [
+    "macros",
+    "rt-multi-thread",
+] }

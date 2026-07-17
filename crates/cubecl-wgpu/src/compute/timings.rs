@@ -4,11 +4,9 @@ use std::sync::{
 };
 
 use cubecl_common::profile::{Duration, Instant, ProfileDuration, ProfileTicks};
-use cubecl_core::{
-    backtrace::BackTrace,
-    server::{ProfileError, ProfilingToken},
-};
-use hashbrown::HashMap;
+use cubecl_core::server::{ProfileError, ProfilingToken};
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashMap;
 use wgpu::{QUERY_SIZE, QuerySet, QuerySetDescriptor, QueryType};
 
 type QuerySetId = u64;
@@ -379,7 +377,7 @@ impl QueryProfiler {
             let epoch_instant = self.epoch_instant;
 
             Ok(ProfileDuration::new_device_time(async move {
-                let (sender, rec) = async_channel::bounded(1);
+                let (sender, rec) = cubecl_environment::future::channel::bounded(1);
                 map_buffer
                     .slice(..)
                     .map_async(wgpu::MapMode::Read, move |v| {

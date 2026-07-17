@@ -1,5 +1,5 @@
+use cubecl_environment::collections::HashMap;
 use cubecl_ir::{AddressSpace, Operation, OperationReflect, Operator, Value, ValueKind};
-use hashbrown::HashMap;
 use smallvec::SmallVec;
 
 use crate::Function;

@@ -187,7 +187,11 @@ impl DeviceService for HipServer {
                 ..Default::default()
             },
         };
-        let hip_ctx = HipContext::new(comp_opts, device_props.clone());
+        let hip_ctx = HipContext::new(
+            comp_opts,
+            device_props.clone(),
+            normalized_arch_name.to_string(),
+        );
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
         let utilities = ServerUtilities::new(device_props, logger, (), policy);

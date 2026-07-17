@@ -99,6 +99,6 @@ pub fn measure_launch_overhead<R: Runtime>(client: &ComputeClient<R>) -> core::t
             )
             .expect("should succeed launch_overhead");
 
-        cubecl_core::future::block_on(duration.into_future()).duration()
+        cubecl_environment::future::block_on(duration.into_future()).duration()
     })
 }

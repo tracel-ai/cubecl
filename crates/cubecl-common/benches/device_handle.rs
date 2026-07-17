@@ -1,5 +1,6 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use cubecl_common::{device::DeviceService, device_handle::DeviceHandle, stub::Mutex};
+use cubecl_common::{device::DeviceService, device_handle::DeviceHandle};
+use cubecl_environment::sync::Mutex;
 
 use std::{hint::black_box, sync::Arc};
 

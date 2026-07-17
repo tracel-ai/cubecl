@@ -40,7 +40,7 @@ impl DeviceService for CpuServer {
             .cgroup_limits()
             .map(|g| g.total_memory)
             .unwrap_or(system.total_memory()) as usize;
-        let logger = cubecl_common::stub::Arc::new(ServerLogger::default());
+        let logger = cubecl_environment::sync::Arc::new(ServerLogger::default());
 
         let available_parallelism = std::thread::available_parallelism()
             .expect("Can't get available parallelism on this platform")

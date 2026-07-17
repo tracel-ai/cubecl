@@ -1,16 +1,16 @@
-#[cfg(std_io)]
-use std::vec::Vec;
+#[cfg(autotune_persistence)]
+use alloc::vec::Vec;
 
-#[cfg(std_io)]
-use cubecl_common::cache::Cache;
-#[cfg(std_io)]
-use cubecl_common::cache::CacheError;
-#[cfg(std_io)]
+#[cfg(autotune_persistence)]
+use cubecl_environment::persistence::Cache;
+#[cfg(autotune_persistence)]
+use cubecl_environment::persistence::CacheError;
+#[cfg(autotune_persistence)]
 use serde::{Deserialize, Serialize};
 
 use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
 use alloc::string::String;
-use hashbrown::HashMap;
+use cubecl_environment::collections::HashMap;
 
 #[derive(Debug)]
 pub(crate) enum CacheEntry {
@@ -30,7 +30,7 @@ pub(crate) enum ChecksumState {
 }
 
 /// Persistent cache key
-#[cfg(std_io)]
+#[cfg(autotune_persistence)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Hash)]
 pub(crate) struct PersistentCacheKey<K> {
     key: K,
@@ -38,14 +38,14 @@ pub(crate) struct PersistentCacheKey<K> {
 }
 
 /// Persistent cache entry
-#[cfg(std_io)]
+#[cfg(autotune_persistence)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub(crate) struct PersistentCacheValue {
     fastest_index: usize,
     results: Vec<AutotuneResult>,
 }
 
-#[cfg_attr(std_io, derive(Serialize, Deserialize))]
+#[cfg_attr(autotune_persistence, derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 /// The result of an autotune job.
 pub struct AutotuneResult {
@@ -83,7 +83,7 @@ impl PartialEq for AutotuneResult {
 pub(crate) struct TuneCache<K> {
     in_memory_cache: HashMap<K, CacheEntry>,
     /// `None` when the persistent cache is disabled, so no cache file is ever touched.
-    #[cfg(std_io)]
+    #[cfg(autotune_persistence)]
     persistent_cache: Option<Cache<PersistentCacheKey<K>, PersistentCacheValue>>,
 }
 
@@ -107,13 +107,13 @@ pub enum TuneCacheResult {
 
 impl<K: AutotuneKey> TuneCache<K> {
     pub(crate) fn new(
-        #[cfg_attr(not(std_io), allow(unused_variables))] name: &str,
-        #[cfg_attr(not(std_io), allow(unused_variables))] device_id: &str,
+        #[cfg_attr(not(autotune_persistence), allow(unused_variables))] name: &str,
+        #[cfg_attr(not(autotune_persistence), allow(unused_variables))] device_id: &str,
     ) -> Self {
-        #[cfg(std_io)]
+        #[cfg(autotune_persistence)]
         {
             use crate::config::RuntimeConfig;
-            use std::format;
+            use alloc::format;
 
             let config = crate::config::CubeClRuntimeConfig::get();
 
@@ -124,20 +124,24 @@ impl<K: AutotuneKey> TuneCache<K> {
                 };
             }
 
-            let root = config.autotune.cache.root();
-            let options = cubecl_common::cache::CacheOption::default();
+            #[allow(unused_mut)]
+            let mut options = cubecl_environment::persistence::CacheOption::default();
+            #[cfg(std_io)]
+            {
+                options = options.root(config.autotune.cache.root());
+            }
             let mut cache = TuneCache {
                 in_memory_cache: HashMap::new(),
-                persistent_cache: Some(Cache::new(
+                persistent_cache: Some(Cache::open(
                     format!("{device_id}/{name}"),
-                    options.root(root).name("autotune"),
+                    options.name("autotune"),
                 )),
             };
             cache.load();
             cache
         }
 
-        #[cfg(not(std_io))]
+        #[cfg(not(autotune_persistence))]
         {
             TuneCache {
                 in_memory_cache: HashMap::new(),
@@ -162,7 +166,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             return TuneCacheResult::Pending;
         };
 
-        if cfg!(std_io) {
+        if cfg!(autotune_persistence) {
             match checksum {
                 ChecksumState::ToBeVerified(..) => TuneCacheResult::Unchecked, // Don't know yet.
                 ChecksumState::NoMatch => TuneCacheResult::Miss,               // Can't use this.
@@ -179,7 +183,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         }
     }
 
-    #[cfg(std_io)]
+    #[cfg(autotune_persistence)]
     pub fn validate_checksum(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
         let Some(val) = self.in_memory_cache.get_mut(key) else {
             return TuneCacheResult::Miss;
@@ -219,8 +223,30 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 }
 
-#[cfg(std_io)]
+#[cfg(autotune_persistence)]
 impl<K: AutotuneKey> TuneCache<K> {
+    /// Ingest entries newly delivered by the persistent backend into the
+    /// in-memory cache as unverified.
+    ///
+    /// On the browser backend the initial hydration is asynchronous: entries
+    /// only become visible some time after construction, so this is called on
+    /// a cache miss before starting a tune. On the file system backend it
+    /// picks up entries appended by other processes.
+    pub(crate) fn sync_persistent(&mut self) {
+        let Some(persistent_cache) = self.persistent_cache.as_mut() else {
+            return;
+        };
+
+        persistent_cache.for_each(|key, value| {
+            self.in_memory_cache
+                .entry(key.key.clone())
+                .or_insert(CacheEntry::Done {
+                    checksum: ChecksumState::ToBeVerified(key.checksum.clone()),
+                    fastest_index: value.fastest_index,
+                });
+        });
+    }
+
     pub(crate) fn persistent_cache_insert(
         &mut self,
         key: K,

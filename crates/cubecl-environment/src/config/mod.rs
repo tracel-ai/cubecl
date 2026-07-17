@@ -25,7 +25,7 @@ pub trait RuntimeConfig:
     ///
     /// Each implementor must declare its own `static` slot, because Rust traits
     /// cannot own statics directly.
-    fn storage() -> &'static spin::Mutex<Option<Arc<Self>>>;
+    fn storage() -> &'static crate::sync::Mutex<Option<Arc<Self>>>;
 
     /// File names searched in each directory during [`Config::from_current_dir`].
     ///
@@ -49,6 +49,15 @@ pub trait RuntimeConfig:
         self
     }
 
+    /// Hook invoked exactly once, when the configuration singleton is first
+    /// initialized — whether loaded from disk in [`RuntimeConfig::get`] or
+    /// installed with [`RuntimeConfig::set`] / [`RuntimeConfig::try_set`].
+    ///
+    /// Use it to apply configuration to global state (stream policy, bundle
+    /// installation, ...). Called outside the storage lock, so calling
+    /// [`RuntimeConfig::get`] from the hook is safe.
+    fn on_loaded(&self) {}
+
     /// Retrieves the current configuration, loading it from the current directory if not set.
     ///
     /// If no configuration is set, it attempts to load one from any of [`Config::file_names`] in
@@ -61,7 +70,7 @@ pub trait RuntimeConfig:
     /// static atomic value that you can populate with the appropriate value from the config
     /// during initialization.
     fn get() -> Arc<Self> {
-        let mut state = Self::storage().lock();
+        let mut state = Self::storage().lock().unwrap();
         if state.as_ref().is_none() {
             cfg_if::cfg_if! {
                 if #[cfg(std_io)] {
@@ -72,7 +81,12 @@ pub trait RuntimeConfig:
                 }
             }
 
-            *state = Some(Arc::new(config));
+            let config = Arc::new(config);
+            *state = Some(config.clone());
+            core::mem::drop(state);
+            config.on_loaded();
+
+            return config;
         }
 
         state.as_ref().cloned().unwrap()
@@ -100,11 +114,14 @@ pub trait RuntimeConfig:
     /// Use this from libraries that want to provide a computed default without
     /// overriding a configuration the application set first.
     fn try_set(config: Self) -> bool {
-        let mut state = Self::storage().lock();
+        let mut state = Self::storage().lock().unwrap();
         if state.is_some() {
             return false;
         }
-        *state = Some(Arc::new(config));
+        let config = Arc::new(config);
+        *state = Some(config.clone());
+        core::mem::drop(state);
+        config.on_loaded();
         true
     }
 

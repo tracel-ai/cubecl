@@ -24,9 +24,9 @@ use super::{
     AccessError, AccessPolicy, AllocationController, AllocationProperty, Bytes, SplitError,
     default_controller::{MAX_ALIGN, NativeAllocationController},
 };
-use crate::stub::Arc;
 use alloc::boxed::Box;
 use core::mem::MaybeUninit;
+use cubecl_environment::sync::Arc;
 use spin::Once;
 
 /// Allocation controller that shares a view into another [`Bytes`] behind an [`Arc`].

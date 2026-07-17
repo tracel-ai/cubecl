@@ -6,12 +6,10 @@ use crate::{
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use cubecl_common::{
-    config::RuntimeConfig,
-    future::block_on,
-    profile::{Duration, Instant},
-};
-use spin::Mutex;
+use cubecl_common::profile::{Duration, Instant};
+use cubecl_environment::config::RuntimeConfig;
+use cubecl_environment::future::block_on;
+use cubecl_environment::sync::Mutex;
 
 type Cache = Arc<Mutex<ThroughputCache>>;
 
@@ -49,7 +47,7 @@ impl ThroughputBenchmarker {
         kernel_config: KernelConfig,
     ) -> ThroughputValue {
         if self.cache_enabled
-            && let Some(cached_value) = self.cache.lock().get(&key)
+            && let Some(cached_value) = self.cache.lock().unwrap().get(&key)
         {
             return *cached_value;
         }
@@ -72,7 +70,7 @@ impl ThroughputBenchmarker {
         };
 
         if self.cache_enabled {
-            self.cache.lock().insert(key, value);
+            self.cache.lock().unwrap().insert(key, value);
         }
 
         value

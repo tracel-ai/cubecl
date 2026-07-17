@@ -1,5 +1,5 @@
-use cubecl_common::backtrace::BackTrace;
 use cubecl_core::server::ServerError;
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_hip_sys::HIP_SUCCESS;
 
 /// A fence is simply an [event](hipEvent_t) created on a [stream](hipStream_t) that you can wait

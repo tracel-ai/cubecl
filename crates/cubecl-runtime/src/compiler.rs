@@ -3,7 +3,7 @@ use crate::{
     server::ExecutionMode,
 };
 use alloc::string::String;
-use cubecl_common::backtrace::BackTrace;
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_ir::{ElemType, StorageType};
 use thiserror::Error;
 

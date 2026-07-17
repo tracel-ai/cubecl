@@ -1,7 +1,7 @@
 use alloc::{format, vec::Vec};
 
+use cubecl_environment::collections::HashMap;
 use cubecl_ir::{GlobalState, Instruction, NonSemantic, Operation, Scope, Value, ValueKind};
-use hashbrown::HashMap;
 
 use crate::post_processing::{
     analysis_helper::GlobalAnalyses,
