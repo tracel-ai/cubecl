@@ -2,7 +2,10 @@ use crate::{
     CollectVerCapExtPass, ConvertArgsPass, PARAMS_NAME, SpirvKernel,
     builtin::{BUILTINS_NAME, LowerBuiltinsPass},
     lower::LowerOpsSpirvPass,
-    ops::{branch::BranchToSpirvConversionPass, to_spirv_dialect::ToSpirvDialectPass},
+    ops::{
+        branch::BranchToSpirvConversionPass, memory::lower_shared,
+        to_spirv_dialect::ToSpirvDialectPass,
+    },
     params_storage_class,
 };
 use cubecl_common::backtrace::BackTrace;
@@ -39,6 +42,7 @@ use pliron::{
         ops::{FuncOp, ModuleOp},
     },
     context::Context,
+    identifier::Identifier,
     irbuild::{
         inserter::BlockInsertionPoint,
         listener::DummyListener,
@@ -155,6 +159,7 @@ impl SpirvCompiler {
 
         let config = PMConfig {
             print_after_all: true,
+            // ir_printing_dir: Some("target".into()),
             ..Default::default()
         };
 
@@ -178,6 +183,11 @@ impl SpirvCompiler {
         func_passes.add_pass(PromoteBitwisePass);
         func_passes.add_pass(LowerOpsSpirvPass::default());
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(Mem2RegPass);
+
+        func_passes.add_pass(SCCPPass);
+        func_passes.add_pass(SimpleCSEPass);
+        func_passes.add_pass(DCEPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
         passes.add_pass(AnnotateGlobalVisibilityPass);
@@ -196,7 +206,7 @@ impl SpirvCompiler {
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
         func_passes.add_pass(BranchToSpirvConversionPass::default());
-        func_passes.add_pass(Mem2RegPass);
+        // func_passes.add_pass(Mem2RegPass);
         func_passes.add_pass(DCEPass);
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimplifyCFGPass);
@@ -225,12 +235,15 @@ impl SpirvCompiler {
         passes.add_pass(ConvertArgsPass);
         passes.add_pass(NestedOpsPass::new(func_passes));
 
-        // Make sure this is the last pass so it catches all ops
-        passes.add_pass(CollectVerCapExtPass);
-
         passes.run(spirv_module_op, ctx, &mut analyses).unwrap();
 
-        declare_entry_point(ctx, spirv_module);
+        let (shared_size, shared_args) = lower_shared(ctx, spirv_module);
+        declare_entry_point(ctx, spirv_module, shared_args);
+
+        // Make sure this is the last pass so it catches all ops
+        OpPass::<SpirvModuleOp, CollectVerCapExtPass>::default()
+            .run(spirv_module_op, ctx, &mut analyses)
+            .unwrap();
 
         std::fs::write(
             "target/after_convert_args.plir",
@@ -245,95 +258,9 @@ impl SpirvCompiler {
             .to_spirv(ctx, &mut builder)
             .expect("Failed to convert");
         let module = builder.module();
-        let shared_size = 0;
 
         (module, shared_size)
     }
-
-    // /// When using `VK_KHR_workgroup_memory_explicit_layout`, all shared memory is declared as a
-    // /// `Block`. This means they are all pointers into the same chunk of memory, with different
-    // /// offsets and sizes. Unlike C++, this shared block is declared implicitly, not explicitly.
-    // /// Alignment and total size is calculated by the driver.
-    // fn declare_shared_memories_explicit(&mut self) -> u32 {
-    //     let mut shared_size = 0;
-
-    //     let shared = self.state.shared.clone();
-    //     if shared.is_empty() {
-    //         return shared_size;
-    //     }
-
-    //     self.capabilities
-    //         .insert(Capability::WorkgroupMemoryExplicitLayoutKHR);
-
-    //     for (index, memory) in shared {
-    //         let memory_size = memory.item.size();
-    //         let value_size = memory.item.value_type().size();
-    //         shared_size = shared_size.max(memory.offset + memory_size);
-
-    //         // It's safe to assume that if 8-bit/16-bit types are supported, they're supported for
-    //         // explicit layout as well.
-    //         match value_size {
-    //             1 => {
-    //                 self.capabilities
-    //                     .insert(Capability::WorkgroupMemoryExplicitLayout8BitAccessKHR);
-    //             }
-    //             2 => {
-    //                 self.capabilities
-    //                     .insert(Capability::WorkgroupMemoryExplicitLayout16BitAccessKHR);
-    //             }
-    //             _ => {}
-    //         }
-
-    //         let item_id = memory.item.id(self);
-    //         let block_id = self.id();
-
-    //         if let Item::Array(_, _) = memory.item {
-    //             self.decorate(item_id, Decoration::ArrayStride, [value_size.into()]);
-    //         }
-
-    //         self.type_struct_id(Some(block_id), [item_id]);
-
-    //         self.decorate(block_id, Decoration::Block, []);
-    //         self.member_decorate(block_id, 0, Decoration::Offset, [memory.offset.into()]);
-
-    //         let block_ptr_ty = self.type_pointer(None, StorageClass::Workgroup, block_id);
-    //         let ptr_ty =
-    //             self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, item_id);
-
-    //         self.debug_shared(memory.id, index);
-    //         self.variable(
-    //             block_ptr_ty,
-    //             Some(memory.val_id),
-    //             StorageClass::Workgroup,
-    //             None,
-    //         );
-    //         self.decorate(memory.val_id, Decoration::Aliased, []);
-
-    //         self.insert_in_setup(|b| {
-    //             let zero = b.const_u32(0);
-    //             b.in_bounds_access_chain(ptr_ty, Some(memory.id), memory.val_id, [zero])
-    //                 .unwrap()
-    //         });
-    //     }
-
-    //     shared_size
-    // }
-
-    // fn declare_shared_memories_implicit(&mut self) -> u32 {
-    //     let mut shared_size = 0;
-
-    //     let shared = self.state.shared.clone();
-    //     for (index, memory) in shared {
-    //         shared_size += memory.item.size();
-
-    //         let ty_id = memory.item.id(self);
-    //         let ptr_ty = self.type_pointer(Some(memory.ptr_ty_id), StorageClass::Workgroup, ty_id);
-
-    //         self.debug_shared(memory.id, index);
-    //         self.variable(ptr_ty, Some(memory.id), StorageClass::Workgroup, None);
-    //     }
-    //     shared_size
-    // }
 }
 
 fn insert_spirv_module(ctx: &mut Context, module: ModuleOp) -> SpirvModuleOp {
@@ -365,27 +292,34 @@ fn insert_spirv_module(ctx: &mut Context, module: ModuleOp) -> SpirvModuleOp {
     spirv_module
 }
 
-fn declare_entry_point(ctx: &mut Context, mut module: SpirvModuleOp) {
+fn declare_entry_point(ctx: &mut Context, module: SpirvModuleOp, shared_args: Vec<Identifier>) {
     let op = module.get_operation();
-    visit_all_ops_of_type_mut::<FuncOp, _>(ctx, &mut module, op, |ctx, module, func| {
-        let Some(entry) = func.get_entrypoint_abi(ctx) else {
-            return;
-        };
-        let block = module.get_body(ctx, 0);
-        let func_name = func.get_symbol_name(ctx);
-        let entry_point = EntryPointOp::new(
-            ctx,
-            ExecutionModel::GLCompute,
-            func_name.clone(),
-            func_name.to_string(),
-            vec![PARAMS_NAME.clone(), BUILTINS_NAME.clone()],
-        );
-        entry_point.get_operation().insert_at_front(block, ctx);
-        let (x, y, z) = entry.cube_dim.into();
-        let execution_mode =
-            ExecutionModeOp::new(ctx, func_name, ExecutionMode::LocalSize, vec![x, y, z]);
-        execution_mode.get_operation().insert_at_front(block, ctx);
-    });
+    visit_all_ops_of_type_mut::<FuncOp, _>(
+        ctx,
+        &mut (module, shared_args),
+        op,
+        |ctx, (module, shared_args), func| {
+            let Some(entry) = func.get_entrypoint_abi(ctx) else {
+                return;
+            };
+            let block = module.get_body(ctx, 0);
+            let func_name = func.get_symbol_name(ctx);
+            let mut interface = vec![PARAMS_NAME.clone(), BUILTINS_NAME.clone()];
+            interface.extend(shared_args.clone());
+            let entry_point = EntryPointOp::new(
+                ctx,
+                ExecutionModel::GLCompute,
+                func_name.clone(),
+                func_name.to_string(),
+                interface,
+            );
+            entry_point.get_operation().insert_at_front(block, ctx);
+            let (x, y, z) = entry.cube_dim.into();
+            let execution_mode =
+                ExecutionModeOp::new(ctx, func_name, ExecutionMode::LocalSize, vec![x, y, z]);
+            execution_mode.get_operation().insert_at_front(block, ctx);
+        },
+    );
 }
 
 // pub(crate) fn convert_math_mode(math_mode: EnumSet<FastMath>) -> FPFastMathMode {

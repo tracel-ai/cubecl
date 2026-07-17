@@ -8,7 +8,6 @@ use std::{
 use cubecl_core::prelude::Visibility;
 use rspirv::{binary::Disassemble, dr::Module};
 
-mod atomic;
 pub mod attributes;
 pub mod builtin;
 mod cmma;

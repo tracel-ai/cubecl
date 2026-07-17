@@ -274,7 +274,7 @@ pub fn register_supported_types(props: &mut DeviceProperties) {
             ir::ElemType::Int(ir::IntKind::I32) | ir::ElemType::UInt(ir::UIntKind::U32) => {
                 AtomicUsage::all()
             }
-            _ => AtomicUsage::Add | AtomicUsage::LoadStore,
+            _ => AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
         };
         props.register_atomic_type_usage(Type::atomic(ty), usage);
     }

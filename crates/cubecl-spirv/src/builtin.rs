@@ -285,8 +285,12 @@ impl RewriteBuiltins<'_> {
 }
 
 pub(crate) fn const_int32(scope: &Scope, value: u32) -> Value {
-    let ty = IntegerType::get(scope.ctx(), 32, Signedness::Signless);
-    let value = IntegerAttr::new(ty, APInt::from_u32(value, bw(32)));
-    let constant = ConstantOp::new(scope.ctx_mut(), Box::new(value));
+    let constant = const_op_int32(scope.ctx_mut(), value);
     scope.register_with_result(&constant)
+}
+
+pub(crate) fn const_op_int32(ctx: &mut Context, value: u32) -> ConstantOp {
+    let ty = IntegerType::get(ctx, 32, Signedness::Signless);
+    let value = IntegerAttr::new(ty, APInt::from_u32(value, bw(32)));
+    ConstantOp::new(ctx, Box::new(value))
 }

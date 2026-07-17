@@ -536,7 +536,7 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         if atomic_float.shader_buffer_float32_atomics == TRUE {
             props.register_atomic_type_usage(
                 Type::atomic(ElemType::Float(FloatKind::F32)),
-                AtomicUsage::LoadStore,
+                AtomicUsage::LoadStore | AtomicUsage::Exchange,
             );
         }
         if atomic_float.shader_buffer_float32_atomic_add == TRUE {
@@ -548,7 +548,7 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         if atomic_float.shader_buffer_float64_atomics == TRUE {
             props.register_atomic_type_usage(
                 Type::atomic(ElemType::Float(FloatKind::F64)),
-                AtomicUsage::LoadStore,
+                AtomicUsage::LoadStore | AtomicUsage::Exchange,
             );
         }
         if atomic_float.shader_buffer_float64_atomic_add == TRUE {
@@ -563,7 +563,7 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
         if atomic_float.shader_buffer_float16_atomics == TRUE {
             props.register_atomic_type_usage(
                 Type::atomic(ElemType::Float(FloatKind::F16)),
-                AtomicUsage::LoadStore,
+                AtomicUsage::LoadStore | AtomicUsage::Exchange,
             );
         }
         if atomic_float.shader_buffer_float16_atomic_add == TRUE {
@@ -598,11 +598,11 @@ fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>)
     {
         props.register_atomic_type_usage(
             Type::atomic(Type::new(ElemType::Float(FloatKind::F16)).with_vector_size(2)),
-            AtomicUsage::all(),
+            AtomicUsage::Add | AtomicUsage::MinMax | AtomicUsage::Exchange,
         );
         props.register_atomic_type_usage(
             Type::atomic(Type::new(ElemType::Float(FloatKind::F16)).with_vector_size(4)),
-            AtomicUsage::all(),
+            AtomicUsage::Add | AtomicUsage::MinMax | AtomicUsage::Exchange,
         );
     }
 }

@@ -2,12 +2,15 @@ use core::any::type_name;
 
 use ::pliron::context::Context;
 use cubecl_ir::{
-    AddressSpace,
+    AddressSpace, Pure,
     attributes::IndexAttr,
     prelude::*,
     types::{BytesType, PointerType},
 };
-use pliron::{builtin::ops::FuncOp, irbuild::listener::DummyListener};
+use pliron::{
+    builtin::{attributes::TypeAttr, ops::FuncOp},
+    irbuild::listener::DummyListener,
+};
 
 use crate::SharedLiveness;
 
@@ -16,6 +19,7 @@ use crate::SharedLiveness;
     format = "`size = ` attr($size, $IndexAttr) `, align = ` attr($alignment, $IndexAttr)"
 )]
 #[result_ty(fixed = PointerType::get(ctx, BytesType::get(ctx).into(), AddressSpace::Shared).to_handle())]
+#[op_traits(Pure)]
 pub struct AllocSharedOp {
     pub size: IndexAttr,
     pub alignment: IndexAttr,
@@ -26,9 +30,11 @@ pub struct AllocSharedOp {
     format = "$0 `[` attr($offset, $IndexAttr) `] : ` type($0)"
 )]
 #[result_ty(argument)]
+#[op_traits(Pure)]
 pub struct SliceSharedOp {
     pub block: Value,
     pub offset: IndexAttr,
+    pub value_ty: TypeAttr,
 }
 
 /// Allocates shared memory as a single block and attaches offsets to shared memory declarations.
@@ -65,7 +71,7 @@ impl Pass for AllocateSharedMemoryBlockPass {
             for alloc in allocs {
                 let declaration = alloc.value.defining_op().expect("Should be op");
                 let ptr_ty = declaration.result(ctx).get_type(ctx);
-                let slice = SliceSharedOp::new(ctx, ptr_ty, block, alloc.offset);
+                let slice = SliceSharedOp::new(ctx, ptr_ty, block, alloc.offset, alloc.value_ty);
                 slice.get_operation().insert_before(ctx, declaration);
                 rewriter.replace_operation(ctx, declaration, slice.get_operation());
             }
