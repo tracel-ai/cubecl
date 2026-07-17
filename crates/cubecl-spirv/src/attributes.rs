@@ -7,10 +7,7 @@ use cubecl_ir::{
 use half::{bf16, f16};
 use pliron::{
     attribute::{AttrObj, attr_cast},
-    builtin::{
-        attr_interfaces::TypedAttrInterface,
-        attributes::{BoolAttr, IntegerAttr},
-    },
+    builtin::{attr_interfaces::TypedAttrInterface, attributes::IntegerAttr},
     utils::{
         apfloat::double_to_f64,
         apint::{APInt, bw},
@@ -65,8 +62,11 @@ impl ToSpirvDialectAttr for cubecl_ir::attributes::FloatAttr {
 
 #[attr_interface_impl]
 impl ToSpirvDialectAttr for cubecl_ir::attributes::BoolAttr {
-    fn to_spirv_dialect(&self, _ctx: &Context) -> AttrObj {
-        BoolAttr::new(self.0).into()
+    fn to_spirv_dialect(&self, ctx: &Context) -> AttrObj {
+        let ty = ty_to_spirv_dialect(ctx, self.get_type(ctx));
+        let value = if self.0 { 1 } else { 0 };
+        let value = APInt::from_u8(value, bw(1));
+        IntegerAttr::new(TypedHandle::from_handle(ty, ctx).unwrap(), value).into()
     }
 }
 

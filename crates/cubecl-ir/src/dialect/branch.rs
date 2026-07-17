@@ -1,7 +1,7 @@
 use pliron::{
-    attribute::{AttrObj, attr_cast},
+    attribute::AttrObj,
     basic_block::BasicBlock,
-    builtin::attributes::VecAttr,
+    builtin::attributes::{IntegerAttr, VecAttr},
     irbuild::inserter::OpInsertionPoint,
     linked_list::ContainsLinkedList,
     opts::{constants::ConstFoldInterface, dce::SideEffects},
@@ -11,12 +11,22 @@ use pliron::{
 use thiserror::Error;
 
 use crate::{
-    CanMaterialize, ConstantValue, NoMemoryEffect, Pure,
+    CanMaterialize, NoMemoryEffect, Pure,
     attributes::BoolAttr,
-    interfaces::ConstantAttr,
     prelude::*,
     types::{PointerType, scalar::BoolType},
 };
+
+/// Marker for terminators that do not return, i.e. `UnreachableOp`. In Rust terms, they return `!`.
+#[op_interface]
+pub trait IsExitTerminator {
+    fn verify(_op: &dyn Op, _ctx: &Context) -> Result<()>
+    where
+        Self: Sized,
+    {
+        Ok(())
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum YieldOpVerifyErr {
@@ -69,7 +79,7 @@ impl Verify for YieldOp {
     format = "operands(CharSpace(`,`))",
     verifier = "succ"
 )]
-#[op_interfaces(IsTerminatorInterface)]
+#[op_interfaces(IsTerminatorInterface, IsExitTerminator)]
 #[op_traits(CanMaterialize, NoMemoryEffect)]
 pub struct ReturnOp;
 
@@ -97,7 +107,7 @@ impl ReturnOp {
 }
 
 #[pliron_op(name = "branch.unreachable", format = "", verifier = "succ")]
-#[op_interfaces(IsTerminatorInterface)]
+#[op_interfaces(IsTerminatorInterface, IsExitTerminator)]
 #[op_traits(CanMaterialize, NoMemoryEffect)]
 pub struct UnreachableOp;
 
@@ -311,14 +321,21 @@ impl SwitchOp {
         region.deref(ctx).get_head().unwrap()
     }
 
-    pub fn cases(&self, ctx: &Context) -> Vec<(ConstantValue, Ptr<BasicBlock>)> {
+    pub fn cases(&self, ctx: &Context) -> Vec<(IntegerAttr, Ptr<BasicBlock>)> {
         let cases = self.get_attr_branch_switch_cases(ctx).unwrap().clone().0;
         let out = (0..cases.len()).map(|i| {
-            let value = attr_cast::<dyn ConstantAttr>(&*cases[i]).unwrap();
+            let value = cases[i].downcast_ref::<IntegerAttr>().unwrap().clone();
             let block = self.get_body(ctx, i + 1);
-            (value.as_const_val(ctx), block)
+            (value, block)
         });
         out.collect()
+    }
+
+    pub fn get_case_destinations(&self, ctx: &Context) -> Vec<Ptr<BasicBlock>> {
+        let op = self.get_operation().deref(ctx);
+        (1..op.regions().count())
+            .map(|i| self.get_body(ctx, i))
+            .collect()
     }
 
     pub fn set_attr_cases(&self, ctx: &Context, cases: impl IntoIterator<Item = AttrObj>) {

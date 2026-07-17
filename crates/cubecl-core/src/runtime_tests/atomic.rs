@@ -78,9 +78,8 @@ fn numeric_op_name(op: NumericAtomicOp) -> &'static str {
 
 fn numeric_op_feature(op: NumericAtomicOp) -> AtomicUsage {
     match op {
-        NumericAtomicOp::Load | NumericAtomicOp::Store | NumericAtomicOp::Exchange => {
-            AtomicUsage::LoadStore
-        }
+        NumericAtomicOp::Load | NumericAtomicOp::Store => AtomicUsage::LoadStore,
+        NumericAtomicOp::Exchange => AtomicUsage::Exchange,
         NumericAtomicOp::Add | NumericAtomicOp::Sub => AtomicUsage::Add,
         NumericAtomicOp::Min | NumericAtomicOp::Max => AtomicUsage::MinMax,
     }

@@ -1,7 +1,7 @@
 use cubecl_ir::{
     AddressSpace, ContextExt,
     interfaces::TypedExt,
-    types::{ArrayType, PointerType, RuntimeArrayType, VectorType, scalar::*},
+    types::{ArrayType, AtomicType, PointerType, RuntimeArrayType, VectorType, scalar::*},
     verify_ty_succ,
 };
 use pliron::{
@@ -26,10 +26,26 @@ pub fn ty_to_spirv_dialect(ctx: &Context, handle: impl Into<TypeHandle>) -> Type
     }
 }
 
+pub fn ty_to_spirv_dialect_explicit_layout(
+    ctx: &Context,
+    handle: impl Into<TypeHandle>,
+) -> TypeHandle {
+    let handle = handle.into();
+    let ty = handle.deref(ctx);
+    if let Some(to_spirv) = type_cast::<dyn ToSpirvDialectType>(&*ty) {
+        to_spirv.to_spirv_ty_explicit_layout(ctx)
+    } else {
+        handle
+    }
+}
+
 #[type_interface]
 pub trait ToSpirvDialectType {
     verify_ty_succ!();
     fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle;
+    fn to_spirv_ty_explicit_layout(&self, ctx: &Context) -> TypeHandle {
+        self.to_spirv_ty(ctx)
+    }
 }
 
 macro_rules! float_type {
@@ -75,6 +91,13 @@ impl ToSpirvDialectType for IntegerType {
 }
 
 #[type_interface_impl]
+impl ToSpirvDialectType for AtomicType {
+    fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
+        ty_to_spirv_dialect(ctx, self.inner)
+    }
+}
+
+#[type_interface_impl]
 impl ToSpirvDialectType for VectorType {
     fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
         let inner = ty_to_spirv_dialect(ctx, self.inner);
@@ -88,13 +111,25 @@ impl ToSpirvDialectType for ArrayType {
         let inner = ty_to_spirv_dialect(ctx, self.inner);
         SpirvArrayType::get(ctx, self.length as u32, inner, None).to_handle()
     }
+
+    fn to_spirv_ty_explicit_layout(&self, ctx: &Context) -> TypeHandle {
+        let stride = self.inner.size(ctx) as u32;
+        let inner = ty_to_spirv_dialect(ctx, self.inner);
+        SpirvArrayType::get(ctx, self.length as u32, inner, Some(stride)).to_handle()
+    }
 }
 
 #[type_interface_impl]
 impl ToSpirvDialectType for RuntimeArrayType {
     fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
         let inner = ty_to_spirv_dialect(ctx, self.inner);
-        SpirvRuntimeArrayType::get(ctx, inner, Some(inner.size(ctx) as u32)).to_handle()
+        SpirvRuntimeArrayType::get(ctx, inner, None).to_handle()
+    }
+
+    fn to_spirv_ty_explicit_layout(&self, ctx: &Context) -> TypeHandle {
+        let stride = self.inner.size(ctx) as u32;
+        let inner = ty_to_spirv_dialect(ctx, self.inner);
+        SpirvRuntimeArrayType::get(ctx, inner, Some(stride)).to_handle()
     }
 }
 
@@ -109,12 +144,27 @@ impl ToSpirvDialectType for PointerType {
         };
         SpirvPointerType::get(ctx, inner, storage_class).to_handle()
     }
+
+    fn to_spirv_ty_explicit_layout(&self, ctx: &Context) -> TypeHandle {
+        let inner = ty_to_spirv_dialect_explicit_layout(ctx, self.inner);
+        let storage_class = match self.address_space {
+            AddressSpace::Global(_) => StorageClass::PhysicalStorageBuffer,
+            AddressSpace::Shared => StorageClass::Workgroup,
+            AddressSpace::Local => StorageClass::Function,
+        };
+        SpirvPointerType::get(ctx, inner, storage_class).to_handle()
+    }
 }
 
 #[type_interface_impl]
 impl ToSpirvDialectType for SpirvPointerType {
     fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
         let inner = ty_to_spirv_dialect(ctx, self.element_type);
+        SpirvPointerType::get(ctx, inner, self.storage_class).to_handle()
+    }
+
+    fn to_spirv_ty_explicit_layout(&self, ctx: &Context) -> TypeHandle {
+        let inner = ty_to_spirv_dialect_explicit_layout(ctx, self.element_type);
         SpirvPointerType::get(ctx, inner, self.storage_class).to_handle()
     }
 }

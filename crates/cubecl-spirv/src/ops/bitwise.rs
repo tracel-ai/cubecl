@@ -6,15 +6,17 @@ use cubecl_ir::{
 };
 use pliron::{
     builtin::{
-        attributes::IntegerAttr,
+        attributes::{IntegerAttr, VecAttr},
         ops::ConstantOp,
-        types::{IntegerType, Signedness},
+        types::IntegerType,
     },
     utils::apint::{APInt, bw},
 };
 use pliron_spirv::{
+    attrs::CompositeAttr,
     ext::gl,
     ops::{self, IAddOp, ISubOp, ShiftRightArithmeticOp, ShiftRightLogicalOp},
+    types::VectorType,
 };
 
 use crate::{
@@ -36,6 +38,25 @@ binop_to_spirv_dialect!(bitwise::ShiftLeftOp => ops::ShiftLeftLogicalOp);
 unop_to_spirv_dialect!(bitwise::BitwiseNotOp => ops::NotOp);
 unop_to_spirv_dialect!(bitwise::CountOnesOp => ops::BitCountOp);
 unop_to_spirv_dialect!(bitwise::ReverseBitsOp => ops::BitReverseOp);
+
+fn const_int_maybe_vec(scope: &Scope, value: u32, ref_ty: TypeHandle) -> Value {
+    let ty = ref_ty.deref(scope.ctx());
+    if let Some(vector) = ty.downcast_ref::<VectorType>() {
+        let elem_ty =
+            TypedHandle::<IntegerType>::from_handle(vector.element_type, scope.ctx()).unwrap();
+        let width = bw(elem_ty.deref(scope.ctx()).width() as usize);
+        let value = IntegerAttr::new(elem_ty, APInt::from_u32(value, width));
+        let values = VecAttr(vec![Box::new(value); vector.count as usize]);
+        let value = CompositeAttr::new(values, ref_ty);
+        scope.register_with_result(&ConstantOp::new(scope.ctx_mut(), Box::new(value)))
+    } else {
+        let ref_ty = TypedHandle::<IntegerType>::from_handle(ref_ty, scope.ctx()).unwrap();
+        let width = bw(ref_ty.deref(scope.ctx()).width() as usize);
+        let value = IntegerAttr::new(ref_ty, APInt::from_u32(value, width));
+
+        scope.register_with_result(&ConstantOp::new(scope.ctx_mut(), Box::new(value)))
+    }
+}
 
 #[op_interface_impl]
 impl ToSpirvDialectOp for bitwise::ShiftRightOp {
@@ -77,13 +98,13 @@ impl ToSpirvDialectOp for bitwise::LeadingZerosBitsOp {
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
 
         // Indices are zero based, so subtract 1 from u32 width
-        let width = const_u32(&scope, 31);
+        let width = const_int_maybe_vec(&scope, 31, inp.get_type(ctx));
         let msb = if self.get_result(ctx).scalar_ty(ctx).is_signed_int(ctx) {
             scope.register_with_result(&gl::FindSMsbOp::new(ctx, out_ty, inp))
         } else {
             scope.register_with_result(&gl::FindUMsbOp::new(ctx, out_ty, inp))
         };
-        let value = scope.register_with_result(&ISubOp::new(ctx, out_ty, msb, width));
+        let value = scope.register_with_result(&ISubOp::new(ctx, out_ty, width, msb));
         rewriter.replace_operation_with_values(ctx, op, vec![value]);
 
         Ok(())
@@ -103,7 +124,7 @@ impl ToSpirvDialectOp for bitwise::FindFirstSetOp {
         let inp = self.input(ctx);
         let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
 
-        let one = const_u32(&scope, 1);
+        let one = const_int_maybe_vec(&scope, 1, inp.get_type(ctx));
         let lsb = scope.register_with_result(&gl::FindILsbOp::new(ctx, out_ty, inp));
         // Normalize to CUDA/POSIX convention of 1 based index, with 0 meaning not found
         let value = scope.register_with_result(&IAddOp::new(ctx, out_ty, lsb, one));
@@ -124,21 +145,15 @@ impl ToSpirvDialectOp for bitwise::TrailingZerosBitsOp {
         let scope = Scope::from_context_and_inserter(ctx, rewriter);
         let op = self.get_operation();
         let inp = self.input(ctx);
-        let out_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
+        let out_ty = ty_to_spirv_dialect(ctx, self.result_type(ctx));
 
         let lsb = scope.register_with_result(&gl::FindILsbOp::new(ctx, out_ty, inp));
-        scope.register_value_type::<(), N>(inp);
+        scope.register_value_type::<(), N>(self.result_type(ctx));
         let value = trailing_zeros_adjust::expand(&scope, inp.into(), lsb.into()).value(&scope);
         rewriter.replace_operation_with_values(ctx, op, vec![value]);
 
         Ok(())
     }
-}
-
-fn const_u32(scope: &Scope, value: u32) -> Value {
-    let u32 = IntegerType::get(scope.ctx(), 32, Signedness::Signless);
-    let value = IntegerAttr::new(u32, APInt::from_u32(value, bw(32)));
-    scope.register_with_result(&ConstantOp::new(scope.ctx_mut(), Box::new(value)))
 }
 
 lower_unop!(CountOnesOp, u64_count_bits, |op, ctx| {

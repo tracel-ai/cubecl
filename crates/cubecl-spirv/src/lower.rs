@@ -67,7 +67,7 @@ macro_rules! lower_binop {
                 $crate::lower::closure_inference_hack::<$ty, bool>(self, ctx, $pred)
             }
 
-            fn lower(&self, scope: &Scope) -> Vec<Value> {
+            fn lower(&self, scope: &cubecl_ir::Scope) -> Vec<Value> {
                 use cubecl_core::ir::dialect::OperationPtrExt;
                 define_scalar!(T);
                 define_size!(S);

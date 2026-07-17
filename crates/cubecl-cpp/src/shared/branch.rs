@@ -33,7 +33,7 @@ shared_op!(SwitchOp, |op, ctx| {
     let mut out = format!("switch({value}) {{\n");
     for (value, block) in op.cases(ctx) {
         let block = block_to_cpp(ctx, block);
-        let case = format!("case {}: {{ {block} break; }}\n", value.as_i128());
+        let case = format!("case {}: {{ {block} break; }}\n", value.value().to_i128());
         out.push_str(&case);
     }
     let block = block_to_cpp(ctx, op.default_block(ctx));
