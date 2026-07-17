@@ -235,7 +235,7 @@ impl<K: AutotuneKey> Tuner<K> {
         // batch failed to queue anything.
         let mut pending = Vec::<PendingBench>::new();
         loop {
-            let tunable_indices = plan.next(log_context.as_mut());
+            let tunable_indices = plan.next();
 
             if tunable_indices.is_empty() {
                 panic!(
