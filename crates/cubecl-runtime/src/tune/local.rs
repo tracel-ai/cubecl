@@ -149,7 +149,7 @@ where
         let mut log_context = crate::tune::AutotuneLogContext::new(&mut tuner.logger().lock());
 
         #[cfg(feature = "autotune-checks")]
-        log_context.add_checks(|| self.checks::<I, Out>(&operations, &inputs));
+        log_context.set_checks(|| self.checks::<I, Out>(&operations, &inputs));
 
         // First, check for a cache hit under a read lock.
         if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {

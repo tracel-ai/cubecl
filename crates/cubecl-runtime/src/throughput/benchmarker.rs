@@ -82,6 +82,7 @@ impl ThroughputBenchmarker {
     /// and estimating the number of iterations needed to reach a stable duration.
     fn warmup(&self, sample: impl Fn(usize) -> Duration) -> usize {
         const MAX_WARMUP: usize = 50;
+        const MAX_ITERATIONS: usize = 200;
         const PLATEAU_TOL: f64 = 0.03;
         const PATIENCE: usize = 3;
         const TARGET_DURATION_MS: f64 = 20.0;
@@ -99,7 +100,7 @@ impl ThroughputBenchmarker {
                 } else {
                     iterations
                 };
-                iterations += extra_iters.max(1);
+                iterations = (iterations + extra_iters.max(1)).min(MAX_ITERATIONS);
                 best = f64::INFINITY;
                 stable = 0;
                 continue;
@@ -128,6 +129,11 @@ impl ThroughputBenchmarker {
         iterations: usize,
         sample_once: impl Fn(usize) -> Duration,
     ) -> Duration {
+        debug_assert!(
+            iterations > 0,
+            "iterations must be positive to avoid division by zero"
+        );
+
         const MIN_SAMPLES: usize = 20;
         const MAX_SAMPLES: usize = 200;
         const REL_TOL: f64 = 0.01;

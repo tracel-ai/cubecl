@@ -23,7 +23,7 @@ pub enum AutotuneLogEvent {
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub struct AutotuneLogContext {
     /// Calculated bounds for autotuning.
-    pub bounds: Option<crate::tune::Bounds<crate::tune::AutotuneBound>>,
+    pub bounds: Option<crate::tune::Bounds>,
     /// The time limit to exceed for early short-circuiting.
     pub limit: Option<Duration>,
     /// The chronological list of tuning events.
@@ -71,88 +71,67 @@ pub trait AutotuneLoggerExt {
     /// Pushes a tuning step event if logging is enabled.
     fn push_tuning_step(&mut self, name: String, duration: Duration);
     /// Sets the tuning bounds if logging is active.
-    fn set_bounds(&mut self, bounds: Option<crate::tune::Bounds<crate::tune::AutotuneBound>>);
+    fn set_bounds(&mut self, bounds: Option<crate::tune::Bounds>);
     /// Sets the tuning limit if logging is active.
     fn set_limit(&mut self, limit: Option<Duration>);
-    /// Adds checks if logging is active.
-    fn add_checks(&mut self, checks: impl FnOnce() -> Vec<CheckResult>);
+    /// Sets checks if logging is active.
+    fn set_checks(&mut self, checks: impl FnOnce() -> Vec<CheckResult>);
     /// Logs the benchmark result if logging is enabled.
     fn log_result<K: AutotuneKey>(&self, logger: &mut Logger, key: &K, results: &[AutotuneResult]);
 }
 
-impl AutotuneLoggerExt for Option<AutotuneLogContext> {
-    fn push_short_circuit(&mut self, name: String) {
-        if let Some(ctx) = self.as_mut() {
-            ctx.events.push(AutotuneLogEvent::ShortCircuit(name));
-        }
-    }
+/// Implements `AutotuneLoggerExt` for an `Option`-like wrapper around `AutotuneLogContext`.
+/// The two concrete types (`Option<AutotuneLogContext>` and `Option<&mut AutotuneLogContext>`)
+/// differ only in how they reach the inner `&mut AutotuneLogContext`: `.as_mut()` vs
+/// `.as_deref_mut()`, and `.as_ref()` vs `.as_deref()`.
+macro_rules! impl_autotune_logger_ext {
+    ($ty:ty, $as_mut:ident, $as_ref:ident) => {
+        impl AutotuneLoggerExt for $ty {
+            fn push_short_circuit(&mut self, name: String) {
+                if let Some(ctx) = self.$as_mut() {
+                    ctx.events.push(AutotuneLogEvent::ShortCircuit(name));
+                }
+            }
 
-    fn push_tuning_step(&mut self, name: String, duration: Duration) {
-        if let Some(ctx) = self.as_mut() {
-            ctx.events
-                .push(AutotuneLogEvent::TuningStep(name, duration));
-        }
-    }
+            fn push_tuning_step(&mut self, name: String, duration: Duration) {
+                if let Some(ctx) = self.$as_mut() {
+                    ctx.events
+                        .push(AutotuneLogEvent::TuningStep(name, duration));
+                }
+            }
 
-    fn set_bounds(&mut self, bounds: Option<crate::tune::Bounds<crate::tune::AutotuneBound>>) {
-        if let Some(ctx) = self.as_mut() {
-            ctx.bounds = bounds;
-        }
-    }
+            fn set_bounds(&mut self, bounds: Option<crate::tune::Bounds>) {
+                if let Some(ctx) = self.$as_mut() {
+                    ctx.bounds = bounds;
+                }
+            }
 
-    fn set_limit(&mut self, limit: Option<Duration>) {
-        if let Some(ctx) = self.as_mut() {
-            ctx.limit = limit;
-        }
-    }
+            fn set_limit(&mut self, limit: Option<Duration>) {
+                if let Some(ctx) = self.$as_mut() {
+                    ctx.limit = limit;
+                }
+            }
 
-    fn add_checks(&mut self, checks: impl FnOnce() -> Vec<CheckResult>) {
-        if let Some(ctx) = self.as_mut() {
-            ctx.checks = Some(checks());
-        }
-    }
+            fn set_checks(&mut self, checks: impl FnOnce() -> Vec<CheckResult>) {
+                if let Some(ctx) = self.$as_mut() {
+                    ctx.checks = Some(checks());
+                }
+            }
 
-    fn log_result<K: AutotuneKey>(&self, logger: &mut Logger, key: &K, results: &[AutotuneResult]) {
-        crate::tune::log_result(logger, key, results, self.as_ref());
-    }
+            fn log_result<K: AutotuneKey>(
+                &self,
+                logger: &mut Logger,
+                key: &K,
+                results: &[AutotuneResult],
+            ) {
+                log_result(logger, key, results, self.$as_ref());
+            }
+        }
+    };
 }
 
-impl<'a> AutotuneLoggerExt for Option<&'a mut AutotuneLogContext> {
-    fn push_short_circuit(&mut self, name: String) {
-        if let Some(ctx) = self.as_deref_mut() {
-            ctx.events.push(AutotuneLogEvent::ShortCircuit(name));
-        }
-    }
-
-    fn push_tuning_step(&mut self, name: String, duration: Duration) {
-        if let Some(ctx) = self.as_deref_mut() {
-            ctx.events
-                .push(AutotuneLogEvent::TuningStep(name, duration));
-        }
-    }
-
-    fn set_bounds(&mut self, bounds: Option<crate::tune::Bounds<crate::tune::AutotuneBound>>) {
-        if let Some(ctx) = self.as_deref_mut() {
-            ctx.bounds = bounds;
-        }
-    }
-
-    fn set_limit(&mut self, limit: Option<Duration>) {
-        if let Some(ctx) = self.as_deref_mut() {
-            ctx.limit = limit;
-        }
-    }
-
-    fn add_checks(&mut self, checks: impl FnOnce() -> Vec<CheckResult>) {
-        if let Some(ctx) = self.as_deref_mut() {
-            ctx.checks = Some(checks());
-        }
-    }
-
-    fn log_result<K: AutotuneKey>(&self, logger: &mut Logger, key: &K, results: &[AutotuneResult]) {
-        crate::tune::log_result(logger, key, results, self.as_deref());
-    }
-}
+impl_autotune_logger_ext!(Option<AutotuneLogContext>, as_mut, as_ref);
+impl_autotune_logger_ext!(Option<&'_ mut AutotuneLogContext>, as_deref_mut, as_deref);
 
 /// The complete record of one tuning decision, written as JSON when the autotune recorder has a
 /// sink configured. One record per line, per decision, in a fixed schema for tools to read back.
@@ -185,7 +164,7 @@ pub struct CheckResult {
 
 /// Emit the autotune result: a line for humans at the logger's level and, independently, the
 /// [`AutotuneRecord`] for tools if the recorder has a sink. Either, both, or neither.
-pub(crate) fn log_result<K: AutotuneKey>(
+fn log_result<K: AutotuneKey>(
     logger: &mut Logger,
     key: &K,
     results: &[AutotuneResult],

@@ -8,9 +8,9 @@ use crate::tune::TuneInputs;
 /// A set of [`AutotuneBound`]s for a given key and reference inputs, with a launch overhead.
 #[derive(Debug, Clone)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
-pub struct Bounds<B: TimeBound> {
+pub struct Bounds {
     /// The bounds for autotuning.
-    pub bounds: Vec<B>,
+    pub bounds: Vec<AutotuneBound>,
     /// The launch overhead for autotuning.
     pub launch_overhead: Duration,
 }
@@ -20,21 +20,21 @@ pub struct Bounds<B: TimeBound> {
     message = "`{Self}` is not a valid bounds generator",
     label = "invalid bounds generator"
 )]
-pub trait BoundsGenerator<K, I: TuneInputs, B: TimeBound>: Send + Sync + 'static {
+pub trait BoundsGenerator<K, I: TuneInputs>: Send + Sync + 'static {
     /// Generate a set of bounds for a given key and reference inputs.
-    fn generate<'a>(&self, key: &K, inputs: &I::At<'a>) -> Bounds<B>;
+    fn generate<'a>(&self, key: &K, inputs: &I::At<'a>) -> Bounds;
 }
 
-/// `Fn(&K, &A) -> Bounds<B>` acts as a [`BoundsGenerator`] when `A` is an owned type. For
+/// `Fn(&K, &A) -> Bounds` acts as a [`BoundsGenerator`] when `A` is an owned type. For
 /// multi-input kernels, `A` is a tuple that the closure destructures internally.
-impl<K, Func, A, B: TimeBound> BoundsGenerator<K, A, B> for Func
+impl<K, Func, A> BoundsGenerator<K, A> for Func
 where
     A: Clone + Send + Sync + 'static,
     K: 'static,
-    Func: Send + Sync + 'static + Fn(&K, &A) -> Bounds<B>,
+    Func: Send + Sync + 'static + Fn(&K, &A) -> Bounds,
 {
     #[inline]
-    fn generate<'a>(&self, key: &K, inputs: &<A as TuneInputs>::At<'a>) -> Bounds<B> {
+    fn generate<'a>(&self, key: &K, inputs: &<A as TuneInputs>::At<'a>) -> Bounds {
         (self)(key, inputs)
     }
 }
@@ -99,7 +99,7 @@ impl<B: TimeBound> TimeBound for Vec<B> {
     }
 }
 
-impl<B: TimeBound> TimeBound for Bounds<B> {
+impl TimeBound for Bounds {
     fn time_limit(&self) -> Option<Duration> {
         self.bounds
             .time_limit()
@@ -170,7 +170,7 @@ mod tests {
     fn bounds_time_limit_is_none_without_usable_bounds() {
         // No usable bound means no limit at all — the launch overhead is not a limit on
         // its own, so the short-circuit stays disabled.
-        let bounds = Bounds::<AutotuneBound> {
+        let bounds = Bounds {
             bounds: vec![],
             launch_overhead: Duration::from_millis(500),
         };

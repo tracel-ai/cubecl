@@ -262,6 +262,7 @@ impl<K: AutotuneKey> Tuner<K> {
                         if short_circuit {
                             let result = cubecl_common::future::block_on(resolve_bench(bench));
 
+                            // short_circuit is only true when limit.is_some() => unwrap is fine.
                             let close_enough = result
                                 .outcome
                                 .as_ref()
@@ -297,7 +298,12 @@ impl<K: AutotuneKey> Tuner<K> {
                 }
             }
 
-            if !pending.is_empty() || (cfg!(not(target_family = "wasm")) && batch_success) {
+            #[cfg(not(target_family = "wasm"))]
+            if !pending.is_empty() || batch_success {
+                break;
+            }
+            #[cfg(target_family = "wasm")]
+            if !pending.is_empty() {
                 break;
             }
         }

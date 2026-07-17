@@ -7,7 +7,7 @@ use core::hash::Hash;
 
 use alloc::format;
 
-use crate::tune::{AutotuneBound, Bounds, BoundsGenerator};
+use crate::tune::{Bounds, BoundsGenerator};
 
 use super::{
     AutotuneError, input_generator::InputGenerator, key_generator::KeyGenerator,
@@ -37,16 +37,13 @@ impl<I: TuneInputs, Out: 'static> TuneFn<I, Out> {
     }
 }
 
-/// Pseudo generic bound type to avoid adding a generic parameter to [`TunableSet`].
-type B = AutotuneBound;
-
 /// A set of candidate tunable functions for autotune, sharing a key generator and an
 /// input generator. See [`TuneInputs`] for the `F` parameter.
 pub struct TunableSet<K: AutotuneKey, F: TuneInputs, Output: 'static> {
     tunables: Vec<Tunable<K, F, Output>>,
     key_gen: Arc<dyn KeyGenerator<K, F> + Send + Sync>,
     input_gen: Arc<dyn InputGenerator<K, F> + Send + Sync>,
-    bounds_gen: Option<Arc<dyn BoundsGenerator<K, F, B> + Send + Sync>>,
+    bounds_gen: Option<Arc<dyn BoundsGenerator<K, F> + Send + Sync>>,
     short_circuit: bool,
 }
 
@@ -85,7 +82,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
     }
 
     /// Sets the autotune bounds for this set.
-    pub fn with_bounds(mut self, bounds: Arc<dyn BoundsGenerator<K, F, B> + Send + Sync>) -> Self {
+    pub fn with_bounds(mut self, bounds: Arc<dyn BoundsGenerator<K, F> + Send + Sync>) -> Self {
         self.bounds_gen = Some(bounds);
         self
     }
@@ -138,7 +135,7 @@ impl<K: AutotuneKey, F: TuneInputs, Output: 'static> TunableSet<K, F, Output> {
     }
 
     /// The throughput bounds registered on this set, if any.
-    pub fn bounds(&self, key: &K, inputs: &F::At<'_>) -> Option<Bounds<B>> {
+    pub fn bounds(&self, key: &K, inputs: &F::At<'_>) -> Option<Bounds> {
         self.bounds_gen.as_ref().map(|f| f.generate(key, inputs))
     }
 }
