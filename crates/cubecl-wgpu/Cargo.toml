@@ -39,7 +39,7 @@ spirv = [
 ]
 
 deny-validation-errors = ["wgpu-hal/validation_canary"]
-spirv-dump = ["std"]
+spirv-dump = ["std", "cubecl-spirv/spirv-dump"]
 vulkan-validate = []
 
 renderdoc = ["std", "dep:renderdoc"]

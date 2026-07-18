@@ -18,6 +18,7 @@ mod spirv;
 
 pub mod arena;
 pub mod attributes;
+pub mod convert;
 pub mod dialect;
 pub mod interfaces;
 pub mod metadata;

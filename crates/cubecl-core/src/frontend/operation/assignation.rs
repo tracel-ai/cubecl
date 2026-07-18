@@ -14,6 +14,7 @@ type ArrayExpand<E> = NativeExpand<Array<E>>;
 
 pub mod assign {
     use cubecl_ir::{dialect::memory::StoreOp, interfaces::TypedExt, pliron::r#type::Typed};
+    use pliron::value::Value;
 
     use crate::prelude::NativeExpand;
 
@@ -49,16 +50,24 @@ pub mod assign {
     }
 
     pub fn expand_element(scope: &Scope, input: ExpandValue, output: ExpandValue) {
-        let mut input = input.read_value(scope);
+        let input = input.read_value(scope);
         let output = output.value(scope);
 
-        if output.vector_size(scope.ctx()) > 1 && input.vector_size(scope.ctx()) == 1 {
-            input = cast_value(scope, input, output.get_type(scope.ctx()));
-        }
+        let input = broadcast_input(scope, input, output).unwrap_or(input);
 
         // value -> ptr = store
         let store = StoreOp::new(scope.ctx_mut(), output, input);
         scope.register(&store);
+    }
+
+    fn broadcast_input(scope: &Scope, input: Value, output: Value) -> Option<Value> {
+        let out_vec = output.try_get_vector_size(scope.ctx())?;
+        let in_vec = input.try_get_vector_size(scope.ctx())?;
+        if out_vec > 1 && in_vec == 1 {
+            Some(cast_value(scope, input, output.get_type(scope.ctx())))
+        } else {
+            None
+        }
     }
 }
 

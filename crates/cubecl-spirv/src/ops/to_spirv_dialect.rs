@@ -1,4 +1,5 @@
 use cubecl_ir::{
+    dialect::BlockPtrExt,
     prelude::{
         Context, DialectConversion, DialectConversionRewriter, OperandsInfo, Operation,
         OperationPtrExt, Ptr, Result, Rewriter,
@@ -7,13 +8,14 @@ use cubecl_ir::{
     verify_op_succ,
 };
 use pliron::{
-    builtin::ops::ConstantOp,
+    builtin::ops::{ConstantOp, FuncOp},
     derive::{op_interface, op_interface_impl},
     irbuild::inserter::Inserter,
     op::{Op, op_cast},
+    r#type::Typed,
 };
 
-use crate::attributes::attr_to_spirv_dialect;
+use crate::{attributes::attr_to_spirv_dialect, types::ty_to_spirv_dialect};
 
 #[op_interface]
 pub trait ToSpirvDialectOp {
@@ -50,6 +52,33 @@ impl DialectConversion for ToSpirvDialect {
         let dyn_op = op.dyn_op(ctx);
         let to_spirv_dialect = op_cast::<dyn ToSpirvDialectOp>(&*dyn_op).unwrap();
         to_spirv_dialect.to_spirv_dialect(ctx, rewriter, operands_info)
+    }
+}
+
+#[op_interface_impl]
+impl ToSpirvDialectOp for FuncOp {
+    fn should_convert(&self, ctx: &Context) -> bool {
+        let ty = self.get_attr_func_type(ctx).unwrap().get_type(ctx);
+        ty_to_spirv_dialect(ctx, ty) != ty
+    }
+
+    fn to_spirv_dialect(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let func_ty = self.get_attr_func_type(ctx).unwrap().get_type(ctx);
+        let func_ty = ty_to_spirv_dialect(ctx, func_ty);
+        self.set_attr_func_type(ctx, func_ty.into());
+
+        let args = self.get_entry_block(ctx).arguments(ctx);
+        for arg in args {
+            let new_type = ty_to_spirv_dialect(ctx, arg.get_type(ctx));
+            rewriter.set_value_type(ctx, arg, new_type);
+        }
+
+        Ok(())
     }
 }
 

@@ -81,11 +81,7 @@ pub(super) fn load_ptx(ctx: &Context, op: &LoadOp) -> String {
     // CUDA wmma which is not optimal in the case of PTX wmma and mma
     // We choose here to use the layout defined in the fragment first,
     // if it is unknown and we look into the layout passed to the instruction.
-    let layout = if let Some(layout) = op.layout(ctx) {
-        get_qualifier_from_layout(&layout.0)
-    } else {
-        get_fragment_layout_qualifier(ctx, matrix)
-    };
+    let layout = get_qualifier_from_layout(&op.layout(ctx).0);
 
     // instruction qualifiers
     let ty = mma_ty(ctx, &*elem_ty);

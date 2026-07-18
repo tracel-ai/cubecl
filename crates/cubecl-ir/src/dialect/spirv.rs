@@ -1,16 +1,19 @@
 use cubecl_macros_internal::cube_op;
 
 use crate::{
-    CanMaterialize, Pure, attributes::IndexAttr, prelude::*, types::{
-        matrix::MatrixType,
+    CanMaterialize, Pure,
+    attributes::IndexAttr,
+    prelude::*,
+    types::{
+        PointerType,
         spirv::{ClampMode, TensorLayoutType},
-    }
+    },
 };
 
 #[pliron_op(
     name = "matrix.spirv.load_tensor",
-    operands = (out_mat: MatrixType, buffer, layout: TensorLayoutType), 
-    format, 
+    operands = (out_mat: PointerType, buffer, layout: TensorLayoutType),
+    format,
     verifier = "succ"
 )]
 #[op_traits(CanMaterialize)]
@@ -37,18 +40,22 @@ impl LoadTensorOp {
         Self { op }
     }
 
-    pub fn buffer(&self, ctx: &Context) -> Value {
+    pub fn out_mat(&self, ctx: &Context) -> Value {
         self.get_operation().deref(ctx).get_operand(0)
     }
 
-    pub fn layout(&self, ctx: &Context) -> Value {
+    pub fn buffer(&self, ctx: &Context) -> Value {
         self.get_operation().deref(ctx).get_operand(1)
+    }
+
+    pub fn layout(&self, ctx: &Context) -> Value {
+        self.get_operation().deref(ctx).get_operand(2)
     }
 
     pub fn view(&self, ctx: &Context) -> Option<Value> {
         let op = self.get_operation().deref(ctx);
-        if op.get_num_operands() > 2 {
-            Some(op.get_operand(2))
+        if op.get_num_operands() > 3 {
+            Some(op.get_operand(3))
         } else {
             None
         }
@@ -147,7 +154,7 @@ impl CreateLayoutOp {
             None
         }
     }
-    
+
     pub fn rank(&self, ctx: &Context) -> usize {
         self.get_attr_spirv_create_layout_rank(ctx).unwrap().0
     }
@@ -158,25 +165,33 @@ impl CreateLayoutOp {
 #[op_traits(CanMaterialize, Pure)]
 pub struct CreateViewOp {}
 
-#[pliron_op(name = "spirv.slice_layout", format, attributes = (spirv_slice_layout_rank: IndexAttr), verifier = "succ")]
-#[op_interfaces(NResultsInterface<1>, OneResultInterface)]
+#[pliron_op(
+    name = "spirv.slice_layout",
+    format,
+    attributes = (spirv_slice_layout_rank: IndexAttr),
+    verifier = "succ"
+)]
+#[op_interfaces(NResultsInterface<1>, OneResultInterface, OperandSegmentInterface)]
 #[op_traits(CanMaterialize, Pure)]
 pub struct SliceOp;
 
 impl SliceOp {
     pub fn new(ctx: &mut Context, layout: Value, offsets: Vec<Value>, shape: Vec<Value>) -> Self {
+        let (operands, segment_sizes) =
+            Self::compute_segment_sizes(vec![vec![layout], offsets, shape]);
         let out_ty = layout.get_type(ctx);
-        let mut operands = offsets;
-        operands.extend(shape);
-        let op = Operation::new(
-            ctx,
-            Self::get_concrete_op_info(),
-            vec![out_ty],
-            operands,
-            vec![],
-            0,
-        );
-        Self { op }
+        let op = Self {
+            op: Operation::new(
+                ctx,
+                Self::get_concrete_op_info(),
+                vec![out_ty],
+                operands,
+                vec![],
+                0,
+            ),
+        };
+        op.set_operand_segment_sizes(ctx, segment_sizes);
+        op
     }
 
     pub fn layout(&self, ctx: &Context) -> Value {
@@ -184,16 +199,10 @@ impl SliceOp {
     }
 
     pub fn offsets(&self, ctx: &Context) -> Vec<Value> {
-        let layout_ty = self.layout(ctx).get_type(ctx).deref(ctx);
-        let rank = layout_ty.downcast_ref::<TensorLayoutType>().unwrap().rank;
-        let op = self.get_operation().deref(ctx);
-        op.operands().skip(1).take(rank).collect()
+        self.get_segment(ctx, 1)
     }
 
     pub fn shape(&self, ctx: &Context) -> Vec<Value> {
-        let layout_ty = self.layout(ctx).get_type(ctx).deref(ctx);
-        let rank = layout_ty.downcast_ref::<TensorLayoutType>().unwrap().rank;
-        let op = self.get_operation().deref(ctx);
-        op.operands().skip(1 + rank).take(rank).collect()
+        self.get_segment(ctx, 2)
     }
 }

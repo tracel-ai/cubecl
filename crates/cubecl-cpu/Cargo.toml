@@ -57,10 +57,10 @@ derive-new = { workspace = true }
 half = { workspace = true }
 log = { workspace = true }
 paste = { workspace = true }
+pliron = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 sysinfo = { workspace = true }
 tracel-llvm = { workspace = true }
-pliron = { workspace = true, features = ["std"] }
 
 [target.'cfg(any(target_os = "android", target_os = "linux", target_os = "macos", target_os = "freebsd"))'.dependencies]
 libc = { workspace = true }

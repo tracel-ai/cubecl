@@ -15,5 +15,5 @@ pub mod synchronization;
 pub mod tma;
 pub mod vector;
 
-pub use base::*;
 pub use asm::*;
+pub use base::*;

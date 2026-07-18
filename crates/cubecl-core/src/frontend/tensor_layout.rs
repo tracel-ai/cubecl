@@ -128,7 +128,7 @@ impl<T: CubePrimitive> TensorView<T> {
                 shape.len(),
                 "Offsets and shape must have same rank"
             );
-            let layout = self.layout.value(scope);
+            let layout = self.layout.read_value(scope);
             let offs = offs.iter_cloned().map(|it| it.read_value(scope)).collect();
             let shape = shape.iter_cloned().map(|it| it.read_value(scope)).collect();
             let slice_op = SliceOp::new(scope.ctx_mut(), layout, offs, shape);

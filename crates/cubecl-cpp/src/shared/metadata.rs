@@ -1,4 +1,3 @@
-
 use cubecl_core::ir::{
     CanMaterialize, Pure,
     attributes::{ATTR_READONLY, FuncInterface, IndexAttr},

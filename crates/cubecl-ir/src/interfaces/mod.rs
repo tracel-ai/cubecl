@@ -234,6 +234,9 @@ pub trait MaybeVectorizedType {
     verify_ty_succ!();
 
     fn vector_size(&self, ctx: &Context) -> usize;
+    fn try_vector_size(&self, ctx: &Context) -> Option<usize> {
+        Some(self.vector_size(ctx))
+    }
 }
 
 #[macro_export]
@@ -420,7 +423,7 @@ pub trait TypedExt: Typed {
     fn try_get_vector_size(&self, ctx: &Context) -> Option<usize> {
         let ty = self.get_type(ctx).deref(ctx);
         let maybe_vec = type_cast::<dyn MaybeVectorizedType>(&*ty)?;
-        Some(maybe_vec.vector_size(ctx))
+        maybe_vec.try_vector_size(ctx)
     }
 
     fn packing_factor(&self, ctx: &Context) -> usize {
@@ -430,7 +433,7 @@ pub trait TypedExt: Typed {
     }
 
     fn scalar_ty(&self, ctx: &Context) -> TypeHandle {
-        let ty = self.get_type(ctx).deref(ctx);
+        let ty = self.element_ty(ctx).deref(ctx);
         let scalarizable = try_cast_ty!(ty, ctx, dyn ScalarizableType);
         scalarizable.scalar_type(ctx)
     }

@@ -2,8 +2,6 @@ pub mod dialect;
 pub mod jit;
 
 #[cfg(feature = "pliron-dump")]
-use pliron::context::Context;
-#[cfg(feature = "pliron-dump")]
 use std::{path::PathBuf, str::FromStr};
 
 use cubecl_common::backtrace::BackTrace;
@@ -71,12 +69,12 @@ impl PlironCompiler {
         let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
         #[cfg(not(feature = "pliron-dump"))]
-        let tree_printing_path = None;
+        let ir_printing_dir = None;
         #[cfg(feature = "pliron-dump")]
-        let tree_printing_path = pliron_path(&kernel.settings.kernel_name);
+        let ir_printing_dir = pliron_path(&kernel.settings.kernel_name);
         let config = PMConfig {
             print_before_all: true,
-            tree_printing_path,
+            ir_printing_dir,
             ..Default::default()
         };
 
@@ -85,7 +83,7 @@ impl PlironCompiler {
 
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
-        func_passes.add_pass(InsertConstantEmulationPass::default());
+        func_passes.add_pass(InsertConstantEmulationPass);
         func_passes.add_pass(DisaggregatePass);
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass);
@@ -97,7 +95,7 @@ impl PlironCompiler {
 
         passes.run(module_op, &mut ctx, &mut analyses).unwrap();
 
-        PlironEngine::default()
+        PlironEngine
     }
 }
 

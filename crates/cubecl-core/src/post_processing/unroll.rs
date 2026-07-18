@@ -1,4 +1,3 @@
-
 use alloc::{boxed::Box, vec, vec::Vec};
 use cubecl_ir::{
     VectorSize,

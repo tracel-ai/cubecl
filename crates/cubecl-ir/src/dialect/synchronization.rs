@@ -11,11 +11,8 @@ use crate::{CanMaterialize, NoMemoryEffect, interfaces::Synchronizes, prelude::*
 #[format]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub enum SyncScope {
-    #[format("`plane`")]
     Plane,
-    #[format("`cube`")]
     Cube,
-    #[format("`device`")]
     Device,
 }
 

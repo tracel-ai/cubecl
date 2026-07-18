@@ -12,7 +12,7 @@ use crate::{
 #[derive(new, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[pliron_type(
     name = "cube.matrix",
-    format = "`matrix` $ident `<` $scope `, ` $elem_ty `, ` $shape `, ` $layout `>`",
+    format = "$ident `<` $scope `, ` $elem_ty `, ` $shape `, ` $layout `>`",
     generate_get = true,
     verifier = "succ"
 )]

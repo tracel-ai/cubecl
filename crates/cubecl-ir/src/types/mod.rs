@@ -89,6 +89,9 @@ impl MaybeVectorizedType for AtomicType {
     fn vector_size(&self, ctx: &Context) -> usize {
         self.inner.vector_size(ctx)
     }
+    fn try_vector_size(&self, ctx: &Context) -> Option<usize> {
+        self.inner.try_get_vector_size(ctx)
+    }
 }
 
 #[type_interface_impl]
@@ -131,6 +134,9 @@ impl MaybeVectorizedType for PointerType {
     fn vector_size(&self, ctx: &Context) -> usize {
         self.inner.vector_size(ctx)
     }
+    fn try_vector_size(&self, ctx: &Context) -> Option<usize> {
+        self.inner.try_get_vector_size(ctx)
+    }
 }
 
 #[type_interface_impl]
@@ -163,6 +169,9 @@ pub struct ArrayType {
 impl MaybeVectorizedType for ArrayType {
     fn vector_size(&self, ctx: &Context) -> usize {
         self.inner.vector_size(ctx)
+    }
+    fn try_vector_size(&self, ctx: &Context) -> Option<usize> {
+        self.inner.try_get_vector_size(ctx)
     }
 }
 
@@ -229,6 +238,9 @@ pub struct RuntimeArrayType {
 impl MaybeVectorizedType for RuntimeArrayType {
     fn vector_size(&self, ctx: &Context) -> usize {
         self.inner.vector_size(ctx)
+    }
+    fn try_vector_size(&self, ctx: &Context) -> Option<usize> {
+        self.inner.try_get_vector_size(ctx)
     }
 }
 
