@@ -20,7 +20,7 @@ use cubecl_ir::{ConstantValue, interfaces::TypedExt};
 use derive_more::derive::{Debug, Display};
 use float_ord::FloatOrd;
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
-use pliron::{printable::Printable, r#type::TypeHandle};
+use pliron::r#type::TypeHandle;
 use serde::Serialize;
 
 use crate::{
@@ -1323,7 +1323,6 @@ where
 {
     let ctx = scope.ctx_mut();
     let ty = T::__expand_as_type(scope);
-    std::println!("ty: {}", ty.disp(ctx));
     if ty.is_signed_int(ctx) {
         signed(scope, lhs, rhs)
     } else if ty.is_unsigned_int(ctx) || ty.is_index(ctx) {

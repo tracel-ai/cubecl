@@ -18,9 +18,9 @@ use rspirv::spirv::{MemoryAccess, StorageClass};
 
 use crate::{
     LowerInfoOp,
-    builtin::const_int32,
     ops::{
         base::{binop_to_spirv_dialect, unop_to_spirv_dialect},
+        builtin::const_int32,
         to_spirv_dialect::ToSpirvDialectOp,
     },
     types::ty_to_spirv_dialect,

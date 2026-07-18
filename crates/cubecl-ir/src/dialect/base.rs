@@ -27,6 +27,10 @@ pub trait OperationPtrExt: Sized {
     fn opt_result(self, ctx: &Context) -> Option<Value>;
 }
 
+pub trait BlockPtrExt: Sized {
+    fn arguments(&self, ctx: &Context) -> Vec<Value>;
+}
+
 impl OperationPtrExt for Ptr<Operation> {
     fn as_op<T: Op>(self, ctx: &Context) -> Option<T> {
         Operation::get_op(self, ctx)
@@ -63,6 +67,12 @@ impl OperationPtrExt for Ptr<Operation> {
     }
 }
 
+impl BlockPtrExt for Ptr<BasicBlock> {
+    fn arguments(&self, ctx: &Context) -> Vec<Value> {
+        self.deref(ctx).arguments().collect()
+    }
+}
+
 macro_rules! pure_unop {
     ($name: literal, $ty: ident) => {
         #[cubecl_macros_internal::cube_op(name = $name)]
@@ -79,6 +89,7 @@ macro_rules! pure_unop {
     };
 }
 use pliron::{
+    basic_block::BasicBlock,
     common_traits::Named,
     identifier::Identifier,
     op::{OpInterfaceMarker, OpObj, op_impls},

@@ -860,6 +860,7 @@ pub mod load {
         value: &SliceExpand<V>,
         stride: NativeExpand<u32>,
     ) {
+        let ctx = scope.ctx_mut();
         let stride = stride.read_value(scope);
         assert_ne!(
             mat.ident,
@@ -869,7 +870,12 @@ pub mod load {
 
         let ptr = unsafe { *value.__expand_as_ptr_method(scope) }.value(scope);
 
-        scope.register(&LoadOp::new(scope.ctx_mut(), mat.elem, ptr, stride, None));
+        let layout = {
+            let ty = mat.elem.unwrap_ptr(ctx).deref(ctx);
+            ty.downcast_ref::<MatrixType>().unwrap().layout
+        };
+
+        scope.register(&LoadOp::new(ctx, mat.elem, ptr, stride, layout));
     }
 }
 
@@ -899,11 +905,11 @@ pub mod load_tensor {
             MatrixIdent::Accumulator,
             "Loading accumulator requires explicit layout. Use `load_with_layout` instead."
         );
-        let layout = value.layout.value(scope);
+        let layout = value.layout.read_value(scope);
         let buffer = value.buffer.__extract_list(scope);
         let view = match &value.view {
             ComptimeOptionExpand::None => None,
-            ComptimeOptionExpand::Some(view) => Some(view.value(scope)),
+            ComptimeOptionExpand::Some(view) => Some(view.read_value(scope)),
         };
 
         scope.register(&LoadTensorOp::new(
@@ -946,8 +952,7 @@ pub mod load_with_layout {
         let ptr = unsafe { *value.__expand_as_ptr_method(scope) }.value(scope);
         let stride = stride.read_value(scope);
 
-        let load = LoadOp::new(scope.ctx_mut(), mat.elem, ptr, stride, None);
-        load.set_layout(scope.ctx(), layout);
+        let load = LoadOp::new(scope.ctx_mut(), mat.elem, ptr, stride, layout);
 
         scope.register(&load);
     }
@@ -1003,7 +1008,7 @@ pub fn store_tensor<C: CubePrimitive, O: CubePrimitive, S: MatrixScope>(
 
 /// Module containing the expand function for [`store_tensor()`].
 pub mod store_tensor {
-    use cubecl_ir::dialect::spirv::StoreTensorOp;
+    use cubecl_ir::{dialect::spirv::StoreTensorOp, read_value};
 
     use super::*;
 
@@ -1014,16 +1019,16 @@ pub mod store_tensor {
         mat: &MatrixExpand<C, S>,
     ) {
         let buffer = output.buffer.__extract_list(scope);
-        let layout = output.layout.value(scope);
+        let layout = output.layout.read_value(scope);
         let view = match &output.view {
             ComptimeOptionExpand::None => None,
-            ComptimeOptionExpand::Some(view) => Some(view.value(scope)),
+            ComptimeOptionExpand::Some(view) => Some(view.read_value(scope)),
         };
 
         scope.register(&StoreTensorOp::new(
             scope.ctx_mut(),
             buffer,
-            mat.elem,
+            read_value(scope, mat.elem),
             layout,
             view,
         ));
@@ -1235,8 +1240,8 @@ pub mod execute_elementwise_op {
     use alloc::vec;
     use cubecl_ir::{
         OpInserter,
+        convert::lift_closure,
         dialect::{branch::ReturnOp, matrix::ElementwiseOp},
-        ident,
         pliron::builtin::{ops::FuncOp, types::FunctionType},
     };
 
@@ -1258,7 +1263,8 @@ pub mod execute_elementwise_op {
         let elem = A::Scalar::__expand_as_type(scope);
 
         let func_ty = FunctionType::get(scope.ctx(), vec![u32, u32, elem], vec![elem]);
-        let func = FuncOp::new(scope.ctx_mut(), ident("execute_elemwise"), func_ty);
+        let func_name = scope.func_ident(Some("execute_elemwise"));
+        let func = FuncOp::new(scope.ctx_mut(), func_name.clone(), func_ty);
         let func_body = func.get_entry_block(scope.ctx());
 
         let row = func_body.deref(scope.ctx()).get_argument(0);
@@ -1269,12 +1275,15 @@ pub mod execute_elementwise_op {
         let return_value = op(&mut closure_scope, row.into(), col.into(), elem.into()).value(scope);
         closure_scope.register(&ReturnOp::new_with_value(scope.ctx_mut(), return_value));
 
-        let id = scope.create_function(func);
+        let captures = lift_closure(scope.ctx(), &func);
+
+        scope.register_func(func);
         scope.register(&ElementwiseOp::new(
             scope.ctx_mut(),
             matrix_in.elem,
             matrix_out.elem,
-            id,
+            func_name,
+            captures,
         ));
     }
 }

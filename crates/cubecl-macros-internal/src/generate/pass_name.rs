@@ -53,13 +53,13 @@ fn drop_pass_keyword(to_drop: &mut String) {
 pub fn generate_pass_name(mut item: ItemImpl) -> syn::Result<TokenStream> {
     // Reject a manual `name` method to avoid a silent duplicate definition.
     for impl_item in &item.items {
-        if let ImplItem::Fn(func) = impl_item {
-            if func.sig.ident == "name" {
-                return Err(syn::Error::new_spanned(
-                    &func.sig.ident,
-                    "`pass_name` generates `name`; remove the manual `name` method",
-                ));
-            }
+        if let ImplItem::Fn(func) = impl_item
+            && func.sig.ident == "name"
+        {
+            return Err(syn::Error::new_spanned(
+                &func.sig.ident,
+                "`pass_name` generates `name`; remove the manual `name` method",
+            ));
         }
     }
 
@@ -69,7 +69,7 @@ pub fn generate_pass_name(mut item: ItemImpl) -> syn::Result<TokenStream> {
             "`pass_name` requires a named self type",
         ));
     };
-    let mut name: String = short_type(&item.self_ty).into();
+    let mut name: String = short_type(&item.self_ty);
     drop_pass_keyword(&mut name);
     let name = snake_case(&name);
     let name_fn: ImplItemFn = syn::parse_quote! {

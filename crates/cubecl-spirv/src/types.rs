@@ -1,11 +1,17 @@
+use cubecl_core::cmma::MatrixType;
 use cubecl_ir::{
     AddressSpace, ContextExt,
     interfaces::TypedExt,
-    types::{ArrayType, AtomicType, PointerType, RuntimeArrayType, VectorType, scalar::*},
+    prelude::FunctionTypeInterface,
+    types::{
+        ArrayType, AtomicType, MatrixIdent, MatrixScope, PointerType, RuntimeArrayType, VectorType,
+        scalar::*,
+        spirv::{ClampMode, TensorLayoutType, TensorViewType},
+    },
     verify_ty_succ,
 };
 use pliron::{
-    builtin::types::{IntegerType, Signedness},
+    builtin::types::{FunctionType, IntegerType, Signedness},
     context::Context,
     derive::{type_interface, type_interface_impl},
     r#type::{TypeHandle, type_cast},
@@ -13,8 +19,12 @@ use pliron::{
 use pliron_spirv::types::{
     ArrayType as SpirvArrayType, FloatType, PointerType as SpirvPointerType,
     RuntimeArrayType as SpirvRuntimeArrayType, VectorType as SpirvVectorType,
+    khr::CooperativeMatrixType, nv,
 };
-use rspirv::spirv::{FPEncoding, StorageClass};
+use rspirv::spirv::{
+    CooperativeMatrixUse::{MatrixAKHR, MatrixAccumulatorKHR, MatrixBKHR},
+    FPEncoding, Scope, StorageClass, TensorClampMode,
+};
 
 pub fn ty_to_spirv_dialect(ctx: &Context, handle: impl Into<TypeHandle>) -> TypeHandle {
     let handle = handle.into();
@@ -166,5 +176,55 @@ impl ToSpirvDialectType for SpirvPointerType {
     fn to_spirv_ty_explicit_layout(&self, ctx: &Context) -> TypeHandle {
         let inner = ty_to_spirv_dialect_explicit_layout(ctx, self.element_type);
         SpirvPointerType::get(ctx, inner, self.storage_class).to_handle()
+    }
+}
+
+#[type_interface_impl]
+impl ToSpirvDialectType for MatrixType {
+    fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
+        let component = ty_to_spirv_dialect(ctx, self.elem_ty);
+        let scope = match self.scope {
+            MatrixScope::Plane => Scope::Subgroup,
+            MatrixScope::Cube => Scope::Workgroup,
+        };
+        let (rows, cols, use_) = match self.ident {
+            MatrixIdent::A => (self.shape.m, self.shape.k, MatrixAKHR),
+            MatrixIdent::B => (self.shape.k, self.shape.n, MatrixBKHR),
+            MatrixIdent::Accumulator => (self.shape.m, self.shape.n, MatrixAccumulatorKHR),
+        };
+        CooperativeMatrixType::get(ctx, component, scope, rows as u32, cols as u32, use_).into()
+    }
+}
+
+#[type_interface_impl]
+impl ToSpirvDialectType for FunctionType {
+    fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
+        let args = self.arg_types().into_iter();
+        let args = args.map(|ty| ty_to_spirv_dialect(ctx, ty)).collect();
+        let res = self.res_types().into_iter();
+        let res = res.map(|ty| ty_to_spirv_dialect(ctx, ty)).collect();
+        FunctionType::get(ctx, args, res).to_handle()
+    }
+}
+
+#[type_interface_impl]
+impl ToSpirvDialectType for TensorLayoutType {
+    fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
+        let clamp_mode = match self.clamp_mode {
+            ClampMode::Undefined => TensorClampMode::Undefined,
+            ClampMode::Constant(_) => TensorClampMode::Constant,
+            ClampMode::ClampToEdge => TensorClampMode::ClampToEdge,
+            ClampMode::Repeat => TensorClampMode::Repeat,
+            ClampMode::RepeatMirrored => TensorClampMode::RepeatMirrored,
+        };
+        nv::TensorLayoutType::get(ctx, self.rank as u32, clamp_mode).to_handle()
+    }
+}
+
+#[type_interface_impl]
+impl ToSpirvDialectType for TensorViewType {
+    fn to_spirv_ty(&self, ctx: &Context) -> TypeHandle {
+        let permutation = self.permutation.iter().map(|it| *it as u32).collect();
+        nv::TensorViewType::get(ctx, self.rank as u32, self.has_dims, permutation).to_handle()
     }
 }

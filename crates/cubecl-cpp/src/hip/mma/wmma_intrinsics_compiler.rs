@@ -35,7 +35,7 @@ pub struct WmmaFill {
 #[derive(new, Debug, Clone, PartialEq)]
 pub struct WmmaLoad {
     frag: MatrixType,
-    layout: Option<MatrixLayout>,
+    layout: MatrixLayout,
 }
 
 #[derive(new, Debug, Clone, PartialEq)]
@@ -60,7 +60,7 @@ pub struct WmmaCast {
 
 impl WmmaFill {
     pub fn fn_name(&self, ctx: &Context) -> String {
-        let layout = frag_layout_str(Some(&self.frag.layout));
+        let layout = frag_layout_str(&self.frag.layout);
         let ident = frag_ident_str(&self.frag.ident);
         let MatrixShape { m, n, k } = self.frag.shape;
         let elem = self.frag.elem_ty.to_cpp(ctx);
@@ -90,8 +90,8 @@ __device__ void {name}({frag}& frag, {elem} value) {{
 
 impl WmmaLoad {
     pub fn fn_name(&self, ctx: &Context) -> String {
-        let layout_frag = frag_layout_str(Some(&self.frag.layout));
-        let layout = frag_layout_str(self.layout.as_ref());
+        let layout_frag = frag_layout_str(&self.frag.layout);
+        let layout = frag_layout_str(&self.layout);
         let ident = frag_ident_str(&self.frag.ident);
         let elem = self.frag.elem_ty.to_cpp(ctx);
         let MatrixShape { m, n, k } = self.frag.shape;
@@ -148,10 +148,10 @@ impl WmmaLoad {
                 let length = 8;
                 let step = get_output_accumulator_index_step(ctx, elem, &frag);
                 let index = match self.layout {
-                    Some(MatrixLayout::ColMajor) => {
+                    MatrixLayout::ColMajor => {
                         "(i * uint(2) + threadIdx.x / uint(16)) + wmmaLane * stride".to_string()
                     }
-                    Some(MatrixLayout::RowMajor) => {
+                    MatrixLayout::RowMajor => {
                         "(i * uint(2) + threadIdx.x / uint(16)) * stride + wmmaLane".to_string()
                     }
                     _ => panic!(
@@ -184,8 +184,8 @@ __device__ void {name}({frag}& frag, const {elem}* value_ptr, const uint stride)
 
 impl WmmaStore {
     pub fn fn_name(&self, ctx: &Context) -> String {
-        let layout_frag = frag_layout_str(Some(&self.frag.layout));
-        let layout = frag_layout_str(Some(&self.layout));
+        let layout_frag = frag_layout_str(&self.frag.layout);
+        let layout = frag_layout_str(&self.layout);
         let ident = frag_ident_str(&self.frag.ident);
         let MatrixShape { m, n, k } = self.frag.shape;
         let elem = self.frag.elem_ty.to_cpp(ctx);
@@ -304,7 +304,7 @@ __device__ void {name}(const {}& frag_a, const {}& frag_b, const {}& frag_c, {}&
 
 impl WmmaCast {
     pub fn fn_name(&self, ctx: &Context) -> String {
-        let layout = frag_layout_str(Some(&self.frag_input.layout));
+        let layout = frag_layout_str(&self.frag_input.layout);
         let ident = frag_ident_str(&self.frag_input.ident);
         let MatrixShape { m, n, k } = self.frag_input.shape;
         let elem = self.frag_input.elem_ty.to_cpp(ctx);
@@ -385,7 +385,7 @@ pub(super) fn compile_load_intrinsic(ctx: &Context, op: &LoadOp) -> String {
     let value_ptr = op.source(ctx).name(ctx);
     let stride = op.stride(ctx).name(ctx);
     let mat_ty = *mat.get_type(ctx).deref(ctx).downcast_ref().unwrap();
-    let layout = op.layout(ctx).map(|it| it.0);
+    let layout = op.layout(ctx).0;
     let extension = WmmaLoad::new(mat_ty, layout);
     let name = extension.fn_name(ctx);
     format!("{name}(*{}, {value_ptr}, {stride});", mat.name(ctx))

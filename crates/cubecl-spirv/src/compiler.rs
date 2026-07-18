@@ -1,9 +1,10 @@
 use crate::{
     CollectVerCapExtPass, ConvertArgsPass, PARAMS_NAME, SpirvKernel,
-    builtin::{BUILTINS_NAME, LowerBuiltinsPass},
     lower::LowerOpsSpirvPass,
     ops::{
-        branch::BranchToSpirvConversionPass, memory::lower_shared,
+        branch::BranchToSpirvConversionPass,
+        builtin::{BUILTINS_NAME, LowerBuiltinsPass},
+        memory::lower_shared,
         to_spirv_dialect::ToSpirvDialectPass,
     },
     params_storage_class,
@@ -101,6 +102,12 @@ impl Compiler for SpirvCompiler {
             });
         }
 
+        #[cfg(not(feature = "spirv-dump"))]
+        let ir_printing_dir = None;
+
+        #[cfg(feature = "spirv-dump")]
+        let ir_printing_dir = kernel_dir_name(&value.settings.kernel_name);
+
         let entry_func = value.body.state().entry_func;
         let module = value.body.state().module;
 
@@ -127,16 +134,26 @@ impl Compiler for SpirvCompiler {
             _ => None,
         };
 
-        let (module, shared_size) = self.compile_kernel(&mut ctx, module);
+        let (module, shared_size) = self.compile_kernel(
+            &mut ctx,
+            module,
+            #[cfg(feature = "std")]
+            ir_printing_dir,
+        );
 
-        Ok(SpirvKernel {
+        let kernel = SpirvKernel {
             assembled_module: module.assemble(),
             module: Some(Arc::new(module)),
             bindings,
             shared_size,
             immediate_size,
             info_visibility,
-        })
+        };
+
+        #[cfg(feature = "spirv-dump")]
+        dump_spirv(&kernel, &value.settings.kernel_name);
+
+        Ok(kernel)
     }
 
     fn extension(&self) -> &'static str {
@@ -151,7 +168,12 @@ impl Debug for SpirvCompiler {
 }
 
 impl SpirvCompiler {
-    pub fn compile_kernel(&mut self, ctx: &mut Context, module: ModuleOp) -> (Module, usize) {
+    pub fn compile_kernel(
+        &mut self,
+        ctx: &mut Context,
+        module: ModuleOp,
+        #[cfg(feature = "std")] ir_printing_dir: Option<std::path::PathBuf>,
+    ) -> (Module, usize) {
         let module_op = module.get_operation();
 
         std::fs::write("target/initial.plir", format!("{}", module.disp(ctx))).unwrap();
@@ -159,7 +181,7 @@ impl SpirvCompiler {
 
         let config = PMConfig {
             print_after_all: true,
-            // ir_printing_dir: Some("target".into()),
+            ir_printing_dir,
             ..Default::default()
         };
 
@@ -320,6 +342,39 @@ fn declare_entry_point(ctx: &mut Context, module: SpirvModuleOp, shared_args: Ve
             execution_mode.get_operation().insert_at_front(block, ctx);
         },
     );
+}
+
+#[cfg(feature = "spirv-dump")]
+pub fn kernel_dir_name(name: &str) -> Option<std::path::PathBuf> {
+    if let Ok(dir) = std::env::var("CUBECL_DEBUG_SPIRV") {
+        let path = sanitize_filename::sanitize_with_options(
+            name,
+            sanitize_filename::Options {
+                replacement: "_",
+                ..Default::default()
+            },
+        );
+        let dir = std::path::PathBuf::from(dir).join(&path);
+        std::fs::create_dir_all(&dir).unwrap();
+        Some(dir)
+    } else {
+        None
+    }
+}
+
+#[cfg(feature = "spirv-dump")]
+pub(crate) fn dump_spirv(repr: &SpirvKernel, name: &str) {
+    use std::fs;
+
+    if let Some(dir) = kernel_dir_name(name) {
+        let kernel = &repr.assembled_module;
+        let kernel = kernel
+            .iter()
+            .flat_map(|it| it.to_le_bytes())
+            .collect::<Vec<_>>();
+        let kernel_path = dir.join("module.spv");
+        fs::write(kernel_path, kernel).unwrap();
+    }
 }
 
 // pub(crate) fn convert_math_mode(math_mode: EnumSet<FastMath>) -> FPFastMathMode {

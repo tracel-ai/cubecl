@@ -1,9 +1,25 @@
+use core::fmt;
+
+use alloc::{string::ToString, vec::Vec};
+
 use cubecl_macros_internal::cube_op;
 use derive_more::{Deref, From};
 use derive_new::new;
+use itertools::Itertools;
 use pliron::{
-    builtin::types::{IntegerType, Signedness},
+    builtin::{
+        attributes::IdentifierAttr,
+        types::{IntegerType, Signedness},
+    },
+    combine::{Parser, parser::char::char},
     derive::pliron_attr,
+    identifier::Identifier,
+    input_err,
+    irfmt::parsers::{delimited_list_parser, spaced, ssa_opd_parse, ssa_opd_parser},
+    location::Location,
+    op::OpObj,
+    parsable::{self, IntoParseResult, Parsable, ParseResult},
+    printable::{self, Printable},
     r#type::TypedHandle,
 };
 
@@ -52,7 +68,6 @@ pub struct LoadOp {
     #[operand(ptr_read)]
     pub source: Value,
     pub stride: Value,
-    #[attribute(optional)]
     pub layout: MatrixLayoutAttr,
 }
 synchronizes!(LoadOp, SyncScope::Plane);
@@ -181,11 +196,109 @@ synchronizes!(MmaManualScaledOp, SyncScope::Plane);
 /// Executes a closure for each element in the matrix.
 /// Note: Unlike most matrix ops, this does not have implicit synchronization because there's no
 /// coordination between threads.
-#[cube_op(name = "matrix.elementwise")]
-#[result_ty(none)]
+#[pliron_op(
+    name = "matrix.elementwise",
+    attributes = (matrix_elementwise_closure: IdentifierAttr),
+    verifier = "succ"
+)]
 #[op_traits(CanMaterialize)]
-pub struct ElementwiseOp {
-    pub matrix_in: Value,
-    pub matrix_out: Value,
-    pub closure: IndexAttr,
+pub struct ElementwiseOp;
+
+impl ElementwiseOp {
+    pub fn new(
+        ctx: &mut Context,
+        matrix_in: Value,
+        matrix_out: Value,
+        closure: Identifier,
+        captures: Vec<Value>,
+    ) -> Self {
+        let mut opds = vec![matrix_in, matrix_out];
+        opds.extend(captures);
+        let op = Self {
+            op: Operation::new(ctx, Self::get_concrete_op_info(), vec![], opds, vec![], 0),
+        };
+        op.set_attr_matrix_elementwise_closure(ctx, IdentifierAttr::new(closure));
+        op
+    }
+
+    pub fn matrix_in(&self, ctx: &Context) -> Value {
+        self.get_operation().operand(ctx, 0)
+    }
+
+    pub fn matrix_out(&self, ctx: &Context) -> Value {
+        self.get_operation().operand(ctx, 1)
+    }
+
+    pub fn closure(&self, ctx: &Context) -> Identifier {
+        let attr = self.get_attr_matrix_elementwise_closure(ctx).unwrap();
+        attr.clone().into()
+    }
+
+    pub fn closure_captures(&self, ctx: &Context) -> Vec<Value> {
+        self.get_operation().deref(ctx).operands().skip(2).collect()
+    }
+}
+
+impl Printable for ElementwiseOp {
+    fn fmt(
+        &self,
+        ctx: &Context,
+        _state: &printable::State,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        let op_id = self.get_opid().disp(ctx).to_string();
+        let mat_in = self.matrix_in(ctx).disp(ctx).to_string();
+        let mat_out = self.matrix_out(ctx).disp(ctx).to_string();
+        write!(f, "{op_id} ({mat_in}, {mat_out}) ")?;
+        print_closure(ctx, &self.closure(ctx), &self.closure_captures(ctx), f)
+    }
+}
+impl Parsable for ElementwiseOp {
+    type Arg = Vec<(Identifier, Location)>;
+    type Parsed = OpObj;
+    fn parse<'a>(
+        input: &mut parsable::StateStream<'a>,
+        arg: Self::Arg,
+    ) -> ParseResult<'a, Self::Parsed> {
+        if !arg.is_empty() {
+            return input_err!(input.loc(), "Expected no results").into_parse_result();
+        }
+
+        spaced(char('(')).parse_stream(input).into_result()?;
+        let mat_in = ssa_opd_parse(input, ())?.0;
+        spaced(char(',')).parse_stream(input).into_result()?;
+        let mat_out = ssa_opd_parse(input, ())?.0;
+        spaced(char(')')).parse_stream(input).into_result()?;
+
+        let (closure, captures) = parse_closure(input)?.0;
+        let ctx = &mut input.state.ctx;
+
+        let op = ElementwiseOp::new(ctx, mat_in, mat_out, closure, captures);
+        Ok(OpObj::new(op)).into_parse_result()
+    }
+}
+
+/// Reusable closure printer for maybe future ops, move this if it's used elsewhere
+pub fn print_closure(
+    ctx: &Context,
+    closure: &Identifier,
+    captures: &[Value],
+    f: &mut fmt::Formatter<'_>,
+) -> fmt::Result {
+    let captures = captures
+        .iter()
+        .map(|it| it.disp(ctx).to_string())
+        .join(", ");
+    write!(f, "@{}({captures})", closure.disp(ctx))
+}
+
+/// Reusable closure parser for maybe future ops, move this if it's used elsewhere
+pub fn parse_closure<'a>(
+    input: &mut parsable::StateStream<'a>,
+) -> ParseResult<'a, (Identifier, Vec<Value>)> {
+    let mut parse_closure = char('@').with(Identifier::parser(()));
+    let closure = parse_closure.parse_stream(input).into_result()?.0;
+    let mut captures = delimited_list_parser('(', ')', ',', ssa_opd_parser());
+    let captures = captures.parse_stream(input).into_result()?.0;
+    Ok((closure, captures)).into_parse_result()
 }

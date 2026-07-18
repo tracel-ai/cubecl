@@ -23,7 +23,7 @@ use sysinfo::System;
 /// To register work, you have to use the execution queue.
 pub struct Threadpool {
     workers: Vec<Worker>,
-    memory_management_shared_memory: MemoryManagement<BytesStorage>,
+    _memory_management_shared_memory: MemoryManagement<BytesStorage>,
 }
 
 /// A compiled cpu kernel.
@@ -69,7 +69,7 @@ impl Threadpool {
             alignment: ALIGNMENT,
         };
 
-        let memory_management_shared_memory = MemoryManagement::from_configuration(
+        let _memory_management_shared_memory = MemoryManagement::from_configuration(
             BytesStorage::default(),
             &memory_properties,
             MemoryConfiguration::ExclusivePages,
@@ -81,15 +81,15 @@ impl Threadpool {
 
         Self {
             workers,
-            memory_management_shared_memory,
+            _memory_management_shared_memory,
         }
     }
     pub fn execute_data(
         &mut self,
         pliron_engine: PlironEngine,
-        resources: BindingsResource,
+        _resources: BindingsResource,
         cube_dim: CubeDim,
-        cube_count: [u32; 3],
+        _cube_count: [u32; 3],
     ) -> Notifications {
         let cube_dim_size = cube_dim.num_elems();
 
@@ -98,7 +98,7 @@ impl Threadpool {
                 .extend((0..cube_dim_size - self.workers.len() as u32).map(|_| Worker::new()));
         }
 
-        let mlir_data = PlironData::default();
+        let mlir_data = PlironData;
 
         let notifications = Notifications::new(cube_dim_size);
         let mut workers = self.workers.iter_mut();

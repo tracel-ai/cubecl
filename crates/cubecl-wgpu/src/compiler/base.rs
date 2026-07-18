@@ -186,16 +186,7 @@ impl WgpuCompiler for AutoCompiler {
                 kernel.address_type(),
             ),
             #[cfg(feature = "spirv")]
-            AutoCompiler::SpirV(_) => {
-                #[cfg(feature = "spirv-dump")]
-                let (name, id) = (kernel.name().to_string(), kernel.id());
-                let compiled = crate::vulkan::compile(self, server, kernel, definition)?;
-                #[cfg(feature = "spirv-dump")]
-                if let Some(spirv) = compiled.repr.as_ref().and_then(|r| r.as_spirv()) {
-                    crate::vulkan::dump_spirv(spirv, &name, id);
-                }
-                Ok(compiled)
-            }
+            AutoCompiler::SpirV(_) => crate::vulkan::compile(self, server, kernel, definition),
             #[cfg(feature = "msl")]
             AutoCompiler::Msl(_) => kernel.compile(
                 definition,
@@ -348,14 +339,7 @@ impl WgpuCompiler for cubecl_spirv::SpirvCompiler {
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
         definition: KernelDefinition,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
-        #[cfg(feature = "spirv-dump")]
-        let (name, id) = (kernel.name().to_string(), kernel.id());
-        let compiled = crate::vulkan::compile(self, server, kernel, definition)?;
-        #[cfg(feature = "spirv-dump")]
-        if let Some(spirv) = compiled.repr.as_ref() {
-            crate::vulkan::dump_spirv(spirv, &name, id);
-        }
-        Ok(compiled)
+        crate::vulkan::compile(self, server, kernel, definition)
     }
 
     fn lang_tag(&self) -> &'static str {

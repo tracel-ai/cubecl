@@ -1,4 +1,3 @@
-
 use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_ir::{
     Builtin, ContextExt,
@@ -235,9 +234,6 @@ impl RewriteBuiltins<'_> {
                 self.read_scalar_builtin(scope, ty, BuiltIn::SubgroupLocalInvocationId)
             }
             Builtin::AbsolutePos => absolute_pos::expand(scope).value(scope),
-            Builtin::AbsolutePosX if cube_dim.x == 1 => constant::expand(scope, 0).value(scope),
-            Builtin::AbsolutePosY if cube_dim.y == 1 => constant::expand(scope, 0).value(scope),
-            Builtin::AbsolutePosZ if cube_dim.z == 1 => constant::expand(scope, 0).value(scope),
             Builtin::AbsolutePosX => {
                 self.read_dim3_builtin(scope, ty, BuiltIn::GlobalInvocationId, 0)
             }
