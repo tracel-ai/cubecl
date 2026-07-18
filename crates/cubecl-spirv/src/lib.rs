@@ -9,23 +9,15 @@ use cubecl_core::prelude::Visibility;
 use rspirv::{binary::Disassemble, dr::Module};
 
 pub mod attributes;
-pub mod builtin;
 mod cmma;
-mod compiler;
+pub mod compiler;
 mod debug;
-mod extensions;
-mod globals;
-mod item;
-mod lookups;
 pub mod lower;
 pub mod ops;
-mod subgroup;
 mod sync;
-mod target;
+pub mod target;
 mod tensor_indexing;
-mod transformers;
 pub mod types;
-mod value;
 
 pub use compiler::*;
 use serde::{Deserialize, Serialize};

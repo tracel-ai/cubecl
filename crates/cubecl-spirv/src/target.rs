@@ -12,6 +12,7 @@ use cubecl_core::{
         prelude::*,
     },
 };
+use cubecl_ir::dialect::BlockPtrExt;
 use pliron::{
     builtin::ops::FuncOp,
     graph::walkers::uninterruptible::immutable::walk_op,
@@ -73,7 +74,7 @@ impl ConvertArgsPass {
         let info = ctx.aux_ty::<Info>().clone();
         let entry = func.get_entry_block(ctx);
         let module_body = module.get_body(ctx, 0);
-        let args = entry.deref(ctx).arguments().collect::<Vec<_>>();
+        let args = entry.arguments(ctx);
         let mut buffers = vec![];
 
         for (i, arg) in args.iter().enumerate() {
@@ -282,11 +283,8 @@ impl MatchRewrite for LowerInfoOps {
 #[derive(Default)]
 pub struct CollectVerCapExtPass;
 
+#[pass_name]
 impl Pass for CollectVerCapExtPass {
-    fn name(&self) -> &str {
-        type_name::<Self>()
-    }
-
     fn run(
         &mut self,
         op: Ptr<Operation>,
@@ -341,7 +339,7 @@ fn update_capability_requirements_recursive(ctx: &Context, module: SpirvModuleOp
 fn update_ver_cap_ext(ctx: &Context, module: &mut SpirvModuleOp, node: IRNode) {
     match node {
         IRNode::BasicBlock(block) => {
-            let args = block.deref(ctx).arguments().collect::<Vec<_>>();
+            let args = block.arguments(ctx);
             for arg in args {
                 let ty = arg.get_type(ctx).deref(ctx);
                 if let Some(ver_cap_ext) = type_cast(&*ty) {

@@ -1,4 +1,3 @@
-
 use cubecl_ir::{
     attributes::{
         ATTR_BUFFER_BINDING, ATTR_READ_WRITE, ATTR_READONLY, ATTR_WRITEONLY, BufferBindingAttr,

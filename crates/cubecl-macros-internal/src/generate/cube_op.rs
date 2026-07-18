@@ -1,13 +1,14 @@
 use core::iter;
 
-use darling::{FromDeriveInput};
+use darling::FromDeriveInput;
 use inflections::case::{to_constant_case, to_snake_case};
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 use syn::{DeriveInput, Ident, Type};
 
 use crate::{
-    CubeOp, CubeOpArgs, PathList, parse::cube_op::{ArgKind, CubeOpArg, ResultTy, Verifier},
+    CubeOp, CubeOpArgs, PathList,
+    parse::cube_op::{ArgKind, CubeOpArg, ResultTy, Verifier},
 };
 
 impl ToTokens for Verifier {
@@ -27,21 +28,27 @@ impl CubeOp {
         let format = if self.custom_format(&args) {
             quote![]
         } else {
-            let format = self.qualified_format_string(&args).map(|fmt| quote![,format = #fmt]);
+            let format = self
+                .qualified_format_string(&args)
+                .map(|fmt| quote![,format = #fmt]);
             format.unwrap_or_else(|| quote![,format])
         };
-        
+
         let verifier = &args.verifier;
         let attributes = self
             .attributes()
-            .map(|CubeOpArg { ident, ty, flags, .. }| {
-                let ident = args.qualified_name(ident);
-                if flags.untyped.is_present() {
-                    quote![#ident]
-                } else {
-                    quote![#ident: #ty]
-                }
-            })
+            .map(
+                |CubeOpArg {
+                     ident, ty, flags, ..
+                 }| {
+                    let ident = args.qualified_name(ident);
+                    if flags.untyped.is_present() {
+                        quote![#ident]
+                    } else {
+                        quote![#ident: #ty]
+                    }
+                },
+            )
             .collect::<Vec<_>>();
         let attributes = if attributes.is_empty() {
             quote![]
@@ -83,17 +90,16 @@ impl CubeOp {
 
     fn generate_constructor(&self, op_args: &CubeOpArgs) -> TokenStream {
         let result_ty = self.generate_result_ty();
-        let args = self
-            .data
-            .iter()
-            .map(|arg| {
-                let CubeOpArg { ident, ty, kind, .. } = arg;
-                match (kind, arg.flags.optional.is_present()) {
-                    (_, true) => quote![#ident: Option<#ty>],
-                    (ArgKind::Value, false) => quote![#ident: #ty],
-                    (ArgKind::Attribute, false) => quote![#ident: impl Into<#ty>]
-                }
-            });
+        let args = self.data.iter().map(|arg| {
+            let CubeOpArg {
+                ident, ty, kind, ..
+            } = arg;
+            match (kind, arg.flags.optional.is_present()) {
+                (_, true) => quote![#ident: Option<#ty>],
+                (ArgKind::Value, false) => quote![#ident: #ty],
+                (ArgKind::Attribute, false) => quote![#ident: impl Into<#ty>],
+            }
+        });
         let values = self.values().map(|arg| &arg.ident);
         let attr_into = self.required_attributes().map(|it| {
             let name = &it.ident;
@@ -171,7 +177,6 @@ impl CubeOp {
                 #vis fn #ident(&self, ctx: &::pliron::context::Context) -> #ty {
                     self.get_operation().deref(ctx).get_operand(#idx)
                 }
-                
                 #vis fn #use_ident(&self, ctx: &::pliron::context::Context) -> ::pliron::value::Use<#ty> {
                     self.get_operation().deref(ctx).get_operand_as_use(#idx)
                 }
@@ -272,14 +277,20 @@ impl CubeOp {
         let (impl_generics, type_generics, where_clause) = self.generics.split_for_impl();
         let args = &self.data;
 
-        let ptr_reads = args.iter().filter(|arg| arg.flags.ptr_read.is_present()).map(|arg| {
-            let ident = &arg.ident;
-            quote![crate::interfaces::MemoryEffect::Read(self.#ident(ctx))]
-        });
-        let ptr_writes = args.iter().filter(|arg| arg.flags.ptr_write.is_present()).map(|arg| {
-            let ident = &arg.ident;
-            quote![crate::interfaces::MemoryEffect::Write(self.#ident(ctx))]
-        });
+        let ptr_reads = args
+            .iter()
+            .filter(|arg| arg.flags.ptr_read.is_present())
+            .map(|arg| {
+                let ident = &arg.ident;
+                quote![crate::interfaces::MemoryEffect::Read(self.#ident(ctx))]
+            });
+        let ptr_writes = args
+            .iter()
+            .filter(|arg| arg.flags.ptr_write.is_present())
+            .map(|arg| {
+                let ident = &arg.ident;
+                quote![crate::interfaces::MemoryEffect::Write(self.#ident(ctx))]
+            });
         let memory_effects = ptr_reads.chain(ptr_writes).collect::<Vec<_>>();
 
         if !memory_effects.is_empty() {
@@ -329,7 +340,9 @@ impl CubeOp {
     }
 
     fn custom_format(&self, args: &CubeOpArgs) -> bool {
-        args.format.as_ref().is_some_and(|it| it.value() == "custom")
+        args.format
+            .as_ref()
+            .is_some_and(|it| it.value() == "custom")
     }
 
     fn qualified_attribute_key(&self, ident: &Ident, args: &CubeOpArgs) -> TokenStream {

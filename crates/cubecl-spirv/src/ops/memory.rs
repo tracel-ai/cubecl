@@ -24,8 +24,7 @@ use rspirv::spirv::{Capability, Decoration, MemoryAccess, StorageClass};
 
 use crate::{
     attributes::attr_to_spirv_dialect,
-    builtin::const_op_int32,
-    ops::to_spirv_dialect::ToSpirvDialectOp,
+    ops::{builtin::const_op_int32, to_spirv_dialect::ToSpirvDialectOp},
     types::{ty_to_spirv_dialect, ty_to_spirv_dialect_explicit_layout},
 };
 

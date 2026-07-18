@@ -750,33 +750,3 @@ where
     let compiled = kernel.compile(dyn_comp, &server.compilation_options)?;
     Ok(compiled)
 }
-
-#[cfg(feature = "spirv-dump")]
-pub(crate) fn dump_spirv(repr: &SpirvKernel, name: &str, id: cubecl_runtime::id::KernelId) {
-    use std::fs;
-
-    if let Ok(dir) = std::env::var("CUBECL_DEBUG_SPIRV") {
-        std::fs::create_dir_all(&dir).unwrap();
-        let name = name
-            .split("<")
-            .take_while(|it| !it.ends_with("Runtime"))
-            .map(|it| it.split(">").next().unwrap())
-            .map(|it| it.split("::").last().unwrap())
-            .collect::<Vec<_>>()
-            .join("_");
-        let id = id.stable_hash();
-        let name = sanitize_filename::sanitize_with_options(
-            format!("{name}_{id:#x}"),
-            sanitize_filename::Options {
-                replacement: "_",
-                ..Default::default()
-            },
-        );
-        let kernel = &repr.assembled_module;
-        let kernel = kernel
-            .iter()
-            .flat_map(|it| it.to_le_bytes())
-            .collect::<Vec<_>>();
-        fs::write(format!("{dir}/{name}.spv"), kernel).unwrap();
-    }
-}

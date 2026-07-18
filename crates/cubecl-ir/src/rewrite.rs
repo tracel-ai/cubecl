@@ -220,6 +220,10 @@ pub trait RewriterExt: Rewriter {
         transfer_result_names(ctx, op, &new_op.results(ctx));
         self.replace_operation(ctx, op, new_op);
     }
+    fn append_op_with_result(&mut self, ctx: &mut Context, op: &impl OneResultInterface) -> Value {
+        self.append_op(ctx, op);
+        op.get_result(ctx)
+    }
 }
 impl<R: Rewriter> RewriterExt for R {}
 

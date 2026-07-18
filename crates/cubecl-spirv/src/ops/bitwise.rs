@@ -39,7 +39,7 @@ unop_to_spirv_dialect!(bitwise::BitwiseNotOp => ops::NotOp);
 unop_to_spirv_dialect!(bitwise::CountOnesOp => ops::BitCountOp);
 unop_to_spirv_dialect!(bitwise::ReverseBitsOp => ops::BitReverseOp);
 
-fn const_int_maybe_vec(scope: &Scope, value: u32, ref_ty: TypeHandle) -> Value {
+pub fn const_int_maybe_vec(scope: &Scope, value: u32, ref_ty: TypeHandle) -> Value {
     let ty = ref_ty.deref(scope.ctx());
     if let Some(vector) = ty.downcast_ref::<VectorType>() {
         let elem_ty =
@@ -157,19 +157,19 @@ impl ToSpirvDialectOp for bitwise::TrailingZerosBitsOp {
 }
 
 lower_unop!(CountOnesOp, u64_count_bits, |op, ctx| {
-    op.get_result(ctx).is_int_of_width(ctx, 64) && !has_u64_bitwise(ctx)
+    op.input(ctx).scalar_ty(ctx).is_int_of_width(ctx, 64) && !has_u64_bitwise(ctx)
 });
 lower_unop!(ReverseBitsOp, u64_reverse, |op, ctx| {
-    op.get_result(ctx).is_int_of_width(ctx, 64) && !has_u64_bitwise(ctx)
+    op.input(ctx).scalar_ty(ctx).is_int_of_width(ctx, 64) && !has_u64_bitwise(ctx)
 });
 lower_unop!(LeadingZerosBitsOp, u64_leading_zeros, |op, ctx| {
-    op.get_result(ctx).is_int_of_width(ctx, 64)
+    op.input(ctx).scalar_ty(ctx).is_int_of_width(ctx, 64)
 });
 lower_unop!(FindFirstSetOp, u64_ffs, |op, ctx| {
-    op.get_result(ctx).is_int_of_width(ctx, 64)
+    op.input(ctx).scalar_ty(ctx).is_int_of_width(ctx, 64)
 });
 lower_unop!(TrailingZerosBitsOp, u64_trailing_zeros, |op, ctx| {
-    op.get_result(ctx).is_int_of_width(ctx, 64)
+    op.input(ctx).scalar_ty(ctx).is_int_of_width(ctx, 64)
 });
 
 fn has_u64_bitwise(ctx: &Context) -> bool {

@@ -104,9 +104,9 @@ pub mod wmma_api_base {
         let mat = op.matrix(ctx).name(ctx);
         let stride = op.stride(ctx).name(ctx);
         let ptr = as_scalar_ptr(ctx, op.source(ctx));
-        let layout = match op.layout(ctx).map(|it| it.0) {
-            Some(MatrixLayout::RowMajor) => format!(", {namespace}::mem_row_major"),
-            Some(MatrixLayout::ColMajor) => format!(", {namespace}::mem_col_major"),
+        let layout = match op.layout(ctx).0 {
+            MatrixLayout::RowMajor => format!(", {namespace}::mem_row_major"),
+            MatrixLayout::ColMajor => format!(", {namespace}::mem_col_major"),
             _ => String::new(),
         };
         format!("{namespace}::load_matrix_sync(*{mat}, {ptr}, {stride}{layout});")
@@ -168,13 +168,10 @@ pub fn frag_ident_str(frag: &MatrixIdent) -> &str {
     }
 }
 
-pub fn frag_layout_str(frag: Option<&MatrixLayout>) -> &str {
+pub fn frag_layout_str(frag: &MatrixLayout) -> &str {
     match frag {
-        Some(layout) => match layout {
-            MatrixLayout::ColMajor => "col",
-            MatrixLayout::RowMajor => "row",
-            MatrixLayout::Undefined => "",
-        },
-        None => "",
+        MatrixLayout::ColMajor => "col",
+        MatrixLayout::RowMajor => "row",
+        MatrixLayout::Undefined => "",
     }
 }

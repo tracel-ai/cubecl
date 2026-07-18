@@ -3,6 +3,7 @@ use core::{
     any::{TypeId, type_name},
     cell::{Ref, RefCell, RefMut, UnsafeCell},
     fmt::{Debug, Display},
+    sync::atomic::Ordering,
 };
 use cubecl_common::{format::type_name_sanitized, stub::Mutex};
 use derive_more::{Eq, PartialEq};
@@ -31,6 +32,7 @@ use pliron::{
     r#type::{TypeHandle, Typed, type_cast},
     value::Value,
 };
+use portable_atomic::AtomicUsize;
 use spin::LazyLock;
 
 use crate::{
@@ -143,7 +145,7 @@ pub struct GlobalState {
     pub module: ModuleOp,
     pub module_inserter: OpInserter,
     pub entry_func: FuncOp,
-    pub functions: Vec<FuncOp>,
+    pub ident_unique_id: AtomicUsize,
     pub typemap: Types,
     pub sizemap: Sizes,
     pub modes: InstructionModes,
@@ -289,7 +291,7 @@ fn new_context(settings: KernelSettings) -> Rc<UnsafeCell<Context>> {
         module,
         module_inserter,
         entry_func,
-        functions: Default::default(),
+        ident_unique_id: Default::default(),
         typemap: Default::default(),
         sizemap: Default::default(),
         modes: Default::default(),
@@ -323,7 +325,7 @@ fn dummy_context() -> Rc<UnsafeCell<Context>> {
         module,
         module_inserter,
         entry_func,
-        functions: Default::default(),
+        ident_unique_id: Default::default(),
         typemap: Default::default(),
         sizemap: Default::default(),
         modes: Default::default(),
@@ -370,6 +372,10 @@ impl Scope {
     #[track_caller]
     pub fn state_mut(&self) -> &mut GlobalState {
         self.ctx_mut().aux_ty_mut()
+    }
+
+    fn ident_id(&self) -> usize {
+        self.state().ident_unique_id.fetch_add(1, Ordering::SeqCst)
     }
 
     #[track_caller]
@@ -488,15 +494,19 @@ impl Scope {
         out
     }
 
+    pub fn func_ident(&self, label: Option<&str>) -> Identifier {
+        let unique_id = self.ident_id();
+        match label {
+            Some(label) => ident(format!("{label}_{unique_id}")),
+            None => ident(format!("func_{unique_id}")),
+        }
+    }
+
     /// Create a new function.
-    pub fn create_function(&self, func: FuncOp) -> usize {
-        // We know state doesn't overlap with the stuff that's used in `append_op` so this is safe
+    pub fn register_func(&self, func: FuncOp) {
         let ctx = self.ctx();
         let state = self.state_mut();
-        let func_id = state.functions.len();
         state.module_inserter.append_op(ctx, &func);
-        state.functions.push(func);
-        func_id
     }
 
     /// Register an [`Instruction`] into the scope.

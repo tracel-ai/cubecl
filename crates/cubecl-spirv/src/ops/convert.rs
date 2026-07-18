@@ -3,79 +3,45 @@ use cubecl_core::{
     num_traits::{One, Zero},
     prelude::*,
 };
-use cubecl_ir::{
-    CanMaterialize, Pure, Scope,
-    dialect::general,
-    interfaces::{TriviallyUnrollable, TypedExt},
-    prelude::*,
-};
+use cubecl_ir::{Scope, dialect::general::CastOp, interfaces::TypedExt, prelude::*};
 use pliron::printable::Printable;
-use pliron_spirv::{ops, types::FloatType};
+use pliron_spirv::{ops::*, types::FloatType};
 
-use crate::{
-    lower::LowerOp,
-    ops::{base::unop_to_spirv_dialect, to_spirv_dialect::ToSpirvDialectOp},
-    types::ty_to_spirv_dialect,
-};
+use crate::{lower::LowerOp, ops::to_spirv_dialect::ToSpirvDialectOp, types::ty_to_spirv_dialect};
 
-macro_rules! cast_op {
-    ($name: literal, $ty: ident $(=> $spirv_ty: ty)*) => {
-        #[cube_op(name = $name)]
-        #[result_ty(argument)]
-        #[op_interfaces(SameOperandsType, TriviallyUnrollable)]
-        #[op_traits(CanMaterialize, Pure)]
-        pub struct $ty {
-            pub input: Value,
-        }
-        $(unop_to_spirv_dialect!($ty => $spirv_ty);)*
-    };
-}
-
-cast_op!("cube.spirv.convert_nop", ConvertNopOp);
-cast_op!("cube.spirv.convert_f_to_u", ConvertFToUOp => ops::ConvertFToUOp);
-cast_op!("cube.spirv.convert_f_to_s", ConvertFToSOp => ops::ConvertFToSOp);
-cast_op!("cube.spirv.convert_u_to_f", ConvertUToFOp => ops::ConvertUToFOp);
-cast_op!("cube.spirv.convert_s_to_f", ConvertSToFOp => ops::ConvertSToFOp);
-cast_op!("cube.spirv.u_convert", UConvertOp => ops::UConvertOp);
-cast_op!("cube.spirv.s_convert", SConvertOp => ops::SConvertOp);
-cast_op!("cube.spirv.f_convert", FConvertOp => ops::FConvertOp);
+define_scalar!(T);
+define_size!(N);
 
 #[op_interface_impl]
-impl ToSpirvDialectOp for ConvertNopOp {
+impl ToSpirvDialectOp for CastOp {
     fn to_spirv_dialect(
         &self,
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
-        _: &OperandsInfo,
+        operands_info: &OperandsInfo,
     ) -> Result<()> {
-        rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![self.input(ctx)]);
+        let input = self.input(ctx);
+        let from_ty = operands_info
+            .lookup_most_recent_type(input)
+            .unwrap_or_else(|| input.get_type(ctx));
+        let value = cast(ctx, rewriter, input, from_ty, self.result_type(ctx));
+        rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![value]);
         Ok(())
     }
 }
 
-define_scalar!(TIn);
-define_scalar!(TOut);
-define_size!(N);
-
-// Lower this ahead of time when we still have signedness info. Conversion to SPIR-V dialect erases
-// the sign.
-#[op_interface_impl]
-impl LowerOp for general::CastOp {
-    fn lower(&self, scope: &Scope) -> Vec<Value> {
-        let input = self.input(scope.ctx());
-        let to = self.result_type(scope.ctx());
-        scope.register_value_type::<TIn, N>(input);
-        scope.register_value_type::<TOut, ()>(to);
-        vec![cast(scope, input, to)]
-    }
-}
-
-fn cast(scope: &Scope, from: Value, to: TypeHandle) -> Value {
-    let ctx = scope.ctx_mut();
-    let in_ty = from.get_type(ctx).scalar_ty(ctx);
-    let to_ty = to.get_type(ctx).scalar_ty(ctx);
+pub(crate) fn cast(
+    ctx: &mut Context,
+    rewriter: &mut impl Rewriter,
+    from: Value,
+    from_ty: TypeHandle,
+    to: TypeHandle,
+) -> Value {
+    let in_ty = from_ty.element_ty(ctx).scalar_ty(ctx);
+    let to_ty = to.element_ty(ctx).scalar_ty(ctx);
     let in_ty_spirv = ty_to_spirv_dialect(ctx, in_ty);
     let to_ty_spirv = ty_to_spirv_dialect(ctx, to_ty);
+    let out_ty = ty_to_spirv_dialect(ctx, to);
 
     let in_float = in_ty_spirv.deref(ctx).is::<FloatType>();
     let in_sint = in_ty.is_signed_int(ctx);
@@ -85,31 +51,55 @@ fn cast(scope: &Scope, from: Value, to: TypeHandle) -> Value {
     let out_uint = to_ty.is_unsigned_int(ctx) || to_ty.is_index(ctx);
 
     if in_ty_spirv == to_ty_spirv {
-        scope.register_with_result(&ConvertNopOp::new(ctx, to, from))
+        from
     } else if in_float && out_uint {
-        scope.register_with_result(&ConvertFToUOp::new(ctx, to, from))
+        let conv = ConvertFToUOp::new(ctx, out_ty, from);
+        rewriter.append_op_with_result(ctx, &conv)
     } else if in_float && out_sint {
-        scope.register_with_result(&ConvertFToSOp::new(ctx, to, from))
+        let conv = ConvertFToSOp::new(ctx, out_ty, from);
+        rewriter.append_op_with_result(ctx, &conv)
     } else if in_sint && out_float {
-        scope.register_with_result(&ConvertSToFOp::new(ctx, to, from))
+        let conv = ConvertSToFOp::new(ctx, out_ty, from);
+        rewriter.append_op_with_result(ctx, &conv)
     } else if in_uint && out_float {
-        scope.register_with_result(&ConvertUToFOp::new(ctx, to, from))
+        let conv = ConvertUToFOp::new(ctx, out_ty, from);
+        rewriter.append_op_with_result(ctx, &conv)
     } else if in_uint && (to_ty.is_int(ctx) || to_ty.is_index(ctx)) {
-        scope.register_with_result(&UConvertOp::new(ctx, to, from))
+        let conv = UConvertOp::new(ctx, out_ty, from);
+        rewriter.append_op_with_result(ctx, &conv)
     } else if in_sint && (to_ty.is_int(ctx) || to_ty.is_index(ctx)) {
-        scope.register_with_result(&SConvertOp::new(ctx, to, from))
+        let conv = SConvertOp::new(ctx, out_ty, from);
+        rewriter.append_op_with_result(ctx, &conv)
     } else if in_float && out_float {
-        scope.register_with_result(&FConvertOp::new(ctx, to, from))
-    } else if in_ty.is_bool(ctx) {
-        bool_to_numeric::expand::<TOut>(scope, from.into()).read_value(scope)
-    } else if to_ty.is_bool(ctx) {
-        numeric_to_bool::expand::<TIn>(scope, from.into()).read_value(scope)
+        let conv = FConvertOp::new(ctx, out_ty, from);
+        rewriter.append_op_with_result(ctx, &conv)
     } else {
         panic!(
             "cast from {} to {} not supported",
             from.get_type(ctx).disp(ctx),
             to.disp(ctx)
         )
+    }
+}
+
+#[op_interface_impl]
+impl LowerOp for CastOp {
+    fn should_lower(&self, ctx: &Context) -> bool {
+        self.input(ctx).scalar_ty(ctx).is_bool(ctx)
+            || self.result_type(ctx).scalar_ty(ctx).is_bool(ctx)
+    }
+
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let input = self.input(scope.ctx());
+        let result_ty = self.result_type(scope.ctx());
+        let value = if input.scalar_ty(scope.ctx()).is_bool(scope.ctx()) {
+            scope.register_value_type::<T, N>(result_ty);
+            bool_to_numeric::expand::<T>(scope, input.into()).read_value(scope)
+        } else {
+            scope.register_value_type::<T, N>(input);
+            numeric_to_bool::expand::<T>(scope, input.into()).read_value(scope)
+        };
+        vec![value]
     }
 }
 

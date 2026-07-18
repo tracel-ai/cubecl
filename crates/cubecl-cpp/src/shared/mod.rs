@@ -3,6 +3,7 @@ mod base;
 pub mod binary;
 pub mod branch;
 pub mod builtin;
+pub mod convert;
 mod dialect;
 pub mod kernel;
 pub mod lowering;
@@ -16,7 +17,6 @@ pub mod unary;
 pub mod unroll;
 mod value;
 pub mod vector;
-pub mod convert;
 
 pub use base::*;
 pub use kernel::*;
