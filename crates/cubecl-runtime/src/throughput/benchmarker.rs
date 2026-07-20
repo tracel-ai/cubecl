@@ -1,7 +1,5 @@
 use crate::{
-    client::ComputeClient,
     config::CubeClRuntimeConfig,
-    runtime::Runtime,
     throughput::{ThroughputCache, ThroughputKey, ThroughputValue},
 };
 use alloc::boxed::Box;
@@ -35,15 +33,10 @@ impl ThroughputBenchmarker {
         }
     }
 
-    /// Measure the maximum compute throughput of the given kernel on the given client.
+    /// Measure the maximum compute throughput of the given kernel.
     /// Warms up the kernel until it plateaus,
     /// then measures the throughput over multiple iterations taking the minimum time per iteration (peak attained).
-    pub fn measure<R: Runtime>(
-        &mut self,
-        _client: &ComputeClient<R>,
-        key: ThroughputKey,
-        kernel_config: KernelConfig,
-    ) -> ThroughputValue {
+    pub fn measure(&mut self, key: ThroughputKey, kernel_config: KernelConfig) -> ThroughputValue {
         if self.cache_enabled
             && let Some(cached_value) = self.cache.lock().get(&key)
         {

@@ -1339,6 +1339,6 @@ impl<R: Runtime> ComputeClient<R> {
     ) -> ThroughputValue {
         let cache = ThroughputCache::get_for_device(&self.device_key());
         let mut throughputs = ThroughputBenchmarker::new(cache);
-        throughputs.measure(self, key, kernel_config)
+        throughputs.measure(key, kernel_config)
     }
 }

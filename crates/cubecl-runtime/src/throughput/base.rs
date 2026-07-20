@@ -1,8 +1,7 @@
-use alloc::{format, string::String};
-
-use cubecl_ir::{ElemType, FloatKind};
-
 use crate::throughput::{CmmaDims, ComputeCmmaConfig};
+use alloc::{format, string::String};
+use core::time::Duration;
+use cubecl_ir::{ElemType, FloatKind};
 
 /// Represents the mode of a throughput computation.
 #[derive(Eq, PartialEq, Clone, Hash, Debug, Copy)]
@@ -42,6 +41,7 @@ impl ThroughputKey {
         match self.mode {
             ThroughputMode::ComputeDirect { dtype } => dtype,
             ThroughputMode::ComputeCmma { dtype, .. } => dtype,
+            // For memory and launch throughput, we use a default element type (F32).
             ThroughputMode::Memory | ThroughputMode::Launch => ElemType::Float(FloatKind::F32),
         }
     }
@@ -54,14 +54,14 @@ pub struct ThroughputValue {
     /// The number of operations performed depending of the mode during the computation.
     pub ops_count: usize,
     /// The duration of the computation.
-    pub duration: core::time::Duration,
+    pub duration: Duration,
 }
 
 impl ThroughputValue {
     /// A zero-initialized throughput value, representing no operations or duration.
     pub const ZERO: Self = Self {
         ops_count: 0,
-        duration: core::time::Duration::ZERO,
+        duration: Duration::ZERO,
     };
 
     /// Returns the operations per second.
@@ -73,20 +73,19 @@ impl ThroughputValue {
     }
 
     /// Returns the bytes per second.
-    pub fn bytes_per_s(&self) -> f64 {
+    pub fn bytes_per_s(&self, key: &ThroughputKey) -> f64 {
         if self.duration.is_zero() {
             return f64::NAN;
         }
-        (self.ops_count * ElemType::Float(FloatKind::F32).size()) as f64
-            / self.duration.as_secs_f64()
+        (self.ops_count * key.dtype().size()) as f64 / self.duration.as_secs_f64()
     }
 
     /// Returns the duration per operation.
-    pub fn duration_per_op(&self) -> core::time::Duration {
+    pub fn duration_per_op(&self) -> Duration {
         if self.ops_count == 0 {
-            core::time::Duration::ZERO
+            Duration::ZERO
         } else {
-            core::time::Duration::from_secs_f64(self.duration.as_secs_f64() / self.ops_count as f64)
+            Duration::from_secs_f64(self.duration.as_secs_f64() / self.ops_count as f64)
         }
     }
 
@@ -96,7 +95,7 @@ impl ThroughputValue {
             ThroughputMode::ComputeDirect { .. } | ThroughputMode::ComputeCmma { .. } => {
                 (self.ops_per_s(), "OPS")
             }
-            ThroughputMode::Memory => (self.bytes_per_s(), "bytes"),
+            ThroughputMode::Memory => (self.bytes_per_s(key), "bytes"),
             ThroughputMode::Launch => {
                 let dur = self.duration_per_op();
                 if dur.is_zero() {
