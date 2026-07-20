@@ -76,6 +76,9 @@ pub(crate) struct ExportArgs {
     /// The bundle layout to write.
     #[arg(long, value_enum, default_value_t = Format::Sqlite)]
     pub format: Format,
+    /// Environment to export from. Defaults to the active one.
+    #[arg(long)]
+    pub environment: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -195,6 +198,10 @@ fn open_bundle(path: &Path) -> anyhow::Result<Box<dyn Bundle>> {
 }
 
 fn export(args: &ExportArgs) -> anyhow::Result<()> {
+    if let Some(name) = &args.environment {
+        environment::activate(name);
+    }
+
     let roots = if args.root.is_empty() {
         vec![CacheConfig::default().root()]
     } else {
@@ -210,8 +217,11 @@ fn export(args: &ExportArgs) -> anyhow::Result<()> {
     let manifest = cubecl_environment::bundle::export(&roots, &args.out, &options)?;
 
     info!(
-        "Exported bundle '{}' (cubecl {}) to {:?}",
-        manifest.name, manifest.cubecl_version, args.out
+        "Exported bundle '{}' (cubecl {}) from environment '{}' to {:?}",
+        manifest.name,
+        manifest.cubecl_version,
+        environment::active(),
+        args.out
     );
     inspect(&args.out)
 }

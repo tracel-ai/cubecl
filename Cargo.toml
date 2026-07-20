@@ -91,6 +91,7 @@ wasm-bindgen-futures = "0.4.45"
 web-time = "1.1.0"
 
 # Testing
+criterion = { version = "0.8", features = ["html_reports"] }
 rstest = "0.26"
 serial_test = "3.1.1"
 

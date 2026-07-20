@@ -133,6 +133,7 @@ embassy-time = { workspace = true }
 cfg_aliases = { workspace = true }
 
 [dev-dependencies]
+criterion = { workspace = true }
 serial_test = { workspace = true }
 tempfile = "3.20"
 test-log = { workspace = true, features = ["trace"] }
@@ -142,3 +143,8 @@ tokio = { workspace = true, default-features = false, features = [
     "macros",
     "rt-multi-thread",
 ] }
+
+[[bench]]
+harness = false
+name = "kv_store"
+required-features = ["cache", "blob-store"]
