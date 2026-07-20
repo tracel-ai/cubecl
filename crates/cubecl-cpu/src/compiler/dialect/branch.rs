@@ -8,7 +8,6 @@ use cubecl_core::ir::dialect::memory::{LoadOp, StoreOp};
 use cubecl_core::ir::interfaces::ScalarType;
 use cubecl_core::ir::prelude::*;
 use pliron::basic_block::BasicBlock;
-use pliron::builtin::attributes::IntegerAttr;
 use pliron::irbuild::inserter::{BlockInsertionPoint, OpInsertionPoint};
 use pliron::region::Region;
 use pliron_llvm::ops as llvm;
@@ -257,12 +256,8 @@ impl LowerCpuCF for SwitchOp {
                 .get_terminator(ctx)
                 .expect("switch case must be terminated");
             replace_terminator_with_branch(ctx, rewriter, term, merge);
-            let attr = const_val
-                .as_attribute(ctx, elem)
-                .downcast::<IntegerAttr>()
-                .expect("switch case value must be an integer");
             switch_cases.push(llvm::SwitchCase {
-                value: *attr,
+                value: const_val.clone(),
                 dest: *block,
                 dest_opds: vec![],
             });

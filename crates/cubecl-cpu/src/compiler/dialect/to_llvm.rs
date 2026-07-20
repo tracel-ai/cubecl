@@ -1,7 +1,7 @@
 pub use super::prelude::*;
 use cubecl_core::ir::types::PointerType as CubePointerType;
-use cubecl_core::ir::types::scalar::{BoolType, Float64Type, IndexType};
-use pliron::builtin::types::{FP64Type, IntegerType, Signedness};
+use cubecl_core::ir::types::scalar::{BoolType, Float32Type, Float64Type, IndexType};
+use pliron::builtin::types::{FP32Type, FP64Type, IntegerType, Signedness};
 use pliron_llvm::types::PointerType as LlvmPointerType;
 
 /// LLVM width of a `cube.index`. `IndexType` is `size_of::<u64>()`, so it maps to `i64`.
@@ -19,6 +19,8 @@ pub fn cube_type_to_llvm(ctx: &mut Context, ty: TypeHandle) -> TypeHandle {
         IntegerType::get(ctx, INDEX_WIDTH, Signedness::Signless).into()
     } else if ty.is::<Float64Type>() {
         FP64Type::get(ctx).into()
+    } else if ty.is::<Float32Type>() {
+        FP32Type::get(ctx).into()
     } else if ty.is::<CubePointerType>() {
         LlvmPointerType::get(ctx, 0).into()
     } else {
