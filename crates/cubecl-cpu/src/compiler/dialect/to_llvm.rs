@@ -1,22 +1,30 @@
-use cubecl_core::ir::{Scope, prelude::*};
+pub use super::prelude::*;
 
 #[op_interface]
-pub trait LowerOpLLVM {
-    verify_op_succ!();
-    fn should_lower(&self, _ctx: &Context) -> bool {
-        true
+pub trait ToLLVMDialect {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        operands_info: &OperandsInfo,
+    ) -> Result<()>;
+
+    fn verify(_op: &dyn Op, _ctx: &Context) -> Result<()>
+    where
+        Self: Sized,
+    {
+        Ok(())
     }
-    fn lower(&self, scope: &Scope) -> Vec<Value>;
 }
 
-pub type LowerOpsLLVMPass = MatchRewritePass<LowerOpsLLVM>;
+pub type CubeToLLVMPass = DialectConversionPass<CubeToLLVM>;
 
-#[derive(Default, Clone, Copy)]
-pub struct LowerOpsLLVM;
+#[derive(Default)]
+pub struct CubeToLLVM;
 
-impl MatchRewrite for LowerOpsLLVM {
-    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
-        op_cast::<dyn LowerOpLLVM>(&*op.dyn_op(ctx)).is_some_and(|it| it.should_lower(ctx))
+impl DialectConversion for CubeToLLVM {
+    fn can_convert_op(&self, ctx: &Context, op: Ptr<Operation>) -> bool {
+        op_impls::<dyn ToLLVMDialect>(&*Operation::get_op_dyn(op, ctx))
     }
 
     fn rewrite(
@@ -24,13 +32,11 @@ impl MatchRewrite for LowerOpsLLVM {
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
         op: Ptr<Operation>,
+        operands_info: &OperandsInfo,
     ) -> Result<()> {
-        let dyn_op = op.dyn_op(ctx);
-        let scope = Scope::from_context_and_inserter(ctx, rewriter);
-        let lower = op_cast::<dyn LowerOpLLVM>(&*dyn_op).unwrap();
-        let new_values = lower.lower(&scope);
-        rewriter.replace_operation_with_values(ctx, op, new_values);
-
-        Ok(())
+        let op_dyn = Operation::get_op_dyn(op, ctx);
+        let to_llvm_op = op_cast::<dyn ToLLVMDialect>(&*op_dyn)
+            .expect("Matched Op must implement ToLLVMDialect");
+        to_llvm_op.rewrite(ctx, rewriter, operands_info)
     }
 }
