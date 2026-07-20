@@ -9,7 +9,7 @@ use std::path::Path;
 use std::string::{String, ToString};
 use std::vec::Vec;
 
-use super::embedded::{FORMAT_VERSION, MAGIC};
+use super::embedded::{ENTRY_SIZE, FORMAT_VERSION, MAGIC};
 use super::{BundleError, BundleManifest};
 use crate::bytes::Bytes;
 
@@ -39,30 +39,22 @@ pub(crate) fn write(
         .map(|(id, namespace)| (*namespace, id as u32))
         .collect();
 
-    let mut index = Bytes::from_bytes_vec(Vec::with_capacity(entries.len() * 20));
+    let mut index = Bytes::from_bytes_vec(Vec::with_capacity(entries.len() * ENTRY_SIZE));
     let mut data = Bytes::from_bytes_vec(Vec::new());
 
     for ((namespace, key), value) in entries {
         let id = ids[namespace.as_str()];
 
-        let key_offset = u32::try_from(data.len()).map_err(|_| BundleError::TooLarge)?;
+        let key_offset = data.len();
         data.extend_from_byte_slice(key);
-        let value_offset = u32::try_from(data.len()).map_err(|_| BundleError::TooLarge)?;
+        let value_offset = data.len();
         data.extend_from_byte_slice(value);
 
         index.extend_from_byte_slice(&id.to_le_bytes());
-        index.extend_from_byte_slice(&key_offset.to_le_bytes());
-        index.extend_from_byte_slice(
-            &u32::try_from(key.len())
-                .map_err(|_| BundleError::TooLarge)?
-                .to_le_bytes(),
-        );
-        index.extend_from_byte_slice(&value_offset.to_le_bytes());
-        index.extend_from_byte_slice(
-            &u32::try_from(value.len())
-                .map_err(|_| BundleError::TooLarge)?
-                .to_le_bytes(),
-        );
+        push_u32(&mut index, key_offset)?;
+        push_u32(&mut index, key.len())?;
+        push_u32(&mut index, value_offset)?;
+        push_u32(&mut index, value.len())?;
     }
 
     let mut bytes = Bytes::from_bytes_vec(Vec::with_capacity(
@@ -71,36 +63,31 @@ pub(crate) fn write(
     bytes.extend_from_byte_slice(MAGIC);
     bytes.extend_from_byte_slice(&FORMAT_VERSION.to_le_bytes());
 
-    bytes.extend_from_byte_slice(
-        &u32::try_from(metadata.len())
-            .map_err(|_| BundleError::TooLarge)?
-            .to_le_bytes(),
-    );
+    push_u32(&mut bytes, metadata.len())?;
     bytes.extend_from_byte_slice(&metadata);
 
-    bytes.extend_from_byte_slice(
-        &u32::try_from(namespaces.len())
-            .map_err(|_| BundleError::TooLarge)?
-            .to_le_bytes(),
-    );
+    push_u32(&mut bytes, namespaces.len())?;
     for namespace in &namespaces {
-        bytes.extend_from_byte_slice(
-            &u32::try_from(namespace.len())
-                .map_err(|_| BundleError::TooLarge)?
-                .to_le_bytes(),
-        );
+        push_u32(&mut bytes, namespace.len())?;
         bytes.extend_from_byte_slice(namespace.as_bytes());
     }
 
-    bytes.extend_from_byte_slice(
-        &u32::try_from(entries.len())
-            .map_err(|_| BundleError::TooLarge)?
-            .to_le_bytes(),
-    );
+    push_u32(&mut bytes, entries.len())?;
     bytes.extend_from_byte_slice(&index);
     bytes.extend_from_byte_slice(&data);
 
     std::fs::write(out, &*bytes)?;
+
+    Ok(())
+}
+
+/// Appends `value` as the little-endian `u32` the format is written in.
+///
+/// Every length and offset of the layout goes through here, so a bundle too
+/// large to address is reported rather than truncated.
+fn push_u32(out: &mut Bytes, value: usize) -> Result<(), BundleError> {
+    let value = u32::try_from(value).map_err(|_| BundleError::TooLarge)?;
+    out.extend_from_byte_slice(&value.to_le_bytes());
 
     Ok(())
 }

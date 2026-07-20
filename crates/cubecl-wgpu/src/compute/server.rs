@@ -25,12 +25,12 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::future::DynFut;
 #[cfg(feature = "spirv")]
-use cubecl_environment::persistence::KvStoreOptions;
-#[cfg(feature = "spirv")]
 use cubecl_environment::persistence::blob::BlobStore;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
+#[cfg(feature = "spirv")]
+use cubecl_runtime::compiler::{compilation_store, store_compiled};
 use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage};
 use cubecl_runtime::{
     compiler::CubeTask,
@@ -128,17 +128,10 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 },
             ),
             #[cfg(feature = "spirv")]
-            spirv_cache: {
-                let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
-                if config.compilation.cache {
-                    Some(BlobStore::new(
-                        format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
-                        KvStoreOptions::default().name("vulkan"),
-                    ))
-                } else {
-                    None
-                }
-            },
+            spirv_cache: compilation_store(
+                "vulkan",
+                format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
+            ),
             backend,
             utilities: Arc::new(utilities),
             _compiler: PhantomData,
@@ -247,13 +240,11 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             && let Some(crate::AutoRepresentation::SpirV(kernel)) = auto_repr
         {
             let cache = self.spirv_cache.as_mut().unwrap();
-            let result = cache.insert(
+            store_compiled(
+                cache,
                 key,
                 cubecl_spirv::SpirvCacheEntry::new(compiled.entrypoint_name, kernel),
             );
-            if let Err(err) = result {
-                log::warn!("Unable to save the SPIR-V {err:?}");
-            }
         }
 
         Ok((pipeline, compiler_info))

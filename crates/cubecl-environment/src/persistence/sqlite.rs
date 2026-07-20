@@ -27,6 +27,9 @@ pub fn db_file_name(name: &str) -> String {
 /// [`CREATE_ENTRIES`], including a renamed column.
 pub const SCHEMA_VERSION: u32 = 3;
 
+/// The `meta` key holding [`SCHEMA_VERSION`].
+const SCHEMA_VERSION_KEY: &str = "schema_version";
+
 /// Created first and never dropped, so the schema version survives a rebuild
 /// of the entries table.
 const CREATE_META: &str = "
@@ -35,6 +38,27 @@ CREATE TABLE IF NOT EXISTS meta (
     v TEXT NOT NULL
 );
 ";
+
+const META_GET: &str = "SELECT v FROM meta WHERE k = ?1";
+
+const META_SET: &str = "INSERT INTO meta (k, v) VALUES (?1, ?2) \
+                        ON CONFLICT(k) DO UPDATE SET v = excluded.v";
+
+/// Reads a `meta` row, or `None` when the key is absent.
+///
+/// This module owns the table, so everything that touches it goes through
+/// here — including [`crate::bundle`], which stores the bundle manifest in it.
+pub(crate) fn meta_get(conn: &Connection, key: &str) -> Result<Option<String>, rusqlite::Error> {
+    conn.query_row(META_GET, params![key], |row| row.get(0))
+        .optional()
+}
+
+/// Writes a `meta` row, replacing any value already under `key`.
+pub(crate) fn meta_set(conn: &Connection, key: &str, value: &str) -> Result<(), rusqlite::Error> {
+    conn.execute(META_SET, params![key, value])?;
+
+    Ok(())
+}
 
 const CREATE_ENTRIES: &str = "
 CREATE TABLE IF NOT EXISTS entries (
@@ -99,7 +123,11 @@ impl Database {
     /// sandboxed application bundle, a missing parent directory. Callers fall
     /// back to memory-only persistence rather than failing.
     pub fn open_active() -> Option<Self> {
-        Self::open_at(crate::environment::root(), &crate::environment::active())
+        // One snapshot: pairing `root()` with `active()` would let a concurrent
+        // `activate` or `set_root` land us in a database belonging to neither.
+        let (root, name) = crate::environment::active_location();
+
+        Self::open_at(root, &name)
     }
 
     /// Opens the database of a named environment under `root`.
@@ -443,11 +471,7 @@ fn immutable_uri(path: &Path) -> Option<String> {
 /// retype a column, and keeping the old table would make every later statement
 /// fail instead of costing one cold start.
 fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
-    let found: Option<String> = conn
-        .query_row("SELECT v FROM meta WHERE k = 'schema_version'", [], |row| {
-            row.get(0)
-        })
-        .optional()?;
+    let found = meta_get(conn, SCHEMA_VERSION_KEY)?;
 
     let expected = SCHEMA_VERSION.to_string();
     if found.as_deref() == Some(expected.as_str()) {
@@ -463,11 +487,7 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
     // `meta` table, so whatever `entries` it holds cannot be trusted either.
     conn.execute("DROP TABLE IF EXISTS entries", [])?;
 
-    conn.execute(
-        "INSERT INTO meta (k, v) VALUES ('schema_version', ?1) \
-         ON CONFLICT(k) DO UPDATE SET v = excluded.v",
-        params![expected],
-    )?;
+    meta_set(conn, SCHEMA_VERSION_KEY, &expected)?;
 
     Ok(())
 }

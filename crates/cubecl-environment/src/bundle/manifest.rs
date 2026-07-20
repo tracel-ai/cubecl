@@ -28,6 +28,8 @@ pub enum BundleError {
     UnsupportedSchema(u32),
     /// The bundle exceeds what the format can address.
     TooLarge,
+    /// The blob isn't a readable flat bundle.
+    Flat(super::EmbeddedBundleError),
 }
 
 impl core::fmt::Display for BundleError {
@@ -50,11 +52,20 @@ impl core::fmt::Display for BundleError {
                 "the flat bundle format addresses at most {} bytes; export fewer namespaces",
                 u32::MAX
             ),
+            // Already a complete sentence, and prefixing it would read as two
+            // diagnoses of the same failure.
+            BundleError::Flat(err) => write!(f, "{err}"),
         }
     }
 }
 
 impl core::error::Error for BundleError {}
+
+impl From<super::EmbeddedBundleError> for BundleError {
+    fn from(err: super::EmbeddedBundleError) -> Self {
+        Self::Flat(err)
+    }
+}
 
 #[cfg(native_cache)]
 impl From<std::io::Error> for BundleError {
@@ -161,11 +172,7 @@ impl BundleManifest {
             .map_err(|err| BundleError::InvalidManifest(err.to_string()))?;
 
         database.with_connection(|conn| {
-            conn.execute(
-                "INSERT INTO meta (k, v) VALUES (?1, ?2) \
-                 ON CONFLICT(k) DO UPDATE SET v = excluded.v",
-                rusqlite::params![MANIFEST_KEY, content],
-            )
+            crate::persistence::sqlite::meta_set(conn, MANIFEST_KEY, &content)
         })?;
 
         Ok(())
@@ -174,16 +181,7 @@ impl BundleManifest {
 
 #[cfg(native_cache)]
 fn read_meta(database: &Database, key: &str) -> Result<Option<String>, BundleError> {
-    use rusqlite::OptionalExtension;
-
-    let content = database.with_connection(|conn| {
-        conn.query_row(
-            "SELECT v FROM meta WHERE k = ?1",
-            rusqlite::params![key],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-    });
+    let content = database.with_connection(|conn| crate::persistence::sqlite::meta_get(conn, key));
 
     match content {
         Ok(content) => Ok(content),

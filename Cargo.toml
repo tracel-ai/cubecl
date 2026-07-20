@@ -94,6 +94,7 @@ web-time = "1.1.0"
 criterion = { version = "0.8", features = ["html_reports"] }
 rstest = "0.26"
 serial_test = "3.1.1"
+tempfile = "3.20"
 
 bytemuck = "1.16.1"
 bytes = { version = "1.10", default-features = false }

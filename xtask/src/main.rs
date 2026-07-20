@@ -26,8 +26,6 @@ pub enum Command {
     Test(commands::test::CubeCLTestCmdArgs),
     /// Run commands to manage the book.
     Book(commands::book::BookArgs),
-    /// Manage environment bundles (pre-warmed caches).
-    Bundle(commands::bundle::BundleArgs),
     /// Profile kernels.
     Profile(commands::profile::ProfileArgs),
 }
@@ -48,7 +46,6 @@ fn main() -> anyhow::Result<()> {
             commands::test::handle_command(cmd_args, environment, args.context)
         }
         Command::Book(cmd_args) => cmd_args.parse(),
-        Command::Bundle(cmd_args) => cmd_args.run(),
         Command::Profile(cmd_args) => cmd_args.run(),
         Command::Validate(cmd_args) => {
             commands::validate::handle_command(&cmd_args, environment, args.context)

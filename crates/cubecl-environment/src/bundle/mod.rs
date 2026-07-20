@@ -53,9 +53,13 @@ mod export;
 #[cfg(native_cache)]
 mod flat;
 #[cfg(native_cache)]
+mod open;
+#[cfg(native_cache)]
 mod sqlite;
 
 #[cfg(native_cache)]
 pub use export::*;
+#[cfg(native_cache)]
+pub use open::*;
 #[cfg(native_cache)]
 pub use sqlite::*;

@@ -13,7 +13,8 @@ use objc2_metal::{
 };
 use std::sync::Arc;
 
-use cubecl_environment::persistence::{KvStoreOptions, blob::BlobStore};
+use cubecl_environment::persistence::blob::BlobStore;
+use cubecl_runtime::compiler::{compilation_store, store_compiled};
 
 #[derive(Debug, Clone)]
 pub struct CompiledKernel {
@@ -55,31 +56,15 @@ impl MetalContext {
         msl_compile_options.setMathMode(MTLMathMode::Safe);
         msl_compile_options.setMathFloatingPointFunctions(MTLMathFloatingPointFunctions::Precise);
 
-        // The device is part of the path: the MSL is emitted from device-derived
-        // compilation options and validated against the device's shared-memory
-        // limit, so fingerprinting the path keeps bundles shipped across machines
-        // from serving sources built for another GPU.
-        let device_key: String = device
-            .name()
-            .to_string()
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-            .collect();
+        // The MSL is emitted from device-derived compilation options and
+        // validated against the device's shared-memory limit, so the device
+        // name is what keeps a bundle shipped across machines from serving
+        // sources built for another GPU.
+        let device_key = device.name().to_string();
 
         Self {
             compiled_kernels: HashMap::new(),
-            msl_cache: {
-                use cubecl_runtime::config::RuntimeConfig;
-                let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
-                if config.compilation.cache {
-                    Some(BlobStore::new(
-                        format!("msl_{device_key}"),
-                        KvStoreOptions::default().name("metal"),
-                    ))
-                } else {
-                    None
-                }
-            },
+            msl_cache: compilation_store("metal", format!("msl_{device_key}")),
             device,
             compilation_options,
             msl_compile_options,
@@ -160,18 +145,15 @@ impl MetalContext {
         compiled.shared_memory_bytes = shared_memory_bytes;
 
         if let Some(cache) = &mut self.msl_cache {
-            let cache_key = kernel_id.stable_format();
-            let result = cache.insert(
-                cache_key,
+            store_compiled(
+                cache,
+                kernel_id.stable_format(),
                 MslCacheEntry {
                     entrypoint_name,
                     cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
                     source,
                 },
             );
-            if let Err(err) = result {
-                log::warn!("Unable to save MSL to cache: {err:?}");
-            }
         }
 
         self.compiled_kernels

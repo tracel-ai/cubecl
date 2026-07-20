@@ -30,7 +30,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 
-use cubecl_environment::persistence::KvStoreOptions;
+use cubecl_runtime::compiler::{compilation_store, store_compiled};
 
 #[derive(Debug)]
 pub(crate) struct CudaContext {
@@ -67,22 +67,7 @@ impl CudaContext {
         Self {
             context,
             module_names: HashMap::new(),
-            ptx_cache: {
-                use cubecl_runtime::config::RuntimeConfig;
-                let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
-                if config.compilation.cache {
-                    // The architecture is part of the path: PTX built for one
-                    // arch is not portable, and fingerprinting the path keeps
-                    // bundles shipped across machines from serving wrong
-                    // binaries.
-                    Some(BlobStore::new(
-                        format!("ptx_sm{}", arch.version),
-                        KvStoreOptions::default().name("cuda"),
-                    ))
-                } else {
-                    None
-                }
-            },
+            ptx_cache: compilation_store("cuda", format!("ptx_sm{}", arch.version)),
             arch,
             timestamps: TimestampProfiler::default(),
             compilation_options,
@@ -216,7 +201,8 @@ impl CudaContext {
         let repr = kernel_compiled.repr.unwrap();
 
         if let Some(cache) = &mut self.ptx_cache {
-            let result = cache.insert(
+            store_compiled(
+                cache,
                 hash.unwrap(),
                 PtxCacheEntry {
                     entrypoint_name: kernel_compiled.entrypoint_name.clone(),
@@ -224,9 +210,6 @@ impl CudaContext {
                     ptx: ptx.clone(),
                 },
             );
-            if let Err(err) = result {
-                log::warn!("Unable to save the ptx {err:?}");
-            }
         }
 
         self.load_ptx(

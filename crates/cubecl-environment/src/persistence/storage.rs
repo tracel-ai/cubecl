@@ -144,7 +144,56 @@ pub trait Storage: Send + core::fmt::Debug {
 static MEMORY: Lazy<Mutex<HashMap<String, Arc<Mutex<Namespace>>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-type Namespace = HashMap<Vec<u8>, (Bytes, Origin)>;
+pub(crate) type Namespace = HashMap<Vec<u8>, (Bytes, Origin)>;
+
+/// The [`Storage`] contract applied to an in-memory namespace.
+///
+/// Every backend that keeps entries in memory shares these, so the insert
+/// arbitration exists once and the backends cannot drift on the contract
+/// documented on [`Storage`]. They take the map rather than owning it because
+/// the backends disagree on the lock around it and on what they do after a
+/// write lands.
+pub(crate) mod namespace {
+    use super::{Bytes, Insertion, Namespace, Origin, replaces};
+
+    pub(crate) fn get(entries: &Namespace, key: &[u8]) -> Option<Bytes> {
+        entries.get(key).map(|(value, _)| value.clone())
+    }
+
+    pub(crate) fn insert(
+        entries: &mut Namespace,
+        key: &[u8],
+        value: Bytes,
+        origin: Origin,
+    ) -> Insertion {
+        if let Some((existing, existing_origin)) = entries.get(key)
+            && !replaces(origin, *existing_origin)
+        {
+            return Insertion::Conflict(existing.clone());
+        }
+
+        entries.insert(key.to_vec(), (value, origin));
+
+        Insertion::Stored
+    }
+
+    pub(crate) fn replace(
+        entries: &mut Namespace,
+        key: &[u8],
+        value: Bytes,
+        origin: Origin,
+    ) -> Insertion {
+        entries.insert(key.to_vec(), (value, origin));
+
+        Insertion::Stored
+    }
+
+    pub(crate) fn scan(entries: &Namespace, visit: &mut dyn FnMut(&[u8], &[u8])) {
+        for (key, (value, _)) in entries.iter() {
+            visit(key, value);
+        }
+    }
+}
 
 /// A storage that keeps entries in memory for the lifetime of the process.
 ///
@@ -195,43 +244,23 @@ impl MemoryStorage {
             })
             .collect()
     }
-
-    /// Forgets every in-memory namespace. Mostly useful in tests.
-    pub fn clear() {
-        MEMORY.lock().clear();
-    }
 }
 
 impl Storage for MemoryStorage {
     fn get(&self, key: &[u8]) -> Option<Bytes> {
-        let entries = self.entries.lock();
-        entries.get(key).map(|(value, _)| value.clone())
+        namespace::get(&self.entries.lock(), key)
     }
 
     fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
-        let mut entries = self.entries.lock();
-
-        if let Some((existing, existing_origin)) = entries.get(key)
-            && !replaces(origin, *existing_origin)
-        {
-            return Insertion::Conflict(existing.clone());
-        }
-
-        entries.insert(key.to_vec(), (value, origin));
-
-        Insertion::Stored
+        namespace::insert(&mut self.entries.lock(), key, value, origin)
     }
 
     fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
-        self.entries.lock().insert(key.to_vec(), (value, origin));
-        Insertion::Stored
+        namespace::replace(&mut self.entries.lock(), key, value, origin)
     }
 
     fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
-        let entries = self.entries.lock();
-        for (key, (value, _)) in entries.iter() {
-            visit(key, value);
-        }
+        namespace::scan(&self.entries.lock(), visit)
     }
 
     fn describe(&self) -> String {
@@ -246,32 +275,6 @@ impl Storage for MemoryStorage {
 /// now that imported entries live in the storage like any other.
 pub(crate) fn replaces(incoming: Origin, existing: Origin) -> bool {
     matches!((incoming, existing), (Origin::Local, Origin::Imported))
-}
-
-/// A storage that persists nothing and remembers nothing.
-///
-/// The explicit opt-out, distinct from [`MemoryStorage`], which does remember.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct NoStorage;
-
-impl Storage for NoStorage {
-    fn get(&self, _key: &[u8]) -> Option<Bytes> {
-        None
-    }
-
-    fn insert(&self, _key: &[u8], _value: Bytes, _origin: Origin) -> Insertion {
-        Insertion::Stored
-    }
-
-    fn replace(&self, _key: &[u8], _value: Bytes, _origin: Origin) -> Insertion {
-        Insertion::Stored
-    }
-
-    fn scan(&self, _visit: &mut dyn FnMut(&[u8], &[u8])) {}
-
-    fn describe(&self) -> String {
-        String::from("none (no persistence)")
-    }
 }
 
 /// One namespace's contribution to a storage or a bundle, for reporting.

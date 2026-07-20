@@ -44,7 +44,7 @@ pub const MAGIC: &[u8; 8] = b"CUBECLB\x01";
 pub const FORMAT_VERSION: u32 = 1;
 
 /// Size of one entry in the index: namespace id, key span, value span.
-const ENTRY_SIZE: usize = 20;
+pub(crate) const ENTRY_SIZE: usize = 20;
 
 /// The layout version of the flat bundle starting at `bytes`, if it is one.
 ///
@@ -330,18 +330,11 @@ impl EmbeddedBundle {
 
     /// The id of `namespace`, by binary search over the sorted table.
     fn namespace_id(&self, namespace: &str) -> Option<u32> {
-        let (mut low, mut high) = (0usize, self.namespaces.len());
+        let at = lower_bound(self.namespaces.len(), |index| {
+            Some(self.namespace(index)?.cmp(namespace))
+        })?;
 
-        while low < high {
-            let mid = low + (high - low) / 2;
-            match self.namespace(mid)?.cmp(namespace) {
-                core::cmp::Ordering::Less => low = mid + 1,
-                core::cmp::Ordering::Greater => high = mid,
-                core::cmp::Ordering::Equal => return Some(mid as u32),
-            }
-        }
-
-        None
+        (self.namespace(at)? == namespace).then_some(at as u32)
     }
 
     fn entry(&self, index: usize) -> Option<Entry> {
@@ -356,39 +349,40 @@ impl EmbeddedBundle {
         })
     }
 
+    /// Where a span recorded in the index lives in the blob.
+    ///
+    /// Spans are relative to the start of the data section, and
+    /// [`validate_entries`](Self::validate_entries) checks every one of them
+    /// against that same convention, so slicing here needs no bounds handling.
+    fn span(&self, offset: u32, len: u32) -> core::ops::Range<usize> {
+        let start = self.data + offset as usize;
+        start..start + len as usize
+    }
+
     fn key_of(&self, entry: &Entry) -> &[u8] {
-        let start = self.data + entry.key_offset as usize;
-        &self.bytes[start..start + entry.key_len as usize]
+        &self.bytes[self.span(entry.key_offset, entry.key_len)]
     }
 
     fn value_of(&self, entry: &Entry) -> &[u8] {
-        let start = self.data + entry.value_offset as usize;
-        &self.bytes[start..start + entry.value_len as usize]
+        &self.bytes[self.span(entry.value_offset, entry.value_len)]
     }
 
     /// The entry's value as a zero-copy window into the blob.
     fn value_window(&self, entry: &Entry) -> Option<Bytes> {
-        let start = self.data + entry.value_offset as usize;
+        let span = self.span(entry.value_offset, entry.value_len);
         self.bytes
-            .view(start, start + entry.value_len as usize)
+            .view(span.start, span.end)
             .inspect_err(|err| log::warn!("Embedded bundle: can't view an entry: {err:?}"))
             .ok()
     }
 
     /// The index of the first entry of `namespace`, if it has any.
     fn first_of(&self, namespace: u32) -> Option<usize> {
-        let (mut low, mut high) = (0usize, self.entries.1);
+        let at = lower_bound(self.entries.1, |index| {
+            Some(self.entry(index)?.namespace.cmp(&namespace))
+        })?;
 
-        while low < high {
-            let mid = low + (high - low) / 2;
-            if self.entry(mid)?.namespace < namespace {
-                low = mid + 1;
-            } else {
-                high = mid;
-            }
-        }
-
-        (low < self.entries.1 && self.entry(low)?.namespace == namespace).then_some(low)
+        (self.entry(at)?.namespace == namespace).then_some(at)
     }
 }
 
@@ -398,19 +392,15 @@ impl Bundle for EmbeddedBundle {
 
         // The index is sorted by (namespace, key), so one binary search over
         // the pair finds the entry without materializing anything.
-        let (mut low, mut high) = (0usize, self.entries.1);
-        while low < high {
-            let mid = low + (high - low) / 2;
-            let entry = self.entry(mid)?;
+        let at = lower_bound(self.entries.1, |index| {
+            let entry = self.entry(index)?;
+            Some((entry.namespace, self.key_of(&entry)).cmp(&(namespace, key)))
+        })?;
 
-            match (entry.namespace, self.key_of(&entry)).cmp(&(namespace, key)) {
-                core::cmp::Ordering::Less => low = mid + 1,
-                core::cmp::Ordering::Greater => high = mid,
-                core::cmp::Ordering::Equal => return self.value_window(&entry),
-            }
-        }
-
-        None
+        let entry = self.entry(at)?;
+        ((entry.namespace, self.key_of(&entry)) == (namespace, key))
+            .then(|| self.value_window(&entry))
+            .flatten()
     }
 
     fn scan(&self, namespace: &str, visit: &mut dyn FnMut(&[u8], &[u8])) {
@@ -450,6 +440,31 @@ struct Entry {
     key_len: u32,
     value_offset: u32,
     value_len: u32,
+}
+
+/// The index of the first item of `0..len` that `compare` doesn't order before
+/// what is being looked for, by binary search.
+///
+/// Both tables of the format are sorted, so every lookup is this one search:
+/// the caller checks the item it lands on to tell a hit from a miss, and gets
+/// `len` back when everything sorts before it. `compare` answers `None` for an
+/// unreadable item, which gives up rather than guessing.
+fn lower_bound(
+    len: usize,
+    compare: impl Fn(usize) -> Option<core::cmp::Ordering>,
+) -> Option<usize> {
+    let (mut low, mut high) = (0usize, len);
+
+    while low < high {
+        let mid = low + (high - low) / 2;
+        if compare(mid)? == core::cmp::Ordering::Less {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+
+    Some(low)
 }
 
 fn read_u32(bytes: &[u8], at: usize) -> Option<u32> {

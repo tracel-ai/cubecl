@@ -41,7 +41,7 @@ use web_sys::{
     IdbDatabase, IdbFactory, IdbKeyRange, IdbOpenDbRequest, IdbRequest, IdbTransactionMode,
 };
 
-use super::storage::{Insertion, Origin, Storage, replaces};
+use super::storage::{Insertion, Origin, Storage, namespace};
 
 const DB_NAME: &str = "cubecl";
 const STORE_NAME: &str = "kv";
@@ -49,7 +49,7 @@ const STORE_NAME: &str = "kv";
 /// The mirrored content of one namespace.
 #[derive(Default, Debug)]
 struct State {
-    entries: HashMap<Vec<u8>, (Bytes, Origin)>,
+    entries: super::storage::Namespace,
     loaded: bool,
 }
 
@@ -106,44 +106,31 @@ impl BrowserStorage {
 
 impl Storage for BrowserStorage {
     fn get(&self, key: &[u8]) -> Option<Bytes> {
-        self.state
-            .lock()
-            .entries
-            .get(key)
-            .map(|(value, _)| value.clone())
+        namespace::get(&self.state.lock().entries, key)
     }
 
     fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
-        {
-            let mut state = self.state.lock();
-            if let Some((existing, existing_origin)) = state.entries.get(key)
-                && !replaces(origin, *existing_origin)
-            {
-                return Insertion::Conflict(existing.clone());
-            }
-            state.entries.insert(key.to_vec(), (value.clone(), origin));
+        let result = namespace::insert(&mut self.state.lock().entries, key, value.clone(), origin);
+
+        // Only mirror what the arbitration actually accepted; a declined write
+        // must not overwrite the stored record.
+        if matches!(result, Insertion::Stored) {
+            self.put_in_background(key, value);
         }
 
-        self.put_in_background(key, value);
-
-        Insertion::Stored
+        result
     }
 
     fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
-        self.state
-            .lock()
-            .entries
-            .insert(key.to_vec(), (value.clone(), origin));
+        let result = namespace::replace(&mut self.state.lock().entries, key, value.clone(), origin);
 
         self.put_in_background(key, value);
 
-        Insertion::Stored
+        result
     }
 
     fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
-        for (key, (value, _)) in self.state.lock().entries.iter() {
-            visit(key, value);
-        }
+        namespace::scan(&self.state.lock().entries, visit)
     }
 
     fn loading(&self) -> bool {

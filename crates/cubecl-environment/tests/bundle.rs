@@ -1,7 +1,8 @@
 #![cfg(feature = "cache")]
 
 use cubecl_environment::bundle::{
-    Bundle, BundleFormat, EmbeddedBundle, ExportOptions, SqliteBundle, export, import,
+    Bundle, BundleError, BundleFormat, BundleManifest, EmbeddedBundle, ExportOptions, SqliteBundle,
+    export, import,
 };
 use cubecl_environment::bytes::Bytes;
 use cubecl_environment::persistence::{Database, KvStore, KvStoreOptions};
@@ -31,23 +32,26 @@ fn open(root: &std::path::Path, name: &str, path: &str) -> KvStore<String, u32> 
 }
 
 fn export_to(root: &std::path::Path, out: &std::path::Path, format: BundleFormat) {
-    export_roots(&[root], out, format, &[]);
+    export_roots("Test GPU Linux", &[root], out, format, &[]).unwrap();
 }
 
-/// The general form: several roots, one format, an optional namespace filter.
+/// The general form: several roots, one bundle name, one format, an optional
+/// namespace filter. The result is returned so the failure cases can assert on
+/// it.
 fn export_roots(
+    name: &str,
     roots: &[&std::path::Path],
     out: &std::path::Path,
     format: BundleFormat,
     namespaces: &[&str],
-) {
+) -> Result<BundleManifest, BundleError> {
     let options = ExportOptions {
-        name: "Test GPU Linux".to_string(),
+        name: name.to_string(),
         format,
         namespaces: namespaces.iter().map(|it| it.to_string()).collect(),
         ..Default::default()
     };
-    export(roots, out, &options).unwrap();
+    export(roots, out, &options)
 }
 
 /// Imports into `root`, which becomes the active environment first: `import`
@@ -260,46 +264,65 @@ fn a_cache_root_lists_its_namespaces() {
 
 /// Merging cache roots dedupes on the primary key. The original file-copy
 /// exporter concatenated colliding files instead.
+///
+/// The flat format merges roots in the reader, not in `SQLite`, so dedup is a
+/// separate implementation and both formats need the coverage.
 #[test]
 #[serial_test::serial]
 fn exporting_several_roots_dedupes_shared_keys() {
-    let first = tempfile::tempdir().unwrap();
-    let second = tempfile::tempdir().unwrap();
-    let bundle_dir = tempfile::tempdir().unwrap();
-    let cold_root = tempfile::tempdir().unwrap();
-    let bundle_path = bundle_dir.path().join("merged.bundle");
+    for format in [BundleFormat::Sqlite, BundleFormat::Flat] {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let bundle_dir = tempfile::tempdir().unwrap();
+        let cold_root = tempfile::tempdir().unwrap();
+        let bundle_path = bundle_dir.path().join("merged.bundle");
 
-    warm(
-        first.path(),
-        "autotune",
-        "device0/matmul",
-        &[("shared", 1), ("only-first", 10)],
-    );
-    warm(
-        second.path(),
-        "autotune",
-        "device0/matmul",
-        &[("shared", 2), ("only-second", 20)],
-    );
+        warm(
+            first.path(),
+            "autotune",
+            "device0/matmul",
+            &[("shared", 1), ("only-first", 10)],
+        );
+        warm(
+            second.path(),
+            "autotune",
+            "device0/matmul",
+            &[("shared", 2), ("only-second", 20)],
+        );
 
-    let options = ExportOptions {
-        name: "Merged".to_string(),
-        ..Default::default()
-    };
-    export(&[first.path(), second.path()], &bundle_path, &options).unwrap();
+        export_roots(
+            "Merged",
+            &[first.path(), second.path()],
+            &bundle_path,
+            format,
+            &[],
+        )
+        .unwrap();
 
-    let bundle = open_bundle(&bundle_path, BundleFormat::Sqlite);
-    let report = import_into(cold_root.path(), bundle.as_ref());
-    assert_eq!(report.imported, 3, "the shared key appears exactly once");
+        let bundle = open_bundle(&bundle_path, format);
+        let report = import_into(cold_root.path(), bundle.as_ref());
+        assert_eq!(
+            report.imported, 3,
+            "the shared key appears exactly once: {format:?}"
+        );
 
-    let store = open(cold_root.path(), "autotune", "device0/matmul");
-    assert_eq!(
-        store.get(&"shared".to_string()),
-        Some(&1),
-        "first root wins"
-    );
-    assert_eq!(store.get(&"only-first".to_string()), Some(&10));
-    assert_eq!(store.get(&"only-second".to_string()), Some(&20));
+        let store = open(cold_root.path(), "autotune", "device0/matmul");
+        assert_eq!(
+            store.get(&"shared".to_string()),
+            Some(&1),
+            "first root wins: {format:?}"
+        );
+        assert_eq!(
+            store.get(&"only-first".to_string()),
+            Some(&10),
+            "{format:?}"
+        );
+        assert_eq!(
+            store.get(&"only-second".to_string()),
+            Some(&20),
+            "{format:?}"
+        );
+    }
 }
 
 #[test]
@@ -313,12 +336,14 @@ fn exporting_can_be_restricted_to_some_namespaces() {
     warm(warm_root.path(), "autotune", "device0/matmul", &[("k", 1)]);
     warm(warm_root.path(), "throughput", "device0/copy", &[("k", 2)]);
 
-    let options = ExportOptions {
-        name: "Autotune only".to_string(),
-        namespaces: vec!["autotune".to_string()],
-        ..Default::default()
-    };
-    export(&[warm_root.path()], &bundle_path, &options).unwrap();
+    export_roots(
+        "Autotune only",
+        &[warm_root.path()],
+        &bundle_path,
+        BundleFormat::Sqlite,
+        &["autotune"],
+    )
+    .unwrap();
 
     let bundle = open_bundle(&bundle_path, BundleFormat::Sqlite);
     import_into(cold_root.path(), bundle.as_ref());
@@ -335,72 +360,42 @@ fn exporting_can_be_restricted_to_some_namespaces() {
 }
 
 /// Re-exporting must replace the bundle, never merge into the stale one.
-#[test]
-#[serial_test::serial]
-fn exporting_over_an_existing_bundle_replaces_it() {
-    let first_root = tempfile::tempdir().unwrap();
-    let second_root = tempfile::tempdir().unwrap();
-    let bundle_dir = tempfile::tempdir().unwrap();
-    let cold_root = tempfile::tempdir().unwrap();
-    let bundle_path = bundle_dir.path().join("replaced.bundle");
-
-    warm(
-        first_root.path(),
-        "autotune",
-        "device0/matmul",
-        &[("old", 1)],
-    );
-    export_to(first_root.path(), &bundle_path, BundleFormat::Sqlite);
-
-    warm(
-        second_root.path(),
-        "autotune",
-        "device0/matmul",
-        &[("new", 2)],
-    );
-    export_to(second_root.path(), &bundle_path, BundleFormat::Sqlite);
-
-    let bundle = open_bundle(&bundle_path, BundleFormat::Sqlite);
-    import_into(cold_root.path(), bundle.as_ref());
-
-    let store = open(cold_root.path(), "autotune", "device0/matmul");
-    assert_eq!(store.get(&"new".to_string()), Some(&2));
-    assert_eq!(store.get(&"old".to_string()), None);
-}
-
+///
 /// The flat format has no manifest row to validate an existing file with, so
 /// re-exporting over one used to be rejected as a foreign file forever.
 #[test]
 #[serial_test::serial]
-fn exporting_flat_over_an_existing_flat_bundle_replaces_it() {
-    let first_root = tempfile::tempdir().unwrap();
-    let second_root = tempfile::tempdir().unwrap();
-    let bundle_dir = tempfile::tempdir().unwrap();
-    let cold_root = tempfile::tempdir().unwrap();
-    let bundle_path = bundle_dir.path().join("replaced.ccb");
+fn exporting_over_an_existing_bundle_replaces_it() {
+    for format in [BundleFormat::Sqlite, BundleFormat::Flat] {
+        let first_root = tempfile::tempdir().unwrap();
+        let second_root = tempfile::tempdir().unwrap();
+        let bundle_dir = tempfile::tempdir().unwrap();
+        let cold_root = tempfile::tempdir().unwrap();
+        let bundle_path = bundle_dir.path().join("replaced.bundle");
 
-    warm(
-        first_root.path(),
-        "autotune",
-        "device0/matmul",
-        &[("old", 1)],
-    );
-    export_to(first_root.path(), &bundle_path, BundleFormat::Flat);
+        warm(
+            first_root.path(),
+            "autotune",
+            "device0/matmul",
+            &[("old", 1)],
+        );
+        export_to(first_root.path(), &bundle_path, format);
 
-    warm(
-        second_root.path(),
-        "autotune",
-        "device0/matmul",
-        &[("new", 2)],
-    );
-    export_to(second_root.path(), &bundle_path, BundleFormat::Flat);
+        warm(
+            second_root.path(),
+            "autotune",
+            "device0/matmul",
+            &[("new", 2)],
+        );
+        export_to(second_root.path(), &bundle_path, format);
 
-    let bundle = open_bundle(&bundle_path, BundleFormat::Flat);
-    import_into(cold_root.path(), bundle.as_ref());
+        let bundle = open_bundle(&bundle_path, format);
+        import_into(cold_root.path(), bundle.as_ref());
 
-    let store = open(cold_root.path(), "autotune", "device0/matmul");
-    assert_eq!(store.get(&"new".to_string()), Some(&2));
-    assert_eq!(store.get(&"old".to_string()), None);
+        let store = open(cold_root.path(), "autotune", "device0/matmul");
+        assert_eq!(store.get(&"new".to_string()), Some(&2), "{format:?}");
+        assert_eq!(store.get(&"old".to_string()), None, "{format:?}");
+    }
 }
 
 /// A failed export must leave the previous bundle intact, not a stub that
@@ -419,12 +414,7 @@ fn a_failed_export_leaves_the_previous_bundle_alone() {
     // A source that is not a database at all fails the export.
     let broken = bundle_dir.path().join("broken.db");
     std::fs::write(&broken, b"not a database").unwrap();
-    let options = ExportOptions {
-        name: "Doomed".to_string(),
-        format: BundleFormat::Flat,
-        ..Default::default()
-    };
-    assert!(export(&[&broken], &bundle_path, &options).is_err());
+    assert!(export_roots("Doomed", &[&broken], &bundle_path, BundleFormat::Flat, &[]).is_err());
 
     assert_eq!(std::fs::read(&bundle_path).unwrap(), exported);
     assert!(
@@ -467,51 +457,6 @@ fn a_static_blob_opens_as_a_bundle() {
     );
 }
 
-/// The flat format merges roots in the reader, not in `SQLite`, so dedup is a
-/// separate implementation and needs its own coverage.
-#[test]
-#[serial_test::serial]
-fn exporting_several_roots_to_flat_dedupes_shared_keys() {
-    let first = tempfile::tempdir().unwrap();
-    let second = tempfile::tempdir().unwrap();
-    let bundle_dir = tempfile::tempdir().unwrap();
-    let cold_root = tempfile::tempdir().unwrap();
-    let bundle_path = bundle_dir.path().join("merged.ccb");
-
-    warm(
-        first.path(),
-        "autotune",
-        "device0/matmul",
-        &[("shared", 1), ("only-first", 10)],
-    );
-    warm(
-        second.path(),
-        "autotune",
-        "device0/matmul",
-        &[("shared", 2), ("only-second", 20)],
-    );
-
-    export_roots(
-        &[first.path(), second.path()],
-        &bundle_path,
-        BundleFormat::Flat,
-        &[],
-    );
-
-    let bundle = open_bundle(&bundle_path, BundleFormat::Flat);
-    let report = import_into(cold_root.path(), bundle.as_ref());
-    assert_eq!(report.imported, 3, "the shared key appears exactly once");
-
-    let store = open(cold_root.path(), "autotune", "device0/matmul");
-    assert_eq!(
-        store.get(&"shared".to_string()),
-        Some(&1),
-        "first root wins"
-    );
-    assert_eq!(store.get(&"only-first".to_string()), Some(&10));
-    assert_eq!(store.get(&"only-second".to_string()), Some(&20));
-}
-
 /// The prefix filter must select the same namespaces in both formats.
 #[test]
 #[serial_test::serial]
@@ -527,18 +472,27 @@ fn exporting_to_flat_can_be_restricted_to_some_namespaces() {
     let selected = format!("autotune/{version}/device0/matmul");
 
     export_roots(
+        "Autotune only",
         &[warm_root.path()],
         &bundle_path,
         BundleFormat::Flat,
         &["autotune"],
-    );
+    )
+    .unwrap();
     assert_eq!(
         open_bundle(&bundle_path, BundleFormat::Flat).namespaces(),
         vec![selected.clone()]
     );
 
     // An empty prefix is no filter at all, in both formats.
-    export_roots(&[warm_root.path()], &bundle_path, BundleFormat::Flat, &[""]);
+    export_roots(
+        "Autotune only",
+        &[warm_root.path()],
+        &bundle_path,
+        BundleFormat::Flat,
+        &[""],
+    )
+    .unwrap();
     assert_eq!(
         open_bundle(&bundle_path, BundleFormat::Flat)
             .namespaces()
@@ -548,11 +502,13 @@ fn exporting_to_flat_can_be_restricted_to_some_namespaces() {
 
     let sqlite_path = bundle_dir.path().join("autotune-only.cubecl");
     export_roots(
+        "Autotune only",
         &[warm_root.path()],
         &sqlite_path,
         BundleFormat::Sqlite,
         &["autotune"],
-    );
+    )
+    .unwrap();
     assert_eq!(
         open_bundle(&sqlite_path, BundleFormat::Sqlite).namespaces(),
         vec![selected]
@@ -614,11 +570,7 @@ fn exporting_over_a_foreign_file_fails() {
     let target = dir.path().join("precious.txt");
     std::fs::write(&target, b"do not delete me").unwrap();
 
-    let options = ExportOptions {
-        name: "Nope".to_string(),
-        ..Default::default()
-    };
-    assert!(export(&[dir.path()], &target, &options).is_err());
+    assert!(export_roots("Nope", &[dir.path()], &target, BundleFormat::Sqlite, &[]).is_err());
     assert_eq!(std::fs::read(&target).unwrap(), b"do not delete me");
 }
 
@@ -643,7 +595,7 @@ fn environments_are_isolated_and_switchable() {
     let root = tempfile::tempdir().unwrap();
 
     environment::activate("first");
-    assert_eq!(environment::active(), "first");
+    assert_eq!(&*environment::active(), "first");
     warm(root.path(), "autotune", "device0/matmul", &[("k", 1)]);
 
     environment::activate("second");

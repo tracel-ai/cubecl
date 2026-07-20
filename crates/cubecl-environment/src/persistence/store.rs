@@ -45,7 +45,6 @@ pub struct KvStore<K, V> {
 /// Define the options to create a [`KvStore`].
 #[derive(Default, Debug, Clone)]
 pub struct KvStoreOptions {
-    version: Option<String>,
     name: Option<String>,
 }
 
@@ -74,6 +73,22 @@ pub enum StoreError<K, V> {
     /// will be recomputed on the next run.
     #[allow(missing_docs)]
     Backend { key: K, error: String },
+}
+
+impl<K, V> StoreError<K, V> {
+    /// Why the write failed, without the key or the value.
+    ///
+    /// [`Display`] renders both, which is right for small entries and wrong
+    /// for a compiled kernel: those values are megabytes of binary, and a log
+    /// line must not carry one. Callers storing large values report this
+    /// instead.
+    pub fn reason(&self) -> &str {
+        match self {
+            Self::DuplicatedKey { .. } => "the key was already stored with a different value",
+            Self::KeyOutOfSync { .. } => "another process stored the key first",
+            Self::Backend { error, .. } => error,
+        }
+    }
 }
 
 impl<K: core::fmt::Debug, V: core::fmt::Debug> Display for StoreError<K, V> {
@@ -107,12 +122,6 @@ impl<K: core::fmt::Debug, V: core::fmt::Debug> Display for StoreError<K, V> {
 impl<K: core::fmt::Debug, V: core::fmt::Debug> core::error::Error for StoreError<K, V> {}
 
 impl KvStoreOptions {
-    /// The version used for the store.
-    pub fn version<V: Into<String>>(mut self, version: V) -> Self {
-        self.version = Some(version.into());
-        self
-    }
-
     /// The name of the store, the first segment of its namespace.
     pub fn name<R: Into<String>>(mut self, name: R) -> Self {
         self.name = Some(name.into());
@@ -120,11 +129,12 @@ impl KvStoreOptions {
     }
 
     /// The namespace for `path`: `<name>/<version>/<path>`.
+    ///
+    /// The version is this build's, never a caller's choice: it is what makes
+    /// entries written by one cubecl invisible to another, so a bundle built
+    /// elsewhere can't be read as if it matched.
     pub(crate) fn resolve_namespace(&mut self, path: &str) -> String {
-        let version = self
-            .version
-            .take()
-            .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+        let version = env!("CARGO_PKG_VERSION");
         let name = self.name.take().unwrap_or_else(|| "cubecl".to_string());
 
         let path = path.trim_matches('/');
@@ -193,12 +203,6 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
         });
 
         self.loaded.set(!loading);
-    }
-
-    /// Whether the storage is still loading its initial content
-    /// asynchronously.
-    pub fn loading(&self) -> bool {
-        self.blob.storage().loading()
     }
 
     /// Whether asynchronously delivered content may still be waiting to be

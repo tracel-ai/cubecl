@@ -126,10 +126,9 @@ impl StreamId {
     fn per_task() -> Self {
         match tokio::task::try_id() {
             Some(id) => {
-                use core::hash::{BuildHasher, Hash, Hasher};
+                use core::hash::BuildHasher;
 
-                let mut hasher = foldhash::fast::FixedState::default().build_hasher();
-                id.hash(&mut hasher);
+                let hash = foldhash::fast::FixedState::default().hash_one(id);
 
                 // The high bit namespaces task-derived ids away from the
                 // counter-based thread and manual ids. A hash collision or a
@@ -137,7 +136,7 @@ impl StreamId {
                 // one backend stream, which is safe (FIFO ordering), while a
                 // single task always keeps one stable id across thread hops.
                 Self {
-                    value: hasher.finish() | (1 << 63),
+                    value: hash | (1 << 63),
                 }
             }
             // Not inside a tokio task: behave like the per-thread policy.

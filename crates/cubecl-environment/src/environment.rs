@@ -20,7 +20,7 @@ use alloc::string::{String, ToString};
 #[cfg(std_io)]
 use alloc::vec::Vec;
 
-use crate::sync::{Lazy, Mutex};
+use crate::sync::{Arc, Lazy, Mutex};
 
 /// The environment used when none is chosen.
 pub const DEFAULT: &str = "default";
@@ -38,19 +38,26 @@ pub const EXTENSION: &str = "db";
 /// [`set_root`] can never be observed half-applied.
 #[derive(Debug, Clone)]
 struct Active {
-    name: String,
+    /// Shared rather than owned per reader: [`active`] is called on every path
+    /// that opens a store, and the name is immutable once [`activate`] set it,
+    /// so handing out a handle costs a refcount bump instead of an allocation.
+    name: Arc<str>,
     #[cfg(std_io)]
     root: Option<std::path::PathBuf>,
 }
 
 static ACTIVE: Lazy<Mutex<Active>> = Lazy::new(|| {
     Mutex::new(Active {
-        name: String::from(DEFAULT),
+        name: Arc::from(DEFAULT),
         #[cfg(std_io)]
         root: None,
     })
 });
 
+/// A consistent snapshot of both fields. Only the paths that need the root
+/// take it; [`active`] reads the name directly rather than allocating a
+/// `PathBuf` it would discard.
+#[cfg(std_io)]
 fn active_state() -> Active {
     ACTIVE.lock().clone()
 }
@@ -63,12 +70,17 @@ pub fn activate<N: AsRef<str>>(name: N) {
     let name = sanitize(name.as_ref());
     log::debug!("Activating environment '{name}'");
 
-    ACTIVE.lock().name = name;
+    ACTIVE.lock().name = name.into();
 }
 
 /// The active environment.
-pub fn active() -> String {
-    active_state().name
+///
+/// The returned handle derefs to `str`, and cloning it is a refcount bump, so
+/// this is cheap enough to call wherever a store is opened.
+pub fn active() -> Arc<str> {
+    // Deliberately not through `active_state`: that snapshots the root too,
+    // which would allocate a `PathBuf` this caller never looks at.
+    ACTIVE.lock().name.clone()
 }
 
 /// Sets the directory environments are kept in.
@@ -95,10 +107,24 @@ pub fn root() -> std::path::PathBuf {
 /// configuration with the root from another.
 #[cfg(std_io)]
 pub fn path() -> std::path::PathBuf {
-    let active = active_state();
-    let name = file_name(&active.name);
+    let (root, name) = active_location();
 
-    active.root_or_default().join(name)
+    root.join(file_name(&name))
+}
+
+/// The directory environments are kept in and the active environment's name,
+/// read from a single snapshot.
+///
+/// Callers needing both must use this rather than pairing [`root`] with
+/// [`active`]: those are two separate reads, and a concurrent [`activate`] or
+/// [`set_root`] between them yields the root of one configuration with the
+/// name of another.
+#[cfg(std_io)]
+pub fn active_location() -> (std::path::PathBuf, Arc<str>) {
+    let active = active_state();
+    let name = active.name.clone();
+
+    (active.root_or_default(), name)
 }
 
 #[cfg(std_io)]

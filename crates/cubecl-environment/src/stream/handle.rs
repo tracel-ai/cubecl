@@ -184,6 +184,11 @@ mod tests_tokio {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    // The guard serializes this test against the other policy-mutating ones, so
+    // it has to span the awaits: dropping it earlier is exactly the race it
+    // exists to prevent. Nothing awaited here takes that lock, so it can't
+    // deadlock.
+    #[allow(clippy::await_holding_lock)]
     async fn per_task_ids_are_stable_and_distinct() {
         let _guard = crate::stream::tests_policy_lock();
 

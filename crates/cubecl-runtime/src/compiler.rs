@@ -4,8 +4,55 @@ use crate::{
 };
 use alloc::string::String;
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::persistence::{KvStoreOptions, StoreKey, StoreValue, blob::BlobStore};
 use cubecl_ir::{ElemType, StorageType};
 use thiserror::Error;
+
+/// A store for `backend`'s compiled artifacts, or `None` when compilation
+/// caching is disabled or the target has nowhere durable to put them.
+///
+/// `fingerprint` names what the artifacts were built for — an architecture, a
+/// device — and becomes part of the namespace. Compiled code is not portable
+/// across those, so this is what keeps a bundle shipped between machines from
+/// serving the wrong binary. It needs no sanitizing: a namespace is a database
+/// column, never a path.
+pub fn compilation_store<K: StoreKey, V: StoreValue>(
+    backend: &'static str,
+    fingerprint: impl AsRef<str>,
+) -> Option<BlobStore<K, V>> {
+    #[cfg(std_io)]
+    {
+        use crate::config::RuntimeConfig;
+
+        if !crate::config::CubeClRuntimeConfig::get().compilation.cache {
+            return None;
+        }
+
+        Some(BlobStore::new(
+            fingerprint,
+            KvStoreOptions::default().name(backend),
+        ))
+    }
+
+    // No file system to persist to; the caller keeps its in-memory map.
+    #[cfg(not(std_io))]
+    {
+        let _ = (backend, fingerprint);
+        None
+    }
+}
+
+/// Records a freshly compiled artifact, logging rather than failing.
+///
+/// A refused write is routine, not exceptional: another process sharing the
+/// environment may have written the key first, or the backing store may have
+/// declined it. The artifact was just compiled either way, so the whole cost
+/// is compiling it again next run.
+pub fn store_compiled<K: StoreKey, V: StoreValue>(store: &mut BlobStore<K, V>, key: K, value: V) {
+    if let Err(err) = store.insert(key, value) {
+        log::warn!("Unable to cache the compiled kernel: {}", err.reason());
+    }
+}
 
 /// Kernel trait with the `ComputeShader` that will be compiled and cached based on the
 /// provided id.

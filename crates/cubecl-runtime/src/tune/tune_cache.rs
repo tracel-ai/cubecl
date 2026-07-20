@@ -132,7 +132,10 @@ impl<K: AutotuneKey> TuneCache<K> {
                     options.name("autotune"),
                 )),
             };
-            cache.load();
+            log::info!("Load autotune cache ...");
+            let loaded = cache.sync_persistent();
+            log::info!("Loaded {loaded} autotune cached entries");
+
             cache
         }
 
@@ -229,12 +232,17 @@ impl<K: AutotuneKey> TuneCache<K> {
     /// backends are fully ingested at open, so this only walks memory —
     /// picking up entries another process appended would mean rescanning the
     /// database on every autotune miss, under the tuner mutex.
-    pub(crate) fn sync_persistent(&mut self) {
+    ///
+    /// The initial load at construction is the same walk over an empty map, so
+    /// it goes through here too. Returns how many entries the store delivered.
+    pub(crate) fn sync_persistent(&mut self) -> usize {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
-            return;
+            return 0;
         };
 
+        let mut delivered = 0;
         persistent_cache.for_each(|key, value| {
+            delivered += 1;
             self.in_memory_cache
                 .entry(key.key.clone())
                 .or_insert(CacheEntry::Done {
@@ -242,6 +250,8 @@ impl<K: AutotuneKey> TuneCache<K> {
                     fastest_index: value.fastest_index,
                 });
         });
+
+        delivered
     }
 
     pub(crate) fn persistent_cache_insert(
@@ -282,26 +292,5 @@ impl<K: AutotuneKey> TuneCache<K> {
                 ),
             }
         }
-    }
-
-    /// Load the persistent cache data from disk
-    pub(crate) fn load(&mut self) {
-        let Some(persistent_cache) = self.persistent_cache.as_mut() else {
-            return;
-        };
-
-        log::info!("Load autotune cache ...");
-        let mut loaded = 0;
-        persistent_cache.for_each(|key, value| {
-            loaded += 1;
-            self.in_memory_cache.insert(
-                key.key.clone(),
-                CacheEntry::Done {
-                    checksum: ChecksumState::ToBeVerified(key.checksum.clone()),
-                    fastest_index: value.fastest_index,
-                },
-            );
-        });
-        log::info!("Loaded {loaded} autotune cached entries");
     }
 }

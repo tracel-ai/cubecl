@@ -127,18 +127,3 @@ fn criterion_benchmark(c: &mut Criterion) {
 
 criterion_group!(benches, criterion_benchmark);
 criterion_main!(benches);
-
-// fn main() {
-//     println!("Start");
-//     let device_handle = DeviceHandle::<TestService>::new(cubecl_common::device::DeviceId {
-//         type_id: 0,
-//         index_id: 0,
-//     });
-//     let device = device_handle.clone();
-//     for _ in 0..black_box(1000) {
-//         device.submit(|service| service.compute());
-//     }
-//     let total = device.submit_blocking(|service| service.id).unwrap();
-//     black_box(total);
-//     println!("Completed");
-// }

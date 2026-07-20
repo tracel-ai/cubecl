@@ -10,9 +10,9 @@ use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
-use cubecl_environment::persistence::KvStoreOptions;
 use cubecl_environment::persistence::blob::BlobStore;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
+use cubecl_runtime::compiler::{compilation_store, store_compiled};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{
     compiler::CompilationError,
@@ -59,23 +59,9 @@ impl HipContext {
             module_names: HashMap::new(),
             timestamps: TimestampProfiler::default(),
             compilation_options,
-            compilation_cache: {
-                use cubecl_runtime::config::RuntimeConfig;
-                let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
-                if config.compilation.cache {
-                    // The architecture is part of the path: binaries built for
-                    // one arch are not portable, and fingerprinting the path
-                    // keeps bundles shipped across machines from serving wrong
-                    // binaries. `arch_name` keeps its target-feature suffix
-                    // (`gfx90a:sramecc+:xnack-`), which the code object encodes.
-                    Some(BlobStore::new(
-                        format!("hip-kernel_{arch_name}"),
-                        KvStoreOptions::default().name("hip"),
-                    ))
-                } else {
-                    None
-                }
-            },
+            // `arch_name` keeps its target-feature suffix
+            // (`gfx90a:sramecc+:xnack-`), which the code object encodes.
+            compilation_cache: compilation_store("hip", format!("hip-kernel_{arch_name}")),
             properties,
         }
     }
@@ -253,16 +239,15 @@ impl HipContext {
         let repr = jitc_kernel.repr.unwrap();
 
         if let Some(cache) = self.compilation_cache.as_mut() {
-            cache
-                .insert(
-                    hash.unwrap(),
-                    CompilationCacheEntry {
-                        entrypoint_name: jitc_kernel.entrypoint_name.clone(),
-                        shared_mem_bytes: repr.shared_memory_size(),
-                        binary: code.clone(),
-                    },
-                )
-                .unwrap();
+            store_compiled(
+                cache,
+                hash.unwrap(),
+                CompilationCacheEntry {
+                    entrypoint_name: jitc_kernel.entrypoint_name.clone(),
+                    shared_mem_bytes: repr.shared_memory_size(),
+                    binary: code.clone(),
+                },
+            );
         }
 
         self.load_compiled_binary(
