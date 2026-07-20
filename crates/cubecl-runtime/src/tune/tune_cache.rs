@@ -274,22 +274,19 @@ impl<K: AutotuneKey> TuneCache<K> {
                 results,
             },
         ) {
-            match err {
-                CacheError::DuplicatedKey {
-                    key,
-                    value_previous,
-                    value_updated,
-                } => {
-                    log::warn!(
-                        "Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}"
-                    );
-                }
-                CacheError::KeyOutOfSync { .. } => {
-                    // This is OK.
-                }
-            }
+            let CacheError::DuplicatedKey {
+                key,
+                value_previous,
+                value_updated,
+            } = err;
+
+            // Either this process tuned the same function twice, or another
+            // process stored its own result first. Both are harmless: the
+            // stored entry stays, and the two are equally valid.
+            log::warn!(
+                "Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}"
+            );
         }
-        // .expect();
     }
 
     /// Load the persistent cache data from disk

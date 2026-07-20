@@ -1,12 +1,10 @@
-use std::path::Path;
 use std::string::{String, ToString};
 use std::vec::Vec;
 
-/// File name of the bundle manifest.
-pub const MANIFEST_FILE_NAME: &str = "bundle.toml";
+use crate::persistence::Database;
 
-/// Directory holding the cache tree inside a bundle.
-pub const STORE_DIR_NAME: &str = "store";
+/// The `meta` key the manifest is stored under.
+const MANIFEST_KEY: &str = "manifest";
 
 /// The manifest schema version this build reads and writes.
 pub const MANIFEST_SCHEMA: u32 = 1;
@@ -14,9 +12,13 @@ pub const MANIFEST_SCHEMA: u32 = 1;
 /// Error opening or creating a bundle.
 #[derive(Debug)]
 pub enum BundleError {
-    /// The manifest file couldn't be read or written.
+    /// The bundle file couldn't be read or written.
     Io(std::io::Error),
-    /// The manifest is not valid TOML for the expected schema.
+    /// The database couldn't be opened or queried.
+    Database(rusqlite::Error),
+    /// The file opened but carries no manifest, so it isn't a bundle.
+    NotABundle,
+    /// The manifest is not valid for the expected schema.
     InvalidManifest(String),
     /// The manifest declares a schema this build doesn't understand.
     UnsupportedSchema(u32),
@@ -26,6 +28,8 @@ impl core::fmt::Display for BundleError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             BundleError::Io(err) => write!(f, "bundle io error: {err}"),
+            BundleError::Database(err) => write!(f, "bundle database error: {err}"),
+            BundleError::NotABundle => write!(f, "the file carries no bundle manifest"),
             BundleError::InvalidManifest(err) => write!(f, "invalid bundle manifest: {err}"),
             BundleError::UnsupportedSchema(schema) => {
                 write!(
@@ -45,7 +49,14 @@ impl From<std::io::Error> for BundleError {
     }
 }
 
-/// The `bundle.toml` manifest of an environment bundle.
+impl From<rusqlite::Error> for BundleError {
+    fn from(err: rusqlite::Error) -> Self {
+        Self::Database(err)
+    }
+}
+
+/// The manifest of an environment bundle, stored as a row of the bundle
+/// database.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BundleManifest {
     /// Manifest schema version.
@@ -82,10 +93,11 @@ pub struct EnvironmentInfo {
 }
 
 impl BundleManifest {
-    /// Reads and validates a manifest file.
-    pub fn read(path: &Path) -> Result<Self, BundleError> {
-        let content = std::fs::read_to_string(path)?;
-        let manifest: Self = toml::from_str(&content)
+    /// Reads and validates the manifest of a bundle database.
+    pub fn read(database: &Database) -> Result<Self, BundleError> {
+        let content = read_meta(database, MANIFEST_KEY)?.ok_or(BundleError::NotABundle)?;
+
+        let manifest: Self = serde_json::from_str(&content)
             .map_err(|err| BundleError::InvalidManifest(err.to_string()))?;
 
         if manifest.schema != MANIFEST_SCHEMA {
@@ -95,11 +107,41 @@ impl BundleManifest {
         Ok(manifest)
     }
 
-    /// Serializes the manifest to a file.
-    pub fn write(&self, path: &Path) -> Result<(), BundleError> {
-        let content = toml::to_string_pretty(self)
+    /// Writes the manifest into a bundle database.
+    pub fn write(&self, database: &Database) -> Result<(), BundleError> {
+        let content = serde_json::to_string_pretty(self)
             .map_err(|err| BundleError::InvalidManifest(err.to_string()))?;
-        std::fs::write(path, content)?;
+
+        database.with_connection(|conn| {
+            conn.execute(
+                "INSERT INTO meta (k, v) VALUES (?1, ?2) \
+                 ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+                rusqlite::params![MANIFEST_KEY, content],
+            )
+        })?;
+
         Ok(())
+    }
+}
+
+fn read_meta(database: &Database, key: &str) -> Result<Option<String>, BundleError> {
+    use rusqlite::OptionalExtension;
+
+    let content = database.with_connection(|conn| {
+        conn.query_row(
+            "SELECT v FROM meta WHERE k = ?1",
+            rusqlite::params![key],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+    });
+
+    match content {
+        Ok(content) => Ok(content),
+        // A file that isn't a cubecl database has no `meta` table at all.
+        Err(rusqlite::Error::SqliteFailure(..)) | Err(rusqlite::Error::SqlInputError { .. }) => {
+            Err(BundleError::NotABundle)
+        }
+        Err(err) => Err(BundleError::Database(err)),
     }
 }

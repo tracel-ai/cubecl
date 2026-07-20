@@ -84,6 +84,7 @@ parking_lot = { version = "0.12.5", default-features = false }
 web-sys = "0.3"
 embassy-time = { version = "0.5", default-features = false }
 md5 = "0.8.0"
+rusqlite = { version = "0.38", features = ["bundled"] }
 sanitize-filename = "0.6"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4.45"

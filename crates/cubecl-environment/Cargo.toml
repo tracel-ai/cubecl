@@ -20,14 +20,20 @@ workspace = true
 
 [features]
 browser-cache = [
-    "dep:serde_json",
+    "dep:ciborium",
     "dep:web-sys",
     "dep:js-sys",
     "dep:wasm-bindgen",
     "oneshot/async",
 ]
-cache = ["std", "dep:serde_json", "dep:etcetera", "dep:sanitize-filename"]
-compilation-cache = ["cache", "dep:ciborium"]
+cache = [
+    "std",
+    "dep:ciborium",
+    "dep:serde_json",
+    "dep:etcetera",
+    "dep:rusqlite",
+]
+compilation-cache = ["cache"]
 default = ["std"]
 std = [
     "rand/std",
@@ -59,7 +65,6 @@ serde = { workspace = true }
 # Persistence
 ciborium = { workspace = true, optional = true }
 etcetera = { workspace = true, optional = true }
-sanitize-filename = { workspace = true, optional = true }
 serde_json = { workspace = true, features = ["alloc"], optional = true }
 toml = { workspace = true, optional = true }
 
@@ -86,6 +91,7 @@ spin = { workspace = true, features = [
 ] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
+rusqlite = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, default-features = false, features = [
     "rt",
 ] }

@@ -1,39 +1,30 @@
-use std::{
-    boxed::Box,
-    cell::RefCell,
-    format,
-    fs::{self, File},
-    io::{Cursor, Write},
-    path::{Path, PathBuf},
-    string::{String, ToString},
-    vec::Vec,
-};
+use std::{boxed::Box, cell::RefCell, string::String, vec::Vec};
 
-use ciborium::{de::from_reader, ser::into_writer};
 use hashbrown::HashMap;
 use serde::Serialize;
 
-use super::store::{
-    Cache, CacheError, CacheKey, CacheOption, CacheValue, Entry, Origin, sanitize_path_segment,
-};
+use super::backend::KvBackend;
+use super::store::{CacheKey, CacheOption, CacheValue, decode, encode, resolve_seeds};
+use crate::bundle::SeedSource;
+use crate::sync::Arc;
 
-/// The in-memory cache used by the chunked kernel cache.
+/// Values already read from the backend.
+///
 /// Box ensures values aren't moved when inserting new elements, so we don't need to keep it
 /// locked for reads
 type InMemoryCache<K, V> = RefCell<HashMap<K, Box<V>>>;
 
-/// A chunked cache for compilation artifacts. Uses a human readable table of contents, with binary
-/// storage for the compiled kernel.
+/// A cache for large values, typically compilation artifacts.
+///
+/// Unlike [`KvStore`](super::KvStore), entries are read from the backend one
+/// key at a time and memoized, so opening a cache holding hundreds of compiled
+/// kernels costs nothing until they are actually looked up.
 #[derive(Debug)]
 pub struct CompilationCache<K: CacheKey, V: CacheValue> {
-    toc: Cache<K, String>,
     in_memory_cache: InMemoryCache<K, V>,
-    current_chunk: File,
-    current_chunk_path_normalized: String,
-    cache_root: PathBuf,
-    /// The cache root relative to any root directory (`name/version/segments`,
-    /// `/`-separated): the base for bundle chunk lookups.
-    rel_root: String,
+    backend: Box<dyn KvBackend>,
+    store: String,
+    seeds: Vec<Arc<dyn SeedSource>>,
 }
 
 /// Error related to caching.
@@ -46,81 +37,57 @@ pub enum CompilationCacheError<K: Serialize, V: Serialize> {
         value_previous: V,
         value_updated: V,
     },
-    /// The table of contents cache had an error
-    #[allow(missing_docs)]
-    TocError(CacheError<K, String>),
 }
 
 impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
-    /// Create a new cache and load the data from the provided path if it exists.
+    /// Create a new cache addressing `path` under the options' cache root.
     #[cfg_attr(feature="tracing", tracing::instrument(
         level = "trace",
         skip(path),
         fields(path = ?path.as_ref())))]
     pub fn new<P: AsRef<str>>(path: P, option: CacheOption) -> Self {
-        let (_, name, version, root, _) = option.clone().resolve();
-        let path = path.as_ref();
-        let toc_path = format!("{path}/toc");
-        // `.cbor` suffix (was `.bin` with bincode) invalidates old on-disk chunks.
-        let chunk_path = Path::new("chunk0.cbor"); // Split later
-
-        let rel_root = relative_cache_root(Path::new(path), &name, &version);
-        let cache_root =
-            std::path::absolute(root.join(&rel_root)).expect("Not empty, so can't fail");
-        let chunk_path = get_persistent_chunk_file_path(chunk_path, &cache_root);
-
-        let in_memory_cache = InMemoryCache::default();
-        let toc = Cache::open_file(toc_path, option);
-
-        if fs::exists(&chunk_path).unwrap_or(false) {
-            Self::read_chunk(&chunk_path, &in_memory_cache);
-        }
-
-        let current_chunk = open_chunk_writable(&chunk_path);
+        let mut option = option;
+        let seeds = resolve_seeds(option.take_seeds());
+        let root = option.resolve_root();
+        let store = option.resolve_store(path.as_ref());
+        let backend = super::open_backend(&root, &store);
 
         Self {
-            toc,
-            in_memory_cache,
-            current_chunk,
-            current_chunk_path_normalized: normalized_path(
-                chunk_path
-                    .strip_prefix(&cache_root)
-                    .expect("Should contain root"),
-            ),
-            cache_root,
-            rel_root: normalized_path(&rel_root),
+            in_memory_cache: InMemoryCache::default(),
+            backend,
+            store,
+            seeds,
         }
     }
 
-    /// Fetch an item from the cache.
+    /// The logical store this cache addresses.
+    pub fn store(&self) -> &str {
+        &self.store
+    }
+
+    /// Fetch an item from the cache, reading it from the backend or from an
+    /// installed bundle on the first lookup.
     pub fn get(&self, key: &K) -> Option<&V> {
         if let Some(value) = self.get_ref_unsafe(key) {
             return Some(value);
         }
-        let (chunk, origin) = self.toc.get_with_origin(key)?;
-        match origin {
-            Origin::Local => {
-                Self::read_chunk(&self.cache_root.join(chunk), &self.in_memory_cache);
-            }
-            Origin::Bundle(index) => {
-                let seed = self.toc.seed(index)?;
-                let rel = format!("{}/{chunk}", self.rel_root);
-                match seed.chunk_bytes(&rel) {
-                    Some(bytes) => {
-                        Self::read_chunk_bytes(bytes.into_owned(), &self.in_memory_cache, &rel);
-                    }
-                    None => {
-                        // A truncated bundle: recompile instead of panicking.
-                        log::warn!(
-                            "Bundle chunk '{rel}' referenced by the table of contents is \
-                             missing in {}; recompiling.",
-                            seed.describe()
-                        );
-                        return None;
-                    }
-                }
-            }
-        }
+
+        let key_bytes = encode(key);
+        // Local entries win over bundled ones: a value produced on this
+        // machine is always preferred to a shipped one.
+        let bytes = self.backend.get(&key_bytes).or_else(|| {
+            self.seeds
+                .iter()
+                .rev()
+                .find_map(|seed| seed.get(&self.store, &key_bytes))
+        })?;
+
+        let value = decode::<V>(&bytes)?;
+        self.in_memory_cache
+            .borrow_mut()
+            .entry(key.clone())
+            .or_insert_with(|| Box::new(value));
+
         self.get_ref_unsafe(key)
     }
 
@@ -139,132 +106,104 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
         }
     }
 
-    fn read_chunk(chunk: &PathBuf, cache: &InMemoryCache<K, V>) {
-        let data =
-            fs::read(chunk).expect("Can't open chunk in table of contents, cache is corrupted!");
-        Self::read_chunk_bytes(data, cache, &chunk.to_string_lossy());
-    }
-
-    fn read_chunk_bytes(data: Vec<u8>, cache: &InMemoryCache<K, V>, chunk: &str) {
-        let mut cursor = Cursor::new(data);
-        // Collect new entries first so we only need to lock once everything is loaded
-        let mut new_entries = Vec::new();
-        let mut idx = 0;
-        loop {
-            let pos = cursor.position() as usize;
-            let total_len = cursor.get_ref().len();
-            if pos >= total_len {
-                break;
-            }
-            match from_reader::<Entry<K, V>, _>(&mut cursor) {
-                Ok(entry) => {
-                    new_entries.push((entry.key, Box::new(entry.value)));
-                }
-                Err(err) => {
-                    let pos_after = cursor.position() as usize;
-                    if pos_after == pos {
-                        if pos < total_len {
-                            log::warn!(
-                                "Corrupted cache file {chunk:?}, stopping at entry {idx} : {err}",
-                            );
-                        }
-                        break;
-                    }
-                    log::warn!("Corrupted cache file {chunk:?}, ignoring entry {idx} : {err}",);
-                }
-            }
-            idx += 1;
-        }
-
-        // Never replace an existing entry: `get_ref_unsafe` hands out
-        // references whose validity depends on boxes never being dropped, so
-        // a key present in both a local chunk and a bundle chunk must keep
-        // its first-loaded value.
-        let mut cache = cache.borrow_mut();
-        for (key, value) in new_entries {
-            cache.entry(key).or_insert(value);
-        }
-    }
-
     /// Insert a new item to the cache.
     ///
-    /// Panic if an item with a different value exists in the cache.
+    /// Returns an error when a different value is already stored under `key`,
+    /// whether it was inserted by this process or concurrently by another one.
     pub fn insert(&mut self, key: K, value: V) -> Result<(), CompilationCacheError<K, V>> {
-        if let Some(existing) = self.get_ref_unsafe(&key) {
-            if existing != &value {
-                return Err(CompilationCacheError::DuplicatedKey {
-                    key,
+        if let Some(existing) = self.get(&key) {
+            return if existing != &value {
+                Err(CompilationCacheError::DuplicatedKey {
+                    key: key.clone(),
                     value_previous: existing.clone(),
                     value_updated: value,
-                });
+                })
             } else {
-                return Ok(());
-            }
-        }
-
-        // Insert
-        {
-            let entry = Entry {
-                key: key.clone(),
-                value,
+                Ok(())
             };
-            let mut bytes = Vec::new();
-            into_writer(&entry, &mut bytes).expect("Can serialize data");
-            self.current_chunk
-                .write_all(&bytes)
-                .expect("Failed to write to chunk");
-
-            let mut cache = self.in_memory_cache.borrow_mut();
-            cache.insert(entry.key, Box::new(entry.value));
         }
-        self.toc
-            .insert(key, self.current_chunk_path_normalized.clone())
-            .map_err(CompilationCacheError::TocError)?;
+
+        if let Some(existing) = self.backend.insert(&encode(&key), &encode(&value))
+            && let Some(existing) = decode::<V>(&existing)
+            && existing != value
+        {
+            // Another process won the race with a different value. It is the
+            // durable one, so memoize it rather than ours. `or_insert` and
+            // never `insert`: `get_ref_unsafe` hands out references whose
+            // validity depends on boxes never being dropped.
+            self.in_memory_cache
+                .borrow_mut()
+                .entry(key.clone())
+                .or_insert_with(|| Box::new(existing.clone()));
+
+            return Err(CompilationCacheError::DuplicatedKey {
+                key,
+                value_previous: existing,
+                value_updated: value,
+            });
+        }
+
+        self.in_memory_cache
+            .borrow_mut()
+            .entry(key)
+            .or_insert_with(|| Box::new(value));
 
         Ok(())
     }
 }
 
-/// The cache root relative to any root directory: `name/version/segments`.
-fn relative_cache_root(path_partial: &Path, name: &str, version: &str) -> PathBuf {
-    let mut path = PathBuf::from(sanitize_path_segment(name)).join(sanitize_path_segment(version));
+#[cfg(test)]
+mod tests {
+    use super::super::store::SeedMode;
+    use super::*;
+    use std::string::ToString;
 
-    for segment in path_partial.iter() {
-        // Skip the name directory since it resets the previous path segments.
-        if segment == "/" {
-            continue;
-        }
-        path = path.join(sanitize_path_segment(segment.to_str().unwrap()));
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn values_survive_reopen_and_load_lazily() {
+        let dir = tempfile::tempdir().unwrap();
+        let options = || {
+            CacheOption::default()
+                .root(dir.path())
+                .name("kernels")
+                .seeds(SeedMode::Disabled)
+        };
+
+        let mut cache = CompilationCache::<String, Vec<u8>>::new("ptx_sm90", options());
+        cache
+            .insert("kernel_a".to_string(), std::vec![1, 2, 3])
+            .unwrap();
+        cache
+            .insert("kernel_b".to_string(), std::vec![4, 5])
+            .unwrap();
+        drop(cache);
+
+        let cache = CompilationCache::<String, Vec<u8>>::new("ptx_sm90", options());
+        // Nothing is read until a key is asked for.
+        assert!(cache.in_memory_cache.borrow().is_empty());
+
+        assert_eq!(
+            cache.get(&"kernel_a".to_string()),
+            Some(&std::vec![1, 2, 3])
+        );
+        assert_eq!(cache.in_memory_cache.borrow().len(), 1);
+        assert_eq!(cache.get(&"kernel_b".to_string()), Some(&std::vec![4, 5]));
+        assert_eq!(cache.get(&"missing".to_string()), None);
     }
 
-    path
-}
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn reinserting_a_different_value_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let option = CacheOption::default()
+            .root(dir.path())
+            .name("kernels")
+            .seeds(SeedMode::Disabled);
 
-fn get_persistent_chunk_file_path<P: AsRef<Path>>(path_partial: P, chunks_root: &Path) -> PathBuf {
-    let path_partial: &Path = path_partial.as_ref();
+        let mut cache = CompilationCache::<String, Vec<u8>>::new("ptx_sm90", option);
+        cache.insert("kernel".to_string(), std::vec![1]).unwrap();
 
-    let mut path = chunks_root.to_path_buf();
-
-    for segment in path_partial.iter() {
-        // Skip the name directory since it resets the previous path segments.
-        if segment == "/" {
-            continue;
-        }
-        path = path.join(sanitize_path_segment(segment.to_str().unwrap()));
+        assert!(cache.insert("kernel".to_string(), std::vec![1]).is_ok());
+        assert!(cache.insert("kernel".to_string(), std::vec![2]).is_err());
     }
-
-    std::path::absolute(path).expect("Not empty, so can't fail")
-}
-
-fn normalized_path(path: &Path) -> String {
-    let path = path.to_string_lossy().to_string();
-    path.replace("\\", "/")
-}
-
-fn open_chunk_writable(path: &Path) -> File {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("Failed to create parent");
-    }
-    let file = File::options().append(true).create(true).open(path);
-    file.expect("Failed to open write chunk")
 }

@@ -7,28 +7,30 @@
 //! # Model
 //!
 //! One database `"cubecl"` with a single object store `"kv"`. Each entry is
-//! stored under the key `"{prefix}{dedup_key}"` where `prefix` mirrors the
-//! file system layout (`name/version/segments/`). The record value is the
-//! exact serialized entry line (separator included), so hydration feeds the
-//! same parser as the file backend.
+//! stored under the record key `"{store}/{hex key}"` and holds the raw value
+//! bytes. The store's entries are mirrored in memory, hydrated in the
+//! background at open, and served from there.
 //!
 //! # Concurrency
 //!
 //! All JavaScript handles are confined to `spawn_local` tasks; the backend
-//! itself only holds `Send` data. Writes are fire-and-forget: entry record
-//! keys are unique and re-inserting an identical value is idempotent, so
-//! cross-put ordering doesn't matter. There is no cross-tab lock: identical
-//! keys are last-write-wins, and divergent values surface later as
-//! `KeyOutOfSync`, which every caller already tolerates.
+//! itself only holds `Send` data. Writes are fire-and-forget: record keys are
+//! unique and re-inserting an identical value is idempotent, so cross-put
+//! ordering doesn't matter. There is no cross-tab lock, so a key written
+//! concurrently by two tabs with different values is last-write-wins rather
+//! than insert-only. Every caller already tolerates a stale cache entry.
 //!
 //! # Durability
 //!
 //! Entries inserted immediately before the page closes may be lost. This is
 //! acceptable for a cache.
 
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+
+use hashbrown::HashMap;
 
 use crate::sync::Arc;
 
@@ -43,33 +45,38 @@ use super::backend::KvBackend;
 const DB_NAME: &str = "cubecl";
 const STORE_NAME: &str = "kv";
 
-/// Content delivered asynchronously by the hydration task.
+/// The mirrored content of one store.
 #[derive(Default, Debug)]
-struct Inbox {
-    hydrated: Vec<u8>,
-    done: bool,
+struct State {
+    entries: HashMap<Vec<u8>, Vec<u8>>,
+    hydrated: bool,
 }
 
 /// Browser storage backend, persisting entries to IndexedDB.
 #[derive(Debug)]
 pub struct BrowserBackend {
+    /// The record key prefix of this store, `"{store}/"`.
     prefix: String,
-    inbox: Arc<spin::Mutex<Inbox>>,
+    state: Arc<spin::Mutex<State>>,
+}
+
+/// The backend serving `store` in browser storage.
+pub(crate) fn open_backend(store: &str) -> Box<dyn KvBackend> {
+    Box::new(BrowserBackend::new(format!("{store}/")))
 }
 
 impl BrowserBackend {
     /// Creates the backend and starts hydrating existing entries under
     /// `prefix` in the background.
     pub fn new(prefix: String) -> Self {
-        let inbox = Arc::new(spin::Mutex::new(Inbox::default()));
+        let state = Arc::new(spin::Mutex::new(State::default()));
 
         {
-            let inbox = inbox.clone();
+            let state = state.clone();
             let prefix = prefix.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let result = hydrate(&prefix, &inbox).await;
-                let mut guard = inbox.lock();
-                guard.done = true;
+                let result = hydrate(&prefix, &state).await;
+                state.lock().hydrated = true;
                 if let Err(err) = result {
                     log::warn!(
                         "cubecl cache: browser storage hydration failed for '{prefix}': {err:?}; \
@@ -79,45 +86,74 @@ impl BrowserBackend {
             });
         }
 
-        Self { prefix, inbox }
+        Self { prefix, state }
     }
 }
 
 impl KvBackend for BrowserBackend {
-    fn lock(&mut self) -> Option<Vec<u8>> {
-        let mut guard = self.inbox.lock();
-        if guard.hydrated.is_empty() {
-            None
-        } else {
-            Some(core::mem::take(&mut guard.hydrated))
-        }
+    fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
+        self.state.lock().entries.get(key).cloned()
     }
 
-    fn unlock(&mut self) {}
+    fn insert(&self, key: &[u8], value: &[u8]) -> Option<Vec<u8>> {
+        {
+            let mut state = self.state.lock();
+            if let Some(existing) = state.entries.get(key) {
+                return Some(existing.clone());
+            }
+            state.entries.insert(key.to_vec(), value.to_vec());
+        }
 
-    fn append(&mut self, dedup_key: &str, bytes: &[u8]) {
-        let record_key = format!("{}{}", self.prefix, dedup_key);
-        let bytes = bytes.to_vec();
+        let record_key = format!("{}{}", self.prefix, to_hex(key));
+        let value = value.to_vec();
 
         wasm_bindgen_futures::spawn_local(async move {
-            if let Err(err) = put(&record_key, &bytes).await {
+            if let Err(err) = put(&record_key, &value).await {
                 log::warn!("cubecl cache: browser storage put('{record_key}') failed: {err:?}");
             }
         });
+
+        None
+    }
+
+    fn scan(&self, visit: &mut dyn FnMut(Vec<u8>, Vec<u8>)) {
+        for (key, value) in self.state.lock().entries.iter() {
+            visit(key.clone(), value.clone());
+        }
     }
 
     fn hydrating(&self) -> bool {
-        !self.inbox.lock().done
-    }
-
-    fn has_pending(&self) -> bool {
-        let inbox = self.inbox.lock();
-        !inbox.done || !inbox.hydrated.is_empty()
+        !self.state.lock().hydrated
     }
 
     fn describe(&self) -> String {
         format!("browser storage (indexeddb: {}/{}*)", DB_NAME, self.prefix)
     }
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        hex.push(char::from_digit((byte >> 4) as u32, 16).expect("Nibble is a hex digit"));
+        hex.push(char::from_digit((byte & 0xf) as u32, 16).expect("Nibble is a hex digit"));
+    }
+    hex
+}
+
+fn from_hex(hex: &str) -> Option<Vec<u8>> {
+    if !hex.len().is_multiple_of(2) {
+        return None;
+    }
+
+    let mut bytes = Vec::with_capacity(hex.len() / 2);
+    let mut chars = hex.chars();
+    while let (Some(high), Some(low)) = (chars.next(), chars.next()) {
+        let high = high.to_digit(16)?;
+        let low = low.to_digit(16)?;
+        bytes.push((high * 16 + low) as u8);
+    }
+
+    Some(bytes)
 }
 
 /// Fetches the `indexedDB` factory from the global scope, working in both
@@ -195,9 +231,8 @@ async fn open_db() -> Result<IdbDatabase, JsValue> {
     result.dyn_into::<IdbDatabase>().map_err(JsValue::from)
 }
 
-/// Loads every record under `prefix` and pushes the concatenated bytes into
-/// the inbox.
-async fn hydrate(prefix: &str, inbox: &spin::Mutex<Inbox>) -> Result<(), JsValue> {
+/// Loads every record under `prefix` into the mirrored state.
+async fn hydrate(prefix: &str, state: &spin::Mutex<State>) -> Result<(), JsValue> {
     let db = open_db().await?;
 
     let transaction = db.transaction_with_str(STORE_NAME)?;
@@ -207,22 +242,42 @@ async fn hydrate(prefix: &str, inbox: &spin::Mutex<Inbox>) -> Result<(), JsValue
     let upper = format!("{prefix}\u{10FFFF}");
     let range = IdbKeyRange::bound(&JsValue::from_str(prefix), &JsValue::from_str(&upper))?;
 
-    let request = store.get_all_with_key(&range)?;
-    let result = request_result(&request).await?;
+    // Both requests report entries in record key order, so the two arrays line
+    // up index by index.
+    let keys: js_sys::Array = request_result(&store.get_all_keys_with_key(&range)?)
+        .await?
+        .dyn_into()?;
+    let values: js_sys::Array = request_result(&store.get_all_with_key(&range)?)
+        .await?
+        .dyn_into()?;
 
-    let values: js_sys::Array = result.dyn_into()?;
-    let mut buffer = Vec::new();
-    for value in values.iter() {
+    let mut entries = HashMap::new();
+    for (key, value) in keys.iter().zip(values.iter()) {
+        let Some(record_key) = key.as_string() else {
+            log::warn!("cubecl cache: unexpected browser storage record key: {key:?}");
+            continue;
+        };
+        let Some(key) = record_key.strip_prefix(prefix).and_then(from_hex) else {
+            log::warn!("cubecl cache: unreadable browser storage record key '{record_key}'");
+            continue;
+        };
+
         match value.dyn_into::<Uint8Array>() {
-            Ok(bytes) => buffer.extend(bytes.to_vec()),
+            Ok(bytes) => {
+                entries.insert(key, bytes.to_vec());
+            }
             Err(value) => {
                 log::warn!("cubecl cache: unexpected browser storage record type: {value:?}");
             }
         }
     }
 
-    if !buffer.is_empty() {
-        inbox.lock().hydrated.extend(buffer);
+    if !entries.is_empty() {
+        // Entries inserted while hydration was in flight are the fresher ones.
+        let mut state = state.lock();
+        for (key, value) in entries {
+            state.entries.entry(key).or_insert(value);
+        }
     }
 
     Ok(())

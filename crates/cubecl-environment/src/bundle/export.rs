@@ -1,27 +1,10 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::string::{String, ToString};
 use std::vec::Vec;
 
-use super::{
-    BundleError, BundleManifest, EnvironmentInfo, MANIFEST_FILE_NAME, MANIFEST_SCHEMA,
-    STORE_DIR_NAME,
-};
+use crate::persistence::{DB_FILE_NAME, Database};
 
-/// The cache store names exported by default: every name `CubeCL` itself
-/// writes under a cache root.
-///
-/// An explicit list is required because the default cache root is the project
-/// `target` directory, which also holds build artifacts that must never end
-/// up in a bundle.
-pub const DEFAULT_STORE_NAMES: &[&str] = &[
-    "autotune",
-    "throughput",
-    "cubecl",
-    "cuda",
-    "hip",
-    "metal",
-    "vulkan",
-];
+use super::{BundleError, BundleManifest, EnvironmentInfo, MANIFEST_SCHEMA};
 
 /// Options for [`export`].
 #[derive(Debug, Clone, Default)]
@@ -31,19 +14,18 @@ pub struct ExportOptions {
     /// The environments the bundle was captured on. `os` and `arch` are
     /// auto-filled from the build target when left empty.
     pub environments: Vec<EnvironmentInfo>,
-    /// The cache store names (top-level directories under each cache root) to
-    /// export. Empty means [`DEFAULT_STORE_NAMES`].
-    pub store_names: Vec<String>,
+    /// Only export stores under one of these names, e.g. `autotune` or
+    /// `cuda`. A name matches the store itself and everything below it.
+    /// Empty means every store.
+    pub stores: Vec<String>,
 }
 
-/// Snapshots one or more cache roots into a bundle directory.
+/// Copies entries from one or more cache roots into a bundle file.
 ///
-/// Copies the cache store trees (see [`ExportOptions::store_names`]) of every
-/// root into `<out>/store/` (merging them; store names like `autotune`,
-/// `cuda` or `vulkan` never collide) and writes the `bundle.toml` manifest.
-/// Lock sidecar files are skipped. Because cache files are append-only, a
-/// snapshot taken while another process writes is at worst truncated on its
-/// last line, which the parsers already tolerate.
+/// Both the cache and the bundle are `SQLite` databases with the same `entries`
+/// table, so exporting is an `INSERT ... SELECT` across an attached source:
+/// merging several roots dedupes on the primary key instead of concatenating
+/// bytes, and restricting the export to a few stores is a `WHERE` clause.
 ///
 /// The typical workflow: run the application once so autotune and the
 /// compilation caches are warm, then export the cache root.
@@ -53,42 +35,28 @@ pub fn export<R: AsRef<Path>, O: AsRef<Path>>(
     options: &ExportOptions,
 ) -> Result<BundleManifest, BundleError> {
     let out = out.as_ref();
-    let store = out.join(STORE_DIR_NAME);
-    std::fs::create_dir_all(&store)?;
+    prepare_output(out)?;
 
-    let names: Vec<&str> = if options.store_names.is_empty() {
-        DEFAULT_STORE_NAMES.to_vec()
-    } else {
-        options.store_names.iter().map(String::as_str).collect()
-    };
+    let database = Database::open(out, false)?;
+    let mut exported = 0usize;
 
     for root in cache_roots {
-        let root = root.as_ref();
-        if !root.exists() {
-            log::warn!("Bundle export: cache root {root:?} does not exist, skipping.");
+        let Some(source) = source_database(root.as_ref()) else {
+            log::warn!(
+                "Bundle export: no cache database under {:?}, skipping.",
+                root.as_ref()
+            );
             continue;
-        }
-        for name in &names {
-            let from = root.join(name);
-            if from.exists() {
-                let to = store.join(name);
-                std::fs::create_dir_all(&to)?;
-                copy_tree(&from, &to)?;
-            }
-        }
+        };
+
+        exported += copy_entries(&database, &source, &options.stores)?;
     }
 
-    let mut environments = options.environments.clone();
-    if environments.is_empty() {
-        environments.push(EnvironmentInfo::default());
-    }
-    for environment in &mut environments {
-        if environment.os.is_empty() {
-            environment.os = std::env::consts::OS.to_string();
-        }
-        if environment.arch.is_empty() {
-            environment.arch = std::env::consts::ARCH.to_string();
-        }
+    if exported == 0 {
+        log::warn!(
+            "Bundle export: no entries matched. Run the application once so the caches \
+             are warm, and check the store names."
+        );
     }
 
     let manifest = BundleManifest {
@@ -99,45 +67,132 @@ pub fn export<R: AsRef<Path>, O: AsRef<Path>>(
             .duration_since(std::time::UNIX_EPOCH)
             .ok()
             .map(|elapsed| elapsed.as_secs()),
-        environments,
+        environments: resolve_environments(&options.environments),
     };
-    manifest.write(&out.join(MANIFEST_FILE_NAME))?;
+    manifest.write(&database)?;
 
     Ok(manifest)
 }
 
-fn copy_tree(from: &Path, to: &Path) -> Result<(), BundleError> {
-    for entry in std::fs::read_dir(from)? {
-        let entry = entry?;
-        let path = entry.path();
-        let target = to.join(entry.file_name());
+/// The cache database of `root`, which may be a cache root directory or the
+/// database file itself.
+fn source_database(root: &Path) -> Option<PathBuf> {
+    let path = if root.is_dir() {
+        root.join(DB_FILE_NAME)
+    } else {
+        root.to_path_buf()
+    };
 
-        if entry.file_type()?.is_dir() {
-            std::fs::create_dir_all(&target)?;
-            copy_tree(&path, &target)?;
-        } else {
-            // Lock sidecars are transient state, never bundle them.
-            if path
-                .extension()
-                .is_some_and(|extension| extension == "lock")
-            {
-                continue;
-            }
-            if target.exists() {
-                // Colliding files across multiple cache roots are merged by
-                // appending: both cache formats (JSON lines and concatenated
-                // CBOR entries) are valid under concatenation, and
-                // overwriting would silently drop the first root's entries.
-                use std::io::Write;
+    path.is_file().then_some(path)
+}
 
-                let content = std::fs::read(&path)?;
-                let mut file = std::fs::OpenOptions::new().append(true).open(&target)?;
-                file.write_all(&content)?;
-            } else {
-                std::fs::copy(&path, &target)?;
-            }
+/// Attaches `source` and copies the requested stores into `database`.
+fn copy_entries(
+    database: &Database,
+    source: &Path,
+    stores: &[String],
+) -> Result<usize, BundleError> {
+    let source = source.to_string_lossy().to_string();
+
+    let copied = database.with_connection(|conn| {
+        conn.execute("ATTACH DATABASE ?1 AS source", rusqlite::params![source])?;
+
+        let result = copy_attached(conn, stores);
+
+        // Detach even when the copy failed, so the next root can attach.
+        if let Err(err) = conn.execute("DETACH DATABASE source", []) {
+            log::warn!("Bundle export: detaching {source:?} failed: {err}");
+        }
+
+        result
+    })?;
+
+    Ok(copied)
+}
+
+fn copy_attached(conn: &rusqlite::Connection, stores: &[String]) -> Result<usize, rusqlite::Error> {
+    // `INSERT OR IGNORE` is what makes merging several roots safe: the
+    // (store, key) primary key collapses duplicates instead of appending them
+    // twice, and an entry already exported from an earlier root wins.
+    const ALL: &str = "INSERT OR IGNORE INTO main.entries (store, key, value) \
+                       SELECT store, key, value FROM source.entries";
+    // A plain prefix match on whole segments, avoiding LIKE's wildcards.
+    const FILTERED: &str = "INSERT OR IGNORE INTO main.entries (store, key, value) \
+                            SELECT store, key, value FROM source.entries \
+                            WHERE store = ?1 OR substr(store, 1, length(?1) + 1) = ?1 || '/'";
+
+    if stores.is_empty() {
+        return conn.execute(ALL, []);
+    }
+
+    let mut copied = 0;
+    for store in stores {
+        copied += conn.execute(FILTERED, rusqlite::params![store])?;
+    }
+
+    Ok(copied)
+}
+
+/// Makes sure `out` is a bundle file we may write.
+///
+/// An existing bundle is replaced, so re-exporting never merges into a stale
+/// snapshot. Any other existing file is left alone and reported.
+fn prepare_output(out: &Path) -> Result<(), BundleError> {
+    if let Some(parent) = out.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    if !out.exists() {
+        return Ok(());
+    }
+
+    match Database::open(out, true)
+        .map_err(BundleError::from)
+        .and_then(|database| BundleManifest::read(&database))
+    {
+        Ok(manifest) => {
+            log::info!(
+                "Replacing the existing bundle '{}' at {out:?}",
+                manifest.name
+            );
+        }
+        Err(_) => {
+            return Err(BundleError::Io(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                std::format!("{out:?} exists and is not a cubecl bundle; remove it first"),
+            )));
+        }
+    }
+
+    std::fs::remove_file(out)?;
+    // WAL sidecars of the replaced bundle would otherwise be applied to the
+    // new file.
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = PathBuf::from(std::format!("{}{suffix}", out.display()));
+        if sidecar.exists() {
+            std::fs::remove_file(sidecar)?;
         }
     }
 
     Ok(())
+}
+
+fn resolve_environments(configured: &[EnvironmentInfo]) -> Vec<EnvironmentInfo> {
+    let mut environments = configured.to_vec();
+    if environments.is_empty() {
+        environments.push(EnvironmentInfo::default());
+    }
+
+    for environment in &mut environments {
+        if environment.os.is_empty() {
+            environment.os = std::env::consts::OS.to_string();
+        }
+        if environment.arch.is_empty() {
+            environment.arch = std::env::consts::ARCH.to_string();
+        }
+    }
+
+    environments
 }

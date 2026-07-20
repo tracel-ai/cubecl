@@ -15,7 +15,7 @@ pub fn install(source: Arc<dyn SeedSource>) {
     SEEDS.lock().push(source);
 }
 
-/// Opens and installs every bundle directory in `paths`.
+/// Opens and installs every bundle file in `paths`.
 ///
 /// Any bundle that fails to load is skipped with a warning; this never fails.
 #[cfg(feature = "cache")]

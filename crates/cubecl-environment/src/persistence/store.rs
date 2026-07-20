@@ -1,5 +1,3 @@
-#[cfg(feature = "cache")]
-use core::time::Duration;
 use core::{fmt::Display, hash::Hash};
 
 use alloc::boxed::Box;
@@ -7,10 +5,10 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use hashbrown::HashMap;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Serialize, de::DeserializeOwned};
 
 #[cfg(feature = "cache")]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use super::backend::KvBackend;
 use crate::bundle::SeedSource;
@@ -32,44 +30,43 @@ pub enum SeedMode {
     #[default]
     Auto,
     /// Consult exactly these seed sources.
-    Explicit(alloc::vec::Vec<Arc<dyn SeedSource>>),
+    Explicit(Vec<Arc<dyn SeedSource>>),
     /// Ignore bundles entirely.
     Disabled,
 }
 
 #[derive(Debug)]
 /// An in-memory key-value store that is automatically synced to a persistence
-/// backend: the file system on native targets, browser storage on wasm
+/// backend: an embedded database on native targets, browser storage on wasm
 /// (feature `browser-cache`), or nothing at all.
 ///
-/// The goal is simplicity, ease of use, and ease of distribution. On the file
-/// system, all data is stored in a single file, which is automatically loaded
-/// into memory when using the store.
+/// All entries of a store are loaded into memory when it is opened, and reads
+/// are served from there. Use [`crate::persistence::compilation::CompilationCache`]
+/// instead when the values are large enough that loading all of them eagerly
+/// is wasteful.
 ///
 /// # Warning
 ///
 /// ## No Edits
 ///
-/// The biggest constraint for the store is that values should never change for a given key.
-/// There is no update possible; if a value is reinserted a second time with a different value but
-/// the same key, an error will arise.
+/// The biggest constraint for the store is that values should never change for
+/// a given key. There is no update possible; if a value is reinserted a second
+/// time with a different value but the same key, an error will arise.
 ///
 /// The one exception is bundle-seeded entries: a locally computed value
 /// silently *shadows* a stale bundle entry instead of erroring, because a
 /// shipped bundle must never be able to break the application that installs
 /// it. See [`KvStore::insert`].
-///
-/// This is important to keep the file format simple: there is no metadata, no headers, just a plain
-/// separator between each entry. Therefore, it isn’t possible to edit previously saved content.
-///
-/// ## No Big Files
-///
-/// The store isn’t optimized for space; use it for small caches.
 pub struct KvStore<K, V> {
     in_memory_cache: HashMap<K, (V, Origin)>,
     backend: Box<dyn KvBackend>,
-    separator: Vec<u8>,
+    /// The logical store this instance addresses, `/`-separated:
+    /// `<name>/<version>/<segments>`.
+    store: String,
     seeds: Vec<Arc<dyn SeedSource>>,
+    /// `false` while an asynchronous backend may still deliver entries that
+    /// have not been ingested into [`Self::in_memory_cache`].
+    hydration_ingested: bool,
 }
 
 /// Backward-compatible name for [`KvStore`].
@@ -78,14 +75,11 @@ pub type Cache<K, V> = KvStore<K, V>;
 /// Define the options to create a [`KvStore`].
 #[derive(Default, Debug, Clone)]
 pub struct KvStoreOptions {
-    separator: Option<Vec<u8>>,
     version: Option<String>,
     name: Option<String>,
     seeds: SeedMode,
     #[cfg(feature = "cache")]
     root: Option<PathBuf>,
-    #[cfg(feature = "cache")]
-    lock_max_duration: Option<Duration>,
 }
 
 /// Backward-compatible name for [`KvStoreOptions`].
@@ -94,17 +88,11 @@ pub type CacheOption = KvStoreOptions;
 /// Error related to the store.
 #[derive(Debug)]
 pub enum KvStoreError<K: Serialize, V: Serialize> {
-    /// Can't insert an entry with the same key, but different value.
+    /// Can't insert an entry with the same key, but different value. The
+    /// conflicting entry may have been inserted by this process or, on the
+    /// file system backend, concurrently by another one.
     #[allow(missing_docs)]
     DuplicatedKey {
-        key: K,
-        value_previous: V,
-        value_updated: V,
-    },
-    /// Tried to insert an entry with the same key, but a new entry on disk was just synched with
-    /// the same key.
-    #[allow(missing_docs)]
-    KeyOutOfSync {
         key: K,
         value_previous: V,
         value_updated: V,
@@ -115,31 +103,19 @@ pub enum KvStoreError<K: Serialize, V: Serialize> {
 pub type CacheError<K, V> = KvStoreError<K, V>;
 
 impl KvStoreOptions {
-    /// The separator used between each entry in the store.
-    ///
-    /// It should not be used in both the keys and the values.
-    pub fn separator<S: Into<Vec<u8>>>(mut self, separator: S) -> Self {
-        self.separator = Some(separator.into());
-        self
-    }
-
     /// The version used for the store.
     pub fn version<V: Into<String>>(mut self, version: V) -> Self {
         self.version = Some(version.into());
         self
     }
 
-    /// The name for the store.
-    ///
-    /// It will appear in the directory "$HOME/.cache/{name}/"
+    /// The name for the store, the first segment of its logical path.
     pub fn name<R: Into<String>>(mut self, name: R) -> Self {
         self.name = Some(name.into());
         self
     }
 
-    /// The root path for the store.
-    ///
-    /// It will appear in the directory "{path}/{name}/"
+    /// The cache root holding the database file.
     #[cfg(feature = "cache")]
     pub fn root<R: Into<PathBuf>>(mut self, path: R) -> Self {
         self.root = Some(path.into());
@@ -152,31 +128,31 @@ impl KvStoreOptions {
         self
     }
 
-    fn resolve_base(&mut self) -> (Vec<u8>, String, String) {
-        let separator = self.separator.take().unwrap_or_else(|| b"\n".to_vec());
+    /// Takes the configured seed mode, leaving the default behind.
+    pub(crate) fn take_seeds(&mut self) -> SeedMode {
+        core::mem::take(&mut self.seeds)
+    }
+
+    /// The cache root, defaulting to the user cache directory.
+    #[cfg(feature = "cache")]
+    pub(crate) fn resolve_root(&mut self) -> PathBuf {
+        self.root.take().unwrap_or_else(|| {
+            etcetera::home_dir()
+                .expect("An home directory should exist")
+                .join(".cache")
+        })
+    }
+
+    /// The logical store name for `path`: `<name>/<version>/<path>`.
+    pub(crate) fn resolve_store(&mut self, path: &str) -> String {
         let version = self
             .version
             .take()
             .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
         let name = self.name.take().unwrap_or_else(|| "cubecl".to_string());
 
-        (separator, name, version)
-    }
-
-    #[cfg(feature = "cache")]
-    pub(crate) fn resolve(mut self) -> (Vec<u8>, String, String, PathBuf, Duration) {
-        let (separator, name, version) = self.resolve_base();
-        let duration = self
-            .lock_max_duration
-            .unwrap_or_else(|| Duration::from_secs(30));
-        let root = match self.root {
-            Some(root) => root,
-            None => etcetera::home_dir()
-                .expect("An home directory should exist")
-                .join(".cache"),
-        };
-
-        (separator, name, version, root, duration)
+        let path = path.trim_matches('/');
+        alloc::format!("{name}/{version}/{path}")
     }
 }
 
@@ -197,125 +173,103 @@ impl<K: CacheKey, V: CacheValue> KvStore<K, V> {
     ///
     /// On asynchronous backends (browser storage), the store returns
     /// immediately with hydration in flight: existing entries become visible
-    /// after a later [`sync`](KvStore::sync), [`for_each`](KvStore::for_each)
-    /// or [`insert`](KvStore::insert) call.
+    /// after a later [`for_each`](KvStore::for_each) call.
     #[cfg_attr(feature="tracing", tracing::instrument(
         level = "trace",
         skip(path),
         fields(path = ?path.as_ref())))]
     pub fn open<P: AsRef<str>>(path: P, option: KvStoreOptions) -> Self {
+        let mut option = option;
+        let seed_mode = option.take_seeds();
+
         cfg_if::cfg_if! {
             if #[cfg(all(feature = "cache", not(target_family = "wasm")))] {
-                Self::open_file(path, option)
+                let root = option.resolve_root();
+                let store = option.resolve_store(path.as_ref());
+                let backend = super::open_backend(&root, &store);
             } else if #[cfg(browser_cache)] {
-                Self::open_browser(path, option)
+                let store = option.resolve_store(path.as_ref());
+                let backend = super::browser::open_backend(&store);
             } else {
-                let _ = path;
-                let mut option = option;
-                let (separator, _, _) = option.resolve_base();
-                Self::with_backend(Box::new(super::backend::MemoryBackend), separator)
+                let store = option.resolve_store(path.as_ref());
+                let backend: Box<dyn KvBackend> = Box::new(super::backend::MemoryBackend);
             }
         }
-    }
 
-    /// Create a new store persisted with the file system backend.
-    #[cfg(feature = "cache")]
-    pub(crate) fn open_file<P: AsRef<str>>(path: P, mut option: KvStoreOptions) -> Self {
-        let seed_mode = core::mem::take(&mut option.seeds);
-        let (separator, name, version, root, lock_max_duration) = option.resolve();
-        let rel = relative_store_path(path.as_ref(), &name, &version);
-        let path = root.join(&rel);
-
-        let backend = super::file::CacheFile::new(&path, lock_max_duration);
-        let mut this = Self::with_backend(Box::new(backend), separator);
+        let mut this = Self::with_backend(backend, store);
         this.seeds = resolve_seeds(seed_mode);
-        this.hydrate_seeds(&normalized_rel(&rel));
+        this.hydrate_seeds();
         this.sync();
 
         this
     }
 
-    /// Create a new store persisted with the browser storage backend.
-    #[cfg(browser_cache)]
-    fn open_browser<P: AsRef<str>>(path: P, mut option: KvStoreOptions) -> Self {
-        let seed_mode = core::mem::take(&mut option.seeds);
-        let (separator, name, version) = option.resolve_base();
-        let prefix = browser_prefix(path.as_ref(), &name, &version);
-        let rel = browser_rel_path(path.as_ref(), &name, &version);
-
-        let backend = super::browser::BrowserBackend::new(prefix);
-        let mut this = Self::with_backend(Box::new(backend), separator);
-        this.seeds = resolve_seeds(seed_mode);
-        this.hydrate_seeds(&rel);
-
-        this
-    }
-
-    /// Create a new store on an explicit backend.
+    /// Create a new store on an explicit backend, addressing `store`.
     ///
-    /// No initial synchronization is performed; call
-    /// [`sync`](KvStore::sync) to ingest existing content.
-    pub fn with_backend(backend: Box<dyn KvBackend>, separator: Vec<u8>) -> Self {
+    /// No initial synchronization is performed; call [`sync`](KvStore::sync)
+    /// to ingest existing content.
+    pub fn with_backend<S: Into<String>>(backend: Box<dyn KvBackend>, store: S) -> Self {
         Self {
             in_memory_cache: HashMap::new(),
             backend,
-            separator,
+            store: store.into(),
             seeds: Vec::new(),
+            hydration_ingested: false,
         }
     }
 
-    /// Loads bundle-seeded entries for this store's relative location.
+    /// The logical store this instance addresses.
+    pub fn store(&self) -> &str {
+        &self.store
+    }
+
+    /// Loads bundle-seeded entries for this store.
     ///
     /// Runs before the writable backend sync so local entries win on
     /// collision. Between bundles, later installs win.
-    fn hydrate_seeds(&mut self, rel: &str) {
+    fn hydrate_seeds(&mut self) {
         let seeds = core::mem::take(&mut self.seeds);
+
         for (index, seed) in seeds.iter().enumerate() {
-            if let Some(bytes) = seed.kv_bytes(rel) {
-                log::debug!("Seeding store {rel} from {}", seed.describe());
-                self.seed_content(&bytes, Origin::Bundle(index as u16));
+            let mut count = 0;
+            let entries = &mut self.in_memory_cache;
+
+            seed.scan(&self.store, &mut |key, value| {
+                if let Some(entry) = decode_entry::<K, V>(&key, &value) {
+                    entries.insert(entry.0, (entry.1, Origin::Bundle(index as u16)));
+                    count += 1;
+                }
+            });
+
+            if count > 0 {
+                log::debug!(
+                    "Seeded {count} entries into {} from {}",
+                    self.store,
+                    seed.describe()
+                );
             }
         }
+
         self.seeds = seeds;
     }
 
-    /// Ingest entries from a bundle seed layer.
-    fn seed_content(&mut self, bytes: &[u8], origin: Origin) {
-        let mut start = 0;
-
-        while let Some(pos) = bytes[start..]
-            .windows(self.separator.len())
-            .position(|w| w == self.separator)
-        {
-            match serde_json::from_slice::<Entry<K, V>>(&bytes[start..start + pos]) {
-                Ok(entry) => {
-                    self.in_memory_cache
-                        .insert(entry.key, (entry.value, origin));
-                }
-                Err(err) => {
-                    log::warn!(
-                        "Corrupted bundle entry ({}..{}) : {err}",
-                        start,
-                        start + pos,
-                    );
-                }
-            };
-            start += pos + self.separator.len();
-        }
-    }
-
-    /// The seed source at the given index, as recorded in
-    /// [`Origin::Bundle`] entries.
-    pub fn seed(&self, index: u16) -> Option<&Arc<dyn SeedSource>> {
-        self.seeds.get(index as usize)
-    }
-
-    /// Ingest entries newly delivered by the backend into the in-memory map.
+    /// Ingest the backend's entries into the in-memory map.
+    ///
+    /// Entries loaded here win over bundle-seeded ones: a value computed on
+    /// this machine is always preferred to a shipped one.
     pub fn sync(&mut self) {
-        if let Some(buffer) = self.backend.lock() {
-            self.sync_content(&buffer, None).ok();
-        }
-        self.backend.unlock();
+        // Sampled before the scan: hydration completing halfway through would
+        // otherwise mark a partial snapshot as fully ingested.
+        let hydrating = self.backend.hydrating();
+        let entries = &mut self.in_memory_cache;
+
+        self.backend.scan(&mut |key, value| {
+            if let Some(entry) = decode_entry::<K, V>(&key, &value) {
+                entries.insert(entry.0, (entry.1, Origin::Local));
+            }
+        });
+
+        self.hydration_ingested = !hydrating;
     }
 
     /// Whether the backend is still loading its initial content
@@ -325,10 +279,10 @@ impl<K: CacheKey, V: CacheValue> KvStore<K, V> {
     }
 
     /// Whether asynchronously delivered content may still be waiting to be
-    /// ingested. `false` for synchronous backends (file system, memory),
-    /// whose content is fully ingested at open.
+    /// ingested. `false` for synchronous backends (database, memory), whose
+    /// content is fully ingested at open.
     pub fn pending_hydration(&self) -> bool {
-        self.backend.has_pending()
+        !self.hydration_ingested
     }
 
     /// Iterate over all values of the store.
@@ -337,15 +291,13 @@ impl<K: CacheKey, V: CacheValue> KvStore<K, V> {
         tracing::instrument(level = "trace", skip(self, func))
     )]
     pub fn for_each<F: FnMut(&K, &V)>(&mut self, mut func: F) {
-        if let Some(buffer) = self.backend.lock() {
-            self.sync_content(&buffer, None).ok();
+        if self.pending_hydration() {
+            self.sync();
         }
 
         for (key, (value, _)) in self.in_memory_cache.iter() {
             func(key, value);
         }
-
-        self.backend.unlock();
     }
 
     /// Fetch an item from the store.
@@ -379,27 +331,19 @@ impl<K: CacheKey, V: CacheValue> KvStore<K, V> {
     ///
     /// Insert-only semantics depend on where the existing entry came from:
     ///
-    /// - Key absent: the entry is appended to the writable backend.
+    /// - Key absent: the entry is written to the backend.
     /// - Present with the same value: `Ok`, nothing written (a bundle-served
     ///   entry keeps being served by the bundle).
-    /// - Present with a different value, [`Origin::Local`]: an error —
-    ///   [`KvStoreError::DuplicatedKey`], or
-    ///   [`KvStoreError::KeyOutOfSync`] when the conflicting entry was just
-    ///   synced from the backend.
+    /// - Present with a different value, [`Origin::Local`]: an error,
+    ///   [`KvStoreError::DuplicatedKey`]. The stored value is left untouched,
+    ///   including when another process wrote it concurrently.
     /// - Present with a different value, [`Origin::Bundle`]: the locally
     ///   computed value silently shadows the stale bundle entry and is
-    ///   appended locally. Bundles are never trusted over local computation.
+    ///   written locally. Bundles are never trusted over local computation.
     pub fn insert(&mut self, key: K, value: V) -> Result<(), KvStoreError<K, V>> {
-        if let Some(buffer) = self.backend.lock()
-            && let Err(err) = self.sync_content(&buffer, Some((&key, &value)))
-        {
-            self.backend.unlock();
-            return Err(err);
-        }
-
         match self.in_memory_cache.get(&key) {
             Some((existing, Origin::Local)) => {
-                let result = if existing != &value {
+                return if existing != &value {
                     Err(KvStoreError::DuplicatedKey {
                         key,
                         value_previous: existing.clone(),
@@ -408,15 +352,12 @@ impl<K: CacheKey, V: CacheValue> KvStore<K, V> {
                 } else {
                     Ok(())
                 };
-                self.backend.unlock();
-                return result;
             }
             Some((existing, Origin::Bundle(_))) => {
                 if existing == &value {
                     // The bundle keeps serving this entry; not writing it
-                    // locally keeps the local log minimal. Removing the
+                    // locally keeps the local database minimal. Removing the
                     // bundle re-colds such entries.
-                    self.backend.unlock();
                     return Ok(());
                 }
                 // A locally computed value shadows a stale bundle entry.
@@ -425,87 +366,47 @@ impl<K: CacheKey, V: CacheValue> KvStore<K, V> {
             None => {}
         }
 
-        self.insert_unchecked(key, value);
+        let key_bytes = encode(&key);
+        let value_bytes = encode(&value);
 
-        self.backend.unlock();
-        Ok(())
-    }
-
-    fn sync_content(
-        &mut self,
-        bytes: &[u8],
-        new_insert: Option<(&K, &V)>,
-    ) -> Result<(), KvStoreError<K, V>> {
-        let mut start = 0;
-        let mut result = Ok(());
-
-        while let Some(pos) = bytes[start..]
-            .windows(self.separator.len())
-            .position(|w| w == self.separator)
+        // The backend performs the presence check and the write atomically, so
+        // a concurrent writer in another process can't be clobbered.
+        if let Some(existing) = self.backend.insert(&key_bytes, &value_bytes)
+            && let Some(existing) = decode::<V>(&existing)
+            && existing != value
         {
-            match serde_json::from_slice::<Entry<K, V>>(&bytes[start..start + pos]) {
-                Ok(entry) => {
-                    if let Some(insert) = &new_insert
-                        && result.is_ok()
-                        && insert.0 == &entry.key
-                        && insert.1 != &entry.value
-                    {
-                        result = Err(KvStoreError::KeyOutOfSync {
-                            key: entry.key.clone(),
-                            value_previous: entry.value.clone(),
-                            value_updated: insert.1.clone(),
-                        })
-                    }
-                    self.in_memory_cache
-                        .insert(entry.key, (entry.value, Origin::Local));
-                }
-                Err(err) => {
-                    log::warn!(
-                        "Corrupted store {}, ignoring entry ({}..{}) : {err}",
-                        self.backend.describe(),
-                        start,
-                        start + pos,
-                    );
-                }
-            };
-            start += pos + self.separator.len();
+            // Another process won the race with a different value. It is the
+            // durable one, so adopt it rather than pretending ours was stored.
+            self.in_memory_cache
+                .insert(key.clone(), (existing.clone(), Origin::Local));
+
+            return Err(KvStoreError::DuplicatedKey {
+                key,
+                value_previous: existing,
+                value_updated: value,
+            });
         }
 
-        result
-    }
+        self.in_memory_cache.insert(key, (value, Origin::Local));
 
-    fn insert_unchecked(&mut self, key: K, value: V) {
-        let entry = Entry { key, value };
-        let mut bytes = serde_json::to_vec(&entry).expect("Can serialize data");
-
-        for b in self.separator.iter() {
-            bytes.push(*b);
-        }
-
-        let dedup_key = serde_json::to_string(&entry.key).expect("Can serialize key");
-        self.backend.append(&dedup_key, &bytes);
-        self.in_memory_cache
-            .insert(entry.key, (entry.value, Origin::Local));
+        Ok(())
     }
 }
 
 impl<K: CacheKey, V: CacheValue> Display for KvStore<K, V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        writeln!(f, "{}", self.backend.describe())?;
-
-        for (key, (value, _)) in self.in_memory_cache.iter() {
-            let key = serde_json::to_string_pretty(key).unwrap();
-            let value = serde_json::to_string_pretty(value).unwrap();
-
-            writeln!(f, "  [{key}] => {value}")?;
-        }
-
-        Ok(())
+        write!(
+            f,
+            "{} ({} entries in {})",
+            self.store,
+            self.in_memory_cache.len(),
+            self.backend.describe()
+        )
     }
 }
 
 /// Resolves a seed mode into the concrete seed sources to consult.
-fn resolve_seeds(mode: SeedMode) -> Vec<Arc<dyn SeedSource>> {
+pub(crate) fn resolve_seeds(mode: SeedMode) -> Vec<Arc<dyn SeedSource>> {
     match mode {
         SeedMode::Auto => crate::bundle::seeds(),
         SeedMode::Explicit(seeds) => seeds,
@@ -513,116 +414,27 @@ fn resolve_seeds(mode: SeedMode) -> Vec<Arc<dyn SeedSource>> {
     }
 }
 
-/// The store location relative to the cache root:
-/// `<name>/<version>/<segments>.json.log`.
-#[cfg(feature = "cache")]
-pub(crate) fn relative_store_path(path_partial: &str, name: &str, version: &str) -> PathBuf {
-    let path_partial: &Path = Path::new(path_partial);
-    let add_extension = !path_partial.ends_with("json.log");
+/// Serializes a key or a value to its stored representation.
+pub(crate) fn encode<T: Serialize>(value: &T) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    ciborium::ser::into_writer(value, &mut bytes).expect("Can serialize data");
+    bytes
+}
 
-    let mut path = PathBuf::from(sanitize_path_segment(name)).join(sanitize_path_segment(version));
-
-    for segment in path_partial.iter() {
-        // Skip the name directory since it resets the previous path segments.
-        if segment == "/" {
-            continue;
+/// Deserializes a key or a value, reporting corrupted content instead of
+/// failing: a cache entry we can't read is one we recompute.
+pub(crate) fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Option<T> {
+    match ciborium::de::from_reader(bytes) {
+        Ok(value) => Some(value),
+        Err(err) => {
+            log::warn!("Corrupted cache entry, ignoring it: {err}");
+            None
         }
-        path = path.join(sanitize_path_segment(segment.to_str().unwrap()));
-    }
-
-    if add_extension {
-        path.set_extension("json.log");
-    }
-
-    path
-}
-
-/// The `/`-separated form of a relative store path, used as the bundle seed
-/// lookup key on every platform.
-#[cfg(feature = "cache")]
-pub(crate) fn normalized_rel(rel: &Path) -> String {
-    rel.to_string_lossy().replace('\\', "/")
-}
-
-/// The seed lookup key on browser targets, mirroring
-/// [`relative_store_path`]'s naming with string operations only.
-#[cfg(browser_cache)]
-pub(crate) fn browser_rel_path(path_partial: &str, name: &str, version: &str) -> String {
-    let mut rel = String::new();
-    rel.push_str(&sanitize_path_segment(name));
-    rel.push('/');
-    rel.push_str(&sanitize_path_segment(version));
-
-    let mut ends_with_extension = false;
-    for segment in path_partial.split('/').filter(|s| !s.is_empty()) {
-        rel.push('/');
-        rel.push_str(&sanitize_path_segment(segment));
-        ends_with_extension = segment.ends_with("json.log");
-    }
-
-    if !ends_with_extension {
-        // Mirror `Path::set_extension`: replace the last component's
-        // extension when it has one, append otherwise.
-        let component_start = rel.rfind('/').map(|pos| pos + 1).unwrap_or(0);
-        if let Some(dot) = rel[component_start..].rfind('.') {
-            rel.truncate(component_start + dot);
-        }
-        rel.push_str(".json.log");
-    }
-
-    rel
-}
-
-/// The browser record key prefix, mirroring the file system layout
-/// `<name>/<version>/<segments>`.
-#[cfg(browser_cache)]
-pub(crate) fn browser_prefix(path_partial: &str, name: &str, version: &str) -> String {
-    let mut prefix = String::new();
-    prefix.push_str(&sanitize_path_segment(name));
-    prefix.push('/');
-    prefix.push_str(&sanitize_path_segment(version));
-
-    for segment in path_partial.split('/') {
-        if segment.is_empty() {
-            continue;
-        }
-        prefix.push('/');
-        prefix.push_str(&sanitize_path_segment(segment));
-    }
-
-    prefix.push('/');
-    prefix
-}
-
-#[derive(Serialize, Deserialize)]
-pub(crate) struct Entry<K, V> {
-    pub(crate) key: K,
-    pub(crate) value: V,
-}
-
-impl<K: Serialize, V: Serialize> core::fmt::Debug for Entry<K, V> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let formatted = serde_json::to_string_pretty(self).unwrap();
-        write!(f, "{formatted}")
     }
 }
 
-#[cfg(feature = "cache")]
-pub(crate) fn sanitize_path_segment(segment: &str) -> String {
-    sanitize_filename::sanitize_with_options(
-        segment,
-        sanitize_filename::Options {
-            replacement: "_",
-            ..Default::default()
-        },
-    )
-}
-
-/// A minimal sanitizer for browser record keys: no file system involved, only
-/// path traversal characters matter.
-#[cfg(all(browser_cache, not(feature = "cache")))]
-pub(crate) fn sanitize_path_segment(segment: &str) -> String {
-    segment.replace(['/', '\\'], "_")
+fn decode_entry<K: CacheKey, V: CacheValue>(key: &[u8], value: &[u8]) -> Option<(K, V)> {
+    Some((decode::<K>(key)?, decode::<V>(value)?))
 }
 
 #[cfg(test)]
@@ -633,7 +445,9 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_cache_simple() {
         let dir = tempfile::tempdir().unwrap();
-        let option = KvStoreOptions::default().root(dir.path());
+        let option = KvStoreOptions::default()
+            .root(dir.path())
+            .seeds(SeedMode::Disabled);
 
         let key1 = || "key1".to_string();
         let key2 = || "key2".to_string();
@@ -660,27 +474,77 @@ mod tests {
         assert_eq!(value2_actual, &value2());
     }
 
-    /// Guards the on-disk contract: the exact file location (including the
-    /// workspace version segment) and the exact serialized line format.
-    /// Breaking either invalidates every existing cache on users' machines.
+    /// Guards the on-disk contract: the database file location and the exact
+    /// `store` name a given set of options resolves to. Breaking either
+    /// invalidates every existing cache on users' machines.
     #[test_log::test]
     #[cfg_attr(miri, ignore)]
     fn test_on_disk_format_is_stable() {
+        use super::super::sqlite::{DB_FILE_NAME, Database};
+
         let dir = tempfile::tempdir().unwrap();
-        let option = KvStoreOptions::default().root(dir.path()).name("golden");
+        let option = KvStoreOptions::default()
+            .root(dir.path())
+            .name("golden")
+            .seeds(SeedMode::Disabled);
 
         let mut cache = KvStore::<String, u32>::open("device0/matmul", option);
         cache.insert("shape=2x2".to_string(), 42).unwrap();
 
-        let expected_path = dir
-            .path()
-            .join("golden")
-            .join(env!("CARGO_PKG_VERSION"))
-            .join("device0")
-            .join("matmul.json.log");
-        let content = std::fs::read_to_string(&expected_path)
-            .unwrap_or_else(|err| panic!("Golden file missing at {expected_path:?}: {err}"));
+        let expected_store = std::format!("golden/{}/device0/matmul", env!("CARGO_PKG_VERSION"));
+        assert_eq!(cache.store(), expected_store);
 
-        assert_eq!(content, "{\"key\":\"shape=2x2\",\"value\":42}\n");
+        let path = dir.path().join(DB_FILE_NAME);
+        assert!(path.exists(), "Database missing at {path:?}");
+
+        // Read it back through a fresh connection: the entry must be
+        // addressable by store name and encoded key alone.
+        let database = Database::open(&path, true).unwrap();
+        let stored = database
+            .get(&expected_store, &encode(&"shape=2x2".to_string()))
+            .expect("Entry should be stored");
+        assert_eq!(decode::<u32>(&stored), Some(42));
+    }
+
+    /// A store reopened over the same root must see what the previous one
+    /// wrote, without any bundle involved.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn test_entries_survive_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let options = || {
+            KvStoreOptions::default()
+                .root(dir.path())
+                .seeds(SeedMode::Disabled)
+        };
+
+        let mut cache = KvStore::<String, u32>::open("reopen", options());
+        cache.insert("key".to_string(), 7).unwrap();
+        drop(cache);
+
+        let cache = KvStore::<String, u32>::open("reopen", options());
+        assert_eq!(cache.get(&"key".to_string()), Some(&7));
+    }
+
+    /// Two stores over the same root must not see each other's entries.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn test_stores_are_isolated() {
+        let dir = tempfile::tempdir().unwrap();
+        let options = || {
+            KvStoreOptions::default()
+                .root(dir.path())
+                .seeds(SeedMode::Disabled)
+        };
+
+        let mut first = KvStore::<String, u32>::open("device0/matmul", options());
+        first.insert("key".to_string(), 1).unwrap();
+
+        let mut second = KvStore::<String, u32>::open("device1/matmul", options());
+        assert_eq!(second.get(&"key".to_string()), None);
+        second.insert("key".to_string(), 2).unwrap();
+
+        assert_eq!(first.get(&"key".to_string()), Some(&1));
+        assert_eq!(second.get(&"key".to_string()), Some(&2));
     }
 }
