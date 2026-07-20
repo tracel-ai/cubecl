@@ -9,20 +9,23 @@ use cubecl_opt::passes::simple_cse::SimpleCSEPass;
 use cubecl_runtime::compiler::CompilationError;
 
 use cubecl_core::{
-    Compiler,
     ir::rewrite::SimplifyOpsPass,
     post_processing::{bitwise::PromoteBitwisePass, disaggregate::DisaggregatePass},
     prelude::*,
+    Compiler,
 };
 use pliron::{
     builtin::ops::{FuncOp, ModuleOp},
     op::Op,
-    opts::{constants::sccp::SCCPPass, dce::DCEPass},
+    operation::verify_operation,
+    opts::{constants::sccp::SCCPPass, dce::DCEPass, simplify_cfg::SimplifyCFGPass},
     pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
 };
 
-use crate::compiler::dialect::cpu::InsertConstantEmulationPass;
-use crate::compiler::jit::engine::PlironEngine;
+use crate::compiler::{
+    dialect::{branch::CfToLlvmConversionPass, entrypoint::InsertConstantEmulationPass},
+    jit::engine::PlironEngine,
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct PlironCompiler {}
@@ -73,7 +76,6 @@ impl PlironCompiler {
         #[cfg(feature = "pliron-dump")]
         let ir_printing_dir = pliron_path(&kernel.settings.kernel_name);
         let config = PMConfig {
-            print_before_all: true,
             print_after_all: true,
             ir_printing_dir,
             ..Default::default()
@@ -90,13 +92,17 @@ impl PlironCompiler {
         func_passes.add_pass(SimpleCSEPass);
         func_passes.add_pass(SimplifyOpsPass::default());
         func_passes.add_pass(PromoteBitwisePass);
+        func_passes.add_pass(CfToLlvmConversionPass::default());
+        func_passes.add_pass(SimplifyCFGPass);
         func_passes.add_pass(DCEPass);
 
         passes.add_pass(NestedOpsPass::new(func_passes));
 
         passes.run(module_op, &mut ctx, &mut analyses).unwrap();
 
-        PlironEngine
+        verify_operation(module_op, &ctx).expect("Failed to verify after control-flow lowering");
+
+        PlironEngine::default()
     }
 }
 

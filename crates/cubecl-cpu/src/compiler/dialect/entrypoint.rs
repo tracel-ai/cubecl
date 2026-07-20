@@ -119,11 +119,8 @@ fn cube_count(cube_count_x: u32, cube_count_y: u32, cube_count_z: u32) -> usize 
 ///
 /// The jitted kernel is invoked once per unit of a cube, and walks the whole cube grid itself
 /// through a `cube_pos_z / cube_pos_y / cube_pos_x` loop nest. The cube count and the unit position
-/// come from the host as arguments (see [`CPU_RUNTIME_BUILTINS`]), while the cube dim is baked in as
+/// come from the host as arguments (see [`CPU_RUNTIME_BUILTINS`]), while the cube dim is compiled in as
 /// constants, so the positional math folds away in the constant propagation pass.
-///
-/// The kernel body is moved inside the innermost loop, and every `cube.read_builtin` in it is
-/// replaced by the matching value from the skeleton.
 #[derive(Default)]
 pub struct InsertConstantEmulationPass;
 

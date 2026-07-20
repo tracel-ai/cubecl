@@ -61,6 +61,8 @@ pliron = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 sysinfo = { workspace = true }
 tracel-llvm = { workspace = true }
+pliron = { workspace = true, features = ["std"] }
+pliron-llvm = { workspace = true }
 
 [target.'cfg(any(target_os = "android", target_os = "linux", target_os = "macos", target_os = "freebsd"))'.dependencies]
 libc = { workspace = true }
