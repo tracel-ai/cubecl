@@ -1,5 +1,6 @@
 use alloc::string::String;
-use alloc::vec::Vec;
+
+use crate::bytes::Bytes;
 
 use crate::persistence::Database;
 
@@ -49,11 +50,13 @@ impl SqliteBundle {
 }
 
 impl Bundle for SqliteBundle {
-    fn get(&self, namespace: &str, key: &[u8]) -> Option<Vec<u8>> {
+    fn get(&self, namespace: &str, key: &[u8]) -> Option<Bytes> {
+        // A database row is materialized by the driver, so there is nothing to
+        // serve a zero-copy window into.
         self.database.get(namespace, key)
     }
 
-    fn scan(&self, namespace: &str, visit: &mut dyn FnMut(Vec<u8>, Vec<u8>)) {
+    fn scan(&self, namespace: &str, visit: &mut dyn FnMut(&[u8], &[u8])) {
         self.database.scan(namespace, visit)
     }
 

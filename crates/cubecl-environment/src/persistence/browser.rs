@@ -32,6 +32,7 @@ use alloc::vec::Vec;
 
 use hashbrown::HashMap;
 
+use crate::bytes::Bytes;
 use crate::sync::Arc;
 
 use js_sys::{Reflect, Uint8Array};
@@ -48,7 +49,7 @@ const STORE_NAME: &str = "kv";
 /// The mirrored content of one namespace.
 #[derive(Default, Debug)]
 struct State {
-    entries: HashMap<Vec<u8>, Vec<u8>>,
+    entries: HashMap<Vec<u8>, Bytes>,
     loaded: bool,
 }
 
@@ -91,17 +92,19 @@ impl BrowserStorage {
 }
 
 impl Storage for BrowserStorage {
-    fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
+    fn get(&self, key: &[u8]) -> Option<Bytes> {
         self.state.lock().entries.get(key).cloned()
     }
 
-    fn insert(&self, key: &[u8], value: &[u8]) -> Option<Vec<u8>> {
+    fn insert(&self, key: &[u8], value: &[u8]) -> Option<Bytes> {
         {
             let mut state = self.state.lock();
             if let Some(existing) = state.entries.get(key) {
                 return Some(existing.clone());
             }
-            state.entries.insert(key.to_vec(), value.to_vec());
+            state
+                .entries
+                .insert(key.to_vec(), Bytes::from_bytes_vec(value.to_vec()));
         }
 
         let record_key = format!("{}{}", self.prefix, to_hex(key));
@@ -116,9 +119,9 @@ impl Storage for BrowserStorage {
         None
     }
 
-    fn scan(&self, visit: &mut dyn FnMut(Vec<u8>, Vec<u8>)) {
+    fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
         for (key, value) in self.state.lock().entries.iter() {
-            visit(key.clone(), value.clone());
+            visit(key, value);
         }
     }
 
@@ -264,7 +267,7 @@ async fn load(prefix: &str, state: &spin::Mutex<State>) -> Result<(), JsValue> {
 
         match value.dyn_into::<Uint8Array>() {
             Ok(bytes) => {
-                entries.insert(key, bytes.to_vec());
+                entries.insert(key, Bytes::from_bytes_vec(bytes.to_vec()));
             }
             Err(value) => {
                 log::warn!("cubecl cache: unexpected browser storage record type: {value:?}");

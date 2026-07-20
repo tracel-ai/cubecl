@@ -79,7 +79,10 @@ pub fn set_policy_from_config(policy: StreamPolicy) {
 }
 
 /// Resets the process-global policy so policy-mutating tests don't leak state.
-#[cfg(test)]
+///
+/// Gated like `tests_policy_lock`: its only callers are the tests that take
+/// that lock, which need std.
+#[cfg(all(test, feature = "std"))]
 pub(crate) fn tests_reset_policy() {
     POLICY.store(0, Ordering::Relaxed);
 }
@@ -91,7 +94,8 @@ pub(crate) fn tests_policy_lock() -> std::sync::MutexGuard<'static, ()> {
     LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-#[cfg(test)]
+// Gated like `tests_policy_lock`, which these tests use to serialize.
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
 

@@ -29,8 +29,10 @@ pub mod device_handle {
 }
 
 /// Utilities module to manipulate bytes.
-#[cfg(feature = "serde")]
-pub mod bytes;
+///
+/// Re-exported from `cubecl-environment`, which owns the type: this crate
+/// depends on it, so the lower layers could not otherwise use `Bytes`.
+pub use cubecl_environment::bytes;
 
 /// Module for benchmark timings
 pub mod benchmark;

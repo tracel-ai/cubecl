@@ -23,8 +23,8 @@ default = ["std"]
 fp4 = ["float4"]
 fp8 = ["float8"]
 hash = ["xxhash-rust"]
-serde = ["serde_bytes"]
-shared-bytes = ["dep:bytes"]
+serde = []
+shared-bytes = ["cubecl-environment/shared-bytes"]
 std = ["cubecl-environment/std"]
 tracing = ["cubecl-environment/tracing"]
 
@@ -55,7 +55,6 @@ half = { workspace = true }
 hashbrown = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true }
-serde_bytes = { workspace = true, features = ["alloc"], optional = true }
 
 cfg-if = { workspace = true }
 
@@ -66,7 +65,6 @@ xxhash-rust = { workspace = true, features = [
 ], optional = true }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
-bytes = { workspace = true, optional = true }
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 
 [target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
@@ -77,14 +75,12 @@ spin = { workspace = true, features = [
     "spin_mutex",
     "portable_atomic",
 ] }
-# Enable extra-platforms for bytes on targets without native atomics
-bytes = { workspace = true, features = ["extra-platforms"], optional = true }
 
 [build-dependencies]
 cfg_aliases = { workspace = true }
 
 [dev-dependencies]
-ciborium = { workspace = true }
+ciborium = { workspace = true, features = ["std"] }
 criterion = { version = "0.8", features = ["html_reports"] }
 dashmap = { workspace = true }
 tempfile = "3.20"

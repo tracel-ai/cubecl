@@ -2,9 +2,24 @@ use std::path::{Path, PathBuf};
 use std::string::{String, ToString};
 use std::vec::Vec;
 
+use crate::bytes::Bytes;
 use crate::persistence::{DB_FILE_NAME, Database};
 
+use super::flat;
 use super::{BundleError, BundleManifest, EnvironmentInfo, MANIFEST_SCHEMA};
+
+/// Which on-disk layout [`export`] writes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BundleFormat {
+    /// One `SQLite` file, read by [`SqliteBundle`](super::SqliteBundle). The
+    /// native format: it needs a file system, but stays queryable.
+    #[default]
+    Sqlite,
+    /// One flat blob, read by [`EmbeddedBundle`](super::EmbeddedBundle). The
+    /// portable format: embed it with `include_bytes!` or fetch it at runtime
+    /// on wasm and no-std targets, which have no file system to open.
+    Flat,
+}
 
 /// Options for [`export`].
 #[derive(Debug, Clone, Default)]
@@ -18,14 +33,18 @@ pub struct ExportOptions {
     /// or `cuda`. A prefix matches whole segments, so it selects the
     /// namespace itself and everything below it. Empty means every namespace.
     pub namespaces: Vec<String>,
+    /// The layout to write. Pick [`BundleFormat::Flat`] for wasm and no-std
+    /// targets.
+    pub format: BundleFormat,
 }
 
 /// Copies entries from one or more cache roots into a bundle file.
 ///
-/// Both the cache and the bundle are `SQLite` databases with the same `entries`
-/// table, so exporting is an `INSERT ... SELECT` across an attached source:
-/// merging several roots dedupes on the primary key instead of concatenating
-/// bytes, and restricting the export to a few namespaces is a `WHERE` clause.
+/// Merging several roots deduplicates by `(namespace, key)` rather than
+/// concatenating bytes, and restricting the export to a few namespaces is a
+/// filter. In [`BundleFormat::Sqlite`] both sides are `SQLite` databases with
+/// the same `entries` table, so the whole export is one `INSERT ... SELECT`
+/// across an attached source.
 ///
 /// The typical workflow: run the application once so autotune and the
 /// compilation caches are warm, then export the cache root.
@@ -37,28 +56,6 @@ pub fn export<R: AsRef<Path>, O: AsRef<Path>>(
     let out = out.as_ref();
     prepare_output(out)?;
 
-    let database = Database::open(out, false)?;
-    let mut exported = 0usize;
-
-    for root in cache_roots {
-        let Some(source) = source_database(root.as_ref()) else {
-            log::warn!(
-                "Bundle export: no cache database under {:?}, skipping.",
-                root.as_ref()
-            );
-            continue;
-        };
-
-        exported += copy_entries(&database, &source, &options.namespaces)?;
-    }
-
-    if exported == 0 {
-        log::warn!(
-            "Bundle export: no entries matched. Run the application once so the caches \
-             are warm, and check the namespace prefixes."
-        );
-    }
-
     let manifest = BundleManifest {
         schema: MANIFEST_SCHEMA,
         name: options.name.clone(),
@@ -69,9 +66,108 @@ pub fn export<R: AsRef<Path>, O: AsRef<Path>>(
             .map(|elapsed| elapsed.as_secs()),
         environments: resolve_environments(&options.environments),
     };
-    manifest.write(&database)?;
+
+    let sources: Vec<PathBuf> = cache_roots
+        .iter()
+        .filter_map(|root| {
+            let root = root.as_ref();
+            source_database(root).or_else(|| {
+                log::warn!("Bundle export: no cache database under {root:?}, skipping.");
+                None
+            })
+        })
+        .collect();
+
+    let exported = match options.format {
+        BundleFormat::Sqlite => export_sqlite(out, &sources, options, &manifest)?,
+        BundleFormat::Flat => export_flat(out, &sources, options, &manifest)?,
+    };
+
+    if exported == 0 {
+        log::warn!(
+            "Bundle export: no entries matched. Run the application once so the caches \
+             are warm, and check the namespace prefixes."
+        );
+    }
 
     Ok(manifest)
+}
+
+fn export_sqlite(
+    out: &Path,
+    sources: &[PathBuf],
+    options: &ExportOptions,
+    manifest: &BundleManifest,
+) -> Result<usize, BundleError> {
+    let database = Database::open(out, false)?;
+    let mut exported = 0;
+
+    for source in sources {
+        exported += copy_entries(&database, source, &options.namespaces)?;
+    }
+
+    manifest.write(&database)?;
+
+    Ok(exported)
+}
+
+fn export_flat(
+    out: &Path,
+    sources: &[PathBuf],
+    options: &ExportOptions,
+    manifest: &BundleManifest,
+) -> Result<usize, BundleError> {
+    let mut entries = flat::Entries::new();
+
+    for source in sources {
+        let database = Database::open(source, true)?;
+        // First root wins on collision, matching `INSERT OR IGNORE`.
+        read_entries(&database, &options.namespaces, &mut entries)?;
+    }
+
+    flat::write(out, &entries, manifest)?;
+
+    Ok(entries.len())
+}
+
+/// Collects the requested namespaces of `database` into `entries`.
+fn read_entries(
+    database: &Database,
+    namespaces: &[String],
+    entries: &mut flat::Entries,
+) -> Result<(), BundleError> {
+    database.with_connection(|conn| {
+        let mut statement = conn.prepare(
+            "SELECT namespace, key, value FROM entries \
+             WHERE ?1 = '' OR namespace = ?1 \
+                OR substr(namespace, 1, length(?1) + 1) = ?1 || '/' \
+             ORDER BY namespace, key",
+        )?;
+
+        // An empty filter selects everything, so the two cases share one query.
+        let filters: Vec<&str> = if namespaces.is_empty() {
+            std::vec![""]
+        } else {
+            namespaces.iter().map(String::as_str).collect()
+        };
+
+        for filter in filters {
+            let mut rows = statement.query(rusqlite::params![filter])?;
+            while let Some(row) = rows.next()? {
+                // The driver hands back owned buffers; the value becomes
+                // `Bytes` as it enters the map.
+                let namespace: String = row.get(0)?;
+                let key: Vec<u8> = row.get(1)?;
+                let value = Bytes::from_bytes_vec(row.get(2)?);
+
+                entries.entry((namespace, key)).or_insert(value);
+            }
+        }
+
+        Ok::<_, rusqlite::Error>(())
+    })?;
+
+    Ok(())
 }
 
 /// The cache database of `root`, which may be a cache root directory or the

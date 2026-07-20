@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 use super::storage::Storage;
 use crate::bundle::Bundle;
+use crate::bytes::Bytes;
 use crate::sync::Arc;
 
 /// Where an in-memory entry came from.
@@ -226,7 +227,7 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
             let entries = &mut self.in_memory_cache;
 
             bundle.scan(&self.namespace, &mut |key, value| {
-                if let Some(entry) = decode_entry::<K, V>(&key, &value) {
+                if let Some(entry) = decode_entry::<K, V>(key, value) {
                     entries.insert(entry.0, (entry.1, Origin::Bundle(index as u16)));
                     count += 1;
                 }
@@ -255,7 +256,7 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
         let entries = &mut self.in_memory_cache;
 
         self.storage.scan(&mut |key, value| {
-            if let Some(entry) = decode_entry::<K, V>(&key, &value) {
+            if let Some(entry) = decode_entry::<K, V>(key, value) {
                 entries.insert(entry.0, (entry.1, Origin::Local));
             }
         });
@@ -406,10 +407,10 @@ pub(crate) fn resolve_bundles(mode: BundleMode) -> Vec<Arc<dyn Bundle>> {
 }
 
 /// Serializes a key or a value to its stored representation.
-pub(crate) fn encode<T: Serialize>(value: &T) -> Vec<u8> {
+pub(crate) fn encode<T: Serialize>(value: &T) -> Bytes {
     let mut bytes = Vec::new();
     ciborium::ser::into_writer(value, &mut bytes).expect("Can serialize data");
-    bytes
+    Bytes::from_bytes_vec(bytes)
 }
 
 /// Deserializes a key or a value, reporting corrupted content instead of
@@ -428,7 +429,7 @@ fn decode_entry<K: StoreKey, V: StoreValue>(key: &[u8], value: &[u8]) -> Option<
     Some((decode::<K>(key)?, decode::<V>(value)?))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cache"))]
 mod tests {
     use super::*;
 

@@ -23,6 +23,10 @@ extern crate alloc;
 /// Synchronization primitives working across std, no-std and wasm environments.
 pub mod sync;
 
+/// Byte buffers with allocation properties, zero-copy views and optional
+/// memory-mapped backing. The type to use for byte payloads, never `Vec<u8>`.
+pub mod bytes;
+
 /// Hash map and set types with the environment's default hasher.
 pub mod collections;
 

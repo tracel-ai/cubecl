@@ -12,7 +12,8 @@ use std::vec::Vec;
 use hashbrown::HashMap;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 
-use super::storage::Storage;
+use super::storage::{NamespaceSummary, Storage};
+use crate::bytes::Bytes;
 use crate::sync::{Arc, Lazy, Mutex};
 
 /// File name of the cache database inside a cache root.
@@ -148,7 +149,7 @@ impl Database {
     }
 
     /// The value stored under `key` in `namespace`.
-    pub fn get(&self, namespace: &str, key: &[u8]) -> Option<Vec<u8>> {
+    pub fn get(&self, namespace: &str, key: &[u8]) -> Option<Bytes> {
         self.with_connection(|conn| {
             conn.prepare_cached(SELECT_SQL)
                 .and_then(|mut stmt| {
@@ -159,12 +160,13 @@ impl Database {
                     self.warn("read", err);
                     None
                 })
+                .map(Bytes::from_bytes_vec)
         })
     }
 
     /// Stores `value` unless `key` is already present in `namespace`, in which
     /// case the existing value is returned untouched.
-    pub fn insert(&self, namespace: &str, key: &[u8], value: &[u8]) -> Option<Vec<u8>> {
+    pub fn insert(&self, namespace: &str, key: &[u8], value: &[u8]) -> Option<Bytes> {
         let result = self.with_connection(|conn| {
             let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             let written = transaction
@@ -185,7 +187,7 @@ impl Database {
         });
 
         match result {
-            Ok(existing) => existing,
+            Ok(existing) => existing.map(Bytes::from_bytes_vec),
             Err(err) => {
                 // A dropped write degrades to a recompute on the next run.
                 self.warn("write", err);
@@ -195,12 +197,14 @@ impl Database {
     }
 
     /// Visits every entry of `namespace`.
-    pub fn scan(&self, namespace: &str, visit: &mut dyn FnMut(Vec<u8>, Vec<u8>)) {
+    pub fn scan(&self, namespace: &str, visit: &mut dyn FnMut(&[u8], &[u8])) {
         let result = self.with_connection(|conn| {
             let mut stmt = conn.prepare_cached(SCAN_SQL)?;
             let mut rows = stmt.query(params![namespace])?;
             while let Some(row) = rows.next()? {
-                visit(row.get(0)?, row.get(1)?);
+                // `get_ref` borrows from the statement, so a scan of a large
+                // namespace doesn't allocate a Vec per column.
+                visit(row.get_ref(0)?.as_blob()?, row.get_ref(1)?.as_blob()?);
             }
             Ok::<_, rusqlite::Error>(())
         });
@@ -236,18 +240,6 @@ impl Database {
     fn warn(&self, operation: &str, err: rusqlite::Error) {
         log::warn!("cubecl cache: {operation} on {:?} failed: {err}", self.path);
     }
-}
-
-/// One namespace's contribution to a database, as reported by
-/// [`Database::summary`].
-#[derive(Debug, Clone)]
-pub struct NamespaceSummary {
-    /// The namespace.
-    pub namespace: String,
-    /// Number of entries.
-    pub entries: u64,
-    /// Total size of the keys and values, in bytes.
-    pub bytes: u64,
 }
 
 /// Drops the entries table of a database written by an incompatible schema.
@@ -304,15 +296,15 @@ impl SqliteStorage {
 }
 
 impl Storage for SqliteStorage {
-    fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
+    fn get(&self, key: &[u8]) -> Option<Bytes> {
         self.database.get(&self.namespace, key)
     }
 
-    fn insert(&self, key: &[u8], value: &[u8]) -> Option<Vec<u8>> {
+    fn insert(&self, key: &[u8], value: &[u8]) -> Option<Bytes> {
         self.database.insert(&self.namespace, key, value)
     }
 
-    fn scan(&self, visit: &mut dyn FnMut(Vec<u8>, Vec<u8>)) {
+    fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
         self.database.scan(&self.namespace, visit)
     }
 
@@ -341,10 +333,13 @@ mod tests {
 
         // The second connection sees the committed entry and leaves it alone.
         assert_eq!(
-            second.insert("namespace", b"key", b"second"),
-            Some(b"first".to_vec())
+            second.insert("namespace", b"key", b"second").as_deref(),
+            Some(&b"first"[..])
         );
-        assert_eq!(second.get("namespace", b"key"), Some(b"first".to_vec()));
+        assert_eq!(
+            second.get("namespace", b"key").as_deref(),
+            Some(&b"first"[..])
+        );
     }
 
     /// Many writers on one file must block on each other rather than fail:
@@ -412,8 +407,8 @@ mod tests {
         // The rebuilt table must be usable, which an emptied one would not be.
         assert_eq!(database.insert("namespace", b"key", b"value"), None);
         assert_eq!(
-            database.get("namespace", b"key"),
-            Some(b"value".to_vec()),
+            database.get("namespace", b"key").as_deref(),
+            Some(&b"value"[..]),
             "the rebuilt table accepts the current column layout"
         );
     }

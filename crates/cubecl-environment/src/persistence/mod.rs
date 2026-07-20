@@ -16,10 +16,8 @@ mod storage;
 
 pub use storage::*;
 
-#[cfg(any(feature = "cache", browser_cache))]
 mod store;
 
-#[cfg(any(feature = "cache", browser_cache))]
 pub use store::*;
 
 /// `SQLite` persistence: the database file shared by every namespace of a
@@ -28,7 +26,7 @@ pub use store::*;
 pub mod sqlite;
 
 #[cfg(feature = "cache")]
-pub use sqlite::{DB_FILE_NAME, Database, NamespaceSummary, SqliteStorage};
+pub use sqlite::{DB_FILE_NAME, Database, SqliteStorage};
 
 /// Browser storage (IndexedDB).
 #[cfg(browser_cache)]

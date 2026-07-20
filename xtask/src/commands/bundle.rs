@@ -1,9 +1,12 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tracel_xtask::prelude::*;
 
-use cubecl_environment::bundle::{ExportOptions, SqliteBundle};
-use cubecl_environment::persistence::CacheConfig;
+use cubecl_environment::bundle::{
+    BundleFormat, BundleManifest, EmbeddedBundle, ExportOptions, SqliteBundle,
+};
+use cubecl_environment::bytes::Bytes;
+use cubecl_environment::persistence::{CacheConfig, NamespaceSummary};
 
 #[derive(clap::Args)]
 pub struct BundleArgs {
@@ -18,8 +21,27 @@ pub(crate) enum BundleSubCommand {
     /// Typical workflow: run your application once so autotune and the
     /// compilation caches are warm, then export.
     Export(ExportArgs),
-    /// Print what a bundle file contains.
+    /// Print what a bundle file contains, in either format.
     Inspect(InspectArgs),
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug, Default)]
+pub(crate) enum Format {
+    /// One SQLite file, for native targets.
+    #[default]
+    Sqlite,
+    /// One flat blob, for wasm and no-std targets that have no file system.
+    /// Embed it with `include_bytes!` or fetch it at runtime.
+    Flat,
+}
+
+impl From<Format> for BundleFormat {
+    fn from(format: Format) -> Self {
+        match format {
+            Format::Sqlite => BundleFormat::Sqlite,
+            Format::Flat => BundleFormat::Flat,
+        }
+    }
 }
 
 #[derive(clap::Args)]
@@ -40,6 +62,9 @@ pub(crate) struct ExportArgs {
     /// Defaults to every namespace in the cache.
     #[arg(long = "namespace")]
     pub namespaces: Vec<String>,
+    /// The bundle layout to write.
+    #[arg(long, value_enum, default_value_t = Format::Sqlite)]
+    pub format: Format,
 }
 
 #[derive(clap::Args)]
@@ -52,7 +77,7 @@ impl BundleArgs {
     pub(crate) fn run(&self) -> anyhow::Result<()> {
         match &self.command {
             BundleSubCommand::Export(args) => export(args),
-            BundleSubCommand::Inspect(args) => inspect(args),
+            BundleSubCommand::Inspect(args) => inspect(&args.path),
         }
     }
 }
@@ -67,6 +92,7 @@ fn export(args: &ExportArgs) -> anyhow::Result<()> {
     let options = ExportOptions {
         name: args.name.clone(),
         namespaces: args.namespaces.clone(),
+        format: args.format.into(),
         ..Default::default()
     };
     let manifest = cubecl_environment::bundle::export(&roots, &args.out, &options)?;
@@ -75,19 +101,28 @@ fn export(args: &ExportArgs) -> anyhow::Result<()> {
         "Exported bundle '{}' (cubecl {}) to {:?}",
         manifest.name, manifest.cubecl_version, args.out
     );
-    describe(&SqliteBundle::open(&args.out)?);
+    inspect(&args.out)
+}
+
+/// Describes a bundle file whichever format it is in.
+fn inspect(path: &Path) -> anyhow::Result<()> {
+    if let Ok(bundle) = SqliteBundle::open(path) {
+        describe(bundle.manifest(), &bundle.database().summary());
+        return Ok(());
+    }
+
+    let bundle = EmbeddedBundle::open(Bytes::from_bytes_vec(std::fs::read(path)?))
+        .map_err(|err| anyhow::anyhow!("{path:?}: {err}"))?;
+    // The metadata blob is the same manifest the SQLite format stores in a row.
+    let manifest: BundleManifest = serde_json::from_slice(bundle.metadata())
+        .map_err(|err| anyhow::anyhow!("{path:?}: unreadable manifest: {err}"))?;
+
+    describe(&manifest, &bundle.summary());
 
     Ok(())
 }
 
-fn inspect(args: &InspectArgs) -> anyhow::Result<()> {
-    describe(&SqliteBundle::open(&args.path)?);
-    Ok(())
-}
-
-fn describe(bundle: &SqliteBundle) {
-    let manifest = bundle.manifest();
-
+fn describe(manifest: &BundleManifest, summary: &[NamespaceSummary]) {
     info!("Bundle '{}'", manifest.name);
     info!("  cubecl version: {}", manifest.cubecl_version);
     for environment in &manifest.environments {
@@ -100,7 +135,6 @@ fn describe(bundle: &SqliteBundle) {
         );
     }
 
-    let summary = bundle.database().summary();
     if summary.is_empty() {
         info!("  (no entries)");
         return;

@@ -2,7 +2,10 @@
 
 use std::sync::Arc;
 
-use cubecl_environment::bundle::{Bundle, ExportOptions, SqliteBundle, export};
+use cubecl_environment::bundle::{
+    Bundle, BundleFormat, EmbeddedBundle, ExportOptions, SqliteBundle, export,
+};
+use cubecl_environment::bytes::Bytes;
 use cubecl_environment::persistence::{BundleMode, KvStore, KvStoreOptions, Origin};
 
 /// Warms `root` with one store's worth of entries, as an application run would.
@@ -66,7 +69,7 @@ fn bundle_roundtrip_seeds_a_fresh_store() {
         seeds.clone(),
     );
 
-    // SqliteBundle entries are visible, tagged with their origin.
+    // Bundle entries are visible, tagged with their origin.
     assert_eq!(store.get(&"shape=2x2".to_string()), Some(&3));
     assert_eq!(
         store.get_with_origin(&"shape=4x4".to_string()),
@@ -246,4 +249,166 @@ fn a_foreign_file_is_not_a_bundle() {
     std::fs::write(&path, b"definitely not sqlite").unwrap();
 
     assert!(SqliteBundle::open(&path).is_err());
+}
+
+/// The flat format must seed a store exactly like the `SQLite` one. It is the
+/// format wasm and no-std targets get, and they have no way to open a
+/// database.
+#[test]
+fn a_flat_bundle_seeds_a_store_like_the_sqlite_one() {
+    let warm_root = tempfile::tempdir().unwrap();
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let bundle_path = bundle_dir.path().join("flat.ccb");
+
+    warm(
+        warm_root.path(),
+        "autotune",
+        "device0/matmul",
+        &[("shape=2x2", 3), ("shape=4x4", 7)],
+    );
+    warm(warm_root.path(), "throughput", "device0/copy", &[("k", 11)]);
+
+    let options = ExportOptions {
+        name: "Flat GPU".to_string(),
+        format: BundleFormat::Flat,
+        ..Default::default()
+    };
+    let manifest = export(&[warm_root.path()], &bundle_path, &options).unwrap();
+    assert_eq!(manifest.name, "Flat GPU");
+
+    // Read it back the way an embedded target would: raw bytes, no file system
+    // access beyond loading the blob.
+    let bytes = Bytes::from_bytes_vec(std::fs::read(&bundle_path).unwrap());
+    let bundle = EmbeddedBundle::open(bytes).unwrap();
+    assert_eq!(bundle.len(), 3);
+
+    let cold_root = tempfile::tempdir().unwrap();
+    let seeds: Vec<Arc<dyn Bundle>> = vec![Arc::new(bundle)];
+
+    let mut store = open_with_bundle(
+        cold_root.path(),
+        "autotune",
+        "device0/matmul",
+        seeds.clone(),
+    );
+    assert_eq!(store.get(&"shape=2x2".to_string()), Some(&3));
+    assert_eq!(
+        store.get_with_origin(&"shape=4x4".to_string()),
+        Some((&7, Origin::Bundle(0)))
+    );
+
+    // Shadowing works the same as with a database-backed bundle.
+    store.insert("shape=4x4".to_string(), 9).unwrap();
+    assert_eq!(
+        store.get_with_origin(&"shape=4x4".to_string()),
+        Some((&9, Origin::Local))
+    );
+
+    // A second namespace in the same bundle stays reachable and separate.
+    let throughput = open_with_bundle(cold_root.path(), "throughput", "device0/copy", seeds);
+    assert_eq!(throughput.get(&"k".to_string()), Some(&11));
+    assert_eq!(throughput.len(), 1);
+}
+
+/// Both formats must be byte-for-byte equivalent in what they serve.
+#[test]
+fn both_formats_serve_the_same_entries() {
+    let warm_root = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+
+    warm(
+        warm_root.path(),
+        "autotune",
+        "device0/matmul",
+        &[("a", 1), ("b", 2), ("c", 3)],
+    );
+
+    let sqlite_path = dir.path().join("bundle.cubecl");
+    export(
+        &[warm_root.path()],
+        &sqlite_path,
+        &ExportOptions {
+            name: "Same".to_string(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let flat_path = dir.path().join("bundle.ccb");
+    export(
+        &[warm_root.path()],
+        &flat_path,
+        &ExportOptions {
+            name: "Same".to_string(),
+            format: BundleFormat::Flat,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let namespace = format!("autotune/{}/device0/matmul", env!("CARGO_PKG_VERSION"));
+    let sqlite = SqliteBundle::open(&sqlite_path).unwrap();
+    let flat =
+        EmbeddedBundle::open(Bytes::from_bytes_vec(std::fs::read(&flat_path).unwrap())).unwrap();
+
+    let collect = |bundle: &dyn Bundle| {
+        let mut entries = Vec::new();
+        bundle.scan(&namespace, &mut |key, value| {
+            entries.push((key.to_vec(), value.to_vec()));
+        });
+        entries.sort();
+        entries
+    };
+
+    let from_sqlite = collect(&sqlite);
+    assert_eq!(from_sqlite.len(), 3);
+    assert_eq!(from_sqlite, collect(&flat));
+
+    // Point lookups must agree too, including on misses.
+    for (key, _) in &from_sqlite {
+        assert_eq!(
+            flat.get(&namespace, key).map(|v| v.to_vec()),
+            sqlite.get(&namespace, key).map(|v| v.to_vec())
+        );
+    }
+    assert_eq!(flat.get(&namespace, b"missing"), None);
+    assert_eq!(flat.get("no/such/namespace", b"a"), None);
+}
+
+/// The namespace filter must apply to the flat writer as well.
+#[test]
+fn a_flat_bundle_honours_the_namespace_filter() {
+    let warm_root = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let bundle_path = dir.path().join("filtered.ccb");
+
+    warm(warm_root.path(), "autotune", "device0/matmul", &[("k", 1)]);
+    warm(warm_root.path(), "throughput", "device0/copy", &[("k", 2)]);
+
+    export(
+        &[warm_root.path()],
+        &bundle_path,
+        &ExportOptions {
+            name: "Autotune only".to_string(),
+            namespaces: vec!["autotune".to_string()],
+            format: BundleFormat::Flat,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let bundle =
+        EmbeddedBundle::open(Bytes::from_bytes_vec(std::fs::read(&bundle_path).unwrap())).unwrap();
+    assert_eq!(bundle.len(), 1);
+    assert_eq!(
+        bundle
+            .summary()
+            .iter()
+            .map(|n| n.namespace.as_str())
+            .collect::<Vec<_>>(),
+        vec![format!(
+            "autotune/{}/device0/matmul",
+            env!("CARGO_PKG_VERSION")
+        )]
+    );
 }

@@ -28,15 +28,17 @@
 //! cold starts.
 
 mod base;
-#[cfg(any(feature = "cache", browser_cache))]
+mod embedded;
 mod registry;
 
 pub use base::*;
-#[cfg(any(feature = "cache", browser_cache))]
+pub use embedded::*;
 pub use registry::*;
 
 #[cfg(feature = "cache")]
 mod export;
+#[cfg(feature = "cache")]
+mod flat;
 #[cfg(feature = "cache")]
 mod manifest;
 #[cfg(feature = "cache")]

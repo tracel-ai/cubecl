@@ -74,13 +74,16 @@ impl<K: StoreKey, V: StoreValue> BlobStore<K, V> {
 
         let key_bytes = encode(key);
         // Local entries win over bundled ones: a value produced on this
-        // machine is always preferred to a shipped one.
-        let bytes = self.storage.get(&key_bytes).or_else(|| {
-            self.bundles
+        // machine is always preferred to a shipped one. A bundle may serve the
+        // bytes borrowed, which for a compiled kernel saves copying it whole.
+        let bytes = match self.storage.get(&key_bytes) {
+            Some(bytes) => bytes,
+            None => self
+                .bundles
                 .iter()
                 .rev()
-                .find_map(|bundle| bundle.get(&self.namespace, &key_bytes))
-        })?;
+                .find_map(|bundle| bundle.get(&self.namespace, &key_bytes))?,
+        };
 
         let value = decode::<V>(&bytes)?;
         self.in_memory_cache
@@ -156,6 +159,7 @@ impl<K: StoreKey, V: StoreValue> BlobStore<K, V> {
 mod tests {
     use super::super::store::BundleMode;
     use super::*;
+    use crate::bytes::Bytes;
     use std::string::ToString;
 
     #[test_log::test]
@@ -169,25 +173,34 @@ mod tests {
                 .bundles(BundleMode::Disabled)
         };
 
-        let mut cache = BlobStore::<String, Vec<u8>>::new("ptx_sm90", options());
+        let mut cache = BlobStore::<String, Bytes>::new("ptx_sm90", options());
         cache
-            .insert("kernel_a".to_string(), std::vec![1, 2, 3])
+            .insert(
+                "kernel_a".to_string(),
+                Bytes::from_bytes_vec(std::vec![1, 2, 3]),
+            )
             .unwrap();
         cache
-            .insert("kernel_b".to_string(), std::vec![4, 5])
+            .insert(
+                "kernel_b".to_string(),
+                Bytes::from_bytes_vec(std::vec![4, 5]),
+            )
             .unwrap();
         drop(cache);
 
-        let cache = BlobStore::<String, Vec<u8>>::new("ptx_sm90", options());
+        let cache = BlobStore::<String, Bytes>::new("ptx_sm90", options());
         // Nothing is read until a key is asked for.
         assert!(cache.in_memory_cache.borrow().is_empty());
 
         assert_eq!(
-            cache.get(&"kernel_a".to_string()),
-            Some(&std::vec![1, 2, 3])
+            cache.get(&"kernel_a".to_string()).map(|v| v.to_vec()),
+            Some(std::vec![1, 2, 3])
         );
         assert_eq!(cache.in_memory_cache.borrow().len(), 1);
-        assert_eq!(cache.get(&"kernel_b".to_string()), Some(&std::vec![4, 5]));
+        assert_eq!(
+            cache.get(&"kernel_b".to_string()).map(|v| v.to_vec()),
+            Some(std::vec![4, 5])
+        );
         assert_eq!(cache.get(&"missing".to_string()), None);
     }
 
@@ -200,10 +213,11 @@ mod tests {
             .name("kernels")
             .bundles(BundleMode::Disabled);
 
-        let mut cache = BlobStore::<String, Vec<u8>>::new("ptx_sm90", option);
-        cache.insert("kernel".to_string(), std::vec![1]).unwrap();
+        let mut cache = BlobStore::<String, Bytes>::new("ptx_sm90", option);
+        let kernel = |byte: u8| Bytes::from_bytes_vec(std::vec![byte]);
+        cache.insert("kernel".to_string(), kernel(1)).unwrap();
 
-        assert!(cache.insert("kernel".to_string(), std::vec![1]).is_ok());
-        assert!(cache.insert("kernel".to_string(), std::vec![2]).is_err());
+        assert!(cache.insert("kernel".to_string(), kernel(1)).is_ok());
+        assert!(cache.insert("kernel".to_string(), kernel(2)).is_err());
     }
 }

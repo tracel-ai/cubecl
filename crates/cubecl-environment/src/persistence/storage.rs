@@ -1,5 +1,6 @@
 use alloc::string::String;
-use alloc::vec::Vec;
+
+use crate::bytes::Bytes;
 
 /// Where the entries of a single namespace are kept, and written to.
 ///
@@ -23,14 +24,14 @@ use alloc::vec::Vec;
 /// hot path; implementations use interior mutability.
 pub trait Storage: Send + core::fmt::Debug {
     /// The value stored under `key`, if any.
-    fn get(&self, key: &[u8]) -> Option<Vec<u8>>;
+    fn get(&self, key: &[u8]) -> Option<Bytes>;
 
     /// Stores `value` under `key` unless the key is already present, in which
     /// case the existing value is returned and nothing is written.
-    fn insert(&self, key: &[u8], value: &[u8]) -> Option<Vec<u8>>;
+    fn insert(&self, key: &[u8], value: &[u8]) -> Option<Bytes>;
 
     /// Visits every entry of the namespace.
-    fn scan(&self, visit: &mut dyn FnMut(Vec<u8>, Vec<u8>));
+    fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8]));
 
     /// Whether the storage is still loading its content asynchronously.
     /// Entries become visible through [`get`](Storage::get) and
@@ -51,17 +52,28 @@ pub trait Storage: Send + core::fmt::Debug {
 pub struct MemoryStorage;
 
 impl Storage for MemoryStorage {
-    fn get(&self, _key: &[u8]) -> Option<Vec<u8>> {
+    fn get(&self, _key: &[u8]) -> Option<Bytes> {
         None
     }
 
-    fn insert(&self, _key: &[u8], _value: &[u8]) -> Option<Vec<u8>> {
+    fn insert(&self, _key: &[u8], _value: &[u8]) -> Option<Bytes> {
         None
     }
 
-    fn scan(&self, _visit: &mut dyn FnMut(Vec<u8>, Vec<u8>)) {}
+    fn scan(&self, _visit: &mut dyn FnMut(&[u8], &[u8])) {}
 
     fn describe(&self) -> String {
         String::from("memory (no persistence)")
     }
+}
+
+/// One namespace's contribution to a storage or a bundle, for reporting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamespaceSummary {
+    /// The namespace.
+    pub namespace: String,
+    /// Number of entries.
+    pub entries: u64,
+    /// Total size of the keys and values, in bytes.
+    pub bytes: u64,
 }

@@ -19,8 +19,9 @@ workspace = true
 
 
 [features]
+# Zero-copy `Bytes` backed by the `bytes` crate.
+shared-bytes = ["dep:bytes"]
 browser-cache = [
-    "dep:ciborium",
     "dep:web-sys",
     "dep:js-sys",
     "dep:wasm-bindgen",
@@ -28,7 +29,6 @@ browser-cache = [
 ]
 cache = [
     "std",
-    "dep:ciborium",
     "dep:serde_json",
     "dep:etcetera",
     "dep:rusqlite",
@@ -39,6 +39,7 @@ std = [
     "rand/std",
     "rand/thread_rng",
     "serde_json?/std",
+    "ciborium/std",
     "dep:futures-lite",
     "dep:parking_lot",
     "dep:backtrace",
@@ -56,14 +57,17 @@ oneshot = { workspace = true, default-features = false }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
 # ** Please make sure all dependencies support no_std when std is disabled **
+bytemuck = { workspace = true, features = ["derive"] }
 cfg-if = { workspace = true }
 foldhash = { workspace = true }
 hashbrown = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
+serde_bytes = { workspace = true, features = ["alloc"] }
 
 # Persistence
-ciborium = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
+ciborium = { workspace = true }
 etcetera = { workspace = true, optional = true }
 serde_json = { workspace = true, features = ["alloc"], optional = true }
 toml = { workspace = true, optional = true }
@@ -82,6 +86,8 @@ parking_lot = { workspace = true, optional = true }
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 
 [target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
+# extra-platforms covers targets without native atomics.
+bytes = { workspace = true, features = ["extra-platforms"], optional = true }
 portable-atomic = { workspace = true }
 portable-atomic-util = { workspace = true }
 spin = { workspace = true, features = [
