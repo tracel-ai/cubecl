@@ -386,12 +386,13 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         };
 
         self.streams_pool.clear();
+        // Reuse a recycled buffer from the target stream's pool to avoid allocating on every launch.
+        let mut shared_inputs = self.scheduler.stream(&stream_id).acquire_shared_bindings();
         // Pin the memory of every input that lives on another stream (released in `WgpuStream::flush`).
-        let mut pins = self.scheduler.stream(&stream_id).acquire_pins();
         args.buffers.iter().for_each(|b| {
             self.streams_pool.push(b.stream);
             if b.stream != stream_id {
-                pins.push(b.memory.clone());
+                shared_inputs.push(b.memory.clone());
             }
         });
 
@@ -408,7 +409,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             pipeline,
             count,
             resources,
-            pins,
+            shared_inputs,
         };
 
         self.scheduler.register(stream_id, task, &self.streams_pool);

@@ -27,7 +27,7 @@ use cubecl_core::{
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{ManagedMemoryBinding, ManagedMemoryHandle},
+    memory_management::{ManagedMemoryHandle, SharedMemoryBindings},
     timestamp_profiler::TimestampProfiler,
 };
 #[cfg(renderdoc)]
@@ -68,8 +68,9 @@ pub struct WgpuStream {
     /// Cross-stream input bindings for tasks recorded but not yet submitted.
     /// Kept alive here until the next `flush` ties their release to the submission's completion.
     /// See [`ScheduleTask::Execute::pins`](crate::schedule::ScheduleTask).
-    pending_pins: Vec<ManagedMemoryBinding>,
-    pins_pool: Vec<Vec<ManagedMemoryBinding>>,
+    shared_bindings: SharedMemoryBindings,
+    /// Pool of shared bindings buffers, bounded by the scheduler's in-flight task window (`tasks_max`).
+    shared_bindings_pool: Vec<SharedMemoryBindings>,
 }
 
 impl WgpuStream {
@@ -138,22 +139,24 @@ impl WgpuStream {
             poll,
             submission_load: SubmissionLoad::default(),
             pending_write_count: 0,
-            pending_pins: Vec::new(),
-            pins_pool: Vec::with_capacity(tasks_max),
+            shared_bindings: SharedMemoryBindings::default(),
+            shared_bindings_pool: Vec::with_capacity(tasks_max),
         }
     }
 
-    /// Take a recycled `pins` buffer to fill for the next [`ScheduleTask::Execute`].
+    /// Take a recycled shared-bindings buffer to fill for the next [`ScheduleTask::Execute`].
     ///
     /// Buffers are returned to the pool once drained in [`Self::enqueue_task`], so in steady
     /// state this reuses allocations instead of creating a fresh `Vec` per launch.
-    pub fn acquire_pins(&mut self) -> Vec<ManagedMemoryBinding> {
-        self.pins_pool.pop().unwrap_or_default()
+    pub fn acquire_shared_bindings(&mut self) -> SharedMemoryBindings {
+        self.shared_bindings_pool.pop().unwrap_or_default()
     }
 
-    /// Recycle an emptied `pins` buffer.
-    fn recycle_pins(&mut self, pins: Vec<ManagedMemoryBinding>) {
-        self.pins_pool.push(pins);
+    /// Return a drained shared-bindings buffer to the pool for reuse.
+    fn recycle_shared_bindings(&mut self, bindings: SharedMemoryBindings) {
+        if bindings.bindings.capacity() > 0 {
+            self.shared_bindings_pool.push(bindings);
+        }
     }
 
     /// Enqueue a [`ScheduleTask`] on this stream.
@@ -179,10 +182,12 @@ impl WgpuStream {
                 pipeline,
                 count,
                 resources,
-                mut pins,
+                mut shared_inputs,
             } => {
-                self.pending_pins.append(&mut pins);
-                self.recycle_pins(pins);
+                self.shared_bindings
+                    .bindings
+                    .append(&mut shared_inputs.bindings);
+                self.recycle_shared_bindings(shared_inputs);
                 let (resources, custom_handles, addresses) = resources.into_resources(self);
                 self.register_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
             }
@@ -531,7 +536,7 @@ impl WgpuStream {
 
     pub fn flush(&mut self, mode: StreamErrorMode) -> Result<(), ServerError> {
         if self.tasks_count == 0 {
-            self.pending_pins.clear();
+            self.shared_bindings.clear();
             return self.flush_errors(mode);
         }
 
@@ -553,8 +558,8 @@ impl WgpuStream {
         let index = self.queue.submit([tasks_encoder.finish()]);
 
         // Release cross-stream input pins.
-        if !self.pending_pins.is_empty() {
-            let pins = core::mem::take(&mut self.pending_pins);
+        if !self.shared_bindings.is_empty() {
+            let pins = core::mem::take(&mut self.shared_bindings);
             self.queue.on_submitted_work_done(move || {
                 drop(pins);
             });
