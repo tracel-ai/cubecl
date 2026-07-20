@@ -26,7 +26,7 @@ use cubecl_core::{
 use cubecl_core::{cache::CacheOption, compilation_cache::CompilationCache, hash::StableHash};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
-use cubecl_runtime::memory_management::{ManagedMemoryBinding, ManagedMemoryHandle, MemoryUsage};
+use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage};
 use cubecl_runtime::{
     compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -387,7 +387,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
 
         self.streams_pool.clear();
         // Pin the memory of every input that lives on another stream (released in `WgpuStream::flush`).
-        let mut pins: Vec<ManagedMemoryBinding> = Vec::new();
+        let mut pins = self.scheduler.stream(&stream_id).acquire_pins();
         args.buffers.iter().for_each(|b| {
             self.streams_pool.push(b.stream);
             if b.stream != stream_id {

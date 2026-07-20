@@ -69,6 +69,7 @@ pub struct WgpuStream {
     /// Kept alive here until the next `flush` ties their release to the submission's completion.
     /// See [`ScheduleTask::Execute::pins`](crate::schedule::ScheduleTask).
     pending_pins: Vec<ManagedMemoryBinding>,
+    pins_pool: Vec<Vec<ManagedMemoryBinding>>,
 }
 
 impl WgpuStream {
@@ -138,7 +139,21 @@ impl WgpuStream {
             submission_load: SubmissionLoad::default(),
             pending_write_count: 0,
             pending_pins: Vec::new(),
+            pins_pool: Vec::with_capacity(tasks_max),
         }
+    }
+
+    /// Take a recycled `pins` buffer to fill for the next [`ScheduleTask::Execute`].
+    ///
+    /// Buffers are returned to the pool once drained in [`Self::enqueue_task`], so in steady
+    /// state this reuses allocations instead of creating a fresh `Vec` per launch.
+    pub fn acquire_pins(&mut self) -> Vec<ManagedMemoryBinding> {
+        self.pins_pool.pop().unwrap_or_default()
+    }
+
+    /// Recycle an emptied `pins` buffer.
+    fn recycle_pins(&mut self, pins: Vec<ManagedMemoryBinding>) {
+        self.pins_pool.push(pins);
     }
 
     /// Enqueue a [`ScheduleTask`] on this stream.
@@ -167,6 +182,7 @@ impl WgpuStream {
                 mut pins,
             } => {
                 self.pending_pins.append(&mut pins);
+                self.recycle_pins(pins);
                 let (resources, custom_handles, addresses) = resources.into_resources(self);
                 self.register_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
             }
