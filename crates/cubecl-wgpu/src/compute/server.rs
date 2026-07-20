@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use super::storage::{WgpuResource, WgpuStorage};
 use crate::WgpuCompiler;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
+use crate::shared_bindings::SharedBindingsPool;
 use alloc::sync::Arc;
 use cubecl_common::{
     backtrace::BackTrace,
@@ -72,6 +73,8 @@ pub struct WgpuServer<C: WgpuCompiler> {
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
+    /// Reusable buffers for the cross-stream input bindings of each launch.
+    shared_bindings_pool: SharedBindingsPool,
     _compiler: PhantomData<C>,
 }
 
@@ -139,6 +142,9 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             },
             backend,
             utilities: Arc::new(utilities),
+            shared_bindings_pool: SharedBindingsPool::with_capacity(
+                tasks_max * max_streams as usize,
+            ),
             _compiler: PhantomData,
         }
     }
@@ -386,8 +392,9 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         };
 
         self.streams_pool.clear();
-        // Reuse a recycled buffer from the target stream's pool to avoid allocating on every launch.
-        let mut shared_inputs = self.scheduler.stream(&stream_id).acquire_shared_bindings();
+        // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
+        // automatically when the guard drops.
+        let mut shared_inputs = self.shared_bindings_pool.acquire();
         // Pin the memory of every input that lives on another stream (released in `WgpuStream::flush`).
         args.buffers.iter().for_each(|b| {
             self.streams_pool.push(b.stream);

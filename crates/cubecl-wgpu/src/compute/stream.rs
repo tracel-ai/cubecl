@@ -69,8 +69,6 @@ pub struct WgpuStream {
     /// Kept alive here until the next `flush` ties their release to the submission's completion.
     /// See [`ScheduleTask::Execute::pins`](crate::schedule::ScheduleTask).
     shared_bindings: SharedMemoryBindings,
-    /// Pool of shared bindings buffers, bounded by the scheduler's in-flight task window (`tasks_max`).
-    shared_bindings_pool: Vec<SharedMemoryBindings>,
 }
 
 impl WgpuStream {
@@ -140,22 +138,6 @@ impl WgpuStream {
             submission_load: SubmissionLoad::default(),
             pending_write_count: 0,
             shared_bindings: SharedMemoryBindings::default(),
-            shared_bindings_pool: Vec::with_capacity(tasks_max),
-        }
-    }
-
-    /// Take a recycled shared-bindings buffer to fill for the next [`ScheduleTask::Execute`].
-    ///
-    /// Buffers are returned to the pool once drained in [`Self::enqueue_task`], so in steady
-    /// state this reuses allocations instead of creating a fresh `Vec` per launch.
-    pub fn acquire_shared_bindings(&mut self) -> SharedMemoryBindings {
-        self.shared_bindings_pool.pop().unwrap_or_default()
-    }
-
-    /// Return a drained shared-bindings buffer to the pool for reuse.
-    fn recycle_shared_bindings(&mut self, bindings: SharedMemoryBindings) {
-        if bindings.bindings.capacity() > 0 {
-            self.shared_bindings_pool.push(bindings);
         }
     }
 
@@ -184,10 +166,11 @@ impl WgpuStream {
                 resources,
                 mut shared_inputs,
             } => {
+                // Drain into the stream's pending pins; the guard returns its buffer to the
+                // server pool when it drops at the end of this arm.
                 self.shared_bindings
                     .bindings
                     .append(&mut shared_inputs.bindings);
-                self.recycle_shared_bindings(shared_inputs);
                 let (resources, custom_handles, addresses) = resources.into_resources(self);
                 self.register_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
             }

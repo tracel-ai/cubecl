@@ -1,6 +1,6 @@
 use crate::{
-    CompilerInfo, ParamsTransfer, WgpuResource, stream::WgpuStream,
-    timings::TimestampQuerySetBudget,
+    CompilerInfo, ParamsTransfer, WgpuResource, shared_bindings::SharedBindingsGuard,
+    stream::WgpuStream, timings::TimestampQuerySetBudget,
 };
 use alloc::sync::Arc;
 use cubecl_common::{bytes::Bytes, profile::TimingMethod};
@@ -12,7 +12,6 @@ use cubecl_core::{
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::SharedMemoryBindings,
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
 
@@ -37,7 +36,9 @@ pub enum ScheduleTask {
         /// task's submission completes on the GPU.
         ///
         /// [`WgpuStream::flush`] ties its release to the consuming submission's completion.
-        shared_inputs: SharedMemoryBindings,
+        /// Pooled buffer returned to [`SharedBindingsPool`](crate::shared_bindings::SharedBindingsPool)
+        /// when this task is drained and the guard drops.
+        shared_inputs: SharedBindingsGuard,
     },
 }
 
