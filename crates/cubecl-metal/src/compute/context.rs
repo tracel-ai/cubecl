@@ -61,11 +61,10 @@ impl MetalContext {
             msl_cache: {
                 use cubecl_runtime::config::RuntimeConfig;
                 let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
-                if let Some(cache) = &config.compilation.cache {
-                    let root = cache.root();
+                if config.compilation.cache {
                     Some(KvStore::open(
                         "msl",
-                        KvStoreOptions::default().name("metal").root(root),
+                        KvStoreOptions::default().name("metal"),
                     ))
                 } else {
                     None

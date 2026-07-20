@@ -62,15 +62,14 @@ impl HipContext {
             compilation_cache: {
                 use cubecl_runtime::config::RuntimeConfig;
                 let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
-                if let Some(cache) = &config.compilation.cache {
-                    let root = cache.root();
+                if config.compilation.cache {
                     // The architecture is part of the path: binaries built for
                     // one arch are not portable, and fingerprinting the path
                     // keeps bundles shipped across machines from serving wrong
                     // binaries.
                     Some(BlobStore::new(
                         format!("hip-kernel_{arch_name}"),
-                        KvStoreOptions::default().name("hip").root(root),
+                        KvStoreOptions::default().name("hip"),
                     ))
                 } else {
                     None

@@ -29,7 +29,29 @@ pub const DEFAULT: &str = "default";
 #[cfg(feature = "cache")]
 pub const EXTENSION: &str = "db";
 
-static ACTIVE: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(String::from(DEFAULT)));
+/// The active environment: its name, and where environments are kept.
+///
+/// Both live here rather than being passed per store, because an environment
+/// *is* the store: letting one cache be opened under a different root would
+/// make "a single environment" untrue.
+#[derive(Debug, Clone)]
+struct Active {
+    name: String,
+    #[cfg(feature = "cache")]
+    root: Option<std::path::PathBuf>,
+}
+
+static ACTIVE: Lazy<Mutex<Active>> = Lazy::new(|| {
+    Mutex::new(Active {
+        name: String::from(DEFAULT),
+        #[cfg(feature = "cache")]
+        root: None,
+    })
+});
+
+fn active_state() -> Active {
+    ACTIVE.lock().expect("Lock recovers from poisoning").clone()
+}
 
 /// Makes `name` the active environment.
 ///
@@ -39,12 +61,38 @@ pub fn activate<N: AsRef<str>>(name: N) {
     let name = sanitize(name.as_ref());
     log::debug!("Activating environment '{name}'");
 
-    *ACTIVE.lock().expect("Lock recovers from poisoning") = name;
+    ACTIVE.lock().expect("Lock recovers from poisoning").name = name;
 }
 
 /// The active environment.
 pub fn active() -> String {
-    ACTIVE.lock().expect("Lock recovers from poisoning").clone()
+    active_state().name
+}
+
+/// Sets the directory environments are kept in.
+///
+/// Like [`activate`], this only affects stores opened afterwards.
+#[cfg(feature = "cache")]
+pub fn set_root<P: Into<std::path::PathBuf>>(root: P) {
+    let root = root.into();
+    log::debug!("Environments rooted at {root:?}");
+
+    ACTIVE.lock().expect("Lock recovers from poisoning").root = Some(root);
+}
+
+/// The directory environments are kept in, defaulting to the standard cache
+/// root.
+#[cfg(feature = "cache")]
+pub fn root() -> std::path::PathBuf {
+    active_state()
+        .root
+        .unwrap_or_else(|| crate::persistence::CacheConfig::default().root())
+}
+
+/// The database file of the active environment.
+#[cfg(feature = "cache")]
+pub fn path() -> std::path::PathBuf {
+    root().join(file_name(&active()))
 }
 
 /// The file name holding the active environment inside a cache root.
@@ -77,10 +125,10 @@ fn sanitize(name: &str) -> String {
     cleaned
 }
 
-/// Every environment that exists under `root`, sorted by name.
+/// Every environment that exists, sorted by name.
 #[cfg(feature = "cache")]
-pub fn list(root: &std::path::Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(root) else {
+pub fn list() -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(root()) else {
         return Vec::new();
     };
 
@@ -103,8 +151,8 @@ pub fn list(root: &std::path::Path) -> Vec<String> {
 /// This is what you consult before bundling, to see which namespaces are warm
 /// and worth shipping.
 #[cfg(feature = "cache")]
-pub fn namespaces(root: &std::path::Path) -> Vec<crate::persistence::NamespaceSummary> {
-    match crate::persistence::Database::open_root(root) {
+pub fn namespaces() -> Vec<crate::persistence::NamespaceSummary> {
+    match crate::persistence::Database::open_active() {
         Some(database) => database.summary(),
         // No database means nothing was ever written to disk; whatever this
         // process warmed is in memory.

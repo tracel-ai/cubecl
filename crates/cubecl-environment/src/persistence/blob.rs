@@ -1,10 +1,14 @@
-use std::{boxed::Box, cell::RefCell, string::String};
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::cell::RefCell;
 
 use hashbrown::HashMap;
-use serde::Serialize;
 
-use super::storage::{Origin, Storage};
-use super::store::{KvStoreOptions, StoreKey, StoreValue, decode, encode};
+use super::storage::Storage;
+use super::store::{
+    KvStoreOptions, StoreError, StoreKey, StoreValue, Written, decode, encode, write_through,
+};
 
 /// Values already read from the storage or a bundle.
 ///
@@ -17,23 +21,19 @@ type InMemoryCache<K, V> = RefCell<HashMap<K, Box<V>>>;
 /// Unlike [`KvStore`](super::KvStore), entries are read one key at a time and
 /// memoized, so opening a store holding hundreds of compiled kernels costs
 /// nothing until they are actually looked up.
+///
+/// It works over whichever [`Storage`] the target has. On an asynchronous one
+/// (browser storage) a lookup can miss until the background load finishes,
+/// which costs a recompile and nothing else.
 #[derive(Debug)]
-pub struct BlobStore<K: StoreKey, V: StoreValue> {
+pub struct BlobStore<K, V> {
     in_memory_cache: InMemoryCache<K, V>,
+    /// Values a later write replaced. [`Self::get_ref_unsafe`] may have handed
+    /// out a reference into one of them, so they are retired here rather than
+    /// dropped: the boxes stay put and the references stay valid.
+    superseded: RefCell<Vec<Box<V>>>,
     storage: Box<dyn Storage>,
     namespace: String,
-}
-
-/// Error related to the store.
-#[derive(Debug)]
-pub enum BlobStoreError<K: Serialize, V: Serialize> {
-    /// Can't insert an entry with the same key, but different value.
-    #[allow(missing_docs)]
-    DuplicatedKey {
-        key: K,
-        value_previous: V,
-        value_updated: V,
-    },
 }
 
 impl<K: StoreKey, V: StoreValue> BlobStore<K, V> {
@@ -44,20 +44,55 @@ impl<K: StoreKey, V: StoreValue> BlobStore<K, V> {
         fields(path = ?path.as_ref())))]
     pub fn new<P: AsRef<str>>(path: P, option: KvStoreOptions) -> Self {
         let mut option = option;
-        let root = option.resolve_root();
         let namespace = option.resolve_namespace(path.as_ref());
-        let storage = super::storage::open(root.to_str(), &namespace);
+        let storage = super::storage::open(&namespace);
 
         Self {
             in_memory_cache: InMemoryCache::default(),
+            superseded: RefCell::default(),
             storage,
             namespace,
+        }
+    }
+
+    /// Create a new store on an explicit storage, addressing `namespace`.
+    pub fn with_storage<S: Into<String>>(storage: Box<dyn Storage>, namespace: S) -> Self {
+        Self {
+            in_memory_cache: InMemoryCache::default(),
+            superseded: RefCell::default(),
+            storage,
+            namespace: namespace.into(),
         }
     }
 
     /// The namespace this store addresses.
     pub fn namespace(&self) -> &str {
         &self.namespace
+    }
+
+    /// The storage this store caches.
+    pub fn storage(&self) -> &dyn Storage {
+        self.storage.as_ref()
+    }
+
+    /// Fetch an item from the memo alone, without falling through to the
+    /// storage. Used by [`KvStore`](super::KvStore), whose memo is complete
+    /// after its initial load, so a miss there is genuinely a miss and must
+    /// not cost a query.
+    pub(crate) fn get_memoized(&self, key: &K) -> Option<&V> {
+        self.get_ref_unsafe(key)
+    }
+
+    /// How many entries are memoized.
+    pub(crate) fn memoized_len(&self) -> usize {
+        self.in_memory_cache.borrow().len()
+    }
+
+    /// Visits every memoized entry.
+    pub(crate) fn for_each_memoized<F: FnMut(&K, &V)>(&self, mut func: F) {
+        for (key, value) in self.in_memory_cache.borrow().iter() {
+            func(key, value);
+        }
     }
 
     /// Fetch an item from the store, reading it from the storage on the first
@@ -69,12 +104,20 @@ impl<K: StoreKey, V: StoreValue> BlobStore<K, V> {
 
         let bytes = self.storage.get(&encode(key))?;
         let value = decode::<V>(&bytes)?;
-        self.in_memory_cache
-            .borrow_mut()
-            .entry(key.clone())
-            .or_insert_with(|| Box::new(value));
+        self.memoize(key.clone(), value);
 
         self.get_ref_unsafe(key)
+    }
+
+    /// Records `value` in the memo, retiring anything it replaces.
+    pub(crate) fn memoize(&self, key: K, value: V) {
+        if let Some(previous) = self
+            .in_memory_cache
+            .borrow_mut()
+            .insert(key, Box::new(value))
+        {
+            self.superseded.borrow_mut().push(previous);
+        }
     }
 
     /// Unsafely construct a reference of lifetime 'self, ignoring the read guard.
@@ -94,63 +137,55 @@ impl<K: StoreKey, V: StoreValue> BlobStore<K, V> {
 
     /// Insert a new item to the store.
     ///
-    /// Returns an error when a different value is already stored under `key`,
-    /// whether it was inserted by this process or concurrently by another one.
-    pub fn insert(&mut self, key: K, value: V) -> Result<(), BlobStoreError<K, V>> {
-        if let Some(existing) = self.get(&key) {
-            return if existing != &value {
-                Err(BlobStoreError::DuplicatedKey {
-                    key: key.clone(),
-                    value_previous: existing.clone(),
+    /// Insert-only, with the one exception the storage arbitrates: a locally
+    /// computed value replaces one that came from a bundle, so a stale
+    /// imported kernel can never wedge compilation. Any other collision
+    /// returns [`StoreError::DuplicatedKey`] and leaves the stored value
+    /// alone.
+    pub fn insert(&mut self, key: K, value: V) -> Result<(), StoreError<K, V>> {
+        if let Some(existing) = self.get_memoized(&key)
+            && existing == &value
+        {
+            return Ok(());
+        }
+
+        // Only the memo is consulted above: `write_through` asks the storage
+        // atomically, so reading it first would cost a second round trip and
+        // still not know whether the existing entry is imported.
+        match write_through(self.storage.as_ref(), &key, &value) {
+            Written::Stored => {
+                self.memoize(key, value);
+                Ok(())
+            }
+            Written::Conflict(existing) => {
+                self.memoize(key.clone(), existing.clone());
+
+                Err(StoreError::DuplicatedKey {
+                    key,
+                    value_previous: existing,
                     value_updated: value,
                 })
-            } else {
-                Ok(())
-            };
+            }
         }
-
-        if let Some(existing) = self
-            .storage
-            .insert(&encode(&key), &encode(&value), Origin::Local)
-            && let Some(existing) = decode::<V>(&existing)
-            && existing != value
-        {
-            // Another process won the race with a different value. It is the
-            // durable one, so memoize it rather than ours. `or_insert` and
-            // never `insert`: `get_ref_unsafe` hands out references whose
-            // validity depends on boxes never being dropped.
-            self.in_memory_cache
-                .borrow_mut()
-                .entry(key.clone())
-                .or_insert_with(|| Box::new(existing.clone()));
-
-            return Err(BlobStoreError::DuplicatedKey {
-                key,
-                value_previous: existing,
-                value_updated: value,
-            });
-        }
-
-        self.in_memory_cache
-            .borrow_mut()
-            .entry(key)
-            .or_insert_with(|| Box::new(value));
-
-        Ok(())
     }
 }
 
-#[cfg(test)]
+// The tests reopen the store, which only persists with a real storage.
+#[cfg(all(test, feature = "cache"))]
 mod tests {
+    use std::vec;
+
     use super::*;
     use crate::bytes::Bytes;
     use std::string::ToString;
 
     #[test_log::test]
+    #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
     fn values_survive_reopen_and_load_lazily() {
         let dir = tempfile::tempdir().unwrap();
-        let options = || KvStoreOptions::default().root(dir.path()).name("kernels");
+        crate::environment::set_root(dir.path());
+        let options = || KvStoreOptions::default().name("kernels");
 
         let mut cache = BlobStore::<String, Bytes>::new("ptx_sm90", options());
         cache
@@ -184,10 +219,12 @@ mod tests {
     }
 
     #[test_log::test]
+    #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
     fn reinserting_a_different_value_errors() {
         let dir = tempfile::tempdir().unwrap();
-        let option = KvStoreOptions::default().root(dir.path()).name("kernels");
+        crate::environment::set_root(dir.path());
+        let option = KvStoreOptions::default().name("kernels");
 
         let mut cache = BlobStore::<String, Bytes>::new("ptx_sm90", option);
         let kernel = |byte: u8| Bytes::from_bytes_vec(std::vec![byte]);

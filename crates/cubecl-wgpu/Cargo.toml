@@ -35,7 +35,6 @@ spirv = [
     "cubecl-spirv",
     "ash",
     "tracel-ash",
-    "cubecl-environment/blob-store",
     "cubecl-common/hash",
 ]
 

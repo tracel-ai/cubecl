@@ -94,12 +94,13 @@ impl Database {
     /// Returns `None` when the database can't be opened — a read-only mount, a
     /// sandboxed application bundle, a missing parent directory. Callers fall
     /// back to memory-only persistence rather than failing.
-    pub fn open_root(root: &Path) -> Option<Self> {
-        Self::open_environment(root, &crate::environment::active())
+    pub fn open_active() -> Option<Self> {
+        Self::open_at(crate::environment::root(), &crate::environment::active())
     }
 
     /// Opens the database of a named environment under `root`.
-    pub fn open_environment(root: &Path, environment: &str) -> Option<Self> {
+    pub fn open_at<P: AsRef<Path>>(root: P, environment: &str) -> Option<Self> {
+        let root = root.as_ref();
         let path = root.join(db_file_name(environment));
 
         let mut opened = OPENED.lock().expect("Lock recovers from poisoning");

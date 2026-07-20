@@ -130,11 +130,10 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             #[cfg(feature = "spirv")]
             spirv_cache: {
                 let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
-                if let Some(cache) = &config.compilation.cache {
-                    let root = cache.root();
+                if config.compilation.cache {
                     Some(BlobStore::new(
                         format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
-                        KvStoreOptions::default().name("vulkan").root(root),
+                        KvStoreOptions::default().name("vulkan"),
                     ))
                 } else {
                     None

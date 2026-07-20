@@ -1,14 +1,10 @@
 #[cfg(std_io)]
 use cubecl_environment::persistence::{KvStore, KvStoreOptions};
 
-use crate::{
-    config::CubeClRuntimeConfig,
-    throughput::{ThroughputKey, ThroughputValue},
-};
+use crate::throughput::{ThroughputKey, ThroughputValue};
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use cubecl_environment::collections::HashMap;
-use cubecl_environment::config::RuntimeConfig;
 use cubecl_environment::sync::Mutex;
 
 static GLOBAL_CACHE: Mutex<Option<HashMap<String, Arc<Mutex<ThroughputCache>>>>> = Mutex::new(None);
@@ -47,8 +43,7 @@ impl ThroughputCache {
 
         #[cfg(std_io)]
         {
-            let root = CubeClRuntimeConfig::get().throughput.cache.root();
-            let options = KvStoreOptions::default().root(root).name("throughput");
+            let options = KvStoreOptions::default().name("throughput");
 
             Self {
                 cache: KvStore::open(name, options),

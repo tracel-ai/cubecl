@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 #[cfg(autotune_persistence)]
 use cubecl_environment::persistence::KvStore;
 #[cfg(autotune_persistence)]
-use cubecl_environment::persistence::KvStoreError;
+use cubecl_environment::persistence::StoreError;
 #[cfg(autotune_persistence)]
 use serde::{Deserialize, Serialize};
 
@@ -124,12 +124,7 @@ impl<K: AutotuneKey> TuneCache<K> {
                 };
             }
 
-            #[allow(unused_mut)]
-            let mut options = cubecl_environment::persistence::KvStoreOptions::default();
-            #[cfg(std_io)]
-            {
-                options = options.root(config.autotune.cache.root());
-            }
+            let options = cubecl_environment::persistence::KvStoreOptions::default();
             let mut cache = TuneCache {
                 in_memory_cache: HashMap::new(),
                 persistent_cache: Some(KvStore::open(
@@ -274,7 +269,7 @@ impl<K: AutotuneKey> TuneCache<K> {
                 results,
             },
         ) {
-            let KvStoreError::DuplicatedKey {
+            let StoreError::DuplicatedKey {
                 key,
                 value_previous,
                 value_updated,

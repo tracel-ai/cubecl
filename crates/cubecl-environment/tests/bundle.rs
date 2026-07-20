@@ -9,8 +9,11 @@ use cubecl_environment::persistence::{Database, KvStore, KvStoreOptions};
 // Storage resolves through the process-global active environment, so these
 // tests are serialized: only one environment is active at a time by design.
 
+/// Pins the environment to `root`, which is process-global; every test here
+/// is serialized for that reason.
 fn options(root: &std::path::Path, name: &str) -> KvStoreOptions {
-    KvStoreOptions::default().root(root).name(name)
+    cubecl_environment::environment::set_root(root);
+    KvStoreOptions::default().name(name)
 }
 
 /// Warms `root` with one namespace's worth of entries, as an application run
@@ -34,6 +37,16 @@ fn export_to(root: &std::path::Path, out: &std::path::Path, format: BundleFormat
         ..Default::default()
     };
     export(&[root], out, &options).unwrap();
+}
+
+/// Imports into `root`, which becomes the active environment first: `import`
+/// fills whichever environment is active.
+fn import_into(
+    root: &std::path::Path,
+    bundle: &dyn Bundle,
+) -> cubecl_environment::bundle::ImportReport {
+    cubecl_environment::environment::set_root(root);
+    import(bundle)
 }
 
 fn open_bundle(path: &std::path::Path, format: BundleFormat) -> Box<dyn Bundle> {
@@ -65,7 +78,7 @@ fn importing_fills_the_storage_and_the_bundle_becomes_irrelevant() {
         export_to(warm_root.path(), &bundle_path, format);
 
         let bundle = open_bundle(&bundle_path, format);
-        let report = import(bundle.as_ref(), cold_root.path().to_str());
+        let report = import_into(cold_root.path(), bundle.as_ref());
         assert_eq!(report.imported, 2, "{format:?}");
         assert_eq!(report.skipped, 0, "{format:?}");
 
@@ -93,10 +106,10 @@ fn importing_is_idempotent() {
 
     let bundle = open_bundle(&bundle_path, BundleFormat::Sqlite);
 
-    let first = import(bundle.as_ref(), cold_root.path().to_str());
+    let first = import_into(cold_root.path(), bundle.as_ref());
     assert_eq!((first.imported, first.skipped), (1, 0));
 
-    let second = import(bundle.as_ref(), cold_root.path().to_str());
+    let second = import_into(cold_root.path(), bundle.as_ref());
     assert_eq!(
         (second.imported, second.skipped),
         (0, 1),
@@ -128,7 +141,7 @@ fn importing_never_overwrites_a_local_value() {
     );
 
     let bundle = open_bundle(&bundle_path, BundleFormat::Sqlite);
-    let report = import(bundle.as_ref(), local_root.path().to_str());
+    let report = import_into(local_root.path(), bundle.as_ref());
     assert_eq!((report.imported, report.skipped), (0, 1));
 
     let store = open(local_root.path(), "autotune", "device0/matmul");
@@ -153,7 +166,7 @@ fn a_local_value_replaces_a_stale_imported_one() {
     export_to(warm_root.path(), &bundle_path, BundleFormat::Sqlite);
 
     let bundle = open_bundle(&bundle_path, BundleFormat::Sqlite);
-    import(bundle.as_ref(), local_root.path().to_str());
+    import_into(local_root.path(), bundle.as_ref());
 
     // The application disagrees with the shipped answer.
     let mut store = open(local_root.path(), "autotune", "device0/matmul");
@@ -162,7 +175,7 @@ fn a_local_value_replaces_a_stale_imported_one() {
 
     // It must stick, including across a reopen, and a re-import must not
     // resurrect the stale value.
-    let report = import(bundle.as_ref(), local_root.path().to_str());
+    let report = import_into(local_root.path(), bundle.as_ref());
     assert_eq!(report.imported, 0);
 
     let store = open(local_root.path(), "autotune", "device0/matmul");
@@ -189,7 +202,7 @@ fn importing_covers_every_namespace() {
     let bundle = open_bundle(&bundle_path, BundleFormat::Flat);
     assert_eq!(bundle.namespaces().len(), 2);
 
-    let report = import(bundle.as_ref(), cold_root.path().to_str());
+    let report = import_into(cold_root.path(), bundle.as_ref());
     assert_eq!(report.imported, 2);
     assert_eq!(report.namespaces.len(), 2);
 
@@ -218,7 +231,7 @@ fn a_cache_root_lists_its_namespaces() {
         &[("k", 2), ("j", 3)],
     );
 
-    let database = Database::open_root(root.path()).unwrap();
+    let database = Database::open_active().unwrap();
     let version = env!("CARGO_PKG_VERSION");
 
     assert_eq!(
@@ -265,7 +278,7 @@ fn exporting_several_roots_dedupes_shared_keys() {
     export(&[first.path(), second.path()], &bundle_path, &options).unwrap();
 
     let bundle = open_bundle(&bundle_path, BundleFormat::Sqlite);
-    let report = import(bundle.as_ref(), cold_root.path().to_str());
+    let report = import_into(cold_root.path(), bundle.as_ref());
     assert_eq!(report.imported, 3, "the shared key appears exactly once");
 
     let store = open(cold_root.path(), "autotune", "device0/matmul");
@@ -297,7 +310,7 @@ fn exporting_can_be_restricted_to_some_namespaces() {
     export(&[warm_root.path()], &bundle_path, &options).unwrap();
 
     let bundle = open_bundle(&bundle_path, BundleFormat::Sqlite);
-    import(bundle.as_ref(), cold_root.path().to_str());
+    import_into(cold_root.path(), bundle.as_ref());
 
     assert_eq!(
         open(cold_root.path(), "autotune", "device0/matmul").get(&"k".to_string()),
@@ -337,7 +350,7 @@ fn exporting_over_an_existing_bundle_replaces_it() {
     export_to(second_root.path(), &bundle_path, BundleFormat::Sqlite);
 
     let bundle = open_bundle(&bundle_path, BundleFormat::Sqlite);
-    import(bundle.as_ref(), cold_root.path().to_str());
+    import_into(cold_root.path(), bundle.as_ref());
 
     let store = open(cold_root.path(), "autotune", "device0/matmul");
     assert_eq!(store.get(&"new".to_string()), Some(&2));
@@ -446,11 +459,11 @@ fn environments_are_isolated_and_switchable() {
     );
 
     // Both are discoverable, each in its own file.
-    assert_eq!(environment::list(root.path()), vec!["first", "second"]);
+    assert_eq!(environment::list(), vec!["first", "second"]);
 
     // And the active one can report what it holds, which is what you consult
     // before bundling.
-    let namespaces = environment::namespaces(root.path());
+    let namespaces = environment::namespaces();
     assert_eq!(namespaces.len(), 1);
     assert_eq!(
         namespaces[0].namespace,
@@ -477,7 +490,7 @@ fn importing_targets_the_active_environment() {
 
     environment::activate("target");
     let bundle = open_bundle(&bundle_path, BundleFormat::Sqlite);
-    import(bundle.as_ref(), cold_root.path().to_str());
+    import_into(cold_root.path(), bundle.as_ref());
 
     assert_eq!(
         open(cold_root.path(), "autotune", "device0/matmul").get(&"k".to_string()),
@@ -489,5 +502,55 @@ fn importing_targets_the_active_environment() {
     assert_eq!(
         open(cold_root.path(), "autotune", "device0/matmul").get(&"k".to_string()),
         None
+    );
+}
+
+/// The same contract as `a_local_value_replaces_a_stale_imported_one`, for the
+/// lazy store. It used to short-circuit on its own memo and never let the
+/// storage arbitrate, so a stale imported kernel wedged compilation forever.
+#[test]
+#[serial_test::serial]
+fn a_local_blob_replaces_a_stale_imported_one() {
+    use cubecl_environment::persistence::blob::BlobStore;
+
+    let source = tempfile::tempdir().unwrap();
+    let target = tempfile::tempdir().unwrap();
+    let bundle_path = source.path().join("ship.bundle");
+
+    let kernels = |root: &std::path::Path| {
+        cubecl_environment::environment::set_root(root);
+        BlobStore::<String, Bytes>::new("spirv", KvStoreOptions::default())
+    };
+
+    kernels(source.path())
+        .insert("kernel".to_string(), Bytes::from_bytes_vec(vec![1u8]))
+        .unwrap();
+    export_to(source.path(), &bundle_path, BundleFormat::Sqlite);
+
+    let bundle = open_bundle(&bundle_path, BundleFormat::Sqlite);
+    cubecl_environment::environment::set_root(target.path());
+    assert_eq!(import_into(target.path(), bundle.as_ref()).imported, 1);
+
+    // The machine compiles a different kernel for the same key.
+    let mut store = kernels(target.path());
+    store
+        .insert("kernel".to_string(), Bytes::from_bytes_vec(vec![2u8]))
+        .expect("a local kernel must replace a stale imported one");
+
+    // Durable, and a re-import must not resurrect the shipped one.
+    assert_eq!(import_into(target.path(), bundle.as_ref()).imported, 0);
+    assert_eq!(
+        kernels(target.path())
+            .get(&"kernel".to_string())
+            .map(|v| v.to_vec()),
+        Some(vec![2u8])
+    );
+
+    // Now that it is local, a second disagreement is a plain conflict.
+    let mut store = kernels(target.path());
+    assert!(
+        store
+            .insert("kernel".to_string(), Bytes::from_bytes_vec(vec![3u8]))
+            .is_err()
     );
 }

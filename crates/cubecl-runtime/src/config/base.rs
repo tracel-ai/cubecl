@@ -56,6 +56,8 @@ impl RuntimeConfig for CubeClRuntimeConfig {
         // Before any device is initialized, so every cache opened afterwards
         // lands in the chosen environment.
         cubecl_environment::environment::activate(&self.environment.name);
+        #[cfg(std_io)]
+        cubecl_environment::environment::set_root(self.environment.path.root());
     }
 
     fn file_names() -> &'static [&'static str] {

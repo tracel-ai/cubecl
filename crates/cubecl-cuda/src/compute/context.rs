@@ -70,15 +70,14 @@ impl CudaContext {
             ptx_cache: {
                 use cubecl_runtime::config::RuntimeConfig;
                 let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
-                if let Some(cache) = &config.compilation.cache {
-                    let root = cache.root();
+                if config.compilation.cache {
                     // The architecture is part of the path: PTX built for one
                     // arch is not portable, and fingerprinting the path keeps
                     // bundles shipped across machines from serving wrong
                     // binaries.
                     Some(BlobStore::new(
                         format!("ptx_sm{}", arch.version),
-                        KvStoreOptions::default().name("cuda").root(root),
+                        KvStoreOptions::default().name("cuda"),
                     ))
                 } else {
                     None

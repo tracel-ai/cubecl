@@ -33,8 +33,8 @@ pub use sqlite::{Database, SqliteStorage, db_file_name};
 #[cfg(browser_cache)]
 pub(crate) mod browser;
 
-/// Store optimized for large values, loaded on demand rather than eagerly.
-#[cfg(feature = "blob-store")]
+/// A storage behind an in-memory cache, filled on demand. [`KvStore`] is this
+/// with everything loaded up front.
 pub mod blob;
 
 /// Cache root location selection.
@@ -44,16 +44,14 @@ mod root;
 #[cfg(feature = "cache")]
 pub use root::CacheConfig;
 
-/// The database-backed storage serving `namespace` in the cache root at
-/// `root`, degrading to process-wide memory when the database can't be opened.
+/// The database-backed storage serving `namespace` in the active
+/// environment, degrading to process-wide memory when the database can't be
+/// opened.
 #[cfg(feature = "cache")]
-pub(crate) fn open_database_storage(
-    root: &std::path::Path,
-    namespace: &str,
-) -> alloc::boxed::Box<dyn Storage> {
+pub(crate) fn open_database_storage(namespace: &str) -> alloc::boxed::Box<dyn Storage> {
     use alloc::{boxed::Box, string::ToString};
 
-    match Database::open_root(root) {
+    match Database::open_active() {
         Some(database) => Box::new(SqliteStorage::new(database, namespace.to_string())),
         None => Box::new(MemoryStorage::new(namespace)),
     }

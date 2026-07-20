@@ -33,7 +33,6 @@ cache = [
     "dep:etcetera",
     "dep:rusqlite",
 ]
-blob-store = ["cache"]
 default = ["std"]
 std = [
     "rand/std",
@@ -147,4 +146,4 @@ tokio = { workspace = true, default-features = false, features = [
 [[bench]]
 harness = false
 name = "kv_store"
-required-features = ["cache", "blob-store"]
+required-features = ["cache"]

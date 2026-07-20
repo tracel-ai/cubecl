@@ -21,8 +21,8 @@ fn key(index: usize) -> String {
 }
 
 fn warm(root: &std::path::Path) -> KvStore<String, u32> {
-    let mut store =
-        KvStore::<String, u32>::open("device0/matmul", KvStoreOptions::default().root(root));
+    cubecl_environment::environment::set_root(root);
+    let mut store = KvStore::<String, u32>::open("device0/matmul", KvStoreOptions::default());
 
     for index in 0..ENTRIES {
         store.insert(key(index), index as u32).ok();
@@ -111,10 +111,8 @@ fn blob_path(criterion: &mut Criterion) {
     use cubecl_environment::persistence::blob::BlobStore;
 
     let dir = tempfile::tempdir().unwrap();
-    let mut store = BlobStore::<String, Bytes>::new(
-        "spirv_device0",
-        KvStoreOptions::default().root(dir.path()),
-    );
+    cubecl_environment::environment::set_root(dir.path());
+    let mut store = BlobStore::<String, Bytes>::new("spirv_device0", KvStoreOptions::default());
 
     let keys: Vec<String> = (0..ENTRIES).map(key).collect();
     for key in &keys {
@@ -143,10 +141,9 @@ fn open_path(criterion: &mut Criterion) {
     for entries in [512usize, 4096] {
         let dir = tempfile::tempdir().unwrap();
         {
-            let mut store = KvStore::<String, u32>::open(
-                "device0/matmul",
-                KvStoreOptions::default().root(dir.path()),
-            );
+            cubecl_environment::environment::set_root(dir.path());
+            let mut store =
+                KvStore::<String, u32>::open("device0/matmul", KvStoreOptions::default());
             for index in 0..entries {
                 store.insert(key(index), index as u32).ok();
             }
@@ -154,10 +151,9 @@ fn open_path(criterion: &mut Criterion) {
 
         group.bench_function(format!("kv_store_open_{entries}"), |bencher| {
             bencher.iter(|| {
-                let store = KvStore::<String, u32>::open(
-                    "device0/matmul",
-                    KvStoreOptions::default().root(dir.path()),
-                );
+                cubecl_environment::environment::set_root(dir.path());
+                let store =
+                    KvStore::<String, u32>::open("device0/matmul", KvStoreOptions::default());
                 black_box(store.len())
             })
         });
@@ -166,5 +162,58 @@ fn open_path(criterion: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, read_path, write_path, blob_path, open_path);
+/// What a byte-level cache would cost: a decoder run on every read, rather
+/// than once per key ever.
+fn decode_cost(criterion: &mut Criterion) {
+    use cubecl_environment::bytes::Bytes;
+
+    #[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone, Debug)]
+    struct TuneValue {
+        fastest_index: usize,
+        timings: Vec<u64>,
+    }
+
+    let small = TuneValue {
+        fastest_index: 3,
+        timings: (0..8).collect(),
+    };
+    let small_bytes = {
+        let mut buffer = Vec::new();
+        ciborium::ser::into_writer(&small, &mut buffer).unwrap();
+        buffer
+    };
+
+    let kernel = Bytes::from_bytes_vec(std::vec![7u8; 4096]);
+    let kernel_bytes = {
+        let mut buffer = Vec::new();
+        ciborium::ser::into_writer(&kernel, &mut buffer).unwrap();
+        buffer
+    };
+
+    let mut group = criterion.benchmark_group("decode");
+    group.bench_function("autotune_value", |bencher| {
+        bencher.iter(|| {
+            let value: TuneValue =
+                ciborium::de::from_reader(black_box(small_bytes.as_slice())).unwrap();
+            black_box(value)
+        })
+    });
+    group.bench_function("kernel_4kib", |bencher| {
+        bencher.iter(|| {
+            let value: Bytes =
+                ciborium::de::from_reader(black_box(kernel_bytes.as_slice())).unwrap();
+            black_box(value)
+        })
+    });
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    read_path,
+    write_path,
+    blob_path,
+    open_path,
+    decode_cost
+);
 criterion_main!(benches);

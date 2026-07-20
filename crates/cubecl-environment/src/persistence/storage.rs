@@ -205,17 +205,15 @@ pub struct NamespaceSummary {
     pub bytes: u64,
 }
 
-/// Boxes the storage serving `namespace` on this target.
-pub(crate) fn open(
-    #[cfg_attr(not(feature = "cache"), allow(unused_variables))] root: Option<&str>,
-    namespace: &str,
-) -> Box<dyn Storage> {
+/// The storage serving `namespace` in the active environment.
+///
+/// The location is not a parameter: an environment is the store, so a cache
+/// can't be opened somewhere else without making "a single active
+/// environment" false. See [`crate::environment`].
+pub fn open(namespace: &str) -> Box<dyn Storage> {
     cfg_if::cfg_if! {
         if #[cfg(all(feature = "cache", not(target_family = "wasm")))] {
-            match root {
-                Some(root) => super::open_database_storage(std::path::Path::new(root), namespace),
-                None => Box::new(MemoryStorage::new(namespace)),
-            }
+            super::open_database_storage(namespace)
         } else if #[cfg(browser_cache)] {
             super::browser::open_storage(namespace)
         } else {

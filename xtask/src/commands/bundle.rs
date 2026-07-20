@@ -121,25 +121,22 @@ impl BundleArgs {
     }
 }
 
-fn cache_root(root: &Option<PathBuf>) -> PathBuf {
-    root.clone()
-        .unwrap_or_else(|| CacheConfig::default().root())
-}
-
 fn import(args: &ImportArgs) -> anyhow::Result<()> {
     if let Some(name) = &args.environment {
         environment::activate(name);
     }
-    let root = cache_root(&args.root);
+    if let Some(root) = &args.root {
+        environment::set_root(root);
+    }
 
     let bundle = open_bundle(&args.path)?;
-    let report = cubecl_environment::bundle::import(bundle.as_ref(), root.to_str());
+    let report = cubecl_environment::bundle::import(bundle.as_ref());
 
     info!(
         "Imported {} entries into environment '{}' at {:?} ({} already present)",
         report.imported,
         environment::active(),
-        root,
+        environment::root(),
         report.skipped,
     );
     for namespace in &report.namespaces {
@@ -153,10 +150,16 @@ fn namespaces(args: &NamespacesArgs) -> anyhow::Result<()> {
     if let Some(name) = &args.environment {
         environment::activate(name);
     }
-    let root = cache_root(&args.root);
-    let summary = environment::namespaces(&root);
+    if let Some(root) = &args.root {
+        environment::set_root(root);
+    }
+    let summary = environment::namespaces();
 
-    info!("Environment '{}' at {:?}", environment::active(), root);
+    info!(
+        "Environment '{}' at {:?}",
+        environment::active(),
+        environment::root()
+    );
     if summary.is_empty() {
         info!("  (no namespaces)");
         return Ok(());
@@ -167,10 +170,12 @@ fn namespaces(args: &NamespacesArgs) -> anyhow::Result<()> {
 }
 
 fn environments(args: &NamespacesArgs) -> anyhow::Result<()> {
-    let root = cache_root(&args.root);
-    let names = environment::list(&root);
+    if let Some(root) = &args.root {
+        environment::set_root(root);
+    }
+    let names = environment::list();
 
-    info!("Environments at {root:?}");
+    info!("Environments at {:?}", environment::root());
     if names.is_empty() {
         info!("  (none)");
         return Ok(());

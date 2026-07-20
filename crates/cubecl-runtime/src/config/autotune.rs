@@ -1,5 +1,4 @@
 #[cfg(std_io)]
-use super::cache::CacheConfig;
 use super::logger::{LogLevel, LoggerConfig};
 
 /// Configuration for autotuning in `CubeCL`.
@@ -12,11 +11,6 @@ pub struct AutotuneConfig {
     /// Autotune level, controlling the intensity of autotuning.
     #[serde(default)]
     pub level: AutotuneLevel,
-
-    /// Cache location for storing autotune results.
-    #[serde(default)]
-    #[cfg(std_io)]
-    pub cache: CacheConfig,
 
     /// Whether to disable the persistent cache of autotune results.
     ///

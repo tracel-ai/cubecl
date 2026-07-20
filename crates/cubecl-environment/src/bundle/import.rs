@@ -28,14 +28,14 @@ pub struct ImportReport {
 /// earlier. Entries land with [`Origin::Imported`], which lets a locally
 /// computed value replace them later if the bundle turns out to be stale.
 ///
-/// `root` is the cache root to fill. It is ignored on targets without a file
-/// system, which import into their process-wide memory or browser storage
-/// instead.
-pub fn import(bundle: &dyn Bundle, root: Option<&str>) -> ImportReport {
+/// Fills the *active* environment; switch with
+/// [`environment::activate`](crate::environment::activate) beforehand to
+/// target another one.
+pub fn import(bundle: &dyn Bundle) -> ImportReport {
     let mut report = ImportReport::default();
 
     for namespace in bundle.namespaces() {
-        let target = storage::open(root, &namespace);
+        let target = storage::open(&namespace);
         let mut imported = 0;
         let mut skipped = 0;
 

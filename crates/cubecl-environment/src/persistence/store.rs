@@ -4,12 +4,9 @@ use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use hashbrown::HashMap;
 use serde::{Serialize, de::DeserializeOwned};
 
-#[cfg(feature = "cache")]
-use std::path::PathBuf;
-
+use super::blob::BlobStore;
 use super::storage::{Origin, Storage};
 use crate::bytes::Bytes;
 
@@ -35,13 +32,12 @@ use crate::bytes::Bytes;
 /// value that came from a bundle, because a shipped bundle must never be able
 /// to wedge the application that imported it. See [`KvStore::insert`].
 pub struct KvStore<K, V> {
-    in_memory_cache: HashMap<K, V>,
-    storage: Box<dyn Storage>,
-    /// The namespace this instance addresses, `/`-separated:
-    /// `<name>/<version>/<segments>`.
-    namespace: String,
+    /// A store *is* a storage behind an in-memory cache, which is exactly what
+    /// [`BlobStore`] provides. The only thing added here is loading
+    /// everything up front, so reads never fall through to the storage.
+    blob: BlobStore<K, V>,
     /// `false` while an asynchronous storage may still deliver entries that
-    /// have not been ingested into [`Self::in_memory_cache`].
+    /// have not been ingested.
     loaded: bool,
 }
 
@@ -50,13 +46,12 @@ pub struct KvStore<K, V> {
 pub struct KvStoreOptions {
     version: Option<String>,
     name: Option<String>,
-    #[cfg(feature = "cache")]
-    root: Option<PathBuf>,
 }
 
-/// Error related to the store.
+/// Error related to a store, shared by [`KvStore`] and
+/// [`BlobStore`](super::blob::BlobStore).
 #[derive(Debug)]
-pub enum KvStoreError<K: Serialize, V: Serialize> {
+pub enum StoreError<K: Serialize, V: Serialize> {
     /// Can't insert an entry with the same key, but different value. The
     /// conflicting entry may have been inserted by this process or, on the
     /// file system storage, concurrently by another one.
@@ -81,23 +76,6 @@ impl KvStoreOptions {
         self
     }
 
-    /// The cache root holding the database file.
-    #[cfg(feature = "cache")]
-    pub fn root<R: Into<PathBuf>>(mut self, path: R) -> Self {
-        self.root = Some(path.into());
-        self
-    }
-
-    /// The cache root, defaulting to the user cache directory.
-    #[cfg(feature = "cache")]
-    pub(crate) fn resolve_root(&mut self) -> PathBuf {
-        self.root.take().unwrap_or_else(|| {
-            etcetera::home_dir()
-                .expect("An home directory should exist")
-                .join(".cache")
-        })
-    }
-
     /// The namespace for `path`: `<name>/<version>/<path>`.
     pub(crate) fn resolve_namespace(&mut self, path: &str) -> String {
         let version = self
@@ -120,8 +98,7 @@ impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone + Hash> StoreKey f
 impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone> StoreValue for T {}
 
 impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
-    /// Create a new store, picking the persistence storage for the current
-    /// environment, and load existing data if any.
+    /// Create a new store and load everything the storage holds.
     ///
     /// `path` is a `/`-separated logical location, namespaced under the store
     /// name and version from the options.
@@ -134,19 +111,10 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
         skip(path),
         fields(path = ?path.as_ref())))]
     pub fn open<P: AsRef<str>>(path: P, option: KvStoreOptions) -> Self {
-        let mut option = option;
-
-        #[cfg(feature = "cache")]
-        let root = option.resolve_root();
-        #[cfg(feature = "cache")]
-        let root = root.to_str();
-        #[cfg(not(feature = "cache"))]
-        let root: Option<&str> = None;
-
-        let namespace = option.resolve_namespace(path.as_ref());
-        let storage = super::storage::open(root, &namespace);
-
-        let mut this = Self::with_storage(storage, namespace);
+        let mut this = Self {
+            blob: BlobStore::new(path, option),
+            loaded: false,
+        };
         this.sync();
 
         this
@@ -154,32 +122,30 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
 
     /// Create a new store on an explicit storage, addressing `namespace`.
     ///
-    /// No initial synchronization is performed; call [`sync`](KvStore::sync)
-    /// to ingest existing content.
+    /// No initial load is performed; call [`sync`](KvStore::sync) to ingest
+    /// existing content.
     pub fn with_storage<S: Into<String>>(storage: Box<dyn Storage>, namespace: S) -> Self {
         Self {
-            in_memory_cache: HashMap::new(),
-            storage,
-            namespace: namespace.into(),
+            blob: BlobStore::with_storage(storage, namespace),
             loaded: false,
         }
     }
 
     /// The namespace this instance addresses.
     pub fn namespace(&self) -> &str {
-        &self.namespace
+        self.blob.namespace()
     }
 
-    /// Ingest the storage's entries into the in-memory map.
+    /// Ingest everything the storage holds into memory.
     pub fn sync(&mut self) {
         // Sampled before the scan: a load completing halfway through would
         // otherwise mark a partial snapshot as fully ingested.
-        let loading = self.storage.loading();
-        let entries = &mut self.in_memory_cache;
+        let loading = self.blob.storage().loading();
+        let blob = &self.blob;
 
-        self.storage.scan(&mut |key, value| {
-            if let Some(entry) = decode_entry::<K, V>(key, value) {
-                entries.insert(entry.0, entry.1);
+        blob.storage().scan(&mut |key, value| {
+            if let Some((key, value)) = decode_entry::<K, V>(key, value) {
+                blob.memoize(key, value);
             }
         });
 
@@ -189,7 +155,7 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
     /// Whether the storage is still loading its initial content
     /// asynchronously.
     pub fn loading(&self) -> bool {
-        self.storage.loading()
+        self.blob.storage().loading()
     }
 
     /// Whether asynchronously delivered content may still be waiting to be
@@ -204,29 +170,25 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, func))
     )]
-    pub fn for_each<F: FnMut(&K, &V)>(&mut self, mut func: F) {
+    pub fn for_each<F: FnMut(&K, &V)>(&mut self, func: F) {
         if self.pending_load() {
             self.sync();
         }
 
-        for (key, value) in self.in_memory_cache.iter() {
-            func(key, value);
-        }
+        self.blob.for_each_memoized(func);
     }
 
     /// Fetch an item from the store.
+    ///
+    /// Served from memory alone: everything the storage holds was loaded at
+    /// open, so a miss here is a miss, not a reason to query.
     pub fn get(&self, key: &K) -> Option<&V> {
-        self.in_memory_cache.get(key)
-    }
-
-    /// Return all values in the store.
-    pub fn values(&self) -> impl Iterator<Item = &V> {
-        self.in_memory_cache.values()
+        self.blob.get_memoized(key)
     }
 
     /// The size of the store.
     pub fn len(&self) -> usize {
-        self.in_memory_cache.len()
+        self.blob.memoized_len()
     }
 
     /// If the store is empty.
@@ -239,49 +201,15 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
     /// - Key absent: the entry is written to the storage.
     /// - Present with the same value: `Ok`, nothing written.
     /// - Present with a different value: an error,
-    ///   [`KvStoreError::DuplicatedKey`], and the stored value is left
+    ///   [`StoreError::DuplicatedKey`], and the stored value is left
     ///   untouched. This holds whether this process wrote it or another one
     ///   did concurrently.
     ///
     /// The exception is an entry that came from a bundle: the storage lets a
     /// locally computed value replace it, so a stale bundle can never wedge
     /// the application that imported it.
-    pub fn insert(&mut self, key: K, value: V) -> Result<(), KvStoreError<K, V>> {
-        if let Some(existing) = self.in_memory_cache.get(&key) {
-            // An imported entry is indistinguishable here, so the storage
-            // arbitrates: it returns `None` when it accepted the replacement.
-            if existing == &value {
-                return Ok(());
-            }
-        }
-
-        let key_bytes = encode(&key);
-        let value_bytes = encode(&value);
-
-        // The storage performs the presence check and the write atomically, so
-        // a concurrent writer in another process can't be clobbered.
-        if let Some(existing) = self.storage.insert(&key_bytes, &value_bytes, Origin::Local)
-            && let Some(existing) = decode::<V>(&existing)
-        {
-            let conflicting = existing != value;
-            // Whatever the storage kept is the durable value, so adopt it
-            // rather than pretending ours was stored.
-            self.in_memory_cache.insert(key.clone(), existing.clone());
-
-            if conflicting {
-                return Err(KvStoreError::DuplicatedKey {
-                    key,
-                    value_previous: existing,
-                    value_updated: value,
-                });
-            }
-
-            return Ok(());
-        }
-
-        self.in_memory_cache.insert(key, value);
-
-        Ok(())
+    pub fn insert(&mut self, key: K, value: V) -> Result<(), StoreError<K, V>> {
+        self.blob.insert(key, value)
     }
 }
 
@@ -290,10 +218,41 @@ impl<K: StoreKey, V: StoreValue> Display for KvStore<K, V> {
         write!(
             f,
             "{} ({} entries in {})",
-            self.namespace,
-            self.in_memory_cache.len(),
-            self.storage.describe()
+            self.namespace(),
+            self.len(),
+            self.blob.storage().describe()
         )
+    }
+}
+
+/// The outcome of writing an entry through to the storage.
+pub(crate) enum Written<V> {
+    /// The storage now holds this value, or already held an identical one.
+    Stored,
+    /// The storage kept a different value, which is the durable one.
+    Conflict(V),
+}
+
+/// Writes `value` through to `storage` and lets it arbitrate.
+///
+/// The storage decides what happens on a collision: it lets a local value
+/// replace an imported one, and otherwise refuses to overwrite. Both stores go
+/// through here, so the rule is identical for eager and lazy caches rather
+/// than reimplemented per store.
+pub(crate) fn write_through<K: StoreKey, V: StoreValue>(
+    storage: &dyn Storage,
+    key: &K,
+    value: &V,
+) -> Written<V> {
+    match storage.insert(&encode(key), &encode(value), Origin::Local) {
+        None => Written::Stored,
+        Some(existing) => match decode::<V>(&existing) {
+            Some(existing) if &existing != value => Written::Conflict(existing),
+            // Either the stored value is identical, or it can't be read back.
+            // An unreadable row is treated as stored so a corrupted entry
+            // reports a miss on the next open instead of wedging writes.
+            _ => Written::Stored,
+        },
     }
 }
 
@@ -322,13 +281,17 @@ fn decode_entry<K: StoreKey, V: StoreValue>(key: &[u8], value: &[u8]) -> Option<
 
 #[cfg(all(test, feature = "cache"))]
 mod tests {
+    use std::vec;
+
     use super::*;
 
     #[test_log::test]
+    #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
     fn test_cache_simple() {
         let dir = tempfile::tempdir().unwrap();
-        let option = KvStoreOptions::default().root(dir.path());
+        crate::environment::set_root(dir.path());
+        let option = KvStoreOptions::default();
 
         let key1 = || "key1".to_string();
         let key2 = || "key2".to_string();
@@ -359,12 +322,14 @@ mod tests {
     /// namespace a given set of options resolves to. Breaking either
     /// invalidates every existing cache on users' machines.
     #[test_log::test]
+    #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
     fn test_on_disk_format_is_stable() {
         use super::super::sqlite::{Database, db_file_name};
 
         let dir = tempfile::tempdir().unwrap();
-        let option = KvStoreOptions::default().root(dir.path()).name("golden");
+        crate::environment::set_root(dir.path());
+        let option = KvStoreOptions::default().name("golden");
 
         let mut cache = KvStore::<String, u32>::open("device0/matmul", option);
         cache.insert("shape=2x2".to_string(), 42).unwrap();
@@ -388,10 +353,12 @@ mod tests {
     /// A store reopened over the same root must see what the previous one
     /// wrote, without any bundle involved.
     #[test_log::test]
+    #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
     fn test_entries_survive_reopen() {
         let dir = tempfile::tempdir().unwrap();
-        let options = || KvStoreOptions::default().root(dir.path());
+        crate::environment::set_root(dir.path());
+        let options = || KvStoreOptions::default();
 
         let mut cache = KvStore::<String, u32>::open("reopen", options());
         cache.insert("key".to_string(), 7).unwrap();
@@ -403,10 +370,12 @@ mod tests {
 
     /// Two namespaces in the same root must not see each other's entries.
     #[test_log::test]
+    #[serial_test::serial]
     #[cfg_attr(miri, ignore)]
     fn test_stores_are_isolated() {
         let dir = tempfile::tempdir().unwrap();
-        let options = || KvStoreOptions::default().root(dir.path());
+        crate::environment::set_root(dir.path());
+        let options = || KvStoreOptions::default();
 
         let mut first = KvStore::<String, u32>::open("device0/matmul", options());
         first.insert("key".to_string(), 1).unwrap();
