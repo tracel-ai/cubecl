@@ -1,13 +1,13 @@
 use super::{compute_task::ComputeTask, schedule::BindingsResource, worker::Worker};
 use crate::{
     compiler::{
-        jit::{data::PlironData, engine::PlironEngine},
         PlironCompiler,
+        jit::{data::PlironData, engine::PlironEngine},
     },
     compute::{affinity::get_active_cores, notification::Notifications},
 };
 use cubecl_core::{
-    ir::MemoryDeviceProperties, prelude::CompiledKernel, CubeDim, MemoryConfiguration,
+    CubeDim, MemoryConfiguration, ir::MemoryDeviceProperties, prelude::CompiledKernel,
 };
 use cubecl_runtime::{
     logging::ServerLogger,
@@ -87,9 +87,9 @@ impl Threadpool {
     pub fn execute_data(
         &mut self,
         pliron_engine: PlironEngine,
-        _resources: BindingsResource,
+        resources: BindingsResource,
         cube_dim: CubeDim,
-        _cube_count: [u32; 3],
+        cube_count: [u32; 3],
     ) -> Notifications {
         let cube_dim_size = cube_dim.num_elems();
 

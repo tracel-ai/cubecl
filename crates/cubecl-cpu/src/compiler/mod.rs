@@ -1,10 +1,7 @@
 pub mod dialect;
 pub mod jit;
 
-#[cfg(feature = "pliron-dump")]
-use pliron::context::Context;
 use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
-// use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 #[cfg(feature = "pliron-dump")]
 use std::{path::PathBuf, str::FromStr};
 
@@ -13,10 +10,10 @@ use cubecl_opt::passes::simple_cse::SimpleCSEPass;
 use cubecl_runtime::compiler::CompilationError;
 
 use cubecl_core::{
+    Compiler,
     ir::rewrite::SimplifyOpsPass,
     post_processing::{bitwise::PromoteBitwisePass, disaggregate::DisaggregatePass},
     prelude::*,
-    Compiler,
 };
 use pliron::{
     builtin::ops::{FuncOp, ModuleOp},
