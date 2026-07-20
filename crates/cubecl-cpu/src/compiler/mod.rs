@@ -3,6 +3,7 @@ pub mod jit;
 
 #[cfg(feature = "pliron-dump")]
 use pliron::context::Context;
+use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 // use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 #[cfg(feature = "pliron-dump")]
 use std::{path::PathBuf, str::FromStr};
@@ -31,7 +32,7 @@ use pliron::{
 use crate::compiler::{
     dialect::{
         branch::CfToLlvmConversionPass, entrypoint::InsertConstantEmulationPass,
-        metadata::LowerBufferLenPass, to_llvm::CubeToLLVMPass,
+        metadata::LowerEntryAbiPass, to_llvm::CubeToLLVMPass,
     },
     jit::engine::PlironEngine,
 };
@@ -104,18 +105,19 @@ impl PlironCompiler {
         func_passes.add_pass(CfToLlvmConversionPass::default());
         func_passes.add_pass(SimplifyCFGPass);
         func_passes.add_pass(DCEPass);
-        func_passes.add_pass(LowerBufferLenPass::default());
+        func_passes.add_pass(LowerEntryAbiPass::default());
         func_passes.add_pass(CubeToLLVMPass::default());
         func_passes.add_pass(Mem2RegPass::default());
 
         passes.add_pass(NestedOpsPass::new(func_passes));
-        // passes.add_pass(builtin_to_llvm_pass());
+        passes.add_pass(builtin_to_llvm_pass());
 
         passes.run(module_op, &mut ctx, &mut analyses).unwrap();
 
         verify_operation(module_op, &ctx).expect("Failed to verify after control-flow lowering");
 
-        PlironEngine::default()
+        PlironEngine::compile(&ctx, module, &kernel.settings.kernel_name)
+            .expect("Failed to convert to LLVM IR")
     }
 }
 

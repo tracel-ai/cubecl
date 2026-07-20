@@ -1,49 +1,28 @@
 pub use super::prelude::*;
 use cubecl_core::ir::types::PointerType as CubePointerType;
-use cubecl_core::ir::types::scalar::{BoolType, IndexType};
-use pliron::builtin::types::{IntegerType, Signedness};
+use cubecl_core::ir::types::scalar::{BoolType, Float64Type, IndexType};
+use pliron::builtin::types::{FP64Type, IntegerType, Signedness};
 use pliron_llvm::types::PointerType as LlvmPointerType;
 
 /// LLVM width of a `cube.index`. `IndexType` is `size_of::<u64>()`, so it maps to `i64`.
 pub const INDEX_WIDTH: u32 = 64;
 
-/// Which LLVM type a cubecl type maps to.
-enum LlvmTypeKind {
-    /// A signless integer of the given width (LLVM integers carry no signedness).
-    SignlessInt(u32),
-    /// An opaque LLVM pointer
-    Pointer,
-    /// No conversion applies; keep the type as-is.
-    Identity,
-}
-
 /// Convert a cubecl type to its LLVM-dialect equivalent, or return it unchanged when no
 /// conversion applies.
 pub fn cube_type_to_llvm(ctx: &mut Context, ty: TypeHandle) -> TypeHandle {
-    let kind = {
-        let ty = ty.deref(ctx);
-        if let Some(int) = ty.downcast_ref::<IntegerType>() {
-            if int.signedness() != Signedness::Signless {
-                LlvmTypeKind::SignlessInt(int.width())
-            } else {
-                LlvmTypeKind::Identity
-            }
-        } else if ty.is::<BoolType>() {
-            LlvmTypeKind::SignlessInt(1)
-        } else if ty.is::<IndexType>() {
-            LlvmTypeKind::SignlessInt(INDEX_WIDTH)
-        } else if ty.is::<CubePointerType>() {
-            LlvmTypeKind::Pointer
-        } else {
-            LlvmTypeKind::Identity
-        }
-    };
-    match kind {
-        LlvmTypeKind::SignlessInt(width) => {
-            IntegerType::get(ctx, width, Signedness::Signless).into()
-        }
-        LlvmTypeKind::Pointer => LlvmPointerType::get(ctx, 0).into(),
-        LlvmTypeKind::Identity => ty,
+    let ty = ty.deref(ctx);
+    if let Some(int) = ty.downcast_ref::<IntegerType>() {
+        IntegerType::get(ctx, int.width(), Signedness::Signless).into()
+    } else if ty.is::<BoolType>() {
+        IntegerType::get(ctx, 1, Signedness::Signless).into()
+    } else if ty.is::<IndexType>() {
+        IntegerType::get(ctx, INDEX_WIDTH, Signedness::Signless).into()
+    } else if ty.is::<Float64Type>() {
+        FP64Type::get(ctx).into()
+    } else if ty.is::<CubePointerType>() {
+        LlvmPointerType::get(ctx, 0).into()
+    } else {
+        ty.get_self_handle(ctx)
     }
 }
 
@@ -79,6 +58,7 @@ impl DialectConversion for CubeToLLVM {
         ty.is::<CubePointerType>()
             || ty.is::<BoolType>()
             || ty.is::<IndexType>()
+            || ty.is::<Float64Type>()
             || matches!(
                 ty.downcast_ref::<IntegerType>(),
                 Some(int) if int.signedness() != Signedness::Signless

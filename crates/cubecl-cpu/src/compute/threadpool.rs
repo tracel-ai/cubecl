@@ -1,13 +1,13 @@
 use super::{compute_task::ComputeTask, schedule::BindingsResource, worker::Worker};
 use crate::{
     compiler::{
-        PlironCompiler,
         jit::{data::PlironData, engine::PlironEngine},
+        PlironCompiler,
     },
     compute::{affinity::get_active_cores, notification::Notifications},
 };
 use cubecl_core::{
-    CubeDim, MemoryConfiguration, ir::MemoryDeviceProperties, prelude::CompiledKernel,
+    ir::MemoryDeviceProperties, prelude::CompiledKernel, CubeDim, MemoryConfiguration,
 };
 use cubecl_runtime::{
     logging::ServerLogger,
@@ -98,18 +98,22 @@ impl Threadpool {
                 .extend((0..cube_dim_size - self.workers.len() as u32).map(|_| Worker::new()));
         }
 
-        let mlir_data = PlironData;
+        let BindingsResource { resources, info } = resources;
+        let buffer_ptrs = resources
+            .iter()
+            .map(|resource| resource.get_write_ptr_and_length().0 as *mut std::ffi::c_void)
+            .collect();
+        let base_data = PlironData::new(buffer_ptrs, info.data, cube_count);
 
         let notifications = Notifications::new(cube_dim_size);
         let mut workers = self.workers.iter_mut();
-        for _unit_pos_x in 0..cube_dim.x {
-            for _unit_pos_y in 0..cube_dim.y {
-                for _unit_pos_z in 0..cube_dim.z {
-                    // let unit_pos = [unit_pos_x, unit_pos_y, unit_pos_z];
+        for unit_pos_x in 0..cube_dim.x {
+            for unit_pos_y in 0..cube_dim.y {
+                for unit_pos_z in 0..cube_dim.z {
                     let worker = workers.next().expect("The CubeDim are too large");
                     let pliron_engine = pliron_engine.clone();
-                    let pliron_data = mlir_data.clone();
-                    // pliron_data.builtin.set_unit_pos(unit_pos);
+                    let mut pliron_data = base_data.clone();
+                    pliron_data.set_unit_pos([unit_pos_x, unit_pos_y, unit_pos_z]);
 
                     let notifications = notifications.clone();
                     let compute_task = ComputeTask {
