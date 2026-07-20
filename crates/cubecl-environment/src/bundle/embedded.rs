@@ -391,6 +391,12 @@ impl Bundle for EmbeddedBundle {
         }
     }
 
+    fn namespaces(&self) -> Vec<String> {
+        (0..self.namespaces.1)
+            .filter_map(|index| Some(alloc::string::ToString::to_string(self.namespace(index)?)))
+            .collect()
+    }
+
     fn describe(&self) -> String {
         alloc::format!("embedded bundle ({} entries)", self.entries.1)
     }

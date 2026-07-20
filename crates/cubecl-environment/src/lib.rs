@@ -49,6 +49,10 @@ pub mod backtrace;
 /// Stream identity, policies and manual stream management.
 pub mod stream;
 
+/// Named environments: the local store everything is warmed into, one active
+/// at a time.
+pub mod environment;
+
 /// Runtime configuration trait shared across crates.
 pub mod config;
 

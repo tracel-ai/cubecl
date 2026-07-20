@@ -133,6 +133,7 @@ embassy-time = { workspace = true }
 cfg_aliases = { workspace = true }
 
 [dev-dependencies]
+serial_test = { workspace = true }
 tempfile = "3.20"
 test-log = { workspace = true, features = ["trace"] }
 

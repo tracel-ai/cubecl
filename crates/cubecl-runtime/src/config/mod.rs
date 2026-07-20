@@ -1,7 +1,6 @@
 /// Autotune config module.
 pub mod autotune;
 /// Bundle config module.
-pub mod bundle;
 /// Cache config module, re-exported from `cubecl-environment`.
 #[cfg(std_io)]
 pub mod cache {
@@ -9,6 +8,8 @@ pub mod cache {
 }
 /// Compilation config module.
 pub mod compilation;
+/// Which named environment the process warms into.
+pub mod environment;
 /// Memory config module.
 pub mod memory;
 /// Profiling config module.

@@ -1,4 +1,5 @@
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use crate::bytes::Bytes;
 
@@ -9,8 +10,10 @@ use crate::bytes::Bytes;
 /// serialized key bytes. A bundle therefore needs no path rewriting, and
 /// several bundles in different formats can be installed side by side.
 ///
-/// This is the read-only half of persistence. The writable half is
-/// [`crate::persistence::Storage`].
+/// A bundle is an *import* format, not a runtime one: [`import`](super::import)
+/// copies its entries into the local storage once, and nothing consults it
+/// afterwards. Runtime lookups only ever touch
+/// [`Storage`](crate::persistence::Storage).
 ///
 /// Reads hand back [`Bytes`], which a format can serve as a zero-copy window
 /// into its own storage: an embedded bundle returns a view of its blob rather
@@ -23,6 +26,9 @@ pub trait Bundle: Send + Sync + core::fmt::Debug {
 
     /// Visits every entry of `namespace`.
     fn scan(&self, namespace: &str, visit: &mut dyn FnMut(&[u8], &[u8]));
+
+    /// Every namespace the bundle holds entries for.
+    fn namespaces(&self) -> Vec<String>;
 
     /// Human-readable origin for log messages.
     fn describe(&self) -> String;

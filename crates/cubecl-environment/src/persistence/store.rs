@@ -10,31 +10,8 @@ use serde::{Serialize, de::DeserializeOwned};
 #[cfg(feature = "cache")]
 use std::path::PathBuf;
 
-use super::storage::Storage;
-use crate::bundle::Bundle;
+use super::storage::{Origin, Storage};
 use crate::bytes::Bytes;
-use crate::sync::Arc;
-
-/// Where an in-memory entry came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Origin {
-    /// Served by an installed bundle (index into the store's bundle list).
-    Bundle(u16),
-    /// Computed on this machine, or loaded from the writable storage.
-    Local,
-}
-
-/// Which bundles a store consults when opened.
-#[derive(Debug, Clone, Default)]
-pub enum BundleMode {
-    /// Consult the globally installed bundles (see [`crate::bundle::install`]).
-    #[default]
-    Installed,
-    /// Consult exactly these bundles.
-    Explicit(Vec<Arc<dyn Bundle>>),
-    /// Ignore bundles entirely.
-    Disabled,
-}
 
 #[derive(Debug)]
 /// An in-memory key-value store that is automatically synced to a persistence
@@ -54,17 +31,15 @@ pub enum BundleMode {
 /// a given key. There is no update possible; if a value is reinserted a second
 /// time with a different value but the same key, an error will arise.
 ///
-/// The one exception is bundle-provided entries: a locally computed value
-/// silently *shadows* a stale bundle entry instead of erroring, because a
-/// shipped bundle must never be able to break the application that installs
-/// it. See [`KvStore::insert`].
+/// The one exception is imported entries: a locally computed value replaces a
+/// value that came from a bundle, because a shipped bundle must never be able
+/// to wedge the application that imported it. See [`KvStore::insert`].
 pub struct KvStore<K, V> {
-    in_memory_cache: HashMap<K, (V, Origin)>,
+    in_memory_cache: HashMap<K, V>,
     storage: Box<dyn Storage>,
     /// The namespace this instance addresses, `/`-separated:
     /// `<name>/<version>/<segments>`.
     namespace: String,
-    bundles: Vec<Arc<dyn Bundle>>,
     /// `false` while an asynchronous storage may still deliver entries that
     /// have not been ingested into [`Self::in_memory_cache`].
     loaded: bool,
@@ -75,7 +50,6 @@ pub struct KvStore<K, V> {
 pub struct KvStoreOptions {
     version: Option<String>,
     name: Option<String>,
-    bundles: BundleMode,
     #[cfg(feature = "cache")]
     root: Option<PathBuf>,
 }
@@ -112,17 +86,6 @@ impl KvStoreOptions {
     pub fn root<R: Into<PathBuf>>(mut self, path: R) -> Self {
         self.root = Some(path.into());
         self
-    }
-
-    /// Which bundles the store consults when opened.
-    pub fn bundles(mut self, bundles: BundleMode) -> Self {
-        self.bundles = bundles;
-        self
-    }
-
-    /// Takes the configured bundle mode, leaving the default behind.
-    pub(crate) fn take_bundles(&mut self) -> BundleMode {
-        core::mem::take(&mut self.bundles)
     }
 
     /// The cache root, defaulting to the user cache directory.
@@ -172,25 +135,18 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
         fields(path = ?path.as_ref())))]
     pub fn open<P: AsRef<str>>(path: P, option: KvStoreOptions) -> Self {
         let mut option = option;
-        let bundle_mode = option.take_bundles();
 
-        cfg_if::cfg_if! {
-            if #[cfg(all(feature = "cache", not(target_family = "wasm")))] {
-                let root = option.resolve_root();
-                let namespace = option.resolve_namespace(path.as_ref());
-                let storage = super::open_storage(&root, &namespace);
-            } else if #[cfg(browser_cache)] {
-                let namespace = option.resolve_namespace(path.as_ref());
-                let storage = super::browser::open_storage(&namespace);
-            } else {
-                let namespace = option.resolve_namespace(path.as_ref());
-                let storage: Box<dyn Storage> = Box::new(super::storage::MemoryStorage);
-            }
-        }
+        #[cfg(feature = "cache")]
+        let root = option.resolve_root();
+        #[cfg(feature = "cache")]
+        let root = root.to_str();
+        #[cfg(not(feature = "cache"))]
+        let root: Option<&str> = None;
+
+        let namespace = option.resolve_namespace(path.as_ref());
+        let storage = super::storage::open(root, &namespace);
 
         let mut this = Self::with_storage(storage, namespace);
-        this.bundles = resolve_bundles(bundle_mode);
-        this.load_bundles();
         this.sync();
 
         this
@@ -205,7 +161,6 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
             in_memory_cache: HashMap::new(),
             storage,
             namespace: namespace.into(),
-            bundles: Vec::new(),
             loaded: false,
         }
     }
@@ -215,40 +170,7 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
         &self.namespace
     }
 
-    /// Loads the entries installed bundles provide for this namespace.
-    ///
-    /// Runs before the writable storage sync so local entries win on
-    /// collision. Between bundles, later installs win.
-    fn load_bundles(&mut self) {
-        let bundles = core::mem::take(&mut self.bundles);
-
-        for (index, bundle) in bundles.iter().enumerate() {
-            let mut count = 0;
-            let entries = &mut self.in_memory_cache;
-
-            bundle.scan(&self.namespace, &mut |key, value| {
-                if let Some(entry) = decode_entry::<K, V>(key, value) {
-                    entries.insert(entry.0, (entry.1, Origin::Bundle(index as u16)));
-                    count += 1;
-                }
-            });
-
-            if count > 0 {
-                log::debug!(
-                    "Loaded {count} entries into {} from {}",
-                    self.namespace,
-                    bundle.describe()
-                );
-            }
-        }
-
-        self.bundles = bundles;
-    }
-
     /// Ingest the storage's entries into the in-memory map.
-    ///
-    /// Entries loaded here win over bundled ones: a value computed on this
-    /// machine is always preferred to a shipped one.
     pub fn sync(&mut self) {
         // Sampled before the scan: a load completing halfway through would
         // otherwise mark a partial snapshot as fully ingested.
@@ -257,7 +179,7 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
 
         self.storage.scan(&mut |key, value| {
             if let Some(entry) = decode_entry::<K, V>(key, value) {
-                entries.insert(entry.0, (entry.1, Origin::Local));
+                entries.insert(entry.0, entry.1);
             }
         });
 
@@ -287,26 +209,19 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
             self.sync();
         }
 
-        for (key, (value, _)) in self.in_memory_cache.iter() {
+        for (key, value) in self.in_memory_cache.iter() {
             func(key, value);
         }
     }
 
     /// Fetch an item from the store.
     pub fn get(&self, key: &K) -> Option<&V> {
-        self.in_memory_cache.get(key).map(|(value, _)| value)
-    }
-
-    /// Fetch an item from the store along with where it came from.
-    pub fn get_with_origin(&self, key: &K) -> Option<(&V, Origin)> {
-        self.in_memory_cache
-            .get(key)
-            .map(|(value, origin)| (value, *origin))
+        self.in_memory_cache.get(key)
     }
 
     /// Return all values in the store.
     pub fn values(&self) -> impl Iterator<Item = &V> {
-        self.in_memory_cache.values().map(|(value, _)| value)
+        self.in_memory_cache.values()
     }
 
     /// The size of the store.
@@ -321,41 +236,23 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
 
     /// Insert a new item into the store.
     ///
-    /// Insert-only semantics depend on where the existing entry came from:
-    ///
     /// - Key absent: the entry is written to the storage.
-    /// - Present with the same value: `Ok`, nothing written (a bundle-served
-    ///   entry keeps being served by the bundle).
-    /// - Present with a different value, [`Origin::Local`]: an error,
-    ///   [`KvStoreError::DuplicatedKey`]. The stored value is left untouched,
-    ///   including when another process wrote it concurrently.
-    /// - Present with a different value, [`Origin::Bundle`]: the locally
-    ///   computed value silently shadows the stale bundle entry and is
-    ///   written locally. Bundles are never trusted over local computation.
+    /// - Present with the same value: `Ok`, nothing written.
+    /// - Present with a different value: an error,
+    ///   [`KvStoreError::DuplicatedKey`], and the stored value is left
+    ///   untouched. This holds whether this process wrote it or another one
+    ///   did concurrently.
+    ///
+    /// The exception is an entry that came from a bundle: the storage lets a
+    /// locally computed value replace it, so a stale bundle can never wedge
+    /// the application that imported it.
     pub fn insert(&mut self, key: K, value: V) -> Result<(), KvStoreError<K, V>> {
-        match self.in_memory_cache.get(&key) {
-            Some((existing, Origin::Local)) => {
-                return if existing != &value {
-                    Err(KvStoreError::DuplicatedKey {
-                        key,
-                        value_previous: existing.clone(),
-                        value_updated: value,
-                    })
-                } else {
-                    Ok(())
-                };
+        if let Some(existing) = self.in_memory_cache.get(&key) {
+            // An imported entry is indistinguishable here, so the storage
+            // arbitrates: it returns `None` when it accepted the replacement.
+            if existing == &value {
+                return Ok(());
             }
-            Some((existing, Origin::Bundle(_))) => {
-                if existing == &value {
-                    // The bundle keeps serving this entry; not writing it
-                    // locally keeps the local database minimal. Removing the
-                    // bundle re-colds such entries.
-                    return Ok(());
-                }
-                // A locally computed value shadows a stale bundle entry.
-                log::debug!("Shadowing bundle entry with a locally computed value.");
-            }
-            None => {}
         }
 
         let key_bytes = encode(&key);
@@ -363,23 +260,26 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
 
         // The storage performs the presence check and the write atomically, so
         // a concurrent writer in another process can't be clobbered.
-        if let Some(existing) = self.storage.insert(&key_bytes, &value_bytes)
+        if let Some(existing) = self.storage.insert(&key_bytes, &value_bytes, Origin::Local)
             && let Some(existing) = decode::<V>(&existing)
-            && existing != value
         {
-            // Another process won the race with a different value. It is the
-            // durable one, so adopt it rather than pretending ours was stored.
-            self.in_memory_cache
-                .insert(key.clone(), (existing.clone(), Origin::Local));
+            let conflicting = existing != value;
+            // Whatever the storage kept is the durable value, so adopt it
+            // rather than pretending ours was stored.
+            self.in_memory_cache.insert(key.clone(), existing.clone());
 
-            return Err(KvStoreError::DuplicatedKey {
-                key,
-                value_previous: existing,
-                value_updated: value,
-            });
+            if conflicting {
+                return Err(KvStoreError::DuplicatedKey {
+                    key,
+                    value_previous: existing,
+                    value_updated: value,
+                });
+            }
+
+            return Ok(());
         }
 
-        self.in_memory_cache.insert(key, (value, Origin::Local));
+        self.in_memory_cache.insert(key, value);
 
         Ok(())
     }
@@ -394,15 +294,6 @@ impl<K: StoreKey, V: StoreValue> Display for KvStore<K, V> {
             self.in_memory_cache.len(),
             self.storage.describe()
         )
-    }
-}
-
-/// Resolves a bundle mode into the concrete bundles to consult.
-pub(crate) fn resolve_bundles(mode: BundleMode) -> Vec<Arc<dyn Bundle>> {
-    match mode {
-        BundleMode::Installed => crate::bundle::installed(),
-        BundleMode::Explicit(bundles) => bundles,
-        BundleMode::Disabled => Vec::new(),
     }
 }
 
@@ -437,9 +328,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_cache_simple() {
         let dir = tempfile::tempdir().unwrap();
-        let option = KvStoreOptions::default()
-            .root(dir.path())
-            .bundles(BundleMode::Disabled);
+        let option = KvStoreOptions::default().root(dir.path());
 
         let key1 = || "key1".to_string();
         let key2 = || "key2".to_string();
@@ -472,13 +361,10 @@ mod tests {
     #[test_log::test]
     #[cfg_attr(miri, ignore)]
     fn test_on_disk_format_is_stable() {
-        use super::super::sqlite::{DB_FILE_NAME, Database};
+        use super::super::sqlite::{Database, db_file_name};
 
         let dir = tempfile::tempdir().unwrap();
-        let option = KvStoreOptions::default()
-            .root(dir.path())
-            .name("golden")
-            .bundles(BundleMode::Disabled);
+        let option = KvStoreOptions::default().root(dir.path()).name("golden");
 
         let mut cache = KvStore::<String, u32>::open("device0/matmul", option);
         cache.insert("shape=2x2".to_string(), 42).unwrap();
@@ -487,7 +373,7 @@ mod tests {
             std::format!("golden/{}/device0/matmul", env!("CARGO_PKG_VERSION"));
         assert_eq!(cache.namespace(), expected_namespace);
 
-        let path = dir.path().join(DB_FILE_NAME);
+        let path = dir.path().join(db_file_name(&crate::environment::active()));
         assert!(path.exists(), "Database missing at {path:?}");
 
         // Read it back through a fresh connection: the entry must be
@@ -505,11 +391,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_entries_survive_reopen() {
         let dir = tempfile::tempdir().unwrap();
-        let options = || {
-            KvStoreOptions::default()
-                .root(dir.path())
-                .bundles(BundleMode::Disabled)
-        };
+        let options = || KvStoreOptions::default().root(dir.path());
 
         let mut cache = KvStore::<String, u32>::open("reopen", options());
         cache.insert("key".to_string(), 7).unwrap();
@@ -524,11 +406,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_stores_are_isolated() {
         let dir = tempfile::tempdir().unwrap();
-        let options = || {
-            KvStoreOptions::default()
-                .root(dir.path())
-                .bundles(BundleMode::Disabled)
-        };
+        let options = || KvStoreOptions::default().root(dir.path());
 
         let mut first = KvStore::<String, u32>::open("device0/matmul", options());
         first.insert("key".to_string(), 1).unwrap();

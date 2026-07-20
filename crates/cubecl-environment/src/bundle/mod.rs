@@ -4,36 +4,44 @@
 //! under a human-chosen name such as "H100 Linux" so applications can ship
 //! them and skip cold-start tuning and compilation.
 //!
-//! # Format
+//! # Import, not a runtime layer
 //!
-//! [`Bundle`] is the read side, and it is deliberately format-agnostic: a
-//! bundle answers lookups by namespace and key bytes, exactly like the local
-//! cache, so nothing about a layout on disk is load-bearing. [`SqliteBundle`]
-//! is the native format, a single `SQLite` file holding the entries to ship
-//! plus a manifest row. Other formats can be added for targets that have no
-//! file system, without touching the read path.
+//! A bundle is only ever used to *fill* the local storage, through
+//! [`import`]. Once imported, its entries are ordinary rows and the file can
+//! be deleted: runtime lookups go to
+//! [`Storage`](crate::persistence::Storage) and nothing else. There is no
+//! read path in which a bundle participates, so no cache hit ever depends on
+//! a file staying installed.
+//!
+//! Entries land with [`Origin::Imported`](crate::persistence::Origin), which
+//! lets a locally computed value replace one that turns out to be stale.
+//!
+//! # Formats
+//!
+//! [`Bundle`] is deliberately format-agnostic: a bundle answers by namespace
+//! and key bytes, exactly like the local storage, so nothing about a layout on
+//! disk is load-bearing. [`SqliteBundle`] is the native format, a single
+//! `SQLite` file. [`EmbeddedBundle`] is one flat blob for wasm and no-std
+//! targets, which have no file system to open.
 //!
 //! Writing is native-only on purpose. A bundle for any target is produced on a
 //! development machine by [`export`], and only consumed elsewhere.
 //!
 //! # Correctness
 //!
-//! Bundles are never trusted for correctness: autotune entries seeded from a
-//! bundle go through the same checksum validation as local ones, and every
-//! store name carries the cubecl version and the device fingerprint, so a
-//! mismatched machine never looks them up. A wrong bundle costs load time,
-//! nothing else.
-//!
-//! Today only the `SQLite` format exists, so wasm and no-std targets keep
-//! cold starts.
+//! Bundles are never trusted for correctness: imported autotune entries go
+//! through the same checksum validation as local ones, and every namespace
+//! carries the cubecl version and the device fingerprint, so a mismatched
+//! machine never looks them up. A wrong bundle costs load time, nothing
+//! else.
 
 mod base;
 mod embedded;
-mod registry;
+mod import;
 
 pub use base::*;
 pub use embedded::*;
-pub use registry::*;
+pub use import::*;
 
 #[cfg(feature = "cache")]
 mod export;

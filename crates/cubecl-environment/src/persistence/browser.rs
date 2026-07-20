@@ -41,7 +41,7 @@ use web_sys::{
     IdbDatabase, IdbFactory, IdbKeyRange, IdbOpenDbRequest, IdbRequest, IdbTransactionMode,
 };
 
-use super::storage::Storage;
+use super::storage::{Origin, Storage, replaces};
 
 const DB_NAME: &str = "cubecl";
 const STORE_NAME: &str = "kv";
@@ -49,7 +49,7 @@ const STORE_NAME: &str = "kv";
 /// The mirrored content of one namespace.
 #[derive(Default, Debug)]
 struct State {
-    entries: HashMap<Vec<u8>, Bytes>,
+    entries: HashMap<Vec<u8>, (Bytes, Origin)>,
     loaded: bool,
 }
 
@@ -93,18 +93,25 @@ impl BrowserStorage {
 
 impl Storage for BrowserStorage {
     fn get(&self, key: &[u8]) -> Option<Bytes> {
-        self.state.lock().entries.get(key).cloned()
+        self.state
+            .lock()
+            .entries
+            .get(key)
+            .map(|(value, _)| value.clone())
     }
 
-    fn insert(&self, key: &[u8], value: &[u8]) -> Option<Bytes> {
+    fn insert(&self, key: &[u8], value: &[u8], origin: Origin) -> Option<Bytes> {
         {
             let mut state = self.state.lock();
-            if let Some(existing) = state.entries.get(key) {
+            if let Some((existing, existing_origin)) = state.entries.get(key)
+                && !replaces(origin, *existing_origin)
+            {
                 return Some(existing.clone());
             }
-            state
-                .entries
-                .insert(key.to_vec(), Bytes::from_bytes_vec(value.to_vec()));
+            state.entries.insert(
+                key.to_vec(),
+                (Bytes::from_bytes_vec(value.to_vec()), origin),
+            );
         }
 
         let record_key = format!("{}{}", self.prefix, to_hex(key));
@@ -120,7 +127,7 @@ impl Storage for BrowserStorage {
     }
 
     fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
-        for (key, value) in self.state.lock().entries.iter() {
+        for (key, (value, _)) in self.state.lock().entries.iter() {
             visit(key, value);
         }
     }
@@ -267,7 +274,10 @@ async fn load(prefix: &str, state: &spin::Mutex<State>) -> Result<(), JsValue> {
 
         match value.dyn_into::<Uint8Array>() {
             Ok(bytes) => {
-                entries.insert(key, Bytes::from_bytes_vec(bytes.to_vec()));
+                // Everything already durable is treated as local: an import
+                // that reached storage is indistinguishable from a local
+                // computation once the process restarts.
+                entries.insert(key, (Bytes::from_bytes_vec(bytes.to_vec()), Origin::Local));
             }
             Err(value) => {
                 log::warn!("cubecl cache: unexpected browser storage record type: {value:?}");

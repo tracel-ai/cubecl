@@ -12,18 +12,20 @@ use std::vec::Vec;
 use hashbrown::HashMap;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 
-use super::storage::{NamespaceSummary, Storage};
+use super::storage::{NamespaceSummary, Origin, Storage, replaces};
 use crate::bytes::Bytes;
 use crate::sync::{Arc, Lazy, Mutex};
 
-/// File name of the cache database inside a cache root.
-pub const DB_FILE_NAME: &str = "cubecl.db";
+/// File name of the cache database of the environment named `name`.
+pub fn db_file_name(name: &str) -> String {
+    crate::environment::file_name(name)
+}
 
 /// The database schema this build reads and writes. A file carrying any other
 /// version has its entries table dropped and rebuilt: it is a cache, so the
 /// only cost is one cold start. Bump this on any change to
 /// [`CREATE_ENTRIES`], including a renamed column.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Created first and never dropped, so the schema version survives a rebuild
 /// of the entries table.
@@ -37,16 +39,36 @@ CREATE TABLE IF NOT EXISTS meta (
 const CREATE_ENTRIES: &str = "
 CREATE TABLE IF NOT EXISTS entries (
     namespace TEXT NOT NULL,
-    key   BLOB NOT NULL,
-    value BLOB NOT NULL,
+    key    BLOB NOT NULL,
+    value  BLOB NOT NULL,
+    origin INTEGER NOT NULL,
     PRIMARY KEY (namespace, key)
 );
 ";
 
-const INSERT_SQL: &str =
-    "INSERT INTO entries (namespace, key, value) VALUES (?1, ?2, ?3) ON CONFLICT DO NOTHING";
+const INSERT_SQL: &str = "INSERT INTO entries (namespace, key, value, origin) \
+                          VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING";
+const REPLACE_SQL: &str = "UPDATE entries SET value = ?3, origin = ?4 \
+                           WHERE namespace = ?1 AND key = ?2";
 const SELECT_SQL: &str = "SELECT value FROM entries WHERE namespace = ?1 AND key = ?2";
+const SELECT_WITH_ORIGIN_SQL: &str =
+    "SELECT value, origin FROM entries WHERE namespace = ?1 AND key = ?2";
 const SCAN_SQL: &str = "SELECT key, value FROM entries WHERE namespace = ?1";
+
+/// `Origin` as stored in the `origin` column.
+fn origin_code(origin: Origin) -> i64 {
+    match origin {
+        Origin::Local => 0,
+        Origin::Imported => 1,
+    }
+}
+
+fn origin_from_code(code: i64) -> Origin {
+    match code {
+        1 => Origin::Imported,
+        _ => Origin::Local,
+    }
+}
 
 /// One open database file, shared by every namespace that lives in it.
 #[derive(Clone)]
@@ -73,7 +95,12 @@ impl Database {
     /// sandboxed application bundle, a missing parent directory. Callers fall
     /// back to memory-only persistence rather than failing.
     pub fn open_root(root: &Path) -> Option<Self> {
-        let path = root.join(DB_FILE_NAME);
+        Self::open_environment(root, &crate::environment::active())
+    }
+
+    /// Opens the database of a named environment under `root`.
+    pub fn open_environment(root: &Path, environment: &str) -> Option<Self> {
+        let path = root.join(db_file_name(environment));
 
         let mut opened = OPENED.lock().expect("Lock recovers from poisoning");
         if let Some(database) = opened.get(&path) {
@@ -164,20 +191,44 @@ impl Database {
         })
     }
 
-    /// Stores `value` unless `key` is already present in `namespace`, in which
-    /// case the existing value is returned untouched.
-    pub fn insert(&self, namespace: &str, key: &[u8], value: &[u8]) -> Option<Bytes> {
+    /// Stores `value` under `key`, returning the existing value when the write
+    /// is declined. See [`Storage`] for the rules; in short, a local value
+    /// replaces an imported one and nothing else overwrites.
+    pub fn insert(
+        &self,
+        namespace: &str,
+        key: &[u8],
+        value: &[u8],
+        origin: Origin,
+    ) -> Option<Bytes> {
+        let code = origin_code(origin);
+
         let result = self.with_connection(|conn| {
             let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             let written = transaction
                 .prepare_cached(INSERT_SQL)?
-                .execute(params![namespace, key, value])?;
+                .execute(params![namespace, key, value, code])?;
 
             let existing = if written == 0 {
-                transaction
-                    .prepare_cached(SELECT_SQL)?
-                    .query_row(params![namespace, key], |row| row.get(0))
-                    .optional()?
+                let found: Option<(Vec<u8>, i64)> = transaction
+                    .prepare_cached(SELECT_WITH_ORIGIN_SQL)?
+                    .query_row(params![namespace, key], |row| {
+                        Ok((row.get(0)?, row.get(1)?))
+                    })
+                    .optional()?;
+
+                match found {
+                    Some((existing, existing_code))
+                        if replaces(origin, origin_from_code(existing_code)) =>
+                    {
+                        transaction
+                            .prepare_cached(REPLACE_SQL)?
+                            .execute(params![namespace, key, value, code])?;
+                        let _ = existing;
+                        None
+                    }
+                    other => other.map(|(existing, _)| existing),
+                }
             } else {
                 None
             };
@@ -212,6 +263,16 @@ impl Database {
         if let Err(err) = result {
             self.warn("scan", err);
         }
+    }
+
+    /// Every namespace this database holds, with its entry count and size.
+    ///
+    /// This is what a cache root offers for bundling.
+    pub fn namespaces(&self) -> Vec<String> {
+        self.summary()
+            .into_iter()
+            .map(|summary| summary.namespace)
+            .collect()
     }
 
     /// Entry count and total value size per namespace, for reporting.
@@ -300,8 +361,8 @@ impl Storage for SqliteStorage {
         self.database.get(&self.namespace, key)
     }
 
-    fn insert(&self, key: &[u8], value: &[u8]) -> Option<Bytes> {
-        self.database.insert(&self.namespace, key, value)
+    fn insert(&self, key: &[u8], value: &[u8], origin: Origin) -> Option<Bytes> {
+        self.database.insert(&self.namespace, key, value, origin)
     }
 
     fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
@@ -324,16 +385,21 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn concurrent_connections_agree_on_the_winner() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(DB_FILE_NAME);
+        let path = dir.path().join(db_file_name("test"));
 
         let first = Database::open(&path, false).unwrap();
         let second = Database::open(&path, false).unwrap();
 
-        assert_eq!(first.insert("namespace", b"key", b"first"), None);
+        assert_eq!(
+            first.insert("namespace", b"key", b"first", Origin::Local),
+            None
+        );
 
         // The second connection sees the committed entry and leaves it alone.
         assert_eq!(
-            second.insert("namespace", b"key", b"second").as_deref(),
+            second
+                .insert("namespace", b"key", b"second", Origin::Local)
+                .as_deref(),
             Some(&b"first"[..])
         );
         assert_eq!(
@@ -349,7 +415,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn concurrent_writers_do_not_lose_entries() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(DB_FILE_NAME);
+        let path = dir.path().join(db_file_name("test"));
         // Create the file up front so every writer opens the same schema.
         let database = Database::open(&path, false).unwrap();
 
@@ -360,7 +426,10 @@ mod tests {
                     let database = Database::open(path, false).unwrap();
                     for entry in 0..25 {
                         let key = std::format!("{writer}-{entry}");
-                        assert_eq!(database.insert("namespace", key.as_bytes(), b"value"), None);
+                        assert_eq!(
+                            database.insert("namespace", key.as_bytes(), b"value", Origin::Local),
+                            None
+                        );
                     }
                 });
             }
@@ -380,7 +449,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn an_incompatible_schema_is_rebuilt() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(DB_FILE_NAME);
+        let path = dir.path().join(db_file_name("test"));
 
         // A database from a build whose entries table had different columns.
         let database = Database::open(&path, false).unwrap();
@@ -405,7 +474,10 @@ mod tests {
         let database = Database::open(&path, false).unwrap();
         assert_eq!(database.get("old", b"\x00"), None, "stale rows are gone");
         // The rebuilt table must be usable, which an emptied one would not be.
-        assert_eq!(database.insert("namespace", b"key", b"value"), None);
+        assert_eq!(
+            database.insert("namespace", b"key", b"value", Origin::Local),
+            None
+        );
         assert_eq!(
             database.get("namespace", b"key").as_deref(),
             Some(&b"value"[..]),

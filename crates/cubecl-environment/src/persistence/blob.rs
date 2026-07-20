@@ -1,12 +1,10 @@
-use std::{boxed::Box, cell::RefCell, string::String, vec::Vec};
+use std::{boxed::Box, cell::RefCell, string::String};
 
 use hashbrown::HashMap;
 use serde::Serialize;
 
-use super::storage::Storage;
-use super::store::{KvStoreOptions, StoreKey, StoreValue, decode, encode, resolve_bundles};
-use crate::bundle::Bundle;
-use crate::sync::Arc;
+use super::storage::{Origin, Storage};
+use super::store::{KvStoreOptions, StoreKey, StoreValue, decode, encode};
 
 /// Values already read from the storage or a bundle.
 ///
@@ -24,7 +22,6 @@ pub struct BlobStore<K: StoreKey, V: StoreValue> {
     in_memory_cache: InMemoryCache<K, V>,
     storage: Box<dyn Storage>,
     namespace: String,
-    bundles: Vec<Arc<dyn Bundle>>,
 }
 
 /// Error related to the store.
@@ -47,16 +44,14 @@ impl<K: StoreKey, V: StoreValue> BlobStore<K, V> {
         fields(path = ?path.as_ref())))]
     pub fn new<P: AsRef<str>>(path: P, option: KvStoreOptions) -> Self {
         let mut option = option;
-        let bundles = resolve_bundles(option.take_bundles());
         let root = option.resolve_root();
         let namespace = option.resolve_namespace(path.as_ref());
-        let storage = super::open_storage(&root, &namespace);
+        let storage = super::storage::open(root.to_str(), &namespace);
 
         Self {
             in_memory_cache: InMemoryCache::default(),
             storage,
             namespace,
-            bundles,
         }
     }
 
@@ -65,26 +60,14 @@ impl<K: StoreKey, V: StoreValue> BlobStore<K, V> {
         &self.namespace
     }
 
-    /// Fetch an item from the store, reading it from the storage or from an
-    /// installed bundle on the first lookup.
+    /// Fetch an item from the store, reading it from the storage on the first
+    /// lookup and memoizing it afterwards.
     pub fn get(&self, key: &K) -> Option<&V> {
         if let Some(value) = self.get_ref_unsafe(key) {
             return Some(value);
         }
 
-        let key_bytes = encode(key);
-        // Local entries win over bundled ones: a value produced on this
-        // machine is always preferred to a shipped one. A bundle may serve the
-        // bytes borrowed, which for a compiled kernel saves copying it whole.
-        let bytes = match self.storage.get(&key_bytes) {
-            Some(bytes) => bytes,
-            None => self
-                .bundles
-                .iter()
-                .rev()
-                .find_map(|bundle| bundle.get(&self.namespace, &key_bytes))?,
-        };
-
+        let bytes = self.storage.get(&encode(key))?;
         let value = decode::<V>(&bytes)?;
         self.in_memory_cache
             .borrow_mut()
@@ -126,7 +109,9 @@ impl<K: StoreKey, V: StoreValue> BlobStore<K, V> {
             };
         }
 
-        if let Some(existing) = self.storage.insert(&encode(&key), &encode(&value))
+        if let Some(existing) = self
+            .storage
+            .insert(&encode(&key), &encode(&value), Origin::Local)
             && let Some(existing) = decode::<V>(&existing)
             && existing != value
         {
@@ -157,7 +142,6 @@ impl<K: StoreKey, V: StoreValue> BlobStore<K, V> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::store::BundleMode;
     use super::*;
     use crate::bytes::Bytes;
     use std::string::ToString;
@@ -166,12 +150,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn values_survive_reopen_and_load_lazily() {
         let dir = tempfile::tempdir().unwrap();
-        let options = || {
-            KvStoreOptions::default()
-                .root(dir.path())
-                .name("kernels")
-                .bundles(BundleMode::Disabled)
-        };
+        let options = || KvStoreOptions::default().root(dir.path()).name("kernels");
 
         let mut cache = BlobStore::<String, Bytes>::new("ptx_sm90", options());
         cache
@@ -208,10 +187,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn reinserting_a_different_value_errors() {
         let dir = tempfile::tempdir().unwrap();
-        let option = KvStoreOptions::default()
-            .root(dir.path())
-            .name("kernels")
-            .bundles(BundleMode::Disabled);
+        let option = KvStoreOptions::default().root(dir.path()).name("kernels");
 
         let mut cache = BlobStore::<String, Bytes>::new("ptx_sm90", option);
         let kernel = |byte: u8| Bytes::from_bytes_vec(std::vec![byte]);

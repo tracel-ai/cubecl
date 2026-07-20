@@ -60,6 +60,10 @@ impl Bundle for SqliteBundle {
         self.database.scan(namespace, visit)
     }
 
+    fn namespaces(&self) -> alloc::vec::Vec<String> {
+        self.database.namespaces()
+    }
+
     fn describe(&self) -> String {
         alloc::format!(
             "bundle '{}' at {:?}",

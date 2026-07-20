@@ -3,9 +3,10 @@ use std::path::{Path, PathBuf};
 use tracel_xtask::prelude::*;
 
 use cubecl_environment::bundle::{
-    BundleFormat, BundleManifest, EmbeddedBundle, ExportOptions, SqliteBundle,
+    Bundle, BundleFormat, BundleManifest, EmbeddedBundle, ExportOptions, SqliteBundle,
 };
 use cubecl_environment::bytes::Bytes;
+use cubecl_environment::environment;
 use cubecl_environment::persistence::{CacheConfig, NamespaceSummary};
 
 #[derive(clap::Args)]
@@ -23,6 +24,16 @@ pub(crate) enum BundleSubCommand {
     Export(ExportArgs),
     /// Print what a bundle file contains, in either format.
     Inspect(InspectArgs),
+    /// Import a bundle into the local environment.
+    ///
+    /// This is the only thing a bundle is for: it fills the local store, and
+    /// afterwards the file can be deleted. Nothing consults it at runtime.
+    Import(ImportArgs),
+    /// List the namespaces the local environment currently holds, which is
+    /// what you consult before exporting.
+    Namespaces(NamespacesArgs),
+    /// List the environments under a cache root.
+    Environments(NamespacesArgs),
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, Default)]
@@ -73,13 +84,114 @@ pub(crate) struct InspectArgs {
     pub path: PathBuf,
 }
 
+#[derive(clap::Args)]
+pub(crate) struct ImportArgs {
+    /// The bundle file to import, in either format.
+    pub path: PathBuf,
+    /// Cache root to fill. Defaults to the standard cache root.
+    #[arg(long)]
+    pub root: Option<PathBuf>,
+    /// Environment to import into. Defaults to the active one.
+    #[arg(long)]
+    pub environment: Option<String>,
+}
+
+#[derive(clap::Args)]
+pub(crate) struct NamespacesArgs {
+    /// Cache root to inspect. Defaults to the standard cache root.
+    #[arg(long)]
+    pub root: Option<PathBuf>,
+    /// Environment to inspect. Defaults to the active one.
+    #[arg(long)]
+    pub environment: Option<String>,
+}
+
 impl BundleArgs {
     pub(crate) fn run(&self) -> anyhow::Result<()> {
         match &self.command {
             BundleSubCommand::Export(args) => export(args),
             BundleSubCommand::Inspect(args) => inspect(&args.path),
+            BundleSubCommand::Import(args) => import(args),
+            BundleSubCommand::Namespaces(args) => namespaces(args),
+            BundleSubCommand::Environments(args) => environments(args),
         }
     }
+}
+
+fn cache_root(root: &Option<PathBuf>) -> PathBuf {
+    root.clone()
+        .unwrap_or_else(|| CacheConfig::default().root())
+}
+
+fn import(args: &ImportArgs) -> anyhow::Result<()> {
+    if let Some(name) = &args.environment {
+        environment::activate(name);
+    }
+    let root = cache_root(&args.root);
+
+    let bundle = open_bundle(&args.path)?;
+    let report = cubecl_environment::bundle::import(bundle.as_ref(), root.to_str());
+
+    info!(
+        "Imported {} entries into environment '{}' at {:?} ({} already present)",
+        report.imported,
+        environment::active(),
+        root,
+        report.skipped,
+    );
+    for namespace in &report.namespaces {
+        info!("    {namespace}");
+    }
+
+    Ok(())
+}
+
+fn namespaces(args: &NamespacesArgs) -> anyhow::Result<()> {
+    if let Some(name) = &args.environment {
+        environment::activate(name);
+    }
+    let root = cache_root(&args.root);
+    let summary = environment::namespaces(&root);
+
+    info!("Environment '{}' at {:?}", environment::active(), root);
+    if summary.is_empty() {
+        info!("  (no namespaces)");
+        return Ok(());
+    }
+    report(&summary);
+
+    Ok(())
+}
+
+fn environments(args: &NamespacesArgs) -> anyhow::Result<()> {
+    let root = cache_root(&args.root);
+    let names = environment::list(&root);
+
+    info!("Environments at {root:?}");
+    if names.is_empty() {
+        info!("  (none)");
+        return Ok(());
+    }
+
+    let active = environment::active();
+    for name in names {
+        let marker = if name == active { "*" } else { " " };
+        info!("  {marker} {name}");
+    }
+
+    Ok(())
+}
+
+/// Opens a bundle file whichever format it is in.
+fn open_bundle(path: &Path) -> anyhow::Result<Box<dyn Bundle>> {
+    if let Ok(bundle) = SqliteBundle::open(path) {
+        return Ok(Box::new(bundle));
+    }
+
+    let bytes = Bytes::from_bytes_vec(std::fs::read(path)?);
+    let bundle = EmbeddedBundle::open(bytes).map_err(|err| anyhow::anyhow!("{path:?}: {err}"))?;
+
+    Ok(Box::new(bundle))
 }
 
 fn export(args: &ExportArgs) -> anyhow::Result<()> {
@@ -140,6 +252,10 @@ fn describe(manifest: &BundleManifest, summary: &[NamespaceSummary]) {
         return;
     }
 
+    report(summary);
+}
+
+fn report(summary: &[NamespaceSummary]) {
     let total: u64 = summary.iter().map(|namespace| namespace.entries).sum();
     info!("  {total} entries:");
     for namespace in summary {

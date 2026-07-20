@@ -3,7 +3,7 @@ use std::string::{String, ToString};
 use std::vec::Vec;
 
 use crate::bytes::Bytes;
-use crate::persistence::{DB_FILE_NAME, Database};
+use crate::persistence::{Database, db_file_name};
 
 use super::flat;
 use super::{BundleError, BundleManifest, EnvironmentInfo, MANIFEST_SCHEMA};
@@ -174,7 +174,7 @@ fn read_entries(
 /// database file itself.
 fn source_database(root: &Path) -> Option<PathBuf> {
     let path = if root.is_dir() {
-        root.join(DB_FILE_NAME)
+        root.join(db_file_name(&crate::environment::active()))
     } else {
         root.to_path_buf()
     };
@@ -213,11 +213,14 @@ fn copy_attached(
     // `INSERT OR IGNORE` is what makes merging several roots safe: the
     // (namespace, key) primary key collapses duplicates instead of appending them
     // twice, and an entry already exported from an earlier root wins.
-    const ALL: &str = "INSERT OR IGNORE INTO main.entries (namespace, key, value) \
-                       SELECT namespace, key, value FROM source.entries";
+    // The origin column is written explicitly: `INSERT OR IGNORE` treats a
+    // NOT NULL violation as a row to skip, so omitting it would silently copy
+    // nothing. Shipped rows are marked imported, which is what they become.
+    const ALL: &str = "INSERT OR IGNORE INTO main.entries (namespace, key, value, origin) \
+                       SELECT namespace, key, value, 1 FROM source.entries";
     // A plain prefix match on whole segments, avoiding LIKE's wildcards.
-    const FILTERED: &str = "INSERT OR IGNORE INTO main.entries (namespace, key, value) \
-                            SELECT namespace, key, value FROM source.entries \
+    const FILTERED: &str = "INSERT OR IGNORE INTO main.entries (namespace, key, value, origin) \
+                            SELECT namespace, key, value, 1 FROM source.entries \
                             WHERE namespace = ?1 \
                                OR substr(namespace, 1, length(?1) + 1) = ?1 || '/'";
 

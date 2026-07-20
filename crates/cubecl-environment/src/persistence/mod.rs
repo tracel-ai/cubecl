@@ -12,7 +12,8 @@
 //! key, several processes can share a root safely through WAL, and shipping a
 //! subset of them is a query away (see [`crate::bundle`]).
 
-mod storage;
+/// The writable half of persistence: where a namespace's entries live.
+pub mod storage;
 
 pub use storage::*;
 
@@ -26,7 +27,7 @@ pub use store::*;
 pub mod sqlite;
 
 #[cfg(feature = "cache")]
-pub use sqlite::{DB_FILE_NAME, Database, SqliteStorage};
+pub use sqlite::{Database, SqliteStorage, db_file_name};
 
 /// Browser storage (IndexedDB).
 #[cfg(browser_cache)]
@@ -43,10 +44,10 @@ mod root;
 #[cfg(feature = "cache")]
 pub use root::CacheConfig;
 
-/// The storage serving `namespace` in the cache root at `root`, degrading to
-/// memory-only when the database can't be opened.
+/// The database-backed storage serving `namespace` in the cache root at
+/// `root`, degrading to process-wide memory when the database can't be opened.
 #[cfg(feature = "cache")]
-pub(crate) fn open_storage(
+pub(crate) fn open_database_storage(
     root: &std::path::Path,
     namespace: &str,
 ) -> alloc::boxed::Box<dyn Storage> {
@@ -54,6 +55,6 @@ pub(crate) fn open_storage(
 
     match Database::open_root(root) {
         Some(database) => Box::new(SqliteStorage::new(database, namespace.to_string())),
-        None => Box::new(MemoryStorage),
+        None => Box::new(MemoryStorage::new(namespace)),
     }
 }
