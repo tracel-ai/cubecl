@@ -6,7 +6,16 @@ use crate::bytes::Bytes;
 use crate::persistence::{Database, db_file_name};
 
 use super::flat;
-use super::{BundleError, BundleManifest, EnvironmentInfo, MANIFEST_SCHEMA};
+use super::{BundleError, BundleManifest, EnvironmentInfo, MANIFEST_SCHEMA, flat_bundle_version};
+
+/// A plain prefix match on whole segments, avoiding LIKE's wildcards.
+///
+/// Both formats select their rows with it, so restricting an export picks the
+/// same namespaces whichever layout is written.
+const NAMESPACE_PREFIX: &str = "namespace = ?1 OR substr(namespace, 1, length(?1) + 1) = ?1 || '/'";
+
+/// Files `SQLite` writes next to a database, which belong to it.
+const SIDECARS: [&str; 2] = ["-wal", "-shm"];
 
 /// Which on-disk layout [`export`] writes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -31,7 +40,8 @@ pub struct ExportOptions {
     pub environments: Vec<EnvironmentInfo>,
     /// Only export namespaces under one of these prefixes, e.g. `autotune`
     /// or `cuda`. A prefix matches whole segments, so it selects the
-    /// namespace itself and everything below it. Empty means every namespace.
+    /// namespace itself and everything below it. No prefix, or an empty one,
+    /// means every namespace.
     pub namespaces: Vec<String>,
     /// The layout to write. Pick [`BundleFormat::Flat`] for wasm and no-std
     /// targets.
@@ -48,13 +58,17 @@ pub struct ExportOptions {
 ///
 /// The typical workflow: run the application once so autotune and the
 /// compilation caches are warm, then export the cache root.
+///
+/// The bundle is built next to `out` and renamed onto it once complete, so a
+/// failed export leaves the previous bundle, or no file at all, rather than a
+/// truncated one.
 pub fn export<R: AsRef<Path>, O: AsRef<Path>>(
     cache_roots: &[R],
     out: O,
     options: &ExportOptions,
 ) -> Result<BundleManifest, BundleError> {
     let out = out.as_ref();
-    prepare_output(out)?;
+    prepare_output(out, options.format)?;
 
     let manifest = BundleManifest {
         schema: MANIFEST_SCHEMA,
@@ -78,10 +92,25 @@ pub fn export<R: AsRef<Path>, O: AsRef<Path>>(
         })
         .collect();
 
+    // Nothing writes to `out` until the bundle is complete, so an interrupted
+    // export can't leave a file that later exports refuse to overwrite.
+    let staged = staging_path(out);
+    discard(&staged);
+
+    let namespaces = filters(&options.namespaces);
     let exported = match options.format {
-        BundleFormat::Sqlite => export_sqlite(out, &sources, options, &manifest)?,
-        BundleFormat::Flat => export_flat(out, &sources, options, &manifest)?,
+        BundleFormat::Sqlite => export_sqlite(&staged, &sources, namespaces, &manifest),
+        BundleFormat::Flat => export_flat(&staged, &sources, namespaces, &manifest),
     };
+    let exported = match exported {
+        Ok(exported) => exported,
+        Err(err) => {
+            discard(&staged);
+            return Err(err);
+        }
+    };
+
+    publish(&staged, out)?;
 
     if exported == 0 {
         log::warn!(
@@ -93,20 +122,36 @@ pub fn export<R: AsRef<Path>, O: AsRef<Path>>(
     Ok(manifest)
 }
 
+/// The namespace prefixes to export, or `None` for every namespace.
+///
+/// An empty prefix selects everything, so a list holding one collapses to no
+/// filter at all: both formats then take the same unfiltered path, instead of
+/// one exporting everything and the other nothing.
+fn filters(namespaces: &[String]) -> Option<&[String]> {
+    let unrestricted = namespaces.is_empty() || namespaces.iter().any(String::is_empty);
+
+    (!unrestricted).then_some(namespaces)
+}
+
 fn export_sqlite(
     out: &Path,
     sources: &[PathBuf],
-    options: &ExportOptions,
+    namespaces: Option<&[String]>,
     manifest: &BundleManifest,
 ) -> Result<usize, BundleError> {
     let database = Database::open(out, false)?;
     let mut exported = 0;
 
     for source in sources {
-        exported += copy_entries(&database, source, &options.namespaces)?;
+        exported += copy_entries(&database, source, namespaces)?;
     }
 
     manifest.write(&database)?;
+    // A shipped bundle is read from wherever it was installed, which is often a
+    // read-only directory. WAL is persistent in the file header and reading it
+    // needs to create the wal-index next to the file, so leave the journal mode
+    // where any reader can open it.
+    database.finalize_for_shipping()?;
 
     Ok(exported)
 }
@@ -114,7 +159,7 @@ fn export_sqlite(
 fn export_flat(
     out: &Path,
     sources: &[PathBuf],
-    options: &ExportOptions,
+    namespaces: Option<&[String]>,
     manifest: &BundleManifest,
 ) -> Result<usize, BundleError> {
     let mut entries = flat::Entries::new();
@@ -122,7 +167,7 @@ fn export_flat(
     for source in sources {
         let database = Database::open(source, true)?;
         // First root wins on collision, matching `INSERT OR IGNORE`.
-        read_entries(&database, &options.namespaces, &mut entries)?;
+        read_entries(&database, namespaces, &mut entries)?;
     }
 
     flat::write(out, &entries, manifest)?;
@@ -133,26 +178,13 @@ fn export_flat(
 /// Collects the requested namespaces of `database` into `entries`.
 fn read_entries(
     database: &Database,
-    namespaces: &[String],
+    namespaces: Option<&[String]>,
     entries: &mut flat::Entries,
 ) -> Result<(), BundleError> {
+    const SELECT: &str = "SELECT namespace, key, value FROM entries";
+
     database.with_connection(|conn| {
-        let mut statement = conn.prepare(
-            "SELECT namespace, key, value FROM entries \
-             WHERE ?1 = '' OR namespace = ?1 \
-                OR substr(namespace, 1, length(?1) + 1) = ?1 || '/' \
-             ORDER BY namespace, key",
-        )?;
-
-        // An empty filter selects everything, so the two cases share one query.
-        let filters: Vec<&str> = if namespaces.is_empty() {
-            std::vec![""]
-        } else {
-            namespaces.iter().map(String::as_str).collect()
-        };
-
-        for filter in filters {
-            let mut rows = statement.query(rusqlite::params![filter])?;
+        let mut collect = |rows: &mut rusqlite::Rows<'_>| -> Result<(), rusqlite::Error> {
             while let Some(row) = rows.next()? {
                 // The driver hands back owned buffers; the value becomes
                 // `Bytes` as it enters the map.
@@ -162,9 +194,22 @@ fn read_entries(
 
                 entries.entry((namespace, key)).or_insert(value);
             }
-        }
 
-        Ok::<_, rusqlite::Error>(())
+            Ok(())
+        };
+
+        match namespaces {
+            None => collect(&mut conn.prepare(SELECT)?.query([])?),
+            Some(namespaces) => {
+                let mut statement =
+                    conn.prepare(&std::format!("{SELECT} WHERE {NAMESPACE_PREFIX}"))?;
+                for namespace in namespaces {
+                    collect(&mut statement.query(rusqlite::params![namespace])?)?;
+                }
+
+                Ok(())
+            }
+        }
     })?;
 
     Ok(())
@@ -186,9 +231,18 @@ fn source_database(root: &Path) -> Option<PathBuf> {
 fn copy_entries(
     database: &Database,
     source: &Path,
-    namespaces: &[String],
+    namespaces: Option<&[String]>,
 ) -> Result<usize, BundleError> {
-    let source = source.to_string_lossy().to_string();
+    // ATTACH takes a string, and the connection is read-write, so SQLite would
+    // create an empty database from a mangled path instead of failing: an
+    // export that silently copies nothing. A path we can't pass losslessly is
+    // reported rather than approximated.
+    let source = source.to_str().ok_or_else(|| {
+        BundleError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            std::format!("{source:?} is not valid UTF-8, so SQLite can't attach it"),
+        ))
+    })?;
 
     let copied = database.with_connection(|conn| {
         conn.execute("ATTACH DATABASE ?1 AS source", rusqlite::params![source])?;
@@ -208,7 +262,7 @@ fn copy_entries(
 
 fn copy_attached(
     conn: &rusqlite::Connection,
-    namespaces: &[String],
+    namespaces: Option<&[String]>,
 ) -> Result<usize, rusqlite::Error> {
     // `INSERT OR IGNORE` is what makes merging several roots safe: the
     // (namespace, key) primary key collapses duplicates instead of appending them
@@ -216,21 +270,17 @@ fn copy_attached(
     // The origin column is written explicitly: `INSERT OR IGNORE` treats a
     // NOT NULL violation as a row to skip, so omitting it would silently copy
     // nothing. Shipped rows are marked imported, which is what they become.
-    const ALL: &str = "INSERT OR IGNORE INTO main.entries (namespace, key, value, origin) \
-                       SELECT namespace, key, value, 1 FROM source.entries";
-    // A plain prefix match on whole segments, avoiding LIKE's wildcards.
-    const FILTERED: &str = "INSERT OR IGNORE INTO main.entries (namespace, key, value, origin) \
-                            SELECT namespace, key, value, 1 FROM source.entries \
-                            WHERE namespace = ?1 \
-                               OR substr(namespace, 1, length(?1) + 1) = ?1 || '/'";
+    const COPY: &str = "INSERT OR IGNORE INTO main.entries (namespace, key, value, origin) \
+                        SELECT namespace, key, value, 1 FROM source.entries";
 
-    if namespaces.is_empty() {
-        return conn.execute(ALL, []);
-    }
+    let Some(namespaces) = namespaces else {
+        return conn.execute(COPY, []);
+    };
 
+    let filtered = std::format!("{COPY} WHERE {NAMESPACE_PREFIX}");
     let mut copied = 0;
     for namespace in namespaces {
-        copied += conn.execute(FILTERED, rusqlite::params![namespace])?;
+        copied += conn.execute(&filtered, rusqlite::params![namespace])?;
     }
 
     Ok(copied)
@@ -240,7 +290,7 @@ fn copy_attached(
 ///
 /// An existing bundle is replaced, so re-exporting never merges into a stale
 /// snapshot. Any other existing file is left alone and reported.
-fn prepare_output(out: &Path) -> Result<(), BundleError> {
+fn prepare_output(out: &Path, format: BundleFormat) -> Result<(), BundleError> {
     if let Some(parent) = out.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -251,17 +301,22 @@ fn prepare_output(out: &Path) -> Result<(), BundleError> {
         return Ok(());
     }
 
-    match Database::open(out, true)
-        .map_err(BundleError::from)
-        .and_then(|database| BundleManifest::read(&database))
-    {
-        Ok(manifest) => {
-            log::info!(
-                "Replacing the existing bundle '{}' at {out:?}",
-                manifest.name
-            );
-        }
-        Err(_) => {
+    // What makes a file ours depends on the layout being written: a flat blob
+    // is identified by its header and could never answer as a database.
+    let existing = match format {
+        BundleFormat::Sqlite => Database::open(out, true)
+            .map_err(BundleError::from)
+            .and_then(|database| BundleManifest::read(&database))
+            .map(|manifest| std::format!("'{}'", manifest.name))
+            .ok(),
+        // The flat manifest lives inside the blob, so the header identifies the
+        // file; reading all of it just to name it isn't worth it.
+        BundleFormat::Flat => flat_header(out).map(|version| std::format!("(flat v{version})")),
+    };
+
+    match existing {
+        Some(described) => log::info!("Replacing the existing bundle {described} at {out:?}"),
+        None => {
             return Err(BundleError::Io(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
                 std::format!("{out:?} exists and is not a cubecl bundle; remove it first"),
@@ -269,13 +324,61 @@ fn prepare_output(out: &Path) -> Result<(), BundleError> {
         }
     }
 
-    std::fs::remove_file(out)?;
-    // WAL sidecars of the replaced bundle would otherwise be applied to the
-    // new file.
-    for suffix in ["-wal", "-shm"] {
-        let sidecar = PathBuf::from(std::format!("{}{suffix}", out.display()));
-        if sidecar.exists() {
-            std::fs::remove_file(sidecar)?;
+    Ok(())
+}
+
+/// The flat layout version `out` declares, if it is a flat bundle at all.
+fn flat_header(out: &Path) -> Option<u32> {
+    use std::io::Read;
+
+    let mut header = [0u8; 12];
+    let mut file = std::fs::File::open(out).ok()?;
+    file.read_exact(&mut header).ok()?;
+
+    flat_bundle_version(&header)
+}
+
+/// Where a bundle is built before it takes the place of `out`.
+fn staging_path(out: &Path) -> PathBuf {
+    PathBuf::from(std::format!("{}.tmp", out.display()))
+}
+
+fn sidecar(path: &Path, suffix: &str) -> PathBuf {
+    PathBuf::from(std::format!("{}{suffix}", path.display()))
+}
+
+/// Removes a staged bundle and whatever `SQLite` left beside it.
+fn discard(staged: &Path) {
+    for path in [staged.to_path_buf()]
+        .into_iter()
+        .chain(SIDECARS.iter().map(|suffix| sidecar(staged, suffix)))
+    {
+        if path.exists()
+            && let Err(err) = std::fs::remove_file(&path)
+        {
+            log::warn!("Bundle export: can't remove {path:?}: {err}");
+        }
+    }
+}
+
+/// Moves the finished bundle onto `out`, replacing what was there.
+///
+/// The sidecars are handled in the same move: a `-wal` left from the previous
+/// bundle would otherwise be replayed into the new one.
+fn publish(staged: &Path, out: &Path) -> Result<(), BundleError> {
+    for suffix in SIDECARS {
+        let stale = sidecar(out, suffix);
+        if stale.exists() {
+            std::fs::remove_file(stale)?;
+        }
+    }
+
+    std::fs::rename(staged, out)?;
+
+    for suffix in SIDECARS {
+        let staged = sidecar(staged, suffix);
+        if staged.exists() {
+            std::fs::rename(staged, sidecar(out, suffix))?;
         }
     }
 

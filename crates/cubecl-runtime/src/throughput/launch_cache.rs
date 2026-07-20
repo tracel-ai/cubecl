@@ -11,7 +11,7 @@ static LAUNCH_OVERHEAD_CACHE: Mutex<Option<HashMap<String, Duration>>> = Mutex::
 /// Returns the cached launch overhead for `name`, measuring it on a miss.
 pub fn launch_overhead_or_measure(name: &str, sample: impl Fn() -> Duration) -> Duration {
     {
-        let guard = LAUNCH_OVERHEAD_CACHE.lock().unwrap();
+        let guard = LAUNCH_OVERHEAD_CACHE.lock();
         if let Some(value) = guard.as_ref().and_then(|map| map.get(name)) {
             return *value;
         }
@@ -19,7 +19,7 @@ pub fn launch_overhead_or_measure(name: &str, sample: impl Fn() -> Duration) -> 
 
     let value = measure_overhead(sample);
 
-    let mut guard = LAUNCH_OVERHEAD_CACHE.lock().unwrap();
+    let mut guard = LAUNCH_OVERHEAD_CACHE.lock();
     *guard
         .get_or_insert_with(HashMap::new)
         .entry(name.to_string())

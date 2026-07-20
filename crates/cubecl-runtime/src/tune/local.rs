@@ -55,7 +55,7 @@ where
         I: TuneInputs,
         Out: AutotuneOutput,
     {
-        let sets = self.sets.read().unwrap();
+        let sets = self.sets.read();
         let type_id = TypeId::of::<F>();
 
         static DOWNCAST_ERROR: &str = "Local tuner only support one set of tunable that must work on the same input and output declared with the init function.";
@@ -68,7 +68,7 @@ where
 
         core::mem::drop(sets);
 
-        let mut sets = self.sets.write().unwrap();
+        let mut sets = self.sets.write();
 
         if let Some(sets) = sets.as_ref()
             && let Some(set) = sets.get(&type_id)
@@ -91,7 +91,7 @@ where
 
     /// Clear the autotune state.
     pub fn clear(&self) {
-        if let Some(s) = self.state.lock().unwrap().as_mut() {
+        if let Some(s) = self.state.lock().as_mut() {
             s.clear()
         }
     }
@@ -131,7 +131,7 @@ where
         let key = operations.generate_key(&inputs);
 
         let tuner = {
-            let mut state_lock = self.state.lock().unwrap();
+            let mut state_lock = self.state.lock();
             let state_map = state_lock.get_or_insert_with(|| HashMap::new());
             state_map
                 .entry(id.clone())

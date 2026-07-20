@@ -23,10 +23,10 @@ pub use store::*;
 
 /// `SQLite` persistence: the database file shared by every namespace of a
 /// cache root.
-#[cfg(feature = "cache")]
+#[cfg(native_cache)]
 pub mod sqlite;
 
-#[cfg(feature = "cache")]
+#[cfg(native_cache)]
 pub use sqlite::{Database, SqliteStorage, db_file_name};
 
 /// Browser storage (IndexedDB).
@@ -38,16 +38,20 @@ pub(crate) mod browser;
 pub mod blob;
 
 /// Cache root location selection.
-#[cfg(feature = "cache")]
+///
+/// Available wherever there is a file system, not only when the `SQLite`
+/// backend is compiled in: the root is what names an environment on disk, and
+/// [`crate::environment`] exposes it independently of how entries are stored.
+#[cfg(std_io)]
 mod root;
 
-#[cfg(feature = "cache")]
+#[cfg(std_io)]
 pub use root::CacheConfig;
 
 /// The database-backed storage serving `namespace` in the active
 /// environment, degrading to process-wide memory when the database can't be
 /// opened.
-#[cfg(feature = "cache")]
+#[cfg(native_cache)]
 pub(crate) fn open_database_storage(namespace: &str) -> alloc::boxed::Box<dyn Storage> {
     use alloc::{boxed::Box, string::ToString};
 

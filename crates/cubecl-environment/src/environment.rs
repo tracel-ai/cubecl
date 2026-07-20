@@ -17,7 +17,7 @@
 //! exactly where you would import a bundle.
 
 use alloc::string::{String, ToString};
-#[cfg(feature = "cache")]
+#[cfg(std_io)]
 use alloc::vec::Vec;
 
 use crate::sync::{Lazy, Mutex};
@@ -26,31 +26,33 @@ use crate::sync::{Lazy, Mutex};
 pub const DEFAULT: &str = "default";
 
 /// The extension of an environment's database file.
-#[cfg(feature = "cache")]
+#[cfg(std_io)]
 pub const EXTENSION: &str = "db";
 
 /// The active environment: its name, and where environments are kept.
 ///
 /// Both live here rather than being passed per store, because an environment
 /// *is* the store: letting one cache be opened under a different root would
-/// make "a single environment" untrue.
+/// make "a single environment" untrue. Anything that needs both reads them
+/// through a single [`active_state`] snapshot, so a concurrent [`activate`] or
+/// [`set_root`] can never be observed half-applied.
 #[derive(Debug, Clone)]
 struct Active {
     name: String,
-    #[cfg(feature = "cache")]
+    #[cfg(std_io)]
     root: Option<std::path::PathBuf>,
 }
 
 static ACTIVE: Lazy<Mutex<Active>> = Lazy::new(|| {
     Mutex::new(Active {
         name: String::from(DEFAULT),
-        #[cfg(feature = "cache")]
+        #[cfg(std_io)]
         root: None,
     })
 });
 
 fn active_state() -> Active {
-    ACTIVE.lock().expect("Lock recovers from poisoning").clone()
+    ACTIVE.lock().clone()
 }
 
 /// Makes `name` the active environment.
@@ -61,7 +63,7 @@ pub fn activate<N: AsRef<str>>(name: N) {
     let name = sanitize(name.as_ref());
     log::debug!("Activating environment '{name}'");
 
-    ACTIVE.lock().expect("Lock recovers from poisoning").name = name;
+    ACTIVE.lock().name = name;
 }
 
 /// The active environment.
@@ -72,31 +74,44 @@ pub fn active() -> String {
 /// Sets the directory environments are kept in.
 ///
 /// Like [`activate`], this only affects stores opened afterwards.
-#[cfg(feature = "cache")]
+#[cfg(std_io)]
 pub fn set_root<P: Into<std::path::PathBuf>>(root: P) {
     let root = root.into();
     log::debug!("Environments rooted at {root:?}");
 
-    ACTIVE.lock().expect("Lock recovers from poisoning").root = Some(root);
+    ACTIVE.lock().root = Some(root);
 }
 
 /// The directory environments are kept in, defaulting to the standard cache
 /// root.
-#[cfg(feature = "cache")]
+#[cfg(std_io)]
 pub fn root() -> std::path::PathBuf {
-    active_state()
-        .root
-        .unwrap_or_else(|| crate::persistence::CacheConfig::default().root())
+    active_state().root_or_default()
 }
 
 /// The database file of the active environment.
-#[cfg(feature = "cache")]
+///
+/// Name and root come from one snapshot, so this never mixes the name from one
+/// configuration with the root from another.
+#[cfg(std_io)]
 pub fn path() -> std::path::PathBuf {
-    root().join(file_name(&active()))
+    let active = active_state();
+    let name = file_name(&active.name);
+
+    active.root_or_default().join(name)
+}
+
+#[cfg(std_io)]
+impl Active {
+    /// Where environments are kept, falling back to the standard cache root.
+    fn root_or_default(self) -> std::path::PathBuf {
+        self.root
+            .unwrap_or_else(|| crate::persistence::CacheConfig::default().root())
+    }
 }
 
 /// The file name holding the active environment inside a cache root.
-#[cfg(feature = "cache")]
+#[cfg(std_io)]
 pub fn file_name(name: &str) -> String {
     alloc::format!("{}.{EXTENSION}", sanitize(name))
 }
@@ -126,7 +141,7 @@ fn sanitize(name: &str) -> String {
 }
 
 /// Every environment that exists, sorted by name.
-#[cfg(feature = "cache")]
+#[cfg(std_io)]
 pub fn list() -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(root()) else {
         return Vec::new();
@@ -150,14 +165,19 @@ pub fn list() -> Vec<String> {
 ///
 /// This is what you consult before bundling, to see which namespaces are warm
 /// and worth shipping.
-#[cfg(feature = "cache")]
+#[cfg(std_io)]
 pub fn namespaces() -> Vec<crate::persistence::NamespaceSummary> {
+    #[cfg(native_cache)]
     match crate::persistence::Database::open_active() {
         Some(database) => database.summary(),
         // No database means nothing was ever written to disk; whatever this
         // process warmed is in memory.
         None => crate::persistence::MemoryStorage::namespaces(),
     }
+
+    // Without a persistence backend there is nothing durable to report on.
+    #[cfg(not(native_cache))]
+    crate::persistence::MemoryStorage::namespaces()
 }
 
 #[cfg(test)]

@@ -47,7 +47,7 @@ impl ThroughputBenchmarker {
         kernel_config: KernelConfig,
     ) -> ThroughputValue {
         if self.cache_enabled
-            && let Some(cached_value) = self.cache.lock().unwrap().get(&key)
+            && let Some(cached_value) = self.cache.lock().get(&key)
         {
             return *cached_value;
         }
@@ -70,7 +70,7 @@ impl ThroughputBenchmarker {
         };
 
         if self.cache_enabled {
-            self.cache.lock().unwrap().insert(key, value);
+            self.cache.lock().insert(key, value);
         }
 
         value

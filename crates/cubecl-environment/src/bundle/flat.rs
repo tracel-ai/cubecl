@@ -45,22 +45,22 @@ pub(crate) fn write(
     for ((namespace, key), value) in entries {
         let id = ids[namespace.as_str()];
 
-        let key_offset = u32::try_from(data.len()).map_err(|_| too_large())?;
+        let key_offset = u32::try_from(data.len()).map_err(|_| BundleError::TooLarge)?;
         data.extend_from_byte_slice(key);
-        let value_offset = u32::try_from(data.len()).map_err(|_| too_large())?;
+        let value_offset = u32::try_from(data.len()).map_err(|_| BundleError::TooLarge)?;
         data.extend_from_byte_slice(value);
 
         index.extend_from_byte_slice(&id.to_le_bytes());
         index.extend_from_byte_slice(&key_offset.to_le_bytes());
         index.extend_from_byte_slice(
             &u32::try_from(key.len())
-                .map_err(|_| too_large())?
+                .map_err(|_| BundleError::TooLarge)?
                 .to_le_bytes(),
         );
         index.extend_from_byte_slice(&value_offset.to_le_bytes());
         index.extend_from_byte_slice(
             &u32::try_from(value.len())
-                .map_err(|_| too_large())?
+                .map_err(|_| BundleError::TooLarge)?
                 .to_le_bytes(),
         );
     }
@@ -73,20 +73,20 @@ pub(crate) fn write(
 
     bytes.extend_from_byte_slice(
         &u32::try_from(metadata.len())
-            .map_err(|_| too_large())?
+            .map_err(|_| BundleError::TooLarge)?
             .to_le_bytes(),
     );
     bytes.extend_from_byte_slice(&metadata);
 
     bytes.extend_from_byte_slice(
         &u32::try_from(namespaces.len())
-            .map_err(|_| too_large())?
+            .map_err(|_| BundleError::TooLarge)?
             .to_le_bytes(),
     );
     for namespace in &namespaces {
         bytes.extend_from_byte_slice(
             &u32::try_from(namespace.len())
-                .map_err(|_| too_large())?
+                .map_err(|_| BundleError::TooLarge)?
                 .to_le_bytes(),
         );
         bytes.extend_from_byte_slice(namespace.as_bytes());
@@ -94,7 +94,7 @@ pub(crate) fn write(
 
     bytes.extend_from_byte_slice(
         &u32::try_from(entries.len())
-            .map_err(|_| too_large())?
+            .map_err(|_| BundleError::TooLarge)?
             .to_le_bytes(),
     );
     bytes.extend_from_byte_slice(&index);
@@ -103,11 +103,4 @@ pub(crate) fn write(
     std::fs::write(out, &*bytes)?;
 
     Ok(())
-}
-
-/// Every span in the format is a `u32`, so a bundle is capped at 4 GiB.
-fn too_large() -> BundleError {
-    BundleError::InvalidManifest(String::from(
-        "the flat bundle format addresses at most 4 GiB; export fewer namespaces",
-    ))
 }

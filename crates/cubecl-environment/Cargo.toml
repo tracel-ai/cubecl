@@ -27,21 +27,24 @@ browser-cache = [
     "dep:wasm-bindgen",
     "oneshot/async",
 ]
+# The `SQLite` persistence backend. `rusqlite` is a non-wasm dependency, so on
+# wasm this feature enables nothing; use `browser-cache` there instead.
 cache = [
     "std",
-    "dep:serde_json",
-    "dep:etcetera",
     "dep:rusqlite",
 ]
 default = ["std"]
 std = [
     "rand/std",
     "rand/thread_rng",
-    "serde_json?/std",
+    "serde_json/std",
     "ciborium/std",
     "dep:futures-lite",
     "dep:parking_lot",
     "dep:backtrace",
+    # `CacheConfig` resolves a cache root whenever there is a file system,
+    # independently of which persistence backend is compiled in.
+    "dep:etcetera",
     "oneshot/std",
     "async-channel/std",
     "dep:toml",
@@ -67,8 +70,9 @@ serde_bytes = { workspace = true, features = ["alloc"] }
 # Persistence
 bytes = { workspace = true, optional = true }
 ciborium = { workspace = true }
-etcetera = { workspace = true, optional = true }
-serde_json = { workspace = true, features = ["alloc"], optional = true }
+# The bundle manifest is JSON on every target: the flat format exists for the
+# ones the `cache` feature can't reach.
+serde_json = { workspace = true, features = ["alloc"] }
 toml = { workspace = true, optional = true }
 
 # Async
@@ -96,6 +100,8 @@ spin = { workspace = true, features = [
 ] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
+# Only ever used to resolve a cache root, which needs a file system.
+etcetera = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true, default-features = false, features = [
     "rt",

@@ -744,16 +744,11 @@ impl<R: Runtime> ComputeClient<R> {
     )]
     pub fn ensure_init_collective(&mut self, device_ids: Vec<DeviceId>) {
         let comm_id = CommunicationId::from(device_ids.clone());
-        let is_comms_init = self
-            .utilities
-            .initialized_comms
-            .read()
-            .unwrap()
-            .contains(&comm_id);
+        let is_comms_init = self.utilities.initialized_comms.read().contains(&comm_id);
         if !is_comms_init {
             self.device
                 .submit(move |server| server.comm_init(device_ids).unwrap());
-            let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
+            let mut initialized_comms = self.utilities.initialized_comms.write();
             initialized_comms.insert(comm_id);
             // Flush immediately so other devices aren't blocked waiting on this initialization.
             self.device.flush_queue();

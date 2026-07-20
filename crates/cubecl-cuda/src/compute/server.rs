@@ -329,7 +329,7 @@ impl ServerCommunication for CudaServer {
                 e.insert(comm.assume_init());
             }
 
-            let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
+            let mut initialized_comms = self.utilities.initialized_comms.write();
             initialized_comms.insert(id);
         }
 

@@ -12,7 +12,7 @@ pub enum CacheConfig {
     #[serde(rename = "target")]
     Target,
 
-    /// Stores cache in the system's local configuration directory.
+    /// Stores cache in the system's user cache directory.
     #[serde(rename = "global")]
     Global,
 
@@ -23,9 +23,20 @@ pub enum CacheConfig {
 
 impl CacheConfig {
     /// Returns the root directory for the cache.
+    ///
+    /// Every arm degrades rather than fails: none of these look-ups is under
+    /// the application's control, and a cache root that can't be resolved must
+    /// cost a recompute, not abort the process. A root that turns out to be
+    /// unwritable is handled one level down, in
+    /// [`Database::open_at`](crate::persistence::Database::open_at).
     pub fn root(&self) -> std::path::PathBuf {
         match self {
-            Self::Local => std::env::current_dir().unwrap(),
+            // A daemon or test harness whose cwd was deleted has no current
+            // directory at all.
+            Self::Local => std::env::current_dir().unwrap_or_else(|err| {
+                log::warn!("cubecl cache: no current directory ({err}); using the user cache");
+                user_cache_dir()
+            }),
             Self::Target => {
                 let dir_original =
                     std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
@@ -56,10 +67,26 @@ impl CacheConfig {
                 }
                 dir_original.join("target")
             }
-            Self::Global => etcetera::choose_base_strategy()
-                .expect("a configuration directory should exist")
-                .config_dir(),
+            // The cache directory, not the configuration directory: this is
+            // regenerable data, and XDG says so. It also matches the `Target`
+            // fallback right above, which already used `cache_dir`.
+            Self::Global => user_cache_dir(),
             Self::File(path_buf) => path_buf.clone(),
+        }
+    }
+}
+
+/// The user cache directory, or a temporary one when the platform can't name
+/// it — a systemd unit with no `HOME`, a distroless container.
+fn user_cache_dir() -> std::path::PathBuf {
+    match etcetera::choose_base_strategy() {
+        Ok(strategy) => strategy.cache_dir().join("cubecl"),
+        Err(err) => {
+            log::warn!(
+                "cubecl cache: no user cache directory ({err}); \
+                 falling back to the temporary directory"
+            );
+            std::env::temp_dir().join("cubecl")
         }
     }
 }

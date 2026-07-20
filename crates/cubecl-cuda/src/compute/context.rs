@@ -1,6 +1,7 @@
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashMap;
 use cubecl_runtime::{
     compiler::CompilationError,
     validation::{validate_cube_dim, validate_units},
@@ -23,7 +24,6 @@ use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use cudarc::driver::DriverError;
 use cudarc::driver::sys::CUfunc_st;
 use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUtensorMap};
-use std::collections::HashMap;
 use std::ffi::CString;
 use std::ffi::c_char;
 use std::str::FromStr;

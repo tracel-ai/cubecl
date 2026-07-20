@@ -173,7 +173,7 @@ impl MetalServer {
             Err(err) => unreachable!("{err}"),
         };
         let error = ServerError::Launch(err);
-        resolved.current().errors.lock().unwrap().push(error);
+        resolved.current().errors.lock().push(error);
     }
 }
 

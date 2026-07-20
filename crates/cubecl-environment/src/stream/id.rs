@@ -110,27 +110,6 @@ impl StreamId {
         Self { value: 0 }
     }
 
-    /// Swap the current stream id for the given one.
-    ///
-    /// # Safety
-    ///
-    /// This installs an unscoped override with no way to restore the
-    /// "no override" state, breaking the scoping invariant that
-    /// [`StreamId::executes`] maintains. The caller must guarantee every
-    /// subsequent operation on this thread expects the new stream.
-    #[deprecated(note = "use `StreamId::executes` or `Stream::enter` instead")]
-    pub unsafe fn swap(stream: StreamId) -> StreamId {
-        let old = Self::current();
-
-        #[cfg(stream_local)]
-        set_override(Some(stream.value));
-
-        #[cfg(not(stream_local))]
-        let _ = stream;
-
-        old
-    }
-
     #[cfg(stream_local)]
     fn per_thread() -> Self {
         DEFAULT.with(|cell| match cell.get() {

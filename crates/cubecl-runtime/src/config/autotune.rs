@@ -1,4 +1,3 @@
-#[cfg(std_io)]
 use super::logger::{LogLevel, LoggerConfig};
 
 /// Configuration for autotuning in `CubeCL`.

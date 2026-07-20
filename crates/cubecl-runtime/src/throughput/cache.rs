@@ -23,7 +23,7 @@ pub struct ThroughputCache {
 impl ThroughputCache {
     /// Gets or creates a global `ThroughputCache` for the given device name.
     pub fn get_for_device(name: &str) -> Arc<Mutex<Self>> {
-        let mut cache_map = GLOBAL_CACHE.lock().unwrap();
+        let mut cache_map = GLOBAL_CACHE.lock();
         let cache_map = cache_map.get_or_insert_with(HashMap::new);
 
         cache_map
@@ -59,7 +59,7 @@ impl ThroughputCache {
     pub fn insert(&mut self, key: ThroughputKey, value: ThroughputValue) {
         #[cfg(std_io)]
         if let Err(err) = self.cache.insert(key, value) {
-            log::warn!("Concurrent throughput measurement, keeping the existing value: {err:?}");
+            log::warn!("Concurrent throughput measurement, keeping the existing value: {err}");
         }
 
         #[cfg(not(std_io))]

@@ -9,6 +9,7 @@ use cubecl_core::{
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashMap;
 use cubecl_environment::persistence::KvStoreOptions;
 use cubecl_environment::persistence::blob::BlobStore;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
@@ -20,7 +21,6 @@ use cubecl_runtime::{
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use serde::Deserialize;
 use serde::Serialize;
-use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::sync::Arc;
@@ -66,7 +66,8 @@ impl HipContext {
                     // The architecture is part of the path: binaries built for
                     // one arch are not portable, and fingerprinting the path
                     // keeps bundles shipped across machines from serving wrong
-                    // binaries.
+                    // binaries. `arch_name` keeps its target-feature suffix
+                    // (`gfx90a:sramecc+:xnack-`), which the code object encodes.
                     Some(BlobStore::new(
                         format!("hip-kernel_{arch_name}"),
                         KvStoreOptions::default().name("hip"),

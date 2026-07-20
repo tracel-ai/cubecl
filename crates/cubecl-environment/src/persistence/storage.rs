@@ -16,6 +16,43 @@ pub enum Origin {
     Imported,
 }
 
+/// What a [`Storage::insert`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Insertion {
+    /// The storage now holds the value that was passed in.
+    Stored,
+    /// The storage declined the write and kept a different value, which is
+    /// returned. Someone else — another process, or an earlier run — got
+    /// there first.
+    Conflict(Bytes),
+    /// The backend refused the write: a full disk, a lock held past the busy
+    /// timeout, a revoked permission. Nothing was stored, and the message
+    /// says why.
+    Failed(String),
+}
+
+/// What an [`insert_many`](Storage::insert_many) did, counted per outcome.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct InsertSummary {
+    /// Entries written.
+    pub stored: usize,
+    /// Entries the storage already held under a different value.
+    pub conflict: usize,
+    /// Entries the backend refused.
+    pub failed: usize,
+}
+
+impl InsertSummary {
+    /// Counts one outcome.
+    pub fn record(&mut self, insertion: &Insertion) {
+        match insertion {
+            Insertion::Stored => self.stored += 1,
+            Insertion::Conflict(_) => self.conflict += 1,
+            Insertion::Failed(_) => self.failed += 1,
+        }
+    }
+}
+
 /// Where the entries of a single namespace are kept, and written to.
 ///
 /// A storage is bound to one namespace at construction (a `/`-separated name
@@ -29,14 +66,24 @@ pub enum Origin {
 /// # Contract
 ///
 /// - [`insert`](Storage::insert) is insert-only between two [`Origin::Local`]
-///   values: it returns the value already stored under `key` and leaves it
-///   untouched. Returning `None` means the entry was written.
+///   values: it leaves the stored value untouched and reports
+///   [`Insertion::Conflict`] with it.
 /// - A [`Origin::Local`] value *replaces* an [`Origin::Imported`] one, so a
 ///   stale bundle entry can never wedge the application that imported it.
 ///   An [`Origin::Imported`] value never replaces anything.
+/// - [`replace`](Storage::replace) ignores both rules. It exists for one
+///   caller: repairing a row whose bytes no longer decode, which no `insert`
+///   could ever agree with.
 /// - The check and the write must be atomic with respect to other processes.
-/// - Any I/O failure degrades silently: reads report a miss and writes are
-///   dropped. Implementations log failures but never panic on them.
+/// - A read that fails reports a miss: a cache entry we can't read is one we
+///   recompute. A *write* that fails reports [`Insertion::Failed`] rather
+///   than passing for success, so a caller can tell "someone else got there
+///   first" from "the write did not happen". Implementations log failures but
+///   never panic on them.
+/// - [`scan`](Storage::scan) may run the visitor while holding the backend's
+///   lock, and several namespaces of one environment share that lock. The
+///   visitor must therefore not touch any other store of the same
+///   environment: doing so deadlocks.
 ///
 /// Methods take `&self` because reads happen behind shared references on the
 /// hot path; implementations use interior mutability.
@@ -44,11 +91,38 @@ pub trait Storage: Send + core::fmt::Debug {
     /// The value stored under `key`, if any.
     fn get(&self, key: &[u8]) -> Option<Bytes>;
 
-    /// Stores `value` under `key`, returning the existing value when the write
-    /// was declined. See the trait contract for when that happens.
-    fn insert(&self, key: &[u8], value: &[u8], origin: Origin) -> Option<Bytes>;
+    /// Stores `value` under `key`. See the trait contract for when the write
+    /// is declined.
+    fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion;
+
+    /// Stores `value` under `key`, overwriting whatever is there.
+    ///
+    /// Bypasses the insert-only rule, so it never reports a conflict. Only for
+    /// repairing an entry that can't be decoded; ordinary writes go through
+    /// [`insert`](Storage::insert).
+    fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion;
+
+    /// Stores many entries under the same rules as
+    /// [`insert`](Storage::insert).
+    ///
+    /// Backends that can commit a batch atomically override this; the default
+    /// is one `insert` per entry.
+    fn insert_many(
+        &self,
+        entries: &mut dyn Iterator<Item = (Bytes, Bytes)>,
+        origin: Origin,
+    ) -> InsertSummary {
+        let mut summary = InsertSummary::default();
+        for (key, value) in entries {
+            summary.record(&self.insert(&key, value, origin));
+        }
+        summary
+    }
 
     /// Visits every entry of the namespace.
+    ///
+    /// The visitor must not read or write another store of the same
+    /// environment; see the trait contract.
     fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8]));
 
     /// Whether the storage is still loading its content asynchronously.
@@ -86,7 +160,7 @@ pub struct MemoryStorage {
 impl MemoryStorage {
     /// The in-memory storage for `namespace`, shared process-wide.
     pub fn new(namespace: &str) -> Self {
-        let mut memory = MEMORY.lock().expect("Lock recovers from poisoning");
+        let mut memory = MEMORY.lock();
         let entries = match memory.get(namespace) {
             Some(entries) => entries.clone(),
             None => {
@@ -104,12 +178,12 @@ impl MemoryStorage {
 
     /// Every namespace held in memory by this process.
     pub fn namespaces() -> Vec<NamespaceSummary> {
-        let memory = MEMORY.lock().expect("Lock recovers from poisoning");
+        let memory = MEMORY.lock();
 
         memory
             .iter()
             .map(|(namespace, entries)| {
-                let entries = entries.lock().expect("Lock recovers from poisoning");
+                let entries = entries.lock();
                 NamespaceSummary {
                     namespace: namespace.clone(),
                     entries: entries.len() as u64,
@@ -124,35 +198,37 @@ impl MemoryStorage {
 
     /// Forgets every in-memory namespace. Mostly useful in tests.
     pub fn clear() {
-        MEMORY.lock().expect("Lock recovers from poisoning").clear();
+        MEMORY.lock().clear();
     }
 }
 
 impl Storage for MemoryStorage {
     fn get(&self, key: &[u8]) -> Option<Bytes> {
-        let entries = self.entries.lock().expect("Lock recovers from poisoning");
+        let entries = self.entries.lock();
         entries.get(key).map(|(value, _)| value.clone())
     }
 
-    fn insert(&self, key: &[u8], value: &[u8], origin: Origin) -> Option<Bytes> {
-        let mut entries = self.entries.lock().expect("Lock recovers from poisoning");
+    fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
+        let mut entries = self.entries.lock();
 
         if let Some((existing, existing_origin)) = entries.get(key)
             && !replaces(origin, *existing_origin)
         {
-            return Some(existing.clone());
+            return Insertion::Conflict(existing.clone());
         }
 
-        entries.insert(
-            key.to_vec(),
-            (Bytes::from_bytes_vec(value.to_vec()), origin),
-        );
+        entries.insert(key.to_vec(), (value, origin));
 
-        None
+        Insertion::Stored
+    }
+
+    fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
+        self.entries.lock().insert(key.to_vec(), (value, origin));
+        Insertion::Stored
     }
 
     fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
-        let entries = self.entries.lock().expect("Lock recovers from poisoning");
+        let entries = self.entries.lock();
         for (key, (value, _)) in entries.iter() {
             visit(key, value);
         }
@@ -183,8 +259,12 @@ impl Storage for NoStorage {
         None
     }
 
-    fn insert(&self, _key: &[u8], _value: &[u8], _origin: Origin) -> Option<Bytes> {
-        None
+    fn insert(&self, _key: &[u8], _value: Bytes, _origin: Origin) -> Insertion {
+        Insertion::Stored
+    }
+
+    fn replace(&self, _key: &[u8], _value: Bytes, _origin: Origin) -> Insertion {
+        Insertion::Stored
     }
 
     fn scan(&self, _visit: &mut dyn FnMut(&[u8], &[u8])) {}
@@ -212,7 +292,7 @@ pub struct NamespaceSummary {
 /// environment" false. See [`crate::environment`].
 pub fn open(namespace: &str) -> Box<dyn Storage> {
     cfg_if::cfg_if! {
-        if #[cfg(all(feature = "cache", not(target_family = "wasm")))] {
+        if #[cfg(native_cache)] {
             super::open_database_storage(namespace)
         } else if #[cfg(browser_cache)] {
             super::browser::open_storage(namespace)

@@ -13,7 +13,7 @@ use objc2_metal::{
 };
 use std::sync::Arc;
 
-use cubecl_environment::persistence::{KvStore, KvStoreOptions};
+use cubecl_environment::persistence::{KvStoreOptions, blob::BlobStore};
 
 #[derive(Debug, Clone)]
 pub struct CompiledKernel {
@@ -36,7 +36,7 @@ pub struct MetalContext {
     device: Retained<ProtocolObject<dyn MTLDevice>>,
     compiled_kernels: HashMap<KernelId, CompiledKernel>,
     /// On-disk MSL source cache for faster recompilation across runs.
-    msl_cache: Option<KvStore<String, MslCacheEntry>>,
+    msl_cache: Option<BlobStore<String, MslCacheEntry>>,
     compilation_options: cubecl_cpp::shared::CompilationOptions,
     msl_compile_options: Retained<MTLCompileOptions>,
 }
@@ -55,21 +55,32 @@ impl MetalContext {
         msl_compile_options.setMathMode(MTLMathMode::Safe);
         msl_compile_options.setMathFloatingPointFunctions(MTLMathFloatingPointFunctions::Precise);
 
+        // The device is part of the path: the MSL is emitted from device-derived
+        // compilation options and validated against the device's shared-memory
+        // limit, so fingerprinting the path keeps bundles shipped across machines
+        // from serving sources built for another GPU.
+        let device_key: String = device
+            .name()
+            .to_string()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+
         Self {
-            device,
             compiled_kernels: HashMap::new(),
             msl_cache: {
                 use cubecl_runtime::config::RuntimeConfig;
                 let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
                 if config.compilation.cache {
-                    Some(KvStore::open(
-                        "msl",
+                    Some(BlobStore::new(
+                        format!("msl_{device_key}"),
                         KvStoreOptions::default().name("metal"),
                     ))
                 } else {
                     None
                 }
             },
+            device,
             compilation_options,
             msl_compile_options,
         }

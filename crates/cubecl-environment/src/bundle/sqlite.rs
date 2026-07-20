@@ -25,15 +25,7 @@ impl SqliteBundle {
         let path = path.as_ref();
         let database = Database::open(path, true)?;
         let manifest = BundleManifest::read(&database)?;
-
-        if manifest.cubecl_version != env!("CARGO_PKG_VERSION") {
-            log::warn!(
-                "Bundle '{}' was built for cubecl {}, running {}; its entries will be ignored.",
-                manifest.name,
-                manifest.cubecl_version,
-                env!("CARGO_PKG_VERSION"),
-            );
-        }
+        manifest.warn_on_version_mismatch();
 
         Ok(Self { database, manifest })
     }

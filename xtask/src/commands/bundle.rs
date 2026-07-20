@@ -4,6 +4,7 @@ use tracel_xtask::prelude::*;
 
 use cubecl_environment::bundle::{
     Bundle, BundleFormat, BundleManifest, EmbeddedBundle, ExportOptions, SqliteBundle,
+    flat_bundle_version,
 };
 use cubecl_environment::bytes::Bytes;
 use cubecl_environment::environment;
@@ -190,10 +191,24 @@ fn environments(args: &NamespacesArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Whether `path` holds a flat bundle, by its header.
+///
+/// The format is picked before anything is opened, so whichever reader runs
+/// reports its own error instead of every failure surfacing as "not a cubecl
+/// flat bundle".
+fn is_flat(path: &Path) -> anyhow::Result<bool> {
+    use std::io::Read;
+
+    let mut header = [0u8; 12];
+    let read = std::fs::File::open(path)?.read(&mut header)?;
+
+    Ok(flat_bundle_version(&header[..read]).is_some())
+}
+
 /// Opens a bundle file whichever format it is in.
 fn open_bundle(path: &Path) -> anyhow::Result<Box<dyn Bundle>> {
-    if let Ok(bundle) = SqliteBundle::open(path) {
-        return Ok(Box::new(bundle));
+    if !is_flat(path)? {
+        return Ok(Box::new(SqliteBundle::open(path)?));
     }
 
     let bytes = Bytes::from_bytes_vec(std::fs::read(path)?);
@@ -233,7 +248,8 @@ fn export(args: &ExportArgs) -> anyhow::Result<()> {
 
 /// Describes a bundle file whichever format it is in.
 fn inspect(path: &Path) -> anyhow::Result<()> {
-    if let Ok(bundle) = SqliteBundle::open(path) {
+    if !is_flat(path)? {
+        let bundle = SqliteBundle::open(path)?;
         describe(bundle.manifest(), &bundle.database().summary());
         return Ok(());
     }
@@ -241,7 +257,8 @@ fn inspect(path: &Path) -> anyhow::Result<()> {
     let bundle = EmbeddedBundle::open(Bytes::from_bytes_vec(std::fs::read(path)?))
         .map_err(|err| anyhow::anyhow!("{path:?}: {err}"))?;
     // The metadata blob is the same manifest the SQLite format stores in a row.
-    let manifest: BundleManifest = serde_json::from_slice(bundle.metadata())
+    let manifest = bundle
+        .manifest()
         .map_err(|err| anyhow::anyhow!("{path:?}: unreadable manifest: {err}"))?;
 
     describe(&manifest, &bundle.summary());

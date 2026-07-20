@@ -46,6 +46,19 @@ pub const FORMAT_VERSION: u32 = 1;
 /// Size of one entry in the index: namespace id, key span, value span.
 const ENTRY_SIZE: usize = 20;
 
+/// The layout version of the flat bundle starting at `bytes`, if it is one.
+///
+/// Only the header is read, so this tells the two bundle formats apart from a
+/// file's first bytes: enough to pick a reader, or to know that an export may
+/// replace what is already at its output path.
+pub fn flat_bundle_version(bytes: &[u8]) -> Option<u32> {
+    if bytes.len() < MAGIC.len() + 4 || &bytes[..MAGIC.len()] != MAGIC {
+        return None;
+    }
+
+    read_u32(bytes, MAGIC.len())
+}
+
 /// Why a byte blob isn't a readable flat bundle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EmbeddedBundleError {
@@ -80,19 +93,25 @@ impl core::error::Error for EmbeddedBundleError {}
 /// than a copy: serving a compiled kernel costs a reference count, whatever
 /// its size.
 ///
+/// Ignored rather than run: the bundle file is produced by
+/// `cargo xtask bundle export --format flat`, so there is none to include here.
+///
 /// ```ignore
+/// use cubecl_environment::bundle::{self, EmbeddedBundle};
+///
 /// static BUNDLE: &[u8] = include_bytes!("../bundles/h100.ccb");
 ///
 /// let bundle = EmbeddedBundle::from_static(BUNDLE).expect("valid bundle");
-/// cubecl_environment::bundle::install(Arc::new(bundle));
+/// bundle::import(&bundle);
 /// ```
 #[derive(Debug)]
 pub struct EmbeddedBundle {
     bytes: Bytes,
     /// Byte range of the metadata blob.
     metadata: (usize, usize),
-    /// Offset of the namespace table and how many entries it holds.
-    namespaces: (usize, usize),
+    /// Byte range of every namespace of the sorted table, resolved once at
+    /// [`parse`](Self::parse) so a lookup is an index rather than a walk.
+    namespaces: Vec<(usize, usize)>,
     /// Offset of the entry index and how many entries it holds.
     entries: (usize, usize),
     /// Offset of the data section, which every span is relative to.
@@ -156,19 +175,20 @@ impl EmbeddedBundle {
         cursor = metadata_end;
 
         let namespace_count = take_u32(&mut cursor).ok_or(Corrupted("truncated header"))? as usize;
-        let namespaces_start = cursor;
-        // Walk the namespace table to find where it ends, validating each
-        // length as we go.
+        // Walk the namespace table once, recording where each entry lives:
+        // every later lookup indexes this instead of walking again.
+        let mut namespaces = Vec::with_capacity(namespace_count.min(bytes.len() / 4));
         for _ in 0..namespace_count {
             let len =
                 read_u32(&bytes, cursor).ok_or(Corrupted("truncated namespace table"))? as usize;
-            cursor = cursor
-                .checked_add(4)
-                .and_then(|cursor| cursor.checked_add(len))
+            let start = cursor + 4;
+            cursor = start
+                .checked_add(len)
                 .ok_or(Corrupted("namespace length overflows"))?;
             if cursor > bytes.len() {
                 return Err(Corrupted("namespace table runs past the end"));
             }
+            namespaces.push((start, len));
         }
 
         let entry_count = read_u32(&bytes, cursor).ok_or(Corrupted("truncated header"))? as usize;
@@ -187,7 +207,7 @@ impl EmbeddedBundle {
         let this = Self {
             bytes,
             metadata: (metadata_start, metadata_end),
-            namespaces: (namespaces_start, namespace_count),
+            namespaces,
             entries: (entries_start, entry_count),
             data: data_start,
         };
@@ -197,12 +217,14 @@ impl EmbeddedBundle {
         Ok(this)
     }
 
-    /// Checks every span up front, so lookups never have to.
+    /// Checks every span and the index ordering up front, so lookups never
+    /// have to.
     fn validate_entries(&self) -> Result<(), EmbeddedBundleError> {
         use EmbeddedBundleError::Corrupted;
 
         let available = self.bytes.len() - self.data;
-        let namespace_count = self.namespaces.1;
+        let namespace_count = self.namespaces.len();
+        let mut previous: Option<Entry> = None;
 
         for index in 0..self.entries.1 {
             let entry = self
@@ -223,6 +245,18 @@ impl EmbeddedBundle {
                     return Err(Corrupted("entry span runs past the end"));
                 }
             }
+
+            // A blob is untrusted input, and `get`, `first_of` and `scan` all
+            // assume this ordering: an unsorted index would silently answer
+            // misses, and a duplicate key would shadow one of the two values.
+            if let Some(previous) = &previous {
+                let order = (previous.namespace, self.key_of(previous))
+                    .cmp(&(entry.namespace, self.key_of(&entry)));
+                if order != core::cmp::Ordering::Less {
+                    return Err(Corrupted("entry index is not sorted by (namespace, key)"));
+                }
+            }
+            previous = Some(entry);
         }
 
         // The namespace table must be readable as UTF-8 to be comparable.
@@ -240,6 +274,19 @@ impl EmbeddedBundle {
         &self.bytes[self.metadata.0..self.metadata.1]
     }
 
+    /// The bundle manifest, parsed from [`metadata`](Self::metadata) and
+    /// validated against the schema this build understands.
+    ///
+    /// The flat format keeps the manifest out of the read path on purpose, so
+    /// it is checked here rather than at [`open`](Self::open): a bundle whose
+    /// manifest this build can't read still serves its entries.
+    pub fn manifest(&self) -> Result<super::BundleManifest, super::BundleError> {
+        let manifest = super::BundleManifest::parse(self.metadata())?;
+        manifest.warn_on_version_mismatch();
+
+        Ok(manifest)
+    }
+
     /// How many entries the bundle holds, across all namespaces.
     pub fn len(&self) -> usize {
         self.entries.1
@@ -252,7 +299,7 @@ impl EmbeddedBundle {
 
     /// Entry count and total size per namespace, for reporting.
     pub fn summary(&self) -> Vec<NamespaceSummary> {
-        let mut summary: Vec<NamespaceSummary> = (0..self.namespaces.1)
+        let mut summary: Vec<NamespaceSummary> = (0..self.namespaces.len())
             .filter_map(|index| {
                 Some(NamespaceSummary {
                     namespace: alloc::string::ToString::to_string(self.namespace(index)?),
@@ -277,19 +324,13 @@ impl EmbeddedBundle {
 
     /// The `index`-th namespace of the sorted namespace table.
     fn namespace(&self, index: usize) -> Option<&str> {
-        let mut cursor = self.namespaces.0;
-        for _ in 0..index {
-            let len = read_u32(&self.bytes, cursor)? as usize;
-            cursor += 4 + len;
-        }
-        let len = read_u32(&self.bytes, cursor)? as usize;
-        let start = cursor + 4;
+        let &(start, len) = self.namespaces.get(index)?;
         core::str::from_utf8(self.bytes.get(start..start + len)?).ok()
     }
 
     /// The id of `namespace`, by binary search over the sorted table.
     fn namespace_id(&self, namespace: &str) -> Option<u32> {
-        let (mut low, mut high) = (0usize, self.namespaces.1);
+        let (mut low, mut high) = (0usize, self.namespaces.len());
 
         while low < high {
             let mid = low + (high - low) / 2;
@@ -392,7 +433,7 @@ impl Bundle for EmbeddedBundle {
     }
 
     fn namespaces(&self) -> Vec<String> {
-        (0..self.namespaces.1)
+        (0..self.namespaces.len())
             .filter_map(|index| Some(alloc::string::ToString::to_string(self.namespace(index)?)))
             .collect()
     }
@@ -497,6 +538,47 @@ mod tests {
 
         assert!(matches!(
             EmbeddedBundle::open(Bytes::from_bytes_vec(bytes)).unwrap_err(),
+            EmbeddedBundleError::Corrupted(_)
+        ));
+    }
+
+    /// Lookups binary-search the index, so an unsorted or duplicated one would
+    /// answer misses rather than fail. It is caught at open instead.
+    #[test]
+    fn an_unsorted_entry_index_is_rejected() {
+        let bundle = |keys: [&[u8]; 2]| {
+            let mut data = Vec::new();
+            let mut index = Vec::new();
+            for key in keys {
+                index.extend_from_slice(&0u32.to_le_bytes()); // namespace id
+                index.extend_from_slice(&(data.len() as u32).to_le_bytes());
+                index.extend_from_slice(&(key.len() as u32).to_le_bytes());
+                data.extend_from_slice(key);
+                index.extend_from_slice(&(data.len() as u32).to_le_bytes());
+                index.extend_from_slice(&0u32.to_le_bytes()); // empty value
+            }
+
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(MAGIC);
+            bytes.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+            bytes.extend_from_slice(&0u32.to_le_bytes()); // metadata
+            bytes.extend_from_slice(&1u32.to_le_bytes()); // one namespace
+            bytes.extend_from_slice(&2u32.to_le_bytes());
+            bytes.extend_from_slice(b"ns");
+            bytes.extend_from_slice(&2u32.to_le_bytes()); // two entries
+            bytes.extend_from_slice(&index);
+            bytes.extend_from_slice(&data);
+
+            EmbeddedBundle::open(Bytes::from_bytes_vec(bytes))
+        };
+
+        assert!(bundle([b"a", b"b"]).is_ok());
+        assert!(matches!(
+            bundle([b"b", b"a"]).unwrap_err(),
+            EmbeddedBundleError::Corrupted(_)
+        ));
+        assert!(matches!(
+            bundle([b"a", b"a"]).unwrap_err(),
             EmbeddedBundleError::Corrupted(_)
         ));
     }

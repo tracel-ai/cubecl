@@ -73,7 +73,7 @@ pub trait RuntimeConfig:
     /// static atomic value that you can populate with the appropriate value from the config
     /// during initialization.
     fn get() -> Arc<Self> {
-        let mut state = Self::storage().lock().unwrap();
+        let mut state = Self::storage().lock();
         if state.as_ref().is_none() {
             cfg_if::cfg_if! {
                 if #[cfg(std_io)] {
@@ -118,7 +118,7 @@ pub trait RuntimeConfig:
     /// Use this from libraries that want to provide a computed default without
     /// overriding a configuration the application set first.
     fn try_set(config: Self) -> bool {
-        let mut state = Self::storage().lock().unwrap();
+        let mut state = Self::storage().lock();
         if state.is_some() {
             return false;
         }
@@ -150,7 +150,11 @@ pub trait RuntimeConfig:
     /// is reached. Returns a default configuration if no file is found.
     #[cfg(std_io)]
     fn from_current_dir() -> Self {
-        let mut dir = std::env::current_dir().unwrap();
+        // A deleted or unreadable cwd is not a reason to abort: there is simply
+        // no configuration file to find from here.
+        let Ok(mut dir) = std::env::current_dir() else {
+            return Self::default();
+        };
 
         loop {
             for name in Self::file_names() {
@@ -174,15 +178,22 @@ pub trait RuntimeConfig:
     }
 
     /// Loads configuration from a specified file path.
+    ///
+    /// A file that does not parse is reported and skipped rather than fatal:
+    /// configuration keys change between releases, and a stale `cubecl.toml`
+    /// left in a checkout must not abort the application that reads it.
     #[cfg(std_io)]
     fn from_file_path<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Self> {
+        let path = path.as_ref();
         let content = std::fs::read_to_string(path)?;
-        let config: Self = match toml::from_str(&content) {
-            Ok(val) => val,
-            Err(err) => panic!("The file provided doesn't have the right format => {err}"),
-        };
 
-        Ok(config)
+        match toml::from_str(&content) {
+            Ok(config) => Ok(config),
+            Err(err) => {
+                log::warn!("Ignoring {path:?}, which doesn't have the right format => {err}");
+                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
+            }
+        }
     }
 
     /// Loads configuration from a specific TOML section of the file at the given path.
@@ -191,10 +202,15 @@ pub trait RuntimeConfig:
         path: P,
         section: &str,
     ) -> std::io::Result<Self> {
+        let path = path.as_ref();
         let content = std::fs::read_to_string(path)?;
+
         let mut table: toml::Table = match toml::from_str(&content) {
             Ok(val) => val,
-            Err(err) => panic!("The file provided doesn't have the right format => {err}"),
+            Err(err) => {
+                log::warn!("Ignoring {path:?}, which doesn't have the right format => {err}");
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err));
+            }
         };
 
         let value = match table.remove(section) {
@@ -207,13 +223,15 @@ pub trait RuntimeConfig:
             }
         };
 
-        let config: Self = match value.try_into() {
-            Ok(val) => val,
+        match value.try_into() {
+            Ok(config) => Ok(config),
             Err(err) => {
-                panic!("The section '{section}' doesn't have the right format => {err}")
+                log::warn!(
+                    "Ignoring section '{section}' of {path:?}, which doesn't have the right \
+                     format => {err}"
+                );
+                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
             }
-        };
-
-        Ok(config)
+        }
     }
 }

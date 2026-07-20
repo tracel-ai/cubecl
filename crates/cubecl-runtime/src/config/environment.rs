@@ -1,5 +1,6 @@
 use alloc::string::{String, ToString};
 
+#[cfg(std_io)]
 use super::cache::CacheConfig;
 
 /// Which named environment the process warms into, and where environments are
@@ -16,6 +17,9 @@ use super::cache::CacheConfig;
 /// ```
 ///
 /// `CUBECL_ENVIRONMENT` overrides the name.
+///
+/// `path` only exists where there is a file system to put environments on;
+/// elsewhere the name still selects one, it just isn't backed by a directory.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct EnvironmentConfig {
     /// Name of the environment to activate when the configuration loads.
@@ -23,6 +27,7 @@ pub struct EnvironmentConfig {
     pub name: String,
 
     /// Directory the environments live in.
+    #[cfg(std_io)]
     #[serde(default)]
     pub path: CacheConfig,
 }
@@ -35,6 +40,7 @@ impl Default for EnvironmentConfig {
     fn default() -> Self {
         Self {
             name: default_name(),
+            #[cfg(std_io)]
             path: CacheConfig::default(),
         }
     }

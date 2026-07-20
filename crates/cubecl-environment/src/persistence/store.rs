@@ -1,4 +1,4 @@
-use core::{fmt::Display, hash::Hash};
+use core::{cell::Cell, fmt::Display, hash::Hash};
 
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::blob::BlobStore;
-use super::storage::{Origin, Storage};
+use super::storage::{Insertion, Origin, Storage};
 use crate::bytes::Bytes;
 
 #[derive(Debug)]
@@ -37,8 +37,9 @@ pub struct KvStore<K, V> {
     /// everything up front, so reads never fall through to the storage.
     blob: BlobStore<K, V>,
     /// `false` while an asynchronous storage may still deliver entries that
-    /// have not been ingested.
-    loaded: bool,
+    /// have not been ingested. A `Cell` so [`KvStore::get`] can ingest them
+    /// itself instead of every caller having to remember to sync first.
+    loaded: Cell<bool>,
 }
 
 /// Define the options to create a [`KvStore`].
@@ -51,17 +52,59 @@ pub struct KvStoreOptions {
 /// Error related to a store, shared by [`KvStore`] and
 /// [`BlobStore`](super::blob::BlobStore).
 #[derive(Debug)]
-pub enum StoreError<K: Serialize, V: Serialize> {
-    /// Can't insert an entry with the same key, but different value. The
-    /// conflicting entry may have been inserted by this process or, on the
-    /// file system storage, concurrently by another one.
+pub enum StoreError<K, V> {
+    /// This process already stored a different value under that key: the same
+    /// function was computed twice with disagreeing results.
     #[allow(missing_docs)]
     DuplicatedKey {
         key: K,
         value_previous: V,
         value_updated: V,
     },
+    /// The durable entry was written by someone else — another process sharing
+    /// the cache root, or a bundle import — before this insert reached it.
+    /// Benign: the two values are equally valid and the stored one stays.
+    #[allow(missing_docs)]
+    KeyOutOfSync {
+        key: K,
+        value_previous: V,
+        value_updated: V,
+    },
+    /// The storage backend refused the write, so the entry is not durable and
+    /// will be recomputed on the next run.
+    #[allow(missing_docs)]
+    Backend { key: K, error: String },
 }
+
+impl<K: core::fmt::Debug, V: core::fmt::Debug> Display for StoreError<K, V> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::DuplicatedKey {
+                key,
+                value_previous,
+                value_updated,
+            } => write!(
+                f,
+                "key {key:?} was already stored with a different value: \
+                 kept {value_previous:?}, dropped {value_updated:?}"
+            ),
+            Self::KeyOutOfSync {
+                key,
+                value_previous,
+                value_updated,
+            } => write!(
+                f,
+                "key {key:?} was stored concurrently: kept {value_previous:?}, \
+                 dropped {value_updated:?}"
+            ),
+            Self::Backend { key, error } => {
+                write!(f, "storing key {key:?} failed: {error}")
+            }
+        }
+    }
+}
+
+impl<K: core::fmt::Debug, V: core::fmt::Debug> core::error::Error for StoreError<K, V> {}
 
 impl KvStoreOptions {
     /// The version used for the store.
@@ -111,9 +154,9 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
         skip(path),
         fields(path = ?path.as_ref())))]
     pub fn open<P: AsRef<str>>(path: P, option: KvStoreOptions) -> Self {
-        let mut this = Self {
+        let this = Self {
             blob: BlobStore::new(path, option),
-            loaded: false,
+            loaded: Cell::new(false),
         };
         this.sync();
 
@@ -127,7 +170,7 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
     pub fn with_storage<S: Into<String>>(storage: Box<dyn Storage>, namespace: S) -> Self {
         Self {
             blob: BlobStore::with_storage(storage, namespace),
-            loaded: false,
+            loaded: Cell::new(false),
         }
     }
 
@@ -137,7 +180,7 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
     }
 
     /// Ingest everything the storage holds into memory.
-    pub fn sync(&mut self) {
+    pub fn sync(&self) {
         // Sampled before the scan: a load completing halfway through would
         // otherwise mark a partial snapshot as fully ingested.
         let loading = self.blob.storage().loading();
@@ -149,7 +192,7 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
             }
         });
 
-        self.loaded = !loading;
+        self.loaded.set(!loading);
     }
 
     /// Whether the storage is still loading its initial content
@@ -162,7 +205,7 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
     /// ingested. `false` for synchronous storages (database, memory), whose
     /// content is fully ingested at open.
     pub fn pending_load(&self) -> bool {
-        !self.loaded
+        !self.loaded.get()
     }
 
     /// Iterate over all values of the store.
@@ -170,7 +213,7 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
         feature = "tracing",
         tracing::instrument(level = "trace", skip(self, func))
     )]
-    pub fn for_each<F: FnMut(&K, &V)>(&mut self, func: F) {
+    pub fn for_each<F: FnMut(&K, &V)>(&self, func: F) {
         if self.pending_load() {
             self.sync();
         }
@@ -180,9 +223,15 @@ impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
 
     /// Fetch an item from the store.
     ///
-    /// Served from memory alone: everything the storage holds was loaded at
-    /// open, so a miss here is a miss, not a reason to query.
+    /// Served from memory: everything a synchronous storage holds was ingested
+    /// at open, so a miss there is a miss and not a reason to query. An
+    /// asynchronous storage (browser hydration) is ingested here on the first
+    /// lookup that follows the load, so no caller has to sync by hand.
     pub fn get(&self, key: &K) -> Option<&V> {
+        if self.pending_load() {
+            self.sync();
+        }
+
         self.blob.get_memoized(key)
     }
 
@@ -231,6 +280,8 @@ pub(crate) enum Written<V> {
     Stored,
     /// The storage kept a different value, which is the durable one.
     Conflict(V),
+    /// The backend refused the write; nothing is durable.
+    Failed(String),
 }
 
 /// Writes `value` through to `storage` and lets it arbitrate.
@@ -244,14 +295,22 @@ pub(crate) fn write_through<K: StoreKey, V: StoreValue>(
     key: &K,
     value: &V,
 ) -> Written<V> {
-    match storage.insert(&encode(key), &encode(value), Origin::Local) {
-        None => Written::Stored,
-        Some(existing) => match decode::<V>(&existing) {
+    let key_bytes = encode(key);
+
+    match storage.insert(&key_bytes, encode(value), Origin::Local) {
+        Insertion::Stored => Written::Stored,
+        Insertion::Failed(error) => Written::Failed(error),
+        Insertion::Conflict(existing) => match decode::<V>(&existing) {
             Some(existing) if &existing != value => Written::Conflict(existing),
-            // Either the stored value is identical, or it can't be read back.
-            // An unreadable row is treated as stored so a corrupted entry
-            // reports a miss on the next open instead of wedging writes.
-            _ => Written::Stored,
+            Some(_) => Written::Stored,
+            // Bytes that don't decode are bytes no later insert could ever
+            // agree with, so leaving them in place would refuse every write
+            // for this key forever — a permanent recompile for a `BlobStore`
+            // key. Repair the row instead.
+            None => match storage.replace(&key_bytes, encode(value), Origin::Local) {
+                Insertion::Failed(error) => Written::Failed(error),
+                _ => Written::Stored,
+            },
         },
     }
 }

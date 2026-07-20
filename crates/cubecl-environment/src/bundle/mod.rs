@@ -38,23 +38,24 @@
 mod base;
 mod embedded;
 mod import;
+// The manifest is the description of a bundle, not a way of storing one, so it
+// is available wherever a bundle can be read: the flat format exists for the
+// targets `cache` can't reach, and they need the same schema guards.
+mod manifest;
 
 pub use base::*;
 pub use embedded::*;
 pub use import::*;
+pub use manifest::*;
 
-#[cfg(feature = "cache")]
+#[cfg(native_cache)]
 mod export;
-#[cfg(feature = "cache")]
+#[cfg(native_cache)]
 mod flat;
-#[cfg(feature = "cache")]
-mod manifest;
-#[cfg(feature = "cache")]
+#[cfg(native_cache)]
 mod sqlite;
 
-#[cfg(feature = "cache")]
+#[cfg(native_cache)]
 pub use export::*;
-#[cfg(feature = "cache")]
-pub use manifest::*;
-#[cfg(feature = "cache")]
+#[cfg(native_cache)]
 pub use sqlite::*;

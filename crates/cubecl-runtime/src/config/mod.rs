@@ -1,6 +1,5 @@
 /// Autotune config module.
 pub mod autotune;
-/// Bundle config module.
 /// Cache config module, re-exported from `cubecl-environment`.
 #[cfg(std_io)]
 pub mod cache {

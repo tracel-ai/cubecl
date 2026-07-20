@@ -39,7 +39,7 @@ where
 {
     use crate::sync::Mutex;
     static RNG: Mutex<Option<StdRng>> = Mutex::new(None);
-    let mut rng = RNG.lock().unwrap();
+    let mut rng = RNG.lock();
     if rng.is_none() {
         *rng = Some(get_seeded_rng());
     }

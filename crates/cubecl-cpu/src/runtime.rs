@@ -15,9 +15,9 @@ use cubecl_core::{
     server::ServerUtilities,
     zspace::{Shape, Strides},
 };
+use cubecl_environment::sync::Arc;
 use cubecl_runtime::{allocator::ContiguousMemoryLayoutPolicy, logging::ServerLogger};
 use cubecl_std::tensor::is_contiguous;
-use std::sync::Arc;
 use sysinfo::System;
 
 #[derive(Default)]
@@ -40,7 +40,7 @@ impl DeviceService for CpuServer {
             .cgroup_limits()
             .map(|g| g.total_memory)
             .unwrap_or(system.total_memory()) as usize;
-        let logger = cubecl_environment::sync::Arc::new(ServerLogger::default());
+        let logger = Arc::new(ServerLogger::default());
 
         let available_parallelism = std::thread::available_parallelism()
             .expect("Can't get available parallelism on this platform")

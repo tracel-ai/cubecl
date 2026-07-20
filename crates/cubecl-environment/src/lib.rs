@@ -33,7 +33,8 @@ pub mod collections;
 /// Time types working across std, wasm and embedded environments.
 pub mod time;
 
-/// Thread utilities with a compatible API for native and wasm environments.
+/// Thread spawning, on the targets that have threads. Empty elsewhere: use
+/// [`future::spawn_detached`], which is portable.
 pub mod thread;
 
 /// Future utils with a compatible API for native, non-std and wasm environments.

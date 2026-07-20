@@ -56,7 +56,6 @@ hashbrown = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true }
 
-cfg-if = { workspace = true }
 
 # Hash
 xxhash-rust = { workspace = true, features = [

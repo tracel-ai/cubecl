@@ -41,7 +41,7 @@ use web_sys::{
     IdbDatabase, IdbFactory, IdbKeyRange, IdbOpenDbRequest, IdbRequest, IdbTransactionMode,
 };
 
-use super::storage::{Origin, Storage, replaces};
+use super::storage::{Insertion, Origin, Storage, replaces};
 
 const DB_NAME: &str = "cubecl";
 const STORE_NAME: &str = "kv";
@@ -89,6 +89,19 @@ impl BrowserStorage {
 
         Self { prefix, state }
     }
+
+    /// Mirrors one entry to IndexedDB. Fire-and-forget: the in-memory state is
+    /// already authoritative for this process, and a failed put costs a
+    /// recompute on the next page load.
+    fn put_in_background(&self, key: &[u8], value: Bytes) {
+        let record_key = format!("{}{}", self.prefix, to_hex(key));
+
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Err(err) = put(&record_key, &value).await {
+                log::warn!("cubecl cache: browser storage put('{record_key}') failed: {err:?}");
+            }
+        });
+    }
 }
 
 impl Storage for BrowserStorage {
@@ -100,30 +113,31 @@ impl Storage for BrowserStorage {
             .map(|(value, _)| value.clone())
     }
 
-    fn insert(&self, key: &[u8], value: &[u8], origin: Origin) -> Option<Bytes> {
+    fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
         {
             let mut state = self.state.lock();
             if let Some((existing, existing_origin)) = state.entries.get(key)
                 && !replaces(origin, *existing_origin)
             {
-                return Some(existing.clone());
+                return Insertion::Conflict(existing.clone());
             }
-            state.entries.insert(
-                key.to_vec(),
-                (Bytes::from_bytes_vec(value.to_vec()), origin),
-            );
+            state.entries.insert(key.to_vec(), (value.clone(), origin));
         }
 
-        let record_key = format!("{}{}", self.prefix, to_hex(key));
-        let value = value.to_vec();
+        self.put_in_background(key, value);
 
-        wasm_bindgen_futures::spawn_local(async move {
-            if let Err(err) = put(&record_key, &value).await {
-                log::warn!("cubecl cache: browser storage put('{record_key}') failed: {err:?}");
-            }
-        });
+        Insertion::Stored
+    }
 
-        None
+    fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
+        self.state
+            .lock()
+            .entries
+            .insert(key.to_vec(), (value.clone(), origin));
+
+        self.put_in_background(key, value);
+
+        Insertion::Stored
     }
 
     fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {

@@ -187,11 +187,10 @@ impl DeviceService for HipServer {
                 ..Default::default()
             },
         };
-        let hip_ctx = HipContext::new(
-            comp_opts,
-            device_props.clone(),
-            normalized_arch_name.to_string(),
-        );
+        // The full `gcnArchName`, target-feature suffix included: HIP RTC gets no
+        // `--offload-arch`, so the code object it emits carries this exact string
+        // and a loader rejects it on a device that differs by so much as `xnack`.
+        let hip_ctx = HipContext::new(comp_opts, device_props.clone(), prop_arch_name.to_string());
         let logger = Arc::new(ServerLogger::default());
         let policy = PitchedMemoryLayoutPolicy::new(device_props.memory.alignment as usize);
         let utilities = ServerUtilities::new(device_props, logger, (), policy);

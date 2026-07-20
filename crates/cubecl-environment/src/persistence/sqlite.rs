@@ -12,7 +12,7 @@ use std::vec::Vec;
 use hashbrown::HashMap;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 
-use super::storage::{NamespaceSummary, Origin, Storage, replaces};
+use super::storage::{InsertSummary, Insertion, NamespaceSummary, Origin, Storage, replaces};
 use crate::bytes::Bytes;
 use crate::sync::{Arc, Lazy, Mutex};
 
@@ -50,6 +50,10 @@ const INSERT_SQL: &str = "INSERT INTO entries (namespace, key, value, origin) \
                           VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING";
 const REPLACE_SQL: &str = "UPDATE entries SET value = ?3, origin = ?4 \
                            WHERE namespace = ?1 AND key = ?2";
+const UPSERT_SQL: &str = "INSERT INTO entries (namespace, key, value, origin) \
+                          VALUES (?1, ?2, ?3, ?4) \
+                          ON CONFLICT (namespace, key) \
+                          DO UPDATE SET value = excluded.value, origin = excluded.origin";
 const SELECT_SQL: &str = "SELECT value FROM entries WHERE namespace = ?1 AND key = ?2";
 const SELECT_WITH_ORIGIN_SQL: &str =
     "SELECT value, origin FROM entries WHERE namespace = ?1 AND key = ?2";
@@ -103,7 +107,7 @@ impl Database {
         let root = root.as_ref();
         let path = root.join(db_file_name(environment));
 
-        let mut opened = OPENED.lock().expect("Lock recovers from poisoning");
+        let mut opened = OPENED.lock();
         if let Some(database) = opened.get(&path) {
             return Some(database.clone());
         }
@@ -134,14 +138,14 @@ impl Database {
     /// Opens a database file directly, without consulting the process-wide
     /// registry. A read-only database is never written to nor migrated.
     pub fn open(path: &Path, read_only: bool) -> Result<Self, rusqlite::Error> {
-        let flags = if read_only {
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX
+        let conn = if read_only {
+            open_read_only(path)?
         } else {
-            OpenFlags::SQLITE_OPEN_READ_WRITE
+            let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
                 | OpenFlags::SQLITE_OPEN_CREATE
-                | OpenFlags::SQLITE_OPEN_NO_MUTEX
+                | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+            Connection::open_with_flags(path, flags)?
         };
-        let conn = Connection::open_with_flags(path, flags)?;
 
         // WAL lets readers and one writer proceed concurrently across
         // processes, which is what the previous lock sidecar approximated.
@@ -172,7 +176,7 @@ impl Database {
 
     /// Runs `func` with the connection locked.
     pub fn with_connection<T>(&self, func: impl FnOnce(&mut Connection) -> T) -> T {
-        let mut guard = self.conn.lock().expect("Lock recovers from poisoning");
+        let mut guard = self.conn.lock();
         func(&mut guard)
     }
 
@@ -192,58 +196,94 @@ impl Database {
         })
     }
 
-    /// Stores `value` under `key`, returning the existing value when the write
-    /// is declined. See [`Storage`] for the rules; in short, a local value
-    /// replaces an imported one and nothing else overwrites.
-    pub fn insert(
-        &self,
-        namespace: &str,
-        key: &[u8],
-        value: &[u8],
-        origin: Origin,
-    ) -> Option<Bytes> {
-        let code = origin_code(origin);
-
+    /// Stores `value` under `key`. See [`Storage`] for the rules; in short, a
+    /// local value replaces an imported one and nothing else overwrites.
+    pub fn insert(&self, namespace: &str, key: &[u8], value: &[u8], origin: Origin) -> Insertion {
         let result = self.with_connection(|conn| {
             let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let written = transaction
-                .prepare_cached(INSERT_SQL)?
-                .execute(params![namespace, key, value, code])?;
+            let outcome = insert_one(&transaction, namespace, key, value, origin)?;
+            transaction.commit()?;
+            Ok::<_, rusqlite::Error>(outcome)
+        });
 
-            let existing = if written == 0 {
-                let found: Option<(Vec<u8>, i64)> = transaction
-                    .prepare_cached(SELECT_WITH_ORIGIN_SQL)?
-                    .query_row(params![namespace, key], |row| {
-                        Ok((row.get(0)?, row.get(1)?))
-                    })
-                    .optional()?;
+        self.report("write", result)
+    }
 
-                match found {
-                    Some((existing, existing_code))
-                        if replaces(origin, origin_from_code(existing_code)) =>
-                    {
-                        transaction
-                            .prepare_cached(REPLACE_SQL)?
-                            .execute(params![namespace, key, value, code])?;
-                        let _ = existing;
-                        None
-                    }
-                    other => other.map(|(existing, _)| existing),
-                }
-            } else {
-                None
-            };
+    /// Stores every entry of `entries` under the rules of [`insert`](Self::insert),
+    /// in a single transaction.
+    ///
+    /// One exclusive lock for the whole batch: importing a bundle entry by
+    /// entry would take one per entry and block every other writer of the
+    /// cache root for the duration.
+    pub fn insert_many(
+        &self,
+        namespace: &str,
+        entries: &mut dyn Iterator<Item = (Bytes, Bytes)>,
+        origin: Origin,
+    ) -> InsertSummary {
+        let result = self.with_connection(|conn| {
+            let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+            let mut summary = InsertSummary::default();
+            for (key, value) in entries {
+                summary.record(&insert_one(&transaction, namespace, &key, &value, origin)?);
+            }
 
             transaction.commit()?;
-            Ok::<_, rusqlite::Error>(existing)
+            Ok::<_, rusqlite::Error>(summary)
         });
 
         match result {
-            Ok(existing) => existing.map(Bytes::from_bytes_vec),
+            Ok(summary) => summary,
             Err(err) => {
-                // A dropped write degrades to a recompute on the next run.
-                self.warn("write", err);
-                None
+                self.warn("batch write", err);
+                InsertSummary::default()
+            }
+        }
+    }
+
+    /// Stores `value` under `key`, overwriting whatever is there.
+    pub fn replace(&self, namespace: &str, key: &[u8], value: &[u8], origin: Origin) -> Insertion {
+        let result = self.with_connection(|conn| {
+            conn.prepare_cached(UPSERT_SQL)?.execute(params![
+                namespace,
+                key,
+                value,
+                origin_code(origin)
+            ])?;
+            Ok::<_, rusqlite::Error>(Insertion::Stored)
+        });
+
+        self.report("replace", result)
+    }
+
+    /// Rewrites the file so it can be read from a directory nobody may write,
+    /// then it is ready to ship.
+    ///
+    /// A WAL database records that mode in its header, and reading one means
+    /// creating a `-shm` wal-index beside the file. Ship a bundle that way and
+    /// installing it read-only — a container image layer, a Nix store,
+    /// `/usr/share` — makes every lookup miss with no error at all. Rolling
+    /// the journal back to `DELETE` removes that requirement.
+    ///
+    /// Call it on a finished file with no other connection open to it.
+    pub fn finalize_for_shipping(&self) -> Result<(), rusqlite::Error> {
+        self.with_connection(|conn| {
+            // `journal_mode` answers with the mode it settled on, which plain
+            // `pragma_update` rejects as unexpected rows.
+            conn.pragma_update_and_check(None, "journal_mode", "DELETE", |_row| Ok(()))
+        })
+    }
+
+    /// Turns a failed statement into [`Insertion::Failed`] rather than letting
+    /// it pass for a successful write.
+    fn report(&self, operation: &str, result: Result<Insertion, rusqlite::Error>) -> Insertion {
+        match result {
+            Ok(insertion) => insertion,
+            Err(err) => {
+                let message = err.to_string();
+                self.warn(operation, err);
+                Insertion::Failed(message)
             }
         }
     }
@@ -304,6 +344,99 @@ impl Database {
     }
 }
 
+/// One insert inside an already-open transaction, shared by the single and
+/// batch paths so both arbitrate collisions the same way.
+fn insert_one(
+    conn: &Connection,
+    namespace: &str,
+    key: &[u8],
+    value: &[u8],
+    origin: Origin,
+) -> Result<Insertion, rusqlite::Error> {
+    let code = origin_code(origin);
+
+    let written = conn
+        .prepare_cached(INSERT_SQL)?
+        .execute(params![namespace, key, value, code])?;
+
+    if written != 0 {
+        return Ok(Insertion::Stored);
+    }
+
+    let found: Option<(Vec<u8>, i64)> = conn
+        .prepare_cached(SELECT_WITH_ORIGIN_SQL)?
+        .query_row(params![namespace, key], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .optional()?;
+
+    match found {
+        Some((_, existing_code)) if replaces(origin, origin_from_code(existing_code)) => {
+            conn.prepare_cached(REPLACE_SQL)?
+                .execute(params![namespace, key, value, code])?;
+            Ok(Insertion::Stored)
+        }
+        Some((existing, _)) => Ok(Insertion::Conflict(Bytes::from_bytes_vec(existing))),
+        // The row vanished between the insert and the read, which only a
+        // concurrent schema rebuild can do. Treat it as a lost write.
+        None => Ok(Insertion::Failed(String::from(
+            "the entry disappeared during the write",
+        ))),
+    }
+}
+
+/// Opens a database file for reading, tolerating a directory we may not write.
+///
+/// WAL mode is recorded in the file header, and a reader of a WAL database has
+/// to create a `-shm` wal-index *next to the file*. A bundle installed in a
+/// container image layer, a Nix store or `/usr/share` therefore fails to open
+/// at all, which surfaces as zero imported entries and no error. The URI
+/// `immutable=1` form skips locking and the wal-index entirely, which is
+/// exactly right for a file nobody can write — and wrong for a cache another
+/// process is appending to, so it is only ever a fallback.
+fn open_read_only(path: &Path) -> Result<Connection, rusqlite::Error> {
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+
+    let attempt = Connection::open_with_flags(path, flags).and_then(|conn| {
+        // Opening is lazy; reading the schema is what forces the wal-index to
+        // be created, so a successful open alone proves nothing.
+        conn.query_row("SELECT count(*) FROM sqlite_schema", [], |_| Ok(()))?;
+        Ok(conn)
+    });
+
+    let err = match attempt {
+        Ok(conn) => return Ok(conn),
+        Err(err) => err,
+    };
+
+    let Some(uri) = immutable_uri(path) else {
+        return Err(err);
+    };
+
+    log::debug!("cubecl cache: {path:?} is not readable in place ({err}); retrying immutable");
+    Connection::open_with_flags(uri, flags | OpenFlags::SQLITE_OPEN_URI)
+}
+
+/// The `file:` URI addressing `path` as an immutable database, or `None` for a
+/// path `SQLite` can't be given as a URI.
+fn immutable_uri(path: &Path) -> Option<String> {
+    let path = path.to_str()?;
+
+    let mut uri = String::from("file:");
+    for character in path.chars() {
+        match character {
+            // The only characters that would end the path component of a URI.
+            '?' => uri.push_str("%3f"),
+            '#' => uri.push_str("%23"),
+            '%' => uri.push_str("%25"),
+            _ => uri.push(character),
+        }
+    }
+    uri.push_str("?immutable=1");
+
+    Some(uri)
+}
+
 /// Drops the entries table of a database written by an incompatible schema.
 ///
 /// The table is dropped rather than emptied: a schema change can rename or
@@ -362,8 +495,20 @@ impl Storage for SqliteStorage {
         self.database.get(&self.namespace, key)
     }
 
-    fn insert(&self, key: &[u8], value: &[u8], origin: Origin) -> Option<Bytes> {
-        self.database.insert(&self.namespace, key, value, origin)
+    fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
+        self.database.insert(&self.namespace, key, &value, origin)
+    }
+
+    fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
+        self.database.replace(&self.namespace, key, &value, origin)
+    }
+
+    fn insert_many(
+        &self,
+        entries: &mut dyn Iterator<Item = (Bytes, Bytes)>,
+        origin: Origin,
+    ) -> InsertSummary {
+        self.database.insert_many(&self.namespace, entries, origin)
     }
 
     fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
@@ -393,15 +538,13 @@ mod tests {
 
         assert_eq!(
             first.insert("namespace", b"key", b"first", Origin::Local),
-            None
+            Insertion::Stored
         );
 
         // The second connection sees the committed entry and leaves it alone.
         assert_eq!(
-            second
-                .insert("namespace", b"key", b"second", Origin::Local)
-                .as_deref(),
-            Some(&b"first"[..])
+            second.insert("namespace", b"key", b"second", Origin::Local),
+            Insertion::Conflict(Bytes::from_bytes_vec(b"first".to_vec()))
         );
         assert_eq!(
             second.get("namespace", b"key").as_deref(),
@@ -429,7 +572,7 @@ mod tests {
                         let key = std::format!("{writer}-{entry}");
                         assert_eq!(
                             database.insert("namespace", key.as_bytes(), b"value", Origin::Local),
-                            None
+                            Insertion::Stored
                         );
                     }
                 });
@@ -439,6 +582,120 @@ mod tests {
         let mut count = 0;
         database.scan("namespace", &mut |_key, _value| count += 1);
         assert_eq!(count, 100);
+    }
+
+    /// A bundle ships in a directory the application may not write: a
+    /// container image layer, a Nix store, `/usr/share`. Reading a WAL
+    /// database there means creating a `-shm` wal-index beside it, which
+    /// fails, and a failed read is indistinguishable from an empty cache.
+    #[test_log::test]
+    #[cfg(unix)]
+    #[cfg_attr(miri, ignore)]
+    fn a_database_in_a_read_only_directory_is_readable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(db_file_name("test"));
+
+        let database = Database::open(&path, false).unwrap();
+        database.insert("namespace", b"key", b"value", Origin::Local);
+        drop(database);
+
+        let restore = std::fs::metadata(dir.path()).unwrap().permissions();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+
+        // Root ignores the mode bits, so the test would prove nothing there.
+        let writable = std::fs::File::create(dir.path().join("probe")).is_ok();
+
+        let read = (!writable).then(|| {
+            let database = Database::open(&path, true).expect("read-only open");
+            database.get("namespace", b"key")
+        });
+
+        std::fs::set_permissions(dir.path(), restore).unwrap();
+
+        if let Some(read) = read {
+            assert_eq!(read.as_deref(), Some(&b"value"[..]));
+        }
+    }
+
+    /// The other half of the same problem: a file about to be shipped should
+    /// not carry WAL in its header at all.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn finalizing_clears_the_wal_header() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(db_file_name("test"));
+
+        let database = Database::open(&path, false).unwrap();
+        database.insert("namespace", b"key", b"value", Origin::Local);
+        database.finalize_for_shipping().unwrap();
+
+        let mode: String = database.with_connection(|conn| {
+            conn.query_row("PRAGMA journal_mode", [], |row| row.get(0))
+                .unwrap()
+        });
+        assert_eq!(mode, "delete");
+        assert!(!path.with_extension("db-wal").exists());
+    }
+
+    /// An entry whose bytes no longer decode must be repairable: `insert`
+    /// refuses to overwrite it, and without `replace` the key would be wedged
+    /// for the life of the file.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn replace_overwrites_an_existing_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(db_file_name("test"));
+        let database = Database::open(&path, false).unwrap();
+
+        database.insert("namespace", b"key", b"corrupt", Origin::Local);
+        assert_eq!(
+            database.insert("namespace", b"key", b"value", Origin::Local),
+            Insertion::Conflict(Bytes::from_bytes_vec(b"corrupt".to_vec()))
+        );
+
+        assert_eq!(
+            database.replace("namespace", b"key", b"value", Origin::Local),
+            Insertion::Stored
+        );
+        assert_eq!(
+            database.get("namespace", b"key").as_deref(),
+            Some(&b"value"[..])
+        );
+    }
+
+    /// A batch arbitrates collisions exactly like the entries would one by
+    /// one, it just takes one lock instead of N.
+    #[test_log::test]
+    #[cfg_attr(miri, ignore)]
+    fn insert_many_matches_insert() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(db_file_name("test"));
+        let database = Database::open(&path, false).unwrap();
+
+        database.insert("namespace", b"taken", b"local", Origin::Local);
+
+        let bytes = |value: &[u8]| Bytes::from_bytes_vec(value.to_vec());
+        let entries = std::vec![
+            (bytes(b"fresh"), bytes(b"imported")),
+            (bytes(b"taken"), bytes(b"imported")),
+        ];
+
+        let summary = database.insert_many("namespace", &mut entries.into_iter(), Origin::Imported);
+        assert_eq!(summary.stored, 1);
+        assert_eq!(summary.conflict, 1);
+        assert_eq!(summary.failed, 0);
+
+        assert_eq!(
+            database.get("namespace", b"fresh").as_deref(),
+            Some(&b"imported"[..])
+        );
+        assert_eq!(
+            database.get("namespace", b"taken").as_deref(),
+            Some(&b"local"[..]),
+            "a bundle never overwrites a local value"
+        );
     }
 
     /// A database written by another schema must be rebuilt, not misread.
@@ -477,7 +734,7 @@ mod tests {
         // The rebuilt table must be usable, which an emptied one would not be.
         assert_eq!(
             database.insert("namespace", b"key", b"value", Origin::Local),
-            None
+            Insertion::Stored
         );
         assert_eq!(
             database.get("namespace", b"key").as_deref(),

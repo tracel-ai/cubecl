@@ -44,23 +44,22 @@ impl<T> Mutex<T> {
 
     /// Locks the mutex blocking the current thread until it is able to do so.
     ///
-    /// A poisoned lock is recovered rather than reported: a panic under a
-    /// guard must not turn every later lock into a panic, matching the
-    /// unwind behavior of the spin implementation used off-std. The `Result`
-    /// is kept for API stability and is always `Ok`.
+    /// Locking cannot fail, so no `Result` is returned. A poisoned lock is
+    /// recovered rather than reported: a panic under a guard must not turn
+    /// every later lock into a panic, matching the unwind behavior of the spin
+    /// implementation used off-std.
     #[inline(always)]
-    pub fn lock(&self) -> Result<MutexGuard<'_, T>, alloc::string::String> {
+    pub fn lock(&self) -> MutexGuard<'_, T> {
         #[cfg(not(feature = "std"))]
         {
-            Ok(self.inner.lock())
+            self.inner.lock()
         }
 
         #[cfg(feature = "std")]
         {
-            Ok(self
-                .inner
+            self.inner
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()))
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
         }
     }
 }
@@ -88,17 +87,16 @@ impl<T> RwLock<T> {
     ///
     /// Poisoning is recovered, never reported; see [`Mutex::lock`].
     #[inline(always)]
-    pub fn read(&self) -> Result<RwLockReadGuard<'_, T>, alloc::string::String> {
+    pub fn read(&self) -> RwLockReadGuard<'_, T> {
         #[cfg(not(feature = "std"))]
         {
-            Ok(self.inner.read())
+            self.inner.read()
         }
         #[cfg(feature = "std")]
         {
-            Ok(self
-                .inner
+            self.inner
                 .read()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()))
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
         }
     }
 
@@ -107,18 +105,17 @@ impl<T> RwLock<T> {
     ///
     /// Poisoning is recovered, never reported; see [`Mutex::lock`].
     #[inline(always)]
-    pub fn write(&self) -> Result<RwLockWriteGuard<'_, T>, alloc::string::String> {
+    pub fn write(&self) -> RwLockWriteGuard<'_, T> {
         #[cfg(not(feature = "std"))]
         {
-            Ok(self.inner.write())
+            self.inner.write()
         }
 
         #[cfg(feature = "std")]
         {
-            Ok(self
-                .inner
+            self.inner
                 .write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()))
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
         }
     }
 }
@@ -128,13 +125,13 @@ impl<T> RwLock<T> {
 /// This module is a stub when no std is available to swap with [`std::sync::OnceLock`].
 pub struct SyncOnceCell<T>(OnceImported<T>);
 
-impl<T: core::fmt::Debug> Default for SyncOnceCell<T> {
+impl<T> Default for SyncOnceCell<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: core::fmt::Debug> SyncOnceCell<T> {
+impl<T> SyncOnceCell<T> {
     /// Create a new once.
     #[inline(always)]
     pub fn new() -> Self {
@@ -153,7 +150,9 @@ impl<T: core::fmt::Debug> SyncOnceCell<T> {
         #[cfg(feature = "std")]
         {
             let cell = OnceImported::new();
-            cell.set(value).unwrap();
+            // Infallible: the cell was just created, so it is empty. Ignoring
+            // the `Err` is what keeps `T: Debug` off this whole impl.
+            let _ = cell.set(value);
 
             Self(cell)
         }
@@ -189,13 +188,13 @@ mod tests {
         let mutex = Mutex::new(0u32);
 
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _guard = mutex.lock().unwrap();
+            let _guard = mutex.lock();
             panic!("poison the lock");
         }))
         .unwrap_err();
 
-        *mutex.lock().unwrap() += 1;
-        assert_eq!(*mutex.lock().unwrap(), 1);
+        *mutex.lock() += 1;
+        assert_eq!(*mutex.lock(), 1);
     }
 
     #[test]
@@ -203,11 +202,11 @@ mod tests {
         let lock = RwLock::new(0u32);
 
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _guard = lock.write().unwrap();
+            let _guard = lock.write();
             panic!("poison the lock");
         }))
         .unwrap_err();
 
-        assert_eq!(*lock.read().unwrap(), 0);
+        assert_eq!(*lock.read(), 0);
     }
 }

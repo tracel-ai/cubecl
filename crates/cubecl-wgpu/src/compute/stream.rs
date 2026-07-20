@@ -99,7 +99,7 @@ impl WgpuStream {
         #[cfg(renderdoc)]
         RENDERDOC.with(|renderdoc| {
             if let Some(renderdoc) = &**renderdoc {
-                let mut renderdoc = renderdoc.lock().unwrap();
+                let mut renderdoc = renderdoc.lock();
                 renderdoc.start_frame_capture(null(), null());
             }
         });
@@ -537,7 +537,7 @@ impl WgpuStream {
         #[cfg(renderdoc)]
         RENDERDOC.with(|renderdoc| {
             if let Some(renderdoc) = &**renderdoc {
-                let mut renderdoc = renderdoc.lock().unwrap();
+                let mut renderdoc = renderdoc.lock();
                 renderdoc.end_frame_capture(null(), null());
                 renderdoc.start_frame_capture(null(), null());
             }

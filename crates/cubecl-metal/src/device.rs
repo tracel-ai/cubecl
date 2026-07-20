@@ -114,11 +114,11 @@ fn registry() -> &'static Mutex<DeviceRegistry> {
 /// Registers an existing `MTLDevice` and returns a `MetalDevice::Existing` handle,
 /// for integrating with Metal code that already owns a device.
 pub fn register_device(device: Retained<ProtocolObject<dyn MTLDevice>>) -> MetalDevice {
-    let id = registry().lock().unwrap().register(device);
+    let id = registry().lock().register(device);
     MetalDevice::Existing(id)
 }
 
 /// Get a registered Metal device by its ID.
 pub(crate) fn get_existing_device(id: u32) -> Option<Retained<ProtocolObject<dyn MTLDevice>>> {
-    registry().lock().unwrap().get(id)
+    registry().lock().get(id)
 }

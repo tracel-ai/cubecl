@@ -131,7 +131,7 @@ impl<K: AutotuneKey> Tuner<K> {
 
     /// Fetch the fastest autotune operation index for an autotune key.
     pub fn fastest(&self, key: &K) -> TuneCacheResult {
-        self.cache.lock().unwrap().fastest(key)
+        self.cache.lock().fastest(key)
     }
 
     /// Check the cache, validate checksums if needed, and kick off a tuning job if the
@@ -150,12 +150,12 @@ impl<K: AutotuneKey> Tuner<K> {
         <F as TuneInputs>::At<'a>: Clone + Send,
     {
         {
-            let mut cache = self.cache.lock().unwrap();
+            let mut cache = self.cache.lock();
             let cur = cache.fastest(key);
 
-            // Persistent entries may have arrived after construction: browser
-            // hydration is asynchronous, and other processes append to the
-            // cache file. Ingest them before starting a redundant tune.
+            // Browser hydration is asynchronous, so persistent entries may
+            // have arrived after construction. Ingest them before starting a
+            // redundant tune.
             #[cfg(autotune_persistence)]
             let cur = if matches!(cur, TuneCacheResult::Miss) {
                 cache.sync_persistent();
@@ -166,7 +166,7 @@ impl<K: AutotuneKey> Tuner<K> {
 
             #[cfg(autotune_persistence)]
             let cur = if matches!(cur, TuneCacheResult::Unchecked) {
-                let mut log = self.logger.lock().unwrap();
+                let mut log = self.logger.lock();
                 let checksum = checksum();
                 if let AutotuneLogLevel::Full = log.log_level_autotune() {
                     log.log_autotune(&format!("validate checksum key={key}, checksum={checksum}"));
@@ -203,13 +203,13 @@ impl<K: AutotuneKey> Tuner<K> {
 
         // Fast path: single tunable, no benchmarking needed.
         if results.len() == 1 {
-            self.cache.lock().unwrap().cache_insert(key.clone(), 0);
+            self.cache.lock().cache_insert(key.clone(), 0);
             return TuneCacheResult::Hit { fastest_index: 0 };
         }
 
         let test_inputs = tunables.generate_inputs(key, inputs);
         let mut plan = tunables.plan(key);
-        let mut context_logs = match self.logger.lock().unwrap().log_level_autotune() {
+        let mut context_logs = match self.logger.lock().log_level_autotune() {
             AutotuneLogLevel::Full => Some(String::new()),
             _ => None,
         };
@@ -391,20 +391,11 @@ async fn process_request<K: AutotuneKey>(
         .index;
 
     {
-        log_result(
-            &mut logger.lock().unwrap(),
-            &key,
-            &results,
-            context_logs.as_deref(),
-        );
-        cache
-            .lock()
-            .unwrap()
-            .cache_insert(key.clone(), fastest_index);
+        log_result(&mut logger.lock(), &key, &results, context_logs.as_deref());
+        cache.lock().cache_insert(key.clone(), fastest_index);
         #[cfg(autotune_persistence)]
         cache
             .lock()
-            .unwrap()
             .persistent_cache_insert(key, checksum, fastest_index, results);
     }
 

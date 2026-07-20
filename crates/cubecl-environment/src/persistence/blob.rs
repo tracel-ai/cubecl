@@ -139,15 +139,15 @@ impl<K: StoreKey, V: StoreValue> BlobStore<K, V> {
     ///
     /// Insert-only, with the one exception the storage arbitrates: a locally
     /// computed value replaces one that came from a bundle, so a stale
-    /// imported kernel can never wedge compilation. Any other collision
-    /// returns [`StoreError::DuplicatedKey`] and leaves the stored value
-    /// alone.
+    /// imported kernel can never wedge compilation. Any other collision leaves
+    /// the stored value alone and reports [`StoreError::DuplicatedKey`] when
+    /// this process wrote it, [`StoreError::KeyOutOfSync`] when someone else
+    /// did.
     pub fn insert(&mut self, key: K, value: V) -> Result<(), StoreError<K, V>> {
-        if let Some(existing) = self.get_memoized(&key)
-            && existing == &value
-        {
-            return Ok(());
-        }
+        let known = match self.get_memoized(&key) {
+            Some(existing) if existing == &value => return Ok(()),
+            existing => existing.is_some(),
+        };
 
         // Only the memo is consulted above: `write_through` asks the storage
         // atomically, so reading it first would cost a second round trip and
@@ -157,13 +157,26 @@ impl<K: StoreKey, V: StoreValue> BlobStore<K, V> {
                 self.memoize(key, value);
                 Ok(())
             }
+            Written::Failed(error) => Err(StoreError::Backend { key, error }),
             Written::Conflict(existing) => {
                 self.memoize(key.clone(), existing.clone());
 
-                Err(StoreError::DuplicatedKey {
-                    key,
-                    value_previous: existing,
-                    value_updated: value,
+                // `known` is what tells the two conflicts apart: this process
+                // computed the key twice, or someone else stored it first.
+                // The second is a routine multi-process race, not a bug.
+                let (value_previous, value_updated) = (existing, value);
+                Err(if known {
+                    StoreError::DuplicatedKey {
+                        key,
+                        value_previous,
+                        value_updated,
+                    }
+                } else {
+                    StoreError::KeyOutOfSync {
+                        key,
+                        value_previous,
+                        value_updated,
+                    }
                 })
             }
         }

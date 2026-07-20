@@ -47,8 +47,7 @@ bytemuck = { workspace = true }
 cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-features = false, features = [
     "hash",
 ] }
-cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.1", default-features = false, features = [
-] }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.1", default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.1", default-features = false }
 cubecl-cpp = { path = "../cubecl-cpp", version = "=0.11.0-pre.1", default-features = false, features = [
     "cuda",

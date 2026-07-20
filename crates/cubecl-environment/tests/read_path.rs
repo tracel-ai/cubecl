@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use cubecl_environment::bytes::Bytes;
 use cubecl_environment::collections::HashMap;
-use cubecl_environment::persistence::{KvStore, Origin, Storage};
+use cubecl_environment::persistence::{Insertion, KvStore, Origin, Storage};
 
 /// Shared so the test can read the counters while the store owns the storage.
 #[derive(Debug, Clone, Default)]
@@ -40,16 +40,23 @@ impl Storage for Counting {
         self.0.entries.lock().unwrap().get(key).cloned()
     }
 
-    fn insert(&self, key: &[u8], value: &[u8], _origin: Origin) -> Option<Bytes> {
+    fn insert(&self, key: &[u8], value: Bytes, _origin: Origin) -> Insertion {
         self.0.inserts.fetch_add(1, Ordering::Relaxed);
         let mut entries = self.0.entries.lock().unwrap();
 
         if let Some(existing) = entries.get(key) {
-            return Some(existing.clone());
+            return Insertion::Conflict(existing.clone());
         }
-        entries.insert(key.to_vec(), Bytes::from_bytes_vec(value.to_vec()));
+        entries.insert(key.to_vec(), value);
 
-        None
+        Insertion::Stored
+    }
+
+    fn replace(&self, key: &[u8], value: Bytes, _origin: Origin) -> Insertion {
+        self.0.inserts.fetch_add(1, Ordering::Relaxed);
+        self.0.entries.lock().unwrap().insert(key.to_vec(), value);
+
+        Insertion::Stored
     }
 
     fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
@@ -79,7 +86,7 @@ fn reads_never_reach_the_storage() {
     assert_eq!(inserts, 1_000);
 
     // Reopen: exactly one scan ingests everything, and nothing else.
-    let mut store = KvStore::<String, u32>::with_storage(Box::new(storage.clone()), "bench/ns");
+    let store = KvStore::<String, u32>::with_storage(Box::new(storage.clone()), "bench/ns");
     store.sync();
     let (_, _, scans_after_open) = storage.counts();
 

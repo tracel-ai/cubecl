@@ -84,14 +84,14 @@ impl<S: DeviceService + 'static> DeviceHandleSpec<S> for MutexDeviceHandle<S> {
         &self,
         task: T,
     ) -> Result<R, CallError> {
-        let mut guard = self.state.service.lock().unwrap();
+        let mut guard = self.state.service.lock();
         let state = guard.downcast_mut::<S>().expect("State type mismatch");
 
         Ok(task(state))
     }
 
     fn submit<T: FnOnce(&mut S) + Send + 'static>(&self, task: T) {
-        let mut guard = self.state.service.lock().unwrap();
+        let mut guard = self.state.service.lock();
         let state = guard.downcast_mut::<S>().expect("State type mismatch");
 
         task(state);
@@ -159,7 +159,7 @@ impl<'a> Drop for Guard<'a> {
         match self {
             Guard::Reentrant => {}
             Guard::Main(_mutex_guard, thread_mutex) => {
-                let mut state = thread_mutex.lock.write().unwrap();
+                let mut state = thread_mutex.lock.write();
                 *state = None;
             }
         }
@@ -172,7 +172,7 @@ impl DeviceLock {
         let stream_id = StreamId::current();
 
         loop {
-            let mut state = self.lock.write().unwrap();
+            let mut state = self.lock.write();
 
             let is_ok = match state.as_ref() {
                 Some(value) => *value == stream_id,

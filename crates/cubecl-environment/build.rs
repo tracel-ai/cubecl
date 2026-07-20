@@ -1,11 +1,6 @@
 use cfg_aliases::cfg_aliases;
 
 fn main() {
-    if let Ok(family) = std::env::var("CARGO_CFG_TARGET_FAMILY")
-        && family == "wasm"
-    {
-        println!("cargo:rustc-cfg=portable_atomic_unsafe_assume_single_core");
-    }
     // Setup cfg aliases
     cfg_aliases! {
         multi_threading: { all(feature = "std", not(target_family = "wasm")) },
@@ -13,6 +8,11 @@ fn main() {
         stream_local: { feature = "std" },
         // Filesystem and environment access for config loading and caching.
         std_io: { all(feature = "std", any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android")) },
+        // The `SQLite` persistence backend. `cache` pulls in `rusqlite`, which is
+        // declared for non-wasm targets only, so the feature alone is not enough
+        // to gate the module: enabling `cache` on wasm must compile to nothing
+        // rather than to an unresolved import.
+        native_cache: { all(feature = "cache", feature = "std", any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android")) },
         // Browser storage persistence (IndexedDB).
         browser_cache: { all(target_family = "wasm", feature = "browser-cache") },
         // Tokio runtime support (never on wasm).

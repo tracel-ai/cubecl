@@ -31,12 +31,23 @@ fn open(root: &std::path::Path, name: &str, path: &str) -> KvStore<String, u32> 
 }
 
 fn export_to(root: &std::path::Path, out: &std::path::Path, format: BundleFormat) {
+    export_roots(&[root], out, format, &[]);
+}
+
+/// The general form: several roots, one format, an optional namespace filter.
+fn export_roots(
+    roots: &[&std::path::Path],
+    out: &std::path::Path,
+    format: BundleFormat,
+    namespaces: &[&str],
+) {
     let options = ExportOptions {
         name: "Test GPU Linux".to_string(),
         format,
+        namespaces: namespaces.iter().map(|it| it.to_string()).collect(),
         ..Default::default()
     };
-    export(&[root], out, &options).unwrap();
+    export(roots, out, &options).unwrap();
 }
 
 /// Imports into `root`, which becomes the active environment first: `import`
@@ -357,6 +368,197 @@ fn exporting_over_an_existing_bundle_replaces_it() {
     assert_eq!(store.get(&"old".to_string()), None);
 }
 
+/// The flat format has no manifest row to validate an existing file with, so
+/// re-exporting over one used to be rejected as a foreign file forever.
+#[test]
+#[serial_test::serial]
+fn exporting_flat_over_an_existing_flat_bundle_replaces_it() {
+    let first_root = tempfile::tempdir().unwrap();
+    let second_root = tempfile::tempdir().unwrap();
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let cold_root = tempfile::tempdir().unwrap();
+    let bundle_path = bundle_dir.path().join("replaced.ccb");
+
+    warm(
+        first_root.path(),
+        "autotune",
+        "device0/matmul",
+        &[("old", 1)],
+    );
+    export_to(first_root.path(), &bundle_path, BundleFormat::Flat);
+
+    warm(
+        second_root.path(),
+        "autotune",
+        "device0/matmul",
+        &[("new", 2)],
+    );
+    export_to(second_root.path(), &bundle_path, BundleFormat::Flat);
+
+    let bundle = open_bundle(&bundle_path, BundleFormat::Flat);
+    import_into(cold_root.path(), bundle.as_ref());
+
+    let store = open(cold_root.path(), "autotune", "device0/matmul");
+    assert_eq!(store.get(&"new".to_string()), Some(&2));
+    assert_eq!(store.get(&"old".to_string()), None);
+}
+
+/// A failed export must leave the previous bundle intact, not a stub that
+/// wedges every later export.
+#[test]
+#[serial_test::serial]
+fn a_failed_export_leaves_the_previous_bundle_alone() {
+    let warm_root = tempfile::tempdir().unwrap();
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let bundle_path = bundle_dir.path().join("kept.ccb");
+
+    warm(warm_root.path(), "autotune", "device0/matmul", &[("k", 1)]);
+    export_to(warm_root.path(), &bundle_path, BundleFormat::Flat);
+    let exported = std::fs::read(&bundle_path).unwrap();
+
+    // A source that is not a database at all fails the export.
+    let broken = bundle_dir.path().join("broken.db");
+    std::fs::write(&broken, b"not a database").unwrap();
+    let options = ExportOptions {
+        name: "Doomed".to_string(),
+        format: BundleFormat::Flat,
+        ..Default::default()
+    };
+    assert!(export(&[&broken], &bundle_path, &options).is_err());
+
+    assert_eq!(std::fs::read(&bundle_path).unwrap(), exported);
+    assert!(
+        !bundle_dir.path().join("kept.ccb.tmp").exists(),
+        "the staged file must not be left behind"
+    );
+
+    // And the bundle is still replaceable, which the stub used to prevent.
+    export_to(warm_root.path(), &bundle_path, BundleFormat::Flat);
+}
+
+/// The shipping path for wasm and no-std: a blob embedded with
+/// `include_bytes!`.
+#[test]
+#[serial_test::serial]
+fn a_static_blob_opens_as_a_bundle() {
+    let warm_root = tempfile::tempdir().unwrap();
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let cold_root = tempfile::tempdir().unwrap();
+    let bundle_path = bundle_dir.path().join("static.ccb");
+
+    warm(
+        warm_root.path(),
+        "autotune",
+        "device0/matmul",
+        &[("a", 1), ("b", 2)],
+    );
+    export_to(warm_root.path(), &bundle_path, BundleFormat::Flat);
+
+    // Stands in for `include_bytes!`, which needs a file at compile time.
+    let blob: &'static [u8] = Vec::leak(std::fs::read(&bundle_path).unwrap());
+    let bundle = EmbeddedBundle::from_static(blob).unwrap();
+
+    assert_eq!(bundle.len(), 2);
+    assert_eq!(bundle.manifest().unwrap().name, "Test GPU Linux");
+    assert_eq!(import_into(cold_root.path(), &bundle).imported, 2);
+    assert_eq!(
+        open(cold_root.path(), "autotune", "device0/matmul").get(&"b".to_string()),
+        Some(&2)
+    );
+}
+
+/// The flat format merges roots in the reader, not in `SQLite`, so dedup is a
+/// separate implementation and needs its own coverage.
+#[test]
+#[serial_test::serial]
+fn exporting_several_roots_to_flat_dedupes_shared_keys() {
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let cold_root = tempfile::tempdir().unwrap();
+    let bundle_path = bundle_dir.path().join("merged.ccb");
+
+    warm(
+        first.path(),
+        "autotune",
+        "device0/matmul",
+        &[("shared", 1), ("only-first", 10)],
+    );
+    warm(
+        second.path(),
+        "autotune",
+        "device0/matmul",
+        &[("shared", 2), ("only-second", 20)],
+    );
+
+    export_roots(
+        &[first.path(), second.path()],
+        &bundle_path,
+        BundleFormat::Flat,
+        &[],
+    );
+
+    let bundle = open_bundle(&bundle_path, BundleFormat::Flat);
+    let report = import_into(cold_root.path(), bundle.as_ref());
+    assert_eq!(report.imported, 3, "the shared key appears exactly once");
+
+    let store = open(cold_root.path(), "autotune", "device0/matmul");
+    assert_eq!(
+        store.get(&"shared".to_string()),
+        Some(&1),
+        "first root wins"
+    );
+    assert_eq!(store.get(&"only-first".to_string()), Some(&10));
+    assert_eq!(store.get(&"only-second".to_string()), Some(&20));
+}
+
+/// The prefix filter must select the same namespaces in both formats.
+#[test]
+#[serial_test::serial]
+fn exporting_to_flat_can_be_restricted_to_some_namespaces() {
+    let warm_root = tempfile::tempdir().unwrap();
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let bundle_path = bundle_dir.path().join("autotune-only.ccb");
+
+    warm(warm_root.path(), "autotune", "device0/matmul", &[("k", 1)]);
+    warm(warm_root.path(), "throughput", "device0/copy", &[("k", 2)]);
+
+    let version = env!("CARGO_PKG_VERSION");
+    let selected = format!("autotune/{version}/device0/matmul");
+
+    export_roots(
+        &[warm_root.path()],
+        &bundle_path,
+        BundleFormat::Flat,
+        &["autotune"],
+    );
+    assert_eq!(
+        open_bundle(&bundle_path, BundleFormat::Flat).namespaces(),
+        vec![selected.clone()]
+    );
+
+    // An empty prefix is no filter at all, in both formats.
+    export_roots(&[warm_root.path()], &bundle_path, BundleFormat::Flat, &[""]);
+    assert_eq!(
+        open_bundle(&bundle_path, BundleFormat::Flat)
+            .namespaces()
+            .len(),
+        2
+    );
+
+    let sqlite_path = bundle_dir.path().join("autotune-only.cubecl");
+    export_roots(
+        &[warm_root.path()],
+        &sqlite_path,
+        BundleFormat::Sqlite,
+        &["autotune"],
+    );
+    assert_eq!(
+        open_bundle(&sqlite_path, BundleFormat::Sqlite).namespaces(),
+        vec![selected]
+    );
+}
+
 /// Both formats must ship exactly the same entries.
 #[test]
 #[serial_test::serial]
@@ -552,5 +754,55 @@ fn a_local_blob_replaces_a_stale_imported_one() {
         store
             .insert("kernel".to_string(), Bytes::from_bytes_vec(vec![3u8]))
             .is_err()
+    );
+}
+
+/// The shipping scenario: a bundle installed where it cannot be written to.
+///
+/// A container image layer, a Nix store path and a macOS app bundle are all
+/// read-only *directories*, and `SQLite` needs to write next to the file to read
+/// a WAL database. An export that left WAL in the header would import zero
+/// entries here, and report success while doing it.
+#[cfg(unix)]
+#[test]
+#[serial_test::serial]
+fn a_bundle_installed_read_only_still_imports() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let source = tempfile::tempdir().unwrap();
+    let installed = tempfile::tempdir().unwrap();
+    let target = tempfile::tempdir().unwrap();
+
+    warm(
+        source.path(),
+        "default",
+        "autotune/matmul",
+        &[("shape=2x2", 42)],
+    );
+
+    let bundle_path = installed.path().join("shipped.ccb");
+    export_to(source.path(), &bundle_path, BundleFormat::Sqlite);
+
+    let original = std::fs::metadata(installed.path()).unwrap().permissions();
+    std::fs::set_permissions(installed.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+
+    // Root ignores the mode bits, so the test would prove nothing there.
+    let writable = std::fs::File::create(installed.path().join("probe")).is_ok();
+
+    let imported = (!writable).then(|| {
+        let bundle = SqliteBundle::open(&bundle_path).expect("a read-only bundle opens");
+        import_into(target.path(), &bundle).imported
+    });
+
+    std::fs::set_permissions(installed.path(), original).unwrap();
+
+    if imported.is_none() {
+        return;
+    }
+
+    assert_eq!(imported, Some(1));
+    assert_eq!(
+        open(target.path(), "default", "autotune/matmul").get(&"shape=2x2".to_string()),
+        Some(&42)
     );
 }

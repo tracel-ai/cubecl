@@ -220,26 +220,19 @@ impl<K: AutotuneKey> TuneCache<K> {
 
 #[cfg(autotune_persistence)]
 impl<K: AutotuneKey> TuneCache<K> {
-    /// Ingest entries newly delivered by the persistent backend into the
-    /// in-memory cache as unverified.
+    /// Ingest entries the persistent store has delivered since the last call
+    /// into the in-memory cache, as unverified.
     ///
-    /// On the browser backend the initial hydration is asynchronous: entries
-    /// only become visible some time after construction, so this is called on
-    /// a cache miss before starting a tune. On the file system backend it
-    /// picks up entries appended by other processes.
+    /// This exists for the browser backend, whose initial hydration is
+    /// asynchronous: entries become visible some time after construction, and
+    /// the store ingests them on the first read that follows. Synchronous
+    /// backends are fully ingested at open, so this only walks memory —
+    /// picking up entries another process appended would mean rescanning the
+    /// database on every autotune miss, under the tuner mutex.
     pub(crate) fn sync_persistent(&mut self) {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
             return;
         };
-
-        // Only asynchronous backends (browser hydration) can have new
-        // content after construction without a local insert. Synchronous
-        // backends are fully ingested at open, and re-reading them here
-        // would take the multi-process file lock on the autotune hot path
-        // while the tuner mutex is held.
-        if !persistent_cache.pending_load() {
-            return;
-        }
 
         persistent_cache.for_each(|key, value| {
             self.in_memory_cache
@@ -269,18 +262,25 @@ impl<K: AutotuneKey> TuneCache<K> {
                 results,
             },
         ) {
-            let StoreError::DuplicatedKey {
-                key,
-                value_previous,
-                value_updated,
-            } = err;
-
-            // Either this process tuned the same function twice, or another
-            // process stored its own result first. Both are harmless: the
-            // stored entry stays, and the two are equally valid.
-            log::warn!(
-                "Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}"
-            );
+            match err {
+                StoreError::DuplicatedKey {
+                    key,
+                    value_previous,
+                    value_updated,
+                } => log::warn!(
+                    "Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}"
+                ),
+                // Another process sharing the cache root tuned this key first.
+                // Routine with N training processes on a cold cache, and both
+                // results are valid, so it stays quiet: warning here would
+                // print a full result payload per key on every cold start.
+                StoreError::KeyOutOfSync { key, .. } => {
+                    log::debug!("Autotune result for key {key:?} was already stored concurrently")
+                }
+                StoreError::Backend { key, error } => log::warn!(
+                    "Autotune result for key {key:?} could not be stored, it will be retuned: {error}"
+                ),
+            }
         }
     }
 

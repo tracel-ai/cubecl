@@ -66,10 +66,10 @@ fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| {
             for _ in 0..black_box(1000) {
                 let data = [1; DATA_SIZE];
-                let mut device = device.lock().unwrap();
+                let mut device = device.lock();
                 device.compute(data);
             }
-            black_box(device.lock().unwrap().id);
+            black_box(device.lock().id);
         })
     });
     c.bench_function("device handle multi-threads", |b| {
@@ -108,7 +108,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                 let device_cloned = device.clone();
                 let thread = std::thread::spawn(move || {
                     for _ in 0..black_box(count) {
-                        let mut device = device_cloned.lock().unwrap();
+                        let mut device = device_cloned.lock();
                         let data = [1; DATA_SIZE];
                         device.compute(data);
                     }
@@ -120,7 +120,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                 handle.join().unwrap();
             }
 
-            black_box(device.lock().unwrap().id);
+            black_box(device.lock().id);
         })
     });
 }
