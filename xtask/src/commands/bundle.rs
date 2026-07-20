@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use tracel_xtask::prelude::*;
 
-use cubecl_environment::bundle::{Bundle, ExportOptions};
+use cubecl_environment::bundle::{ExportOptions, SqliteBundle};
 use cubecl_environment::persistence::CacheConfig;
 
 #[derive(clap::Args)]
@@ -35,10 +35,11 @@ pub(crate) struct ExportArgs {
     /// directory).
     #[arg(long)]
     pub root: Vec<PathBuf>,
-    /// Only export these stores, e.g. `autotune` or `cuda`. Repeatable.
-    /// Defaults to every store in the cache.
-    #[arg(long = "store")]
-    pub stores: Vec<String>,
+    /// Only export these namespaces, e.g. `autotune` or `cuda`. Matches whole
+    /// segments, so `autotune` selects everything under it. Repeatable.
+    /// Defaults to every namespace in the cache.
+    #[arg(long = "namespace")]
+    pub namespaces: Vec<String>,
 }
 
 #[derive(clap::Args)]
@@ -65,7 +66,7 @@ fn export(args: &ExportArgs) -> anyhow::Result<()> {
 
     let options = ExportOptions {
         name: args.name.clone(),
-        stores: args.stores.clone(),
+        namespaces: args.namespaces.clone(),
         ..Default::default()
     };
     let manifest = cubecl_environment::bundle::export(&roots, &args.out, &options)?;
@@ -74,17 +75,17 @@ fn export(args: &ExportArgs) -> anyhow::Result<()> {
         "Exported bundle '{}' (cubecl {}) to {:?}",
         manifest.name, manifest.cubecl_version, args.out
     );
-    describe(&Bundle::open(&args.out)?);
+    describe(&SqliteBundle::open(&args.out)?);
 
     Ok(())
 }
 
 fn inspect(args: &InspectArgs) -> anyhow::Result<()> {
-    describe(&Bundle::open(&args.path)?);
+    describe(&SqliteBundle::open(&args.path)?);
     Ok(())
 }
 
-fn describe(bundle: &Bundle) {
+fn describe(bundle: &SqliteBundle) {
     let manifest = bundle.manifest();
 
     info!("Bundle '{}'", manifest.name);
@@ -105,14 +106,14 @@ fn describe(bundle: &Bundle) {
         return;
     }
 
-    let total: u64 = summary.iter().map(|store| store.entries).sum();
+    let total: u64 = summary.iter().map(|namespace| namespace.entries).sum();
     info!("  {total} entries:");
-    for store in summary {
+    for namespace in summary {
         info!(
             "    {} — {} entries, {:.1} KiB",
-            store.store,
-            store.entries,
-            store.bytes as f64 / 1024.0
+            namespace.namespace,
+            namespace.entries,
+            namespace.bytes as f64 / 1024.0
         );
     }
 }

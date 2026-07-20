@@ -9,8 +9,8 @@ use cubecl_core::{
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::persistence::CacheOption;
-use cubecl_environment::persistence::compilation::CompilationCache;
+use cubecl_environment::persistence::KvStoreOptions;
+use cubecl_environment::persistence::blob::BlobStore;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{
@@ -31,7 +31,7 @@ pub(crate) struct HipContext {
     pub timestamps: TimestampProfiler,
     pub compilation_options: CompilationOptions,
     pub properties: DeviceProperties,
-    pub compilation_cache: Option<CompilationCache<StableHash, CompilationCacheEntry>>,
+    pub compilation_cache: Option<BlobStore<StableHash, CompilationCacheEntry>>,
 }
 
 #[derive(Debug)]
@@ -68,9 +68,9 @@ impl HipContext {
                     // one arch are not portable, and fingerprinting the path
                     // keeps bundles shipped across machines from serving wrong
                     // binaries.
-                    Some(CompilationCache::new(
+                    Some(BlobStore::new(
                         format!("hip-kernel_{arch_name}"),
-                        CacheOption::default().name("hip").root(root),
+                        KvStoreOptions::default().name("hip").root(root),
                     ))
                 } else {
                     None

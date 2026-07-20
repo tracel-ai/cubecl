@@ -2,17 +2,17 @@ use alloc::vec::Vec;
 
 use crate::sync::Arc;
 
-use super::SeedSource;
+use super::Bundle;
 
-static SEEDS: spin::Mutex<Vec<Arc<dyn SeedSource>>> = spin::Mutex::new(Vec::new());
+static INSTALLED: spin::Mutex<Vec<Arc<dyn Bundle>>> = spin::Mutex::new(Vec::new());
 
-/// Installs a seed source globally.
+/// Installs a bundle globally.
 ///
 /// Stores opened afterward consult it automatically. Install bundles before
 /// initializing devices so caches opened at server construction see them.
-pub fn install(source: Arc<dyn SeedSource>) {
-    log::debug!("Installing bundle seed source: {}", source.describe());
-    SEEDS.lock().push(source);
+pub fn install(bundle: Arc<dyn Bundle>) {
+    log::debug!("Installing bundle: {}", bundle.describe());
+    INSTALLED.lock().push(bundle);
 }
 
 /// Opens and installs every bundle file in `paths`.
@@ -22,7 +22,7 @@ pub fn install(source: Arc<dyn SeedSource>) {
 pub fn install_from_paths<P: AsRef<std::path::Path>>(paths: &[P]) {
     for path in paths {
         let path = path.as_ref();
-        match super::Bundle::open(path) {
+        match super::SqliteBundle::open(path) {
             Ok(bundle) => install(Arc::new(bundle)),
             Err(err) => {
                 log::warn!("Skipping bundle at {path:?}: {err}");
@@ -31,12 +31,12 @@ pub fn install_from_paths<P: AsRef<std::path::Path>>(paths: &[P]) {
     }
 }
 
-/// The currently installed seed sources, in installation order.
-pub fn seeds() -> Vec<Arc<dyn SeedSource>> {
-    SEEDS.lock().clone()
+/// The currently installed bundles, in installation order.
+pub fn installed() -> Vec<Arc<dyn Bundle>> {
+    INSTALLED.lock().clone()
 }
 
-/// Removes every installed seed source. Mostly useful in tests.
+/// Removes every installed bundle. Mostly useful in tests.
 pub fn clear() {
-    SEEDS.lock().clear();
+    INSTALLED.lock().clear();
 }

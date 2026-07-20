@@ -10,38 +10,38 @@ use serde::{Serialize, de::DeserializeOwned};
 #[cfg(feature = "cache")]
 use std::path::PathBuf;
 
-use super::backend::KvBackend;
-use crate::bundle::SeedSource;
+use super::storage::Storage;
+use crate::bundle::Bundle;
 use crate::sync::Arc;
 
 /// Where an in-memory entry came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {
-    /// Seeded from an installed bundle (index into the store's seed list).
+    /// Served by an installed bundle (index into the store's bundle list).
     Bundle(u16),
-    /// Inserted locally or loaded from the writable backend.
+    /// Computed on this machine, or loaded from the writable storage.
     Local,
 }
 
-/// Which bundle seed sources a store consults when opened.
+/// Which bundles a store consults when opened.
 #[derive(Debug, Clone, Default)]
-pub enum SeedMode {
+pub enum BundleMode {
     /// Consult the globally installed bundles (see [`crate::bundle::install`]).
     #[default]
-    Auto,
-    /// Consult exactly these seed sources.
-    Explicit(Vec<Arc<dyn SeedSource>>),
+    Installed,
+    /// Consult exactly these bundles.
+    Explicit(Vec<Arc<dyn Bundle>>),
     /// Ignore bundles entirely.
     Disabled,
 }
 
 #[derive(Debug)]
 /// An in-memory key-value store that is automatically synced to a persistence
-/// backend: an embedded database on native targets, browser storage on wasm
+/// storage: an embedded database on native targets, browser storage on wasm
 /// (feature `browser-cache`), or nothing at all.
 ///
 /// All entries of a store are loaded into memory when it is opened, and reads
-/// are served from there. Use [`crate::persistence::compilation::CompilationCache`]
+/// are served from there. Use [`crate::persistence::blob::BlobStore`]
 /// instead when the values are large enough that loading all of them eagerly
 /// is wasteful.
 ///
@@ -53,44 +53,38 @@ pub enum SeedMode {
 /// a given key. There is no update possible; if a value is reinserted a second
 /// time with a different value but the same key, an error will arise.
 ///
-/// The one exception is bundle-seeded entries: a locally computed value
+/// The one exception is bundle-provided entries: a locally computed value
 /// silently *shadows* a stale bundle entry instead of erroring, because a
 /// shipped bundle must never be able to break the application that installs
 /// it. See [`KvStore::insert`].
 pub struct KvStore<K, V> {
     in_memory_cache: HashMap<K, (V, Origin)>,
-    backend: Box<dyn KvBackend>,
-    /// The logical store this instance addresses, `/`-separated:
+    storage: Box<dyn Storage>,
+    /// The namespace this instance addresses, `/`-separated:
     /// `<name>/<version>/<segments>`.
-    store: String,
-    seeds: Vec<Arc<dyn SeedSource>>,
-    /// `false` while an asynchronous backend may still deliver entries that
+    namespace: String,
+    bundles: Vec<Arc<dyn Bundle>>,
+    /// `false` while an asynchronous storage may still deliver entries that
     /// have not been ingested into [`Self::in_memory_cache`].
-    hydration_ingested: bool,
+    loaded: bool,
 }
-
-/// Backward-compatible name for [`KvStore`].
-pub type Cache<K, V> = KvStore<K, V>;
 
 /// Define the options to create a [`KvStore`].
 #[derive(Default, Debug, Clone)]
 pub struct KvStoreOptions {
     version: Option<String>,
     name: Option<String>,
-    seeds: SeedMode,
+    bundles: BundleMode,
     #[cfg(feature = "cache")]
     root: Option<PathBuf>,
 }
-
-/// Backward-compatible name for [`KvStoreOptions`].
-pub type CacheOption = KvStoreOptions;
 
 /// Error related to the store.
 #[derive(Debug)]
 pub enum KvStoreError<K: Serialize, V: Serialize> {
     /// Can't insert an entry with the same key, but different value. The
     /// conflicting entry may have been inserted by this process or, on the
-    /// file system backend, concurrently by another one.
+    /// file system storage, concurrently by another one.
     #[allow(missing_docs)]
     DuplicatedKey {
         key: K,
@@ -99,9 +93,6 @@ pub enum KvStoreError<K: Serialize, V: Serialize> {
     },
 }
 
-/// Backward-compatible name for [`KvStoreError`].
-pub type CacheError<K, V> = KvStoreError<K, V>;
-
 impl KvStoreOptions {
     /// The version used for the store.
     pub fn version<V: Into<String>>(mut self, version: V) -> Self {
@@ -109,7 +100,7 @@ impl KvStoreOptions {
         self
     }
 
-    /// The name for the store, the first segment of its logical path.
+    /// The name of the store, the first segment of its namespace.
     pub fn name<R: Into<String>>(mut self, name: R) -> Self {
         self.name = Some(name.into());
         self
@@ -122,15 +113,15 @@ impl KvStoreOptions {
         self
     }
 
-    /// Which bundle seed sources the store consults when opened.
-    pub fn seeds(mut self, seeds: SeedMode) -> Self {
-        self.seeds = seeds;
+    /// Which bundles the store consults when opened.
+    pub fn bundles(mut self, bundles: BundleMode) -> Self {
+        self.bundles = bundles;
         self
     }
 
-    /// Takes the configured seed mode, leaving the default behind.
-    pub(crate) fn take_seeds(&mut self) -> SeedMode {
-        core::mem::take(&mut self.seeds)
+    /// Takes the configured bundle mode, leaving the default behind.
+    pub(crate) fn take_bundles(&mut self) -> BundleMode {
+        core::mem::take(&mut self.bundles)
     }
 
     /// The cache root, defaulting to the user cache directory.
@@ -143,8 +134,8 @@ impl KvStoreOptions {
         })
     }
 
-    /// The logical store name for `path`: `<name>/<version>/<path>`.
-    pub(crate) fn resolve_store(&mut self, path: &str) -> String {
+    /// The namespace for `path`: `<name>/<version>/<path>`.
+    pub(crate) fn resolve_namespace(&mut self, path: &str) -> String {
         let version = self
             .version
             .take()
@@ -157,22 +148,22 @@ impl KvStoreOptions {
 }
 
 /// Trait to be implemented for store keys.
-pub trait CacheKey: Serialize + DeserializeOwned + PartialEq + Eq + Hash + Clone {}
+pub trait StoreKey: Serialize + DeserializeOwned + PartialEq + Eq + Hash + Clone {}
 /// Trait to be implemented for store values.
-pub trait CacheValue: Serialize + DeserializeOwned + PartialEq + Eq + Clone {}
+pub trait StoreValue: Serialize + DeserializeOwned + PartialEq + Eq + Clone {}
 
-impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone + Hash> CacheKey for T {}
-impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone> CacheValue for T {}
+impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone + Hash> StoreKey for T {}
+impl<T: Serialize + DeserializeOwned + PartialEq + Eq + Clone> StoreValue for T {}
 
-impl<K: CacheKey, V: CacheValue> KvStore<K, V> {
-    /// Create a new store, picking the persistence backend for the current
+impl<K: StoreKey, V: StoreValue> KvStore<K, V> {
+    /// Create a new store, picking the persistence storage for the current
     /// environment, and load existing data if any.
     ///
     /// `path` is a `/`-separated logical location, namespaced under the store
     /// name and version from the options.
     ///
-    /// On asynchronous backends (browser storage), the store returns
-    /// immediately with hydration in flight: existing entries become visible
+    /// On asynchronous storages (browser storage), the store returns
+    /// immediately with the load in flight: existing entries become visible
     /// after a later [`for_each`](KvStore::for_each) call.
     #[cfg_attr(feature="tracing", tracing::instrument(
         level = "trace",
@@ -180,61 +171,61 @@ impl<K: CacheKey, V: CacheValue> KvStore<K, V> {
         fields(path = ?path.as_ref())))]
     pub fn open<P: AsRef<str>>(path: P, option: KvStoreOptions) -> Self {
         let mut option = option;
-        let seed_mode = option.take_seeds();
+        let bundle_mode = option.take_bundles();
 
         cfg_if::cfg_if! {
             if #[cfg(all(feature = "cache", not(target_family = "wasm")))] {
                 let root = option.resolve_root();
-                let store = option.resolve_store(path.as_ref());
-                let backend = super::open_backend(&root, &store);
+                let namespace = option.resolve_namespace(path.as_ref());
+                let storage = super::open_storage(&root, &namespace);
             } else if #[cfg(browser_cache)] {
-                let store = option.resolve_store(path.as_ref());
-                let backend = super::browser::open_backend(&store);
+                let namespace = option.resolve_namespace(path.as_ref());
+                let storage = super::browser::open_storage(&namespace);
             } else {
-                let store = option.resolve_store(path.as_ref());
-                let backend: Box<dyn KvBackend> = Box::new(super::backend::MemoryBackend);
+                let namespace = option.resolve_namespace(path.as_ref());
+                let storage: Box<dyn Storage> = Box::new(super::storage::MemoryStorage);
             }
         }
 
-        let mut this = Self::with_backend(backend, store);
-        this.seeds = resolve_seeds(seed_mode);
-        this.hydrate_seeds();
+        let mut this = Self::with_storage(storage, namespace);
+        this.bundles = resolve_bundles(bundle_mode);
+        this.load_bundles();
         this.sync();
 
         this
     }
 
-    /// Create a new store on an explicit backend, addressing `store`.
+    /// Create a new store on an explicit storage, addressing `namespace`.
     ///
     /// No initial synchronization is performed; call [`sync`](KvStore::sync)
     /// to ingest existing content.
-    pub fn with_backend<S: Into<String>>(backend: Box<dyn KvBackend>, store: S) -> Self {
+    pub fn with_storage<S: Into<String>>(storage: Box<dyn Storage>, namespace: S) -> Self {
         Self {
             in_memory_cache: HashMap::new(),
-            backend,
-            store: store.into(),
-            seeds: Vec::new(),
-            hydration_ingested: false,
+            storage,
+            namespace: namespace.into(),
+            bundles: Vec::new(),
+            loaded: false,
         }
     }
 
-    /// The logical store this instance addresses.
-    pub fn store(&self) -> &str {
-        &self.store
+    /// The namespace this instance addresses.
+    pub fn namespace(&self) -> &str {
+        &self.namespace
     }
 
-    /// Loads bundle-seeded entries for this store.
+    /// Loads the entries installed bundles provide for this namespace.
     ///
-    /// Runs before the writable backend sync so local entries win on
+    /// Runs before the writable storage sync so local entries win on
     /// collision. Between bundles, later installs win.
-    fn hydrate_seeds(&mut self) {
-        let seeds = core::mem::take(&mut self.seeds);
+    fn load_bundles(&mut self) {
+        let bundles = core::mem::take(&mut self.bundles);
 
-        for (index, seed) in seeds.iter().enumerate() {
+        for (index, bundle) in bundles.iter().enumerate() {
             let mut count = 0;
             let entries = &mut self.in_memory_cache;
 
-            seed.scan(&self.store, &mut |key, value| {
+            bundle.scan(&self.namespace, &mut |key, value| {
                 if let Some(entry) = decode_entry::<K, V>(&key, &value) {
                     entries.insert(entry.0, (entry.1, Origin::Bundle(index as u16)));
                     count += 1;
@@ -243,46 +234,46 @@ impl<K: CacheKey, V: CacheValue> KvStore<K, V> {
 
             if count > 0 {
                 log::debug!(
-                    "Seeded {count} entries into {} from {}",
-                    self.store,
-                    seed.describe()
+                    "Loaded {count} entries into {} from {}",
+                    self.namespace,
+                    bundle.describe()
                 );
             }
         }
 
-        self.seeds = seeds;
+        self.bundles = bundles;
     }
 
-    /// Ingest the backend's entries into the in-memory map.
+    /// Ingest the storage's entries into the in-memory map.
     ///
-    /// Entries loaded here win over bundle-seeded ones: a value computed on
-    /// this machine is always preferred to a shipped one.
+    /// Entries loaded here win over bundled ones: a value computed on this
+    /// machine is always preferred to a shipped one.
     pub fn sync(&mut self) {
-        // Sampled before the scan: hydration completing halfway through would
+        // Sampled before the scan: a load completing halfway through would
         // otherwise mark a partial snapshot as fully ingested.
-        let hydrating = self.backend.hydrating();
+        let loading = self.storage.loading();
         let entries = &mut self.in_memory_cache;
 
-        self.backend.scan(&mut |key, value| {
+        self.storage.scan(&mut |key, value| {
             if let Some(entry) = decode_entry::<K, V>(&key, &value) {
                 entries.insert(entry.0, (entry.1, Origin::Local));
             }
         });
 
-        self.hydration_ingested = !hydrating;
+        self.loaded = !loading;
     }
 
-    /// Whether the backend is still loading its initial content
+    /// Whether the storage is still loading its initial content
     /// asynchronously.
-    pub fn hydrating(&self) -> bool {
-        self.backend.hydrating()
+    pub fn loading(&self) -> bool {
+        self.storage.loading()
     }
 
     /// Whether asynchronously delivered content may still be waiting to be
-    /// ingested. `false` for synchronous backends (database, memory), whose
+    /// ingested. `false` for synchronous storages (database, memory), whose
     /// content is fully ingested at open.
-    pub fn pending_hydration(&self) -> bool {
-        !self.hydration_ingested
+    pub fn pending_load(&self) -> bool {
+        !self.loaded
     }
 
     /// Iterate over all values of the store.
@@ -291,7 +282,7 @@ impl<K: CacheKey, V: CacheValue> KvStore<K, V> {
         tracing::instrument(level = "trace", skip(self, func))
     )]
     pub fn for_each<F: FnMut(&K, &V)>(&mut self, mut func: F) {
-        if self.pending_hydration() {
+        if self.pending_load() {
             self.sync();
         }
 
@@ -331,7 +322,7 @@ impl<K: CacheKey, V: CacheValue> KvStore<K, V> {
     ///
     /// Insert-only semantics depend on where the existing entry came from:
     ///
-    /// - Key absent: the entry is written to the backend.
+    /// - Key absent: the entry is written to the storage.
     /// - Present with the same value: `Ok`, nothing written (a bundle-served
     ///   entry keeps being served by the bundle).
     /// - Present with a different value, [`Origin::Local`]: an error,
@@ -369,9 +360,9 @@ impl<K: CacheKey, V: CacheValue> KvStore<K, V> {
         let key_bytes = encode(&key);
         let value_bytes = encode(&value);
 
-        // The backend performs the presence check and the write atomically, so
+        // The storage performs the presence check and the write atomically, so
         // a concurrent writer in another process can't be clobbered.
-        if let Some(existing) = self.backend.insert(&key_bytes, &value_bytes)
+        if let Some(existing) = self.storage.insert(&key_bytes, &value_bytes)
             && let Some(existing) = decode::<V>(&existing)
             && existing != value
         {
@@ -393,24 +384,24 @@ impl<K: CacheKey, V: CacheValue> KvStore<K, V> {
     }
 }
 
-impl<K: CacheKey, V: CacheValue> Display for KvStore<K, V> {
+impl<K: StoreKey, V: StoreValue> Display for KvStore<K, V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
             "{} ({} entries in {})",
-            self.store,
+            self.namespace,
             self.in_memory_cache.len(),
-            self.backend.describe()
+            self.storage.describe()
         )
     }
 }
 
-/// Resolves a seed mode into the concrete seed sources to consult.
-pub(crate) fn resolve_seeds(mode: SeedMode) -> Vec<Arc<dyn SeedSource>> {
+/// Resolves a bundle mode into the concrete bundles to consult.
+pub(crate) fn resolve_bundles(mode: BundleMode) -> Vec<Arc<dyn Bundle>> {
     match mode {
-        SeedMode::Auto => crate::bundle::seeds(),
-        SeedMode::Explicit(seeds) => seeds,
-        SeedMode::Disabled => Vec::new(),
+        BundleMode::Installed => crate::bundle::installed(),
+        BundleMode::Explicit(bundles) => bundles,
+        BundleMode::Disabled => Vec::new(),
     }
 }
 
@@ -433,7 +424,7 @@ pub(crate) fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Option<T> {
     }
 }
 
-fn decode_entry<K: CacheKey, V: CacheValue>(key: &[u8], value: &[u8]) -> Option<(K, V)> {
+fn decode_entry<K: StoreKey, V: StoreValue>(key: &[u8], value: &[u8]) -> Option<(K, V)> {
     Some((decode::<K>(key)?, decode::<V>(value)?))
 }
 
@@ -447,7 +438,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let option = KvStoreOptions::default()
             .root(dir.path())
-            .seeds(SeedMode::Disabled);
+            .bundles(BundleMode::Disabled);
 
         let key1 = || "key1".to_string();
         let key2 = || "key2".to_string();
@@ -475,7 +466,7 @@ mod tests {
     }
 
     /// Guards the on-disk contract: the database file location and the exact
-    /// `store` name a given set of options resolves to. Breaking either
+    /// namespace a given set of options resolves to. Breaking either
     /// invalidates every existing cache on users' machines.
     #[test_log::test]
     #[cfg_attr(miri, ignore)]
@@ -486,22 +477,23 @@ mod tests {
         let option = KvStoreOptions::default()
             .root(dir.path())
             .name("golden")
-            .seeds(SeedMode::Disabled);
+            .bundles(BundleMode::Disabled);
 
         let mut cache = KvStore::<String, u32>::open("device0/matmul", option);
         cache.insert("shape=2x2".to_string(), 42).unwrap();
 
-        let expected_store = std::format!("golden/{}/device0/matmul", env!("CARGO_PKG_VERSION"));
-        assert_eq!(cache.store(), expected_store);
+        let expected_namespace =
+            std::format!("golden/{}/device0/matmul", env!("CARGO_PKG_VERSION"));
+        assert_eq!(cache.namespace(), expected_namespace);
 
         let path = dir.path().join(DB_FILE_NAME);
         assert!(path.exists(), "Database missing at {path:?}");
 
         // Read it back through a fresh connection: the entry must be
-        // addressable by store name and encoded key alone.
+        // addressable by namespace and encoded key alone.
         let database = Database::open(&path, true).unwrap();
         let stored = database
-            .get(&expected_store, &encode(&"shape=2x2".to_string()))
+            .get(&expected_namespace, &encode(&"shape=2x2".to_string()))
             .expect("Entry should be stored");
         assert_eq!(decode::<u32>(&stored), Some(42));
     }
@@ -515,7 +507,7 @@ mod tests {
         let options = || {
             KvStoreOptions::default()
                 .root(dir.path())
-                .seeds(SeedMode::Disabled)
+                .bundles(BundleMode::Disabled)
         };
 
         let mut cache = KvStore::<String, u32>::open("reopen", options());
@@ -526,7 +518,7 @@ mod tests {
         assert_eq!(cache.get(&"key".to_string()), Some(&7));
     }
 
-    /// Two stores over the same root must not see each other's entries.
+    /// Two namespaces in the same root must not see each other's entries.
     #[test_log::test]
     #[cfg_attr(miri, ignore)]
     fn test_stores_are_isolated() {
@@ -534,7 +526,7 @@ mod tests {
         let options = || {
             KvStoreOptions::default()
                 .root(dir.path())
-                .seeds(SeedMode::Disabled)
+                .bundles(BundleMode::Disabled)
         };
 
         let mut first = KvStore::<String, u32>::open("device0/matmul", options());

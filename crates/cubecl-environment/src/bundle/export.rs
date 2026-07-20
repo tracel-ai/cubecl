@@ -14,10 +14,10 @@ pub struct ExportOptions {
     /// The environments the bundle was captured on. `os` and `arch` are
     /// auto-filled from the build target when left empty.
     pub environments: Vec<EnvironmentInfo>,
-    /// Only export stores under one of these names, e.g. `autotune` or
-    /// `cuda`. A name matches the store itself and everything below it.
-    /// Empty means every store.
-    pub stores: Vec<String>,
+    /// Only export namespaces under one of these prefixes, e.g. `autotune`
+    /// or `cuda`. A prefix matches whole segments, so it selects the
+    /// namespace itself and everything below it. Empty means every namespace.
+    pub namespaces: Vec<String>,
 }
 
 /// Copies entries from one or more cache roots into a bundle file.
@@ -25,7 +25,7 @@ pub struct ExportOptions {
 /// Both the cache and the bundle are `SQLite` databases with the same `entries`
 /// table, so exporting is an `INSERT ... SELECT` across an attached source:
 /// merging several roots dedupes on the primary key instead of concatenating
-/// bytes, and restricting the export to a few stores is a `WHERE` clause.
+/// bytes, and restricting the export to a few namespaces is a `WHERE` clause.
 ///
 /// The typical workflow: run the application once so autotune and the
 /// compilation caches are warm, then export the cache root.
@@ -49,13 +49,13 @@ pub fn export<R: AsRef<Path>, O: AsRef<Path>>(
             continue;
         };
 
-        exported += copy_entries(&database, &source, &options.stores)?;
+        exported += copy_entries(&database, &source, &options.namespaces)?;
     }
 
     if exported == 0 {
         log::warn!(
             "Bundle export: no entries matched. Run the application once so the caches \
-             are warm, and check the store names."
+             are warm, and check the namespace prefixes."
         );
     }
 
@@ -86,18 +86,18 @@ fn source_database(root: &Path) -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
-/// Attaches `source` and copies the requested stores into `database`.
+/// Attaches `source` and copies the requested namespaces into `database`.
 fn copy_entries(
     database: &Database,
     source: &Path,
-    stores: &[String],
+    namespaces: &[String],
 ) -> Result<usize, BundleError> {
     let source = source.to_string_lossy().to_string();
 
     let copied = database.with_connection(|conn| {
         conn.execute("ATTACH DATABASE ?1 AS source", rusqlite::params![source])?;
 
-        let result = copy_attached(conn, stores);
+        let result = copy_attached(conn, namespaces);
 
         // Detach even when the copy failed, so the next root can attach.
         if let Err(err) = conn.execute("DETACH DATABASE source", []) {
@@ -110,24 +110,28 @@ fn copy_entries(
     Ok(copied)
 }
 
-fn copy_attached(conn: &rusqlite::Connection, stores: &[String]) -> Result<usize, rusqlite::Error> {
+fn copy_attached(
+    conn: &rusqlite::Connection,
+    namespaces: &[String],
+) -> Result<usize, rusqlite::Error> {
     // `INSERT OR IGNORE` is what makes merging several roots safe: the
-    // (store, key) primary key collapses duplicates instead of appending them
+    // (namespace, key) primary key collapses duplicates instead of appending them
     // twice, and an entry already exported from an earlier root wins.
-    const ALL: &str = "INSERT OR IGNORE INTO main.entries (store, key, value) \
-                       SELECT store, key, value FROM source.entries";
+    const ALL: &str = "INSERT OR IGNORE INTO main.entries (namespace, key, value) \
+                       SELECT namespace, key, value FROM source.entries";
     // A plain prefix match on whole segments, avoiding LIKE's wildcards.
-    const FILTERED: &str = "INSERT OR IGNORE INTO main.entries (store, key, value) \
-                            SELECT store, key, value FROM source.entries \
-                            WHERE store = ?1 OR substr(store, 1, length(?1) + 1) = ?1 || '/'";
+    const FILTERED: &str = "INSERT OR IGNORE INTO main.entries (namespace, key, value) \
+                            SELECT namespace, key, value FROM source.entries \
+                            WHERE namespace = ?1 \
+                               OR substr(namespace, 1, length(?1) + 1) = ?1 || '/'";
 
-    if stores.is_empty() {
+    if namespaces.is_empty() {
         return conn.execute(ALL, []);
     }
 
     let mut copied = 0;
-    for store in stores {
-        copied += conn.execute(FILTERED, rusqlite::params![store])?;
+    for namespace in namespaces {
+        copied += conn.execute(FILTERED, rusqlite::params![namespace])?;
     }
 
     Ok(copied)

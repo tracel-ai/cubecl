@@ -17,7 +17,7 @@ use cubecl_core::{
     server::ResourceLimitError,
     {ir::DeviceProperties, prelude::*},
 };
-use cubecl_environment::persistence::compilation::CompilationCache;
+use cubecl_environment::persistence::blob::BlobStore;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use cudarc::driver::DriverError;
@@ -30,13 +30,13 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 
-use cubecl_environment::persistence::CacheOption;
+use cubecl_environment::persistence::KvStoreOptions;
 
 #[derive(Debug)]
 pub(crate) struct CudaContext {
     pub context: *mut CUctx_st,
     pub module_names: HashMap<KernelId, CompiledKernel>,
-    ptx_cache: Option<CompilationCache<StableHash, PtxCacheEntry>>,
+    ptx_cache: Option<BlobStore<StableHash, PtxCacheEntry>>,
     pub timestamps: TimestampProfiler,
     pub arch: CudaArchitecture,
     pub compilation_options: CompilationOptions,
@@ -76,9 +76,9 @@ impl CudaContext {
                     // arch is not portable, and fingerprinting the path keeps
                     // bundles shipped across machines from serving wrong
                     // binaries.
-                    Some(CompilationCache::new(
+                    Some(BlobStore::new(
                         format!("ptx_sm{}", arch.version),
-                        CacheOption::default().name("cuda").root(root),
+                        KvStoreOptions::default().name("cuda").root(root),
                     ))
                 } else {
                     None

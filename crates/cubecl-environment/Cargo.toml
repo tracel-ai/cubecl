@@ -33,7 +33,7 @@ cache = [
     "dep:etcetera",
     "dep:rusqlite",
 ]
-compilation-cache = ["cache"]
+blob-store = ["cache"]
 default = ["std"]
 std = [
     "rand/std",

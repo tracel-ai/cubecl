@@ -1,5 +1,5 @@
 #[cfg(std_io)]
-use cubecl_environment::persistence::{Cache, CacheOption};
+use cubecl_environment::persistence::{KvStore, KvStoreOptions};
 
 use crate::{
     config::CubeClRuntimeConfig,
@@ -21,7 +21,7 @@ pub struct ThroughputCache {
     #[cfg(not(std_io))]
     cache: HashMap<ThroughputKey, ThroughputValue>,
     #[cfg(std_io)]
-    cache: Cache<ThroughputKey, ThroughputValue>,
+    cache: KvStore<ThroughputKey, ThroughputValue>,
 }
 
 impl ThroughputCache {
@@ -48,10 +48,10 @@ impl ThroughputCache {
         #[cfg(std_io)]
         {
             let root = CubeClRuntimeConfig::get().throughput.cache.root();
-            let options = CacheOption::default().root(root).name("throughput");
+            let options = KvStoreOptions::default().root(root).name("throughput");
 
             Self {
-                cache: Cache::open(name, options),
+                cache: KvStore::open(name, options),
             }
         }
     }

@@ -3,33 +3,33 @@ use std::{boxed::Box, cell::RefCell, string::String, vec::Vec};
 use hashbrown::HashMap;
 use serde::Serialize;
 
-use super::backend::KvBackend;
-use super::store::{CacheKey, CacheOption, CacheValue, decode, encode, resolve_seeds};
-use crate::bundle::SeedSource;
+use super::storage::Storage;
+use super::store::{KvStoreOptions, StoreKey, StoreValue, decode, encode, resolve_bundles};
+use crate::bundle::Bundle;
 use crate::sync::Arc;
 
-/// Values already read from the backend.
+/// Values already read from the storage or a bundle.
 ///
 /// Box ensures values aren't moved when inserting new elements, so we don't need to keep it
 /// locked for reads
 type InMemoryCache<K, V> = RefCell<HashMap<K, Box<V>>>;
 
-/// A cache for large values, typically compilation artifacts.
+/// A store for large values, typically compilation artifacts.
 ///
-/// Unlike [`KvStore`](super::KvStore), entries are read from the backend one
-/// key at a time and memoized, so opening a cache holding hundreds of compiled
-/// kernels costs nothing until they are actually looked up.
+/// Unlike [`KvStore`](super::KvStore), entries are read one key at a time and
+/// memoized, so opening a store holding hundreds of compiled kernels costs
+/// nothing until they are actually looked up.
 #[derive(Debug)]
-pub struct CompilationCache<K: CacheKey, V: CacheValue> {
+pub struct BlobStore<K: StoreKey, V: StoreValue> {
     in_memory_cache: InMemoryCache<K, V>,
-    backend: Box<dyn KvBackend>,
-    store: String,
-    seeds: Vec<Arc<dyn SeedSource>>,
+    storage: Box<dyn Storage>,
+    namespace: String,
+    bundles: Vec<Arc<dyn Bundle>>,
 }
 
-/// Error related to caching.
+/// Error related to the store.
 #[derive(Debug)]
-pub enum CompilationCacheError<K: Serialize, V: Serialize> {
+pub enum BlobStoreError<K: Serialize, V: Serialize> {
     /// Can't insert an entry with the same key, but different value.
     #[allow(missing_docs)]
     DuplicatedKey {
@@ -39,33 +39,33 @@ pub enum CompilationCacheError<K: Serialize, V: Serialize> {
     },
 }
 
-impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
-    /// Create a new cache addressing `path` under the options' cache root.
+impl<K: StoreKey, V: StoreValue> BlobStore<K, V> {
+    /// Create a new store addressing `path` under the options' cache root.
     #[cfg_attr(feature="tracing", tracing::instrument(
         level = "trace",
         skip(path),
         fields(path = ?path.as_ref())))]
-    pub fn new<P: AsRef<str>>(path: P, option: CacheOption) -> Self {
+    pub fn new<P: AsRef<str>>(path: P, option: KvStoreOptions) -> Self {
         let mut option = option;
-        let seeds = resolve_seeds(option.take_seeds());
+        let bundles = resolve_bundles(option.take_bundles());
         let root = option.resolve_root();
-        let store = option.resolve_store(path.as_ref());
-        let backend = super::open_backend(&root, &store);
+        let namespace = option.resolve_namespace(path.as_ref());
+        let storage = super::open_storage(&root, &namespace);
 
         Self {
             in_memory_cache: InMemoryCache::default(),
-            backend,
-            store,
-            seeds,
+            storage,
+            namespace,
+            bundles,
         }
     }
 
-    /// The logical store this cache addresses.
-    pub fn store(&self) -> &str {
-        &self.store
+    /// The namespace this store addresses.
+    pub fn namespace(&self) -> &str {
+        &self.namespace
     }
 
-    /// Fetch an item from the cache, reading it from the backend or from an
+    /// Fetch an item from the store, reading it from the storage or from an
     /// installed bundle on the first lookup.
     pub fn get(&self, key: &K) -> Option<&V> {
         if let Some(value) = self.get_ref_unsafe(key) {
@@ -75,11 +75,11 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
         let key_bytes = encode(key);
         // Local entries win over bundled ones: a value produced on this
         // machine is always preferred to a shipped one.
-        let bytes = self.backend.get(&key_bytes).or_else(|| {
-            self.seeds
+        let bytes = self.storage.get(&key_bytes).or_else(|| {
+            self.bundles
                 .iter()
                 .rev()
-                .find_map(|seed| seed.get(&self.store, &key_bytes))
+                .find_map(|bundle| bundle.get(&self.namespace, &key_bytes))
         })?;
 
         let value = decode::<V>(&bytes)?;
@@ -106,14 +106,14 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
         }
     }
 
-    /// Insert a new item to the cache.
+    /// Insert a new item to the store.
     ///
     /// Returns an error when a different value is already stored under `key`,
     /// whether it was inserted by this process or concurrently by another one.
-    pub fn insert(&mut self, key: K, value: V) -> Result<(), CompilationCacheError<K, V>> {
+    pub fn insert(&mut self, key: K, value: V) -> Result<(), BlobStoreError<K, V>> {
         if let Some(existing) = self.get(&key) {
             return if existing != &value {
-                Err(CompilationCacheError::DuplicatedKey {
+                Err(BlobStoreError::DuplicatedKey {
                     key: key.clone(),
                     value_previous: existing.clone(),
                     value_updated: value,
@@ -123,7 +123,7 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
             };
         }
 
-        if let Some(existing) = self.backend.insert(&encode(&key), &encode(&value))
+        if let Some(existing) = self.storage.insert(&encode(&key), &encode(&value))
             && let Some(existing) = decode::<V>(&existing)
             && existing != value
         {
@@ -136,7 +136,7 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
                 .entry(key.clone())
                 .or_insert_with(|| Box::new(existing.clone()));
 
-            return Err(CompilationCacheError::DuplicatedKey {
+            return Err(BlobStoreError::DuplicatedKey {
                 key,
                 value_previous: existing,
                 value_updated: value,
@@ -154,7 +154,7 @@ impl<K: CacheKey, V: CacheValue> CompilationCache<K, V> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::store::SeedMode;
+    use super::super::store::BundleMode;
     use super::*;
     use std::string::ToString;
 
@@ -163,13 +163,13 @@ mod tests {
     fn values_survive_reopen_and_load_lazily() {
         let dir = tempfile::tempdir().unwrap();
         let options = || {
-            CacheOption::default()
+            KvStoreOptions::default()
                 .root(dir.path())
                 .name("kernels")
-                .seeds(SeedMode::Disabled)
+                .bundles(BundleMode::Disabled)
         };
 
-        let mut cache = CompilationCache::<String, Vec<u8>>::new("ptx_sm90", options());
+        let mut cache = BlobStore::<String, Vec<u8>>::new("ptx_sm90", options());
         cache
             .insert("kernel_a".to_string(), std::vec![1, 2, 3])
             .unwrap();
@@ -178,7 +178,7 @@ mod tests {
             .unwrap();
         drop(cache);
 
-        let cache = CompilationCache::<String, Vec<u8>>::new("ptx_sm90", options());
+        let cache = BlobStore::<String, Vec<u8>>::new("ptx_sm90", options());
         // Nothing is read until a key is asked for.
         assert!(cache.in_memory_cache.borrow().is_empty());
 
@@ -195,12 +195,12 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn reinserting_a_different_value_errors() {
         let dir = tempfile::tempdir().unwrap();
-        let option = CacheOption::default()
+        let option = KvStoreOptions::default()
             .root(dir.path())
             .name("kernels")
-            .seeds(SeedMode::Disabled);
+            .bundles(BundleMode::Disabled);
 
-        let mut cache = CompilationCache::<String, Vec<u8>>::new("ptx_sm90", option);
+        let mut cache = BlobStore::<String, Vec<u8>>::new("ptx_sm90", option);
         cache.insert("kernel".to_string(), std::vec![1]).unwrap();
 
         assert!(cache.insert("kernel".to_string(), std::vec![1]).is_ok());

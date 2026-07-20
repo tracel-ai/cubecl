@@ -2,9 +2,9 @@
 use alloc::vec::Vec;
 
 #[cfg(autotune_persistence)]
-use cubecl_environment::persistence::Cache;
+use cubecl_environment::persistence::KvStore;
 #[cfg(autotune_persistence)]
-use cubecl_environment::persistence::CacheError;
+use cubecl_environment::persistence::KvStoreError;
 #[cfg(autotune_persistence)]
 use serde::{Deserialize, Serialize};
 
@@ -84,7 +84,7 @@ pub(crate) struct TuneCache<K> {
     in_memory_cache: HashMap<K, CacheEntry>,
     /// `None` when the persistent cache is disabled, so no cache file is ever touched.
     #[cfg(autotune_persistence)]
-    persistent_cache: Option<Cache<PersistentCacheKey<K>, PersistentCacheValue>>,
+    persistent_cache: Option<KvStore<PersistentCacheKey<K>, PersistentCacheValue>>,
 }
 
 /// Result of the cache try
@@ -125,14 +125,14 @@ impl<K: AutotuneKey> TuneCache<K> {
             }
 
             #[allow(unused_mut)]
-            let mut options = cubecl_environment::persistence::CacheOption::default();
+            let mut options = cubecl_environment::persistence::KvStoreOptions::default();
             #[cfg(std_io)]
             {
                 options = options.root(config.autotune.cache.root());
             }
             let mut cache = TuneCache {
                 in_memory_cache: HashMap::new(),
-                persistent_cache: Some(Cache::open(
+                persistent_cache: Some(KvStore::open(
                     format!("{device_id}/{name}"),
                     options.name("autotune"),
                 )),
@@ -242,7 +242,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         // backends are fully ingested at open, and re-reading them here
         // would take the multi-process file lock on the autotune hot path
         // while the tuner mutex is held.
-        if !persistent_cache.pending_hydration() {
+        if !persistent_cache.pending_load() {
             return;
         }
 
@@ -274,7 +274,7 @@ impl<K: AutotuneKey> TuneCache<K> {
                 results,
             },
         ) {
-            let CacheError::DuplicatedKey {
+            let KvStoreError::DuplicatedKey {
                 key,
                 value_previous,
                 value_updated,

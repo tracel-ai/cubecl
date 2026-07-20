@@ -1,4 +1,4 @@
-//! IndexedDB implementation of [`KvBackend`].
+//! IndexedDB implementation of [`Storage`].
 //!
 //! IndexedDB is chosen over `localStorage` because it is available in Web
 //! Workers (where wgpu applications commonly run) and has a much larger
@@ -7,8 +7,8 @@
 //! # Model
 //!
 //! One database `"cubecl"` with a single object store `"kv"`. Each entry is
-//! stored under the record key `"{store}/{hex key}"` and holds the raw value
-//! bytes. The store's entries are mirrored in memory, hydrated in the
+//! stored under the record key `"{namespace}/{hex key}"` and holds the raw value
+//! bytes. The namespace's entries are mirrored in memory, loaded in the
 //! background at open, and served from there.
 //!
 //! # Concurrency
@@ -40,33 +40,33 @@ use web_sys::{
     IdbDatabase, IdbFactory, IdbKeyRange, IdbOpenDbRequest, IdbRequest, IdbTransactionMode,
 };
 
-use super::backend::KvBackend;
+use super::storage::Storage;
 
 const DB_NAME: &str = "cubecl";
 const STORE_NAME: &str = "kv";
 
-/// The mirrored content of one store.
+/// The mirrored content of one namespace.
 #[derive(Default, Debug)]
 struct State {
     entries: HashMap<Vec<u8>, Vec<u8>>,
-    hydrated: bool,
+    loaded: bool,
 }
 
 /// Browser storage backend, persisting entries to IndexedDB.
 #[derive(Debug)]
-pub struct BrowserBackend {
+pub struct BrowserStorage {
     /// The record key prefix of this store, `"{store}/"`.
     prefix: String,
     state: Arc<spin::Mutex<State>>,
 }
 
-/// The backend serving `store` in browser storage.
-pub(crate) fn open_backend(store: &str) -> Box<dyn KvBackend> {
-    Box::new(BrowserBackend::new(format!("{store}/")))
+/// The storage serving `namespace` in browser storage.
+pub(crate) fn open_storage(namespace: &str) -> Box<dyn Storage> {
+    Box::new(BrowserStorage::new(format!("{namespace}/")))
 }
 
-impl BrowserBackend {
-    /// Creates the backend and starts hydrating existing entries under
+impl BrowserStorage {
+    /// Creates the storage and starts loading existing entries under
     /// `prefix` in the background.
     pub fn new(prefix: String) -> Self {
         let state = Arc::new(spin::Mutex::new(State::default()));
@@ -75,11 +75,11 @@ impl BrowserBackend {
             let state = state.clone();
             let prefix = prefix.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let result = hydrate(&prefix, &state).await;
-                state.lock().hydrated = true;
+                let result = load(&prefix, &state).await;
+                state.lock().loaded = true;
                 if let Err(err) = result {
                     log::warn!(
-                        "cubecl cache: browser storage hydration failed for '{prefix}': {err:?}; \
+                        "cubecl cache: browser storage load failed for '{prefix}': {err:?}; \
                          continuing memory-only"
                     );
                 }
@@ -90,7 +90,7 @@ impl BrowserBackend {
     }
 }
 
-impl KvBackend for BrowserBackend {
+impl Storage for BrowserStorage {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         self.state.lock().entries.get(key).cloned()
     }
@@ -122,8 +122,8 @@ impl KvBackend for BrowserBackend {
         }
     }
 
-    fn hydrating(&self) -> bool {
-        !self.state.lock().hydrated
+    fn loading(&self) -> bool {
+        !self.state.lock().loaded
     }
 
     fn describe(&self) -> String {
@@ -232,7 +232,7 @@ async fn open_db() -> Result<IdbDatabase, JsValue> {
 }
 
 /// Loads every record under `prefix` into the mirrored state.
-async fn hydrate(prefix: &str, state: &spin::Mutex<State>) -> Result<(), JsValue> {
+async fn load(prefix: &str, state: &spin::Mutex<State>) -> Result<(), JsValue> {
     let db = open_db().await?;
 
     let transaction = db.transaction_with_str(STORE_NAME)?;
@@ -273,7 +273,7 @@ async fn hydrate(prefix: &str, state: &spin::Mutex<State>) -> Result<(), JsValue
     }
 
     if !entries.is_empty() {
-        // Entries inserted while hydration was in flight are the fresher ones.
+        // Entries inserted while the load was in flight are the fresher ones.
         let mut state = state.lock();
         for (key, value) in entries {
             state.entries.entry(key).or_insert(value);

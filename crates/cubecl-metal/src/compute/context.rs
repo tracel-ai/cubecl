@@ -13,7 +13,7 @@ use objc2_metal::{
 };
 use std::sync::Arc;
 
-use cubecl_environment::persistence::{Cache, CacheOption};
+use cubecl_environment::persistence::{KvStore, KvStoreOptions};
 
 #[derive(Debug, Clone)]
 pub struct CompiledKernel {
@@ -36,7 +36,7 @@ pub struct MetalContext {
     device: Retained<ProtocolObject<dyn MTLDevice>>,
     compiled_kernels: HashMap<KernelId, CompiledKernel>,
     /// On-disk MSL source cache for faster recompilation across runs.
-    msl_cache: Option<Cache<String, MslCacheEntry>>,
+    msl_cache: Option<KvStore<String, MslCacheEntry>>,
     compilation_options: cubecl_cpp::shared::CompilationOptions,
     msl_compile_options: Retained<MTLCompileOptions>,
 }
@@ -63,9 +63,9 @@ impl MetalContext {
                 let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
                 if let Some(cache) = &config.compilation.cache {
                     let root = cache.root();
-                    Some(Cache::open(
+                    Some(KvStore::open(
                         "msl",
-                        CacheOption::default().name("metal").root(root),
+                        KvStoreOptions::default().name("metal").root(root),
                     ))
                 } else {
                     None

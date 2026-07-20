@@ -1,8 +1,8 @@
 //! `SQLite`-backed persistence.
 //!
-//! One database file per cache root holds every store, addressed by a `store`
-//! column instead of a directory tree. That makes lookups per key rather than
-//! per file, gives multi-process safety through WAL instead of a lock
+//! One database file per cache root holds every namespace, told apart by a
+//! column instead of by a directory tree. That makes lookups per key rather
+//! than per file, gives multi-process safety through WAL instead of a lock
 //! sidecar, and turns bundle export into a query (see [`crate::bundle`]).
 
 use std::path::{Path, PathBuf};
@@ -12,36 +12,42 @@ use std::vec::Vec;
 use hashbrown::HashMap;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 
-use super::backend::KvBackend;
+use super::storage::Storage;
 use crate::sync::{Arc, Lazy, Mutex};
 
 /// File name of the cache database inside a cache root.
 pub const DB_FILE_NAME: &str = "cubecl.db";
 
 /// The database schema this build reads and writes. A file carrying any other
-/// version has its entries dropped and rebuilt: it is a cache, so the only
-/// cost is one cold start.
-pub const SCHEMA_VERSION: u32 = 1;
+/// version has its entries table dropped and rebuilt: it is a cache, so the
+/// only cost is one cold start. Bump this on any change to
+/// [`CREATE_ENTRIES`], including a renamed column.
+pub const SCHEMA_VERSION: u32 = 2;
 
-const CREATE_SCHEMA: &str = "
-CREATE TABLE IF NOT EXISTS entries (
-    store TEXT NOT NULL,
-    key   BLOB NOT NULL,
-    value BLOB NOT NULL,
-    PRIMARY KEY (store, key)
-);
+/// Created first and never dropped, so the schema version survives a rebuild
+/// of the entries table.
+const CREATE_META: &str = "
 CREATE TABLE IF NOT EXISTS meta (
     k TEXT PRIMARY KEY,
     v TEXT NOT NULL
 );
 ";
 
-const INSERT_SQL: &str =
-    "INSERT INTO entries (store, key, value) VALUES (?1, ?2, ?3) ON CONFLICT DO NOTHING";
-const SELECT_SQL: &str = "SELECT value FROM entries WHERE store = ?1 AND key = ?2";
-const SCAN_SQL: &str = "SELECT key, value FROM entries WHERE store = ?1";
+const CREATE_ENTRIES: &str = "
+CREATE TABLE IF NOT EXISTS entries (
+    namespace TEXT NOT NULL,
+    key   BLOB NOT NULL,
+    value BLOB NOT NULL,
+    PRIMARY KEY (namespace, key)
+);
+";
 
-/// One open database file, shared by every store that lives in it.
+const INSERT_SQL: &str =
+    "INSERT INTO entries (namespace, key, value) VALUES (?1, ?2, ?3) ON CONFLICT DO NOTHING";
+const SELECT_SQL: &str = "SELECT value FROM entries WHERE namespace = ?1 AND key = ?2";
+const SCAN_SQL: &str = "SELECT key, value FROM entries WHERE namespace = ?1";
+
+/// One open database file, shared by every namespace that lives in it.
 #[derive(Clone)]
 pub struct Database {
     conn: Arc<Mutex<Connection>>,
@@ -54,8 +60,8 @@ impl core::fmt::Debug for Database {
     }
 }
 
-/// Databases already opened by this process, so N stores over one cache root
-/// share a single connection.
+/// Databases already opened by this process, so N namespaces over one cache
+/// root share a single connection.
 static OPENED: Lazy<Mutex<HashMap<PathBuf, Database>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 impl Database {
@@ -116,8 +122,12 @@ impl Database {
         if !read_only {
             conn.pragma_update(None, "journal_mode", "WAL")?;
             conn.pragma_update(None, "synchronous", "NORMAL")?;
-            conn.execute_batch(CREATE_SCHEMA)?;
+            // Order matters: `meta` carries the schema version, `migrate` may
+            // drop a stale `entries` table, and only then is it safe to create
+            // one with the current column layout.
+            conn.execute_batch(CREATE_META)?;
             migrate(&conn)?;
+            conn.execute_batch(CREATE_ENTRIES)?;
         }
 
         Ok(Self {
@@ -137,12 +147,12 @@ impl Database {
         func(&mut guard)
     }
 
-    /// The value stored under `key` in `store`.
-    pub fn get(&self, store: &str, key: &[u8]) -> Option<Vec<u8>> {
+    /// The value stored under `key` in `namespace`.
+    pub fn get(&self, namespace: &str, key: &[u8]) -> Option<Vec<u8>> {
         self.with_connection(|conn| {
             conn.prepare_cached(SELECT_SQL)
                 .and_then(|mut stmt| {
-                    stmt.query_row(params![store, key], |row| row.get(0))
+                    stmt.query_row(params![namespace, key], |row| row.get(0))
                         .optional()
                 })
                 .unwrap_or_else(|err| {
@@ -152,19 +162,19 @@ impl Database {
         })
     }
 
-    /// Stores `value` unless `key` is already present in `store`, in which
+    /// Stores `value` unless `key` is already present in `namespace`, in which
     /// case the existing value is returned untouched.
-    pub fn insert(&self, store: &str, key: &[u8], value: &[u8]) -> Option<Vec<u8>> {
+    pub fn insert(&self, namespace: &str, key: &[u8], value: &[u8]) -> Option<Vec<u8>> {
         let result = self.with_connection(|conn| {
             let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             let written = transaction
                 .prepare_cached(INSERT_SQL)?
-                .execute(params![store, key, value])?;
+                .execute(params![namespace, key, value])?;
 
             let existing = if written == 0 {
                 transaction
                     .prepare_cached(SELECT_SQL)?
-                    .query_row(params![store, key], |row| row.get(0))
+                    .query_row(params![namespace, key], |row| row.get(0))
                     .optional()?
             } else {
                 None
@@ -184,11 +194,11 @@ impl Database {
         }
     }
 
-    /// Visits every entry of `store`.
-    pub fn scan(&self, store: &str, visit: &mut dyn FnMut(Vec<u8>, Vec<u8>)) {
+    /// Visits every entry of `namespace`.
+    pub fn scan(&self, namespace: &str, visit: &mut dyn FnMut(Vec<u8>, Vec<u8>)) {
         let result = self.with_connection(|conn| {
             let mut stmt = conn.prepare_cached(SCAN_SQL)?;
-            let mut rows = stmt.query(params![store])?;
+            let mut rows = stmt.query(params![namespace])?;
             while let Some(row) = rows.next()? {
                 visit(row.get(0)?, row.get(1)?);
             }
@@ -200,16 +210,16 @@ impl Database {
         }
     }
 
-    /// Entry count and total value size per store, for reporting.
-    pub fn summary(&self) -> Vec<StoreSummary> {
+    /// Entry count and total value size per namespace, for reporting.
+    pub fn summary(&self) -> Vec<NamespaceSummary> {
         let result = self.with_connection(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT store, count(*), sum(length(key) + length(value)) \
-                 FROM entries GROUP BY store ORDER BY store",
+                "SELECT namespace, count(*), sum(length(key) + length(value)) \
+                 FROM entries GROUP BY namespace ORDER BY namespace",
             )?;
             let rows = stmt.query_map([], |row| {
-                Ok(StoreSummary {
-                    store: row.get(0)?,
+                Ok(NamespaceSummary {
+                    namespace: row.get(0)?,
                     entries: row.get::<_, i64>(1)? as u64,
                     bytes: row.get::<_, Option<i64>>(2)?.unwrap_or(0) as u64,
                 })
@@ -228,19 +238,23 @@ impl Database {
     }
 }
 
-/// One store's contribution to a database, as reported by
+/// One namespace's contribution to a database, as reported by
 /// [`Database::summary`].
 #[derive(Debug, Clone)]
-pub struct StoreSummary {
-    /// The logical store name.
-    pub store: String,
+pub struct NamespaceSummary {
+    /// The namespace.
+    pub namespace: String,
     /// Number of entries.
     pub entries: u64,
     /// Total size of the keys and values, in bytes.
     pub bytes: u64,
 }
 
-/// Drops the entries of a database written by an incompatible schema.
+/// Drops the entries table of a database written by an incompatible schema.
+///
+/// The table is dropped rather than emptied: a schema change can rename or
+/// retype a column, and keeping the old table would make every later statement
+/// fail instead of costing one cold start.
 fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
     let found: Option<String> = conn
         .query_row("SELECT v FROM meta WHERE k = 'schema_version'", [], |row| {
@@ -257,8 +271,10 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
         log::warn!(
             "cubecl cache: database schema {found} is not {expected}, discarding cached entries"
         );
-        conn.execute("DELETE FROM entries", [])?;
     }
+    // Also runs when no version is recorded at all: such a file predates the
+    // `meta` table, so whatever `entries` it holds cannot be trusted either.
+    conn.execute("DROP TABLE IF EXISTS entries", [])?;
 
     conn.execute(
         "INSERT INTO meta (k, v) VALUES ('schema_version', ?1) \
@@ -269,36 +285,39 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
     Ok(())
 }
 
-/// The file system implementation of [`KvBackend`], one instance per logical
-/// store, all sharing the cache root's database.
+/// The file system implementation of [`Storage`], one instance per logical
+/// namespace, all sharing the cache root's database.
 #[derive(Debug)]
-pub struct SqliteBackend {
+pub struct SqliteStorage {
     database: Database,
-    store: String,
+    namespace: String,
 }
 
-impl SqliteBackend {
-    /// Binds a backend to one store of a database.
-    pub fn new(database: Database, store: String) -> Self {
-        Self { database, store }
+impl SqliteStorage {
+    /// Binds a storage to one namespace of a database.
+    pub fn new(database: Database, namespace: String) -> Self {
+        Self {
+            database,
+            namespace,
+        }
     }
 }
 
-impl KvBackend for SqliteBackend {
+impl Storage for SqliteStorage {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
-        self.database.get(&self.store, key)
+        self.database.get(&self.namespace, key)
     }
 
     fn insert(&self, key: &[u8], value: &[u8]) -> Option<Vec<u8>> {
-        self.database.insert(&self.store, key, value)
+        self.database.insert(&self.namespace, key, value)
     }
 
     fn scan(&self, visit: &mut dyn FnMut(Vec<u8>, Vec<u8>)) {
-        self.database.scan(&self.store, visit)
+        self.database.scan(&self.namespace, visit)
     }
 
     fn describe(&self) -> String {
-        std::format!("{:?} [{}]", self.database.path(), self.store)
+        std::format!("{:?} [{}]", self.database.path(), self.namespace)
     }
 }
 
@@ -318,14 +337,14 @@ mod tests {
         let first = Database::open(&path, false).unwrap();
         let second = Database::open(&path, false).unwrap();
 
-        assert_eq!(first.insert("store", b"key", b"first"), None);
+        assert_eq!(first.insert("namespace", b"key", b"first"), None);
 
         // The second connection sees the committed entry and leaves it alone.
         assert_eq!(
-            second.insert("store", b"key", b"second"),
+            second.insert("namespace", b"key", b"second"),
             Some(b"first".to_vec())
         );
-        assert_eq!(second.get("store", b"key"), Some(b"first".to_vec()));
+        assert_eq!(second.get("namespace", b"key"), Some(b"first".to_vec()));
     }
 
     /// Many writers on one file must block on each other rather than fail:
@@ -346,33 +365,56 @@ mod tests {
                     let database = Database::open(path, false).unwrap();
                     for entry in 0..25 {
                         let key = std::format!("{writer}-{entry}");
-                        assert_eq!(database.insert("store", key.as_bytes(), b"value"), None);
+                        assert_eq!(database.insert("namespace", key.as_bytes(), b"value"), None);
                     }
                 });
             }
         });
 
         let mut count = 0;
-        database.scan("store", &mut |_key, _value| count += 1);
+        database.scan("namespace", &mut |_key, _value| count += 1);
         assert_eq!(count, 100);
     }
 
-    /// A database written by a future schema must be emptied, not misread.
+    /// A database written by another schema must be rebuilt, not misread.
+    ///
+    /// The table is dropped rather than emptied, so a schema that renamed or
+    /// retyped a column still recovers. Emptying it would leave the old
+    /// columns in place and make every later statement fail forever.
     #[test_log::test]
     #[cfg_attr(miri, ignore)]
-    fn an_incompatible_schema_is_discarded() {
+    fn an_incompatible_schema_is_rebuilt() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(DB_FILE_NAME);
 
+        // A database from a build whose entries table had different columns.
         let database = Database::open(&path, false).unwrap();
-        database.insert("store", b"key", b"value");
         database.with_connection(|conn| {
+            conn.execute("DROP TABLE entries", []).unwrap();
+            conn.execute(
+                "CREATE TABLE entries (store TEXT NOT NULL, key BLOB NOT NULL, \
+                 value BLOB NOT NULL, PRIMARY KEY (store, key))",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO entries (store, key, value) VALUES ('old', x'00', x'00')",
+                [],
+            )
+            .unwrap();
             conn.execute("UPDATE meta SET v = '999' WHERE k = 'schema_version'", [])
                 .unwrap();
         });
         drop(database);
 
         let database = Database::open(&path, false).unwrap();
-        assert_eq!(database.get("store", b"key"), None);
+        assert_eq!(database.get("old", b"\x00"), None, "stale rows are gone");
+        // The rebuilt table must be usable, which an emptied one would not be.
+        assert_eq!(database.insert("namespace", b"key", b"value"), None);
+        assert_eq!(
+            database.get("namespace", b"key"),
+            Some(b"value".to_vec()),
+            "the rebuilt table accepts the current column layout"
+        );
     }
 }

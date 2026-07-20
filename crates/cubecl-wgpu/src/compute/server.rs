@@ -25,9 +25,9 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::future::DynFut;
 #[cfg(feature = "spirv")]
-use cubecl_environment::persistence::CacheOption;
+use cubecl_environment::persistence::KvStoreOptions;
 #[cfg(feature = "spirv")]
-use cubecl_environment::persistence::compilation::CompilationCache;
+use cubecl_environment::persistence::blob::BlobStore;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
@@ -71,8 +71,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     pipelines: HashMap<KernelId, (Arc<ComputePipeline>, CompilerInfo)>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
-    pub(crate) spirv_cache:
-        Option<CompilationCache<(u64, StableHash), cubecl_spirv::SpirvCacheEntry>>,
+    pub(crate) spirv_cache: Option<BlobStore<(u64, StableHash), cubecl_spirv::SpirvCacheEntry>>,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
@@ -133,9 +132,9 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
                 if let Some(cache) = &config.compilation.cache {
                     let root = cache.root();
-                    Some(CompilationCache::new(
+                    Some(BlobStore::new(
                         format!("spirv_{}_{}", adapter_info.vendor, adapter_info.device),
-                        CacheOption::default().name("vulkan").root(root),
+                        KvStoreOptions::default().name("vulkan").root(root),
                     ))
                 } else {
                     None

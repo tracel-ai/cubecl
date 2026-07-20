@@ -2,15 +2,15 @@
 
 use std::sync::Arc;
 
-use cubecl_environment::bundle::{Bundle, ExportOptions, SeedSource, export};
-use cubecl_environment::persistence::{KvStore, KvStoreOptions, Origin, SeedMode};
+use cubecl_environment::bundle::{Bundle, ExportOptions, SqliteBundle, export};
+use cubecl_environment::persistence::{BundleMode, KvStore, KvStoreOptions, Origin};
 
 /// Warms `root` with one store's worth of entries, as an application run would.
 fn warm(root: &std::path::Path, name: &str, path: &str, entries: &[(&str, u32)]) {
     let option = KvStoreOptions::default()
         .root(root)
         .name(name)
-        .seeds(SeedMode::Disabled);
+        .bundles(BundleMode::Disabled);
     let mut store = KvStore::<String, u32>::open(path, option);
 
     for (key, value) in entries {
@@ -22,12 +22,12 @@ fn open_with_bundle(
     root: &std::path::Path,
     name: &str,
     path: &str,
-    seeds: Vec<Arc<dyn SeedSource>>,
+    seeds: Vec<Arc<dyn Bundle>>,
 ) -> KvStore<String, u32> {
     let option = KvStoreOptions::default()
         .root(root)
         .name(name)
-        .seeds(SeedMode::Explicit(seeds));
+        .bundles(BundleMode::Explicit(seeds));
 
     KvStore::open(path, option)
 }
@@ -56,8 +56,8 @@ fn bundle_roundtrip_seeds_a_fresh_store() {
     assert_eq!(manifest.environments.len(), 1);
 
     // Open the bundle on a "fresh machine" (empty cache root).
-    let bundle = Bundle::open(&bundle_path).unwrap();
-    let seeds: Vec<Arc<dyn SeedSource>> = vec![Arc::new(bundle)];
+    let bundle = SqliteBundle::open(&bundle_path).unwrap();
+    let seeds: Vec<Arc<dyn Bundle>> = vec![Arc::new(bundle)];
 
     let mut store = open_with_bundle(
         cold_root.path(),
@@ -66,7 +66,7 @@ fn bundle_roundtrip_seeds_a_fresh_store() {
         seeds.clone(),
     );
 
-    // Bundle entries are visible, tagged with their origin.
+    // SqliteBundle entries are visible, tagged with their origin.
     assert_eq!(store.get(&"shape=2x2".to_string()), Some(&3));
     assert_eq!(
         store.get_with_origin(&"shape=4x4".to_string()),
@@ -123,8 +123,8 @@ fn exporting_several_roots_dedupes_shared_keys() {
     };
     export(&[first.path(), second.path()], &bundle_path, &options).unwrap();
 
-    let bundle = Bundle::open(&bundle_path).unwrap();
-    let seeds: Vec<Arc<dyn SeedSource>> = vec![Arc::new(bundle)];
+    let bundle = SqliteBundle::open(&bundle_path).unwrap();
+    let seeds: Vec<Arc<dyn Bundle>> = vec![Arc::new(bundle)];
     let store = open_with_bundle(cold_root.path(), "autotune", "device0/matmul", seeds);
 
     assert_eq!(store.len(), 3, "the shared key must appear exactly once");
@@ -146,13 +146,13 @@ fn exporting_can_be_restricted_to_some_stores() {
 
     let options = ExportOptions {
         name: "Autotune only".to_string(),
-        stores: vec!["autotune".to_string()],
+        namespaces: vec!["autotune".to_string()],
         ..Default::default()
     };
     export(&[warm_root.path()], &bundle_path, &options).unwrap();
 
-    let bundle = Arc::new(Bundle::open(&bundle_path).unwrap());
-    let seeds: Vec<Arc<dyn SeedSource>> = vec![bundle];
+    let bundle = Arc::new(SqliteBundle::open(&bundle_path).unwrap());
+    let seeds: Vec<Arc<dyn Bundle>> = vec![bundle];
 
     let tuned = open_with_bundle(
         cold_root.path(),
@@ -204,8 +204,8 @@ fn exporting_over_an_existing_bundle_replaces_it() {
     let manifest = export(&[second_root.path()], &bundle_path, &options).unwrap();
     assert_eq!(manifest.name, "Second");
 
-    let bundle = Bundle::open(&bundle_path).unwrap();
-    let seeds: Vec<Arc<dyn SeedSource>> = vec![Arc::new(bundle)];
+    let bundle = SqliteBundle::open(&bundle_path).unwrap();
+    let seeds: Vec<Arc<dyn Bundle>> = vec![Arc::new(bundle)];
     let store = open_with_bundle(cold_root.path(), "autotune", "device0/matmul", seeds);
 
     assert_eq!(store.get(&"new".to_string()), Some(&2));
@@ -230,11 +230,11 @@ fn exporting_over_a_foreign_file_fails() {
 #[test]
 fn bad_bundle_is_skipped_without_failing() {
     let missing = std::path::Path::new("/nonexistent/bundle/path");
-    assert!(Bundle::open(missing).is_err());
+    assert!(SqliteBundle::open(missing).is_err());
 
     // The registry path must swallow the error.
     cubecl_environment::bundle::install_from_paths(&[missing]);
-    assert!(cubecl_environment::bundle::seeds().is_empty());
+    assert!(cubecl_environment::bundle::installed().is_empty());
 }
 
 /// A file that is not a cubecl database must be rejected, not read as an
@@ -245,5 +245,5 @@ fn a_foreign_file_is_not_a_bundle() {
     let path = dir.path().join("not-a-bundle.cubecl");
     std::fs::write(&path, b"definitely not sqlite").unwrap();
 
-    assert!(Bundle::open(&path).is_err());
+    assert!(SqliteBundle::open(&path).is_err());
 }
