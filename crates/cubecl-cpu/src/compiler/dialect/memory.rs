@@ -6,8 +6,9 @@ use pliron::builtin::types::{IntegerType, Signedness};
 use pliron::utils::apint::{APInt, bw};
 use pliron_llvm::ops as llvm;
 
+use crate::compiler::dialect::ty::cube_type_to_llvm;
+
 use super::prelude::*;
-use super::to_llvm::cube_type_to_llvm;
 
 #[op_interface_impl]
 impl ToLLVMDialect for DeclareVariableOp {

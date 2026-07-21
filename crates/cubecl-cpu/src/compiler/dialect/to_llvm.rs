@@ -7,14 +7,6 @@ pub trait CubeToLLVMType {
     fn convert(&self, ctx: &Context) -> TypeHandle;
 }
 
-/// Convert a cubecl type to its LLVM-dialect equivalent, or return it unchanged when no
-/// conversion applies.
-pub fn cube_type_to_llvm(ctx: &Context, ty: TypeHandle) -> TypeHandle {
-    type_cast::<dyn CubeToLLVMType>(&*ty.deref(ctx))
-        .map(|convertible| convertible.convert(ctx))
-        .unwrap_or(ty)
-}
-
 #[op_interface]
 pub trait ToLLVMDialect {
     fn rewrite(

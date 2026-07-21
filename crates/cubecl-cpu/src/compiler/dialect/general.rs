@@ -1,14 +1,19 @@
 use cubecl_core::ir::dialect::general::CastOp;
+use cubecl_core::ir::interfaces::ScalarizableType;
+use cubecl_core::ir::types::VectorType as CubeVectorType;
 use cubecl_core::ir::types::scalar::{BoolType, IndexType};
 use pliron::builtin::attributes::IntegerAttr;
-use pliron::builtin::types::{IntegerType, Signedness};
+use pliron::builtin::types::{FP16Type, FP32Type, FP64Type, IntegerType, Signedness};
+use pliron::printable::Printable;
 use pliron::utils::apint::{APInt, bw};
 use pliron_llvm::attributes::ICmpPredicateAttr;
 use pliron_llvm::op_interfaces::{CastOpInterface, CastOpWithNNegInterface};
 use pliron_llvm::ops as llvm;
+use pliron_llvm::types::VectorType as LLVMVectorType;
+
+use crate::compiler::dialect::ty::cube_type_to_llvm;
 
 use super::prelude::*;
-use super::to_llvm::cube_type_to_llvm;
 
 fn int_repr(ctx: &Context, ty: TypeHandle) -> Option<(u32, bool)> {
     let ty = ty.deref(ctx);
@@ -66,6 +71,37 @@ fn cast_int_to_int(
     Ok(())
 }
 
+fn cast_float_to_int(
+    cast_op: &CastOp,
+    is_signed: bool,
+    ctx: &mut Context,
+    rewriter: &mut DialectConversionRewriter,
+) {
+    let res_ty = cube_type_to_llvm(ctx, cast_op.result_type(ctx));
+    let input = cast_op.input(ctx);
+    let old_op = cast_op.get_operation();
+
+    if is_signed {
+        let op = llvm::FPToSIOp::new(ctx, input, res_ty);
+        rewriter.insert_op(ctx, &op);
+        rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+    } else {
+        let op = llvm::FPToUIOp::new(ctx, input, res_ty);
+        rewriter.insert_op(ctx, &op);
+        rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
+    };
+}
+
+fn extract_elem_type(ctx: &Context, ty: TypeHandle) -> TypeHandle {
+    if let Some(ty) = ty.deref(ctx).downcast_ref::<LLVMVectorType>() {
+        ty.elem_type()
+    } else if let Some(ty) = ty.deref(ctx).downcast_ref::<CubeVectorType>() {
+        ty.scalar_type(ctx)
+    } else {
+        ty
+    }
+}
+
 #[op_interface_impl]
 impl ToLLVMDialect for CastOp {
     fn rewrite(
@@ -75,12 +111,26 @@ impl ToLLVMDialect for CastOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let in_ty = self.input(ctx).get_type(ctx);
+        let in_ty = extract_elem_type(ctx, in_ty);
         let out_ty = self.get_result(ctx).get_type(ctx);
+        let out_ty = extract_elem_type(ctx, out_ty);
+        println!("{} {}", in_ty.disp(ctx), out_ty.disp(ctx));
 
         if let (Some((in_width, in_signed)), Some((out_width, _))) =
             (int_repr(ctx, in_ty), int_repr(ctx, out_ty))
         {
             return cast_int_to_int(self, in_signed, in_width, out_width, ctx, rewriter);
+        }
+
+        let is_float = |ty: TypeHandle| {
+            let ty = ty.deref(ctx);
+            ty.is::<FP16Type>() || ty.is::<FP32Type>() || ty.is::<FP64Type>()
+        };
+
+        if is_float(in_ty)
+            && let Some((_, out_signed)) = int_repr(ctx, out_ty)
+        {
+            cast_float_to_int(self, out_signed, ctx, rewriter);
         }
 
         Ok(())

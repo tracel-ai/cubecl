@@ -2,7 +2,7 @@ use cubecl_core::ir::dialect::math::*;
 use pliron::builtin::attributes::IntegerAttr;
 use pliron::builtin::types::{IntegerType, Signedness};
 use pliron::utils::apint::APInt;
-use pliron_llvm::types::FuncType;
+use pliron_llvm::types::{FuncType, VectorType, VectorTypeKind};
 use pliron_llvm::{
     attributes::IntegerOverflowFlagsAttr, op_interfaces::IntBinArithOpWithOverflowFlag, ops as llvm,
 };
@@ -94,8 +94,14 @@ macro_rules! lower_float_fpclass {
                 rewriter.insert_op(ctx, &constant_op);
                 let val = constant_op.get_result(ctx);
 
+                let mut bool_ty = IntegerType::get(ctx, 1, Signedness::Signless).into();
+                if let Some(vector) = elem_ty.deref(ctx).downcast_ref::<VectorType>() {
+                    let num_elems = vector.num_elements();
+                    bool_ty =
+                        VectorType::get(ctx, bool_ty, num_elems, VectorTypeKind::Fixed).into();
+                }
                 let intrinsic_type =
-                    FuncType::get(ctx, elem_ty, vec![elem_ty, int_ty.into()], false);
+                    FuncType::get(ctx, bool_ty, vec![elem_ty, int_ty.into()], true);
 
                 let op = llvm::CallIntrinsicOp::new(
                     ctx,
