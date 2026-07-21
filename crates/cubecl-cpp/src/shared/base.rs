@@ -4,7 +4,6 @@ use super::{
     SharedMemory, UnaryInstruction, Value, WarpInstruction, WmmaInstruction, barrier::BarrierOps,
 };
 use crate::shared::{Builtin, MmaShape, PointerClass};
-use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
     CubeDim,
     ir::{
@@ -16,6 +15,7 @@ use cubecl_core::{
     prelude::{FastMath, KernelDefinition, Visibility},
     server::ExecutionMode,
 };
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_opt::{Optimizer, SharedLiveness};
 use cubecl_runtime::compiler::{CompilationError, Compiler};
 use std::{

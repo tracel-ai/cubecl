@@ -75,7 +75,7 @@ mod backtrace_std {
 
     impl Display for BacktraceState {
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            let mut backtrace = self.backtrace.lock().unwrap();
+            let mut backtrace = self.backtrace.lock();
             backtrace.resolve();
 
             let cwd = std::env::current_dir();

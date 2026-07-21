@@ -2,8 +2,8 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::time::Duration;
 
-use hashbrown::HashMap;
-use spin::Mutex;
+use cubecl_environment::collections::HashMap;
+use cubecl_environment::sync::Mutex;
 
 /// In-memory memo of the launch overhead (a fixed per-device latency) keyed by device name.
 static LAUNCH_OVERHEAD_CACHE: Mutex<Option<HashMap<String, Duration>>> = Mutex::new(None);

@@ -1,15 +1,11 @@
 #[cfg(std_io)]
-use cubecl_common::cache::{Cache, CacheOption};
+use cubecl_environment::persistence::{Namespace, Store, StoreOptions};
 
-use crate::{
-    config::CubeClRuntimeConfig,
-    throughput::{ThroughputKey, ThroughputValue},
-};
+use crate::throughput::{ThroughputKey, ThroughputValue};
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
-use cubecl_common::config::RuntimeConfig;
-use hashbrown::HashMap;
-use spin::Mutex;
+use cubecl_environment::collections::HashMap;
+use cubecl_environment::sync::Mutex;
 
 static GLOBAL_CACHE: Mutex<Option<HashMap<String, Arc<Mutex<ThroughputCache>>>>> = Mutex::new(None);
 
@@ -21,7 +17,7 @@ pub struct ThroughputCache {
     #[cfg(not(std_io))]
     cache: HashMap<ThroughputKey, ThroughputValue>,
     #[cfg(std_io)]
-    cache: Cache<ThroughputKey, ThroughputValue>,
+    cache: Store<ThroughputKey, ThroughputValue>,
 }
 
 impl ThroughputCache {
@@ -47,11 +43,10 @@ impl ThroughputCache {
 
         #[cfg(std_io)]
         {
-            let root = CubeClRuntimeConfig::get().throughput.cache.root();
-            let options = CacheOption::default().root(root).name("throughput");
+            let namespace = Namespace::scoped("throughput", name);
 
             Self {
-                cache: Cache::new(name, options),
+                cache: Store::new(StoreOptions::new().storage(namespace)),
             }
         }
     }
@@ -64,7 +59,7 @@ impl ThroughputCache {
     pub fn insert(&mut self, key: ThroughputKey, value: ThroughputValue) {
         #[cfg(std_io)]
         if let Err(err) = self.cache.insert(key, value) {
-            log::warn!("Concurrent throughput measurement, keeping the existing value: {err:?}");
+            log::warn!("Concurrent throughput measurement, keeping the existing value: {err}");
         }
 
         #[cfg(not(std_io))]

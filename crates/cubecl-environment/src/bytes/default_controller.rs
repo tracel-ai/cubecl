@@ -373,7 +373,8 @@ pub fn alloc_overflow() -> ! {
     panic!("Overflow, too many elements")
 }
 
-#[cfg(test)]
+// The type is no-std; its tests need std (test_log, std collections).
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
     use crate::bytes::{AccessPolicy, AllocationController};

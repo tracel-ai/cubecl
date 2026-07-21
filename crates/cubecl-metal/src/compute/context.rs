@@ -1,9 +1,9 @@
 use crate::MetalCompiler;
-use cubecl_common::backtrace::BackTrace;
 use cubecl_core::prelude::*;
 use cubecl_core::server::{LaunchError, ResourceLimitError};
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashMap;
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
-use hashbrown::HashMap;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSString;
@@ -13,7 +13,8 @@ use objc2_metal::{
 };
 use std::sync::Arc;
 
-use cubecl_common::cache::{Cache, CacheOption};
+use cubecl_environment::persistence::Store;
+use cubecl_runtime::compiler::{compilation_store, store_compiled};
 
 #[derive(Debug, Clone)]
 pub struct CompiledKernel {
@@ -36,7 +37,7 @@ pub struct MetalContext {
     device: Retained<ProtocolObject<dyn MTLDevice>>,
     compiled_kernels: HashMap<KernelId, CompiledKernel>,
     /// On-disk MSL source cache for faster recompilation across runs.
-    msl_cache: Option<Cache<String, MslCacheEntry>>,
+    msl_cache: Option<Store<String, MslCacheEntry>>,
     compilation_options: cubecl_cpp::shared::CompilationOptions,
     msl_compile_options: Retained<MTLCompileOptions>,
 }
@@ -55,22 +56,16 @@ impl MetalContext {
         msl_compile_options.setMathMode(MTLMathMode::Safe);
         msl_compile_options.setMathFloatingPointFunctions(MTLMathFloatingPointFunctions::Precise);
 
+        // The MSL is emitted from device-derived compilation options and
+        // validated against the device's shared-memory limit, so the device
+        // name is what keeps a bundle shipped across machines from serving
+        // sources built for another GPU.
+        let device_key = device.name().to_string();
+
         Self {
-            device,
             compiled_kernels: HashMap::new(),
-            msl_cache: {
-                use cubecl_runtime::config::RuntimeConfig;
-                let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
-                if let Some(cache) = &config.compilation.cache {
-                    let root = cache.root();
-                    Some(Cache::new(
-                        "msl",
-                        CacheOption::default().name("metal").root(root),
-                    ))
-                } else {
-                    None
-                }
-            },
+            msl_cache: compilation_store("metal", format!("msl_{device_key}")),
+            device,
             compilation_options,
             msl_compile_options,
         }
@@ -89,9 +84,9 @@ impl MetalContext {
             return Ok(compiled.clone());
         }
 
-        if let Some(cache) = &self.msl_cache {
+        if let Some(cache) = self.msl_cache.as_mut() {
             let cache_key = kernel_id.stable_format();
-            if let Some(entry) = cache.get(&cache_key) {
+            if let Some(entry) = cache.remove(&cache_key) {
                 log::trace!("Using MSL cache");
 
                 let compiled = self.create_pipeline_from_source(
@@ -150,18 +145,15 @@ impl MetalContext {
         compiled.shared_memory_bytes = shared_memory_bytes;
 
         if let Some(cache) = &mut self.msl_cache {
-            let cache_key = kernel_id.stable_format();
-            let result = cache.insert(
-                cache_key,
+            store_compiled(
+                cache,
+                kernel_id.stable_format(),
                 MslCacheEntry {
                     entrypoint_name,
                     cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
                     source,
                 },
             );
-            if let Err(err) = result {
-                log::warn!("Unable to save MSL to cache: {err:?}");
-            }
         }
 
         self.compiled_kernels

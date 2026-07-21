@@ -1,7 +1,7 @@
 use crate::{self as cubecl};
 use alloc::vec::Vec;
 use cubecl::prelude::*;
-use cubecl_common::stream_id::StreamId;
+use cubecl_environment::stream::StreamId;
 
 #[cube(launch)]
 pub fn big_task<F: Float>(input: &[u32], output: &mut [F], num_loop: usize) {

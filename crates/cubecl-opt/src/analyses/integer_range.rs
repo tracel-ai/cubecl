@@ -2,10 +2,10 @@
 // pass; suppress dead-code lints for the whole module rather than deleting the analysis.
 #![allow(dead_code)]
 
+use cubecl_environment::collections::HashMap;
 use cubecl_ir::{
     Arithmetic, Builtin, ConstantValue, ElemType, Id, Operation, Operator, Type, Value, ValueKind,
 };
-use hashbrown::HashMap;
 
 use crate::{Function, GlobalState};
 

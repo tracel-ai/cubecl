@@ -1,11 +1,11 @@
 use core::mem::swap;
 
 use alloc::{collections::linked_list::LinkedList, vec::Vec};
+use cubecl_environment::collections::HashSet;
 use cubecl_ir::{
     self as ir, Arithmetic, AtomicOp, Comparison, ComparisonOpCode, Memory, OpCode, Operation,
     OperationReflect, Operator, Value,
 };
-use hashbrown::HashSet;
 
 use crate::{Function, PhiInstruction};
 

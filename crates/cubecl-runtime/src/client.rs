@@ -22,19 +22,19 @@ use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
 #[cfg(not(target_family = "wasm"))]
 mod lazy;
 use cubecl_common::{
-    backtrace::BackTrace,
     bytes::{AllocationProperty, Bytes},
     device::{Device, DeviceId},
     device_handle::{CallResultExt, DeviceHandle},
-    future::DynFut,
     profile::ProfileDuration,
 };
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::future::DynFut;
 use cubecl_ir::{DeviceProperties, ElemType, VectorSize, features::Features};
 use cubecl_zspace::Shape;
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
-use cubecl_common::stream_id::StreamId;
+use cubecl_environment::stream::StreamId;
 
 /// The `ComputeClient` is the entry point to require tasks from the `ComputeServer`.
 /// It should be obtained for a specific device via the Compute struct.
@@ -239,12 +239,12 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// Panics if the read operation fails.
     pub fn read(&self, handles: Vec<Handle>) -> Vec<Bytes> {
-        cubecl_common::reader::read_sync(self.read_async(handles)).expect("TODO")
+        cubecl_environment::future::reader::read_sync(self.read_async(handles)).expect("TODO")
     }
 
     /// Given a binding, returns owned resource as bytes.
     pub fn read_one(&self, handle: Handle) -> Result<Bytes, ServerError> {
-        Ok(cubecl_common::reader::read_sync(self.read_async(vec![handle]))?.remove(0))
+        Ok(cubecl_environment::future::reader::read_sync(self.read_async(vec![handle]))?.remove(0))
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -253,7 +253,7 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// Panics if the read operation fails. Useful for tests.
     pub fn read_one_unchecked(&self, handle: Handle) -> Bytes {
-        cubecl_common::reader::read_sync(self.read_async(vec![handle]))
+        cubecl_environment::future::reader::read_sync(self.read_async(vec![handle]))
             .unwrap()
             .remove(0)
     }
@@ -279,7 +279,8 @@ impl<R: Runtime> ComputeClient<R> {
     ///
     /// Also see [`ComputeClient::create_tensor`].
     pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor>) -> Vec<Bytes> {
-        cubecl_common::reader::read_sync(self.read_tensor_async(descriptors)).expect("TODO")
+        cubecl_environment::future::reader::read_sync(self.read_tensor_async(descriptors))
+            .expect("TODO")
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -743,16 +744,11 @@ impl<R: Runtime> ComputeClient<R> {
     )]
     pub fn ensure_init_collective(&mut self, device_ids: Vec<DeviceId>) {
         let comm_id = CommunicationId::from(device_ids.clone());
-        let is_comms_init = self
-            .utilities
-            .initialized_comms
-            .read()
-            .unwrap()
-            .contains(&comm_id);
+        let is_comms_init = self.utilities.initialized_comms.read().contains(&comm_id);
         if !is_comms_init {
             self.device
                 .submit(move |server| server.comm_init(device_ids).unwrap());
-            let mut initialized_comms = self.utilities.initialized_comms.write().unwrap();
+            let mut initialized_comms = self.utilities.initialized_comms.write();
             initialized_comms.insert(comm_id);
             // Flush immediately so other devices aren't blocked waiting on this initialization.
             self.device.flush_queue();
@@ -1286,7 +1282,7 @@ impl<R: Runtime> ComputeClient<R> {
             .submit_blocking(move |server| server.read(vec![src_descriptor], stream_id))
             .unwrap_or_resume();
 
-        let mut data = cubecl_common::future::block_on(read).unwrap();
+        let mut data = cubecl_environment::future::block_on(read).unwrap();
 
         let (handle_base, mut layouts) = self
             .utilities

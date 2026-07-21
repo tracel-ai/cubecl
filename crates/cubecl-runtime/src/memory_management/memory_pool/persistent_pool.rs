@@ -4,8 +4,8 @@ use crate::storage::StorageUtilization;
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec;
 use alloc::vec::Vec;
-use cubecl_common::backtrace::BackTrace;
-use hashbrown::{HashMap, HashSet};
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::{HashMap, HashSet};
 
 pub struct PersistentPool {
     slices: Vec<Slice>,

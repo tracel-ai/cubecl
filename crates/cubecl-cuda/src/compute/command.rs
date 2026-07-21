@@ -5,16 +5,11 @@ use crate::{
         storage::gpu::GpuResource, stream::CudaStreamBackend, sync::Fence,
     },
 };
-use cubecl_common::{
-    backtrace::BackTrace,
-    bytes::{AllocationProperty, Bytes},
-    stream_id::StreamId,
-};
+use cubecl_common::bytes::{AllocationProperty, Bytes};
 #[cfg(debug_assertions)]
 use cubecl_core::zspace::striding::try_check_pitched_row_major_strides;
 use cubecl_core::{
     MemoryConfiguration, MemoryUsage,
-    future::DynFut,
     ir::MemoryDeviceProperties,
     server::{
         Binding, CopyDescriptor, ExecutionMode, Handle, IoError, LaunchError, ProfileError,
@@ -22,6 +17,9 @@ use cubecl_core::{
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::future::DynFut;
+use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     compiler::CubeTask,
     id::KernelId,

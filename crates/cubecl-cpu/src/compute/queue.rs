@@ -7,7 +7,8 @@ use crate::{
     },
 };
 use cubecl_common::bytes::Bytes;
-use cubecl_core::{CubeDim, stream_id::StreamId};
+use cubecl_core::CubeDim;
+use cubecl_environment::stream::StreamId;
 use cubecl_runtime::{
     logging::ServerLogger,
     storage::{BytesResource, ManagedResource},
@@ -48,7 +49,7 @@ impl CpuExecutionQueue {
     fn init(logger: Arc<ServerLogger>) -> Self {
         let (sender, receiver) = std::sync::mpsc::sync_channel(32);
 
-        std::thread::spawn(move || {
+        cubecl_environment::thread::spawn(move || {
             let mut server = CpuExecutionQueueServer {
                 runner: Threadpool::new(logger),
                 pending_notifications: HashMap::new(),

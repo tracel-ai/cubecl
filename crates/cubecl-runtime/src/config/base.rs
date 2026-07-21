@@ -8,10 +8,11 @@ use super::{
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
-use cubecl_common::config::RuntimeConfig;
+use cubecl_environment::config::RuntimeConfig;
+use cubecl_environment::sync::Mutex;
 
 /// Static mutex holding the global configuration, initialized as `None`.
-static CUBE_GLOBAL_CONFIG: spin::Mutex<Option<Arc<CubeClRuntimeConfig>>> = spin::Mutex::new(None);
+static CUBE_GLOBAL_CONFIG: Mutex<Option<Arc<CubeClRuntimeConfig>>> = Mutex::new(None);
 
 /// Represents the global configuration for `CubeCL`, combining profiling, autotuning, and compilation settings.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -39,11 +40,24 @@ pub struct CubeClRuntimeConfig {
     /// Configuration for memory settings.
     #[serde(default)]
     pub memory: MemoryConfig,
+
+    /// Which named environment to warm into.
+    #[serde(default)]
+    pub environment: super::environment::EnvironmentConfig,
 }
 
 impl RuntimeConfig for CubeClRuntimeConfig {
-    fn storage() -> &'static spin::Mutex<Option<Arc<Self>>> {
+    fn storage() -> &'static Mutex<Option<Arc<Self>>> {
         &CUBE_GLOBAL_CONFIG
+    }
+
+    fn on_loaded(&self) {
+        cubecl_environment::stream::set_policy_from_config(self.streaming.policy);
+        // Before any device is initialized, so every cache opened afterwards
+        // lands in the chosen environment.
+        cubecl_environment::environment::activate(&self.environment.name);
+        #[cfg(std_io)]
+        cubecl_environment::environment::set_root(self.environment.path.root());
     }
 
     fn file_names() -> &'static [&'static str] {
@@ -150,6 +164,10 @@ impl RuntimeConfig for CubeClRuntimeConfig {
                 }
                 _ => {}
             }
+        }
+
+        if let Ok(val) = std::env::var("CUBECL_ENVIRONMENT") {
+            self.environment.name = val;
         }
 
         if let Ok(val) = std::env::var("CUBECL_AUTOTUNE_CACHE") {

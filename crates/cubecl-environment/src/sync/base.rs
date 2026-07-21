@@ -10,6 +10,12 @@ pub use spin::{Lazy, RwLockReadGuard, RwLockWriteGuard};
 #[cfg(feature = "std")]
 pub use std::sync::{LazyLock as Lazy, RwLockReadGuard, RwLockWriteGuard};
 
+/// A spin-based one-time initialization cell, identical on every target.
+///
+/// Prefer [`SyncOnceCell`] for plain lazy initialization; use this when the
+/// fallible [`spin::Once::try_call_once`] API is needed.
+pub use spin::Once;
+
 #[cfg(target_has_atomic = "ptr")]
 pub use alloc::sync::Arc;
 
@@ -37,18 +43,23 @@ impl<T> Mutex<T> {
     }
 
     /// Locks the mutex blocking the current thread until it is able to do so.
+    ///
+    /// Locking cannot fail, so no `Result` is returned. A poisoned lock is
+    /// recovered rather than reported: a panic under a guard must not turn
+    /// every later lock into a panic, matching the unwind behavior of the spin
+    /// implementation used off-std.
     #[inline(always)]
-    pub fn lock(&self) -> Result<MutexGuard<'_, T>, alloc::string::String> {
+    pub fn lock(&self) -> MutexGuard<'_, T> {
         #[cfg(not(feature = "std"))]
         {
-            Ok(self.inner.lock())
+            self.inner.lock()
         }
 
         #[cfg(feature = "std")]
         {
-            use std::string::ToString;
-
-            self.inner.lock().map_err(|err| err.to_string())
+            self.inner
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
         }
     }
 }
@@ -73,57 +84,54 @@ impl<T> RwLock<T> {
 
     /// Locks this rwlock with shared read access, blocking the current thread
     /// until it can be acquired.
+    ///
+    /// Poisoning is recovered, never reported; see [`Mutex::lock`].
     #[inline(always)]
-    pub fn read(&self) -> Result<RwLockReadGuard<'_, T>, alloc::string::String> {
+    pub fn read(&self) -> RwLockReadGuard<'_, T> {
         #[cfg(not(feature = "std"))]
         {
-            Ok(self.inner.read())
+            self.inner.read()
         }
         #[cfg(feature = "std")]
         {
-            use std::string::ToString;
-
-            self.inner.read().map_err(|err| err.to_string())
+            self.inner
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
         }
     }
 
     /// Locks this rwlock with exclusive write access, blocking the current thread
     /// until it can be acquired.
+    ///
+    /// Poisoning is recovered, never reported; see [`Mutex::lock`].
     #[inline(always)]
-    pub fn write(&self) -> Result<RwLockWriteGuard<'_, T>, alloc::string::String> {
+    pub fn write(&self) -> RwLockWriteGuard<'_, T> {
         #[cfg(not(feature = "std"))]
         {
-            Ok(self.inner.write())
+            self.inner.write()
         }
 
         #[cfg(feature = "std")]
         {
-            use std::string::ToString;
-
-            self.inner.write().map_err(|err| err.to_string())
+            self.inner
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
         }
     }
 }
-
-/// A unique identifier for a running thread.
-///
-/// This module is a stub when no std is available to swap with `std::thread::ThreadId`.
-#[allow(dead_code)]
-#[derive(Eq, PartialEq, Clone, Copy, Hash, Debug)]
-pub struct ThreadId(core::num::NonZeroU64);
 
 /// A cell that provides lazy one-time initialization that implements [Sync] and [Send].
 ///
 /// This module is a stub when no std is available to swap with [`std::sync::OnceLock`].
 pub struct SyncOnceCell<T>(OnceImported<T>);
 
-impl<T: core::fmt::Debug> Default for SyncOnceCell<T> {
+impl<T> Default for SyncOnceCell<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: core::fmt::Debug> SyncOnceCell<T> {
+impl<T> SyncOnceCell<T> {
     /// Create a new once.
     #[inline(always)]
     pub fn new() -> Self {
@@ -142,7 +150,9 @@ impl<T: core::fmt::Debug> SyncOnceCell<T> {
         #[cfg(feature = "std")]
         {
             let cell = OnceImported::new();
-            cell.set(value).unwrap();
+            // Infallible: the cell was just created, so it is empty. Ignoring
+            // the `Err` is what keeps `T: Debug` off this whole impl.
+            let _ = cell.set(value);
 
             Self(cell)
         }
@@ -164,5 +174,39 @@ impl<T: core::fmt::Debug> SyncOnceCell<T> {
         {
             self.0.get_or_init(f)
         }
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::*;
+
+    /// Regression: a panic under a guard must not poison the lock — one
+    /// failed autotune must not take down every later kernel launch.
+    #[test]
+    fn poisoned_mutex_recovers() {
+        let mutex = Mutex::new(0u32);
+
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = mutex.lock();
+            panic!("poison the lock");
+        }))
+        .unwrap_err();
+
+        *mutex.lock() += 1;
+        assert_eq!(*mutex.lock(), 1);
+    }
+
+    #[test]
+    fn poisoned_rwlock_recovers() {
+        let lock = RwLock::new(0u32);
+
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = lock.write();
+            panic!("poison the lock");
+        }))
+        .unwrap_err();
+
+        assert_eq!(*lock.read(), 0);
     }
 }

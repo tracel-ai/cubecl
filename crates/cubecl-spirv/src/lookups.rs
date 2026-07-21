@@ -5,8 +5,8 @@ use cubecl_core::{
     ir::{self, Builtin, Id, ValueKind},
     prelude::KernelDefinition,
 };
+use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_opt::NodeIndex;
-use hashbrown::{HashMap, HashSet};
 use rspirv::{
     dr,
     spirv::{

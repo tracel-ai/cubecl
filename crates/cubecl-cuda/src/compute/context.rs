@@ -1,6 +1,7 @@
-use cubecl_common::backtrace::BackTrace;
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashMap;
 use cubecl_runtime::{
     compiler::CompilationError,
     validation::{validate_cube_dim, validate_units},
@@ -13,30 +14,29 @@ use crate::{
     install::{cccl_include_path, include_path},
 };
 use cubecl_core::{
-    compilation_cache::CompilationCache,
     hash::StableHash,
     server::ResourceLimitError,
     {ir::DeviceProperties, prelude::*},
 };
+use cubecl_environment::persistence::Store;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use cudarc::driver::DriverError;
 use cudarc::driver::sys::CUfunc_st;
 use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUtensorMap};
-use std::collections::HashMap;
 use std::ffi::CString;
 use std::ffi::c_char;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 
-use cubecl_common::cache::CacheOption;
+use cubecl_runtime::compiler::{compilation_store, store_compiled};
 
 #[derive(Debug)]
 pub(crate) struct CudaContext {
     pub context: *mut CUctx_st,
     pub module_names: HashMap<KernelId, CompiledKernel>,
-    ptx_cache: Option<CompilationCache<StableHash, PtxCacheEntry>>,
+    ptx_cache: Option<Store<StableHash, PtxCacheEntry>>,
     pub timestamps: TimestampProfiler,
     pub arch: CudaArchitecture,
     pub compilation_options: CompilationOptions,
@@ -67,19 +67,7 @@ impl CudaContext {
         Self {
             context,
             module_names: HashMap::new(),
-            ptx_cache: {
-                use cubecl_runtime::config::RuntimeConfig;
-                let config = cubecl_runtime::config::CubeClRuntimeConfig::get();
-                if let Some(cache) = &config.compilation.cache {
-                    let root = cache.root();
-                    Some(CompilationCache::new(
-                        "ptx",
-                        CacheOption::default().name("cuda").root(root),
-                    ))
-                } else {
-                    None
-                }
-            },
+            ptx_cache: compilation_store("cuda", format!("ptx_sm{}", arch.version)),
             arch,
             timestamps: TimestampProfiler::default(),
             compilation_options,
@@ -101,16 +89,16 @@ impl CudaContext {
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
-        let hash = if let Some(cache) = &self.ptx_cache {
+        let hash = if let Some(cache) = self.ptx_cache.as_mut() {
             let hash = kernel_id.stable_hash();
 
-            if let Some(entry) = cache.get(&hash) {
+            if let Some(entry) = cache.remove(&hash) {
                 log::trace!("Using PTX cache");
 
                 self.load_ptx(
-                    entry.ptx.clone(),
+                    entry.ptx,
                     kernel_id.clone(),
-                    entry.entrypoint_name.clone(),
+                    entry.entrypoint_name,
                     kernel_id.cube_dim,
                     entry.shared_mem_bytes,
                 )?;
@@ -213,7 +201,8 @@ impl CudaContext {
         let repr = kernel_compiled.repr.unwrap();
 
         if let Some(cache) = &mut self.ptx_cache {
-            let result = cache.insert(
+            store_compiled(
+                cache,
                 hash.unwrap(),
                 PtxCacheEntry {
                     entrypoint_name: kernel_compiled.entrypoint_name.clone(),
@@ -221,9 +210,6 @@ impl CudaContext {
                     ptx: ptx.clone(),
                 },
             );
-            if let Err(err) = result {
-                log::warn!("Unable to save the ptx {err:?}");
-            }
         }
 
         self.load_ptx(

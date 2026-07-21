@@ -7,15 +7,15 @@ use core::{
     fmt::Display,
     hash::Hash,
 };
-use hashbrown::HashMap;
-use spin::Mutex;
+use cubecl_environment::collections::HashMap;
+use cubecl_environment::sync::{Mutex, RwLock};
 
 /// A local tuner allows to create a tuner for a specific key that can be different from the server
 /// key.
 pub struct LocalTuner<AK: AutotuneKey, ID> {
     state: Mutex<Option<HashMap<ID, Arc<Tuner<AK>>>>>,
     name: &'static str,
-    sets: spin::RwLock<Option<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
+    sets: RwLock<Option<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
 }
 
 /// Create a local tuner with the provided name.
@@ -41,7 +41,7 @@ where
         Self {
             state: Mutex::new(None),
             name,
-            sets: spin::RwLock::new(None),
+            sets: RwLock::new(None),
         }
     }
 
@@ -142,7 +142,9 @@ where
                 .clone()
         };
 
-        // First, check for a cache hit under a read lock.
+        // Fast path: a cached hit skips straight to the fastest operation.
+        // `fastest` also resets the tuner cache if the environment switched, so
+        // a miss here falls through to `check_tune`, which re-hydrates.
         if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
             #[cfg(feature = "autotune-checks")]
             self.checks::<I, Out>(&operations, &inputs);

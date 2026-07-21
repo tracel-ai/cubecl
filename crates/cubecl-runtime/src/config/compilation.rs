@@ -1,5 +1,3 @@
-#[cfg(std_io)]
-use super::cache::CacheConfig;
 use super::logger::{LogLevel, LoggerConfig};
 
 /// Configuration for compilation settings in `CubeCL`.
@@ -8,10 +6,10 @@ pub struct CompilationConfig {
     /// Logger configuration for compilation logs, using binary log levels.
     #[serde(default)]
     pub logger: LoggerConfig<CompilationLogLevel>,
-    /// Cache location for storing compiled kernels.
+    /// Whether compiled kernels are cached in the active environment.
     #[serde(default)]
     #[cfg(std_io)]
-    pub cache: Option<CacheConfig>,
+    pub cache: bool,
     /// Controls whether kernel launches enforce bounds checks.
     #[serde(default)]
     pub check_mode: BoundsCheckMode,

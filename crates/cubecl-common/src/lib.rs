@@ -4,6 +4,9 @@
 //! # `CubeCL` Common Library
 //!
 //! This library contains common types used by other crates that must be shared.
+//!
+//! Environment shims (sync primitives, futures, streams, config, persistence)
+//! live in the `cubecl-environment` crate.
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -11,18 +14,11 @@ extern crate std;
 #[macro_use]
 extern crate derive_new;
 
-/// Rand module contains types for random number generation for non-std environments and for
-/// std environments.
-pub mod rand;
-
 mod obfuscation;
 
 /// A circular, allocation-free arena for reusable memory blocks.
 #[cfg(feature = "std")]
 pub mod arena;
-
-/// Backtrace module to build error reports.
-pub mod backtrace;
 
 /// Device module.
 pub mod device;
@@ -33,41 +29,16 @@ pub mod device_handle {
 }
 
 /// Utilities module to manipulate bytes.
-#[cfg(feature = "serde")]
-pub mod bytes;
-
-/// Stub module contains types for stubs for non-std environments and for std environments.
-pub mod stub;
-
-/// Stream id related utilities.
-pub mod stream_id;
-
-/// Cache module for an efficient in-memory and persistent database.
-#[cfg(feature = "cache")]
-pub mod cache;
-
-#[cfg(feature = "cache")]
-pub(crate) mod cache_file;
-
-/// Chunked cache optimized for compilation artifacts
-#[cfg(feature = "compilation-cache")]
-pub mod compilation_cache;
+///
+/// Re-exported from `cubecl-environment`, which owns the type: this crate
+/// depends on it, so the lower layers could not otherwise use `Bytes`.
+pub use cubecl_environment::bytes;
 
 /// Module for benchmark timings
 pub mod benchmark;
 
-/// Runtime configuration trait shared across crates.
-pub mod config;
-
 /// Module for profiling any executable part
 pub mod profile;
-
-/// Useful when you need to read async data without having to decorate each function with async
-/// notation.
-pub mod reader;
-
-/// Future utils with a compatible API for native, non-std and wasm environments.
-pub mod future;
 
 /// Quantization primitives required outside of `cubecl-quant`
 pub mod quant;

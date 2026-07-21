@@ -25,7 +25,7 @@ pub trait RuntimeConfig:
     ///
     /// Each implementor must declare its own `static` slot, because Rust traits
     /// cannot own statics directly.
-    fn storage() -> &'static spin::Mutex<Option<Arc<Self>>>;
+    fn storage() -> &'static crate::sync::Mutex<Option<Arc<Self>>>;
 
     /// File names searched in each directory during [`Config::from_current_dir`].
     ///
@@ -48,6 +48,18 @@ pub trait RuntimeConfig:
     fn override_from_env(self) -> Self {
         self
     }
+
+    /// Hook invoked exactly once, when the configuration singleton is first
+    /// initialized — whether loaded from disk in [`RuntimeConfig::get`] or
+    /// installed with [`RuntimeConfig::set`] / [`RuntimeConfig::try_set`].
+    ///
+    /// Use it to apply configuration to global state (stream policy, bundle
+    /// installation, ...). Runs while the storage lock is held so that no
+    /// concurrent [`RuntimeConfig::get`] can observe the configuration before
+    /// the hook completed. Consequently the hook must not call
+    /// [`RuntimeConfig::get`], [`RuntimeConfig::set`] or
+    /// [`RuntimeConfig::try_set`] — that would deadlock.
+    fn on_loaded(&self) {}
 
     /// Retrieves the current configuration, loading it from the current directory if not set.
     ///
@@ -72,7 +84,13 @@ pub trait RuntimeConfig:
                 }
             }
 
-            *state = Some(Arc::new(config));
+            let config = Arc::new(config);
+            *state = Some(config.clone());
+            // Still under the lock: a concurrent `get` must not observe the
+            // configuration before the hook has run.
+            config.on_loaded();
+
+            return config;
         }
 
         state.as_ref().cloned().unwrap()
@@ -104,7 +122,10 @@ pub trait RuntimeConfig:
         if state.is_some() {
             return false;
         }
-        *state = Some(Arc::new(config));
+        let config = Arc::new(config);
+        *state = Some(config.clone());
+        // Still under the lock: see `get`.
+        config.on_loaded();
         true
     }
 
@@ -129,7 +150,11 @@ pub trait RuntimeConfig:
     /// is reached. Returns a default configuration if no file is found.
     #[cfg(std_io)]
     fn from_current_dir() -> Self {
-        let mut dir = std::env::current_dir().unwrap();
+        // A deleted or unreadable cwd is not a reason to abort: there is simply
+        // no configuration file to find from here.
+        let Ok(mut dir) = std::env::current_dir() else {
+            return Self::default();
+        };
 
         loop {
             for name in Self::file_names() {
@@ -153,15 +178,22 @@ pub trait RuntimeConfig:
     }
 
     /// Loads configuration from a specified file path.
+    ///
+    /// A file that does not parse is reported and skipped rather than fatal:
+    /// configuration keys change between releases, and a stale `cubecl.toml`
+    /// left in a checkout must not abort the application that reads it.
     #[cfg(std_io)]
     fn from_file_path<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Self> {
+        let path = path.as_ref();
         let content = std::fs::read_to_string(path)?;
-        let config: Self = match toml::from_str(&content) {
-            Ok(val) => val,
-            Err(err) => panic!("The file provided doesn't have the right format => {err}"),
-        };
 
-        Ok(config)
+        match toml::from_str(&content) {
+            Ok(config) => Ok(config),
+            Err(err) => {
+                log::warn!("Ignoring {path:?}, which doesn't have the right format => {err}");
+                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
+            }
+        }
     }
 
     /// Loads configuration from a specific TOML section of the file at the given path.
@@ -170,10 +202,15 @@ pub trait RuntimeConfig:
         path: P,
         section: &str,
     ) -> std::io::Result<Self> {
+        let path = path.as_ref();
         let content = std::fs::read_to_string(path)?;
+
         let mut table: toml::Table = match toml::from_str(&content) {
             Ok(val) => val,
-            Err(err) => panic!("The file provided doesn't have the right format => {err}"),
+            Err(err) => {
+                log::warn!("Ignoring {path:?}, which doesn't have the right format => {err}");
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err));
+            }
         };
 
         let value = match table.remove(section) {
@@ -186,13 +223,15 @@ pub trait RuntimeConfig:
             }
         };
 
-        let config: Self = match value.try_into() {
-            Ok(val) => val,
+        match value.try_into() {
+            Ok(config) => Ok(config),
             Err(err) => {
-                panic!("The section '{section}' doesn't have the right format => {err}")
+                log::warn!(
+                    "Ignoring section '{section}' of {path:?}, which doesn't have the right \
+                     format => {err}"
+                );
+                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, err))
             }
-        };
-
-        Ok(config)
+        }
     }
 }

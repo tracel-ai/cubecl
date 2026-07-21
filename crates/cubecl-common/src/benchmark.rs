@@ -244,7 +244,7 @@ pub trait Benchmark {
                     Ok(val) => val,
                     Err(err) => return Err(err),
                 };
-                Ok(crate::future::block_on(profile.resolve()))
+                Ok(cubecl_environment::future::block_on(profile.resolve()))
             };
             let args = self.prepare();
 

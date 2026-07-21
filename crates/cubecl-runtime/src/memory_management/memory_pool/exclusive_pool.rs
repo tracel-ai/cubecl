@@ -5,7 +5,7 @@ use crate::{
 };
 
 use alloc::vec::Vec;
-use cubecl_common::backtrace::BackTrace;
+use cubecl_environment::backtrace::BackTrace;
 
 use super::{ManagedMemoryBinding, ManagedMemoryHandle, MemoryPool, Slice, calculate_padding};
 

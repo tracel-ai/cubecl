@@ -1,6 +1,6 @@
 use alloc::{collections::vec_deque::VecDeque, vec, vec::Vec};
+use cubecl_environment::collections::{HashMap, HashSet};
 use cubecl_ir::{self as ir, Operation};
-use hashbrown::{HashMap, HashSet};
 use petgraph::graph::NodeIndex;
 
 use crate::{

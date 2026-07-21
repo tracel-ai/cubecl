@@ -1,5 +1,7 @@
 use super::logger::{LogLevel, LoggerConfig};
 
+pub use cubecl_environment::stream::StreamPolicy;
+
 /// Configuration for streaming settings in `CubeCL`.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StreamingConfig {
@@ -17,6 +19,14 @@ pub struct StreamingConfig {
     /// [`StreamPriority::Default`], which preserves existing behavior.
     #[serde(default)]
     pub priority: StreamPriority,
+    /// How the current stream is derived: `"per-thread"` (default),
+    /// `"per-task"` (stable stream per async task, requires the `tokio`
+    /// feature to take effect) or `"single"`.
+    ///
+    /// A programmatic `cubecl_environment::stream::set_policy` call always
+    /// wins over this setting.
+    #[serde(default)]
+    pub policy: StreamPolicy,
 }
 
 impl Default for StreamingConfig {
@@ -25,6 +35,7 @@ impl Default for StreamingConfig {
             logger: Default::default(),
             max_streams: default_max_streams(),
             priority: StreamPriority::default(),
+            policy: StreamPolicy::default(),
         }
     }
 }

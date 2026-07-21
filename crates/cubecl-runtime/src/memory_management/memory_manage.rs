@@ -21,9 +21,10 @@ use alloc::string::{String, ToString};
 #[cfg(not(exclusive_memory_only))]
 use alloc::vec;
 use alloc::vec::Vec;
-use cubecl_common::{backtrace::BackTrace, stub::Arc};
+use cubecl_environment::backtrace::BackTrace;
+use cubecl_environment::collections::HashSet;
+use cubecl_environment::sync::Arc;
 use cubecl_ir::MemoryDeviceProperties;
-use hashbrown::HashSet;
 
 pub use super::memory_pool::{ManagedMemoryBinding, handle::*};
 

@@ -1,16 +1,16 @@
-#[cfg(std_io)]
-use std::vec::Vec;
+#[cfg(autotune_persistence)]
+use alloc::vec::Vec;
 
-#[cfg(std_io)]
-use cubecl_common::cache::Cache;
-#[cfg(std_io)]
-use cubecl_common::cache::CacheError;
-#[cfg(std_io)]
+#[cfg(autotune_persistence)]
+use cubecl_environment::persistence::StoreError;
+#[cfg(autotune_persistence)]
+use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
+#[cfg(autotune_persistence)]
 use serde::{Deserialize, Serialize};
 
 use super::{AutotuneError, AutotuneKey, AutotuneOutcome};
 use alloc::string::String;
-use hashbrown::HashMap;
+use cubecl_environment::collections::HashMap;
 
 #[derive(Debug)]
 pub(crate) enum CacheEntry {
@@ -30,7 +30,7 @@ pub(crate) enum ChecksumState {
 }
 
 /// Persistent cache key
-#[cfg(std_io)]
+#[cfg(autotune_persistence)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Hash)]
 pub(crate) struct PersistentCacheKey<K> {
     key: K,
@@ -38,14 +38,14 @@ pub(crate) struct PersistentCacheKey<K> {
 }
 
 /// Persistent cache entry
-#[cfg(std_io)]
+#[cfg(autotune_persistence)]
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub(crate) struct PersistentCacheValue {
     fastest_index: usize,
     results: Vec<AutotuneResult>,
 }
 
-#[cfg_attr(std_io, derive(Serialize, Deserialize))]
+#[cfg_attr(autotune_persistence, derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 /// The result of an autotune job.
 pub struct AutotuneResult {
@@ -81,10 +81,26 @@ impl PartialEq for AutotuneResult {
 /// Use to find and reuse the best kernel for some input
 #[derive(Debug)]
 pub(crate) struct TuneCache<K> {
+    /// The single in-memory home of tuning state, keyed for the per-launch
+    /// lookup: tuned picks, in-flight tunes and checksum verdicts. Hydrated
+    /// from the store, which retains nothing itself, and rebuilt when the
+    /// environment switches.
     in_memory_cache: HashMap<K, CacheEntry>,
-    /// `None` when the persistent cache is disabled, so no cache file is ever touched.
-    #[cfg(std_io)]
-    persistent_cache: Option<Cache<PersistentCacheKey<K>, PersistentCacheValue>>,
+    /// Write-through persistence, or `None` when the persistent cache is
+    /// disabled, so no cache file is ever touched. Lazy: entries live in
+    /// [`Self::in_memory_cache`] once hydrated, not here.
+    #[cfg(autotune_persistence)]
+    persistent_cache: Option<Store<PersistentCacheKey<K>, PersistentCacheValue>>,
+    /// Whether everything the store holds has been ingested into
+    /// [`Self::in_memory_cache`]. What makes an ordinary miss cost a bool
+    /// check rather than a walk; `false` while an asynchronous storage
+    /// (browser) is still loading, and again after an environment switch.
+    #[cfg(autotune_persistence)]
+    hydrated: bool,
+    /// The environment generation [`Self::in_memory_cache`] was built under;
+    /// see [`cubecl_environment::environment::generation`].
+    #[cfg(autotune_persistence)]
+    generation: u32,
 }
 
 /// Result of the cache try
@@ -98,8 +114,8 @@ pub enum TuneCacheResult {
     /// The operation might be cached, but we don't know yet whether the checksum is valid.
     Unchecked,
     /// A tuning job is in flight for this key — the worker hasn't published a result yet.
-    /// The receiver wakes (with `Err(RecvError)`) when the worker commits the result. Native
-    /// callers `block_on` it and re-query; wasm callers drop it and fall back.
+    /// Callers that see this fall through to running the operation rather than blocking on
+    /// the in-flight job.
     Pending,
     /// No operation is found yet.
     Miss,
@@ -107,13 +123,13 @@ pub enum TuneCacheResult {
 
 impl<K: AutotuneKey> TuneCache<K> {
     pub(crate) fn new(
-        #[cfg_attr(not(std_io), allow(unused_variables))] name: &str,
-        #[cfg_attr(not(std_io), allow(unused_variables))] device_id: &str,
+        #[cfg_attr(not(autotune_persistence), allow(unused_variables))] name: &str,
+        #[cfg_attr(not(autotune_persistence), allow(unused_variables))] device_id: &str,
     ) -> Self {
-        #[cfg(std_io)]
+        #[cfg(autotune_persistence)]
         {
             use crate::config::RuntimeConfig;
-            use std::format;
+            use alloc::format;
 
             let config = crate::config::CubeClRuntimeConfig::get();
 
@@ -121,23 +137,34 @@ impl<K: AutotuneKey> TuneCache<K> {
                 return TuneCache {
                     in_memory_cache: HashMap::new(),
                     persistent_cache: None,
+                    hydrated: true,
+                    generation: cubecl_environment::environment::generation(),
                 };
             }
 
-            let root = config.autotune.cache.root();
-            let options = cubecl_common::cache::CacheOption::default();
+            // Sampled before the store opens, so a switch landing in between
+            // reads as "rebuild", never as "this state belongs to the new
+            // environment".
+            let generation = cubecl_environment::environment::generation();
+            let namespace = Namespace::scoped("autotune", format!("{device_id}/{name}"));
             let mut cache = TuneCache {
                 in_memory_cache: HashMap::new(),
-                persistent_cache: Some(Cache::new(
-                    format!("{device_id}/{name}"),
-                    options.root(root).name("autotune"),
+                persistent_cache: Some(Store::new(
+                    StoreOptions::new()
+                        .storage(namespace)
+                        .cache(CacheOption::Lazy),
                 )),
+                hydrated: false,
+                generation,
             };
-            cache.load();
+            log::info!("Load autotune cache ...");
+            let loaded = cache.sync_persistent();
+            log::info!("Loaded {loaded} autotune cached entries");
+
             cache
         }
 
-        #[cfg(not(std_io))]
+        #[cfg(not(autotune_persistence))]
         {
             TuneCache {
                 in_memory_cache: HashMap::new(),
@@ -162,7 +189,7 @@ impl<K: AutotuneKey> TuneCache<K> {
             return TuneCacheResult::Pending;
         };
 
-        if cfg!(std_io) {
+        if cfg!(autotune_persistence) {
             match checksum {
                 ChecksumState::ToBeVerified(..) => TuneCacheResult::Unchecked, // Don't know yet.
                 ChecksumState::NoMatch => TuneCacheResult::Miss,               // Can't use this.
@@ -179,7 +206,7 @@ impl<K: AutotuneKey> TuneCache<K> {
         }
     }
 
-    #[cfg(std_io)]
+    #[cfg(autotune_persistence)]
     pub fn validate_checksum(&mut self, key: &K, checksum: &str) -> TuneCacheResult {
         let Some(val) = self.in_memory_cache.get_mut(key) else {
             return TuneCacheResult::Miss;
@@ -202,8 +229,8 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 
     /// Mark a key as being tuned. Used by [`Tuner::tune`] under the cache mutex so that
-    /// concurrent callers see [`TuneCacheResult::Pending`] and wait on the same job instead of
-    /// starting a second one. Returns `(Sender, Receiver)`:
+    /// concurrent callers see [`TuneCacheResult::Pending`] instead of starting a second job
+    /// for the same key.
     pub(crate) fn mark_pending(&mut self, key: K) {
         self.in_memory_cache.insert(key, CacheEntry::Pending);
     }
@@ -219,8 +246,67 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 }
 
-#[cfg(std_io)]
+#[cfg(autotune_persistence)]
 impl<K: AutotuneKey> TuneCache<K> {
+    /// Drops tuning state belonging to a previous environment, so a switch
+    /// re-hydrates and re-tunes rather than serving the old environment's
+    /// picks. One relaxed atomic load when nothing switched.
+    ///
+    /// In-flight tunes are dropped with everything else: their completion
+    /// still records a hardware-valid result, so the whole cost of the race
+    /// is one duplicate tune per switch.
+    pub(crate) fn reset_if_environment_switched(&mut self) {
+        // Persistence disabled means the tuning state is process-local and
+        // unbound, like a store without a storage: it survives switches.
+        if self.persistent_cache.is_none() {
+            return;
+        }
+
+        let generation = cubecl_environment::environment::generation();
+        if generation == self.generation {
+            return;
+        }
+
+        log::debug!("Environment switched, resetting the autotune cache");
+        self.generation = generation;
+        self.in_memory_cache.clear();
+        self.hydrated = false;
+    }
+
+    /// Ingest everything the persistent store holds into the in-memory cache,
+    /// as unverified entries.
+    ///
+    /// Runs at construction, and again whenever `hydrated` fell back to
+    /// `false`: after an environment switch, and on the browser backend while
+    /// its asynchronous hydration is still in flight. Once hydrated, a miss
+    /// costs one bool check here — never a walk, and never a rescan of the
+    /// database under the tuner mutex.
+    ///
+    /// Returns how many entries the store delivered.
+    pub(crate) fn sync_persistent(&mut self) -> usize {
+        if self.hydrated {
+            return 0;
+        }
+
+        let Some(persistent_cache) = self.persistent_cache.as_mut() else {
+            return 0;
+        };
+
+        let mut delivered = 0;
+        let complete = persistent_cache.scan(|key, value| {
+            delivered += 1;
+            self.in_memory_cache
+                .entry(key.key)
+                .or_insert(CacheEntry::Done {
+                    checksum: ChecksumState::ToBeVerified(key.checksum),
+                    fastest_index: value.fastest_index,
+                });
+        });
+        self.hydrated = complete;
+
+        delivered
+    }
+
     pub(crate) fn persistent_cache_insert(
         &mut self,
         key: K,
@@ -240,41 +326,24 @@ impl<K: AutotuneKey> TuneCache<K> {
             },
         ) {
             match err {
-                CacheError::DuplicatedKey {
+                StoreError::DuplicatedKey {
                     key,
                     value_previous,
                     value_updated,
-                } => {
-                    log::warn!(
-                        "Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}"
-                    );
+                } => log::warn!(
+                    "Autotune the same function multiple times for key {key:?} => old {value_previous:?}, new {value_updated:?}"
+                ),
+                // Another process sharing the cache root tuned this key first.
+                // Routine with N training processes on a cold cache, and both
+                // results are valid, so it stays quiet: warning here would
+                // print a full result payload per key on every cold start.
+                StoreError::KeyOutOfSync { key, .. } => {
+                    log::debug!("Autotune result for key {key:?} was already stored concurrently")
                 }
-                CacheError::KeyOutOfSync { .. } => {
-                    // This is OK.
-                }
+                StoreError::Backend { key, error } => log::warn!(
+                    "Autotune result for key {key:?} could not be stored, it will be retuned: {error}"
+                ),
             }
         }
-        // .expect();
-    }
-
-    /// Load the persistent cache data from disk
-    pub(crate) fn load(&mut self) {
-        let Some(persistent_cache) = self.persistent_cache.as_mut() else {
-            return;
-        };
-
-        log::info!("Load autotune cache ...");
-        let mut loaded = 0;
-        persistent_cache.for_each(|key, value| {
-            loaded += 1;
-            self.in_memory_cache.insert(
-                key.key.clone(),
-                CacheEntry::Done {
-                    checksum: ChecksumState::ToBeVerified(key.checksum.clone()),
-                    fastest_index: value.fastest_index,
-                },
-            );
-        });
-        log::info!("Loaded {loaded} autotune cached entries");
     }
 }

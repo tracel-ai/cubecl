@@ -1,0 +1,155 @@
+[package]
+authors = [
+    "Dilshod Tadjibaev (@antimora)",
+    "Nathaniel Simard (@nathanielsimard)",
+]
+categories = ["science", "mathematics", "algorithms"]
+description = "Environment compatibility layer for CubeCL: sync primitives, futures, streams, config and persistence across std, no-std, wasm and tokio"
+edition.workspace = true
+keywords = ["gpu", "cuda", "wgpu"]
+license.workspace = true
+name = "cubecl-environment"
+readme.workspace = true
+repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-environment"
+version.workspace = true
+
+
+[lints]
+workspace = true
+
+
+[features]
+# Zero-copy `Bytes` backed by the `bytes` crate.
+shared-bytes = ["dep:bytes"]
+browser-cache = [
+    "dep:web-sys",
+    "dep:js-sys",
+    "dep:wasm-bindgen",
+    "oneshot/async",
+]
+# The `SQLite` persistence backend. `rusqlite` is a non-wasm dependency, so on
+# wasm this feature enables nothing; use `browser-cache` there instead.
+cache = [
+    "std",
+    "dep:rusqlite",
+]
+default = ["std"]
+std = [
+    "rand/std",
+    "rand/thread_rng",
+    "serde_json/std",
+    "ciborium/std",
+    "dep:futures-lite",
+    "dep:parking_lot",
+    "dep:backtrace",
+    # `CacheConfig` resolves a cache root whenever there is a file system,
+    # independently of which persistence backend is compiled in.
+    "dep:etcetera",
+    "oneshot/std",
+    "async-channel/std",
+    "dep:toml",
+]
+tokio = ["std", "dep:tokio"]
+tracing = ["dep:tracing"]
+
+
+[dependencies]
+log = { workspace = true }
+oneshot = { workspace = true, default-features = false }
+tracing = { workspace = true, features = ["attributes"], optional = true }
+
+# ** Please make sure all dependencies support no_std when std is disabled **
+bytemuck = { workspace = true, features = ["derive"] }
+cfg-if = { workspace = true }
+foldhash = { workspace = true }
+hashbrown = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_bytes = { workspace = true, features = ["alloc"] }
+
+# Persistence
+bytes = { workspace = true, optional = true }
+ciborium = { workspace = true }
+# The bundle manifest is JSON on every target: the flat format exists for the
+# ones the `cache` feature can't reach.
+serde_json = { workspace = true, features = ["alloc"] }
+toml = { workspace = true, optional = true }
+
+# Async
+async-channel = { workspace = true, default-features = false }
+embassy-futures = { version = "0.1.1" }
+futures-lite = { workspace = true, features = [
+    "std",
+], default-features = false, optional = true }
+
+backtrace = { workspace = true, optional = true, features = ["std"] }
+parking_lot = { workspace = true, optional = true }
+
+[target.'cfg(target_has_atomic = "ptr")'.dependencies]
+spin = { workspace = true, features = ["mutex", "spin_mutex"] }
+
+[target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
+# extra-platforms covers targets without native atomics.
+bytes = { workspace = true, features = ["extra-platforms"], optional = true }
+portable-atomic = { workspace = true }
+portable-atomic-util = { workspace = true }
+spin = { workspace = true, features = [
+    "mutex",
+    "spin_mutex",
+    "portable_atomic",
+] }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+# Only ever used to resolve a cache root, which needs a file system.
+etcetera = { workspace = true, optional = true }
+rusqlite = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, default-features = false, features = [
+    "rt",
+] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+js-sys = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+wasm-bindgen-futures = { workspace = true }
+web-sys = { workspace = true, optional = true, features = [
+    "DomException",
+    "DomStringList",
+    "Event",
+    "EventTarget",
+    "IdbDatabase",
+    "IdbFactory",
+    "IdbKeyRange",
+    "IdbObjectStore",
+    "IdbOpenDbRequest",
+    "IdbRequest",
+    "IdbTransaction",
+    "IdbTransactionMode",
+] }
+
+# Default dependency for all targets
+[target.'cfg(not(target_os = "none"))'.dependencies]
+web-time = { workspace = true }
+
+# Only for true no_std / embedded targets
+[target.'cfg(target_os = "none")'.dependencies]
+embassy-time = { workspace = true }
+
+[build-dependencies]
+cfg_aliases = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+serial_test = { workspace = true }
+tempfile = { workspace = true }
+test-log = { workspace = true, features = ["trace"] }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tokio = { workspace = true, default-features = false, features = [
+    "macros",
+    "rt-multi-thread",
+] }
+
+[[bench]]
+harness = false
+name = "kv_store"
+required-features = ["cache"]

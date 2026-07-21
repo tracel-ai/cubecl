@@ -17,6 +17,7 @@ workspace = true
 
 [features]
 autotune-checks = []
+browser-cache = ["cubecl-environment/browser-cache"]
 channel-cell = []
 channel-mpsc = []
 channel-mutex = []
@@ -30,8 +31,14 @@ default = [
 ]
 exclusive-memory-only = []
 profile-tracy = ["dep:tracy-client"]
-std = ["cubecl-common/std", "toml", "etcetera", "thiserror/std"]
+std = [
+    "cubecl-common/std",
+    "cubecl-environment/std",
+    "toml",
+    "thiserror/std",
+]
 storage-bytes = []
+tokio = ["cubecl-environment/tokio"]
 
 tracing = ["dep:tracing", "cubecl-common/tracing", "cubecl-ir/tracing"]
 
@@ -40,10 +47,10 @@ tracing = ["dep:tracing", "cubecl-common/tracing", "cubecl-ir/tracing"]
 log = { workspace = true }
 tracing = { workspace = true, features = ["attributes"], optional = true }
 
-async-channel = { workspace = true } # Assume std
 bytemuck = { workspace = true }
 cfg-if = { workspace = true }
 cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-features = false }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.1", default-features = false }
 cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.1", default-features = false, features = [
     "serde",
 ] }
@@ -51,13 +58,11 @@ cubecl-zspace = { path = "../cubecl-zspace", version = "=0.11.0-pre.1", default-
 
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = ["eq"] }
-etcetera = { workspace = true, optional = true }
 enumset = { workspace = true }
 hashbrown = { workspace = true }
 itertools = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true, optional = true }
-web-time = { workspace = true }
 
 thiserror = { workspace = true }
 ahash = { version = "0.8.12", default-features = false }
@@ -68,33 +73,21 @@ futures-util = { workspace = true, default-features = false }
 # Persistent cache deps - has to match the cfg(std_io) cfg.
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android"))'.dependencies]
 cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-features = false, features = [
-    "cache",
     "serde",
     "hash",
 ] }
-serde_json = { workspace = true, features = ["std"] }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.1", default-features = false, features = [
+    "cache",
+] }
 
 # Tracy if enabled.
 tracy-client = { workspace = true, optional = true }
 
-[target.'cfg(target_has_atomic = "ptr")'.dependencies]
-spin = { workspace = true, features = ["mutex", "spin_mutex"] }
-
-
-[target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
-spin = { workspace = true, features = [
-    "mutex",
-    "spin_mutex",
-    "portable_atomic",
-] }
-
-
-[target.'cfg(target_family = "wasm")'.dependencies]
-wasm-bindgen-futures = { workspace = true }
-
 [dev-dependencies]
 rand = { workspace = true, features = ["thread_rng"] }
+serde_json = { workspace = true, features = ["std"] }
 serial_test = { workspace = true }
+tempfile = { workspace = true }
 test-log = { workspace = true, features = ["trace"] }
 
 [build-dependencies]

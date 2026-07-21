@@ -10,9 +10,10 @@ mod tests {
 
     pub use half::f16;
 
-    use cubecl_common::{config::RuntimeConfig, stream_id::StreamId};
     use cubecl_core as cubecl;
     use cubecl_core::prelude::*;
+    use cubecl_environment::config::RuntimeConfig;
+    use cubecl_environment::stream::StreamId;
     use cubecl_runtime::config::CubeClRuntimeConfig;
 
     cubecl_core::testgen_all!(f32: [f16, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);

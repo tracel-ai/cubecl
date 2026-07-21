@@ -1,5 +1,5 @@
-use cubecl_common::backtrace::BackTrace;
 use cubecl_core::server::IoError;
+use cubecl_environment::backtrace::BackTrace;
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use std::{collections::HashMap, ffi::c_void};

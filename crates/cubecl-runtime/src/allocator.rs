@@ -5,7 +5,7 @@ use crate::{
     },
 };
 use alloc::vec::Vec;
-use cubecl_common::stream_id::StreamId;
+use cubecl_environment::stream::StreamId;
 use cubecl_zspace::{Shape, Strides, strides};
 
 /// Allocators where every allocations is with contiguous memory.

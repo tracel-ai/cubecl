@@ -1,13 +1,9 @@
 use alloc::boxed::Box;
 use core::fmt::Display;
 
-#[cfg(not(target_os = "none"))]
-pub use web_time::{Duration, Instant};
+pub use cubecl_environment::time::{Duration, Instant};
 
-#[cfg(target_os = "none")]
-pub use embassy_time::{Duration, Instant};
-
-use crate::future::DynFut;
+use cubecl_environment::future::DynFut;
 
 /// How a benchmark's execution times are measured.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

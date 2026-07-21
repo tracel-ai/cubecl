@@ -20,7 +20,8 @@ pub mod io;
 pub mod post_processing;
 
 /// Some future utilities that work across environments.
-pub use cubecl_common::future;
+pub use cubecl_environment as environment;
+pub use cubecl_environment::future;
 
 use cubecl_ir::VectorSize;
 use cubecl_runtime::client::ComputeClient;

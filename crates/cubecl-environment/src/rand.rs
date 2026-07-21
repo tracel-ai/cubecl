@@ -37,9 +37,9 @@ pub fn gen_random<T>() -> T
 where
     StandardUniform: Distribution<T>,
 {
-    use crate::stub::Mutex;
+    use crate::sync::Mutex;
     static RNG: Mutex<Option<StdRng>> = Mutex::new(None);
-    let mut rng = RNG.lock().unwrap();
+    let mut rng = RNG.lock();
     if rng.is_none() {
         *rng = Some(get_seeded_rng());
     }

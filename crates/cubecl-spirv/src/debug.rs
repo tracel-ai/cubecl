@@ -19,8 +19,8 @@
 use std::borrow::Cow;
 
 use cubecl_core::ir::{self as core, CubeFnSource, Id, SourceLoc, Value};
+use cubecl_environment::collections::HashMap;
 use cubecl_opt::Function;
-use hashbrown::HashMap;
 use rspirv::spirv::{DebugInfoFlags, FunctionControl, Word};
 use rspirv::sr::{
     nonsemantic_debugprintf::DebugPrintfBuilder, nonsemantic_shader_debuginfo_100::DebugInfoBuilder,

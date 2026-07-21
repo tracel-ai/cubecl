@@ -19,10 +19,12 @@ workspace = true
 
 
 [features]
+browser-cache = ["cubecl-runtime/browser-cache"]
 default = ["cubecl-runtime/default", "cubecl-ir/default"]
 export_tests = ["tempfile", "test-log/trace", "test-log/log", "std"]
-std = ["cubecl-runtime/std", "cubecl-ir/std"]
+std = ["cubecl-runtime/std", "cubecl-ir/std", "cubecl-environment/std"]
 template = []
+tokio = ["cubecl-runtime/tokio"]
 
 tracing = ["dep:tracing", "cubecl-runtime/tracing", "cubecl-ir/tracing"]
 
@@ -41,6 +43,7 @@ cubecl-zspace = { path = "../cubecl-zspace", version = "=0.11.0-pre.1" }
 bitflags = { workspace = true }
 bytemuck = { workspace = true }
 cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-features = false }
+cubecl-environment = { path = "../cubecl-environment", version = "=0.11.0-pre.1", default-features = false }
 cubecl-macros = { path = "../cubecl-macros", version = "=0.11.0-pre.1", default-features = false }
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = [
