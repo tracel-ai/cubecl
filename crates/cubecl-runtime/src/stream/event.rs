@@ -1,7 +1,7 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    memory_management::{ManagedMemoryBinding, ManagedMemoryId},
+    memory_management::{ManagedMemoryId, SharedMemoryBindings},
     server::{Binding, ServerError},
     stream::{StreamFactory, StreamPool},
 };
@@ -257,7 +257,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
         self.apply_analysis(stream_id, analysis)
     }
 
-    /// Update and analyzes the bindings to determine which streams need alignment (flushing and waiting).
+    /// Updates and analyzes the bindings to determine which streams need alignment (flushing and waiting).
     ///
     /// This checks for shared bindings from other streams and determines if synchronization is needed
     /// based on cursor positions.
@@ -383,7 +383,7 @@ pub(crate) struct SharedBindingAnalysis {
     /// time. Pinning the bindings here is what keeps the slice non-free until
     /// the GC event fires, so `cleanup`/`try_reserve` on the origin stream
     /// cannot dealloc or reuse memory that is still read by another stream.
-    pinned: Vec<ManagedMemoryBinding>,
+    pinned: SharedMemoryBindings,
 }
 
 /// Equality covers the sync analysis only; `pinned` is a lifetime mechanism,

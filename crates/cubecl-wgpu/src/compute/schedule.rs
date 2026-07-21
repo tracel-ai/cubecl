@@ -3,7 +3,7 @@ use crate::{
     timings::TimestampQuerySetBudget,
 };
 use alloc::sync::Arc;
-use cubecl_common::{bytes::Bytes, profile::TimingMethod};
+use cubecl_common::{bytes::Bytes, pool::LeaseHandle, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     server::{MetadataBindingInfo, StreamErrorMode},
@@ -12,6 +12,7 @@ use cubecl_core::{
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
+    memory_management::SharedMemoryBindings,
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
 
@@ -32,6 +33,13 @@ pub enum ScheduleTask {
         count: CubeCount,
         /// The resources (bindings) required for execution.
         resources: BindingsResource,
+        /// Cross-stream input memory bindings that must be kept alive until this
+        /// task's submission completes on the GPU.
+        ///
+        /// [`WgpuStream::flush`] ties its release to the consuming submission's completion.
+        /// Pooled buffer returned to the [`LeasePool`](cubecl_common::pool::LeasePool)
+        /// when this task is drained and the handle drops.
+        shared_inputs: LeaseHandle<SharedMemoryBindings>,
     },
 }
 

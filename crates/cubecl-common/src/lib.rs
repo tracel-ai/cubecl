@@ -62,6 +62,9 @@ pub mod config;
 /// Module for profiling any executable part
 pub mod profile;
 
+/// A dynamically-growing pool that leases exclusive, reusable single-cell items.
+pub mod pool;
+
 /// Useful when you need to read async data without having to decorate each function with async
 /// notation.
 pub mod reader;
