@@ -55,6 +55,8 @@ pub struct Types {
 pub struct MatmulFeatures {
     /// Element types supported by a backend-native GEMM implementation.
     pub accelerated_gemm: BTreeSet<ElemType>,
+    /// Element types supported by a backend-native grouped GEMM implementation.
+    pub accelerated_grouped_gemm: BTreeSet<ElemType>,
     /// The cmma feature enables cooperative matrix-multiply and accumulate operations.
     pub cmma: BTreeSet<MmaConfig>,
     /// Cube MMA is like cmma but at the cube level, rather than the plane level.

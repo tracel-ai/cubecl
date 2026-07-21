@@ -217,6 +217,14 @@ impl DeviceService for CudaServer {
                 .matmul
                 .accelerated_gemm
                 .insert(ElemType::Float(FloatKind::BF16));
+            #[cfg(cuda_12050)]
+            {
+                device_props
+                    .features
+                    .matmul
+                    .accelerated_grouped_gemm
+                    .insert(ElemType::Float(FloatKind::BF16));
+            }
         }
 
         // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
