@@ -708,6 +708,14 @@ pub(crate) fn write_through<K: StoreKey, V: StoreValue>(
 }
 
 /// Serializes a key or a value to its stored representation.
+///
+/// Unlike [`decode`], this panics on failure rather than degrading. The two
+/// are not symmetric: `decode` reads bytes from outside this process (a shared
+/// database, an imported bundle) that a version skew or corruption can make
+/// unreadable, which is a routine recompute. `encode` serializes a value the
+/// caller just constructed with a derived `Serialize`, and writing CBOR into a
+/// `Vec` has no I/O to fail on: a failure here is a broken `StoreKey`/
+/// `StoreValue` impl, a bug to surface loudly, not a cache miss to swallow.
 pub(crate) fn encode<T: Serialize>(value: &T) -> Bytes {
     let mut bytes = Vec::new();
     ciborium::ser::into_writer(value, &mut bytes).expect("Can serialize data");

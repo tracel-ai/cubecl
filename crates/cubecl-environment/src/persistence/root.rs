@@ -17,9 +17,10 @@ pub enum CacheConfig {
     #[serde(rename = "global")]
     Global,
 
-    /// Stores cache in a user-specified file path.
-    #[serde(rename = "file")]
-    File(std::path::PathBuf),
+    /// Stores cache under a user-specified directory. The environment
+    /// database file is placed inside it, not at this path.
+    #[serde(rename = "directory")]
+    Directory(std::path::PathBuf),
 }
 
 impl CacheConfig {
@@ -39,36 +40,53 @@ impl CacheConfig {
                 user_cache_dir()
             }),
             Self::Target => {
-                let mut dir =
-                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
+                let start = match std::env::current_dir() {
+                    Ok(dir) => dir,
+                    // Same condition `Local` reports: a daemon or test harness
+                    // whose cwd was deleted has no current directory to search
+                    // from.
+                    Err(err) => {
+                        log::warn!(
+                            "cubecl cache: no current directory ({err}); using the user cache"
+                        );
+                        return user_cache_dir();
+                    }
+                };
 
-                // Search for Cargo.toml in parent directories to locate project root.
+                // The *outermost* Cargo.toml, not the first one found walking
+                // up: a workspace member has its own manifest, but `target/`
+                // lives at the workspace root, so stopping at the innermost
+                // manifest would scatter caches into `member/target`.
+                let mut root = None;
+                let mut dir = start.as_path();
                 loop {
                     if let Ok(true) = std::fs::exists(dir.join("Cargo.toml")) {
-                        return dir.join("target").join("environment");
+                        root = Some(dir);
                     }
-
-                    if !dir.pop() {
-                        break;
+                    match dir.parent() {
+                        Some(parent) => dir = parent,
+                        None => break,
                     }
                 }
 
-                // No Cargo.toml anywhere above cwd — this is a bundled or
-                // installed application (Tauri, GUI app, CLI installed via
-                // cargo install, etc.) running outside a workspace. Joining
-                // "target" onto the original cwd was the previous fallback,
-                // but it became `/target` when cwd was `/`, which fails on
-                // most platforms with EROFS (read-only system volume on
-                // macOS, root-owned on Linux) and cascaded a directory
-                // failure into the whole autotune pipeline. Use the
-                // platform-appropriate user cache directory instead.
-                user_cache_dir()
+                match root {
+                    Some(root) => root.join("target").join("environment"),
+                    // No Cargo.toml anywhere above cwd — this is a bundled or
+                    // installed application (Tauri, GUI app, CLI installed via
+                    // cargo install, etc.) running outside a workspace. Joining
+                    // "target" onto the original cwd became `/target` when cwd
+                    // was `/`, which fails on most platforms with EROFS and
+                    // cascaded a directory failure into the whole autotune
+                    // pipeline. Use the platform-appropriate user cache
+                    // directory instead.
+                    None => user_cache_dir(),
+                }
             }
             // The cache directory, not the configuration directory: this is
             // regenerable data, and XDG says so. It also matches the `Target`
             // fallback right above, which already used `cache_dir`.
             Self::Global => user_cache_dir(),
-            Self::File(path_buf) => path_buf.clone(),
+            Self::Directory(path_buf) => path_buf.clone(),
         }
     }
 }

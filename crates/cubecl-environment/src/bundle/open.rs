@@ -42,7 +42,12 @@ fn is_flat(path: &Path) -> Result<bool, BundleError> {
     use std::io::Read;
 
     let mut header = [0u8; 12];
-    let read = std::fs::File::open(path)?.read(&mut header)?;
-
-    Ok(flat_bundle_version(&header[..read]).is_some())
+    // `read_exact`, not `read`: a single `read` may return a short buffer even
+    // for a regular file, which would misclassify a valid flat bundle as
+    // SQLite. A file too small to hold the header can't be a flat bundle.
+    match std::fs::File::open(path)?.read_exact(&mut header) {
+        Ok(()) => Ok(flat_bundle_version(&header).is_some()),
+        Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
+        Err(err) => Err(err.into()),
+    }
 }

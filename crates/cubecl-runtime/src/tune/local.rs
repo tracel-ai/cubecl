@@ -142,7 +142,9 @@ where
                 .clone()
         };
 
-        // First, check for a cache hit under a read lock.
+        // Fast path: a cached hit skips straight to the fastest operation.
+        // `fastest` also resets the tuner cache if the environment switched, so
+        // a miss here falls through to `check_tune`, which re-hydrates.
         if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
             #[cfg(feature = "autotune-checks")]
             self.checks::<I, Out>(&operations, &inputs);

@@ -56,6 +56,9 @@ pub(crate) fn open_database_storage(namespace: &str) -> alloc::boxed::Box<dyn St
 
     match Database::open_active() {
         Some(database) => Box::new(SqliteStorage::new(database, namespace.to_string())),
-        None => Box::new(MemoryStorage::new(namespace)),
+        // Isolate the memory fallback per environment, so a switch after the
+        // database failed to open doesn't serve the previous environment's
+        // entries.
+        None => Box::new(MemoryStorage::in_environment(namespace)),
     }
 }

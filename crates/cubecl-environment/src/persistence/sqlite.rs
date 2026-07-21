@@ -366,9 +366,10 @@ impl Database {
         }
     }
 
-    /// Every namespace this database holds, with its entry count and size.
+    /// The names of every namespace this database holds.
     ///
-    /// This is what a cache root offers for bundling.
+    /// This is what a cache root offers for bundling; use
+    /// [`summary`](Self::summary) for the entry counts and sizes.
     pub fn namespaces(&self) -> Vec<String> {
         self.summary()
             .into_iter()

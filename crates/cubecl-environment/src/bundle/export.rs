@@ -237,6 +237,12 @@ fn copy_entries(
     // create an empty database from a mangled path instead of failing: an
     // export that silently copies nothing. A path we can't pass losslessly is
     // reported rather than approximated.
+    //
+    // The source is attached read-write, not read-only immutable: a live cache
+    // keeps its most recent entries in the WAL until a checkpoint, and only a
+    // connection that opens the wal-index sees them. That does leave a `-wal`/
+    // `-shm` sidecar next to the source for the duration, which is the normal
+    // cost of reading a WAL database consistently.
     let source = source.to_str().ok_or_else(|| {
         BundleError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,

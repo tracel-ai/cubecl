@@ -114,8 +114,8 @@ pub enum TuneCacheResult {
     /// The operation might be cached, but we don't know yet whether the checksum is valid.
     Unchecked,
     /// A tuning job is in flight for this key — the worker hasn't published a result yet.
-    /// The receiver wakes (with `Err(RecvError)`) when the worker commits the result. Native
-    /// callers `block_on` it and re-query; wasm callers drop it and fall back.
+    /// Callers that see this fall through to running the operation rather than blocking on
+    /// the in-flight job.
     Pending,
     /// No operation is found yet.
     Miss,
@@ -229,8 +229,8 @@ impl<K: AutotuneKey> TuneCache<K> {
     }
 
     /// Mark a key as being tuned. Used by [`Tuner::tune`] under the cache mutex so that
-    /// concurrent callers see [`TuneCacheResult::Pending`] and wait on the same job instead of
-    /// starting a second one. Returns `(Sender, Receiver)`:
+    /// concurrent callers see [`TuneCacheResult::Pending`] instead of starting a second job
+    /// for the same key.
     pub(crate) fn mark_pending(&mut self, key: K) {
         self.in_memory_cache.insert(key, CacheEntry::Pending);
     }

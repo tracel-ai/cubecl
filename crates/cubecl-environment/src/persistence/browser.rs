@@ -346,10 +346,28 @@ async fn delete_prefix(prefix: &str) -> Result<(), JsValue> {
         db.transaction_with_str_and_mode(STORE_NAME, IdbTransactionMode::Readwrite)?;
     let store = transaction.object_store(STORE_NAME)?;
 
-    // The same range `load` reads: [prefix, prefix + U+10FFFF).
+    // The range `[prefix, prefix + U+10FFFF)` also spans a nested namespace's
+    // records (`{prefix}child/{hex}`), so a plain range delete would drop a
+    // sibling namespace's rows. Enumerate the range and delete only records
+    // that belong to this exact namespace: their suffix is a hex key, which
+    // never contains '/'.
     let upper = format!("{prefix}\u{10FFFF}");
     let range = IdbKeyRange::bound(&JsValue::from_str(prefix), &JsValue::from_str(&upper))?;
-    request_result(&store.delete(&range)?).await?;
+    let keys: js_sys::Array = request_result(&store.get_all_keys_with_key(&range)?)
+        .await?
+        .dyn_into()?;
+
+    for key in keys.iter() {
+        let Some(record_key) = key.as_string() else {
+            continue;
+        };
+        let belongs = record_key
+            .strip_prefix(prefix)
+            .is_some_and(|suffix| !suffix.contains('/'));
+        if belongs {
+            request_result(&store.delete(&JsValue::from_str(&record_key))?).await?;
+        }
+    }
 
     Ok(())
 }

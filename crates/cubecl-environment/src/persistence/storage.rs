@@ -221,14 +221,40 @@ pub struct MemoryStorage {
 }
 
 impl MemoryStorage {
-    /// The in-memory storage for `namespace`, shared process-wide.
+    /// The in-memory storage for `namespace`, shared process-wide across every
+    /// environment.
+    ///
+    /// The environment-bound path uses [`in_environment`](Self::in_environment)
+    /// instead, which isolates the entries per environment so a switch doesn't
+    /// serve the previous one's data. This unscoped constructor is for explicit
+    /// storages that aren't tied to an environment (tests, benches).
     pub fn new(namespace: &str) -> Self {
+        Self::with_key(namespace.to_string(), namespace)
+    }
+
+    /// Like [`new`](Self::new) but isolated per active environment.
+    ///
+    /// The database backend keys its entries by the environment's file path, so
+    /// a switch reopens a different file; the memory fallback has no file, so it
+    /// folds the environment [`scope`](crate::environment::scope) into its
+    /// global key to get the same isolation. Without this, a bound store that
+    /// resets after a switch would reopen the memory storage and immediately
+    /// re-ingest the previous environment's entries.
+    pub(crate) fn in_environment(namespace: &str) -> Self {
+        // `\u{1f}` (unit separator) can appear in neither a `/`-separated
+        // namespace nor a file-system path, so the split back out is
+        // unambiguous.
+        let key = alloc::format!("{}\u{1f}{namespace}", crate::environment::scope());
+        Self::with_key(key, namespace)
+    }
+
+    fn with_key(key: String, namespace: &str) -> Self {
         let mut memory = MEMORY.lock();
-        let entries = match memory.get(namespace) {
+        let entries = match memory.get(&key) {
             Some(entries) => entries.clone(),
             None => {
                 let entries = Arc::new(Mutex::new(HashMap::new()));
-                memory.insert(namespace.to_string(), entries.clone());
+                memory.insert(key, entries.clone());
                 entries
             }
         };
@@ -239,22 +265,28 @@ impl MemoryStorage {
         }
     }
 
-    /// Every namespace held in memory by this process.
+    /// Every namespace the active environment holds in memory.
+    ///
+    /// Only the active environment's entries are reported: the process-wide map
+    /// also holds other environments' entries and unscoped explicit storages,
+    /// but a summary is always about the environment in effect right now.
     pub fn namespaces() -> Vec<NamespaceSummary> {
+        let prefix = alloc::format!("{}\u{1f}", crate::environment::scope());
         let memory = MEMORY.lock();
 
         memory
             .iter()
-            .map(|(namespace, entries)| {
+            .filter_map(|(key, entries)| {
+                let namespace = key.strip_prefix(&prefix)?;
                 let entries = entries.lock();
-                NamespaceSummary {
-                    namespace: namespace.clone(),
+                Some(NamespaceSummary {
+                    namespace: namespace.to_string(),
                     entries: entries.len() as u64,
                     bytes: entries
                         .iter()
                         .map(|(key, (value, _))| (key.len() + value.len()) as u64)
                         .sum(),
-                }
+                })
             })
             .collect()
     }
@@ -322,7 +354,7 @@ pub fn open(namespace: &str) -> Box<dyn Storage> {
         } else if #[cfg(browser_cache)] {
             super::browser::open_storage(namespace)
         } else {
-            Box::new(MemoryStorage::new(namespace))
+            Box::new(MemoryStorage::in_environment(namespace))
         }
     }
 }

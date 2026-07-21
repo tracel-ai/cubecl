@@ -185,10 +185,31 @@ fn read_meta(database: &Database, key: &str) -> Result<Option<String>, BundleErr
 
     match content {
         Ok(content) => Ok(content),
-        // A file that isn't a cubecl database has no `meta` table at all.
-        Err(rusqlite::Error::SqliteFailure(..)) | Err(rusqlite::Error::SqlInputError { .. }) => {
-            Err(BundleError::NotABundle)
-        }
+        // "Not a bundle" is a narrow condition: the file doesn't parse as a
+        // SQLite database at all, or it does but carries no `meta` table.
+        // Anything else — a locked, corrupt, or unreadable database — is a
+        // real failure and must surface as such rather than as the misleading
+        // "the file carries no bundle manifest".
+        Err(err) if is_missing_meta(&err) => Err(BundleError::NotABundle),
         Err(err) => Err(BundleError::Database(err)),
+    }
+}
+
+/// Whether `err` means "this file is not a cubecl bundle" rather than a genuine
+/// database failure. A non-database file fails with `NotADatabase`; a database
+/// without the table fails with a "no such table" message, which rusqlite
+/// surfaces as either a `SqliteFailure` or a `SqlInputError` depending on where
+/// the statement is rejected.
+#[cfg(native_cache)]
+fn is_missing_meta(err: &rusqlite::Error) -> bool {
+    match err {
+        rusqlite::Error::SqliteFailure(err, _)
+            if err.code == rusqlite::ErrorCode::NotADatabase =>
+        {
+            true
+        }
+        rusqlite::Error::SqliteFailure(_, Some(message))
+        | rusqlite::Error::SqlInputError { msg: message, .. } => message.contains("no such table"),
+        _ => false,
     }
 }

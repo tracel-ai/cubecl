@@ -130,6 +130,13 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     /// Fetch the fastest autotune operation index for an autotune key.
+    ///
+    /// This resets the cache when the environment switched but does not
+    /// re-hydrate it from persistence, so right after a switch it reports a
+    /// [`Miss`](TuneCacheResult::Miss) even for keys the new environment has
+    /// cached. It is a fast-path probe: a miss here is expected to fall through
+    /// to [`check_tune`](Self::check_tune), which hydrates and resolves the
+    /// real state. Don't rely on it as a standalone "is this cached?" query.
     pub fn fastest(&self, key: &K) -> TuneCacheResult {
         #[cfg_attr(not(autotune_persistence), allow(unused_mut))]
         let mut cache = self.cache.lock();
