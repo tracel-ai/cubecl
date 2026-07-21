@@ -165,6 +165,10 @@ impl StoreOptions {
 /// [`sync`](Store::sync) — requires `&mut self`. Share a store by wrapping it
 /// in a lock, not by cloning it.
 ///
+/// [`remove`](Store::remove) and [`clear`](Store::clear) act on memory alone;
+/// their durable mirrors [`purge_key`](Store::purge_key) and
+/// [`purge`](Store::purge) also delete from the storage.
+///
 /// [`CacheOption`] decides how the map is populated: [`Eager`
 /// ](CacheOption::Eager) ingests the whole namespace at open and serves every
 /// read from memory, [`Lazy`](CacheOption::Lazy) reads one key at a time on
@@ -308,11 +312,11 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// Take an item out of memory, reading through to the storage on a lazy
     /// store, and hand it out owned.
     ///
-    /// The storage is untouched: entries are never deleted from it, and this
-    /// key stays [`known`](StoreError::DuplicatedKey) to the store. This is
-    /// the read for a value consumed once per process — a compiled kernel
-    /// about to be loaded — because nothing is cloned and nothing stays
-    /// memoized.
+    /// The storage is untouched — deleting durably is
+    /// [`purge_key`](Store::purge_key). The key stays
+    /// [`known`](StoreError::DuplicatedKey) to the store. This is the read
+    /// for a value consumed once per process — a compiled kernel about to be
+    /// loaded — because nothing is cloned and nothing stays memoized.
     pub fn remove(&mut self, key: &K) -> Option<V> {
         self.reset_if_stale();
         self.refresh_if_pending();
@@ -405,6 +409,68 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
                     }
                 })
             }
+        }
+    }
+
+    /// Deletes one entry, in memory and durably, and hands it out owned.
+    ///
+    /// [`remove`](Store::remove)'s durable mirror, with the same signature:
+    /// where `remove` only evicts the in-memory copy, this also deletes the
+    /// storage entry, so the key is gone for every process sharing the
+    /// environment and free to reinsert.
+    pub fn purge_key(&mut self, key: &K) -> Option<V> {
+        self.reset_if_stale();
+        self.refresh_if_pending();
+
+        let value = match self.entries.remove(key) {
+            Some(value) => Some(value),
+            None => match self.cache {
+                CacheOption::Eager => None,
+                CacheOption::Lazy => self.fetch(key),
+            },
+        };
+
+        // A purged key is a fresh key, and the storage is asked regardless of
+        // what memory held: another process may have written it since.
+        self.known.remove(key);
+        if let Some(storage) = self.storage.as_deref() {
+            storage.purge_key(&encode(key));
+        }
+
+        value
+    }
+
+    /// Evicts every in-memory entry, leaving the storage untouched.
+    ///
+    /// `clear` is to [`purge`](Store::purge) what [`remove`](Store::remove)
+    /// is to [`purge_key`](Store::purge_key): the in-memory half only. On an
+    /// eager store the entries come back on the next [`sync`](Store::sync);
+    /// the keys stay known, exactly as with `remove`.
+    pub fn clear(&mut self) {
+        self.reset_if_stale();
+
+        if self.storage.is_some() {
+            self.known.extend(self.entries.drain().map(|(key, _)| key));
+        } else {
+            self.entries.clear();
+        }
+    }
+
+    /// Deletes everything this store addresses, in memory and durably.
+    ///
+    /// [`clear`](Store::clear)'s durable mirror: after a purge the namespace
+    /// is empty for every process sharing the environment, and every key is
+    /// free to reinsert. Only this namespace is touched, never the rest of
+    /// the environment. Other stores on the same namespace keep what they
+    /// already ingested until they sync.
+    pub fn purge(&mut self) {
+        self.reset_if_stale();
+
+        self.entries.clear();
+        self.known.clear();
+
+        if let Some(storage) = self.storage.as_deref() {
+            storage.purge();
         }
     }
 
@@ -887,6 +953,88 @@ mod tests {
 
         crate::environment::set_root(root.path());
         assert_eq!(store.get(&"key".to_string()), Some(&1));
+    }
+
+    /// `purge_key` is `remove` with a durable delete: the entry is handed out
+    /// owned, gone from the storage, and the key is fresh again.
+    #[test_log::test]
+    #[serial_test::serial]
+    #[cfg_attr(miri, ignore)]
+    fn purge_key_deletes_one_entry_durably() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::environment::set_root(dir.path());
+
+        let mut store = Store::<String, u32>::new(eager("purge_key"));
+        store.insert("gone".to_string(), 1).unwrap();
+        store.insert("kept".to_string(), 2).unwrap();
+
+        assert_eq!(store.purge_key(&"gone".to_string()), Some(1));
+        // Fresh key: a different value is a plain insert, not a duplicate.
+        store.insert("gone".to_string(), 3).unwrap();
+        assert_eq!(store.purge_key(&"gone".to_string()), Some(3));
+        drop(store);
+
+        let store = Store::<String, u32>::new(eager("purge_key"));
+        assert_eq!(store.get(&"gone".to_string()), None);
+        assert_eq!(store.get(&"kept".to_string()), Some(&2));
+    }
+
+    /// `clear` evicts memory only: the storage keeps everything, the keys
+    /// stay known, and a sync brings the entries back.
+    #[test_log::test]
+    #[serial_test::serial]
+    #[cfg_attr(miri, ignore)]
+    fn clear_evicts_memory_but_not_the_storage() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::environment::set_root(dir.path());
+
+        let mut store = Store::<String, u32>::new(eager("clear"));
+        store.insert("key".to_string(), 1).unwrap();
+
+        store.clear();
+        assert!(store.is_empty());
+        // Still durable and still known: a disagreeing reinsert is a
+        // duplicate, not a fresh insert.
+        assert!(matches!(
+            store.insert("key".to_string(), 2),
+            Err(StoreError::DuplicatedKey { .. })
+        ));
+
+        store.sync();
+        assert_eq!(store.get(&"key".to_string()), Some(&1));
+    }
+
+    /// Unlike `remove`, which only evicts the in-memory copy, `purge` deletes
+    /// the whole namespace durably and frees every key for reinsertion.
+    #[test_log::test]
+    #[serial_test::serial]
+    #[cfg_attr(miri, ignore)]
+    fn purge_deletes_durably_and_frees_the_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::environment::set_root(dir.path());
+
+        let mut store = Store::<String, u32>::new(eager("purge"));
+        store.insert("kept".to_string(), 1).unwrap();
+        store.insert("gone".to_string(), 2).unwrap();
+
+        // An isolated namespace must survive its neighbor's purge.
+        let mut other = Store::<String, u32>::new(eager("other"));
+        other.insert("kept".to_string(), 9).unwrap();
+
+        store.purge();
+        assert!(store.is_empty());
+
+        // A purged key is a fresh key, even with a different value.
+        store.insert("kept".to_string(), 3).unwrap();
+        drop(store);
+
+        let store = Store::<String, u32>::new(eager("purge"));
+        assert_eq!(store.get(&"kept".to_string()), Some(&3));
+        assert_eq!(store.get(&"gone".to_string()), None);
+        assert_eq!(
+            Store::<String, u32>::new(eager("other")).get(&"kept".to_string()),
+            Some(&9)
+        );
     }
 
     /// `scan` visits the whole storage owned, without retaining anything —

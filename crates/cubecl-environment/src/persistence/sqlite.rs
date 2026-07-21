@@ -82,6 +82,8 @@ const SELECT_SQL: &str = "SELECT value FROM entries WHERE namespace = ?1 AND key
 const SELECT_WITH_ORIGIN_SQL: &str =
     "SELECT value, origin FROM entries WHERE namespace = ?1 AND key = ?2";
 const SCAN_SQL: &str = "SELECT key, value FROM entries WHERE namespace = ?1";
+const PURGE_SQL: &str = "DELETE FROM entries WHERE namespace = ?1";
+const PURGE_KEY_SQL: &str = "DELETE FROM entries WHERE namespace = ?1 AND key = ?2";
 
 /// `Origin` as stored in the `origin` column.
 fn origin_code(origin: Origin) -> i64 {
@@ -285,6 +287,34 @@ impl Database {
         });
 
         self.report("replace", result)
+    }
+
+    /// Deletes every entry of `namespace`. Logs a failed delete rather than
+    /// reporting it; see the [`Storage`] contract.
+    pub fn purge(&self, namespace: &str) {
+        let result = self.with_connection(|conn| {
+            conn.prepare_cached(PURGE_SQL)?
+                .execute(params![namespace])?;
+            Ok::<_, rusqlite::Error>(())
+        });
+
+        if let Err(err) = result {
+            log::warn!("cubecl cache: purge of '{namespace}' failed: {err}");
+        }
+    }
+
+    /// Deletes the entry of `namespace` under `key`, with the same failure
+    /// contract as [`Database::purge`].
+    pub fn purge_key(&self, namespace: &str, key: &[u8]) {
+        let result = self.with_connection(|conn| {
+            conn.prepare_cached(PURGE_KEY_SQL)?
+                .execute(params![namespace, key])?;
+            Ok::<_, rusqlite::Error>(())
+        });
+
+        if let Err(err) = result {
+            log::warn!("cubecl cache: purge of a key in '{namespace}' failed: {err}");
+        }
     }
 
     /// Rewrites the file so it can be read from a directory nobody may write,
@@ -535,6 +565,14 @@ impl Storage for SqliteStorage {
 
     fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
         self.database.scan(&self.namespace, visit)
+    }
+
+    fn purge(&self) {
+        self.database.purge(&self.namespace)
+    }
+
+    fn purge_key(&self, key: &[u8]) {
+        self.database.purge_key(&self.namespace, key)
     }
 
     fn describe(&self) -> String {

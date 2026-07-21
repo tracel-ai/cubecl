@@ -133,6 +133,32 @@ impl Storage for BrowserStorage {
         entries::scan(&self.state.lock().entries, visit)
     }
 
+    fn purge(&self) {
+        self.state.lock().entries.clear();
+
+        // Fire-and-forget like every write: the mirror is already
+        // authoritative for this process, and a failed delete costs stale
+        // records resurfacing on the next page load.
+        let prefix = self.prefix.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Err(err) = delete_prefix(&prefix).await {
+                log::warn!("cubecl cache: browser storage purge('{prefix}') failed: {err:?}");
+            }
+        });
+    }
+
+    fn purge_key(&self, key: &[u8]) {
+        self.state.lock().entries.remove(key);
+
+        // Fire-and-forget, as above.
+        let record_key = format!("{}{}", self.prefix, to_hex(key));
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Err(err) = delete_record(&record_key).await {
+                log::warn!("cubecl cache: browser storage delete('{record_key}') failed: {err:?}");
+            }
+        });
+    }
+
     fn loading(&self) -> bool {
         !self.state.lock().loaded
     }
@@ -308,6 +334,35 @@ async fn put(record_key: &str, bytes: &[u8]) -> Result<(), JsValue> {
     let value = Uint8Array::from(bytes);
     let request = store.put_with_key(&value, &JsValue::from_str(record_key))?;
     request_result(&request).await?;
+
+    Ok(())
+}
+
+/// Deletes every record under `prefix`, the durable half of a purge.
+async fn delete_prefix(prefix: &str) -> Result<(), JsValue> {
+    let db = open_db().await?;
+
+    let transaction =
+        db.transaction_with_str_and_mode(STORE_NAME, IdbTransactionMode::Readwrite)?;
+    let store = transaction.object_store(STORE_NAME)?;
+
+    // The same range `load` reads: [prefix, prefix + U+10FFFF).
+    let upper = format!("{prefix}\u{10FFFF}");
+    let range = IdbKeyRange::bound(&JsValue::from_str(prefix), &JsValue::from_str(&upper))?;
+    request_result(&store.delete(&range)?).await?;
+
+    Ok(())
+}
+
+/// Deletes one record, the durable half of a single-key purge.
+async fn delete_record(record_key: &str) -> Result<(), JsValue> {
+    let db = open_db().await?;
+
+    let transaction =
+        db.transaction_with_str_and_mode(STORE_NAME, IdbTransactionMode::Readwrite)?;
+    let store = transaction.object_store(STORE_NAME)?;
+
+    request_result(&store.delete(&JsValue::from_str(record_key))?).await?;
 
     Ok(())
 }

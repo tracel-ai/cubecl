@@ -66,6 +66,14 @@ impl Storage for Counting {
         }
     }
 
+    fn purge(&self) {
+        self.0.entries.lock().unwrap().clear();
+    }
+
+    fn purge_key(&self, key: &[u8]) {
+        self.0.entries.lock().unwrap().remove(key);
+    }
+
     fn describe(&self) -> String {
         String::from("counting")
     }

@@ -74,6 +74,9 @@ impl InsertSummary {
 /// - [`replace`](Storage::replace) ignores both rules. It exists for one
 ///   caller: repairing a row whose bytes no longer decode, which no `insert`
 ///   could ever agree with.
+/// - [`purge`](Storage::purge) and [`purge_key`](Storage::purge_key) are the
+///   deletions: the whole namespace, or one entry. Everything else is
+///   insert-only.
 /// - The check and the write must be atomic with respect to other processes.
 /// - A read that fails reports a miss: a cache entry we can't read is one we
 ///   recompute. A *write* that fails reports [`Insertion::Failed`] rather
@@ -124,6 +127,17 @@ pub trait Storage: Send + core::fmt::Debug {
     /// The visitor must not read or write another store of the same
     /// environment; see the trait contract.
     fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8]));
+
+    /// Deletes every entry of the namespace, durably.
+    ///
+    /// A failed delete is logged, not reported: the entries were expendable
+    /// cache content either way, and whatever survives is arbitrated like any
+    /// other pre-existing entry.
+    fn purge(&self);
+
+    /// Deletes the entry under `key`, durably. Same failure contract as
+    /// [`purge`](Storage::purge).
+    fn purge_key(&self, key: &[u8]);
 
     /// Whether the storage is still loading its content asynchronously.
     /// Entries become visible through [`get`](Storage::get) and
@@ -261,6 +275,14 @@ impl Storage for MemoryStorage {
 
     fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
         entries::scan(&self.entries.lock(), visit)
+    }
+
+    fn purge(&self) {
+        self.entries.lock().clear();
+    }
+
+    fn purge_key(&self, key: &[u8]) {
+        self.entries.lock().remove(key);
     }
 
     fn describe(&self) -> String {
