@@ -16,9 +16,9 @@ pub use alloc::sync::Arc;
 pub use portable_atomic_util::Arc;
 
 #[cfg(target_has_atomic = "ptr")]
-pub use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+pub use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 #[cfg(not(target_has_atomic = "ptr"))]
-pub use portable_atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+pub use portable_atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
 /// A mutual exclusion primitive useful for protecting shared data
 ///
