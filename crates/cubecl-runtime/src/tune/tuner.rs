@@ -131,7 +131,12 @@ impl<K: AutotuneKey> Tuner<K> {
 
     /// Fetch the fastest autotune operation index for an autotune key.
     pub fn fastest(&self, key: &K) -> TuneCacheResult {
-        self.cache.lock().fastest(key)
+        #[cfg_attr(not(autotune_persistence), allow(unused_mut))]
+        let mut cache = self.cache.lock();
+        #[cfg(autotune_persistence)]
+        cache.reset_if_environment_switched();
+
+        cache.fastest(key)
     }
 
     /// Check the cache, validate checksums if needed, and kick off a tuning job if the
@@ -151,6 +156,8 @@ impl<K: AutotuneKey> Tuner<K> {
     {
         {
             let mut cache = self.cache.lock();
+            #[cfg(autotune_persistence)]
+            cache.reset_if_environment_switched();
             let cur = cache.fastest(key);
 
             // Browser hydration is asynchronous, so persistent entries may

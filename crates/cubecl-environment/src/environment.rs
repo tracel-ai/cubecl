@@ -77,9 +77,15 @@ static ACTIVE: Lazy<Mutex<Active>> = Lazy::new(|| {
 /// reads as "reset before serving".
 static GENERATION: AtomicU32 = AtomicU32::new(0);
 
-/// The current environment generation. Recorded by stores at open and
-/// compared on access; see [`Store`].
-pub(crate) fn generation() -> u32 {
+/// An opaque token that changes on every environment switch.
+///
+/// Record it when deriving state from the environment — an index built over a
+/// [`Store`], a map hydrated from one — and compare on access: a different
+/// value means the derived state describes an environment that is no longer
+/// active and must be rebuilt. This is the same mechanism [`Store`] uses to
+/// reset itself, exposed for state the stores can't see. The load is relaxed
+/// and costs nothing on hot paths.
+pub fn generation() -> u32 {
     GENERATION.load(Ordering::Relaxed)
 }
 

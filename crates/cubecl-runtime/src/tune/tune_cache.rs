@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 #[cfg(autotune_persistence)]
 use cubecl_environment::persistence::StoreError;
 #[cfg(autotune_persistence)]
-use cubecl_environment::persistence::{Namespace, Store, StoreOptions};
+use cubecl_environment::persistence::{CacheOption, Namespace, Store, StoreOptions};
 #[cfg(autotune_persistence)]
 use serde::{Deserialize, Serialize};
 
@@ -81,10 +81,26 @@ impl PartialEq for AutotuneResult {
 /// Use to find and reuse the best kernel for some input
 #[derive(Debug)]
 pub(crate) struct TuneCache<K> {
+    /// The single in-memory home of tuning state, keyed for the per-launch
+    /// lookup: tuned picks, in-flight tunes and checksum verdicts. Hydrated
+    /// from the store, which retains nothing itself, and rebuilt when the
+    /// environment switches.
     in_memory_cache: HashMap<K, CacheEntry>,
-    /// `None` when the persistent cache is disabled, so no cache file is ever touched.
+    /// Write-through persistence, or `None` when the persistent cache is
+    /// disabled, so no cache file is ever touched. Lazy: entries live in
+    /// [`Self::in_memory_cache`] once hydrated, not here.
     #[cfg(autotune_persistence)]
     persistent_cache: Option<Store<PersistentCacheKey<K>, PersistentCacheValue>>,
+    /// Whether everything the store holds has been ingested into
+    /// [`Self::in_memory_cache`]. What makes an ordinary miss cost a bool
+    /// check rather than a walk; `false` while an asynchronous storage
+    /// (browser) is still loading, and again after an environment switch.
+    #[cfg(autotune_persistence)]
+    hydrated: bool,
+    /// The environment generation [`Self::in_memory_cache`] was built under;
+    /// see [`cubecl_environment::environment::generation`].
+    #[cfg(autotune_persistence)]
+    generation: u32,
 }
 
 /// Result of the cache try
@@ -121,13 +137,25 @@ impl<K: AutotuneKey> TuneCache<K> {
                 return TuneCache {
                     in_memory_cache: HashMap::new(),
                     persistent_cache: None,
+                    hydrated: true,
+                    generation: cubecl_environment::environment::generation(),
                 };
             }
 
+            // Sampled before the store opens, so a switch landing in between
+            // reads as "rebuild", never as "this state belongs to the new
+            // environment".
+            let generation = cubecl_environment::environment::generation();
             let namespace = Namespace::scoped("autotune", format!("{device_id}/{name}"));
             let mut cache = TuneCache {
                 in_memory_cache: HashMap::new(),
-                persistent_cache: Some(Store::new(StoreOptions::new().storage(namespace))),
+                persistent_cache: Some(Store::new(
+                    StoreOptions::new()
+                        .storage(namespace)
+                        .cache(CacheOption::Lazy),
+                )),
+                hydrated: false,
+                generation,
             };
             log::info!("Load autotune cache ...");
             let loaded = cache.sync_persistent();
@@ -220,37 +248,61 @@ impl<K: AutotuneKey> TuneCache<K> {
 
 #[cfg(autotune_persistence)]
 impl<K: AutotuneKey> TuneCache<K> {
-    /// Ingest entries the persistent store has delivered since the last call
-    /// into the in-memory cache, as unverified.
+    /// Drops tuning state belonging to a previous environment, so a switch
+    /// re-hydrates and re-tunes rather than serving the old environment's
+    /// picks. One relaxed atomic load when nothing switched.
     ///
-    /// This exists for the browser backend, whose initial hydration is
-    /// asynchronous: entries become visible some time after construction, and
-    /// are ingested here once they land. Synchronous backends are fully
-    /// ingested at open, so this only walks memory —
-    /// picking up entries another process appended would mean rescanning the
-    /// database on every autotune miss, under the tuner mutex.
+    /// In-flight tunes are dropped with everything else: their completion
+    /// still records a hardware-valid result, so the whole cost of the race
+    /// is one duplicate tune per switch.
+    pub(crate) fn reset_if_environment_switched(&mut self) {
+        // Persistence disabled means the tuning state is process-local and
+        // unbound, like a store without a storage: it survives switches.
+        if self.persistent_cache.is_none() {
+            return;
+        }
+
+        let generation = cubecl_environment::environment::generation();
+        if generation == self.generation {
+            return;
+        }
+
+        log::debug!("Environment switched, resetting the autotune cache");
+        self.generation = generation;
+        self.in_memory_cache.clear();
+        self.hydrated = false;
+    }
+
+    /// Ingest everything the persistent store holds into the in-memory cache,
+    /// as unverified entries.
     ///
-    /// The initial load at construction is the same walk over an empty map, so
-    /// it goes through here too. Returns how many entries the store delivered.
+    /// Runs at construction, and again whenever `hydrated` fell back to
+    /// `false`: after an environment switch, and on the browser backend while
+    /// its asynchronous hydration is still in flight. Once hydrated, a miss
+    /// costs one bool check here — never a walk, and never a rescan of the
+    /// database under the tuner mutex.
+    ///
+    /// Returns how many entries the store delivered.
     pub(crate) fn sync_persistent(&mut self) -> usize {
+        if self.hydrated {
+            return 0;
+        }
+
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
             return 0;
         };
 
-        if persistent_cache.pending_load() {
-            persistent_cache.sync();
-        }
-
         let mut delivered = 0;
-        persistent_cache.for_each(|key, value| {
+        let complete = persistent_cache.scan(|key, value| {
             delivered += 1;
             self.in_memory_cache
-                .entry(key.key.clone())
+                .entry(key.key)
                 .or_insert(CacheEntry::Done {
-                    checksum: ChecksumState::ToBeVerified(key.checksum.clone()),
+                    checksum: ChecksumState::ToBeVerified(key.checksum),
                     fastest_index: value.fastest_index,
                 });
         });
+        self.hydrated = complete;
 
         delivered
     }

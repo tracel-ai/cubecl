@@ -447,6 +447,41 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         !self.loaded || self.stale()
     }
 
+    /// Visits every entry the storage holds, decoded and handed out owned,
+    /// retaining none of them in memory.
+    ///
+    /// The read-through counterpart of [`for_each`](Store::for_each): where
+    /// `for_each` walks the in-memory map, this walks the storage. It is the
+    /// hydration read for a caller keeping its own index over a
+    /// [`Lazy`](CacheOption::Lazy) store — everything is visited once, and
+    /// nothing stays resident afterwards.
+    ///
+    /// Returns whether the visit was complete. `false` means an asynchronous
+    /// storage was still loading, so entries may be missing: call again later
+    /// to see the rest.
+    pub fn scan<F: FnMut(K, V)>(&mut self, mut func: F) -> bool {
+        self.reset_if_stale();
+
+        let Some(storage) = self.storage.as_deref() else {
+            for (key, value) in self.entries.iter() {
+                func(key.clone(), value.clone());
+            }
+            return true;
+        };
+
+        // Sampled before the scan: a load completing halfway through would
+        // otherwise report a partial visit as complete.
+        let loading = storage.loading();
+
+        storage.scan(&mut |key, value| {
+            if let Some((key, value)) = decode_entry::<K, V>(key, value) {
+                func(key, value);
+            }
+        });
+
+        !loading
+    }
+
     /// Iterate over all in-memory entries of the store.
     pub fn for_each<F: FnMut(&K, &V)>(&self, mut func: F) {
         if self.stale() {
@@ -852,6 +887,28 @@ mod tests {
 
         crate::environment::set_root(root.path());
         assert_eq!(store.get(&"key".to_string()), Some(&1));
+    }
+
+    /// `scan` visits the whole storage owned, without retaining anything —
+    /// the hydration read for consumers keeping their own index.
+    #[test_log::test]
+    #[serial_test::serial]
+    #[cfg_attr(miri, ignore)]
+    fn scan_visits_the_storage_without_retaining() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::environment::set_root(dir.path());
+
+        let mut store = Store::<String, u32>::new(lazy("scan"));
+        store.insert("a".to_string(), 1).unwrap();
+        store.insert("b".to_string(), 2).unwrap();
+
+        let mut seen = std::vec::Vec::new();
+        let complete = store.scan(|key, value| seen.push((key, value)));
+        seen.sort();
+
+        assert!(complete, "a synchronous storage is scanned in full");
+        assert_eq!(seen, std::vec![("a".to_string(), 1), ("b".to_string(), 2)]);
+        assert!(store.is_empty(), "nothing stays resident after a scan");
     }
 
     #[test]

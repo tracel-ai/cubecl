@@ -52,6 +52,7 @@ fn execute_elementwise_addition() {
 
 #[test_log::test]
 #[cfg(feature = "std")]
+#[serial_test::serial]
 fn autotune_basic_addition_execution() {
     static TUNER: LocalTuner<String, String> = local_tuner!("autotune_basic_addition_execution");
 
@@ -77,6 +78,7 @@ fn autotune_basic_addition_execution() {
 
 #[test_log::test]
 #[cfg(feature = "std")]
+#[serial_test::serial]
 fn autotune_basic_multiplication_execution() {
     static TUNER: LocalTuner<String, String> =
         local_tuner!("autotune_basic_multiplication_execution");
@@ -101,12 +103,57 @@ fn autotune_basic_multiplication_execution() {
     assert_eq!(obtained_resource, Vec::from([0, 4, 8]));
 }
 
+/// A tuned pick belongs to the environment it was tuned under: switching
+/// environments makes it unreachable, tuning again lands in the new one, and
+/// switching back serves the persisted result through hydration rather than
+/// re-tuning.
+#[test_log::test]
+#[cfg(all(feature = "std", autotune_persistence))]
+#[serial_test::serial]
+fn autotune_resets_when_the_environment_switches() {
+    use cubecl_runtime::tune::{TuneCacheResult, Tuner};
+
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    cubecl_environment::environment::set_root(first.path());
+
+    let client = test_client(&DummyDevice);
+    let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+    let set = dummy::addition_set(test_client(&DummyDevice), shapes);
+
+    let handles = vec![
+        client.create_from_slice(&[0, 1, 2]),
+        client.create_from_slice(&[4, 4, 4]),
+        client.empty(3),
+    ];
+    let key = set.generate_key(&handles);
+
+    let tuner: Tuner<String> = Tuner::new("environment-switch", "device0");
+    tuner.check_tune(&key, &handles, &set, || set.compute_checksum(), &client);
+    assert!(matches!(tuner.fastest(&key), TuneCacheResult::Hit { .. }));
+
+    // The pick was tuned under `first`: after the switch it must not be
+    // served, and tuning again fills `second`.
+    cubecl_environment::environment::set_root(second.path());
+    assert!(matches!(tuner.fastest(&key), TuneCacheResult::Miss));
+    tuner.check_tune(&key, &handles, &set, || set.compute_checksum(), &client);
+    assert!(matches!(tuner.fastest(&key), TuneCacheResult::Hit { .. }));
+
+    // Switching back serves `first`'s persisted result through hydration and
+    // checksum validation, with no third tune.
+    cubecl_environment::environment::set_root(first.path());
+    assert!(matches!(tuner.fastest(&key), TuneCacheResult::Miss));
+    let rehydrated = tuner.check_tune(&key, &handles, &set, || set.compute_checksum(), &client);
+    assert!(matches!(rehydrated, TuneCacheResult::Hit { .. }));
+}
+
 /// A throughput bound with a generous `time_limit` makes the tuner short-circuit: it
 /// accepts the first candidate whose median is under the limit and never benchmarks the
 /// rest. The set registers the slow+wrong kernel first, so a hit proves the faster `add`
 /// was skipped rather than raced and lost.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
 fn autotune_bounds_short_circuit_accepts_first_within_limit() {
     static TUNER: LocalTuner<String, String> = local_tuner!("autotune_bounds_short_circuit");
 
@@ -139,6 +186,7 @@ fn autotune_bounds_short_circuit_accepts_first_within_limit() {
 /// cause of the early exit, not the mere presence of a bound.
 #[test_log::test]
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[serial_test::serial]
 fn autotune_bounds_unreachable_limit_benchmarks_all() {
     static TUNER: LocalTuner<String, String> = local_tuner!("autotune_bounds_unreachable_limit");
 
