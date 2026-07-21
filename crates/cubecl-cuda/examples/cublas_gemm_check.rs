@@ -4,7 +4,7 @@ use cubecl_core::{
     Runtime,
     ir::{ElemType, FloatKind},
     prelude::*,
-    server::{Binding, GemmDescriptor, GemmMatrix, Handle},
+    server::{Binding, GemmDescriptor, GemmMatrix, GroupedGemmDescriptor, Handle},
 };
 use cubecl_cuda::{CudaDevice, CudaRuntime};
 use half::bf16;
@@ -44,13 +44,14 @@ struct Matrix {
 
 fn main() {
     correctness_matrix();
+    grouped_correctness();
     cross_stream_ordering();
     overlapping_output_is_rejected();
     aliased_output_is_rejected();
     foreign_output_is_rejected();
     zero_k_is_rejected();
     prior_error_is_not_bypassed();
-    println!("cuBLAS BF16 padded/offset/batched/multistream checks passed");
+    println!("cuBLAS BF16 padded/offset/batched/grouped/multistream checks passed");
 }
 
 fn correctness_matrix() {
@@ -151,6 +152,66 @@ fn check(problem: Problem) {
                 assert!(
                     (actual - expected).abs() <= 0.06,
                     "{problem:?}, b={batch}, row={row}, col={col}: {actual} != {expected}"
+                );
+            }
+        }
+    }
+}
+
+fn grouped_correctness() {
+    let client = CudaRuntime::client(&CudaDevice::default());
+    let elem = ElemType::Float(FloatKind::BF16);
+    if !client
+        .features()
+        .matmul
+        .accelerated_grouped_gemm
+        .contains(&elem)
+    {
+        return;
+    }
+    let problems = [(3, 5, 4), (7, 2, 3), (4, 6, 5)];
+    let mut matrices = Vec::with_capacity(problems.len());
+    let mut groups = Vec::with_capacity(problems.len());
+
+    for (index, (m, n, k)) in problems.into_iter().enumerate() {
+        let lhs = Matrix::new(m, k, 1, index % 2 == 0, 3 + index, 0, 7, index + 2);
+        let rhs = Matrix::new(k, n, 1, index % 2 != 0, 5 + index, 0, 11, index + 5);
+        let out = Matrix::zeros(m, n, 1, false, 2 + index, 0, 13);
+        let lhs_base = client.create_from_slice(bytemuck::cast_slice(&lhs.bits));
+        let rhs_base = client.create_from_slice(bytemuck::cast_slice(&rhs.bits));
+        let out_base = client.empty(out.bits.len() * 2);
+        groups.push(GemmDescriptor::new(
+            matrix_arg(&lhs, view(&lhs_base, lhs.offset, lhs.bits.len()), false),
+            matrix_arg(&rhs, view(&rhs_base, rhs.offset, rhs.bits.len()), false),
+            matrix_arg(&out, view(&out_base, out.offset, out.bits.len()), false),
+            m as u32,
+            n as u32,
+            k as u32,
+            1,
+            elem,
+        ));
+        matrices.push((lhs, rhs, out, lhs_base, rhs_base, out_base));
+    }
+
+    let descriptor = GroupedGemmDescriptor::new(groups);
+    for _ in 0..16 {
+        client.grouped_gemm(descriptor.clone());
+    }
+    for (lhs, rhs, out, _lhs_base, _rhs_base, out_base) in matrices {
+        let bytes = client.read_one_unchecked(out_base);
+        let actual = bytemuck::cast_slice::<u8, u16>(&bytes);
+        for row in 0..out.rows {
+            for col in 0..out.cols {
+                let expected = (0..lhs.cols)
+                    .map(|inner| lhs.get(0, row, inner) * rhs.get(0, inner, col))
+                    .sum::<f32>();
+                let actual = bf16::from_bits(actual[out.index(0, row, col)]).to_f32();
+                assert!(
+                    (actual - expected).abs() <= 0.06,
+                    "grouped m={}, n={}, k={}, row={row}, col={col}: {actual} != {expected}",
+                    out.rows,
+                    out.cols,
+                    lhs.cols
                 );
             }
         }

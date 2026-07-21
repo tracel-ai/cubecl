@@ -13,6 +13,8 @@ use crate::{
 use cubecl_common::{
     backtrace::BackTrace, bytes::Bytes, profile::ProfileDuration, stream_id::StreamId,
 };
+#[cfg(cuda_12050)]
+use cubecl_core::server::GroupedGemmDescriptor;
 use cubecl_core::{
     MemoryConfiguration,
     device::DeviceId,
@@ -167,6 +169,17 @@ impl ComputeServer for CudaServer {
 
     fn gemm(&mut self, descriptor: GemmDescriptor, stream_id: StreamId) {
         if let Err(err) = self.gemm_checked(descriptor, stream_id) {
+            let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
+                Ok(stream) => stream,
+                Err(err) => unreachable!("{err}"),
+            };
+            stream.current().errors.push(err);
+        }
+    }
+
+    #[cfg(cuda_12050)]
+    fn grouped_gemm(&mut self, descriptor: GroupedGemmDescriptor, stream_id: StreamId) {
+        if let Err(err) = self.grouped_gemm_checked(descriptor, stream_id) {
             let mut stream = match self.streams.resolve(stream_id, [].into_iter(), false) {
                 Ok(stream) => stream,
                 Err(err) => unreachable!("{err}"),
@@ -699,6 +712,46 @@ impl CudaServer {
         let stream = command.streams.current().sys;
 
         cublas.launch(&descriptor, &lhs, &rhs, &out, stream)
+    }
+
+    #[cfg(cuda_12050)]
+    fn grouped_gemm_checked(
+        &mut self,
+        descriptor: GroupedGemmDescriptor,
+        stream_id: StreamId,
+    ) -> Result<(), ServerError> {
+        if descriptor
+            .groups
+            .iter()
+            .any(|group| group.out.binding.stream != stream_id)
+        {
+            return Err(ServerError::Validation {
+                message: "grouped GEMM outputs must be allocated on the execution stream".into(),
+                backtrace: BackTrace::capture(),
+            });
+        }
+        let bindings = descriptor
+            .groups
+            .iter()
+            .flat_map(|group| [&group.lhs.binding, &group.rhs.binding, &group.out.binding])
+            .collect::<Vec<_>>();
+        self.unsafe_set_current();
+        let streams = self
+            .streams
+            .resolve(stream_id, bindings.into_iter(), true)?;
+        let cublas = &mut self.cublas;
+        let mut command = Command::new(&mut self.ctx, streams);
+        let mut lhs = Vec::with_capacity(descriptor.groups.len());
+        let mut rhs = Vec::with_capacity(descriptor.groups.len());
+        let mut out = Vec::with_capacity(descriptor.groups.len());
+        for group in &descriptor.groups {
+            lhs.push(command.resource(group.lhs.binding.clone())?);
+            rhs.push(command.resource(group.rhs.binding.clone())?);
+            out.push(command.resource(group.out.binding.clone())?);
+        }
+        let stream = command.streams.current().sys;
+
+        cublas.launch_grouped(&descriptor, &lhs, &rhs, &out, stream)
     }
 
     fn launch_checked(

@@ -376,6 +376,7 @@ pub struct GemmMatrix {
 /// be row-major, allocated on the execution stream, and disjoint from both
 /// inputs. Backends may reject a nonempty zero-K problem rather than provide a
 /// separate output-initialization path.
+#[allow(clippy::too_many_arguments)]
 #[derive(new, Clone, Debug)]
 pub struct GemmDescriptor {
     /// Left-hand matrix, logically shaped `[m, k]`.
@@ -394,6 +395,17 @@ pub struct GemmDescriptor {
     pub batch_count: u32,
     /// Scalar element type shared by all operands.
     pub elem: ElemType,
+}
+
+/// Backend-optional accelerated grouped GEMM descriptor.
+///
+/// Every entry computes one strided batch of `out = lhs @ rhs`. Entries may
+/// have different matrix dimensions and batch counts, but must share an
+/// element type. A backend may execute the entries concurrently in one launch.
+#[derive(new, Clone, Debug)]
+pub struct GroupedGemmDescriptor {
+    /// Independent GEMM groups. An empty collection is a no-op.
+    pub groups: Vec<GemmDescriptor>,
 }
 
 /// The compute server is responsible for handling resources and computations over resources.
@@ -481,6 +493,17 @@ where
     fn gemm(&mut self, descriptor: GemmDescriptor, stream_id: StreamId) {
         let _ = (descriptor, stream_id);
         panic!("Compute server advertised an accelerated GEMM without implementing it")
+    }
+
+    /// Enqueue an accelerated grouped GEMM when the backend provides one.
+    ///
+    /// Callers must first check
+    /// [`Features::matmul.accelerated_grouped_gemm`](cubecl_ir::features::MatmulFeatures).
+    /// The enqueue returns immediately and records failures on the stream so
+    /// they surface at its next synchronization point.
+    fn grouped_gemm(&mut self, descriptor: GroupedGemmDescriptor, stream_id: StreamId) {
+        let _ = (descriptor, stream_id);
+        panic!("Compute server advertised an accelerated grouped GEMM without implementing it")
     }
 
     /// Flush all outstanding tasks in the server.

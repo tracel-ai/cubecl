@@ -8,9 +8,9 @@ use crate::{
     runtime::Runtime,
     server::{
         CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, GemmDescriptor,
-        Handle, IoError, KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
-        MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
-        ServerUtilities,
+        GroupedGemmDescriptor, Handle, IoError, KernelArguments, MemoryLayout,
+        MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy, ProfileError,
+        ReduceOperation, ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
     throughput::{
@@ -367,13 +367,24 @@ impl<R: Runtime> ComputeClient<R> {
 
     /// Enqueue a backend-accelerated GEMM.
     ///
-    /// The operation is ordered on this client's CubeCL stream and returns
+    /// The operation is ordered on this client's `CubeCL` stream and returns
     /// immediately, like a kernel launch. Callers must first check the device's
     /// `features.matmul.accelerated_gemm` capability.
     pub fn gemm(&self, descriptor: GemmDescriptor) {
         let stream_id = self.stream_id();
         self.device
             .submit(move |server| server.gemm(descriptor, stream_id));
+    }
+
+    /// Enqueue a backend-accelerated grouped GEMM.
+    ///
+    /// The operation is ordered on this client's `CubeCL` stream and returns
+    /// immediately, like a kernel launch. Callers must first check the device's
+    /// `features.matmul.accelerated_grouped_gemm` capability.
+    pub fn grouped_gemm(&self, descriptor: GroupedGemmDescriptor) {
+        let stream_id = self.stream_id();
+        self.device
+            .submit(move |server| server.grouped_gemm(descriptor, stream_id));
     }
 
     fn do_create_from_slices(
