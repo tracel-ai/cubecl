@@ -1,5 +1,5 @@
 #[cfg(std_io)]
-use cubecl_environment::persistence::{KvStore, KvStoreOptions};
+use cubecl_environment::persistence::{Namespace, Store, StoreOptions};
 
 use crate::throughput::{ThroughputKey, ThroughputValue};
 use alloc::string::{String, ToString};
@@ -17,7 +17,7 @@ pub struct ThroughputCache {
     #[cfg(not(std_io))]
     cache: HashMap<ThroughputKey, ThroughputValue>,
     #[cfg(std_io)]
-    cache: KvStore<ThroughputKey, ThroughputValue>,
+    cache: Store<ThroughputKey, ThroughputValue>,
 }
 
 impl ThroughputCache {
@@ -43,10 +43,10 @@ impl ThroughputCache {
 
         #[cfg(std_io)]
         {
-            let options = KvStoreOptions::default().name("throughput");
+            let namespace = Namespace::scoped("throughput", name);
 
             Self {
-                cache: KvStore::open(name, options),
+                cache: Store::new(StoreOptions::new().storage(namespace)),
             }
         }
     }

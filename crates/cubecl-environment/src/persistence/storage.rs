@@ -141,10 +141,10 @@ pub trait Storage: Send + core::fmt::Debug {
 /// Shared globally so that a namespace opened twice, or imported and then
 /// read, sees the same entries. Without a file system that is the only way an
 /// import can outlive the call that performed it.
-static MEMORY: Lazy<Mutex<HashMap<String, Arc<Mutex<Namespace>>>>> =
+static MEMORY: Lazy<Mutex<HashMap<String, Arc<Mutex<Entries>>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-pub(crate) type Namespace = HashMap<Vec<u8>, (Bytes, Origin)>;
+pub(crate) type Entries = HashMap<Vec<u8>, (Bytes, Origin)>;
 
 /// The [`Storage`] contract applied to an in-memory namespace.
 ///
@@ -153,15 +153,15 @@ pub(crate) type Namespace = HashMap<Vec<u8>, (Bytes, Origin)>;
 /// documented on [`Storage`]. They take the map rather than owning it because
 /// the backends disagree on the lock around it and on what they do after a
 /// write lands.
-pub(crate) mod namespace {
-    use super::{Bytes, Insertion, Namespace, Origin, replaces};
+pub(crate) mod entries {
+    use super::{Bytes, Entries, Insertion, Origin, replaces};
 
-    pub(crate) fn get(entries: &Namespace, key: &[u8]) -> Option<Bytes> {
+    pub(crate) fn get(entries: &Entries, key: &[u8]) -> Option<Bytes> {
         entries.get(key).map(|(value, _)| value.clone())
     }
 
     pub(crate) fn insert(
-        entries: &mut Namespace,
+        entries: &mut Entries,
         key: &[u8],
         value: Bytes,
         origin: Origin,
@@ -178,7 +178,7 @@ pub(crate) mod namespace {
     }
 
     pub(crate) fn replace(
-        entries: &mut Namespace,
+        entries: &mut Entries,
         key: &[u8],
         value: Bytes,
         origin: Origin,
@@ -188,7 +188,7 @@ pub(crate) mod namespace {
         Insertion::Stored
     }
 
-    pub(crate) fn scan(entries: &Namespace, visit: &mut dyn FnMut(&[u8], &[u8])) {
+    pub(crate) fn scan(entries: &Entries, visit: &mut dyn FnMut(&[u8], &[u8])) {
         for (key, (value, _)) in entries.iter() {
             visit(key, value);
         }
@@ -203,7 +203,7 @@ pub(crate) mod namespace {
 #[derive(Debug, Clone)]
 pub struct MemoryStorage {
     namespace: String,
-    entries: Arc<Mutex<Namespace>>,
+    entries: Arc<Mutex<Entries>>,
 }
 
 impl MemoryStorage {
@@ -248,19 +248,19 @@ impl MemoryStorage {
 
 impl Storage for MemoryStorage {
     fn get(&self, key: &[u8]) -> Option<Bytes> {
-        namespace::get(&self.entries.lock(), key)
+        entries::get(&self.entries.lock(), key)
     }
 
     fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
-        namespace::insert(&mut self.entries.lock(), key, value, origin)
+        entries::insert(&mut self.entries.lock(), key, value, origin)
     }
 
     fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
-        namespace::replace(&mut self.entries.lock(), key, value, origin)
+        entries::replace(&mut self.entries.lock(), key, value, origin)
     }
 
     fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
-        namespace::scan(&self.entries.lock(), visit)
+        entries::scan(&self.entries.lock(), visit)
     }
 
     fn describe(&self) -> String {

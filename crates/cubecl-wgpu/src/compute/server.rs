@@ -25,7 +25,7 @@ use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
 use cubecl_environment::future::DynFut;
 #[cfg(feature = "spirv")]
-use cubecl_environment::persistence::blob::BlobStore;
+use cubecl_environment::persistence::Store;
 use cubecl_environment::stream::StreamId;
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
@@ -71,7 +71,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     pipelines: HashMap<KernelId, (Arc<ComputePipeline>, CompilerInfo)>,
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     #[cfg(feature = "spirv")]
-    pub(crate) spirv_cache: Option<BlobStore<(u64, StableHash), cubecl_spirv::SpirvCacheEntry>>,
+    pub(crate) spirv_cache: Option<Store<(u64, StableHash), cubecl_spirv::SpirvCacheEntry>>,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,

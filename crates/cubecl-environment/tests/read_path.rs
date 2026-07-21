@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use cubecl_environment::bytes::Bytes;
 use cubecl_environment::collections::HashMap;
-use cubecl_environment::persistence::{Insertion, KvStore, Origin, Storage};
+use cubecl_environment::persistence::{Insertion, Origin, Storage, Store, StoreOptions};
 
 /// Shared so the test can read the counters while the store owns the storage.
 #[derive(Debug, Clone, Default)]
@@ -76,7 +76,9 @@ fn reads_never_reach_the_storage() {
     let storage = Counting::default();
 
     // Warm it the way an application would.
-    let mut store = KvStore::<String, u32>::with_storage(Box::new(storage.clone()), "bench/ns");
+    let mut store = Store::<String, u32>::new(
+        StoreOptions::new().storage_with(Box::new(storage.clone()), "bench/ns"),
+    );
     for index in 0..1_000u32 {
         store.insert(format!("key{index}"), index).unwrap();
     }
@@ -86,8 +88,9 @@ fn reads_never_reach_the_storage() {
     assert_eq!(inserts, 1_000);
 
     // Reopen: exactly one scan ingests everything, and nothing else.
-    let store = KvStore::<String, u32>::with_storage(Box::new(storage.clone()), "bench/ns");
-    store.sync();
+    let store = Store::<String, u32>::new(
+        StoreOptions::new().storage_with(Box::new(storage.clone()), "bench/ns"),
+    );
     let (_, _, scans_after_open) = storage.counts();
 
     // Now hammer the read path.
@@ -123,7 +126,9 @@ fn reads_never_reach_the_storage() {
 #[test]
 fn reinserting_a_known_value_stays_in_memory() {
     let storage = Counting::default();
-    let mut store = KvStore::<String, u32>::with_storage(Box::new(storage.clone()), "bench/ns");
+    let mut store = Store::<String, u32>::new(
+        StoreOptions::new().storage_with(Box::new(storage.clone()), "bench/ns"),
+    );
 
     store.insert("key".to_string(), 1).unwrap();
     let (_, inserts, _) = storage.counts();

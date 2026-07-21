@@ -5,30 +5,30 @@ use cubecl_environment::bundle::{
     export, import,
 };
 use cubecl_environment::bytes::Bytes;
-use cubecl_environment::persistence::{Database, KvStore, KvStoreOptions};
+use cubecl_environment::persistence::{Database, Namespace, Store, StoreOptions};
 
 // Storage resolves through the process-global active environment, so these
 // tests are serialized: only one environment is active at a time by design.
 
 /// Pins the environment to `root`, which is process-global; every test here
 /// is serialized for that reason.
-fn options(root: &std::path::Path, name: &str) -> KvStoreOptions {
+fn options(root: &std::path::Path, name: &str, path: &str) -> StoreOptions {
     cubecl_environment::environment::set_root(root);
-    KvStoreOptions::default().name(name)
+    StoreOptions::new().storage(Namespace::scoped(name, path))
 }
 
 /// Warms `root` with one namespace's worth of entries, as an application run
 /// would.
 fn warm(root: &std::path::Path, name: &str, path: &str, entries: &[(&str, u32)]) {
-    let mut store = KvStore::<String, u32>::open(path, options(root, name));
+    let mut store = Store::<String, u32>::new(options(root, name, path));
 
     for (key, value) in entries {
         store.insert(key.to_string(), *value).unwrap();
     }
 }
 
-fn open(root: &std::path::Path, name: &str, path: &str) -> KvStore<String, u32> {
-    KvStore::open(path, options(root, name))
+fn open(root: &std::path::Path, name: &str, path: &str) -> Store<String, u32> {
+    Store::new(options(root, name, path))
 }
 
 fn export_to(root: &std::path::Path, out: &std::path::Path, format: BundleFormat) {
@@ -665,7 +665,7 @@ fn importing_targets_the_active_environment() {
 #[test]
 #[serial_test::serial]
 fn a_local_blob_replaces_a_stale_imported_one() {
-    use cubecl_environment::persistence::blob::BlobStore;
+    use cubecl_environment::persistence::CacheOption;
 
     let source = tempfile::tempdir().unwrap();
     let target = tempfile::tempdir().unwrap();
@@ -673,7 +673,11 @@ fn a_local_blob_replaces_a_stale_imported_one() {
 
     let kernels = |root: &std::path::Path| {
         cubecl_environment::environment::set_root(root);
-        BlobStore::<String, Bytes>::new("spirv", KvStoreOptions::default())
+        Store::<String, Bytes>::new(
+            StoreOptions::new()
+                .storage(Namespace::new("spirv"))
+                .cache(CacheOption::Lazy),
+        )
     };
 
     kernels(source.path())
@@ -695,7 +699,7 @@ fn a_local_blob_replaces_a_stale_imported_one() {
     assert_eq!(import_into(target.path(), bundle.as_ref()).imported, 0);
     assert_eq!(
         kernels(target.path())
-            .get(&"kernel".to_string())
+            .get_mut(&"kernel".to_string())
             .map(|v| v.to_vec()),
         Some(vec![2u8])
     );

@@ -41,7 +41,7 @@ use web_sys::{
     IdbDatabase, IdbFactory, IdbKeyRange, IdbOpenDbRequest, IdbRequest, IdbTransactionMode,
 };
 
-use super::storage::{Insertion, Origin, Storage, namespace};
+use super::storage::{Insertion, Origin, Storage, entries};
 
 const DB_NAME: &str = "cubecl";
 const STORE_NAME: &str = "kv";
@@ -49,7 +49,7 @@ const STORE_NAME: &str = "kv";
 /// The mirrored content of one namespace.
 #[derive(Default, Debug)]
 struct State {
-    entries: super::storage::Namespace,
+    entries: super::storage::Entries,
     loaded: bool,
 }
 
@@ -106,11 +106,11 @@ impl BrowserStorage {
 
 impl Storage for BrowserStorage {
     fn get(&self, key: &[u8]) -> Option<Bytes> {
-        namespace::get(&self.state.lock().entries, key)
+        entries::get(&self.state.lock().entries, key)
     }
 
     fn insert(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
-        let result = namespace::insert(&mut self.state.lock().entries, key, value.clone(), origin);
+        let result = entries::insert(&mut self.state.lock().entries, key, value.clone(), origin);
 
         // Only mirror what the arbitration actually accepted; a declined write
         // must not overwrite the stored record.
@@ -122,7 +122,7 @@ impl Storage for BrowserStorage {
     }
 
     fn replace(&self, key: &[u8], value: Bytes, origin: Origin) -> Insertion {
-        let result = namespace::replace(&mut self.state.lock().entries, key, value.clone(), origin);
+        let result = entries::replace(&mut self.state.lock().entries, key, value.clone(), origin);
 
         self.put_in_background(key, value);
 
@@ -130,7 +130,7 @@ impl Storage for BrowserStorage {
     }
 
     fn scan(&self, visit: &mut dyn FnMut(&[u8], &[u8])) {
-        namespace::scan(&self.state.lock().entries, visit)
+        entries::scan(&self.state.lock().entries, visit)
     }
 
     fn loading(&self) -> bool {

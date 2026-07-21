@@ -30,7 +30,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
     )]
     #[allow(unused_variables)]
     pub fn load_cached_pipeline(
-        &self,
+        &mut self,
         kernel_id: &KernelId,
         bindings: &KernelArguments,
         mode: ExecutionMode,
@@ -41,9 +41,9 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         #[cfg(not(feature = "spirv"))]
         let res = Ok(None);
         #[cfg(feature = "spirv")]
-        let res = if let Some(cache) = &self.spirv_cache {
+        let res = if let Some(cache) = self.spirv_cache.as_mut() {
             let key = (self.utilities.properties_hash, kernel_id.stable_hash());
-            if let Some(entry) = cache.get(&key) {
+            if let Some(entry) = cache.remove(&key) {
                 use crate::ParamsTransfer;
 
                 log::trace!("Using SPIR-V cache");

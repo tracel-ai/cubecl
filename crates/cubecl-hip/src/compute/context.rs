@@ -10,7 +10,7 @@ use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 use cubecl_environment::backtrace::BackTrace;
 use cubecl_environment::collections::HashMap;
-use cubecl_environment::persistence::blob::BlobStore;
+use cubecl_environment::persistence::Store;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::compiler::{compilation_store, store_compiled};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
@@ -31,7 +31,7 @@ pub(crate) struct HipContext {
     pub timestamps: TimestampProfiler,
     pub compilation_options: CompilationOptions,
     pub properties: DeviceProperties,
-    pub compilation_cache: Option<BlobStore<StableHash, CompilationCacheEntry>>,
+    pub compilation_cache: Option<Store<StableHash, CompilationCacheEntry>>,
 }
 
 #[derive(Debug)]
@@ -74,14 +74,14 @@ impl HipContext {
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
-        let hash = if let Some(cache) = self.compilation_cache.as_ref() {
+        let hash = if let Some(cache) = self.compilation_cache.as_mut() {
             let hash = kernel_id.stable_hash();
-            if let Some(entry) = cache.get(&hash) {
+            if let Some(entry) = cache.remove(&hash) {
                 log::trace!("Using compilation cache");
                 self.load_compiled_binary(
-                    entry.binary.clone(),
+                    entry.binary,
                     kernel_id.clone(),
-                    entry.entrypoint_name.clone(),
+                    entry.entrypoint_name,
                     kernel_id.cube_dim,
                     entry.shared_mem_bytes,
                 )?;

@@ -15,7 +15,10 @@ pub(crate) fn handle_command(
     if args.miri.is_some() {
         // miri tests
         args.target = Target::Crates;
-        args.only.extend(vec!["cubecl-common".to_string()]);
+        args.only.extend(vec![
+            "cubecl-common".to_string(),
+            "cubecl-environment".to_string(),
+        ]);
         base_commands::test::handle_command(args.try_into().unwrap(), env, context)?;
     } else {
         // conventional tests

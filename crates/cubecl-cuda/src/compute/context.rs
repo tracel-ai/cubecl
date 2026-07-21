@@ -18,7 +18,7 @@ use cubecl_core::{
     server::ResourceLimitError,
     {ir::DeviceProperties, prelude::*},
 };
-use cubecl_environment::persistence::blob::BlobStore;
+use cubecl_environment::persistence::Store;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use cudarc::driver::DriverError;
@@ -36,7 +36,7 @@ use cubecl_runtime::compiler::{compilation_store, store_compiled};
 pub(crate) struct CudaContext {
     pub context: *mut CUctx_st,
     pub module_names: HashMap<KernelId, CompiledKernel>,
-    ptx_cache: Option<BlobStore<StableHash, PtxCacheEntry>>,
+    ptx_cache: Option<Store<StableHash, PtxCacheEntry>>,
     pub timestamps: TimestampProfiler,
     pub arch: CudaArchitecture,
     pub compilation_options: CompilationOptions,
@@ -89,16 +89,16 @@ impl CudaContext {
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
-        let hash = if let Some(cache) = &self.ptx_cache {
+        let hash = if let Some(cache) = self.ptx_cache.as_mut() {
             let hash = kernel_id.stable_hash();
 
-            if let Some(entry) = cache.get(&hash) {
+            if let Some(entry) = cache.remove(&hash) {
                 log::trace!("Using PTX cache");
 
                 self.load_ptx(
-                    entry.ptx.clone(),
+                    entry.ptx,
                     kernel_id.clone(),
-                    entry.entrypoint_name.clone(),
+                    entry.entrypoint_name,
                     kernel_id.cube_dim,
                     entry.shared_mem_bytes,
                 )?;

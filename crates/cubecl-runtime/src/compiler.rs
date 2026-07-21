@@ -4,7 +4,9 @@ use crate::{
 };
 use alloc::string::String;
 use cubecl_environment::backtrace::BackTrace;
-use cubecl_environment::persistence::{KvStoreOptions, StoreKey, StoreValue, blob::BlobStore};
+use cubecl_environment::persistence::{
+    CacheOption, Namespace, Store, StoreKey, StoreOptions, StoreValue,
+};
 use cubecl_ir::{ElemType, StorageType};
 use thiserror::Error;
 
@@ -19,7 +21,7 @@ use thiserror::Error;
 pub fn compilation_store<K: StoreKey, V: StoreValue>(
     backend: &'static str,
     fingerprint: impl AsRef<str>,
-) -> Option<BlobStore<K, V>> {
+) -> Option<Store<K, V>> {
     #[cfg(std_io)]
     {
         use crate::config::RuntimeConfig;
@@ -28,9 +30,10 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
             return None;
         }
 
-        Some(BlobStore::new(
-            fingerprint,
-            KvStoreOptions::default().name(backend),
+        Some(Store::new(
+            StoreOptions::new()
+                .storage(Namespace::scoped(backend, fingerprint))
+                .cache(CacheOption::Lazy),
         ))
     }
 
@@ -48,7 +51,7 @@ pub fn compilation_store<K: StoreKey, V: StoreValue>(
 /// environment may have written the key first, or the backing store may have
 /// declined it. The artifact was just compiled either way, so the whole cost
 /// is compiling it again next run.
-pub fn store_compiled<K: StoreKey, V: StoreValue>(store: &mut BlobStore<K, V>, key: K, value: V) {
+pub fn store_compiled<K: StoreKey, V: StoreValue>(store: &mut Store<K, V>, key: K, value: V) {
     if let Err(err) = store.insert(key, value) {
         log::warn!("Unable to cache the compiled kernel: {}", err.reason());
     }

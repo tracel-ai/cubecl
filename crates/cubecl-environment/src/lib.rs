@@ -63,3 +63,19 @@ pub mod persistence;
 
 /// Named environment bundles: ship pre-warmed autotune and compilation caches.
 pub mod bundle;
+
+/// A [`Store`](persistence::Store) created from the options, persisting to the
+/// active [`environment`] when the options name a storage.
+///
+/// ```ignore
+/// let store: Store<Key, Value> = cubecl_environment::store(
+///     StoreOptions::new()
+///         .storage(Namespace::new("cuda/ptx"))
+///         .cache(CacheOption::Lazy),
+/// );
+/// ```
+pub fn store<K: persistence::StoreKey, V: persistence::StoreValue>(
+    options: persistence::StoreOptions,
+) -> persistence::Store<K, V> {
+    persistence::Store::new(options)
+}

@@ -1,12 +1,13 @@
 //! Key-value persistence.
 //!
-//! A [`KvStore`] is an in-memory map that stays authoritative for reads and
-//! syncs its content to a [`Storage`]: an embedded `SQLite` database on std
-//! targets, browser storage on wasm (feature `browser-cache`), or nothing at
-//! all.
+//! A [`Store`] is a typed in-memory map that syncs its content to an optional
+//! [`Storage`]: an embedded `SQLite` database on std targets, browser storage
+//! on wasm (feature `browser-cache`), or nothing at all. [`CacheOption`]
+//! decides whether the whole namespace is ingested at open or entries are
+//! faulted in one key at a time.
 //!
-//! Every cache is identified by a namespace, a `/`-separated string such as
-//! `autotune/0.11.0/cuda-0/matmul`. On std targets all the namespaces of a
+//! Every cache is identified by a [`Namespace`], a `/`-separated string such
+//! as `autotune/0.11.0/cuda-0/matmul`. On std targets all the namespaces of a
 //! cache root share one database file (`cubecl.db`) and are told apart by a
 //! column rather than by a directory tree. Entries are therefore looked up per
 //! key, several processes can share a root safely through WAL, and shipping a
@@ -17,8 +18,10 @@ pub mod storage;
 
 pub use storage::*;
 
+mod namespace;
 mod store;
 
+pub use namespace::Namespace;
 pub use store::*;
 
 /// `SQLite` persistence: the database file shared by every namespace of a
@@ -32,10 +35,6 @@ pub use sqlite::{Database, SqliteStorage, db_file_name};
 /// Browser storage (IndexedDB).
 #[cfg(browser_cache)]
 pub(crate) mod browser;
-
-/// A storage behind an in-memory cache, filled on demand. [`KvStore`] is this
-/// with everything loaded up front.
-pub mod blob;
 
 /// Cache root location selection.
 ///

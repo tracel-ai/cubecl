@@ -13,7 +13,7 @@ use objc2_metal::{
 };
 use std::sync::Arc;
 
-use cubecl_environment::persistence::blob::BlobStore;
+use cubecl_environment::persistence::Store;
 use cubecl_runtime::compiler::{compilation_store, store_compiled};
 
 #[derive(Debug, Clone)]
@@ -37,7 +37,7 @@ pub struct MetalContext {
     device: Retained<ProtocolObject<dyn MTLDevice>>,
     compiled_kernels: HashMap<KernelId, CompiledKernel>,
     /// On-disk MSL source cache for faster recompilation across runs.
-    msl_cache: Option<BlobStore<String, MslCacheEntry>>,
+    msl_cache: Option<Store<String, MslCacheEntry>>,
     compilation_options: cubecl_cpp::shared::CompilationOptions,
     msl_compile_options: Retained<MTLCompileOptions>,
 }
@@ -84,9 +84,9 @@ impl MetalContext {
             return Ok(compiled.clone());
         }
 
-        if let Some(cache) = &self.msl_cache {
+        if let Some(cache) = self.msl_cache.as_mut() {
             let cache_key = kernel_id.stable_format();
-            if let Some(entry) = cache.get(&cache_key) {
+            if let Some(entry) = cache.remove(&cache_key) {
                 log::trace!("Using MSL cache");
 
                 let compiled = self.create_pipeline_from_source(

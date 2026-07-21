@@ -2,9 +2,9 @@
 use alloc::vec::Vec;
 
 #[cfg(autotune_persistence)]
-use cubecl_environment::persistence::KvStore;
-#[cfg(autotune_persistence)]
 use cubecl_environment::persistence::StoreError;
+#[cfg(autotune_persistence)]
+use cubecl_environment::persistence::{Namespace, Store, StoreOptions};
 #[cfg(autotune_persistence)]
 use serde::{Deserialize, Serialize};
 
@@ -84,7 +84,7 @@ pub(crate) struct TuneCache<K> {
     in_memory_cache: HashMap<K, CacheEntry>,
     /// `None` when the persistent cache is disabled, so no cache file is ever touched.
     #[cfg(autotune_persistence)]
-    persistent_cache: Option<KvStore<PersistentCacheKey<K>, PersistentCacheValue>>,
+    persistent_cache: Option<Store<PersistentCacheKey<K>, PersistentCacheValue>>,
 }
 
 /// Result of the cache try
@@ -124,13 +124,10 @@ impl<K: AutotuneKey> TuneCache<K> {
                 };
             }
 
-            let options = cubecl_environment::persistence::KvStoreOptions::default();
+            let namespace = Namespace::scoped("autotune", format!("{device_id}/{name}"));
             let mut cache = TuneCache {
                 in_memory_cache: HashMap::new(),
-                persistent_cache: Some(KvStore::open(
-                    format!("{device_id}/{name}"),
-                    options.name("autotune"),
-                )),
+                persistent_cache: Some(Store::new(StoreOptions::new().storage(namespace))),
             };
             log::info!("Load autotune cache ...");
             let loaded = cache.sync_persistent();
@@ -228,8 +225,8 @@ impl<K: AutotuneKey> TuneCache<K> {
     ///
     /// This exists for the browser backend, whose initial hydration is
     /// asynchronous: entries become visible some time after construction, and
-    /// the store ingests them on the first read that follows. Synchronous
-    /// backends are fully ingested at open, so this only walks memory —
+    /// are ingested here once they land. Synchronous backends are fully
+    /// ingested at open, so this only walks memory —
     /// picking up entries another process appended would mean rescanning the
     /// database on every autotune miss, under the tuner mutex.
     ///
@@ -239,6 +236,10 @@ impl<K: AutotuneKey> TuneCache<K> {
         let Some(persistent_cache) = self.persistent_cache.as_mut() else {
             return 0;
         };
+
+        if persistent_cache.pending_load() {
+            persistent_cache.sync();
+        }
 
         let mut delivered = 0;
         persistent_cache.for_each(|key, value| {

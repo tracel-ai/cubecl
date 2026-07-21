@@ -10,7 +10,7 @@ use std::hint::black_box;
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 
 use cubecl_environment::collections::HashMap;
-use cubecl_environment::persistence::{KvStore, KvStoreOptions};
+use cubecl_environment::persistence::{Namespace, Store, StoreOptions};
 
 /// Realistic for an autotune namespace: a few hundred tuned shapes.
 const ENTRIES: usize = 512;
@@ -20,9 +20,10 @@ fn key(index: usize) -> String {
     format!("matmul-lhs=f16-rhs=f16-out=f32-shape={index}x{index}x{index}")
 }
 
-fn warm(root: &std::path::Path) -> KvStore<String, u32> {
+fn warm(root: &std::path::Path) -> Store<String, u32> {
     cubecl_environment::environment::set_root(root);
-    let mut store = KvStore::<String, u32>::open("device0/matmul", KvStoreOptions::default());
+    let mut store =
+        Store::<String, u32>::new(StoreOptions::new().storage(Namespace::new("device0/matmul")));
 
     for index in 0..ENTRIES {
         store.insert(key(index), index as u32).ok();
@@ -104,15 +105,20 @@ fn write_path(criterion: &mut Criterion) {
     group.finish();
 }
 
-/// The kernel-launch path: a memoized blob lookup, which goes through a
-/// `RefCell` rather than a plain map.
+/// The kernel-launch path over a lazy store: `remove` is the real
+/// first-compile read (one storage lookup and decode, nothing retained),
+/// `get` after `get_mut` faulted entries in is a plain map hit.
 fn blob_path(criterion: &mut Criterion) {
     use cubecl_environment::bytes::Bytes;
-    use cubecl_environment::persistence::blob::BlobStore;
+    use cubecl_environment::persistence::CacheOption;
 
     let dir = tempfile::tempdir().unwrap();
     cubecl_environment::environment::set_root(dir.path());
-    let mut store = BlobStore::<String, Bytes>::new("spirv_device0", KvStoreOptions::default());
+    let mut store = Store::<String, Bytes>::new(
+        StoreOptions::new()
+            .storage(Namespace::new("spirv_device0"))
+            .cache(CacheOption::Lazy),
+    );
 
     let keys: Vec<String> = (0..ENTRIES).map(key).collect();
     for key in &keys {
@@ -122,7 +128,18 @@ fn blob_path(criterion: &mut Criterion) {
     }
 
     let mut group = criterion.benchmark_group("blob");
-    group.bench_function("blob_store_memoized_hit", |bencher| {
+    group.bench_function("lazy_store_read_through", |bencher| {
+        let mut index = 0;
+        bencher.iter(|| {
+            index = (index + 1) % ENTRIES;
+            black_box(store.remove(black_box(&keys[index])))
+        })
+    });
+
+    for key in &keys {
+        store.get_mut(key);
+    }
+    group.bench_function("lazy_store_memoized_hit", |bencher| {
         let mut index = 0;
         bencher.iter(|| {
             index = (index + 1) % ENTRIES;
@@ -142,8 +159,9 @@ fn open_path(criterion: &mut Criterion) {
         let dir = tempfile::tempdir().unwrap();
         {
             cubecl_environment::environment::set_root(dir.path());
-            let mut store =
-                KvStore::<String, u32>::open("device0/matmul", KvStoreOptions::default());
+            let mut store = Store::<String, u32>::new(
+                StoreOptions::new().storage(Namespace::new("device0/matmul")),
+            );
             for index in 0..entries {
                 store.insert(key(index), index as u32).ok();
             }
@@ -152,8 +170,9 @@ fn open_path(criterion: &mut Criterion) {
         group.bench_function(format!("kv_store_open_{entries}"), |bencher| {
             bencher.iter(|| {
                 cubecl_environment::environment::set_root(dir.path());
-                let store =
-                    KvStore::<String, u32>::open("device0/matmul", KvStoreOptions::default());
+                let store = Store::<String, u32>::new(
+                    StoreOptions::new().storage(Namespace::new("device0/matmul")),
+                );
                 black_box(store.len())
             })
         });
