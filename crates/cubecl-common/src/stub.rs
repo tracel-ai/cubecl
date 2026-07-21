@@ -12,9 +12,13 @@ pub use std::sync::{LazyLock as Lazy, RwLockReadGuard, RwLockWriteGuard};
 
 #[cfg(target_has_atomic = "ptr")]
 pub use alloc::sync::Arc;
-
 #[cfg(not(target_has_atomic = "ptr"))]
 pub use portable_atomic_util::Arc;
+
+#[cfg(target_has_atomic = "ptr")]
+pub use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+#[cfg(not(target_has_atomic = "ptr"))]
+pub use portable_atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 /// A mutual exclusion primitive useful for protecting shared data
 ///

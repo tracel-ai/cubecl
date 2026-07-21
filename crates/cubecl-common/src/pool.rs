@@ -1,14 +1,9 @@
 //! A dynamically-growing pool of single-cell items handed out as exclusive, non-cloneable handles.
 
+use crate::stub::{AtomicBool, Ordering};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::cell::UnsafeCell;
-// Targets without native atomic CAS lack `AtomicBool::compare_exchange`; fall back to
-// `portable-atomic` there, which common already depends on (matches `config` and `stub`).
-#[cfg(target_has_atomic = "ptr")]
-use core::sync::atomic::{AtomicBool, Ordering};
-#[cfg(not(target_has_atomic = "ptr"))]
-use portable_atomic::{AtomicBool, Ordering};
 
 /// Resets a pooled value so the pool can hand it out again.
 pub trait Reclaim {
