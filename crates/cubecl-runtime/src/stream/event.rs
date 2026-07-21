@@ -1,7 +1,7 @@
 use crate::{
     config::streaming::StreamingLogLevel,
     logging::ServerLogger,
-    memory_management::ManagedMemoryId,
+    memory_management::{ManagedMemoryId, SharedMemoryBindings},
     server::{Binding, ServerError},
     stream::{StreamFactory, StreamPool},
 };
@@ -165,7 +165,7 @@ impl<'a, B: EventStreamBackend> ResolvedStreams<'a, B> {
 
 impl<'a, B: EventStreamBackend> Drop for ResolvedStreams<'a, B> {
     fn drop(&mut self) {
-        if self.analysis.slices.is_empty() {
+        if self.analysis.pinned.is_empty() {
             return;
         }
 
@@ -176,17 +176,19 @@ impl<'a, B: EventStreamBackend> Drop for ResolvedStreams<'a, B> {
         B::wait_event(stream_gc, event_origin);
         let event = B::flush(stream_gc);
 
-        let mut ids = Vec::new();
-        self.analysis
-            .slices
-            .drain()
-            .for_each(|item| ids.extend(item.1));
-
-        self.gc.register(GcTask::new(ids, event));
+        let pinned = core::mem::take(&mut self.analysis.pinned);
+        self.gc.register(GcTask::new(pinned, event));
     }
 }
 
 impl<B: EventStreamBackend> MultiStream<B> {
+    /// Mutable access to the stream-creation backend, e.g. to change the
+    /// configuration new streams are created with. Already-created streams are
+    /// unaffected.
+    pub fn backend_mut(&mut self) -> &mut B {
+        &mut self.streams.factory_mut().backend
+    }
+
     /// Creates an empty multi-stream.
     pub fn new(logger: Arc<ServerLogger>, backend: B, max_streams: u8) -> Self {
         let wrapper = EventStreamBackendWrapper { backend };
@@ -255,7 +257,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
         self.apply_analysis(stream_id, analysis)
     }
 
-    /// Update and analyzes the bindings to determine which streams need alignment (flushing and waiting).
+    /// Updates and analyzes the bindings to determine which streams need alignment (flushing and waiting).
     ///
     /// This checks for shared bindings from other streams and determines if synchronization is needed
     /// based on cursor positions.
@@ -267,23 +269,26 @@ impl<B: EventStreamBackend> MultiStream<B> {
         // We reset the memory pool for the info.
         self.shared_bindings_pool.clear();
 
-        for handle in handles {
+        let mut analysis = SharedBindingAnalysis::default();
+
+        // We only consider handles whose stream is different from the current stream.
+        for handle in handles.filter(|handle| handle.stream != stream_id) {
             let index = stream_index(&handle.stream, self.max_streams);
             let stream = unsafe { self.streams.get_mut_index(index) };
             let cursor_handle = B::handle_cursor(&stream.stream, handle);
 
-            // We only add the info to be consider if the handle stream is different from the current
-            // stream.
-            if handle.stream != stream_id {
-                self.shared_bindings_pool.push((
-                    handle.memory.descriptor().id,
-                    handle.stream,
-                    cursor_handle,
-                ));
-            }
+            self.shared_bindings_pool.push((
+                handle.memory.descriptor().id,
+                handle.stream,
+                cursor_handle,
+            ));
+            // Pinned unconditionally, even when the cursor check below decides
+            // no new wait is needed: the reverse-direction hazard (the origin
+            // stream freeing/reusing the memory under the in-flight consumer)
+            // exists either way.
+            analysis.pinned.push(handle.memory.clone());
         }
 
-        let mut analysis = SharedBindingAnalysis::default();
         let current = self.streams.get_mut(&stream_id);
 
         for (handle_id, stream, cursor) in self.shared_bindings_pool.iter() {
@@ -366,10 +371,30 @@ impl<B: EventStreamBackend> core::fmt::Debug for StreamWrapper<B> {
     }
 }
 
-#[derive(Default, Debug, PartialEq, Eq)]
+#[derive(Default, Debug)]
 pub(crate) struct SharedBindingAnalysis {
     slices: HashMap<usize, Vec<ManagedMemoryId>>,
+    /// Every cross-stream binding of the task, kept alive until the consumer
+    /// stream's work completes (released by the GC thread after its event).
+    ///
+    /// The origin stream's pools consider a slice free once no handle/binding
+    /// references its descriptor, but the consumer's kernel may still be
+    /// running on the GPU after the CPU-side bindings were dropped at enqueue
+    /// time. Pinning the bindings here is what keeps the slice non-free until
+    /// the GC event fires, so `cleanup`/`try_reserve` on the origin stream
+    /// cannot dealloc or reuse memory that is still read by another stream.
+    pinned: SharedMemoryBindings,
 }
+
+/// Equality covers the sync analysis only; `pinned` is a lifetime mechanism,
+/// not part of the analysis result.
+impl PartialEq for SharedBindingAnalysis {
+    fn eq(&self, other: &Self) -> bool {
+        self.slices == other.slices
+    }
+}
+
+impl Eq for SharedBindingAnalysis {}
 
 impl SharedBindingAnalysis {
     fn shared(&mut self, id: ManagedMemoryId, index: usize) {
@@ -385,6 +410,7 @@ impl SharedBindingAnalysis {
 #[cfg(test)]
 mod tests {
     use crate::server::Handle;
+    use core::sync::atomic::{AtomicBool, Ordering};
 
     use super::*;
 
@@ -493,6 +519,94 @@ mod tests {
         assert_eq!(stream2.cursor, 1);
     }
 
+    #[test_log::test]
+    fn test_cross_stream_binding_pinned_until_gc_event() {
+        let logger = Arc::new(ServerLogger::default());
+        let stream_1 = StreamId { value: 1 };
+        let stream_2 = StreamId { value: 2 };
+
+        let gate = Arc::new(AtomicBool::new(false));
+        let mut ms = MultiStream::new(logger, GatedBackend { gate: gate.clone() }, MAX_STREAMS);
+        ms.resolve(stream_1, [].into_iter(), false).unwrap();
+        ms.resolve(stream_2, [].into_iter(), false).unwrap();
+
+        let handle = Handle::new(stream_1, 10);
+        let observer = handle.memory.clone();
+        let binding = handle.binding();
+
+        drop(ms.resolve(stream_2, [&binding].into_iter(), false).unwrap());
+        drop(binding);
+
+        // The GC thread is blocked on the (gated) consumer event, so the pinned
+        // binding must keep the memory non-free even though every user-side
+        // handle/binding is gone.
+        assert!(
+            !observer.is_free(),
+            "cross-stream binding must stay pinned while the consumer event is pending"
+        );
+
+        gate.store(true, Ordering::Release);
+        wait_until_free(&observer);
+    }
+
+    #[test_log::test]
+    fn test_already_synced_cross_stream_binding_still_pinned() {
+        let logger = Arc::new(ServerLogger::default());
+        let stream_1 = StreamId { value: 1 };
+        let stream_2 = StreamId { value: 2 };
+
+        let gate = Arc::new(AtomicBool::new(true));
+        let mut ms = MultiStream::new(logger, GatedBackend { gate: gate.clone() }, MAX_STREAMS);
+        ms.resolve(stream_1, [].into_iter(), false).unwrap();
+        ms.resolve(stream_2, [].into_iter(), false).unwrap();
+
+        // First resolve records stream_1 as synced on stream_2.
+        let handle_1 = Handle::new(stream_1, 10);
+        let binding_1 = handle_1.binding();
+        drop(
+            ms.resolve(stream_2, [&binding_1].into_iter(), false)
+                .unwrap(),
+        );
+        drop(binding_1);
+
+        // Close the gate for the second round.
+        gate.store(false, Ordering::Release);
+
+        let handle_2 = Handle::new(stream_1, 10);
+        let observer = handle_2.memory.clone();
+        let binding_2 = handle_2.binding();
+
+        // stream_2 already synced past this binding's cursor, so the sync
+        // analysis is empty — but the binding must still be pinned: the origin
+        // stream could otherwise free/reuse the memory under the in-flight
+        // consumer.
+        let resolved = ms
+            .resolve(stream_2, [&binding_2].into_iter(), false)
+            .unwrap();
+        assert!(resolved.analysis.slices.is_empty());
+        drop(resolved);
+        drop(binding_2);
+
+        assert!(
+            !observer.is_free(),
+            "already-synced cross-stream binding must still be pinned"
+        );
+
+        gate.store(true, Ordering::Release);
+        wait_until_free(&observer);
+    }
+
+    fn wait_until_free(observer: &crate::memory_management::ManagedMemoryHandle) {
+        let start = std::time::Instant::now();
+        while !observer.is_free() {
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(10),
+                "pinned binding was never released"
+            );
+            std::thread::yield_now();
+        }
+    }
+
     fn handle(stream: StreamId) -> Binding {
         Handle::new(stream, 10).binding()
     }
@@ -504,6 +618,56 @@ mod tests {
 
     #[derive(Debug)]
     struct TestEvent {}
+
+    /// A backend whose events complete only once the shared `gate` opens,
+    /// emulating GPU work still in flight on the consumer stream.
+    struct GatedBackend {
+        gate: Arc<AtomicBool>,
+    }
+
+    #[derive(Debug)]
+    struct GatedStream {
+        gate: Arc<AtomicBool>,
+    }
+
+    #[derive(Debug)]
+    struct GatedEvent {
+        gate: Arc<AtomicBool>,
+    }
+
+    impl EventStreamBackend for GatedBackend {
+        type Stream = GatedStream;
+        type Event = GatedEvent;
+
+        fn create_stream(&self) -> Self::Stream {
+            GatedStream {
+                gate: self.gate.clone(),
+            }
+        }
+
+        fn flush(stream: &mut Self::Stream) -> Self::Event {
+            GatedEvent {
+                gate: stream.gate.clone(),
+            }
+        }
+
+        fn wait_event(_stream: &mut Self::Stream, _event: Self::Event) {}
+
+        fn wait_event_sync(event: Self::Event) -> Result<(), ServerError> {
+            while !event.gate.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+            Ok(())
+        }
+
+        fn handle_cursor(_stream: &Self::Stream, _handle: &Binding) -> u64 {
+            0
+        }
+
+        fn is_healthy(_stream: &Self::Stream) -> bool {
+            true
+        }
+    }
 
     impl EventStreamBackend for TestBackend {
         type Stream = TestStream;

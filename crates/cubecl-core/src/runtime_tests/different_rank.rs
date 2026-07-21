@@ -68,10 +68,13 @@ fn test_kernel_different_rank<R: Runtime, F: Float + CubeElement>(
         TensorArg::from_raw_parts(handle_out.clone(), strides_out.into(), shape_out.into())
     };
 
+    let cube_dim = std::cmp::min(16, client.properties().hardware.max_cube_dim.0);
+    let cube_count = 32 / cube_dim;
+
     kernel_different_rank::launch::<F, R>(
         &client,
-        CubeCount::Static(1, 1, 1),
-        CubeDim::new_1d(32),
+        CubeCount::Static(cube_count, 1, 1),
+        CubeDim::new_1d(cube_dim),
         vectorisation,
         lhs,
         rhs,

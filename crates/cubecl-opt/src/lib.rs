@@ -161,6 +161,7 @@ pub struct GlobalState {
     pub buffer_visibility: RefCell<Vec<BufferVisibility>>,
     pub extra_functions: HashMap<Id, Function>,
     /// The `CubeDim` used for range analysis
+    #[allow(dead_code)]
     pub(crate) cube_dim: CubeDim,
     pub(crate) transformers: Vec<Rc<dyn IrTransformer>>,
     pub(crate) processors: Rc<Vec<Box<dyn Processor>>>,

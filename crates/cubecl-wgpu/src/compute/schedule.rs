@@ -3,7 +3,7 @@ use crate::{
     timings::TimestampQuerySetBudget,
 };
 use alloc::sync::Arc;
-use cubecl_common::{bytes::Bytes, profile::TimingMethod};
+use cubecl_common::{bytes::Bytes, pool::LeaseHandle, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     server::{MetadataBindingInfo, StreamErrorMode},
@@ -12,6 +12,7 @@ use cubecl_core::{
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::{
     logging::ServerLogger,
+    memory_management::SharedMemoryBindings,
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
 
@@ -32,6 +33,13 @@ pub enum ScheduleTask {
         count: CubeCount,
         /// The resources (bindings) required for execution.
         resources: BindingsResource,
+        /// Cross-stream input memory bindings that must be kept alive until this
+        /// task's submission completes on the GPU.
+        ///
+        /// [`WgpuStream::flush`] ties its release to the consuming submission's completion.
+        /// Pooled buffer returned to the [`LeasePool`](cubecl_common::pool::LeasePool)
+        /// when this task is drained and the handle drops.
+        shared_inputs: LeaseHandle<SharedMemoryBindings>,
     },
 }
 
@@ -82,6 +90,28 @@ pub struct WgpuStreamFactory {
     logger: Arc<ServerLogger>,
     count: u64,
     use_vulkan_compiler: bool,
+    /// Programmatic main-GPU pool layout (see
+    /// [`ComputeServer::configure_memory_pools`](cubecl_runtime::server::ComputeServer::configure_memory_pools)):
+    /// streams created after it is set build their main pool from it instead
+    /// of the runtime default. Auxiliary pools are unaffected.
+    gpu_pools_override: Option<MemoryConfiguration>,
+}
+
+impl WgpuStreamFactory {
+    /// The layout streams build their main pool with, and the properties to
+    /// resolve it against.
+    pub(crate) fn gpu_pools(&self) -> (MemoryConfiguration, MemoryDeviceProperties) {
+        let config = self
+            .gpu_pools_override
+            .clone()
+            .unwrap_or_else(|| self.memory_config.clone());
+        (config, self.memory_properties.clone())
+    }
+
+    /// Set the main-GPU pool layout for streams created from now on.
+    pub(crate) fn set_gpu_pools(&mut self, config: MemoryConfiguration) {
+        self.gpu_pools_override = Some(config);
+    }
 }
 
 impl StreamFactory for WgpuStreamFactory {
@@ -90,11 +120,12 @@ impl StreamFactory for WgpuStreamFactory {
     fn create(&mut self) -> Self::Stream {
         self.count += 1;
 
+        let (gpu_config, _) = self.gpu_pools();
         WgpuStream::new(
             self.device.clone(),
             self.queue.clone(),
             self.memory_properties.clone(),
-            self.memory_config.clone(),
+            gpu_config,
             self.timing_method,
             self.timing_budget.clone(),
             self.tasks_max,
@@ -136,6 +167,7 @@ impl ScheduledWgpuBackend {
                 logger,
                 count: 0,
                 use_vulkan_compiler,
+                gpu_pools_override: None,
             },
         }
     }

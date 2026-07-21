@@ -1,6 +1,7 @@
 use crate::MetalCompiler;
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::prelude::*;
+use cubecl_core::server::{LaunchError, ResourceLimitError};
 use cubecl_runtime::{compiler::CubeTask, logging::ServerLogger};
 use hashbrown::HashMap;
 use objc2::rc::Retained;
@@ -81,8 +82,9 @@ impl MetalContext {
         kernel_id: &KernelId,
         kernel: Box<dyn CubeTask<MetalCompiler>>,
         mode: ExecutionMode,
+        max_shared_memory_size: usize,
         logger: Arc<ServerLogger>,
-    ) -> Result<CompiledKernel, cubecl_runtime::compiler::CompilationError> {
+    ) -> Result<CompiledKernel, LaunchError> {
         if let Some(compiled) = self.compiled_kernels.get(kernel_id) {
             return Ok(compiled.clone());
         }
@@ -117,7 +119,7 @@ impl MetalContext {
             kernel.address_type(),
         )?;
 
-        if logger.compilation_activated() {
+        if logger.compilation_source_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("msl", kernel_id.clone()));
         }
 
@@ -131,6 +133,18 @@ impl MetalContext {
             .as_ref()
             .map(|r| r.shared_memory_size())
             .unwrap_or(0);
+
+        // Check before creating the pipeline: Metal would reject the kernel there anyway,
+        // but with an opaque compilation error instead of a resource limit error.
+        if shared_memory_bytes > max_shared_memory_size {
+            return Err(LaunchError::TooManyResources(
+                ResourceLimitError::SharedMemory {
+                    requested: shared_memory_bytes,
+                    max: max_shared_memory_size,
+                    backtrace: BackTrace::capture(),
+                },
+            ));
+        }
 
         let mut compiled = self.create_pipeline_from_source(&source, &entrypoint_name, cube_dim)?;
         compiled.shared_memory_bytes = shared_memory_bytes;

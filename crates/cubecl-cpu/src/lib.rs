@@ -18,6 +18,7 @@ mod tests {
     cubecl_core::testgen_all!(f32: [f16, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, f32, u32]);
+    cubecl_std::testgen_tensor_into_contiguous!();
     cubecl_std::testgen_quantized_view!(f32);
 
     #[cube(launch)]
@@ -70,6 +71,25 @@ mod tests {
             sum += mem[i];
         }
         out[idx] = sum;
+    }
+
+    // Reads an input into shared memory at a computed (non-identity) index, then reads it
+    // back. If shared memory is reserved from the same pool as the input binding, the two
+    // alias and `mem[j] = input[i]` corrupts the input in place.
+    #[cube(launch)]
+    fn shared_scatter_gather(input: &[f32], output: &mut [f32], #[comptime] n: usize) {
+        let mut mem = Shared::new_slice(n);
+        let mut i = 0usize;
+        while i < n {
+            mem[(i + 2) % n] = input[i];
+            i += 1;
+        }
+        sync_cube();
+        let mut k = 0usize;
+        while k < n {
+            output[k] = mem[k];
+            k += 1;
+        }
     }
 
     #[cube(launch_unchecked)]
@@ -157,6 +177,33 @@ mod tests {
         let bytes = client.read_one_unchecked(out);
         let actual = u32::from_bytes(&bytes);
         assert_eq!(actual, &[28u32; 8]);
+    }
+
+    #[test]
+    fn shared_memory_does_not_alias_input_binding() {
+        let client = TestRuntime::client(&Default::default());
+        let n = 8usize;
+        let input = client.create_from_slice(f32::as_bytes(&[
+            10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0,
+        ]));
+        let out = client.empty(n * core::mem::size_of::<f32>());
+
+        unsafe {
+            shared_scatter_gather::launch::<TestRuntime>(
+                &client,
+                CubeCount::new_single(),
+                CubeDim::new_1d(1),
+                BufferArg::from_raw_parts(input, n),
+                BufferArg::from_raw_parts(out.clone(), n),
+                n,
+            )
+        }
+
+        let bytes = client.read_one_unchecked(out);
+        let actual = f32::from_bytes(&bytes);
+        // output[k] = input[(k + n - 2) % n]
+        let expected: Vec<f32> = (0..n).map(|k| (10 + (k + n - 2) % n) as f32).collect();
+        assert_eq!(actual, expected.as_slice());
     }
 
     #[test]

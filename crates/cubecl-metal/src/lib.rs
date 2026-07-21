@@ -1,3 +1,8 @@
+// Metal only exists on Apple platforms; elsewhere the crate compiles to
+// nothing so workspace-wide builds and clippy work on any host. The Metal
+// bindings it needs are target-gated in Cargo.toml to match.
+#![cfg(target_vendor = "apple")]
+
 pub mod compute;
 pub mod device;
 pub mod memory;
@@ -10,6 +15,8 @@ pub(crate) type MetalCompiler = cubecl_cpp::shared::CppCompiler<cubecl_cpp::meta
 
 #[cfg(test)]
 mod tests_expm1;
+#[cfg(test)]
+mod tests_launch_errors;
 #[cfg(test)]
 mod tests_multistream;
 #[cfg(test)]

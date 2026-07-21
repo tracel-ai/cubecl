@@ -48,6 +48,42 @@ macro_rules! storage_id_type {
     };
 }
 
+/// Identifies a backend-owned captured graph.
+///
+/// [`end_capture`](crate::server::ComputeServer::end_capture) records a graph,
+/// stores it in the backend's own registry, and returns this lightweight id;
+/// [`replay`](crate::server::ComputeServer::replay) and
+/// [`graph_destroy`](crate::server::ComputeServer::graph_destroy) take the id
+/// back to look the graph up. Referencing the graph by id keeps the raw
+/// executable inside the server — it never crosses the actor boundary in a box —
+/// exactly as memory is referenced by [`Handle`](crate::server::Handle) rather
+/// than by raw pointer.
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, PartialOrd, Ord)]
+pub struct GraphId {
+    value: u64,
+}
+
+impl GraphId {
+    /// Allocate a fresh, process-unique graph id.
+    pub fn new() -> Self {
+        use core::sync::atomic::{AtomicU64, Ordering};
+
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+        let value = COUNTER.fetch_add(1, Ordering::Relaxed);
+        if value == u64::MAX {
+            core::panic!("Graph ID overflowed");
+        }
+        Self { value }
+    }
+}
+
+impl Default for GraphId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Kernel unique identifier.
 #[derive(Clone, PartialEq, Eq)]
 pub struct KernelId {

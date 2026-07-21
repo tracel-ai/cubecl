@@ -347,13 +347,19 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
             FragmentIdent::A | FragmentIdent::B => match fragment.elem {
                 Elem::F16 => write!(f, "half16_t"),
                 Elem::BF16 => write!(f, "bhalf16_t"),
-                other => panic!("unsupported type {other} for {fragment}"),
+                other => panic!(
+                    "unsupported type {other} for fragment ident {:?}",
+                    fragment.ident
+                ),
             },
             FragmentIdent::Accumulator => match fragment.elem {
                 Elem::F16 => write!(f, "half16_t"),
                 Elem::BF16 => write!(f, "bhalf16_t"),
                 Elem::F32 => write!(f, "float8_t"),
-                other => panic!("unsupported type {other} for {fragment}"),
+                other => panic!(
+                    "unsupported type {other} for fragment ident {:?}",
+                    fragment.ident
+                ),
             },
             FragmentIdent::_Dialect(_) => Ok(()),
         }

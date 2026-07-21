@@ -8,9 +8,12 @@ pub fn kernel_saturating_add<I: Int, N: Size>(
     rhs: &[Vector<I, N>],
     output: &mut [Vector<I, N>],
 ) {
-    if (UNIT_POS as usize) < output.len() {
-        output[UNIT_POS as usize] =
-            Vector::<I, N>::saturating_add(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
+    // Unit-strided so the test can clamp the cube dim to the device's
+    // `max_units_per_cube` (e.g. on CPU) while still covering every element.
+    let mut i = UNIT_POS as usize;
+    while i < output.len() {
+        output[i] = Vector::<I, N>::saturating_add(lhs[i], rhs[i]);
+        i += CUBE_DIM as usize;
     }
 }
 
@@ -20,9 +23,10 @@ pub fn kernel_saturating_sub<I: Int, N: Size>(
     rhs: &[Vector<I, N>],
     output: &mut [Vector<I, N>],
 ) {
-    if (UNIT_POS as usize) < output.len() {
-        output[UNIT_POS as usize] =
-            Vector::<I, N>::saturating_sub(lhs[UNIT_POS as usize], rhs[UNIT_POS as usize]);
+    let mut i = UNIT_POS as usize;
+    while i < output.len() {
+        output[i] = Vector::<I, N>::saturating_sub(lhs[i], rhs[i]);
+        i += CUBE_DIM as usize;
     }
 }
 
@@ -59,7 +63,10 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
         kernel_saturating_add::launch_unchecked::<I, R>(
             &client,
             CubeCount::new_single(),
-            CubeDim::new_1d(out.len() as u32),
+            CubeDim::new_1d(core::cmp::min(
+                out.len() as u32,
+                client.properties().hardware.max_units_per_cube,
+            )),
             vector_size,
             BufferArg::from_raw_parts(lhs_handle, 4),
             BufferArg::from_raw_parts(rhs_handle, 4),
@@ -100,7 +107,10 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
         kernel_saturating_sub::launch_unchecked::<I, R>(
             &client,
             CubeCount::new_single(),
-            CubeDim::new_1d(out.len() as u32),
+            CubeDim::new_1d(core::cmp::min(
+                out.len() as u32,
+                client.properties().hardware.max_units_per_cube,
+            )),
             vector_size,
             BufferArg::from_raw_parts(lhs_handle, 4),
             BufferArg::from_raw_parts(rhs_handle, 4),
@@ -182,7 +192,10 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
         kernel_saturating_add::launch_unchecked::<I, R>(
             &client,
             CubeCount::new_single(),
-            CubeDim::new_1d(out.len() as u32),
+            CubeDim::new_1d(core::cmp::min(
+                out.len() as u32,
+                client.properties().hardware.max_units_per_cube,
+            )),
             vector_size,
             BufferArg::from_raw_parts(lhs_handle, 16),
             BufferArg::from_raw_parts(rhs_handle, 16),
@@ -264,7 +277,10 @@ pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
         kernel_saturating_sub::launch_unchecked::<I, R>(
             &client,
             CubeCount::new_single(),
-            CubeDim::new_1d(out.len() as u32),
+            CubeDim::new_1d(core::cmp::min(
+                out.len() as u32,
+                client.properties().hardware.max_units_per_cube,
+            )),
             vector_size,
             BufferArg::from_raw_parts(lhs_handle, 16),
             BufferArg::from_raw_parts(rhs_handle, 16),
