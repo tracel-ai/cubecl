@@ -1,4 +1,4 @@
-//! A dynamically-growing pool of single-cell items handed out as exclusive, non-clonable handles.
+//! A dynamically-growing pool of single-cell items handed out as exclusive, non-cloneable handles.
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -35,7 +35,7 @@ impl<T: Default + Reclaim> Default for LeaseSlot<T> {
 unsafe impl<T: Default + Reclaim> Send for LeaseSlot<T> {}
 unsafe impl<T: Default + Reclaim> Sync for LeaseSlot<T> {}
 
-/// Pool of reusable values with single-cell items that are not clonable.
+/// Pool of reusable values with single-cell items that are not cloneable.
 ///
 /// Items stay in the pool while checked out; [`Self::acquire`] hands back a
 /// [`LeaseHandle`] pointing at one and flags it `leased`. Dropping the handle reclaims the
