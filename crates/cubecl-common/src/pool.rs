@@ -5,18 +5,10 @@ use alloc::vec::Vec;
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use cubecl_runtime::memory_management::SharedMemoryBindings;
-
 /// Resets a pooled value so the pool can hand it out again.
 pub trait Reclaim {
     /// Clear the value in place, keeping its allocation for the next acquire.
-    fn reclaim(&mut self) {}
-}
-
-impl Reclaim for SharedMemoryBindings {
-    fn reclaim(&mut self) {
-        self.clear();
-    }
+    fn reclaim(&mut self);
 }
 
 /// A pooled value that stays owned by the [`LeasePool`] even while checked out.
@@ -141,6 +133,7 @@ mod tests {
     use super::*;
     use alloc::{vec, vec::Vec};
 
+    /// Stand-in pooled value: a `Vec` so we can observe capacity reuse and reclaim clearing.
     #[derive(Default)]
     struct Probe(Vec<u32>);
 
@@ -157,7 +150,8 @@ mod tests {
     }
 
     /// The key soundness case: acquiring more items grows `items`, which must not invalidate
-    /// handles already handed out (they hold raw pointers into the boxed slots).   #[test]
+    /// handles already handed out (they hold raw pointers into the boxed slots). Run under Miri
+    /// to check the aliasing model, not just the observable values.
     #[test]
     fn growth_keeps_live_handles_valid() {
         // Start empty so every acquire pushes a new item, reallocating `items` while earlier

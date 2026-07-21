@@ -243,6 +243,12 @@ impl SharedMemoryBindings {
     }
 }
 
+impl cubecl_common::pool::Reclaim for SharedMemoryBindings {
+    fn reclaim(&mut self) {
+        self.clear();
+    }
+}
+
 /// Calculates a best-effort heuristic for the alignment of row-aligned tensors.
 /// Prefers contiguous alignments for unit dimensions, 16-byte minimum alignment for non-unit,
 /// scaling with input size up to `buffer_align`.

@@ -10,7 +10,7 @@ use cubecl_common::{
     profile::{ProfileDuration, TimingMethod},
     stream_id::StreamId,
 };
-use cubecl_core::pool::LeasePool;
+use cubecl_common::pool::LeasePool;
 use cubecl_core::server::{Binding, StreamErrorMode};
 use cubecl_core::zspace::Shape;
 use cubecl_core::{
