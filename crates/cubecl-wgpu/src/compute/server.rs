@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use super::storage::{WgpuResource, WgpuStorage};
 use crate::WgpuCompiler;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
-use crate::shared_bindings::SharedBindingsPool;
 use alloc::sync::Arc;
 use cubecl_common::{
     backtrace::BackTrace,
@@ -11,6 +10,7 @@ use cubecl_common::{
     profile::{ProfileDuration, TimingMethod},
     stream_id::StreamId,
 };
+use cubecl_core::pool::LeasePool;
 use cubecl_core::server::{Binding, StreamErrorMode};
 use cubecl_core::zspace::Shape;
 use cubecl_core::{
@@ -27,7 +27,7 @@ use cubecl_core::{
 use cubecl_core::{cache::CacheOption, compilation_cache::CompilationCache, hash::StableHash};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
-use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage};
+use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage, SharedMemoryBindings};
 use cubecl_runtime::{
     compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -74,7 +74,7 @@ pub struct WgpuServer<C: WgpuCompiler> {
     pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
     /// Reusable buffers for the cross-stream input bindings of each launch.
-    shared_bindings_pool: SharedBindingsPool,
+    shared_bindings_pool: LeasePool<SharedMemoryBindings>,
     _compiler: PhantomData<C>,
 }
 
@@ -142,9 +142,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             },
             backend,
             utilities: Arc::new(utilities),
-            shared_bindings_pool: SharedBindingsPool::with_capacity(
-                tasks_max * max_streams as usize,
-            ),
+            shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),
             _compiler: PhantomData,
         }
     }

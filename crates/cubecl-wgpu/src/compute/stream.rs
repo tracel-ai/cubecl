@@ -166,7 +166,7 @@ impl WgpuStream {
                 resources,
                 mut shared_inputs,
             } => {
-                // Drain into the stream's pending pins; the guard returns its buffer to the
+                // Drain into the stream's pending pins; the handle returns its buffer to the
                 // server pool when it drops at the end of this arm.
                 self.shared_bindings
                     .bindings

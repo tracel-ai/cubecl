@@ -33,6 +33,7 @@ pub use cubecl_ir as ir;
 
 pub mod codegen;
 pub mod compute;
+pub mod pool;
 pub mod prelude;
 
 mod pod;
