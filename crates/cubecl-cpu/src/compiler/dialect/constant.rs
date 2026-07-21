@@ -7,8 +7,9 @@ use pliron::builtin::{
 use pliron::utils::apint::{APInt, bw};
 use pliron_llvm::ops as llvm;
 
+use crate::compiler::dialect::ty::INDEX_WIDTH;
+
 use super::prelude::*;
-use super::to_llvm::INDEX_WIDTH;
 
 #[op_interface_impl]
 impl ToLLVMDialect for ConstantOp {

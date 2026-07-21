@@ -4,8 +4,9 @@ use pliron_llvm::{
     attributes::IntegerOverflowFlagsAttr, op_interfaces::IntBinArithOpWithOverflowFlag, ops as llvm,
 };
 
+use crate::compiler::dialect::to_llvm::cube_type_to_llvm;
+
 use super::prelude::*;
-use super::to_llvm::cube_type_to_llvm;
 
 macro_rules! lower_int_bin_arith {
     ($cube_op:ty => $llvm_op:ty) => {

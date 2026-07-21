@@ -9,8 +9,9 @@ use pliron::builtin::types::{FunctionType, IntegerType, Signedness};
 use pliron_llvm::ops as llvm;
 use pliron_llvm::types::PointerType as LlvmPointerType;
 
+use crate::compiler::dialect::ty::INDEX_WIDTH;
+
 use super::prelude::*;
-use super::to_llvm::INDEX_WIDTH;
 
 /// `(op, buffer_idx, result)` for each `cube.buffer_len`, gathered during the walk so the ops
 /// can be rewritten once the walker no longer holds them borrowed.

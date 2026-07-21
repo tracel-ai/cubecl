@@ -63,14 +63,10 @@ impl ToLLVMDialect for IndexOp {
                 .expect("memory.index result must be a pointer")
                 .inner
         };
-        let src_elem_type = cube_type_to_llvm(ctx, elem_ty);
+        let elem_ty = cube_type_to_llvm(ctx, elem_ty);
 
-        let gep = llvm::GetElementPtrOp::new(
-            ctx,
-            base,
-            vec![llvm::GepIndex::Value(index)],
-            src_elem_type,
-        );
+        let gep =
+            llvm::GetElementPtrOp::new(ctx, base, vec![llvm::GepIndex::Value(index)], elem_ty);
         rewriter.insert_op(ctx, &gep);
         rewriter.replace_operation_with_values(
             ctx,

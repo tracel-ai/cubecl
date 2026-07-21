@@ -44,11 +44,11 @@ impl ToLLVMDialect for CastOp {
         };
 
         let input = self.input(ctx);
-        let out_llvm = cube_type_to_llvm(ctx, out_ty);
         let old_op = self.get_operation();
 
+        let out_ty = cube_type_to_llvm(ctx, out_ty);
+
         if out_ty.deref(ctx).is::<BoolType>() && in_width > 1 {
-            // int -> bool is `value != 0` (a truncation would drop the high bits).
             let in_llvm = IntegerType::get(ctx, in_width, Signedness::Signless);
             let zero_attr = IntegerAttr::new(in_llvm, APInt::zero(bw(in_width as usize)));
             let zero = llvm::ConstantOp::new(ctx, zero_attr.into());
@@ -60,16 +60,16 @@ impl ToLLVMDialect for CastOp {
             rewriter.replace_operation_with_values(ctx, old_op, vec![input]);
         } else if out_width > in_width {
             if in_signed {
-                let op = llvm::SExtOp::new(ctx, input, out_llvm);
+                let op = llvm::SExtOp::new(ctx, input, out_ty);
                 rewriter.insert_op(ctx, &op);
                 rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
             } else {
-                let op = llvm::ZExtOp::new_with_nneg(ctx, input, out_llvm, false);
+                let op = llvm::ZExtOp::new_with_nneg(ctx, input, out_ty, false);
                 rewriter.insert_op(ctx, &op);
                 rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
             }
         } else {
-            let op = llvm::TruncOp::new(ctx, input, out_llvm);
+            let op = llvm::TruncOp::new(ctx, input, out_ty);
             rewriter.insert_op(ctx, &op);
             rewriter.replace_operation_with_values(ctx, old_op, vec![op.get_result(ctx)]);
         }
