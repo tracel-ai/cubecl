@@ -183,6 +183,18 @@ impl StoreOptions {
 /// On an asynchronous storage (browser) a read can miss until the background
 /// load finishes, which costs a recompute and nothing else; any `&mut`
 /// operation ingests newly delivered content first.
+///
+/// # Environment switches
+///
+/// A store opened on the active environment stays bound to *the environment*,
+/// not to the storage it opened: when [`crate::environment`] switches
+/// ([`activate`](crate::environment::activate),
+/// [`load`](crate::environment::load), ...), the store detects it and resets —
+/// reads miss instead of serving the old environment's entries, and the next
+/// `&mut` operation drops the in-memory state and reopens the storage.
+/// Detection is one relaxed atomic load, so it costs nothing while the
+/// environment stays put. Stores on an explicit or absent storage are not
+/// bound and never reset.
 pub struct Store<K, V> {
     entries: HashMap<K, V>,
     /// Keys this process interacted with without the map holding their value:
@@ -197,6 +209,11 @@ pub struct Store<K, V> {
     /// `false` while an asynchronous storage may still deliver entries that
     /// the eager map has not ingested.
     loaded: bool,
+    /// The environment generation the state belongs to, for stores bound to
+    /// the active environment; `None` for unbound ones (explicit storage, or
+    /// none). A mismatch with the current generation means everything here
+    /// describes an environment that is no longer active.
+    generation: Option<u32>,
 }
 
 impl<K: StoreKey, V: StoreValue> Store<K, V> {
@@ -212,13 +229,20 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         tracing::instrument(level = "trace", skip_all, fields(options = ?options))
     )]
     pub fn new(options: StoreOptions) -> Self {
-        let (storage, namespace) = match options.storage {
-            StorageOption::InMemory => (None, None),
-            StorageOption::Environment(namespace) => (
-                Some(super::storage::open(namespace.as_str())),
-                Some(namespace),
-            ),
-            StorageOption::Explicit(storage, namespace) => (Some(storage), Some(namespace)),
+        let (storage, namespace, generation) = match options.storage {
+            StorageOption::InMemory => (None, None, None),
+            StorageOption::Environment(namespace) => {
+                // Sampled before the storage opens: a switch landing in
+                // between leaves a stale generation, which reads as "reset",
+                // never as "this storage belongs to the new environment".
+                let generation = crate::environment::generation();
+                (
+                    Some(super::storage::open(namespace.as_str())),
+                    Some(namespace),
+                    Some(generation),
+                )
+            }
+            StorageOption::Explicit(storage, namespace) => (Some(storage), Some(namespace), None),
         };
 
         let mut store = Self {
@@ -228,6 +252,7 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
             namespace,
             cache: options.cache,
             loaded: false,
+            generation,
         };
 
         match (store.cache, &store.storage) {
@@ -250,7 +275,15 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// Never touches the storage: on an eager store the map is complete, so a
     /// miss is a miss. On a lazy store this only serves entries a previous
     /// [`get_mut`](Store::get_mut) faulted in; use `get_mut` to read through.
+    ///
+    /// After an environment switch everything in memory belongs to the old
+    /// environment, so this misses rather than serve it — a miss costs a
+    /// recompute, a stale hit would be wrong.
     pub fn get(&self, key: &K) -> Option<&V> {
+        if self.stale() {
+            return None;
+        }
+
         self.entries.get(key)
     }
 
@@ -259,6 +292,7 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     ///
     /// Mutating the value changes only the in-memory copy, never the storage.
     pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        self.reset_if_stale();
         self.refresh_if_pending();
 
         if matches!(self.cache, CacheOption::Lazy)
@@ -280,6 +314,7 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// about to be loaded — because nothing is cloned and nothing stays
     /// memoized.
     pub fn remove(&mut self, key: &K) -> Option<V> {
+        self.reset_if_stale();
         self.refresh_if_pending();
 
         let value = match self.entries.remove(key) {
@@ -312,6 +347,7 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
     /// locally computed value replace it, so a stale bundle can never wedge
     /// the application that imported it.
     pub fn insert(&mut self, key: K, value: V) -> Result<(), StoreError<K, V>> {
+        self.reset_if_stale();
         self.refresh_if_pending();
 
         let known = match self.entries.get(&key) {
@@ -382,6 +418,8 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         tracing::instrument(level = "trace", skip_all, fields(namespace = ?self.namespace))
     )]
     pub fn sync(&mut self) {
+        self.reset_if_stale();
+
         let Some(storage) = self.storage.as_deref() else {
             self.loaded = true;
             return;
@@ -403,13 +441,18 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
 
     /// Whether asynchronously delivered content may still be waiting to be
     /// ingested. `false` for synchronous storages (database, memory), whose
-    /// content is fully ingested at open.
+    /// content is fully ingested at open. Also `true` right after an
+    /// environment switch, whose content is pending until the reset.
     pub fn pending_load(&self) -> bool {
-        !self.loaded
+        !self.loaded || self.stale()
     }
 
     /// Iterate over all in-memory entries of the store.
     pub fn for_each<F: FnMut(&K, &V)>(&self, mut func: F) {
+        if self.stale() {
+            return;
+        }
+
         for (key, value) in self.entries.iter() {
             func(key, value);
         }
@@ -417,6 +460,10 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
 
     /// How many entries are in memory.
     pub fn len(&self) -> usize {
+        if self.stale() {
+            return 0;
+        }
+
         self.entries.len()
     }
 
@@ -451,6 +498,43 @@ impl<K: StoreKey, V: StoreValue> Store<K, V> {
         if !self.loaded {
             self.sync();
         }
+    }
+
+    /// Whether the in-memory state belongs to an environment that is no
+    /// longer active. One relaxed atomic load for bound stores; unbound ones
+    /// are never stale.
+    fn stale(&self) -> bool {
+        match self.generation {
+            Some(generation) => generation != crate::environment::generation(),
+            None => false,
+        }
+    }
+
+    /// Drops everything belonging to the previous environment and reopens the
+    /// storage against the active one.
+    ///
+    /// The eager rescan is not performed here: `loaded` is left `false`, so
+    /// the caller's ordinary refresh ingests the new environment in the same
+    /// operation.
+    fn reset_if_stale(&mut self) {
+        if !self.stale() {
+            return;
+        }
+
+        // `stale` implies `generation` and an environment-bound namespace.
+        let (Some(namespace), Some(_)) = (&self.namespace, self.generation) else {
+            return;
+        };
+
+        log::debug!("Environment switched, resetting the store for {namespace}");
+
+        // Generation first, storage second, mirroring `new`: a switch landing
+        // in between reads as stale again, never as up to date.
+        self.generation = Some(crate::environment::generation());
+        self.storage = Some(super::storage::open(namespace.as_str()));
+        self.entries.clear();
+        self.known.clear();
+        self.loaded = matches!(self.cache, CacheOption::Lazy);
     }
 }
 
@@ -721,6 +805,53 @@ mod tests {
         assert!(cache.remove(&"kernel".to_string()).is_some());
         let error = cache.insert("kernel".to_string(), kernel(2));
         assert!(matches!(error, Err(StoreError::DuplicatedKey { .. })));
+    }
+
+    /// A bound store follows the environment: a switch makes reads miss
+    /// instead of serving the old environment, and the next `&mut` access
+    /// reopens against the new one.
+    #[test_log::test]
+    #[serial_test::serial]
+    #[cfg_attr(miri, ignore)]
+    fn switching_environments_resets_bound_stores() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+
+        crate::environment::set_root(first.path());
+        let mut store = Store::<String, u32>::new(eager("reset"));
+        store.insert("key".to_string(), 1).unwrap();
+        assert_eq!(store.get(&"key".to_string()), Some(&1));
+
+        // The old environment's entries are never served after the switch.
+        crate::environment::set_root(second.path());
+        assert_eq!(store.get(&"key".to_string()), None);
+        assert_eq!(store.len(), 0);
+        assert!(store.pending_load());
+
+        // The next write lands in the new environment, with no conflict
+        // against the value the old one holds.
+        store.insert("key".to_string(), 2).unwrap();
+        assert_eq!(store.get(&"key".to_string()), Some(&2));
+
+        // Switching back serves the first environment's value again.
+        crate::environment::set_root(first.path());
+        store.sync();
+        assert_eq!(store.get(&"key".to_string()), Some(&1));
+    }
+
+    /// Stores on an explicit or absent storage are not bound to the
+    /// environment and must not reset on a switch.
+    #[test_log::test]
+    #[serial_test::serial]
+    #[cfg_attr(miri, ignore)]
+    fn unbound_stores_survive_environment_switches() {
+        let root = tempfile::tempdir().unwrap();
+
+        let mut store = Store::<String, u32>::new(StoreOptions::new());
+        store.insert("key".to_string(), 1).unwrap();
+
+        crate::environment::set_root(root.path());
+        assert_eq!(store.get(&"key".to_string()), Some(&1));
     }
 
     #[test]

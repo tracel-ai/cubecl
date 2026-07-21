@@ -125,22 +125,24 @@ impl Database {
     pub fn open_active() -> Option<Self> {
         // One snapshot: pairing `root()` with `active()` would let a concurrent
         // `activate` or `set_root` land us in a database belonging to neither.
-        let (root, name) = crate::environment::active_location();
-
-        Self::open_at(root, &name)
+        Self::open_path(crate::environment::path())
     }
 
     /// Opens the database of a named environment under `root`.
     pub fn open_at<P: AsRef<Path>>(root: P, environment: &str) -> Option<Self> {
-        let root = root.as_ref();
-        let path = root.join(db_file_name(environment));
+        Self::open_path(root.as_ref().join(db_file_name(environment)))
+    }
 
+    /// Opens the database file at `path` through the process-wide registry.
+    fn open_path(path: PathBuf) -> Option<Self> {
         let mut opened = OPENED.lock();
         if let Some(database) = opened.get(&path) {
             return Some(database.clone());
         }
 
-        if let Err(err) = std::fs::create_dir_all(root) {
+        if let Some(root) = path.parent()
+            && let Err(err) = std::fs::create_dir_all(root)
+        {
             log::error!(
                 "cubecl cache: create_dir_all({root:?}) failed: {err}; \
                  persistence is disabled for this root"

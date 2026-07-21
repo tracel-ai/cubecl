@@ -7,7 +7,8 @@ pub enum CacheConfig {
     #[serde(rename = "local")]
     Local,
 
-    /// Stores cache in the project's `target` directory (default).
+    /// Stores cache in the project's `target/environment` directory
+    /// (default).
     #[default]
     #[serde(rename = "target")]
     Target,
@@ -44,7 +45,7 @@ impl CacheConfig {
                 // Search for Cargo.toml in parent directories to locate project root.
                 loop {
                     if let Ok(true) = std::fs::exists(dir.join("Cargo.toml")) {
-                        return dir.join("target");
+                        return dir.join("target").join("environment");
                     }
 
                     if !dir.pop() {

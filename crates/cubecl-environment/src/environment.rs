@@ -2,7 +2,12 @@
 //!
 //! An environment is one named local store: a single database holding every
 //! namespace this machine has warmed. Exactly one is active at a time, and
-//! everything opened afterwards goes to it.
+//! every [`Store`] bound to it goes to it.
+//!
+//! Like `std`, the environment is a namespace rather than a value: a set of
+//! functions over one global state, not an `Environment` struct to pass
+//! around. [`store`] creates stores in it, [`bundle`] captures it for
+//! shipping, and [`activate`]/[`set_root`]/[`load`] switch it.
 //!
 //! Naming them makes it possible to keep several side by side, which is what
 //! you want when the same checkout targets more than one machine or you want a
@@ -12,15 +17,20 @@
 //! cubecl_environment::environment::activate("h100");
 //! ```
 //!
-//! Switching affects stores opened *after* the call. Existing stores keep the
-//! storage they were opened with, so activate before initializing devices,
-//! exactly where you would import a bundle.
+//! Switching is dynamic: every store bound to the environment detects the
+//! switch and resets — the in-memory cache is dropped and the storage is
+//! reopened against the new environment. Detection is one atomic load on the
+//! store's read path, so an environment that never switches costs nothing.
 
 use alloc::string::{String, ToString};
 #[cfg(std_io)]
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU32, Ordering};
 
+use crate::persistence::{StoreKey, StoreValue};
 use crate::sync::{Arc, Lazy, Mutex};
+
+pub use crate::persistence::{CacheOption, Namespace, Store, StoreOptions};
 
 /// The environment used when none is chosen.
 pub const DEFAULT: &str = "default";
@@ -44,6 +54,11 @@ struct Active {
     name: Arc<str>,
     #[cfg(std_io)]
     root: Option<std::path::PathBuf>,
+    /// An explicit database file mounted by [`load`], overriding
+    /// `<root>/<name>.db`. Cleared by [`activate`] and [`set_root`], which
+    /// select named environments again.
+    #[cfg(std_io)]
+    file: Option<std::path::PathBuf>,
 }
 
 static ACTIVE: Lazy<Mutex<Active>> = Lazy::new(|| {
@@ -51,8 +66,28 @@ static ACTIVE: Lazy<Mutex<Active>> = Lazy::new(|| {
         name: Arc::from(DEFAULT),
         #[cfg(std_io)]
         root: None,
+        #[cfg(std_io)]
+        file: None,
     })
 });
+
+/// Bumped on every switch. Stores bound to the environment record the value
+/// they were opened under and compare on access, which is what lets a switch
+/// reach stores that already exist without any registry of them: a mismatch
+/// reads as "reset before serving".
+static GENERATION: AtomicU32 = AtomicU32::new(0);
+
+/// The current environment generation. Recorded by stores at open and
+/// compared on access; see [`Store`].
+pub(crate) fn generation() -> u32 {
+    GENERATION.load(Ordering::Relaxed)
+}
+
+/// Called under the [`ACTIVE`] lock by everything that switches, so a store
+/// can never observe the new generation with the old location.
+fn switched() {
+    GENERATION.fetch_add(1, Ordering::Relaxed);
+}
 
 /// A consistent snapshot of both fields. Only the paths that need the root
 /// take it; [`active`] reads the name directly rather than allocating a
@@ -64,13 +99,19 @@ fn active_state() -> Active {
 
 /// Makes `name` the active environment.
 ///
-/// Only affects stores opened afterwards. Call it before devices are
-/// initialized, so the caches they open land in the right place.
+/// Takes effect immediately: stores bound to the previous environment reset
+/// on their next access and reopen against this one.
 pub fn activate<N: AsRef<str>>(name: N) {
     let name = sanitize(name.as_ref());
     log::debug!("Activating environment '{name}'");
 
-    ACTIVE.lock().name = name.into();
+    let mut active = ACTIVE.lock();
+    active.name = name.into();
+    #[cfg(std_io)]
+    {
+        active.file = None;
+    }
+    switched();
 }
 
 /// The active environment.
@@ -85,13 +126,38 @@ pub fn active() -> Arc<str> {
 
 /// Sets the directory environments are kept in.
 ///
-/// Like [`activate`], this only affects stores opened afterwards.
+/// Like [`activate`], this takes effect immediately for every bound store.
 #[cfg(std_io)]
 pub fn set_root<P: Into<std::path::PathBuf>>(root: P) {
     let root = root.into();
     log::debug!("Environments rooted at {root:?}");
 
-    ACTIVE.lock().root = Some(root);
+    let mut active = ACTIVE.lock();
+    active.root = Some(root);
+    active.file = None;
+    switched();
+}
+
+/// Mounts the database at `file` as the active environment.
+///
+/// This is how a shipped [`BundleFormat::Sqlite`](crate::bundle::BundleFormat)
+/// bundle is used in place: a bundle file carries the same schema as an
+/// environment, so loading it makes its entries the ones every bound store
+/// serves, with nothing copied. Stores reset on their next access, exactly as
+/// with [`activate`].
+///
+/// The file stays the environment until [`activate`] or [`set_root`] selects
+/// a named one again. Writes (newly tuned keys, freshly compiled kernels) land
+/// in it like in any environment; if its location is read-only, they degrade
+/// to in-memory persistence as usual.
+#[cfg(std_io)]
+pub fn load<P: Into<std::path::PathBuf>>(file: P) {
+    let file = file.into();
+    log::debug!("Loading environment from {file:?}");
+
+    let mut active = ACTIVE.lock();
+    active.file = Some(file);
+    switched();
 }
 
 /// The directory environments are kept in, defaulting to the standard cache
@@ -101,30 +167,22 @@ pub fn root() -> std::path::PathBuf {
     active_state().root_or_default()
 }
 
-/// The database file of the active environment.
+/// The database file of the active environment: the file mounted by
+/// [`load`], or `<root>/<name>.db`.
 ///
-/// Name and root come from one snapshot, so this never mixes the name from one
+/// Everything comes from one snapshot, so this never mixes the name from one
 /// configuration with the root from another.
 #[cfg(std_io)]
 pub fn path() -> std::path::PathBuf {
-    let (root, name) = active_location();
-
-    root.join(file_name(&name))
-}
-
-/// The directory environments are kept in and the active environment's name,
-/// read from a single snapshot.
-///
-/// Callers needing both must use this rather than pairing [`root`] with
-/// [`active`]: those are two separate reads, and a concurrent [`activate`] or
-/// [`set_root`] between them yields the root of one configuration with the
-/// name of another.
-#[cfg(std_io)]
-pub fn active_location() -> (std::path::PathBuf, Arc<str>) {
     let active = active_state();
-    let name = active.name.clone();
 
-    (active.root_or_default(), name)
+    match active.file.clone() {
+        Some(file) => file,
+        None => {
+            let name = active.name.clone();
+            active.root_or_default().join(file_name(&name))
+        }
+    }
 }
 
 #[cfg(std_io)]
@@ -185,6 +243,65 @@ pub fn list() -> Vec<String> {
 
     names.sort();
     names
+}
+
+/// A [`Store`] created from the options, bound to the active environment
+/// whenever the options name a storage.
+///
+/// ```ignore
+/// let store: Store<Key, Value> = cubecl_environment::environment::store(
+///     StoreOptions::new()
+///         .storage(Namespace::new("cuda/ptx"))
+///         .cache(CacheOption::Lazy),
+/// );
+/// ```
+pub fn store<K: StoreKey, V: StoreValue>(options: StoreOptions) -> Store<K, V> {
+    Store::new(options)
+}
+
+/// The active environment, captured for shipping.
+///
+/// [`save`](Bundle::save) is the whole API: it exports what the environment
+/// holds into a bundle file another machine can [`load`] or
+/// [`import`](crate::bundle::import).
+#[cfg(native_cache)]
+#[derive(Debug, Clone)]
+pub struct Bundle {
+    /// The database file the environment lived in when captured.
+    source: std::path::PathBuf,
+    /// The environment's name, which becomes the bundle's default name.
+    name: String,
+}
+
+/// Captures the active environment; see [`Bundle`].
+#[cfg(native_cache)]
+pub fn bundle() -> Bundle {
+    Bundle {
+        source: path(),
+        name: active().to_string(),
+    }
+}
+
+#[cfg(native_cache)]
+impl Bundle {
+    /// Exports the captured environment to `out` in `format`.
+    ///
+    /// A thin front for [`bundle::export`](crate::bundle::export) over this
+    /// one environment; use `export` directly to merge several roots or
+    /// restrict the namespaces.
+    pub fn save<P: AsRef<std::path::Path>>(
+        &self,
+        out: P,
+        format: crate::bundle::BundleFormat,
+    ) -> Result<crate::bundle::BundleManifest, crate::bundle::BundleError> {
+        let options = crate::bundle::ExportOptions {
+            name: self.name.clone(),
+            format,
+            ..Default::default()
+        };
+
+        crate::bundle::export(&[&self.source], out, &options)
+    }
 }
 
 /// What the active environment currently holds, one row per namespace.

@@ -627,6 +627,48 @@ fn environments_are_isolated_and_switchable() {
     environment::activate(environment::DEFAULT);
 }
 
+/// The in-place path: `environment::bundle()` captures the active
+/// environment, and `environment::load` mounts the saved file as the active
+/// environment — entries are served from it directly, nothing is imported,
+/// and stores that already exist reset onto it.
+#[test]
+#[serial_test::serial]
+fn a_saved_bundle_can_be_loaded_in_place() {
+    use cubecl_environment::environment;
+
+    let warm_root = tempfile::tempdir().unwrap();
+    let cold_root = tempfile::tempdir().unwrap();
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let bundle_path = bundle_dir.path().join("shipped.db");
+
+    warm(warm_root.path(), "autotune", "device0/matmul", &[("k", 7)]);
+    environment::bundle()
+        .save(&bundle_path, BundleFormat::Sqlite)
+        .unwrap();
+
+    // A machine with a cold environment, holding a store opened before the
+    // bundle arrives.
+    let mut store = open(cold_root.path(), "autotune", "device0/matmul");
+    assert_eq!(store.get(&"k".to_string()), None);
+
+    environment::load(&bundle_path);
+
+    // The existing store resets onto the bundle, and a fresh one sees it too.
+    store.sync();
+    assert_eq!(store.get(&"k".to_string()), Some(&7));
+    let fresh: Store<String, u32> = environment::store(
+        StoreOptions::new().storage(Namespace::scoped("autotune", "device0/matmul")),
+    );
+    assert_eq!(fresh.get(&"k".to_string()), Some(&7));
+
+    // The bundle was mounted, not imported: the cold environment stays cold.
+    environment::set_root(cold_root.path());
+    assert_eq!(
+        open(cold_root.path(), "autotune", "device0/matmul").get(&"k".to_string()),
+        None
+    );
+}
+
 /// Importing must land in the active environment, not somewhere fixed.
 #[test]
 #[serial_test::serial]
