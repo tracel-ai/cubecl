@@ -203,9 +203,7 @@ fn read_meta(database: &Database, key: &str) -> Result<Option<String>, BundleErr
 #[cfg(native_cache)]
 fn is_missing_meta(err: &rusqlite::Error) -> bool {
     match err {
-        rusqlite::Error::SqliteFailure(err, _)
-            if err.code == rusqlite::ErrorCode::NotADatabase =>
-        {
+        rusqlite::Error::SqliteFailure(err, _) if err.code == rusqlite::ErrorCode::NotADatabase => {
             true
         }
         rusqlite::Error::SqliteFailure(_, Some(message))
