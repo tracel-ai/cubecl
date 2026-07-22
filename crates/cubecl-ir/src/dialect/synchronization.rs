@@ -8,6 +8,9 @@ use pliron::{
 
 use crate::{CanMaterialize, NoMemoryEffect, interfaces::Synchronizes, prelude::*};
 
+/// Scope that the synchronization should apply to. This is a *minimum*, when fine-grained control
+/// is not available it should synchronize at the smallest scope that includes this scope
+/// (i.e. `SyncScope::Plane` may be implemented by a `workgroupBarrier()`)
 #[format]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub enum SyncScope {

@@ -43,9 +43,10 @@ macro_rules! lower_unop {
                 $crate::compiler::wgsl::lower::closure_inference_hack::<$ty, bool>(self, ctx, $pred)
             }
 
-            fn lower(&self, scope: &Scope) -> Vec<Value> {
-                define_scalar!(T);
-                define_size!(S);
+            fn lower(&self, scope: &cubecl_ir::Scope) -> Vec<Value> {
+                use cubecl_core::frontend::ReadValue;
+                cubecl_core::define_scalar!(T);
+                cubecl_core::define_size!(S);
                 let input = self.get_operand(scope.ctx());
                 scope.register_value_type::<T, S>(input);
                 vec![$name::expand::<T, S>(scope, input.into()).read_value(scope)]

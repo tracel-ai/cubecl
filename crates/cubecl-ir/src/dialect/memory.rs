@@ -35,7 +35,7 @@ use crate::{
     AddressSpace, CanMaterialize, NoSideEffects, Pure,
     attributes::IndexAttr,
     dialect::{general::PoisonOp, ptr_value_ty},
-    interfaces::{IndexableType, aliasing::AliasingOp},
+    interfaces::{IndexableType, TriviallyUnrollable, aliasing::AliasingOp},
     prelude::*,
     types::{PointerType, scalar::IndexType},
 };
@@ -221,7 +221,7 @@ pub struct UnrelatedAllocInfo;
 
 #[cube_op(name = "memory.load")]
 #[result_ty(from_inputs = ptr_value_ty)]
-#[op_interfaces(OperandNOfType<0, PointerType>)]
+#[op_interfaces(OperandNOfType<0, PointerType>, TriviallyUnrollable)]
 #[op_traits(CanMaterialize, NoSideEffects)]
 pub struct LoadOp {
     #[operand(ptr_read)]
@@ -264,7 +264,7 @@ pub enum StoreError {
 
 #[cube_op(name = "memory.store", verifier = "custom")]
 #[result_ty(none)]
-#[op_interfaces(OperandNOfType<0, PointerType>)]
+#[op_interfaces(OperandNOfType<0, PointerType>, TriviallyUnrollable)]
 #[op_traits(CanMaterialize)]
 pub struct StoreOp {
     #[operand(ptr_write)]

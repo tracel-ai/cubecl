@@ -136,7 +136,7 @@ impl Analysis for PointerSource {
     }
 }
 
-#[derive(new)]
+#[derive(new, Debug)]
 pub struct GlobalVisibility {
     pub visibility: HashMap<usize, BufferVisibility>,
 }

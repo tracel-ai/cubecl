@@ -1,6 +1,10 @@
+pub mod atomic;
+pub mod bitwise;
 pub mod branch;
 pub mod cmp;
 pub mod general;
 pub mod math;
 pub mod memory;
+pub mod plane;
+pub mod sync;
 pub mod vector;

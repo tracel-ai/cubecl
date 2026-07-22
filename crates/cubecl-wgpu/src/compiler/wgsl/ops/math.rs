@@ -10,148 +10,121 @@ use crate::compiler::wgsl::{
     to_wgsl::wgsl_op_with_out,
 };
 
-wgsl_op_with_out!(SAbsOp, |op, ctx| {
-    format!("abs({})", op.input(ctx).name(ctx))
-});
-wgsl_op_with_out!(FAbsOp, |op, ctx| {
+wgsl_op_with_out!(SAbsOp, FAbsOp; |op, ctx| {
     format!("abs({})", op.input(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(ExpOp, |op, ctx| {
+wgsl_op_with_out!(ExpOp; |op, ctx| {
     format!("exp({})", op.input(ctx).name(ctx))
 });
-wgsl_op_with_out!(LogOp, |op, ctx| {
+wgsl_op_with_out!(LogOp; |op, ctx| {
     format!("log({})", op.input(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(SinOp, |op, ctx| {
+wgsl_op_with_out!(SinOp; |op, ctx| {
     format!("sin({})", op.input(ctx).name(ctx))
 });
-wgsl_op_with_out!(CosOp, |op, ctx| {
+wgsl_op_with_out!(CosOp; |op, ctx| {
     format!("cos({})", op.input(ctx).name(ctx))
 });
-wgsl_op_with_out!(TanOp, |op, ctx| {
+wgsl_op_with_out!(TanOp; |op, ctx| {
     format!("tan({})", op.input(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(SinhOp, |op, ctx| {
+wgsl_op_with_out!(SinhOp; |op, ctx| {
     format!("sinh({})", op.input(ctx).name(ctx))
 });
-wgsl_op_with_out!(CoshOp, |op, ctx| {
+wgsl_op_with_out!(CoshOp; |op, ctx| {
     format!("cosh({})", op.input(ctx).name(ctx))
 });
-wgsl_op_with_out!(TanhOp, |op, ctx| {
+wgsl_op_with_out!(TanhOp; |op, ctx| {
     format!("tanh({})", op.input(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(ArcSinOp, |op, ctx| {
+wgsl_op_with_out!(ArcSinOp; |op, ctx| {
     format!("asin({})", op.input(ctx).name(ctx))
 });
-wgsl_op_with_out!(ArcCosOp, |op, ctx| {
+wgsl_op_with_out!(ArcCosOp; |op, ctx| {
     format!("acos({})", op.input(ctx).name(ctx))
 });
-wgsl_op_with_out!(ArcTanOp, |op, ctx| {
+wgsl_op_with_out!(ArcTanOp; |op, ctx| {
     format!("atan({})", op.input(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(ArcSinhOp, |op, ctx| {
+wgsl_op_with_out!(ArcSinhOp; |op, ctx| {
     format!("asinh({})", op.input(ctx).name(ctx))
 });
-wgsl_op_with_out!(ArcCoshOp, |op, ctx| {
+wgsl_op_with_out!(ArcCoshOp; |op, ctx| {
     format!("acosh({})", op.input(ctx).name(ctx))
 });
-wgsl_op_with_out!(ArcTanhOp, |op, ctx| {
+wgsl_op_with_out!(ArcTanhOp; |op, ctx| {
     format!("atanh({})", op.input(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(ArcTan2Op, |op, ctx| {
+wgsl_op_with_out!(ArcTan2Op; |op, ctx| {
     let lhs = op.lhs(ctx).name(ctx);
     format!("atan2({lhs}, {})", op.rhs(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(DegreesOp, |op, ctx| {
+wgsl_op_with_out!(DegreesOp; |op, ctx| {
     format!("degrees({})", op.input(ctx).name(ctx))
 });
-wgsl_op_with_out!(RadiansOp, |op, ctx| {
+wgsl_op_with_out!(RadiansOp; |op, ctx| {
     format!("radians({})", op.input(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(RoundOp, |op, ctx| {
+wgsl_op_with_out!(RoundOp; |op, ctx| {
     format!("round({})", op.input(ctx).name(ctx))
 });
-wgsl_op_with_out!(FloorOp, |op, ctx| {
+wgsl_op_with_out!(FloorOp; |op, ctx| {
     format!("floor({})", op.input(ctx).name(ctx))
 });
-wgsl_op_with_out!(CeilOp, |op, ctx| {
+wgsl_op_with_out!(CeilOp; |op, ctx| {
     format!("ceil({})", op.input(ctx).name(ctx))
 });
-wgsl_op_with_out!(TruncOp, |op, ctx| {
+wgsl_op_with_out!(TruncOp; |op, ctx| {
     format!("trunc({})", op.input(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(SqrtOp, |op, ctx| {
+wgsl_op_with_out!(SqrtOp; |op, ctx| {
     format!("sqrt({})", op.input(ctx).name(ctx))
 });
-wgsl_op_with_out!(RsqrtOp, |op, ctx| {
+wgsl_op_with_out!(RsqrtOp; |op, ctx| {
     format!("inverseSqrt({})", op.input(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(SNegOp, |op, ctx| {
-    format!("-{}", op.input(ctx).name(ctx))
-});
-wgsl_op_with_out!(FNegOp, |op, ctx| {
+wgsl_op_with_out!(SNegOp, FNegOp; |op, ctx| {
     format!("-{}", op.input(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(IAddOp, |op, ctx| {
-    format!("{} + {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
-});
-wgsl_op_with_out!(FAddOp, |op, ctx| {
+wgsl_op_with_out!(IAddOp, FAddOp; |op, ctx| {
     format!("{} + {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(ISubOp, |op, ctx| {
-    format!("{} - {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
-});
-wgsl_op_with_out!(FSubOp, |op, ctx| {
+wgsl_op_with_out!(ISubOp, FSubOp; |op, ctx| {
     format!("{} - {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(IMulOp, |op, ctx| {
-    format!("{} * {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
-});
-wgsl_op_with_out!(FMulOp, |op, ctx| {
+wgsl_op_with_out!(IMulOp, FMulOp; |op, ctx| {
     format!("{} * {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(SDivOp, |op, ctx| {
-    format!("{} / {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
-});
-wgsl_op_with_out!(UDivOp, |op, ctx| {
-    format!("{} / {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
-});
-wgsl_op_with_out!(FDivOp, |op, ctx| {
+wgsl_op_with_out!(SDivOp, UDivOp, FDivOp; |op, ctx| {
     format!("{} / {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(SRemOp, |op, ctx| {
-    format!("{} % {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
-});
-wgsl_op_with_out!(URemOp, |op, ctx| {
-    format!("{} % {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
-});
-wgsl_op_with_out!(FRemOp, |op, ctx| {
+wgsl_op_with_out!(SRemOp, URemOp, FRemOp; |op, ctx| {
     format!("{} % {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(FmaOp, |op, ctx| {
+wgsl_op_with_out!(FmaOp; |op, ctx| {
     let a = op.a(ctx).name(ctx);
     let b = op.b(ctx).name(ctx);
     let c = op.c(ctx).name(ctx);
     format!("fma({a}, {b}, {c})",)
 });
 
-wgsl_op_with_out!(SimplePowOp, |op, ctx| {
+wgsl_op_with_out!(SimplePowOp; |op, ctx| {
     format!("pow({}, {})", op.base(ctx).name(ctx), op.exp(ctx).name(ctx))
 });
 
@@ -161,7 +134,7 @@ pub struct WgslTanhOp {
     pub input: Value,
 }
 
-wgsl_op_with_out!(WgslTanhOp, |op, ctx| {
+wgsl_op_with_out!(WgslTanhOp; |op, ctx| {
     format!("tanh({})", op.input(ctx).name(ctx))
 });
 

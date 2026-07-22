@@ -5,7 +5,6 @@ pub mod lower;
 pub mod metadata;
 pub mod ops;
 pub mod shader;
-mod subgroup;
 pub mod to_wgsl;
 pub mod types;
 pub mod value;

@@ -43,7 +43,7 @@ pub struct ReadScalarBuiltin {
     value: Value,
 }
 
-wgsl_op_with_out!(ReadScalarBuiltin, |op, ctx| {
+wgsl_op_with_out!(ReadScalarBuiltin; |op, ctx| {
     format!("{}", op.value(ctx).name(ctx))
 });
 
@@ -54,7 +54,7 @@ pub struct ReadDim3Builtin {
     dim: IndexAttr,
 }
 
-wgsl_op_with_out!(ReadDim3Builtin, |op, ctx| {
+wgsl_op_with_out!(ReadDim3Builtin; |op, ctx| {
     format!("{}[{}]", op.value(ctx).name(ctx), op.dim(ctx).0)
 });
 

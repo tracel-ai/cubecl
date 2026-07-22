@@ -1,8 +1,8 @@
 use cubecl_ir::{
     prelude::*,
     types::{
-        ArrayType, RuntimeArrayType, VectorType,
-        scalar::{BoolType, Float16Type, Float32Type, Float64Type, IndexType},
+        ArrayType, AtomicType, RuntimeArrayType, VectorType,
+        scalar::{BoolType, Float16Type, Float32Type, Float64Type, FloatFlex32Type, IndexType},
     },
 };
 use pliron::{builtin::types::IntegerType, identifier::Identifier};
@@ -22,6 +22,7 @@ macro_rules! scalar_ty {
 
 scalar_ty!(Float16Type, "f16");
 scalar_ty!(Float32Type, "f32");
+scalar_ty!(FloatFlex32Type, "f32");
 scalar_ty!(Float64Type, "f64");
 scalar_ty!(BoolType, "bool");
 
@@ -46,6 +47,13 @@ impl TypeToWgsl for IntegerType {
 impl TypeToWgsl for VectorType {
     fn to_wgsl(&self, ctx: &Context) -> String {
         format!("vec{}<{}>", self.vectorization, self.inner.to_wgsl(ctx))
+    }
+}
+
+#[type_interface_impl]
+impl TypeToWgsl for AtomicType {
+    fn to_wgsl(&self, ctx: &Context) -> String {
+        format!("atomic<{}>", self.inner.to_wgsl(ctx))
     }
 }
 

@@ -1,5 +1,6 @@
 use cubecl_ir::{
-    AddressSpace, CanMaterialize, NoSideEffects, Scope, dialect::memory::*, ident, prelude::*,
+    AddressSpace, CanMaterialize, GlobalState, NoSideEffects, Scope, dialect::memory::*, ident,
+    prelude::*,
 };
 use pliron::attribute::AttrObj;
 
@@ -25,7 +26,7 @@ wgsl_op!(DeclareLocalOp, |op, ctx| {
     let name = op.get_result(ctx).name(ctx);
     let init = op.initializer(ctx).map(|init| attr_to_wgsl(ctx, &**init));
     let init = init.map(|init| format!("= {init}")).unwrap_or_default();
-    format!("var<function> {name}_store: {value_ty}{init};\nlet {name} = &{name}_store;")
+    format!("var<function> {name}_store: {value_ty}{init};\nlet {name} = &{name}_store;\n")
 });
 
 #[op_interface_impl]
@@ -39,10 +40,10 @@ impl LowerOp for DeclareVariableOp {
             AddressSpace::Global(_) => panic!("Global vars not supported"),
             AddressSpace::Shared => {
                 let name = ident(format!("shared_{}", self.get_result(ctx).name(ctx)));
-                let module = self.get_operation().parent_module(ctx).get_body(ctx, 0);
-                let var = GlobalVariableOp::new(ctx, value_ty, addr_space);
+                let var = GlobalVariableOp::new(ctx, value_ty, addr_space, None, None);
+                let entry = ctx.aux_ty::<GlobalState>().entry_func.get_operation();
                 var.set_symbol_name(ctx, name.clone());
-                var.get_operation().insert_at_front(module, ctx);
+                var.get_operation().insert_before(ctx, entry);
                 vec![scope.register_with_result(&AddressOfOp::new(ctx, ty, name))]
             }
             AddressSpace::Local => {
@@ -54,16 +55,17 @@ impl LowerOp for DeclareVariableOp {
     }
 }
 
-wgsl_op_with_out!(IndexOp, |op, ctx| {
+wgsl_op_with_out!(IndexOp; |op, ctx| {
     format!("&{}[{}]", op.base(ctx).name(ctx), op.index(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(LoadOp, |op, ctx| format!("*{}", op.ptr(ctx).name(ctx)));
+wgsl_op_with_out!(LoadOp; |op, ctx| format!("*{}", op.ptr(ctx).name(ctx)));
 wgsl_op!(StoreOp, |op, ctx| {
-    format!("*{} = {};", op.ptr(ctx).name(ctx), op.value(ctx).name(ctx))
+    let ptr = op.ptr(ctx).name(ctx);
+    format!("*{ptr} = {};\n", op.value(ctx).name(ctx))
 });
 wgsl_op!(CopyOp, |op, ctx| {
     assert_eq!(op.len(ctx).0, 1, "WGSL doesn't support bulk copy");
     let dest = op.destination(ctx).name(ctx);
-    format!("*{dest} = *{};", op.source(ctx).name(ctx))
+    format!("*{dest} = *{};\n", op.source(ctx).name(ctx))
 });
