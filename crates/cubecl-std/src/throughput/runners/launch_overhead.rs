@@ -43,7 +43,7 @@ pub fn build_kernel<R: cubecl_runtime::runtime::Runtime>(
 pub fn launch_overhead<I: Numeric, N: Size>(
     input: &[Vector<I, N>],
     output: &mut [Vector<I, N>],
-    #[define(I)] _dtype: StorageType,
+    #[define(I)] _dtype: ElemType,
 ) {
     if ABSOLUTE_POS == 0 {
         output[0] = input[0];

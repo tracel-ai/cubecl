@@ -9,6 +9,7 @@ use cubecl_common::bytes::Bytes;
 use cubecl_core::{
     MemoryConfiguration, MemoryUsage,
     bytes::AllocationProperty,
+    ir::MemoryDeviceProperties,
     server::{
         BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ProfileError, ServerError,
     },
