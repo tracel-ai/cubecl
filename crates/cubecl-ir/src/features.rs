@@ -1,4 +1,4 @@
-use crate::{AddressType, OpaqueType, SemanticType, StorageType, Type};
+use crate::{AddressType, ElemType, OpaqueType, SemanticType, StorageType, Type};
 use alloc::collections::{BTreeMap, BTreeSet};
 
 use enumset::EnumSetType;
@@ -53,6 +53,10 @@ pub struct Types {
 /// Matrix multiplication-related features
 #[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
 pub struct MatmulFeatures {
+    /// Element types supported by a backend-native GEMM implementation.
+    pub accelerated_gemm: BTreeSet<ElemType>,
+    /// Element types supported by a backend-native grouped GEMM implementation.
+    pub accelerated_grouped_gemm: BTreeSet<ElemType>,
     /// The cmma feature enables cooperative matrix-multiply and accumulate operations.
     pub cmma: BTreeSet<MmaConfig>,
     /// Cube MMA is like cmma but at the cube level, rather than the plane level.
