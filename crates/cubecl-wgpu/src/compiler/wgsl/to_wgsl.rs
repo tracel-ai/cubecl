@@ -36,8 +36,8 @@ macro_rules! wgsl_op {
 pub(crate) use wgsl_op;
 
 macro_rules! wgsl_op_with_out {
-    ($ty: ty, $impl: expr) => {
-        #[pliron::derive::op_interface_impl]
+    ($($ty: ty),*; $impl: expr) => {
+        $(#[pliron::derive::op_interface_impl]
         impl $crate::compiler::wgsl::to_wgsl::OpToWgsl for $ty {
             fn to_wgsl(&self, ctx: &pliron::context::Context) -> String {
                 use cubecl_core::ir::prelude::*;
@@ -48,7 +48,7 @@ macro_rules! wgsl_op_with_out {
                 let out = self.get_result(ctx).fmt_left(ctx);
                 format!("{out} = {op};\n")
             }
-        }
+        })*
     };
 }
 pub(crate) use wgsl_op_with_out;

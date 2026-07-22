@@ -8,18 +8,18 @@ use crate::compiler::wgsl::{
     value::WgslValue,
 };
 
-wgsl_op_with_out!(VectorInitOp, |op, ctx| {
+wgsl_op_with_out!(VectorInitOp; |op, ctx| {
     let ty = op.result_type(ctx).to_wgsl(ctx);
     let mut values = op.values(ctx).into_iter().map(|val| val.name(ctx));
     format!("{ty}({})", values.join(", "))
 });
 
-wgsl_op_with_out!(VectorBroadcastOp, |op, ctx| {
+wgsl_op_with_out!(VectorBroadcastOp; |op, ctx| {
     let ty = op.result_type(ctx).to_wgsl(ctx);
     format!("{ty}({})", op.input(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(VectorInsertOp, |op, ctx| {
+wgsl_op_with_out!(VectorInsertOp; |op, ctx| {
     let ty = op.result_type(ctx).to_wgsl(ctx);
     let vec = op.result_type(ctx).vector_size(ctx);
     let idx = op.index(ctx).0;
@@ -35,7 +35,7 @@ wgsl_op_with_out!(VectorInsertOp, |op, ctx| {
     format!("{ty}({})", values.join(", "))
 });
 
-wgsl_op_with_out!(VectorExtractOp, |op, ctx| {
+wgsl_op_with_out!(VectorExtractOp; |op, ctx| {
     let idx = op.index(ctx).0;
     format!("{}[{idx}]", op.vector(ctx).name(ctx))
 });
@@ -50,30 +50,25 @@ wgsl_op!(VectorInsertDynamicOp, |op, ctx| {
         "
     var {out}_tmp: {ty} = {vector};
     {out}_tmp[{index}] = {value};
-    {} = {out}_tmp;",
+    {} = {out}_tmp;
+",
         op.get_result(ctx).fmt_left(ctx)
     )
 });
 
-wgsl_op_with_out!(VectorExtractDynamicOp, |op, ctx| {
+wgsl_op_with_out!(VectorExtractDynamicOp; |op, ctx| {
     let idx = op.index(ctx).name(ctx);
     format!("{}[{idx}]", op.vector(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(MagnitudeOp, |op, ctx| {
+wgsl_op_with_out!(MagnitudeOp; |op, ctx| {
     format!("length({})", op.input(ctx).name(ctx))
 });
-wgsl_op_with_out!(NormalizeOp, |op, ctx| {
+wgsl_op_with_out!(NormalizeOp; |op, ctx| {
     format!("normalize({})", op.input(ctx).name(ctx))
 });
 
-wgsl_op_with_out!(SDotOp, |op, ctx| {
-    format!("dot({}, {})", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
-});
-wgsl_op_with_out!(UDotOp, |op, ctx| {
-    format!("dot({}, {})", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
-});
-wgsl_op_with_out!(FDotOp, |op, ctx| {
+wgsl_op_with_out!(SDotOp, UDotOp, FDotOp; |op, ctx| {
     format!("dot({}, {})", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
 });
 

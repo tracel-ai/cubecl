@@ -347,6 +347,22 @@ macro_rules! try_cast_ty {
 }
 
 #[macro_export]
+macro_rules! try_cast_op {
+    ($op: expr, $ctx: expr, $interface: ty) => {
+        op_cast::<$interface>(&*$op)
+            .ok_or_else(|| {
+                $crate::alloc::format!(
+                    "Expected op {} {} to implement {}",
+                    $op.get_opid(),
+                    $op.disp($ctx),
+                    stringify!($interface)
+                )
+            })
+            .unwrap()
+    };
+}
+
+#[macro_export]
 macro_rules! match_ty {
     (($handle: expr) { $($ty: ty => $body: expr,)*; _ => $default: expr }) => {
         (|| {

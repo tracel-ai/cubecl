@@ -12,6 +12,7 @@ use cubecl_ir::{
     },
     interfaces::{MaybeVectorizedType, TriviallyUnrollable, TypedExt},
     prelude::*,
+    try_cast_op,
     types::{ArrayType, AtomicType, PointerType, RuntimeArrayType, VectorType},
     verify_op_succ, verify_ty_succ,
 };
@@ -22,6 +23,7 @@ use pliron::{
         types::FunctionType,
     },
     graph::walkers::{WALKCONFIG_PREORDER_FORWARD, uninterruptible::mutable::walk_op},
+    printable::Printable,
 };
 
 type Mappings = HashMap<Value, Vec<Value>>;
@@ -88,38 +90,24 @@ impl UnrollableType for RuntimeArrayType {
 #[op_interface]
 pub trait CustomUnrollOp {
     verify_op_succ!();
-    fn unroll(
-        &self,
-        ctx: &mut Context,
-        mappings: &mut Mappings,
-        rewriter: &mut PassRewriter,
-        vector_size: usize,
-        result: &mut IRStatus,
-    );
+    fn unroll(&self, ctx: &mut Context, state: &mut UnrollState);
 }
 
 #[op_interface_impl]
 impl CustomUnrollOp for DeclareVariableOp {
-    fn unroll(
-        &self,
-        ctx: &mut Context,
-        mappings: &mut Mappings,
-        rewriter: &mut PassRewriter,
-        vector_size: usize,
-        result: &mut IRStatus,
-    ) {
+    fn unroll(&self, ctx: &mut Context, state: &mut UnrollState) {
         let value_ty = self.value_ty(ctx).get_type(ctx);
         let current_vec = value_ty.try_get_vector_size(ctx).unwrap_or(1);
-        if current_vec <= vector_size {
+        if current_vec <= state.max_vector_size {
             return;
         }
 
-        *result |= IRStatus::Changed;
+        state.result.ir_changed |= IRStatus::Changed;
         let result = self.get_result(ctx);
         let addr_space = *self.addr_space(ctx);
         // Align isn't handled properly, but targets that unroll ignore this anyways
         let align = *self.alignment(ctx);
-        let new_value_ty = unroll_ty(ctx, value_ty, vector_size);
+        let new_value_ty = unroll_ty(ctx, value_ty, state.max_vector_size);
         let new_ptr_ty = PointerType::get(ctx, new_value_ty, addr_space.0);
 
         // Array doesn't change size, so no need to duplicate the declaration
@@ -127,7 +115,7 @@ impl CustomUnrollOp for DeclareVariableOp {
             self.set_value_ty(ctx, new_value_ty);
             self.get_result(ctx).set_type(ctx, new_ptr_ty.into());
         } else {
-            let factor = current_vec / vector_size;
+            let factor = current_vec / state.max_vector_size;
             let mut results = vec![];
             for _ in 0..factor {
                 let init = self.initializer(ctx).map(|init| init.clone());
@@ -137,28 +125,21 @@ impl CustomUnrollOp for DeclareVariableOp {
                     .insert_before(ctx, self.get_operation());
                 results.push(new_op.get_result(ctx));
             }
-            mappings.insert(result, results);
-            rewriter.erase_operation(ctx, self.get_operation());
+            state.mappings.insert(result, results);
+            state.to_erase.push(self.get_operation());
         }
     }
 }
 
 #[op_interface_impl]
 impl CustomUnrollOp for IndexOp {
-    fn unroll(
-        &self,
-        ctx: &mut Context,
-        mappings: &mut Mappings,
-        rewriter: &mut PassRewriter,
-        vector_size: usize,
-        result: &mut IRStatus,
-    ) {
+    fn unroll(&self, ctx: &mut Context, state: &mut UnrollState) {
         let base = self.base(ctx);
         let checked = self.checked(ctx);
-        let current_vec = try_get_vec(ctx, base);
-        if current_vec > vector_size {
-            *result |= IRStatus::Changed;
-            let unroll_factor = current_vec / vector_size;
+        let current_vec = try_get_vec(ctx, self.get_result(ctx));
+        if current_vec > state.max_vector_size {
+            state.result.ir_changed |= IRStatus::Changed;
+            let unroll_factor = current_vec / state.max_vector_size;
             let unroll_const = const_usize(ctx, self, unroll_factor);
 
             let mul = IMulOp::new(ctx, self.index(ctx), unroll_const);
@@ -178,8 +159,8 @@ impl CustomUnrollOp for IndexOp {
                 })
                 .collect();
 
-            mappings.insert(self.get_result(ctx), new_results);
-            rewriter.erase_operation(ctx, self.get_operation());
+            state.mappings.insert(self.get_result(ctx), new_results);
+            state.to_erase.push(self.get_operation());
         }
     }
 }
@@ -193,24 +174,17 @@ fn const_usize(ctx: &mut Context, anchor: &dyn Op, value: usize) -> Value {
 
 #[op_interface_impl]
 impl CustomUnrollOp for VectorExtractOp {
-    fn unroll(
-        &self,
-        ctx: &mut Context,
-        mappings: &mut Mappings,
-        _rewriter: &mut PassRewriter,
-        vector_size: usize,
-        result: &mut IRStatus,
-    ) {
+    fn unroll(&self, ctx: &mut Context, state: &mut UnrollState) {
         let vector = self.vector(ctx);
         let current_vec = vector.vector_size(ctx);
-        if current_vec > vector_size {
-            *result |= IRStatus::Changed;
+        if current_vec > state.max_vector_size {
+            state.result.ir_changed |= IRStatus::Changed;
             let index = self.index(ctx).0;
 
-            let unroll_idx = index / vector_size;
-            let sub_idx = index % vector_size;
+            let unroll_idx = index / state.max_vector_size;
+            let sub_idx = index % state.max_vector_size;
 
-            let new_vector = mappings.get(&vector).expect("Should exist")[unroll_idx];
+            let new_vector = state.mappings.get(&vector).expect("Should exist")[unroll_idx];
             vector.replace_use_with(ctx, self.vector_as_use(ctx), &new_vector);
             self.set_index(ctx, sub_idx);
         }
@@ -219,25 +193,18 @@ impl CustomUnrollOp for VectorExtractOp {
 
 #[op_interface_impl]
 impl CustomUnrollOp for VectorInsertOp {
-    fn unroll(
-        &self,
-        ctx: &mut Context,
-        mappings: &mut Mappings,
-        rewriter: &mut PassRewriter,
-        vector_size: usize,
-        result: &mut IRStatus,
-    ) {
+    fn unroll(&self, ctx: &mut Context, state: &mut UnrollState) {
         let vector = self.vector(ctx);
         let value = self.value(ctx);
         let current_vec = vector.vector_size(ctx);
-        if current_vec > vector_size {
-            *result |= IRStatus::Changed;
+        if current_vec > state.max_vector_size {
+            state.result.ir_changed |= IRStatus::Changed;
             let index = self.index(ctx).0;
 
-            let unroll_idx = index / vector_size;
-            let sub_idx = index % vector_size;
+            let unroll_idx = index / state.max_vector_size;
+            let sub_idx = index % state.max_vector_size;
 
-            let vectors = mappings.get(&vector).expect("Should exist");
+            let vectors = state.mappings.get(&vector).expect("Should exist");
 
             let new_results = vectors.iter().enumerate().map(|(i, vector)| {
                 let op = if i == unroll_idx {
@@ -249,26 +216,19 @@ impl CustomUnrollOp for VectorInsertOp {
                 op.deref(ctx).get_result(0)
             });
             let new_results = new_results.collect();
-            mappings.insert(self.get_result(ctx), new_results);
-            rewriter.erase_operation(ctx, self.get_operation());
+            state.mappings.insert(self.get_result(ctx), new_results);
+            state.to_erase.push(self.get_operation());
         }
     }
 }
 
 #[op_interface_impl]
 impl CustomUnrollOp for matrix::LoadOp {
-    fn unroll(
-        &self,
-        ctx: &mut Context,
-        mappings: &mut Mappings,
-        _rewriter: &mut PassRewriter,
-        vector_size: usize,
-        result: &mut IRStatus,
-    ) {
+    fn unroll(&self, ctx: &mut Context, state: &mut UnrollState) {
         let source = self.source(ctx);
-        if source.vector_size(ctx) > vector_size {
-            *result |= IRStatus::Changed;
-            let new_source = mappings.get(&source).expect("should exist")[0];
+        if source.vector_size(ctx) > state.max_vector_size {
+            state.result.ir_changed |= IRStatus::Changed;
+            let new_source = state.mappings.get(&source).expect("should exist")[0];
             source.replace_use_with(ctx, self.source_as_use(ctx), &new_source);
         }
     }
@@ -276,25 +236,19 @@ impl CustomUnrollOp for matrix::LoadOp {
 
 #[op_interface_impl]
 impl CustomUnrollOp for matrix::StoreOp {
-    fn unroll(
-        &self,
-        ctx: &mut Context,
-        mappings: &mut Mappings,
-        _rewriter: &mut PassRewriter,
-        vector_size: usize,
-        result: &mut IRStatus,
-    ) {
+    fn unroll(&self, ctx: &mut Context, state: &mut UnrollState) {
         let dest = self.destination(ctx);
-        if dest.vector_size(ctx) > vector_size {
-            *result |= IRStatus::Changed;
-            let new_dest = mappings.get(&dest).expect("should exist")[0];
+        if dest.vector_size(ctx) > state.max_vector_size {
+            state.result.ir_changed |= IRStatus::Changed;
+            let new_dest = state.mappings.get(&dest).expect("should exist")[0];
             dest.replace_use_with(ctx, self.destination_as_use(ctx), &new_dest);
         }
     }
 }
 
-struct UnrollState {
+pub struct UnrollState {
     mappings: Mappings,
+    to_erase: Vec<Ptr<Operation>>,
     max_vector_size: VectorSize,
     result: PassResult,
     rewriter: PassRewriter,
@@ -312,6 +266,7 @@ impl Pass for UnrollPass {
 
         let mut state = UnrollState {
             mappings: Default::default(),
+            to_erase: Default::default(),
             max_vector_size: self.max_vector_size,
             result: Default::default(),
             rewriter: PassRewriter::default(),
@@ -324,41 +279,44 @@ impl Pass for UnrollPass {
             op,
             |ctx, state, node| {
                 if let IRNode::Operation(op) = node {
-                    let ctx2 = dupe_ctx(ctx);
-                    let op_ref = op.deref(ctx);
-                    let mut opds = op_ref.results();
-                    let mut res = op_ref.results();
-                    let unroll_opds = opds.any(|it| should_unroll(ctx, it, state.max_vector_size));
-                    let unroll_res = res.any(|it| should_unroll(ctx, it, state.max_vector_size));
+                    let unroll_opds = op
+                        .operands(ctx)
+                        .iter()
+                        .any(|it| should_unroll(ctx, it, state.max_vector_size));
+                    let unroll_res = op
+                        .results(ctx)
+                        .iter()
+                        .any(|it| should_unroll(ctx, it, state.max_vector_size));
+                    let dyn_op = op.dyn_op(ctx);
 
-                    if let Some(custom) = op_cast::<dyn CustomUnrollOp>(&*op.dyn_op(ctx)) {
-                        custom.unroll(
-                            ctx2,
-                            &mut state.mappings,
-                            &mut state.rewriter,
-                            state.max_vector_size,
-                            &mut state.result.ir_changed,
-                        );
+                    if let Some(custom) = op_cast::<dyn CustomUnrollOp>(&*dyn_op) {
+                        custom.unroll(ctx, state);
                     } else if unroll_opds || unroll_res {
                         state.result.ir_changed |= IRStatus::Changed;
-                        unroll_default(
-                            ctx2,
-                            &mut state.mappings,
-                            &mut state.rewriter,
-                            op,
-                            state.max_vector_size,
-                        );
+                        unroll_default(ctx, state, op);
                     }
                 }
             },
         );
+
+        while !state.to_erase.is_empty() {
+            // Pop the next op that no longer has uses. This ensures we always start at the end of
+            // the def-use chain
+            let next = state
+                .to_erase
+                .iter()
+                .position(|it| !it.deref(ctx).has_use())
+                .expect("Erased ops should only have uses in other erased ops");
+            let op = state.to_erase.remove(next);
+            state.rewriter.erase_operation(ctx, op);
+        }
+
         Ok(state.result)
     }
 }
 
 impl UnrollPass {
     fn unroll_func(&self, ctx: &mut Context, op: Ptr<Operation>) {
-        let ctx2 = dupe_ctx(ctx);
         let func = op.as_op::<FuncOp>(ctx).expect("Should be func");
         let entry_block = func.get_entry_block(ctx);
         let func_ty = func.get_attr_func_type(ctx).unwrap().get_type(ctx);
@@ -369,7 +327,7 @@ impl UnrollPass {
 
         for (i, arg) in func_ty.arg_types().into_iter().enumerate() {
             if should_unroll(ctx, arg, self.max_vector_size) {
-                let new_ty = unroll_ty(ctx2, arg, self.max_vector_size);
+                let new_ty = unroll_ty(ctx, arg, self.max_vector_size);
                 new_func_inputs.push(new_ty);
                 let block_arg = entry_block.deref(ctx).get_argument(i);
                 block_arg.set_type(ctx, new_ty);
@@ -383,44 +341,42 @@ impl UnrollPass {
     }
 }
 
-fn unroll_default(
-    ctx: &mut Context,
-    mappings: &mut Mappings,
-    rewriter: &mut PassRewriter,
-    op: Ptr<Operation>,
-    max_vector_size: usize,
-) {
-    let ctx2 = dupe_ctx(ctx);
-    let op_ref = op.deref(ctx);
-    let values = op_ref.operands().chain(op_ref.results());
+fn unroll_default(ctx: &mut Context, state: &mut UnrollState, op: Ptr<Operation>) {
+    let values = op.operands(ctx).into_iter().chain(op.results(ctx));
     let current_vec = values.map(|it| try_get_vec(ctx, it)).max().unwrap();
-    let factor = current_vec / max_vector_size;
+    let factor = current_vec / state.max_vector_size;
     let dyn_op = op.dyn_op(ctx);
-    let rematerialize = op_cast::<dyn TriviallyUnrollable>(&*dyn_op).expect("Should be unrollable");
-    let new_out_ty = op_ref
-        .results()
-        .map(|it| unroll_ty(ctx2, it, max_vector_size))
+    let rematerialize = try_cast_op!(dyn_op, ctx, dyn TriviallyUnrollable);
+    let new_out_ty = op
+        .results(ctx)
+        .into_iter()
+        .map(|it| unroll_ty(ctx, it, state.max_vector_size))
         .collect::<Vec<_>>();
     let mut new_results = vec![];
 
     for unroll_idx in 0..factor {
-        let opds = op_ref.operands().map(|opd| {
-            if should_unroll(ctx, opd, max_vector_size) {
-                mappings.get(&opd).expect("Should have mapping")[unroll_idx]
+        let opds = op.operands(ctx).into_iter().map(|opd| {
+            if should_unroll(ctx, opd, state.max_vector_size) {
+                if !state.mappings.contains_key(&opd) {
+                    std::println!("opd: {}, mappings: {:?}", opd.disp(ctx), state.mappings);
+                }
+                state.mappings.get(&opd).expect("Should have mapping")[unroll_idx]
             } else {
                 opd
             }
         });
-        let attrs = op_ref.attributes.clone();
-        let new_op = rematerialize.materialize(ctx2, new_out_ty.clone(), opds.collect(), attrs);
+        let attrs = op.deref(ctx).attributes.clone();
+        let new_op = rematerialize.materialize(ctx, new_out_ty.clone(), opds.collect(), attrs);
         new_results.extend(new_op.deref(ctx).results());
         new_op.insert_before(ctx, op);
     }
 
     if !new_results.is_empty() {
-        mappings.insert(op.deref(ctx).get_result(0), new_results);
+        state
+            .mappings
+            .insert(op.deref(ctx).get_result(0), new_results);
     }
-    rewriter.erase_operation(ctx2, op);
+    state.to_erase.push(op);
 }
 
 fn should_unroll(ctx: &Context, value: impl Typed, max_vector_size: usize) -> bool {
@@ -438,15 +394,9 @@ fn try_get_vec(ctx: &Context, value: impl Typed) -> usize {
     value.try_get_vector_size(ctx).unwrap_or(1)
 }
 
-fn unroll_ty(ctx: &mut Context, ty: impl Typed, vectorization: usize) -> TypeHandle {
+fn unroll_ty(ctx: &Context, ty: impl Typed, vectorization: usize) -> TypeHandle {
     let ty = ty.get_type(ctx).deref(ctx);
     type_cast::<dyn UnrollableType>(&*ty)
         .expect("Should be unrollable")
         .with_vector_size(ctx, vectorization)
-}
-
-/// Unsafely duplicate the context ref because `with_vector_size` is uncallable otherwise
-fn dupe_ctx<'b>(ctx: &mut Context) -> &'b mut Context {
-    let tmp: *mut Context = ctx;
-    unsafe { &mut *tmp }
 }

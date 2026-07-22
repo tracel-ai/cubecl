@@ -189,6 +189,7 @@ pub trait ContextExt {
 }
 
 impl ContextExt for Context {
+    #[track_caller]
     fn aux_ty<T: 'static>(&self) -> &T {
         let key = ty_key::<T>(self)
             .ok_or_else(|| format!("Key for {} should exist", type_name::<T>()))
@@ -196,6 +197,7 @@ impl ContextExt for Context {
         self.aux_data[key].downcast_ref().unwrap()
     }
 
+    #[track_caller]
     fn aux_ty_mut<T: 'static>(&mut self) -> &mut T {
         let key = ty_key::<T>(self)
             .ok_or_else(|| format!("Key for {} should exist", type_name::<T>()))

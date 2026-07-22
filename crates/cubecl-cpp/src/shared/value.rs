@@ -15,7 +15,7 @@ use pliron::{
     derive::{attr_interface, attr_interface_impl},
     identifier::Identifier,
     r#type::{TypeHandle, Typed},
-    utils::apfloat::double_to_f64,
+    utils::apfloat::{Float, double_to_f64},
     value::Value,
 };
 
@@ -89,19 +89,29 @@ shared_op_with_out!(ConstantOp, |op, ctx| {
 });
 
 pub(crate) fn format_const(ctx: &Context, value: AttrObj, ty: TypeHandle) -> String {
-    let value = attr_cast::<dyn CppConstantAttr>(&*value).expect("Should be constant attr");
+    let const_attr = attr_cast::<dyn CppConstantAttr>(&*value).expect("Should be constant attr");
     // minifloats are represented as raw bits, so use special handling
     if ty.deref(ctx).is::<Float4E2M1Type>() {
-        format!("{}", e2m1::from_f64(value.as_f64(ctx)).to_bits())
+        format!("{}", e2m1::from_f64(const_attr.as_f64(ctx)).to_bits())
     } else if ty.is_float6(ctx) {
         todo!("FP6 constants are not yet supported")
     } else if ty.deref(ctx).is::<Float8E4M3Type>() {
-        format!("{}", e4m3::from_f64(value.as_f64(ctx)).to_bits())
+        format!("{}", e4m3::from_f64(const_attr.as_f64(ctx)).to_bits())
     } else if ty.deref(ctx).is::<Float8E5M2Type>() {
-        format!("{}", e5m2::from_f64(value.as_f64(ctx)).to_bits())
+        format!("{}", e5m2::from_f64(const_attr.as_f64(ctx)).to_bits())
     } else if ty.deref(ctx).is::<Float8E8M0Type>() {
-        format!("{}", ue8m0::from_f64(value.as_f64(ctx)).to_bits())
+        format!("{}", ue8m0::from_f64(const_attr.as_f64(ctx)).to_bits())
+    } else if let Some(attr) = value.downcast_ref::<FloatAttr>() {
+        if attr.val.is_nan() {
+            "(0.0f/0.0f)".into()
+        } else if attr.val.is_pos_infinity() {
+            "(1.0f/0.0f)".into()
+        } else if attr.val.is_neg_infinity() {
+            "(-1.0f/0.0f)".into()
+        } else {
+            attr.to_cpp(ctx)
+        }
     } else {
-        value.to_cpp(ctx)
+        const_attr.to_cpp(ctx)
     }
 }

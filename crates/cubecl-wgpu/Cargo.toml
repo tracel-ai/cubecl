@@ -24,6 +24,7 @@ std = [
     "cubecl-runtime/std",
     "cubecl-common/std",
     "cubecl-core/std",
+    "cubecl-opt/std",
     "sanitize-filename",
 ]
 # 'msl' and 'spirv' features are exclusive

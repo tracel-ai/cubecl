@@ -2,7 +2,9 @@ use core::cell::Ref;
 
 use cubecl_core::ir::{
     AddressSpace, ContextExt, GlobalState,
-    attributes::{ATTR_BUFFER_BINDING, ATTR_READONLY, BufferBindingAttr, FuncInterface},
+    attributes::{
+        ATTR_BUFFER_BINDING, ATTR_BUFFER_IO, BufferBindingAttr, BufferIOAttr, FuncInterface,
+    },
     interfaces::TypedExt,
     match_ty,
     prelude::*,
@@ -224,7 +226,8 @@ fn find_global_constness(ctx: &Context, idx: usize) -> bool {
         .filter_map(|i| Some((i, func.get_arg_attr(ctx, i, &ATTR_BUFFER_BINDING)?)))
         .find(|(_, binding): &(_, Ref<'_, BufferBindingAttr>)| binding.buffer_pos == idx)
         .expect("Should exist");
-    func.has_arg_attr(ctx, arg_pos.0, &ATTR_READONLY)
+    let io = func.get_arg_attr::<BufferIOAttr>(ctx, arg_pos.0, &ATTR_BUFFER_IO);
+    !io.expect("Should have IO attribute").is_writable()
 }
 
 #[pliron_type(

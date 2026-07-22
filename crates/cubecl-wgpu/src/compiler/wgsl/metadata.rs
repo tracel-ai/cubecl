@@ -1,7 +1,7 @@
 use cubecl_common::stub::LazyLock;
 use cubecl_ir::{
     AddressSpace, Scope,
-    attributes::{ATTR_BUFFER_BINDING, ATTR_READONLY, BufferBindingAttr, IndexAttr},
+    attributes::{BufferBindingAttr, BufferIOAttr, IndexAttr},
     dialect::{
         general::{BufferLenOp, ReadScalarOp, ShapeOp, StrideOp},
         math::IAddOp,
@@ -14,10 +14,7 @@ use cubecl_ir::{
 use itertools::Itertools;
 use pliron::{
     attribute::AttrObj,
-    builtin::{
-        attributes::{UnitAttr, VecAttr},
-        ops::ModuleOp,
-    },
+    builtin::{attributes::VecAttr, ops::FuncOp},
     identifier::Identifier,
 };
 
@@ -34,7 +31,7 @@ pub static STATIC_META: LazyLock<Identifier> = LazyLock::new(|| "static_meta".tr
 pub static DYNAMIC_META: LazyLock<Identifier> =
     LazyLock::new(|| "dynamic_meta".try_into().unwrap());
 
-wgsl_op_with_out!(ReadScalarOp, |op, ctx| {
+wgsl_op_with_out!(ReadScalarOp; |op, ctx| {
     let ty = op.ty(ctx).to_wgsl(ctx);
     format!("{}.scalars_{ty}[{}]", &*INFO_VAR, op.id(ctx).0)
 });
@@ -45,7 +42,7 @@ pub struct ReadStaticMetaOp {
     pub idx: IndexAttr,
 }
 
-wgsl_op_with_out!(ReadStaticMetaOp, |op, ctx| {
+wgsl_op_with_out!(ReadStaticMetaOp; |op, ctx| {
     let field = &*STATIC_META;
     format!("{}.{field}[{}]", &*INFO_VAR, op.idx(ctx).0)
 });
@@ -56,7 +53,7 @@ pub struct ReadDynamicMetaOp {
     pub idx: Value,
 }
 
-wgsl_op_with_out!(ReadDynamicMetaOp, |op, ctx| {
+wgsl_op_with_out!(ReadDynamicMetaOp; |op, ctx| {
     let field = &*DYNAMIC_META;
     format!("{}.{field}[{}]", &*INFO_VAR, op.idx(ctx).name(ctx))
 });
@@ -102,9 +99,9 @@ impl OpToWgsl for StructDefOp {
     }
 }
 
-pub fn declare_info(ctx: &mut Context, module: ModuleOp, num_buffers: usize) {
+pub fn declare_info(ctx: &mut Context, entry_func: FuncOp, num_buffers: usize) {
     let info = ctx.aux_ty::<Info>();
-    let module = module.get_body(ctx, 0);
+    let entry = entry_func.get_operation();
 
     if !info.has_info() {
         return;
@@ -126,17 +123,21 @@ pub fn declare_info(ctx: &mut Context, module: ModuleOp, num_buffers: usize) {
         fields.push(FieldAttr::new(DYNAMIC_META.clone(), ty.into()));
     }
     let struct_ = StructDefOp::new(ctx, INFO_ST.clone(), fields);
-    struct_.get_operation().insert_at_front(module, ctx);
+    struct_.get_operation().insert_before(ctx, entry);
 
     let var_ty = StructType::get(ctx, INFO_ST.clone()).to_handle();
-    let var = GlobalVariableOp::new(ctx, var_ty, AddressSpace::Global(0));
+    let binding = BufferBindingAttr::new(num_buffers, None);
+    let var = GlobalVariableOp::new(
+        ctx,
+        var_ty,
+        AddressSpace::Global(0),
+        Some(binding),
+        Some(BufferIOAttr::ReadOnly),
+    );
     var.set_symbol_name(ctx, INFO_VAR.clone());
 
-    let var = var.get_operation();
-    let binding = BufferBindingAttr::new(num_buffers, None);
-    var.set_attr(ctx, &ATTR_BUFFER_BINDING, binding);
-    var.set_attr(ctx, &ATTR_READONLY, UnitAttr::new());
-    var.insert_after(ctx, struct_.get_operation());
+    var.get_operation()
+        .insert_after(ctx, struct_.get_operation());
 }
 
 #[op_interface_impl]

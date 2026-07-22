@@ -31,9 +31,31 @@ dict_key!(
 );
 dict_key!(ATTR_BUFFER_BINDING, "buffer_binding");
 dict_key!(ATTR_TENSOR_MAP_BINDING, "tensor_map_binding");
-dict_key!(ATTR_READONLY, "binding_readonly");
-dict_key!(ATTR_READ_WRITE, "binding_read_write");
-dict_key!(ATTR_WRITEONLY, "binding_writeonly");
+
+#[pliron_attr(name = "cube.buffer_io", format, verifier = "succ")]
+#[derive(new, PartialEq, Clone, Copy, Debug)]
+pub enum BufferIOAttr {
+    ReadOnly,
+    WriteOnly,
+    ReadWrite,
+    Dead,
+}
+
+impl BufferIOAttr {
+    pub fn is_readable(&self) -> bool {
+        matches!(self, BufferIOAttr::ReadOnly | BufferIOAttr::ReadWrite)
+    }
+
+    pub fn is_writable(&self) -> bool {
+        matches!(self, BufferIOAttr::WriteOnly | BufferIOAttr::ReadWrite)
+    }
+
+    pub fn is_dead(&self) -> bool {
+        matches!(self, BufferIOAttr::Dead)
+    }
+}
+
+dict_key!(ATTR_BUFFER_IO, "binding_io");
 
 #[pliron_attr(
     name = "cube.buffer_binding",

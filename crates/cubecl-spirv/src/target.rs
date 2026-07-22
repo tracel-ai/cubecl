@@ -2,17 +2,17 @@ use cubecl_core::{
     WgpuCompilationOptions,
     ir::{
         ExpandValue, Scope, UIntKind,
-        attributes::{
-            ATTR_BUFFER_BINDING, ATTR_READONLY, ATTR_WRITEONLY, BufferBindingAttr,
-            EntrypointInterface, FuncInterface,
-        },
+        attributes::{ATTR_BUFFER_BINDING, BufferBindingAttr, EntrypointInterface, FuncInterface},
         ident,
         interfaces::TypedExt,
         metadata::Info,
         prelude::*,
     },
 };
-use cubecl_ir::dialect::BlockPtrExt;
+use cubecl_ir::{
+    attributes::{ATTR_BUFFER_IO, BufferIOAttr},
+    dialect::BlockPtrExt,
+};
 use pliron::{
     builtin::ops::FuncOp,
     graph::walkers::uninterruptible::immutable::walk_op,
@@ -79,9 +79,12 @@ impl ConvertArgsPass {
 
         for (i, arg) in args.iter().enumerate() {
             let binding = func.get_arg_attr::<BufferBindingAttr>(ctx, i, &ATTR_BUFFER_BINDING);
-            let non_writable = func.has_arg_attr(ctx, i, &ATTR_READONLY);
-            let non_readable = func.has_arg_attr(ctx, i, &ATTR_WRITEONLY);
+            let io = func.get_arg_attr::<BufferIOAttr>(ctx, i, &ATTR_BUFFER_IO);
+
             if let Some(binding) = binding {
+                let io = io.expect("Buffers should have IO attribute");
+                let non_writable = !io.is_writable();
+                let non_readable = !io.is_readable();
                 buffers.insert(
                     binding.buffer_pos,
                     (*arg, buffer_ty(ctx, *arg), non_readable, non_writable),

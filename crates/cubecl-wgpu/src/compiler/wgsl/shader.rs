@@ -4,8 +4,8 @@ use cubecl_core::prelude::Visibility;
 use cubecl_ir::{
     AddressSpace, GlobalState,
     attributes::{
-        ATTR_BUFFER_BINDING, ATTR_READ_WRITE, ATTR_READONLY, ATTR_WRITEONLY, BufferBindingAttr,
-        EntrypointInterface, FuncInterface,
+        ATTR_BUFFER_BINDING, ATTR_BUFFER_IO, BufferBindingAttr, BufferIOAttr, EntrypointInterface,
+        FuncInterface,
     },
     dialect::{BlockPtrExt, memory::AddressSpaceAttr},
     ident,
@@ -39,6 +39,10 @@ use crate::compiler::wgsl::{
 pub struct GlobalVariableOp {
     value_ty: TypeAttr,
     address_space: AddressSpaceAttr,
+    #[attribute(optional)]
+    buffer_binding: BufferBindingAttr,
+    #[attribute(optional)]
+    buffer_io: BufferIOAttr,
 }
 
 #[op_interface_impl]
@@ -46,22 +50,19 @@ impl OpToWgsl for GlobalVariableOp {
     fn to_wgsl(&self, ctx: &Context) -> String {
         let name = self.get_symbol_name(ctx);
         let ty = self.value_ty(ctx).get_type(ctx).to_wgsl(ctx);
-        let op = self.get_operation().deref(ctx);
-        let attrs = &op.attributes;
         let addr_space = match self.address_space(ctx).0 {
             AddressSpace::Global(_) => {
-                if attrs.0.contains_key(&*ATTR_READONLY) {
-                    "storage, read"
-                } else {
+                let io = *self.buffer_io(ctx).expect("Should have IO");
+                if io.is_writable() {
                     "storage, read_write"
+                } else {
+                    "storage, read"
                 }
             }
             AddressSpace::Shared => "workgroup",
             AddressSpace::Local => "function",
         };
-        if let Some(BufferBindingAttr { buffer_pos, .. }) =
-            attrs.get::<BufferBindingAttr>(&ATTR_BUFFER_BINDING)
-        {
+        if let Some(BufferBindingAttr { buffer_pos, .. }) = self.buffer_binding(ctx).map(|it| *it) {
             format!("@group(0) @binding({buffer_pos}) var<{addr_space}> {name}: {ty};\n")
         } else {
             format!("var<{addr_space}> {name}: {ty};\n")
@@ -78,13 +79,13 @@ pub struct AddressOfOp {
     variable: IdentifierAttr,
 }
 
-wgsl_op_with_out!(AddressOfOp, |op, ctx| {
+wgsl_op_with_out!(AddressOfOp; |op, ctx| {
     let name: Identifier = op.variable(ctx).clone().into();
     format!("&{name}")
 });
 
 pub fn rewrite_args(ctx: &mut Context, func: FuncOp) -> Vec<Visibility> {
-    let module = func.get_operation().parent_module(ctx).get_body(ctx, 0);
+    let entry = func.get_operation();
     let mut rewriter = IRRewriter::<DummyListener>::default();
     rewriter.set_insertion_point_to_block_start(func.get_entry_block(ctx));
 
@@ -94,36 +95,41 @@ pub fn rewrite_args(ctx: &mut Context, func: FuncOp) -> Vec<Visibility> {
     // Back to front so indices don't shift when args get removed
     for (i, &arg) in args.iter().enumerate().rev() {
         let name = arg.unique_name(ctx);
-        let attrs = func
-            .get_arg_attrs(ctx, i)
-            .map(|it| it.clone().0.0)
-            .unwrap_or_default();
-        if attrs.contains_key(&*ATTR_READONLY) {
-            buffers.insert(0, Visibility::Read);
-        } else if attrs.contains_key(&*ATTR_READ_WRITE) || attrs.contains_key(&*ATTR_WRITEONLY) {
-            buffers.insert(0, Visibility::ReadWrite);
-        } else if attrs.contains_key(&ATTR_BUILTIN) {
-            continue;
-        } else {
-            panic!("Should have visibility or builtin annotation")
-        }
-        let value_ty = arg.get_type(ctx).unwrap_ptr(ctx);
-        let var = GlobalVariableOp::new(ctx, value_ty, AddressSpace::Global(i));
-        var.get_operation()
-            .deref_mut(ctx)
-            .attributes
-            .0
-            .extend(attrs);
-        var.set_symbol_name(ctx, name.clone());
-        var.get_operation().insert_at_front(module, ctx);
+        let binding = {
+            let Some(binding) =
+                func.get_arg_attr::<BufferBindingAttr>(ctx, i, &ATTR_BUFFER_BINDING)
+            else {
+                continue;
+            };
+            *binding
+        };
+        let mut io = {
+            let Some(io) = func.get_arg_attr::<BufferIOAttr>(ctx, i, &ATTR_BUFFER_IO) else {
+                panic!("Should have visibility or builtin annotation")
+            };
+            *io
+        };
 
         if !cfg!(exclusive_memory_only) {
-            var.get_operation()
-                .deref_mut(ctx)
-                .attributes
-                .0
-                .remove(&ATTR_READONLY);
+            io = BufferIOAttr::ReadWrite;
         }
+
+        if io.is_writable() {
+            buffers.insert(0, Visibility::ReadWrite);
+        } else {
+            buffers.insert(0, Visibility::Read);
+        }
+
+        let value_ty = arg.get_type(ctx).unwrap_ptr(ctx);
+        let var = GlobalVariableOp::new(
+            ctx,
+            value_ty,
+            AddressSpace::Global(i),
+            Some(binding),
+            Some(io),
+        );
+        var.set_symbol_name(ctx, name.clone());
+        var.get_operation().insert_before(ctx, entry);
 
         let addr = AddressOfOp::new(ctx, arg.get_type(ctx), name);
         rewriter.append_op(ctx, &addr);

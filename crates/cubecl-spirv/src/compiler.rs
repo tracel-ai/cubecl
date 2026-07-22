@@ -12,13 +12,7 @@ use crate::{
 use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
     Compiler, WgpuCompilationOptions,
-    ir::{
-        ContextExt,
-        attributes::{ATTR_READONLY, FuncInterface},
-        ident,
-        metadata::Info,
-        rewrite::SimplifyOpsPass,
-    },
+    ir::{ContextExt, attributes::FuncInterface, ident, metadata::Info, rewrite::SimplifyOpsPass},
     post_processing::{
         bitwise::PromoteBitwisePass, disaggregate::DisaggregatePass,
         saturating::LowerSaturatingArithmeticPass, unroll::UnrollPass,
@@ -26,7 +20,7 @@ use cubecl_core::{
     prelude::{KernelDefinition, Visibility},
 };
 use cubecl_ir::{
-    attributes::EntrypointInterface,
+    attributes::{ATTR_BUFFER_IO, BufferIOAttr, EntrypointInterface},
     prelude::{SingleBlockRegionInterface, SymbolOpInterface},
     rewrite::visit_all_ops_of_type_mut,
     settings::Dim3,
@@ -120,10 +114,10 @@ impl Compiler for SpirvCompiler {
 
         let entry = entry_func.get_entry_block(&ctx);
         let bindings = (0..entry.deref(&ctx).get_num_arguments()).map(|i| {
-            let readonly = entry_func.has_arg_attr(&ctx, i, &ATTR_READONLY);
-            match readonly {
-                true => Visibility::Read,
-                false => Visibility::ReadWrite,
+            let io = entry_func.get_arg_attr::<BufferIOAttr>(&ctx, i, &ATTR_BUFFER_IO);
+            match io.expect("Should have IO attr").is_writable() {
+                false => Visibility::Read,
+                true => Visibility::ReadWrite,
             }
         });
         let bindings: Vec<Visibility> = bindings.collect();

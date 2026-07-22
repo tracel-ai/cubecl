@@ -1,4 +1,7 @@
-use cubecl_core::{self as cubecl, WgpuCompilationOptions, num_traits::Zero, prelude::*};
+use cubecl_core::{
+    self as cubecl, WgpuCompilationOptions, frontend::polyfills::bitwise::*, num_traits::Zero,
+    prelude::*,
+};
 use cubecl_ir::{
     dialect::bitwise::{self, *},
     interfaces::TypedExt,
@@ -202,64 +205,6 @@ fn u64_count_bits<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
     let low_cnt = Vector::<u32, N>::cast_from(Vector::count_ones(low));
     let high_cnt = Vector::<u32, N>::cast_from(Vector::count_ones(high));
     low_cnt + high_cnt
-}
-
-#[cube]
-fn u64_leading_zeros<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
-    let shift = Vector::new(I::new(32));
-
-    let low = Vector::<u32, N>::cast_from(x);
-    let high = Vector::<u32, N>::cast_from(x >> shift);
-    let low_zeros = Vector::leading_zeros(low);
-    let high_zeros = Vector::leading_zeros(high);
-
-    select_many(
-        high_zeros.equal(&Vector::new(32)),
-        low_zeros + high_zeros,
-        high_zeros,
-    )
-}
-
-/// There are three possible outcomes:
-/// * low has any set -> return low
-/// * low is empty, high has any set -> return high + 32
-/// * low and high are empty -> return 0
-#[cube]
-fn u64_ffs<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
-    let shift = Vector::new(I::new(32));
-
-    let low = Vector::<u32, N>::cast_from(x);
-    let high = Vector::<u32, N>::cast_from(x >> shift);
-    let low_ffs = Vector::find_first_set(low);
-    let high_ffs = Vector::find_first_set(high);
-
-    let high_ffs = select_many(
-        high_ffs.equal(&Vector::new(0)),
-        high_ffs,
-        high_ffs + Vector::new(32),
-    );
-    select_many(low_ffs.equal(&Vector::new(0)), high_ffs, low_ffs)
-}
-
-/// There are three possible outcomes:
-/// * low has any set -> return low
-/// * low is empty, high has any set -> return high + 32
-/// * low and high are empty -> return 0
-#[cube]
-fn u64_trailing_zeros<I: Int, N: Size>(x: Vector<I, N>) -> Vector<u32, N> {
-    let shift = Vector::new(I::new(32));
-
-    let low = Vector::<u32, N>::cast_from(x);
-    let high = Vector::<u32, N>::cast_from(x >> shift);
-    let low_tz = Vector::trailing_zeros(low);
-    let high_tz = Vector::trailing_zeros(high);
-
-    let high_tz = select_many(
-        high_tz.equal(&Vector::new(32)),
-        Vector::new(64),
-        high_tz + Vector::new(32),
-    );
-    select_many(low_tz.equal(&Vector::new(32)), high_tz, low_tz)
 }
 
 // find_lsb returns -1 (0xFFFFFFFF) for zero input
