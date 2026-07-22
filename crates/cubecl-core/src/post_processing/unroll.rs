@@ -109,7 +109,7 @@ impl CustomUnrollOp for DeclareVariableOp {
         result: &mut IRStatus,
     ) {
         let value_ty = self.value_ty(ctx).get_type(ctx);
-        let current_vec = value_ty.vector_size(ctx);
+        let current_vec = value_ty.try_get_vector_size(ctx).unwrap_or(1);
         if current_vec <= vector_size {
             return;
         }
@@ -361,8 +361,8 @@ impl UnrollPass {
         let ctx2 = dupe_ctx(ctx);
         let func = op.as_op::<FuncOp>(ctx).expect("Should be func");
         let entry_block = func.get_entry_block(ctx);
-        let func_ty = func.get_attr_func_type(ctx).unwrap();
-        let func_ty = func_ty.get_type(ctx).deref(ctx);
+        let func_ty = func.get_attr_func_type(ctx).unwrap().get_type(ctx);
+        let func_ty = func_ty.deref(ctx);
         let func_ty = func_ty.downcast_ref::<FunctionType>().unwrap();
 
         let mut new_func_inputs = vec![];
@@ -428,18 +428,14 @@ fn should_unroll(ctx: &Context, value: impl Typed, max_vector_size: usize) -> bo
     if !type_impls::<dyn UnrollableType>(&*ty) {
         return false;
     }
-    let Some(maybe_vec) = type_cast::<dyn MaybeVectorizedType>(&*ty) else {
+    let Some(vector_size) = value.try_get_vector_size(ctx) else {
         return false;
     };
-    maybe_vec.vector_size(ctx) > max_vector_size
+    vector_size > max_vector_size
 }
 
 fn try_get_vec(ctx: &Context, value: impl Typed) -> usize {
-    let ty = value.get_type(ctx).deref(ctx);
-    let Some(maybe_vec) = type_cast::<dyn MaybeVectorizedType>(&*ty) else {
-        return 1;
-    };
-    maybe_vec.vector_size(ctx)
+    value.try_get_vector_size(ctx).unwrap_or(1)
 }
 
 fn unroll_ty(ctx: &mut Context, ty: impl Typed, vectorization: usize) -> TypeHandle {

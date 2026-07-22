@@ -1,3 +1,5 @@
+use core::ops::Deref;
+
 use alloc::vec::Vec;
 use pliron::context::Context;
 
@@ -74,6 +76,14 @@ pub struct Info {
     pub has_dynamic_meta: bool,
     pub dynamic_meta_offset: usize,
     pub metadata: Metadata,
+}
+
+impl Deref for Info {
+    type Target = Metadata;
+
+    fn deref(&self) -> &Self::Target {
+        &self.metadata
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

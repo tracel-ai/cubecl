@@ -9,14 +9,10 @@ use cubecl_core::prelude::Visibility;
 use rspirv::{binary::Disassemble, dr::Module};
 
 pub mod attributes;
-mod cmma;
 pub mod compiler;
-mod debug;
 pub mod lower;
 pub mod ops;
-mod sync;
 pub mod target;
-mod tensor_indexing;
 pub mod types;
 
 pub use compiler::*;

@@ -402,6 +402,8 @@ impl<T: CubeDebug + ?Sized> CubeDebug for *mut T {
     }
 }
 
+impl CubeDebug for i128 {}
+
 /// A type that can be used as a kernel comptime argument.
 /// Note that a type doesn't need to implement `CubeComptime` to be used as
 /// a comptime argument. However, this facilitate the declaration of generic cube types.

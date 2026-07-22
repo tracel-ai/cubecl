@@ -25,6 +25,8 @@ pub trait OperationPtrExt: Sized {
     fn results(self, ctx: &Context) -> Vec<Value>;
     fn result_names(self, ctx: &Context) -> Vec<Option<Identifier>>;
     fn opt_result(self, ctx: &Context) -> Option<Value>;
+    fn set_attr<T: Attribute>(self, ctx: &Context, key: &Identifier, value: T);
+    fn parent_module(self, ctx: &Context) -> ModuleOp;
 }
 
 pub trait BlockPtrExt: Sized {
@@ -65,6 +67,22 @@ impl OperationPtrExt for Ptr<Operation> {
     fn opt_result(self, ctx: &Context) -> Option<Value> {
         self.deref(ctx).results().next()
     }
+    fn set_attr<T: Attribute>(self, ctx: &Context, key: &Identifier, value: T) {
+        self.deref_mut(ctx).attributes.set(key.clone(), value);
+    }
+    fn parent_module(self, ctx: &Context) -> ModuleOp {
+        if self.is_op::<ModuleOp>(ctx) {
+            return self.as_op(ctx).unwrap();
+        }
+        let mut op = self;
+        while let Some(parent) = op.deref(ctx).get_parent_op(ctx) {
+            if parent.is_op::<ModuleOp>(ctx) {
+                return parent.as_op(ctx).unwrap();
+            }
+            op = parent;
+        }
+        panic!("Op is not contained in any module")
+    }
 }
 
 impl BlockPtrExt for Ptr<BasicBlock> {
@@ -89,7 +107,9 @@ macro_rules! pure_unop {
     };
 }
 use pliron::{
+    attribute::Attribute,
     basic_block::BasicBlock,
+    builtin::ops::ModuleOp,
     common_traits::Named,
     identifier::Identifier,
     op::{OpInterfaceMarker, OpObj, op_impls},

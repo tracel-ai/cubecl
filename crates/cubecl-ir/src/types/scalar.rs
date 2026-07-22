@@ -1,8 +1,13 @@
 use pliron::{
-    builtin::types::{IntegerType, Signedness},
+    builtin::{
+        type_interfaces::FloatTypeInterface,
+        types::{IntegerType, Signedness},
+    },
     context::Context,
     derive::{pliron_type, type_interface_impl},
+    utils::apfloat::{self, GetSemantics, Semantics},
 };
+use rustc_apfloat::ieee::NonfiniteBehavior;
 
 use crate::{
     ElemType, FloatKind, IntKind, UIntKind, aligned,
@@ -106,18 +111,148 @@ macro_rules! float_type {
     };
 }
 
+// Not all floats have semantics that fit the apfloat model, so separate this out
+macro_rules! float_semantics {
+    ($ty: ty, $semantics: ty) => {
+        #[type_interface_impl]
+        impl FloatTypeInterface for $ty {
+            fn get_semantics(&self) -> Semantics {
+                <$semantics>::get_semantics()
+            }
+        }
+    };
+}
+
 float_type!("cube.f64", Float64Type, F64, 8);
+float_semantics!(Float64Type, apfloat::Double);
+
 float_type!("cube.f32", Float32Type, F32, 4);
+float_semantics!(Float32Type, apfloat::Single);
+
 float_type!("cube.tf32", TFloat32Type, TF32, 4);
+
 float_type!("cube.flex32", FloatFlex32Type, Flex32, 4);
+float_semantics!(FloatFlex32Type, apfloat::Single);
+
 float_type!("cube.f16", Float16Type, F16, 2);
+float_semantics!(Float16Type, apfloat::Half);
+
 float_type!("cube.bf16", BFloat16Type, BF16, 2);
+float_semantics!(BFloat16Type, apfloat::BFloat);
+
 float_type!("cube.ue8m0", Float8E8M0Type, UE8M0, 1);
+
 float_type!("cube.e5m2", Float8E5M2Type, E5M2, 1);
+float_semantics!(Float8E5M2Type, apfloat::Float8E5M2);
+
 float_type!("cube.e4m3", Float8E4M3Type, E4M3, 1);
+float_semantics!(Float8E4M3Type, apfloat::Float8E4M3FN);
+
 float_type!("cube.e3m2", Float6E3M2Type, E3M2, 1);
+
 float_type!("cube.e2m3", Float6E2M3Type, E2M3, 1);
+
 float_type!("cube.e2m1", Float4E2M1Type, E2M1, 1, 4);
+
+#[type_interface_impl]
+impl FloatTypeInterface for TFloat32Type {
+    fn get_semantics(&self) -> Semantics {
+        let precision = 11;
+        Semantics {
+            bits: 19,
+            exp_bits: 8,
+            precision,
+            nonfinite_behavior: NonfiniteBehavior::IEEE754,
+            max_exp: 127,
+            ieee_max_exp: 127,
+            min_exp: -126,
+            ieee_min_exp: -126,
+            nan_significand_base: 0,
+            nan_payload_mask: (1u128 << (precision - 1)) - 1,
+            qnan_significand: 1u128 << (precision - 2),
+        }
+    }
+}
+
+#[type_interface_impl]
+impl FloatTypeInterface for Float8E8M0Type {
+    fn get_semantics(&self) -> Semantics {
+        let precision = 1;
+        Semantics {
+            bits: 8,
+            exp_bits: 8,
+            precision,
+            nonfinite_behavior: NonfiniteBehavior::NanOnly,
+            max_exp: 127,
+            ieee_max_exp: 127,
+            min_exp: -126,
+            ieee_min_exp: -126,
+            nan_significand_base: (1u128 << (precision - 1)) - 1,
+            nan_payload_mask: 0,
+            qnan_significand: 0,
+        }
+    }
+}
+
+#[type_interface_impl]
+impl FloatTypeInterface for Float6E3M2Type {
+    fn get_semantics(&self) -> Semantics {
+        let precision = 3;
+        Semantics {
+            bits: 6,
+            exp_bits: 3,
+            precision,
+            nonfinite_behavior: NonfiniteBehavior::NanOnly,
+            max_exp: 3,
+            ieee_max_exp: 3,
+            min_exp: -2,
+            ieee_min_exp: -2,
+            nan_significand_base: (1u128 << (precision - 1)) - 1,
+            nan_payload_mask: 0,
+            qnan_significand: 0,
+        }
+    }
+}
+
+#[type_interface_impl]
+impl FloatTypeInterface for Float6E2M3Type {
+    fn get_semantics(&self) -> Semantics {
+        let precision = 4;
+        Semantics {
+            bits: 6,
+            exp_bits: 2,
+            precision,
+            nonfinite_behavior: NonfiniteBehavior::NanOnly,
+            max_exp: 2,
+            ieee_max_exp: 2,
+            min_exp: -1,
+            ieee_min_exp: -1,
+            nan_significand_base: (1u128 << (precision - 1)) - 1,
+            nan_payload_mask: 0,
+            qnan_significand: 0,
+        }
+    }
+}
+
+#[type_interface_impl]
+impl FloatTypeInterface for Float4E2M1Type {
+    fn get_semantics(&self) -> Semantics {
+        let precision = 2;
+        Semantics {
+            bits: 4,
+            exp_bits: 2,
+            precision,
+            nonfinite_behavior: NonfiniteBehavior::NanOnly,
+            max_exp: 2,
+            ieee_max_exp: 2,
+            min_exp: -1,
+            ieee_min_exp: -1,
+            nan_significand_base: (1u128 << (precision - 1)) - 1,
+            nan_payload_mask: 0,
+            qnan_significand: 0,
+        }
+    }
+}
 
 #[pliron_type(
     name = "cube.e2m1x2",

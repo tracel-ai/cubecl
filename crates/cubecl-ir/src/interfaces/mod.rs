@@ -460,6 +460,14 @@ pub trait TypedExt: Typed {
         Some(scalarizable.scalar_type(ctx))
     }
 
+    fn try_get_scalar_elem_ty(&self, ctx: &Context) -> Option<TypeHandle> {
+        let ty = self.get_type(ctx).deref(ctx);
+        let has_elem = type_cast::<dyn HasElementType>(&*ty)?;
+        let ty = has_elem.element_type(ctx)?.deref(ctx);
+        let scalarizable = type_cast::<dyn ScalarizableType>(&*ty)?;
+        Some(scalarizable.scalar_type(ctx))
+    }
+
     fn is_index(&self, ctx: &Context) -> bool {
         let ty = self.get_type(ctx).deref(ctx);
         ty.is::<IndexType>()

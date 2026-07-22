@@ -17,7 +17,7 @@ use pliron::{
     op::OpInterfaceMarker,
 };
 
-use crate::{interfaces::SimplifyInterface, prelude::*};
+use crate::{dialect::BlockPtrExt, interfaces::SimplifyInterface, prelude::*};
 
 #[derive(new, From, Clone, Debug, Default)]
 pub struct DialectConversionPass<T: DialectConversion>(T);
@@ -170,6 +170,33 @@ pub fn visit_all_ops_with_interface<T: ?Sized + OpInterfaceMarker + 'static, Sta
                     callback(ctx, state, op)
                 }
             }
+        },
+    );
+}
+
+pub fn visit_all_values<State>(
+    ctx: &Context,
+    state: &mut State,
+    root: Ptr<Operation>,
+    callback: for<'a> fn(&Context, &mut State, Value),
+) {
+    immutable::walk_op(
+        ctx,
+        &mut (state, callback),
+        &WALKCONFIG_PREORDER_FORWARD,
+        root,
+        |ctx, (state, callback), node| match node {
+            IRNode::Operation(ptr) => {
+                for res in ptr.results(ctx) {
+                    callback(ctx, state, res)
+                }
+            }
+            IRNode::BasicBlock(ptr) => {
+                for res in ptr.arguments(ctx) {
+                    callback(ctx, state, res)
+                }
+            }
+            IRNode::Region(_) => {}
         },
     );
 }
