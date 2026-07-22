@@ -46,31 +46,30 @@ impl Threadpool {
     #[allow(clippy::too_many_arguments)]
     pub fn execute_data(
         &mut self,
-        _pliron_engine: PlironEngine,
-        _bindings: BindingsResource,
+        pliron_engine: PlironEngine,
+        bindings: BindingsResource,
         cube_dim: CubeDim,
-        _cube_count: [u32; 3],
+        cube_count: [u32; 3],
         _memory: &mut MemoryManagement<BytesStorage>,
         next_counter_step: u64,
         atomic_counter: &Arc<CachePadded<AtomicU64>>,
     ) {
-        // let mlir_data = PlironData::new(bindings, &[], memory, cube_dim, cube_count);
-
-        // // A `sync_cube` barrier only resolves when every unit of the cube runs
-        // // on its own thread, so grow the pool to one worker per unit. Kernels
-        // // without a barrier load-balance and need no extra workers.
-        // if pliron_engine.0.needs_parallelism {
-        //     self.scheduler.ensure_workers(cube_dim.num_elems() as usize);
-        // }
+        let BindingsResource { resources, info } = bindings;
+        let buffer_ptrs = resources
+            .iter()
+            .map(|resource| {
+                resource.resource().get_write_ptr_and_length().0 as *mut std::ffi::c_void
+            })
+            .collect();
+        let base_data = PlironData::new(buffer_ptrs, info.data, cube_count);
 
         let mut i = 0;
-        for _ in 0..cube_dim.x {
-            for _ in 0..cube_dim.y {
-                for _ in 0..cube_dim.z {
-                    // let unit_pos = [unit_pos_x, unit_pos_y, unit_pos_z];
-                    let pliron_engine = PlironEngine;
-                    let pliron_data = PlironData;
-                    // mlir_data.builtin.set_unit_pos(unit_pos);
+        for unit_pos_x in 0..cube_dim.x {
+            for unit_pos_y in 0..cube_dim.y {
+                for unit_pos_z in 0..cube_dim.z {
+                    let pliron_engine = pliron_engine.clone();
+                    let mut pliron_data = base_data.clone();
+                    pliron_data.set_unit_pos([unit_pos_x, unit_pos_y, unit_pos_z]);
 
                     let atomic_counter = Arc::clone(atomic_counter);
                     let compute_task = ComputeTask {

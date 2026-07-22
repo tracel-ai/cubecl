@@ -2,8 +2,8 @@ use crate::{
     CpuCompiler,
     compiler::PlironOptions,
     compute::{
+        cpu_kernel::CpuKernel,
         schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
-        threadpool::CpuKernel,
     },
 };
 use cubecl_common::{
@@ -42,12 +42,17 @@ pub struct CpuServer {
 
 impl CpuServer {
     pub fn new(
+        max_units_per_cube: u32,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         utilities: Arc<ServerUtilities<CpuServer>>,
     ) -> Self {
-        let backend =
-            ScheduledCpuBackend::new(memory_properties, memory_config, utilities.logger.clone());
+        let backend = ScheduledCpuBackend::new(
+            max_units_per_cube,
+            memory_properties,
+            memory_config,
+            utilities.logger.clone(),
+        );
         let config = CubeClRuntimeConfig::get();
         let max_streams = config.streaming.max_streams;
 
@@ -80,12 +85,12 @@ impl CpuServer {
                     return None;
                 };
                 let stream = self.scheduler.stream(&binding.stream);
-                Some(
-                    stream
-                        .memory_management
-                        .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                        .unwrap(),
-                )
+                let memory = binding.memory.clone();
+                let resource = stream
+                    .memory_management
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .unwrap();
+                Some(ManagedResource::new(memory, resource))
             })
             .collect::<Vec<_>>();
 
@@ -254,10 +259,10 @@ impl ComputeServer for CpuServer {
                     return;
                 }
             };
+            let memory = desc.handle.memory.clone();
             let task = ScheduleTask::Write {
-                stream_id,
                 data,
-                buffer: resource,
+                buffer: ManagedResource::new(memory, resource),
             };
 
             self.scheduler.register(stream_id, task, &[]);
