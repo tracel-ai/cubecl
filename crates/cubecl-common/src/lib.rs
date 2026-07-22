@@ -42,6 +42,9 @@ pub mod stub;
 /// Stream id related utilities.
 pub mod stream_id;
 
+/// Explicit stream creation, decoupled from threads.
+pub mod stream;
+
 /// Cache module for an efficient in-memory and persistent database.
 #[cfg(feature = "cache")]
 pub mod cache;
