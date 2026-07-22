@@ -27,6 +27,7 @@
 //! HRTB bound is spelled out directly (closure inference).
 
 mod base;
+mod bounds_generator;
 mod input_generator;
 mod key_generator;
 mod local;
@@ -38,6 +39,7 @@ mod tuner;
 mod util;
 
 pub use base::*;
+pub use bounds_generator::*;
 pub use input_generator::*;
 pub use key_generator::*;
 pub use local::*;

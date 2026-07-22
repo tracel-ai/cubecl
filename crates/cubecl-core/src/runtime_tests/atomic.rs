@@ -256,6 +256,40 @@ pub fn test_kernel_atomic_int<R: Runtime, I: Int + CubeElement>(
     }
 }
 
+#[cube(launch)]
+pub fn kernel_atomic_max_contention<I: Numeric>(atomics: &[Atomic<I>]) {
+    atomics[0].fetch_max(I::cast_from(ABSOLUTE_POS));
+}
+
+/// Many threads race `fetch_max` into one cell. The result must be the largest contribution.
+pub fn test_kernel_atomic_max_contention<R: Runtime, I: Numeric + CubeElement>(
+    client: ComputeClient<R>,
+) {
+    if !require_feature::<R, I>(&client, AtomicUsage::MinMax, 1, "Max contention") {
+        return;
+    }
+
+    // Keep the highest contributed value within reach of the smallest integer type this
+    // test runs against (i8, max 127), so 4 blocks of 32 threads contribute 0..=127.
+    let cube_dim = std::cmp::min(32u32, client.properties().hardware.max_cube_dim.0);
+    let cube_count = 4u32;
+    let n = cube_dim * cube_count;
+
+    let handle = client.create_from_slice(I::as_bytes(&[I::from_int(0)]));
+
+    kernel_atomic_max_contention::launch::<I, R>(
+        &client,
+        CubeCount::new_1d(cube_count),
+        CubeDim::new_1d(cube_dim),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), 1) },
+    );
+
+    let actual = client.read_one_unchecked(handle);
+    let actual = I::from_bytes(&actual);
+
+    assert_eq!(actual, &[I::from_int((n - 1) as i64)]);
+}
+
 #[macro_export]
 macro_rules! testgen_atomic_int {
     () => {
@@ -332,6 +366,15 @@ macro_rules! testgen_atomic_int {
             test_atomic_compare_exchange_int,
             cubecl_core::runtime_tests::atomic::IntAtomicOp::CompareExchange
         );
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_atomic_max_contention_int() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::atomic::test_kernel_atomic_max_contention::<
+                TestRuntime,
+                IntType,
+            >(client);
+        }
     };
 }
 
@@ -412,6 +455,15 @@ macro_rules! testgen_atomic_uint {
             test_atomic_compare_exchange_uint,
             cubecl_core::runtime_tests::atomic::IntAtomicOp::CompareExchange
         );
+
+        #[$crate::runtime_tests::test_log::test]
+        fn test_atomic_max_contention_uint() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::atomic::test_kernel_atomic_max_contention::<
+                TestRuntime,
+                UintType,
+            >(client);
+        }
     };
 }
 

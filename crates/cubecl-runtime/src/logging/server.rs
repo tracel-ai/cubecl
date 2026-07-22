@@ -26,6 +26,7 @@ enum LogMessage {
 pub struct ServerLogger {
     profile_level: Option<ProfileLevel>,
     log_compile_info: bool,
+    log_compile_source: bool,
     log_streaming: StreamingLogLevel,
     log_channel: Option<Sender<LogMessage>>,
     log_memory: MemoryLogLevel,
@@ -51,6 +52,7 @@ impl Default for ServerLogger {
             return Self {
                 profile_level: None,
                 log_compile_info: false,
+                log_compile_source: false,
                 log_streaming: StreamingLogLevel::Disabled,
                 log_channel: None,
                 log_memory: MemoryLogLevel::Disabled,
@@ -69,6 +71,10 @@ impl Default for ServerLogger {
             CompilationLogLevel::Basic => true,
             CompilationLogLevel::Full => true,
         };
+        let log_compile_source = matches!(
+            logger.config.compilation.logger.level,
+            CompilationLogLevel::Full
+        );
         let log_streaming = logger.config.streaming.logger.level;
         let log_memory = logger.config.memory.logger.level;
 
@@ -86,6 +92,7 @@ impl Default for ServerLogger {
         Self {
             profile_level,
             log_compile_info,
+            log_compile_source,
             log_streaming,
             log_memory,
             log_channel: Some(send),
@@ -102,6 +109,15 @@ impl ServerLogger {
     /// Returns true if compilation info should be logged.
     pub fn compilation_activated(&self) -> bool {
         self.log_compile_info
+    }
+
+    /// Returns true if compilation logging includes kernel sources
+    /// ([`CompilationLogLevel::Full`]) — the only level where attaching debug
+    /// info and formatting the source pays off. `Basic` prints a name-only
+    /// line, so runtimes must not spend a `clang-format` subprocess per fresh
+    /// kernel on it.
+    pub fn compilation_source_activated(&self) -> bool {
+        self.log_compile_source
     }
 
     /// Log the argument to a file when the compilation logger is activated.

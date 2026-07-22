@@ -114,6 +114,13 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         &mut stream.stream
     }
 
+    /// Mutable access to the scheduling backend, e.g. to change the
+    /// configuration new streams are created with. Already-created streams are
+    /// unaffected.
+    pub fn backend_mut(&mut self) -> &mut B {
+        &mut self.pool.factory_mut().backend
+    }
+
     /// Read-only iterator over initialized backend streams.
     pub fn streams(&self) -> impl Iterator<Item = &B::Stream> {
         self.pool.streams().map(|s| &s.stream)

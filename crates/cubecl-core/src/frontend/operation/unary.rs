@@ -135,7 +135,7 @@ macro_rules! define_unary_func_scalar_out {
                 + CubePrimitiveExpand<Scalar = NativeExpand<Self::Scalar>>>
                 + Sized {
                 #[allow(unused_variables)]
-                fn $method_name(self) -> Self {
+                fn $method_name(self) -> Self::Scalar {
                     unexpanded!()
                 }
 

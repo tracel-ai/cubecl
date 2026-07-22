@@ -411,7 +411,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
 
     let cube_dim = CubeDim::new(client, num_vecs);
     let simul_vecs = num_sm * cube_dim.num_elems();
-    let mut elems_per_unit = match num_vecs / simul_vecs as usize {
+    let elems_per_unit = match num_vecs / simul_vecs as usize {
         0..2 => 1,
         2..4 => 2,
         4..8 => 4,
@@ -422,9 +422,8 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
 
     let last_dim = output.shape[out_rank - 1];
 
-    // If tensor is strided, elems_per_unit must be compatible with last dim
+    // If tensor is strided, num_elems_per_unit must be compatible with last dim
     while !last_dim.is_multiple_of(num_elems_per_unit as usize) {
-        elems_per_unit /= 2;
         num_elems_per_unit /= 2;
     }
 
@@ -454,7 +453,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         in_packed_dim,
         packing,
         in_rank,
-        elems_per_unit,
+        num_elems_per_unit,
         dtype,
     )
 }

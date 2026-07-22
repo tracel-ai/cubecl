@@ -21,7 +21,7 @@ use cubecl_core::{
     },
     post_processing::{
         bitwise::PromoteBitwisePass, disaggregate::DisaggregatePass,
-        saturating::LowerSaturatingArithmeticPass,
+        saturating::LowerSaturatingArithmeticPass, unroll::UnrollPass,
     },
     prelude::{KernelDefinition, Visibility},
 };
@@ -174,6 +174,7 @@ impl SpirvCompiler {
         module: ModuleOp,
         #[cfg(feature = "std")] ir_printing_dir: Option<std::path::PathBuf>,
     ) -> (Module, usize) {
+        let comp_opts = ctx.aux_ty::<WgpuCompilationOptions>();
         let module_op = module.get_operation();
 
         std::fs::write("target/initial.plir", format!("{}", module.disp(ctx))).unwrap();
@@ -192,6 +193,7 @@ impl SpirvCompiler {
 
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
         func_passes.add_pass(DisaggregatePass);
+        func_passes.add_pass(UnrollPass::new(comp_opts.vulkan.max_vector_size));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
         func_passes.add_pass(LowerSaturatingArithmeticPass::default());
 
@@ -376,26 +378,3 @@ pub(crate) fn dump_spirv(repr: &SpirvKernel, name: &str) {
         fs::write(kernel_path, kernel).unwrap();
     }
 }
-
-// pub(crate) fn convert_math_mode(math_mode: EnumSet<FastMath>) -> FPFastMathMode {
-//     let mut flags = FPFastMathMode::NONE;
-
-//     for mode in math_mode.iter() {
-//         match mode {
-//             FastMath::NotNaN => flags |= FPFastMathMode::NOT_NAN,
-//             FastMath::NotInf => flags |= FPFastMathMode::NOT_INF,
-//             FastMath::UnsignedZero => flags |= FPFastMathMode::NSZ,
-//             FastMath::AllowReciprocal => flags |= FPFastMathMode::ALLOW_RECIP,
-//             FastMath::AllowContraction => flags |= FPFastMathMode::ALLOW_CONTRACT,
-//             FastMath::AllowReassociation => flags |= FPFastMathMode::ALLOW_REASSOC,
-//             FastMath::AllowTransform => {
-//                 flags |= FPFastMathMode::ALLOW_CONTRACT
-//                     | FPFastMathMode::ALLOW_REASSOC
-//                     | FPFastMathMode::ALLOW_TRANSFORM
-//             }
-//             _ => {}
-//         }
-//     }
-
-//     flags
-// }

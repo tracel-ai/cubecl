@@ -107,7 +107,7 @@ impl HipContext {
 
         self.validate_shared(&jitc_kernel.repr)?;
 
-        if logger.compilation_activated() {
+        if logger.compilation_source_activated() {
             jitc_kernel.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
 
             if let Ok(formatted) = format_cpp(&jitc_kernel.source) {

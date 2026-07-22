@@ -16,13 +16,18 @@ fn kernel_test_sync_cube(buffer: &mut [u32], out: &mut [u32]) {
 }
 
 pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R>) {
+    // Clamp the cube dim to the device's limit (e.g. the core count on CPU).
+    let max_units = client.properties().hardware.max_units_per_cube;
+    let dim_x = core::cmp::min(8, (max_units / 2).max(1));
+    let units = (dim_x * 2) as usize;
+
     let handle = client.empty(32 * core::mem::size_of::<u32>());
     let test = client.empty(32 * core::mem::size_of::<u32>());
 
     kernel_test_sync_cube::launch(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::new_2d(8, 2),
+        CubeDim::new_2d(dim_x, 2),
         unsafe { BufferArg::from_raw_parts(test, 32) },
         unsafe { BufferArg::from_raw_parts(handle.clone(), 32) },
     );
@@ -30,11 +35,11 @@ pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R>) {
     let actual = client.read_one_unchecked(handle);
     let actual = u32::from_bytes(&actual);
 
-    let expected: Vec<u32> = (0..16)
+    let expected: Vec<u32> = (0..units as i32)
         .map(|i| core::cmp::max(2 * i - 1, 0) as u32)
         .collect();
 
-    assert_eq!(&actual[1..16], &expected[1..16]);
+    assert_eq!(&actual[1..units], &expected[1..units]);
 }
 
 #[cube(launch)]
@@ -54,13 +59,18 @@ fn kernel_test_finished_sync_cube(buffer: &mut [u32], out: &mut [u32]) {
 }
 
 pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R>) {
+    // Clamp the cube dim to the device's limit (e.g. the core count on CPU).
+    let max_units = client.properties().hardware.max_units_per_cube;
+    let dim_x = core::cmp::min(8, (max_units / 2).max(1));
+    let checked = core::cmp::min(8, (dim_x * 2) as usize);
+
     let handle = client.empty(32 * core::mem::size_of::<u32>());
     let test = client.empty(32 * core::mem::size_of::<u32>());
 
     kernel_test_finished_sync_cube::launch(
         &client,
         CubeCount::Static(2, 1, 1),
-        CubeDim::new_2d(8, 2),
+        CubeDim::new_2d(dim_x, 2),
         unsafe { BufferArg::from_raw_parts(test, 32) },
         unsafe { BufferArg::from_raw_parts(handle.clone(), 32) },
     );
@@ -68,11 +78,11 @@ pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R>) {
     let actual = client.read_one_unchecked(handle);
     let actual = u32::from_bytes(&actual);
 
-    let expected: Vec<u32> = (0..8)
+    let expected: Vec<u32> = (0..checked as i32)
         .map(|i| core::cmp::max(2 * i - 1, 0) as u32)
         .collect();
 
-    assert_eq!(&actual[1..8], &expected[1..8]);
+    assert_eq!(&actual[1..checked], &expected[1..checked]);
 }
 
 #[cube(launch)]
@@ -129,20 +139,21 @@ fn kernel_test_sync_cube_shared<F: Float>(out: &mut [F]) {
 }
 
 pub fn test_sync_cube_shared<R: Runtime>(client: ComputeClient<R>) {
-    let handle = client.empty(64 * core::mem::size_of::<f32>());
+    let max_cube_count = std::cmp::min(64, client.properties().hardware.max_units_per_cube);
+    let handle = client.empty(max_cube_count as usize * core::mem::size_of::<f32>());
 
     kernel_test_sync_cube_shared::launch::<f32, R>(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::new_2d(32, 2),
-        unsafe { BufferArg::from_raw_parts(handle.clone(), 64) },
+        CubeDim::new_2d(max_cube_count / 2, 2),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), max_cube_count as usize) },
     );
 
     let actual = client.read_one_unchecked(handle);
     let actual = f32::from_bytes(&actual);
-    let expected = vec![1.0; 64];
+    let expected = vec![1.0; max_cube_count as usize];
 
-    assert_eq!(&actual[0..64], expected);
+    assert_eq!(&actual[0..max_cube_count as usize], expected);
 }
 
 #[cube(launch)]
@@ -161,17 +172,19 @@ fn kernel_test_workgroup_uniform_load(out: &mut [u32]) {
 }
 
 pub fn test_workgroup_uniform_load<R: Runtime>(client: ComputeClient<R>) {
-    let handle = client.empty(64 * core::mem::size_of::<u32>());
+    let max_cube_count = std::cmp::min(64, client.properties().hardware.max_units_per_cube);
+    let handle = client.empty(max_cube_count as usize * core::mem::size_of::<u32>());
 
     kernel_test_workgroup_uniform_load::launch(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::new_2d(32, 2),
-        unsafe { BufferArg::from_raw_parts(handle.clone(), 64) },
+        CubeDim::new_2d(max_cube_count / 2, 2),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), max_cube_count as usize) },
     );
 
     let actual = client.read_one_unchecked(handle);
-    assert_eq!(u32::from_bytes(&actual), &[3u32; 64]);
+    let expected = vec![3u32; max_cube_count as usize];
+    assert_eq!(u32::from_bytes(&actual), &expected);
 }
 
 #[cube(launch)]
@@ -199,17 +212,19 @@ pub fn test_workgroup_uniform_load_atomic<R: Runtime>(client: ComputeClient<R>) 
         return;
     }
 
-    let handle = client.empty(64 * core::mem::size_of::<u32>());
+    let max_cube_count = std::cmp::min(64, client.properties().hardware.max_units_per_cube);
+    let handle = client.empty(max_cube_count as usize * core::mem::size_of::<u32>());
 
     kernel_test_workgroup_uniform_load_atomic::launch(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::new_2d(32, 2),
-        unsafe { BufferArg::from_raw_parts(handle.clone(), 64) },
+        CubeDim::new_2d(max_cube_count / 2, 2),
+        unsafe { BufferArg::from_raw_parts(handle.clone(), max_cube_count as usize) },
     );
 
     let actual = client.read_one_unchecked(handle);
-    assert_eq!(u32::from_bytes(&actual), &[3u32; 64]);
+    let expected = vec![3u32; max_cube_count as usize];
+    assert_eq!(u32::from_bytes(&actual), &expected);
 }
 
 #[cube(launch)]
@@ -225,12 +240,16 @@ fn kernel_test_workgroup_uniform_load_vec<N: Size>(out: &mut [Vector<f32, N>]) {
 
 pub fn test_workgroup_uniform_load_vec<R: Runtime>(client: ComputeClient<R>) {
     let lanes = 4usize;
-    let output = client.create_from_slice(f32::as_bytes(&vec![0.0f32; 64 * lanes]));
+    let max_cube_count = std::cmp::min(64, client.properties().hardware.max_units_per_cube);
+    let output = client.create_from_slice(f32::as_bytes(&vec![
+        0.0f32;
+        max_cube_count as usize * lanes
+    ]));
 
     kernel_test_workgroup_uniform_load_vec::launch(
         &client,
         CubeCount::Static(1, 1, 1),
-        CubeDim::new_2d(32, 2),
+        CubeDim::new_2d(max_cube_count / 2, 2),
         lanes,
         unsafe { BufferArg::from_raw_parts(output.clone(), 64) },
     );

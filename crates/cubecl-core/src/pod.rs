@@ -350,11 +350,11 @@ impl CubeElement for e4m3 {
     }
 
     fn maximum_value() -> Self {
-        e4m3::from_f64(e4m3::MAX)
+        e4m3::from_f64(e4m3::MAX.to_f64())
     }
 
     fn minimum_value() -> Self {
-        e4m3::from_f64(e4m3::MIN)
+        e4m3::from_f64(e4m3::MIN.to_f64())
     }
 }
 
@@ -376,11 +376,11 @@ impl CubeElement for e5m2 {
     }
 
     fn maximum_value() -> Self {
-        e5m2::from_f64(e5m2::MAX)
+        e5m2::from_f64(e5m2::MAX.to_f64())
     }
 
     fn minimum_value() -> Self {
-        e5m2::from_f64(e5m2::MIN)
+        e5m2::from_f64(e5m2::MIN.to_f64())
     }
 }
 

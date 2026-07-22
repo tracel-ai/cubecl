@@ -110,7 +110,7 @@ impl CacheOption {
             .unwrap_or_else(|| Duration::from_secs(30));
         let root = match self.root {
             Some(root) => root,
-            None => dirs::home_dir()
+            None => etcetera::home_dir()
                 .expect("An home directory should exist")
                 .join(".cache"),
         };

@@ -4,6 +4,7 @@ use super::storage::{WgpuResource, WgpuStorage};
 use crate::WgpuCompiler;
 use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
+use cubecl_common::pool::LeasePool;
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::Bytes,
@@ -26,7 +27,7 @@ use cubecl_core::{
 use cubecl_core::{cache::CacheOption, compilation_cache::CompilationCache, hash::StableHash};
 use cubecl_ir::MemoryDeviceProperties;
 use cubecl_runtime::allocator::ContiguousMemoryLayoutPolicy;
-use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage};
+use cubecl_runtime::memory_management::{ManagedMemoryHandle, MemoryUsage, SharedMemoryBindings};
 use cubecl_runtime::{
     compiler::CubeTask,
     config::{CubeClRuntimeConfig, RuntimeConfig},
@@ -34,7 +35,10 @@ use cubecl_runtime::{
     memory_management::MemoryAllocationMode,
     server::ComputeServer,
     storage::ManagedResource,
-    stream::scheduler::{SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy},
+    stream::scheduler::{
+        SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy,
+        SchedulerStreamBackend,
+    },
     validation::{validate_cube_dim, validate_units},
 };
 use hashbrown::HashMap;
@@ -69,6 +73,8 @@ pub struct WgpuServer<C: WgpuCompiler> {
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
     pub(crate) utilities: Arc<ServerUtilities<Self>>,
+    /// Reusable buffers for the cross-stream input bindings of each launch.
+    shared_bindings_pool: LeasePool<SharedMemoryBindings>,
     _compiler: PhantomData<C>,
 }
 
@@ -136,6 +142,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             },
             backend,
             utilities: Arc::new(utilities),
+            shared_bindings_pool: LeasePool::with_capacity(tasks_max * max_streams as usize),
             _compiler: PhantomData,
         }
     }
@@ -192,7 +199,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         let mut compiler = C::init(self.backend, &self.compilation_options);
         let mut compiled = compiler.compile_kernel(self, kernel)?;
 
-        if self.scheduler.logger.compilation_activated() {
+        if self.scheduler.logger.compilation_source_activated() {
             compiled.debug_info = Some(DebugInformation::new(
                 compiler.lang_tag(),
                 kernel_id.clone(),
@@ -386,8 +393,16 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         };
 
         self.streams_pool.clear();
+        // Reuse a pooled buffer to avoid allocating on every launch; it returns to the pool
+        // automatically when the guard drops.
+        let mut shared_inputs = self.shared_bindings_pool.acquire();
         args.resources.iter().for_each(|resource| match resource {
-            KernelResource::Buffer(b) => self.streams_pool.push(b.stream),
+            KernelResource::Buffer(b) => {
+                self.streams_pool.push(b.stream);
+                if b.stream != stream_id {
+                    shared_inputs.push(b.memory.clone());
+                }
+            }
             KernelResource::TensorMap(_) => {
                 panic!("Tensor maps not supported in WGPU")
             }
@@ -406,6 +421,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
             pipeline,
             count,
             resources,
+            shared_inputs,
         };
 
         self.scheduler.register(stream_id, task, &self.streams_pool);
@@ -467,6 +483,22 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         self.scheduler.execute_streams(vec![stream_id]);
         let stream = self.scheduler.stream(&stream_id);
         stream.mem_manage.mode(mode);
+    }
+
+    fn configure_memory_pools(&mut self, config: MemoryConfiguration, stream_id: StreamId) -> bool {
+        // Streams created from now on build their main pool with the new
+        // layout; memory is per stream, so already-created streams keep theirs.
+        self.scheduler
+            .backend_mut()
+            .factory()
+            .set_gpu_pools(config.clone());
+        let (_, props) = self.scheduler.backend_mut().factory().gpu_pools();
+
+        // The calling stream's pools are rebuilt in place (kept, with a log,
+        // when something is still live in them).
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.scheduler.stream(&stream_id);
+        stream.mem_manage.configure_memory_pools(config, &props)
     }
 }
 

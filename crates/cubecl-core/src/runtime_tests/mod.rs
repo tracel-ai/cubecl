@@ -23,6 +23,7 @@ pub mod minifloat;
 pub mod numeric;
 pub mod plane;
 pub mod properties;
+pub mod read_lazy;
 pub mod saturating;
 pub mod sequence;
 pub mod short_circuit;
@@ -143,6 +144,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_cmma2!();
         cubecl_core::testgen_numeric!();
         cubecl_core::testgen_file!();
+        cubecl_core::testgen_read_lazy!();
         cubecl_core::testgen_metadata!();
         cubecl_core::testgen_topology!();
         cubecl_core::testgen_properties!();

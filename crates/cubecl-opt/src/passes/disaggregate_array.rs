@@ -95,7 +95,14 @@ fn find_const_arrays(func: &mut Function) -> Vec<Array> {
                         ty: *ty,
                     },
                 );
-                let is_const = index.index.as_const().is_some();
+                // A constant index at or past the length legally appears in
+                // *checked* accesses (unrolled loop tails whose runtime guard
+                // rejects it); replacing such an access with a local would
+                // drop the guard, so the array must stay in memory.
+                let is_const = index.index.as_const().is_some_and(|c| {
+                    let idx = c.as_i64();
+                    idx >= 0 && (idx as usize) < length
+                });
                 *track_consts.entry(id).or_insert(is_const) &= is_const;
             }
         }

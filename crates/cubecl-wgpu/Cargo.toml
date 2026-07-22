@@ -58,13 +58,16 @@ tracing = { workspace = true, features = ["attributes"], optional = true }
 cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "=0.11.0-pre.1", default-features = false }
 cubecl-ir = { path = "../cubecl-ir", version = "=0.11.0-pre.1", default-features = false }
+cubecl-opt = { path = "../cubecl-opt", version = "=0.11.0-pre.1", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "=0.11.0-pre.1", default-features = false, features = [
     "channel-mutex",
 ] }
 derive_more = { workspace = true }
 half = { workspace = true }
 itertools = { workspace = true }
+pliron = { workspace = true }
 sanitize-filename = { workspace = true, optional = true }
+thiserror = { workspace = true }
 tracy-client = { workspace = true, optional = true }
 
 # SPIR-V

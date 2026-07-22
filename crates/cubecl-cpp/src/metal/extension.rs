@@ -24,7 +24,7 @@ inline {elem} safe_tanh({elem} x) {{
     if (x > 43.0) {{
         return 1.0;
     }} else {{
-        return tanh(x);
+        return {elem}(tanh(float(x)));
     }}
 }}
 "

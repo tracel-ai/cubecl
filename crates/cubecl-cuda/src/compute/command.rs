@@ -13,8 +13,9 @@ use cubecl_common::{
 #[cfg(debug_assertions)]
 use cubecl_core::zspace::striding::try_check_pitched_row_major_strides;
 use cubecl_core::{
-    MemoryUsage,
+    MemoryConfiguration, MemoryUsage,
     future::DynFut,
+    ir::MemoryDeviceProperties,
     server::{
         BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ProfileError, ServerError,
     },
@@ -73,7 +74,16 @@ impl<'a> Command<'a> {
 
     /// Explicitly cleanup gpu memory on the current stream.
     pub fn memory_cleanup(&mut self) {
-        self.streams.current().memory_management_gpu.cleanup(true)
+        let stream = self.streams.current();
+        // Deferred frees sit in the drop queue until a fenced flush, so an
+        // explicit cleanup must drain it first or the pools still see those
+        // slices as live. The queue is a double buffer (one flush only rotates
+        // the current batch), so flush twice.
+        let sys = stream.sys;
+        stream.drop_queue.flush(|| Fence::new(sys));
+        stream.drop_queue.flush(|| Fence::new(sys));
+        stream.memory_management_gpu.cleanup(true);
+        stream.memory_management_cpu.cleanup(true);
     }
 
     /// Set the [`MemoryAllocationMode`] for the current stream.
@@ -83,6 +93,20 @@ impl<'a> Command<'a> {
     /// * `mode` - The allocation mode to be used.
     pub fn allocation_mode(&mut self, mode: MemoryAllocationMode) {
         self.streams.current().memory_management_gpu.mode(mode)
+    }
+
+    /// Rebuild the current stream's main-GPU pools with a new layout. Returns
+    /// `false` (keeping the old layout, with a log) when something is still
+    /// live in them.
+    pub fn configure_memory_pools(
+        &mut self,
+        config: MemoryConfiguration,
+        props: &MemoryDeviceProperties,
+    ) -> bool {
+        self.streams
+            .current()
+            .memory_management_gpu
+            .configure(config, props)
     }
 
     /// Allocates a new GPU memory buffer of the specified size.
@@ -357,14 +381,37 @@ impl<'a> Command<'a> {
         let resource = self.resource(handle)?;
 
         let size = data.len();
-        let data = match data.property() {
-            AllocationProperty::File => {
+
+        // An empty tensor (a zero dim in its shape) has nothing to copy. Bail
+        // before staging: the zero-size staging buffer has no real backing (a
+        // dangling pointer), and the 2D copy below would still transfer
+        // `width_bytes` from it when only the leading dims are zero.
+        if size == 0 {
+            return Ok(());
+        }
+
+        let property = data.property();
+
+        // Transfers up to this size go through a pinned staging buffer (faster DMA).
+        const STAGE_MAX: usize = 100 * MB;
+        // Above this size we flush the drop queue so the source buffer is released promptly.
+        const FLUSH_MIN: usize = 10 * MB;
+
+        // Stage file-backed data, and small host data that isn't already pinned. Re-staging
+        // already-pinned memory would be a redundant pinned-to-pinned copy.
+        let should_stage = matches!(property, AllocationProperty::File)
+            || (size < STAGE_MAX && !matches!(property, AllocationProperty::Pinned));
+        let should_flush = size > FLUSH_MIN || matches!(property, AllocationProperty::File);
+
+        let data = match should_stage {
+            true => {
                 let mut buffer = self.reserve_pinned(size, None).unwrap();
                 data.copy_into(&mut buffer);
                 buffer
             }
-            _ => data,
+            false => data,
         };
+
         let current = self.streams.current();
 
         // SAFETY: `resource.ptr` is a valid GPU allocation, `data` is a valid host buffer,
@@ -382,6 +429,10 @@ impl<'a> Command<'a> {
         }?;
 
         current.drop_queue.push(data);
+
+        if should_flush {
+            current.drop_queue.flush(|| Fence::new(current.sys));
+        }
 
         Ok(())
     }
@@ -509,9 +560,22 @@ pub(crate) unsafe fn write_to_gpu(
         backtrace: BackTrace::capture(),
     })?;
 
+    // Nothing to copy for an empty tensor; `data` may be a dangling (zero-size)
+    // staging buffer that must not reach the driver.
+    if data.is_empty() {
+        return Ok(());
+    }
+
     let rank = shape.len();
-    if rank <= 1 {
-        // SAFETY: For rank <= 1 data is contiguous. `dst_ptr` is a valid device pointer
+
+    // A row stride equal to the row width means no pitch padding: the copy is
+    // one contiguous span, so use the plain linear copy. Only genuinely pitched
+    // destinations need the 2D copy (which the driver also rejects for very
+    // tall transfers, e.g. an embedding table's 128k rows).
+    let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
+
+    if !pitched {
+        // SAFETY: The data is contiguous. `dst_ptr` is a valid device pointer
         // and `data` is a valid host slice.
         unsafe {
             cudarc::driver::result::memcpy_htod_async(dst_ptr, data, stream).map_err(|e| {
@@ -522,9 +586,8 @@ pub(crate) unsafe fn write_to_gpu(
             })
         }
     } else {
-        // As we've enforced that the strides are contiguous row-major,
-        // and we know that the rank >= 2, we can construct a 2D view
-        // for the aligned GPU pitched memcpy.
+        // The strides are validated as pitched row-major and the rank is >= 2,
+        // so a 2D view with the row pitch covers the transfer.
 
         let dim_x_shape = shape[rank - 1];
         let width_bytes = dim_x_shape * elem_size;
@@ -594,10 +657,23 @@ pub(crate) unsafe fn write_to_cpu(
         backtrace: BackTrace::capture(),
     })?;
 
+    // Nothing to copy for an empty tensor; `bytes` has no real backing (a
+    // dangling zero-size buffer) and must not reach the driver.
+    if bytes.is_empty() {
+        return Ok(());
+    }
+
     let rank = shape.len();
     let bytes = bytes.deref_mut();
-    if rank <= 1 {
-        // SAFETY: For rank <= 1 data is contiguous. `resource_ptr` is a valid device pointer
+
+    // A row stride equal to the row width means no pitch padding: the copy is
+    // one contiguous span, so use the plain linear copy. Only genuinely pitched
+    // sources need the 2D copy (which the driver also rejects for very tall
+    // transfers, e.g. an embedding table's 128k rows).
+    let pitched = rank > 1 && strides[rank - 2] != *shape.last().unwrap_or(&1);
+
+    if !pitched {
+        // SAFETY: The data is contiguous. `resource_ptr` is a valid device pointer
         // and `bytes` has sufficient capacity.
         unsafe {
             cudarc::driver::result::memcpy_dtoh_async(bytes, resource_ptr, stream).map_err(|e| {
@@ -608,9 +684,8 @@ pub(crate) unsafe fn write_to_cpu(
             })
         }
     } else {
-        // As we've enforced that the strides are contiguous row-major,
-        // and we know that the rank >= 2, we can construct a 2D view
-        // for the aligned GPU pitched memcpy.
+        // The strides are validated as pitched row-major and the rank is >= 2,
+        // so a 2D view with the row pitch covers the transfer.
 
         let dim_x_shape = shape[rank - 1];
         let width_bytes = dim_x_shape * elem_size;

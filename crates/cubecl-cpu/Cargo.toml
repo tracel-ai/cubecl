@@ -53,12 +53,14 @@ cubecl-std = { path = "../cubecl-std", version = "=0.11.0-pre.1", default-featur
 
 
 bytemuck = { workspace = true }
+crossbeam-utils = "0.8.21"
 derive-new = { workspace = true }
 half = { workspace = true }
 log = { workspace = true }
 paste = { workspace = true }
 pliron = { workspace = true, features = ["std"] }
 serde = { workspace = true }
+spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 sysinfo = { workspace = true }
 tracel-llvm = { workspace = true }
 pliron-llvm = { workspace = true, features = ["llvm-sys"] }

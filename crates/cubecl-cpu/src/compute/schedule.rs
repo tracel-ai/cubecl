@@ -5,7 +5,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::{
     logging::ServerLogger,
-    storage::BytesResource,
+    storage::{BytesResource, ManagedResource},
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
 use std::sync::Arc;
@@ -14,9 +14,8 @@ use std::sync::Arc;
 pub enum ScheduleTask {
     /// Represents a task to write data to a buffer.
     Write {
-        stream_id: StreamId,
         data: Bytes,
-        buffer: BytesResource,
+        buffer: ManagedResource<BytesResource>,
     },
     /// Represents a task to execute a kernel.
     Execute {
@@ -31,13 +30,8 @@ pub enum ScheduleTask {
 impl core::fmt::Debug for ScheduleTask {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Write {
-                stream_id,
-                data,
-                buffer,
-            } => f
+            Self::Write { data, buffer } => f
                 .debug_struct("Write")
-                .field("stream_id", stream_id)
                 .field("data", data)
                 .field("buffer", buffer)
                 .finish(),
@@ -61,7 +55,7 @@ impl core::fmt::Debug for ScheduleTask {
 #[derive(Debug)]
 pub struct BindingsResource {
     /// List of cpu resources used in the task.
-    pub resources: Vec<BytesResource>,
+    pub resources: Vec<ManagedResource<BytesResource>>,
     /// Metadata for uniform bindings.
     pub info: MetadataBindingInfo,
 }
@@ -76,6 +70,7 @@ pub struct ScheduledCpuBackend {
 /// Factory for creating cpu streams with specific configurations.
 #[derive(Debug)]
 pub struct CpuStreamFactory {
+    max_units_per_cube: u32,
     memory_properties: MemoryDeviceProperties,
     memory_config: MemoryConfiguration,
     logger: Arc<ServerLogger>,
@@ -86,6 +81,7 @@ impl StreamFactory for CpuStreamFactory {
 
     fn create(&mut self) -> Self::Stream {
         CpuStream::new(
+            self.max_units_per_cube,
             self.memory_properties.clone(),
             self.memory_config.clone(),
             self.logger.clone(),
@@ -96,12 +92,14 @@ impl StreamFactory for CpuStreamFactory {
 impl ScheduledCpuBackend {
     /// Creates a new [`ScheduledCpuBackend`] with the given configurations.
     pub fn new(
+        max_units_per_cube: u32,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
         logger: Arc<ServerLogger>,
     ) -> Self {
         Self {
             factory: CpuStreamFactory {
+                max_units_per_cube,
                 memory_properties,
                 memory_config,
                 logger,

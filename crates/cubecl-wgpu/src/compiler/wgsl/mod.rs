@@ -1,10 +1,14 @@
-mod base;
-mod body;
+pub mod builtin;
 mod compiler;
-mod extension;
 mod instructions;
-pub(crate) mod shader;
+pub mod lower;
+pub mod metadata;
+pub mod ops;
+pub mod shader;
 mod subgroup;
+pub mod to_wgsl;
+pub mod types;
+pub mod value;
 
 pub use compiler::*;
 pub(crate) use shader::*;

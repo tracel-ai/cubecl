@@ -11,7 +11,7 @@ use crate::{
 };
 
 #[pliron_op(
-    name = "matrix.load_tensor",
+    name = "matrix_spirv.load_tensor",
     operands = (out_mat: PointerType, buffer, layout: TensorLayoutType),
     format,
     verifier = "succ"
@@ -62,7 +62,7 @@ impl LoadTensorOp {
     }
 }
 
-#[pliron_op(name = "matrix.store_tensor", format, verifier = "succ")]
+#[pliron_op(name = "matrix_spirv.store_tensor", format, verifier = "succ")]
 #[op_traits(CanMaterialize)]
 pub struct StoreTensorOp;
 
@@ -160,7 +160,7 @@ impl CreateLayoutOp {
     }
 }
 
-#[cube_op(name = "cube.create_view")]
+#[cube_op(name = "spirv.create_view")]
 #[result_ty(argument)]
 #[op_traits(CanMaterialize, Pure)]
 pub struct CreateViewOp {}

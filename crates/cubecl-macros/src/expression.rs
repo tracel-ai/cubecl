@@ -272,7 +272,7 @@ impl Expression {
                     .iter()
                     .map(|it| it.as_const(context))
                     .collect::<Option<Vec<_>>>()?;
-                Some(quote![(#(#elements),*)])
+                Some(quote![(#(#elements,)*)])
             }
             Expression::FieldAccess { base, field, .. } => {
                 base.as_const(context).map(|base| quote![#base.#field])

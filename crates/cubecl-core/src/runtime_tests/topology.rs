@@ -21,7 +21,7 @@ pub fn test_kernel_topology_absolute_pos<R: Runtime>(
     }
 
     let cube_count = (3, 5, 7);
-    let cube_dim = (16, 16, 1);
+    let cube_dim = (2, 2, 1);
 
     let length = cube_count.0 * cube_count.1 * cube_count.2 * cube_dim.0 * cube_dim.1 * cube_dim.2;
     let handle1 = client.empty(length as usize * core::mem::size_of::<u32>());

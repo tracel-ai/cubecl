@@ -1,0 +1,27 @@
+[package]
+authors = []
+name = "throughput"
+publish = false
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[features]
+default = []
+
+# wgpu family — all use `WgpuRuntime`; the sub-feature selects the compiler backend.
+wgpu = ["cubecl/wgpu"] # WGSL
+vulkan = ["wgpu", "cubecl/vulkan"] # SPIR-V
+metal = ["wgpu", "cubecl/metal"] # MSL (via wgpu)
+webgpu = ["wgpu", "cubecl/webgpu"]
+
+# Native backends.
+cuda = ["cubecl/cuda"]
+hip = ["cubecl/hip"]
+rocm = ["hip"]
+cpu = ["cubecl/cpu"]
+metal-native = ["cubecl/metal-native"]
+
+[dependencies]
+cubecl = { path = "../../crates/cubecl", version = "=0.11.0-pre.1", features = ["stdlib"] }
+half = { workspace = true }

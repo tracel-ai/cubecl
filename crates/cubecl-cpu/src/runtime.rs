@@ -30,8 +30,6 @@ pub type CpuCompiler = PlironCompiler;
 impl DeviceService for CpuServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         let options = RuntimeOptions::default();
-        let max_cube_dim = (u32::MAX, u32::MAX, u32::MAX);
-        let max_cube_count = (u32::MAX, u32::MAX, u32::MAX);
         let mut system = System::new();
         system.refresh_memory();
         let max_shared_memory_size = system
@@ -43,7 +41,13 @@ impl DeviceService for CpuServer {
         let available_parallelism = std::thread::available_parallelism()
             .expect("Can't get available parallelism on this platform")
             .get();
-
+        let available_parallelism = available_parallelism as u32;
+        let max_cube_dim = (
+            available_parallelism,
+            available_parallelism,
+            available_parallelism,
+        );
+        let max_cube_count = (u32::MAX, u32::MAX, u32::MAX);
         let topology = HardwareProperties {
             load_width: 512,
             plane_size_min: 1,
@@ -52,7 +56,7 @@ impl DeviceService for CpuServer {
             max_shared_memory_size,
             max_cube_count,
             num_cpu_cores: Some(available_parallelism as u32),
-            max_units_per_cube: u32::MAX,
+            max_units_per_cube: available_parallelism,
             max_cube_dim,
             num_streaming_multiprocessors: None,
             num_tensor_cores: None,
@@ -74,7 +78,7 @@ impl DeviceService for CpuServer {
                 ..Default::default()
             },
             mem_properties.clone(),
-            topology,
+            topology.clone(),
             TimingMethod::Device,
         );
 
@@ -84,7 +88,12 @@ impl DeviceService for CpuServer {
             (),
             ContiguousMemoryLayoutPolicy::new(ALIGNMENT as usize),
         );
-        CpuServer::new(mem_properties, options.memory_config, Arc::new(utilities))
+        CpuServer::new(
+            available_parallelism,
+            mem_properties,
+            options.memory_config,
+            Arc::new(utilities),
+        )
     }
 
     fn utilities(&self) -> ServerUtilitiesHandle {

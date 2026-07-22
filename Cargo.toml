@@ -78,8 +78,8 @@ rand = { version = "0.10.0", default-features = false, features = [
 ] } # std_rng is for no_std
 
 async-channel = "2.3"
-dirs = "6.0.0"
 embassy-time = { version = "0.5", default-features = false }
+etcetera = "0.11.0"
 md5 = "0.8.0"
 sanitize-filename = "0.6"
 wasm-bindgen-futures = "0.4.45"
@@ -125,8 +125,11 @@ portable-atomic-util = { version = "0.2.4", features = ["alloc"] }
 pretty_assertions = "1.4"
 
 # Async
-embassy-futures = { version = "0.1.1" }                        # for no-std
+embassy-futures = { version = "0.1.1" } # for no-std
 futures-lite = { version = "2.3.0", default-features = false }
+futures-util = { version = "0.3.32", default-features = false, features = [
+    "alloc",
+] }
 
 # CubeCL-CPU
 sysinfo = "0.38"
@@ -160,15 +163,17 @@ cudarc = { version = "0.19.6", features = [
 # CubeCL-SPIR-V
 pliron-spirv = { package = "pliron-spirv", path = "../tracel-rspirv/pliron-spirv" }
 rspirv = { package = "tracel-rspirv", path = "../tracel-rspirv/rspirv" }
+rustc_apfloat = "0.2"
 
 # CubeCL-WGPU
 ash = "0.38"
 tracel-ash = "0.39.2"
 # tracel-ash = { path = "../tracel-ash/crates/ash" }
 
-wgpu = { git = "https://github.com/gfx-rs/wgpu.git", rev = "bde709122f8320571ab1733ab055dcb54415a483" }
-# wgpu = "^29.0.1"
-wgpu-hal = { git = "https://github.com/gfx-rs/wgpu.git", rev = "bde709122f8320571ab1733ab055dcb54415a483" }
+# wgpu = { git = "https://github.com/gfx-rs/wgpu.git", rev = "bde709122f8320571ab1733ab055dcb54415a483" }
+wgpu = "^30.0.0"
+wgpu-hal = "^30.0.0"
+# wgpu-hal = { git = "https://github.com/gfx-rs/wgpu.git", rev = "bde709122f8320571ab1733ab055dcb54415a483" }
 
 renderdoc = "0.12"
 

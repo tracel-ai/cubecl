@@ -113,6 +113,12 @@ impl<F: StreamFactory> StreamPool<F> {
     pub fn stream_index(&mut self, id: &StreamId) -> usize {
         stream_index(id, self.max_streams)
     }
+
+    /// Mutable access to the factory, e.g. to change the configuration new
+    /// streams are created with. Already-created streams are unaffected.
+    pub fn factory_mut(&mut self) -> &mut F {
+        &mut self.factory
+    }
 }
 
 /// Maps a stream ID to an index within the pool's capacity using modulo arithmetic.

@@ -27,7 +27,7 @@ use crate::ops::to_spirv_dialect::ToSpirvDialectOp;
 
 // Custom branch because of `BoolType`
 #[pliron_op(
-    name = "spirv.cube.branch_conditional",
+    name = "spirv_cube.branch_conditional",
     format,
     operands = (condition: BoolType, true_dest_opds, false_dest_opds),
     verifier = "succ"

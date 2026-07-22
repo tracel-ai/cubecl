@@ -217,6 +217,16 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
     }
 }
 
+/// Storage (values) vector size: the float vector size divided by `num_quants`. Asserts the float
+/// vector size is a multiple of `num_quants`, so a violation reports clearly here, not a cryptic cast error.
+fn quant_vector_size_q(vector_size: usize, num_quants: usize) -> usize {
+    assert!(
+        vector_size >= num_quants && vector_size.is_multiple_of(num_quants),
+        "quantized view float vector size {vector_size} must be a positive multiple of num_quants {num_quants}"
+    );
+    vector_size / num_quants
+}
+
 struct ExpandDynamic<'a, E: Numeric, N: Size, C: Coordinates + 'static> {
     values: &'a ViewCompilationArg<C>,
     scales: &'a ViewCompilationArg<C>,
@@ -234,7 +244,7 @@ impl<'a, E: Numeric, N: Size, C: Coordinates + 'static> RunWithQuantType
         define_size!(NQ);
 
         let vector_size = N::__expand_value(&self.builder.scope);
-        let vector_size_q = vector_size / self.scheme.num_quants();
+        let vector_size_q = quant_vector_size_q(vector_size, self.scheme.num_quants());
         self.builder.scope.register_size::<NQ>(vector_size_q);
 
         let values = View::<Vector<Q, NQ>, C>::expand(self.values, self.builder);
@@ -261,7 +271,8 @@ impl<'a, E: CubePrimitive, C: Coordinates + 'static, R: Runtime> RunWithQuantTyp
         define_size!(NQ);
 
         self.launcher.with_scope(|scope| {
-            let vector_size_q = E::__expand_vector_size(scope) / self.scheme.num_quants();
+            let vector_size_q =
+                quant_vector_size_q(E::__expand_vector_size(scope), self.scheme.num_quants());
             scope.register_size::<NQ>(vector_size_q);
         });
 
@@ -373,5 +384,23 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
             },
             _ => unreachable!("Quantized view should only be used with floats"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::quant_vector_size_q;
+
+    #[test]
+    fn vector_size_q_exact_multiple() {
+        assert_eq!(quant_vector_size_q(8, 8), 1);
+        assert_eq!(quant_vector_size_q(16, 8), 2);
+        assert_eq!(quant_vector_size_q(16, 16), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "positive multiple of num_quants")]
+    fn vector_size_q_non_multiple_panics() {
+        let _ = quant_vector_size_q(8, 16);
     }
 }

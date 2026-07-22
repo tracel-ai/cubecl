@@ -1,5 +1,6 @@
 use cubecl_core::{
     self as cubecl,
+    frontend::polyfills::erf,
     ir::{
         dialect::{
             atomic::AtomicLoadOp,

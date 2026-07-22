@@ -129,7 +129,7 @@ impl CudaContext {
 
         self.validate_shared(&kernel_compiled.repr)?;
 
-        if logger.compilation_activated() {
+        if logger.compilation_source_activated() {
             kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
 
             if let Ok(formatted) = format_cpp(&kernel_compiled.source) {

@@ -122,6 +122,39 @@ logger = { level = "basic", file = "cubecl.log", append = true }
 max_streams: 4
 ```
 
+### Memory
+
+The `[memory]` section controls memory-related logging and the persistent-memory policy.
+
+**Log Levels:**
+
+- `disabled`: No logs.
+- `basic`: Basic memory events, such as creating memory pages and manual cleanups.
+- `full`: Detailed memory information.
+
+**Persistent memory** (`persistent_memory`): controls the pool used for long-lived allocations
+such as model weights.
+
+- `enabled` (default): used only when explicitly requested (e.g.
+  `ComputeClient::memory_persistent_allocation`).
+- `disabled`: requests to switch to persistent allocation are ignored.
+- `enforced`: every allocation is persistent. May cause out-of-memory errors when tensor sizes
+  vary.
+
+**Example:**
+
+```toml
+[memory]
+logger = { level = "basic", stdout = true }
+persistent_memory = "enabled"
+```
+
+**Memory pools are a programmatic setting, not a config-file one.** Pool layouts are dynamic.
+They are sized at runtime from the workload (model size, sequence length, batch) and change
+between workloads, so they must not freeze at process startup. See
+[Memory pool layouts](#memory-pool-layouts) below. A leftover `pools` entry in `[memory]` is a
+load error.
+
 ## Environment Variable Overrides
 
 CubeCL supports several environment variables to override configuration at runtime:
@@ -154,16 +187,69 @@ export CUBECL_AUTOTUNE_LEVEL=full
 You can also set the global configuration from Rust code before CubeCL is initialized:
 
 ```rust
-let config = cubecl::config::GlobalConfig {
-    profiling: ...,
-    autotune: ...,
-    compilation: ...,
-};
-cubecl::config::GlobalConfig::set(config);
+use cubecl::config::{CubeClRuntimeConfig, RuntimeConfig};
+
+// Seed from `cubecl.toml` and `CUBECL_*` env vars, then override in code.
+let mut config = CubeClRuntimeConfig::from_current_dir().override_from_env();
+config.autotune.level = cubecl::config::autotune::AutotuneLevel::Extensive;
+CubeClRuntimeConfig::set(config);
 ```
 
-> **Note:** You must call `GlobalConfig::set` before any CubeCL operations, and only once per
-> process.
+> **Note:** You must call `CubeClRuntimeConfig::set` before any CubeCL operations, and only once
+> per process.
+
+Two sharp edges:
+
+- `set` panics if the configuration was already loaded.
+  It must run before any CubeCL call that touches a client, autotune, or logging.
+- Seeding with `from_current_dir().override_from_env()` as above keeps `cubecl.toml` and
+  `CUBECL_*` env vars in effect.
+  Starting from `CubeClRuntimeConfig::default()` discards them.
+
+## Memory pool layouts
+
+The pool layout of a runtime's **main GPU** memory is configured at runtime through the compute
+client, never through a config file, so it can change between workloads instead of freezing at
+startup:
+
+```rust
+use cubecl::config::memory::{MemoryPoolConfig, MemoryPoolsConfig};
+use cubecl::config::size::MemorySize;
+
+let applied = client.configure_memory_pools(&MemoryPoolsConfig::Explicit(vec![
+    MemoryPoolConfig::Sliced {
+        page_size: MemorySize(page_bytes),
+        max_slice_size: None,
+        max_pool_size: Some(MemorySize(pages * page_bytes)),
+        dealloc_period: None,
+    },
+]));
+assert!(applied, "something was still live in the old pools");
+```
+
+The value is either a preset (`MemoryPoolsConfig::Preset` with `SubSlices` or `ExclusivePages`,
+matching the runtime defaults) or an explicit pool list. At allocation time, the first pool that
+accepts an allocation's size serves it. Auxiliary pools (pinned CPU, staging, uniforms) and the
+persistent pool are never affected.
+
+Semantics:
+
+- The **calling stream's** pools are rebuilt in place, provided nothing is live in them.
+  Reconfigure at a quiescent point, for example right after unloading a model and running
+  `memory_cleanup`. When something is still live, the call returns `false`, the old layout is
+  kept, and a memory log line says so. Garbage-collection tasks release their pins
+  asynchronously, so a `false` right after a cleanup usually succeeds on a retry.
+- Every stream **created afterwards** is built with the new layout, so workloads with different
+  layouts can coexist on different streams.
+- An invalid layout (empty list, too many pools, zero `page_size`, `max_slice_size` larger than
+  `page_size`, `max_pool_size` smaller than `page_size`) panics with a descriptive message. An
+  explicit layout is never silently replaced.
+- `page_size` may exceed the device's reported `max_page_size`: that value is a sizing heuristic
+  for the default layouts, not an allocation limit. A page the device truly cannot allocate
+  fails at allocation time.
+- A hard-capped sliced arena gives a **fixed memory footprint**: allocations of every size reuse
+  the same pages, and when the cap is reached and nothing fits after coalescing, the allocation
+  fails with a pool-capacity error instead of growing silently.
 
 ## Logging
 
@@ -181,7 +267,9 @@ You can configure these in the `logger` field for each section.
 To generate a default configuration file:
 
 ```rust
-cubecl::config::GlobalConfig::save_default("cubecl.toml").unwrap();
+use cubecl::config::{CubeClRuntimeConfig, RuntimeConfig};
+
+CubeClRuntimeConfig::save_default("cubecl.toml").unwrap();
 ```
 
 ## Example: Full Configuration

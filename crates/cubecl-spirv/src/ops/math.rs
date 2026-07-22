@@ -1,8 +1,4 @@
-use cubecl_core::{
-    self as cubecl,
-    num_traits::{One, Zero},
-    prelude::*,
-};
+use cubecl_core::{self as cubecl, frontend::polyfills::*, prelude::*};
 use cubecl_ir::{dialect::math, prelude::*};
 use pliron_spirv::{ext::gl, ops, types::StructType};
 
@@ -32,6 +28,8 @@ binop_to_spirv_dialect!(math::URemOp => ops::UModOp);
 binop_to_spirv_dialect!(math::FRemOp => ops::FRemOp);
 binop_to_spirv_dialect!(math::SModFloorOp => ops::SModOp);
 binop_to_spirv_dialect!(math::FModFloorOp => ops::FModOp);
+
+binop_to_spirv_dialect!(SimplePowOp => gl::PowOp);
 
 unop_to_spirv_dialect!(math::SAbsOp => gl::SAbsOp);
 unop_to_spirv_dialect!(math::FAbsOp => gl::FAbsOp);
@@ -137,67 +135,6 @@ lower_binop!(math::RhypotOp, rhypot);
 
 lower_binop!(math::PowfOp, powf);
 lower_binop!(math::PowiOp, powi);
-
-#[cube]
-fn log1p<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
-    (input + Vector::one()).ln()
-}
-
-#[cube]
-fn expm1<T: Float, N: Size>(x: Vector<T, N>) -> Vector<T, N> {
-    let sq = x * x;
-    let a = sq * Vector::new(T::new(0.5));
-    let b = sq * x * Vector::new(T::new(1.0 / 6.0));
-    let taylor = x + a + b;
-    let is_small = x.abs().less_than(&Vector::new(T::new(1e-5)));
-    select_many(is_small, taylor, x.exp() - Vector::one())
-}
-
-#[cube]
-fn recip<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
-    Vector::one() / input
-}
-
-/// use the SPIR-V dialect version because otherwise we'd get an infinite lowering loop
-#[cube]
-fn spirv_pow<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<T, N>) -> Vector<T, N> {
-    intrinsic!(|scope| {
-        let base = base.read_value(scope);
-        let exp = exp.read_value(scope);
-        let ty = base.get_type(scope.ctx());
-        let powf = gl::PowOp::new(scope.ctx_mut(), ty, base, exp);
-        scope.register_with_result(&powf).into()
-    })
-}
-
-#[cube]
-fn powf<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<T, N>) -> Vector<T, N> {
-    let modulo = exp.mod_floor(Vector::new(T::new(2.0)));
-    let is_even = modulo.equal(&Vector::zero());
-    let is_odd = modulo.equal(&Vector::one());
-    let is_neg_base = base.less_than(&Vector::zero());
-
-    let even_res = spirv_pow(base.abs(), exp);
-    let odd_neg_res = -(spirv_pow(-base, exp));
-    let default = spirv_pow(base, exp);
-
-    let sel1 = select_many(is_odd.vec_and(is_neg_base), odd_neg_res, default);
-    select_many(is_even, even_res, sel1)
-}
-
-#[cube]
-fn powi<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
-    let is_even = exp.is_multiple_of(2);
-    let is_neg_base = base.less_than(&Vector::zero());
-    let exp = Vector::cast_from(exp);
-
-    let even_res = spirv_pow(base.abs(), exp);
-    let odd_neg_res = -(spirv_pow(-base, exp));
-    let default = spirv_pow(base, exp);
-
-    let sel1 = select_many((!is_even).vec_and(is_neg_base), odd_neg_res, default);
-    select_many(is_even, even_res, sel1)
-}
 
 #[op_interface_impl]
 impl LowerOp for math::FmaOp {

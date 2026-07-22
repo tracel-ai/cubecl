@@ -1,8 +1,10 @@
 use crate::{
+    config::memory::MemoryPoolsConfig,
     config::{TypeNameFormatLevel, type_name_format},
+    id::GraphId,
     kernel::KernelMetadata,
     logging::ProfileLevel,
-    memory_management::{MemoryAllocationMode, MemoryUsage},
+    memory_management::{MemoryAllocationMode, MemoryConfiguration, MemoryUsage},
     runtime::Runtime,
     server::{
         CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle, IoError,
@@ -11,13 +13,19 @@ use crate::{
         ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
+    throughput::{
+        KernelConfig, ThroughputBenchmarker, ThroughputCache, ThroughputKey, ThroughputValue,
+    },
 };
-use alloc::{format, sync::Arc, vec, vec::Vec};
+use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
+
+#[cfg(not(target_family = "wasm"))]
+mod lazy;
 use cubecl_common::{
     backtrace::BackTrace,
     bytes::{AllocationProperty, Bytes},
     device::{Device, DeviceId},
-    device_handle::DeviceHandle,
+    device_handle::{CallResultExt, DeviceHandle},
     future::DynFut,
     profile::ProfileDuration,
 };
@@ -34,6 +42,108 @@ pub struct ComputeClient<R: Runtime> {
     device: DeviceHandle<R::Server>,
     utilities: Arc<ServerUtilities<R::Server>>,
     stream_id: Option<StreamId>,
+}
+
+/// A captured graph produced by [`ComputeClient::stop_capture`]: a recorded
+/// launch sequence that [`replay`](Graph::replay) re-runs as a single dispatch
+/// against its original buffers. Cheap to clone (shares one backend graph).
+///
+/// The graph itself lives in the backend server, referenced here only by
+/// [`GraphId`]; this handle holds a reference-counted owner that releases the
+/// backend graph once the last clone drops. The graph replays against the exact
+/// device buffers used during capture. The caller keeps those input/output
+/// [`Handle`]s alive and, each iteration, writes fresh inputs into the input
+/// handles (same device pointers) and reads the output handles after replaying —
+/// see [`ComputeClient::stop_capture`].
+///
+/// **Stream ordering.** [`replay`](Graph::replay) always dispatches on the
+/// stream the graph was captured on, but input writes and output reads go on the
+/// *writing client's* current stream. They are ordered against the replay only
+/// when they land on that same stream, so keep the client pinned to the capture
+/// stream (via [`set_stream`](ComputeClient::set_stream)) — or issue all writes,
+/// replays, and reads from the same unpinned client — for the whole decode loop.
+/// Refreshing inputs from a client on a different stream races the replay and
+/// silently feeds it stale data.
+pub struct Graph<R: Runtime> {
+    inner: Arc<GraphHandle<R>>,
+}
+
+impl<R: Runtime> core::fmt::Debug for Graph<R> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Graph")
+            .field("id", &self.inner.id)
+            .field("stream_id", &self.inner.stream_id)
+            .finish()
+    }
+}
+
+/// Reference-counted owner of a backend graph. Its [`Drop`] ships the release to
+/// the server actor, so the last [`Graph`] clone frees the backend graph on the
+/// thread that owns it.
+struct GraphHandle<R: Runtime> {
+    id: GraphId,
+    device: DeviceHandle<R::Server>,
+    stream_id: StreamId,
+}
+
+impl<R: Runtime> Graph<R> {
+    /// Replay the captured launch sequence — one dispatch re-running every
+    /// recorded kernel against the buffers it was captured with, on the stream
+    /// it was captured on. Self-contained (the handle owns its device handle);
+    /// no client needed.
+    ///
+    /// Non-blocking, like a kernel launch: this enqueues the dispatch and returns
+    /// immediately. A replay failure is not reported here — it lands in the
+    /// stream's error queue and surfaces on the next
+    /// [`sync`](ComputeClient::sync)/[`flush`](ComputeClient::flush) (e.g. when
+    /// reading the output back).
+    ///
+    /// # Safety
+    ///
+    /// The dispatch re-runs the recorded kernels against the raw device pointers
+    /// captured with them; nothing validates those buffers still exist or are
+    /// unshared. The caller must guarantee, until the replay's work completes on
+    /// the stream:
+    ///
+    /// - **Liveness** — every [`Handle`] the captured kernels read or wrote is
+    ///   still allocated. Freeing one returns its memory to the pool, and a
+    ///   later replay reads or corrupts whatever the allocator has since placed
+    ///   there.
+    /// - **No concurrent use** — no other stream or thread touches buffers the
+    ///   graph reads or writes while the replay executes; the replay is ordered
+    ///   only against work on its capture stream.
+    /// - **Same-stream refreshes** — input writes and output reads are issued on
+    ///   the capture stream (keep the client pinned to it via
+    ///   [`set_stream`](ComputeClient::set_stream), or do everything from the
+    ///   one client), so they order against the replay instead of racing it.
+    pub unsafe fn replay(&self) {
+        let id = self.inner.id;
+        let stream_id = self.inner.stream_id;
+        self.inner
+            .device
+            .submit(move |server| server.replay(id, stream_id));
+    }
+}
+
+impl<R: Runtime> Clone for Graph<R> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<R: Runtime> Drop for GraphHandle<R> {
+    fn drop(&mut self) {
+        let id = self.id;
+        let stream_id = self.stream_id;
+        // Destroying the raw executable must happen on the server actor (the
+        // only thread allowed to touch it) and only once in-flight replays have
+        // completed — `replay` returns at enqueue time, not completion. Ship the
+        // release to the actor; the backend syncs the stream before it destroys.
+        self.device
+            .submit(move |server| server.graph_destroy(id, stream_id));
+    }
 }
 
 impl<R: Runtime> Clone for ComputeClient<R> {
@@ -102,7 +212,7 @@ impl<R: Runtime> ComputeClient<R> {
         let stream_id = self.stream_id();
         self.device
             .submit_blocking(move |server| server.read(descriptors, stream_id))
-            .unwrap()
+            .unwrap_or_resume()
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -193,6 +303,52 @@ impl<R: Runtime> ComputeClient<R> {
         self.read_tensor(vec![descriptor]).remove(0)
     }
 
+    /// Reads the device resource described by `descriptor` lazily.
+    ///
+    /// The returned [`Bytes`] only performs the device-to-host copy on first access (e.g. during
+    /// serialization), keeping the source allocation alive until then. This lets a large number of
+    /// device tensors be serialized without materializing them all in host memory at once: drain
+    /// the [`Bytes`] sequentially rather than holding them all alive.
+    ///
+    /// The data reflects the device state at first access, so the buffer must not be mutated
+    /// between this call and the first read.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn read_lazy(&self, descriptor: CopyDescriptor) -> Bytes {
+        let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
+        let controller = lazy::LazyDeviceController::new(self.clone(), Arc::new(descriptor));
+        // SAFETY: the controller materializes exactly `len` bytes on first access.
+        unsafe { Bytes::from_controller(alloc::boxed::Box::new(controller), len) }
+    }
+
+    /// Reads the device resource described by `descriptor` lazily, async variant.
+    ///
+    /// On native targets the returned future is immediately ready and yields a lazy [`Bytes`]
+    /// whose device-to-host copy is deferred to first access (see [`read_lazy`](Self::read_lazy)).
+    #[cfg(not(target_family = "wasm"))]
+    pub fn read_lazy_async(
+        &self,
+        descriptor: CopyDescriptor,
+    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
+        let len = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
+        let controller = lazy::LazyDeviceController::new(self.clone(), Arc::new(descriptor));
+        // SAFETY: the controller materializes exactly `len` bytes on first access.
+        let bytes = unsafe { Bytes::from_controller(alloc::boxed::Box::new(controller), len) };
+        core::future::ready(Ok(bytes))
+    }
+
+    /// Reads the device resource described by `descriptor` lazily, async variant.
+    ///
+    /// On `wasm` the deferred copy cannot run inside the synchronous access path, so awaiting
+    /// performs the read eagerly and yields a materialized [`Bytes`]. Awaiting one tensor at a
+    /// time still bounds peak host memory, which is the point of the lazy API.
+    #[cfg(target_family = "wasm")]
+    pub fn read_lazy_async(
+        &self,
+        descriptor: CopyDescriptor,
+    ) -> impl Future<Output = Result<Bytes, ServerError>> + Send {
+        self.read_one_tensor_async(descriptor)
+    }
+
     /// Given a resource handle, returns the storage resource.
     pub fn get_resource(
         &self,
@@ -206,7 +362,7 @@ impl<R: Runtime> ComputeClient<R> {
 
         self.device
             .submit_blocking(move |state| state.get_resource(binding, stream_id))
-            .unwrap()
+            .unwrap_or_resume()
     }
 
     fn do_create_from_slices(
@@ -246,10 +402,8 @@ impl<R: Runtime> ComputeClient<R> {
     fn do_create(
         &self,
         descriptors: Vec<MemoryLayoutDescriptor>,
-        mut data: Vec<Bytes>,
+        data: Vec<Bytes>,
     ) -> Result<Vec<MemoryLayout>, IoError> {
-        self.staging(data.iter_mut(), true);
-
         let stream_id = self.stream_id();
         let (handle_base, layouts) = self.utilities.layout_policy.apply(stream_id, &descriptors);
 
@@ -265,7 +419,7 @@ impl<R: Runtime> ComputeClient<R> {
                         layout.strides.clone(),
                         desc.elem_size,
                     ),
-                    Bytes::from_bytes_vec(data.to_vec()),
+                    data,
                 )
             })
             .collect::<Vec<_>>();
@@ -309,7 +463,7 @@ impl<R: Runtime> ComputeClient<R> {
         self.device
             .exclusive(task)
             .map_err(|err| ServerError::Generic {
-                reason: format!("Communication channel with the server is down: {err:?}"),
+                reason: format!("{err:?}"),
                 backtrace: BackTrace::capture(),
             })
     }
@@ -339,6 +493,24 @@ impl<R: Runtime> ComputeClient<R> {
         });
 
         Ok(output)
+    }
+
+    /// Write `data` into an existing allocation, in place (same device pointer).
+    ///
+    /// This is how a captured [`Graph`]'s inputs are refreshed between replays:
+    /// the graph records raw device pointers, so new input bytes must land in
+    /// the very buffer the capture read from. Issue it from the capture stream
+    /// (see the stream-ordering notes on [`Graph`]) so the write orders against
+    /// the replays instead of racing them.
+    ///
+    /// Non-blocking: the write is enqueued on this client's current stream.
+    pub fn write(&self, handle: &Handle, data: Bytes) {
+        let stream_id = self.stream_id();
+        let descriptor =
+            CopyDescriptor::new(handle.clone().binding(), [data.len()].into(), [1].into(), 1);
+        self.device.submit(move |server| {
+            server.write(vec![(descriptor, data)], stream_id);
+        });
     }
 
     /// Returns a resource handle containing the given [Bytes].
@@ -499,6 +671,9 @@ impl<R: Runtime> ComputeClient<R> {
         let has_staging = |b: &Bytes| match b.property() {
             AllocationProperty::Pinned => false,
             AllocationProperty::File => true,
+            // A lazily device-backed buffer materializes on access and is staged (if needed)
+            // by the backend write path, so don't force it into a host staging buffer here.
+            AllocationProperty::Device => false,
             AllocationProperty::Native | AllocationProperty::Other => !file_only,
         };
 
@@ -523,7 +698,7 @@ impl<R: Runtime> ComputeClient<R> {
         let stagings = self
             .device
             .submit_blocking(move |server| server.staging(&sizes, stream_id))
-            .unwrap();
+            .unwrap_or_resume();
 
         let stagings = match stagings {
             Ok(val) => val,
@@ -729,7 +904,7 @@ impl<R: Runtime> ComputeClient<R> {
                                 .submit_blocking(move |state| unsafe {
                                     state.launch(kernel, count_moved, bindings, stream_id)
                                 })
-                                .unwrap()
+                                .unwrap_or_resume()
                         },
                         name,
                     )
@@ -763,7 +938,49 @@ impl<R: Runtime> ComputeClient<R> {
 
         self.device
             .submit_blocking(move |server| server.flush(stream_id))
-            .unwrap()
+            .unwrap_or_resume()
+    }
+
+    /// Prepare this client's stream for a graph capture (see
+    /// [`ComputeServer::graph_prepare`]) — enable the persistent pool + capture
+    /// recording. Call this **before** the warmup run, then
+    /// [`start_capture`](Self::start_capture) around the run to record.
+    pub fn graph_prepare(&self) -> Result<(), ServerError> {
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.graph_prepare(stream_id))
+            .unwrap_or_resume()
+    }
+
+    /// Begin recording launches on this client's stream into a graph rather
+    /// than executing them (see [`ComputeServer::begin_capture`]). Pin the
+    /// client to a dedicated stream with [`set_stream`](Self::set_stream), then
+    /// [`graph_prepare`](Self::graph_prepare) and warm up first; between this
+    /// and [`stop_capture`](Self::stop_capture) no sync or fresh allocation may
+    /// happen. Returns an error on backends without graph support.
+    pub fn start_capture(&self) -> Result<(), ServerError> {
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.begin_capture(stream_id))
+            .unwrap_or_resume()
+    }
+
+    /// Stop recording and return the captured graph, ready to
+    /// [`replay`](Graph::replay).
+    pub fn stop_capture(&self) -> Result<Graph<R>, ServerError> {
+        let stream_id = self.stream_id();
+        let id = self
+            .device
+            .submit_blocking(move |server| server.end_capture(stream_id))
+            .unwrap_or_resume()?;
+
+        Ok(Graph {
+            inner: Arc::new(GraphHandle {
+                id,
+                device: self.device.clone(),
+                stream_id,
+            }),
+        })
     }
 
     /// Wait for the completion of every task in the server.
@@ -773,7 +990,7 @@ impl<R: Runtime> ComputeClient<R> {
         let fut = self
             .device
             .submit_blocking(move |server| server.sync(stream_id))
-            .unwrap();
+            .unwrap_or_resume();
 
         self.utilities.logger.profile_summary();
 
@@ -812,7 +1029,7 @@ impl<R: Runtime> ComputeClient<R> {
                         Ok(acc.combine(server.memory_usage(id)?))
                     })
             })
-            .unwrap()
+            .unwrap_or_resume()
     }
 
     /// Get all devices of a specific type available to this runtime
@@ -856,6 +1073,43 @@ impl<R: Runtime> ComputeClient<R> {
                 server.memory_cleanup(id);
             }
         });
+    }
+
+    /// Install a new dynamic-pool layout for the device's main GPU memory.
+    ///
+    /// Pool layouts are a purely programmatic, runtime setting — there is no
+    /// config-file pathway — sized per workload (e.g. per model, just before
+    /// loading it). The current stream's pools are rebuilt in place when
+    /// nothing is live in them (reconfigure at a quiescent point, e.g. right
+    /// after unloading a model), and the layout applies to every stream
+    /// created afterwards. Auxiliary pools (pinned CPU, staging, uniforms) and
+    /// the persistent pool are never affected.
+    ///
+    /// Returns `true` when the current stream's pools were rebuilt now.
+    /// Returns `false` when they kept the old layout because something was
+    /// still live in them — e.g. a garbage-collection task that has not
+    /// released its cross-stream pins yet, which can lag behind an explicit
+    /// [`memory_cleanup`](Self::memory_cleanup). The layout still applies to
+    /// streams created afterwards; retry after the remaining work drains to
+    /// rebuild the current stream too.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the layout is invalid (empty list, too many pools, zero page
+    /// size, slice larger than page, cap smaller than page, unavailable
+    /// preset) — an explicit layout that cannot be honored must not be
+    /// silently replaced.
+    #[must_use = "a `false` return means the current stream kept its old pool layout"]
+    pub fn configure_memory_pools(&self, pools: &MemoryPoolsConfig) -> bool {
+        let config =
+            match MemoryConfiguration::default().resolve(Some(pools), &self.properties().memory) {
+                Ok(config) => config,
+                Err(err) => panic!("Invalid memory pools configuration: {err}"),
+            };
+        let stream_id = self.stream_id();
+        self.device
+            .submit_blocking(move |server| server.configure_memory_pools(config, stream_id))
+            .unwrap_or_resume()
     }
 
     /// Measure the execution time of some inner operations.
@@ -930,11 +1184,11 @@ impl<R: Runtime> ComputeClient<R> {
                             Err(err) => Err(err),
                         }
                     })
-                    .unwrap();
+                    .unwrap_or_resume();
 
                 Ok(result)
             })
-            .unwrap()
+            .unwrap_or_resume()
             .map_err(|err| ProfileError::Unknown {
                 reason: alloc::format!("{err}"),
                 backtrace: BackTrace::capture(),
@@ -988,7 +1242,7 @@ impl<R: Runtime> ComputeClient<R> {
         let read = self
             .device
             .submit_blocking(move |server| server.read(vec![src_descriptor], stream_id))
-            .unwrap();
+            .unwrap_or_resume();
 
         let mut data = cubecl_common::future::block_on(read).unwrap();
 
@@ -1028,5 +1282,29 @@ impl<R: Runtime> ComputeClient<R> {
         let num_candidates = max.trailing_zeros() + 1;
 
         (0..num_candidates).map(|i| 2usize.pow(i)).rev()
+    }
+
+    /// Stable per-device identity, used to key device-level measurement caches.
+    fn device_key(&self) -> String {
+        format!("{}_dev{}", R::name(self), self.device.device_id().index_id)
+    }
+
+    /// Calculates the maximum throughput of the device given the given config (like tensor core with certain sizes and dtypes, or just arithmetic by dtype)
+    pub fn measure_throughput(
+        &self,
+        key: ThroughputKey,
+        kernel_config: KernelConfig,
+    ) -> ThroughputValue {
+        let cache = ThroughputCache::get_for_device(&self.device_key());
+        let mut throughputs = ThroughputBenchmarker::new(cache);
+        throughputs.measure(self, key, kernel_config)
+    }
+
+    /// Calculates the launch overhead of the device by sampling.
+    pub fn measure_launch_overhead(
+        &self,
+        sample: impl Fn() -> core::time::Duration,
+    ) -> core::time::Duration {
+        crate::throughput::launch_overhead_or_measure(&self.device_key(), sample)
     }
 }

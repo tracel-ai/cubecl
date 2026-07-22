@@ -8,7 +8,10 @@ use crate::{
 };
 use cubecl_common::bytes::Bytes;
 use cubecl_core::{CubeDim, stream_id::StreamId};
-use cubecl_runtime::{logging::ServerLogger, storage::BytesResource};
+use cubecl_runtime::{
+    logging::ServerLogger,
+    storage::{BytesResource, ManagedResource},
+};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, mpsc::SyncSender};
 
@@ -20,11 +23,6 @@ static INSTANCE: OnceLock<CpuExecutionQueue> = OnceLock::new();
 /// This type allows users to send tasks to the global execution queue.
 pub struct CpuExecutionQueue {
     sender: SyncSender<QueueItem>,
-}
-
-enum QueueItem {
-    Task(ScheduleTask),
-    Flush(Notification),
 }
 
 impl CpuExecutionQueue {
@@ -82,14 +80,7 @@ struct CpuExecutionQueueServer {
 impl CpuExecutionQueueServer {
     fn execute_task(&mut self, task: ScheduleTask) {
         match task {
-            ScheduleTask::Write {
-                stream_id,
-                data,
-                buffer,
-            } => {
-                self.flush_stream(stream_id);
-                self.write(data, buffer)
-            }
+            ScheduleTask::Write { data, buffer, .. } => self.write(data, buffer),
             ScheduleTask::Execute {
                 stream_id,
                 pliron_engine: mlir_engine,
@@ -97,10 +88,7 @@ impl CpuExecutionQueueServer {
                 cube_dim,
                 cube_count,
                 ..
-            } => {
-                self.flush_stream(stream_id);
-                self.kernel(stream_id, mlir_engine, bindings, cube_dim, cube_count)
-            }
+            } => self.kernel(stream_id, mlir_engine, bindings, cube_dim, cube_count),
         }
     }
 
@@ -118,8 +106,8 @@ impl CpuExecutionQueueServer {
         }
     }
 
-    fn write(&mut self, data: Bytes, mut buffer: BytesResource) {
-        buffer.write().copy_from_slice(&data);
+    fn write(&mut self, data: Bytes, mut buffer: ManagedResource<BytesResource>) {
+        buffer.resource_mut().write().copy_from_slice(&data);
     }
 
     fn kernel(
@@ -130,6 +118,7 @@ impl CpuExecutionQueueServer {
         cube_dim: CubeDim,
         cube_count: [u32; 3],
     ) {
+        self.flush_stream(stream_id);
         let notifications = self
             .runner
             .execute_data(pliron_engine, bindings, cube_dim, cube_count);

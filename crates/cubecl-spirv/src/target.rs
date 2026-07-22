@@ -113,7 +113,7 @@ impl ConvertArgsPass {
                 .decorate_member(buffers.len(), DecorationInfo::unit(Decoration::NonWritable));
         }
 
-        let addr_struct = Type::register_instance(addr_struct, ctx).to_handle();
+        let addr_struct = Type::instantiate(addr_struct, ctx).to_handle();
         let storage_class = params_storage_class(ctx, buffers.len());
         let addr_struct_ptr = PointerType::get(ctx, addr_struct, storage_class).into();
         let ptrs_var =
@@ -201,7 +201,7 @@ fn info_ty(ctx: &Context) -> TypeHandle {
         struct_.offsets.push(info.dynamic_meta_offset as u32);
     }
 
-    let struct_ = Type::register_instance(struct_, ctx).to_handle();
+    let struct_ = Type::instantiate(struct_, ctx).to_handle();
     PointerType::get(ctx, struct_, StorageClass::PhysicalStorageBuffer).into()
 }
 
