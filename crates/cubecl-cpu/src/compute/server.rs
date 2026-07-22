@@ -85,12 +85,12 @@ impl CpuServer {
                     return None;
                 };
                 let stream = self.scheduler.stream(&binding.stream);
-                Some(
-                    stream
-                        .memory_management
-                        .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                        .unwrap(),
-                )
+                let memory = binding.memory.clone();
+                let resource = stream
+                    .memory_management
+                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                    .unwrap();
+                Some(ManagedResource::new(memory, resource))
             })
             .collect::<Vec<_>>();
 

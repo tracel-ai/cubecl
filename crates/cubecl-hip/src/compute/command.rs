@@ -10,6 +10,7 @@ use cubecl_core::{
     MemoryConfiguration, MemoryUsage,
     bytes::AllocationProperty,
     future::DynFut,
+    ir::MemoryDeviceProperties,
     server::{
         BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ProfileError, ServerError,
     },

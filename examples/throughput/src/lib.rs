@@ -27,7 +27,7 @@ macro_rules! dispatch {
             type $runtime = cubecl::cpu::CpuRuntime;
             $body;
         }
-        #[cfg(feature = "metal-native")]
+        #[cfg(all(feature = "metal-native", target_vendor = "apple"))]
         {
             type $runtime = cubecl::metal::MetalRuntime;
             $body;

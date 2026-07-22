@@ -15,6 +15,7 @@ use cubecl_core::zspace::striding::try_check_pitched_row_major_strides;
 use cubecl_core::{
     MemoryConfiguration, MemoryUsage,
     future::DynFut,
+    ir::MemoryDeviceProperties,
     server::{
         BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ProfileError, ServerError,
     },

@@ -1,7 +1,7 @@
 use cubecl_core::{
     MemoryConfiguration,
     ir::MemoryDeviceProperties,
-    server::{BufferBinding, ServerError},
+    server::{BufferBinding, Handle, ServerError},
 };
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{

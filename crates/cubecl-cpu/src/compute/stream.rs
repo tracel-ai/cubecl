@@ -96,10 +96,11 @@ impl CpuStream {
                 buffer.resource_mut().write().copy_from_slice(&data);
             }
             ScheduleTask::Execute {
-                mlir_engine,
+                pliron_engine,
                 bindings,
                 cube_dim,
                 cube_count,
+                ..
             } => {
                 let requested = cube_dim.num_elems();
                 // TEMP: the threadpool now grows to fit any cube_dim (it spawns one
@@ -119,7 +120,7 @@ impl CpuStream {
                 // }
 
                 self.threadpool.lock().execute_data(
-                    mlir_engine,
+                    pliron_engine,
                     bindings,
                     cube_dim,
                     cube_count,

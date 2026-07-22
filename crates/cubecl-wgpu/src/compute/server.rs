@@ -398,11 +398,11 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         let mut shared_inputs = self.shared_bindings_pool.acquire();
         args.resources.iter().for_each(|resource| match resource {
             KernelResource::Buffer(b) => {
-            self.streams_pool.push(b.stream)
-            if b.stream != stream_id {
-                shared_inputs.push(b.memory.clone());
+                self.streams_pool.push(b.stream);
+                if b.stream != stream_id {
+                    shared_inputs.push(b.memory.clone());
+                }
             }
-        },
             KernelResource::TensorMap(_) => {
                 panic!("Tensor maps not supported in WGPU")
             }

@@ -28,8 +28,8 @@ pub fn build_kernel<R: Runtime>(
             BufferArg::from_raw_parts(out, 1),
             iterations,
             cmma_config.cmma_dims,
-            dtype.into(),
-            cmma_config.accumulator_type.into(),
+            dtype,
+            cmma_config.accumulator_type,
         )
     });
 
@@ -44,8 +44,8 @@ pub fn compute_cmma_throughput<I: Numeric, ACC: Numeric, N: Size>(
     output: &mut [Vector<ACC, N>],
     n_iter: usize,
     #[comptime] cmm_dims: CmmaDims,
-    #[define(I)] _dtype: StorageType,
-    #[define(ACC)] _acc: StorageType,
+    #[define(I)] _dtype: ElemType,
+    #[define(ACC)] _acc: ElemType,
 ) {
     let CmmaDims { m, n, k } = cmm_dims;
 
