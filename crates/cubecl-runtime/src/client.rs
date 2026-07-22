@@ -5,10 +5,10 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryUsage},
     runtime::Runtime,
     server::{
-        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
-        KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
-        MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
-        ServerUtilities,
+        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode,
+        ExternalWriteServer, Handle, IoError, KernelArguments, MemoryLayout,
+        MemoryLayoutDescriptor, MemoryLayoutPolicy, MemoryLayoutStrategy, ProfileError,
+        ReduceOperation, ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{ComputeStorage, ManagedResource},
 };
@@ -206,6 +206,25 @@ impl<R: Runtime> ComputeClient<R> {
 
         self.device
             .submit_blocking(move |state| state.get_resource(binding, stream_id))
+            .unwrap()
+    }
+
+    /// Resolve the backend-native stream owning `handle` for an external write.
+    ///
+    /// # Safety
+    ///
+    /// The returned token must remain inside an audited backend bridge. The
+    /// caller must retain this client, the managed allocation, and every
+    /// external resource until dependencies have been registered in both
+    /// directions. The caller must not destroy or expose the stream.
+    pub unsafe fn external_write_stream(&self, handle: &Handle) -> Result<u64, ServerError>
+    where
+        R::Server: ExternalWriteServer,
+    {
+        let stream_id = self.stream_id();
+        let binding = handle.clone().binding();
+        self.device
+            .submit_blocking(move |server| server.external_write_stream(binding, stream_id))
             .unwrap()
     }
 

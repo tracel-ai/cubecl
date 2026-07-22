@@ -13,9 +13,9 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryManagement, MemoryUsage},
     server::{
-        Binding, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode, Handle,
-        KernelArguments, ProfileError, ProfilingToken, ServerCommunication, ServerError,
-        ServerUtilities,
+        Binding, ComputeServer, CopyDescriptor, CubeCount, CubeDim, ExecutionMode,
+        ExternalWriteServer, Handle, KernelArguments, ProfileError, ProfilingToken,
+        ServerCommunication, ServerError, ServerUtilities,
     },
     storage::{BytesResource, BytesStorage, ComputeStorage, ManagedResource},
     timestamp_profiler::TimestampProfiler,
@@ -90,6 +90,17 @@ impl KernelTask {
 
 impl ServerCommunication for DummyServer {
     const SERVER_COMM_ENABLED: bool = false;
+}
+
+impl ExternalWriteServer for DummyServer {
+    fn external_write_stream(
+        &mut self,
+        binding: Binding,
+        stream_id: StreamId,
+    ) -> Result<u64, ServerError> {
+        let _resource = self.get_resource(binding, stream_id)?;
+        Ok(stream_id.value)
+    }
 }
 
 impl ComputeServer for DummyServer {

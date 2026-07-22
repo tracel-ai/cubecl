@@ -308,6 +308,17 @@ pub struct StreamErrorMode {
     pub flush: bool,
 }
 
+/// Backend hook for ordering an audited external write on the server's native stream.
+pub trait ExternalWriteServer: ComputeServer {
+    /// Return the native stream associated with `binding` after resolving the
+    /// server's normal cross-stream dependencies.
+    fn external_write_stream(
+        &mut self,
+        binding: Binding,
+        stream_id: StreamId,
+    ) -> Result<u64, ServerError>;
+}
+
 /// The compute server is responsible for handling resources and computations over resources.
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the

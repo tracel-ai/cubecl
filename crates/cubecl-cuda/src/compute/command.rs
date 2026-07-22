@@ -43,6 +43,10 @@ pub struct Command<'a> {
 }
 
 impl<'a> Command<'a> {
+    pub(super) fn external_write_stream(&mut self) -> u64 {
+        self.streams.current().sys as usize as u64
+    }
+
     /// Retrieves a GPU resource associated with the provided binding.
     ///
     /// # Parameters

@@ -29,6 +29,27 @@ fn empty_allocates_memory() {
 }
 
 #[test_log::test]
+fn external_write_stream_resolves_a_cross_stream_handle_on_the_target_stream() {
+    use cubecl_common::stream_id::StreamId;
+
+    let mut producer = test_client(&DummyDevice);
+    let mut consumer = producer.clone();
+    let producer_stream = StreamId { value: 7 };
+    let consumer_stream = StreamId { value: 11 };
+    unsafe {
+        producer.set_stream(producer_stream);
+        consumer.set_stream(consumer_stream);
+    }
+    let handle = producer.empty(4);
+
+    assert_eq!(handle.stream, producer_stream);
+
+    let stream = unsafe { consumer.external_write_stream(&handle) }.unwrap();
+
+    assert_eq!(stream, consumer_stream.value);
+}
+
+#[test_log::test]
 fn execute_elementwise_addition() {
     let client = test_client(&DummyDevice);
     let lhs = client.create_from_slice(&[0, 1, 2]);

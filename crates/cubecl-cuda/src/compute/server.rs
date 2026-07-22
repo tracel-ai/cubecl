@@ -30,7 +30,7 @@ use cubecl_runtime::{
     config::{CubeClRuntimeConfig, RuntimeConfig},
     logging::ServerLogger,
     memory_management::{ManagedMemoryHandle, MemoryAllocationMode, MemoryUsage},
-    server::ComputeServer,
+    server::{ComputeServer, ExternalWriteServer},
     storage::{ComputeStorage, ManagedResource},
     stream::MultiStream,
 };
@@ -61,6 +61,24 @@ pub struct CudaServer {
 // which serializes all server access. The CUDA context, streams, and NCCL communicators
 // it manages are never shared across threads without synchronization.
 unsafe impl Send for CudaServer {}
+
+impl ExternalWriteServer for CudaServer {
+    fn external_write_stream(
+        &mut self,
+        binding: Binding,
+        stream_id: StreamId,
+    ) -> Result<u64, ServerError> {
+        let mut command = self.command(
+            stream_id,
+            core::iter::once(&binding),
+            StreamErrorMode {
+                ignore: false,
+                flush: false,
+            },
+        )?;
+        Ok(command.external_write_stream())
+    }
+}
 
 impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
