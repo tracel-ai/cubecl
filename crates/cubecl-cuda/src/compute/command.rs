@@ -1,7 +1,7 @@
 use crate::{
     CudaCompiler,
     compute::{
-        MB, context::CudaContext, io::controller::PinnedMemoryManagedAllocController,
+        MB, STAGE_CHUNK, context::CudaContext, io::controller::PinnedMemoryManagedAllocController,
         storage::gpu::GpuResource, stream::CudaStreamBackend, sync::Fence,
     },
 };
@@ -406,6 +406,19 @@ impl<'a> Command<'a> {
             || (size < STAGE_MAX && !matches!(property, AllocationProperty::Pinned));
         let should_flush = size > FLUSH_MIN || matches!(property, AllocationProperty::File);
 
+        // Large contiguous transfers from unpinned host memory: the driver's async
+        // copy from pageable memory stages internally and serially, at a fraction of
+        // pinned DMA bandwidth, while page-locking a full-size staging buffer costs
+        // O(size). Pipeline the transfer through two pooled pinned chunks instead,
+        // overlapping each chunk's host memcpy with the previous chunk's DMA.
+        let rank = shape.len();
+        let contiguous = rank <= 1 || strides[rank - 2] == shape[rank - 1];
+        if !should_stage && !matches!(property, AllocationProperty::Pinned) && contiguous {
+            if let Some(result) = self.write_to_gpu_staged(&data, resource.ptr) {
+                return result;
+            }
+        }
+
         let data = match should_stage {
             true => {
                 let mut buffer = self.reserve_pinned(size, None).unwrap();
@@ -440,6 +453,62 @@ impl<'a> Command<'a> {
         Ok(())
     }
 
+    /// Pipelined upload of a contiguous host buffer through two pooled pinned
+    /// staging chunks: each chunk's host memcpy overlaps the previous chunk's
+    /// async DMA. Returns `None` when the pinned pool cannot serve the staging
+    /// chunks, in which case the caller falls back to the direct path.
+    fn write_to_gpu_staged(&mut self, data: &[u8], dst_ptr: u64) -> Option<Result<(), IoError>> {
+        let mut buffers = [
+            self.reserve_pinned(STAGE_CHUNK, None)?,
+            self.reserve_pinned(STAGE_CHUNK, None)?,
+        ];
+        let mut fences: [Option<Fence>; 2] = [None, None];
+        let stream = self.streams.current().sys;
+
+        for (i, chunk) in data.chunks(STAGE_CHUNK).enumerate() {
+            let slot = i % 2;
+            // Each staging chunk is reused every second iteration; wait for its
+            // previous DMA before overwriting it.
+            if let Some(fence) = fences[slot].take() {
+                if let Err(err) = fence.wait_sync() {
+                    return Some(Err(IoError::Unknown {
+                        description: format!("CUDA fence wait failed: {err:?}"),
+                        backtrace: BackTrace::capture(),
+                    }));
+                }
+            }
+            let staging = &mut buffers[slot];
+            staging[..chunk.len()].copy_from_slice(chunk);
+            // SAFETY: `dst_ptr` is a valid GPU allocation large enough for `data`
+            // (checked by the caller), the staging chunk is valid pinned host
+            // memory, and `stream` is an initialized CUDA stream.
+            let copied = unsafe {
+                cudarc::driver::result::memcpy_htod_async(
+                    dst_ptr + (i * STAGE_CHUNK) as u64,
+                    &staging[..chunk.len()],
+                    stream,
+                )
+            };
+            if let Err(err) = copied {
+                return Some(Err(IoError::Unknown {
+                    description: format!("CUDA memcpy_htod failed: {err}"),
+                    backtrace: BackTrace::capture(),
+                }));
+            }
+            fences[slot] = Some(Fence::new(stream));
+        }
+
+        // The final DMAs may still be in flight; the drop queue releases the
+        // staging chunks back to the pool only after a stream fence.
+        let current = self.streams.current();
+        for buffer in buffers {
+            current.drop_queue.push(buffer);
+        }
+        current.drop_queue.flush(|| Fence::new(current.sys));
+
+        Some(Ok(()))
+    }
+
     /// Allocates a new GPU memory buffer and immediately copies contiguous host data into it.
     ///
     /// # Parameters
@@ -451,12 +520,11 @@ impl<'a> Command<'a> {
     /// * `Ok(Handle)` - A handle to the newly allocated and populated GPU memory.
     /// * `Err(IoError)` - If the allocation or data copy fails.
     pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
-        let mut staging =
-            self.reserve_pinned(data.len(), None)
-                .ok_or_else(|| IoError::Unknown {
-                    backtrace: BackTrace::capture(),
-                    description: "Unable to reserve pinned memory".into(),
-                })?;
+        // Respect the pinned-memory size policy of `reserve_cpu`: pinning a
+        // staging buffer the size of the full transfer is slower than a pageable
+        // copy for large data (page-locking is O(size)), and `write_to_gpu`
+        // already handles pageable buffers correctly.
+        let mut staging = self.reserve_cpu(data.len(), false, None);
 
         staging.copy_from_slice(data);
 
