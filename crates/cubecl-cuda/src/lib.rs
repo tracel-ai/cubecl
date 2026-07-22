@@ -78,4 +78,8 @@ mod tests {
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, bf16, f32, u32]);
     cubecl_std::testgen_quantized_view!(f16);
+    cubecl_core::testgen_complex_core!();
+    cubecl_core::testgen_complex_compare!();
+    cubecl_core::testgen_complex_math!();
+    cubecl_core::testgen_complex_validation!();
 }

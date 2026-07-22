@@ -201,6 +201,9 @@ impl<'a> Visitor<'a> {
                 };
                 self.insert_value(out, value);
             }
+            Operator::Real(_) | Operator::Imag(_) => {
+                unimplemented!("Real/Imag not supported on CPU")
+            }
         }
     }
 

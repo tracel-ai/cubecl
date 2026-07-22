@@ -2,7 +2,7 @@ use core::{fmt::Display, hash::Hash};
 
 use crate::{AddressSpace, FloatKind, IntKind, StorageType, TypeHash};
 
-use super::{ElemType, Type, UIntKind};
+use super::{ComplexKind, ElemType, Type, UIntKind};
 use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
 use derive_more::From;
 use float_ord::FloatOrd;
@@ -172,6 +172,7 @@ pub enum ConstantValue {
     Float(f64),
     UInt(u64),
     Bool(bool),
+    Complex(f64, f64),
 }
 
 impl Ord for ConstantValue {
@@ -182,6 +183,12 @@ impl Ord for ConstantValue {
             (ConstantValue::Float(this), ConstantValue::Float(other)) => {
                 FloatOrd(*this).cmp(&FloatOrd(*other))
             }
+            (
+                ConstantValue::Complex(this_re, this_im),
+                ConstantValue::Complex(other_re, other_im),
+            ) => FloatOrd(*this_re)
+                .cmp(&FloatOrd(*other_re))
+                .then_with(|| FloatOrd(*this_im).cmp(&FloatOrd(*other_im))),
             _ => self.partial_cmp(other).unwrap(),
         }
     }
@@ -204,6 +211,10 @@ impl Hash for ConstantValue {
             ConstantValue::Bool(f0) => {
                 f0.hash(ra_expand_state);
             }
+            ConstantValue::Complex(f0, f1) => {
+                FloatOrd(*f0).hash(ra_expand_state);
+                FloatOrd(*f1).hash(ra_expand_state);
+            }
         }
     }
 }
@@ -218,6 +229,7 @@ impl ConstantValue {
             ConstantValue::Int(val) => Some(*val as usize),
             ConstantValue::Float(_) => None,
             ConstantValue::Bool(_) => None,
+            ConstantValue::Complex(_, _) => None,
         }
     }
 
@@ -228,6 +240,9 @@ impl ConstantValue {
             ConstantValue::Int(val) => *val as usize,
             ConstantValue::Float(val) => *val as usize,
             ConstantValue::Bool(val) => *val as usize,
+            ConstantValue::Complex(_, _) => {
+                panic!("Complex constants can't be converted to usize")
+            }
         }
     }
 
@@ -254,6 +269,7 @@ impl ConstantValue {
             ConstantValue::Int(val) => Some(*val as u64),
             ConstantValue::Float(_) => None,
             ConstantValue::Bool(_) => None,
+            ConstantValue::Complex(_, _) => None,
         }
     }
 
@@ -264,6 +280,7 @@ impl ConstantValue {
             ConstantValue::Int(val) => *val as u64,
             ConstantValue::Float(val) => *val as u64,
             ConstantValue::Bool(val) => *val as u64,
+            ConstantValue::Complex(_, _) => panic!("Complex constants can't be converted to u64"),
         }
     }
 
@@ -276,6 +293,7 @@ impl ConstantValue {
             ConstantValue::Int(val) => Some(*val),
             ConstantValue::Float(_) => None,
             ConstantValue::Bool(_) => None,
+            ConstantValue::Complex(_, _) => None,
         }
     }
 
@@ -286,6 +304,9 @@ impl ConstantValue {
             ConstantValue::Int(val) => *val as i128,
             ConstantValue::Float(val) => *val as i128,
             ConstantValue::Bool(val) => *val as i128,
+            ConstantValue::Complex(_, _) => {
+                panic!("Complex constants can't be converted to i128")
+            }
         }
     }
 
@@ -296,6 +317,7 @@ impl ConstantValue {
             ConstantValue::Int(val) => *val,
             ConstantValue::Float(val) => *val as i64,
             ConstantValue::Bool(val) => *val as i64,
+            ConstantValue::Complex(_, _) => panic!("Complex constants can't be converted to i64"),
         }
     }
 
@@ -306,6 +328,7 @@ impl ConstantValue {
             ConstantValue::Int(val) => *val as i32,
             ConstantValue::Float(val) => *val as i32,
             ConstantValue::Bool(val) => *val as i32,
+            ConstantValue::Complex(_, _) => panic!("Complex constants can't be converted to i32"),
         }
     }
 
@@ -315,6 +338,7 @@ impl ConstantValue {
     pub fn try_as_f64(&self) -> Option<f64> {
         match self {
             ConstantValue::Float(val) => Some(*val),
+            ConstantValue::Complex(re, _) => Some(*re),
             _ => None,
         }
     }
@@ -326,6 +350,7 @@ impl ConstantValue {
             ConstantValue::Int(val) => *val as f64,
             ConstantValue::Float(val) => *val,
             ConstantValue::Bool(val) => *val as u8 as f64,
+            ConstantValue::Complex(re, _) => *re,
         }
     }
 
@@ -346,6 +371,9 @@ impl ConstantValue {
             ConstantValue::Int(val) => *val != 0,
             ConstantValue::Float(val) => *val != 0.,
             ConstantValue::Bool(val) => *val,
+            ConstantValue::Complex(_, _) => {
+                panic!("Complex constants can't be converted to bool")
+            }
         }
     }
 
@@ -355,6 +383,7 @@ impl ConstantValue {
             ConstantValue::Float(val) => *val == 0.0,
             ConstantValue::UInt(val) => *val == 0,
             ConstantValue::Bool(val) => !*val,
+            ConstantValue::Complex(re, im) => *re == 0.0 && *im == 0.0,
         }
     }
 
@@ -364,6 +393,7 @@ impl ConstantValue {
             ConstantValue::Float(val) => *val == 1.0,
             ConstantValue::UInt(val) => *val == 1,
             ConstantValue::Bool(val) => *val,
+            ConstantValue::Complex(re, im) => *re == 1.0 && *im == 0.0,
         }
     }
 
@@ -386,21 +416,48 @@ impl ConstantValue {
                     FloatKind::F64 => self.as_f64(),
                 }
                 .into(),
-                ElemType::Int(kind) => match kind {
-                    IntKind::I8 => self.as_i64() as i8 as i64,
-                    IntKind::I16 => self.as_i64() as i16 as i64,
-                    IntKind::I32 => self.as_i64() as i32 as i64,
-                    IntKind::I64 => self.as_i64(),
+                ElemType::Int(kind) => {
+                    let value = match self {
+                        ConstantValue::Complex(re, _) => *re as i64,
+                        _ => self.as_i64(),
+                    };
+
+                    match kind {
+                        IntKind::I8 => value as i8 as i64,
+                        IntKind::I16 => value as i16 as i64,
+                        IntKind::I32 => value as i32 as i64,
+                        IntKind::I64 => value,
+                    }
                 }
                 .into(),
-                ElemType::UInt(kind) => match kind {
-                    UIntKind::U8 => self.as_u64() as u8 as u64,
-                    UIntKind::U16 => self.as_u64() as u16 as u64,
-                    UIntKind::U32 => self.as_u64() as u32 as u64,
-                    UIntKind::U64 => self.as_u64(),
+                ElemType::UInt(kind) => {
+                    let value = match self {
+                        ConstantValue::Complex(re, _) => *re as u64,
+                        _ => self.as_u64(),
+                    };
+
+                    match kind {
+                        UIntKind::U8 => value as u8 as u64,
+                        UIntKind::U16 => value as u16 as u64,
+                        UIntKind::U32 => value as u32 as u64,
+                        UIntKind::U64 => value,
+                    }
                 }
                 .into(),
                 ElemType::Bool => self.as_bool().into(),
+                ElemType::Complex(kind) => match (self, kind) {
+                    (ConstantValue::Complex(re, im), ComplexKind::C32) => {
+                        ConstantValue::Complex(*re as f32 as f64, *im as f32 as f64)
+                    }
+                    (ConstantValue::Complex(re, im), ComplexKind::C64) => {
+                        ConstantValue::Complex(*re, *im)
+                    }
+                    (_, ComplexKind::C32) => {
+                        let re = self.as_f64() as f32 as f64;
+                        ConstantValue::Complex(re, 0.0)
+                    }
+                    (_, ComplexKind::C64) => ConstantValue::Complex(self.as_f64(), 0.0),
+                },
             },
             StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2) => {
                 e2m1::from_f64(self.as_f64()).to_f64().into()
@@ -417,6 +474,7 @@ impl Display for ConstantValue {
             ConstantValue::Float(val) => write!(f, "{val:?}"),
             ConstantValue::UInt(val) => write!(f, "{val}"),
             ConstantValue::Bool(val) => write!(f, "{val}"),
+            ConstantValue::Complex(re, im) => write!(f, "({re:?}, {im:?})"),
         }
     }
 }
