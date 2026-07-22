@@ -1,8 +1,4 @@
-use cubecl_core::{
-    CubeCount,
-    frontend::BufferArg,
-    ir::{ElemType, IntKind},
-};
+use cubecl_core::ir::ElemType;
 use cubecl_runtime::{
     client::ComputeClient,
     runtime::Runtime,
@@ -12,6 +8,17 @@ use cubecl_runtime::{
 
 use crate::throughput::{compute_cmma, compute_direct, launch_overhead, memory_direct};
 
+/// Measure peak throughput on `device` for each of the given `keys`.
+pub fn device_throughput<R: Runtime>(
+    device: &R::Device,
+    keys: &[ThroughputKey],
+) -> alloc::vec::Vec<ThroughputValue> {
+    let client = R::client(device);
+    keys.iter()
+        .map(|key| measure_peak_throughput::<R>(&client, *key))
+        .collect()
+}
+
 /// Computes the peak throughput for a given runtime and key.
 ///
 /// Native only, panics on WASM
@@ -19,20 +26,30 @@ pub fn measure_peak_throughput<R: Runtime>(
     client: &ComputeClient<R>,
     key: ThroughputKey,
 ) -> ThroughputValue {
-    let launch_config = launch_config(client, key.dtype);
+    let launch_config = launch_config(client, key.dtype());
 
     let kernel_config = match key.mode {
-        ThroughputMode::ComputeDirect => compute_direct::build_kernel(client, key, launch_config),
-        ThroughputMode::ComputeCmma(cmma_config) => {
+        ThroughputMode::ComputeDirect { .. } => {
+            compute_direct::build_kernel(client, key, launch_config)
+        }
+        ThroughputMode::ComputeCmma {
+            config: cmma_config,
+            ..
+        } => {
             if client.properties().features.matmul.cmma.is_empty() {
                 return ThroughputValue::ZERO;
             }
             compute_cmma::build_kernel(client, key, cmma_config, launch_config)
         }
         ThroughputMode::Memory => memory_direct::build_kernel(client, key, launch_config),
+        ThroughputMode::Launch => launch_overhead::build_kernel(client, key, launch_config),
     };
 
-    client.measure_throughput(key, kernel_config)
+    let value = client.measure_throughput(key, kernel_config);
+
+    client.memory_cleanup();
+
+    value
 }
 
 /// Hardware execution parameters for launching a compute kernel.
@@ -72,33 +89,4 @@ fn launch_config<R: Runtime>(client: &ComputeClient<R>, dtype: ElemType) -> Laun
         vector_size,
         plane_size: plane_size as usize,
     }
-}
-
-/// Measures the fixed cost of a single kernel launch.
-///
-/// Native only, panics on WASM
-pub fn measure_launch_overhead<R: Runtime>(client: &ComputeClient<R>) -> core::time::Duration {
-    client.measure_launch_overhead(|| {
-        let input = client.empty(size_of::<i32>());
-        let output = client.empty(size_of::<i32>());
-
-        let (_, duration) = client
-            .profile(
-                || unsafe {
-                    launch_overhead::launch_overhead::launch_unchecked::<R>(
-                        client,
-                        CubeCount::new_single(),
-                        CubeDim::new_single(),
-                        1,
-                        BufferArg::from_raw_parts(input.clone(), 1),
-                        BufferArg::from_raw_parts(output.clone(), 1),
-                        ElemType::Int(IntKind::I32).into(),
-                    );
-                },
-                "launch_overhead",
-            )
-            .expect("should succeed launch_overhead");
-
-        cubecl_core::future::block_on(duration.into_future()).duration()
-    })
 }

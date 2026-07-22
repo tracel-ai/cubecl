@@ -1,24 +1,18 @@
 use crate::{
-    client::ComputeClient,
     config::CubeClRuntimeConfig,
-    runtime::Runtime,
     throughput::{ThroughputCache, ThroughputKey, ThroughputValue},
 };
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use cubecl_common::{
-    config::RuntimeConfig,
-    future::block_on,
-    profile::{Duration, Instant},
-};
+use cubecl_common::{config::RuntimeConfig, profile::Duration};
 use spin::Mutex;
 
 type Cache = Arc<Mutex<ThroughputCache>>;
 
 /// Configuration and payload for a benchmarkable compute kernel.
 pub struct KernelConfig {
-    /// The executable kernel closure to be evaluated.
-    pub kernel: Box<dyn Fn(usize)>,
+    /// A closure that executes the kernel for the given number of iterations and returns the duration.
+    pub sample: Box<dyn Fn(usize) -> Duration>,
     /// The number of operations processed in one iteration.
     pub ops_count: usize,
 }
@@ -39,32 +33,20 @@ impl ThroughputBenchmarker {
         }
     }
 
-    /// Measure the maximum compute throughput of the given kernel on the given client.
+    /// Measure the maximum compute throughput of the given kernel.
     /// Warms up the kernel until it plateaus,
     /// then measures the throughput over multiple iterations taking the minimum time per iteration (peak attained).
-    pub fn measure<R: Runtime>(
-        &mut self,
-        client: &ComputeClient<R>,
-        key: ThroughputKey,
-        kernel_config: KernelConfig,
-    ) -> ThroughputValue {
+    pub fn measure(&mut self, key: ThroughputKey, kernel_config: KernelConfig) -> ThroughputValue {
         if self.cache_enabled
             && let Some(cached_value) = self.cache.lock().get(&key)
         {
             return *cached_value;
         }
 
-        let kernel = kernel_config.kernel;
+        let sample = kernel_config.sample;
 
-        let sample = |iterations: usize| {
-            let start = Instant::now();
-            kernel(iterations);
-            let _ = block_on(client.sync());
-            start.elapsed()
-        };
-
-        let iterations = self.warmup(sample);
-        let duration = self.sample_peak_duration(iterations, sample);
+        let iterations = self.warmup(&sample);
+        let duration = self.sample_peak_duration(iterations, &sample);
 
         let value = ThroughputValue {
             ops_count: kernel_config.ops_count,
@@ -82,6 +64,7 @@ impl ThroughputBenchmarker {
     /// and estimating the number of iterations needed to reach a stable duration.
     fn warmup(&self, sample: impl Fn(usize) -> Duration) -> usize {
         const MAX_WARMUP: usize = 50;
+        const MAX_ITERATIONS: usize = 1_000;
         const PLATEAU_TOL: f64 = 0.03;
         const PATIENCE: usize = 3;
         const TARGET_DURATION_MS: f64 = 20.0;
@@ -99,7 +82,7 @@ impl ThroughputBenchmarker {
                 } else {
                     iterations
                 };
-                iterations += extra_iters.max(1);
+                iterations = (iterations + extra_iters.max(1)).min(MAX_ITERATIONS);
                 best = f64::INFINITY;
                 stable = 0;
                 continue;
@@ -128,6 +111,11 @@ impl ThroughputBenchmarker {
         iterations: usize,
         sample_once: impl Fn(usize) -> Duration,
     ) -> Duration {
+        debug_assert!(
+            iterations > 0,
+            "iterations must be positive to avoid division by zero"
+        );
+
         const MIN_SAMPLES: usize = 20;
         const MAX_SAMPLES: usize = 200;
         const REL_TOL: f64 = 0.01;

@@ -1,12 +1,12 @@
 #[cfg(std_io)]
 use cubecl_common::cache::{Cache, CacheOption};
 
-use crate::{
-    config::CubeClRuntimeConfig,
-    throughput::{ThroughputKey, ThroughputValue},
-};
+#[cfg(std_io)]
+use crate::config::CubeClRuntimeConfig;
+use crate::throughput::{ThroughputKey, ThroughputValue};
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
+#[cfg(std_io)]
 use cubecl_common::config::RuntimeConfig;
 use hashbrown::HashMap;
 use spin::Mutex;

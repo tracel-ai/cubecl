@@ -2,12 +2,15 @@ use core::time::Duration;
 
 use alloc::vec::Vec;
 
+use crate::throughput::{ThroughputKey, ThroughputValue};
 use crate::tune::TuneInputs;
 
 /// A set of [`AutotuneBound`]s for a given key and reference inputs, with a launch overhead.
-pub struct Bounds<B: TimeBound> {
+#[derive(Debug, Clone)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
+pub struct Bounds {
     /// The bounds for autotuning.
-    pub bounds: Vec<B>,
+    pub bounds: Vec<AutotuneBound>,
     /// The launch overhead for autotuning.
     pub launch_overhead: Duration,
 }
@@ -17,21 +20,21 @@ pub struct Bounds<B: TimeBound> {
     message = "`{Self}` is not a valid bounds generator",
     label = "invalid bounds generator"
 )]
-pub trait BoundsGenerator<K, I: TuneInputs, B: TimeBound>: Send + Sync + 'static {
+pub trait BoundsGenerator<K, I: TuneInputs>: Send + Sync + 'static {
     /// Generate a set of bounds for a given key and reference inputs.
-    fn generate<'a>(&self, key: &K, inputs: &I::At<'a>) -> Bounds<B>;
+    fn generate<'a>(&self, key: &K, inputs: &I::At<'a>) -> Bounds;
 }
 
-/// `Fn(&K, &A) -> Bounds<B>` acts as a [`BoundsGenerator`] when `A` is an owned type. For
+/// `Fn(&K, &A) -> Bounds` acts as a [`BoundsGenerator`] when `A` is an owned type. For
 /// multi-input kernels, `A` is a tuple that the closure destructures internally.
-impl<K, Func, A, B: TimeBound> BoundsGenerator<K, A, B> for Func
+impl<K, Func, A> BoundsGenerator<K, A> for Func
 where
     A: Clone + Send + Sync + 'static,
     K: 'static,
-    Func: Send + Sync + 'static + Fn(&K, &A) -> Bounds<B>,
+    Func: Send + Sync + 'static + Fn(&K, &A) -> Bounds,
 {
     #[inline]
-    fn generate<'a>(&self, key: &K, inputs: &<A as TuneInputs>::At<'a>) -> Bounds<B> {
+    fn generate<'a>(&self, key: &K, inputs: &<A as TuneInputs>::At<'a>) -> Bounds {
         (self)(key, inputs)
     }
 }
@@ -43,6 +46,8 @@ pub trait TimeBound {
 }
 
 /// A bound for autotuning a throughput kernel, specifying the key, threshold, and number of operations.
+#[derive(Debug, Clone)]
+#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 pub struct AutotuneBound {
     /// Peak throughput of the reference kernel, in ops (or bytes) per second.
     pub throughput: f64,
@@ -50,6 +55,30 @@ pub struct AutotuneBound {
     pub threshold: f32,
     /// The number of operations the kernel will run.
     pub ops_count: usize,
+}
+
+/// Standardizes the creation of compute and memory [`AutotuneBound`]s.
+pub fn calculate_bounds(
+    compute_throughput: &ThroughputValue,
+    compute_ops: usize,
+    compute_threshold: f32,
+    memory_throughput: &ThroughputValue,
+    memory_key: &ThroughputKey,
+    memory_bytes: usize,
+    memory_threshold: f32,
+) -> Vec<AutotuneBound> {
+    alloc::vec![
+        AutotuneBound {
+            ops_count: compute_ops,
+            throughput: compute_throughput.ops_per_s(),
+            threshold: compute_threshold,
+        },
+        AutotuneBound {
+            ops_count: memory_bytes,
+            throughput: memory_throughput.bytes_per_s(memory_key),
+            threshold: memory_threshold,
+        },
+    ]
 }
 
 impl TimeBound for AutotuneBound {
@@ -70,7 +99,7 @@ impl<B: TimeBound> TimeBound for Vec<B> {
     }
 }
 
-impl<B: TimeBound> TimeBound for Bounds<B> {
+impl TimeBound for Bounds {
     fn time_limit(&self) -> Option<Duration> {
         self.bounds
             .time_limit()
@@ -141,7 +170,7 @@ mod tests {
     fn bounds_time_limit_is_none_without_usable_bounds() {
         // No usable bound means no limit at all — the launch overhead is not a limit on
         // its own, so the short-circuit stays disabled.
-        let bounds = Bounds::<AutotuneBound> {
+        let bounds = Bounds {
             bounds: vec![],
             launch_overhead: Duration::from_millis(500),
         };

@@ -162,6 +162,35 @@ fn autotune_bounds_unreachable_limit_benchmarks_all() {
     assert_eq!(obtained, vec![4, 5, 6]);
 }
 
+/// `with_short_circuit(false)` disables early exit even when the bound is generous.
+/// The slow+wrong kernel is first, but since short-circuit is off, the tuner benchmarks
+/// all candidates and the faster correct `add` wins.
+#[test_log::test]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
+fn autotune_short_circuit_disabled_benchmarks_all() {
+    static TUNER: LocalTuner<String, String> = local_tuner!("autotune_short_circuit_disabled");
+
+    let client = test_client(&DummyDevice);
+
+    let lhs = client.create_from_slice(&[0, 1, 2]);
+    let rhs = client.create_from_slice(&[4, 4, 4]);
+    let out = client.empty(3);
+    let handles = vec![lhs, rhs, out.clone()];
+
+    let test_set = TUNER.init(|| {
+        let client = test_client(&DummyDevice);
+        let shapes = vec![vec![1, 3], vec![1, 3], vec![1, 3]];
+        dummy::bounded_addition_set_no_short_circuit(client, shapes)
+    });
+    TUNER.execute(&"test".to_string(), &client, test_set, handles);
+
+    let obtained = client.read_one(out).unwrap().to_vec();
+
+    // Short-circuit is disabled, so all candidates are benchmarked and the
+    // faster correct `add` kernel wins despite the generous bound.
+    assert_eq!(obtained, vec![4, 5, 6]);
+}
+
 /// 2-I1 — A panic inside a profiled closure surfaces at the `ComputeClient` caller as
 /// the *original* panic (the issue's symptom), instead of an opaque `CallError`.
 #[test_log::test]

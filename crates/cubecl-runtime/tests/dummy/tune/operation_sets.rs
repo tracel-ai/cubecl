@@ -101,3 +101,40 @@ pub fn log_shape_input_key(shapes: &[Vec<usize>]) -> String {
     }
     hash
 }
+
+/// Same generous bound as [`bounded_addition_set_slow_first`] but with
+/// `with_short_circuit(false)`, so the tuner must benchmark every candidate
+/// even though the first one qualifies.
+pub fn bounded_addition_set_no_short_circuit(
+    client: DummyClient,
+    shapes: Vec<Vec<usize>>,
+) -> TestSet {
+    let op_add_slow = OneKernelAutotuneOperation::new(
+        KernelTask::new(DummyElementwiseAdditionSlowWrong),
+        client.clone(),
+    );
+    let op_add =
+        OneKernelAutotuneOperation::new(KernelTask::new(DummyElementwiseAddition), client.clone());
+
+    TestSet::new(
+        move |_input: &Vec<Handle>| {
+            format!("{}-{}", "add_bounded_nosc", log_shape_input_key(&shapes))
+        },
+        CloneInputGenerator,
+    )
+    .with(Tunable::new("add_slow_wrong", move |inputs| {
+        op_add_slow.run(inputs)
+    }))
+    .with(Tunable::new("add", move |inputs| op_add.run(inputs)))
+    .with_bounds(Arc::new(move |_key: &String, _inputs: &Vec<Handle>| {
+        Bounds {
+            bounds: vec![AutotuneBound {
+                throughput: 1.0,
+                threshold: 1.0,
+                ops_count: 1,
+            }],
+            launch_overhead: Duration::ZERO,
+        }
+    }))
+    .with_short_circuit(false)
+}
