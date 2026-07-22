@@ -26,7 +26,6 @@ impl ToLLVMDialect for ConstantOp {
     ) -> Result<()> {
         let value = self.get_value(ctx);
 
-        println!("{:?}", value);
         let const_value: AttrObj = if let Some(int_attr) = value.downcast_ref::<IntegerAttr>() {
             let width = int_attr.get_type().deref(ctx).width();
             IntegerAttr::new(

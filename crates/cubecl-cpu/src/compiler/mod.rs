@@ -1,8 +1,8 @@
 pub mod branch;
-pub mod complex_math;
 pub mod entrypoint;
 pub mod jit;
 pub mod metadata;
+pub mod polyfill_math;
 pub mod to_llvm;
 
 use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
@@ -31,9 +31,9 @@ use pliron::{
 };
 
 use crate::compiler::{
-    branch::CfToLlvmConversionPass, complex_math::LowerComplexMathPass,
-    entrypoint::InsertConstantEmulationPass, jit::engine::PlironEngine,
-    metadata::LowerEntryAbiPass, to_llvm::CubeToLLVMPass,
+    branch::CfToLlvmConversionPass, entrypoint::InsertConstantEmulationPass,
+    jit::engine::PlironEngine, metadata::LowerEntryAbiPass, polyfill_math::LowerComplexMathPass,
+    to_llvm::CubeToLLVMPass,
 };
 
 #[derive(Clone, Debug, Default)]

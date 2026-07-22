@@ -25,7 +25,7 @@ mod runtime_option;
 mod scalar;
 mod tensor_layout;
 mod topology;
-mod trigonometry;
+pub mod trigonometry;
 mod validation;
 
 pub use asm::*;

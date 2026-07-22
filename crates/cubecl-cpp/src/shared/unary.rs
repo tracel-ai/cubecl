@@ -1,6 +1,6 @@
 use cubecl_core::{
     self as cubecl,
-    frontend::polyfills::erf,
+    frontend::polyfills::{erf, log1p, to_degrees, to_radians},
     ir::{
         dialect::{
             atomic::AtomicLoadOp,
@@ -34,8 +34,6 @@ use crate::{
     },
     target::{CtxTarget, Shared, Target},
 };
-
-use core::f32::consts::PI;
 
 pub trait FunctionFmt {
     fn base_function_name() -> &'static str;
@@ -249,21 +247,6 @@ macro_rules! lower_unop {
     };
 }
 pub(super) use lower_unop;
-
-#[cube]
-fn log1p<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
-    (input + Vector::new(T::new(1.0))).ln()
-}
-
-#[cube]
-fn to_degrees<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
-    input * Vector::new(T::new(comptime!(180.0 / PI)))
-}
-
-#[cube]
-fn to_radians<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
-    input * Vector::new(T::new(comptime!(PI / 180.0)))
-}
 
 #[cube]
 fn find_first_set<T: Int, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {

@@ -12,20 +12,6 @@ use pliron_llvm::{
 };
 use std::num::NonZero;
 
-/// TODO: ops that need lowering:
-/// log1p
-/// expm1
-/// arcsinh
-/// arccosh
-/// arctanh
-/// degrees
-/// radians
-/// rsqrt (we need a fast inverse square root) :)
-/// erf (error function)
-/// reciprocal
-/// s_neg
-/// f_neg
-
 macro_rules! lower_unary_intrinsic_arith {
     ($cube_op:ty => $llvm_op:expr) => {
         #[op_interface_impl]
@@ -193,5 +179,23 @@ macro_rules! lower_float_bin_arith {
 }
 
 lower_float_bin_arith!(FAddOp => llvm::FAddOp);
-lower_float_bin_arith!(FMulOp => llvm::FMulOp);
 lower_float_bin_arith!(FSubOp => llvm::FSubOp);
+lower_float_bin_arith!(FMulOp => llvm::FMulOp);
+lower_float_bin_arith!(FDivOp => llvm::FDivOp);
+lower_float_bin_arith!(FRemOp => llvm::FRemOp);
+
+#[op_interface_impl]
+impl ToLLVMDialect for FNegOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let input = self.input(ctx);
+        let op = llvm::FNegOp::new_with_fast_math_flags(ctx, input, FastmathFlagsAttr::default());
+        rewriter.insert_op(ctx, &op);
+        rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
+        Ok(())
+    }
+}
