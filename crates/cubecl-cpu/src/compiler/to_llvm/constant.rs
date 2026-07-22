@@ -1,4 +1,6 @@
+use super::ToLLVMDialect;
 use cubecl_core::ir::attributes::IndexAttr;
+use cubecl_core::ir::prelude::*;
 use pliron::builtin::{
     attributes::IntegerAttr,
     ops::ConstantOp,
@@ -7,9 +9,7 @@ use pliron::builtin::{
 use pliron::utils::apint::{APInt, bw};
 use pliron_llvm::ops as llvm;
 
-use crate::compiler::dialect::ty::INDEX_WIDTH;
-
-use super::prelude::*;
+use crate::compiler::to_llvm::ty::INDEX_WIDTH;
 
 #[op_interface_impl]
 impl ToLLVMDialect for ConstantOp {

@@ -1,4 +1,6 @@
+use super::ToLLVMDialect;
 use cubecl_core::ir::dialect::math::*;
+use cubecl_core::ir::prelude::*;
 use pliron::builtin::attributes::IntegerAttr;
 use pliron::builtin::types::{IntegerType, Signedness};
 use pliron::utils::apint::APInt;
@@ -21,7 +23,6 @@ use std::num::NonZero;
 /// reciprocal
 /// s_neg
 /// f_neg
-use super::prelude::*;
 
 macro_rules! lower_unary_intrinsic_arith {
     ($cube_op:ty => $llvm_op:expr) => {

@@ -1,5 +1,8 @@
-pub mod dialect;
+pub mod branch;
+pub mod entrypoint;
 pub mod jit;
+pub mod metadata;
+pub mod to_llvm;
 
 use pliron_llvm::builtin_to_llvm::builtin_to_llvm_pass;
 #[cfg(feature = "pliron-dump")]
@@ -27,11 +30,8 @@ use pliron::{
 };
 
 use crate::compiler::{
-    dialect::{
-        branch::CfToLlvmConversionPass, entrypoint::InsertConstantEmulationPass,
-        metadata::LowerEntryAbiPass, to_llvm::CubeToLLVMPass,
-    },
-    jit::engine::PlironEngine,
+    branch::CfToLlvmConversionPass, entrypoint::InsertConstantEmulationPass,
+    jit::engine::PlironEngine, metadata::LowerEntryAbiPass, to_llvm::CubeToLLVMPass,
 };
 
 #[derive(Clone, Debug, Default)]

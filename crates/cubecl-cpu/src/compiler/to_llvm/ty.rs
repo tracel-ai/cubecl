@@ -1,5 +1,5 @@
-use super::prelude::*;
-use super::to_llvm::CubeToLLVMType;
+use super::CubeToLLVMType;
+use cubecl_core::ir::prelude::*;
 use cubecl_core::ir::types::scalar::{
     BoolType, Float16Type, Float32Type, Float64Type, FloatFlex32Type, IndexType,
 };

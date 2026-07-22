@@ -1,4 +1,11 @@
-pub use super::prelude::*;
+pub mod cmp;
+pub mod constant;
+pub mod general;
+pub mod math;
+pub mod memory;
+pub mod ty;
+
+use cubecl_core::ir::prelude::*;
 
 #[type_interface]
 pub trait CubeToLLVMType {

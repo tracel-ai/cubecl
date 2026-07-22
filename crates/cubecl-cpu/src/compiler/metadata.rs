@@ -2,6 +2,7 @@
 
 use cubecl_core::ir::attributes::{ATTR_BUFFER_BINDING, BufferBindingAttr, FuncInterface};
 use cubecl_core::ir::dialect::general::BufferLenOp;
+use cubecl_core::ir::prelude::*;
 use pliron::basic_block::BasicBlock;
 use pliron::builtin::attributes::TypeAttr;
 use pliron::builtin::ops::FuncOp;
@@ -9,9 +10,7 @@ use pliron::builtin::types::{FunctionType, IntegerType, Signedness};
 use pliron_llvm::ops as llvm;
 use pliron_llvm::types::PointerType as LlvmPointerType;
 
-use crate::compiler::dialect::ty::INDEX_WIDTH;
-
-use super::prelude::*;
+use crate::compiler::to_llvm::ty::INDEX_WIDTH;
 
 /// `(op, buffer_idx, result)` for each `cube.buffer_len`, gathered during the walk so the ops
 /// can be rewritten once the walker no longer holds them borrowed.

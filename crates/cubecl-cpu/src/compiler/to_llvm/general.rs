@@ -1,5 +1,7 @@
+use super::ToLLVMDialect;
 use cubecl_core::ir::dialect::general::CastOp;
 use cubecl_core::ir::interfaces::ScalarizableType;
+use cubecl_core::ir::prelude::*;
 use cubecl_core::ir::types::VectorType as CubeVectorType;
 use cubecl_core::ir::types::scalar::{BoolType, IndexType};
 use pliron::builtin::attributes::IntegerAttr;
@@ -11,9 +13,7 @@ use pliron_llvm::op_interfaces::{CastOpInterface, CastOpWithNNegInterface};
 use pliron_llvm::ops as llvm;
 use pliron_llvm::types::VectorType as LLVMVectorType;
 
-use crate::compiler::dialect::ty::cube_type_to_llvm;
-
-use super::prelude::*;
+use crate::compiler::to_llvm::ty::cube_type_to_llvm;
 
 fn int_repr(ctx: &Context, ty: TypeHandle) -> Option<(u32, bool)> {
     let ty = ty.deref(ctx);

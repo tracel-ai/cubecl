@@ -1,12 +1,12 @@
+use super::ToLLVMDialect;
 use cubecl_core::ir::dialect::cmp::{BoolEqualOp, BoolNotEqualOp};
 use cubecl_core::ir::dialect::cmp::{
     IEqualOp, INotEqualOp, SGreaterThanOp, SGreaterThanOrEqualOp, SLessThanOp, SLessThanOrEqualOp,
     UGreaterThanOp, UGreaterThanOrEqualOp, ULessThanOp, ULessThanOrEqualOp,
 };
+use cubecl_core::ir::prelude::*;
 use pliron_llvm::attributes::ICmpPredicateAttr;
 use pliron_llvm::ops::ICmpOp;
-
-use super::prelude::*;
 
 /// Lower an integer/index comparison op to `llvm.icmp` with the given predicate.
 macro_rules! lower_int_cmp {

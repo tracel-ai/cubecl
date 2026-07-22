@@ -1,5 +1,7 @@
+use super::ToLLVMDialect;
 use cubecl_core::ir::dialect::memory::{DeclareVariableOp, IndexOp, LoadOp, StoreOp};
 use cubecl_core::ir::interfaces::{AlignedType, ScalarizableType};
+use cubecl_core::ir::prelude::*;
 use cubecl_core::ir::types::{ArrayType as CubeArrayType, PointerType as CubePointerType};
 use pliron::builtin::attributes::IntegerAttr;
 use pliron::builtin::ops::ConstantOp;
@@ -8,9 +10,7 @@ use pliron::utils::apint::{APInt, bw};
 use pliron_llvm::op_interfaces::AlignableOpInterface;
 use pliron_llvm::ops as llvm;
 
-use crate::compiler::dialect::ty::cube_type_to_llvm;
-
-use super::prelude::*;
+use crate::compiler::to_llvm::ty::cube_type_to_llvm;
 
 fn scalar_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
     let scalar = {
