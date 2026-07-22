@@ -4,6 +4,8 @@ use cubecl_core::ir::prelude::*;
 use pliron::builtin::attributes::IntegerAttr;
 use pliron::builtin::types::{IntegerType, Signedness};
 use pliron::utils::apint::APInt;
+use pliron_llvm::attributes::FastmathFlagsAttr;
+use pliron_llvm::op_interfaces::FloatBinArithOpWithFastMathFlags;
 use pliron_llvm::types::{FuncType, VectorType, VectorTypeKind};
 use pliron_llvm::{
     attributes::IntegerOverflowFlagsAttr, op_interfaces::IntBinArithOpWithOverflowFlag, ops as llvm,
@@ -159,3 +161,37 @@ macro_rules! lower_int_bin_arith {
 lower_int_bin_arith!(IAddOp => llvm::AddOp);
 lower_int_bin_arith!(IMulOp => llvm::MulOp);
 lower_int_bin_arith!(ISubOp => llvm::SubOp);
+
+macro_rules! lower_float_bin_arith {
+    ($cube_op:ty => $llvm_op:ty) => {
+        #[op_interface_impl]
+        impl ToLLVMDialect for $cube_op {
+            fn rewrite(
+                &self,
+                ctx: &mut Context,
+                rewriter: &mut DialectConversionRewriter,
+                _operands_info: &OperandsInfo,
+            ) -> Result<()> {
+                let lhs = self.lhs(ctx);
+                let rhs = self.rhs(ctx);
+                let op = <$llvm_op>::new_with_fast_math_flags(
+                    ctx,
+                    lhs,
+                    rhs,
+                    FastmathFlagsAttr::default(),
+                );
+                rewriter.insert_op(ctx, &op);
+                rewriter.replace_operation_with_values(
+                    ctx,
+                    self.get_operation(),
+                    vec![op.get_result(ctx)],
+                );
+                Ok(())
+            }
+        }
+    };
+}
+
+lower_float_bin_arith!(FAddOp => llvm::FAddOp);
+lower_float_bin_arith!(FMulOp => llvm::FMulOp);
+lower_float_bin_arith!(FSubOp => llvm::FSubOp);

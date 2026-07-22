@@ -6,11 +6,10 @@ use cubecl_core::ir::types::VectorType as CubeVectorType;
 use cubecl_core::ir::types::scalar::{BoolType, IndexType};
 use pliron::builtin::attributes::IntegerAttr;
 use pliron::builtin::types::{FP16Type, FP32Type, FP64Type, IntegerType, Signedness};
-use pliron::printable::Printable;
 use pliron::utils::apint::{APInt, bw};
 use pliron_llvm::attributes::ICmpPredicateAttr;
 use pliron_llvm::op_interfaces::{CastOpInterface, CastOpWithNNegInterface};
-use pliron_llvm::ops as llvm;
+use pliron_llvm::ops::{self as llvm};
 use pliron_llvm::types::VectorType as LLVMVectorType;
 
 use crate::compiler::to_llvm::ty::cube_type_to_llvm;
@@ -114,7 +113,6 @@ impl ToLLVMDialect for CastOp {
         let in_ty = extract_elem_type(ctx, in_ty);
         let out_ty = self.get_result(ctx).get_type(ctx);
         let out_ty = extract_elem_type(ctx, out_ty);
-        println!("{} {}", in_ty.disp(ctx), out_ty.disp(ctx));
 
         if let (Some((in_width, in_signed)), Some((out_width, _))) =
             (int_repr(ctx, in_ty), int_repr(ctx, out_ty))

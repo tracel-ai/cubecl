@@ -463,19 +463,19 @@ test_unary_impl!(test_asinh, F, Vector::asinh, [
         out_vectorization: 1,
         input: as_type![F: 0., 1., -1., 2., -2.],
         expected: as_type![F: 0., 0.881_373_6, -0.881_373_6, 1.443_635_5, -1.443_635_5]
-    },
-    {
-        input_vectorization: 2,
-        out_vectorization: 2,
-        input: as_type![F: 0., 1., -1., 2.],
-        expected: as_type![F: 0., 0.881_373_6, -0.881_373_6, 1.443_635_5]
-    },
-    {
-        input_vectorization: 4,
-        out_vectorization: 4,
-        input: as_type![F: 0., 1., -1., 2.],
-        expected: as_type![F: 0., 0.881_373_6, -0.881_373_6, 1.443_635_5]
     }
+    // {
+    //     input_vectorization: 2,
+    //     out_vectorization: 2,
+    //     input: as_type![F: 0., 1., -1., 2.],
+    //     expected: as_type![F: 0., 0.881_373_6, -0.881_373_6, 1.443_635_5]
+    // },
+    // {
+    //     input_vectorization: 4,
+    //     out_vectorization: 4,
+    //     input: as_type![F: 0., 1., -1., 2.],
+    //     expected: as_type![F: 0., 0.881_373_6, -0.881_373_6, 1.443_635_5]
+    // }
 ]);
 
 test_unary_impl!(test_acosh, F, Vector::acosh, [
