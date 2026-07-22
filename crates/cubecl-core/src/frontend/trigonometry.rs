@@ -24,12 +24,6 @@ pub fn hypot<F: Float, N: Size>(lhs: Vector<F, N>, rhs: Vector<F, N>) -> Vector<
     max_val * fma(t, t, one).sqrt()
 }
 
-#[allow(missing_docs)]
-pub fn expand_hypot(scope: &Scope, lhs: Value, rhs: Value) -> Value {
-    scope.register_value_type::<ElemA, SizeA>(lhs);
-    hypot::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
-}
-
 /// Computes the reciprocal of the hypotenuse of a right triangle given the lengths of the other two sides.
 ///
 /// This function computes `1 / sqrt(x² + y²)` in a numerically stable way that avoids

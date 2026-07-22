@@ -231,6 +231,8 @@ impl ContextExt for Context {
 pub trait FuncOpExt {
     fn push_argument(&self, ctx: &Context, ty: TypeHandle) -> usize;
     fn pop_argument(&self, ctx: &Context);
+    fn remove_argument(&self, ctx: &Context, arg_idx: usize);
+    fn return_type(&self, ctx: &Context) -> TypeHandle;
 }
 
 impl FuncOpExt for FuncOp {
@@ -267,6 +269,31 @@ impl FuncOpExt for FuncOp {
         if let Some(arg_attrs) = arg_attrs.and_then(|attr| attr.downcast_mut::<VecAttr>()) {
             arg_attrs.0.truncate(last_idx);
         }
+    }
+
+    fn remove_argument(&self, ctx: &Context, arg_idx: usize) {
+        BasicBlock::remove_argument(self.get_entry_block(ctx), ctx, arg_idx);
+
+        let (mut arg_types, res_types) = {
+            let current_func_ty = self.get_type(ctx).deref(ctx);
+            let current_func_ty = current_func_ty.downcast_ref::<FunctionType>().unwrap();
+            (current_func_ty.arg_types(), current_func_ty.res_types())
+        };
+
+        arg_types.remove(arg_idx);
+        let new_func_ty = FunctionType::get(ctx, arg_types, res_types).to_handle();
+        self.set_attr_func_type(ctx, new_func_ty.into());
+
+        let mut op = self.get_operation().deref_mut(ctx);
+        let arg_attrs = op.attributes.0.get_mut(&ATTR_KEY_ARG_ATTRS);
+        if let Some(arg_attrs) = arg_attrs.and_then(|attr| attr.downcast_mut::<VecAttr>()) {
+            arg_attrs.0.remove(arg_idx);
+        }
+    }
+
+    fn return_type(&self, ctx: &Context) -> TypeHandle {
+        let ty = self.get_type(ctx).deref(ctx);
+        ty.downcast_ref::<FunctionType>().unwrap().res_types()[0]
     }
 }
 

@@ -1,4 +1,5 @@
 use cubecl_core::{
+    frontend::polyfills::*,
     ir::{
         dialect::{cmp::*, math::*},
         interfaces::TypedExt,

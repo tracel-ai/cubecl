@@ -34,6 +34,7 @@ cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "=0.11.
 
 pliron = { workspace = true }
 pliron-spirv = { workspace = true, optional = true }
+rustc_apfloat = { workspace = true }
 
 bumpalo = { workspace = true }
 derive-new = { workspace = true }
