@@ -1,14 +1,29 @@
 use cubecl_core::ir::dialect::memory::{DeclareVariableOp, IndexOp, LoadOp, StoreOp};
+use cubecl_core::ir::interfaces::{AlignedType, ScalarizableType};
 use cubecl_core::ir::types::{ArrayType as CubeArrayType, PointerType as CubePointerType};
 use pliron::builtin::attributes::IntegerAttr;
 use pliron::builtin::ops::ConstantOp;
 use pliron::builtin::types::{IntegerType, Signedness};
 use pliron::utils::apint::{APInt, bw};
+use pliron_llvm::op_interfaces::AlignableOpInterface;
 use pliron_llvm::ops as llvm;
 
 use crate::compiler::dialect::ty::cube_type_to_llvm;
 
 use super::prelude::*;
+
+fn scalar_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
+    let scalar = {
+        let ty = ty.deref(ctx);
+        type_cast::<dyn ScalarizableType>(&*ty).map(|s| s.scalar_type(ctx))
+    }
+    .unwrap_or(ty);
+
+    let scalar = scalar.deref(ctx);
+    type_cast::<dyn AlignedType>(&*scalar)
+        .expect("load/store value type must implement AlignedType")
+        .align(ctx) as u32
+}
 
 #[op_interface_impl]
 impl ToLLVMDialect for DeclareVariableOp {
@@ -87,9 +102,12 @@ impl ToLLVMDialect for LoadOp {
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
         let ptr = self.ptr(ctx);
-        let res_ty = cube_type_to_llvm(ctx, self.get_result(ctx).get_type(ctx));
+        let res_cube_ty = self.get_result(ctx).get_type(ctx);
+        let align = scalar_alignment(ctx, res_cube_ty);
+        let res_ty = cube_type_to_llvm(ctx, res_cube_ty);
 
         let load = llvm::LoadOp::new(ctx, ptr, res_ty);
+        load.set_alignment(ctx, align);
         rewriter.insert_op(ctx, &load);
         rewriter.replace_operation_with_values(
             ctx,
@@ -106,12 +124,17 @@ impl ToLLVMDialect for StoreOp {
         &self,
         ctx: &mut Context,
         rewriter: &mut DialectConversionRewriter,
-        _operands_info: &OperandsInfo,
+        operands_info: &OperandsInfo,
     ) -> Result<()> {
         let value = self.value(ctx);
         let ptr = self.ptr(ctx);
+        let value_cube_ty = operands_info
+            .lookup_most_recent_type(value)
+            .unwrap_or_else(|| value.get_type(ctx));
+        let align = scalar_alignment(ctx, value_cube_ty);
 
         let store = llvm::StoreOp::new(ctx, value, ptr);
+        store.set_alignment(ctx, align);
         rewriter.insert_op(ctx, &store);
         rewriter.replace_operation(ctx, self.get_operation(), store.get_operation());
         Ok(())
