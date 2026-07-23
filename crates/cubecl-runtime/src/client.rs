@@ -7,7 +7,7 @@ use crate::{
     memory_management::{MemoryAllocationMode, MemoryConfiguration, MemoryUsage},
     runtime::Runtime,
     server::{
-        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, ExecutionMode, Handle, IoError,
+        CommunicationId, ComputeServer, CopyDescriptor, CubeCount, Handle, IoError,
         KernelArguments, MemoryLayout, MemoryLayoutDescriptor, MemoryLayoutPolicy,
         MemoryLayoutStrategy, ProfileError, ReduceOperation, ServerCommunication, ServerError,
         ServerUtilities,
@@ -868,7 +868,6 @@ impl<R: Runtime> ComputeClient<R> {
         kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
         bindings: KernelArguments,
-        mode: ExecutionMode,
         stream_id: StreamId,
     ) {
         // No work, and some drivers reject a zero grid dim.
@@ -885,7 +884,7 @@ impl<R: Runtime> ComputeClient<R> {
                 let utilities = self.utilities.clone();
                 self.device.submit(move |state| {
                     let name = kernel.name();
-                    unsafe { state.launch(kernel, count, bindings, mode, stream_id) };
+                    unsafe { state.launch(kernel, count, bindings, stream_id) };
 
                     if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                         let info = type_name_format(name, TypeNameFormatLevel::Balanced);
@@ -903,7 +902,7 @@ impl<R: Runtime> ComputeClient<R> {
                         move || {
                             context
                                 .submit_blocking(move |state| unsafe {
-                                    state.launch(kernel, count_moved, bindings, mode, stream_id)
+                                    state.launch(kernel, count_moved, bindings, stream_id)
                                 })
                                 .unwrap_or_resume()
                         },
@@ -930,48 +929,7 @@ impl<R: Runtime> ComputeClient<R> {
         count: CubeCount,
         bindings: KernelArguments,
     ) {
-        // SAFETY: Using checked execution mode.
-        unsafe {
-            self.launch_inner(
-                kernel,
-                count,
-                bindings,
-                ExecutionMode::Checked,
-                self.stream_id(),
-            )
-        }
-    }
-
-    /// Launches the `kernel` with the given `bindings` without performing any bound checks.
-    ///
-    /// # Safety
-    ///
-    /// To ensure this is safe, you must verify your kernel:
-    /// - Has no out-of-bound reads and writes that can happen.
-    /// - Has no infinite loops that might never terminate.
-    #[track_caller]
-    pub unsafe fn launch_unchecked(
-        &self,
-        kernel: <R::Server as ComputeServer>::Kernel,
-        count: CubeCount,
-        bindings: KernelArguments,
-    ) {
-        // SAFETY: Caller has to uphold kernel being safe.
-        unsafe {
-            self.launch_inner(
-                kernel,
-                count,
-                bindings,
-                match self.utilities.check_mode {
-                    crate::config::compilation::BoundsCheckMode::Enforce => ExecutionMode::Checked,
-                    crate::config::compilation::BoundsCheckMode::Validate => {
-                        ExecutionMode::Validate
-                    }
-                    crate::config::compilation::BoundsCheckMode::Auto => ExecutionMode::Unchecked,
-                },
-                self.stream_id(),
-            )
-        }
+        unsafe { self.launch_inner(kernel, count, bindings, self.stream_id()) }
     }
 
     /// Flush all outstanding commands.

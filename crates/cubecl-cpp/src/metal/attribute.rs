@@ -1,3 +1,4 @@
+use pliron::derive::format;
 use std::fmt::Display;
 
 pub enum BufferAttribute {
@@ -22,6 +23,8 @@ impl Display for BufferAttribute {
     }
 }
 
+#[format]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum BuiltInAttribute {
     SIMDgroupIndexInThreadgroup,
     ThreadIndexInSIMDgroup,
@@ -33,6 +36,24 @@ pub enum BuiltInAttribute {
     ThreadsPerSIMDgroup,
     ThreadsPerThreadgroup,
     None,
+}
+
+impl BuiltInAttribute {
+    pub fn cpp_ty(&self) -> &'static str {
+        match self {
+            BuiltInAttribute::SIMDgroupIndexInThreadgroup
+            | BuiltInAttribute::ThreadIndexInSIMDgroup
+            | BuiltInAttribute::ThreadIndexInThreadgroup
+            | BuiltInAttribute::ThreadsPerSIMDgroup => "uint",
+
+            BuiltInAttribute::ThreadPositionInGrid
+            | BuiltInAttribute::ThreadPositionInThreadgroup
+            | BuiltInAttribute::ThreadgroupPositionInGrid
+            | BuiltInAttribute::ThreadgroupsPerGrid
+            | BuiltInAttribute::ThreadsPerThreadgroup => "uint3",
+            BuiltInAttribute::None => "",
+        }
+    }
 }
 
 impl Display for BuiltInAttribute {

@@ -1,10 +1,16 @@
-use alloc::vec::Vec;
+use alloc::vec;
 use core::{f32, f64};
 
 use crate as cubecl;
 use cubecl_ir::{
-    Comparison, ElemType, FloatKind, Instruction, Operation, Processor, Scope, ScopeProcessing,
-    UIntKind, Value,
+    ElemType, FloatKind, Scope, UIntKind,
+    dialect::{
+        base::OperationPtrExt,
+        math::{IsInfOp, IsNanOp},
+    },
+    interfaces::{ScalarType, TypedExt},
+    prelude::*,
+    verify_op_succ,
 };
 use half::{bf16, f16};
 
@@ -14,94 +20,74 @@ define_scalar!(ElemA);
 define_scalar!(IntB);
 define_size!(SizeA);
 
-#[derive(Debug, Default)]
-pub struct PredicateProcessor;
+pub struct ReplacePredicates;
 
-impl Processor for PredicateProcessor {
-    fn transform(&self, mut processing: cubecl_ir::ScopeProcessing) -> cubecl_ir::ScopeProcessing {
-        let mut instructions = Vec::new();
-        core::mem::swap(&mut processing.instructions, &mut instructions);
+impl MatchRewrite for ReplacePredicates {
+    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
+        op_impls::<dyn PredicateOp>(&*op.dyn_op(ctx))
+    }
 
-        for instruction in instructions {
-            if let Operation::Comparison(comparison) = &instruction.operation {
-                match comparison {
-                    Comparison::IsNan(op) => {
-                        run_polyfill(
-                            &mut processing,
-                            op.input,
-                            instruction.out(),
-                            is_nan::expand::<ElemA, IntB, SizeA>,
-                        );
-                        continue;
-                    }
-                    Comparison::IsInf(op) => {
-                        run_polyfill(
-                            &mut processing,
-                            op.input,
-                            instruction.out(),
-                            is_inf::expand::<ElemA, IntB, SizeA>,
-                        );
-                        continue;
-                    }
-                    _ => {}
-                }
-            }
-            processing.instructions.push(instruction);
-        }
-        processing
+    fn rewrite(
+        &mut self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        op: Ptr<Operation>,
+    ) -> Result<()> {
+        let scope = Scope::from_context_and_inserter(ctx, rewriter);
+        let input = op.operand(ctx, 0);
+        let dyn_op = op.dyn_op(ctx);
+        let predicate = op_cast::<dyn PredicateOp>(&*dyn_op).unwrap();
+        let new_value = predicate.run_polyfill(&scope, input);
+        rewriter.replace_operation_with_values(ctx, op, vec![new_value]);
+        Ok(())
+    }
+}
+
+#[op_interface]
+trait PredicateOp {
+    verify_op_succ!();
+    fn run_polyfill(&self, scope: &Scope, input: Value) -> Value;
+}
+
+#[op_interface_impl]
+impl PredicateOp for IsNanOp {
+    fn run_polyfill(&self, scope: &Scope, input: Value) -> Value {
+        run_polyfill(scope, input, is_nan::expand::<ElemA, IntB, SizeA>)
+    }
+}
+
+#[op_interface_impl]
+impl PredicateOp for IsInfOp {
+    fn run_polyfill(&self, scope: &Scope, input: Value) -> Value {
+        run_polyfill(scope, input, is_inf::expand::<ElemA, IntB, SizeA>)
     }
 }
 
 fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
-    processing: &mut ScopeProcessing,
+    scope: &Scope,
     input: Value,
-    out: Value,
     mut polyfill: impl FnMut(&Scope, NativeExpand<T>, u32, u32) -> NativeExpand<O>,
-) {
-    let scope = Scope::root(false).with_global_state(processing.global_state.clone());
-    scope.register_type::<ElemA>(input.storage_type());
-    scope.register_size::<SizeA>(input.vector_size());
+) -> Value {
+    scope.register_value_type::<ElemA, SizeA>(input);
 
-    let out_poly = if let ElemType::Float(kind) = input.elem_type() {
-        let (unsigned_ty, bit_width, mantissa_bits) = match kind {
-            FloatKind::F64 => (
-                UIntKind::U64,
-                f64::size_bits().unwrap(),
-                f64::MANTISSA_DIGITS - 1,
-            ),
-            FloatKind::F32 => (
-                UIntKind::U32,
-                f32::size_bits().unwrap(),
-                f32::MANTISSA_DIGITS - 1,
-            ),
-            FloatKind::F16 => (
-                UIntKind::U16,
-                f16::size_bits().unwrap(),
-                f16::MANTISSA_DIGITS - 1,
-            ),
-            FloatKind::BF16 => (
-                UIntKind::U16,
-                bf16::size_bits().unwrap(),
-                bf16::MANTISSA_DIGITS - 1,
-            ),
-            _ => unreachable!(),
-        };
-        scope.register_type::<IntB>(ElemType::UInt(unsigned_ty).into());
-
-        let exp_bits = bit_width as u32 - mantissa_bits - 1;
-
-        polyfill(&scope, input.into(), mantissa_bits, exp_bits).expand
-    } else {
-        panic!("Should be float")
+    let ty = input.scalar_ty(scope.ctx()).deref(scope.ctx());
+    let ty = type_cast::<dyn ScalarType>(&*ty).unwrap();
+    let ElemType::Float(kind) = ty.elem_type(scope.ctx()) else {
+        unreachable!("Should be float")
     };
 
-    let tmp_processing = scope.process([]);
+    let (unsigned_ty, bit_width, mantissa_bits) = match kind {
+        FloatKind::F64 => (UIntKind::U64, f64::size_bits(), f64::MANTISSA_DIGITS - 1),
+        FloatKind::F32 => (UIntKind::U32, f32::size_bits(), f32::MANTISSA_DIGITS - 1),
+        FloatKind::F16 => (UIntKind::U16, f16::size_bits(), f16::MANTISSA_DIGITS - 1),
+        FloatKind::BF16 => (UIntKind::U16, bf16::size_bits(), bf16::MANTISSA_DIGITS - 1),
+        _ => unreachable!(),
+    };
+    scope.register_type::<IntB>(ElemType::UInt(unsigned_ty));
 
-    processing.instructions.extend(tmp_processing.instructions);
+    let exp_bits = bit_width as u32 - mantissa_bits - 1;
 
-    processing
-        .instructions
-        .push(Instruction::new(Operation::Copy(out_poly), out));
+    polyfill(scope, input.into(), mantissa_bits, exp_bits).value(scope)
 }
 
 #[cube]

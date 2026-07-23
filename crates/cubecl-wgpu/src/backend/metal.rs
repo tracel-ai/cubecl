@@ -113,6 +113,7 @@ fn register_types(props: &mut DeviceProperties) {
     props.register_address_type(AddressType::U64);
 
     let types = [
+        ElemType::Index,
         ElemType::UInt(UIntKind::U8),
         ElemType::UInt(UIntKind::U16),
         ElemType::UInt(UIntKind::U32),

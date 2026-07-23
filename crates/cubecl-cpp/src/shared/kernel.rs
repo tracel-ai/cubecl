@@ -1,167 +1,97 @@
-use crate::shared::{Builtin, Component, Value};
+use crate::{
+    shared::{OpToCPP, ty::TypeExtCPP},
+    target::{CtxTarget, Target},
+};
 
-use super::{Body, Dialect, Elem, Flags, INFO_NAME, Item};
-use cubecl_core::{CubeDim, ir::Id, prelude::Visibility};
+use cubecl_core::ir::{ContextExt, GlobalState, metadata::Info};
+use pliron::context::Context;
 
-use std::{collections::HashSet, fmt::Display};
+use core::fmt::{Display, Write};
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct KernelArg<D: Dialect> {
-    pub id: Id,
-    pub value: Value<D>,
-    pub vis: Visibility,
+pub struct ComputeKernel {
+    pub ctx: Context,
+    pub shared_memory_size: usize,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct SharedMemory<D: Dialect> {
-    pub ptr: Value<D>,
-    pub value_ty: Item<D>,
-    pub align: usize,
-    pub offset: usize,
-}
-
-impl<D: Dialect> SharedMemory<D> {
-    pub fn size(&self) -> usize {
-        self.value_ty.size()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ComputeKernel<D: Dialect> {
-    pub tensor_maps: Vec<KernelArg<D>>,
-    pub buffers: Vec<KernelArg<D>>,
-    pub scalars: Vec<(Elem<D>, usize)>,
-    pub info: cubecl_core::Info,
-    pub meta_static_len: usize,
-    pub body: Body<D>,
-    pub cube_dim: CubeDim,
-    pub cluster_dim: Option<CubeDim>,
-    pub extensions: Vec<D::Extension>,
-    pub flags: Flags<D>,
-    pub items: HashSet<super::Item<D>>,
-    pub kernel_name: String,
-}
-
-impl<D: Dialect> ComputeKernel<D> {
-    pub fn shared_memory_size(&self) -> usize {
-        let smems = self.body.shared_memories.iter();
-        let ends = smems.map(|it| it.offset + it.size());
-        ends.max().unwrap_or_default()
-    }
-}
-
-impl<D: Dialect> Display for ComputeKernel<D> {
+impl Display for ComputeKernel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut flags = self.flags.clone();
-        if !self.tensor_maps.is_empty() {
-            flags.inst_tma = true;
-        }
-
-        // Program Scope -----------------------------------------------------
-        D::compile_includes(f, &flags)?;
-        D::compile_type_definitions(f, &self.items, &self.scalars, &self.info, &flags)?;
-        D::compile_polyfills(f, &flags)?;
-        D::compile_extensions(f, &self.extensions)?;
-
-        // Kernel signature --------------------------------------------------
-        D::compile_kernel_signature(
-            f,
-            &self.kernel_name,
-            &self.tensor_maps,
-            &self.buffers,
-            &self.flags,
-        )?;
-
-        // Body --------------------------------------------------------------
-        f.write_str(" {\n")?;
-        compile_cube_builtin_bindings_decl::<D>(f, &self.flags)?;
-        write!(f, "{}", self.body)?;
-        f.write_str("\n}")?;
-
-        Ok(())
+        let module = self.ctx.aux_ty::<GlobalState>().module;
+        let module = module.to_cpp(&self.ctx);
+        f.write_str(&module)
     }
 }
 
-pub fn type_definitions<D: Dialect>(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    writeln!(f, "typedef unsigned int uint;")?;
-    writeln!(f, "typedef unsigned char uint8;")?;
-    writeln!(f, "typedef unsigned short uint16;")?;
-    writeln!(f, "typedef unsigned int uint32;")?;
-    writeln!(f, "typedef unsigned long long int uint64;")?;
+pub fn type_definitions(f: &mut dyn Write, ctx: &Context) -> std::fmt::Result {
+    writeln!(f, "typedef unsigned int uint32_t;")?;
+    writeln!(f, "typedef unsigned char uint8_t;")?;
+    writeln!(f, "typedef unsigned short uint16_t;")?;
+    writeln!(f, "typedef unsigned long long int uint64_t;")?;
 
-    writeln!(f, "typedef signed char int8;")?;
-    writeln!(f, "typedef signed short int16;")?;
-    writeln!(f, "typedef signed int int32;")?;
-    writeln!(f, "typedef signed long long int int64;")?;
+    writeln!(f, "typedef signed char int8_t;")?;
+    writeln!(f, "typedef signed short int16_t;")?;
+    writeln!(f, "typedef signed int int32_t;")?;
+    writeln!(f, "typedef signed long long int int64_t;")?;
 
-    define_array_polyfill(f, "__device__")?;
+    if ctx.target() != Target::Metal {
+        define_array_polyfill(f)?;
+    }
+
+    // This is fine to generate even on old cards, it's just an opaque block of memory
+    // The headers are dumb and only work in NVCC so we just need to define it ourselves
+    if ctx.target() == Target::Cuda {
+        define_tensormap_opaque(f)?;
+    }
 
     Ok(())
 }
 
 /// Define a minimal version of C++'s `std::array` so we can match Rust semantics on arrays.
-pub fn define_array_polyfill(
-    f: &mut core::fmt::Formatter<'_>,
-    function_class: &str,
-) -> core::fmt::Result {
+pub fn define_array_polyfill(f: &mut dyn Write) -> core::fmt::Result {
     writeln!(
         f,
         "
 template <typename T, size_t N>
 struct array {{
     T data[N];
-    {function_class} T& operator[](size_t i) {{ return data[i]; }}
-    {function_class} const T& operator[](size_t i) const {{ return data[i]; }}
+    __device__ T& operator[](size_t i) {{ return data[i]; }}
+    __device__ const T& operator[](size_t i) const {{ return data[i]; }}
 }};"
     )
 }
 
-pub fn type_vectorized_definitions<D: Dialect>(
-    f: &mut std::fmt::Formatter<'_>,
-    items: &HashSet<Item<D>>,
-) -> std::fmt::Result {
-    for item in items.iter().filter(|it| it.vectorization() > 1) {
-        let elem = item.elem();
-        let size = item.vectorization();
-        let alignment = elem.size() * size;
-        if size > 1 {
-            write!(
-                f,
-                "
-struct __align__({alignment}) {item} {{"
-            )?;
-
-            for i in 0..size {
-                write!(
-                    f,
-                    "
-    {elem} i_{i};"
-                )?;
-            }
-
-            f.write_str("\n};")?;
-        }
-    }
-    Ok(())
+pub fn define_tensormap_opaque(f: &mut dyn Write) -> core::fmt::Result {
+    f.write_str(
+        "
+typedef struct CUtensorMap_st {
+alignas(128) unsigned long long int opaque[16];
+} CUtensorMap;",
+    )
 }
 
-pub fn type_info_definition_sized<D: Dialect>(
-    f: &mut std::fmt::Formatter<'_>,
-    info: &cubecl_core::Info,
-    scalars: &[(Elem<D>, usize)],
-    address_type: Item<D>,
+pub fn type_info_definition_sized(
+    f: &mut dyn Write,
+    ctx: &Context,
+    info: &Info,
 ) -> std::fmt::Result {
     let scalars = info
         .scalars
         .iter()
-        .zip(scalars)
-        .map(|(field, (ty, _))| format!("{ty} scalars_{ty}[{}];", field.padded_size()))
+        .map(|field| {
+            let ty = field.ty.to_type(ctx).to_cpp(ctx);
+            format!("{ty} scalars_{ty}[{}];", field.padded_size(ctx))
+        })
         .collect::<Vec<_>>()
         .join("\n");
     let static_meta = info
         .sized_meta
         .as_ref()
-        .map(|field| format!("{address_type} static_meta[{}];", field.padded_size()))
+        .map(|field| {
+            format!(
+                "{} static_meta[{}];",
+                field.ty.to_type(ctx).to_cpp(ctx),
+                field.padded_size(ctx)
+            )
+        })
         .unwrap_or_default();
     write!(
         f,
@@ -171,172 +101,4 @@ struct info_st {{
 }};
 "
     )
-}
-
-pub fn compile_bindings<D: Dialect>(
-    f: &mut core::fmt::Formatter<'_>,
-    tensor_maps: &[KernelArg<D>],
-    buffers: &[KernelArg<D>],
-    trailing_comma: bool,
-) -> core::fmt::Result {
-    write!(f, "    ")?;
-
-    let mut args = Vec::new();
-
-    args.extend(tensor_maps.iter().map(|binding| {
-        format!(
-            "const __grid_constant__ {} {}",
-            binding.value.item(),
-            binding.value
-        )
-    }));
-    args.extend(buffers.iter().map(|binding| {
-        let ty = binding.value.item();
-        match binding.vis {
-            Visibility::Read | Visibility::Uniform => {
-                format!("const {ty} __restrict__ {}", binding.value)
-            }
-            _ => {
-                format!("{ty} __restrict__ {}", binding.value)
-            }
-        }
-    }));
-
-    write!(f, "{}", args.join(", "))?;
-    if trailing_comma {
-        f.write_str(", ")?;
-    }
-    Ok(())
-}
-
-pub fn compile_info_dynamic<D: Dialect>(
-    f: &mut std::fmt::Formatter<'_>,
-    flags: &Flags<D>,
-) -> core::fmt::Result {
-    if flags.has_info {
-        write!(f, "const info_st* __restrict__ {INFO_NAME}_ptr")
-    } else {
-        Ok(())
-    }
-}
-
-pub fn compile_info_static<D: Dialect>(
-    f: &mut std::fmt::Formatter<'_>,
-    flags: &Flags<D>,
-) -> core::fmt::Result {
-    let mut inputs = Vec::new();
-
-    if flags.has_dynamic_meta {
-        inputs.push(format!(
-            "const {}* __restrict__ dynamic_meta",
-            flags.address_type
-        ))
-    }
-
-    if flags.has_info {
-        inputs.push(format!("const __grid_constant__ info_st {INFO_NAME}"));
-    }
-
-    write!(f, "{}", inputs.join(", "))
-}
-
-fn compile_cube_builtin_bindings_decl<D: Dialect>(
-    f: &mut core::fmt::Formatter<'_>,
-    settings: &Flags<D>,
-) -> core::fmt::Result {
-    if settings.indexes.absolute_pos_tuple {
-        D::compile_absolute_pos_tuple_computation(f)?;
-    }
-
-    if settings.indexes.unit_pos {
-        D::compile_unit_pos_computation(f)?;
-    }
-
-    if settings.indexes.absolute_pos {
-        let value = Builtin::<D>::AbsolutePos(*settings.address_type.elem());
-        let ty = value.item();
-        let absolute_pos_x = Builtin::<D>::AbsolutePosX.fmt_cast_to(ty);
-        let absolute_pos_y = Builtin::<D>::AbsolutePosY.fmt_cast_to(ty);
-        let absolute_pos_z = Builtin::<D>::AbsolutePosZ.fmt_cast_to(ty);
-        let cube_count_x = Builtin::<D>::CubeCountX.fmt_cast_to(ty);
-        let cube_count_y = Builtin::<D>::CubeCountY.fmt_cast_to(ty);
-        let cube_dim_x = Builtin::<D>::CubeDimX.fmt_cast_to(ty);
-        let cube_dim_y = Builtin::<D>::CubeDimY.fmt_cast_to(ty);
-        writeln!(
-            f,
-            "{ty} {value} = (
-                {absolute_pos_z} * {cube_count_x} * {cube_dim_x} * {cube_count_y} * {cube_dim_y})
-                + ({absolute_pos_y} * {cube_count_x} * {cube_dim_x})
-                + {absolute_pos_x};"
-        )?;
-    }
-
-    if settings.indexes.cube_dim {
-        let value = Builtin::<D>::CubeDim;
-        let ty = value.item();
-        let cube_dim_x = Builtin::<D>::CubeDimX;
-        let cube_dim_y = Builtin::<D>::CubeDimY;
-        let cube_dim_z = Builtin::<D>::CubeDimZ;
-        writeln!(
-            f,
-            "{ty} {value} = {cube_dim_x} * {cube_dim_y} * {cube_dim_z};"
-        )?;
-    }
-
-    if settings.indexes.cube_count {
-        let value = Builtin::<D>::CubeCount(*settings.address_type.elem());
-        let ty = value.item();
-        let cube_count_x = Builtin::<D>::CubeCountX.fmt_cast_to(ty);
-        let cube_count_y = Builtin::<D>::CubeCountY.fmt_cast_to(ty);
-        let cube_count_z = Builtin::<D>::CubeCountZ.fmt_cast_to(ty);
-        writeln!(
-            f,
-            "{ty} {value} = {cube_count_x} * {cube_count_y} * {cube_count_z};"
-        )?;
-    }
-
-    if settings.indexes.cube_pos {
-        let value = Builtin::<D>::CubePos(*settings.address_type.elem());
-        let ty = value.item();
-        let cube_pos_x = Builtin::<D>::CubePosX.fmt_cast_to(ty);
-        let cube_pos_y = Builtin::<D>::CubePosY.fmt_cast_to(ty);
-        let cube_pos_z = Builtin::<D>::CubePosZ.fmt_cast_to(ty);
-        let cube_count_x = Builtin::<D>::CubeCountX.fmt_cast_to(ty);
-        let cube_count_y = Builtin::<D>::CubeCountY.fmt_cast_to(ty);
-        writeln!(
-            f,
-            "{ty} {value} = ({cube_pos_z} * {cube_count_y} * {cube_count_x}) + ({cube_pos_y} * {cube_count_x}) + {cube_pos_x};"
-        )?;
-    }
-
-    if settings.indexes.plane_dim_checked {
-        let plane_dim = Builtin::<D>::PlaneDim;
-        let value = Builtin::<D>::PlaneDimChecked;
-        let ty = value.item();
-        let cube_dim_x = Builtin::<D>::CubeDimX;
-        let cube_dim_y = Builtin::<D>::CubeDimY;
-        let cube_dim_z = Builtin::<D>::CubeDimZ;
-        writeln!(
-            f,
-            "{ty} {value} = min({plane_dim}, {cube_dim_x} * {cube_dim_y} * {cube_dim_z});"
-        )?;
-    }
-
-    if settings.thread_block {
-        f.write_str(
-            "
-cooperative_groups::thread_block thread_block = cooperative_groups::this_thread_block();
-",
-        )?;
-    }
-
-    if settings.indexes.cluster_pos {
-        f.write_str(
-            "
-cooperative_groups::cluster_group cluster = cooperative_groups::this_cluster();
-",
-        )?;
-    }
-
-    Ok(())
 }

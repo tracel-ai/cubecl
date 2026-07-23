@@ -1,8 +1,7 @@
 use alloc::{string::String, vec::Vec};
+use cubecl_ir::{dialect::general::PrintfOp, pliron::value::Value};
 
-use cubecl_ir::CubeFnSource;
-
-use crate::ir::{NonSemantic, Scope, Value};
+use crate::ir::Scope;
 
 use super::CubeDebug;
 
@@ -10,38 +9,38 @@ use super::CubeDebug;
 #[track_caller]
 pub fn debug_call_expand<C>(
     scope: &Scope,
-    line: u32,
-    col: u32,
+    _line: u32,
+    _col: u32,
     call: impl FnOnce(&Scope) -> C,
 ) -> C {
     // Save source_loc before the call so it can be restored once the call returns
-    let source_loc = scope.debug.source_loc.take();
-    scope.update_span(line, col);
-    scope.register(NonSemantic::EnterDebugScope);
+    // let source_loc = scope.debug.source_loc.take();
+    // scope.update_span(line, col);
+    // scope.register(NonSemantic::EnterDebugScope);
     let ret = call(scope);
-    scope.register(NonSemantic::ExitDebugScope);
-    *scope.debug.source_loc.borrow_mut() = source_loc;
+    // scope.register(NonSemantic::ExitDebugScope);
+    // *scope.debug.source_loc.borrow_mut() = source_loc;
     ret
 }
 
 /// Adds source instruction if debug is enabled
 #[track_caller]
 pub fn debug_source_expand(
-    scope: &Scope,
-    name: &'static str,
-    file: &'static str,
-    source_text: &'static str,
-    line: u32,
-    column: u32,
+    _scope: &Scope,
+    _name: &'static str,
+    _file: &'static str,
+    _source_text: &'static str,
+    _line: u32,
+    _column: u32,
 ) {
-    let file = file.replace("\\", "/");
-    scope.update_source(CubeFnSource {
-        function_name: name.into(),
-        file: file.into(),
-        source_text: source_text.into(),
-        line,
-        column,
-    });
+    // let file = file.replace("\\", "/");
+    // scope.update_source(CubeFnSource {
+    //     function_name: name.into(),
+    //     file: file.into(),
+    //     source_text: source_text.into(),
+    //     line,
+    //     column,
+    // });
 }
 
 /// Registers name for an expand if possible
@@ -53,10 +52,7 @@ pub fn debug_var_expand<E: CubeDebug>(scope: &Scope, name: &'static str, expand:
 
 /// Prints a formatted message using the print debug layer in Vulkan, or `printf` in CUDA.
 pub fn printf_expand(scope: &Scope, format_string: impl Into<String>, args: Vec<Value>) {
-    scope.register(NonSemantic::Print {
-        format_string: format_string.into(),
-        args,
-    });
+    scope.register(&PrintfOp::new(scope.ctx_mut(), format_string.into(), args));
 }
 
 /// Print a formatted message using the target's debug print facilities. The format string is target
@@ -80,7 +76,7 @@ macro_rules! debug_print {
 macro_rules! __expand_debug_print {
     ($scope:expr, $format:expr, $($args:expr),*) => {
         {
-            let args = $crate::__private::vec![$($crate::ir::Value::from($args)),*];
+            let args = $crate::__private::vec![$($crate::ir::ExpandValue::from($args).read_value($scope)),*];
             $crate::frontend::printf_expand($scope, $format, args);
         }
     };
@@ -92,12 +88,9 @@ macro_rules! __expand_debug_print {
 pub mod cube_comment {
     use alloc::string::ToString;
 
-    use crate::ir::NonSemantic;
-    use cubecl_ir::Scope;
+    use cubecl_ir::{Scope, dialect::general::CommentOp};
 
     pub fn expand(scope: &Scope, content: &str) {
-        scope.register(NonSemantic::Comment {
-            content: content.to_string(),
-        });
+        scope.register(&CommentOp::new(scope.ctx_mut(), content.to_string()));
     }
 }

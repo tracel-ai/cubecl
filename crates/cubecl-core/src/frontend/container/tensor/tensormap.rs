@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 
 use crate as cubecl;
 use crate::{prelude::*, unexpanded};
-use cubecl_ir::{Type, VectorSize};
+use cubecl_ir::{ElemType, VectorSize};
 use cubecl_runtime::server::TensorMapMeta;
 use cubecl_zspace::{Strides, metadata::Metadata, strides};
 use paste::paste;
@@ -66,8 +66,8 @@ pub struct TensorMapArg<R: Runtime, K: TensorMapKind> {
 }
 
 impl<R: Runtime, K: TensorMapKind> TensorMapArg<R, K> {
-    pub fn new(args: K::Args, tensor: TensorArg<R>, ty: impl Into<Type>) -> Self {
-        let ty = ty.into();
+    pub fn new(args: K::Args, tensor: TensorArg<R>, storage_ty: impl Into<ElemType>) -> Self {
+        let storage_ty = storage_ty.into();
         let TensorArg::Handle { handle, .. } = &tensor else {
             panic!("Can't use alias for TensorMap")
         };
@@ -81,7 +81,7 @@ impl<R: Runtime, K: TensorMapKind> TensorMapArg<R, K> {
                 swizzle: TensorMapSwizzle::None,
                 prefetch: TensorMapPrefetch::None,
                 oob_fill: OobFill::Zero,
-                storage_ty: ty.storage_type(),
+                elem_ty: storage_ty,
             },
             tensor,
             _kind: PhantomData,
@@ -147,7 +147,7 @@ impl<E: CubePrimitive, K: TensorMapKind> AsMutExpand for NativeExpand<TensorMap<
 
 impl<E: CubePrimitive, K: TensorMapKind> Vectorized for TensorMap<E, K> {}
 impl<E: CubePrimitive, K: TensorMapKind> VectorizedExpand for NativeExpand<TensorMap<E, K>> {
-    fn vector_size(&self) -> VectorSize {
+    fn __expand_vector_size_method(&self, _scope: &Scope) -> VectorSize {
         1
     }
 }
@@ -160,8 +160,8 @@ impl<E: CubePrimitive, K: TensorMapKind> LaunchArg for TensorMap<E, K> {
         arg: Self::RuntimeArg<R>,
         launcher: &mut KernelLauncher<R>,
     ) -> Self::CompilationArg {
-        let ty = launcher.with_scope(|scope| E::__expand_as_type(scope));
-        launcher.register_tensor_map(arg, ty);
+        let elem_size = launcher.with_scope(|scope| E::__expand_size(scope));
+        launcher.register_tensor_map(arg, elem_size);
     }
 
     fn expand(
@@ -180,27 +180,28 @@ pub fn tma_group_commit() {
 }
 
 pub mod tma_group_commit {
-    use cubecl_ir::TmaOps;
+
+    use cubecl_ir::dialect::tma::CommitGroupOp;
 
     use super::*;
 
     pub fn expand(scope: &Scope) {
-        scope.register(TmaOps::CommitGroup)
+        scope.register(&CommitGroupOp::new(scope.ctx_mut()))
     }
 }
 
 /// Wait until at most `max_pending` TMA copy operations are in flight.
-pub fn tma_group_wait(_max_pending: u32) {
+pub fn tma_group_wait(_max_pending: usize) {
     unexpanded!()
 }
 
 pub mod tma_group_wait {
-    use cubecl_ir::TmaOps;
+    use cubecl_ir::dialect::tma::WaitGroupOp;
 
     use super::*;
 
-    pub fn expand(scope: &Scope, max_pending: u32) {
-        scope.register(TmaOps::WaitGroup { max_pending })
+    pub fn expand(scope: &Scope, max_pending: usize) {
+        scope.register(&WaitGroupOp::new(scope.ctx_mut(), max_pending));
     }
 }
 
@@ -219,17 +220,18 @@ pub mod tma_group_wait {
 /// tma_wait_read(2);
 /// // reuse smem1 & smem2 while 3 and 4 are still pending
 /// ```
-pub fn tma_group_wait_read(_max_pending: u32) {
+pub fn tma_group_wait_read(_max_pending: usize) {
     unexpanded!()
 }
 
 pub mod tma_group_wait_read {
-    use cubecl_ir::TmaOps;
+
+    use cubecl_ir::dialect::tma::WaitGroupReadOp;
 
     use super::*;
 
-    pub fn expand(scope: &Scope, max_pending: u32) {
-        scope.register(TmaOps::WaitGroupRead { max_pending })
+    pub fn expand(scope: &Scope, max_pending: usize) {
+        scope.register(&WaitGroupReadOp::new(scope.ctx_mut(), max_pending))
     }
 }
 
@@ -249,7 +251,7 @@ macro_rules! tma_store {
             }
 
             pub mod [<tma_store_ $dim d>] {
-                use cubecl_ir::{Instruction, TmaOps};
+                use cubecl_ir::dialect::tma::TmaStoreOp;
 
                 use super::*;
 
@@ -260,16 +262,15 @@ macro_rules! tma_store {
                     dst: &mut NativeExpand<TensorMap<T, Tiled>>,
                     $($arg: NativeExpand<i32>),*
                 ) {
-                    let source = unsafe { *src.__expand_as_ptr_method(scope) }.expand;
-                    let dst = dst.expand;
-                    let coordinates = vec![$($arg.expand),*];
-                    scope.register(Instruction::new(
-                        TmaOps::TmaStore {
-                            source,
-                            coordinates,
-                        },
+                    let source = unsafe { *src.__expand_as_ptr_method(scope) }.value(scope);
+                    let dst = dst.value(scope);
+                    let coordinates = vec![$($arg.read_value(scope)),*];
+                    scope.register(&TmaStoreOp::new(
+                        scope.ctx_mut(),
+                        source,
                         dst,
-                    ))
+                        coordinates,
+                    ));
                 }
             }
         }
@@ -284,10 +285,24 @@ tma_store!(5, v, w, z, y, x);
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use cubecl_ir::{Metadata, Value};
+    use cubecl_ir::dialect::general::{ShapeOp, StrideOp};
 
     use super::*;
-    use crate::ir::{Arithmetic, BinaryOperands, Instruction};
+
+    type TensorMapExpand<T, K> = NativeExpand<TensorMap<T, K>>;
+
+    #[cube]
+    impl<T: Scalar, K: TensorMapKind> TensorMap<T, K> {
+        /// Obtain the coordinate corresponding to the given `index` of the tensor at dimension `dim`.
+        ///
+        /// A coordinate is a list of indices corresponding to the multi-dimensional position of an element in the tensor.
+        /// The `dim` element in a coordinate is the position along the `dim` dimension of the tensor.
+        pub fn coordinate(&self, index: usize, dim: usize) -> usize {
+            let stride = self.stride(dim);
+            let shape = self.shape(dim);
+            (index / stride) % shape
+        }
+    }
 
     impl<T: Scalar, K: TensorMapKind> TensorMap<T, K> {
         /// Obtain the stride of input at dimension dim
@@ -297,14 +312,6 @@ mod metadata {
 
         /// Obtain the shape of input at dimension dim
         pub fn shape(&self, _dim: usize) -> usize {
-            unexpanded!()
-        }
-
-        /// Obtain the coordinate corresponding to the given `index` of the tensor at dimension `dim`.
-        ///
-        /// A coordinate is a list of indices corresponding to the multi-dimensional position of an element in the tensor.
-        /// The `dim` element in a coordinate is the position along the `dim` dimension of the tensor.
-        pub fn coordinate(&self, _index: usize, _dim: usize) -> usize {
             unexpanded!()
         }
 
@@ -361,16 +368,6 @@ mod metadata {
             expand.__expand_shape_method(scope, dim)
         }
 
-        // Expand function of [coordinate](TensorMap::coordinate).
-        pub fn __expand_coordinate(
-            scope: &Scope,
-            expand: NativeExpand<TensorMap<T, K>>,
-            index: NativeExpand<usize>,
-            dim: NativeExpand<usize>,
-        ) -> NativeExpand<usize> {
-            expand.__expand_coordinate_method(scope, index, dim)
-        }
-
         // Expand function of [len](TensorMap::len).
         pub fn __expand_len(
             scope: &Scope,
@@ -403,16 +400,10 @@ mod metadata {
             scope: &Scope,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let dim: Value = dim.into();
-            let out = scope.create_value(usize::__expand_as_type(scope));
-            scope.register(Instruction::new(
-                Metadata::Stride {
-                    dim,
-                    list: self.expand,
-                },
-                out,
-            ));
-            out.into()
+            let buffer_idx = ext_meta_idx(scope, self.value(scope));
+            let dim = dim.read_value(scope);
+            let op = StrideOp::new(scope.ctx_mut(), dim, buffer_idx);
+            scope.register_with_result(&op).into()
         }
 
         // Expand method of [shape](Tensor::shape).
@@ -421,50 +412,10 @@ mod metadata {
             scope: &Scope,
             dim: NativeExpand<usize>,
         ) -> NativeExpand<usize> {
-            let dim: Value = dim.into();
-            let out = scope.create_value(usize::__expand_as_type(scope));
-            scope.register(Instruction::new(
-                Metadata::Shape {
-                    dim,
-                    list: self.expand,
-                },
-                out,
-            ));
-            out.into()
-        }
-
-        // Expand method of [coordinate](Tensor::coordinate).
-        pub fn __expand_coordinate_method(
-            self,
-            scope: &Scope,
-            index: NativeExpand<usize>,
-            dim: NativeExpand<usize>,
-        ) -> NativeExpand<usize> {
-            let index: Value = index.into();
-            let stride = self.__expand_stride_method(scope, dim);
-            let shape = self.__expand_shape_method(scope, dim);
-
-            // Compute `num_strides = index / stride`.
-            let num_strides = scope.create_value(usize::__expand_as_type(scope));
-            scope.register(Instruction::new(
-                Arithmetic::Div(BinaryOperands {
-                    lhs: index,
-                    rhs: stride.expand,
-                }),
-                num_strides,
-            ));
-
-            // Compute `coordinate = num_strides % shape `.
-            let coordinate = scope.create_value(usize::__expand_as_type(scope));
-            scope.register(Instruction::new(
-                Arithmetic::Rem(BinaryOperands {
-                    lhs: num_strides,
-                    rhs: shape.expand,
-                }),
-                coordinate,
-            ));
-
-            coordinate.into()
+            let buffer_idx = ext_meta_idx(scope, self.value(scope));
+            let dim = dim.read_value(scope);
+            let op = ShapeOp::new(scope.ctx_mut(), dim, buffer_idx);
+            scope.register_with_result(&op).into()
         }
 
         // Expand method of [len](Tensor::len).
@@ -474,7 +425,7 @@ mod metadata {
 
         // Expand method of [buffer_len](Tensor::buffer_len).
         pub fn __expand_buffer_len_method(self, scope: &Scope) -> NativeExpand<usize> {
-            expand_buffer_length_native(scope, self.expand).into()
+            expand_buffer_length_native(scope, self.value(scope)).into()
         }
 
         // Expand method of [rank](Tensor::rank).
@@ -487,7 +438,9 @@ mod metadata {
             self,
             scope: &Scope,
         ) -> NativeExpand<TensorMap<E, K>> {
-            if T::__expand_as_type(scope) != E::__expand_as_type(scope) && !is_tf32::<E, T>(scope) {
+            if T::__expand_as_type(scope) != E::__expand_as_type(scope)
+                && !is_tf32_cast::<E, T>(scope)
+            {
                 panic!("Downcast should only be used to satisfy the Rust type system.")
             }
 

@@ -3,11 +3,11 @@ use core::marker::PhantomData;
 
 use crate::Runtime;
 use crate::prelude::{BufferArg, TensorArg, TensorMapArg, TensorMapKind};
-use crate::{InfoBuilder, KernelSettings, ScalarArgType};
+use crate::{InfoBuilder, ScalarArgType};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
-use cubecl_ir::{AddressType, Scope, StorageType, Type};
-use cubecl_runtime::server::{Binding, CubeCount, TensorMapBinding};
+use cubecl_ir::{AddressType, ElemType, Scope, settings::KernelSettings};
+use cubecl_runtime::server::{BufferBinding, CubeCount, KernelResource, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
     kernel::{CubeKernel, KernelTask},
@@ -18,13 +18,12 @@ use cubecl_runtime::{
 std::thread_local! {
     static INFO: RefCell<InfoBuilder> = RefCell::new(InfoBuilder::default());
     // Only used for resolving types
-    static SCOPE: RefCell<Scope> = RefCell::new(Scope::root(false));
+    static SCOPE: RefCell<Scope> = RefCell::new(Scope::dummy());
 }
 
 /// Prepare a kernel for [launch](KernelLauncher::launch).
 pub struct KernelLauncher<R: Runtime> {
-    buffers: Vec<Binding>,
-    tensor_maps: Vec<TensorMapBinding>,
+    resources: Vec<KernelResource>,
     address_type: AddressType,
     pub settings: KernelSettings,
     #[cfg(not(feature = "std"))]
@@ -61,7 +60,7 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 
     /// Register a scalar to be launched from raw data.
-    pub fn register_scalar_raw(&mut self, bytes: &[u8], dtype: StorageType) {
+    pub fn register_scalar_raw(&mut self, bytes: &[u8], dtype: ElemType) {
         self.with_info(|info| info.scalars.push_raw(bytes, dtype));
     }
 
@@ -79,29 +78,6 @@ impl<R: Runtime> KernelLauncher<R> {
         client.launch(kernel, cube_count, bindings)
     }
 
-    /// Launch the kernel without check bounds.
-    ///
-    /// # Safety
-    ///
-    /// The kernel must not:
-    /// - Contain any out of bounds reads or writes. Doing so is immediate UB.
-    /// - Contain any loops that never terminate. These may be optimized away entirely or cause
-    ///   other unpredictable behaviour.
-    #[track_caller]
-    pub unsafe fn launch_unchecked<K: CubeKernel>(
-        self,
-        cube_count: CubeCount,
-        kernel: K,
-        client: &ComputeClient<R>,
-    ) {
-        unsafe {
-            let bindings = self.into_bindings();
-            let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
-
-            client.launch_unchecked(kernel, cube_count, bindings)
-        }
-    }
-
     /// We need to create the bindings in the same order they are defined in the compilation step.
     ///
     /// The function [`crate::KernelIntegrator::integrate`] stars by registering the input tensors followed
@@ -116,8 +92,7 @@ impl<R: Runtime> KernelLauncher<R> {
         let address_type = self.address_type;
         let info = self.with_info(|info| info.finish(address_type));
 
-        bindings.buffers = self.buffers;
-        bindings.tensor_maps = self.tensor_maps;
+        bindings.resources = self.resources;
         bindings.info = info;
 
         bindings
@@ -127,19 +102,18 @@ impl<R: Runtime> KernelLauncher<R> {
 // Tensors/arrays
 impl<R: Runtime> KernelLauncher<R> {
     /// Push a new input tensor to the state.
-    pub fn register_tensor(&mut self, tensor: TensorArg<R>, ty: Type) {
-        if let Some(tensor) = self.process_tensor(tensor, ty) {
-            self.buffers.push(tensor);
+    pub fn register_tensor(&mut self, tensor: TensorArg<R>, elem_size: usize) {
+        if let Some(tensor) = self.process_tensor(tensor, elem_size) {
+            self.resources.push(KernelResource::Buffer(tensor));
         }
     }
 
-    fn process_tensor(&mut self, tensor: TensorArg<R>, ty: Type) -> Option<Binding> {
+    fn process_tensor(&mut self, tensor: TensorArg<R>, elem_size: usize) -> Option<BufferBinding> {
         let tensor = match tensor {
             TensorArg::Handle { handle, .. } => handle,
             TensorArg::Alias { .. } => return None,
         };
 
-        let elem_size = ty.size();
         let buffer_len = tensor.handle.size_in_used() / elem_size as u64;
         let address_type = self.address_type;
 
@@ -155,19 +129,18 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 
     /// Push a new input array to the state.
-    pub fn register_buffer(&mut self, array: BufferArg<R>, ty: Type) {
-        if let Some(tensor) = self.process_buffer(array, ty) {
-            self.buffers.push(tensor);
+    pub fn register_buffer(&mut self, array: BufferArg<R>, elem_size: usize) {
+        if let Some(tensor) = self.process_buffer(array, elem_size) {
+            self.resources.push(KernelResource::Buffer(tensor));
         }
     }
 
-    fn process_buffer(&mut self, array: BufferArg<R>, ty: Type) -> Option<Binding> {
+    fn process_buffer(&mut self, array: BufferArg<R>, elem_size: usize) -> Option<BufferBinding> {
         let array = match array {
             BufferArg::Handle { handle, .. } => handle,
             BufferArg::Alias { .. } => return None,
         };
 
-        let elem_size = ty.size();
         let buffer_len = array.handle.size_in_used() / elem_size as u64;
         let address_type = self.address_type;
         self.with_info(|info| info.metadata.register_buffer(buffer_len, address_type));
@@ -175,13 +148,18 @@ impl<R: Runtime> KernelLauncher<R> {
     }
 
     /// Push a new tensor to the state.
-    pub fn register_tensor_map<K: TensorMapKind>(&mut self, map: TensorMapArg<R, K>, ty: Type) {
+    pub fn register_tensor_map<K: TensorMapKind>(
+        &mut self,
+        map: TensorMapArg<R, K>,
+        elem_size: usize,
+    ) {
         let binding = self
-            .process_tensor(map.tensor, ty)
+            .process_tensor(map.tensor, elem_size)
             .expect("Can't use alias for TensorMap");
 
         let map = map.metadata.clone();
-        self.tensor_maps.push(TensorMapBinding { binding, map });
+        self.resources
+            .push(KernelResource::TensorMap(TensorMapBinding { binding, map }));
     }
 }
 
@@ -190,8 +168,7 @@ impl<R: Runtime> KernelLauncher<R> {
         Self {
             address_type: settings.address_type,
             settings,
-            buffers: Vec::new(),
-            tensor_maps: Vec::new(),
+            resources: Vec::new(),
             _runtime: PhantomData,
             #[cfg(not(feature = "std"))]
             info: InfoBuilder::default(),

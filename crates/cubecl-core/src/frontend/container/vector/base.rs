@@ -1,10 +1,12 @@
 use core::{marker::PhantomData, ops::Neg};
 
 use crate::frontend::{CubePrimitive, CubeType, NativeAssign, NativeExpand};
-use crate::ir::{BinaryOperands, Instruction, Scope, Type};
+use crate::ir::Scope;
 use crate::{self as cubecl, prelude::*};
-use cubecl_ir::{Comparison, ConstantValue, Value};
+use cubecl_ir::{ConstantValue, ExpandValue, types::VectorType};
 use cubecl_macros::{cube, intrinsic};
+use num_traits::Zero;
+use pliron::r#type::TypeHandle;
 
 /// A contiguous list of elements that supports auto-vectorized operations.
 #[derive(Debug)]
@@ -33,13 +35,16 @@ impl<P: Scalar + Neg<Output = P>, N: Size> Neg for Vector<P, N> {
         }
     }
 }
+impl<P: Scalar + NegNativeExpand, N: Size> NegNativeExpand for Vector<P, N> {
+    fn __expand_native_neg(scope: &Scope, this: ExpandValue) -> ExpandValue {
+        P::__expand_native_neg(scope, this)
+    }
+}
 
 /// Module that contains the implementation details of the new function.
 mod new {
     use cubecl_ir::VectorSize;
     use cubecl_macros::comptime_type;
-
-    use crate::prelude::Cast;
 
     use super::*;
 
@@ -54,7 +59,14 @@ mod new {
         }
 
         pub fn __expand_new(scope: &Scope, val: NativeExpand<P>) -> VectorExpand<P, N> {
-            Vector::<P, N>::__expand_cast_from(scope, val)
+            broadcast_value(scope, val.read_value(scope), N::__expand_value(scope)).into()
+        }
+    }
+
+    #[cube]
+    impl<P: Scalar, N: Size> Vector<P, N> {
+        pub fn broadcast(value: P) -> Vector<P, N> {
+            Self::new(value)
         }
     }
 
@@ -67,47 +79,71 @@ mod new {
 }
 
 mod components {
-    use cubecl_ir::{Operator, VectorInsertOperands};
+    use cubecl_ir::{
+        dialect::vector::{
+            VectorExtractDynamicOp, VectorExtractOp, VectorInsertDynamicOp, VectorInsertOp,
+        },
+        interfaces::TypedExt,
+    };
 
     use super::*;
 
     #[cube]
     impl<P: Scalar, N: Size> Vector<P, N> {
-        #[allow(unused)]
-        pub fn extract(self, index: usize) -> P {
+        pub fn extract(self, #[comptime] index: usize) -> P {
             intrinsic!(|scope| {
-                if self.expand.vector_size() > 1 {
-                    let out = scope.create_value(P::__expand_as_type(scope));
-                    scope.register(Instruction::new(
-                        Operator::ExtractComponent(BinaryOperands {
-                            lhs: self.expand,
-                            rhs: index.expand,
-                        }),
-                        out,
-                    ));
-                    out.into()
+                let this = self.read_value(scope);
+                if this.vector_size(scope.ctx()) > 1 {
+                    let op = VectorExtractOp::new(scope.ctx_mut(), this, index);
+                    scope.register_with_result(&op).into()
                 } else {
-                    read_value(scope, self.expand).into()
+                    this.into()
                 }
             })
         }
 
-        #[allow(unused)]
-        pub fn insert(&mut self, index: usize, value: P) {
+        pub fn insert(&mut self, #[comptime] index: usize, value: P) {
             intrinsic!(|scope| {
-                if self.expand.vector_size() > 1 {
-                    let new_value = scope.create_value(self.expand.ty.unwrap_ptr());
-                    scope.register(Instruction::new(
-                        Operator::InsertComponent(VectorInsertOperands {
-                            vector: self.expand,
-                            index: index.expand,
-                            value: value.expand,
-                        }),
-                        new_value,
-                    ));
+                let this = self.read_value(scope);
+                let value = value.read_value(scope);
+                if this.vector_size(scope.ctx()) > 1 {
+                    let op = VectorInsertOp::new(scope.ctx_mut(), this, value, index);
+                    let new_value = scope.register_with_result(&op).into();
                     assign::expand_element(scope, new_value, self.expand);
                 } else {
-                    assign::expand_element(scope, value.expand, self.expand);
+                    assign::expand_element(scope, value.into(), self.expand);
+                }
+            })
+        }
+
+        /// Dynamically extract a value from the vector. **This is extremely slow and should only
+        /// be used when there is no other option**
+        pub fn extract_dynamic(self, index: usize) -> P {
+            intrinsic!(|scope| {
+                let this = self.read_value(scope);
+                if this.vector_size(scope.ctx()) > 1 {
+                    let index = index.read_value(scope);
+                    let op = VectorExtractDynamicOp::new(scope.ctx_mut(), this, index);
+                    scope.register_with_result(&op).into()
+                } else {
+                    this.into()
+                }
+            })
+        }
+
+        /// Dynamically inmsert a value to the vector. **This is extremely slow and should only
+        /// be used when there is no other option**
+        pub fn insert_dynamic(&mut self, index: usize, value: P) {
+            intrinsic!(|scope| {
+                let this = self.read_value(scope);
+                let value = value.read_value(scope);
+                if this.vector_size(scope.ctx()) > 1 {
+                    let index = index.read_value(scope);
+                    let op = VectorInsertDynamicOp::new(scope.ctx_mut(), this, value, index);
+                    let new_value = scope.register_with_result(&op).into();
+                    assign::expand_element(scope, new_value, self.expand);
+                } else {
+                    assign::expand_element(scope, value.into(), self.expand);
                 }
             })
         }
@@ -189,46 +225,6 @@ mod empty {
     }
 }
 
-/// Module that contains the implementation details of the size function.
-mod size {
-    use cubecl_ir::VectorSize;
-
-    use super::*;
-
-    impl<P: Scalar, N: Size> Vector<P, N> {
-        /// Get the number of individual elements a vector contains.
-        ///
-        /// The size is available at comptime and may be used in combination with the comptime
-        /// macro.
-        ///
-        /// ```rust, ignore
-        /// // The if statement is going to be executed at comptime.
-        /// if comptime!(vector.size() == 1) {
-        /// }
-        /// ```
-        pub fn size(&self) -> VectorSize {
-            N::value()
-        }
-
-        /// Expand function of [size](Self::size).
-        pub fn __expand_size(scope: &Scope, element: NativeExpand<Vector<P, N>>) -> VectorSize {
-            element.__expand_vector_size_method(scope)
-        }
-    }
-
-    impl<P: Scalar, N: Size> NativeExpand<Vector<P, N>> {
-        /// Comptime version of [size](Vector::size).
-        pub fn size(&self) -> VectorSize {
-            self.expand.ty.vector_size()
-        }
-
-        /// Expand method of [size](Vector::size).
-        pub fn __expand_size_method(&self, _scope: &Scope) -> VectorSize {
-            self.size()
-        }
-    }
-}
-
 // Implement a comparison operator define in
 macro_rules! impl_vector_comparison {
     ($name:ident, $operator:ident, $comment:literal) => {
@@ -239,7 +235,7 @@ macro_rules! impl_vector_comparison {
                 use super::*;
 
                 #[cube]
-                impl<P: Scalar, N: Size> Vector<P, N> {
+                impl<P: Scalar + CubePartialOrd, N: Size> Vector<P, N> {
                     #[doc = concat!(
                         "Return a new vector with the element-wise comparison of the first vector being ",
                         $comment,
@@ -247,20 +243,10 @@ macro_rules! impl_vector_comparison {
                     )]
                     pub fn $name(&self, other: &Self) -> Vector<bool, N> {
                         intrinsic!(|scope| {
-                            let this = self.__expand_deref_method(scope);
-                            let other = other.__expand_deref_method(scope);
-                            let size = this.expand.ty.vector_size();
-                            let lhs = this.expand;
-                            let rhs = other.expand.into();
+                            let this = self.__expand_deref_method(scope).into();
+                            let other = other.__expand_deref_method(scope).into();
 
-                            let output = scope.create_value(Vector::<bool, N>::__expand_as_type(scope));
-
-                            scope.register(Instruction::new(
-                                Comparison::$operator(BinaryOperands { lhs, rhs }),
-                                output.clone().into(),
-                            ));
-
-                            output.into()
+                            P::Scalar::[<__expand_native_ $operator>](scope, this, other).into()
                         })
                     }
                 }
@@ -270,15 +256,15 @@ macro_rules! impl_vector_comparison {
     };
 }
 
-impl_vector_comparison!(equal, Equal, "equal to");
-impl_vector_comparison!(not_equal, NotEqual, "not equal to");
-impl_vector_comparison!(less_than, Lower, "less than");
-impl_vector_comparison!(greater_than, Greater, "greater than");
-impl_vector_comparison!(less_equal, LowerEqual, "less than or equal to");
-impl_vector_comparison!(greater_equal, GreaterEqual, "greater than or equal to");
+impl_vector_comparison!(equal, eq, "equal to");
+impl_vector_comparison!(not_equal, ne, "not equal to");
+impl_vector_comparison!(less_than, lt, "less than");
+impl_vector_comparison!(greater_than, gt, "greater than");
+impl_vector_comparison!(less_equal, le, "less than or equal to");
+impl_vector_comparison!(greater_equal, ge, "greater than or equal to");
 
 mod bool_and {
-    use cubecl_ir::Operator;
+    use cubecl_ir::dialect::general::BoolAndOp;
 
     use crate::prelude::binary_expand;
 
@@ -289,14 +275,14 @@ mod bool_and {
         /// Return a new vector with the element-wise and of the vectors
         pub fn vec_and(self, other: Self) -> Vector<bool, N> {
             intrinsic!(
-                |scope| binary_expand(scope, self.expand, other.expand, Operator::And).into()
+                |scope| binary_expand(scope, self.expand, other.expand, BoolAndOp::new).into()
             )
         }
     }
 }
 
 mod bool_or {
-    use cubecl_ir::Operator;
+    use cubecl_ir::dialect::general::BoolOrOp;
 
     use crate::prelude::binary_expand;
 
@@ -306,7 +292,9 @@ mod bool_or {
     impl<N: Size> Vector<bool, N> {
         /// Return a new vector with the element-wise and of the vectors
         pub fn or(self, other: Self) -> Vector<bool, N> {
-            intrinsic!(|scope| binary_expand(scope, self.expand, other.expand, Operator::Or).into())
+            intrinsic!(
+                |scope| binary_expand(scope, self.expand, other.expand, BoolOrOp::new).into()
+            )
         }
     }
 }
@@ -318,7 +306,7 @@ impl<P: Scalar, N: Size> CubeType for Vector<P, N> {
 impl<P: Scalar, N: Size> CubeDebug for Vector<P, N> {}
 
 impl<P: Scalar, N: Size> NativeAssign for Vector<P, N> {
-    fn elem_init_mut(scope: &Scope, elem: Value) -> Value {
+    fn elem_init_mut(scope: &Scope, elem: ExpandValue) -> ExpandValue {
         P::elem_init_mut(scope, elem)
     }
 }
@@ -328,15 +316,14 @@ impl<P: Scalar, N: Size> CubePrimitive for Vector<P, N> {
     type Size = N;
     type WithScalar<S: Scalar> = Vector<S, N>;
 
-    fn __expand_as_type(scope: &Scope) -> Type {
-        Type::with_vector_size(P::__expand_as_type(scope), N::__expand_value(scope))
-    }
-
-    fn as_type_native() -> Option<Type> {
-        P::as_type_native().and_then(|ty| {
-            let vector_size = N::try_value_const()?;
-            Some(Type::with_vector_size(ty, vector_size))
-        })
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        let inner = P::__expand_as_type(scope);
+        let vectorization = N::__expand_value(scope);
+        if vectorization > 1 {
+            VectorType::get(scope.ctx(), inner, vectorization).into()
+        } else {
+            inner
+        }
     }
 
     fn from_const_value(value: ConstantValue) -> Self {
@@ -349,3 +336,10 @@ impl<T: MulHi + Scalar, N: Size> MulHi for Vector<T, N> {}
 impl<T: FloatOps + Scalar, N: Size> FloatOps for Vector<T, N> {}
 impl<T: Hypot + Scalar, N: Size> Hypot for Vector<T, N> {}
 impl<T: Rhypot + Scalar, N: Size> Rhypot for Vector<T, N> {}
+
+#[cube]
+impl<T: Int, N: Size> Vector<T, N> {
+    pub fn is_multiple_of(&self, multiple: T) -> Vector<bool, N> {
+        (*self % Vector::new(multiple)).equal(&Vector::zero())
+    }
+}

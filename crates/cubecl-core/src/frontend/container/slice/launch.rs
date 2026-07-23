@@ -2,18 +2,17 @@ use alloc::boxed::Box;
 use core::marker::PhantomData;
 
 use crate::{frontend::container::slice, prelude::*};
-use cubecl_ir::Id;
 use cubecl_runtime::runtime::Runtime;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct BufferCompilationArg {
-    pub inplace: Option<Id>,
+    pub inplace: Option<usize>,
 }
 
 /// Buffer representation with a reference to the [server handle](cubecl_runtime::server::Handle).
 pub struct BufferBinding<R: Runtime> {
-    pub handle: cubecl_runtime::server::Binding,
+    pub handle: cubecl_runtime::server::BufferBinding,
     pub(crate) length: [usize; 1],
     runtime: PhantomData<R>,
 }
@@ -52,7 +51,7 @@ impl<R: Runtime> BufferArg<R> {
     ///
     /// Specifying the wrong length may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts_binding(
-        binding: cubecl_runtime::server::Binding,
+        binding: cubecl_runtime::server::BufferBinding,
         length: usize,
     ) -> Self {
         unsafe {
@@ -100,7 +99,7 @@ impl<R: Runtime> BufferBinding<R> {
     ///
     /// Specifying the wrong length or size, may lead to out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts_binding(
-        handle: cubecl_runtime::server::Binding,
+        handle: cubecl_runtime::server::BufferBinding,
         length: usize,
     ) -> Self {
         Self {
@@ -147,12 +146,12 @@ impl<C: CubePrimitive> LaunchArg for [C] {
         arg: Self::RuntimeArg<R>,
         launcher: &mut KernelLauncher<R>,
     ) -> Self::CompilationArg {
-        let ty = launcher.with_scope(|scope| C::__expand_as_type(scope));
+        let elem_size = launcher.with_scope(|scope| C::__expand_size(scope));
         let inplace = match &arg {
             BufferArg::Handle { .. } => None,
-            BufferArg::Alias { input_pos, .. } => Some(*input_pos as Id),
+            BufferArg::Alias { input_pos, .. } => Some(*input_pos),
         };
-        launcher.register_buffer(arg, ty);
+        launcher.register_buffer(arg, elem_size);
 
         BufferCompilationArg { inplace }
     }

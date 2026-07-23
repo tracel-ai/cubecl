@@ -19,11 +19,10 @@ workspace = true
 
 
 [features]
-default = ["serde", "std"]
+default = ["serde"]
 
 serde = ["dep:serde", "hashbrown/serde", "enumset/serde"]
-std = []
-
+spirv = ["dep:pliron-spirv"]
 tracing = ["cubecl-common/tracing"]
 
 [dependencies]
@@ -32,6 +31,10 @@ cubecl-common = { path = "../cubecl-common", version = "=0.11.0-pre.1", default-
     "fp8",
 ] }
 cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "=0.11.0-pre.1" }
+
+pliron = { workspace = true }
+pliron-spirv = { workspace = true, optional = true }
+rustc_apfloat = { workspace = true }
 
 bumpalo = { workspace = true }
 derive-new = { workspace = true }
@@ -43,8 +46,11 @@ foldhash = { workspace = true }
 half = { workspace = true }
 internment = { workspace = true, features = ["intern", "serde"] }
 itertools = { workspace = true }
+num = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true, optional = true, features = ["rc"] }
+spin = { workspace = true }
+thiserror = { workspace = true }
 variadics_please = { workspace = true }
 
 hashbrown = { workspace = true }

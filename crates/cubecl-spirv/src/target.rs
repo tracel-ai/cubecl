@@ -1,472 +1,441 @@
-use cubecl_core::prelude::KernelArg;
-use cubecl_opt::BufferVisibility;
-use rspirv::{
-    dr::Operand,
-    spirv::{
-        self, AddressingModel, Capability, Decoration, ExecutionMode, ExecutionModel, MemoryModel,
-        StorageClass, Word,
+use cubecl_core::{
+    WgpuCompilationOptions,
+    ir::{
+        ExpandValue, Scope, UIntKind,
+        attributes::{
+            ATTR_BUFFER_BINDING, ATTR_READONLY, ATTR_WRITEONLY, BufferBindingAttr,
+            EntrypointInterface, FuncInterface,
+        },
+        ident,
+        interfaces::TypedExt,
+        metadata::Info,
+        prelude::*,
     },
 };
-use std::{fmt::Debug, iter};
+use cubecl_ir::dialect::BlockPtrExt;
+use pliron::{
+    builtin::ops::FuncOp,
+    graph::walkers::uninterruptible::immutable::walk_op,
+    identifier::Identifier,
+    irbuild::{inserter::Inserter, listener::DummyListener, match_rewrite::apply_match_rewrite},
+    printable::Printable,
+    std_deps::sync::LazyLock,
+};
+use pliron_spirv::{
+    decorations::{DecoratableOp, DecorationInfo},
+    interfaces::{VerCapExtOpInterface, VerCapExtTypeInterface},
+    ops::{AddressOfOp, GlobalVariableOp, InBoundsAccessChainOp, LoadOp, SpirvModuleOp},
+    types::{ArrayType, PointerType, RuntimeArrayType, StructType},
+};
+use rspirv::{
+    dr::Operand,
+    spirv::{Capability, Decoration, MemoryAccess, StorageClass},
+};
 
-use crate::{SpirvCompiler, extensions::TargetExtensions, item::Item, lookups::Buffer};
+use crate::types::ty_to_spirv_dialect_explicit_layout;
 
-pub trait SpirvTarget:
-    TargetExtensions<Self> + Debug + Clone + Default + Send + Sync + 'static
-{
-    fn set_modes(
+pub static PARAMS_NAME: LazyLock<Identifier> = LazyLock::new(|| ident("_spirv_params"));
+
+/// Lower op that depends on info struct
+#[op_interface]
+pub trait LowerInfoOp {
+    verify_op_succ!();
+    fn lower(&self, ctx: &mut Context, rewriter: &mut MatchRewriter, info_st: Value) -> Value;
+}
+
+/// Run on: `SpirvModuleOp`
+pub struct ConvertArgsPass;
+
+#[pass_name]
+impl Pass for ConvertArgsPass {
+    fn run(
         &mut self,
-        b: &mut SpirvCompiler<Self>,
-        main: Word,
-        builtins: Vec<Word>,
-        cube_dims: Vec<u32>,
+        op: Ptr<Operation>,
+        ctx: &mut Context,
+        _analyses: &mut AnalysisManager,
+    ) -> Result<PassResult> {
+        let mut module = op
+            .as_op::<SpirvModuleOp>(ctx)
+            .expect("Should run on SPIR-V module");
+        visit_all_ops_of_type_mut::<FuncOp, _>(ctx, &mut module, op, |ctx, module, func| {
+            if func.get_entrypoint_abi(ctx).is_some() {
+                Self::convert_func(ctx, *module, func).unwrap();
+            }
+        });
+        let mut res = PassResult::default();
+        res.ir_changed = IRStatus::Changed;
+        Ok(res)
+    }
+}
+
+impl ConvertArgsPass {
+    pub fn convert_func(ctx: &mut Context, module: SpirvModuleOp, func: FuncOp) -> Result<()> {
+        let func_op = func.get_operation();
+        let info = ctx.aux_ty::<Info>().clone();
+        let entry = func.get_entry_block(ctx);
+        let module_body = module.get_body(ctx, 0);
+        let args = entry.arguments(ctx);
+        let mut buffers = vec![];
+
+        for (i, arg) in args.iter().enumerate() {
+            let binding = func.get_arg_attr::<BufferBindingAttr>(ctx, i, &ATTR_BUFFER_BINDING);
+            let non_writable = func.has_arg_attr(ctx, i, &ATTR_READONLY);
+            let non_readable = func.has_arg_attr(ctx, i, &ATTR_WRITEONLY);
+            if let Some(binding) = binding {
+                buffers.insert(
+                    binding.buffer_pos,
+                    (*arg, buffer_ty(ctx, *arg), non_readable, non_writable),
+                );
+            } else {
+                panic!("Expected all kernel inputs to be bindings")
+            }
+        }
+
+        let mut addr_struct = StructType::default();
+        addr_struct.decorate_type(DecorationInfo::unit(Decoration::Block));
+
+        for (i, (_, ty, non_readable, non_writable)) in buffers.iter().copied().enumerate() {
+            addr_struct.field_types.push(ty);
+            addr_struct.offsets.push((i * size_of::<u64>()) as u32);
+            if non_readable {
+                addr_struct.decorate_member(i, DecorationInfo::unit(Decoration::NonReadable));
+            }
+            if non_writable {
+                addr_struct.decorate_member(i, DecorationInfo::unit(Decoration::NonWritable));
+            }
+        }
+
+        if info.has_info() {
+            let offset = buffers.len() * size_of::<u64>();
+            addr_struct.field_types.push(info_ty(ctx));
+            addr_struct.offsets.push(offset as u32);
+            addr_struct
+                .decorate_member(buffers.len(), DecorationInfo::unit(Decoration::NonWritable));
+        }
+
+        let addr_struct = Type::instantiate(addr_struct, ctx).to_handle();
+        let storage_class = params_storage_class(ctx, buffers.len());
+        let addr_struct_ptr = PointerType::get(ctx, addr_struct, storage_class).into();
+        let ptrs_var =
+            GlobalVariableOp::new(ctx, addr_struct, storage_class, PARAMS_NAME.clone(), None);
+        ptrs_var.get_operation().insert_at_front(module_body, ctx);
+
+        if !matches!(storage_class, StorageClass::PushConstant) {
+            ptrs_var.set_decoration_descriptor_set(ctx, 0.into());
+            ptrs_var.set_decoration_binding(ctx, 0.into());
+        }
+
+        let mut rewriter = IRRewriter::<DummyListener>::default();
+        rewriter.set_insertion_point_to_block_start(entry);
+        let scope = Scope::from_context_and_inserter(ctx, &mut rewriter);
+        let ptrs = scope.register_with_result(&AddressOfOp::new(
+            ctx,
+            addr_struct_ptr,
+            PARAMS_NAME.clone(),
+        ));
+
+        for (i, (buffer, ..)) in buffers.iter().enumerate() {
+            load_buffer_array(ctx, &scope, ptrs, i, *buffer, storage_class);
+        }
+
+        if info.has_info() {
+            let info = load_buffer(ctx, &scope, ptrs, buffers.len(), storage_class);
+            apply_match_rewrite(ctx, &mut LowerInfoOps(info), Default::default(), func_op)?;
+        }
+
+        let num_args = entry.deref(ctx).get_num_arguments();
+
+        for _ in 0..num_args {
+            func.pop_argument(ctx);
+        }
+        Ok(())
+    }
+}
+
+fn buffer_ty(ctx: &Context, buffer: Value) -> TypeHandle {
+    let ty = buffer.element_ty(ctx);
+    let ty_size = ty.size(ctx);
+    let ty = ty_to_spirv_dialect_explicit_layout(ctx, ty);
+    let array = RuntimeArrayType::get(ctx, ty, Some(ty_size as u32));
+    let struct_ = StructType::get(
+        ctx,
+        vec![array.into()],
+        vec![0],
+        vec![],
+        vec![DecorationInfo::unit(Decoration::Block)],
     );
-    fn generate_params(
-        &mut self,
-        b: &mut SpirvCompiler<Self>,
-        bindings: &[KernelArg],
-        visibility: &[BufferVisibility],
-    ) -> Vec<Buffer>;
-    fn load_params(b: &mut SpirvCompiler<Self>);
-    fn info_storage_class(b: &mut SpirvCompiler<Self>) -> StorageClass;
-    fn params_storage_class(b: &mut SpirvCompiler<Self>, num_buffers: usize) -> StorageClass;
-
-    fn set_kernel_name(&mut self, name: impl Into<String>);
+    PointerType::get(ctx, struct_.into(), StorageClass::PhysicalStorageBuffer).into()
 }
 
-#[derive(Clone)]
-pub struct GLCompute {
-    kernel_name: String,
+fn info_ty(ctx: &Context) -> TypeHandle {
+    let address_ty = ctx.address_type();
+    let info = ctx.aux_ty::<Info>().clone();
+
+    let mut struct_ = StructType::default();
+    struct_
+        .type_decorations
+        .push(DecorationInfo::unit(Decoration::Block));
+
+    for scalar in info.scalars {
+        let ty = ty_to_spirv_dialect_explicit_layout(ctx, scalar.ty.to_type(ctx));
+        let ty_size = scalar.ty.expand_size(ctx.address_type()) as u32;
+        let array = ArrayType::get(ctx, scalar.count as u32, ty, Some(ty_size));
+        struct_.field_types.push(array.into());
+        struct_.offsets.push(scalar.offset as u32);
+    }
+
+    if let Some(field) = info.sized_meta {
+        let ty = ty_to_spirv_dialect_explicit_layout(ctx, field.ty.to_type(ctx));
+        let ty_size = field.ty.expand_size(ctx.address_type()) as u32;
+        let array = ArrayType::get(ctx, field.count as u32, ty, Some(ty_size));
+        struct_.field_types.push(array.into());
+        struct_.offsets.push(field.offset as u32);
+    }
+
+    if info.has_dynamic_meta {
+        let address_ty =
+            ty_to_spirv_dialect_explicit_layout(ctx, address_ty.unsigned_type().to_type(ctx));
+        let ty_size = address_ty.size(ctx) as u32;
+        let array = RuntimeArrayType::get(ctx, address_ty, Some(ty_size));
+        struct_.field_types.push(array.into());
+        struct_.offsets.push(info.dynamic_meta_offset as u32);
+    }
+
+    let struct_ = Type::instantiate(struct_, ctx).to_handle();
+    PointerType::get(ctx, struct_, StorageClass::PhysicalStorageBuffer).into()
 }
 
-impl Default for GLCompute {
-    fn default() -> Self {
-        Self {
-            kernel_name: "main".into(),
-        }
+fn load_buffer_array(
+    ctx: &mut Context,
+    scope: &Scope,
+    ptrs: Value,
+    idx: usize,
+    cube_buffer: Value,
+    storage_class: StorageClass,
+) {
+    let buffer = load_buffer(ctx, scope, ptrs, idx, storage_class);
+    let buffer_ty = TypedHandle::<PointerType>::from_handle(buffer.get_type(ctx), ctx).unwrap();
+    let buffer_ty =
+        TypedHandle::<StructType>::from_handle(buffer_ty.deref(ctx).element_type, ctx).unwrap();
+    let array_ty = buffer_ty.deref(ctx).field_types[0];
+    let array_ptr_ty = PointerType::get(ctx, array_ty, StorageClass::PhysicalStorageBuffer);
+
+    let zero = ExpandValue::constant(0.into(), UIntKind::U32).value(scope);
+    let array = InBoundsAccessChainOp::new(ctx, array_ptr_ty.into(), buffer, vec![zero]);
+    let array = scope.register_with_result(&array);
+    cube_buffer.replace_all_uses_with(ctx, &array);
+}
+
+fn load_buffer(
+    ctx: &mut Context,
+    scope: &Scope,
+    ptrs: Value,
+    idx: usize,
+    storage_class: StorageClass,
+) -> Value {
+    let struct_ptr = TypedHandle::<PointerType>::from_handle(ptrs.get_type(ctx), ctx).unwrap();
+    let struct_ =
+        TypedHandle::<StructType>::from_handle(struct_ptr.deref(ctx).element_type, ctx).unwrap();
+    let buffer_ty = struct_.deref(ctx).field_types[idx];
+    let buffer_ptr_ty = PointerType::get(ctx, buffer_ty, storage_class);
+
+    let idx = ExpandValue::constant(idx.into(), UIntKind::U32).value(scope);
+    let buffer_ptr = InBoundsAccessChainOp::new(ctx, buffer_ptr_ty.into(), ptrs, vec![idx]);
+    let buffer_ptr = scope.register_with_result(&buffer_ptr);
+    let load = LoadOp::new(ctx, buffer_ty, buffer_ptr, MemoryAccess::NONE, None);
+    scope.register_with_result(&load)
+}
+
+pub fn params_storage_class(ctx: &Context, num_buffers: usize) -> StorageClass {
+    let num_addresses = match ctx.aux_ty::<Info>().has_info() {
+        true => num_buffers + 1,
+        false => num_buffers,
+    };
+    let comp_options = &ctx.aux_ty::<WgpuCompilationOptions>().vulkan;
+    if num_addresses > comp_options.push_constant_size / size_of::<u64>() {
+        StorageClass::Uniform
+    } else {
+        StorageClass::PushConstant
     }
 }
 
-impl Debug for GLCompute {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("gl_compute")
+struct LowerInfoOps(Value);
+
+impl MatchRewrite for LowerInfoOps {
+    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
+        op.impls::<dyn LowerInfoOp>(ctx)
+    }
+
+    fn rewrite(
+        &mut self,
+        ctx: &mut Context,
+        rewriter: &mut MatchRewriter,
+        op: Ptr<Operation>,
+    ) -> Result<()> {
+        let dyn_op = op.dyn_op(ctx);
+        let lower_info = op_cast::<dyn LowerInfoOp>(&*dyn_op).unwrap();
+        let value = lower_info.lower(ctx, rewriter, self.0);
+        rewriter.replace_operation_with_values(ctx, op, vec![value]);
+        Ok(())
     }
 }
 
-impl SpirvTarget for GLCompute {
-    fn set_modes(
+#[derive(Default)]
+pub struct CollectVerCapExtPass;
+
+#[pass_name]
+impl Pass for CollectVerCapExtPass {
+    fn run(
         &mut self,
-        b: &mut SpirvCompiler<Self>,
-        main: Word,
-        builtins: Vec<Word>,
-        cube_dims: Vec<u32>,
-    ) {
-        let interface: Vec<u32> = builtins
-            .into_iter()
-            .chain(iter::once(b.state.params))
-            .chain(b.state.shared.values().map(|it| it.val_id))
-            .collect();
+        op: Ptr<Operation>,
+        ctx: &mut Context,
+        _analyses: &mut AnalysisManager,
+    ) -> Result<PassResult> {
+        let mut res = PassResult::default();
+        res.ir_changed = IRStatus::Changed;
+        let mut module = op.as_op::<SpirvModuleOp>(ctx).unwrap();
+        let conf = &WALKCONFIG_PREORDER_FORWARD;
+        walk_op(ctx, &mut module, conf, op, update_ver_cap_ext);
+        while update_capability_requirements_recursive(ctx, module) {}
+        Ok(res)
+    }
+}
 
-        let version = b.compilation_options.vulkan.max_spirv_version;
+#[op_interface]
+pub trait CustomCapabilitiesOp {
+    fn custom_capabilities(&self, ctx: &Context) -> Vec<Capability>;
+    fn verify(_op: &dyn Op, _ctx: &Context) -> Result<()>
+    where
+        Self: Sized,
+    {
+        Ok(())
+    }
+}
 
-        b.capability(Capability::Shader);
-        b.capability(Capability::PhysicalStorageBufferAddresses);
-        b.capability(Capability::VulkanMemoryModel);
-        b.capability(Capability::VulkanMemoryModelDeviceScope);
-        b.capability(Capability::GroupNonUniform);
+// These are restricted to OpenCL so remove from consideration
+#[rustfmt::skip]
+const EXCLUDED_CAPS: &[Capability] = {
+    use Capability::*;
+    &[Kernel, Vector16, Float16Buffer, ImageBasic, ImageReadWrite, ImageMipmap, Pipes,
+    DeviceEnqueue, LiteralSampler, SubgroupDispatch, NamedBarrier, PipeStorage]
+};
+const PREFERRED_CAPS: &[Capability] = &[Capability::GroupNonUniformArithmetic];
+const PREFERRED_EXTS: &[&str] = &["SPV_KHR_physical_storage_buffer"];
 
-        if b.compilation_options.vulkan.supports_explicit_smem {
-            b.extension("SPV_KHR_workgroup_memory_explicit_layout");
-        }
+/// Capabilities can require other capabilities which require other capabilities, and each can
+/// require extensions/a minimum version. So add them all recursively.
+fn update_capability_requirements_recursive(ctx: &Context, module: SpirvModuleOp) -> bool {
+    let op = module.get_operation();
+    let caps_start = module.get_vce(ctx).capabilities;
+    for cap in caps_start.iter().copied().map(Operand::from) {
+        let min_version = cap.minimum_version();
+        let extensions = cap.required_extensions();
+        let caps = cap.required_capabilities();
+        update_ver_cap_ext_impl(ctx, module, min_version, extensions, caps, op);
+    }
+    module.get_vce(ctx).capabilities != caps_start
+}
 
-        if b.compilation_options.vulkan.supports_long_vectors {
-            b.extension("SPV_EXT_long_vector");
-            b.capability(Capability::LongVectorEXT);
-        }
-
-        if b.addr_type.size_bits() == 64 {
-            b.extension("SPV_EXT_shader_64bit_indexing");
-            b.capability(Capability::Shader64BitIndexingEXT);
-            b.execution_mode(main, ExecutionMode::Shader64BitIndexingEXT, []);
-        }
-
-        let mut caps = b.capabilities.clone();
-
-        if caps.contains(&Capability::CooperativeMatrixKHR) {
-            b.extension("SPV_KHR_cooperative_matrix");
-        }
-
-        if caps.contains(&Capability::CooperativeMatrixReductionsNV)
-            || caps.contains(&Capability::CooperativeMatrixConversionsNV)
-            || caps.contains(&Capability::CooperativeMatrixPerElementOperationsNV)
-            || caps.contains(&Capability::CooperativeMatrixTensorAddressingNV)
-            || caps.contains(&Capability::CooperativeMatrixBlockLoadsNV)
-        {
-            b.extension("SPV_NV_cooperative_matrix2")
-        }
-
-        // Callback requires physical storage buffer
-        if caps.contains(&Capability::CooperativeMatrixBlockLoadsNV) {
-            b.extension("SPV_KHR_physical_storage_buffer");
-            caps.insert(Capability::PhysicalStorageBufferAddresses);
-        }
-
-        if caps.contains(&Capability::TensorAddressingNV) {
-            b.extension("SPV_NV_tensor_addressing")
-        }
-
-        if caps.contains(&Capability::AtomicFloat16AddEXT) {
-            b.extension("SPV_EXT_shader_atomic_float16_add");
-        }
-
-        if caps.contains(&Capability::AtomicFloat32AddEXT)
-            | caps.contains(&Capability::AtomicFloat64AddEXT)
-        {
-            b.extension("SPV_EXT_shader_atomic_float_add");
-        }
-
-        if caps.contains(&Capability::AtomicFloat16MinMaxEXT)
-            | caps.contains(&Capability::AtomicFloat32MinMaxEXT)
-            | caps.contains(&Capability::AtomicFloat64MinMaxEXT)
-        {
-            b.extension("SPV_EXT_shader_atomic_float_min_max");
-        }
-
-        if caps.contains(&Capability::AtomicFloat16VectorNV) {
-            b.extension("SPV_NV_shader_atomic_fp16_vector");
-        }
-
-        if caps.contains(&Capability::BFloat16TypeKHR)
-            || caps.contains(&Capability::BFloat16CooperativeMatrixKHR)
-            || caps.contains(&Capability::BFloat16DotProductKHR)
-        {
-            b.extension("SPV_KHR_bfloat16");
-        }
-
-        if caps.contains(&Capability::Float8EXT)
-            || caps.contains(&Capability::Float8CooperativeMatrixEXT)
-        {
-            b.extension("SPV_EXT_float8");
-        }
-
-        if caps.contains(&Capability::FloatControls2) {
-            b.extension("SPV_KHR_float_controls2");
-        }
-
-        if b.debug_symbols {
-            b.extension("SPV_KHR_non_semantic_info");
-        }
-
-        if version < (1, 5) {
-            b.extension("SPV_KHR_physical_storage_buffer");
-            b.extension("SPV_KHR_vulkan_memory_model");
-            if caps.contains(&Capability::StorageBuffer8BitAccess) {
-                b.extension("SPV_KHR_8bit_storage");
+fn update_ver_cap_ext(ctx: &Context, module: &mut SpirvModuleOp, node: IRNode) {
+    match node {
+        IRNode::BasicBlock(block) => {
+            let args = block.arguments(ctx);
+            for arg in args {
+                let ty = arg.get_type(ctx).deref(ctx);
+                if let Some(ver_cap_ext) = type_cast(&*ty) {
+                    update_ver_cap_ext_ty(ctx, module, ver_cap_ext);
+                }
             }
         }
-
-        if version < (1, 3) && caps.contains(&Capability::StorageBuffer16BitAccess) {
-            b.extension("SPV_KHR_16bit_storage");
-        }
-
-        for cap in caps {
-            b.capability(cap);
-        }
-
-        b.memory_model(
-            AddressingModel::PhysicalStorageBuffer64,
-            MemoryModel::Vulkan,
-        );
-        b.entry_point(
-            ExecutionModel::GLCompute,
-            main,
-            &self.kernel_name,
-            interface,
-        );
-        b.execution_mode(main, spirv::ExecutionMode::LocalSize, cube_dims);
-    }
-
-    fn generate_params(
-        &mut self,
-        b: &mut SpirvCompiler<Self>,
-        bindings: &[KernelArg],
-        visibility: &[BufferVisibility],
-    ) -> Vec<Buffer> {
-        let params_class = Self::params_storage_class(b, bindings.len());
-
-        let params_struct_id = b.id();
-        let params_ptr_id = b.id();
-
-        let buffers = bindings
-            .iter()
-            .map(|binding| {
-                let buffer = self.generate_storage_buffer(b, binding);
-                b.state
-                    .base_lookups
-                    .values
-                    .insert(binding.value.id(), buffer.id);
-                buffer
-            })
-            .collect::<Vec<_>>();
-        let info = b.info.has_info().then(|| self.generate_info_binding(b));
-
-        b.type_struct_id(
-            Some(params_struct_id),
-            buffers
-                .iter()
-                .chain(info.iter())
-                .map(|it| it.struct_ptr_ty_id),
-        );
-        b.type_pointer(Some(params_ptr_id), params_class, params_struct_id);
-
-        b.decorate(params_struct_id, Decoration::Block, []);
-        b.name(params_struct_id, "Params");
-
-        let params = b.insert_in_root(|b| b.variable(params_ptr_id, None, params_class, None));
-        b.name(params, "params");
-
-        b.state.params = params;
-
-        if !matches!(params_class, StorageClass::PushConstant) {
-            b.decorate(params, Decoration::DescriptorSet, vec![0u32.into()]);
-            b.decorate(params, Decoration::Binding, vec![0u32.into()]);
-        }
-
-        for (i, visibility) in visibility.iter().enumerate() {
-            let offset = (size_of::<u64>() * i) as u32;
-            b.member_decorate(
-                params_struct_id,
-                i as u32,
-                Decoration::Offset,
-                [offset.into()],
-            );
-            if !visibility.readable {
-                b.member_decorate(params_struct_id, i as u32, Decoration::NonReadable, []);
+        IRNode::Operation(op) => {
+            let dyn_op = op.dyn_op(ctx);
+            if let Some(custom) = op_cast::<dyn CustomCapabilitiesOp>(&*dyn_op) {
+                for cap in custom.custom_capabilities(ctx) {
+                    module.insert_capability(ctx, cap);
+                }
             }
-            if !visibility.writable {
-                b.member_decorate(params_struct_id, i as u32, Decoration::NonWritable, []);
+            if let Some(ver_cap_ext) = op_cast(&*dyn_op) {
+                update_ver_cap_ext_op(ctx, module, ver_cap_ext);
+            }
+            for res in op.results(ctx) {
+                let ty = res.get_type(ctx).deref(ctx);
+                if let Some(ver_cap_ext) = type_cast(&*ty) {
+                    update_ver_cap_ext_ty(ctx, module, ver_cap_ext);
+                }
             }
         }
-
-        if let Some(info) = info {
-            let i = buffers.len();
-            let offset = (size_of::<u64>() * i) as u32;
-            b.member_decorate(
-                params_struct_id,
-                i as u32,
-                Decoration::Offset,
-                [offset.into()],
-            );
-            b.member_decorate(params_struct_id, i as u32, Decoration::NonWritable, []);
-
-            b.state.info = Some(info);
-        }
-
-        buffers
+        _ => {}
     }
+}
 
-    fn load_params(b: &mut SpirvCompiler<Self>) {
-        let params = b.state.params;
-        let params_class = Self::params_storage_class(b, b.state.buffers.len());
-        let zero = b.const_u32(0);
+fn update_ver_cap_ext_op(ctx: &Context, module: &mut SpirvModuleOp, op: &dyn VerCapExtOpInterface) {
+    let min_version = op.min_version(ctx);
+    let extensions = op.required_extensions(ctx);
+    let caps = op.required_capabilities(ctx);
+    let op = op.get_operation();
+    update_ver_cap_ext_impl(ctx, *module, min_version, extensions, caps, op);
+}
 
-        for (i, buffer) in b.state.buffers.clone().into_iter().enumerate() {
-            // uniform/push constant pointer to physical storage buffer pointer
-            let field_ptr_ty = b.type_pointer(None, params_class, buffer.struct_ptr_ty_id);
-            let field_idx = b.const_u32(i as u32);
-            let ptr = b
-                .in_bounds_access_chain(field_ptr_ty, None, params, [field_idx])
-                .unwrap();
-            b.insert_in_setup(|b| {
-                let st_ptr = b
-                    .load(buffer.struct_ptr_ty_id, None, ptr, None, [])
-                    .unwrap();
-                b.in_bounds_access_chain(buffer.arr_ptr_ty_id, Some(buffer.id), st_ptr, [zero])
-                    .unwrap()
-            });
-            b.name(buffer.id, format!("global_{i}"));
-        }
+fn update_ver_cap_ext_ty(
+    ctx: &Context,
+    module: &mut SpirvModuleOp,
+    ty: &dyn VerCapExtTypeInterface,
+) {
+    let min_version = ty.min_version(ctx);
+    let extensions = ty.required_extensions(ctx);
+    let caps = ty.required_capabilities(ctx);
+    let ty = ty.get_self_handle(ctx);
+    update_ver_cap_ext_impl(ctx, *module, min_version, extensions, caps, ty);
+}
 
-        if let Some(info) = b.state.info {
-            let i = b.state.buffers.len();
+fn update_ver_cap_ext_impl(
+    ctx: &Context,
+    module: SpirvModuleOp,
+    min_version: Option<(u8, u8)>,
+    extensions: Vec<Vec<&'static str>>,
+    caps: Vec<Vec<Capability>>,
+    obj: impl Printable,
+) {
+    let max_ver = ctx
+        .aux_ty::<WgpuCompilationOptions>()
+        .vulkan
+        .max_spirv_version;
+    let extensions = if min_version.is_some_and(|ver| ver <= max_ver) {
+        vec![]
+    } else {
+        extensions
+    };
 
-            // uniform/push constant pointer to physical storage buffer pointer
-            let field_ptr_ty = b.type_pointer(None, params_class, info.struct_ptr_ty_id);
-            let field_idx = b.const_u32(i as u32);
-            let ptr = b
-                .in_bounds_access_chain(field_ptr_ty, None, params, [field_idx])
-                .unwrap();
-            b.insert_in_setup(|b| {
-                b.load(info.struct_ptr_ty_id, Some(info.id), ptr, None, [])
-                    .unwrap()
-            });
-            b.name(info.id, "info");
-        }
-    }
-
-    fn info_storage_class(_b: &mut SpirvCompiler<Self>) -> StorageClass {
-        StorageClass::PhysicalStorageBuffer
-    }
-
-    fn params_storage_class(b: &mut SpirvCompiler<Self>, num_buffers: usize) -> StorageClass {
-        let num_addresses = match b.info.has_info() {
-            true => num_buffers + 1,
-            false => num_buffers,
-        };
-        if num_addresses > b.compilation_options.vulkan.push_constant_size / size_of::<u64>() {
-            StorageClass::Uniform
+    for mut cap_set in caps.into_iter().filter(|set| !set.is_empty()) {
+        cap_set.retain(|cap| !EXCLUDED_CAPS.contains(cap));
+        if cap_set.len() == 1 {
+            module.insert_capability(ctx, cap_set[0]);
+        } else if cap_set.iter().any(|cap| module.has_capability(ctx, cap)) {
+            continue;
+        } else if let Some(preferred) = cap_set.iter().find(|cap| PREFERRED_CAPS.contains(cap)) {
+            module.insert_capability(ctx, *preferred);
         } else {
-            StorageClass::PushConstant
+            panic!(
+                "Need custom rule for multi-capability node {}, lists capabilities: {:?}",
+                obj.disp(ctx),
+                cap_set
+            );
         }
     }
 
-    fn set_kernel_name(&mut self, name: impl Into<String>) {
-        self.kernel_name = name.into();
-    }
-}
-
-impl GLCompute {
-    fn generate_storage_buffer(
-        &mut self,
-        b: &mut SpirvCompiler<Self>,
-        binding: &KernelArg,
-    ) -> Buffer {
-        let item = b.compile_type(binding.value.ty.unwrap_ptr());
-        match item.elem().size() {
-            1 => {
-                b.capabilities.insert(Capability::StorageBuffer8BitAccess);
-            }
-            2 => {
-                b.capabilities.insert(Capability::StorageBuffer16BitAccess);
-            }
-            _ => {}
-        }
-
-        let value_size = item.value_type().size();
-
-        let arr_ty_id = item.id(b);
-        let struct_ty_id = b.id();
-        let storage_class = StorageClass::PhysicalStorageBuffer;
-
-        b.decorate(arr_ty_id, Decoration::ArrayStride, [value_size.into()]);
-
-        b.type_struct_id(Some(struct_ty_id), [arr_ty_id]);
-        b.decorate(struct_ty_id, Decoration::Block, []);
-        b.member_decorate(struct_ty_id, 0, Decoration::Offset, [0u32.into()]);
-
-        let arr_ptr_ty_id = b.type_pointer(None, storage_class, arr_ty_id);
-        let struct_ptr_ty_id = b.type_pointer(None, storage_class, struct_ty_id);
-
-        Buffer {
-            id: b.id(),
-            struct_ty_id,
-            struct_ptr_ty_id,
-            arr_ty_id,
-            arr_ptr_ty_id,
-            storage_class,
-        }
-    }
-
-    /// Generate info binding struct and variable.
-    /// SPIR-V structs have explicit offsets so unlike other targets we don't need to pad the length.
-    fn generate_info_binding(&mut self, b: &mut SpirvCompiler<Self>) -> Buffer {
-        let address_type = b.addr_type;
-        let struct_ty_id = b.id();
-        let storage_class = StorageClass::PhysicalStorageBuffer;
-
-        let mut fields = Vec::new();
-
-        let scalars = b.info.scalars.clone();
-
-        for scalar in scalars {
-            let scalar_ty = b.compile_storage_type(scalar.ty);
-            match scalar_ty.size() {
-                1 => {
-                    b.capabilities.insert(Capability::StorageBuffer8BitAccess);
-                    b.capabilities
-                        .insert(Capability::UniformAndStorageBuffer8BitAccess);
-                }
-                2 => {
-                    b.capabilities.insert(Capability::StorageBuffer16BitAccess);
-                    b.capabilities
-                        .insert(Capability::UniformAndStorageBuffer16BitAccess);
-                }
-                _ => {}
-            }
-
-            let ty_size = scalar_ty.size();
-            let scalar_ty_id = Item::Scalar(scalar_ty).id(b);
-            let arr_ty_id = b.id();
-            let len_id = b.const_u32(scalar.padded_size() as u32);
-
-            b.type_array_id(Some(arr_ty_id), scalar_ty_id, len_id);
-            b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
-            b.name(arr_ty_id, format!("Scalars<{}>", scalar.ty));
-
-            b.member_decorate(
-                struct_ty_id,
-                fields.len() as u32,
-                Decoration::Offset,
-                [(scalar.offset as u32).into()],
+    for ext_set in extensions.into_iter().filter(|set| !set.is_empty()) {
+        if ext_set.len() == 1 {
+            module.insert_extension(ctx, ext_set[0]);
+        } else if ext_set.iter().any(|ext| module.has_extension(ctx, *ext)) {
+            continue;
+        } else if let Some(preferred) = ext_set.iter().find(|cap| PREFERRED_EXTS.contains(cap)) {
+            module.insert_extension(ctx, *preferred);
+        } else {
+            panic!(
+                "Need custom rule for multi-extension node {}, lists extensions: {:?}",
+                obj.disp(ctx),
+                ext_set
             );
-            fields.push(arr_ty_id);
-        }
-
-        if let Some(field) = b.info.sized_meta {
-            let scalar_ty = b.compile_storage_type(field.ty);
-
-            let ty_size = scalar_ty.size();
-            let scalar_ty_id = Item::Scalar(scalar_ty).id(b);
-            let arr_ty_id = b.id();
-            let len_id = b.const_u32(field.size as u32);
-
-            b.type_array_id(Some(arr_ty_id), scalar_ty_id, len_id);
-            b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
-            b.name(arr_ty_id, "StaticMeta");
-
-            b.member_decorate(
-                struct_ty_id,
-                fields.len() as u32,
-                Decoration::Offset,
-                [(field.offset as u32).into()],
-            );
-            fields.push(arr_ty_id);
-        }
-
-        if b.info.has_dynamic_meta {
-            let offset = b.info.dynamic_meta_offset;
-            let scalar_ty = b.compile_storage_type(address_type);
-
-            let ty_size = scalar_ty.size();
-            let scalar_ty_id = Item::Scalar(scalar_ty).id(b);
-            let arr_ty_id = b.id();
-
-            b.type_runtime_array_id(Some(arr_ty_id), scalar_ty_id);
-            b.decorate(arr_ty_id, Decoration::ArrayStride, [ty_size.into()]);
-            b.name(arr_ty_id, "DynamicMeta");
-
-            b.member_decorate(
-                struct_ty_id,
-                fields.len() as u32,
-                Decoration::Offset,
-                [Operand::LiteralBit32(offset as u32)],
-            );
-            fields.push(arr_ty_id);
-        }
-
-        b.type_struct_id(Some(struct_ty_id), fields);
-        b.decorate(struct_ty_id, Decoration::Block, vec![]);
-        b.name(struct_ty_id, "Info");
-
-        let struct_ptr_ty_id = b.type_pointer(None, storage_class, struct_ty_id);
-
-        Buffer {
-            id: b.id(),
-            struct_ty_id,
-            struct_ptr_ty_id,
-            arr_ty_id: 0,
-            arr_ptr_ty_id: 0,
-            storage_class,
         }
     }
 }

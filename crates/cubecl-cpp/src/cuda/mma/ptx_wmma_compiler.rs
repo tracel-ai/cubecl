@@ -1,194 +1,193 @@
 use super::WMMA_MINIMUM_VERSION;
 use crate::{
-    Dialect,
-    cuda::{
-        CudaDialect,
-        arch::CudaArchitecture,
-        ptx::{comma_separated, ldmatrix_call, stmatrix_call},
-    },
-    shared::{
-        Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, FragmentIdent,
-        FragmentLayout, FragmentType, Item, ManualMma, SupportedMmaCombinations,
-        SupportedScaledMmaCombinations, Value, WmmaInstruction,
+    cuda::{arch::CudaArchitecture, ptx::mma_ty},
+    shared::{Architecture, CompilationOptions, CppValue, SupportedMmaCombinations},
+};
+use core::cell::Ref;
+use cubecl_core::{
+    cmma::{MatrixIdent, MatrixLayout, MatrixShape, MatrixType},
+    ir::{
+        self as gpu, ContextExt,
+        dialect::matrix::{CastOp, FillOp, LoadOp, MultiplyAccumulateOp, StoreOp},
+        features::MmaConfig,
+        interfaces::TypedExt,
+        types::scalar::{BFloat16Type, Float16Type, Float32Type, Float64Type, TFloat32Type},
     },
 };
-use cubecl_core::ir::{
-    self as gpu, ConstantValue, MatrixIdent, MatrixType,
-    features::{MmaConfig, ScaledMmaConfig},
+use pliron::{
+    context::Context,
+    r#type::{TypeHandle, Typed},
+    value::Value,
 };
-use itertools::Itertools;
-use std::fmt::Display;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct PtxWmmaCompiler {}
+fn matrix_ty(ctx: &Context, ty: impl Typed) -> Ref<'_, MatrixType> {
+    let ty = ty.get_type(ctx).deref(ctx);
+    Ref::map(ty, |ty| {
+        ty.downcast_ref::<MatrixType>().expect("Should be matrix")
+    })
+}
 
-impl DialectWmmaCompiler<CudaDialect<Self>> for PtxWmmaCompiler {
-    fn compile_wmma_includes(
-        f: &mut std::fmt::Formatter<'_>,
-        flags: &Flags<CudaDialect<Self>>,
-    ) -> std::fmt::Result {
-        // We need mma header for conversion
-        if flags.elem_tf32 {
-            f.write_str("#include <mma.h>\n")?;
-        }
-        Ok(())
-    }
+pub(super) fn compile_matrix_declaration_ptx(
+    ctx: &Context,
+    val: Value,
+    value_ty: TypeHandle,
+) -> String {
+    let matrix = matrix_ty(ctx, value_ty);
+    let val = val.name(ctx);
+    let reg_count = get_fragment_register_total_count(ctx, &matrix);
+    let ty = if matrix.elem_ty.deref(ctx).is::<Float32Type>() {
+        "float"
+    } else if matrix.elem_ty.deref(ctx).is::<Float64Type>() {
+        "double"
+    } else {
+        "uint32_t"
+    };
+    format!("{ty} {val}[{reg_count}];")
+}
 
-    fn compile_wmma_fragment_declaration(
-        f: &mut std::fmt::Formatter<'_>,
-        val: &Value<CudaDialect<Self>>,
-        ty: &Item<CudaDialect<Self>>,
-    ) -> std::fmt::Result {
-        let frag = match ty {
-            Item::Fragment(frag) => frag,
-            _ => panic!("load instruction expects a WmmaFragment"),
-        };
-        let reg_count = get_fragment_register_total_count(frag);
-        let ty = match frag.elem {
-            Elem::U8 | Elem::I8 | Elem::F16 | Elem::BF16 | Elem::TF32 => "unsigned int",
-            Elem::F32 => "float",
-            Elem::F64 => "double",
-            _ => panic!("unsupported type"),
-        };
-        writeln!(f, "{ty} {val}_store[{reg_count}];")
-    }
+pub(super) fn compile_matrix_ptx(ctx: &Context, ty: &MatrixType) -> String {
+    let ty = if ty.elem_ty.deref(ctx).is::<Float32Type>() {
+        "float"
+    } else if ty.elem_ty.deref(ctx).is::<Float64Type>() {
+        "double"
+    } else {
+        "uint32_t"
+    };
+    format!("{ty}*")
+}
 
-    fn compile_wmma_instruction(
-        f: &mut std::fmt::Formatter<'_>,
-        instruction: &WmmaInstruction<CudaDialect<Self>>,
-    ) -> std::fmt::Result {
-        match instruction {
-            WmmaInstruction::Fill { frag, value } => {
-                let frag_ty = match frag.item() {
-                    Item::Fragment(frag) => frag,
-                    _ => panic!("load instruction expects a WmmaFragment"),
-                };
-                let reg_count = get_fragment_register_total_count(&frag_ty);
-                write!(
-                    f,
-                    "// fill
+pub(super) fn fill_ptx(ctx: &Context, op: &FillOp) -> String {
+    let matrix = op.matrix(ctx).name(ctx);
+    let value = op.value(ctx).name(ctx);
+    let mat_ty = matrix_ty(ctx, op.matrix(ctx));
+    let reg_count = get_fragment_register_total_count(ctx, &mat_ty);
+    format!(
+        "// fill
 for (uint i = 0; i < uint({reg_count}); ++i) {{
-  {frag}[i] = {value};
+  {matrix}[i] = {value};
 }}
  "
-                )
-            }
-            WmmaInstruction::Load {
-                frag,
-                ptr,
-                stride,
-                layout,
-            } => {
-                let frag_ty = match frag.item() {
-                    Item::Fragment(frag) => frag,
-                    _ => panic!("load instruction expects a WmmaFragment"),
-                };
-                // Important note: the current frontend has been designed around
-                // CUDA wmma which is not optimal in the case of PTX wmma and mma
-                // We choose here to use the layout defined in the fragment first,
-                // if it is unknown and we look into the layout passed to the instruction.
-                let layout = if frag_ty.layout.is_some() {
-                    get_fragment_layout_qualifier(frag)
-                } else if let Some(layout) = layout {
-                    get_qualifier_from_layout(layout)
-                } else {
-                    panic!("unknown matrix layout for wmma load instruction");
-                };
-                // instruction qualifiers
-                let ty = get_type_qualifier(ptr);
-                let matrix = match frag_ty.ident {
-                    FragmentIdent::A => "a",
-                    FragmentIdent::B => "b",
-                    FragmentIdent::Accumulator => "c",
-                    FragmentIdent::_Dialect(_) => unreachable!(),
-                };
-                let value_ptr_ty = ptr.item().value_ptr();
-                let opcode = match frag_ty.elem {
-                    Elem::U8 | Elem::I8 | Elem::F16 | Elem::BF16 | Elem::F32 | Elem::TF32 => {
-                        format!(
-                            "wmma.load.{matrix}.sync.aligned.{layout}.m{}n{}k{}.{ty}",
-                            frag_ty.m, frag_ty.n, frag_ty.k,
-                        )
-                    }
-                    other => panic!("{other} fragment type not supported"),
-                };
-                // constraints
-                let mut reg_count = 0;
-                let (regs_decl, out_constraints) =
-                    get_value_regs_decl_constraints(frag, true, &mut reg_count);
-                let buffer_reg = format_reg_and_inc(&mut reg_count);
-                let (stride_reg, stride_constraint) =
-                    get_value_regs_decl_constraints(stride, false, &mut reg_count);
-                let tmp_ptr = Value::tmp(value_ptr_ty);
-                let tmp_ptr_left = tmp_ptr.fmt_left();
-                write!(
-                    f,
-                    r#"// load
-{tmp_ptr_left} = ({value_ptr_ty}){ptr};
+    )
+}
+
+pub(super) fn load_ptx(ctx: &Context, op: &LoadOp) -> String {
+    let ptr = op.source(ctx).name(ctx);
+    let matrix = op.matrix(ctx);
+    let stride = op.stride(ctx);
+    let mat_ty = matrix_ty(ctx, matrix);
+    let elem_ty = mat_ty.elem_ty.deref(ctx);
+    let MatrixShape { m, n, k } = mat_ty.shape;
+    // Important note: the current frontend has been designed around
+    // CUDA wmma which is not optimal in the case of PTX wmma and mma
+    // We choose here to use the layout defined in the fragment first,
+    // if it is unknown and we look into the layout passed to the instruction.
+    let layout = get_qualifier_from_layout(&op.layout(ctx).0);
+
+    // instruction qualifiers
+    let ty = mma_ty(ctx, &*elem_ty);
+    let ident = match mat_ty.ident {
+        MatrixIdent::A => "a",
+        MatrixIdent::B => "b",
+        MatrixIdent::Accumulator => "c",
+    };
+    let opcode = format!("wmma.load.{ident}.sync.aligned.{layout}.m{m}n{n}k{k}.{ty}");
+
+    // constraints
+    let mut reg_count = 0;
+    let (regs_decl, out_constraints) =
+        get_value_regs_decl_constraints(ctx, matrix, true, &mut reg_count);
+    let buffer_reg = format_reg_and_inc(&mut reg_count);
+    let (stride_reg, stride_constraint) =
+        get_value_regs_decl_constraints(ctx, stride, false, &mut reg_count);
+    format!(
+        r#"// load
+{{
 asm volatile(
     "{opcode} "
     "{{{regs_decl}}}, [{buffer_reg}], {stride_reg};\n"
     : {out_constraints}
-    : "l"({tmp_ptr}){stride_constraint}
+    : "l"({ptr}){stride_constraint}
+);
+}}
+"#
+    )
+}
+
+pub(super) fn store_ptx(ctx: &Context, op: &StoreOp) -> String {
+    let matrix = op.matrix(ctx);
+    let destination = op.destination(ctx).name(ctx);
+    let stride = op.stride(ctx);
+    let mat_ty = matrix_ty(ctx, matrix);
+    let elem_ty = mat_ty.elem_ty.deref(ctx);
+    let MatrixShape { m, n, k } = mat_ty.shape;
+
+    // instruction qualifiers
+    let layout = match op.layout(ctx).0 {
+        MatrixLayout::ColMajor => "col",
+        MatrixLayout::RowMajor => "row",
+        _ => unreachable!(),
+    };
+    let ty = mma_ty(ctx, &*elem_ty);
+    let opcode = format!("wmma.store.d.sync.aligned.{layout}.m{m}n{n}k{k}.{ty}");
+    // constraints
+    let mut reg_count = 0;
+    let buffer_reg = format_reg_and_inc(&mut reg_count);
+    // offset and stride can be passed as local const or as const scalar
+    // we need to handle both cases correctly in the asm.
+    let (stride_reg, stride_constraint) =
+        get_value_regs_decl_constraints(ctx, stride, false, &mut reg_count);
+    // we start at 2 because of the buffer address calculation
+    let (regs_decl, in_constraints) =
+        get_value_regs_decl_constraints(ctx, matrix, false, &mut reg_count);
+    format!(
+        r#"// store
+asm volatile(
+    "{opcode} "
+    "[{buffer_reg}], {{{regs_decl}}}, {stride_reg};\n"
+    :
+    : "l"({destination}),
+      {in_constraints}{stride_constraint}
 );
 "#
-                )
-            }
-            WmmaInstruction::LdMatrix {
-                output,
-                ptr,
-                factor,
-                transpose,
-            } => f.write_str(&ldmatrix_call(output, ptr, factor, transpose)),
-            WmmaInstruction::StMatrix {
-                registers,
-                ptr,
-                factor,
-                transpose,
-            } => f.write_str(&stmatrix_call(registers, ptr, factor, transpose)),
-            WmmaInstruction::Execute {
-                frag_a,
-                frag_b,
-                frag_c,
-                frag_d,
-                ..
-            } => {
-                let frag_a_ty = match frag_a.item() {
-                    Item::Fragment(frag) => frag,
-                    _ => panic!("value should be WmmaFragment"),
-                };
-                let layout_a = get_fragment_layout_qualifier(frag_a);
-                let layout_b = get_fragment_layout_qualifier(frag_b);
-                let type_c = get_type_qualifier(frag_c);
-                let type_d = get_type_qualifier(frag_d);
-                let opcode = match frag_a.elem() {
-                    Elem::U8 | Elem::I8 | Elem::F16 | Elem::F32 => format!(
-                        "wmma.mma.sync.aligned.m{}n{}k{}.{layout_a}.{layout_b}.{type_d}.{type_c}",
-                        frag_a_ty.m, frag_a_ty.n, frag_a_ty.k,
-                    ),
-                    Elem::BF16 => format!(
-                        "wmma.mma.sync.aligned.{layout_a}.{layout_b}.m{}n{}k{}.f32.bf16.bf16.f32",
-                        frag_a_ty.m, frag_a_ty.n, frag_a_ty.k,
-                    ),
-                    Elem::TF32 => format!(
-                        "wmma.mma.sync.aligned.{layout_a}.{layout_b}.m{}n{}k{}.f32.tf32.tf32.f32",
-                        frag_a_ty.m, frag_a_ty.n, frag_a_ty.k,
-                    ),
-                    other => panic!("{other} fragment type not supported"),
-                };
-                let mut reg_count = 0;
-                // order matters, declare the registers in the same order as the intrinsic
-                let (regs_decl_d, out_constraints_d) =
-                    get_value_regs_decl_constraints(frag_d, true, &mut reg_count);
-                let (regs_decl_a, in_constraints_a) =
-                    get_value_regs_decl_constraints(frag_a, false, &mut reg_count);
-                let (regs_decl_b, in_constraints_b) =
-                    get_value_regs_decl_constraints(frag_b, false, &mut reg_count);
-                let (regs_decl_c, in_constraints_c) =
-                    get_value_regs_decl_constraints(frag_c, false, &mut reg_count);
-                write!(
-                    f,
-                    r#"// execute
+    )
+}
+
+pub(super) fn execute_ptx(ctx: &Context, op: &MultiplyAccumulateOp) -> String {
+    let mat_a = op.mat_a(ctx);
+    let mat_b = op.mat_b(ctx);
+    let mat_c = op.mat_c(ctx);
+    let mat_d = op.mat_d(ctx);
+    let mat_a_ty = matrix_ty(ctx, mat_a);
+    let elem_a_ty = mat_a_ty.elem_ty.deref(ctx);
+    let MatrixShape { m, n, k } = mat_a_ty.shape;
+
+    let layout_a = get_fragment_layout_qualifier(ctx, mat_a);
+    let layout_b = get_fragment_layout_qualifier(ctx, mat_b);
+
+    let type_a = mma_ty(ctx, &*mat_a.get_type(ctx).deref(ctx));
+    let type_b = mma_ty(ctx, &*mat_b.get_type(ctx).deref(ctx));
+    let type_c = mma_ty(ctx, &*mat_c.get_type(ctx).deref(ctx));
+    let type_d = mma_ty(ctx, &*mat_d.get_type(ctx).deref(ctx));
+
+    let types = if elem_a_ty.is::<Float16Type>() {
+        format!("{type_d}.{type_c}")
+    } else {
+        format!("{type_d}.{type_a}.{type_b}.{type_c}")
+    };
+    let opcode = format!("wmma.mma.sync.aligned.m{m}n{n}k{k}.{layout_a}.{layout_b}.{types}");
+
+    let mut reg_count = 0;
+    // order matters, declare the registers in the same order as the intrinsic
+    let (regs_decl_d, out_constraints_d) =
+        get_value_regs_decl_constraints(ctx, mat_d, true, &mut reg_count);
+    let (regs_decl_a, in_constraints_a) =
+        get_value_regs_decl_constraints(ctx, mat_a, false, &mut reg_count);
+    let (regs_decl_b, in_constraints_b) =
+        get_value_regs_decl_constraints(ctx, mat_b, false, &mut reg_count);
+    let (regs_decl_c, in_constraints_c) =
+        get_value_regs_decl_constraints(ctx, mat_c, false, &mut reg_count);
+    format!(
+        r#"// execute
 asm volatile(
     "{opcode} "
     "{{{regs_decl_d}}}, "
@@ -199,104 +198,23 @@ asm volatile(
     : {in_constraints_a}, {in_constraints_b}, {in_constraints_c}
 );
 "#
-                )
-            }
-            WmmaInstruction::ExecuteManual {
-                shape,
-                frag_a,
-                frag_b,
-                frag_c,
-                frag_d,
-            } => {
-                Self::compile_manual_mma(f, ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d))
-            }
-            WmmaInstruction::ExecuteScaled {
-                shape,
-                frag_a,
-                frag_b,
-                frag_c,
-                frag_d,
+    )
+}
 
-                scales_a,
-                scales_b,
-                scales_factor,
-            } => Self::compile_scaled_mma(
-                f,
-                ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d),
-                *scales_a,
-                *scales_b,
-                *scales_factor,
-            ),
-            WmmaInstruction::Store {
-                frag,
-                stride,
-                destination,
-                layout,
-            } => {
-                let frag_acc = match frag.item() {
-                    Item::Fragment(frag) => frag,
-                    _ => panic!("value should be WmmaFragment"),
-                };
-                // instruction qualifiers
-                let layout = match layout {
-                    FragmentLayout::ColMajor => "col",
-                    FragmentLayout::RowMajor => "row",
-                    FragmentLayout::_Dialect(..) => unreachable!(),
-                };
-                let opcode = match frag.elem() {
-                    Elem::F16 | Elem::BF16 => format!(
-                        // hack because wmma.store does not support bf16
-                        // f16 should still work correctly for bf16 as long
-                        // as the input registers are in correct format
-                        "wmma.store.d.sync.aligned.{layout}.m{}n{}k{}.f16",
-                        frag_acc.m, frag_acc.n, frag_acc.k,
-                    ),
-                    Elem::TF32 | Elem::F32 => format!(
-                        // same hack for tf32
-                        "wmma.store.d.sync.aligned.{layout}.m{}n{}k{}.f32",
-                        frag_acc.m, frag_acc.n, frag_acc.k,
-                    ),
-                    Elem::I32 => format!(
-                        // same hack for tf32
-                        "wmma.store.d.sync.aligned.{layout}.m{}n{}k{}.s32",
-                        frag_acc.m, frag_acc.n, frag_acc.k,
-                    ),
-                    other => panic!("{other} fragment type not supported"),
-                };
-                // constraints
-                let mut reg_count = 0;
-                let buffer_reg = format_reg_and_inc(&mut reg_count);
-                // offset and stride can be passed as local const or as const scalar
-                // we need to handle both cases correctly in the asm.
-                let (stride_reg, stride_constraint) =
-                    get_value_regs_decl_constraints(stride, false, &mut reg_count);
-                // we start at 2 because of the buffer address calculation
-                let (regs_decl, in_constraints) =
-                    get_value_regs_decl_constraints(frag, false, &mut reg_count);
-                write!(
-                    f,
-                    r#"// store
-asm volatile(
-    "{opcode} "
-    "[{buffer_reg}], {{{regs_decl}}}, {stride_reg};\n"
-    :
-    : "l"({destination}),
-      {in_constraints}{stride_constraint}
-);
-"#
-                )
-            }
-            WmmaInstruction::Cast { input, output } => {
-                let frag = match input.item() {
-                    Item::Fragment(frag) => frag,
-                    _ => panic!("value should be WmmaFragment"),
-                };
-                let reg_count = get_fragment_register_total_count(&frag);
-                match output.elem() {
-                    Elem::F16 => {
-                        write!(
-                            f,
-                            "// cast
+pub(super) fn cast_ptx(ctx: &Context, op: &CastOp) -> String {
+    let input = op.input(ctx);
+    let output = op.output(ctx);
+    let mat_ty = matrix_ty(ctx, input);
+
+    let reg_count = get_fragment_register_total_count(ctx, &mat_ty);
+    let out_ty = matrix_ty(ctx, output).elem_ty.deref(ctx);
+
+    let input = input.name(ctx);
+    let output = output.name(ctx);
+
+    if out_ty.is::<Float16Type>() {
+        format!(
+            "// cast
 for (int i = 0; i < {reg_count}; ++i) {{
     __half h_lo = __float2half_rn({input}[2*i + 0]);
     __half h_hi = __float2half_rn({input}[2*i + 1]);
@@ -304,12 +222,10 @@ for (int i = 0; i < {reg_count}; ++i) {{
     {output}[i] = *reinterpret_cast<unsigned int*>(&h2);
 }}
 "
-                        )
-                    }
-                    Elem::BF16 => {
-                        write!(
-                            f,
-                            "// cast
+        )
+    } else if out_ty.is::<BFloat16Type>() {
+        format!(
+            "// cast
 for (int i = 0; i < {reg_count}; ++i) {{
     __nv_bfloat16 b_lo = __float2bfloat16({input}[2*i + 0]);
     __nv_bfloat16 b_hi = __float2bfloat16({input}[2*i + 1]);
@@ -317,213 +233,89 @@ for (int i = 0; i < {reg_count}; ++i) {{
     {output}[i] = *reinterpret_cast<unsigned int*>(&bf2);
 }}
 "
-                        )
-                    }
-                    other => panic!("casting fragment to {other} not supported"),
-                }
-            }
-        }
-    }
-
-    fn compile_manual_mma(
-        f: &mut std::fmt::Formatter<'_>,
-        mma: ManualMma<CudaDialect<Self>>,
-    ) -> std::fmt::Result {
-        compile_manual_mma(f, mma)
-    }
-
-    fn compile_scaled_mma(
-        f: &mut std::fmt::Formatter<'_>,
-        mma: ManualMma<CudaDialect<Self>>,
-        scales_a: Value<CudaDialect<Self>>,
-        scales_b: Value<CudaDialect<Self>>,
-        scales_factor: u32,
-    ) -> std::fmt::Result {
-        compile_scaled_mma(f, mma, scales_a, scales_b, scales_factor)
-    }
-
-    fn supported_wmma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombinations {
-        let mut result: SupportedMmaCombinations = vec![];
-        if arch.get_version() >= WMMA_MINIMUM_VERSION {
-            // Types fully supported.
-            let types = vec![
-                (
-                    gpu::ElemType::Float(gpu::FloatKind::F16), // m
-                    gpu::ElemType::Float(gpu::FloatKind::F16), // n
-                    gpu::ElemType::Float(gpu::FloatKind::F16), // k
-                ),
-                (
-                    gpu::ElemType::Float(gpu::FloatKind::F16),
-                    gpu::ElemType::Float(gpu::FloatKind::F16),
-                    gpu::ElemType::Float(gpu::FloatKind::F32),
-                ),
-                (
-                    gpu::ElemType::Float(gpu::FloatKind::BF16),
-                    gpu::ElemType::Float(gpu::FloatKind::BF16),
-                    gpu::ElemType::Float(gpu::FloatKind::F32),
-                ),
-            ];
-            let combinations: SupportedMmaCombinations = types
-                .into_iter()
-                .map(|(a, b, cd)| MmaConfig {
-                    a_type: a.into(),
-                    b_type: b.into(),
-                    cd_type: cd.into(),
-                    m: 16,
-                    n: 16,
-                    k: 16,
-                })
-                .collect();
-            result.extend(combinations);
-            if arch.get_version() >= 72 {
-                result.extend([
-                    MmaConfig {
-                        a_type: gpu::ElemType::UInt(gpu::UIntKind::U8).into(),
-                        b_type: gpu::ElemType::UInt(gpu::UIntKind::U8).into(),
-                        cd_type: gpu::ElemType::Int(gpu::IntKind::I32).into(),
-                        m: 16,
-                        n: 16,
-                        k: 16,
-                    },
-                    MmaConfig {
-                        a_type: gpu::ElemType::Int(gpu::IntKind::I8).into(),
-                        b_type: gpu::ElemType::Int(gpu::IntKind::I8).into(),
-                        cd_type: gpu::ElemType::Int(gpu::IntKind::I32).into(),
-                        m: 16,
-                        n: 16,
-                        k: 16,
-                    },
-                ]);
-            }
-            if arch.get_version() >= 80 {
-                result.push(MmaConfig {
-                    a_type: gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
-                    b_type: gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
-                    cd_type: gpu::ElemType::Float(gpu::FloatKind::F32).into(),
-                    m: 16,
-                    n: 16,
-                    k: 8,
-                });
-            }
-        }
-        result
-    }
-
-    fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombinations {
-        supported_mma_combinations(arch)
-    }
-
-    fn supported_scaled_mma_combinations(
-        arch: &CudaArchitecture,
-    ) -> SupportedScaledMmaCombinations {
-        supported_scaled_mma_combinations(arch)
+        )
+    } else {
+        unreachable!()
     }
 }
 
-fn get_fragment_register_total_count(frag: &FragmentType<CudaDialect<PtxWmmaCompiler>>) -> u32 {
-    let FragmentType {
+fn get_fragment_register_total_count(ctx: &Context, frag: &MatrixType) -> usize {
+    let MatrixType {
         ident,
-        m,
-        n,
-        k,
-        elem,
+        shape,
+        elem_ty,
         ..
-    } = frag;
-    let elements = match ident {
-        FragmentIdent::A => m * k,
-        FragmentIdent::B => k * n,
-        FragmentIdent::Accumulator => m * n,
-        _ => unreachable!(),
-    };
-    let bits_per_elem = elem.size_bits() as u32;
-    // TODO: retrieve the warp size from the compiler CompilationOptions
-    let lanes_per_reg = 32 / bits_per_elem;
+    } = *frag;
+    let elements = shape.num_elems(ident);
+
+    let bits_per_elem = elem_ty.unpacked_size_bits(ctx);
+    let warp_size = ctx.aux_ty::<CompilationOptions>().warp_size;
+    let lanes_per_reg = warp_size / bits_per_elem;
     // choose threads-per-frag:
     // - accumulators always use 32 lanes
     // - A/B use 16 lanes _except_ TF32 (k=8) which also uses 32 lanes
     let threads_per_frag = match ident {
-        FragmentIdent::Accumulator => 32,
-        FragmentIdent::A | FragmentIdent::B => {
-            if frag.elem == Elem::TF32 {
+        MatrixIdent::Accumulator => 32,
+        MatrixIdent::A | MatrixIdent::B => {
+            if elem_ty.deref(ctx).is::<TFloat32Type>() {
                 32
             } else {
                 16
             }
         }
-        _ => unreachable!(),
     };
 
     elements / (lanes_per_reg * threads_per_frag)
 }
 
-fn get_type_qualifier(val: &Value<CudaDialect<PtxWmmaCompiler>>) -> String {
-    match val.elem() {
-        Elem::U8 => "u8",
-        Elem::I8 => "s8",
-        Elem::F16 => "f16",
-        Elem::BF16 => "bf16",
-        Elem::F32 => "f32",
-        Elem::TF32 => "tf32",
-        Elem::I32 => "s32",
-        Elem::F64 => "f64",
-        _ => panic!("unsupported WMMA fragment type"),
-    }
-    .to_string()
+fn get_fragment_layout_qualifier(ctx: &Context, val: Value) -> String {
+    let frag = matrix_ty(ctx, val);
+    get_qualifier_from_layout(&frag.layout)
 }
 
-fn get_fragment_layout_qualifier(val: &Value<CudaDialect<PtxWmmaCompiler>>) -> String {
-    let frag = match val.item() {
-        Item::Fragment(frag) => frag,
-        _ => panic!("value should be WmmaFragment"),
-    };
-    match frag.layout {
-        Some(layout) => get_qualifier_from_layout(&layout),
-        None => "".to_string(),
-    }
-}
-
-fn get_qualifier_from_layout(layout: &FragmentLayout<CudaDialect<PtxWmmaCompiler>>) -> String {
+fn get_qualifier_from_layout(layout: &MatrixLayout) -> String {
     match layout {
-        FragmentLayout::ColMajor => "col",
-        FragmentLayout::RowMajor => "row",
-        FragmentLayout::_Dialect(..) => unreachable!(),
+        MatrixLayout::ColMajor => "col",
+        MatrixLayout::RowMajor => "row",
+        _ => unreachable!(),
     }
     .to_string()
 }
 
 fn get_value_regs_decl_constraints(
-    val: &Value<CudaDialect<PtxWmmaCompiler>>,
+    ctx: &Context,
+    val: Value,
     output: bool,
     reg_count: &mut u8,
 ) -> (String, String) {
-    match val {
-        _ if let Item::Fragment(frag) = val.item() => {
-            let reg_total_count = get_fragment_register_total_count(&frag);
-            let reg_decl = (0..reg_total_count)
-                .map(|_| format_reg_and_inc(reg_count))
-                .collect::<Vec<_>>()
-                .join(",");
-            let frag_elem = frag.elem;
-            let modifier = format!(
-                "{}{}",
-                if output { "=" } else { "" },
-                match frag_elem {
-                    Elem::F32 => "f",
-                    Elem::F64 => "d",
-                    _ => "r",
-                },
-            );
-            let constraints = (0..reg_total_count)
-                .map(|i| format!("\"{modifier}\"({val}[{i}])"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            (reg_decl, constraints)
-        }
-        Value::Constant(number, ..) => match number {
-            ConstantValue::UInt(val, ..) => (val.to_string(), "".to_string()),
-            _ => panic!("value should be an unsigned integer"),
-        },
-        _ => (format_reg_and_inc(reg_count), format!(r#", "r"({val})"#)),
+    let ty = val.get_type(ctx).deref(ctx);
+    let val = val.name(ctx);
+
+    if let Some(mat_ty) = ty.downcast_ref::<MatrixType>() {
+        let reg_total_count = get_fragment_register_total_count(ctx, mat_ty);
+        let reg_decl = (0..reg_total_count)
+            .map(|_| format_reg_and_inc(reg_count))
+            .collect::<Vec<_>>()
+            .join(",");
+        let frag_elem = mat_ty.elem_ty;
+        let modifier = format!(
+            "{}{}",
+            if output { "=" } else { "" },
+            if frag_elem.is_float32(ctx) {
+                "f"
+            } else if frag_elem.is_float64(ctx) {
+                "d"
+            } else {
+                "r"
+            }
+        );
+        let constraints = (0..reg_total_count)
+            .map(|i| format!("\"{modifier}\"({val}[{i}])"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        (reg_decl, constraints)
+    } else {
+        (format_reg_and_inc(reg_count), format!(r#", "r"({val})"#))
     }
 }
 
@@ -533,262 +325,69 @@ fn format_reg_and_inc(count: &mut u8) -> String {
     res
 }
 
-fn as_ty_idx<D: Dialect>(val: &Value<D>, idx: impl Display, ty: impl Display) -> String {
-    format!("reinterpret_cast<{ty}*>({})[{idx}]", val.fmt_ptr())
-}
-
-fn as_const_ty_idx<D: Dialect>(val: &Value<D>, idx: impl Display, ty: impl Display) -> String {
-    format!("reinterpret_cast<const {ty}*>({})[{idx}]", val.fmt_ptr())
-}
-
-pub(super) fn compile_manual_mma<D: Dialect>(
-    f: &mut core::fmt::Formatter<'_>,
-    mma: ManualMma<D>,
-) -> std::fmt::Result {
-    let ManualMma {
-        shape,
-        frag_a,
-        frag_b,
-        frag_c,
-        frag_d,
-    } = mma;
-
-    let a_elem = frag_a.elem().unpacked();
-    let b_elem = frag_b.elem().unpacked();
-    let cd_elem = frag_c.elem().unpacked();
-
-    let ab_ty = match a_elem {
-        Elem::F32 => &format!("{}", Elem::<D>::F32),
-        _ => &format!("{}", Elem::<D>::U32),
-    };
-    let cd_ty = match cd_elem {
-        Elem::F32 => &format!("{}", Elem::<D>::F32),
-        _ => &format!("{}", Elem::<D>::U32),
-    };
-
-    let a_elems = shape.num_elems(FragmentIdent::<D>::A) / 32;
-    let b_elems = shape.num_elems(FragmentIdent::<D>::B) / 32;
-    let cd_elems = shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
-
-    let a_regs = a_elems as usize / (32 / frag_a.elem().unpacked().size_bits());
-    let b_regs = b_elems as usize / (32 / frag_b.elem().unpacked().size_bits());
-    let cd_regs = cd_elems as usize / (32 / frag_c.elem().unpacked().size_bits());
-
-    let frag_a = (0..a_regs).map(|i| as_const_ty_idx(frag_a, i, ab_ty));
-    let frag_b = (0..b_regs).map(|i| as_const_ty_idx(frag_b, i, ab_ty));
-    let frag_c = (0..cd_regs).map(|i| as_const_ty_idx(frag_c, i, cd_ty));
-    let frag_d = (0..cd_regs).map(|i| as_ty_idx(frag_d, i, cd_ty));
-
-    let args = comma_separated(frag_a.chain(frag_b).chain(frag_c).chain(frag_d));
-    write!(
-        f,
-        "__mma_m16n8k{}_{}_{}_{}({args});",
-        shape.k, a_elem, b_elem, cd_elem
-    )
-}
-
-pub(super) fn compile_scaled_mma<D: Dialect>(
-    f: &mut core::fmt::Formatter<'_>,
-    mma: ManualMma<D>,
-    scales_a: Value<D>,
-    scales_b: Value<D>,
-    scales_factor: u32,
-) -> std::fmt::Result {
-    let ManualMma {
-        shape,
-        frag_a,
-        frag_b,
-        frag_c,
-        frag_d,
-    } = mma;
-
-    let a_elem = frag_a.elem().unpacked();
-    let b_elem = frag_b.elem().unpacked();
-    let cd_elem = frag_c.elem().unpacked();
-
-    let ab_ty = &format!("{}", Elem::<D>::U32);
-    let cd_ty = &format!("{}", Elem::<D>::F32);
-
-    let a_elems = shape.num_elems(FragmentIdent::<D>::A) / 32;
-    let b_elems = shape.num_elems(FragmentIdent::<D>::B) / 32;
-    let cd_elems = shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
-
-    let a_regs = a_elems as usize / (32 / frag_a.elem().unpacked().size_bits());
-    let b_regs = b_elems as usize / (32 / frag_b.elem().unpacked().size_bits());
-    let cd_regs = cd_elems as usize / (32 / frag_c.elem().unpacked().size_bits());
-
-    let frag_a = (0..a_regs).map(|i| as_const_ty_idx(frag_a, i, ab_ty));
-    let frag_b = (0..b_regs).map(|i| as_const_ty_idx(frag_b, i, ab_ty));
-    let frag_c = (0..cd_regs).map(|i| as_const_ty_idx(frag_c, i, cd_ty));
-    let frag_d = (0..cd_regs).map(|i| as_ty_idx(frag_d, i, cd_ty));
-
-    let scales_a = scales_a.ensure_lvalue(f)?;
-    let scales_b = scales_b.ensure_lvalue(f)?;
-
-    let fragments = comma_separated(frag_a.chain(frag_b).chain(frag_c).chain(frag_d));
-    write!(
-        f,
-        "__mma_scaled_{scales_factor}x_m16n8k{}_{}_{}_{}({fragments}, reinterpret_cast<const uint32&>({scales_a}), reinterpret_cast<const uint32&>({scales_b}));",
-        shape.k, a_elem, b_elem, cd_elem
-    )
-}
-
-pub(super) fn supported_mma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombinations {
+pub(super) fn supported_cmma_combinations_ptx(arch: &CudaArchitecture) -> SupportedMmaCombinations {
     let mut result: SupportedMmaCombinations = vec![];
-    // Higher than WMMA because we only support the newest shapes. Other shapes would make things
-    // very complicated.
-    // Also only use f32 accumulators for now
-    if arch.get_version() >= 80 {
-        result.extend([
-            MmaConfig {
-                a_type: gpu::ElemType::Float(gpu::FloatKind::F16).into(), // a
-                b_type: gpu::ElemType::Float(gpu::FloatKind::F16).into(), // b
-                cd_type: gpu::ElemType::Float(gpu::FloatKind::F32).into(), // cd
+    if arch.get_version() >= WMMA_MINIMUM_VERSION {
+        // Types fully supported.
+        let types = vec![
+            (
+                gpu::ElemType::Float(gpu::FloatKind::F16), // m
+                gpu::ElemType::Float(gpu::FloatKind::F16), // n
+                gpu::ElemType::Float(gpu::FloatKind::F16), // k
+            ),
+            (
+                gpu::ElemType::Float(gpu::FloatKind::F16),
+                gpu::ElemType::Float(gpu::FloatKind::F16),
+                gpu::ElemType::Float(gpu::FloatKind::F32),
+            ),
+            (
+                gpu::ElemType::Float(gpu::FloatKind::BF16),
+                gpu::ElemType::Float(gpu::FloatKind::BF16),
+                gpu::ElemType::Float(gpu::FloatKind::F32),
+            ),
+        ];
+        let combinations: SupportedMmaCombinations = types
+            .into_iter()
+            .map(|(a, b, cd)| MmaConfig {
+                a_type: a,
+                b_type: b,
+                cd_type: cd,
                 m: 16,
-                n: 8,
+                n: 16,
                 k: 16,
-            },
-            MmaConfig {
-                a_type: gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
-                b_type: gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
-                cd_type: gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+            })
+            .collect();
+        result.extend(combinations);
+        if arch.get_version() >= 72 {
+            result.extend([
+                MmaConfig {
+                    a_type: gpu::ElemType::UInt(gpu::UIntKind::U8),
+                    b_type: gpu::ElemType::UInt(gpu::UIntKind::U8),
+                    cd_type: gpu::ElemType::Int(gpu::IntKind::I32),
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                },
+                MmaConfig {
+                    a_type: gpu::ElemType::Int(gpu::IntKind::I8),
+                    b_type: gpu::ElemType::Int(gpu::IntKind::I8),
+                    cd_type: gpu::ElemType::Int(gpu::IntKind::I32),
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                },
+            ]);
+        }
+        if arch.get_version() >= 80 {
+            result.push(MmaConfig {
+                a_type: gpu::ElemType::Float(gpu::FloatKind::TF32),
+                b_type: gpu::ElemType::Float(gpu::FloatKind::TF32),
+                cd_type: gpu::ElemType::Float(gpu::FloatKind::F32),
                 m: 16,
-                n: 8,
-                k: 16,
-            },
-            MmaConfig {
-                a_type: gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
-                b_type: gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
-                cd_type: gpu::ElemType::Float(gpu::FloatKind::F32).into(),
-                m: 16,
-                n: 8,
+                n: 16,
                 k: 8,
-            },
-            MmaConfig {
-                a_type: gpu::ElemType::Int(gpu::IntKind::I8).into(),
-                b_type: gpu::ElemType::Int(gpu::IntKind::I8).into(),
-                cd_type: gpu::ElemType::Int(gpu::IntKind::I32).into(),
-                m: 16,
-                n: 8,
-                k: 32,
-            },
-            MmaConfig {
-                a_type: gpu::ElemType::UInt(gpu::UIntKind::U8).into(),
-                b_type: gpu::ElemType::UInt(gpu::UIntKind::U8).into(),
-                cd_type: gpu::ElemType::Int(gpu::IntKind::I32).into(),
-                m: 16,
-                n: 8,
-                k: 32,
-            },
-            MmaConfig {
-                a_type: gpu::ElemType::Int(gpu::IntKind::I8).into(),
-                b_type: gpu::ElemType::UInt(gpu::UIntKind::U8).into(),
-                cd_type: gpu::ElemType::Int(gpu::IntKind::I32).into(),
-                m: 16,
-                n: 8,
-                k: 32,
-            },
-            MmaConfig {
-                a_type: gpu::ElemType::UInt(gpu::UIntKind::U8).into(),
-                b_type: gpu::ElemType::Int(gpu::IntKind::I8).into(),
-                cd_type: gpu::ElemType::Int(gpu::IntKind::I32).into(),
-                m: 16,
-                n: 8,
-                k: 32,
-            },
-            // TODO: u4/i4/b1, there's no types for them yet
-        ]);
-    }
-    if arch.get_version() >= 89 {
-        let f8f6f4_types = [
-            gpu::FloatKind::E4M3,
-            gpu::FloatKind::E5M2,
-            gpu::FloatKind::E3M2,
-            gpu::FloatKind::E2M3,
-            gpu::FloatKind::E2M1,
-        ];
-        let combinations = f8f6f4_types.iter().cartesian_product(f8f6f4_types.iter());
-        result.extend(combinations.map(|(t1, t2)| MmaConfig {
-            a_type: gpu::ElemType::Float(*t1).into(),
-            b_type: gpu::ElemType::Float(*t2).into(),
-            cd_type: gpu::ElemType::Float(gpu::FloatKind::F32).into(),
-            m: 16,
-            n: 8,
-            k: 32,
-        }));
-    }
-    // Warning: this likely does not follow the same layout pattern as those after 80
-    if arch.get_version() >= 70 && arch.get_version() < 80 {
-        result.push(MmaConfig {
-            a_type: gpu::ElemType::Float(gpu::FloatKind::F16).into(),
-            b_type: gpu::ElemType::Float(gpu::FloatKind::F16).into(),
-            cd_type: gpu::ElemType::Float(gpu::FloatKind::F32).into(),
-            m: 16,
-            n: 8,
-            k: 8,
-        });
+            });
+        }
     }
     result
-}
-
-pub(super) fn supported_scaled_mma_combinations(
-    arch: &CudaArchitecture,
-) -> SupportedScaledMmaCombinations {
-    let mut result: SupportedScaledMmaCombinations = vec![];
-    // sm_120f
-    if arch.get_version() >= 120 && arch.get_version() < 130 {
-        let f8f6f4_types = [
-            gpu::FloatKind::E4M3,
-            gpu::FloatKind::E5M2,
-            gpu::FloatKind::E3M2,
-            gpu::FloatKind::E2M3,
-            gpu::FloatKind::E2M1,
-        ];
-        let combinations = f8f6f4_types
-            .iter()
-            .flat_map(|t1| f8f6f4_types.iter().map(move |t2| (t1, t2)));
-
-        result.extend(combinations.map(|(t1, t2)| ScaledMmaConfig {
-            a_type: gpu::ElemType::Float(*t1).into(),
-            b_type: gpu::ElemType::Float(*t2).into(),
-            cd_type: gpu::ElemType::Float(gpu::FloatKind::F32).into(),
-            scales_type: gpu::ElemType::Float(gpu::FloatKind::UE8M0).into(),
-            m: 16,
-            n: 8,
-            k: 32,
-            scales_factor: 1,
-        }));
-
-        result.extend([
-            ScaledMmaConfig {
-                a_type: gpu::StorageType::Packed(gpu::ElemType::Float(gpu::FloatKind::E2M1), 2),
-                b_type: gpu::StorageType::Packed(gpu::ElemType::Float(gpu::FloatKind::E2M1), 2),
-                cd_type: gpu::ElemType::Float(gpu::FloatKind::F32).into(),
-                scales_type: gpu::ElemType::Float(gpu::FloatKind::UE8M0).into(),
-                m: 16,
-                n: 8,
-                k: 64,
-                scales_factor: 2,
-            },
-            // Sign of scales is ignored
-            ScaledMmaConfig {
-                a_type: gpu::StorageType::Packed(gpu::ElemType::Float(gpu::FloatKind::E2M1), 2),
-                b_type: gpu::StorageType::Packed(gpu::ElemType::Float(gpu::FloatKind::E2M1), 2),
-                cd_type: gpu::ElemType::Float(gpu::FloatKind::F32).into(),
-                scales_type: gpu::ElemType::Float(gpu::FloatKind::E4M3).into(),
-                m: 16,
-                n: 8,
-                k: 64,
-                scales_factor: 4,
-            },
-        ]);
-    }
-    result
-}
-
-pub fn contiguous_elements_cuda(ident: MatrixIdent, matrix: MatrixType) -> usize {
-    match ident {
-        MatrixIdent::A | MatrixIdent::B => 32 / matrix.storage.size_bits(),
-        MatrixIdent::Accumulator => 2,
-    }
 }

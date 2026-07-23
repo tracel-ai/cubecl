@@ -1,13 +1,26 @@
 use alloc::vec;
 use core::ops::{Deref, DerefMut};
+use pliron::{builtin::ops::FuncOp, r#type::TypeHandle, value::DefiningEntity};
 
 use alloc::boxed::Box;
 
 use crate::{self as cubecl, unexpanded};
 use cubecl::prelude::*;
 use cubecl_ir::{
-    AggregateKind, Branch, ElemType, FloatKind, Instruction, MetadataKind, Operation, RangeLoop,
-    SliceMetadata, Value, VectorSize,
+    OpInserter, SliceMetadata, VectorSize,
+    attributes::{ATTR_BUFFER_BINDING, BufferBindingAttr, FuncInterface},
+    dialect::{
+        OperationPtrExt,
+        branch::RangeLoopOp,
+        general::{AggregateConstructOp, ReinterpretCastOp},
+    },
+    interfaces::{TypedExt, aliasing::PointerExt},
+    pliron::{context::Context, printable::Printable, r#type::Typed, value::Value},
+    types::{
+        ArrayType, PointerType, RuntimeArrayType, VectorType,
+        aggregate::{MetadataKind, PtrAggregateType},
+        scalar::IndexType,
+    },
 };
 
 pub type SliceExpand<T> = NativeExpand<[T]>;
@@ -25,23 +38,48 @@ impl SliceVisibility for ReadWrite {}
 
 impl<E: CubePrimitive> SliceExpand<E> {
     pub fn __extract_list(&self, scope: &Scope) -> Value {
-        let Type::Aggregate(AggregateKind::Ptr { inner_ty, .. }) = self.expand.ty else {
-            unreachable!("Should be slice aggregate")
-        };
-        scope.extract_field(self.expand, *inner_ty, SliceMetadata::LIST)
+        scope.extract_field(self.value(scope), SliceMetadata::LIST)
     }
 
     pub fn __extract_offset(&self, scope: &Scope) -> NativeExpand<usize> {
-        let ty = usize::__expand_as_type(scope);
-        let field = scope.extract_field(self.expand, ty, SliceMetadata::OFFSET);
+        let field = scope.extract_field(self.value(scope), SliceMetadata::OFFSET);
         field.into()
     }
 
     pub fn __extract_length(&self, scope: &Scope) -> NativeExpand<usize> {
-        let ty = usize::__expand_as_type(scope);
-        let field = scope.extract_field(self.expand, ty, SliceMetadata::LENGTH);
+        let field = scope.extract_field(self.value(scope), SliceMetadata::LENGTH);
         field.into()
     }
+}
+
+pub(crate) fn buffer_idx(scope: &Scope, list: Value) -> usize {
+    buffer_binding(scope, list).buffer_pos
+}
+
+pub(crate) fn ext_meta_idx(scope: &Scope, list: Value) -> usize {
+    buffer_binding(scope, list)
+        .ext_meta_pos
+        .expect("Should have ext meta")
+}
+
+fn buffer_binding(scope: &Scope, list: Value) -> BufferBindingAttr {
+    let ctx = scope.ctx();
+    let (entry_block, idx) = match list.defining_entity() {
+        // Op is only allowed as a source for pointers (i.e. slice), so chase the pointer to its root
+        DefiningEntity::Op(_) => {
+            let block = list
+                .get_root_defining_block(ctx)
+                .expect("Should be block arg");
+            let idx = list.find_root_index(ctx);
+            (block, idx)
+        }
+        DefiningEntity::Block(block) => (block, list.find_index(ctx)),
+    };
+    let func = entry_block.deref(ctx).get_parent_op(ctx).unwrap();
+    let func = func.as_op::<FuncOp>(ctx).expect("Should be function");
+    *func
+        .get_arg_attr::<BufferBindingAttr>(scope.ctx(), idx, &ATTR_BUFFER_BINDING)
+        .expect("Should be buffer binding")
 }
 
 pub trait SliceVectorExt<E: Scalar, N: Size> {
@@ -88,19 +126,19 @@ impl<E: Scalar, N: Size> SliceExpand<Vector<E, N>> {
     fn with_vector_size_inner<N2: Size>(&self, scope: &Scope) -> SliceExpand<Vector<E, N2>> {
         let vector_size = N2::__expand_value(scope);
         let list = self.__extract_list(scope);
-        let item = list.value_type();
 
         let length = self.__extract_length(scope);
         let offset = self.__extract_offset(scope);
 
-        let current = list.ty.vector_size();
+        let current = list.vector_size(scope.ctx());
 
-        if vector_size == item.vector_size() {
+        if vector_size == current {
             return self.expand.into();
         }
 
-        let mut new_ptr = list;
-        new_ptr.ty = new_ptr.ty.with_vector_size(vector_size);
+        let new_ptr_ty = change_list_vectorization(scope.ctx_mut(), list, vector_size);
+        let reinterpret = ReinterpretCastOp::new(scope.ctx_mut(), new_ptr_ty, list);
+        let new_ptr = scope.register_with_result(&reinterpret);
 
         if current < vector_size {
             let ratio = vector_size / current;
@@ -114,6 +152,49 @@ impl<E: Scalar, N: Size> SliceExpand<Vector<E, N>> {
             from_raw_parts(scope, new_ptr, offset, length)
         }
     }
+}
+
+// This is really annoying but does have a lot more checks for invariants than before
+fn change_list_vectorization(ctx: &Context, list: Value, new_vec: usize) -> TypeHandle {
+    let current_vec = list.vector_size(ctx);
+    let ty = list.get_type(ctx);
+    let PointerType {
+        inner,
+        address_space,
+    } = {
+        let ty = ty.deref(ctx);
+        *ty.downcast_ref().unwrap()
+    };
+    let (arr, runtime_arr) = {
+        let list_ty = inner.deref(ctx);
+        let arr = list_ty.downcast_ref::<ArrayType>().copied();
+        let runtime_arr = list_ty.downcast_ref::<RuntimeArrayType>().copied();
+        (arr, runtime_arr)
+    };
+    if let Some(ArrayType { inner, length }) = arr {
+        let new_length = length * current_vec / new_vec;
+        let scalar_ty = inner.scalar_ty(ctx);
+        let new_vector_ty = if new_vec > 1 {
+            VectorType::get(ctx, scalar_ty, new_vec).into()
+        } else {
+            scalar_ty
+        };
+        let new_arr_ty = ArrayType::get(ctx, new_vector_ty, new_length).into();
+        let new_ptr_ty = PointerType::get(ctx, new_arr_ty, address_space);
+        return new_ptr_ty.into();
+    }
+    if let Some(RuntimeArrayType { inner }) = runtime_arr {
+        let scalar_ty = inner.scalar_ty(ctx);
+        let new_vector_ty = if new_vec > 1 {
+            VectorType::get(ctx, scalar_ty, new_vec).into()
+        } else {
+            scalar_ty
+        };
+        let new_arr_ty = RuntimeArrayType::get(ctx, new_vector_ty).into();
+        let new_ptr_ty = PointerType::get(ctx, new_arr_ty, address_space);
+        return new_ptr_ty.into();
+    }
+    unreachable!("Should be static or dynamic array")
 }
 
 pub trait SliceExt<E: CubePrimitive> {
@@ -354,21 +435,15 @@ impl<E: CubePrimitive> SliceExpand<E> {
     }
 
     pub fn __expand_downcast_method<T: CubePrimitive>(&self, scope: &Scope) -> &SliceExpand<T> {
-        if T::__expand_as_type(scope) != E::__expand_as_type(scope) && !is_tf32::<E, T>(scope) {
-            let elems = [
-                T::__expand_as_type(scope).elem_type(),
-                E::__expand_as_type(scope).elem_type(),
-            ];
-            let is_flex32_cast = elems.contains(&ElemType::Float(FloatKind::F32))
-                && elems.contains(&ElemType::Float(FloatKind::Flex32));
-
-            if !is_flex32_cast {
-                panic!(
-                    "Downcast should only be used to satisfy the Rust type system.
+        let ty_t = T::__expand_as_type(scope);
+        let ty_e = E::__expand_as_type(scope);
+        if ty_t != ty_e && !is_tf32_cast::<E, T>(scope) && !is_flex32_cast::<E, T>(scope) {
+            panic!(
+                "Downcast should only be used to satisfy the Rust type system.
 Expected types to be the same, got [{}, {}]",
-                    elems[0], elems[1]
-                )
-            }
+                ty_t.disp(scope.ctx()),
+                ty_e.disp(scope.ctx())
+            )
         }
 
         self.__expand_downcast_unchecked_method(scope)
@@ -378,19 +453,16 @@ Expected types to be the same, got [{}, {}]",
         &mut self,
         scope: &Scope,
     ) -> &mut SliceExpand<T> {
-        if T::__expand_as_type(scope) != E::__expand_as_type(scope) && !is_tf32::<E, T>(scope) {
-            let elems = [
-                T::__expand_as_type(scope).elem_type(),
-                E::__expand_as_type(scope).elem_type(),
-            ];
-            let is_flex32_cast = elems.contains(&ElemType::Float(FloatKind::F32))
-                && elems.contains(&ElemType::Float(FloatKind::Flex32));
-
-            if !is_flex32_cast {
+        if T::__expand_as_type(scope) != E::__expand_as_type(scope) && !is_tf32_cast::<E, T>(scope)
+        {
+            let ty_t = T::__expand_as_type(scope);
+            let ty_e = E::__expand_as_type(scope);
+            if ty_t != ty_e && !is_tf32_cast::<E, T>(scope) && !is_flex32_cast::<E, T>(scope) {
                 panic!(
                     "Downcast should only be used to satisfy the Rust type system.
 Expected types to be the same, got [{}, {}]",
-                    elems[0], elems[1]
+                    ty_t.disp(scope.ctx()),
+                    ty_e.disp(scope.ctx())
                 )
             }
         }
@@ -455,13 +527,12 @@ pub fn from_raw_parts<E: CubePrimitive>(
     offset: NativeExpand<usize>,
     length: NativeExpand<usize>,
 ) -> SliceExpand<E> {
-    let ty = Type::Aggregate(AggregateKind::ptr(list.ty, MetadataKind::Slice));
-    let out = scope.create_value(ty);
-    scope.register(Instruction::new(
-        Operation::ConstructAggregate(vec![list, offset.expand, length.expand]),
-        out,
-    ));
-    out.into()
+    let list_ty = list.get_type(scope.ctx());
+    let offset = offset.read_value(scope);
+    let length = length.read_value(scope);
+    let ty = PtrAggregateType::get(scope.ctx(), list_ty, MetadataKind::Slice).to_handle();
+    let op = AggregateConstructOp::new(scope.ctx_mut(), ty, vec![list, offset, length]);
+    scope.register_with_result(&op).into()
 }
 
 impl<E: CubePrimitive> SliceExpand<E> {
@@ -545,26 +616,27 @@ impl<E: CubePrimitive> Iterable for SliceExpand<E> {
     type Item = E::ExpandType;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
-        let index_ty = usize::__expand_as_type(scope);
-        let len = self.__extract_length(scope).expand;
+        let index_ty = IndexType::get(scope.ctx());
 
-        let child = scope.child();
-        let i = scope.create_local_mut(index_ty);
+        let start = scope.const_usize(0);
+        let end = self.__extract_length(scope).value(scope);
+        let step = scope.const_usize(1);
 
-        let index = NativeExpand::new(i);
+        let i = scope.create_local_mut(index_ty, None);
+        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
+        let loop_body = range_loop.loop_body(scope.ctx());
+
+        let child = scope.loop_child(OpInserter::new_at_block_end(loop_body));
+
+        let index = NativeExpand::new(i.into());
         let item = self
             .__expand_index_method(&child, index)
             .__expand_deref_method(&child);
         body(&child, item);
+        child.terminate_yield();
 
-        scope.register(Branch::RangeLoop(Box::new(RangeLoop {
-            i,
-            start: 0usize.into(),
-            end: len,
-            step: None,
-            inclusive: false,
-            scope: child,
-        })));
+        register_range_loop::<usize>(scope, &range_loop, &child);
+        scope.set_may_return(&[child]);
     }
 
     fn expand_unroll(self, _scope: &Scope, _body: impl FnMut(&Scope, Self::Item)) {
@@ -576,24 +648,25 @@ impl<'a, E: CubePrimitive> Iterable for &'a SliceExpand<E> {
     type Item = &'a E::ExpandType;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
-        let index_ty = usize::__expand_as_type(scope);
-        let len = self.__extract_length(scope).expand;
+        let index_ty = IndexType::get(scope.ctx());
 
-        let child = scope.child();
-        let i = scope.create_local_mut(index_ty);
+        let start = scope.const_usize(0);
+        let end = self.__extract_length(scope).value(scope);
+        let step = scope.const_usize(1);
 
-        let index = NativeExpand::new(i);
+        let i = scope.create_local_mut(index_ty, None);
+        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
+        let loop_body = range_loop.loop_body(scope.ctx());
+
+        let child = scope.loop_child(OpInserter::new_at_block_end(loop_body));
+
+        let index = NativeExpand::new(i.into());
         let item = self.__expand_index_method(&child, index);
         body(&child, item);
+        child.terminate_yield();
 
-        scope.register(Branch::RangeLoop(Box::new(RangeLoop {
-            i,
-            start: 0usize.into(),
-            end: len,
-            step: None,
-            inclusive: false,
-            scope: child,
-        })));
+        register_range_loop::<usize>(scope, &range_loop, &child);
+        scope.set_may_return(&[child]);
     }
 
     fn expand_unroll(self, _scope: &Scope, _body: impl FnMut(&Scope, Self::Item)) {
@@ -605,24 +678,25 @@ impl<'a, E: CubePrimitive> Iterable for &'a mut SliceExpand<E> {
     type Item = &'a mut E::ExpandType;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, Self::Item)) {
-        let index_ty = usize::__expand_as_type(scope);
-        let len = self.__extract_length(scope).expand;
+        let index_ty = IndexType::get(scope.ctx());
 
-        let child = scope.child();
-        let i = scope.create_local_mut(index_ty);
+        let start = scope.const_usize(0);
+        let end = self.__extract_length(scope).value(scope);
+        let step = scope.const_usize(1);
 
-        let index = NativeExpand::new(i);
+        let i = scope.create_local_mut(index_ty, None);
+        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
+        let loop_body = range_loop.loop_body(scope.ctx());
+
+        let child = scope.loop_child(OpInserter::new_at_block_end(loop_body));
+
+        let index = NativeExpand::new(i.into());
         let item = self.__expand_index_mut_method(&child, index);
         body(&child, item);
+        child.terminate_yield();
 
-        scope.register(Branch::RangeLoop(Box::new(RangeLoop {
-            i,
-            start: 0usize.into(),
-            end: len,
-            step: None,
-            inclusive: false,
-            scope: child,
-        })));
+        register_range_loop::<usize>(scope, &range_loop, &child);
+        scope.set_may_return(&[child]);
     }
 
     fn expand_unroll(self, _scope: &Scope, _body: impl FnMut(&Scope, Self::Item)) {
@@ -680,13 +754,13 @@ impl<E: CubePrimitive> ListExpand<E> for SliceExpand<E> {
 impl<E: CubePrimitive> Vectorized for Box<[E]> {}
 impl<E: CubePrimitive> Vectorized for [E] {}
 impl<E: CubePrimitive> VectorizedExpand for SliceExpand<E> {
-    fn vector_size(&self) -> VectorSize {
-        self.expand.vector_size()
+    fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
+        self.__extract_list(scope).vector_size(scope.ctx())
     }
 }
 impl<E: CubePrimitive> VectorizedExpand for NativeExpand<Box<[E]>> {
-    fn vector_size(&self) -> VectorSize {
-        self.expand.vector_size()
+    fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
+        self.__extract_list(scope).vector_size(scope.ctx())
     }
 }
 

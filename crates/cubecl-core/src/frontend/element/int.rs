@@ -1,7 +1,11 @@
-use cubecl_ir::{ConstantValue, Type};
+use cubecl_ir::{ConstantValue, ElemType};
+use pliron::{
+    builtin::types::{IntegerType, Signedness},
+    r#type::TypeHandle,
+};
 
 use crate::frontend::{CubeType, Numeric};
-use crate::ir::{ElemType, IntKind, Scope};
+use crate::ir::{IntKind, Scope};
 use crate::prelude::*;
 
 use super::{__expand_new, CubePrimitive, IntoMut, IntoRuntime, NativeAssign, NativeExpand};
@@ -17,15 +21,17 @@ pub trait Int:
     + FindFirstSet
     + SaturatingAdd
     + SaturatingSub
-    + core::ops::BitOr<Output = Self>
-    + core::ops::BitAnd<Output = Self>
-    + core::ops::BitXor<Output = Self>
-    + core::ops::Shl<Output = Self>
-    + core::ops::Shr<Output = Self>
-    + core::ops::Not<Output = Self>
-    + core::ops::BitOrAssign
-    + core::ops::BitAndAssign
-    + core::ops::BitXorAssign
+    + CubeBitOr
+    + CubeBitAnd
+    + CubeBitXor
+    + CubeShl
+    + CubeShr
+    + CubeNot
+    + CubeBitOrAssign
+    + CubeBitAndAssign
+    + CubeBitXorAssign
+    + CubeShlAssign
+    + CubeShrAssign
     + core::ops::ShlAssign<u32>
     + core::ops::ShrAssign<u32>
     + core::hash::Hash
@@ -40,23 +46,32 @@ pub trait Int:
     fn __expand_new(scope: &Scope, val: i64) -> <Self as CubeType>::ExpandType {
         __expand_new(scope, val)
     }
+
+    fn is_signed(scope: &Scope) -> bool {
+        Self::elem_type(scope).is_signed_int()
+    }
 }
 
 macro_rules! impl_int {
-    ($type:ident, $kind:ident) => {
+    ($type: ident, $kind: ident) => {
         impl CubeType for $type {
             type ExpandType = NativeExpand<Self>;
         }
 
         impl CubeDebug for $type {}
-        impl Scalar for $type {}
+        impl Scalar for $type {
+            fn elem_type_native() -> ElemType {
+                IntKind::$kind.into()
+            }
+        }
         impl CubePrimitive for $type {
             type Scalar = Self;
             type Size = Const<1>;
             type WithScalar<S: Scalar> = S;
 
-            fn as_type_native() -> Option<Type> {
-                Some(ElemType::Int(IntKind::$kind).into())
+            fn __expand_as_type(scope: &Scope) -> TypeHandle {
+                let width = IntKind::$kind.size_bits() as u32;
+                IntegerType::get(scope.ctx(), width, Signedness::Signed).into()
             }
 
             fn from_const_value(value: ConstantValue) -> Self {

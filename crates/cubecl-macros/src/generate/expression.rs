@@ -241,7 +241,11 @@ impl Expression {
             }
             Expression::Break => {
                 let path = frontend_path();
-                quote![#path::branch::break_expand(scope);]
+                // Break terminates the current closure scope
+                quote! {
+                    #path::branch::break_expand(scope);
+                    return;
+                }
             }
             Expression::Continue(span) => error!(*span, "Continue not supported yet"),
             Expression::Return(span) => error!(
@@ -722,6 +726,10 @@ impl Expression {
                     }
                 }
             }
+            Expression::Asm(asm) => asm.to_tokens(context),
+            Expression::RawMacro { path, args } => {
+                quote! {{#path!(scope, #args)}}
+            }
         }
     }
 }
@@ -924,7 +932,7 @@ fn init_fields<'a>(
 fn with_span(context: &Context, span: Span, tokens: TokenStream) -> TokenStream {
     if context.debug_symbols {
         quote_spanned! {span=>
-            scope.update_span(line!(), column!());
+            // scope.update_span(line!(), column!());
             #tokens
         }
     } else {

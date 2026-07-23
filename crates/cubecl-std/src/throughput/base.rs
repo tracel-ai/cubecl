@@ -92,7 +92,7 @@ pub fn measure_launch_overhead<R: Runtime>(client: &ComputeClient<R>) -> core::t
                         1,
                         BufferArg::from_raw_parts(input.clone(), 1),
                         BufferArg::from_raw_parts(output.clone(), 1),
-                        ElemType::Int(IntKind::I32).into(),
+                        ElemType::Int(IntKind::I32),
                     );
                 },
                 "launch_overhead",

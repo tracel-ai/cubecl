@@ -8,7 +8,7 @@ use cubecl_core::{
     backtrace::BackTrace,
     ir::MemoryDeviceProperties,
     server::{
-        Binding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError,
+        BufferBinding, CopyDescriptor, IoError, ProfileError, ProfilingToken, ServerError,
         StreamErrorMode,
     },
 };
@@ -96,10 +96,11 @@ impl CpuStream {
                 buffer.resource_mut().write().copy_from_slice(&data);
             }
             ScheduleTask::Execute {
-                mlir_engine,
+                pliron_engine,
                 bindings,
                 cube_dim,
                 cube_count,
+                ..
             } => {
                 let requested = cube_dim.num_elems();
                 // TEMP: the threadpool now grows to fit any cube_dim (it spawns one
@@ -119,7 +120,7 @@ impl CpuStream {
                 // }
 
                 self.threadpool.lock().execute_data(
-                    mlir_engine,
+                    pliron_engine,
                     bindings,
                     cube_dim,
                     cube_count,
@@ -247,7 +248,7 @@ impl CpuStream {
         self.memory_management.mode(mode);
     }
 
-    pub fn get_resource(&mut self, binding: Binding) -> Result<BytesResource, IoError> {
+    pub fn get_resource(&mut self, binding: BufferBinding) -> Result<BytesResource, IoError> {
         self.memory_management.get_resource(
             binding.memory,
             binding.offset_start,

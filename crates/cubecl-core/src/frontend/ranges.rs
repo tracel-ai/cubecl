@@ -1,7 +1,23 @@
 use alloc::boxed::Box;
 use core::ops::{Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
+use pliron::{
+    builtin::op_interfaces::OneRegionInterface,
+    irbuild::{
+        listener::DummyListener,
+        rewriter::{IRRewriter, Rewriter},
+    },
+    op::Op,
+    region::Region,
+};
 
-use cubecl_ir::{Branch, RangeLoop, Value};
+use cubecl_ir::{
+    ExpandState, ExpandValue, OpInserter,
+    dialect::{
+        branch::{RangeLoopOp, WhileOp},
+        general::BoolAndOp,
+    },
+    types::scalar::BoolType,
+};
 use num_traits::NumCast;
 
 use crate as cubecl;
@@ -349,23 +365,29 @@ fn iter_expand<I: Int>(
     inclusive: bool,
     mut body: impl FnMut(&Scope, <I as CubeType>::ExpandType),
 ) {
-    let mut child = scope.child();
-    let index_ty = I::__expand_as_type(scope);
-    let i = scope.create_local_mut(index_ty);
-
-    body(&mut child, i.into());
-
     let start = I::__expand_cast_from(scope, start).expand;
-    let end = I::__expand_cast_from(scope, end).expand;
+    let mut end = I::__expand_cast_from(scope, end);
+    let step: ExpandValue = I::new(1).into();
 
-    scope.register(Branch::RangeLoop(Box::new(RangeLoop {
-        i,
-        start,
-        end,
-        step: None,
-        scope: child,
-        inclusive,
-    })));
+    if inclusive {
+        end = end.__expand_add_method(scope, I::new(1).into());
+    }
+
+    let index_ty = I::__expand_as_type(scope);
+    let start = start.read_value(scope);
+    let end = end.read_value(scope);
+    let step = step.read_value(scope);
+
+    let i = scope.create_local_mut(index_ty, None);
+    let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
+    let body_block = range_loop.loop_body(scope.ctx());
+    let child = scope.loop_child(OpInserter::new_at_block_end(body_block));
+
+    body(&child, i.into());
+    child.terminate_yield();
+
+    register_range_loop::<I>(scope, &range_loop, &child);
+    scope.set_may_return(&[child]);
 }
 
 pub struct SteppedRangeExpand<I: Int> {
@@ -375,24 +397,30 @@ pub struct SteppedRangeExpand<I: Int> {
     inclusive: bool,
 }
 
-impl<I: Int + Into<Value>> Iterable for SteppedRangeExpand<I> {
+impl<I: Int + Into<ExpandValue>> Iterable for SteppedRangeExpand<I> {
     type Item = NativeExpand<I>;
 
     fn expand(self, scope: &Scope, mut body: impl FnMut(&Scope, <I as CubeType>::ExpandType)) {
-        let child = scope.child();
         let index_ty = I::__expand_as_type(scope);
-        let i = scope.create_local_mut(index_ty);
+
+        let mut end = self.end;
+        if self.inclusive {
+            end = end.__expand_add_method(scope, I::new(1).into());
+        }
+
+        let start = self.start.read_value(scope);
+        let end = end.read_value(scope);
+        let step = self.step.read_value(scope);
+
+        let i = scope.create_local_mut(index_ty, None);
+        let range_loop = RangeLoopOp::new(scope.ctx_mut(), i, start, end, step);
+        let body_block = range_loop.loop_body(scope.ctx());
+        let child = scope.loop_child(OpInserter::new_at_block_end(body_block));
 
         body(&child, i.into());
 
-        scope.register(Branch::RangeLoop(Box::new(RangeLoop {
-            i,
-            start: self.start.expand,
-            end: self.end.expand,
-            step: Some(self.step.expand),
-            scope: child,
-            inclusive: self.inclusive,
-        })));
+        register_range_loop::<I>(scope, &range_loop, &child);
+        scope.set_may_return(&[child]);
     }
 
     fn expand_unroll(
@@ -532,4 +560,56 @@ pub mod range_stepped {
             inclusive: false,
         }
     }
+}
+
+/// register a range loop if it contains no break or return, destructure to while if it does
+pub(crate) fn register_range_loop<I: Int>(scope: &Scope, for_op: &RangeLoopOp, body: &Scope) {
+    let ctx = scope.ctx_mut();
+    let ExpandState {
+        may_return,
+        may_break,
+        inv_return_flag,
+        inv_break_flag,
+    } = *body.expand_state();
+    if !may_break && !may_return {
+        body.terminate_yield();
+        scope.register(for_op);
+        return;
+    }
+
+    let start = for_op.start(ctx);
+    let end = for_op.end(ctx);
+    let step = for_op.step(ctx);
+    let mut iter_var: NativeExpand<I> = for_op.iter_var(ctx).into();
+
+    assign::expand_element(scope, start.into(), iter_var.expand);
+    let initial_cond = I::__expand_native_lt(scope, iter_var.into(), end.into());
+    let cond_ptr = scope.create_local_mut(BoolType::get(ctx), None);
+    assign::expand_element(scope, initial_cond, cond_ptr.into());
+
+    assign_binop_expand(body, &mut iter_var, step.into(), I::__expand_native_add);
+
+    // Return/break cond and store need to go after the predication, comparison also goes there to
+    // avoid an extra load/store
+    body.inserter()
+        .set_insertion_point_to_block_end(for_op.loop_body(ctx));
+    let mut cond = I::__expand_native_lt(body, iter_var.into(), end.into());
+    if may_break {
+        cond = binary_expand(body, cond, inv_break_flag.unwrap().into(), BoolAndOp::new);
+    }
+    if may_return {
+        let inv_return_flag = inv_return_flag.unwrap();
+        cond = binary_expand(body, cond, inv_return_flag.into(), BoolAndOp::new);
+    }
+    assign::expand_element(body, cond, cond_ptr.into());
+    body.terminate_yield();
+
+    let mut rewriter = IRRewriter::<DummyListener>::default();
+    let while_op = WhileOp::new(ctx, cond_ptr);
+
+    rewriter.erase_region(ctx, while_op.get_region(ctx));
+    Region::move_to_op(for_op.get_region(ctx), while_op.get_operation(), ctx);
+    rewriter.erase_operation(ctx, for_op.get_operation());
+
+    scope.register(&while_op);
 }

@@ -1,11 +1,20 @@
 use core::ops::{Deref, DerefMut};
 
-use cubecl_ir::{Scope, VectorSize};
+use cubecl_ir::{
+    Scope, VectorSize,
+    interfaces::MaybeVectorizedType,
+    pliron::{
+        r#type::{Typed, TypedHandle},
+        value::Value,
+    },
+    read_value,
+    types::{ArrayType, PointerType, aggregate::PtrAggregateType},
+};
 
 use crate::frontend::{CubePrimitive, NativeExpand};
 use crate::prelude::*;
 use crate::{self as cubecl};
-use crate::{frontend::CubeType, ir::Type, unexpanded};
+use crate::{frontend::CubeType, unexpanded};
 use cubecl_macros::{cube, intrinsic};
 
 /// A contiguous array of elements.
@@ -24,6 +33,7 @@ impl<E> AsMutExpand for ArrayExpand<E> {
 
 /// Module that contains the implementation details of the new function.
 mod new {
+    use cubecl_ir::types::ArrayType;
     use cubecl_macros::intrinsic;
 
     use super::*;
@@ -38,8 +48,8 @@ mod new {
                 // Unlike Rust, we can't construct fat pointers ad-hoc without access to the scope,
                 // so it needs to be prepared in advance.
                 let elem = T::__expand_as_type(scope);
-                let ty = Type::array(elem, length);
-                let buffer = scope.create_local_mut(ty);
+                let ty = ArrayType::get(scope.ctx(), elem, length);
+                let buffer = scope.create_local_mut(ty, None);
                 let slice = slice::from_raw_parts::<T>(
                     scope,
                     buffer,
@@ -54,6 +64,8 @@ mod new {
 
 /// Module that contains the implementation details of the `vector_size` function.
 mod vector {
+    use cubecl_ir::{interfaces::TypedExt, read_value};
+
     use super::*;
 
     impl<P: CubePrimitive> Array<P> {
@@ -76,6 +88,28 @@ mod vector {
             expand.__expand_vector_size_method(scope)
         }
     }
+
+    #[cube]
+    impl<P: CubePrimitive> Array<P> {
+        pub fn into_vector<N: Size>(self) -> Vector<P::Scalar, N> {
+            intrinsic!(|scope| {
+                let arr = read_value(scope, self.__extract_list(scope));
+                let vec_ty = Vector::<P::Scalar, N>::__expand_as_type(scope);
+                reinterpret_value(scope, arr, vec_ty).into()
+            })
+        }
+
+        pub fn from_vector<S: Scalar, N: Size>(vector: Vector<S, N>) -> Array<P> {
+            intrinsic!(|scope| {
+                let vec = vector.read_value(scope);
+                let vec_p = P::__expand_vector_size(scope);
+                let len = vec.vector_size(scope.ctx()) / vec_p;
+                let arr_ty =
+                    ArrayType::get(scope.ctx(), P::__expand_as_type(scope), len).to_handle();
+                reinterpret_value(scope, vec, arr_ty).into()
+            })
+        }
+    }
 }
 
 #[cube]
@@ -83,7 +117,10 @@ impl<E: CubePrimitive> Array<E> {
     /// Obtain the array length
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> comptime_type!(usize) {
-        intrinsic!(|_| self.expand.ty.array_size())
+        intrinsic!(|scope| {
+            let ty = inner_array_ty(scope, self.value(scope));
+            ty.deref(scope.ctx()).length
+        })
     }
 }
 
@@ -91,23 +128,26 @@ impl<C: CubePrimitive> Assign for ArrayExpand<C> {
     fn __expand_assign_method(&mut self, scope: &Scope, value: Self) {
         let value = value.__extract_list(scope);
         let arr = self.__extract_list(scope);
-        assert_eq!(
-            value.ty.array_size(),
-            arr.ty.array_size(),
-            "Can't assign differently sized arrays"
-        );
-        assign::expand_element(scope, value, arr);
+        assign::expand_element(scope, value.into(), arr.into());
     }
 }
 
 impl<C: CubePrimitive> RuntimeAssign for ArrayExpand<C> {
     fn init_mut(&self, scope: &Scope) -> Self::Expand {
-        Array::__expand_new(scope, self.expand.ty.array_size())
+        let ty = inner_array_ty(scope, self.value(scope));
+        let length = ty.deref(scope.ctx()).length;
+        Array::__expand_new(scope, length)
     }
 }
 
 impl<C: CubeType> CubeType for Array<C> {
     type ExpandType = NativeExpand<Array<C>>;
+}
+
+impl<T: CubePrimitive> ReadValue for NativeExpand<Array<T>> {
+    fn read_value(&self, scope: &Scope) -> Value {
+        read_value(scope, self.__extract_list(scope))
+    }
 }
 
 impl<C: CubeType> IntoMut for ArrayExpand<C> {
@@ -173,7 +213,17 @@ impl<T: CubePrimitive> ListExpand<T> for ArrayExpand<T> {
 
 impl<T: CubePrimitive> Vectorized for Array<T> {}
 impl<T: CubePrimitive> VectorizedExpand for ArrayExpand<T> {
-    fn vector_size(&self) -> VectorSize {
-        self.expand.ty.vector_size()
+    fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
+        let ty = inner_array_ty(scope, self.value(scope));
+        ty.deref(scope.ctx()).vector_size(scope.ctx())
     }
+}
+
+pub(crate) fn inner_array_ty(scope: &Scope, value: Value) -> TypedHandle<ArrayType> {
+    let ctx = scope.ctx();
+    let ty = value.get_type(ctx).deref(ctx);
+    let PtrAggregateType { base_ty, .. } = *ty.downcast_ref().unwrap();
+    let base_ty = base_ty.deref(ctx);
+    let PointerType { inner, .. } = base_ty.downcast_ref().unwrap();
+    TypedHandle::from_handle(*inner, ctx).unwrap()
 }

@@ -2,7 +2,6 @@ use super::DummyServer;
 use crate::dummy::KernelTask;
 use cubecl_common::device::{Device, DeviceService};
 use cubecl_ir::MemoryDeviceProperties;
-use cubecl_ir::StorageType;
 use cubecl_runtime::server::ComputeServer;
 use cubecl_runtime::{
     client::ComputeClient,
@@ -10,7 +9,6 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{MemoryConfiguration, MemoryManagement, MemoryManagementOptions},
     runtime::Runtime,
-    server::ExecutionMode,
     storage::BytesStorage,
 };
 use cubecl_zspace::Shape;
@@ -79,13 +77,7 @@ impl Compiler for DummyCompiler {
         &mut self,
         _kernel: cubecl_runtime::kernel::KernelDefinition,
         _compilation_options: &Self::CompilationOptions,
-        _mode: ExecutionMode,
-        _addr_type: StorageType,
     ) -> Result<Self::Representation, CompilationError> {
-        unimplemented!()
-    }
-
-    fn elem_size(&self, _elem: cubecl_ir::ElemType) -> usize {
         unimplemented!()
     }
 

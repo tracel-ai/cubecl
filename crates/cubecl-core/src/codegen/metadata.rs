@@ -25,70 +25,12 @@
 
 use alloc::vec::Vec;
 use bytemuck::Pod;
-use cubecl_ir::AddressType;
+use cubecl_ir::{
+    AddressType,
+    metadata::{METADATA_BASE_LEN, METADATA_EXT_LEN},
+};
 use cubecl_zspace::{Shape, Strides};
 use num_traits::NumCast;
-
-// Metadata
-const BUFFER_LEN: u32 = 0;
-const BASE_LEN: u32 = 1;
-
-// Extended Metadata
-const SHAPE_OFFSETS: u32 = 0;
-const STRIDE_OFFSETS: u32 = 1;
-const EXTENDED_LEN: u32 = 2;
-
-/// Helper to calculate metadata offsets based on buffer count and position
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Metadata {
-    num_meta: u32,
-    num_extended_meta: u32,
-}
-
-impl Metadata {
-    pub fn new(num_meta: u32, num_extended_meta: u32) -> Self {
-        Self {
-            num_meta,
-            num_extended_meta,
-        }
-    }
-
-    fn offset_of(&self, id: u32) -> u32 {
-        self.num_meta * id
-    }
-
-    fn base_len(&self) -> u32 {
-        self.num_meta * BASE_LEN
-    }
-
-    pub fn static_len(&self) -> u32 {
-        self.num_meta * BASE_LEN + self.num_extended_meta * EXTENDED_LEN
-    }
-
-    pub fn num_meta(&self) -> u32 {
-        self.num_meta
-    }
-
-    pub fn num_extended_meta(&self) -> u32 {
-        self.num_extended_meta
-    }
-
-    fn offset_of_extended(&self, id: u32) -> u32 {
-        self.base_len() + self.num_extended_meta * id
-    }
-
-    pub fn buffer_len_index(&self, buffer_idx: u32) -> u32 {
-        self.offset_of(BUFFER_LEN) + buffer_idx
-    }
-
-    pub fn shape_offset_index(&self, buffer_idx: u32) -> u32 {
-        self.offset_of_extended(SHAPE_OFFSETS) + buffer_idx
-    }
-
-    pub fn stride_offset_index(&self, buffer_idx: u32) -> u32 {
-        self.offset_of_extended(STRIDE_OFFSETS) + buffer_idx
-    }
-}
 
 /// Builder for a serialized metadata struct
 ///
@@ -152,7 +94,7 @@ impl MetadataBuilder {
             AddressType::U32 => (self.state_32.buffer_lens.len(), self.state_32.offsets.len()),
             AddressType::U64 => (self.state_64.buffer_lens.len(), self.state_64.offsets.len()),
         };
-        base * BASE_LEN as usize + ext * EXTENDED_LEN as usize
+        base * METADATA_BASE_LEN + ext * METADATA_EXT_LEN
     }
 
     pub fn dynamic_len(&self, address_type: AddressType) -> usize {

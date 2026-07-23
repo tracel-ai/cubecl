@@ -4,7 +4,7 @@ use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage}
 use std::sync::{Arc, OnceLock, atomic::AtomicU64};
 
 use crate::{
-    compiler::{mlir_data::MlirData, mlir_engine::MlirEngine},
+    compiler::jit::{data::PlironData, engine::PlironEngine},
     compute::{
         schedule::BindingsResource,
         threadpool::{
@@ -46,42 +46,35 @@ impl Threadpool {
     #[allow(clippy::too_many_arguments)]
     pub fn execute_data(
         &mut self,
-        mlir_engine: MlirEngine,
+        pliron_engine: PlironEngine,
         bindings: BindingsResource,
         cube_dim: CubeDim,
         cube_count: [u32; 3],
-        memory: &mut MemoryManagement<BytesStorage>,
+        _memory: &mut MemoryManagement<BytesStorage>,
         next_counter_step: u64,
         atomic_counter: &Arc<CachePadded<AtomicU64>>,
     ) {
-        let mlir_data = MlirData::new(
-            bindings,
-            &mlir_engine.0.shared_memories,
-            memory,
-            cube_dim,
-            cube_count,
-        );
-
-        // A `sync_cube` barrier only resolves when every unit of the cube runs
-        // on its own thread, so grow the pool to one worker per unit. Kernels
-        // without a barrier load-balance and need no extra workers.
-        if mlir_engine.0.needs_parallelism {
-            self.scheduler.ensure_workers(cube_dim.num_elems() as usize);
-        }
+        let BindingsResource { resources, info } = bindings;
+        let buffer_ptrs = resources
+            .iter()
+            .map(|resource| {
+                resource.resource().get_write_ptr_and_length().0 as *mut std::ffi::c_void
+            })
+            .collect();
+        let base_data = PlironData::new(buffer_ptrs, info.data, cube_count);
 
         let mut i = 0;
         for unit_pos_x in 0..cube_dim.x {
             for unit_pos_y in 0..cube_dim.y {
                 for unit_pos_z in 0..cube_dim.z {
-                    let unit_pos = [unit_pos_x, unit_pos_y, unit_pos_z];
-                    let mlir_engine = mlir_engine.clone();
-                    let mut mlir_data = mlir_data.clone();
-                    mlir_data.builtin.set_unit_pos(unit_pos);
+                    let pliron_engine = pliron_engine.clone();
+                    let mut pliron_data = base_data.clone();
+                    pliron_data.set_unit_pos([unit_pos_x, unit_pos_y, unit_pos_z]);
 
                     let atomic_counter = Arc::clone(atomic_counter);
                     let compute_task = ComputeTask {
-                        mlir_engine,
-                        mlir_data,
+                        pliron_engine,
+                        pliron_data,
                         next_counter_step,
                         atomic_counter,
                     };

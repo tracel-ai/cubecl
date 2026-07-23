@@ -1,5 +1,6 @@
 use cubecl_common::flex32;
-use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, Type};
+use cubecl_ir::{ConstantValue, FloatKind, Scope, types::scalar::FloatFlex32Type};
+use pliron::r#type::TypeHandle;
 
 use crate::prelude::*;
 
@@ -10,15 +11,18 @@ impl CubeType for flex32 {
 }
 
 impl CubeDebug for flex32 {}
-impl Scalar for flex32 {}
+impl Scalar for flex32 {
+    fn elem_type_native() -> ElemType {
+        FloatKind::Flex32.into()
+    }
+}
 impl CubePrimitive for flex32 {
     type Scalar = Self;
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    /// Return the element type to use on GPU
-    fn as_type_native() -> Option<Type> {
-        Some(ElemType::Float(FloatKind::Flex32).into())
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        FloatFlex32Type::get(scope.ctx()).into()
     }
 
     fn from_const_value(value: ConstantValue) -> Self {

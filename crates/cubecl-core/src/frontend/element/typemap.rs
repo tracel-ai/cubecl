@@ -16,29 +16,48 @@ use core::{cmp::Ordering, ops::*};
 use core::{f32, marker::PhantomData};
 
 use bytemuck::Zeroable;
-use cubecl_ir::{ConstantValue, Type};
+use cubecl_ir::{ConstantValue, interfaces::TypedExt};
 use derive_more::derive::{Debug, Display};
 use float_ord::FloatOrd;
 use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
+use pliron::r#type::TypeHandle;
 use serde::Serialize;
 
 use crate::{
-    ir::{FloatKind, Scope, Value},
+    ir::{ExpandValue, FloatKind, Scope},
     prelude::*,
 };
 
 use super::*;
 
-#[allow(non_camel_case_types)]
+/// A fake element type that can be configured to map to any other element type.
 #[repr(transparent)]
 #[derive(Serialize, Debug, Display)]
-
-/// A fake element type that can be configured to map to any other element type.
 #[display("{val}")]
 pub struct DynamicScalar<Marker: 'static> {
     val: ConstantValue,
     #[debug(ignore)]
     _ty: PhantomData<Marker>,
+}
+
+// Use a reference scalar for the implementation so we don't need to duplicate it
+macro_rules! unary_dispatch {
+    ($method: ident, $scope: expr, $input: expr) => {
+        unary_expand::<Self>($scope, $input, i32::$method, u32::$method, f32::$method)
+    };
+}
+
+// Use a reference scalar for the implementation so we don't need to duplicate it
+macro_rules! binary_dispatch {
+    ($method: ident, $scope: expr, $lhs: expr, $rhs: expr) => {
+        binary_expand::<Self>($scope, $lhs, $rhs, i32::$method, u32::$method, f32::$method)
+    };
+}
+
+macro_rules! binary_dispatch_int {
+    ($method: ident, $scope: expr, $lhs: expr, $rhs: expr) => {
+        binary_expand::<Self>($scope, $lhs, $rhs, i32::$method, u32::$method, i32::$method)
+    };
 }
 
 unsafe impl<Marker: 'static> Zeroable for DynamicScalar<Marker> {}
@@ -62,6 +81,15 @@ impl<Marker: 'static> Eq for DynamicScalar<Marker> {}
 impl<Marker: 'static> PartialEq for DynamicScalar<Marker> {
     fn eq(&self, other: &Self) -> bool {
         self.val == other.val
+    }
+}
+
+impl<Marker: 'static> PartialEqNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_eq(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_native_eq, scope, lhs, rhs)
+    }
+    fn __expand_native_ne(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_native_ne, scope, lhs, rhs)
     }
 }
 
@@ -118,6 +146,16 @@ impl<Marker: 'static> Neg for DynamicScalar<Marker> {
         })
     }
 }
+impl<Marker: 'static> NegNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_neg(scope: &Scope, this: ExpandValue) -> ExpandValue {
+        let ty = Self::__expand_as_type(scope);
+        if ty.is_int(scope.ctx()) {
+            i32::__expand_native_neg(scope, this)
+        } else {
+            f32::__expand_native_neg(scope, this)
+        }
+    }
+}
 
 impl<Marker: 'static> DynamicScalar<Marker> {
     pub const fn new(val: ConstantValue) -> Self {
@@ -140,11 +178,23 @@ impl<Marker: 'static> Add for DynamicScalar<Marker> {
     }
 }
 
+impl<Marker: 'static> AddNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_add(scope: &Scope, this: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_native_add, scope, this, rhs)
+    }
+}
+
 impl<Marker: 'static> Sub for DynamicScalar<Marker> {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
         numeric_binop!(Sub::sub, self, rhs)
+    }
+}
+
+impl<Marker: 'static> SubNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_sub(scope: &Scope, this: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_native_sub, scope, this, rhs)
     }
 }
 
@@ -156,6 +206,12 @@ impl<Marker: 'static> Mul for DynamicScalar<Marker> {
     }
 }
 
+impl<Marker: 'static> MulNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_mul(scope: &Scope, this: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_native_mul, scope, this, rhs)
+    }
+}
+
 impl<Marker: 'static> Div for DynamicScalar<Marker> {
     type Output = Self;
 
@@ -164,11 +220,23 @@ impl<Marker: 'static> Div for DynamicScalar<Marker> {
     }
 }
 
+impl<Marker: 'static> DivNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_div(scope: &Scope, this: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_native_div, scope, this, rhs)
+    }
+}
+
 impl<Marker: 'static> Rem for DynamicScalar<Marker> {
     type Output = Self;
 
     fn rem(self, rhs: Self) -> Self::Output {
         numeric_binop!(Rem::rem, self, rhs)
+    }
+}
+
+impl<Marker: 'static> RemNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_rem(scope: &Scope, this: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_native_rem, scope, this, rhs)
     }
 }
 
@@ -240,15 +308,22 @@ impl<Marker: 'static> CubeType for DynamicScalar<Marker> {
 }
 
 impl<Marker: 'static> CubeDebug for DynamicScalar<Marker> {}
-impl<Marker: 'static> Scalar for DynamicScalar<Marker> {}
+impl<Marker: 'static> Scalar for DynamicScalar<Marker> {
+    fn elem_type(scope: &Scope) -> ElemType {
+        scope.resolve_type::<Self>().expect("Should be registered")
+    }
+}
 impl<Marker: 'static> CubePrimitive for DynamicScalar<Marker> {
     type Scalar = Self;
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
     /// Return the element type to use on GPU
-    fn __expand_as_type(scope: &Scope) -> Type {
-        Type::new(scope.resolve_type::<Self>().expect("Type to be registered"))
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        scope
+            .resolve_type::<Self>()
+            .expect("Type to be registered")
+            .to_type(scope.ctx_mut())
     }
 
     fn from_const_value(value: ConstantValue) -> Self {
@@ -262,16 +337,16 @@ impl<Marker: 'static> From<DynamicScalar<Marker>> for ConstantValue {
     }
 }
 
-impl<Marker: 'static> From<DynamicScalar<Marker>> for Value {
+impl<Marker: 'static> From<DynamicScalar<Marker>> for ExpandValue {
     fn from(val: DynamicScalar<Marker>) -> Self {
         // TODO: Fix how we create literal.
-        Value::constant(val.val, FloatKind::F32)
+        ExpandValue::constant(val.val, FloatKind::F32)
     }
 }
 
 impl<Marker: 'static> From<DynamicScalar<Marker>> for NativeExpand<DynamicScalar<Marker>> {
     fn from(value: DynamicScalar<Marker>) -> Self {
-        let val: Value = value.into();
+        let val: ExpandValue = value.into();
         NativeExpand::new(val)
     }
 }
@@ -299,6 +374,48 @@ impl<Marker: 'static> Numeric for DynamicScalar<Marker> {
     }
 }
 
+impl<Marker: 'static> AtomicNumeric for DynamicScalar<Marker> {
+    fn __expand_fetch_add(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_fetch_add, scope, ptr, value)
+    }
+    fn __expand_fetch_sub(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_fetch_sub, scope, ptr, value)
+    }
+    fn __expand_fetch_min(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_fetch_min, scope, ptr, value)
+    }
+    fn __expand_fetch_max(scope: &Scope, ptr: ExpandValue, value: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_fetch_max, scope, ptr, value)
+    }
+}
+
+impl<Marker: 'static> PlaneNumeric for DynamicScalar<Marker> {
+    fn __expand_native_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_sum, scope, value)
+    }
+    fn __expand_native_inclusive_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_inclusive_sum, scope, value)
+    }
+    fn __expand_native_exclusive_sum(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_exclusive_sum, scope, value)
+    }
+    fn __expand_native_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_prod, scope, value)
+    }
+    fn __expand_native_inclusive_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_inclusive_prod, scope, value)
+    }
+    fn __expand_native_exclusive_prod(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_exclusive_prod, scope, value)
+    }
+    fn __expand_native_plane_min(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_plane_min, scope, value)
+    }
+    fn __expand_native_plane_max(scope: &Scope, value: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_plane_max, scope, value)
+    }
+}
+
 impl<Marker: 'static> NativeAssign for DynamicScalar<Marker> {}
 
 impl<Marker: 'static> ScalarArgSettings for DynamicScalar<Marker> {
@@ -308,48 +425,288 @@ impl<Marker: 'static> ScalarArgSettings for DynamicScalar<Marker> {
 }
 
 impl<Marker: 'static> Normalize for DynamicScalar<Marker> {}
+
 impl<Marker: 'static> Dot for DynamicScalar<Marker> {}
+impl<Marker: 'static> DotNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_dot_scalar(
+        scope: &Scope,
+        lhs: ExpandValue,
+        rhs: ExpandValue,
+    ) -> ExpandValue {
+        binary_dispatch!(__expand_native_dot_scalar, scope, lhs, rhs)
+    }
+    fn __expand_native_dot(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_native_dot, scope, lhs, rhs)
+    }
+}
+
 impl<Marker: 'static> Magnitude for DynamicScalar<Marker> {}
+impl<Marker: 'static> MagnitudeNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_magnitude_scalar(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_magnitude_scalar(scope, input)
+    }
+    fn __expand_native_magnitude(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_magnitude(scope, input)
+    }
+}
+
 impl<Marker: 'static> VectorSum for DynamicScalar<Marker> {}
+impl<Marker: 'static> VectorSumNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_vector_sum_scalar(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_vector_sum_scalar, scope, input)
+    }
+    fn __expand_native_vector_sum(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_vector_sum, scope, input)
+    }
+}
+
 impl<Marker: 'static> Recip for DynamicScalar<Marker> {}
+impl<Marker: 'static> RecipNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_recip(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_recip(scope, input)
+    }
+}
+
 impl<Marker: 'static> Erf for DynamicScalar<Marker> {}
+impl<Marker: 'static> ErfNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_erf(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_erf(scope, input)
+    }
+}
+
 impl<Marker: 'static> Exp for DynamicScalar<Marker> {}
+impl<Marker: 'static> ExpNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_exp(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_exp(scope, input)
+    }
+}
+
 impl<Marker: 'static> ModFloor for DynamicScalar<Marker> {}
+impl<Marker: 'static> ModFloorNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_mod_floor(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_native_mod_floor, scope, lhs, rhs)
+    }
+}
+
 impl<Marker: 'static> Abs for DynamicScalar<Marker> {}
+impl<Marker: 'static> AbsNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_abs(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        unary_dispatch!(__expand_native_abs, scope, input)
+    }
+}
+
 impl<Marker: 'static> Log for DynamicScalar<Marker> {}
+impl<Marker: 'static> LogNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_ln(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_ln(scope, input)
+    }
+}
+
 impl<Marker: 'static> Log1p for DynamicScalar<Marker> {}
+impl<Marker: 'static> Log1pNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_log1p(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_log1p(scope, input)
+    }
+}
+
 impl<Marker: 'static> Expm1 for DynamicScalar<Marker> {}
+impl<Marker: 'static> Expm1NativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_exp_m1(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_exp_m1(scope, input)
+    }
+}
+
 impl<Marker: 'static> Cos for DynamicScalar<Marker> {}
+impl<Marker: 'static> CosNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_cos(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_cos(scope, input)
+    }
+}
+
 impl<Marker: 'static> Sin for DynamicScalar<Marker> {}
+impl<Marker: 'static> SinNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_sin(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_sin(scope, input)
+    }
+}
+
 impl<Marker: 'static> Tan for DynamicScalar<Marker> {}
+impl<Marker: 'static> TanNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_tan(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_tan(scope, input)
+    }
+}
+
 impl<Marker: 'static> Tanh for DynamicScalar<Marker> {}
+impl<Marker: 'static> TanhNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_tanh(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_tanh(scope, input)
+    }
+}
+
 impl<Marker: 'static> Sinh for DynamicScalar<Marker> {}
+impl<Marker: 'static> SinhNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_sinh(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_sinh(scope, input)
+    }
+}
+
 impl<Marker: 'static> Cosh for DynamicScalar<Marker> {}
+impl<Marker: 'static> CoshNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_cosh(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_cosh(scope, input)
+    }
+}
+
 impl<Marker: 'static> ArcCos for DynamicScalar<Marker> {}
+impl<Marker: 'static> ArcCosNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_acos(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_acos(scope, input)
+    }
+}
+
 impl<Marker: 'static> ArcSin for DynamicScalar<Marker> {}
+impl<Marker: 'static> ArcSinNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_asin(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_asin(scope, input)
+    }
+}
+
 impl<Marker: 'static> ArcTan for DynamicScalar<Marker> {}
+impl<Marker: 'static> ArcTanNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_atan(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_atan(scope, input)
+    }
+}
+
 impl<Marker: 'static> ArcSinh for DynamicScalar<Marker> {}
+impl<Marker: 'static> ArcSinhNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_asinh(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_asinh(scope, input)
+    }
+}
+
 impl<Marker: 'static> ArcCosh for DynamicScalar<Marker> {}
+impl<Marker: 'static> ArcCoshNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_acosh(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_acosh(scope, input)
+    }
+}
+
 impl<Marker: 'static> ArcTanh for DynamicScalar<Marker> {}
+impl<Marker: 'static> ArcTanhNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_atanh(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_atanh(scope, input)
+    }
+}
+
 impl<Marker: 'static> Degrees for DynamicScalar<Marker> {}
+impl<Marker: 'static> DegreesNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_to_degrees(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_to_degrees(scope, input)
+    }
+}
+
 impl<Marker: 'static> Radians for DynamicScalar<Marker> {}
+impl<Marker: 'static> RadiansNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_to_radians(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_to_radians(scope, input)
+    }
+}
+
 impl<Marker: 'static> ArcTan2 for DynamicScalar<Marker> {}
+impl<Marker: 'static> ArcTan2NativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_atan2(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        f32::__expand_native_atan2(scope, lhs, rhs)
+    }
+}
+
 impl<Marker: 'static> Powf for DynamicScalar<Marker> {}
+impl<Marker: 'static> PowfNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_powf(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        f32::__expand_native_powf(scope, lhs, rhs)
+    }
+}
+
 impl<Marker: 'static, I: CubePrimitive> Powi<I> for DynamicScalar<Marker> {}
+
 impl<Marker: 'static> Hypot for DynamicScalar<Marker> {}
+impl<Marker: 'static> HypotNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_hypot(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        f32::__expand_native_hypot(scope, lhs, rhs)
+    }
+}
+
 impl<Marker: 'static> Rhypot for DynamicScalar<Marker> {}
+impl<Marker: 'static> RhypotNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_rhypot(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        f32::__expand_native_rhypot(scope, lhs, rhs)
+    }
+}
+
 impl<Marker: 'static> Sqrt for DynamicScalar<Marker> {}
+impl<Marker: 'static> SqrtNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_sqrt(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_sqrt(scope, input)
+    }
+}
+
 impl<Marker: 'static> InverseSqrt for DynamicScalar<Marker> {}
+impl<Marker: 'static> InverseSqrtNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_inverse_sqrt(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_inverse_sqrt(scope, input)
+    }
+}
+
 impl<Marker: 'static> Round for DynamicScalar<Marker> {}
+impl<Marker: 'static> RoundNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_round(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_round(scope, input)
+    }
+}
+
 impl<Marker: 'static> Floor for DynamicScalar<Marker> {}
+impl<Marker: 'static> FloorNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_floor(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_floor(scope, input)
+    }
+}
+
 impl<Marker: 'static> Ceil for DynamicScalar<Marker> {}
+impl<Marker: 'static> CeilNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_ceil(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_ceil(scope, input)
+    }
+}
+
 impl<Marker: 'static> Trunc for DynamicScalar<Marker> {}
+impl<Marker: 'static> TruncNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_trunc(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        f32::__expand_native_trunc(scope, input)
+    }
+}
+
 impl<Marker: 'static> IsNan for DynamicScalar<Marker> {}
 impl<Marker: 'static> IsInf for DynamicScalar<Marker> {}
 
 impl<Marker: 'static> PartialOrd for DynamicScalar<Marker> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+impl<Marker: 'static> PartialOrdScalarExpand for DynamicScalar<Marker> {
+    fn __expand_native_lt(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_native_lt, scope, lhs, rhs)
+    }
+    fn __expand_native_le(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_native_le, scope, lhs, rhs)
+    }
+    fn __expand_native_gt(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_native_gt, scope, lhs, rhs)
+    }
+    fn __expand_native_ge(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_native_ge, scope, lhs, rhs)
     }
 }
 
@@ -363,6 +720,31 @@ impl<Marker: 'static> Ord for DynamicScalar<Marker> {
             (ConstantValue::UInt(this), ConstantValue::UInt(other)) => this.cmp(&other),
             (ConstantValue::Bool(this), ConstantValue::Bool(other)) => this.cmp(&other),
             _ => panic!("value type mismatch"),
+        }
+    }
+}
+
+impl<Marker: 'static> OrdNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_min(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_native_min, scope, lhs, rhs)
+    }
+    fn __expand_native_max(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch!(__expand_native_max, scope, lhs, rhs)
+    }
+    fn __expand_native_clamp(
+        scope: &Scope,
+        input: ExpandValue,
+        min: ExpandValue,
+        max: ExpandValue,
+    ) -> ExpandValue {
+        let ctx = scope.ctx_mut();
+        let ty = Self::__expand_as_type(scope);
+        if ty.is_signed_int(ctx) {
+            i32::__expand_native_clamp(scope, input, min, max)
+        } else if ty.is_unsigned_int(ctx) {
+            u32::__expand_native_clamp(scope, input, min, max)
+        } else {
+            f32::__expand_native_clamp(scope, input, min, max)
         }
     }
 }
@@ -409,12 +791,39 @@ impl<Marker: 'static> Float for DynamicScalar<Marker> {
 
 impl<Marker: 'static> CubeNot for DynamicScalar<Marker> {}
 impl<Marker: 'static> ReverseBits for DynamicScalar<Marker> {}
+impl<Marker: 'static> ReverseBitsNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_reverse_bits(scope: &Scope, input: ExpandValue) -> ExpandValue {
+        u32::__expand_native_reverse_bits(scope, input)
+    }
+}
+
 impl<Marker: 'static> CountOnes for DynamicScalar<Marker> {}
 impl<Marker: 'static> LeadingZeros for DynamicScalar<Marker> {}
 impl<Marker: 'static> TrailingZeros for DynamicScalar<Marker> {}
 impl<Marker: 'static> FindFirstSet for DynamicScalar<Marker> {}
+
 impl<Marker: 'static> SaturatingAdd for DynamicScalar<Marker> {}
+impl<Marker: 'static> SaturatingAddNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_saturating_add(
+        scope: &Scope,
+        lhs: ExpandValue,
+        rhs: ExpandValue,
+    ) -> ExpandValue {
+        binary_dispatch_int!(__expand_native_saturating_add, scope, lhs, rhs)
+    }
+}
+
 impl<Marker: 'static> SaturatingSub for DynamicScalar<Marker> {}
+impl<Marker: 'static> SaturatingSubNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_saturating_sub(
+        scope: &Scope,
+        lhs: ExpandValue,
+        rhs: ExpandValue,
+    ) -> ExpandValue {
+        binary_dispatch_int!(__expand_native_saturating_sub, scope, lhs, rhs)
+    }
+}
+
 impl<Marker: 'static> core::hash::Hash for DynamicScalar<Marker> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.val.hash(state);
@@ -441,11 +850,22 @@ impl<Marker: 'static> BitOr for DynamicScalar<Marker> {
         bitwise_binop!(BitOr::bitor, self, rhs)
     }
 }
+impl<Marker: 'static> BitOrNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_bitor(scope: &Scope, this: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        u32::__expand_native_bitor(scope, this, rhs)
+    }
+}
+
 impl<Marker: 'static> BitXor for DynamicScalar<Marker> {
     type Output = Self;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
         bitwise_binop!(BitXor::bitxor, self, rhs)
+    }
+}
+impl<Marker: 'static> BitXorNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_bitxor(scope: &Scope, this: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        u32::__expand_native_bitxor(scope, this, rhs)
     }
 }
 
@@ -456,6 +876,12 @@ impl<Marker: 'static> BitAnd for DynamicScalar<Marker> {
         bitwise_binop!(BitAnd::bitand, self, rhs)
     }
 }
+impl<Marker: 'static> BitAndNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_bitand(scope: &Scope, this: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        u32::__expand_native_bitand(scope, this, rhs)
+    }
+}
+
 impl<Marker: 'static> BitAndAssign for DynamicScalar<Marker> {
     fn bitand_assign(&mut self, rhs: Self) {
         *self = bitwise_binop!(BitAnd::bitand, *self, rhs);
@@ -484,6 +910,12 @@ impl<Marker: 'static> Shl for DynamicScalar<Marker> {
         })
     }
 }
+impl<Marker: 'static> ShlNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_shl(scope: &Scope, this: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch_int!(__expand_native_shl, scope, this, rhs)
+    }
+}
+
 impl<Marker: 'static> Shr for DynamicScalar<Marker> {
     type Output = Self;
 
@@ -496,25 +928,46 @@ impl<Marker: 'static> Shr for DynamicScalar<Marker> {
         })
     }
 }
+impl<Marker: 'static> ShrNativeExpand for DynamicScalar<Marker> {
+    fn __expand_native_shr(scope: &Scope, this: ExpandValue, rhs: ExpandValue) -> ExpandValue {
+        binary_dispatch_int!(__expand_native_shr, scope, this, rhs)
+    }
+}
 
+impl<Marker: 'static> ShrAssign for DynamicScalar<Marker> {
+    fn shr_assign(&mut self, rhs: Self) {
+        *self = Self::new(match self.val {
+            ConstantValue::Int(val) => (val >> rhs.to_u32().unwrap()).into(),
+            ConstantValue::UInt(val) => (val >> rhs.to_u32().unwrap()).into(),
+            _ => panic!("Invalid value"),
+        });
+    }
+}
 impl<Marker: 'static> ShrAssign<u32> for DynamicScalar<Marker> {
     fn shr_assign(&mut self, rhs: u32) {
         *self = Self::new(match self.val {
             ConstantValue::Int(val) => (val >> rhs).into(),
-            ConstantValue::Float(val) => f64::from_bits(val.to_bits() >> rhs).into(),
             ConstantValue::UInt(val) => (val >> rhs).into(),
-            ConstantValue::Bool(_) => panic!("Invalid value"),
+            _ => panic!("Invalid value"),
         });
     }
 }
 
+impl<Marker: 'static> ShlAssign for DynamicScalar<Marker> {
+    fn shl_assign(&mut self, rhs: Self) {
+        *self = Self::new(match self.val {
+            ConstantValue::Int(val) => (val << rhs.to_u32().unwrap()).into(),
+            ConstantValue::UInt(val) => (val << rhs.to_u32().unwrap()).into(),
+            _ => panic!("Invalid value"),
+        });
+    }
+}
 impl<Marker: 'static> ShlAssign<u32> for DynamicScalar<Marker> {
     fn shl_assign(&mut self, rhs: u32) {
         *self = Self::new(match self.val {
             ConstantValue::Int(val) => (val << rhs).into(),
-            ConstantValue::Float(val) => f64::from_bits(val.to_bits() << rhs).into(),
             ConstantValue::UInt(val) => (val << rhs).into(),
-            ConstantValue::Bool(_) => panic!("Invalid value"),
+            _ => panic!("Invalid value"),
         });
     }
 }
@@ -833,5 +1286,48 @@ impl<Marker: 'static> Zero for DynamicScalar<Marker> {
 
     fn is_zero(&self) -> bool {
         self.val.is_zero()
+    }
+}
+
+fn unary_expand<T>(
+    scope: &Scope,
+    input: ExpandValue,
+    signed: impl Fn(&Scope, ExpandValue) -> ExpandValue,
+    unsigned: impl Fn(&Scope, ExpandValue) -> ExpandValue,
+    float: impl Fn(&Scope, ExpandValue) -> ExpandValue,
+) -> ExpandValue
+where
+    T: Scalar,
+{
+    let ctx = scope.ctx_mut();
+    let ty = T::__expand_as_type(scope);
+    if ty.is_signed_int(ctx) {
+        signed(scope, input)
+    } else if ty.is_unsigned_int(ctx) || ty.is_index(ctx) {
+        unsigned(scope, input)
+    } else {
+        float(scope, input)
+    }
+}
+
+fn binary_expand<T>(
+    scope: &Scope,
+    lhs: ExpandValue,
+    rhs: ExpandValue,
+    signed: impl Fn(&Scope, ExpandValue, ExpandValue) -> ExpandValue,
+    unsigned: impl Fn(&Scope, ExpandValue, ExpandValue) -> ExpandValue,
+    float: impl Fn(&Scope, ExpandValue, ExpandValue) -> ExpandValue,
+) -> ExpandValue
+where
+    T: Scalar,
+{
+    let ctx = scope.ctx_mut();
+    let ty = T::__expand_as_type(scope);
+    if ty.is_signed_int(ctx) {
+        signed(scope, lhs, rhs)
+    } else if ty.is_unsigned_int(ctx) || ty.is_index(ctx) {
+        unsigned(scope, lhs, rhs)
+    } else {
+        float(scope, lhs, rhs)
     }
 }

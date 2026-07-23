@@ -12,8 +12,10 @@ use cubecl::{
 
 use alloc::{vec, vec::Vec};
 use cubecl_common::{e2m1, e2m1x2, ue8m0};
-use cubecl_ir::features::{MmaConfig, ScaledMmaConfig};
-use cubecl_ir::{MatrixIdent, MatrixLayout};
+use cubecl_ir::{
+    features::{MmaConfig, ScaledMmaConfig},
+    types::{MatrixIdent, MatrixLayout},
+};
 use half::{bf16, f16};
 use num_traits::NumCast;
 
@@ -383,9 +385,9 @@ pub fn cast_matrix_bf16(input: &[f32], out: &mut [bf16]) {
 
 pub fn test_simple_1_vectorized<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
     if !client.features().matmul.cmma.contains(&MmaConfig {
-        a_type: ElemType::Float(FloatKind::F16).into(),
-        b_type: ElemType::Float(FloatKind::F16).into(),
-        cd_type: ElemType::Float(FloatKind::F32).into(),
+        a_type: ElemType::Float(FloatKind::F16),
+        b_type: ElemType::Float(FloatKind::F16),
+        cd_type: ElemType::Float(FloatKind::F32),
         m: 16,
         k: 16,
         n: 16,
@@ -424,9 +426,9 @@ pub fn test_simple_1_vectorized_offset<R: Runtime>(
     cube_dimensions: CubeDim,
 ) {
     if !client.features().matmul.cmma.contains(&MmaConfig {
-        a_type: ElemType::Float(FloatKind::F16).into(),
-        b_type: ElemType::Float(FloatKind::F16).into(),
-        cd_type: ElemType::Float(FloatKind::F32).into(),
+        a_type: ElemType::Float(FloatKind::F16),
+        b_type: ElemType::Float(FloatKind::F16),
+        cd_type: ElemType::Float(FloatKind::F32),
         m: 16,
         k: 16,
         n: 16,
@@ -480,9 +482,9 @@ pub fn test_simple_1_vectorized_offset<R: Runtime>(
 
 pub fn test_simple_1<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
     if !client.features().matmul.cmma.contains(&MmaConfig {
-        a_type: ElemType::Float(FloatKind::F16).into(),
-        b_type: ElemType::Float(FloatKind::F16).into(),
-        cd_type: ElemType::Float(FloatKind::F32).into(),
+        a_type: ElemType::Float(FloatKind::F16),
+        b_type: ElemType::Float(FloatKind::F16),
+        cd_type: ElemType::Float(FloatKind::F32),
         m: 16,
         k: 16,
         n: 16,
@@ -542,8 +544,8 @@ pub fn test_simple_1_expected() -> Vec<f32> {
 }
 
 pub fn test_simple_cube<R: Runtime>(client: ComputeClient<R>, cube_dimensions: u32) {
-    let ab_ty = ElemType::Float(FloatKind::F16).into();
-    let cd_ty = ElemType::Float(FloatKind::F32).into();
+    let ab_ty = ElemType::Float(FloatKind::F16);
+    let cd_ty = ElemType::Float(FloatKind::F32);
     let config = client.features().matmul.cube_mma.iter().find(|cfg| {
         cfg.a_type == ab_ty
             && cfg.b_type == ab_ty
@@ -598,8 +600,8 @@ pub fn test_simple_cube<R: Runtime>(client: ComputeClient<R>, cube_dimensions: u
 }
 
 pub fn test_simple_cube_tensor<R: Runtime>(client: ComputeClient<R>, cube_dimensions: u32) {
-    let ab_ty = ElemType::Float(FloatKind::F16).into();
-    let cd_ty = ElemType::Float(FloatKind::F32).into();
+    let ab_ty = ElemType::Float(FloatKind::F16);
+    let cd_ty = ElemType::Float(FloatKind::F32);
     let config = client.features().matmul.cube_mma.iter().find(|cfg| {
         cfg.a_type == ab_ty
             && cfg.b_type == ab_ty
@@ -731,9 +733,9 @@ pub fn test_simple_cube_expected(m: usize, n: usize, k: usize) -> Vec<f32> {
 
 pub fn test_cmma_cast_f16<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
     if !client.features().matmul.cmma.contains(&MmaConfig {
-        a_type: ElemType::Float(FloatKind::F16).into(),
-        b_type: ElemType::Float(FloatKind::F16).into(),
-        cd_type: ElemType::Float(FloatKind::F32).into(),
+        a_type: ElemType::Float(FloatKind::F16),
+        b_type: ElemType::Float(FloatKind::F16),
+        cd_type: ElemType::Float(FloatKind::F32),
         m: 16,
         k: 16,
         n: 16,
@@ -765,9 +767,9 @@ pub fn test_cmma_cast_f16<R: Runtime>(client: ComputeClient<R>, cube_dimensions:
 
 pub fn test_cmma_cast_bf16<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
     if !client.features().matmul.cmma.contains(&MmaConfig {
-        a_type: ElemType::Float(FloatKind::BF16).into(),
-        b_type: ElemType::Float(FloatKind::BF16).into(),
-        cd_type: ElemType::Float(FloatKind::F32).into(),
+        a_type: ElemType::Float(FloatKind::BF16),
+        b_type: ElemType::Float(FloatKind::BF16),
+        cd_type: ElemType::Float(FloatKind::F32),
         m: 16,
         k: 16,
         n: 16,
@@ -799,9 +801,9 @@ pub fn test_cmma_cast_bf16<R: Runtime>(client: ComputeClient<R>, cube_dimensions
 
 pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
     if !client.features().matmul.cmma.contains(&MmaConfig {
-        a_type: ElemType::Float(FloatKind::TF32).into(),
-        b_type: ElemType::Float(FloatKind::TF32).into(),
-        cd_type: ElemType::Float(FloatKind::F32).into(),
+        a_type: ElemType::Float(FloatKind::TF32),
+        b_type: ElemType::Float(FloatKind::TF32),
+        cd_type: ElemType::Float(FloatKind::F32),
         m: 16,
         k: 8,
         n: 16,
@@ -900,9 +902,9 @@ pub fn test_cmma_strided<R: Runtime>(client: ComputeClient<R>, cube_dimensions: 
     let (m, n, k) = (16, 16, 32);
     let (t_m, t_n, t_k) = (16, 16, 16);
     if !client.features().matmul.cmma.contains(&MmaConfig {
-        a_type: ElemType::Float(FloatKind::F16).into(),
-        b_type: ElemType::Float(FloatKind::F16).into(),
-        cd_type: ElemType::Float(FloatKind::F32).into(),
+        a_type: ElemType::Float(FloatKind::F16),
+        b_type: ElemType::Float(FloatKind::F16),
+        cd_type: ElemType::Float(FloatKind::F32),
         m: t_m as u32,
         k: t_k as u32,
         n: t_n as u32,
@@ -1173,7 +1175,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric, N: Size>(
     let def = cmma::MmaDefinition::<AB, AB, CD>::new(size_m, size_n, size_k);
     let lane_id = UNIT_POS_PLANE as usize;
 
-    let elem_size = AB::type_size();
+    let elem_size = AB::size();
     let width = comptime![16 / elem_size];
 
     let mut stage_a = Shared::new_aligned_slice(size_m * size_k, 16usize);
@@ -1356,24 +1358,20 @@ pub fn kernel_scaled<A: Scalar, B: Scalar, CD: Numeric, S: Scalar, NA: Size, NB:
         cmma::MmaDefinition::<A, B, CD>::new_scaled::<S>(size_m, size_n, size_k, scales_factor);
     let lane_id = UNIT_POS_PLANE;
 
-    let elem_count_a = def.elems_per_lane(MatrixIdent::A);
     let vector_size_a = def.vector_size(MatrixIdent::A);
-    let vector_count_a = comptime!(elem_count_a / vector_size_a);
+    let vector_count_a = def.vectors_per_lane(MatrixIdent::A);
     let mut registers_a = Array::<Vector<A, NA>>::new(vector_count_a);
 
-    let elem_count_b = def.elems_per_lane(MatrixIdent::B);
     let vector_size_b = def.vector_size(MatrixIdent::B);
-    let vector_count_b = comptime!(elem_count_b / vector_size_b);
+    let vector_count_b = def.vectors_per_lane(MatrixIdent::B);
     let mut registers_b = Array::<Vector<B, NB>>::new(vector_count_b);
 
-    let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
     let vector_size_c = def.vector_size(MatrixIdent::Accumulator);
-    let vector_count_c = comptime!(elem_count_c / vector_size_c);
+    let vector_count_c = def.vectors_per_lane(MatrixIdent::Accumulator);
     let mut registers_c = Array::<Vector<CD, NC>>::new(vector_count_c);
 
-    let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
     let vector_size_d = def.vector_size(MatrixIdent::Accumulator);
-    let vector_count_d = comptime!(elem_count_d / vector_size_d);
+    let vector_count_d = def.vectors_per_lane(MatrixIdent::Accumulator);
 
     let scales_count = def.scales_count();
     let size!(NS) = def.scales_vector_size();

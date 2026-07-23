@@ -1,9 +1,8 @@
 use std::fmt::Display;
 
 use cubecl_core::{
-    Compiler, ExecutionMode, WgpuCompilationOptions,
+    Compiler, WgpuCompilationOptions,
     backtrace::BackTrace,
-    ir::StorageType,
     prelude::{CompiledKernel, KernelDefinition},
     server::{ComputeServer, LaunchError, ResourceLimitError},
 };
@@ -127,40 +126,25 @@ impl Compiler for AutoCompiler {
         &mut self,
         kernel: KernelDefinition,
         compilation_options: &Self::CompilationOptions,
-        mode: ExecutionMode,
-        addr_type: StorageType,
     ) -> Result<Self::Representation, CompilationError> {
         let kernel = match self {
             AutoCompiler::Wgsl(wgsl_compiler) => {
-                Compiler::compile(wgsl_compiler, kernel, compilation_options, mode, addr_type)?
-                    .into()
+                Compiler::compile(wgsl_compiler, kernel, compilation_options)?.into()
             }
             #[cfg(feature = "spirv")]
             AutoCompiler::SpirV(spirv_compiler) => {
-                Compiler::compile(spirv_compiler, kernel, compilation_options, mode, addr_type)?
-                    .into()
+                Compiler::compile(spirv_compiler, kernel, compilation_options)?.into()
             }
             #[cfg(feature = "msl")]
             AutoCompiler::Msl(msl_compiler) => {
                 // override compilation options with cpp compiler options for metal
                 use cubecl_cpp;
                 let compilation_options = cubecl_cpp::shared::CompilationOptions::default();
-                Compiler::compile(msl_compiler, kernel, &compilation_options, mode, addr_type)?
-                    .into()
+                Compiler::compile(msl_compiler, kernel, &compilation_options)?.into()
             }
         };
 
         Ok(kernel)
-    }
-
-    fn elem_size(&self, elem: cubecl_core::ir::ElemType) -> usize {
-        match self {
-            AutoCompiler::Wgsl(wgsl_compiler) => wgsl_compiler.elem_size(elem),
-            #[cfg(feature = "spirv")]
-            AutoCompiler::SpirV(spirv_compiler) => spirv_compiler.elem_size(elem),
-            #[cfg(feature = "msl")]
-            AutoCompiler::Msl(msl_compiler) => msl_compiler.elem_size(elem),
-        }
     }
 
     fn extension(&self) -> &'static str {
@@ -192,33 +176,13 @@ impl WgpuCompiler for AutoCompiler {
         &mut self,
         server: &mut WgpuServer<AutoCompiler>,
         kernel: <WgpuServer<AutoCompiler> as ComputeServer>::Kernel,
-        mode: ExecutionMode,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
         match self {
-            AutoCompiler::Wgsl(_) => kernel.compile(
-                self,
-                &server.compilation_options,
-                mode,
-                kernel.address_type(),
-            ),
+            AutoCompiler::Wgsl(_) => kernel.compile(self, &server.compilation_options),
             #[cfg(feature = "spirv")]
-            AutoCompiler::SpirV(_) => {
-                #[cfg(feature = "spirv-dump")]
-                let (name, id) = (kernel.name().to_string(), kernel.id());
-                let compiled = crate::vulkan::compile(self, server, kernel, mode)?;
-                #[cfg(feature = "spirv-dump")]
-                if let Some(spirv) = compiled.repr.as_ref().and_then(|r| r.as_spirv()) {
-                    crate::vulkan::dump_spirv(spirv, &name, id);
-                }
-                Ok(compiled)
-            }
+            AutoCompiler::SpirV(_) => crate::vulkan::compile(self, server, kernel),
             #[cfg(feature = "msl")]
-            AutoCompiler::Msl(_) => kernel.compile(
-                self,
-                &server.compilation_options,
-                mode,
-                kernel.address_type(),
-            ),
+            AutoCompiler::Msl(_) => kernel.compile(self, &server.compilation_options),
         }
     }
 
@@ -238,9 +202,9 @@ impl WgpuCompiler for AutoCompiler {
         props: &DeviceProperties,
     ) -> Result<(), LaunchError> {
         let shared_bytes = repr.as_ref().map(|repr| match repr {
-            AutoRepresentation::Wgsl(repr) => repr.shared_memory_bytes(),
+            AutoRepresentation::Wgsl(repr) => repr.shared_memory_size,
             #[cfg(feature = "msl")]
-            AutoRepresentation::Msl(repr) => repr.shared_memory_size(),
+            AutoRepresentation::Msl(repr) => repr.shared_memory_size,
             #[cfg(feature = "spirv")]
             AutoRepresentation::SpirV(repr) => repr.shared_size,
         });
@@ -271,21 +235,15 @@ impl WgpuCompiler for AutoCompiler {
 
 impl WgpuCompiler for WgslCompiler {
     fn init(_backend: wgpu::Backend, _options: &WgpuCompilationOptions) -> Self {
-        Self::default()
+        Self
     }
 
     fn compile_kernel(
         &mut self,
         server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
-        mode: ExecutionMode,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
-        kernel.compile(
-            self,
-            &server.compilation_options,
-            mode,
-            kernel.address_type(),
-        )
+        kernel.compile(self, &server.compilation_options)
     }
 
     fn lang_tag(&self) -> &'static str {
@@ -297,7 +255,7 @@ impl WgpuCompiler for WgslCompiler {
         repr: &Option<Self::Representation>,
         props: &DeviceProperties,
     ) -> Result<(), LaunchError> {
-        let shared_bytes = repr.as_ref().map(|repr| repr.shared_memory_bytes());
+        let shared_bytes = repr.as_ref().map(|repr| repr.shared_memory_size);
         check_shared_memory(shared_bytes, props)
     }
 
@@ -319,11 +277,10 @@ impl WgpuCompiler for MslCompiler {
         &mut self,
         _server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
-        mode: ExecutionMode,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
         // The MSL compiler uses its own CompilationOptions, not WgpuCompilationOptions.
         let compilation_options = cubecl_cpp::shared::CompilationOptions::default();
-        kernel.compile(self, &compilation_options, mode, kernel.address_type())
+        kernel.compile(self, &compilation_options)
     }
 
     fn lang_tag(&self) -> &'static str {
@@ -335,7 +292,7 @@ impl WgpuCompiler for MslCompiler {
         repr: &Option<Self::Representation>,
         props: &DeviceProperties,
     ) -> Result<(), LaunchError> {
-        let shared_bytes = repr.as_ref().map(|repr| repr.shared_memory_size());
+        let shared_bytes = repr.as_ref().map(|repr| repr.shared_memory_size);
         check_shared_memory(shared_bytes, props)
     }
 
@@ -348,25 +305,17 @@ impl WgpuCompiler for MslCompiler {
 }
 
 #[cfg(feature = "spirv")]
-impl<T: cubecl_spirv::SpirvTarget> WgpuCompiler for cubecl_spirv::SpirvCompiler<T> {
+impl WgpuCompiler for cubecl_spirv::SpirvCompiler {
     fn init(_backend: wgpu::Backend, _options: &WgpuCompilationOptions) -> Self {
-        Self::default()
+        Self
     }
 
     fn compile_kernel(
         &mut self,
         server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
-        mode: ExecutionMode,
     ) -> Result<CompiledKernel<Self>, CompilationError> {
-        #[cfg(feature = "spirv-dump")]
-        let (name, id) = (kernel.name().to_string(), kernel.id());
-        let compiled = crate::vulkan::compile(self, server, kernel, mode)?;
-        #[cfg(feature = "spirv-dump")]
-        if let Some(spirv) = compiled.repr.as_ref() {
-            crate::vulkan::dump_spirv(spirv, &name, id);
-        }
-        Ok(compiled)
+        crate::vulkan::compile(self, server, kernel)
     }
 
     fn lang_tag(&self) -> &'static str {
@@ -450,7 +399,6 @@ pub trait WgpuCompiler: Compiler {
         &mut self,
         server: &mut WgpuServer<Self>,
         kernel: <WgpuServer<Self> as ComputeServer>::Kernel,
-        mode: ExecutionMode,
     ) -> Result<CompiledKernel<Self>, CompilationError>;
 
     /// Short identifier of the shader language produced by this compiler (e.g. `"wgsl"`).

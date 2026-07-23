@@ -71,8 +71,8 @@ impl<T: Numeric, N: Size> DerefMut for VirtualTensor<T, N, ReadWrite> {
 
 impl<E: Numeric, N: Size, IO: Clone> Vectorized for VirtualTensor<E, N, IO> {}
 impl<E: Numeric, N: Size, IO: Clone> VectorizedExpand for VirtualTensorExpand<E, N, IO> {
-    fn vector_size(&self) -> VectorSize {
-        self.state_read().vector_size()
+    fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
+        self.state_read().__expand_vector_size_method(scope)
     }
 }
 

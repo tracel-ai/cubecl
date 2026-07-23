@@ -10,7 +10,7 @@ use crate::{
         ManagedMemoryHandle, MemoryAllocationMode, MemoryConfiguration, MemoryUsage,
     },
     runtime::Runtime,
-    server::Binding,
+    server::{BufferBinding, KernelResource},
     storage::{ComputeStorage, ManagedResource},
     tma::{OobFill, TensorMapFormat, TensorMapInterleave, TensorMapPrefetch, TensorMapSwizzle},
 };
@@ -34,8 +34,9 @@ use cubecl_common::{
     stream_id::StreamId,
     stub::RwLock,
 };
-use cubecl_ir::{DeviceProperties, ElemType, StorageType};
+use cubecl_ir::{DeviceProperties, ElemType, settings::Dim3};
 use cubecl_zspace::{Shape, Strides, metadata::Metadata};
+use derive_more::{Deref, DerefMut, From};
 use hashbrown::HashSet;
 use itertools::Itertools;
 use thiserror::Error;
@@ -406,7 +407,7 @@ where
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
         &mut self,
-        binding: Binding,
+        binding: BufferBinding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError>;
 
@@ -423,7 +424,6 @@ where
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: KernelArguments,
-        kind: ExecutionMode,
         stream_id: StreamId,
     );
 
@@ -623,8 +623,8 @@ pub trait ServerCommunication {
     #[allow(unused_variables)]
     fn all_reduce(
         &mut self,
-        src: Binding,
-        dst: Binding,
+        src: BufferBinding,
+        dst: BufferBinding,
         dtype: ElemType,
         stream_id: StreamId,
         op: ReduceOperation,
@@ -916,19 +916,17 @@ impl core::fmt::Debug for IoError {
 /// Arguments to execute a kernel.
 #[derive(Debug, Default)]
 pub struct KernelArguments {
-    /// Buffer bindings
-    pub buffers: Vec<Binding>,
+    /// Kernel bindings
+    pub resources: Vec<KernelResource>,
     /// Packed scalars and metadata. First scalars sorted by type, then static metadata,
     /// then dynamic metadata.
     pub info: MetadataBindingInfo,
-    /// Tensor map bindings
-    pub tensor_maps: Vec<TensorMapBinding>,
 }
 
 impl core::fmt::Display for KernelArguments {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("KernelArguments")?;
-        for b in self.buffers.iter() {
+        for b in self.resources.iter() {
             f.write_fmt(format_args!("\n - buffer: {b:?}\n"))?;
         }
 
@@ -943,14 +941,15 @@ impl KernelArguments {
     }
 
     /// Add a buffer binding
-    pub fn with_buffer(mut self, binding: Binding) -> Self {
-        self.buffers.push(binding);
+    pub fn with_buffer(mut self, binding: BufferBinding) -> Self {
+        self.resources.push(KernelResource::Buffer(binding));
         self
     }
 
     /// Extend the buffers with `bindings`
-    pub fn with_buffers(mut self, bindings: Vec<Binding>) -> Self {
-        self.buffers.extend(bindings);
+    pub fn with_buffers(mut self, bindings: Vec<BufferBinding>) -> Self {
+        let bindings = bindings.into_iter().map(KernelResource::Buffer);
+        self.resources.extend(bindings);
         self
     }
 
@@ -962,7 +961,8 @@ impl KernelArguments {
 
     /// Extend the tensor maps with `bindings`
     pub fn with_tensor_maps(mut self, bindings: Vec<TensorMapBinding>) -> Self {
-        self.tensor_maps.extend(bindings);
+        let bindings = bindings.into_iter().map(KernelResource::TensorMap);
+        self.resources.extend(bindings);
         self
     }
 }
@@ -990,7 +990,7 @@ impl MetadataBindingInfo {
 #[derive(new, Debug)]
 pub struct CopyDescriptor {
     /// Binding for the memory resource
-    pub handle: Binding,
+    pub handle: BufferBinding,
     /// Shape of the resource
     pub shape: Shape,
     /// Strides of the resource
@@ -1000,10 +1000,10 @@ pub struct CopyDescriptor {
 }
 
 /// A tensor map used with TMA ops
-#[derive(new, Debug)]
+#[derive(new, Clone, Debug)]
 pub struct TensorMapBinding {
     /// The binding for the backing tensor
-    pub binding: Binding,
+    pub binding: BufferBinding,
     /// The tensormap metadata
     pub map: TensorMapMeta,
 }
@@ -1026,8 +1026,8 @@ pub struct TensorMapMeta {
     pub prefetch: TensorMapPrefetch,
     /// OOB fill value
     pub oob_fill: OobFill,
-    /// Storage type
-    pub storage_ty: StorageType,
+    /// Element type
+    pub elem_ty: ElemType,
 }
 
 /// Specifieds the number of cubes to be dispatched for a kernel.
@@ -1038,7 +1038,7 @@ pub enum CubeCount {
     /// Dispatch a known count of x, y, z cubes.
     Static(u32, u32, u32),
     /// Dispatch an amount based on the values in this buffer. The buffer should contain a u32 array [x, y, z].
-    Dynamic(Binding),
+    Dynamic(BufferBinding),
 }
 
 /// Defines how to select cube count based on the number of cubes required.
@@ -1133,18 +1133,11 @@ impl Clone for CubeCount {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, From, PartialEq, Eq, Clone, Copy, Hash, Deref, DerefMut)]
 #[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
 #[allow(missing_docs)]
 /// The number of units across all 3 axis totalling to the number of working units in a cube.
-pub struct CubeDim {
-    /// The number of units in the x axis.
-    pub x: u32,
-    /// The number of units in the y axis.
-    pub y: u32,
-    /// The number of units in the z axis.
-    pub z: u32,
-}
+pub struct CubeDim(pub Dim3);
 
 impl CubeDim {
     /// Creates a new [`CubeDim`] based on the maximum number of tasks that can be parellalized by units, in other words,
@@ -1192,33 +1185,33 @@ impl CubeDim {
 
     /// Create a new cube dim with x = y = z = 1.
     pub const fn new_single() -> Self {
-        Self { x: 1, y: 1, z: 1 }
+        Self(Dim3::new_single())
     }
 
     /// Create a new cube dim with the given x, and y = z = 1.
     pub const fn new_1d(x: u32) -> Self {
-        Self { x, y: 1, z: 1 }
+        Self(Dim3::new_1d(x))
     }
 
     /// Create a new cube dim with the given x and y, and z = 1.
     pub const fn new_2d(x: u32, y: u32) -> Self {
-        Self { x, y, z: 1 }
+        Self(Dim3::new_2d(x, y))
     }
 
     /// Create a new cube dim with the given x, y and z.
     /// This is equivalent to the [new](CubeDim::new) function.
     pub const fn new_3d(x: u32, y: u32, z: u32) -> Self {
-        Self { x, y, z }
+        Self(Dim3::new_3d(x, y, z))
     }
 
     /// Total numbers of units per cube
     pub const fn num_elems(&self) -> u32 {
-        self.x * self.y * self.z
+        self.0.num_elems()
     }
 
     /// Whether this `CubeDim` can fully contain `other`
     pub const fn can_contain(&self, other: CubeDim) -> bool {
-        self.x >= other.x && self.y >= other.y && self.z >= other.z
+        self.0.can_contain(other.0)
     }
 }
 
@@ -1234,17 +1227,10 @@ impl From<CubeDim> for (u32, u32, u32) {
     }
 }
 
-/// The kind of execution to be performed.
-#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
-#[cfg_attr(std_io, derive(serde::Serialize, serde::Deserialize))]
-pub enum ExecutionMode {
-    /// Checked kernels are safe.
-    #[default]
-    Checked,
-    /// Validate OOB and alert if OOB access occurs
-    Validate,
-    /// Unchecked kernels are unsafe.
-    Unchecked,
+impl From<CubeDim> for Dim3 {
+    fn from(value: CubeDim) -> Self {
+        value.0
+    }
 }
 
 fn cube_count_spread(max: &(u32, u32, u32), num_cubes: u32) -> [u32; 3] {

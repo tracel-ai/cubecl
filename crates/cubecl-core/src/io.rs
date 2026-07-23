@@ -1,11 +1,6 @@
-use alloc::string::{String, ToString};
-
 use crate as cubecl;
 use cubecl::prelude::*;
-use cubecl_ir::{Instruction, Operation, Value};
-
-define_scalar!(ElemA);
-define_size!(SizeA);
+use cubecl_ir::pliron::{common_traits::Named, value::Value};
 
 /// Returns the value at `index` in `list` if `condition` is `true`, otherwise returns `value`.
 #[cube]
@@ -36,28 +31,21 @@ pub fn write_checked<C: CubePrimitive>(list: &mut [C], index: usize, value: C) {
 
 /// Returns the value at `index` in tensor within bounds.
 #[cube]
-pub fn checked_index<E: Scalar, N: Size>(
-    index: usize,
-    buffer_len: usize,
-    #[comptime] unroll_factor: usize,
-) -> usize {
-    let len = buffer_len * unroll_factor;
-    index.min(len - 1)
+pub fn checked_index(index: usize, buffer_len: usize) -> usize {
+    index.min(buffer_len - 1)
 }
 
 /// Returns the value at `index` in tensor within bounds.
 #[cube]
-pub fn validate_index<E: Scalar, N: Size>(
-    tensor: &[Vector<E, N>],
+pub fn validate_index(
+    #[comptime] buffer_name: &str,
     index: usize,
-    buffer_len: usize,
-    #[comptime] unroll_factor: usize,
-    #[comptime] kernel_name: String,
+    len: usize,
+    #[comptime] kernel_name: &str,
 ) -> usize {
-    let len = buffer_len * unroll_factor;
     let in_bounds = index < len;
     if !in_bounds {
-        print_oob::<[Vector<E, N>]>(kernel_name, index, len, tensor);
+        print_oob(kernel_name, index, len, buffer_name);
     }
 
     index.min(len)
@@ -65,19 +53,17 @@ pub fn validate_index<E: Scalar, N: Size>(
 
 #[cube]
 #[allow(unused)]
-fn print_oob<Out: CubeType<ExpandType: Into<Value>> + ?Sized>(
-    #[comptime] kernel_name: String,
+fn print_oob(
+    #[comptime] kernel_name: &str,
     index: usize,
     len: usize,
-    buffer: &Out,
+    #[comptime] buffer_name: &str,
 ) {
     intrinsic!(|scope| {
-        let value: Value = buffer.clone_unchecked().into();
-        let name = value.address_space();
         __expand_debug_print!(
             scope,
             alloc::format!(
-                "[VALIDATION {kernel_name}]: Encountered OOB index in {name} at %u, length is %u\n"
+                "[VALIDATION {kernel_name}]: Encountered OOB index in {buffer_name} at %u, length is %u\n"
             ),
             index,
             len
@@ -86,43 +72,20 @@ fn print_oob<Out: CubeType<ExpandType: Into<Value>> + ?Sized>(
 }
 
 #[allow(missing_docs)]
-pub fn expand_checked_index(
-    scope: &Scope,
-    list: Value,
-    index: Value,
-    out: Value,
-    unroll_factor: usize,
-) {
-    scope.register_type::<ElemA>(list.ty.storage_type());
-    scope.register_size::<SizeA>(list.ty.vector_size());
+pub fn expand_checked_index(scope: &Scope, list: Value, index: Value) -> Value {
     let len = expand_buffer_length_native(scope, list);
-    let index =
-        checked_index::expand::<ElemA, SizeA>(scope, index.into(), len.into(), unroll_factor);
-    let ptr = index_expand(scope, list, index.expand, false);
-    scope.register(Instruction::new(Operation::Copy(ptr), out));
+    let index = checked_index::expand(scope, index.into(), len.into());
+    index_expand(scope, list, index.value(scope), false)
 }
 
 #[allow(missing_docs)]
-pub fn expand_validate_index(
-    scope: &Scope,
-    list: Value,
-    index: Value,
-    out: Value,
-    unroll_factor: usize,
-    kernel_name: &str,
-) {
-    scope.register_type::<ElemA>(list.ty.storage_type());
-    scope.register_size::<SizeA>(list.ty.vector_size());
+pub fn expand_validate_index(scope: &Scope, list: Value, index: Value, kernel_name: &str) -> Value {
     let len = expand_buffer_length_native(scope, list);
-    let tensor = list.into();
-    let index = validate_index::expand::<ElemA, SizeA>(
-        scope,
-        &tensor,
-        index.into(),
-        len.into(),
-        unroll_factor,
-        kernel_name.to_string(),
-    );
-    let ptr = index_expand(scope, list, index.expand, false);
-    scope.register(Instruction::new(Operation::Copy(ptr), out));
+    let buffer_name = list.given_name(scope.ctx());
+    let buffer_name = buffer_name
+        .as_ref()
+        .map(|it| it.as_str())
+        .unwrap_or("buffer");
+    let index = validate_index::expand(scope, buffer_name, index.into(), len.into(), kernel_name);
+    index_expand(scope, list, index.value(scope), false)
 }

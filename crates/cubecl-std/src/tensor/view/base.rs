@@ -241,7 +241,7 @@ macro_rules! impl_read {
             }
 
             pub fn vector_size(&self) -> comptime_type!(VectorSize) {
-                intrinsic!(|scope| self.inner.vector_size())
+                intrinsic!(|scope| self.inner.__expand_vector_size_method(scope))
             }
         }
 

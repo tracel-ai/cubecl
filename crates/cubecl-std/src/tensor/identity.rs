@@ -9,7 +9,7 @@ use super::TensorHandle;
 fn identity_kernel<C: Numeric, N: Size>(
     output: &mut Tensor<Vector<C, N>>,
     gap: usize,
-    #[define(C)] _elem: StorageType,
+    #[define(C)] _elem: ElemType,
 ) {
     let pos_x = ABSOLUTE_POS_X as usize * output.vector_size();
     let pos_y = ABSOLUTE_POS_Y as usize;
@@ -23,7 +23,7 @@ fn identity_kernel<C: Numeric, N: Size>(
         while offset < output.vector_size() {
             let remainder = (start_pos + offset) % gap;
             if remainder == 0 {
-                vector.insert(offset, C::from_int(1));
+                vector.insert_dynamic(offset, C::from_int(1));
                 offset += gap;
             } else {
                 offset += gap - remainder;
@@ -47,7 +47,7 @@ pub fn launch<R: Runtime>(client: &ComputeClient<R>, output: &TensorHandle<R>) {
 pub fn launch_ref<R: Runtime>(
     client: &ComputeClient<R>,
     output: TensorBinding<R>,
-    dtype: StorageType,
+    dtype: ElemType,
 ) {
     assert_eq!(2, output.shape.len(), "input should be a matrix");
     assert_eq!(

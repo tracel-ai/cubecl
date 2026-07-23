@@ -1,6 +1,11 @@
 use alloc::boxed::Box;
 
-use cubecl_ir::{ClampMode, Instruction, SemanticType, TensorIndexingOps};
+use cubecl_ir::{
+    dialect::spirv::{CreateLayoutOp, CreateViewOp, SliceOp},
+    pliron::{builtin::op_interfaces::OneResultInterface, r#type::Typed},
+    types::spirv::{ClampMode, TensorLayoutType, TensorViewType},
+};
+use pliron::r#type::TypeHandle;
 
 use crate::{self as cubecl, unexpanded};
 
@@ -57,6 +62,10 @@ impl CubePrimitive for TensorLayout {
     fn from_const_value(_: cubecl_ir::ConstantValue) -> Self {
         panic!("Can't construct tensor layout from constant")
     }
+
+    fn __expand_as_type(_scope: &Scope) -> TypeHandle {
+        unimplemented!()
+    }
 }
 
 impl NativeAssign for TensorLayout {}
@@ -73,6 +82,10 @@ impl CubePrimitive for TensorReinterpret {
 
     fn from_const_value(_: cubecl_ir::ConstantValue) -> Self {
         panic!("Can't construct tensor layout from constant")
+    }
+
+    fn __expand_as_type(_scope: &Scope) -> TypeHandle {
+        unimplemented!()
     }
 }
 
@@ -103,27 +116,24 @@ impl<T: CubePrimitive> TensorView<T> {
     }
 
     #[allow(unused)]
-    pub fn slice(&self, offsets: Sequence<u32>, shape: Sequence<u32>) -> TensorView<T> {
+    pub fn slice(&self, offs: Sequence<u32>, shape: Sequence<u32>) -> TensorView<T> {
         intrinsic!(|scope| {
             assert_eq!(
-                offsets.len(),
-                self.layout.rank(),
+                offs.len(),
+                self.layout.rank(scope),
                 "Offsets and view rank must match"
             );
             assert_eq!(
-                offsets.len(),
+                offs.len(),
                 shape.len(),
                 "Offsets and shape must have same rank"
             );
-            let new_layout = scope.create_value(self.layout.expand.ty);
-            scope.register(Instruction::new(
-                TensorIndexingOps::Slice {
-                    layout: self.layout.expand,
-                    offsets: offsets.iter_cloned().map(|it| it.expand).collect(),
-                    shape: shape.iter_cloned().map(|it| it.expand).collect(),
-                },
-                new_layout,
-            ));
+            let layout = self.layout.read_value(scope);
+            let offs = offs.iter_cloned().map(|it| it.read_value(scope)).collect();
+            let shape = shape.iter_cloned().map(|it| it.read_value(scope)).collect();
+            let slice_op = SliceOp::new(scope.ctx_mut(), layout, offs, shape);
+            scope.register(&slice_op);
+            let new_layout = slice_op.get_result(scope.ctx());
             TensorViewExpand {
                 buffer: self.buffer.clone(),
                 layout: new_layout.into(),
@@ -134,12 +144,12 @@ impl<T: CubePrimitive> TensorView<T> {
 }
 
 impl NativeExpand<TensorLayout> {
-    fn rank(&self) -> usize {
-        if let Type::Semantic(SemanticType::TensorLayout(rank, _)) = &self.expand.ty {
-            *rank
-        } else {
-            unreachable!()
-        }
+    fn rank(&self, scope: &Scope) -> usize {
+        let ty = self.read_value(scope).get_type(scope.ctx());
+        let ctx = scope.ctx();
+        let ty = ty.deref(ctx);
+        let TensorLayoutType { rank, .. } = ty.downcast_ref().unwrap();
+        *rank
     }
 }
 
@@ -162,15 +172,14 @@ impl<T: CubePrimitive> TensorViewExpand<T> {
             .map(|it| {
                 it.constant()
                     .expect("permutation must be constant")
-                    .as_u32()
+                    .as_usize()
             })
             .collect::<alloc::vec::Vec<_>>();
-        let mut perm_dims = [0; 5];
-        perm_dims[..dims].copy_from_slice(&permutation);
-        let view = scope.create_value(Type::semantic(SemanticType::TensorView(
-            dims, false, perm_dims,
-        )));
-        scope.register(Instruction::new(TensorIndexingOps::CreateView, view));
+        let ty = TensorViewType::get(scope.ctx(), permutation.len(), false, permutation);
+        let op = CreateViewOp::new(scope.ctx_mut(), ty.into());
+        scope.register(&op);
+        let view = op.get_result(scope.ctx());
+
         TensorViewExpand {
             buffer: self.buffer,
             layout: self.layout,
@@ -215,23 +224,19 @@ impl<T: CubePrimitive> TensorViewBuilderExpand<T> {
     }
 
     pub fn __expand_finish_method(self, scope: &Scope) -> TensorViewExpand<T> {
-        let layout = scope.create_value(Type::semantic(SemanticType::TensorLayout(
-            self.shape.len(),
-            self.clamp_mode.into(),
-        )));
-        scope.register(Instruction::new(
-            TensorIndexingOps::CreateLayout {
-                shape: self.shape.iter_cloned().map(|it| it.expand).collect(),
-                strides: match self.strides {
-                    ComptimeOptionExpand::None => None,
-                    ComptimeOptionExpand::Some(strides) => {
-                        Some(strides.iter_cloned().map(|it| it.expand).collect())
-                    }
-                },
-                clamp_mode: self.clamp_mode.into(),
-            },
-            layout,
-        ));
+        let shape = self.shape.into_iter().map(|it| it.read_value(scope));
+        let strides = match self.strides {
+            ComptimeOptionExpand::None => None,
+            ComptimeOptionExpand::Some(strides) => {
+                Some(strides.into_iter().map(|it| it.read_value(scope)).collect())
+            }
+        };
+        let clamp_mode = ClampMode::from(self.clamp_mode);
+
+        let op = CreateLayoutOp::new(scope.ctx_mut(), shape.collect(), strides, clamp_mode);
+        scope.register(&op);
+        let layout = op.get_result(scope.ctx());
+
         TensorViewExpand {
             buffer: self.buffer,
             layout: layout.into(),

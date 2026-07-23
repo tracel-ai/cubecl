@@ -1,6 +1,6 @@
 use crate::{
     CpuCompiler,
-    compiler::MlirCompilerOptions,
+    compiler::PlironOptions,
     compute::{
         cpu_kernel::CpuKernel,
         schedule::{BindingsResource, ScheduleTask, ScheduledCpuBackend},
@@ -10,12 +10,12 @@ use cubecl_common::{
     backtrace::BackTrace, bytes::Bytes, profile::ProfileDuration, stream_id::StreamId,
 };
 use cubecl_core::{
-    CompilationError, CubeCount, ExecutionMode, MemoryConfiguration, MemoryUsage,
+    CompilationError, CubeCount, MemoryConfiguration, MemoryUsage,
     future::DynFut,
     ir::MemoryDeviceProperties,
     server::{
-        Binding, ComputeServer, CopyDescriptor, IoError, KernelArguments, ProfileError,
-        ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
+        BufferBinding, ComputeServer, CopyDescriptor, IoError, KernelArguments, KernelResource,
+        ProfileError, ProfilingToken, ServerCommunication, ServerError, ServerUtilities,
     },
     zspace::{Shape, Strides, strides},
 };
@@ -78,17 +78,19 @@ impl CpuServer {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
         let resources = bindings
-            .buffers
+            .resources
             .into_iter()
-            .map(|binding| {
+            .filter_map(|binding| {
+                let KernelResource::Buffer(binding) = binding else {
+                    return None;
+                };
                 let stream = self.scheduler.stream(&binding.stream);
                 let memory = binding.memory.clone();
                 let resource = stream
                     .memory_management
                     .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                     .unwrap();
-
-                ManagedResource::new(memory, resource)
+                Some(ManagedResource::new(memory, resource))
             })
             .collect::<Vec<_>>();
 
@@ -103,7 +105,7 @@ impl CpuServer {
         kernel: Box<dyn CubeTask<CpuCompiler>>,
         count: CubeCount,
         bindings: BindingsResource,
-        kind: ExecutionMode,
+        stream_id: StreamId,
     ) -> Result<ScheduleTask, CompilationError> {
         let cube_count = match count {
             CubeCount::Static(x, y, z) => [x, y, z],
@@ -129,7 +131,7 @@ impl CpuServer {
             }
         };
 
-        self.prepare_task_inner(kernel, cube_count, bindings, kind)
+        self.prepare_task_inner(kernel, cube_count, bindings, stream_id)
     }
 
     fn prepare_task_inner(
@@ -137,18 +139,13 @@ impl CpuServer {
         kernel: Box<dyn CubeTask<CpuCompiler>>,
         cube_count: [u32; 3],
         bindings: BindingsResource,
-        kind: ExecutionMode,
+        stream_id: StreamId,
     ) -> Result<ScheduleTask, CompilationError> {
         let kernel_id = kernel.id();
         let kernel = if let Some(kernel) = self.compilation_cache.get(&kernel_id) {
             kernel
         } else {
-            let kernel = kernel.compile(
-                &mut Default::default(),
-                &MlirCompilerOptions::default(),
-                kind,
-                kernel.address_type(),
-            )?;
+            let kernel = kernel.compile(&mut Default::default(), &PlironOptions)?;
             self.compilation_cache
                 .insert(kernel_id.clone(), CpuKernel::new(kernel));
             self.compilation_cache
@@ -161,7 +158,8 @@ impl CpuServer {
         let mlir_engine = kernel.mlir.repr.clone().unwrap();
 
         let task = ScheduleTask::Execute {
-            mlir_engine,
+            stream_id,
+            pliron_engine: mlir_engine,
             bindings,
             cube_dim,
             cube_count,
@@ -290,16 +288,23 @@ impl ComputeServer for CpuServer {
         kernel: Self::Kernel,
         count: CubeCount,
         bindings: KernelArguments,
-        kind: ExecutionMode,
         stream_id: StreamId,
     ) {
         self.streams_pool.clear();
         bindings
-            .buffers
+            .resources
             .iter()
+            .filter_map(|b| {
+                let KernelResource::Buffer(b) = b else {
+                    return None;
+                };
+                Some(b)
+            })
             .for_each(|b| self.streams_pool.push(b.stream));
         let bindings = self.prepare_bindings(bindings);
-        let task = self.prepare_task(kernel, count, bindings, kind).unwrap();
+        let task = self
+            .prepare_task(kernel, count, bindings, stream_id)
+            .unwrap();
 
         self.scheduler.register(stream_id, task, &self.streams_pool);
     }
@@ -339,7 +344,7 @@ impl ComputeServer for CpuServer {
 
     fn get_resource(
         &mut self,
-        binding: Binding,
+        binding: BufferBinding,
         stream_id: StreamId,
     ) -> Result<ManagedResource<<Self::Storage as ComputeStorage>::Resource>, ServerError> {
         let mut streams = vec![stream_id];

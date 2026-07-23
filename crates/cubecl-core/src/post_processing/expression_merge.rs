@@ -1,52 +1,47 @@
-use alloc::{vec, vec::Vec};
-use cubecl_ir::{CoopMma, GlobalState, Instruction, Operation, Operator, UnaryOperands, Value};
-use hashbrown::HashMap;
-
-use crate::post_processing::{
-    analysis_helper::GlobalAnalyses,
-    util::AtomicCounter,
-    visitor::{InstructionVisitor, Visitor},
+use alloc::vec;
+use cubecl_ir::{
+    dialect::{
+        base::OperationPtrExt,
+        general::{CastOp, CopyOp, ReinterpretCastOp},
+    },
+    prelude::*,
+    verify_op_succ,
+};
+use pliron::{
+    builtin::op_interfaces::{NOpdsInterface, OneResultInterface},
+    derive::{op_interface, op_interface_impl},
+    irbuild::{dialect_conversion::DialectConversionRewriter, rewriter::Rewriter},
+    r#type::Typed,
 };
 
-/// Inline constants or simple reassignments that don't change the type. This simplifies the code
-/// and makes it easier to find optimizable expressions.
-#[derive(Default, Debug)]
-pub struct InlineAssignments {
-    substitutions: HashMap<Value, Value>,
+/// Operation that's equivalent to a trivial value copy if input and output types match
+#[op_interface]
+pub trait TrivialOp: NOpdsInterface<1> + OneResultInterface {
+    verify_op_succ!();
 }
 
-impl InstructionVisitor for InlineAssignments {
-    fn visit_instruction(
-        &mut self,
-        mut inst: Instruction,
-        _global_state: &GlobalState,
-        analyses: &GlobalAnalyses,
-        changes: &AtomicCounter,
-    ) -> Vec<Instruction> {
-        let mut visitor = Visitor(());
-        visitor.visit_operation(&mut inst.operation, analyses, |_, val| {
-            if let Some(substitution) = self.substitutions.get(val) {
-                *val = *substitution;
-                changes.inc();
-            }
-        });
+#[op_interface_impl]
+impl TrivialOp for CopyOp {}
+#[op_interface_impl]
+impl TrivialOp for CastOp {}
+#[op_interface_impl]
+impl TrivialOp for ReinterpretCastOp {}
 
-        match &mut inst.operation {
-            Operation::Copy(input)
-            | Operation::Operator(Operator::Cast(UnaryOperands { input }))
-            | Operation::Operator(Operator::Reinterpret(UnaryOperands { input }))
-            | Operation::CoopMma(CoopMma::Cast { input })
-                if (input.is_immutable() || input.is_array_like() || input.ty.is_ptr())
-                    && (inst.out.unwrap().is_immutable()
-                        || inst.out.unwrap().is_array_like()
-                        || inst.out.unwrap().ty.is_ptr())
-                    && input.ty == inst.out.unwrap().ty =>
-            {
-                self.substitutions.insert(inst.out.unwrap(), *input);
-                changes.inc();
-                vec![]
-            }
-            _ => vec![inst],
-        }
+pub struct RemoveTrivialOpsPass;
+
+impl MatchRewrite for RemoveTrivialOpsPass {
+    fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
+        op.impls::<dyn TrivialOp>(ctx)
+            && op.operand(ctx, 0).get_type(ctx) == op.result(ctx).get_type(ctx)
+    }
+
+    fn rewrite(
+        &mut self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        op: Ptr<Operation>,
+    ) -> Result<()> {
+        rewriter.replace_operation_with_values(ctx, op, vec![op.operand(ctx, 0)]);
+        Ok(())
     }
 }

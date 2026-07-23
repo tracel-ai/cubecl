@@ -1,7 +1,6 @@
 use alloc::{
     boxed::Box,
     string::{String, ToString},
-    vec::Vec,
 };
 use core::{
     fmt::Display,
@@ -10,14 +9,19 @@ use core::{
 };
 
 use cubecl_common::format::format_str;
-use cubecl_ir::{Id, Scope, StorageType, Value};
+use cubecl_ir::{
+    ElemType, Scope,
+    metadata::Info,
+    pliron::{format, value::Value},
+    settings::KernelSettings,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     compiler::{CompilationError, Compiler, CubeTask},
     config::{CubeClRuntimeConfig, RuntimeConfig, compilation::CompilationLogLevel},
     id::KernelId,
-    server::{CubeDim, ExecutionMode},
+    server::CubeDim,
 };
 
 /// Implement this trait to create a [kernel definition](KernelDefinition).
@@ -31,43 +35,21 @@ pub trait KernelMetadata: Send + Sync + 'static {
     fn id(&self) -> KernelId;
 
     /// Type of addresses in this kernel
-    fn address_type(&self) -> StorageType;
+    fn address_type(&self) -> ElemType;
 }
 
-#[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub struct KernelDefinition {
-    pub buffers: Vec<KernelArg>,
-    pub tensor_maps: Vec<KernelArg>,
-    pub scalars: Vec<ScalarKernelArg>,
-    pub cube_dim: CubeDim,
     pub body: Scope,
-    pub options: KernelOptions,
+    pub info: Info,
+    pub settings: KernelSettings,
 }
 
-impl KernelDefinition {
-    /// Returns the total number of global buffers (including tensor maps)
-    pub fn num_global_buffers(&self) -> usize {
-        self.buffers.len() + self.tensor_maps.len()
-    }
-}
-
-#[derive(Default, Clone, Debug, Hash, PartialEq, Eq)]
-/// Options for a specific kernel compilation
-pub struct KernelOptions {
-    /// The name of the kernel
-    pub kernel_name: String,
-    /// Whether to include debug symbols
-    pub debug_symbols: bool,
-    /// CUDA Cluster dim, if any
-    pub cluster_dim: Option<CubeDim>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 /// Global argument of a kernel.
 pub struct KernelArg {
-    /// The kernel id.
-    pub id: Id,
+    /// The index of the arg.
+    pub id: usize,
     /// The value the argument is bound to.
     pub value: Value,
     /// Whether the argument has metadata.
@@ -77,12 +59,13 @@ pub struct KernelArg {
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[allow(missing_docs)]
 pub struct ScalarKernelArg {
-    pub ty: StorageType,
+    pub ty: ElemType,
     pub count: usize,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, Hash)]
 #[allow(missing_docs)]
+#[format]
 pub enum Visibility {
     Uniform,
     Read,
@@ -173,13 +156,11 @@ impl<C: Compiler, K: CubeKernel> CubeTask<C> for KernelTask<C, K> {
         &self,
         compiler: &mut C,
         compilation_options: &C::CompilationOptions,
-        mode: ExecutionMode,
-        addr_type: StorageType,
     ) -> Result<CompiledKernel<C>, CompilationError> {
         let gpu_ir = self.kernel_definition.define();
-        let entrypoint_name = gpu_ir.options.kernel_name.clone();
-        let cube_dim = gpu_ir.cube_dim;
-        let lower_level_ir = compiler.compile(gpu_ir, compilation_options, mode, addr_type)?;
+        let entrypoint_name = gpu_ir.settings.kernel_name.clone();
+        let cube_dim = gpu_ir.settings.cube_dim.into();
+        let lower_level_ir = compiler.compile(gpu_ir, compilation_options)?;
 
         Ok(CompiledKernel {
             entrypoint_name,
@@ -203,7 +184,7 @@ impl<C: Compiler, K: CubeKernel> KernelMetadata for KernelTask<C, K> {
         self.kernel_definition.name()
     }
 
-    fn address_type(&self) -> StorageType {
+    fn address_type(&self) -> ElemType {
         self.kernel_definition.address_type()
     }
 }
@@ -219,7 +200,7 @@ impl<C: Compiler> KernelMetadata for Box<dyn CubeTask<C>> {
         self.as_ref().name()
     }
 
-    fn address_type(&self) -> StorageType {
+    fn address_type(&self) -> ElemType {
         self.as_ref().address_type()
     }
 }
