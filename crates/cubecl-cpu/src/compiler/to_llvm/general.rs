@@ -1,6 +1,8 @@
+
 use super::ToLLVMDialect;
 use cubecl_core::ir::dialect::general::CastOp;
-use cubecl_core::ir::interfaces::ScalarizableType;
+use cubecl_core::ir::dialect::vector::VectorBroadcastOp;
+use cubecl_core::ir::interfaces::{ScalarizableType, TypedExt};
 use cubecl_core::ir::prelude::*;
 use cubecl_core::ir::types::VectorType as CubeVectorType;
 use cubecl_core::ir::types::scalar::{BoolType, IndexType};
@@ -130,6 +132,46 @@ impl ToLLVMDialect for CastOp {
         {
             cast_float_to_int(self, out_signed, ctx, rewriter);
         }
+
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl ToLLVMDialect for VectorBroadcastOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let vec_ty = cube_type_to_llvm(ctx, self.get_result(ctx).get_type(ctx));
+        let poison = llvm::PoisonOp::new(ctx, vec_ty);
+        rewriter.insert_op(ctx, &poison);
+        let i32_zero_attr = IntegerAttr::new(
+            IntegerType::get(ctx, 32, Signedness::Signless),
+            APInt::from_i128(0, bw(32)),
+        );
+        let zero = llvm::ConstantOp::new(ctx, i32_zero_attr.into());
+        rewriter.insert_op(ctx, &zero);
+        let num_lanes = self.get_result(ctx).get_type(ctx).vector_size(ctx);
+
+        let scalar = self.input(ctx);
+        let inserted =
+            llvm::InsertElementOp::new(ctx, poison.get_result(ctx), scalar, zero.get_result(ctx));
+
+        rewriter.insert_op(ctx, &inserted);
+
+        let mask = vec![0; num_lanes];
+        let splat =
+            llvm::ShuffleVectorOp::new(ctx, inserted.get_result(ctx), poison.get_result(ctx), mask);
+
+        rewriter.insert_op(ctx, &splat);
+        rewriter.replace_operation_with_values(
+            ctx,
+            self.get_operation(),
+            vec![splat.get_result(ctx)],
+        );
 
         Ok(())
     }

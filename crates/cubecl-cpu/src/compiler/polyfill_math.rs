@@ -72,11 +72,11 @@ fn arc_cosh<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     (x + (x * x - Vector::one()).sqrt()).ln()
 }
 
-lower_unary_math_arith!(ArcCoshOp => arc_sinh);
+lower_unary_math_arith!(ArcCoshOp => arc_cosh);
 
 #[cube]
 fn arc_tanh<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
-    Vector::new(F::new(0.5f32)) * ((x + Vector::one()) / (x - Vector::one())).ln()
+    Vector::new(F::new(0.5f32)) * ((Vector::one() + x) / (Vector::one() - x)).ln()
 }
 
 lower_unary_math_arith!(ArcTanhOp => arc_tanh);
