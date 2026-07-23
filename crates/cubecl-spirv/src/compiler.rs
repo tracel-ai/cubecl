@@ -14,8 +14,11 @@ use cubecl_core::{
     Compiler, WgpuCompilationOptions,
     ir::{ContextExt, attributes::FuncInterface, ident, metadata::Info, rewrite::SimplifyOpsPass},
     post_processing::{
-        bitwise::PromoteBitwisePass, disaggregate::DisaggregatePass,
-        saturating::LowerSaturatingArithmeticPass, unroll::UnrollPass,
+        bitwise::PromoteBitwisePass,
+        checked_io::{CheckedIo, CheckedIoPass},
+        disaggregate::DisaggregatePass,
+        saturating::LowerSaturatingArithmeticPass,
+        unroll::UnrollPass,
     },
     prelude::{KernelDefinition, Visibility},
 };
@@ -23,7 +26,7 @@ use cubecl_ir::{
     attributes::{ATTR_BUFFER_IO, BufferIOAttr, EntrypointInterface},
     prelude::{SingleBlockRegionInterface, SymbolOpInterface},
     rewrite::visit_all_ops_of_type_mut,
-    settings::Dim3,
+    settings::{Dim3, KernelSettings},
 };
 use cubecl_opt::passes::{
     alloc_shared_memory::AllocateSharedMemoryBlockPass,
@@ -131,6 +134,7 @@ impl Compiler for SpirvCompiler {
         let (module, shared_size) = self.compile_kernel(
             &mut ctx,
             module,
+            value.settings.clone(),
             #[cfg(feature = "std")]
             ir_printing_dir,
         );
@@ -166,6 +170,7 @@ impl SpirvCompiler {
         &mut self,
         ctx: &mut Context,
         module: ModuleOp,
+        settings: KernelSettings,
         #[cfg(feature = "std")] ir_printing_dir: Option<std::path::PathBuf>,
     ) -> (Module, usize) {
         let comp_opts = ctx.aux_ty::<WgpuCompilationOptions>();
@@ -187,6 +192,10 @@ impl SpirvCompiler {
 
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
         func_passes.add_pass(DisaggregatePass);
+        func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
+            settings.execution_mode,
+            settings.kernel_name,
+        )));
         func_passes.add_pass(UnrollPass::new(comp_opts.vulkan.max_vector_size));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
         func_passes.add_pass(LowerSaturatingArithmeticPass::default());

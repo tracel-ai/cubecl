@@ -2,7 +2,7 @@ use core::fmt::{self, Display, Write};
 
 use cubecl_core::prelude::Visibility;
 use cubecl_ir::{
-    AddressSpace, GlobalState,
+    AddressSpace, CanMaterialize, GlobalState, Pure,
     attributes::{
         ATTR_BUFFER_BINDING, ATTR_BUFFER_IO, BufferBindingAttr, BufferIOAttr, EntrypointInterface,
         FuncInterface,
@@ -75,6 +75,7 @@ impl OpToWgsl for GlobalVariableOp {
     format = "`@` attr($variable, $IdentifierAttr) ` : ` type($0)"
 )]
 #[result_ty(argument)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct AddressOfOp {
     variable: IdentifierAttr,
 }

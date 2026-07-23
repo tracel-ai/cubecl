@@ -15,23 +15,23 @@ pub trait Int:
     Numeric
     + CubeNot
     + CountOnes
-    + ReverseBits
+    + ScalarReverseBits
     + LeadingZeros
     + TrailingZeros
     + FindFirstSet
-    + SaturatingAdd
-    + SaturatingSub
-    + CubeBitOr
-    + CubeBitAnd
-    + CubeBitXor
-    + CubeShl
-    + CubeShr
-    + CubeNot
+    + ScalarSaturatingAdd
+    + ScalarSaturatingSub
+    + ScalarBitOr
+    + ScalarBitAnd
+    + ScalarBitXor
+    + ScalarShl
+    + ScalarShr
     + CubeBitOrAssign
     + CubeBitAndAssign
     + CubeBitXorAssign
     + CubeShlAssign
     + CubeShrAssign
+    + ScalarOrd
     + core::ops::ShlAssign<u32>
     + core::ops::ShrAssign<u32>
     + core::hash::Hash

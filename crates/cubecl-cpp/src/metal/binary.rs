@@ -93,7 +93,7 @@ impl LowerOp<Metal> for SMulHiOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
         let ctx = scope.ctx();
         let lhs = self.lhs(ctx);
-        let val = if lhs.is_int_of_width(ctx, 32) {
+        let val = if lhs.size_bits(ctx) == 32 {
             expand_s_himul_64(scope, lhs, self.rhs(ctx))
         } else {
             expand_himul_sim(scope, lhs, self.rhs(ctx))
@@ -107,7 +107,7 @@ impl LowerOp<Metal> for UMulHiOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
         let ctx = scope.ctx();
         let lhs = self.lhs(ctx);
-        let val = if lhs.is_int_of_width(ctx, 32) {
+        let val = if lhs.size_bits(ctx) == 32 {
             expand_u_himul_64(scope, lhs, self.rhs(ctx))
         } else {
             expand_himul_sim(scope, lhs, self.rhs(ctx))

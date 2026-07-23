@@ -23,7 +23,9 @@ use cubecl_core::{
         settings::Dim3,
     },
     post_processing::{
-        bitwise::PromoteBitwisePass, disaggregate::DisaggregatePass,
+        bitwise::PromoteBitwisePass,
+        checked_io::{CheckedIo, CheckedIoPass},
+        disaggregate::DisaggregatePass,
         saturating::LowerSaturatingArithmeticPass,
     },
     prelude::KernelDefinition,
@@ -177,6 +179,10 @@ where
 
         func_passes.add_pass(LowerInfoPass);
         func_passes.add_pass(DisaggregatePass);
+        func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
+            value.settings.execution_mode,
+            value.settings.kernel_name,
+        )));
         func_passes.add_pass(AllocateSharedMemoryBlockPass);
 
         // Shared lowerings can create ops that need target-specific lowerings, but target-specific

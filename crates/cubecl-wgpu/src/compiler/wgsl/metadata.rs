@@ -1,14 +1,16 @@
 use cubecl_common::stub::LazyLock;
 use cubecl_ir::{
-    AddressSpace, Scope,
+    AddressSpace, CanMaterialize, Pure, Scope,
     attributes::{BufferBindingAttr, BufferIOAttr, IndexAttr},
     dialect::{
         general::{BufferLenOp, ReadScalarOp, ShapeOp, StrideOp},
         math::IAddOp,
     },
     ident,
+    interfaces::ScalarType,
     metadata::Info,
     prelude::*,
+    try_cast_ty,
     types::{ArrayType, RuntimeArrayType, scalar::IndexType},
 };
 use itertools::Itertools;
@@ -32,12 +34,14 @@ pub static DYNAMIC_META: LazyLock<Identifier> =
     LazyLock::new(|| "dynamic_meta".try_into().unwrap());
 
 wgsl_op_with_out!(ReadScalarOp; |op, ctx| {
-    let ty = op.ty(ctx).to_wgsl(ctx);
-    format!("{}.scalars_{ty}[{}]", &*INFO_VAR, op.id(ctx).0)
+    let ty = op.ty(ctx).get_type(ctx).deref(ctx);
+    let elem = try_cast_ty!(ty, ctx, dyn ScalarType).elem_type(ctx);
+    format!("{}.scalars_{elem}[{}]", &*INFO_VAR, op.id(ctx).0)
 });
 
 #[cube_op(name = "wgsl.read_static_meta")]
 #[result_ty(fixed = IndexType::get(ctx).to_handle())]
+#[op_traits(Pure, CanMaterialize)]
 pub struct ReadStaticMetaOp {
     pub idx: IndexAttr,
 }
@@ -49,6 +53,7 @@ wgsl_op_with_out!(ReadStaticMetaOp; |op, ctx| {
 
 #[cube_op(name = "wgsl.read_dynamic_meta")]
 #[result_ty(fixed = IndexType::get(ctx).to_handle())]
+#[op_traits(Pure, CanMaterialize)]
 pub struct ReadDynamicMetaOp {
     pub idx: Value,
 }
@@ -110,7 +115,7 @@ pub fn declare_info(ctx: &mut Context, entry_func: FuncOp, num_buffers: usize) {
     let mut fields = vec![];
     for scalar in &info.scalars {
         let elem_ty = scalar.ty.to_type(ctx);
-        let name = ident(format!("scalars_{}", elem_ty.to_wgsl(ctx)));
+        let name = ident(format!("scalars_{}", scalar.ty));
         let ty = ArrayType::get(ctx, elem_ty, scalar.padded_size(ctx)).to_handle();
         fields.push(FieldAttr::new(name, ty));
     }

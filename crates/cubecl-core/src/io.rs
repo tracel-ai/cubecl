@@ -1,4 +1,4 @@
-use crate as cubecl;
+use crate::{self as cubecl, frontend::buffer_len::expand_buffer_length_native};
 use cubecl::prelude::*;
 use cubecl_ir::pliron::{common_traits::Named, value::Value};
 

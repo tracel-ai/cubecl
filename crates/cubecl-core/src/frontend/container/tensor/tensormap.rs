@@ -287,6 +287,8 @@ tma_store!(5, v, w, z, y, x);
 mod metadata {
     use cubecl_ir::dialect::general::{ShapeOp, StrideOp};
 
+    use crate::frontend::container::buffer_len::expand_buffer_length_native;
+
     use super::*;
 
     type TensorMapExpand<T, K> = NativeExpand<TensorMap<T, K>>;

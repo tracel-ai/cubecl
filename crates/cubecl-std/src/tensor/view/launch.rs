@@ -712,7 +712,7 @@ mod dynamic {
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
             let storage = E::Scalar::elem_type(builder);
-            let vector_size = E::vector_size();
+            let vector_size = E::__expand_vector_size(builder);
             let ty = Type::new(storage).with_vector_size(vector_size);
             match arg {
                 ViewCompilationArg::Array { buffer, layout } => {

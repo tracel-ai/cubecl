@@ -9,7 +9,9 @@ use crate::frontend::NativeExpand;
 use crate::ir::Scope;
 use crate::prelude::*;
 
-// NOTE: Unary comparison tests are in the unary module
+/// These `Scalar` traits fix Rust's broken inference on the `Scalar` associated type
+pub trait ScalarPartialEq: CubePartialEq + PartialEqNativeExpand {}
+impl<T: CubePartialEq + PartialEqNativeExpand> ScalarPartialEq for T {}
 
 pub trait CubePartialEq:
     PartialEq
@@ -142,6 +144,9 @@ pub trait CubeOrdering {
 }
 
 impl CubeOrdering for Ordering {}
+
+pub trait ScalarOrd: CubeOrd + OrdNativeExpand {}
+impl<T: CubeOrd + OrdNativeExpand> ScalarOrd for T {}
 
 pub trait CubeOrd:
     Ord
@@ -289,10 +294,13 @@ impl<T: CubeOrd> OrdExpand for NativeExpand<T> {
     }
 }
 
+pub trait ScalarPartialOrd: CubePartialOrd + PartialOrdNativeExpand + OrdNativeExpand {}
+impl<T: CubePartialOrd + PartialOrdNativeExpand + OrdNativeExpand> ScalarPartialOrd for T {}
+
 pub trait CubePartialOrd:
     PartialOrd
     + CubeType<ExpandType: PartialOrdExpand>
-    + CubePrimitive<Scalar: PartialOrdScalarExpand + OrdNativeExpand>
+    + CubePrimitive<Scalar: PartialOrdNativeExpand + OrdNativeExpand>
     + Sized
 {
     fn __expand_partial_cmp(
@@ -344,7 +352,7 @@ pub trait PartialOrdExpand {
     fn __expand_ge_method(&self, scope: &Scope, rhs: &Self) -> NativeExpand<bool>;
 }
 
-pub trait PartialOrdScalarExpand {
+pub trait PartialOrdNativeExpand {
     fn __expand_native_lt(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue;
     fn __expand_native_le(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue;
     fn __expand_native_gt(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue;
@@ -353,7 +361,7 @@ pub trait PartialOrdScalarExpand {
 
 macro_rules! impl_partial_ord {
     ($($ty: ty),*; $lt: ty, $le: ty, $gt: ty, $ge: ty) => {
-        $(impl PartialOrdScalarExpand for $ty {
+        $(impl PartialOrdNativeExpand for $ty {
             fn __expand_native_lt(
                 scope: &Scope,
                 lhs: ExpandValue,
@@ -390,7 +398,7 @@ impl_partial_ord!(i8, i16, i32, i64, isize; SLessThanOp, SLessThanOrEqualOp, SGr
 impl_partial_ord!(u8, u16, u32, u64, usize; ULessThanOp, ULessThanOrEqualOp, UGreaterThanOp, UGreaterThanOrEqualOp);
 impl_partial_ord!(f16, bf16, f32, flex32, tf32, f64; FLessThanOp, FLessThanOrEqualOp, FGreaterThanOp, FGreaterThanOrEqualOp);
 
-impl<T: PartialOrd + CubePrimitive<Scalar: PartialOrdScalarExpand + OrdNativeExpand>> CubePartialOrd
+impl<T: PartialOrd + CubePrimitive<Scalar: PartialOrdNativeExpand + OrdNativeExpand>> CubePartialOrd
     for T
 {
 }

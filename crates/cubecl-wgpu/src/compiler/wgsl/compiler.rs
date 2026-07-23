@@ -8,7 +8,9 @@ use cubecl_core::{
     WgpuCompilationOptions,
     backtrace::BackTrace,
     post_processing::{
-        disaggregate::DisaggregatePass, saturating::LowerSaturatingArithmeticPass,
+        checked_io::{CheckedIo, CheckedIoPass},
+        disaggregate::DisaggregatePass,
+        saturating::LowerSaturatingArithmeticPass,
         unroll::UnrollPass,
     },
 };
@@ -107,8 +109,11 @@ impl WgslCompiler {
         let mut passes = OpPass::<ModuleOp, Passes>::default();
         let mut func_passes = OpPass::<FuncOp, Passes>::default();
 
-        // func_passes.add_pass(LowerInfoPass);
         func_passes.add_pass(DisaggregatePass);
+        func_passes.add_pass(CheckedIoPass::new(CheckedIo::new(
+            value.settings.execution_mode,
+            value.settings.kernel_name.clone(),
+        )));
         func_passes.add_pass(UnrollPass::new(MAX_VECTOR_SIZE));
 
         func_passes.add_pass(LowerOpsWgslPass::default());

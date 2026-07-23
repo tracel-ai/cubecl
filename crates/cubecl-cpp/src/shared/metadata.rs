@@ -3,8 +3,10 @@ use cubecl_core::ir::{
     attributes::{FuncInterface, IndexAttr},
     dialect::general::{BufferLenOp, ReadScalarOp, ShapeOp, StrideOp},
     ident,
+    interfaces::ScalarType,
     prelude::*,
     rewrite::RewriteOp,
+    try_cast_ty,
     types::scalar::IndexType,
 };
 use pliron::{
@@ -18,7 +20,7 @@ use crate::{
     shared::{
         CompilationOptions, CompilationState, shared_op_with_out,
         signature::{LoadDynMetaOp, LoadInfoOp},
-        ty::{InfoStructType, TypeExtCPP, UniformPointerType},
+        ty::{InfoStructType, UniformPointerType},
     },
 };
 
@@ -52,8 +54,9 @@ pub struct CppReadDynamicMetaOp {
 }
 
 shared_op_with_out!(CppReadScalarOp, |op, ctx| {
+    let ty = op.ty(ctx).get_type(ctx).deref(ctx);
+    let elem = try_cast_ty!(ty, ctx, dyn ScalarType).elem_type(ctx);
     let base = op.base(ctx).name(ctx);
-    let elem = op.ty(ctx).to_cpp(ctx);
     let offset = op.id(ctx).0;
     format!("{base}.scalars_{elem}[{offset}]")
 });

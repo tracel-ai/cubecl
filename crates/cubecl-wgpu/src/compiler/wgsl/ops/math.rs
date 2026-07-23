@@ -236,7 +236,7 @@ impl LowerOp for SMulHiOp {
         let ctx = scope.ctx();
         let has_u64 = ctx.aux_ty::<WgpuCompilationOptions>().supports_u64;
         let lhs = self.lhs(ctx);
-        let val = if lhs.is_int_of_width(ctx, 32) && has_u64 {
+        let val = if lhs.size_bits(ctx) == 32 && has_u64 {
             expand_s_himul_64(scope, lhs, self.rhs(ctx))
         } else {
             expand_himul_sim(scope, lhs, self.rhs(ctx))
@@ -251,7 +251,7 @@ impl LowerOp for UMulHiOp {
         let ctx = scope.ctx();
         let has_u64 = ctx.aux_ty::<WgpuCompilationOptions>().supports_u64;
         let lhs = self.lhs(ctx);
-        let val = if lhs.is_int_of_width(ctx, 32) && has_u64 {
+        let val = if lhs.size_bits(ctx) == 32 && has_u64 {
             expand_u_himul_64(scope, lhs, self.rhs(ctx))
         } else {
             expand_himul_sim(scope, lhs, self.rhs(ctx))
