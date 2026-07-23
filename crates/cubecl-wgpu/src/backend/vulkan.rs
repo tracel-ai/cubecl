@@ -394,7 +394,33 @@ fn register_features(
         props.memory.max_page_size = max_page_size;
     }
 
-    if extended_feat.cooperative_matrix.is_some() {
+    // VK_KHR_cooperative_matrix computes wrong results on Intel Xe3 GPUs with
+    // Mesa ANV: coopmat loads from shared memory at distinct offsets all
+    // return the offset-0 tile, so every N-tile of a tiled matmul comes out
+    // as A x B_tile0 (observed as garbage LLM output). The generated SPIR-V,
+    // the driver's NIR and the final ISA are all correct, so it is an
+    // ANV-codegen-or-hardware issue, tracked at
+    // https://gitlab.freedesktop.org/mesa/mesa/-/issues/15932 (standalone
+    // reproducer there). Deny cmma on the known-affected device ids; this is
+    // a correctness gate only. Perf-only concerns on other Intel parts
+    // (mesa#12585, mesa#15216) are left to autotune, which benchmarks cmma
+    // against the plain matmul and drops it when it loses. Ids come from
+    // Mesa's include/pci_ids/iris_pci_ids.h. Nova Lake (Xe3-based) is
+    // untested and should be checked when hardware ships.
+    const VENDOR_INTEL: u32 = 0x8086;
+    const INTEL_XE3_CMMA_BROKEN: &[u32] = &[
+        // PTL (Panther Lake): confirmed broken on Arc B390 (0xb080).
+        0xb080, 0xb081, 0xb082, 0xb083, 0xb084, 0xb085, 0xb086, 0xb087, 0xb08f, 0xb090, 0xb0a0,
+        0xb0b0, // WCL (Wildcat Lake): same Xe3 architecture, assumed affected.
+        0xfd80, 0xfd81,
+    ];
+    let pdev = unsafe {
+        ash.raw_instance()
+            .get_physical_device_properties(adapter.raw_physical_device())
+    };
+    let cmma_broken =
+        pdev.vendor_id == VENDOR_INTEL && INTEL_XE3_CMMA_BROKEN.contains(&pdev.device_id);
+    if extended_feat.cooperative_matrix.is_some() && !cmma_broken {
         register_cmma(ash, adapter, props);
     }
 
