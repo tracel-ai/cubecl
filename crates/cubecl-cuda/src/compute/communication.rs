@@ -1,19 +1,43 @@
-use std::{collections::HashMap, sync::OnceLock};
+use std::{
+    collections::HashMap,
+    io::{ErrorKind, Read, Write},
+    mem::{self, MaybeUninit},
+    net::{TcpListener, TcpStream},
+    sync::OnceLock,
+    time::{Duration, Instant},
+};
 
+use cubecl_common::backtrace::BackTrace;
 use cubecl_core::{
     device::DeviceId,
     ir::ElemType,
-    server::{CommunicationId, ReduceOperation},
+    server::{ClusterInfo, CommunicationId, ReduceOperation, ServerError},
     stub::Mutex,
 };
 
-/// Global state map from [`CommunicationId`] to boxed [`cudarc::nccl::sys::ncclUniqueId`].
+/// The `ncclUniqueId` wire size — NCCL defines this as a 128-byte opaque blob.
+const NCCL_UNIQUE_ID_BYTES: usize = mem::size_of::<cudarc::nccl::sys::ncclUniqueId>();
+
+/// Overall deadline for the rendezvous (connect + handshake + payload) on both sides.
+/// Matches `PyTorch`'s `TCPStore` default and is generous enough for slow multi-host startup.
+const RENDEZVOUS_DEADLINE: Duration = Duration::from_secs(300);
+/// Per-stream read/write timeout — bounds how long a stalled peer can block the runner thread.
+const RENDEZVOUS_IO_TIMEOUT: Duration = Duration::from_secs(30);
+/// Polling interval for the fetcher's connect retries and the publisher's accept loop.
+const RENDEZVOUS_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// In-process map from local [`CommunicationId`] to its [`ncclUniqueId`](cudarc::nccl::sys::ncclUniqueId).
+///
+/// The first server in a group generates the id and stores it here; subsequent servers fetch
+/// the same value. This shared-memory rendezvous is what makes the local case work without an
+/// external coordinator — distributed groups perform their own rendezvous inside `comm_init`.
 static UNIQUE_IDS_MAP: OnceLock<Mutex<HashMap<CommunicationId, cudarc::nccl::sys::ncclUniqueId>>> =
     OnceLock::new();
 
-pub(crate) fn get_nccl_comm_id(device_ids: Vec<DeviceId>) -> cudarc::nccl::sys::ncclUniqueId {
+/// Fetch (or generate) the `ncclUniqueId` for a local communication group.
+pub(crate) fn get_nccl_comm_id_local(devices: &[DeviceId]) -> cudarc::nccl::sys::ncclUniqueId {
     let mut unique_ids_map = UNIQUE_IDS_MAP.get_or_init(Default::default).lock().unwrap();
-    let comm_id = CommunicationId::from(device_ids);
+    let comm_id = CommunicationId::local(devices);
     match unique_ids_map.get_mut(&comm_id) {
         Some(id) => *id,
         None => {
@@ -21,6 +45,200 @@ pub(crate) fn get_nccl_comm_id(device_ids: Vec<DeviceId>) -> cudarc::nccl::sys::
             unique_ids_map.insert(comm_id, id);
             id
         }
+    }
+}
+
+/// Bootstrap an `ncclUniqueId` across the processes participating in a distributed group.
+///
+/// Rank 0 generates the id, binds to [`ClusterInfo::rendezvous_addr`], and sends the 128-byte
+/// blob to each of the `world_size - 1` peers that connect. Every other rank connects to the
+/// same address (with retry) and reads the 128 bytes.
+///
+/// This is intentionally minimal — no long-lived store, no key/value semantics: a single group
+/// per endpoint, one-shot. Spin up a separate endpoint per group if you need multiple in flight.
+pub(crate) fn rendezvous_distributed_unique_id(
+    cluster: &ClusterInfo,
+    rank: i32,
+) -> Result<cudarc::nccl::sys::ncclUniqueId, ServerError> {
+    let deadline = Instant::now() + RENDEZVOUS_DEADLINE;
+    if rank == 0 {
+        let id = cudarc::nccl::result::get_uniqueid().map_err(|e| ServerError::Generic {
+            reason: format!("NCCL get_uniqueid failed: {e:?}"),
+            backtrace: BackTrace::capture(),
+        })?;
+        let listener =
+            TcpListener::bind(cluster.rendezvous_addr).map_err(|e| ServerError::Generic {
+                reason: format!(
+                    "Rendezvous: rank 0 failed to bind {}: {e}",
+                    cluster.rendezvous_addr
+                ),
+                backtrace: BackTrace::capture(),
+            })?;
+        publish_unique_id(
+            listener,
+            cluster.group_id,
+            cluster.world_size,
+            &id,
+            deadline,
+        )?;
+        Ok(id)
+    } else {
+        fetch_unique_id(cluster.rendezvous_addr, cluster.group_id, deadline)
+    }
+}
+
+fn publish_unique_id(
+    listener: TcpListener,
+    group_id: u64,
+    world_size: u32,
+    id: &cudarc::nccl::sys::ncclUniqueId,
+    deadline: Instant,
+) -> Result<(), ServerError> {
+    // Nonblocking so the accept loop can enforce the deadline. Each accepted stream is switched
+    // back to blocking + per-IO timeout inside `handshake_and_send`.
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| rendezvous_err(format!("set_nonblocking on listener failed: {e}")))?;
+
+    let bytes = unique_id_as_bytes(id);
+    let expected_handshake = group_id.to_le_bytes();
+    let total_peers = world_size.saturating_sub(1);
+    let mut remaining = total_peers;
+
+    while remaining > 0 {
+        match listener.accept() {
+            Ok((stream, peer)) => {
+                if let Err(reason) = handshake_and_send(stream, &expected_handshake, bytes) {
+                    // Wrong group / IO error on this peer — drop it and keep accepting. A
+                    // misrouted connection must not consume a slot meant for a real peer.
+                    tracing_skip(&peer.to_string(), &reason);
+                    continue;
+                }
+                remaining -= 1;
+            }
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline {
+                    return Err(rendezvous_err(format!(
+                        "rank 0 timed out waiting for peers ({remaining} of {total_peers} still missing)"
+                    )));
+                }
+                std::thread::sleep(RENDEZVOUS_POLL_INTERVAL);
+            }
+            Err(e) => {
+                return Err(rendezvous_err(format!("rank 0 accept failed: {e}")));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn handshake_and_send(
+    mut stream: TcpStream,
+    expected_handshake: &[u8; 8],
+    payload: &[u8],
+) -> Result<(), String> {
+    stream
+        .set_nonblocking(false)
+        .map_err(|e| format!("set_nonblocking(false): {e}"))?;
+    stream
+        .set_read_timeout(Some(RENDEZVOUS_IO_TIMEOUT))
+        .map_err(|e| format!("set_read_timeout: {e}"))?;
+    stream
+        .set_write_timeout(Some(RENDEZVOUS_IO_TIMEOUT))
+        .map_err(|e| format!("set_write_timeout: {e}"))?;
+
+    let mut handshake = [0u8; 8];
+    stream
+        .read_exact(&mut handshake)
+        .map_err(|e| format!("reading handshake: {e}"))?;
+    if &handshake != expected_handshake {
+        return Err(format!(
+            "group_id mismatch (got {:#018x}, expected {:#018x})",
+            u64::from_le_bytes(handshake),
+            u64::from_le_bytes(*expected_handshake),
+        ));
+    }
+    stream
+        .write_all(payload)
+        .map_err(|e| format!("sending ncclUniqueId: {e}"))?;
+    Ok(())
+}
+
+fn fetch_unique_id(
+    addr: core::net::SocketAddr,
+    group_id: u64,
+    deadline: Instant,
+) -> Result<cudarc::nccl::sys::ncclUniqueId, ServerError> {
+    let mut stream = loop {
+        match TcpStream::connect_timeout(&addr, RENDEZVOUS_IO_TIMEOUT) {
+            Ok(s) => break s,
+            // Only retry while rank 0 hasn't bound yet. Any other error is propagated as-is.
+            Err(e) if e.kind() == ErrorKind::ConnectionRefused && Instant::now() < deadline => {
+                std::thread::sleep(RENDEZVOUS_POLL_INTERVAL);
+            }
+            Err(e) => {
+                return Err(rendezvous_err(format!(
+                    "timed out connecting to {addr}: {e}"
+                )));
+            }
+        }
+    };
+    stream
+        .set_read_timeout(Some(RENDEZVOUS_IO_TIMEOUT))
+        .map_err(|e| rendezvous_err(format!("set_read_timeout: {e}")))?;
+    stream
+        .set_write_timeout(Some(RENDEZVOUS_IO_TIMEOUT))
+        .map_err(|e| rendezvous_err(format!("set_write_timeout: {e}")))?;
+
+    stream
+        .write_all(&group_id.to_le_bytes())
+        .map_err(|e| rendezvous_err(format!("sending handshake: {e}")))?;
+
+    let mut buf = [0u8; NCCL_UNIQUE_ID_BYTES];
+    stream
+        .read_exact(&mut buf)
+        .map_err(|e| rendezvous_err(format!("reading ncclUniqueId: {e}")))?;
+    Ok(unique_id_from_bytes(&buf))
+}
+
+fn rendezvous_err(reason: impl Into<String>) -> ServerError {
+    ServerError::Generic {
+        reason: format!("Rendezvous: {}", reason.into()),
+        backtrace: BackTrace::capture(),
+    }
+}
+
+fn tracing_skip(peer: &str, reason: &str) {
+    #[cfg(feature = "tracing")]
+    tracing::warn!(
+        target: "cubecl_cuda::rendezvous",
+        peer = peer,
+        reason = reason,
+        "dropping rendezvous connection"
+    );
+    #[cfg(not(feature = "tracing"))]
+    {
+        let _ = (peer, reason);
+    }
+}
+
+fn unique_id_as_bytes(id: &cudarc::nccl::sys::ncclUniqueId) -> &[u8] {
+    // SAFETY: `ncclUniqueId` is a `#[repr(C)]` POD struct holding exactly
+    // NCCL_UNIQUE_ID_BYTES of opaque bytes; reading it as a byte slice is well-defined.
+    unsafe { core::slice::from_raw_parts(id as *const _ as *const u8, NCCL_UNIQUE_ID_BYTES) }
+}
+
+fn unique_id_from_bytes(bytes: &[u8; NCCL_UNIQUE_ID_BYTES]) -> cudarc::nccl::sys::ncclUniqueId {
+    // SAFETY: `ncclUniqueId` is a `#[repr(C)]` POD struct of exactly NCCL_UNIQUE_ID_BYTES.
+    // Writing a same-sized byte buffer into an uninit slot of that type is well-defined.
+    let mut out = MaybeUninit::<cudarc::nccl::sys::ncclUniqueId>::uninit();
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            bytes.as_ptr(),
+            out.as_mut_ptr() as *mut u8,
+            NCCL_UNIQUE_ID_BYTES,
+        );
+        out.assume_init()
     }
 }
 
@@ -102,5 +320,145 @@ pub(crate) fn get_nccl_dtype_count(
             ),
         },
         ElemType::Bool => panic!("NCCL doesn't support Bool format."),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+
+    fn make_test_id(seed: u8) -> cudarc::nccl::sys::ncclUniqueId {
+        unique_id_from_bytes(&[seed; NCCL_UNIQUE_ID_BYTES])
+    }
+
+    fn bytes_of(id: &cudarc::nccl::sys::ncclUniqueId) -> [u8; NCCL_UNIQUE_ID_BYTES] {
+        let mut out = [0u8; NCCL_UNIQUE_ID_BYTES];
+        out.copy_from_slice(unique_id_as_bytes(id));
+        out
+    }
+
+    fn bind_loopback() -> (TcpListener, core::net::SocketAddr) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        (listener, addr)
+    }
+
+    #[test]
+    fn unique_id_byte_roundtrip_preserves_all_128_bytes() {
+        let mut bytes = [0u8; NCCL_UNIQUE_ID_BYTES];
+        for (i, b) in bytes.iter_mut().enumerate() {
+            *b = (i as u8).wrapping_mul(7).wrapping_add(13);
+        }
+        let id = unique_id_from_bytes(&bytes);
+        assert_eq!(bytes_of(&id), bytes);
+    }
+
+    #[test]
+    fn rendezvous_single_fetcher_roundtrip() {
+        let (listener, addr) = bind_loopback();
+        let id = make_test_id(0xAB);
+        let id_bytes = bytes_of(&id);
+        let deadline = Instant::now() + Duration::from_secs(5);
+
+        let publisher = thread::spawn(move || publish_unique_id(listener, 7, 2, &id, deadline));
+
+        let fetched = fetch_unique_id(addr, 7, deadline).expect("fetch should succeed");
+        assert_eq!(bytes_of(&fetched), id_bytes);
+        publisher.join().unwrap().expect("publish should succeed");
+    }
+
+    #[test]
+    fn rendezvous_multiple_fetchers_all_receive_same_id() {
+        let (listener, addr) = bind_loopback();
+        let id = make_test_id(0xCD);
+        let id_bytes = bytes_of(&id);
+        let deadline = Instant::now() + Duration::from_secs(5);
+
+        let publisher = thread::spawn(move || publish_unique_id(listener, 99, 4, &id, deadline));
+
+        let fetchers: Vec<_> = (0..3)
+            .map(|_| thread::spawn(move || fetch_unique_id(addr, 99, deadline)))
+            .collect();
+
+        for handle in fetchers {
+            let fetched = handle.join().unwrap().expect("fetch should succeed");
+            assert_eq!(bytes_of(&fetched), id_bytes);
+        }
+        publisher.join().unwrap().expect("publish should succeed");
+    }
+
+    #[test]
+    fn publish_times_out_when_peers_never_connect() {
+        let (listener, _addr) = bind_loopback();
+        let id = make_test_id(0);
+        let deadline = Instant::now() + Duration::from_millis(300);
+
+        let result = publish_unique_id(listener, 1, 2, &id, deadline);
+        let err = result.expect_err("publish should time out");
+        match err {
+            ServerError::Generic { reason, .. } => assert!(
+                reason.contains("timed out waiting for peers"),
+                "unexpected error: {reason}"
+            ),
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fetch_times_out_when_no_publisher() {
+        // Probe an ephemeral port, then drop the listener so the port is unbound.
+        let (probe, addr) = bind_loopback();
+        drop(probe);
+
+        let deadline = Instant::now() + Duration::from_millis(300);
+        let result = fetch_unique_id(addr, 1, deadline);
+        let err = result.expect_err("fetch should time out");
+        match err {
+            ServerError::Generic { reason, .. } => assert!(
+                reason.contains("timed out connecting"),
+                "unexpected error: {reason}"
+            ),
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn handshake_mismatch_is_dropped_and_does_not_consume_a_slot() {
+        let (listener, addr) = bind_loopback();
+        let id = make_test_id(0x12);
+        let id_bytes = bytes_of(&id);
+        let deadline = Instant::now() + Duration::from_secs(5);
+
+        // world_size = 2 → publisher expects exactly 1 valid peer. The misrouted connection
+        // below must NOT count toward that 1, otherwise the good fetcher will hang.
+        let publisher = thread::spawn(move || publish_unique_id(listener, 100, 2, &id, deadline));
+
+        // Bad peer: connect, send wrong group_id, expect EOF on read because publisher dropped us.
+        let mut bad = TcpStream::connect(addr).expect("bad peer should connect");
+        bad.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        bad.write_all(&999u64.to_le_bytes()).unwrap();
+        let mut bad_buf = [0u8; NCCL_UNIQUE_ID_BYTES];
+        let bad_result = bad.read_exact(&mut bad_buf);
+        assert!(
+            bad_result.is_err(),
+            "bad peer must not receive the ncclUniqueId"
+        );
+
+        // Good peer: should still succeed because the bad one didn't consume the slot.
+        let good = fetch_unique_id(addr, 100, deadline).expect("good fetch should succeed");
+        assert_eq!(bytes_of(&good), id_bytes);
+
+        publisher.join().unwrap().expect("publish should succeed");
+    }
+
+    #[test]
+    fn world_size_one_publish_returns_immediately() {
+        // world_size = 1 means rank 0 is the only participant — no peers, no waiting.
+        let (listener, _addr) = bind_loopback();
+        let id = make_test_id(0xEE);
+        let deadline = Instant::now() + Duration::from_secs(5);
+
+        publish_unique_id(listener, 42, 1, &id, deadline).expect("publish should succeed");
     }
 }
