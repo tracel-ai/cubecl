@@ -36,6 +36,9 @@ mod statement;
 /// # Arguments
 /// * `launch` - generates a function to launch the kernel
 /// * `launch_unchecked` - generates a launch function without checks
+/// * `address_type` - controls the kernel address width. Supported values are `"u32"`, `"u64"`,
+///   `"dynamic"`, and `"auto"`. The automatic mode selects the width from launch buffer lengths;
+///   it doesn't inspect the kernel's index arithmetic.
 /// * `debug` - panics after generation to print the output to console
 /// * `create_dummy_kernel` - Generates a function to create a kernel without launching it. Used for
 ///   testing.

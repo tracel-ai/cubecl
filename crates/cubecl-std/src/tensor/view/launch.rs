@@ -484,6 +484,24 @@ mod dynamic {
                 scheme,
             }
         }
+
+        fn required_address_type(&self, elem_size: usize) -> AddressType {
+            match self {
+                ViewArg::Array(buffer, _) => buffer.required_address_type(elem_size),
+                ViewArg::Tensor(buffer, _) => buffer.required_address_type(elem_size),
+                ViewArg::TensorMapTiled(buffer, _) => {
+                    buffer.tensor.required_address_type(elem_size)
+                }
+                ViewArg::TensorMapIm2col(buffer, _) => {
+                    buffer.tensor.required_address_type(elem_size)
+                }
+                // The storage and scale types are selected dynamically from the quantization
+                // scheme. Counting bytes is conservative for both buffers.
+                ViewArg::Quantized { values, scales, .. } => values
+                    .required_address_type(1)
+                    .max(scales.required_address_type(1)),
+            }
+        }
     }
     #[derive(Clone)]
     pub enum ViewCompilationArg<C: Coordinates> {
@@ -648,6 +666,14 @@ mod dynamic {
                 }
             }
         }
+
+        fn required_address_type<R: Runtime>(
+            arg: &Self::RuntimeArg<R>,
+            scope: &Scope,
+        ) -> AddressType {
+            arg.required_address_type(E::__expand_type_size(scope))
+        }
+
         fn expand(
             arg: &Self::CompilationArg,
             builder: &mut KernelBuilder,
@@ -699,6 +725,13 @@ mod dynamic {
             launcher: &mut KernelLauncher<R>,
         ) -> Self::CompilationArg {
             <View<'static, E, C> as LaunchArg>::register(arg, launcher)
+        }
+
+        fn required_address_type<R: Runtime>(
+            arg: &Self::RuntimeArg<R>,
+            scope: &Scope,
+        ) -> AddressType {
+            <View<'static, E, C> as LaunchArg>::required_address_type::<R>(arg, scope)
         }
 
         fn expand(

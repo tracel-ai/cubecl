@@ -24,7 +24,12 @@ impl core::fmt::Display for AddressType {
 impl AddressType {
     /// Pick an address type based on the number of elements in a buffer.
     pub fn from_len(num_elems: usize) -> Self {
-        if num_elems > u32::MAX as usize {
+        Self::from_len_u64(num_elems as u64)
+    }
+
+    /// Pick an address type based on the number of elements in a buffer.
+    pub fn from_len_u64(num_elems: u64) -> Self {
+        if num_elems > u32::MAX as u64 {
             AddressType::U64
         } else {
             AddressType::U32
@@ -65,5 +70,19 @@ impl AddressType {
             AddressType::U32 => size_of::<u32>(),
             AddressType::U64 => size_of::<u64>(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AddressType;
+
+    #[test]
+    fn address_type_from_u64_len() {
+        assert_eq!(AddressType::from_len_u64(u32::MAX as u64), AddressType::U32);
+        assert_eq!(
+            AddressType::from_len_u64(u32::MAX as u64 + 1),
+            AddressType::U64
+        );
     }
 }

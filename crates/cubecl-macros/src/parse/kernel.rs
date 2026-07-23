@@ -46,6 +46,7 @@ pub(crate) enum AddressType {
     U32,
     U64,
     Dynamic,
+    Auto,
 }
 
 pub fn from_tokens<T: FromMeta>(tokens: TokenStream) -> syn::Result<T> {

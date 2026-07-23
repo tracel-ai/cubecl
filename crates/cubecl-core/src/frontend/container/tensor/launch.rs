@@ -64,7 +64,7 @@ impl<R: Runtime> TensorBinding<R> {
 
     /// Address type required to fully index this tensor handle, assuming scalar access.
     pub fn required_address_type(&self, elem_size: usize) -> AddressType {
-        AddressType::from_len(self.handle.size() as usize / elem_size)
+        AddressType::from_len_u64(self.handle.size_in_used() / elem_size as u64)
     }
 }
 
@@ -107,6 +107,10 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
         TensorCompilationArg { meta, buffer }
     }
 
+    fn required_address_type<R: Runtime>(arg: &Self::RuntimeArg<R>, scope: &Scope) -> AddressType {
+        arg.required_address_type(C::__expand_type_size(scope))
+    }
+
     fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> TensorExpand<C> {
         let buffer = match arg.buffer.inplace {
             Some(id) => builder.inplace(id),
@@ -130,6 +134,10 @@ impl<C: CubePrimitive> LaunchArg for OwnedTensor<C> {
         launcher: &mut KernelLauncher<R>,
     ) -> Self::CompilationArg {
         Tensor::<C>::register(arg, launcher)
+    }
+
+    fn required_address_type<R: Runtime>(arg: &Self::RuntimeArg<R>, scope: &Scope) -> AddressType {
+        Tensor::<C>::required_address_type::<R>(arg, scope)
     }
 
     fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> OwnedTensorExpand<C> {
@@ -194,6 +202,21 @@ impl<R: Runtime> TensorArg<R> {
         match self {
             TensorArg::Handle { handle } => &handle.strides,
             TensorArg::Alias { strides, .. } => strides,
+        }
+    }
+
+    /// Address type required to fully index the underlying buffer.
+    pub fn required_address_type(&self, elem_size: usize) -> AddressType {
+        match self {
+            TensorArg::Handle { handle } => handle.required_address_type(elem_size),
+            TensorArg::Alias { shape, .. } => {
+                let len = shape
+                    .iter()
+                    .copied()
+                    .try_fold(1usize, usize::checked_mul)
+                    .unwrap_or(usize::MAX);
+                AddressType::from_len(len)
+            }
         }
     }
 }

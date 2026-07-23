@@ -8,7 +8,7 @@ use crate::{
 use alloc::{boxed::Box, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
-use cubecl_ir::{AddressSpace, Type, VectorSize};
+use cubecl_ir::{AddressSpace, AddressType, Type, VectorSize};
 use cubecl_runtime::runtime::Runtime;
 use half::{bf16, f16};
 use variadics_please::{all_tuples, all_tuples_enumerated};
@@ -456,6 +456,18 @@ pub trait LaunchArg: CubeType + 'static {
         launcher: &mut KernelLauncher<R>,
     ) -> Self::CompilationArg;
 
+    /// Return the address type required by this runtime argument.
+    ///
+    /// Implementations containing buffers should return the type required to index their largest
+    /// buffer. Composite implementations should return the maximum required by their fields. The
+    /// default is suitable only for arguments that don't contain buffers.
+    fn required_address_type<R: Runtime>(
+        _arg: &Self::RuntimeArg<R>,
+        _scope: &Scope,
+    ) -> AddressType {
+        AddressType::U32
+    }
+
     /// Register a variable during compilation that fill the [`KernelBuilder`].
     fn expand(
         arg: &Self::CompilationArg,
@@ -474,6 +486,13 @@ macro_rules! impl_launch_arg_ref {
                 launcher: &mut KernelLauncher<R>,
             ) -> Self::CompilationArg {
                 T::register(arg, launcher)
+            }
+
+            fn required_address_type<R: Runtime>(
+                arg: &Self::RuntimeArg<R>,
+                scope: &Scope,
+            ) -> AddressType {
+                T::required_address_type::<R>(arg, scope)
             }
 
             fn expand(
@@ -501,6 +520,11 @@ macro_rules! launch_tuple {
             fn register<R: Runtime>(runtime_arg: Self::RuntimeArg<R>, launcher: &mut KernelLauncher<R>) -> Self::CompilationArg {
                 let ($($t,)*) = runtime_arg;
                 ($($T::register($t, launcher),)*)
+            }
+
+            fn required_address_type<R: Runtime>(runtime_arg: &Self::RuntimeArg<R>, scope: &Scope) -> AddressType {
+                let ($($t,)*) = runtime_arg;
+                AddressType::U32$(.max($T::required_address_type::<R>($t, scope)))*
             }
 
             fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> ($(<$T as CubeType>::ExpandType,)*) {

@@ -5,7 +5,7 @@ use cubecl_zspace::SmallVec;
 
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
-    prelude::{CubeType, LaunchArg},
+    prelude::{AddressType, CubeType, LaunchArg, Scope},
 };
 
 use super::{Sequence, SequenceExpand};
@@ -75,6 +75,14 @@ impl<C: LaunchArg + CubeType + 'static> LaunchArg for Sequence<C> {
             .into_iter()
             .map(|arg| C::register(arg, launcher))
             .collect()
+    }
+
+    fn required_address_type<R: Runtime>(arg: &Self::RuntimeArg<R>, scope: &Scope) -> AddressType {
+        arg.values
+            .iter()
+            .fold(AddressType::U32, |address_type, arg| {
+                address_type.max(C::required_address_type::<R>(arg, scope))
+            })
     }
 
     fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> SequenceExpand<C> {

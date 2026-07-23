@@ -6,7 +6,7 @@ use crate::prelude::{BufferArg, TensorArg, TensorMapArg, TensorMapKind};
 use crate::{InfoBuilder, KernelSettings, ScalarArgType};
 #[cfg(feature = "std")]
 use core::cell::RefCell;
-use cubecl_ir::{AddressType, Scope, StorageType, Type};
+use cubecl_ir::{Scope, StorageType, Type};
 use cubecl_runtime::server::{Binding, CubeCount, TensorMapBinding};
 use cubecl_runtime::{
     client::ComputeClient,
@@ -21,11 +21,44 @@ std::thread_local! {
     static SCOPE: RefCell<Scope> = RefCell::new(Scope::root(false));
 }
 
+/// Context used to resolve launch argument types before creating a [`KernelLauncher`].
+///
+/// Keeping type resolution separate allows launch settings, including the address type, to be
+/// finalized before the launcher starts registering arguments.
+pub struct LaunchContext {
+    #[cfg(not(feature = "std"))]
+    pub scope: Scope,
+}
+
+impl LaunchContext {
+    pub fn new() -> Self {
+        Self {
+            #[cfg(not(feature = "std"))]
+            scope: Scope::root(false),
+        }
+    }
+
+    #[cfg(feature = "std")]
+    pub fn with_scope<T>(&self, fun: impl FnOnce(&Scope) -> T) -> T {
+        SCOPE.with_borrow(fun)
+    }
+
+    #[cfg(not(feature = "std"))]
+    pub fn with_scope<T>(&self, fun: impl FnOnce(&Scope) -> T) -> T {
+        fun(&self.scope)
+    }
+}
+
+impl Default for LaunchContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Prepare a kernel for [launch](KernelLauncher::launch).
 pub struct KernelLauncher<R: Runtime> {
     buffers: Vec<Binding>,
     tensor_maps: Vec<TensorMapBinding>,
-    address_type: AddressType,
     pub settings: KernelSettings,
     #[cfg(not(feature = "std"))]
     info: InfoBuilder,
@@ -36,12 +69,12 @@ pub struct KernelLauncher<R: Runtime> {
 
 impl<R: Runtime> KernelLauncher<R> {
     #[cfg(feature = "std")]
-    pub fn with_scope<T>(&mut self, fun: impl FnMut(&Scope) -> T) -> T {
+    pub fn with_scope<T>(&self, fun: impl FnOnce(&Scope) -> T) -> T {
         SCOPE.with_borrow(fun)
     }
 
     #[cfg(not(feature = "std"))]
-    pub fn with_scope<T>(&mut self, mut fun: impl FnMut(&Scope) -> T) -> T {
+    pub fn with_scope<T>(&self, fun: impl FnOnce(&Scope) -> T) -> T {
         fun(&self.scope)
     }
 
@@ -113,7 +146,7 @@ impl<R: Runtime> KernelLauncher<R> {
     /// is up to the runtime.
     fn into_bindings(mut self) -> KernelArguments {
         let mut bindings = KernelArguments::new();
-        let address_type = self.address_type;
+        let address_type = self.settings.address_type;
         let info = self.with_info(|info| info.finish(address_type));
 
         bindings.buffers = self.buffers;
@@ -141,7 +174,7 @@ impl<R: Runtime> KernelLauncher<R> {
 
         let elem_size = ty.size();
         let buffer_len = tensor.handle.size_in_used() / elem_size as u64;
-        let address_type = self.address_type;
+        let address_type = self.settings.address_type;
 
         self.with_info(|info| {
             info.metadata.register_tensor(
@@ -169,7 +202,7 @@ impl<R: Runtime> KernelLauncher<R> {
 
         let elem_size = ty.size();
         let buffer_len = array.handle.size_in_used() / elem_size as u64;
-        let address_type = self.address_type;
+        let address_type = self.settings.address_type;
         self.with_info(|info| info.metadata.register_buffer(buffer_len, address_type));
         Some(array.handle)
     }
@@ -187,8 +220,14 @@ impl<R: Runtime> KernelLauncher<R> {
 
 impl<R: Runtime> KernelLauncher<R> {
     pub fn new(settings: KernelSettings) -> Self {
+        Self::new_with_context(settings, LaunchContext::new())
+    }
+
+    /// Create a launcher from a context that has already resolved its argument types.
+    pub fn new_with_context(settings: KernelSettings, context: LaunchContext) -> Self {
+        context.with_scope(|scope| settings.address_type.register(scope));
+
         Self {
-            address_type: settings.address_type,
             settings,
             buffers: Vec::new(),
             tensor_maps: Vec::new(),
@@ -196,7 +235,7 @@ impl<R: Runtime> KernelLauncher<R> {
             #[cfg(not(feature = "std"))]
             info: InfoBuilder::default(),
             #[cfg(not(feature = "std"))]
-            scope: Scope::root(false),
+            scope: context.scope,
         }
     }
 }
