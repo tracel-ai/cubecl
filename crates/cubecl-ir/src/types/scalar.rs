@@ -10,7 +10,7 @@ use pliron::{
 use rustc_apfloat::ieee::NonfiniteBehavior;
 
 use crate::{
-    ElemType, FloatKind, IntKind, UIntKind, aligned,
+    ContextExt, ElemType, FloatKind, IntKind, UIntKind, aligned,
     interfaces::{AlignedType, MaybePackedType, ScalarType, SizedType, not_packed},
     scalar, sized,
 };
@@ -66,11 +66,22 @@ pub struct PoisonType;
 )]
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 pub struct IndexType;
-// May need only align_of::<u32>() for 32-bit addressing, but it's safe to give it more
-aligned!(IndexType, align_of::<u64>());
-sized!(IndexType, size_of::<u64>());
 scalar!(IndexType);
 not_packed!(IndexType);
+
+#[type_interface_impl]
+impl AlignedType for IndexType {
+    fn align(&self, ctx: &Context) -> usize {
+        self.size(ctx)
+    }
+}
+
+#[type_interface_impl]
+impl SizedType for IndexType {
+    fn size(&self, ctx: &Context) -> usize {
+        ctx.address_type().size()
+    }
+}
 
 #[type_interface_impl]
 impl ScalarType for IndexType {

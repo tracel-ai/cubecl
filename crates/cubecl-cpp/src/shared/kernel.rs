@@ -78,7 +78,7 @@ pub fn type_info_definition_sized(
         .iter()
         .map(|field| {
             let ty = field.ty.to_type(ctx).to_cpp(ctx);
-            format!("{ty} scalars_{ty}[{}];", field.padded_size(ctx))
+            format!("{ty} scalars_{}[{}];", field.ty, field.padded_size(ctx))
         })
         .collect::<Vec<_>>()
         .join("\n");

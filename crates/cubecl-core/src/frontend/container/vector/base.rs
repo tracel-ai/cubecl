@@ -227,7 +227,7 @@ mod empty {
 
 // Implement a comparison operator define in
 macro_rules! impl_vector_comparison {
-    ($name:ident, $operator:ident, $comment:literal) => {
+    ($name:ident, $trait: ty, $operator:ident, $comment:literal) => {
         ::paste::paste! {
             /// Module that contains the implementation details of the $name function.
             mod $name {
@@ -235,7 +235,7 @@ macro_rules! impl_vector_comparison {
                 use super::*;
 
                 #[cube]
-                impl<P: Scalar + CubePartialOrd, N: Size> Vector<P, N> {
+                impl<P: Scalar + $trait, N: Size> Vector<P, N> {
                     #[doc = concat!(
                         "Return a new vector with the element-wise comparison of the first vector being ",
                         $comment,
@@ -256,12 +256,17 @@ macro_rules! impl_vector_comparison {
     };
 }
 
-impl_vector_comparison!(equal, eq, "equal to");
-impl_vector_comparison!(not_equal, ne, "not equal to");
-impl_vector_comparison!(less_than, lt, "less than");
-impl_vector_comparison!(greater_than, gt, "greater than");
-impl_vector_comparison!(less_equal, le, "less than or equal to");
-impl_vector_comparison!(greater_equal, ge, "greater than or equal to");
+impl_vector_comparison!(equal, CubePartialEq, eq, "equal to");
+impl_vector_comparison!(not_equal, CubePartialEq, ne, "not equal to");
+impl_vector_comparison!(less_than, CubePartialOrd, lt, "less than");
+impl_vector_comparison!(greater_than, CubePartialOrd, gt, "greater than");
+impl_vector_comparison!(less_equal, CubePartialOrd, le, "less than or equal to");
+impl_vector_comparison!(
+    greater_equal,
+    CubePartialOrd,
+    ge,
+    "greater than or equal to"
+);
 
 mod bool_and {
     use cubecl_ir::dialect::general::BoolAndOp;

@@ -1,6 +1,6 @@
 use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_ir::{
-    Builtin, ContextExt, FuncOpExt,
+    Builtin, CanMaterialize, ContextExt, FuncOpExt, Pure,
     attributes::{EntrypointInterface, FuncInterface, IndexAttr},
     dialect::general::ReadBuiltinOp,
     pliron::{
@@ -39,6 +39,7 @@ pub enum BuiltIn {
 
 #[cube_op(name = "wgsl.read_scalar_builtin")]
 #[result_ty(argument)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct ReadScalarBuiltin {
     value: Value,
 }
@@ -49,6 +50,7 @@ wgsl_op_with_out!(ReadScalarBuiltin; |op, ctx| {
 
 #[cube_op(name = "wgsl.read_dim3_builtin")]
 #[result_ty(argument)]
+#[op_traits(Pure, CanMaterialize)]
 pub struct ReadDim3Builtin {
     value: Value,
     dim: IndexAttr,

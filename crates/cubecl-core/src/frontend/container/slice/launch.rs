@@ -1,7 +1,10 @@
 use alloc::boxed::Box;
 use core::marker::PhantomData;
 
-use crate::{frontend::container::slice, prelude::*};
+use crate::{
+    frontend::container::{buffer_len::expand_buffer_length_native, slice},
+    prelude::*,
+};
 use cubecl_runtime::runtime::Runtime;
 use serde::{Deserialize, Serialize};
 

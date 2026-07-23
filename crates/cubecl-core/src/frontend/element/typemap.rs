@@ -695,7 +695,7 @@ impl<Marker: 'static> PartialOrd for DynamicScalar<Marker> {
     }
 }
 
-impl<Marker: 'static> PartialOrdScalarExpand for DynamicScalar<Marker> {
+impl<Marker: 'static> PartialOrdNativeExpand for DynamicScalar<Marker> {
     fn __expand_native_lt(scope: &Scope, lhs: ExpandValue, rhs: ExpandValue) -> ExpandValue {
         binary_dispatch!(__expand_native_lt, scope, lhs, rhs)
     }

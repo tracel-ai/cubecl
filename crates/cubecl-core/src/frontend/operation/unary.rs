@@ -30,6 +30,9 @@ pub mod not {
 macro_rules! define_unary_func {
     ($trait_name:ident, $method_name:ident, $operator:expr, $($type:ty),*) => {
         paste::paste! {
+            pub trait [<Scalar $trait_name>]: $trait_name + [<$trait_name NativeExpand>] {}
+            impl<T: $trait_name + [<$trait_name NativeExpand>]> [<Scalar $trait_name>] for T {}
+
             pub trait $trait_name: CubePrimitive<Scalar: [<$trait_name NativeExpand>]>
                 + CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
                 #[allow(unused_variables)]
@@ -130,6 +133,9 @@ macro_rules! impl_normalize {
 macro_rules! define_unary_func_scalar_out {
     ($trait_name:ident, $method_name:ident) => {
         paste::paste! {
+            pub trait [<Scalar $trait_name>]: $trait_name + [<$trait_name NativeExpand>] {}
+            impl<T: $trait_name + [<$trait_name NativeExpand>]> [<Scalar $trait_name>] for T {}
+
             pub trait $trait_name: CubePrimitive<Scalar: [<$trait_name NativeExpand>]>
                 + CubeType<ExpandType: [<$trait_name Expand>]
                 + CubePrimitiveExpand<Scalar = NativeExpand<Self::Scalar>>>
@@ -215,12 +221,12 @@ macro_rules! impl_unary_func_fixed_out_ty {
 
 // Needs special handling because Rust combines bitwise and logical or into one trait
 macro_rules! impl_not {
-    ($trait_name:ident, $method_name:ident, $($type:ty),*) => {
+    ($trait:ident, $method_name:ident, $($type:ty),*) => {
         paste::paste! {
-            pub trait [<Cube $trait_name>]:
-                $trait_name<Output = Self>
+            pub trait [<Cube $trait>]:
+                $trait<Output = Self>
                 + CubePrimitive
-                + CubeType<ExpandType: [<$trait_name Expand>]>
+                + CubeType<ExpandType: [<$trait Expand>]>
                 + IntoExpand<Expand = <Self as CubeType>::ExpandType> {
                 fn [<__expand_ $method_name _method>](self, scope: &Scope) -> NativeExpand<Self> {
                     let this = self.into_expand(scope);
@@ -232,13 +238,13 @@ macro_rules! impl_not {
                 }
             }
 
-            pub trait [<$trait_name Expand>] {
+            pub trait [<$trait Expand>] {
                 fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self;
             }
 
-            $(impl [<Cube $trait_name>] for $type {})*
-            impl<T: [<Cube $trait_name>] + CubePrimitive> [<$trait_name Expand>] for NativeExpand<T> {
-                    fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self {
+            $(impl [<Cube $trait>] for $type {})*
+            impl<T: [<Cube $trait>] + CubePrimitive> [<$trait Expand>] for NativeExpand<T> {
+                fn [<__expand_ $method_name _method>](self, scope: &Scope) -> Self {
                     not::expand(scope, self.into())
                 }
             }
@@ -249,6 +255,9 @@ macro_rules! impl_not {
 macro_rules! define_core_unop {
     ($trait: ident, $method: ident) => {
         paste::paste! {
+            pub trait [<Scalar $trait>]: [<Cube $trait>] + [<$trait NativeExpand>] {}
+            impl<T: [<Cube $trait>] + [<$trait NativeExpand>]> [<Scalar $trait>] for T {}
+
             pub trait [<Cube $trait>]:
                 $trait<Output = Self> + CubePrimitive<Scalar: [<$trait NativeExpand>]>
                 + IntoExpand<Expand = <Self as CubeType>::ExpandType>

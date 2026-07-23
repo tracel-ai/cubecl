@@ -1,11 +1,12 @@
 use alloc::vec;
 
-use cubecl_ir::{Type, cube_op, interfaces::TypedExt, prelude::*};
+use cubecl_ir::{Type, cube_op, prelude::*};
 use num_traits::One;
 
 use crate::prelude::*;
 use crate::{self as cubecl, unexpanded};
 
+define_scalar!(ElemA);
 define_size!(SizeA);
 
 /// Change the meaning of the given cube primitive type during compilation.
@@ -55,14 +56,14 @@ fn erf_positive<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
 }
 
 #[cube]
-fn himul_i64<N: Size>(lhs: Vector<i32, N>, rhs: Vector<i32, N>) -> Vector<i32, N> {
+fn himul_i64<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {
     let shift = Vector::new(32);
     let mul = (Vector::<i64, N>::cast_from(lhs) * Vector::<i64, N>::cast_from(rhs)) >> shift;
     Vector::cast_from(mul)
 }
 
 #[cube]
-pub fn himul_u64<N: Size>(lhs: Vector<u32, N>, rhs: Vector<u32, N>) -> Vector<u32, N> {
+pub fn himul_u64<I: Int, N: Size>(lhs: Vector<I, N>, rhs: Vector<I, N>) -> Vector<I, N> {
     let shift = Vector::new(32);
     let mul = (Vector::<u64, N>::cast_from(lhs) * Vector::<u64, N>::cast_from(rhs)) >> shift;
     Vector::cast_from(mul)
@@ -70,20 +71,20 @@ pub fn himul_u64<N: Size>(lhs: Vector<u32, N>, rhs: Vector<u32, N>) -> Vector<u3
 
 #[allow(missing_docs)]
 pub fn expand_s_himul_64(scope: &Scope, lhs: Value, rhs: Value) -> Value {
-    scope.register_size::<SizeA>(lhs.vector_size(scope.ctx()));
-    himul_i64::expand::<SizeA>(scope, lhs.into(), rhs.into()).value(scope)
+    scope.register_value_type::<ElemA, SizeA>(lhs);
+    himul_i64::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
 }
 
 #[allow(missing_docs)]
 pub fn expand_u_himul_64(scope: &Scope, lhs: Value, rhs: Value) -> Value {
-    scope.register_size::<SizeA>(lhs.vector_size(scope.ctx()));
-    himul_u64::expand::<SizeA>(scope, lhs.into(), rhs.into()).value(scope)
+    scope.register_value_type::<ElemA, SizeA>(lhs);
+    himul_u64::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
 }
 
 #[cube]
 fn himul_sim<T: Int, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T, N> {
-    let half_bits = comptime!(T::size_bits() / 2);
-    let low_mask = Vector::new(T::new(comptime!((1 << half_bits) - 1)));
+    let half_bits = T::size_bits().comptime() / 2;
+    let low_mask = Vector::new(T::new(comptime!((1i64 << half_bits) - 1)));
     let shift = Vector::new(T::new(half_bits as i64));
 
     let lhs_low = lhs & low_mask;
@@ -105,12 +106,8 @@ fn himul_sim<T: Int, N: Size>(lhs: Vector<T, N>, rhs: Vector<T, N>) -> Vector<T,
 
 #[allow(missing_docs)]
 pub fn expand_himul_sim(scope: &Scope, lhs: Value, rhs: Value) -> Value {
-    scope.register_size::<SizeA>(lhs.vector_size(scope.ctx()));
-    if lhs.is_int_of_width(scope.ctx(), 32) {
-        himul_sim::expand::<u32, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
-    } else {
-        himul_sim::expand::<u64, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
-    }
+    scope.register_value_type::<ElemA, SizeA>(lhs);
+    himul_sim::expand::<ElemA, SizeA>(scope, lhs.into(), rhs.into()).value(scope)
 }
 
 #[cube]

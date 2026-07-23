@@ -119,6 +119,9 @@ pub mod max {
 macro_rules! define_binary_func {
     ($trait_name:ident, $method_name:ident) => {
         paste::paste! {
+            pub trait [<Scalar $trait_name>]: $trait_name + [<$trait_name NativeExpand>] {}
+            impl<T: $trait_name + [<$trait_name NativeExpand>]> [<Scalar $trait_name>] for T {}
+
             pub trait $trait_name: CubePrimitive<Scalar: [<$trait_name NativeExpand>]>
                 + CubeType<ExpandType: [<$trait_name Expand>]> + Sized {
                 fn $method_name(self, _rhs: Self) -> Self {
@@ -167,6 +170,9 @@ macro_rules! impl_binary_func {
 macro_rules! define_binary_func_scalar_out {
     ($trait_name:ident, $method_name:ident) => {
         paste::paste! {
+            pub trait [<Scalar $trait_name>]: $trait_name + [<$trait_name NativeExpand>] {}
+            impl<T: $trait_name + [<$trait_name NativeExpand>]> [<Scalar $trait_name>] for T {}
+
             pub trait $trait_name: CubePrimitive<Scalar: [<$trait_name NativeExpand>]>
                 + CubeType<ExpandType: [<$trait_name Expand>]
                 + CubePrimitiveExpand<Scalar = NativeExpand<Self::Scalar>>>
@@ -259,6 +265,9 @@ macro_rules! impl_binary_func_mixed_types {
 macro_rules! define_core_binop {
     ($trait: ident, $method: ident) => {
         paste::paste! {
+            pub trait [<Scalar $trait>]: [<Cube $trait>] + [<$trait NativeExpand>] {}
+            impl<T: [<Cube $trait>] + [<$trait NativeExpand>]> [<Scalar $trait>] for T {}
+
             pub trait [<Cube $trait>]:
                 $trait<Output = Self> + CubePrimitive<Scalar: [<$trait NativeExpand>]> + IntoRuntime
                 + CubeType<ExpandType: [<$trait Expand>]> + Sized {
