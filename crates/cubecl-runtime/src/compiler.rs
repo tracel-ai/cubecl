@@ -1,5 +1,5 @@
 use crate::kernel::{CompiledKernel, KernelDefinition, KernelMetadata};
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use core::hash::Hash;
 use cubecl_common::hash::StableHash;
 use cubecl_environment::backtrace::BackTrace;
@@ -224,6 +224,15 @@ pub enum CompilationError {
 impl core::fmt::Debug for CompilationError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{self}")
+    }
+}
+
+impl From<pliron::result::Error> for CompilationError {
+    fn from(value: pliron::result::Error) -> Self {
+        CompilationError::Validation {
+            reason: value.to_string(),
+            backtrace: BackTrace::capture(),
+        }
     }
 }
 
