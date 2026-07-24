@@ -1,13 +1,13 @@
 use core::marker::PhantomData;
 
-use cubecl_ir::{AddressType, Id};
+use cubecl_ir::AddressType;
 use cubecl_runtime::{runtime::Runtime, server::CopyDescriptor};
 use cubecl_zspace::{Shape, Strides};
 
 use crate::{
     self as cubecl,
     compute::{KernelBuilder, KernelLauncher},
-    frontend::container::slice,
+    frontend::container::{buffer_len::expand_buffer_length_native, slice},
     prelude::*,
 };
 
@@ -40,7 +40,7 @@ pub enum TensorArg<R: Runtime> {
 /// Tensor representation with a reference to the [server handle](cubecl_runtime::server::Handle),
 /// the strides and the shape.
 pub struct TensorBinding<R: Runtime> {
-    pub handle: cubecl_runtime::server::Binding,
+    pub handle: cubecl_runtime::server::BufferBinding,
     pub strides: Strides,
     pub shape: Shape,
     pub runtime: PhantomData<R>,
@@ -93,16 +93,17 @@ impl<C: CubePrimitive> LaunchArg for Tensor<C> {
         arg: Self::RuntimeArg<R>,
         launcher: &mut KernelLauncher<R>,
     ) -> Self::CompilationArg {
-        let ty = launcher.with_scope(|scope| C::__expand_as_type(scope));
-        let len = arg.size() / ty.vector_size();
+        let elem_size = launcher.with_scope(|scope| C::__expand_size(scope));
+        let vector_size = launcher.with_scope(|scope| C::__expand_vector_size(scope));
+        let len = arg.size() / vector_size;
         let meta_arg = TensorMetaLaunch::new(len, arg.shape().len());
         let buffer = match &arg {
             TensorArg::Handle { .. } => BufferCompilationArg { inplace: None },
             TensorArg::Alias { input_pos, .. } => BufferCompilationArg {
-                inplace: Some(*input_pos as Id),
+                inplace: Some(*input_pos),
             },
         };
-        launcher.register_tensor(arg, ty);
+        launcher.register_tensor(arg, elem_size);
         let meta = TensorMeta::register(meta_arg, launcher);
         TensorCompilationArg { meta, buffer }
     }
@@ -157,7 +158,7 @@ impl<R: Runtime> TensorArg<R> {
     }
 
     pub(crate) unsafe fn from_raw_parts_binding(
-        handle: cubecl_runtime::server::Binding,
+        handle: cubecl_runtime::server::BufferBinding,
         strides: Strides,
         shape: Shape,
     ) -> Self {
@@ -265,7 +266,7 @@ impl<R: Runtime> TensorBinding<R> {
     /// If you provide wrong strides or shapes, it might create undefined behavior caused by
     /// out-of-bounds reads and writes.
     pub unsafe fn from_raw_parts_binding(
-        handle: cubecl_runtime::server::Binding,
+        handle: cubecl_runtime::server::BufferBinding,
         strides: Strides,
         shape: Shape,
     ) -> Self {

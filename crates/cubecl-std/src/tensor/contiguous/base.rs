@@ -11,7 +11,7 @@ use crate::{
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl, calculate_cube_count_elemwise,
-    ir::{StorageType, VectorSize},
+    ir::VectorSize,
     tensor_vector_size_parallel,
     zspace::{Strides, strides},
 };
@@ -98,7 +98,7 @@ fn copy_kernel<T: Numeric, N: Size>(
     output: &mut [Vector<T, N>],
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: usize,
-    #[define(T)] _elem: StorageType,
+    #[define(T)] _elem: ElemType,
 ) {
     let offset_linear = ABSOLUTE_POS * elems_per_thread;
 
@@ -123,7 +123,7 @@ fn copy_kernel_pack<T: Numeric, N: Size>(
     output: &mut [Vector<T, N>],
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: usize,
-    #[define(T)] _elem: StorageType,
+    #[define(T)] _elem: ElemType,
 ) {
     let vector_size = output.vector_size().comptime();
     let vectors_per_thread = elems_per_thread / vector_size;
@@ -164,7 +164,7 @@ fn index_packed<N: Int>(
     #[comptime] packing: usize,
     #[comptime] rank: usize,
 ) -> N {
-    let type_size_bits = N::type_size_bits().comptime();
+    let type_size_bits = N::size_bits().comptime();
     let bits_per_elem = type_size_bits / packing;
     let mask = (1u32 << bits_per_elem) - 1;
     let mask = N::cast_from(mask);
@@ -208,7 +208,7 @@ fn copy_kernel_packed<T: Int, N: Size>(
     #[comptime] packing: usize,
     #[comptime] rank: usize,
     #[comptime] elems_per_thread: usize,
-    #[define(T)] _elem: StorageType,
+    #[define(T)] _elem: ElemType,
 ) {
     let vector_size = output.vector_size().comptime();
     let vectors_per_thread = elems_per_thread / vector_size;
@@ -260,7 +260,7 @@ pub fn into_contiguous_packed<R: Runtime>(
     packed_dim: usize,
     shape: &[usize],
     packing: usize,
-    dtype: StorageType,
+    dtype: ElemType,
 ) -> TensorHandle<R> {
     let rank = shape.len();
     if rank <= 1 {
@@ -291,7 +291,7 @@ pub fn copy_gpu_ref<R: Runtime>(
     client: &ComputeClient<R>,
     input: TensorBinding<R>,
     output: TensorBinding<R>,
-    dtype: StorageType,
+    dtype: ElemType,
 ) {
     let num_elems: usize = input.shape.iter().product();
 
@@ -388,7 +388,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
     packed_dim: usize,
     shape: &[usize],
     packing: usize,
-    dtype: StorageType,
+    dtype: ElemType,
 ) {
     let num_elems: usize = input.shape.iter().product();
 

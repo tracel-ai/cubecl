@@ -14,7 +14,7 @@ use cubecl_common::{
 };
 use cubecl_core::{
     self as cubecl, define_size,
-    ir::{ElemType, FloatKind, StorageType, VectorSize},
+    ir::{ElemType, FloatKind, VectorSize},
     prelude::barrier::Barrier,
     unexpanded,
 };
@@ -107,8 +107,8 @@ impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 
 impl<'a, Q: Scalar, NQ: Size, S: Scalar, F: Numeric, NF: Size, C: Coordinates + 'static>
     VectorizedExpand for QuantizedViewExpand<'a, Q, NQ, S, F, NF, C>
 {
-    fn vector_size(&self) -> VectorSize {
-        self.values.vector_size() * self.scheme.num_quants()
+    fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
+        self.values.__expand_vector_size_method(scope) * self.scheme.num_quants()
     }
 }
 
@@ -348,14 +348,14 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
 
     define_size!(NF);
 
-    let vector_size = E::__expand_vector_size(&builder.scope);
+    let vector_size = E::__expand_vector_size(builder);
 
     builder.scope.register_size::<NF>(vector_size);
 
     #[allow(clippy::missing_transmute_annotations)]
     unsafe {
-        match E::__expand_as_type(&builder.scope).storage_type() {
-            StorageType::Scalar(ElemType::Float(ty)) => match ty {
+        match E::Scalar::elem_type(builder) {
+            ElemType::Float(ty) => match ty {
                 FloatKind::F16 => t(expand_dynamic_f::<f16, NF, C>(
                     values, scales, scheme, builder,
                 )),
@@ -375,6 +375,7 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static>(
                     values, scales, scheme, builder,
                 )),
                 FloatKind::E2M1
+                | FloatKind::E2M1x2
                 | FloatKind::E2M3
                 | FloatKind::E3M2
                 | FloatKind::E4M3

@@ -1,56 +1,48 @@
-pub mod builtin;
-pub(super) mod external_function;
-pub(super) mod memref;
-pub mod mlir_data;
-pub mod mlir_engine;
-pub mod module;
-pub mod passes;
-pub(super) mod visitor;
+pub mod dialect;
+pub mod jit;
+
+#[cfg(feature = "pliron-dump")]
+use std::{path::PathBuf, str::FromStr};
 
 use cubecl_common::backtrace::BackTrace;
+use cubecl_opt::passes::simple_cse::SimpleCSEPass;
 use cubecl_runtime::compiler::CompilationError;
-use passes::shared_memories::SharedMemories;
-pub use visitor::elem::register_supported_types;
 
 use cubecl_core::{
     Compiler,
-    ir::{self, StorageType},
-    post_processing::{
-        checked_io::CheckedIoVisitor, disaggregate::DisaggregateVisitor,
-        predicate::PredicateProcessor, saturating::SaturatingArithmeticProcessor,
-    },
-    prelude::KernelDefinition,
-    server::ExecutionMode,
+    ir::rewrite::SimplifyOpsPass,
+    post_processing::{bitwise::PromoteBitwisePass, disaggregate::DisaggregatePass},
+    prelude::*,
 };
-use cubecl_opt::OptimizerBuilder;
-use mlir_engine::MlirEngine;
+use pliron::{
+    builtin::ops::{FuncOp, ModuleOp},
+    op::Op,
+    opts::{constants::sccp::SCCPPass, dce::DCEPass},
+    pass::{AnalysisManager, NestedOpsPass, OpPass, PMConfig, Pass, Passes},
+};
 
-use crate::compiler::passes::{
-    erf_transform::ErfTransform,
-    trigonometries_transform::{HypotTransform, RhypotTransform},
-};
+use crate::compiler::dialect::cpu::InsertConstantEmulationPass;
+use crate::compiler::jit::engine::PlironEngine;
 
 #[derive(Clone, Debug, Default)]
-pub struct MlirCompiler {}
+pub struct PlironCompiler {}
 
-#[derive(Default, Debug)]
-pub struct MlirCompilerOptions {}
+#[derive(Clone, Debug, Default)]
+pub struct PlironOptions;
 
-impl Compiler for MlirCompiler {
-    type Representation = MlirEngine;
+impl Compiler for PlironCompiler {
+    type Representation = PlironEngine;
 
-    type CompilationOptions = MlirCompilerOptions;
+    type CompilationOptions = PlironOptions;
 
     fn compile(
         &mut self,
         kernel: KernelDefinition,
         _compilation_options: &Self::CompilationOptions, // TODO pass this through the visitor, though it doesn't need anything for the moment
-        mode: ExecutionMode, // TODO support this by adding array bound checking
-        addr_type: StorageType,
     ) -> Result<Self::Representation, CompilationError> {
         let errors = kernel.body.pop_errors();
         if !errors.is_empty() {
-            let mut reason = "Can't compile mlir kernel".to_string();
+            let mut reason = "Can't compile pliron kernel\n Caused by:\n  ".to_string();
             for error in errors {
                 reason += error.as_str();
                 reason += "\n";
@@ -62,68 +54,59 @@ impl Compiler for MlirCompiler {
             });
         }
 
-        #[cfg(feature = "mlir-dump")]
-        dump_scope(&kernel.body, &kernel.options.kernel_name);
-        let mut opt = OptimizerBuilder::default()
-            .with_transformer(ErfTransform)
-            .with_transformer(HypotTransform)
-            .with_transformer(RhypotTransform)
-            .with_visitor(CheckedIoVisitor::new(
-                mode,
-                kernel.options.kernel_name.clone(),
-            ))
-            .with_visitor(DisaggregateVisitor::default())
-            .with_processor(SaturatingArithmeticProcessor::new(true))
-            .with_processor(PredicateProcessor)
-            .optimize(kernel.body.clone(), kernel.cube_dim);
-
-        let mut shared_memories = SharedMemories::default();
-        shared_memories.visit(&opt);
-
-        #[cfg(feature = "mlir-dump")]
-        dump_opt(&opt, &kernel.options.kernel_name);
-        Ok(MlirEngine::from_cubecl_ir(
-            kernel,
-            &mut opt.main,
-            &opt.global_state,
-            shared_memories,
-            addr_type,
-        ))
-    }
-
-    fn elem_size(&self, elem: ir::ElemType) -> usize {
-        elem.size()
+        Ok(self.clone().compile_ir(kernel))
     }
 
     fn extension(&self) -> &'static str {
-        "mlir"
+        "plir"
     }
 }
 
-#[cfg(feature = "mlir-dump")]
-pub fn get_dump_name(name: &str) -> Option<std::path::PathBuf> {
-    use std::fs;
+impl PlironCompiler {
+    fn compile_ir(self, kernel: KernelDefinition) -> PlironEngine {
+        let module = kernel.body.state().module;
+        let module_op = module.get_operation();
+        let mut ctx = kernel.body.into_context().expect("Should be owned scope");
 
-    if let Ok(dir) = std::env::var("CUBECL_DEBUG_MLIR") {
-        let path = format!("{dir}/{name}");
+        #[cfg(not(feature = "pliron-dump"))]
+        let ir_printing_dir = None;
+        #[cfg(feature = "pliron-dump")]
+        let ir_printing_dir = pliron_path(&kernel.settings.kernel_name);
+        let config = PMConfig {
+            print_before_all: true,
+            ir_printing_dir,
+            ..Default::default()
+        };
+
+        let mut analyses = AnalysisManager::default();
+        analyses.set_config(config);
+
+        let mut passes = OpPass::<ModuleOp, Passes>::default();
+        let mut func_passes = OpPass::<FuncOp, Passes>::default();
+        func_passes.add_pass(InsertConstantEmulationPass);
+        func_passes.add_pass(DisaggregatePass);
+        func_passes.add_pass(SCCPPass);
+        func_passes.add_pass(SimpleCSEPass);
+        func_passes.add_pass(SimplifyOpsPass::default());
+        func_passes.add_pass(PromoteBitwisePass);
+        func_passes.add_pass(DCEPass);
+
+        passes.add_pass(NestedOpsPass::new(func_passes));
+
+        passes.run(module_op, &mut ctx, &mut analyses).unwrap();
+
+        PlironEngine
+    }
+}
+
+#[cfg(feature = "pliron-dump")]
+fn pliron_path(name: &str) -> Option<PathBuf> {
+    use std::fs;
+    if let Ok(dir) = std::env::var("CUBECL_DEBUG_PLIRON") {
+        let path = PathBuf::from_str(&dir).unwrap().join(name);
         let _ = fs::create_dir_all(&path);
-        Some(path.into())
+        Some(path)
     } else {
         None
-    }
-}
-
-#[cfg(feature = "mlir-dump")]
-fn dump_scope(scope: &cubecl_core::prelude::Scope, name: &str) {
-    if let Some(path) = get_dump_name(name) {
-        std::fs::write(path.join("cubecl.ir.txt"), format!("{}", scope)).unwrap();
-    }
-}
-
-#[cfg(feature = "mlir-dump")]
-fn dump_opt(opt: &cubecl_opt::Optimizer, name: &str) {
-    if let Some(path) = get_dump_name(name) {
-        std::fs::write(path.join("cubecl-opt.ir.txt"), format!("{}", opt)).unwrap();
-        std::fs::write(path.join("cubecl-opt.ir.dot"), opt.main.dot_viz()).unwrap();
     }
 }

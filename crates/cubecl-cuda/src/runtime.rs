@@ -1,5 +1,4 @@
 use crate::{
-    WmmaCompiler,
     compute::{CudaServer, context::CudaContext},
     device::CudaDevice,
 };
@@ -9,24 +8,29 @@ use cubecl_common::{
 };
 use cubecl_core::{
     MemoryConfiguration, Runtime,
+    cmma::MatrixLayout,
     device::{DeviceId, ServerUtilitiesHandle},
     ir::{
-        BarrierLevel, ContiguousElements, DeviceProperties, ElemType, FloatKind,
-        HardwareProperties, MatrixLayout, MemoryDeviceProperties, MmaProperties, OpaqueType,
-        StorageType, TargetProperties, Type, VectorSize,
+        ContiguousElements, DeviceProperties, ElemType, FloatKind, HardwareProperties,
+        MemoryDeviceProperties, MmaProperties, OpaqueType, TargetProperties, Type, VectorSize,
         features::{AtomicUsage, Plane, Tma, TypeUsage},
     },
     server::ServerUtilities,
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
 use cubecl_cpp::{
-    ComputeKernel, DialectWmmaCompiler,
-    cuda::{CudaDialect, arch::CudaArchitecture, mma::contiguous_elements_cuda},
+    ComputeKernel,
+    cuda::{
+        self,
+        arch::CudaArchitecture,
+        mma::{CudaCmmaCompiler, manual::contiguous_elements_cuda},
+    },
     register_supported_types,
     shared::{
         CompilationOptions, CppCompiler, CppSupportedFeatures, register_mma_features,
         register_scaled_mma_features, register_wmma_features,
     },
+    target::Cuda,
 };
 use cubecl_runtime::{
     allocator::PitchedMemoryLayoutPolicy, client::ComputeClient, logging::ServerLogger,
@@ -79,10 +83,9 @@ impl DeviceService for CudaServer {
         let arch = CudaArchitecture {
             version: arch_version,
         };
-        let supported_wmma_combinations = WmmaCompiler::supported_wmma_combinations(&arch);
-        let supported_mma_combinations = WmmaCompiler::supported_mma_combinations(&arch);
-        let supported_scaled_mma_combinations =
-            WmmaCompiler::supported_scaled_mma_combinations(&arch);
+        let supported_cmma_combinations = CudaCmmaCompiler::Ptx.supported_cmma_combinations(&arch);
+        let supported_mma_combinations = cuda::supported_mma_combinations(&arch);
+        let supported_scaled_mma_combinations = cuda::supported_scaled_mma_combinations(&arch);
 
         // SAFETY: `device_ptr` is a valid CUDA device. `primary_ctx::retain` returns the
         // primary context which is then set as current for the calling thread.
@@ -143,7 +146,7 @@ impl DeviceService for CudaServer {
             );
             let num_tensor_cores = tensor_cores_per_sm(arch_version);
 
-            comp_opts.warp_size = warp_size;
+            comp_opts.warp_size = warp_size as usize;
 
             HardwareProperties {
                 load_width: 128,
@@ -156,7 +159,7 @@ impl DeviceService for CudaServer {
                 max_cube_dim,
                 num_streaming_multiprocessors,
                 num_tensor_cores,
-                min_tensor_cores_dim: if supported_wmma_combinations.is_empty() {
+                min_tensor_cores_dim: if supported_cmma_combinations.is_empty() {
                     None
                 } else {
                     Some(8)
@@ -178,7 +181,7 @@ impl DeviceService for CudaServer {
         if arch_version >= 60 {
             device_props.register_atomic_type_usage(
                 Type::atomic(ElemType::Float(FloatKind::F64)),
-                AtomicUsage::Add | AtomicUsage::LoadStore,
+                AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
             );
         }
         if arch_version >= 70 {
@@ -187,11 +190,10 @@ impl DeviceService for CudaServer {
                 AtomicUsage::Add,
             );
             device_props.register_atomic_type_usage(
-                Type::atomic(Type::scalar(ElemType::Float(FloatKind::F16)).with_vector_size(2)),
-                AtomicUsage::Add | AtomicUsage::LoadStore,
+                Type::atomic(Type::new(ElemType::Float(FloatKind::F16)).with_vector_size(2)),
+                AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
             );
-            device_props.register_opaque_type(OpaqueType::Barrier(BarrierLevel::Unit));
-            device_props.register_opaque_type(OpaqueType::Barrier(BarrierLevel::Cube));
+            device_props.register_opaque_type(OpaqueType::Barrier);
             device_props.features.plane.insert(Plane::Sync);
             comp_opts.supports_features.grid_constants = true;
         }
@@ -201,23 +203,18 @@ impl DeviceService for CudaServer {
                 .features
                 .matmul
                 .ldmatrix
-                .insert(ElemType::Float(FloatKind::F16).into());
+                .insert(ElemType::Float(FloatKind::F16));
             device_props
                 .features
                 .matmul
                 .ldmatrix
-                .insert(ElemType::Float(FloatKind::BF16).into());
+                .insert(ElemType::Float(FloatKind::BF16));
             comp_opts.supports_features.fast_tanh = CUDA_VERSION >= 12080;
         }
 
         if arch_version >= 80 {
             device_props.features.copy_async = true;
         }
-
-        // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
-        // if arch.get_version() >= 80 {
-        //     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
-        // }
 
         if arch_version >= 89 {
             device_props.register_type_usage(
@@ -239,21 +236,48 @@ impl DeviceService for CudaServer {
                 .features
                 .matmul
                 .stmatrix
-                .insert(ElemType::Float(FloatKind::F16).into());
+                .insert(ElemType::Float(FloatKind::F16));
             device_props
                 .features
                 .matmul
                 .stmatrix
-                .insert(ElemType::Float(FloatKind::BF16).into());
+                .insert(ElemType::Float(FloatKind::BF16));
+
+            // bf16 add is only properly supported in sm_90+, even though most bf16 ops are supported
+            // earlier. It's technically supported earlier but is missing the now-required `.noftz`
+            // modifier, so the behavior is broken.
+            for vec in [2, 4, 8] {
+                device_props.register_atomic_type_usage(
+                    Type::atomic(Type::new(FloatKind::BF16).with_vector_size(vec)),
+                    AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
+                );
+                device_props.register_atomic_type_usage(
+                    Type::atomic(Type::new(FloatKind::F16).with_vector_size(vec)),
+                    AtomicUsage::Add | AtomicUsage::LoadStore | AtomicUsage::Exchange,
+                );
+            }
+            // PTX docs say min/max is only supported for vectorized f16/bf16, not sure why it's
+            // not supported for `f16x2` when it's supported for a vector of `f16` and a vector of
+            // `f16x2`. Don't add vectorization of 2 to prevent accidents with optimization code.
+            for vec in [4, 8] {
+                device_props.register_atomic_type_usage(
+                    Type::atomic(Type::new(FloatKind::BF16).with_vector_size(vec)),
+                    AtomicUsage::MinMax,
+                );
+                device_props.register_atomic_type_usage(
+                    Type::atomic(Type::new(FloatKind::F16).with_vector_size(vec)),
+                    AtomicUsage::MinMax,
+                );
+            }
 
             if CUDA_VERSION > 12080 {
                 device_props.register_atomic_type_usage(
-                    Type::atomic(Type::scalar(ElemType::Float(FloatKind::F32)).with_vector_size(2)),
-                    AtomicUsage::LoadStore | AtomicUsage::Add,
+                    Type::atomic(Type::new(ElemType::Float(FloatKind::F32)).with_vector_size(2)),
+                    AtomicUsage::LoadStore | AtomicUsage::Exchange | AtomicUsage::Add,
                 );
                 device_props.register_atomic_type_usage(
-                    Type::atomic(Type::scalar(ElemType::Float(FloatKind::F32)).with_vector_size(4)),
-                    AtomicUsage::LoadStore | AtomicUsage::Add,
+                    Type::atomic(Type::new(ElemType::Float(FloatKind::F32)).with_vector_size(4)),
+                    AtomicUsage::LoadStore | AtomicUsage::Exchange | AtomicUsage::Add,
                 );
             }
         }
@@ -273,7 +297,7 @@ impl DeviceService for CudaServer {
             device_props
                 .register_type_usage(ElemType::Float(FloatKind::E2M1), TypeUsage::Conversion);
             device_props.register_type_usage(
-                StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2),
+                ElemType::Float(FloatKind::E2M1x2),
                 TypeUsage::Conversion | TypeUsage::Buffer,
             );
             device_props.register_type_usage(
@@ -302,7 +326,7 @@ impl DeviceService for CudaServer {
             .plane
             .insert(Plane::NonUniformControlFlow);
 
-        register_wmma_features(supported_wmma_combinations, &mut device_props);
+        register_wmma_features(supported_cmma_combinations, &mut device_props);
         register_mma_features(supported_mma_combinations, &mut device_props);
         register_scaled_mma_features(supported_scaled_mma_combinations, &mut device_props);
 
@@ -326,8 +350,8 @@ impl DeviceService for CudaServer {
     }
 }
 
-pub type CudaCompiler = CppCompiler<CudaDialect<WmmaCompiler>>;
-pub type CudaComputeKernel = ComputeKernel<CudaDialect<WmmaCompiler>>;
+pub type CudaCompiler = CppCompiler<Cuda>;
+pub type CudaComputeKernel = ComputeKernel;
 
 fn tensor_cores_per_sm(version: u32) -> Option<u32> {
     match version {

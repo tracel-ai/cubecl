@@ -55,7 +55,7 @@ impl<C: WgpuCompiler> WgpuServer<C> {
                 let repr = AutoRepresentationRef::SpirV(&entry.kernel);
                 let module = self.create_module(
                     &entry.entrypoint_name,
-                    kernel_id.cube_dim,
+                    kernel_id.cube_dim.into(),
                     Some(repr),
                     "",
                     mode,

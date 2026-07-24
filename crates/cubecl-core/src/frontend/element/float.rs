@@ -1,11 +1,11 @@
-use cubecl_ir::{ConstantValue, Scope, StorageType, Type};
-use half::{bf16, f16};
-
-use crate::{
-    self as cubecl,
-    ir::{ElemType, FloatKind},
-    prelude::*,
+use cubecl_ir::{
+    ConstantValue, ElemType, Scope,
+    types::scalar::{BFloat16Type, Float16Type, Float32Type, Float64Type},
 };
+use half::{bf16, f16};
+use pliron::r#type::TypeHandle;
+
+use crate::{self as cubecl, ir::FloatKind, prelude::*};
 
 use super::Numeric;
 
@@ -19,40 +19,41 @@ mod tensor_float;
 pub trait Float:
     Numeric
     + FloatOps
-    + Exp
-    + Log
-    + Log1p
-    + Expm1
-    + Cos
-    + Sin
-    + Tan
-    + Tanh
-    + Sinh
-    + Cosh
-    + ArcCos
-    + ArcSin
-    + ArcTan
-    + ArcSinh
-    + ArcCosh
-    + ArcTanh
-    + Degrees
-    + Radians
-    + ArcTan2
-    + Powf
+    + ScalarNeg
+    + ScalarExp
+    + ScalarLog
+    + ScalarLog1p
+    + ScalarExpm1
+    + ScalarCos
+    + ScalarSin
+    + ScalarTan
+    + ScalarTanh
+    + ScalarSinh
+    + ScalarCosh
+    + ScalarArcCos
+    + ScalarArcSin
+    + ScalarArcTan
+    + ScalarArcSinh
+    + ScalarArcCosh
+    + ScalarArcTanh
+    + ScalarDegrees
+    + ScalarRadians
+    + ScalarArcTan2
+    + ScalarPowf
     + Powi<i32>
-    + Hypot
-    + Rhypot
-    + Sqrt
-    + InverseSqrt
-    + Round
-    + Floor
-    + Ceil
-    + Trunc
-    + Erf
-    + Recip
-    + Magnitude
+    + ScalarHypot
+    + ScalarRhypot
+    + ScalarSqrt
+    + ScalarInverseSqrt
+    + ScalarRound
+    + ScalarFloor
+    + ScalarCeil
+    + ScalarTrunc
+    + ScalarErf
+    + ScalarRecip
+    + ScalarMagnitude
     + Normalize
-    + Dot
+    + ScalarDot
     + IsNan
     + IsInf
     + Into<Self::ExpandType>
@@ -80,7 +81,7 @@ pub trait Float:
 }
 
 #[cube]
-pub trait FloatOps: CubePrimitive + PartialOrd + Sized {
+pub trait FloatOps: CubePartialOrd + Sized {
     fn min(self, other: Self) -> Self {
         cubecl::prelude::min(self, other)
     }
@@ -110,27 +111,31 @@ impl<T: FloatOps + CubePrimitive> FloatOpsExpand for NativeExpand<T> {
 }
 
 macro_rules! impl_float {
-    (half $primitive:ident, $kind:ident) => {
-        impl_float!($primitive, $kind, |val| $primitive::from_f64(val));
+    (half $primitive:ident, $ty: ty, $kind:ident) => {
+        impl_float!($primitive, $ty, $kind, |val| $primitive::from_f64(val));
     };
-    ($primitive:ident, $kind:ident) => {
-        impl_float!($primitive, $kind, |val| val as $primitive);
+    ($primitive:ident, $ty: ty, $kind:ident) => {
+        impl_float!($primitive, $ty, $kind, |val| val as $primitive);
     };
-    ($primitive:ident, $kind:ident, $new:expr) => {
+    ($primitive:ident, $ty: ty, $kind:ident, $new:expr) => {
         impl CubeType for $primitive {
             type ExpandType = NativeExpand<$primitive>;
         }
 
         impl CubeDebug for $primitive {}
-        impl Scalar for $primitive {}
+        impl Scalar for $primitive {
+            fn elem_type_native() -> ElemType {
+                FloatKind::$kind.into()
+            }
+        }
         impl CubePrimitive for $primitive {
             type Scalar = Self;
             type Size = Const<1>;
             type WithScalar<S: Scalar> = S;
 
             /// Return the element type to use on GPU
-            fn as_type_native() -> Option<Type> {
-                Some(StorageType::Scalar(ElemType::Float(FloatKind::$kind)).into())
+            fn __expand_as_type(scope: &Scope) -> TypeHandle {
+                <$ty>::get(scope.ctx()).into()
             }
 
             fn from_const_value(value: ConstantValue) -> Self {
@@ -195,7 +200,7 @@ macro_rules! impl_float {
     };
 }
 
-impl_float!(half f16, F16);
-impl_float!(half bf16, BF16);
-impl_float!(f32, F32);
-impl_float!(f64, F64);
+impl_float!(half f16, Float16Type, F16);
+impl_float!(half bf16,  BFloat16Type, BF16);
+impl_float!(f32, Float32Type, F32);
+impl_float!(f64, Float64Type, F64);

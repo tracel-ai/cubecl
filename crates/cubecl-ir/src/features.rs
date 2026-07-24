@@ -1,4 +1,4 @@
-use crate::{AddressType, OpaqueType, SemanticType, StorageType, Type};
+use crate::{AddressType, ElemType, OpaqueType, SemanticType, Type};
 use alloc::collections::{BTreeMap, BTreeSet};
 
 use enumset::EnumSetType;
@@ -37,7 +37,7 @@ pub struct Types {
     /// Valid address types
     pub address: BTreeSet<AddressType>,
     /// Types supported by this runtime, and which usages they support.
-    pub storage: BTreeMap<StorageType, EnumSet<TypeUsage>>,
+    pub elem: BTreeMap<ElemType, EnumSet<TypeUsage>>,
     /// Semantic constructs supported by this runtime.
     pub semantic: BTreeSet<SemanticType>,
     /// Opaque types supported by this runtime.
@@ -67,9 +67,9 @@ pub struct MatmulFeatures {
     /// instruction. Scales must fit a specific layout and block size.
     pub scaled_mma: BTreeSet<ScaledMmaConfig>,
     /// Types supported for ldmatrix, if any
-    pub ldmatrix: BTreeSet<StorageType>,
+    pub ldmatrix: BTreeSet<ElemType>,
     /// Types supported by stmatrix, if any
-    pub stmatrix: BTreeSet<StorageType>,
+    pub stmatrix: BTreeSet<ElemType>,
     /// Whether tensor addressing is supported for CMMA load/store
     pub cmma_tensor_addressing: bool,
 }
@@ -110,6 +110,8 @@ impl TypeUsage {
 pub enum AtomicUsage {
     /// Atomic loads and stores
     LoadStore,
+    /// Atomic exchange
+    Exchange,
     /// Atomic add/sub
     Add,
     /// Atomic min/max
@@ -142,11 +144,11 @@ pub enum Plane {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MmaConfig {
     /// Element of the A matrix
-    pub a_type: StorageType,
+    pub a_type: ElemType,
     /// Element of the B matrix
-    pub b_type: StorageType,
+    pub b_type: ElemType,
     /// Element of the C/D matrices
-    pub cd_type: StorageType,
+    pub cd_type: ElemType,
     /// The size of the matrix on the `m` dimension
     pub m: u32,
     /// The size of the matrix on the `n` dimension
@@ -162,11 +164,11 @@ pub struct MmaConfig {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CubeMmaConfig {
     /// Element of the A matrix
-    pub a_type: StorageType,
+    pub a_type: ElemType,
     /// Element of the B matrix
-    pub b_type: StorageType,
+    pub b_type: ElemType,
     /// Element of the C/D matrices
-    pub cd_type: StorageType,
+    pub cd_type: ElemType,
     /// The granularity of the matrix on the `m` dimension
     pub m_granularity: u32,
     /// The maximum value for `m`
@@ -189,13 +191,13 @@ pub struct CubeMmaConfig {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ScaledMmaConfig {
     /// Element of the A matrix
-    pub a_type: StorageType,
+    pub a_type: ElemType,
     /// Element of the B matrix
-    pub b_type: StorageType,
+    pub b_type: ElemType,
     /// Element of the C/D matrices
-    pub cd_type: StorageType,
+    pub cd_type: ElemType,
     /// Element of the blocks scales
-    pub scales_type: StorageType,
+    pub scales_type: ElemType,
     /// The size of the matrix on the `m` dimension
     pub m: u32,
     /// The size of the matrix on the `n` dimension
@@ -221,9 +223,9 @@ pub enum Tma {
 
 impl Features {
     /// Get the usages for a type
-    pub fn type_usage(&self, ty: StorageType) -> EnumSet<TypeUsage> {
+    pub fn type_usage(&self, ty: ElemType) -> EnumSet<TypeUsage> {
         self.types
-            .storage
+            .elem
             .get(&ty)
             .cloned()
             .unwrap_or_else(EnumSet::empty)
@@ -243,7 +245,7 @@ impl Features {
         match ty.into() {
             Type::Semantic(semantic_type) => self.types.semantic.contains(&semantic_type),
             Type::Opaque(opaque_type) => self.types.opaque.contains(&opaque_type),
-            ty => self.types.storage.contains_key(&ty.storage_type()),
+            ty => self.types.elem.contains_key(&ty.elem_type()),
         }
     }
 

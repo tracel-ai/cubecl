@@ -1,9 +1,9 @@
 use cubecl_common::backtrace::BackTrace;
-use cubecl_ir::DeviceProperties;
+use cubecl_ir::{DeviceProperties, settings::Dim3};
 
 use crate::{
     id::KernelId,
-    server::{CubeDim, LaunchError, ResourceLimitError},
+    server::{LaunchError, ResourceLimitError},
 };
 
 /// Validate the cube dim of a kernel fits within the hardware limits
@@ -12,7 +12,7 @@ pub fn validate_cube_dim(
     kernel_id: &KernelId,
 ) -> Result<(), LaunchError> {
     let requested = kernel_id.cube_dim;
-    let max: CubeDim = properties.hardware.max_cube_dim.into();
+    let max: Dim3 = properties.hardware.max_cube_dim.into();
     if !max.can_contain(requested) {
         Err(ResourceLimitError::CubeDim {
             requested: requested.into(),

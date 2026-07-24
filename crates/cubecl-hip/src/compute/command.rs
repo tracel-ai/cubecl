@@ -12,8 +12,7 @@ use cubecl_core::{
     future::DynFut,
     ir::MemoryDeviceProperties,
     server::{
-        Binding, CopyDescriptor, ExecutionMode, Handle, IoError, LaunchError, ProfileError,
-        ServerError,
+        BufferBinding, CopyDescriptor, Handle, IoError, LaunchError, ProfileError, ServerError,
     },
     zspace::{Shape, Strides, striding::has_pitched_row_major_strides},
 };
@@ -50,7 +49,7 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(GpuResource)` - The GPU resource associated with the binding.
     /// * `Err(IoError::InvalidHandle)` - If the binding does not correspond to a valid resource.
-    pub fn resource(&mut self, binding: Binding) -> Result<GpuResource, IoError> {
+    pub fn resource(&mut self, binding: BufferBinding) -> Result<GpuResource, IoError> {
         self.streams
             .get(&binding.stream)
             .memory_management_gpu
@@ -438,13 +437,12 @@ impl<'a> Command<'a> {
         &mut self,
         kernel_id: KernelId,
         kernel: Box<dyn CubeTask<HipCompiler>>,
-        mode: ExecutionMode,
         dispatch_count: (u32, u32, u32),
         resources: &[GpuResource],
         logger: Arc<ServerLogger>,
     ) -> Result<(), LaunchError> {
         if !self.ctx.module_names.contains_key(&kernel_id) {
-            self.ctx.compile_kernel(&kernel_id, kernel, mode, logger)?;
+            self.ctx.compile_kernel(&kernel_id, kernel, logger)?;
         }
 
         let stream = self.streams.current();

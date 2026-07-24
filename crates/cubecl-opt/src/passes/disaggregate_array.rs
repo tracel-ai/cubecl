@@ -1,16 +1,8 @@
 use alloc::vec::Vec;
-use cubecl_ir::{
-    AddressSpace, Id, Instruction, Memory, Operation, Operator, StoreOperands, Type, UnaryOperands,
-    Value, ValueKind,
-};
+use cubecl_ir::{AddressSpace, ExpandValue, Type};
 use hashbrown::HashMap;
 
-use crate::{
-    AtomicCounter, Function, GlobalState,
-    analyses::{pointer_source::PointerSource, writes::LocalStores},
-};
-
-use super::OptimizerPass;
+use crate::{AtomicCounter, GlobalState, analyses::pointer_source::PointerSource};
 
 /// Split arrays with only constant indices into a set of local intermediates. This allows the
 /// compiler to reorder them and optimize memory layout, along with enabling more inlining and
@@ -123,7 +115,7 @@ fn find_const_arrays(func: &mut Function) -> Vec<Array> {
         .collect()
 }
 
-fn replace_const_arrays(func: &mut Function, arr_id: Id, vars: &[Value]) {
+fn replace_const_arrays(func: &mut Function, arr_id: Id, vars: &[ExpandValue]) {
     for block in func.node_ids() {
         let ops = func[block].ops.clone();
         for op in ops.borrow_mut().values_mut() {

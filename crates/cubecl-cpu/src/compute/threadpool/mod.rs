@@ -4,7 +4,7 @@ use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage}
 use std::sync::{Arc, OnceLock, atomic::AtomicU64};
 
 use crate::{
-    compiler::{mlir_data::MlirData, mlir_engine::MlirEngine},
+    compiler::jit::{data::PlironData, engine::PlironEngine},
     compute::{
         schedule::BindingsResource,
         threadpool::{
@@ -46,42 +46,36 @@ impl Threadpool {
     #[allow(clippy::too_many_arguments)]
     pub fn execute_data(
         &mut self,
-        mlir_engine: MlirEngine,
-        bindings: BindingsResource,
+        _pliron_engine: PlironEngine,
+        _bindings: BindingsResource,
         cube_dim: CubeDim,
-        cube_count: [u32; 3],
-        memory: &mut MemoryManagement<BytesStorage>,
+        _cube_count: [u32; 3],
+        _memory: &mut MemoryManagement<BytesStorage>,
         next_counter_step: u64,
         atomic_counter: &Arc<CachePadded<AtomicU64>>,
     ) {
-        let mlir_data = MlirData::new(
-            bindings,
-            &mlir_engine.0.shared_memories,
-            memory,
-            cube_dim,
-            cube_count,
-        );
+        // let mlir_data = PlironData::new(bindings, &[], memory, cube_dim, cube_count);
 
-        // A `sync_cube` barrier only resolves when every unit of the cube runs
-        // on its own thread, so grow the pool to one worker per unit. Kernels
-        // without a barrier load-balance and need no extra workers.
-        if mlir_engine.0.needs_parallelism {
-            self.scheduler.ensure_workers(cube_dim.num_elems() as usize);
-        }
+        // // A `sync_cube` barrier only resolves when every unit of the cube runs
+        // // on its own thread, so grow the pool to one worker per unit. Kernels
+        // // without a barrier load-balance and need no extra workers.
+        // if pliron_engine.0.needs_parallelism {
+        //     self.scheduler.ensure_workers(cube_dim.num_elems() as usize);
+        // }
 
         let mut i = 0;
-        for unit_pos_x in 0..cube_dim.x {
-            for unit_pos_y in 0..cube_dim.y {
-                for unit_pos_z in 0..cube_dim.z {
-                    let unit_pos = [unit_pos_x, unit_pos_y, unit_pos_z];
-                    let mlir_engine = mlir_engine.clone();
-                    let mut mlir_data = mlir_data.clone();
-                    mlir_data.builtin.set_unit_pos(unit_pos);
+        for _ in 0..cube_dim.x {
+            for _ in 0..cube_dim.y {
+                for _ in 0..cube_dim.z {
+                    // let unit_pos = [unit_pos_x, unit_pos_y, unit_pos_z];
+                    let pliron_engine = PlironEngine;
+                    let pliron_data = PlironData;
+                    // mlir_data.builtin.set_unit_pos(unit_pos);
 
                     let atomic_counter = Arc::clone(atomic_counter);
                     let compute_task = ComputeTask {
-                        mlir_engine,
-                        mlir_data,
+                        pliron_engine,
+                        pliron_data,
                         next_counter_step,
                         atomic_counter,
                     };

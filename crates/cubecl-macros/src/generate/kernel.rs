@@ -3,19 +3,29 @@ use std::collections::HashMap;
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use inflections::case::to_snake_case;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, quote_spanned};
+use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{Ident, TypeParamBound, parse_quote};
 
 use crate::{
     parse::{
         kernel::{
-            DefinedGeneric, KernelBody, KernelFn, Launch, anon_lifetime_to_static,
+            DefinedGeneric, ExecutionMode, KernelBody, KernelFn, Launch, anon_lifetime_to_static,
             map_type_normalized, strip_ref,
         },
         signature::KernelReturns,
     },
     paths::{frontend_type, prelude_type},
 };
+
+impl ToTokens for ExecutionMode {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let ty = prelude_type("ExecutionMode");
+        tokens.extend(match self {
+            ExecutionMode::Checked => quote![#ty::Checked],
+            ExecutionMode::Unchecked => quote![#ty::Unchecked],
+        });
+    }
+}
 
 impl KernelFn {
     pub fn to_tokens_mut(&mut self) -> TokenStream {
@@ -234,15 +244,14 @@ impl Launch {
             .process_generic_names(&self.func.sig.generics);
 
         quote! {
-            let mut builder = #kernel_builder::default();
+            let mut builder = #kernel_builder::new(self.settings.clone());
             builder.runtime_properties(__R::target_properties());
             builder.device_properties(self.client.properties());
 
             #register_type
-            self.settings.address_type.register(&mut builder.scope);
             #io_map
             expand #generics(&mut builder.scope, #(#args,)*);
-            builder.build(self.settings.clone())
+            builder.build()
         }
     }
 
@@ -354,7 +363,7 @@ impl Launch {
             let compute_client = prelude_type("ComputeClient");
             let kernel_definition: syn::Path = prelude_type("KernelDefinition");
             let kernel_id = prelude_type("KernelId");
-            let storage_ty = prelude_type("StorageType");
+            let elem_ty = prelude_type("ElemType");
 
             let kernel_name = self.kernel_name();
             let define = self.define_body();
@@ -384,7 +393,7 @@ impl Launch {
                 settings.extend(quote![.debug_symbols()]);
             }
             if let Some(cluster_dim) = &self.args.cluster_dim {
-                settings.extend(quote![.cluster_dim(#cluster_dim)]);
+                settings.extend(quote![.cluster_dim(#cluster_dim.into())]);
             }
 
             quote! {
@@ -425,13 +434,14 @@ impl Launch {
                         #kernel_id::new::<Self>()
                             .address_type(address_type)
                             .cube_dim(self.settings.cube_dim.clone())
+                            .mode(self.settings.execution_mode)
                             .info(#info_ty_name #info_generics {
                                 #(#info_names: self.#info_names.clone(),)*
                                 #phantom_data_init
                             })
                     }
 
-                    fn address_type(&self) -> #storage_ty {
+                    fn address_type(&self) -> #elem_ty {
                         self.settings.address_type.unsigned_type()
                     }
                 }
@@ -471,7 +481,7 @@ impl Launch {
             settings.extend(quote![.debug_symbols()]);
         }
         if let Some(cluster_dim) = &self.args.cluster_dim {
-            settings.extend(quote![.cluster_dim(#cluster_dim)]);
+            settings.extend(quote![.cluster_dim(#cluster_dim.into())]);
         }
 
         let generics = &self.kernel_generics;

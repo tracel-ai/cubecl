@@ -29,8 +29,8 @@ pub struct ReinterpretSlice<'a, S: CubePrimitive, T: CubePrimitive> {
 impl<'a, S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<'a, S, T> {
     pub fn new(slice: &'a [S]) -> ReinterpretSlice<'a, S, T> {
         let in_vector_size = slice.vector_size();
-        let source_size = S::Scalar::type_size();
-        let target_size = T::Scalar::type_size();
+        let source_size = S::Scalar::size();
+        let target_size = T::Scalar::size();
         let (optimized_vector_size, load_many) = comptime!(optimize_vector_size(
             source_size,
             in_vector_size,
@@ -70,7 +70,7 @@ impl<'a, S: CubePrimitive, T: CubePrimitive> ReinterpretSlice<'a, S, T> {
                     let elem = slice[first + k];
                     #[unroll]
                     for j in 0..self.vector_size {
-                        vector.insert(k * self.vector_size + j, elem.extract(j));
+                        vector.insert(comptime!(k * self.vector_size + j), elem.extract(j));
                     }
                 }
                 T::reinterpret(vector)
@@ -105,8 +105,8 @@ pub struct ReinterpretSliceMut<'a, S: CubePrimitive, T: CubePrimitive> {
 impl<'a, S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<'a, S, T> {
     pub fn new(slice: &'a mut [S]) -> ReinterpretSliceMut<'a, S, T> {
         let in_vector_size = slice.vector_size();
-        let source_size = S::Scalar::type_size();
-        let target_size = T::Scalar::type_size();
+        let source_size = S::Scalar::size();
+        let target_size = T::Scalar::size();
         let (optimized_vector_size, load_many) = comptime!(optimize_vector_size(
             source_size,
             in_vector_size,
@@ -146,7 +146,7 @@ impl<'a, S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<'a, S, T> {
                     let elem = slice[first + k];
                     #[unroll]
                     for j in 0..self.vector_size {
-                        vector.insert(k * self.vector_size + j, elem.extract(j));
+                        vector.insert(comptime!(k * self.vector_size + j), elem.extract(j));
                     }
                 }
                 T::reinterpret(vector)
@@ -163,7 +163,8 @@ impl<'a, S: CubePrimitive, T: CubePrimitive> ReinterpretSliceMut<'a, S, T> {
         match comptime!(self.load_many) {
             Some(amount) => {
                 let first = index * amount;
-                let vector_size = comptime!(reinterpreted.size() / amount);
+                let reinterpreted_vec = reinterpreted.vector_size();
+                let vector_size = comptime!(reinterpreted_vec / amount);
 
                 #[unroll]
                 for k in 0..amount {
@@ -216,6 +217,6 @@ pub mod size_of {
     use super::*;
     #[allow(unused, clippy::all)]
     pub fn expand<S: CubePrimitive>(context: &Scope) -> u32 {
-        S::__expand_as_type(context).size() as u32
+        S::__expand_size(context) as u32
     }
 }

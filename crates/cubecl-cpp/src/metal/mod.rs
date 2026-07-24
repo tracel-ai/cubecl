@@ -1,13 +1,19 @@
 pub mod address_space;
 pub mod arch;
+pub mod atomic;
 pub mod attribute;
-pub mod binding;
+pub mod binary;
+pub mod builtin;
 pub mod dialect;
-mod extension;
-pub mod value;
+pub mod extension;
+pub mod general;
+pub mod mma;
+pub mod plane;
+pub mod signature;
+pub mod ty;
+pub mod unary;
+pub mod vector;
 
 pub use address_space::*;
 pub use attribute::*;
-pub use binding::*;
 pub use dialect::*;
-use extension::*;

@@ -1,208 +1,94 @@
 use cubecl_ir::{
-    Arithmetic, BinaryOperands, Comparison, ElemType, IndexOperands, Instruction, Memory,
-    Operation, Scope, Type, UnaryOperands, Value, VectorSize,
+    ExpandValue, Scope,
+    dialect::{general::CopyOp, memory::IndexOp},
+    interfaces::TypedExt,
+    pliron::{
+        builtin::op_interfaces::OneResultInterface, context::Context, op::Op, r#type::Typed,
+        value::Value,
+    },
+    types::VectorType,
 };
 use cubecl_macros::cube;
 
 use crate::{self as cubecl, prelude::*};
 
-pub(crate) fn read_value(scope: &Scope, val: Value) -> Value {
-    if let Type::Pointer(inner, _) = val.ty {
-        let out = scope.create_value(*inner);
-        scope.register(Instruction::new(Memory::Load(val), out));
-        out
-    } else {
-        val
+pub(crate) fn normalize_same_vectorization<const N: usize>(
+    scope: &Scope,
+    mut vals: [Value; N],
+) -> [Value; N] {
+    let max_vector_size = {
+        let ctx = scope.ctx();
+        vals.iter().map(|it| it.vector_size(ctx)).max().unwrap_or(1)
+    };
+    for val in vals.iter_mut() {
+        let vector_size = val.vector_size(scope.ctx());
+        if vector_size == 1 && max_vector_size > 1 {
+            let scalar_ty = val.scalar_ty(scope.ctx());
+            let out_ty = VectorType::get(scope.ctx(), scalar_ty, max_vector_size);
+            *val = cast_value(scope, *val, out_ty.into());
+        } else if vector_size != max_vector_size {
+            panic!("Invalid vector size mismatch, expected same size or scalar")
+        }
     }
+    vals
 }
 
-pub(crate) fn binary_expand<F, Op>(scope: &Scope, lhs: Value, rhs: Value, func: F) -> Value
+pub(crate) fn binary_expand<F, O>(
+    scope: &Scope,
+    lhs: ExpandValue,
+    rhs: ExpandValue,
+    func: F,
+) -> ExpandValue
 where
-    F: Fn(BinaryOperands) -> Op,
-    Op: Into<Operation>,
+    F: Fn(&mut Context, Value, Value) -> O,
+    O: Op + OneResultInterface,
 {
-    let item_lhs = lhs.value_type();
-    let item_rhs = rhs.value_type();
-
-    let vector_size = find_vectorization(item_lhs, item_rhs);
-
-    let item = item_lhs.with_vector_size(vector_size);
-
-    let output = scope.create_value(item);
-
-    let op = func(BinaryOperands { lhs, rhs });
-
-    scope.register(Instruction::new(op, output));
-
-    output
+    let [lhs, rhs] =
+        normalize_same_vectorization(scope, [lhs.read_value(scope), rhs.read_value(scope)]);
+    let op = func(scope.ctx_mut(), lhs, rhs);
+    scope.register_with_result(&op).into()
 }
 
 pub(crate) fn index_expand(scope: &Scope, list: Value, index: Value, checked: bool) -> Value {
-    let ty = list.value_type();
-
-    let class = list.address_space();
-    let output = scope.create_value(Type::pointer(ty, class));
-
-    let op = Memory::Index(IndexOperands {
-        list,
-        index,
-        unroll_factor: 1,
-        checked,
-    });
-
-    scope.register(Instruction::new(op, output));
-
-    output
+    let op = IndexOp::maybe_checked(scope.ctx_mut(), list, index, checked);
+    scope.register_with_result(&op)
 }
 
-pub(crate) fn binary_expand_fixed_output<F>(
-    scope: &Scope,
-    lhs: Value,
-    rhs: Value,
-    out_item: Type,
-    func: F,
-) -> Value
-where
-    F: Fn(BinaryOperands) -> Arithmetic,
-{
-    let out = scope.create_value(out_item);
-    let op = func(BinaryOperands { lhs, rhs });
-
-    scope.register(Instruction::new(op, out));
-
-    out
-}
-
-pub(crate) fn cmp_expand<F>(scope: &Scope, lhs: Value, rhs: Value, func: F) -> Value
-where
-    F: Fn(BinaryOperands) -> Comparison,
-{
-    let item_lhs = lhs.value_type();
-    let item_rhs = rhs.value_type();
-
-    let vector_size = find_vectorization(item_lhs, item_rhs);
-
-    let out_item = Type::scalar(ElemType::Bool).with_vector_size(vector_size);
-
-    let out = scope.create_value(out_item);
-
-    let op = func(BinaryOperands { lhs, rhs });
-
-    scope.register(Instruction::new(op, out));
-
-    out
-}
-
-pub(crate) fn assign_op_expand<T: CubeType, Op>(
+pub(crate) fn assign_binop_expand<T: NativeCubeType + CanReadValue>(
     scope: &Scope,
     lhs: &mut NativeExpand<T>,
     rhs: NativeExpand<T>,
-    func: impl Fn(BinaryOperands) -> Op,
+    func: impl Fn(&Scope, ExpandValue, ExpandValue) -> ExpandValue,
 ) where
-    Op: Into<Operation>,
     NativeExpand<T>: DerefExpand<Target = NativeExpand<T>>,
 {
-    let lhs_value = lhs.__expand_deref_method(scope).expand;
-    let lhs = lhs.expand;
-    let rhs = rhs.expand;
-
-    if lhs.is_immutable() {
-        panic!("Can't have a mutable operation on a const variable. Try to use `RuntimeCell`.");
-    }
-
-    let tmp = scope.create_value(lhs.value_type());
-    let op = func(BinaryOperands {
-        lhs: lhs_value,
-        rhs,
-    });
-
-    scope.register(Instruction::new(op, tmp));
-    assign::expand_element(scope, tmp, lhs);
+    let lhs_val = lhs.__expand_deref_method(scope);
+    let out = func(scope, lhs_val.into(), rhs.into());
+    assign::expand_element(scope, out, lhs.expand);
 }
 
-pub fn unary_expand<F, Op>(scope: &Scope, input: Value, func: F) -> Value
+pub fn unary_expand<F, O>(scope: &Scope, input: ExpandValue, func: F) -> ExpandValue
 where
-    F: Fn(UnaryOperands) -> Op,
-    Op: Into<Operation>,
+    F: Fn(&mut Context, Value) -> O,
+    O: Op + OneResultInterface,
 {
-    let item = input.value_type();
-
-    let out = scope.create_value(item);
-
-    let op = func(UnaryOperands { input });
-
-    scope.register(Instruction::new(op, out));
-
-    out
+    let input = input.read_value(scope);
+    let op = func(scope.ctx_mut(), input);
+    scope.register_with_result(&op).into()
 }
 
-pub fn unary_expand_fixed_output<F, Op>(
-    scope: &Scope,
-    input: Value,
-    out_item: Type,
-    func: F,
-) -> Value
-where
-    F: Fn(UnaryOperands) -> Op,
-    Op: Into<Operation>,
-{
-    let output = scope.create_value(out_item);
+pub fn init_expand(scope: &Scope, input: ExpandValue, mutable: bool) -> ExpandValue {
+    let input = input.read_value(scope);
+    let ty = input.get_type(scope.ctx());
 
-    let op = func(UnaryOperands { input });
-
-    scope.register(Instruction::new(op, output));
-
-    output
-}
-
-pub fn init_expand(scope: &Scope, input: Value, mutable: bool) -> Value {
-    let input = read_value(scope, input);
-    let ty = input.ty;
-
-    let out = if mutable {
-        scope.create_local_mut(ty)
+    if mutable {
+        let out = scope.create_local_mut(ty, None);
+        assign::expand_element(scope, input.into(), out.into());
+        out.into()
     } else {
-        scope.create_value(ty)
-    };
-
-    assign::expand_element(scope, input, out);
-
-    out
-}
-
-pub(crate) fn find_vectorization(lhs: Type, rhs: Type) -> VectorSize {
-    if matches!(lhs, Type::Scalar(_)) && matches!(rhs, Type::Scalar(_)) {
-        0
-    } else {
-        lhs.vector_size().max(rhs.vector_size())
+        let op = CopyOp::new(scope.ctx_mut(), input);
+        scope.register_with_result(&op).into()
     }
-}
-
-pub fn assign_binary_op_expand<
-    A: CubeType,
-    V: CubeType,
-    F: Fn(BinaryOperands) -> Op,
-    Op: Into<Operation>,
->(
-    scope: &Scope,
-    lhs: &mut NativeExpand<A>,
-    rhs: NativeExpand<V>,
-    func: F,
-) where
-    NativeExpand<A>: DerefExpand<Target = NativeExpand<A>> + Assign,
-{
-    let lhs_value = lhs.__expand_deref_method(scope).expand;
-    let rhs: Value = rhs.into();
-    let out = scope.create_value(lhs.expand.ty);
-
-    scope.register(Instruction::new(
-        func(BinaryOperands {
-            lhs: lhs_value,
-            rhs,
-        }),
-        out,
-    ));
-    lhs.__expand_assign_method(scope, out.into());
 }
 
 pub trait DivCeil: Int + CubeType<ExpandType: DivCeilExpand<Self>> {

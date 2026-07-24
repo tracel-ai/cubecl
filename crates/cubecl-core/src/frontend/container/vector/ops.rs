@@ -2,7 +2,7 @@ use core::{
     marker::PhantomData,
     ops::{Not, Rem},
 };
-use cubecl_ir::{Bitwise, ConstantValue, ElemType, Instruction, Type, UIntKind, UnaryOperands};
+use cubecl_ir::{ConstantValue, dialect::bitwise::CountOnesOp};
 use cubecl_macros::{cube, intrinsic};
 use num_traits::{NumCast, One, ToPrimitive, Zero};
 
@@ -270,7 +270,7 @@ impl<P: Scalar + SaturatingAdd, N: Size> SaturatingAdd for Vector<P, N> {}
 impl<P: Scalar + SaturatingSub, N: Size> SaturatingSub for Vector<P, N> {}
 impl<P: Scalar + IsNan, N: Size> IsNan for Vector<P, N> {}
 impl<P: Scalar + IsInf, N: Size> IsInf for Vector<P, N> {}
-impl<P: Scalar + Normalize, N: Size> Normalize for Vector<P, N> {}
+impl<P: Scalar + Normalize + DivNativeExpand, N: Size> Normalize for Vector<P, N> {}
 impl<P: Scalar + Magnitude, N: Size> Magnitude for Vector<P, N> {}
 impl<P: Scalar + VectorSum, N: Size> VectorSum for Vector<P, N> {}
 impl<P: Scalar + Degrees, N: Size> Degrees for Vector<P, N> {}
@@ -294,14 +294,9 @@ impl<P: Scalar + Ord, N: Size> Ord for Vector<P, N> {
 impl<P: CountOnes + Scalar, N: Size> Vector<P, N> {
     pub fn count_ones(self) -> Vector<u32, N> {
         intrinsic!(|scope| {
-            let out_item = Type::scalar(ElemType::UInt(UIntKind::U32))
-                .with_vector_size(self.expand.ty.vector_size());
-            let out = scope.create_value(out_item);
-            scope.register(Instruction::new(
-                Bitwise::CountOnes(UnaryOperands { input: self.expand }),
-                out,
-            ));
-            out.into()
+            let input = self.read_value(scope);
+            let op = CountOnesOp::new(scope.ctx_mut(), input);
+            scope.register_with_result(&op).into()
         })
     }
 }

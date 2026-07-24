@@ -4,7 +4,7 @@ use core::f32;
 
 use core::fmt::Display;
 
-use crate::{self as cubecl, as_type, stub::Lazy};
+use crate::{self as cubecl, as_type, stub::LazyLock};
 
 use cubecl::prelude::*;
 use cubecl_runtime::server::Handle;
@@ -52,8 +52,8 @@ expected: {:?}",
 }
 
 // Needs lazy because const trait fns aren't stable
-static FAST_MATH: Lazy<EnumSet<FastMath>> =
-    Lazy::new(|| FastMath::all().difference(FastMath::NotNaN.into()));
+static FAST_MATH: LazyLock<EnumSet<FastMath>> =
+    LazyLock::new(|| FastMath::all().difference(FastMath::NotNaN.into()));
 
 macro_rules! test_binary_impl {
     (

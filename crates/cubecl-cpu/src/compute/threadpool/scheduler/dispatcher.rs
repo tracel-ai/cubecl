@@ -56,7 +56,9 @@ impl DispatcherScheduler {
     }
 
     pub fn send(&mut self, index: usize, task: ComputeTask) {
-        let target = if task.mlir_engine.0.needs_parallelism {
+        let target = if
+        /*task.pliron_engine.0.needs_parallelism*/
+        false {
             // Barrier kernels need one dedicated worker per unit; the caller
             // grew the pool via `ensure_workers` so `index` is in range.
             index

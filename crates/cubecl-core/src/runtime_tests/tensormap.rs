@@ -15,7 +15,7 @@ fn tensormap_load<F: Float, N: Size>(input: &TensorMap<F, Tiled>, output: &mut [
     sync_async_proxy_shared();
     let mut stage: Shared<[Vector<F, N>]> = Shared::new_aligned_slice(32usize * 16, 128usize);
 
-    let type_size = F::type_size();
+    let type_size = F::size();
     let expected = select(UNIT_POS == 0, comptime![32 * 16 * type_size] as u32, 0);
     if UNIT_POS == 0 {
         barrier.tma_load_2d(input, stage.as_mut_slice(), 0, 8);
@@ -40,7 +40,7 @@ fn tensormap_store<F: Float, N: Size>(input: &[Vector<F, N>], output: &mut Tenso
     if UNIT_POS == 0 {
         tma_store_2d(shared.as_slice(), output, 16, 8);
         tma_group_commit();
-        tma_group_wait_read(0u32);
+        tma_group_wait_read(0usize);
     }
 }
 
@@ -63,7 +63,7 @@ fn tensormap_im2col_load<F: Float, N: Size>(
     let mut stage: Shared<[Vector<F, N>]> =
         Shared::new_aligned_slice(tile_k * tile_width, 128usize);
 
-    let type_size = F::type_size();
+    let type_size = F::size();
     let expected = select(
         UNIT_POS == 0,
         comptime![tile_width * tile_k * type_size] as u32,
@@ -138,7 +138,7 @@ where
                 tile_size: shape![16, 32],
             },
             input,
-            F::as_type_native_unchecked(),
+            F::elem_type_native(),
         ),
         unsafe { BufferArg::from_raw_parts(out.clone(), 32 * 16) },
     );
@@ -184,7 +184,7 @@ where
             unsafe {
                 TensorArg::from_raw_parts(out.memory.clone(), out.strides.clone(), [64, 64].into())
             },
-            F::as_type_native_unchecked(),
+            F::elem_type_native(),
         ),
     );
 
@@ -264,7 +264,7 @@ where
                 pixels_per_column: tile_m as u32,
             },
             input,
-            F::as_type_native_unchecked(),
+            F::elem_type_native(),
         ),
         unsafe { TensorArg::from_raw_parts(out.clone(), out_strides.into(), out_shape.into()) },
         tile_m,
@@ -331,14 +331,14 @@ where
                 tile_size: shape![16, 16],
             },
             output_1,
-            F::as_type_native_unchecked(),
+            F::elem_type_native(),
         ),
         TensorMapArg::new(
             TiledArgs {
                 tile_size: shape![16, 32],
             },
             input_2,
-            F::as_type_native_unchecked(),
+            F::elem_type_native(),
         ),
         output_2,
     );

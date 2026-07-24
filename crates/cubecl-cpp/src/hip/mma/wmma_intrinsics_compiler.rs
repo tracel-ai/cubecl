@@ -1,65 +1,77 @@
 use std::fmt::Formatter;
 
 use crate::{
-    Dialect,
-    hip::{HipDialect, arch::AMDArchitecture},
+    hip::arch::AMDArchitecture,
     shared::{
-        Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, FragmentIdent,
-        FragmentLayout, FragmentType, Item, ManualMma, MmaShape, SupportedMmaCombinations, Value,
-        WmmaInstruction, frag_as_ptr, frag_ident_str, frag_layout_str, value_to_frag,
-        wmma_api_base,
+        Architecture, CompilationOptions, CppValue, SupportedMmaCombinations, frag_ident_str,
+        frag_layout_str,
+        ty::{TypeExtCPP, TypedExtCPP},
     },
 };
-use cubecl_core::ir::{self as gpu, MatrixIdent, MatrixType, features::MmaConfig};
+use cubecl_core::{
+    cmma::{MatrixIdent, MatrixLayout, MatrixShape, MatrixType},
+    ir::{
+        ContextExt, ElemType, FloatKind,
+        dialect::matrix::{CastOp, FillOp, LoadOp, MultiplyAccumulateOp, StoreOp},
+        features::MmaConfig,
+        interfaces::TypedExt,
+        types::MatrixScope,
+    },
+};
+use pliron::{
+    context::Context,
+    printable::Printable,
+    r#type::{Type, TypeHandle, Typed},
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct WmmaIntrinsicCompiler {}
 
 #[derive(new, Debug, Clone, PartialEq)]
-pub struct WmmaFill<D: Dialect> {
-    frag: FragmentType<D>,
+pub struct WmmaFill {
+    frag: MatrixType,
 }
 
 #[derive(new, Debug, Clone, PartialEq)]
-pub struct WmmaLoad<D: Dialect> {
-    frag: FragmentType<D>,
-    layout: Option<FragmentLayout<D>>,
+pub struct WmmaLoad {
+    frag: MatrixType,
+    layout: MatrixLayout,
 }
 
 #[derive(new, Debug, Clone, PartialEq)]
-pub struct WmmaStore<D: Dialect> {
-    frag: FragmentType<D>,
-    layout: FragmentLayout<D>,
+pub struct WmmaStore {
+    frag: MatrixType,
+    layout: MatrixLayout,
 }
 
 #[derive(new, Debug, Clone, PartialEq)]
-pub struct WmmaExecute<D: Dialect> {
-    frag_a: FragmentType<D>,
-    frag_b: FragmentType<D>,
-    frag_c: FragmentType<D>,
-    frag_d: FragmentType<D>,
+pub struct WmmaExecute {
+    pub frag_a: MatrixType,
+    pub frag_b: MatrixType,
+    pub frag_c: MatrixType,
+    pub frag_d: MatrixType,
 }
 
 #[derive(new, Debug, Clone, PartialEq)]
-pub struct WmmaCast<D: Dialect> {
-    frag_input: FragmentType<D>,
-    frag_output: FragmentType<D>,
+pub struct WmmaCast {
+    frag_input: MatrixType,
+    frag_output: MatrixType,
 }
 
-impl<D: Dialect> WmmaFill<D> {
-    pub fn fn_name(&self) -> String {
+impl WmmaFill {
+    pub fn fn_name(&self, ctx: &Context) -> String {
         let layout = frag_layout_str(&self.frag.layout);
         let ident = frag_ident_str(&self.frag.ident);
-        let (m, n, k) = (self.frag.m, self.frag.n, self.frag.k);
-        let elem = self.frag.elem;
+        let MatrixShape { m, n, k } = self.frag.shape;
+        let elem = self.frag.elem_ty.to_cpp(ctx);
 
         format!("wmma_fill_{elem}_{ident}_{m}x{n}x{k}_{layout}",)
     }
 
-    pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let elem = self.frag.elem;
-        let frag = self.frag;
-        let name = self.fn_name();
+    pub fn format_extension(&self, f: &mut Formatter<'_>, ctx: &Context) -> std::fmt::Result {
+        let elem = self.frag.elem_ty.to_cpp(ctx);
+        let frag = self.frag.get_self_handle(ctx).to_cpp(ctx);
+        let name = self.fn_name(ctx);
 
         write!(
             f,
@@ -76,13 +88,13 @@ __device__ void {name}({frag}& frag, {elem} value) {{
     }
 }
 
-impl<D: Dialect> WmmaLoad<D> {
-    pub fn fn_name(&self) -> String {
+impl WmmaLoad {
+    pub fn fn_name(&self, ctx: &Context) -> String {
         let layout_frag = frag_layout_str(&self.frag.layout);
         let layout = frag_layout_str(&self.layout);
         let ident = frag_ident_str(&self.frag.ident);
-        let elem = self.frag.elem;
-        let (m, n, k) = (self.frag.m, self.frag.n, self.frag.k);
+        let elem = self.frag.elem_ty.to_cpp(ctx);
+        let MatrixShape { m, n, k } = self.frag.shape;
 
         format!("wmma_load_{elem}_{ident}_{m}x{n}x{k}_{layout_frag}_{layout}",)
     }
@@ -111,21 +123,20 @@ impl<D: Dialect> WmmaLoad<D> {
     /// --------------------------------------------------------------------------------------------------------------
     /// VGPR7      | 15,1 | 15,2 | 15,3 | 15,4 | ...  | 15,13| 15,14| 15,15| ...  | 16,1 | 16,2 | ...  | 16,15| 16,16|
     /// --------------------------------------------------------------------------------------------------------------
-    pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let elem = self.frag.elem;
+    pub fn format_extension(&self, f: &mut Formatter<'_>, ctx: &Context) -> std::fmt::Result {
+        let elem = self.frag.elem_ty;
         let frag = self.frag;
-        let name = self.fn_name();
+        let name = self.fn_name(ctx);
 
         let (index_body, length, step) = match frag.ident {
-            FragmentIdent::A | FragmentIdent::B => {
+            MatrixIdent::A | MatrixIdent::B => {
                 let length = 16;
                 let step = 1;
                 // fragment a and b are always in half precision and they don't require special attention
                 // to how they are stored in memory as matrix A and B are also in half precision
-                let index = if (frag.ident == FragmentIdent::A
-                    && frag.layout.unwrap() == FragmentLayout::ColMajor)
-                    || (frag.ident == FragmentIdent::B
-                        && frag.layout.unwrap() == FragmentLayout::RowMajor)
+                let index = if (frag.ident == MatrixIdent::A
+                    && frag.layout == MatrixLayout::ColMajor)
+                    || (frag.ident == MatrixIdent::B && frag.layout == MatrixLayout::RowMajor)
                 {
                     "i * stride + wmmaLane".to_string()
                 } else {
@@ -133,14 +144,14 @@ impl<D: Dialect> WmmaLoad<D> {
                 };
                 (index, length, step)
             }
-            FragmentIdent::Accumulator => {
+            MatrixIdent::Accumulator => {
                 let length = 8;
-                let step = get_output_accumulator_index_step(&elem, &frag);
+                let step = get_output_accumulator_index_step(ctx, elem, &frag);
                 let index = match self.layout {
-                    Some(FragmentLayout::ColMajor) => {
+                    MatrixLayout::ColMajor => {
                         "(i * uint(2) + threadIdx.x / uint(16)) + wmmaLane * stride".to_string()
                     }
-                    Some(FragmentLayout::RowMajor) => {
+                    MatrixLayout::RowMajor => {
                         "(i * uint(2) + threadIdx.x / uint(16)) * stride + wmmaLane".to_string()
                     }
                     _ => panic!(
@@ -149,8 +160,9 @@ impl<D: Dialect> WmmaLoad<D> {
                 };
                 (index, length, step)
             }
-            other => panic!("unknown matrix identifier {other}"),
         };
+        let frag = frag.get_self_handle(ctx).to_cpp(ctx);
+        let elem = elem.to_cpp(ctx);
 
         write!(
             f,
@@ -170,38 +182,38 @@ __device__ void {name}({frag}& frag, const {elem}* value_ptr, const uint stride)
     }
 }
 
-impl<D: Dialect> WmmaStore<D> {
-    pub fn fn_name(&self) -> String {
+impl WmmaStore {
+    pub fn fn_name(&self, ctx: &Context) -> String {
         let layout_frag = frag_layout_str(&self.frag.layout);
-        let layout_option = Some(self.layout);
-        let layout = frag_layout_str(&layout_option);
+        let layout = frag_layout_str(&self.layout);
         let ident = frag_ident_str(&self.frag.ident);
-        let (m, n, k) = (self.frag.m, self.frag.n, self.frag.k);
-        let elem = self.frag.elem;
+        let MatrixShape { m, n, k } = self.frag.shape;
+        let elem = self.frag.elem_ty.to_cpp(ctx);
 
         format!("wmma_store_{elem}_{ident}_{m}x{n}x{k}_{layout_frag}_{layout}",)
     }
 
-    pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let elem = self.frag.elem;
+    pub fn format_extension(&self, f: &mut Formatter<'_>, ctx: &Context) -> std::fmt::Result {
+        let elem = self.frag.elem_ty;
         let frag = self.frag;
-        let name = self.fn_name();
+        let name = self.fn_name(ctx);
         // frag holds a result column where threads 0-15 of the wavefront have the even rows and threads 16-31 the odd rows
         // moreover, since we use OPSEL to false in the Execute instruction in f16 output format, the output elements are
         // stored in even indexes (0, 2, 4, ...) (low 16-bits of the VGPR) in frag
-        let frag_idx = match elem {
-            Elem::F16 | Elem::BF16 => "elemIdx * 2",
-            Elem::F32 => "elemIdx",
-            other => {
-                panic!("C fragment format cannot be {other}. Only f16, bf16 and f32 are supported.")
-            }
+        let frag_idx = if elem.is_half(ctx) {
+            "elemIdx * 2"
+        } else {
+            "elemIdx"
         };
         // FragmentLayout here represents the desired layout of the matrix C
         let output_idx = match self.layout {
-            FragmentLayout::ColMajor => "wmmaLane * stride + rowIdx".to_string(),
-            FragmentLayout::RowMajor => "wmmaLane + rowIdx * stride".to_string(),
-            FragmentLayout::_Dialect(_) => String::new(),
+            MatrixLayout::ColMajor => "wmmaLane * stride + rowIdx".to_string(),
+            MatrixLayout::RowMajor => "wmmaLane + rowIdx * stride".to_string(),
+            _ => unreachable!(),
         };
+
+        let frag = frag.get_self_handle(ctx).to_cpp(ctx);
+        let elem = elem.to_cpp(ctx);
 
         write!(
             f,
@@ -221,49 +233,57 @@ __device__ void {name}(const {frag}& frag, {elem}* output_ptr, uint stride) {{
     }
 }
 
-impl<D: Dialect> WmmaExecute<D> {
-    pub fn from_manual(shape: MmaShape<D>, ab_elem: Elem<D>, cd_elem: Elem<D>) -> Self {
-        let frag_a = FragmentType {
-            ident: FragmentIdent::A,
-            m: shape.m,
-            n: shape.n,
-            k: shape.k,
-            elem: ab_elem,
-            layout: Some(FragmentLayout::ColMajor),
-        };
-        let frag_b = FragmentType {
-            ident: FragmentIdent::B,
-            layout: Some(FragmentLayout::RowMajor),
-            ..frag_a
-        };
-        let frag_cd = FragmentType {
-            ident: FragmentIdent::Accumulator,
-            elem: cd_elem,
-            ..frag_b
-        };
+impl WmmaExecute {
+    pub fn from_manual(shape: MatrixShape, ab_elem: TypeHandle, cd_elem: TypeHandle) -> Self {
+        // Hack, remove once types no longer need a mutable context
+        let frag_a = MatrixType::new(
+            MatrixIdent::A,
+            shape,
+            ab_elem,
+            MatrixLayout::ColMajor,
+            MatrixScope::Plane,
+        );
+        let frag_b = MatrixType::new(
+            MatrixIdent::B,
+            shape,
+            ab_elem,
+            MatrixLayout::RowMajor,
+            MatrixScope::Plane,
+        );
+        let frag_cd = MatrixType::new(
+            MatrixIdent::Accumulator,
+            shape,
+            cd_elem,
+            MatrixLayout::RowMajor,
+            MatrixScope::Plane,
+        );
+
         WmmaExecute::new(frag_a, frag_b, frag_cd, frag_cd)
     }
 
-    pub fn fn_name(&self) -> String {
+    pub fn fn_name(&self, ctx: &Context) -> String {
         format!(
             "wmma_execute_16x16x16_{}_{}",
-            self.frag_a.elem, self.frag_c.elem
+            self.frag_a.elem_ty.to_cpp(ctx),
+            self.frag_c.elem_ty.to_cpp(ctx)
         )
     }
 
-    pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let name = self.fn_name();
-        let ab_format = match self.frag_a.elem {
-            Elem::F32 => "f32",
-            Elem::BF16 => "bf16",
-            Elem::F16 => "f16",
-            _ => panic!(),
+    pub fn format_extension(&self, f: &mut Formatter<'_>, ctx: &Context) -> std::fmt::Result {
+        let name = self.fn_name(ctx);
+        let ab_format = if self.frag_a.elem_ty.is_float32(ctx) {
+            "f32"
+        } else if self.frag_a.elem_ty.is_bfloat16(ctx) {
+            "bf16"
+        } else {
+            "f16"
         };
-        let (cd_format, opsel) = match self.frag_c.elem {
-            Elem::F32 => ("f32", ""),
-            Elem::BF16 => ("bf16", ", false"),
-            Elem::F16 => ("f16", ", false"),
-            _ => panic!(),
+        let (cd_format, opsel) = if self.frag_c.elem_ty.is_float32(ctx) {
+            ("f32", "")
+        } else if self.frag_a.elem_ty.is_bfloat16(ctx) {
+            ("bf16", ", false")
+        } else {
+            ("f16", ", false")
         };
         let warp_size = 32;
         write!(
@@ -273,29 +293,33 @@ impl<D: Dialect> WmmaExecute<D> {
 __device__ void {name}(const {}& frag_a, const {}& frag_b, const {}& frag_c, {}& frag_d) {{
     frag_d = __builtin_amdgcn_wmma_{cd_format}_16x16x16_{ab_format}_w{warp_size}(frag_a, frag_b, frag_c{opsel});
 }}
-        ", self.frag_a, self.frag_b, self.frag_c, self.frag_d
+        ",
+            self.frag_a.get_self_handle(ctx).to_cpp(ctx),
+            self.frag_b.get_self_handle(ctx).to_cpp(ctx),
+            self.frag_c.get_self_handle(ctx).to_cpp(ctx),
+            self.frag_d.get_self_handle(ctx).to_cpp(ctx)
         )
     }
 }
 
-impl<D: Dialect> WmmaCast<D> {
-    pub fn fn_name(&self) -> String {
+impl WmmaCast {
+    pub fn fn_name(&self, ctx: &Context) -> String {
         let layout = frag_layout_str(&self.frag_input.layout);
         let ident = frag_ident_str(&self.frag_input.ident);
-        let (m, n, k) = (self.frag_input.m, self.frag_input.n, self.frag_input.k);
-        let elem = self.frag_input.elem;
-        let elem_out = self.frag_output.elem;
+        let MatrixShape { m, n, k } = self.frag_input.shape;
+        let elem = self.frag_input.elem_ty.to_cpp(ctx);
+        let elem_out = self.frag_output.elem_ty.to_cpp(ctx);
 
         format!("wmma_cast_{elem}_to_{elem_out}_{ident}_{m}x{n}x{k}_{layout}",)
     }
 
-    pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let input = self.frag_input;
-        let output = self.frag_output;
-        let name = self.fn_name();
-        let step = match output.ident {
-            FragmentIdent::Accumulator => {
-                get_output_accumulator_index_step(&self.frag_input.elem, &output)
+    pub fn format_extension(&self, f: &mut Formatter<'_>, ctx: &Context) -> std::fmt::Result {
+        let input = self.frag_input.get_self_handle(ctx).to_cpp(ctx);
+        let output = self.frag_output.get_self_handle(ctx).to_cpp(ctx);
+        let name = self.fn_name(ctx);
+        let step = match self.frag_output.ident {
+            MatrixIdent::Accumulator => {
+                get_output_accumulator_index_step(ctx, self.frag_input.elem_ty, &self.frag_output)
             }
             _ => 1,
         };
@@ -315,218 +339,154 @@ __device__ void {name}(const {input}& input, {output}& output) {{
     }
 }
 
-impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
-    fn compile_wmma_type_definitions(
-        f: &mut std::fmt::Formatter<'_>,
-        flags: &Flags<HipDialect<Self>>,
-    ) -> std::fmt::Result {
-        if flags.elem_bf16 {
-            f.write_str("typedef __bf16 bhalf8_t __attribute__((ext_vector_type(8)));\n")?;
-            f.write_str("typedef __bf16 bhalf16_t __attribute__((ext_vector_type(16)));\n")?;
-        }
-        if flags.elem_f16 {
-            f.write_str("typedef _Float16 half8_t __attribute__((ext_vector_type(8)));\n")?;
-            f.write_str("typedef _Float16 half16_t __attribute__((ext_vector_type(16)));\n")?;
-        }
-        f.write_str("typedef float float8_t __attribute__((ext_vector_type(8)));\n")
-    }
-
-    fn compile_wmma_fragment_declaration(
-        f: &mut std::fmt::Formatter<'_>,
-        val: &crate::shared::Value<HipDialect<Self>>,
-        ty: &crate::shared::Item<HipDialect<Self>>,
-    ) -> std::fmt::Result {
-        wmma_api_base::compile_fragment_declaration(f, val, ty)
-    }
-
-    fn compile_wmma_fragment(
-        f: &mut std::fmt::Formatter<'_>,
-        fragment: &FragmentType<HipDialect<Self>>,
-    ) -> std::fmt::Result {
-        match fragment.ident {
-            FragmentIdent::A | FragmentIdent::B => match fragment.elem {
-                Elem::F16 => write!(f, "half16_t"),
-                Elem::BF16 => write!(f, "bhalf16_t"),
-                other => panic!(
-                    "unsupported type {other} for fragment ident {:?}",
-                    fragment.ident
-                ),
-            },
-            FragmentIdent::Accumulator => match fragment.elem {
-                Elem::F16 => write!(f, "half16_t"),
-                Elem::BF16 => write!(f, "bhalf16_t"),
-                Elem::F32 => write!(f, "float8_t"),
-                other => panic!(
-                    "unsupported type {other} for fragment ident {:?}",
-                    fragment.ident
-                ),
-            },
-            FragmentIdent::_Dialect(_) => Ok(()),
-        }
-    }
-
-    fn compile_wmma_instruction(
-        f: &mut std::fmt::Formatter<'_>,
-        instruction: &WmmaInstruction<HipDialect<Self>>,
-    ) -> std::fmt::Result {
-        match instruction {
-            WmmaInstruction::Fill { frag, value } => {
-                let extension = WmmaFill::new(match frag.item().unwrap_ptr() {
-                    Item::Fragment(frag) => frag,
-                    _ => panic!(),
-                });
-                let name = extension.fn_name();
-                let frag = frag.fmt_ref();
-                writeln!(f, "{name}({frag}, {value});")
-            }
-            WmmaInstruction::Load {
-                frag,
-                ptr,
-                layout,
-                stride,
-            } => {
-                let extension = WmmaLoad::new(value_to_frag(frag), *layout);
-                let name = extension.fn_name();
-                let value_ptr = frag_as_ptr(f, ptr);
-                let frag = frag.fmt_ref();
-                writeln!(f, "{name}({frag}, {value_ptr}, {stride});")
-            }
-            WmmaInstruction::LdMatrix { .. } | WmmaInstruction::StMatrix { .. } => {
-                f.write_str("#error LdMatrix & StMatrix are not supported on HIP\n")
-            }
-            WmmaInstruction::Execute {
-                frag_a,
-                frag_b,
-                frag_c,
-                frag_d,
-                warp_size,
-            } => {
-                if *warp_size != 32 {
-                    f.write_str(
-                        "#error Only warp size of 32 supported for Wmma::Execute on HIP\n",
-                    )?;
-                }
-
-                let extension = WmmaExecute::new(
-                    value_to_frag(frag_a),
-                    value_to_frag(frag_b),
-                    value_to_frag(frag_c),
-                    value_to_frag(frag_d),
-                );
-                let name = extension.fn_name();
-                let frag_d = frag_d.fmt_ref();
-                writeln!(f, "{name}({frag_a}, {frag_b}, {frag_c}, {frag_d});")
-            }
-            WmmaInstruction::ExecuteManual {
-                shape,
-                frag_a,
-                frag_b,
-                frag_c,
-                frag_d,
-            } => {
-                Self::compile_manual_mma(f, ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d))
-            }
-            WmmaInstruction::ExecuteScaled {
-                shape,
-                frag_a,
-                frag_b,
-                frag_c,
-                frag_d,
-                scales_a,
-                scales_b,
-                scales_factor,
-            } => Self::compile_scaled_mma(
-                f,
-                ManualMma::new(*shape, frag_a, frag_b, frag_c, frag_d),
-                *scales_a,
-                *scales_b,
-                *scales_factor,
-            ),
-            WmmaInstruction::Store {
-                frag,
-                layout,
-                destination,
-                stride,
-            } => {
-                let extension = WmmaStore::new(value_to_frag(frag), *layout);
-                let name = extension.fn_name();
-                let output_ptr = frag_as_ptr(f, destination);
-                let frag = frag.fmt_ref();
-                writeln!(f, "{name}({frag}, {output_ptr}, {stride});")
-            }
-            WmmaInstruction::Cast { input, output } => {
-                let extension = WmmaCast::new(value_to_frag(input), value_to_frag(output));
-                let name = extension.fn_name();
-                let input = input.fmt_ref();
-                let output = output.fmt_ref();
-                writeln!(f, "{name}({input}, {output});")
+pub(super) fn compile_fragment_intrinsic(ctx: &Context, mat_ty: &MatrixType) -> String {
+    match mat_ty.ident {
+        MatrixIdent::A | MatrixIdent::B => {
+            if mat_ty.elem_ty.is_float16(ctx) {
+                "half16_t".into()
+            } else if mat_ty.elem_ty.is_bfloat16(ctx) {
+                "bhalf16_t".into()
+            } else {
+                panic!(
+                    "unsupported type {} for {}",
+                    mat_ty.elem_ty.disp(ctx),
+                    mat_ty.disp(ctx)
+                )
             }
         }
-    }
-
-    fn compile_manual_mma(
-        f: &mut std::fmt::Formatter<'_>,
-        mma: ManualMma<HipDialect<Self>>,
-    ) -> std::fmt::Result {
-        compile_manual_mma(f, mma.shape, mma.frag_a, mma.frag_b, mma.frag_c, mma.frag_d)
-    }
-
-    fn compile_scaled_mma(
-        f: &mut std::fmt::Formatter<'_>,
-        _mma: ManualMma<HipDialect<Self>>,
-        _scales_a: Value<HipDialect<Self>>,
-        _scales_b: Value<HipDialect<Self>>,
-        _scales_factor: u32,
-    ) -> std::fmt::Result {
-        f.write_str("#error scaled mma not supported in HIP\n")
-    }
-
-    fn supported_wmma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {
-        // Reference: https://gpuopen.com/learn/wmma_on_rdna3/
-        let mut result: SupportedMmaCombinations = vec![];
-        if arch.is_wmma_capable() {
-            // Types fully supported.
-            let types = vec![
-                (
-                    gpu::ElemType::Float(gpu::FloatKind::F16), // m
-                    gpu::ElemType::Float(gpu::FloatKind::F16), // n
-                    gpu::ElemType::Float(gpu::FloatKind::F16), // k
-                ),
-                (
-                    gpu::ElemType::Float(gpu::FloatKind::F16),
-                    gpu::ElemType::Float(gpu::FloatKind::F16),
-                    gpu::ElemType::Float(gpu::FloatKind::F32),
-                ),
-                (
-                    gpu::ElemType::Float(gpu::FloatKind::BF16),
-                    gpu::ElemType::Float(gpu::FloatKind::BF16),
-                    gpu::ElemType::Float(gpu::FloatKind::F32),
-                ),
-            ];
-            let combinations: SupportedMmaCombinations = types
-                .into_iter()
-                .map(|(a, b, c)| MmaConfig {
-                    a_type: a.into(),
-                    b_type: b.into(),
-                    cd_type: c.into(),
-                    m: 16,
-                    n: 16,
-                    k: 16,
-                })
-                .collect();
-            result.extend(combinations);
+        MatrixIdent::Accumulator => {
+            if mat_ty.elem_ty.is_float16(ctx) {
+                "half16_t".into()
+            } else if mat_ty.elem_ty.is_bfloat16(ctx) {
+                "bhalf16_t".into()
+            } else if mat_ty.elem_ty.is_float32(ctx) {
+                "float8_t".into()
+            } else {
+                panic!(
+                    "unsupported type {} for {}",
+                    mat_ty.elem_ty.disp(ctx),
+                    mat_ty.disp(ctx)
+                )
+            }
         }
-        result
-    }
-
-    fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {
-        supported_mma_combinations(arch)
     }
 }
 
-fn get_output_accumulator_index_step<D: Dialect>(
-    input_elem: &Elem<D>,
-    output: &FragmentType<D>,
+pub(super) fn compile_fill_intrinsic(ctx: &Context, op: &FillOp) -> String {
+    let matrix = op.matrix(ctx);
+    let value = op.value(ctx).name(ctx);
+    let extension = WmmaFill::new(*matrix.get_type(ctx).deref(ctx).downcast_ref().unwrap());
+    let name = extension.fn_name(ctx);
+    format!("{name}(*{}, {value});", matrix.name(ctx))
+}
+
+pub(super) fn compile_load_intrinsic(ctx: &Context, op: &LoadOp) -> String {
+    let mat = op.matrix(ctx);
+    let value_ptr = op.source(ctx).name(ctx);
+    let stride = op.stride(ctx).name(ctx);
+    let mat_ty = *mat.get_type(ctx).deref(ctx).downcast_ref().unwrap();
+    let layout = op.layout(ctx).0;
+    let extension = WmmaLoad::new(mat_ty, layout);
+    let name = extension.fn_name(ctx);
+    format!("{name}(*{}, {value_ptr}, {stride});", mat.name(ctx))
+}
+
+pub(super) fn compile_store_intrinsic(ctx: &Context, op: &StoreOp) -> String {
+    let mat = op.matrix(ctx);
+    let output_ptr = op.destination(ctx).name(ctx);
+    let stride = op.stride(ctx).name(ctx);
+    let mat_ty = *mat.get_type(ctx).deref(ctx).downcast_ref().unwrap();
+    let layout = op.layout(ctx).0;
+    let extension = WmmaStore::new(mat_ty, layout);
+    let name = extension.fn_name(ctx);
+    format!("{name}(*{}, {output_ptr}, {stride});", mat.name(ctx))
+}
+
+pub(super) fn compile_execute_intrinsic(ctx: &Context, op: &MultiplyAccumulateOp) -> String {
+    let warp_size = ctx.aux_ty::<CompilationOptions>().warp_size;
+    if warp_size != 32 {
+        panic!("Only warp size of 32 supported for Wmma::Execute on HIP");
+    }
+
+    let frag_a = op.mat_a(ctx);
+    let frag_b = op.mat_b(ctx);
+    let frag_c = op.mat_c(ctx);
+    let frag_d = op.mat_d(ctx);
+
+    let extension = WmmaExecute::new(
+        *frag_a.get_type(ctx).deref(ctx).downcast_ref().unwrap(),
+        *frag_b.get_type(ctx).deref(ctx).downcast_ref().unwrap(),
+        *frag_c.get_type(ctx).deref(ctx).downcast_ref().unwrap(),
+        *frag_d.get_type(ctx).deref(ctx).downcast_ref().unwrap(),
+    );
+    let name = extension.fn_name(ctx);
+    format!(
+        "{name}({}, {}, {}, {});",
+        frag_a.name(ctx),
+        frag_b.name(ctx),
+        frag_c.name(ctx),
+        frag_d.name(ctx)
+    )
+}
+
+pub(super) fn compile_cast_intrinsic(ctx: &Context, op: &CastOp) -> String {
+    let input = op.input(ctx);
+    let output = op.output(ctx);
+
+    let extension = WmmaCast::new(
+        *input.get_type(ctx).deref(ctx).downcast_ref().unwrap(),
+        *output.get_type(ctx).deref(ctx).downcast_ref().unwrap(),
+    );
+    let name = extension.fn_name(ctx);
+    let input = input.name(ctx);
+    let output = output.name(ctx);
+    format!("{name}({input}, {output});")
+}
+
+pub(super) fn supported_wmma_combinations_intrinsic(
+    arch: &AMDArchitecture,
+) -> SupportedMmaCombinations {
+    // Reference: https://gpuopen.com/learn/wmma_on_rdna3/
+    let mut result: SupportedMmaCombinations = vec![];
+    if arch.is_wmma_capable() {
+        // Types fully supported.
+        let types = vec![
+            (
+                ElemType::Float(FloatKind::F16), // m
+                ElemType::Float(FloatKind::F16), // n
+                ElemType::Float(FloatKind::F16), // k
+            ),
+            (
+                ElemType::Float(FloatKind::F16),
+                ElemType::Float(FloatKind::F16),
+                ElemType::Float(FloatKind::F32),
+            ),
+            (
+                ElemType::Float(FloatKind::BF16),
+                ElemType::Float(FloatKind::BF16),
+                ElemType::Float(FloatKind::F32),
+            ),
+        ];
+        let combinations: SupportedMmaCombinations = types
+            .into_iter()
+            .map(|(a, b, c)| MmaConfig {
+                a_type: a,
+                b_type: b,
+                cd_type: c,
+                m: 16,
+                n: 16,
+                k: 16,
+            })
+            .collect();
+        result.extend(combinations);
+    }
+    result
+}
+
+fn get_output_accumulator_index_step(
+    ctx: &Context,
+    input_elem: TypeHandle,
+    output: &MatrixType,
 ) -> u32 {
     // Each VGPR is 32 bit wide and there is 8 VGPR per lane, an accumulator can then be either:
     // - a vector of 8 float
@@ -535,146 +495,10 @@ fn get_output_accumulator_index_step<D: Dialect>(
     // just only 16 bits. In such a case we always use the lower 16 bits (opsel set to false) which means
     // that we only assign values to even indexes of the accumulator (0, 2, 4, ...)
 
-    assert_eq!(output.ident, FragmentIdent::<D>::Accumulator);
+    assert_eq!(output.ident, MatrixIdent::Accumulator);
+    assert!(input_elem.is_half(ctx) || input_elem.is_float32(ctx));
 
-    match input_elem {
-        Elem::F16 | Elem::BF16 | Elem::F32 => {
-            match output.elem {
-                // loading into accumulator of 16 half precision
-                Elem::F16 | Elem::BF16 => 2,
-                // loading into accumulator of 8 full precision
-                Elem::F32 => 1,
-                other => panic!("unsupported format {other} for {output}"),
-            }
-        }
-        other => panic!("unsupported format {other} for {input_elem}"),
-    }
-}
-
-pub(super) fn compile_manual_mma<D: Dialect>(
-    f: &mut std::fmt::Formatter<'_>,
-    shape: MmaShape<D>,
-    frag_a: &Value<D>,
-    frag_b: &Value<D>,
-    frag_c: &Value<D>,
-    frag_d: &Value<D>,
-) -> std::fmt::Result {
-    let extension = WmmaExecute::from_manual(shape, frag_a.elem(), frag_c.elem());
-
-    let cd_elems = shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
-
-    let frag_cd_step = 4usize.div_ceil(frag_c.elem().size());
-    let frag_d_tmp = Value::tmp_declared(Item::Scalar(Elem::<D>::I32)).fmt_left();
-
-    // Need to reconstruct the fragments from an array of vectors to a single vector type.
-    // This requires double indexing over both the array index and the vector index.
-    // Will generate something like
-    // `float8_t {arr[0].i_0, arr[0].i_1, arr[1].i_0, ...}`
-    let frag = |val: &Value<D>, len: usize| {
-        let frag: Vec<_> = if let Item::Vector(_, vec) = *val.item().value_ty() {
-            (0..len)
-                .map(|i| format!("{}.i_{}", val.index(i / vec), i % vec))
-                .collect()
-        } else {
-            (0..len).map(|i| format!("{}", val.index(i))).collect()
-        };
-        frag.join(", ")
-    };
-
-    let frag_a = frag(frag_a, 16);
-    let frag_b = frag(frag_b, 16);
-    // C matrix needs to be padded for f16, because it only uses the low bytes. The simplest way is
-    // to just replicate the same f16 in both halves of the register.
-    let frag_c = {
-        let frag: Vec<_> = if let Item::Vector(_, vec) = frag_c.item() {
-            (0..cd_elems as usize)
-                .flat_map(|i| {
-                    (0..frag_cd_step).map(move |_| format!("{frag_c}[{}].i_{}", i / vec, i % vec))
-                })
-                .collect()
-        } else {
-            (0..cd_elems as usize)
-                .flat_map(|i| (0..frag_cd_step).map(move |_| format!("{frag_c}[{}]", i)))
-                .collect()
-        };
-        frag.join(", ")
-    };
-
-    // Should optimize out
-    let name = extension.fn_name();
-
-    // Item is irrelevant
-    writeln!(f, "{} {frag_d_tmp} = {{}};", extension.frag_d)?;
-
-    writeln!(
-        f,
-        "{name}({}{{{frag_a}}}, {}{{{frag_b}}}, {}{{{frag_c}}}, {frag_d_tmp});",
-        extension.frag_a, extension.frag_b, extension.frag_c
-    )?;
-
-    for i in 0..cd_elems as usize {
-        if let Item::Vector(_, vec) = frag_d.item() {
-            writeln!(
-                f,
-                "{}.i_{} = {frag_d_tmp}[{i} * {frag_cd_step}];",
-                frag_d.index(i / vec),
-                i % vec
-            )?;
-        } else {
-            writeln!(
-                f,
-                "{} = {frag_d_tmp}[{i} * {frag_cd_step}];",
-                frag_d.index(i)
-            )?;
-        }
-    }
-
-    Ok(())
-}
-
-pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {
-    // Correctness is wrong.
-    const ENABLED: bool = true;
-
-    if !ENABLED {
-        return Vec::new();
-    }
-
-    // Reference: https://gpuopen.com/learn/wmma_on_rdna3/
-    // Feel free to add more if additional intrinsics are supported for execute
-    let mut result: SupportedMmaCombinations = vec![];
-    if arch.is_wmma_capable() {
-        // Types fully supported.
-        let types = vec![
-            (
-                gpu::ElemType::Float(gpu::FloatKind::F16),
-                gpu::ElemType::Float(gpu::FloatKind::F32),
-            ),
-            (
-                gpu::ElemType::Float(gpu::FloatKind::BF16),
-                gpu::ElemType::Float(gpu::FloatKind::F32),
-            ),
-        ];
-        let combinations = types.into_iter().map(|(ab_elem, cd_elem)| MmaConfig {
-            a_type: ab_elem.into(),
-            b_type: ab_elem.into(),
-            cd_type: cd_elem.into(),
-            m: 16,
-            n: 16,
-            k: 16,
-        });
-        result.extend(combinations);
-    }
-    result
-}
-
-pub fn contiguous_elements_rdna3(ident: MatrixIdent, matrix: MatrixType) -> usize {
-    // Don't exceed swizzle atom and load width
-    let max_vector_size = 16 / matrix.storage.size();
-    match ident {
-        MatrixIdent::A | MatrixIdent::B => 16.min(max_vector_size),
-        MatrixIdent::Accumulator => 1,
-    }
+    if output.elem_ty.is_half(ctx) { 2 } else { 1 }
 }
 
 // threads 0-15 and threads 16-31 of the wavefront hold the same fragments respectively

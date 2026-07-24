@@ -37,7 +37,7 @@ pub fn build_kernel<R: Runtime>(
             BufferArg::from_raw_parts(in_handle.clone(), num_lines),
             BufferArg::from_raw_parts(out_handle.clone(), num_lines),
             iterations,
-            dtype.into(),
+            dtype,
         )
     });
 
@@ -51,7 +51,7 @@ pub fn memory_direct_throughput<I: Numeric, N: Size>(
     input: &[Vector<I, N>],
     output: &mut [Vector<I, N>],
     n_iter: usize,
-    #[define(I)] _dtype: StorageType,
+    #[define(I)] _dtype: ElemType,
 ) {
     let len = output.len();
     let stride = CUBE_DIM as usize * CUBE_COUNT;

@@ -1,5 +1,9 @@
 use cubecl_common::{e4m3, e5m2, ue8m0};
-use cubecl_ir::{ConstantValue, ElemType, FloatKind, Scope, Type};
+use cubecl_ir::{
+    ConstantValue, ElemType, FloatKind, Scope,
+    types::scalar::{Float8E4M3Type, Float8E5M2Type, Float8E8M0Type},
+};
+use pliron::r#type::TypeHandle;
 
 use crate::prelude::*;
 
@@ -8,15 +12,18 @@ impl CubeType for e4m3 {
 }
 
 impl CubeDebug for e4m3 {}
-impl Scalar for e4m3 {}
+impl Scalar for e4m3 {
+    fn elem_type_native() -> ElemType {
+        FloatKind::E4M3.into()
+    }
+}
 impl CubePrimitive for e4m3 {
     type Scalar = Self;
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    /// Return the element type to use on GPU
-    fn as_type_native() -> Option<Type> {
-        Some(ElemType::Float(FloatKind::E4M3).into())
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        Float8E4M3Type::get(scope.ctx()).into()
     }
 
     fn from_const_value(value: ConstantValue) -> Self {
@@ -46,15 +53,18 @@ impl CubeType for e5m2 {
 }
 
 impl CubeDebug for e5m2 {}
-impl Scalar for e5m2 {}
+impl Scalar for e5m2 {
+    fn elem_type_native() -> ElemType {
+        FloatKind::E5M2.into()
+    }
+}
 impl CubePrimitive for e5m2 {
     type Scalar = Self;
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    /// Return the element type to use on GPU
-    fn as_type_native() -> Option<Type> {
-        Some(ElemType::Float(FloatKind::E5M2).into())
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        Float8E5M2Type::get(scope.ctx()).into()
     }
 
     fn from_const_value(value: ConstantValue) -> Self {
@@ -84,15 +94,18 @@ impl CubeType for ue8m0 {
 }
 
 impl CubeDebug for ue8m0 {}
-impl Scalar for ue8m0 {}
+impl Scalar for ue8m0 {
+    fn elem_type_native() -> ElemType {
+        FloatKind::UE8M0.into()
+    }
+}
 impl CubePrimitive for ue8m0 {
     type Scalar = Self;
     type Size = Const<1>;
     type WithScalar<S: Scalar> = S;
 
-    /// Return the element type to use on GPU
-    fn as_type_native() -> Option<Type> {
-        Some(ElemType::Float(FloatKind::UE8M0).into())
+    fn __expand_as_type(scope: &Scope) -> TypeHandle {
+        Float8E8M0Type::get(scope.ctx()).into()
     }
 
     fn from_const_value(value: ConstantValue) -> Self {
