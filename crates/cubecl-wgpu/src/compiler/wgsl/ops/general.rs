@@ -90,7 +90,8 @@ impl AttrToWgsl for IntegerAttr {
         } else if ty.is_signed_int(ctx) && val.to_i64() == i64::MIN {
             "(i64(-9223372036854775807) - 1)".into()
         } else {
-            format!("{}({})", ty.to_wgsl(ctx), val.to_i128())
+            let val = val.to_string_decimal(ty.is_signed_int(ctx));
+            format!("{}({val})", ty.to_wgsl(ctx))
         }
     }
 }

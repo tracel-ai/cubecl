@@ -20,7 +20,6 @@ use cubecl_ir::{
         builtin::ops::{FuncOp, ModuleOp},
         operation::verify_operation,
         opts::{constants::sccp::SCCPPass, dce::DCEPass, mem2reg::Mem2RegPass},
-        printable::Printable,
     },
     prelude::{AnalysisManager, NestedOpsPass, Op, OpPass, PMConfig, Pass, Passes},
     rewrite::SimplifyOpsPass,
@@ -95,8 +94,7 @@ impl WgslCompiler {
         });
         ctx.set_aux_ty(*compilation_options);
 
-        std::fs::write("target/initial.plir", format!("{}", module.disp(&ctx))).unwrap();
-        verify_operation(module_op, &ctx).expect("Failed to verify before passes");
+        verify_operation(module_op, &ctx)?;
 
         let config = PMConfig {
             print_after_all: true,
@@ -141,23 +139,11 @@ impl WgslCompiler {
 
         passes.run(module_op, &mut ctx, &mut analyses).unwrap();
 
-        std::fs::write(
-            "target/after_lower_shared.plir",
-            format!("{}", module.disp(&ctx)),
-        )
-        .unwrap();
-
         let buffers = rewrite_args(&mut ctx, entry_func);
         declare_info(&mut ctx, entry_func, buffers.len());
         let shared_memory_size = shared_memory_size(&ctx, module_op);
 
-        std::fs::write(
-            "target/after_convert_args.plir",
-            format!("{}", module.disp(&ctx)),
-        )
-        .unwrap();
-
-        verify_operation(module.get_operation(), &ctx).expect("Failed to verify after passes");
+        verify_operation(module.get_operation(), &ctx)?;
 
         Ok(ComputeShader {
             buffers,
@@ -165,105 +151,4 @@ impl WgslCompiler {
             ctx,
         })
     }
-
-    // fn compile_operation(
-    //     &mut self,
-    //     instructions: &mut Vec<wgsl::Instruction>,
-    //     operation: cube::Operation,
-    //     out: Option<cube::ExpandValue>,
-    //     scope: &cube::Scope,
-    // ) {
-    //     match operation {
-    //         cube::Operation::Atomic(op) => instructions.push(self.compile_atomic(op, out)),
-    //         cube::Operation::Synchronization(val) => {
-    //             self.compile_synchronization(instructions, val)
-    //         }
-    //     }
-    // }
-
-    // fn compile_synchronization(
-    //     &mut self,
-    //     instructions: &mut Vec<wgsl::Instruction>,
-    //     synchronization: cube::Synchronization,
-    // ) {
-    //     match synchronization {
-    //         cube::Synchronization::SyncCube => {
-    //             instructions.push(wgsl::Instruction::WorkgroupBarrier)
-    //         }
-    //         cube::Synchronization::SyncPlane => {
-    //             panic!("Synchronization within a plane is not supported in WGSL")
-    //         }
-    //         cube::Synchronization::SyncStorage => {
-    //             instructions.push(wgsl::Instruction::StorageBarrier)
-    //         }
-    //         cube::Synchronization::SyncAsyncProxyShared => panic!("TMA is not supported in WGSL"),
-    //     };
-    // }
-
-    // fn compile_comment(&mut self, instructions: &mut Vec<wgsl::Instruction>, content: String) {
-    //     instructions.push(wgsl::Instruction::Comment { content })
-    // }
-
-    // fn compile_atomic(
-    //     &mut self,
-    //     atomic: cube::AtomicOp,
-    //     out: Option<cube::ExpandValue>,
-    // ) -> wgsl::Instruction {
-    //     match atomic {
-    //         cube::AtomicOp::Add(op) => wgsl::Instruction::AtomicAdd {
-    //             ptr: self.compile_value(op.ptr),
-    //             value: self.compile_value(op.value),
-    //             out: self.compile_value(out.unwrap()),
-    //         },
-    //         cube::AtomicOp::Sub(op) => wgsl::Instruction::AtomicSub {
-    //             ptr: self.compile_value(op.ptr),
-    //             value: self.compile_value(op.value),
-    //             out: self.compile_value(out.unwrap()),
-    //         },
-    //         cube::AtomicOp::Max(op) => wgsl::Instruction::AtomicMax {
-    //             ptr: self.compile_value(op.ptr),
-    //             value: self.compile_value(op.value),
-    //             out: self.compile_value(out.unwrap()),
-    //         },
-    //         cube::AtomicOp::Min(op) => wgsl::Instruction::AtomicMin {
-    //             ptr: self.compile_value(op.ptr),
-    //             value: self.compile_value(op.value),
-    //             out: self.compile_value(out.unwrap()),
-    //         },
-    //         cube::AtomicOp::And(op) => wgsl::Instruction::AtomicAnd {
-    //             ptr: self.compile_value(op.ptr),
-    //             value: self.compile_value(op.value),
-    //             out: self.compile_value(out.unwrap()),
-    //         },
-    //         cube::AtomicOp::Or(op) => wgsl::Instruction::AtomicOr {
-    //             ptr: self.compile_value(op.ptr),
-    //             value: self.compile_value(op.value),
-    //             out: self.compile_value(out.unwrap()),
-    //         },
-    //         cube::AtomicOp::Xor(op) => wgsl::Instruction::AtomicXor {
-    //             ptr: self.compile_value(op.ptr),
-    //             value: self.compile_value(op.value),
-    //             out: self.compile_value(out.unwrap()),
-    //         },
-    //         cube::AtomicOp::Load(ptr) => wgsl::Instruction::AtomicLoad {
-    //             input: self.compile_value(ptr),
-    //             out: self.compile_value(out.unwrap()),
-    //         },
-    //         cube::AtomicOp::Store(op) => wgsl::Instruction::AtomicStore {
-    //             input: self.compile_value(op.value),
-    //             out: self.compile_value(op.ptr),
-    //         },
-    //         cube::AtomicOp::Swap(op) => wgsl::Instruction::AtomicSwap {
-    //             lhs: self.compile_value(op.ptr),
-    //             rhs: self.compile_value(op.value),
-    //             out: self.compile_value(out.unwrap()),
-    //         },
-    //         cube::AtomicOp::CompareAndSwap(op) => wgsl::Instruction::AtomicCompareExchangeWeak {
-    //             ptr: self.compile_value(op.ptr),
-    //             cmp: self.compile_value(op.cmp),
-    //             value: self.compile_value(op.val),
-    //             out: self.compile_value(out.unwrap()),
-    //         },
-    //     }
-    // }
 }

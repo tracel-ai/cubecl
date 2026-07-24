@@ -41,6 +41,10 @@ pub fn cast_value(scope: &Scope, from: Value, to_ty: TypeHandle) -> Value {
         return from;
     }
 
+    if to_ty.is_ptr(ctx) {
+        panic!("Found ptr");
+    }
+
     let elems_in = from.vector_size(ctx) * from.packing_factor(ctx);
     let elems_out = to_ty.vector_size(ctx) * to_ty.packing_factor(ctx);
     if elems_in == 1 && elems_out > 1 {

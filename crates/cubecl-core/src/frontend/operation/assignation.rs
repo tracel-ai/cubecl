@@ -64,7 +64,8 @@ pub mod assign {
         let out_vec = output.try_get_vector_size(scope.ctx())?;
         let in_vec = input.try_get_vector_size(scope.ctx())?;
         if out_vec > 1 && in_vec == 1 {
-            Some(cast_value(scope, input, output.get_type(scope.ctx())))
+            let out_ty = output.get_type(scope.ctx()).unwrap_ptr(scope.ctx());
+            Some(cast_value(scope, input, out_ty))
         } else {
             None
         }

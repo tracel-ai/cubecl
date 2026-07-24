@@ -824,7 +824,7 @@ impl<T: ?Sized> CubeDebug for NativeExpand<T> {
     }
 }
 
-impl<T> NativeExpand<T> {
+impl<T: CubePrimitive> NativeExpand<T> {
     // Expanded version of vectorization factor.
     pub fn __expand_vector_size_method(&self, scope: &Scope) -> VectorSize {
         self.value(scope).vector_size(scope.ctx())

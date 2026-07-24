@@ -41,16 +41,21 @@ impl VectorInitOp {
 
 #[derive(Error, Debug)]
 pub enum VectorInitError {
-    #[error("Output vector size doesn't match parameter count")]
-    ParameterTypeMismatch,
+    #[error(
+        "[VectorInitOp]: Output vector size doesn't match parameter count: Expected {_0} parameters, got {_1}"
+    )]
+    ParameterTypeMismatch(usize, usize),
 }
 
 impl Verify for VectorInitOp {
     fn verify(&self, ctx: &Context) -> Result<()> {
-        if self.get_operation().deref(ctx).get_num_operands()
-            != self.get_result(ctx).vector_size(ctx)
-        {
-            return verify_err!(self.loc(ctx), VectorInitError::ParameterTypeMismatch)?;
+        let num_opds = self.get_operation().deref(ctx).get_num_operands();
+        let vec = self.get_result(ctx).vector_size(ctx);
+        if num_opds != vec {
+            return verify_err!(
+                self.loc(ctx),
+                VectorInitError::ParameterTypeMismatch(vec, num_opds)
+            )?;
         }
         Ok(())
     }
@@ -76,7 +81,7 @@ impl Verify for VectorBroadcastOp {
         if scalar_ty != value_ty {
             return verify_err!(
                 loc,
-                VectorError::MismatchedScalarType(
+                VectorOpError::MismatchedScalarType(
                     scalar_ty.disp(ctx).to_string(),
                     value_ty.disp(ctx).to_string()
                 )
@@ -87,10 +92,12 @@ impl Verify for VectorBroadcastOp {
 }
 
 #[derive(Error, Debug)]
-pub enum VectorError {
-    #[error("Index is out of range: index is {_0} but vectorization is {_1}.")]
+pub enum VectorOpError {
+    #[error("[VectorOp]: Index is out of range: index is {_0} but vectorization is {_1}.")]
     IndexOutOfRange(usize, usize),
-    #[error("Scalar type doesn't match the inner type of the vector: expected {_0}, got {_1}")]
+    #[error(
+        "[VectorOp]: Scalar type doesn't match the inner type of the vector: expected {_0}, got {_1}"
+    )]
     MismatchedScalarType(String, String),
 }
 
@@ -114,14 +121,14 @@ impl Verify for VectorInsertOp {
         let index = self.index(ctx).0;
         let vectorization = self.vector(ctx).vector_size(ctx);
         if index >= vectorization {
-            return verify_err!(loc, VectorError::IndexOutOfRange(index, vectorization))?;
+            return verify_err!(loc, VectorOpError::IndexOutOfRange(index, vectorization))?;
         }
         let scalar_ty = self.vector(ctx).scalar_ty(ctx);
         let value_ty = self.value(ctx).get_type(ctx);
         if scalar_ty != value_ty {
             return verify_err!(
                 loc,
-                VectorError::MismatchedScalarType(
+                VectorOpError::MismatchedScalarType(
                     scalar_ty.disp(ctx).to_string(),
                     value_ty.disp(ctx).to_string()
                 )
@@ -150,7 +157,7 @@ impl Verify for VectorExtractOp {
         let index = self.index(ctx).0;
         let vectorization = self.vector(ctx).vector_size(ctx);
         if index >= vectorization {
-            return verify_err!(loc, VectorError::IndexOutOfRange(index, vectorization))?;
+            return verify_err!(loc, VectorOpError::IndexOutOfRange(index, vectorization))?;
         }
         Ok(())
     }
@@ -178,7 +185,7 @@ impl Verify for VectorInsertDynamicOp {
         if scalar_ty != value_ty {
             return verify_err!(
                 loc,
-                VectorError::MismatchedScalarType(
+                VectorOpError::MismatchedScalarType(
                     scalar_ty.disp(ctx).to_string(),
                     value_ty.disp(ctx).to_string()
                 )

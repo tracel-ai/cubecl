@@ -1,6 +1,5 @@
 pub mod builtin;
 mod compiler;
-mod instructions;
 pub mod lower;
 pub mod metadata;
 pub mod ops;

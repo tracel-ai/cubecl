@@ -19,9 +19,9 @@ use crate::{
 
 #[derive(Error, Debug)]
 pub enum TmaOpError {
-    #[error("Invalid address space for {_0}. Expected {_1}, got {_2}.")]
+    #[error("[TmaOp]: Invalid address space for {_0}. Expected {_1}, got {_2}.")]
     InvalidAddressSpace(&'static str, &'static str, AddressSpace),
-    #[error("Unsupported rank {_0}, expected rank to be in range {_1:?}.")]
+    #[error("[TmaOp]: Unsupported rank {_0}, expected rank to be in range {_1:?}.")]
     UnsupportedRank(usize, RangeInclusive<usize>),
 }
 

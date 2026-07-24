@@ -1,5 +1,5 @@
 use crate::kernel::{CompiledKernel, KernelDefinition, KernelMetadata};
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use cubecl_common::backtrace::BackTrace;
 use thiserror::Error;
 
@@ -57,6 +57,15 @@ pub enum CompilationError {
 impl core::fmt::Debug for CompilationError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{self}")
+    }
+}
+
+impl From<pliron::result::Error> for CompilationError {
+    fn from(value: pliron::result::Error) -> Self {
+        CompilationError::Validation {
+            reason: value.to_string(),
+            backtrace: BackTrace::capture(),
+        }
     }
 }
 

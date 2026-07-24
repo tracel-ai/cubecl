@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use ::pliron::parsable::ParseResult;
 use alloc::string::{String, ToString};
 use cubecl_macros_internal::cube_op;
@@ -256,10 +258,18 @@ impl PromotableOpInterface for LoadOp {
     }
 }
 
-#[derive(Error, Debug)]
-pub enum StoreError {
-    #[error("Value type doesn't match the inner type of the pointer: expected {_0}, got {_1}")]
+#[derive(Error)]
+pub enum StoreOpError {
+    #[error(
+        "[StoreOp]: Value type doesn't match the inner type of the pointer: expected {_0}, got {_1}"
+    )]
     MismatchedValueType(String, String),
+}
+
+impl Debug for StoreOpError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self}")
+    }
 }
 
 #[cube_op(name = "memory.store", verifier = "custom")]
@@ -280,7 +290,7 @@ impl Verify for StoreOp {
         if ptr_value_ty != value_ty {
             return verify_err!(
                 loc,
-                StoreError::MismatchedValueType(
+                StoreOpError::MismatchedValueType(
                     ptr_value_ty.disp(ctx).to_string(),
                     value_ty.disp(ctx).to_string()
                 )
