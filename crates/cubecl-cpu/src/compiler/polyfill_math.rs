@@ -1,8 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::ir::dialect::math::{
-    ArcCoshOp, ArcSinhOp, ArcTanhOp, DegreesOp, ErfOp, Expm1Op, Log1pOp, RadiansOp, RecipOp,
-    RsqrtOp, SNegOp,
+    ArcCoshOp, ArcSinhOp, ArcTanhOp, DegreesOp, ErfOp, Expm1Op, HypotOp, Log1pOp, RadiansOp,
+    RecipOp, RhypotOp, RsqrtOp, SNegOp,
 };
+use cubecl_core::ir::dialect::vector::{FDotOp, SDotOp, UDotOp};
 use cubecl_core::ir::prelude::*;
 use cubecl_core::prelude::polyfills::{erf, expm1, log1p, recip, to_degrees, to_radians};
 use cubecl_core::prelude::*;
@@ -60,6 +61,34 @@ macro_rules! lower_unary_math_arith {
     };
 }
 
+macro_rules! lower_binary_math_arith {
+    ($cube_op:ty => $polyfill:ident) => {
+        #[op_interface_impl]
+        impl LowerOp for $cube_op {
+            fn lower(&self, scope: &Scope) -> Vec<Value> {
+                define_scalar!(T);
+                define_size!(S);
+                let lhs = self.lhs(scope.ctx());
+                let rhs = self.rhs(scope.ctx());
+                scope.register_value_type::<T, S>(lhs);
+                vec![$polyfill::expand::<T, S>(scope, lhs.into(), rhs.into()).read_value(scope)]
+            }
+        }
+    };
+}
+
+lower_binary_math_arith!(HypotOp => hypot);
+lower_binary_math_arith!(RhypotOp => rhypot);
+
+#[cube]
+fn dot<T: Numeric, N: Size>(rhs: Vector<T, N>, lhs: Vector<T, N>) -> T {
+    (rhs * lhs).vector_sum()
+}
+
+lower_binary_math_arith!(FDotOp => dot);
+lower_binary_math_arith!(UDotOp => dot);
+lower_binary_math_arith!(SDotOp => dot);
+
 #[cube]
 fn arc_sinh<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     (x + (x * x + Vector::one()).sqrt()).ln()
@@ -92,7 +121,6 @@ fn inverse_sqrt<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
 }
 
 lower_unary_math_arith!(RsqrtOp => inverse_sqrt);
-
 lower_unary_math_arith!(ErfOp => erf);
 lower_unary_math_arith!(RecipOp => recip);
 

@@ -4,6 +4,7 @@ pub mod general;
 pub mod math;
 pub mod memory;
 pub mod ty;
+pub mod vector;
 
 use cubecl_core::ir::prelude::*;
 

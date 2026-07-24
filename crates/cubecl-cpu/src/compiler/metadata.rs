@@ -1,7 +1,8 @@
 //! Rewrites the kernel entry ABI to what the JIT host calls.
 
 use cubecl_core::ir::attributes::{ATTR_BUFFER_BINDING, BufferBindingAttr, FuncInterface};
-use cubecl_core::ir::dialect::general::BufferLenOp;
+use cubecl_core::ir::dialect::general::{BufferLenOp, ReadScalarOp};
+use cubecl_core::ir::metadata::{INFO_ALIGN, Info};
 use cubecl_core::ir::prelude::*;
 use pliron::basic_block::BasicBlock;
 use pliron::builtin::attributes::TypeAttr;
@@ -10,16 +11,30 @@ use pliron::builtin::types::{FunctionType, IntegerType, Signedness};
 use pliron_llvm::ops as llvm;
 use pliron_llvm::types::PointerType as LlvmPointerType;
 
-use crate::compiler::to_llvm::ty::INDEX_WIDTH;
+use crate::compiler::to_llvm::ty::{INDEX_WIDTH, cube_type_to_llvm};
 
 /// `(op, buffer_idx, result)` for each `cube.buffer_len`, gathered during the walk so the ops
 /// can be rewritten once the walker no longer holds them borrowed.
 #[derive(Default)]
 struct BufferLens(Vec<(Ptr<Operation>, usize, Value)>);
 
-/// Collapses buffer args behind `%buffer_ptrs` and lowers `cube.buffer_len` against `%metadata`.
+/// `(op, elem_ty, id, result)` for each `cube.read_scalar`, gathered during the walk so the ops
+/// can be rewritten once the walker no longer holds them borrowed.
 #[derive(Default)]
-pub struct LowerEntryAbiPass;
+struct ReadScalars(Vec<(Ptr<Operation>, TypeHandle, usize, Value)>);
+
+/// Collapses buffer args behind `%buffer_ptrs`, lowers `cube.buffer_len` and `cube.read_scalar`
+/// against `%metadata`. The info buffer is laid out as `[scalars | static meta | dynamic meta]`,
+/// so scalar reads index straight from its front while metadata reads must skip the scalar prefix.
+pub struct LowerEntryAbiPass {
+    info: Info,
+}
+
+impl LowerEntryAbiPass {
+    pub fn new(info: Info) -> Self {
+        Self { info }
+    }
+}
 
 #[pass_name]
 impl Pass for LowerEntryAbiPass {
@@ -54,16 +69,30 @@ impl Pass for LowerEntryAbiPass {
                 .push((bl.get_operation(), bl.buffer_idx(ctx).0, bl.get_result(ctx)));
         });
 
+        let mut read_scalars = ReadScalars::default();
+        visit_all_ops_of_type::<ReadScalarOp, _>(ctx, &mut read_scalars, op, |ctx, state, rs| {
+            state.0.push((
+                rs.get_operation(),
+                rs.ty(ctx).get_type(ctx),
+                rs.id(ctx).0,
+                rs.get_result(ctx),
+            ));
+        });
+
         let ptr_ty: TypeHandle = LlvmPointerType::get(ctx, 0).into();
+        let i8_ty: TypeHandle = IntegerType::get(ctx, 8, Signedness::Signless).into();
         let i64_ty: TypeHandle = IntegerType::get(ctx, INDEX_WIDTH, Signedness::Signless).into();
 
         let meta_idx = BasicBlock::push_argument(entry, ctx, ptr_ty);
         let meta_ptr = entry.deref(ctx).get_argument(meta_idx);
+
+        // The metadata region sits behind the scalar prefix, so shift the u64 index past it.
+        let meta_prefix_slots = self.info.sized_meta.map_or(0, |field| field.offset) / INFO_ALIGN;
         for (bl_op, buffer_idx, result) in &buffer_lens.0 {
             let gep = llvm::GetElementPtrOp::new(
                 ctx,
                 meta_ptr,
-                vec![llvm::GepIndex::Constant(*buffer_idx as u32)],
+                vec![llvm::GepIndex::Constant((meta_prefix_slots + *buffer_idx) as u32)],
                 i64_ty,
             );
             gep.get_operation().insert_before(ctx, *bl_op);
@@ -71,6 +100,37 @@ impl Pass for LowerEntryAbiPass {
             load.get_operation().insert_before(ctx, *bl_op);
             result.replace_all_uses_with(ctx, &load.get_result(ctx));
             Operation::erase(*bl_op, ctx);
+        }
+
+        for (rs_op, elem_ty, id, result) in &read_scalars.0 {
+            let offset = self
+                .info
+                .scalars
+                .iter()
+                .find(|field| field.ty.to_type(ctx) == *elem_ty)
+                .unwrap_or_else(|| panic!("cube.read_scalar has no matching scalar in the info"))
+                .offset;
+            let llvm_ty = cube_type_to_llvm(ctx, *elem_ty);
+
+            // Byte-step to the type group's base, then step `id` elements into it.
+            let group = llvm::GetElementPtrOp::new(
+                ctx,
+                meta_ptr,
+                vec![llvm::GepIndex::Constant(offset as u32)],
+                i8_ty,
+            );
+            group.get_operation().insert_before(ctx, *rs_op);
+            let elem = llvm::GetElementPtrOp::new(
+                ctx,
+                group.get_result(ctx),
+                vec![llvm::GepIndex::Constant(*id as u32)],
+                llvm_ty,
+            );
+            elem.get_operation().insert_before(ctx, *rs_op);
+            let load = llvm::LoadOp::new(ctx, elem.get_result(ctx), llvm_ty);
+            load.get_operation().insert_before(ctx, *rs_op);
+            result.replace_all_uses_with(ctx, &load.get_result(ctx));
+            Operation::erase(*rs_op, ctx);
         }
 
         // Collapse buffers behind a single leading `%buffer_ptrs`.

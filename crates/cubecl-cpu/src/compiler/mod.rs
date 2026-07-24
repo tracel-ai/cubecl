@@ -104,8 +104,8 @@ impl PlironCompiler {
         func_passes.add_pass(CfToLlvmConversionPass::default());
         func_passes.add_pass(SimplifyCFGPass);
         func_passes.add_pass(DCEPass);
+        func_passes.add_pass(LowerEntryAbiPass::new(kernel.info.clone()));
         func_passes.add_pass(LowerComplexMathPass::default());
-        func_passes.add_pass(LowerEntryAbiPass::default());
         func_passes.add_pass(CubeToLLVMPass::default());
         func_passes.add_pass(Mem2RegPass::default());
 

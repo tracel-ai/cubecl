@@ -1,4 +1,6 @@
 use super::ToLLVMDialect;
+use crate::compiler::to_llvm::ty::cube_type_to_llvm;
+use cubecl_core::ir::dialect::cmp::{FMaxOp, FMinOp};
 use cubecl_core::ir::dialect::math::*;
 use cubecl_core::ir::prelude::*;
 use pliron::builtin::attributes::IntegerAttr;
@@ -24,7 +26,8 @@ macro_rules! lower_unary_intrinsic_arith {
             ) -> Result<()> {
                 let input = self.input(ctx);
                 let elem_ty = input.get_type(ctx);
-                let intrinsic_type = FuncType::get(ctx, elem_ty, vec![elem_ty], false);
+                let res_ty = cube_type_to_llvm(ctx, self.get_result(ctx).get_type(ctx));
+                let intrinsic_type = FuncType::get(ctx, res_ty, vec![elem_ty], false);
 
                 let op =
                     llvm::CallIntrinsicOp::new(ctx, $llvm_op.into(), intrinsic_type, vec![input]);
@@ -184,6 +187,47 @@ lower_float_bin_arith!(FMulOp => llvm::FMulOp);
 lower_float_bin_arith!(FDivOp => llvm::FDivOp);
 lower_float_bin_arith!(FRemOp => llvm::FRemOp);
 
+macro_rules! lower_binary_intrinsic_arith {
+    ($cube_op:ty => $llvm_op:expr) => {
+        #[op_interface_impl]
+        impl ToLLVMDialect for $cube_op {
+            fn rewrite(
+                &self,
+                ctx: &mut Context,
+                rewriter: &mut DialectConversionRewriter,
+                _operands_info: &OperandsInfo,
+            ) -> Result<()> {
+                let lhs = self.lhs(ctx);
+                let rhs = self.rhs(ctx);
+                let lhs_ty = lhs.get_type(ctx);
+                let rhs_ty = rhs.get_type(ctx);
+                let res_ty = cube_type_to_llvm(ctx, self.get_result(ctx).get_type(ctx));
+                let intrinsic_type = FuncType::get(ctx, res_ty, vec![lhs_ty, rhs_ty], false);
+
+                let op = llvm::CallIntrinsicOp::new(
+                    ctx,
+                    $llvm_op.into(),
+                    intrinsic_type,
+                    vec![lhs, rhs],
+                );
+
+                rewriter.insert_op(ctx, &op);
+                rewriter.replace_operation_with_values(
+                    ctx,
+                    self.get_operation(),
+                    vec![op.get_result(ctx)],
+                );
+                Ok(())
+            }
+        }
+    };
+}
+
+lower_binary_intrinsic_arith!(ArcTan2Op => "llvm.atan2");
+lower_binary_intrinsic_arith!(PowfOp => "llvm.pow");
+lower_binary_intrinsic_arith!(FMinOp => "llvm.minnum");
+lower_binary_intrinsic_arith!(FMaxOp => "llvm.maxnum");
+
 #[op_interface_impl]
 impl ToLLVMDialect for FNegOp {
     fn rewrite(
@@ -194,6 +238,32 @@ impl ToLLVMDialect for FNegOp {
     ) -> Result<()> {
         let input = self.input(ctx);
         let op = llvm::FNegOp::new_with_fast_math_flags(ctx, input, FastmathFlagsAttr::default());
+        rewriter.insert_op(ctx, &op);
+        rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
+        Ok(())
+    }
+}
+
+#[op_interface_impl]
+impl ToLLVMDialect for FmaOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let a = self.a(ctx);
+        let b = self.b(ctx);
+        let c = self.c(ctx);
+        let a_ty = a.get_type(ctx);
+        let b_ty = b.get_type(ctx);
+        let c_ty = c.get_type(ctx);
+        let res_ty = cube_type_to_llvm(ctx, self.get_result(ctx).get_type(ctx));
+        let intrinsic_type = FuncType::get(ctx, res_ty, vec![a_ty, b_ty, c_ty], false);
+
+        let op =
+            llvm::CallIntrinsicOp::new(ctx, "llvm.fmuladd".into(), intrinsic_type, vec![a, b, c]);
+
         rewriter.insert_op(ctx, &op);
         rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
         Ok(())
