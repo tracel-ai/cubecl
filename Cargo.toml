@@ -117,7 +117,10 @@ syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
 thiserror = { version = "2", default-features = false }
 tracy-client = { version = "0.18.0" }
 
+# `fallback` is required so that types like `AtomicU64` are still defined on targets
+# lacking native 64-bit atomics (e.g. thumbv7m); it is a no-op where they are native.
 portable-atomic = { version = "1.11", default-features = false, features = [
+    "fallback",
     "serde",
 ] }
 portable-atomic-util = { version = "0.2.4", features = ["alloc"] }
