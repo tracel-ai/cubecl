@@ -1,18 +1,17 @@
 use cubecl_core::{
     self as cubecl,
-    frontend::polyfills::erf,
+    frontend::polyfills::{erf, log1p, recip},
     ir::{
         dialect::{
             atomic::AtomicLoadOp,
-            base::ptr_value_ty,
             bitwise::{
                 BitwiseNotOp, CountOnesOp, FindFirstSetOp, LeadingZerosBitsOp, ReverseBitsOp,
                 TrailingZerosBitsOp,
             },
-            general::{BoolNotOp, CastOp, ReinterpretCastOp},
+            general::{BoolNotOp, CastOp, FreeOp, ReinterpretCastOp},
             math::*,
             memory::{LoadOp, StoreOp},
-            plane::UniformLoadOp,
+            plane::{AtomicUniformLoadOp, UniformLoadOp},
         },
         interfaces::TypedExt,
         prelude::*,
@@ -109,6 +108,8 @@ shared_op_with_out!(SAbsOp, |op, ctx| {
 });
 unrolling!(SAbsOp);
 promotes_int!(SAbsOp);
+
+shared_op!(FreeOp, |_, _| String::new());
 
 shared_op_with_out!(FAbsOp, |op, ctx| {
     let input = op.input(ctx);
@@ -251,11 +252,6 @@ macro_rules! lower_unop {
 pub(super) use lower_unop;
 
 #[cube]
-fn log1p<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
-    (input + Vector::new(T::new(1.0))).ln()
-}
-
-#[cube]
 fn to_degrees<T: Float, N: Size>(input: Vector<T, N>) -> Vector<T, N> {
     input * Vector::new(T::new(comptime!(180.0 / PI)))
 }
@@ -289,6 +285,7 @@ fn count_ones<T: Scalar, N: Size>(input: Vector<T, N>) -> Vector<u32, N> {
     Vector::<u32, N>::cast_from(Vector::<u32, N>::cast_from(input).count_ones())
 }
 
+lower_unop!(RecipOp, recip);
 lower_unop!(Log1pOp, log1p);
 lower_unop!(DegreesOp, to_degrees);
 lower_unop!(RadiansOp, to_radians);
@@ -337,13 +334,14 @@ unrolling!(IsInfOp);
 impl LowerOp for UniformLoadOp {
     fn lower(&self, scope: &Scope) -> Vec<Value> {
         let ptr = self.ptr(scope.ctx());
-        let val = if ptr_value_ty(scope.ctx(), &ptr).is_atomic(scope.ctx()) {
-            let op = AtomicLoadOp::new(scope.ctx_mut(), ptr);
-            scope.register_with_result(&op)
-        } else {
-            let op = LoadOp::new(scope.ctx_mut(), ptr);
-            scope.register_with_result(&op)
-        };
-        vec![val]
+        vec![scope.register_with_result(&LoadOp::new(scope.ctx_mut(), ptr))]
+    }
+}
+
+#[op_interface_impl]
+impl LowerOp for AtomicUniformLoadOp {
+    fn lower(&self, scope: &Scope) -> Vec<Value> {
+        let ptr = self.ptr(scope.ctx());
+        vec![scope.register_with_result(&AtomicLoadOp::new(scope.ctx_mut(), ptr))]
     }
 }

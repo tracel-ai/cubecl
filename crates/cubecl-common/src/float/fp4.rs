@@ -29,9 +29,9 @@ pub struct e2m1x2(u8);
 
 impl e2m1 {
     /// Maximum representable value
-    pub const MAX: f64 = 6.0;
+    pub const MAX: e2m1 = e2m1(0x7);
     /// Minimum representable value
-    pub const MIN: f64 = -6.0;
+    pub const MIN: e2m1 = e2m1(0xf);
 
     /// Constructs a [`e2m1`] value from the raw bits.
     #[inline]

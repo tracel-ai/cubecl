@@ -27,9 +27,12 @@ impl TrivialOp for CastOp {}
 #[op_interface_impl]
 impl TrivialOp for ReinterpretCastOp {}
 
-pub struct RemoveTrivialOpsPass;
+pub type RemoveTrivialOpsPass = MatchRewritePass<RemoveTrivialOps>;
 
-impl MatchRewrite for RemoveTrivialOpsPass {
+#[derive(Default)]
+pub struct RemoveTrivialOps;
+
+impl MatchRewrite for RemoveTrivialOps {
     fn r#match(&mut self, ctx: &Context, op: Ptr<Operation>) -> bool {
         op.impls::<dyn TrivialOp>(ctx)
             && op.operand(ctx, 0).get_type(ctx) == op.result(ctx).get_type(ctx)

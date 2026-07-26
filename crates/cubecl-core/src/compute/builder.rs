@@ -1,7 +1,7 @@
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicI8, Ordering};
 use derive_more::Deref;
 use pliron::r#type::TypeHandle;
-use std::vec::Vec;
 
 use crate::{KernelExpansion, KernelIntegrator, prelude::KernelDefinition};
 use alloc::collections::BTreeMap;

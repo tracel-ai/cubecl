@@ -22,8 +22,13 @@ default = [
     "cubecl-core/default",
     "cubecl-runtime/default",
 ]
-spirv-dump = ["std", "dep:sanitize-filename"]
-std = ["cubecl-common/std", "cubecl-core/std", "cubecl-runtime/std"]
+spirv-dump = ["std"]
+std = [
+    "cubecl-common/std",
+    "cubecl-core/std",
+    "cubecl-runtime/std",
+    "dep:sanitize-filename",
+]
 
 tracing = [
     "cubecl-runtime/tracing",

@@ -173,7 +173,7 @@ impl<R: Runtime> KernelLauncher<R> {
             #[cfg(not(feature = "std"))]
             info: InfoBuilder::default(),
             #[cfg(not(feature = "std"))]
-            scope: Scope::root(false),
+            scope: Scope::dummy(),
         }
     }
 }

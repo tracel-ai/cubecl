@@ -10,6 +10,7 @@ use cubecl_core::{
     post_processing::{
         checked_io::{CheckedIo, CheckedIoPass},
         disaggregate::DisaggregatePass,
+        expression_merge::RemoveTrivialOpsPass,
         saturating::LowerSaturatingArithmeticPass,
         unroll::UnrollPass,
     },
@@ -115,10 +116,10 @@ impl WgslCompiler {
         func_passes.add_pass(UnrollPass::new(MAX_VECTOR_SIZE));
 
         func_passes.add_pass(LowerOpsWgslPass::default());
-
         func_passes.add_pass(LowerSaturatingArithmeticPass::default());
-
         func_passes.add_pass(LowerBuiltinsPass);
+
+        func_passes.add_pass(RemoveTrivialOpsPass::default());
 
         func_passes.add_pass(SCCPPass);
         func_passes.add_pass(SimpleCSEPass);

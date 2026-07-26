@@ -17,10 +17,7 @@ use pliron::{
     context::Context,
     derive::format,
     r#type::TypedHandle,
-    utils::{
-        apfloat::f64_to_double,
-        apint::{APInt, bw},
-    },
+    utils::apint::{APInt, bw},
     value::Value,
 };
 
@@ -314,7 +311,7 @@ impl ConstantValue {
                 let value = APInt::from_u64(*value, bw(ty.size_bits(ctx)));
                 IntegerAttr::new(TypedHandle::from_handle(ty, ctx).unwrap(), value).into()
             }
-            ConstantValue::Float(value) => FloatAttr::new(ty, f64_to_double(*value)).into(),
+            ConstantValue::Float(value) => FloatAttr::from_f64(ctx, ty, *value).into(),
             ConstantValue::Bool(value) => BoolAttr::new(*value).into(),
         }
     }

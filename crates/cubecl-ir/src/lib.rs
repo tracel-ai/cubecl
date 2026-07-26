@@ -16,6 +16,7 @@ mod value;
 #[cfg(feature = "spirv")]
 mod spirv;
 
+pub mod apfloat;
 pub mod arena;
 pub mod attributes;
 pub mod convert;

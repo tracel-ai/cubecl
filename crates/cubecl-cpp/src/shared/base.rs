@@ -5,7 +5,9 @@ use crate::{
         convert::PromoteUnsupportedTypesPass,
         lowering::LowerOpsCppPass,
         metadata::LowerInfoPass,
-        signature::{CollectIncludesPass, DeclareVectorTypesPass, shared_memory_size},
+        signature::{
+            CollectIncludesPass, DeclareInfoTypeOp, DeclareVectorTypesPass, shared_memory_size,
+        },
         unroll::CppUnrollPass,
     },
     target::{CppTarget, Shared, Target},
@@ -26,6 +28,7 @@ use cubecl_core::{
         bitwise::PromoteBitwisePass,
         checked_io::{CheckedIo, CheckedIoPass},
         disaggregate::DisaggregatePass,
+        expression_merge::RemoveTrivialOpsPass,
         saturating::LowerSaturatingArithmeticPass,
     },
     prelude::KernelDefinition,
@@ -149,6 +152,7 @@ where
     fn compile_ir(self, value: KernelDefinition) -> ComputeKernel {
         let module = value.body.state().module;
         let module_op = module.get_operation();
+        let entry_func = value.body.state().entry_func.get_operation();
         let mut ctx = value.body.into_context().expect("Should be owned scope");
 
         let state = CompilationState {
@@ -165,6 +169,11 @@ where
 
         std::fs::write("target/initial.plir", format!("{}", module.disp(&ctx))).unwrap();
         verify_operation(module.get_operation(), &ctx).expect("Failed to verify before passes");
+
+        // This is an op so it can be inserted after the includes, which is important for scalars
+        // that need includes. I wish C++ didn't have ordering dependent declarations...
+        let decl_types = DeclareInfoTypeOp::new(&mut ctx);
+        decl_types.get_operation().insert_before(&ctx, entry_func);
 
         let config = PMConfig {
             print_after_all: true,
@@ -195,6 +204,7 @@ where
             func_passes.add_pass(LowerSaturatingArithmeticPass::default());
         }
 
+        func_passes.add_pass(RemoveTrivialOpsPass::default());
         func_passes.add_pass(PackOpsPass::default());
         func_passes.add_pass(CppUnrollPass::default());
         func_passes.add_pass(LowerBuiltinsPass::<T>::default());

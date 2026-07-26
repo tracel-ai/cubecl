@@ -34,11 +34,7 @@ pub struct CopyOp {
 #[op_interface_impl]
 impl AliasingOp for CopyOp {
     fn source_ptr(&self, ctx: &Context) -> Option<Value> {
-        if self.get_result(ctx).is_ptr(ctx) {
-            Some(self.value(ctx))
-        } else {
-            None
-        }
+        Some(self.value(ctx))
     }
 }
 
@@ -208,6 +204,13 @@ const_eval!(ReinterpretCastOp, {
         }
     }
 });
+
+#[op_interface_impl]
+impl AliasingOp for ReinterpretCastOp {
+    fn source_ptr(&self, ctx: &Context) -> Option<Value> {
+        Some(self.input(ctx))
+    }
+}
 
 #[cube_op(name = "cube.select")]
 #[result_ty(same_as = true_value)]
