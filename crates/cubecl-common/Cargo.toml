@@ -109,6 +109,10 @@ spin = { workspace = true, features = [
 # Enable extra-platforms for bytes on targets without native atomics
 bytes = { workspace = true, features = ["extra-platforms"], optional = true }
 
+# Targets with pointer-width atomics may still lack 64-bit ones (e.g. riscv32).
+[target.'cfg(not(target_has_atomic = "64"))'.dependencies]
+portable-atomic = { workspace = true }
+
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen-futures = { workspace = true }
 

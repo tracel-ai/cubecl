@@ -20,6 +20,11 @@ pub use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 #[cfg(not(target_has_atomic = "ptr"))]
 pub use portable_atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
+#[cfg(target_has_atomic = "64")]
+pub use core::sync::atomic::AtomicU64;
+#[cfg(not(target_has_atomic = "64"))]
+pub use portable_atomic::AtomicU64;
+
 /// A mutual exclusion primitive useful for protecting shared data
 ///
 /// This mutex will block threads waiting for the lock to become available. The

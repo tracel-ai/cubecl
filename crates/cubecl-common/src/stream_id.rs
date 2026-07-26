@@ -1,4 +1,4 @@
-use portable_atomic::{AtomicU64, Ordering};
+use crate::stub::{AtomicU64, Ordering};
 
 /// Unique identifier that can represent a stream.
 ///
