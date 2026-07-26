@@ -17,13 +17,9 @@ pub struct StreamId {
 ///
 /// The first stream resolved on a context lazily takes id `0` (see
 /// [`STREAM_COUNT`]), so the effective default stream is `0` while `u64::MAX`
-/// remains free to mean "unset".
+/// remains free to mean "unset". This makes `u64::MAX` the one value
+/// [`StreamId::from_number`] cannot hand out.
 const UNSET: u64 = u64::MAX;
-
-/// Bit set on user-chosen stream ids so they can never collide with the
-/// implicit ids handed out by [`STREAM_COUNT`], which count up from `0` with
-/// this bit clear.
-const USER_STREAM_FLAG: u64 = 1 << 63;
 
 /// Monotonic source of implicit stream ids, counting up from `0`.
 static STREAM_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -118,17 +114,36 @@ impl StreamId {
 
     /// Build a stream id from a user-chosen `number`.
     ///
-    /// The same `number` always maps to the same [`StreamId`], so callers can
+    /// The number is the id: `from_number(5)` is `StreamId { value: 5 }`. The
+    /// same number therefore always maps to the same stream, so callers can
     /// deliberately pin work to a shared stream — and thus a shared memory
-    /// pool — across threads. User numbers are tagged internally so they never
-    /// alias the implicit ids from [`current`](Self::current)/[`fresh`](Self::fresh).
+    /// pool — across threads.
+    ///
+    /// # Collisions
+    ///
+    /// User numbers share one id space with the implicit ids handed out by
+    /// [`current`](Self::current)/[`fresh`](Self::fresh), which count up from
+    /// `0`. Asking for number `5` gives you the same stream a thread that
+    /// lazily took implicit id `5` is already on. This is deliberate: a chosen
+    /// number is honoured exactly as given, and avoiding overlap is the
+    /// caller's job — pick numbers above the count of streams you expect to be
+    /// created implicitly, or spawn every stream explicitly.
+    ///
+    /// Note that overlap is possible even between distinct ids: runtimes map
+    /// ids onto a fixed pool with `value % max_streams`, so ids congruent
+    /// modulo that limit share a physical stream regardless.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, on `u64::MAX` — that value is reserved as the internal
+    /// "no stream assigned yet" sentinel. In release builds it silently reads
+    /// back as unassigned.
     pub fn from_number(number: u64) -> Self {
-        let value = USER_STREAM_FLAG | number;
         debug_assert_ne!(
-            value, UNSET,
-            "stream number {number} maps to the reserved `UNSET` sentinel"
+            number, UNSET,
+            "stream number {number} is reserved as the `UNSET` sentinel"
         );
-        Self { value }
+        Self { value: number }
     }
 
     /// Swap the current stream id for the given one, returning the previous one.

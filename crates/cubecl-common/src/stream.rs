@@ -20,6 +20,10 @@
 //! // same stream (and pool), so it can be shared across threads.
 //! Stream::spawn(StreamBacking::Sequential, || { /* ... */ }, 5).join().unwrap();
 //! ```
+//!
+//! Chosen numbers and automatically-assigned ids share one space, so a chosen
+//! number can land on a stream that was already created implicitly. See
+//! [`StreamId::from_number`] for how to avoid that.
 
 use crate::stream_id::StreamId;
 
@@ -82,9 +86,11 @@ impl Stream {
     ///
     /// `stream` selects which stream the work runs on:
     /// - `None` — a fresh, automatically-assigned stream.
-    /// - a `u64` number — the stream with that number. The same number always
-    ///   refers to the same stream (and memory pool), so spawning with the same
-    ///   number from different threads keeps their work on one pool.
+    /// - a `u64` number — the stream with that number, used verbatim as the
+    ///   [`StreamId`]. The same number always refers to the same stream (and
+    ///   memory pool), so spawning with the same number from different threads
+    ///   keeps their work on one pool. Numbers are not reserved against the
+    ///   automatically-assigned ids — see [`StreamId::from_number`].
     ///
     /// For [`StreamBacking::Sequential`] the closure runs before this returns
     /// and the handle already holds the result. For [`StreamBacking::Thread`]
@@ -175,13 +181,20 @@ mod tests {
     }
 
     #[test]
-    fn none_uses_a_fresh_stream_distinct_from_user_numbers() {
-        let seen = Stream::spawn(StreamBacking::Sequential, StreamId::current, None)
+    fn explicit_number_is_used_verbatim_as_the_id() {
+        // A chosen number is the id, not a tagged derivative of it.
+        assert_eq!(StreamId::from_number(5).value, 5);
+    }
+
+    #[test]
+    fn none_uses_a_fresh_stream_each_time() {
+        let first = Stream::spawn(StreamBacking::Sequential, StreamId::current, None)
             .join()
             .unwrap();
-        // Fresh ids count up from 0 (top bit clear); user numbers set the top
-        // bit, so the two spaces can never alias.
-        assert_ne!(seen, StreamId::from_number(0));
+        let second = Stream::spawn(StreamBacking::Sequential, StreamId::current, None)
+            .join()
+            .unwrap();
+        assert_ne!(first, second);
     }
 
     #[cfg(multi_threading)]
