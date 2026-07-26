@@ -104,10 +104,15 @@ pub mod wmma_api_base {
         let mat = op.matrix(ctx).name(ctx);
         let stride = op.stride(ctx).name(ctx);
         let ptr = as_scalar_ptr(ctx, op.source(ctx));
-        let layout = match op.layout(ctx).0 {
-            MatrixLayout::RowMajor => format!(", {namespace}::mem_row_major"),
-            MatrixLayout::ColMajor => format!(", {namespace}::mem_col_major"),
-            _ => String::new(),
+        let mat_ty = matrix_ty(ctx, op.matrix(ctx));
+        // CUDA is annoying and doesn't allow layout on A/B even though the PTX equivalent takes one
+        let layout = match mat_ty.ident {
+            MatrixIdent::A | MatrixIdent::B => String::new(),
+            MatrixIdent::Accumulator => match op.layout(ctx).0 {
+                MatrixLayout::RowMajor => format!(", {namespace}::mem_row_major"),
+                MatrixLayout::ColMajor => format!(", {namespace}::mem_col_major"),
+                _ => String::new(),
+            },
         };
         format!("{namespace}::load_matrix_sync(*{mat}, {ptr}, {stride}{layout});")
     }
@@ -116,14 +121,18 @@ pub mod wmma_api_base {
         let mat = op.matrix(ctx).name(ctx);
         let stride = op.stride(ctx).name(ctx);
         let destination = as_scalar_ptr(ctx, op.destination(ctx));
-        let layout = op.layout(ctx).0;
-        let layout = match layout {
-            MatrixLayout::ColMajor => format!("{namespace}::mem_col_major"),
-            MatrixLayout::RowMajor => format!("{namespace}::mem_row_major"),
-            _ => unreachable!(),
+        let mat_ty = matrix_ty(ctx, op.matrix(ctx));
+        // CUDA is annoying and doesn't allow layout on A/B even though the PTX equivalent takes one
+        let layout = match mat_ty.ident {
+            MatrixIdent::A | MatrixIdent::B => String::new(),
+            MatrixIdent::Accumulator => match op.layout(ctx).0 {
+                MatrixLayout::RowMajor => format!(", {namespace}::mem_row_major"),
+                MatrixLayout::ColMajor => format!(", {namespace}::mem_col_major"),
+                _ => String::new(),
+            },
         };
 
-        format!("{namespace}::store_matrix_sync({destination}, *{mat}, {stride}, {layout});")
+        format!("{namespace}::store_matrix_sync({destination}, *{mat}, {stride}{layout});")
     }
 
     pub fn execute(ctx: &Context, op: &MultiplyAccumulateOp, namespace: &str) -> String {
@@ -138,8 +147,7 @@ pub mod wmma_api_base {
     pub fn cast(ctx: &Context, op: &CastOp) -> String {
         let input = op.input(ctx).name(ctx);
         let output = op.output(ctx).name(ctx);
-        let out_ty = op.output(ctx).unwrap_ptr(ctx).deref(ctx);
-        let mat_ty = out_ty.downcast_ref::<MatrixType>().unwrap();
+        let mat_ty = matrix_ty(ctx, op.output(ctx));
         let out_elem = mat_ty.elem_ty.to_cpp(ctx);
         format!(
             "for(int t=0; t<{input}->num_elements; t++) {{ {output}->x[t] = {out_elem}({input}->x[t]); }}"
@@ -157,6 +165,11 @@ pub mod wmma_api_base {
             new_ty.to_cpp(ctx),
             value.name(ctx)
         )
+    }
+
+    fn matrix_ty(ctx: &Context, value: impl Typed) -> MatrixType {
+        let ty = value.unwrap_ptr(ctx).deref(ctx);
+        *ty.downcast_ref::<MatrixType>().unwrap()
     }
 }
 

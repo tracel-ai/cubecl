@@ -1,3 +1,5 @@
+use core::{cell::Ref, fmt};
+
 use alloc::boxed::Box;
 
 use derive_more::From;
@@ -10,18 +12,26 @@ use pliron::{
         ops::ConstantOp,
         types::IntegerType,
     },
+    combine::{Parser, parser::char},
     context::{Context, Ptr},
     derive::{attr_interface_impl, pliron_attr},
+    irfmt::parsers::{spaced, type_parse},
     op::Op,
     operation::Operation,
+    parsable::{IntoParseResult, Parsable, ParseResult, StateStream},
+    printable::{self, Printable},
     r#type::TypeHandle,
-    utils::{
-        apfloat::{Double, double_to_f64, f64_to_double},
-        apint::{APInt, bw},
-    },
+    utils::apint::{APInt, bw},
 };
 
-use crate::{ConstantValue, interfaces::ConstantAttr, settings::Dim3, types::scalar::*};
+use crate::{
+    ConstantValue,
+    apfloat::{APFloat, APFloatType},
+    interfaces::ConstantAttr,
+    settings::Dim3,
+    try_cast_ty,
+    types::scalar::*,
+};
 
 mod entrypoint;
 
@@ -189,28 +199,67 @@ impl ConstantAttr for IntegerAttr {
     }
 }
 
-#[pliron_attr(name = "cube.float", format = "$val `: ` $ty", verifier = "succ")]
+#[pliron_attr(name = "cube.float", verifier = "succ")]
 #[derive(new, PartialEq, Clone, Debug)]
 pub struct FloatAttr {
     pub ty: TypeHandle,
-    pub val: Double,
+    pub val: APFloat,
 }
 materialize_const!(FloatAttr);
+
+impl Printable for FloatAttr {
+    fn fmt(
+        &self,
+        ctx: &Context,
+        state: &printable::State,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        write!(f, "{}: ", self.ty.disp(ctx))?;
+        self.float_type(ctx).disp_value(self.val, ctx, state, f)
+    }
+}
+
+impl Parsable for FloatAttr {
+    type Arg = ();
+    type Parsed = Self;
+
+    fn parse<'a>(input: &mut StateStream<'a>, _: Self::Arg) -> ParseResult<'a, Self::Parsed> {
+        let ty = type_parse(input)?.0;
+        spaced(char::char(':')).parse_stream(input).into_result()?;
+        // Safety: We know this context is not mutably borrowed for value parsing
+        let ctx = dupe_ref(input.state.ctx);
+        let val = try_cast_ty!(ty.deref(ctx), ctx, dyn APFloatType).parse_value(input)?;
+        Ok(FloatAttr::new(ty, val.0)).into_parse_result()
+    }
+}
+
+fn dupe_ref<'b>(ref_: &Context) -> &'b Context {
+    let ctx: *const Context = ref_;
+    unsafe { &*ctx }
+}
 
 impl FloatAttr {
     pub fn as_value<T: NumCast + TypedLiteral>(&self, ctx: &Context) -> Option<T> {
         if T::is_same_type(ctx, self.ty) {
-            Some(T::from(double_to_f64(self.val)).expect("Should succeed"))
+            Some(T::from(self.float_type(ctx).value_to_f64(self.val)).expect("Should succeed"))
         } else {
             None
         }
     }
 
-    pub fn with_value<T: NumCast>(&self, _ctx: &Context, new_val: T) -> Self {
-        Self::new(
-            self.ty,
-            f64_to_double(new_val.to_f64().expect("Should convert")),
-        )
+    pub fn with_value<T: NumCast>(&self, ctx: &Context, new_val: T) -> Self {
+        Self::from_f64(ctx, self.ty, new_val.to_f64().expect("Should convert"))
+    }
+
+    pub fn from_f64(ctx: &Context, ty: TypeHandle, val: f64) -> Self {
+        let val = try_cast_ty!(ty.deref(ctx), ctx, dyn APFloatType).value_from_f64(val);
+        Self::new(ty, val)
+    }
+
+    pub fn float_type<'a>(&self, ctx: &'a Context) -> Ref<'a, dyn APFloatType> {
+        Ref::map(self.ty.deref(ctx), |ty| {
+            try_cast_ty!(ty, ctx, dyn APFloatType)
+        })
     }
 }
 
@@ -227,8 +276,13 @@ impl TypedAttrInterface for FloatAttr {
 
 #[attr_interface_impl]
 impl ConstantAttr for FloatAttr {
-    fn as_const_val(&self, _ctx: &Context) -> ConstantValue {
-        ConstantValue::Float(double_to_f64(self.val))
+    fn as_const_val(&self, ctx: &Context) -> ConstantValue {
+        let value = self.float_type(ctx).value_to_f64(self.val);
+        ConstantValue::Float(value)
+    }
+    fn float_as_f64(&self, ctx: &Context) -> Option<f64> {
+        let val = self.float_type(ctx).value_to_f64(self.val);
+        Some(val)
     }
 }
 

@@ -23,7 +23,6 @@ use pliron::{
         types::FunctionType,
     },
     graph::walkers::{WALKCONFIG_PREORDER_FORWARD, uninterruptible::mutable::walk_op},
-    printable::Printable,
 };
 
 type Mappings = HashMap<Value, Vec<Value>>;
@@ -357,9 +356,6 @@ fn unroll_default(ctx: &mut Context, state: &mut UnrollState, op: Ptr<Operation>
     for unroll_idx in 0..factor {
         let opds = op.operands(ctx).into_iter().map(|opd| {
             if should_unroll(ctx, opd, state.max_vector_size) {
-                if !state.mappings.contains_key(&opd) {
-                    std::println!("opd: {}, mappings: {:?}", opd.disp(ctx), state.mappings);
-                }
                 state.mappings.get(&opd).expect("Should have mapping")[unroll_idx]
             } else {
                 opd

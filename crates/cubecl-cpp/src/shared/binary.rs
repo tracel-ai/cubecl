@@ -6,7 +6,7 @@ use cubecl_core::{
             cmp::*,
             general::{BoolAndOp, BoolOrOp},
             math::*,
-            memory::{CopyOp, IndexOp},
+            memory::{self, IndexOp},
         },
         interfaces::TypedExt,
         prelude::*,
@@ -376,7 +376,7 @@ pub fn fmt_index(ctx: &Context, list: Value, index: Value) -> String {
     }
 }
 
-shared_op!(CopyOp, |op, ctx| {
+shared_op!(memory::CopyOp, |op, ctx| {
     let source = op.source(ctx).name(ctx);
     let dest = op.destination(ctx).name(ctx);
     (0..op.len(ctx).0)

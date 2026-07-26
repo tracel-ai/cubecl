@@ -20,8 +20,6 @@ use crate::compiler::wgsl::{
     value::WgslValue,
 };
 
-wgsl_op_with_out!(CopyOp; |op, ctx| op.value(ctx).name(ctx).into());
-
 wgsl_op_with_out!(BoolAndOp; |op, ctx| {
     format!("{} && {}", op.lhs(ctx).name(ctx), op.rhs(ctx).name(ctx))
 });
@@ -99,7 +97,8 @@ impl AttrToWgsl for IntegerAttr {
 #[attr_interface_impl]
 impl AttrToWgsl for FloatAttr {
     fn to_wgsl(&self, ctx: &Context) -> String {
-        format!("{}({})", self.ty.to_wgsl(ctx), self.val)
+        let val = self.float_type(ctx).value_to_string(self.val);
+        format!("{}({val})", self.ty.to_wgsl(ctx))
     }
 }
 

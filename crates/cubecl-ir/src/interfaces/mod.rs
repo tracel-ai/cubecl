@@ -328,12 +328,15 @@ pub trait SimplifyInterface {
 pub trait ConstantAttr: TypedAttrInterface {
     verify_attr_succ!();
     fn as_const_val(&self, ctx: &Context) -> ConstantValue;
+    fn float_as_f64(&self, _ctx: &Context) -> Option<f64> {
+        None
+    }
 }
 
 #[macro_export]
 macro_rules! try_cast_ty {
     ($ty: expr, $ctx: expr, $interface: ty) => {
-        type_cast::<$interface>(&*$ty)
+        $crate::prelude::type_cast::<$interface>(&*$ty)
             .ok_or_else(|| {
                 $crate::alloc::format!(
                     "Expected type {} {} to implement {}",
@@ -349,7 +352,7 @@ macro_rules! try_cast_ty {
 #[macro_export]
 macro_rules! try_cast_op {
     ($op: expr, $ctx: expr, $interface: ty) => {
-        op_cast::<$interface>(&*$op)
+        $crate::prelude::op_cast::<$interface>(&*$op)
             .ok_or_else(|| {
                 $crate::alloc::format!(
                     "Expected op {} {} to implement {}",

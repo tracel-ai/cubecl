@@ -1,7 +1,7 @@
 use core::{cell::Ref, fmt::Display};
 
 use cubecl_core::ir::{
-    Scope, dialect::InlineAsmOp, interfaces::TypedExt, prelude::*, types::VectorType,
+    AddressType, Scope, dialect::InlineAsmOp, interfaces::TypedExt, prelude::*, types::VectorType,
 };
 use itertools::Itertools;
 use pliron::{
@@ -225,6 +225,11 @@ fn infer_constraint_letter(ctx: &Context, ty: TypeHandle) -> char {
         'r'
     } else if ty.is_int_of_width(ctx, 64) {
         'l'
+    } else if ty.is_index(ctx) {
+        match ctx.address_type() {
+            AddressType::U32 => 'r',
+            AddressType::U64 => 'l',
+        }
     } else if ty.is_float32(ctx) {
         'f'
     } else if ty.is_float64(ctx) {

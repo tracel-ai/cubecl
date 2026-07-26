@@ -299,13 +299,13 @@ impl ElemType {
                 return addr.max_variable(scope);
             }
             ElemType::Float(kind) => match kind {
-                FloatKind::E2M1 => e2m1::MAX,
-                FloatKind::E2M1x2 => e2m1::MAX,
+                FloatKind::E2M1 => e2m1::MAX.to_f64(),
+                FloatKind::E2M1x2 => e2m1::MAX.to_f64(),
                 FloatKind::E2M3 => e2m3::MAX,
                 FloatKind::E3M2 => e3m2::MAX,
                 FloatKind::E4M3 => e4m3::MAX.to_f64(),
                 FloatKind::E5M2 => e5m2::MAX.to_f64(),
-                FloatKind::UE8M0 => ue8m0::MAX,
+                FloatKind::UE8M0 => ue8m0::MAX.to_f64(),
                 FloatKind::F16 => half::f16::MAX.to_f64(),
                 FloatKind::BF16 => half::bf16::MAX.to_f64(),
                 FloatKind::Flex32 | FloatKind::TF32 | FloatKind::F32 => f32::MAX as f64,
@@ -336,13 +336,13 @@ impl ElemType {
         let value = match self {
             ElemType::Index => 0u64.into(),
             ElemType::Float(kind) => match kind {
-                FloatKind::E2M1 => e2m1::MIN,
-                FloatKind::E2M1x2 => e2m1::MIN,
+                FloatKind::E2M1 => e2m1::MIN.to_f64(),
+                FloatKind::E2M1x2 => e2m1::MIN.to_f64(),
                 FloatKind::E2M3 => e2m3::MIN,
                 FloatKind::E3M2 => e3m2::MIN,
                 FloatKind::E4M3 => e4m3::MIN.to_f64(),
                 FloatKind::E5M2 => e5m2::MIN.to_f64(),
-                FloatKind::UE8M0 => ue8m0::MIN,
+                FloatKind::UE8M0 => ue8m0::MIN.to_f64(),
                 FloatKind::F16 => half::f16::MIN.to_f64(),
                 FloatKind::BF16 => half::bf16::MIN.to_f64(),
                 FloatKind::Flex32 | FloatKind::TF32 | FloatKind::F32 => f32::MIN as f64,
@@ -372,13 +372,13 @@ impl ElemType {
     pub fn epsilon(&self) -> f64 {
         match self {
             ElemType::Float(kind) => match kind {
-                FloatKind::E2M1 => 0.5 * (e2m1::MAX - e2m1::MIN),
-                FloatKind::E2M1x2 => 0.5 * (e2m1::MAX - e2m1::MIN),
+                FloatKind::E2M1 => 0.5 * (e2m1::MAX.to_f64() - e2m1::MIN.to_f64()),
+                FloatKind::E2M1x2 => 0.5 * (e2m1::MAX.to_f64() - e2m1::MIN.to_f64()),
                 FloatKind::E2M3 => 0.5 * (e2m3::MAX - e2m3::MIN),
                 FloatKind::E3M2 => 0.5 * (e3m2::MAX - e3m2::MIN),
                 FloatKind::E4M3 => 0.5 * (e4m3::MAX.to_f64() - e4m3::MIN.to_f64()),
                 FloatKind::E5M2 => 0.5 * (e5m2::MAX.to_f64() - e5m2::MIN.to_f64()),
-                FloatKind::UE8M0 => 0.5 * (ue8m0::MAX - ue8m0::MIN),
+                FloatKind::UE8M0 => 0.5 * (ue8m0::MAX.to_f64() - ue8m0::MIN.to_f64()),
                 FloatKind::F16 => half::f16::EPSILON.to_f64(),
                 FloatKind::BF16 => 0.0078125, // bf16 epsilon ≈ 2^-7
                 FloatKind::Flex32 | FloatKind::F32 | FloatKind::TF32 => f32::EPSILON.into(),

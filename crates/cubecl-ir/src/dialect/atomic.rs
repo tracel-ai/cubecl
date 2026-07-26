@@ -51,6 +51,7 @@ pub struct AtomicStoreOp {
 #[result_ty(same_as = value)]
 #[op_traits(CanMaterialize)]
 pub struct AtomicCompareExchangeWeakOp {
+    #[operand(ptr_read, ptr_write)]
     pub ptr: Value,
     pub cmp: Value,
     pub value: Value,

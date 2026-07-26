@@ -33,11 +33,20 @@ use crate::{
 };
 
 shared_op!(ModuleOp, |op, ctx| {
-    let state = ctx.aux_ty::<CompilationState>();
     let mut out = String::new();
     type_definitions(&mut out, ctx).unwrap();
-    type_info_definition_sized(&mut out, ctx, &state.info).unwrap();
     out.push_str(&block_to_cpp(ctx, op.get_body(ctx, 0)));
+    out
+});
+
+#[cube_op(name = "cpp.declare_types")]
+#[result_ty(none)]
+pub struct DeclareInfoTypeOp {}
+
+shared_op!(DeclareInfoTypeOp, |_, ctx| {
+    let state = ctx.aux_ty::<CompilationState>();
+    let mut out = String::new();
+    type_info_definition_sized(&mut out, ctx, &state.info).unwrap();
     out
 });
 

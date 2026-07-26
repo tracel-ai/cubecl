@@ -1,7 +1,7 @@
 use cubecl_core::WgpuCompilationOptions;
 use cubecl_ir::{
     AddressSpace,
-    dialect::memory::{self, DeclareVariableOp, IndexOp},
+    dialect::memory::{self, DeclareVariableOp, IndexOp, StoreOp},
     ident,
     interfaces::TypedExt,
     prelude::*,
@@ -36,21 +36,30 @@ impl ToSpirvDialectOp for DeclareVariableOp {
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
-        assert_eq!(self.addr_space(ctx).0, AddressSpace::Local, "TODO");
+        assert_eq!(
+            self.addr_space(ctx).0,
+            AddressSpace::Local,
+            "Others not supported"
+        );
 
         let op = self.get_operation();
+        let result_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
+        let var = VariableOp::new(ctx, result_ty, StorageClass::Function, None);
+
+        let init = self.initializer(ctx).map(|it| it.clone());
+        // Init needs to be converted to store because variables may be defined inside a loop, and
+        // the initializer needs to be re-run on each iteration.
+        if let Some(init) = init {
+            let attr = attr_to_spirv_dialect(ctx, &init);
+            let constant = ConstantOp::new(ctx, attr);
+            let value = rewriter.append_op_with_result(ctx, &constant);
+            let store = StoreOp::new(ctx, var.get_result(ctx), value);
+            rewriter.append_op(ctx, &store);
+        }
+
         let func = find_parent_func(ctx, op);
         rewriter.set_insertion_point_to_block_start(func.get_entry_block(ctx));
 
-        let init = self.initializer(ctx).map(|it| it.clone());
-        let init = init.map(|attr| {
-            let attr = attr_to_spirv_dialect(ctx, &attr);
-            let constant = ConstantOp::new(ctx, attr);
-            rewriter.append_op(ctx, &constant);
-            constant.get_result(ctx)
-        });
-        let result_ty = ty_to_spirv_dialect(ctx, self.get_result(ctx).get_type(ctx));
-        let var = VariableOp::new(ctx, result_ty, StorageClass::Function, init);
         rewriter.append_op(ctx, &var);
         rewriter.replace_operation(ctx, op, var.get_operation());
 

@@ -402,11 +402,11 @@ impl CubeElement for ue8m0 {
     }
 
     fn maximum_value() -> Self {
-        ue8m0::from_f64(ue8m0::MAX)
+        ue8m0::MAX
     }
 
     fn minimum_value() -> Self {
-        ue8m0::from_f64(ue8m0::MIN)
+        ue8m0::MIN
     }
 }
 
@@ -428,12 +428,12 @@ impl CubeElement for e2m1x2 {
     }
 
     fn maximum_value() -> Self {
-        let max = e2m1::MAX.to_bits() as u8;
+        let max = e2m1::MAX.to_bits();
         e2m1x2::from_bits(max << 4 | max)
     }
 
     fn minimum_value() -> Self {
-        let min = e2m1::MIN.to_bits() as u8;
+        let min = e2m1::MIN.to_bits();
         e2m1x2::from_bits(min << 4 | min)
     }
 }
