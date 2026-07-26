@@ -1,9 +1,9 @@
 //! A dynamically-growing pool of single-cell items handed out as exclusive, non-cloneable handles.
 
+use crate::stub::{AtomicBool, Ordering};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicBool, Ordering};
 
 /// Resets a pooled value so the pool can hand it out again.
 pub trait Reclaim {
