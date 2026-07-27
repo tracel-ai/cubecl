@@ -4,6 +4,7 @@
 //! various indexing operations.
 
 use super::wrapping::IndexWrap;
+use crate::errors::BoundsError;
 use core::fmt::Debug;
 
 /// Types which can be converted to a `usize` Size.
@@ -53,7 +54,12 @@ pub trait AsIndex: Debug + Copy + Sized {
     /// Converts into an `isize` index.
     fn as_index(self) -> isize;
 
-    /// Short-form [`IndexWrap::expect_index(idx, size)`].
+    /// Wraps a dimension index, returning an error when it is out of bounds.
+    fn try_dim_index(self, size: usize) -> Result<usize, BoundsError> {
+        IndexWrap::dim().try_wrap(self, size)
+    }
+
+    /// Short-form [`IndexWrap::expect_elem(idx, size)`].
     fn expect_elem_index(self, size: usize) -> usize {
         IndexWrap::expect_elem(self, size)
     }
@@ -155,5 +161,20 @@ mod tests {
         assert_eq!(-1_i32.as_index(), -1_isize);
         assert_eq!(-1_i16.as_index(), -1_isize);
         assert_eq!(-1_i8.as_index(), -1_isize);
+    }
+
+    #[test]
+    fn test_try_dim_index() {
+        assert_eq!(1_i64.try_dim_index(3), Ok(1));
+        assert_eq!((-1_i64).try_dim_index(3), Ok(2));
+        assert_eq!((&-1_i64).try_dim_index(3), Ok(2));
+        assert_eq!(
+            (-4_i64).try_dim_index(3),
+            Err(BoundsError::index(
+                crate::errors::IndexKind::Dimension,
+                -4,
+                0..3
+            ))
+        );
     }
 }
