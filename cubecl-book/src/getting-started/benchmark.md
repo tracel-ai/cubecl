@@ -29,14 +29,20 @@ pub trait Benchmark {
     ///
     /// It is important to return the output since otherwise deadcode optimization might optimize
     /// away code that should be benchmarked.
-    fn execute(&self, input: Self::Input) -> Self::Output;
+    fn execute(&self, input: Self::Input) -> Result<Self::Output, String>;
 
     /// Name of the benchmark, should be short and it should match the name
     /// defined in the crate Cargo.toml
     fn name(&self) -> String;
 
-    /// Wait for computation to complete.
-    fn sync(&self);
+    /// Wait for all queued work to complete, surfacing any error left on the stream.
+    ///
+    /// On asynchronous backends, kernel launches are fire-and-forget: compilation and
+    /// validation errors recorded at launch time, as well as GPU execution faults, may
+    /// only become observable at synchronization. Implementations must return these as
+    /// `Err` rather than panic, so a failing benchmark fails its own run instead of
+    /// aborting the process.
+    fn sync(&self) -> Result<(), String>;
 }
 
 ```
@@ -49,7 +55,7 @@ In the `prepare` method, we will create the input data and return a `GpuTensor` 
 ## Running the benchmark
 Now that we have implemented the `Benchmark` trait, we can run the benchmark using the `Benchmark::run` method. This method will execute the benchmark and return the time it took to complete it.
 ```rust,ignore
-{{#rustdoc_include src/bin/v3-gpu.rs:58:81}}
+{{#rustdoc_include src/bin/v3-gpu.rs:58:83}}
 ```
 
 ## The Results
