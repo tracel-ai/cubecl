@@ -4,14 +4,13 @@ use cubecl_core::ir::interfaces::ScalarizableType;
 use cubecl_core::ir::prelude::*;
 use cubecl_core::ir::types::VectorType as CubeVectorType;
 use cubecl_core::ir::types::scalar::{BoolType, IndexType};
-use pliron::builtin::attributes::IntegerAttr;
 use pliron::builtin::types::{FP16Type, FP32Type, FP64Type, IntegerType, Signedness};
-use pliron::utils::apint::{APInt, bw};
 use pliron_llvm::attributes::ICmpPredicateAttr;
 use pliron_llvm::op_interfaces::{CastOpInterface, CastOpWithNNegInterface};
 use pliron_llvm::ops::{self as llvm};
 use pliron_llvm::types::VectorType as LLVMVectorType;
 
+use crate::compiler::to_llvm::constant::insert_int_const;
 use crate::compiler::to_llvm::ty::cube_type_to_llvm;
 
 fn int_repr(ctx: &Context, ty: TypeHandle) -> Option<(u32, bool)> {
@@ -42,11 +41,8 @@ fn cast_int_to_int(
     let out_ty = cube_type_to_llvm(ctx, out_ty);
 
     if out_ty.deref(ctx).is::<BoolType>() && in_width > 1 {
-        let in_llvm = IntegerType::get(ctx, in_width, Signedness::Signless);
-        let zero_attr = IntegerAttr::new(in_llvm, APInt::zero(bw(in_width as usize)));
-        let zero = llvm::ConstantOp::new(ctx, zero_attr.into());
-        rewriter.insert_op(ctx, &zero);
-        let cmp = llvm::ICmpOp::new(ctx, ICmpPredicateAttr::NE, input, zero.get_result(ctx));
+        let zero = insert_int_const(ctx, rewriter, in_width, 0);
+        let cmp = llvm::ICmpOp::new(ctx, ICmpPredicateAttr::NE, input, zero);
         rewriter.insert_op(ctx, &cmp);
         rewriter.replace_operation_with_values(ctx, old_op, vec![cmp.get_result(ctx)]);
     } else if in_width == out_width {

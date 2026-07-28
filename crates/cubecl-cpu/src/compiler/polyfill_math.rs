@@ -1,9 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::ir::dialect::math::{
-    ArcCoshOp, ArcSinhOp, ArcTanhOp, DegreesOp, ErfOp, Expm1Op, HypotOp, Log1pOp, RadiansOp,
-    RecipOp, RhypotOp, RsqrtOp, SNegOp,
+    ArcCoshOp, ArcSinhOp, ArcTanhOp, DegreesOp, ErfOp, Expm1Op, HypotOp, Log1pOp, PowiOp,
+    RadiansOp, RecipOp, RhypotOp, RsqrtOp, SNegOp,
 };
-use cubecl_core::ir::dialect::vector::{FDotOp, SDotOp, UDotOp};
+use cubecl_core::ir::dialect::vector::{FDotOp, MagnitudeOp, NormalizeOp, SDotOp, UDotOp};
 use cubecl_core::ir::prelude::*;
 use cubecl_core::prelude::polyfills::{erf, expm1, log1p, recip, to_degrees, to_radians};
 use cubecl_core::prelude::*;
@@ -90,6 +90,31 @@ lower_binary_math_arith!(UDotOp => dot);
 lower_binary_math_arith!(SDotOp => dot);
 
 #[cube]
+pub fn powi<T: Float, N: Size>(base: Vector<T, N>, exp: Vector<i32, N>) -> Vector<T, N> {
+    let one_u = Vector::<i32, N>::new(1);
+    let one_t = Vector::<T, N>::new(T::from_int(1));
+
+    let neg = exp.less_than(&Vector::<i32, N>::new(0));
+    let mut e = select_many(neg, Vector::<i32, N>::new(0) - exp, exp);
+
+    // TODO: implement leading zero
+    let bits = 32; // - u32::leading_zeros(plane_max(Vector::<u32, N>::max_value(e)));
+
+    let mut acc = one_t;
+    let mut sq = base;
+
+    for _ in 0..bits {
+        acc *= select_many((e & one_u).equal(&one_u), sq, one_t);
+        sq *= sq;
+        e >>= one_u;
+    }
+
+    select_many(neg, one_t / acc, acc)
+}
+
+lower_binary_math_arith!(PowiOp => powi);
+
+#[cube]
 fn arc_sinh<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
     (x + (x * x + Vector::one()).sqrt()).ln()
 }
@@ -130,3 +155,18 @@ fn neg<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
 }
 
 lower_unary_math_arith!(SNegOp => neg);
+
+#[cube]
+pub fn magnitude<F: Float, N: Size>(x: Vector<F, N>) -> F {
+    (x * x).vector_sum().sqrt()
+}
+
+lower_unary_math_arith!(MagnitudeOp => magnitude);
+
+#[cube]
+pub fn normalize<F: Float, N: Size>(x: Vector<F, N>) -> Vector<F, N> {
+    let magnitude = Vector::new((x * x).vector_sum().sqrt());
+    x / magnitude
+}
+
+lower_unary_math_arith!(NormalizeOp => normalize);

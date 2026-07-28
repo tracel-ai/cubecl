@@ -3,13 +3,11 @@ use cubecl_core::ir::dialect::memory::{DeclareVariableOp, IndexOp, LoadOp, Store
 use cubecl_core::ir::interfaces::{AlignedType, ScalarizableType};
 use cubecl_core::ir::prelude::*;
 use cubecl_core::ir::types::{ArrayType as CubeArrayType, PointerType as CubePointerType};
-use pliron::builtin::attributes::IntegerAttr;
 use pliron::builtin::ops::ConstantOp;
-use pliron::builtin::types::{IntegerType, Signedness};
-use pliron::utils::apint::{APInt, bw};
 use pliron_llvm::op_interfaces::AlignableOpInterface;
 use pliron_llvm::ops as llvm;
 
+use crate::compiler::to_llvm::constant::insert_i32_const;
 use crate::compiler::to_llvm::ty::cube_type_to_llvm;
 
 fn scalar_alignment(ctx: &Context, ty: TypeHandle) -> u32 {
@@ -44,13 +42,21 @@ impl ToLLVMDialect for DeclareVariableOp {
         };
         let elem_ty = cube_type_to_llvm(ctx, elem_ty);
 
-        let size_ty = IntegerType::get(ctx, 32, Signedness::Signless);
-        let size_attr = IntegerAttr::new(size_ty, APInt::from_u32(count as u32, bw(32)));
-        let size = ConstantOp::new(ctx, size_attr.into());
-        rewriter.insert_op(ctx, &size);
+        let size = insert_i32_const(ctx, rewriter, count as i32);
 
-        let alloca = llvm::AllocaOp::new(ctx, elem_ty, size.get_result(ctx));
+        let alloca = llvm::AllocaOp::new(ctx, elem_ty, size);
         rewriter.insert_op(ctx, &alloca);
+
+        let initializer = self.initializer(ctx).map(|initializer| initializer.clone());
+        if let Some(initializer) = initializer {
+            let constant = ConstantOp::new(ctx, initializer);
+            rewriter.insert_op(ctx, &constant);
+
+            let store = llvm::StoreOp::new(ctx, constant.get_result(ctx), alloca.get_result(ctx));
+            store.set_alignment(ctx, scalar_alignment(ctx, self.value_ty(ctx).get_type(ctx)));
+            rewriter.insert_op(ctx, &store);
+        }
+
         rewriter.replace_operation_with_values(
             ctx,
             self.get_operation(),

@@ -1,16 +1,37 @@
 use cubecl_core::ir::dialect::vector::{self, VectorBroadcastOp, VectorExtractOp, VectorInsertOp};
 use cubecl_core::ir::interfaces::TypedExt;
 use cubecl_core::ir::prelude::*;
-use pliron::attribute::AttrObj;
-use pliron::builtin::attributes::{FPDoubleAttr, FPHalfAttr, FPSingleAttr, IntegerAttr};
-use pliron::builtin::types::{IntegerType, Signedness};
-use pliron::utils::apfloat::{self, Float};
-use pliron::utils::apint::{APInt, bw};
+use pliron::builtin::attributes::FPSingleAttr;
 use pliron_llvm::ops::{self as llvm};
 use pliron_llvm::types::FuncType;
 
 use crate::compiler::to_llvm::ToLLVMDialect;
+use crate::compiler::to_llvm::constant::{float_attr, insert_i32_const};
 use crate::compiler::to_llvm::ty::cube_type_to_llvm;
+
+/// Broadcast `scalar` to every lane of `vec_ty`, with the poison/insertelement/shufflevector idiom
+/// LLVM folds back into a splat.
+pub fn insert_splat(
+    ctx: &mut Context,
+    rewriter: &mut impl Inserter,
+    vec_ty: TypeHandle,
+    scalar: Value,
+    num_lanes: usize,
+) -> Value {
+    let poison = llvm::PoisonOp::new(ctx, vec_ty);
+    rewriter.insert_op(ctx, &poison);
+    let zero = insert_i32_const(ctx, rewriter, 0);
+
+    let inserted = llvm::InsertElementOp::new(ctx, poison.get_result(ctx), scalar, zero);
+    rewriter.insert_op(ctx, &inserted);
+
+    let mask = vec![0; num_lanes];
+    let splat =
+        llvm::ShuffleVectorOp::new(ctx, inserted.get_result(ctx), poison.get_result(ctx), mask);
+    rewriter.insert_op(ctx, &splat);
+
+    splat.get_result(ctx)
+}
 
 #[op_interface_impl]
 impl ToLLVMDialect for VectorBroadcastOp {
@@ -20,33 +41,13 @@ impl ToLLVMDialect for VectorBroadcastOp {
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
-        let vec_ty = cube_type_to_llvm(ctx, self.get_result(ctx).get_type(ctx));
-        let poison = llvm::PoisonOp::new(ctx, vec_ty);
-        rewriter.insert_op(ctx, &poison);
-        let i32_zero_attr = IntegerAttr::new(
-            IntegerType::get(ctx, 32, Signedness::Signless),
-            APInt::from_i128(0, bw(32)),
-        );
-        let zero = llvm::ConstantOp::new(ctx, i32_zero_attr.into());
-        rewriter.insert_op(ctx, &zero);
-        let num_lanes = self.get_result(ctx).get_type(ctx).vector_size(ctx);
+        let res_ty = self.get_result(ctx).get_type(ctx);
+        let num_lanes = res_ty.vector_size(ctx);
+        let vec_ty = cube_type_to_llvm(ctx, res_ty);
 
         let scalar = self.input(ctx);
-        let inserted =
-            llvm::InsertElementOp::new(ctx, poison.get_result(ctx), scalar, zero.get_result(ctx));
-
-        rewriter.insert_op(ctx, &inserted);
-
-        let mask = vec![0; num_lanes];
-        let splat =
-            llvm::ShuffleVectorOp::new(ctx, inserted.get_result(ctx), poison.get_result(ctx), mask);
-
-        rewriter.insert_op(ctx, &splat);
-        rewriter.replace_operation_with_values(
-            ctx,
-            self.get_operation(),
-            vec![splat.get_result(ctx)],
-        );
+        let splat = insert_splat(ctx, rewriter, vec_ty, scalar, num_lanes);
+        rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![splat]);
 
         Ok(())
     }
@@ -60,20 +61,10 @@ impl ToLLVMDialect for VectorInsertOp {
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
-        let index = self.index(ctx).0;
-        let i32_index_attr = IntegerAttr::new(
-            IntegerType::get(ctx, 32, Signedness::Signless),
-            APInt::from_i128(index as i128, bw(32)),
-        );
-        let index_const = llvm::ConstantOp::new(ctx, i32_index_attr.into());
-        rewriter.insert_op(ctx, &index_const);
+        let index = self.index(ctx).0 as i32;
+        let index = insert_i32_const(ctx, rewriter, index);
 
-        let inserted = llvm::InsertElementOp::new(
-            ctx,
-            self.vector(ctx),
-            self.value(ctx),
-            index_const.get_result(ctx),
-        );
+        let inserted = llvm::InsertElementOp::new(ctx, self.vector(ctx), self.value(ctx), index);
         rewriter.insert_op(ctx, &inserted);
         rewriter.replace_operation_with_values(
             ctx,
@@ -92,16 +83,10 @@ impl ToLLVMDialect for VectorExtractOp {
         rewriter: &mut DialectConversionRewriter,
         _operands_info: &OperandsInfo,
     ) -> Result<()> {
-        let index = self.index(ctx).0;
-        let i32_index_attr = IntegerAttr::new(
-            IntegerType::get(ctx, 32, Signedness::Signless),
-            APInt::from_i128(index as i128, bw(32)),
-        );
-        let index_const = llvm::ConstantOp::new(ctx, i32_index_attr.into());
-        rewriter.insert_op(ctx, &index_const);
+        let index = self.index(ctx).0 as i32;
+        let index = insert_i32_const(ctx, rewriter, index);
 
-        let extracted =
-            llvm::ExtractElementOp::new(ctx, self.vector(ctx), index_const.get_result(ctx));
+        let extracted = llvm::ExtractElementOp::new(ctx, self.vector(ctx), index);
         rewriter.insert_op(ctx, &extracted);
         rewriter.replace_operation_with_values(
             ctx,
@@ -123,13 +108,8 @@ impl ToLLVMDialect for vector::FSumOp {
         let input = self.input(ctx);
         let elem_ty = input.get_type(ctx);
         let res_ty = self.get_result(ctx).get_type(ctx);
-        let attr: AttrObj = if res_ty.is_float16(ctx) {
-            FPHalfAttr(apfloat::Half::from_bits(0.0f32.to_bits() as u128)).into()
-        } else if res_ty.is_float64(ctx) {
-            FPDoubleAttr::from(0.0).into()
-        } else {
-            FPSingleAttr::from(0.0).into()
-        };
+        // `llvm.vector.reduce.fadd` takes the accumulator start value as its first argument.
+        let attr = float_attr(ctx, res_ty, 0.0).unwrap_or_else(|| FPSingleAttr::from(0.0).into());
 
         let res_ty = cube_type_to_llvm(ctx, res_ty);
 

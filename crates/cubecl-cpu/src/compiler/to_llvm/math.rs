@@ -1,18 +1,19 @@
 use super::ToLLVMDialect;
+use crate::compiler::to_llvm::constant::{I32_WIDTH, insert_bool_const, insert_i32_const};
 use crate::compiler::to_llvm::ty::cube_type_to_llvm;
+use crate::compiler::to_llvm::vector::insert_splat;
 use cubecl_core::ir::dialect::cmp::{FMaxOp, FMinOp};
+use cubecl_core::ir::dialect::general::{BoolAndOp, BoolNotOp, BoolOrOp};
 use cubecl_core::ir::dialect::math::*;
+use cubecl_core::ir::interfaces::TypedExt;
 use cubecl_core::ir::prelude::*;
-use pliron::builtin::attributes::IntegerAttr;
 use pliron::builtin::types::{IntegerType, Signedness};
-use pliron::utils::apint::APInt;
 use pliron_llvm::attributes::FastmathFlagsAttr;
-use pliron_llvm::op_interfaces::FloatBinArithOpWithFastMathFlags;
+use pliron_llvm::op_interfaces::{BinArithOp, FloatBinArithOpWithFastMathFlags};
 use pliron_llvm::types::{FuncType, VectorType, VectorTypeKind};
 use pliron_llvm::{
     attributes::IntegerOverflowFlagsAttr, op_interfaces::IntBinArithOpWithOverflowFlag, ops as llvm,
 };
-use std::num::NonZero;
 
 macro_rules! lower_unary_intrinsic_arith {
     ($cube_op:ty => $llvm_op:expr) => {
@@ -64,8 +65,8 @@ lower_unary_intrinsic_arith!(CeilOp => "llvm.ceil");
 lower_unary_intrinsic_arith!(TruncOp => "llvm.trunc");
 
 // See https://llvm.org/docs/LangRef.html#id1822 for more info
-const IS_NAN: usize = 0x0003;
-const IS_INF: usize = 0x0204;
+const IS_NAN: i32 = 0x0003;
+const IS_INF: i32 = 0x0204;
 
 macro_rules! lower_float_fpclass {
     ($cube_op:ty => $bitmask:expr) => {
@@ -79,12 +80,8 @@ macro_rules! lower_float_fpclass {
             ) -> Result<()> {
                 let input = self.input(ctx);
                 let elem_ty = input.get_type(ctx);
-                let int_ty = IntegerType::get(ctx, 32, Signedness::Signless);
-                let val = APInt::from_usize($bitmask, NonZero::new(32).unwrap());
-                let constant_op = llvm::ConstantOp::new(ctx, IntegerAttr::new(int_ty, val).into());
-
-                rewriter.insert_op(ctx, &constant_op);
-                let val = constant_op.get_result(ctx);
+                let int_ty = IntegerType::get(ctx, I32_WIDTH, Signedness::Signless);
+                let val = insert_i32_const(ctx, rewriter, $bitmask);
 
                 let mut bool_ty = IntegerType::get(ctx, 1, Signedness::Signless).into();
                 if let Some(vector) = elem_ty.deref(ctx).downcast_ref::<VectorType>() {
@@ -117,7 +114,7 @@ macro_rules! lower_float_fpclass {
 lower_float_fpclass!(IsNanOp => IS_NAN);
 lower_float_fpclass!(IsInfOp => IS_INF);
 
-macro_rules! lower_int_bin_arith {
+macro_rules! lower_int_bin_with_overflow_arith {
     ($cube_op:ty => $llvm_op:ty) => {
         #[op_interface_impl]
         impl ToLLVMDialect for $cube_op {
@@ -147,9 +144,64 @@ macro_rules! lower_int_bin_arith {
     };
 }
 
-lower_int_bin_arith!(IAddOp => llvm::AddOp);
-lower_int_bin_arith!(IMulOp => llvm::MulOp);
-lower_int_bin_arith!(ISubOp => llvm::SubOp);
+lower_int_bin_with_overflow_arith!(IAddOp => llvm::AddOp);
+lower_int_bin_with_overflow_arith!(IMulOp => llvm::MulOp);
+lower_int_bin_with_overflow_arith!(ISubOp => llvm::SubOp);
+
+macro_rules! lower_int_bin_arith {
+    ($cube_op:ty => $llvm_op:ty) => {
+        #[op_interface_impl]
+        impl ToLLVMDialect for $cube_op {
+            fn rewrite(
+                &self,
+                ctx: &mut Context,
+                rewriter: &mut DialectConversionRewriter,
+                _operands_info: &OperandsInfo,
+            ) -> Result<()> {
+                let lhs = self.lhs(ctx);
+                let rhs = self.rhs(ctx);
+                let op = <$llvm_op>::new(ctx, lhs, rhs);
+                rewriter.insert_op(ctx, &op);
+                rewriter.replace_operation_with_values(
+                    ctx,
+                    self.get_operation(),
+                    vec![op.get_result(ctx)],
+                );
+                Ok(())
+            }
+        }
+    };
+}
+
+lower_int_bin_arith!(BoolAndOp => llvm::AndOp);
+lower_int_bin_arith!(BoolOrOp => llvm::OrOp);
+
+// LLVM has no boolean negation, so `!x` becomes `x ^ true`. `true` has to be splatted when the
+// operand is vectorized, since `llvm.mlir.constant` only builds scalars.
+#[op_interface_impl]
+impl ToLLVMDialect for BoolNotOp {
+    fn rewrite(
+        &self,
+        ctx: &mut Context,
+        rewriter: &mut DialectConversionRewriter,
+        _operands_info: &OperandsInfo,
+    ) -> Result<()> {
+        let input = self.input(ctx);
+        let res_ty = self.get_result(ctx).get_type(ctx);
+        let num_lanes = res_ty.vector_size(ctx);
+
+        let mut ones = insert_bool_const(ctx, rewriter, true);
+        if num_lanes > 1 {
+            let vec_ty = cube_type_to_llvm(ctx, res_ty);
+            ones = insert_splat(ctx, rewriter, vec_ty, ones, num_lanes);
+        }
+
+        let op = llvm::XorOp::new(ctx, input, ones);
+        rewriter.insert_op(ctx, &op);
+        rewriter.replace_operation_with_values(ctx, self.get_operation(), vec![op.get_result(ctx)]);
+        Ok(())
+    }
+}
 
 macro_rules! lower_float_bin_arith {
     ($cube_op:ty => $llvm_op:ty) => {
