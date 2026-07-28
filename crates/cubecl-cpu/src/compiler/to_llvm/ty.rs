@@ -1,13 +1,5 @@
-use super::CubeToLLVMType;
-use cubecl_core::ir::prelude::*;
-use cubecl_core::ir::types::scalar::{
-    BoolType, Float16Type, Float32Type, Float64Type, FloatFlex32Type, IndexType,
-};
-use cubecl_core::ir::types::{PointerType as CubePointerType, VectorType as CubeVectorType};
-use pliron::builtin::types::{FP16Type, FP32Type, FP64Type, IntegerType, Signedness};
-use pliron_llvm::types::{
-    PointerType as LlvmPointerType, VectorType as LlvmVectorType, VectorTypeKind,
-};
+use super::prelude::*;
+use cubecl_core::ir::types::scalar::{Float16Type, Float32Type, Float64Type, FloatFlex32Type};
 
 /// LLVM width of a `cube.index`. `IndexType` is `size_of::<u64>()`, so it maps to `i64`.
 pub const INDEX_WIDTH: u32 = 64;

@@ -1,13 +1,5 @@
+use super::prelude::*;
 use cubecl_core::ir::dialect::vector::{self, VectorBroadcastOp, VectorExtractOp, VectorInsertOp};
-use cubecl_core::ir::interfaces::TypedExt;
-use cubecl_core::ir::prelude::*;
-use pliron::builtin::attributes::FPSingleAttr;
-use pliron_llvm::ops::{self as llvm};
-use pliron_llvm::types::FuncType;
-
-use crate::compiler::to_llvm::ToLLVMDialect;
-use crate::compiler::to_llvm::constant::{float_attr, insert_i32_const};
-use crate::compiler::to_llvm::ty::cube_type_to_llvm;
 
 /// Broadcast `scalar` to every lane of `vec_ty`, with the poison/insertelement/shufflevector idiom
 /// LLVM folds back into a splat.

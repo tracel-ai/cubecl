@@ -1,17 +1,5 @@
-use super::ToLLVMDialect;
+use super::prelude::*;
 use cubecl_core::ir::dialect::general::{CastOp, SelectOp};
-use cubecl_core::ir::interfaces::ScalarizableType;
-use cubecl_core::ir::prelude::*;
-use cubecl_core::ir::types::VectorType as CubeVectorType;
-use cubecl_core::ir::types::scalar::{BoolType, IndexType};
-use pliron::builtin::types::{FP16Type, FP32Type, FP64Type, IntegerType, Signedness};
-use pliron_llvm::attributes::ICmpPredicateAttr;
-use pliron_llvm::op_interfaces::{CastOpInterface, CastOpWithNNegInterface};
-use pliron_llvm::ops::{self as llvm};
-use pliron_llvm::types::VectorType as LLVMVectorType;
-
-use crate::compiler::to_llvm::constant::insert_int_const;
-use crate::compiler::to_llvm::ty::cube_type_to_llvm;
 
 fn int_repr(ctx: &Context, ty: TypeHandle) -> Option<(u32, bool)> {
     let ty = ty.deref(ctx);
@@ -88,7 +76,7 @@ fn cast_float_to_int(
 }
 
 fn extract_elem_type(ctx: &Context, ty: TypeHandle) -> TypeHandle {
-    if let Some(ty) = ty.deref(ctx).downcast_ref::<LLVMVectorType>() {
+    if let Some(ty) = ty.deref(ctx).downcast_ref::<LlvmVectorType>() {
         ty.elem_type()
     } else if let Some(ty) = ty.deref(ctx).downcast_ref::<CubeVectorType>() {
         ty.scalar_type(ctx)
